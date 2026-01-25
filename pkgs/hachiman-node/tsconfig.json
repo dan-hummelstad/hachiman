@@ -1,0 +1,23 @@
+{
+  "extends": "@tsconfig/strictest/tsconfig.json",
+  "compilerOptions": {
+    "incremental": true,
+    "target": "esnext",
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true,
+    "outDir": "dist",
+    "sourceMap": true,
+    "removeComments": true,
+    "resolveJsonModule": true,
+    "stripInternal": true,
+    "declaration": true,
+    "types": ["vitest/globals", "node"]
+  },
+  "exclude": ["node_modules", "dist", "coverage"],
+  "tsc-alias": {
+    "resolveFullPaths": true
+  }
+}

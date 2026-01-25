@@ -1,0 +1,6 @@
+[submodule "apps/hachiman-server"]
+	path = apps/hachiman-server
+	url = git@github.com:dan-hummelstad/hachiman-server.git
+[submodule "pkgs/hachiman-node"]
+	path = pkgs/hachiman-node
+	url = git@github.com:dan-hummelstad/hachiman-node.git

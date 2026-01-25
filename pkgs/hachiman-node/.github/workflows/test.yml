@@ -1,0 +1,118 @@
+name: test
+
+on:
+  push:
+    branches:
+      - 'master'
+      - '*.*.*'
+      - 'renovate/**'
+    tags:
+      - '*.*.*'
+  pull_request:
+    branches:
+      - 'master'
+      - '*.*.*'
+
+jobs:
+  unit-test:
+    name: unit
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        node-version: [20.x]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Run unit test
+        run: pnpm test
+
+  e2e-tests:
+    name: end-to-end
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        node-version: [20.x]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Start mumble server
+        run: |
+          docker run \
+          --rm --detach \
+          --name mumble-server \
+          -p 64738:64738/tcp \
+          -p 64738:64738/udp \
+          -e MUMBLE_CONFIG_AUTOBAN_ATTEMPTS=0 \
+          -e MUMBLE_SUPERUSER_PASSWORD=123456 \
+          --volume ${{ github.workspace }}/e2e/mumble-data:/data \
+          --user root \
+          mumblevoip/mumble-server:latest
+
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Run e2e test
+        run: pnpm test:e2e
+
+      - name: Stop mumble server
+        run: docker stop mumble-server
+
+  build:
+    name: build
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        node-version: [20.x]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Build
+        run: pnpm build
