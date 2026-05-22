@@ -111,6 +111,12 @@ export interface Authenticate {
      * @generated from protobuf field: optional int32 client_type = 6 [default = 0]
      */
     clientType?: number;
+    /**
+     * Whether to use WebRTC instead of native UDP packets for voice transport.
+     *
+     * @generated from protobuf field: optional bool webrtc = 7 [default = false]
+     */
+    webrtc?: boolean;
 }
 /**
  * Sent by the client to notify the server that the client is still alive.
@@ -592,6 +598,15 @@ export interface UserState {
      * @generated from protobuf field: repeated MumbleProto.UserState.VolumeAdjustment listening_volume_adjustment = 23
      */
     listeningVolumeAdjustment: UserState_VolumeAdjustment[];
+    /**
+     * Unique SSRC from which the user's audio is sent when using WebRTC.
+     * SSRCs are reused after a user disconnects to keep the total count low
+     * (SRTP retains crypto state per SSRC for the entire session).
+     * SSRC 0 is reserved for client-to-server audio.
+     *
+     * @generated from protobuf field: optional uint32 ssrc = 24
+     */
+    ssrc?: number;
 }
 /**
  * @generated from protobuf message MumbleProto.UserState.VolumeAdjustment
@@ -1575,6 +1590,202 @@ export interface PluginDataTransmission {
      */
     dataID?: string;
 }
+/**
+ * Used to initialize and manage the WebRTC voice transport between client and
+ * server. Sent by the server after Authenticate (before ServerSync) if the
+ * client indicated WebRTC support. The client replies with its own WebRTC
+ * message containing its SDP answer.
+ *
+ * @generated from protobuf message MumbleProto.WebRTC
+ */
+export interface WebRTC {
+    /**
+     * ICE password for the WebRTC connection.
+     *
+     * @generated from protobuf field: optional string ice_pwd = 1
+     */
+    icePwd?: string;
+    /**
+     * ICE username fragment for the WebRTC connection.
+     *
+     * @generated from protobuf field: optional string ice_ufrag = 2
+     */
+    iceUfrag?: string;
+    /**
+     * DTLS certificate fingerprint.
+     *
+     * @generated from protobuf field: optional string dtls_fingerprint = 3
+     */
+    dtlsFingerprint?: string;
+    /**
+     * Hash algorithm used for the DTLS fingerprint (e.g. "sha-256").
+     *
+     * @generated from protobuf field: optional string dtls_fingerprint_hash = 4
+     */
+    dtlsFingerprintHash?: string;
+    /**
+     * Full SDP for offer/answer exchange.
+     *
+     * @generated from protobuf field: optional string sdp = 5
+     */
+    sdp?: string;
+    /**
+     * SDP type: "offer" or "answer".
+     *
+     * @generated from protobuf field: optional string sdp_type = 6
+     */
+    sdpType?: string;
+}
+/**
+ * Used to exchange ICE candidates between client and server during WebRTC
+ * connection establishment.
+ *
+ * @generated from protobuf message MumbleProto.IceCandidate
+ */
+export interface IceCandidate {
+    /**
+     * JSON-encoded ICE candidate.
+     *
+     * @generated from protobuf field: required string content = 1
+     */
+    content: string;
+}
+/**
+ * Indicates whether a user is currently talking (or whispering/shouting).
+ * Only used when WebRTC is the voice transport, since RTP has no equivalent
+ * for the target ID field or last-packet marker present in Mumble UDP packets.
+ *
+ * Clientbound: purely informational for UI display.
+ * Serverbound: indicates intent to start/stop talking; the server begins/stops
+ * forwarding RTP packets accordingly.
+ *
+ * @generated from protobuf message MumbleProto.TalkingState
+ */
+export interface TalkingState {
+    /**
+     * Session of the user whose talking state this is.
+     *
+     * @generated from protobuf field: optional uint32 session = 1
+     */
+    session?: number;
+    /**
+     * Target, matching the semantics of the UDP voice packet target field:
+     *   Clientbound: 0 = normal talking, 1 = shout, 2 = whisper, 31 = server loopback
+     *   Serverbound: 0 = normal talking, 1-30 = VoiceTarget ID, 31 = server loopback
+     * Absent or 0 when the user stops talking.
+     *
+     * @generated from protobuf field: optional uint32 target = 2
+     */
+    target?: number;
+}
+/**
+ * Client -> server request for paginated channel chat history.
+ * Returns most-recent messages first via ChannelMessageHistory.
+ *
+ * @generated from protobuf message MumbleProto.RequestChannelMessages
+ */
+export interface RequestChannelMessages {
+    /**
+     * Channel whose history is being requested.
+     *
+     * @generated from protobuf field: optional uint32 channel_id = 1
+     */
+    channelId?: number;
+    /**
+     * Cursor: return messages with id < before_id. If absent or zero, returns
+     * the latest page.
+     *
+     * @generated from protobuf field: optional uint64 before_id = 2
+     */
+    beforeId?: bigint;
+    /**
+     * Maximum number of messages to return. Server-side default = 30, capped.
+     *
+     * @generated from protobuf field: optional uint32 limit = 3
+     */
+    limit?: number;
+    /**
+     * Opaque identifier echoed back in the response so concurrent fetches can
+     * be disambiguated by the client.
+     *
+     * @generated from protobuf field: optional uint32 request_id = 4
+     */
+    requestId?: number;
+}
+/**
+ * Server -> client response containing a page of persisted messages.
+ *
+ * @generated from protobuf message MumbleProto.ChannelMessageHistory
+ */
+export interface ChannelMessageHistory {
+    /**
+     * Channel these messages belong to.
+     *
+     * @generated from protobuf field: optional uint32 channel_id = 1
+     */
+    channelId?: number;
+    /**
+     * Messages in newest-first order.
+     *
+     * @generated from protobuf field: repeated MumbleProto.PersistedMessage messages = 2
+     */
+    messages: PersistedMessage[];
+    /**
+     * True if there are older messages beyond this page.
+     *
+     * @generated from protobuf field: optional bool has_more = 3
+     */
+    hasMore?: boolean;
+    /**
+     * Echo of RequestChannelMessages.request_id.
+     *
+     * @generated from protobuf field: optional uint32 request_id = 4
+     */
+    requestId?: number;
+}
+/**
+ * A single chat message as persisted on the server.
+ *
+ * @generated from protobuf message MumbleProto.PersistedMessage
+ */
+export interface PersistedMessage {
+    /**
+     * Server-assigned message id (monotonically increasing per server).
+     *
+     * @generated from protobuf field: optional uint64 id = 1
+     */
+    id?: bigint;
+    /**
+     * Channel id the message was sent to.
+     *
+     * @generated from protobuf field: optional uint32 channel_id = 2
+     */
+    channelId?: number;
+    /**
+     * Session of the sender at the time of send (may be stale).
+     *
+     * @generated from protobuf field: optional uint32 actor_session = 3
+     */
+    actorSession?: number;
+    /**
+     * Snapshot of the sender's display name at send time.
+     *
+     * @generated from protobuf field: optional string actor_name = 4
+     */
+    actorName?: string;
+    /**
+     * Message body.
+     *
+     * @generated from protobuf field: optional string message = 5
+     */
+    message?: string;
+    /**
+     * Unix epoch milliseconds the message was persisted.
+     *
+     * @generated from protobuf field: optional int64 created_at_ms = 6
+     */
+    createdAtMs?: bigint;
+}
 // @generated message type with reflection information, may provide speed optimized methods
 class Version$Type extends MessageType<Version> {
     constructor() {
@@ -1713,7 +1924,8 @@ class Authenticate$Type extends MessageType<Authenticate> {
             { no: 3, name: "tokens", kind: "scalar", repeat: 2 /*RepeatType.UNPACKED*/, T: 9 /*ScalarType.STRING*/ },
             { no: 4, name: "celt_versions", kind: "scalar", repeat: 2 /*RepeatType.UNPACKED*/, T: 5 /*ScalarType.INT32*/ },
             { no: 5, name: "opus", kind: "scalar", opt: true, T: 8 /*ScalarType.BOOL*/ },
-            { no: 6, name: "client_type", kind: "scalar", opt: true, T: 5 /*ScalarType.INT32*/ }
+            { no: 6, name: "client_type", kind: "scalar", opt: true, T: 5 /*ScalarType.INT32*/ },
+            { no: 7, name: "webrtc", kind: "scalar", opt: true, T: 8 /*ScalarType.BOOL*/ }
         ]);
     }
     create(value?: PartialMessage<Authenticate>): Authenticate {
@@ -1751,6 +1963,9 @@ class Authenticate$Type extends MessageType<Authenticate> {
                 case /* optional int32 client_type = 6 [default = 0] */ 6:
                     message.clientType = reader.int32();
                     break;
+                case /* optional bool webrtc = 7 [default = false] */ 7:
+                    message.webrtc = reader.bool();
+                    break;
                 default:
                     let u = options.readUnknownField;
                     if (u === "throw")
@@ -1781,6 +1996,9 @@ class Authenticate$Type extends MessageType<Authenticate> {
         /* optional int32 client_type = 6 [default = 0]; */
         if (message.clientType !== undefined)
             writer.tag(6, WireType.Varint).int32(message.clientType);
+        /* optional bool webrtc = 7 [default = false]; */
+        if (message.webrtc !== undefined)
+            writer.tag(7, WireType.Varint).bool(message.webrtc);
         let u = options.writeUnknownFields;
         if (u !== false)
             (u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
@@ -2313,7 +2531,8 @@ class UserState$Type extends MessageType<UserState> {
             { no: 20, name: "temporary_access_tokens", kind: "scalar", repeat: 2 /*RepeatType.UNPACKED*/, T: 9 /*ScalarType.STRING*/ },
             { no: 21, name: "listening_channel_add", kind: "scalar", repeat: 2 /*RepeatType.UNPACKED*/, T: 13 /*ScalarType.UINT32*/ },
             { no: 22, name: "listening_channel_remove", kind: "scalar", repeat: 2 /*RepeatType.UNPACKED*/, T: 13 /*ScalarType.UINT32*/ },
-            { no: 23, name: "listening_volume_adjustment", kind: "message", repeat: 2 /*RepeatType.UNPACKED*/, T: () => UserState_VolumeAdjustment }
+            { no: 23, name: "listening_volume_adjustment", kind: "message", repeat: 2 /*RepeatType.UNPACKED*/, T: () => UserState_VolumeAdjustment },
+            { no: 24, name: "ssrc", kind: "scalar", opt: true, T: 13 /*ScalarType.UINT32*/ }
         ]);
     }
     create(value?: PartialMessage<UserState>): UserState {
@@ -2408,6 +2627,9 @@ class UserState$Type extends MessageType<UserState> {
                 case /* repeated MumbleProto.UserState.VolumeAdjustment listening_volume_adjustment */ 23:
                     message.listeningVolumeAdjustment.push(UserState_VolumeAdjustment.internalBinaryRead(reader, reader.uint32(), options));
                     break;
+                case /* optional uint32 ssrc */ 24:
+                    message.ssrc = reader.uint32();
+                    break;
                 default:
                     let u = options.readUnknownField;
                     if (u === "throw")
@@ -2489,6 +2711,9 @@ class UserState$Type extends MessageType<UserState> {
         /* repeated MumbleProto.UserState.VolumeAdjustment listening_volume_adjustment = 23; */
         for (let i = 0; i < message.listeningVolumeAdjustment.length; i++)
             UserState_VolumeAdjustment.internalBinaryWrite(message.listeningVolumeAdjustment[i], writer.tag(23, WireType.LengthDelimited).fork(), options).join();
+        /* optional uint32 ssrc = 24; */
+        if (message.ssrc !== undefined)
+            writer.tag(24, WireType.Varint).uint32(message.ssrc);
         let u = options.writeUnknownFields;
         if (u !== false)
             (u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
@@ -4313,3 +4538,400 @@ class PluginDataTransmission$Type extends MessageType<PluginDataTransmission> {
  * @generated MessageType for protobuf message MumbleProto.PluginDataTransmission
  */
 export const PluginDataTransmission = new PluginDataTransmission$Type();
+// @generated message type with reflection information, may provide speed optimized methods
+class WebRTC$Type extends MessageType<WebRTC> {
+    constructor() {
+        super("MumbleProto.WebRTC", [
+            { no: 1, name: "ice_pwd", kind: "scalar", opt: true, T: 9 /*ScalarType.STRING*/ },
+            { no: 2, name: "ice_ufrag", kind: "scalar", opt: true, T: 9 /*ScalarType.STRING*/ },
+            { no: 3, name: "dtls_fingerprint", kind: "scalar", opt: true, T: 9 /*ScalarType.STRING*/ },
+            { no: 4, name: "dtls_fingerprint_hash", kind: "scalar", opt: true, T: 9 /*ScalarType.STRING*/ },
+            { no: 5, name: "sdp", kind: "scalar", opt: true, T: 9 /*ScalarType.STRING*/ },
+            { no: 6, name: "sdp_type", kind: "scalar", opt: true, T: 9 /*ScalarType.STRING*/ }
+        ]);
+    }
+    create(value?: PartialMessage<WebRTC>): WebRTC {
+        const message = globalThis.Object.create((this.messagePrototype!));
+        if (value !== undefined)
+            reflectionMergePartial<WebRTC>(this, message, value);
+        return message;
+    }
+    internalBinaryRead(reader: IBinaryReader, length: number, options: BinaryReadOptions, target?: WebRTC): WebRTC {
+        let message = target ?? this.create(), end = reader.pos + length;
+        while (reader.pos < end) {
+            let [fieldNo, wireType] = reader.tag();
+            switch (fieldNo) {
+                case /* optional string ice_pwd */ 1:
+                    message.icePwd = reader.string();
+                    break;
+                case /* optional string ice_ufrag */ 2:
+                    message.iceUfrag = reader.string();
+                    break;
+                case /* optional string dtls_fingerprint */ 3:
+                    message.dtlsFingerprint = reader.string();
+                    break;
+                case /* optional string dtls_fingerprint_hash */ 4:
+                    message.dtlsFingerprintHash = reader.string();
+                    break;
+                case /* optional string sdp */ 5:
+                    message.sdp = reader.string();
+                    break;
+                case /* optional string sdp_type */ 6:
+                    message.sdpType = reader.string();
+                    break;
+                default:
+                    let u = options.readUnknownField;
+                    if (u === "throw")
+                        throw new globalThis.Error(`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`);
+                    let d = reader.skip(wireType);
+                    if (u !== false)
+                        (u === true ? UnknownFieldHandler.onRead : u)(this.typeName, message, fieldNo, wireType, d);
+            }
+        }
+        return message;
+    }
+    internalBinaryWrite(message: WebRTC, writer: IBinaryWriter, options: BinaryWriteOptions): IBinaryWriter {
+        /* optional string ice_pwd = 1; */
+        if (message.icePwd !== undefined)
+            writer.tag(1, WireType.LengthDelimited).string(message.icePwd);
+        /* optional string ice_ufrag = 2; */
+        if (message.iceUfrag !== undefined)
+            writer.tag(2, WireType.LengthDelimited).string(message.iceUfrag);
+        /* optional string dtls_fingerprint = 3; */
+        if (message.dtlsFingerprint !== undefined)
+            writer.tag(3, WireType.LengthDelimited).string(message.dtlsFingerprint);
+        /* optional string dtls_fingerprint_hash = 4; */
+        if (message.dtlsFingerprintHash !== undefined)
+            writer.tag(4, WireType.LengthDelimited).string(message.dtlsFingerprintHash);
+        /* optional string sdp = 5; */
+        if (message.sdp !== undefined)
+            writer.tag(5, WireType.LengthDelimited).string(message.sdp);
+        /* optional string sdp_type = 6; */
+        if (message.sdpType !== undefined)
+            writer.tag(6, WireType.LengthDelimited).string(message.sdpType);
+        let u = options.writeUnknownFields;
+        if (u !== false)
+            (u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
+        return writer;
+    }
+}
+/**
+ * @generated MessageType for protobuf message MumbleProto.WebRTC
+ */
+export const WebRTC = new WebRTC$Type();
+// @generated message type with reflection information, may provide speed optimized methods
+class IceCandidate$Type extends MessageType<IceCandidate> {
+    constructor() {
+        super("MumbleProto.IceCandidate", [
+            { no: 1, name: "content", kind: "scalar", T: 9 /*ScalarType.STRING*/ }
+        ]);
+    }
+    create(value?: PartialMessage<IceCandidate>): IceCandidate {
+        const message = globalThis.Object.create((this.messagePrototype!));
+        message.content = "";
+        if (value !== undefined)
+            reflectionMergePartial<IceCandidate>(this, message, value);
+        return message;
+    }
+    internalBinaryRead(reader: IBinaryReader, length: number, options: BinaryReadOptions, target?: IceCandidate): IceCandidate {
+        let message = target ?? this.create(), end = reader.pos + length;
+        while (reader.pos < end) {
+            let [fieldNo, wireType] = reader.tag();
+            switch (fieldNo) {
+                case /* required string content */ 1:
+                    message.content = reader.string();
+                    break;
+                default:
+                    let u = options.readUnknownField;
+                    if (u === "throw")
+                        throw new globalThis.Error(`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`);
+                    let d = reader.skip(wireType);
+                    if (u !== false)
+                        (u === true ? UnknownFieldHandler.onRead : u)(this.typeName, message, fieldNo, wireType, d);
+            }
+        }
+        return message;
+    }
+    internalBinaryWrite(message: IceCandidate, writer: IBinaryWriter, options: BinaryWriteOptions): IBinaryWriter {
+        /* required string content = 1; */
+        if (message.content !== "")
+            writer.tag(1, WireType.LengthDelimited).string(message.content);
+        let u = options.writeUnknownFields;
+        if (u !== false)
+            (u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
+        return writer;
+    }
+}
+/**
+ * @generated MessageType for protobuf message MumbleProto.IceCandidate
+ */
+export const IceCandidate = new IceCandidate$Type();
+// @generated message type with reflection information, may provide speed optimized methods
+class TalkingState$Type extends MessageType<TalkingState> {
+    constructor() {
+        super("MumbleProto.TalkingState", [
+            { no: 1, name: "session", kind: "scalar", opt: true, T: 13 /*ScalarType.UINT32*/ },
+            { no: 2, name: "target", kind: "scalar", opt: true, T: 13 /*ScalarType.UINT32*/ }
+        ]);
+    }
+    create(value?: PartialMessage<TalkingState>): TalkingState {
+        const message = globalThis.Object.create((this.messagePrototype!));
+        if (value !== undefined)
+            reflectionMergePartial<TalkingState>(this, message, value);
+        return message;
+    }
+    internalBinaryRead(reader: IBinaryReader, length: number, options: BinaryReadOptions, target?: TalkingState): TalkingState {
+        let message = target ?? this.create(), end = reader.pos + length;
+        while (reader.pos < end) {
+            let [fieldNo, wireType] = reader.tag();
+            switch (fieldNo) {
+                case /* optional uint32 session */ 1:
+                    message.session = reader.uint32();
+                    break;
+                case /* optional uint32 target */ 2:
+                    message.target = reader.uint32();
+                    break;
+                default:
+                    let u = options.readUnknownField;
+                    if (u === "throw")
+                        throw new globalThis.Error(`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`);
+                    let d = reader.skip(wireType);
+                    if (u !== false)
+                        (u === true ? UnknownFieldHandler.onRead : u)(this.typeName, message, fieldNo, wireType, d);
+            }
+        }
+        return message;
+    }
+    internalBinaryWrite(message: TalkingState, writer: IBinaryWriter, options: BinaryWriteOptions): IBinaryWriter {
+        /* optional uint32 session = 1; */
+        if (message.session !== undefined)
+            writer.tag(1, WireType.Varint).uint32(message.session);
+        /* optional uint32 target = 2; */
+        if (message.target !== undefined)
+            writer.tag(2, WireType.Varint).uint32(message.target);
+        let u = options.writeUnknownFields;
+        if (u !== false)
+            (u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
+        return writer;
+    }
+}
+/**
+ * @generated MessageType for protobuf message MumbleProto.TalkingState
+ */
+export const TalkingState = new TalkingState$Type();
+// @generated message type with reflection information, may provide speed optimized methods
+class RequestChannelMessages$Type extends MessageType<RequestChannelMessages> {
+    constructor() {
+        super("MumbleProto.RequestChannelMessages", [
+            { no: 1, name: "channel_id", kind: "scalar", opt: true, T: 13 /*ScalarType.UINT32*/ },
+            { no: 2, name: "before_id", kind: "scalar", opt: true, T: 4 /*ScalarType.UINT64*/, L: 0 /*LongType.BIGINT*/ },
+            { no: 3, name: "limit", kind: "scalar", opt: true, T: 13 /*ScalarType.UINT32*/ },
+            { no: 4, name: "request_id", kind: "scalar", opt: true, T: 13 /*ScalarType.UINT32*/ }
+        ]);
+    }
+    create(value?: PartialMessage<RequestChannelMessages>): RequestChannelMessages {
+        const message = globalThis.Object.create((this.messagePrototype!));
+        if (value !== undefined)
+            reflectionMergePartial<RequestChannelMessages>(this, message, value);
+        return message;
+    }
+    internalBinaryRead(reader: IBinaryReader, length: number, options: BinaryReadOptions, target?: RequestChannelMessages): RequestChannelMessages {
+        let message = target ?? this.create(), end = reader.pos + length;
+        while (reader.pos < end) {
+            let [fieldNo, wireType] = reader.tag();
+            switch (fieldNo) {
+                case /* optional uint32 channel_id */ 1:
+                    message.channelId = reader.uint32();
+                    break;
+                case /* optional uint64 before_id */ 2:
+                    message.beforeId = reader.uint64().toBigInt();
+                    break;
+                case /* optional uint32 limit */ 3:
+                    message.limit = reader.uint32();
+                    break;
+                case /* optional uint32 request_id */ 4:
+                    message.requestId = reader.uint32();
+                    break;
+                default:
+                    let u = options.readUnknownField;
+                    if (u === "throw")
+                        throw new globalThis.Error(`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`);
+                    let d = reader.skip(wireType);
+                    if (u !== false)
+                        (u === true ? UnknownFieldHandler.onRead : u)(this.typeName, message, fieldNo, wireType, d);
+            }
+        }
+        return message;
+    }
+    internalBinaryWrite(message: RequestChannelMessages, writer: IBinaryWriter, options: BinaryWriteOptions): IBinaryWriter {
+        /* optional uint32 channel_id = 1; */
+        if (message.channelId !== undefined)
+            writer.tag(1, WireType.Varint).uint32(message.channelId);
+        /* optional uint64 before_id = 2; */
+        if (message.beforeId !== undefined)
+            writer.tag(2, WireType.Varint).uint64(message.beforeId);
+        /* optional uint32 limit = 3; */
+        if (message.limit !== undefined)
+            writer.tag(3, WireType.Varint).uint32(message.limit);
+        /* optional uint32 request_id = 4; */
+        if (message.requestId !== undefined)
+            writer.tag(4, WireType.Varint).uint32(message.requestId);
+        let u = options.writeUnknownFields;
+        if (u !== false)
+            (u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
+        return writer;
+    }
+}
+/**
+ * @generated MessageType for protobuf message MumbleProto.RequestChannelMessages
+ */
+export const RequestChannelMessages = new RequestChannelMessages$Type();
+// @generated message type with reflection information, may provide speed optimized methods
+class ChannelMessageHistory$Type extends MessageType<ChannelMessageHistory> {
+    constructor() {
+        super("MumbleProto.ChannelMessageHistory", [
+            { no: 1, name: "channel_id", kind: "scalar", opt: true, T: 13 /*ScalarType.UINT32*/ },
+            { no: 2, name: "messages", kind: "message", repeat: 2 /*RepeatType.UNPACKED*/, T: () => PersistedMessage },
+            { no: 3, name: "has_more", kind: "scalar", opt: true, T: 8 /*ScalarType.BOOL*/ },
+            { no: 4, name: "request_id", kind: "scalar", opt: true, T: 13 /*ScalarType.UINT32*/ }
+        ]);
+    }
+    create(value?: PartialMessage<ChannelMessageHistory>): ChannelMessageHistory {
+        const message = globalThis.Object.create((this.messagePrototype!));
+        message.messages = [];
+        if (value !== undefined)
+            reflectionMergePartial<ChannelMessageHistory>(this, message, value);
+        return message;
+    }
+    internalBinaryRead(reader: IBinaryReader, length: number, options: BinaryReadOptions, target?: ChannelMessageHistory): ChannelMessageHistory {
+        let message = target ?? this.create(), end = reader.pos + length;
+        while (reader.pos < end) {
+            let [fieldNo, wireType] = reader.tag();
+            switch (fieldNo) {
+                case /* optional uint32 channel_id */ 1:
+                    message.channelId = reader.uint32();
+                    break;
+                case /* repeated MumbleProto.PersistedMessage messages */ 2:
+                    message.messages.push(PersistedMessage.internalBinaryRead(reader, reader.uint32(), options));
+                    break;
+                case /* optional bool has_more */ 3:
+                    message.hasMore = reader.bool();
+                    break;
+                case /* optional uint32 request_id */ 4:
+                    message.requestId = reader.uint32();
+                    break;
+                default:
+                    let u = options.readUnknownField;
+                    if (u === "throw")
+                        throw new globalThis.Error(`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`);
+                    let d = reader.skip(wireType);
+                    if (u !== false)
+                        (u === true ? UnknownFieldHandler.onRead : u)(this.typeName, message, fieldNo, wireType, d);
+            }
+        }
+        return message;
+    }
+    internalBinaryWrite(message: ChannelMessageHistory, writer: IBinaryWriter, options: BinaryWriteOptions): IBinaryWriter {
+        /* optional uint32 channel_id = 1; */
+        if (message.channelId !== undefined)
+            writer.tag(1, WireType.Varint).uint32(message.channelId);
+        /* repeated MumbleProto.PersistedMessage messages = 2; */
+        for (let i = 0; i < message.messages.length; i++)
+            PersistedMessage.internalBinaryWrite(message.messages[i], writer.tag(2, WireType.LengthDelimited).fork(), options).join();
+        /* optional bool has_more = 3; */
+        if (message.hasMore !== undefined)
+            writer.tag(3, WireType.Varint).bool(message.hasMore);
+        /* optional uint32 request_id = 4; */
+        if (message.requestId !== undefined)
+            writer.tag(4, WireType.Varint).uint32(message.requestId);
+        let u = options.writeUnknownFields;
+        if (u !== false)
+            (u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
+        return writer;
+    }
+}
+/**
+ * @generated MessageType for protobuf message MumbleProto.ChannelMessageHistory
+ */
+export const ChannelMessageHistory = new ChannelMessageHistory$Type();
+// @generated message type with reflection information, may provide speed optimized methods
+class PersistedMessage$Type extends MessageType<PersistedMessage> {
+    constructor() {
+        super("MumbleProto.PersistedMessage", [
+            { no: 1, name: "id", kind: "scalar", opt: true, T: 4 /*ScalarType.UINT64*/, L: 0 /*LongType.BIGINT*/ },
+            { no: 2, name: "channel_id", kind: "scalar", opt: true, T: 13 /*ScalarType.UINT32*/ },
+            { no: 3, name: "actor_session", kind: "scalar", opt: true, T: 13 /*ScalarType.UINT32*/ },
+            { no: 4, name: "actor_name", kind: "scalar", opt: true, T: 9 /*ScalarType.STRING*/ },
+            { no: 5, name: "message", kind: "scalar", opt: true, T: 9 /*ScalarType.STRING*/ },
+            { no: 6, name: "created_at_ms", kind: "scalar", opt: true, T: 3 /*ScalarType.INT64*/, L: 0 /*LongType.BIGINT*/ }
+        ]);
+    }
+    create(value?: PartialMessage<PersistedMessage>): PersistedMessage {
+        const message = globalThis.Object.create((this.messagePrototype!));
+        if (value !== undefined)
+            reflectionMergePartial<PersistedMessage>(this, message, value);
+        return message;
+    }
+    internalBinaryRead(reader: IBinaryReader, length: number, options: BinaryReadOptions, target?: PersistedMessage): PersistedMessage {
+        let message = target ?? this.create(), end = reader.pos + length;
+        while (reader.pos < end) {
+            let [fieldNo, wireType] = reader.tag();
+            switch (fieldNo) {
+                case /* optional uint64 id */ 1:
+                    message.id = reader.uint64().toBigInt();
+                    break;
+                case /* optional uint32 channel_id */ 2:
+                    message.channelId = reader.uint32();
+                    break;
+                case /* optional uint32 actor_session */ 3:
+                    message.actorSession = reader.uint32();
+                    break;
+                case /* optional string actor_name */ 4:
+                    message.actorName = reader.string();
+                    break;
+                case /* optional string message */ 5:
+                    message.message = reader.string();
+                    break;
+                case /* optional int64 created_at_ms */ 6:
+                    message.createdAtMs = reader.int64().toBigInt();
+                    break;
+                default:
+                    let u = options.readUnknownField;
+                    if (u === "throw")
+                        throw new globalThis.Error(`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`);
+                    let d = reader.skip(wireType);
+                    if (u !== false)
+                        (u === true ? UnknownFieldHandler.onRead : u)(this.typeName, message, fieldNo, wireType, d);
+            }
+        }
+        return message;
+    }
+    internalBinaryWrite(message: PersistedMessage, writer: IBinaryWriter, options: BinaryWriteOptions): IBinaryWriter {
+        /* optional uint64 id = 1; */
+        if (message.id !== undefined)
+            writer.tag(1, WireType.Varint).uint64(message.id);
+        /* optional uint32 channel_id = 2; */
+        if (message.channelId !== undefined)
+            writer.tag(2, WireType.Varint).uint32(message.channelId);
+        /* optional uint32 actor_session = 3; */
+        if (message.actorSession !== undefined)
+            writer.tag(3, WireType.Varint).uint32(message.actorSession);
+        /* optional string actor_name = 4; */
+        if (message.actorName !== undefined)
+            writer.tag(4, WireType.LengthDelimited).string(message.actorName);
+        /* optional string message = 5; */
+        if (message.message !== undefined)
+            writer.tag(5, WireType.LengthDelimited).string(message.message);
+        /* optional int64 created_at_ms = 6; */
+        if (message.createdAtMs !== undefined)
+            writer.tag(6, WireType.Varint).int64(message.createdAtMs);
+        let u = options.writeUnknownFields;
+        if (u !== false)
+            (u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
+        return writer;
+    }
+}
+/**
+ * @generated MessageType for protobuf message MumbleProto.PersistedMessage
+ */
+export const PersistedMessage = new PersistedMessage$Type();

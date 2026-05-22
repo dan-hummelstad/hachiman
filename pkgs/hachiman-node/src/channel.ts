@@ -3,6 +3,7 @@ import {
   ChannelRemove,
   ChannelState,
   PermissionQuery,
+  PersistedMessage,
 } from './mumbleproto';
 import { Change } from './change';
 import { Client } from './client';
@@ -260,6 +261,24 @@ export class Channel {
         ],
       ],
       expectPacket: [ACL, ({ channelId }) => channelId === this.id],
+    });
+  }
+
+  /**
+   * Convenience wrapper around {@link Client.fetchChannelMessages} for this channel.
+   *
+   * @param opts.beforeId - Cursor; pass the smallest `id` from the previous page
+   *                        to page backwards. Omit to fetch the latest page.
+   * @param opts.limit - Page size; server default is 30, capped at 100.
+   */
+  async fetchHistory(opts?: {
+    beforeId?: bigint;
+    limit?: number;
+  }): Promise<{ messages: PersistedMessage[]; hasMore: boolean }> {
+    return this.client.fetchChannelMessages({
+      channelId: this.id,
+      ...(opts?.beforeId !== undefined && { beforeId: opts.beforeId }),
+      ...(opts?.limit !== undefined && { limit: opts.limit }),
     });
   }
 }

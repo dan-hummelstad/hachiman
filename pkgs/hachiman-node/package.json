@@ -25,7 +25,7 @@
     "test": "vitest",
     "test:e2e": "vitest --config ./e2e/vitest.config.ts",
     "release": "release-it",
-    "generate-proto": "protoc --ts_out ./src/mumbleproto --ts_opt eslint_disable --ts_opt ts_nocheck --proto_path ../hachiman-server/pkg/mumbleproto Mumble.proto MumbleUDP.proto"
+    "generate-proto": "protoc --ts_out ./src/mumbleproto --ts_opt eslint_disable --ts_opt ts_nocheck --proto_path ../../apps/hachiman-server/pkg/mumbleproto Mumble.proto MumbleUDP.proto"
   },
   "keywords": [
     "mumble",

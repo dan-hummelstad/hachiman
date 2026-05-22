@@ -1,0 +1,170 @@
+import type { IMumbleService } from '@hachiman/hachiman'
+import {
+  Channel,
+  Client,
+  Events,
+  PersistedMessage,
+  TextMessage,
+  User,
+  Permissions
+} from '@hachiman/hachiman-node'
+import { CertificateCreationResult } from 'pem'
+
+export class MumbleService implements IMumbleService {
+  private _rootClient: Client
+
+  constructor(serverUrl: string, port: string, username: string, cert: CertificateCreationResult) {
+    this._rootClient = new Client({
+      host: serverUrl,
+      port: parseInt(port, 10),
+      username,
+      cert: cert.certificate,
+      key: cert.clientKey,
+      rejectUnauthorized: false,
+      webrtc: true
+    })
+  }
+
+  get mumbleClient(): Client {
+    return this._rootClient
+  }
+
+  get clientSession(): number | null {
+    if (!this._rootClient.isConnected()) {
+      return null
+    }
+    return this._rootClient.session
+  }
+
+  get channels(): Channel[] {
+    return this._rootClient.channels.all()
+  }
+
+  get currentUser(): User | undefined {
+    return this._rootClient.self
+  }
+
+  get users(): User[] {
+    return this._rootClient.users.all()
+  }
+
+  isConnected(): boolean {
+    return this._rootClient?.isConnected() ?? false
+  }
+
+  async connect(): Promise<Client> {
+    if (this.isConnected()) {
+      return this._rootClient
+    }
+
+    await this._rootClient.connect()
+    for (const channel of this._rootClient.channels.findAll(() => true)) {
+      console.log(`Channel: ${channel.name} (ID: ${channel.id})`)
+    }
+    return this._rootClient
+  }
+
+  async disconnect(): Promise<void> {
+    this._rootClient.disconnect()
+  }
+
+  getUserBySession(session: number): User | undefined {
+    return this._rootClient.users.bySession(session)
+  }
+  getUserByName(name: string): User | undefined {
+    return this._rootClient.users.byName(name)
+  }
+
+  get currentChannel(): Channel | undefined {
+    return this._rootClient.self?.channel
+  }
+
+  getChannelById(id: number): Channel | undefined {
+    return this._rootClient.channels.byId(id)
+  }
+
+  getChannelByName(name: string): Channel | undefined {
+    return this._rootClient.channels.byName(name)
+  }
+
+  get welcomeText(): string | undefined {
+    return this._rootClient.welcomeText
+  }
+  get maxBandwidth(): number | undefined {
+    return this._rootClient.serverConfig?.maxBandwidth
+  }
+  get maxUsers(): number | undefined {
+    return this._rootClient.serverConfig?.maxUsers
+  }
+
+  async moveToChannel(channelId: number): Promise<void> {
+    await this._rootClient.self?.moveToChannel(channelId)
+  }
+
+  async sendTextMessage(message: string, channelIds?: number[]): Promise<void> {
+    return await this._rootClient.socket?.send(
+      TextMessage,
+      TextMessage.create({
+        actor: this._rootClient.self!.session,
+        message: message,
+        channelId: channelIds ?? [],
+        treeId: [],
+        session: []
+      })
+    )
+  }
+
+  async fetchChannelMessages(opts: {
+    channelId: number
+    beforeId?: bigint
+    limit?: number
+  }): Promise<{ messages: PersistedMessage[]; hasMore: boolean }> {
+    return this._rootClient.fetchChannelMessages(opts)
+  }
+
+  recieveAudioFrame(_onAudio: (decoded: Buffer) => void): void {
+    // No-op: WebRTC handles audio playback natively via HTMLAudioElement
+  }
+
+  async startMicrophone(): Promise<void> {
+    await this._rootClient.webrtcVoice?.startMicrophone()
+    await this._rootClient.webrtcVoice?.sendTalkingState(1)
+  }
+
+  stopMicrophone(): void {
+    this._rootClient.webrtcVoice?.sendTalkingState(0)
+    this._rootClient.webrtcVoice?.stopMicrophone()
+  }
+
+  async fetchRegisteredUsers(): Promise<Array<{ userId: number; name: string }>> {
+    return (await this._rootClient.fetchRegisteredUsers()).map((user) => ({
+      userId: user.userId,
+      name: user.name ?? 'no-name'
+    }))
+  }
+
+  async deregisterUser(userId: number): Promise<void> {
+    return await this._rootClient.deregisterUser(userId)
+  }
+
+  async renameRegisteredUser(userId: number, name: string): Promise<void> {
+    return await this._rootClient.renameRegisteredUser(userId, name)
+  }
+
+  async getChannelPermissions(channelId: number): Promise<Permissions | undefined> {
+    return await this._rootClient.channels.byId(channelId)?.getPermissions()
+  }
+
+  on<K extends keyof Events>(event: K, listener: Events[K]): void {
+    this._rootClient.on(event, listener)
+  }
+  once<K extends keyof Events>(event: K, listener: Events[K]): void {
+    this._rootClient.once(event, listener)
+  }
+  off<K extends keyof Events>(event: K, listener: Events[K]): void {
+    this._rootClient.off(event, listener)
+  }
+  removeAllListeners<K extends keyof Events>(event?: K): void {
+    this._rootClient.removeAllListeners(event)
+  }
+}

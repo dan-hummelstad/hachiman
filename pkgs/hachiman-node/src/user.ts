@@ -37,6 +37,7 @@ export class User {
   suppress = false;
   selfMute = false;
   selfDeaf = false;
+  ssrc?: number;
 
   constructor(
     private readonly client: Client,
@@ -83,6 +84,9 @@ export class User {
       ...syncProperty(this, 'selfMute', userState.selfMute),
       ...syncProperty(this, 'selfDeaf', userState.selfDeaf),
     };
+    if (userState.ssrc !== undefined) {
+      this.ssrc = userState.ssrc;
+    }
     return changes;
   }
 

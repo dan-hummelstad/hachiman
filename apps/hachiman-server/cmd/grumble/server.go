@@ -72,6 +72,8 @@ type Server struct {
 	webwsl    *web.Listener
 	webtlscfg *tls.Config
 	webhttp   *http.Server
+	sniffStop func()
+	sfu       *web.SFU
 	bye       chan bool
 	netwg     sync.WaitGroup
 	running   bool
@@ -483,6 +485,12 @@ func (server *Server) RemoveClient(client *Client, kicked bool) {
 		channel.RemoveClient(client)
 	}
 
+	// Clean up WebRTC resources
+	if client.webrtcEnabled && server.sfu != nil {
+		server.sfu.RemoveClient(client.Session())
+		client.webrtcClient = nil
+	}
+
 	// If the user was not kicked, broadcast a UserRemove message.
 	// If the user is disconnect via a kick, the UserRemove message has already been sent
 	// at this point.
@@ -731,7 +739,16 @@ func (server *Server) handleAuthenticate(client *Client, msg *Message) {
 		}
 	}
 
-	// Setup the cryptstate for the client.
+	// Check if the client wants WebRTC voice transport
+	if auth.GetWebrtc() && server.sfu != nil {
+		if err := server.setupWebRTCForClient(client); err != nil {
+			server.Printf("WebRTC setup failed for %v: %v", client.Session(), err)
+			// Fall back to normal UDP — don't reject the connection
+		}
+	}
+
+	// Setup the cryptstate for the client (skipped for WebRTC-only clients,
+	// but we still generate a key in case they fall back to UDP tunnel).
 	err = client.crypt.GenerateKey(client.CryptoMode)
 	if err != nil {
 		client.Panicf("%v", err)
@@ -739,7 +756,8 @@ func (server *Server) handleAuthenticate(client *Client, msg *Message) {
 	}
 
 	// Send CryptState information to the client so it can establish an UDP connection,
-	// if it wishes.
+	// if it wishes. WebRTC clients don't need UDP encryption but we send it anyway
+	// for protocol compatibility.
 	client.lastResync = time.Now().Unix()
 	err = client.sendMessage(&mumbleproto.CryptSetup{
 		Key:         client.crypt.Key,
@@ -844,6 +862,11 @@ func (server *Server) finishAuthenticate(client *Client) {
 		Session:   proto.Uint32(client.Session()),
 		Name:      proto.String(client.ShownName()),
 		ChannelId: proto.Uint32(uint32(channel.Id)),
+	}
+
+	// Include SSRC for WebRTC clients
+	if client.webrtcEnabled && client.webrtcClient != nil {
+		userstate.Ssrc = proto.Uint32(client.webrtcClient.SSRC)
 	}
 
 	if client.HasCertificate() {
@@ -1181,6 +1204,14 @@ func (server *Server) handleIncomingMessage(msg *Message) {
 		server.handleVersionMessage(msg.client, msg)
 	case mumbleproto.MessagePluginDataTransmission:
 		server.handlePluginDataTransmission(msg.client, msg)
+	case mumbleproto.MessageWebRTC:
+		server.handleWebRTCMessage(msg.client, msg)
+	case mumbleproto.MessageIceCandidate:
+		server.handleIceCandidateMessage(msg.client, msg)
+	case mumbleproto.MessageTalkingState:
+		server.handleTalkingStateMessage(msg.client, msg)
+	case mumbleproto.MessageRequestChannelMessages:
+		server.handleRequestChannelMessages(msg.client, msg)
 	}
 }
 
@@ -1862,7 +1893,6 @@ func (server *Server) Start() (err error) {
 
 	host := server.HostAddress()
 	port := server.Port()
-	webport := server.WebPort()
 	shouldListenWeb := server.ListenWebPort()
 
 	// Setup our UDP listener
@@ -1889,7 +1919,8 @@ func (server *Server) Start() (err error) {
 		}
 	*/
 
-	// Wrap a TLS listener around the TCP connection
+	// Load the TLS cert/key shared by both the Mumble TLS path and the
+	// HTTP/WebSocket upgrade path.
 	certFn := filepath.Join(server.DataDir, "cert.pem")
 	keyFn := filepath.Join(server.DataDir, "key.pem")
 	cert, err := tls.LoadX509KeyPair(certFn, keyFn)
@@ -1900,49 +1931,30 @@ func (server *Server) Start() (err error) {
 		Certificates: []tls.Certificate{cert},
 		ClientAuth:   tls.RequestClientCert,
 	}
-	server.tlsl = tls.NewListener(server.tcpl, server.tlscfg)
+
+	// Initialize SFU for WebRTC voice forwarding — signaling goes over the
+	// Mumble control channel (TCP/TLS), so this is independent of the web server.
+	server.sfu = web.NewSFU(server.Logger)
 
 	if shouldListenWeb {
-		// Create HTTP server and WebSocket "listener"
-		webaddr := &net.TCPAddr{IP: net.ParseIP(host), Port: webport}
+		// Multiplex TLS and HTTP/WebSocket on the same TCP port by sniffing
+		// the first byte of each connection. 0x16 = TLS ContentType Handshake;
+		// anything else is treated as an HTTP request for the WS upgrade.
+		tlsBranch, wsBranch, stopSniff := web.Sniff(server.tcpl, server.Logger)
+		server.sniffStop = stopSniff
+		server.tlsl = tls.NewListener(tlsBranch, server.tlscfg)
+
 		server.webtlscfg = &tls.Config{
 			Certificates: []tls.Certificate{cert},
 			ClientAuth:   tls.NoClientCert,
 			NextProtos:   []string{"http/1.1"},
 		}
-		server.webwsl = web.NewListener(webaddr, server.Logger)
+		server.webwsl = web.NewListener(server.tcpl.Addr(), server.Logger)
 		mux := http.NewServeMux()
 		mux.Handle("/", server.webwsl)
 
-		// Start MCU mixer used by WebRTC handler
-		if err := web.StartMCUMixer(); err != nil {
-			server.Fatalf("unable to start MCU mixer: %v", err)
-		}
-
-		// WebRTC signaling endpoint. Pass small closures for auth and registration so pkg/web does not import main.
-		mux.HandleFunc("/webrtc", func(w http.ResponseWriter, r *http.Request) {
-			web.HandleWebRTCSignal(w, r,
-				// authFn: ensure session exists and is authenticated
-				func(session uint32) bool {
-					server.hmutex.Lock()
-					c, ok := server.clients[session]
-					server.hmutex.Unlock()
-					return ok && c != nil && c.state >= StateClientAuthenticated
-				},
-				// sessionShouldRegister: optional registration hook (no-op here)
-				func(session uint32) {
-					// optionally map session -> created PC/outTrack if you need to control it from server
-				},
-				// sessionShouldUnregister: optional cleanup hook
-				func(session uint32) {
-				},
-			)
-		})
-
 		server.webhttp = &http.Server{
-			Addr:    webaddr.String(),
-			Handler: mux,
-			// TLSConfig: server.webtlscfg,
+			Handler:  mux,
 			ErrorLog: server.Logger,
 
 			// Set sensible timeouts, in case no reverse proxy is in front of Grumble.
@@ -1953,17 +1965,17 @@ func (server *Server) Start() (err error) {
 			IdleTimeout:  2 * time.Minute,
 		}
 		go func() {
-			// err := server.webhttp.ListenAndServeTLS("", "")
-			err := server.webhttp.ListenAndServe()
+			err := server.webhttp.Serve(wsBranch)
 			if err != http.ErrServerClosed {
 				server.Fatalf("Fatal HTTP server error: %v", err)
 			}
 		}()
-
-		server.Printf("Started: listening on %v and %v", server.tcpl.Addr(), server.webwsl.Addr())
 	} else {
-		server.Printf("Started: listening on %v", server.tcpl.Addr())
+		// Web disabled — bind TLS directly to the raw TCP listener.
+		server.tlsl = tls.NewListener(server.tcpl, server.tlscfg)
 	}
+
+	server.Printf("Started: listening on %v", server.tcpl.Addr())
 
 	server.running = true
 
@@ -2033,6 +2045,10 @@ func (server *Server) Stop() (err error) {
 		err = server.webwsl.Close()
 		if err != nil {
 			return err
+		}
+
+		if server.sniffStop != nil {
+			server.sniffStop()
 		}
 	}
 

@@ -20,6 +20,7 @@ import (
 	"mumble.info/grumble/pkg/acl"
 	"mumble.info/grumble/pkg/cryptstate"
 	"mumble.info/grumble/pkg/mumbleproto"
+	"mumble.info/grumble/pkg/web"
 )
 
 // A client connection
@@ -97,6 +98,10 @@ type Client struct {
 	// RateLimit
 	GlobalLimit *RateLimit
 	PluginLimit *RateLimit
+
+	// WebRTC
+	webrtcEnabled bool             // client requested WebRTC voice transport
+	webrtcClient  *web.WebRTCClient // non-nil when WebRTC is active
 }
 
 // Debugf implements debug-level printing for Clients.

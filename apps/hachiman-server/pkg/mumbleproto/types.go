@@ -32,6 +32,11 @@ const (
 	MessageServerConfig
 	MessageSuggestConfig
 	MessagePluginDataTransmission
+	MessageWebRTC
+	MessageIceCandidate
+	MessageTalkingState
+	MessageRequestChannelMessages
+	MessageChannelMessageHistory
 )
 
 const (
@@ -96,6 +101,20 @@ func MessageType(msg interface{}) uint16 {
 		return MessageRequestBlob
 	case *ServerConfig:
 		return MessageServerConfig
+	case *SuggestConfig:
+		return MessageSuggestConfig
+	case *PluginDataTransmission:
+		return MessagePluginDataTransmission
+	case *WebRTC:
+		return MessageWebRTC
+	case *IceCandidate:
+		return MessageIceCandidate
+	case *TalkingState:
+		return MessageTalkingState
+	case *RequestChannelMessages:
+		return MessageRequestChannelMessages
+	case *ChannelMessageHistory:
+		return MessageChannelMessageHistory
 	}
 	panic("unknown type")
 }

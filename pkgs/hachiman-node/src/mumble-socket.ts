@@ -1,51 +1,50 @@
-import { Observable, Subject } from 'rxjs';
-import { TLSSocket } from 'tls';
-import { packetForType, packetType } from './packet-type-registry';
-import { MessageType } from '@protobuf-ts/runtime';
-import { UDPTunnel } from './mumbleproto';
-import { PacketType } from './packet-type';
-import { readVarint } from './read-varint';
+import { Observable, Subject } from 'rxjs'
+import { packetForType, packetType } from './packet-type-registry'
+import { MessageType } from '@protobuf-ts/runtime'
+import { UDPTunnel } from './mumbleproto'
+import { PacketType } from './packet-type'
+import { readVarint } from './read-varint'
+import { ITransport } from './transport'
 
 interface MumbleSocketReader {
-  length: number;
-  callback: (data: Buffer) => void;
+  length: number
+  callback: (data: Buffer) => void
 }
 
 interface AudioPacket {
-  source: number; // Session ID of the source user
-  data: Buffer;
-  sequence: number;
-  frameNumber: bigint;
-  isTerminator: boolean;
+  source: number // Session ID of the source user
+  data: Buffer
+  sequence: number
+  frameNumber: bigint
+  isTerminator: boolean
 }
 
 export class MumbleSocket {
-  private readonly _packet = new Subject<PacketType>();
-  private readonly _audioPacket = new Subject<AudioPacket>();
-  private buffers: Buffer[] = [];
-  private length = 0;
-  private readers: MumbleSocketReader[] = [];
+  private readonly _packet = new Subject<PacketType>()
+  private readonly _audioPacket = new Subject<AudioPacket>()
+  private buffers: Buffer[] = []
+  private length = 0
+  private readers: MumbleSocketReader[] = []
 
-  // Only tcp socket is supported...
-  constructor(private readonly socket: TLSSocket) {
-    this.socket.on('data', (data: Buffer) => {
-      this.receiveData(data);
-    });
-    this.readPrefix();
+  constructor(private readonly transport: ITransport) {
+    this.transport.onData.subscribe((data: Buffer) => {
+      this.receiveData(data)
+    })
+    this.readPrefix()
   }
 
   get packet(): Observable<PacketType> {
-    return this._packet.asObservable();
+    return this._packet.asObservable()
   }
 
   get audioPacket(): Observable<AudioPacket> {
-    return this._audioPacket.asObservable();
+    return this._audioPacket.asObservable()
   }
 
   read(length: number, callback: MumbleSocketReader['callback']): void {
-    this.readers.push({ length, callback });
+    this.readers.push({ length, callback })
     if (this.readers.length === 1) {
-      this.flushReaders();
+      this.flushReaders()
     }
   }
 
@@ -53,132 +52,120 @@ export class MumbleSocket {
     message: MessageType<T>,
     payload: T,
   ): Promise<void> {
-    const typeNumber = packetType(message);
-    console.log(`Sending message type: ${message.typeName} (${typeNumber})`);
+    const typeNumber = packetType(message)
+    console.log(`Sending message type: ${message.typeName} (${typeNumber})`)
     if (typeNumber === undefined) {
-      throw new Error(`unknown message type (${message.typeName})`);
+      throw new Error(`unknown message type (${message.typeName})`)
     }
 
-    const encoded = message.toBinary(payload);
-    const prefix = Buffer.alloc(6);
-    prefix.writeUint16BE(typeNumber, 0);
-    prefix.writeUint32BE(encoded.length, 2);
-    await this.write(Buffer.concat([prefix, encoded]));
+    const encoded = message.toBinary(payload)
+    const prefix = Buffer.alloc(6)
+    prefix.writeUint16BE(typeNumber, 0)
+    prefix.writeUint32BE(encoded.length, 2)
+    await this.write(Buffer.concat([prefix, encoded]))
   }
 
   write(buffer: Buffer | Uint8Array): Promise<void> {
-    return new Promise((resolve, reject) => {
-      if (this.socket.writable) {
-        this.socket.write(buffer, err => {
-          if (err) {
-            reject(err);
-          } else {
-            resolve();
-          }
-        });
-      } else {
-        reject(new Error('socket not writable'));
-      }
-    });
+    return this.transport.write(buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer))
   }
 
   end() {
-    this.socket.end();
+    this.transport.close()
   }
 
   private receiveData(data: Buffer) {
-    this.buffers.push(data);
-    this.length += data.length;
-    this.flushReaders();
+    this.buffers.push(data)
+    this.length += data.length
+    this.flushReaders()
   }
 
   private flushReaders() {
     if (this.readers.length === 0) {
-      return;
+      return
     }
 
-    const reader = this.readers[0]!;
+    const reader = this.readers[0]!
     if (this.length < reader.length) {
-      return;
+      return
     }
 
-    const buffer = Buffer.alloc(reader.length);
-    let written = 0;
+    const buffer = Buffer.alloc(reader.length)
+    let written = 0
 
     while (written < reader.length) {
-      const received = this.buffers[0]!;
-      const remaining = reader.length - written;
+      const received = this.buffers[0]!
+      const remaining = reader.length - written
       if (received.length <= remaining) {
-        received.copy(buffer, written);
-        written += received.length;
-        this.buffers.splice(0, 1);
-        this.length -= received.length;
+        received.copy(buffer, written)
+        written += received.length
+        this.buffers.splice(0, 1)
+        this.length -= received.length
       } else {
-        received.copy(buffer, written, 0, remaining);
-        written += remaining;
-        this.buffers[0] = received.subarray(remaining);
-        this.length -= remaining;
+        received.copy(buffer, written, 0, remaining)
+        written += remaining
+        this.buffers[0] = received.subarray(remaining)
+        this.length -= remaining
       }
     }
 
-    this.readers.splice(0, 1);
-    reader.callback(buffer);
+    this.readers.splice(0, 1)
+    reader.callback(buffer)
   }
 
   private readPrefix() {
     this.read(6, prefix => {
-      const type = prefix.readUint16BE(0);
-      const length = prefix.readUint32BE(2);
-      this.readPacket(type, length);
-    });
+      const type = prefix.readUint16BE(0)
+      const length = prefix.readUint32BE(2)
+      this.readPacket(type, length)
+    })
   }
 
   private readPacket(type: number, length: number) {
     this.read(length, data => {
-      const message = packetForType(type);
+      const message = packetForType(type)
       // no packet type for UDP packets.
       if (message) {
-        console.log(message.typeName);
+        console.log(message.typeName)
         switch (message.typeName) {
           case UDPTunnel.typeName:
-            this.decodeAudio(data);
-            break;
+            this.decodeAudio(data)
+            break
 
           default:
             this._packet.next({
               type,
               typeName: message.typeName,
               payload: message.fromBinary(data),
-            });
+            })
         }
       } else {
-        console.error(`Unrecognized packet type (${type})`);
+        console.error(`Unrecognized packet type (${type})`)
       }
 
-      this.readPrefix();
-    });
+      this.readPrefix()
+    })
   }
 
   private decodeAudio(packet: Buffer) {
     if (packet.length < 1) {
-      return;
+      return
     }
 
     // https://github.com/mumble-voip/mumble/blob/master/docs/dev/network-protocol/voice_data.md#packet-format
-    const target = 0b000111111 & packet[0]!;
+    const target = 0b000111111 & packet[0]!
     // 0 is normal talking
     if (target !== 0) {
-      return;
+      return
     }
 
     // https://github.com/mumble-voip/mumble/blob/master/docs/dev/network-protocol/voice_data.md#encoded-audio-data-packet
-    const { value } = readVarint(packet.subarray(1));
+    const { value } = readVarint(packet.subarray(1))
     this._audioPacket.next({
       source: value as number,
       data: packet.subarray(1),
       sequence: 0,
       frameNumber: 0n,
       isTerminator: false
-    });
+    })
   }
 }

@@ -1,11 +1,16 @@
-export { type ClientOptions } from './client-options';
-export { Client } from './client';
-export { ChannelManager } from './channel-manager';
-export { Channel } from './channel';
-export { type PacketType } from './packet-type';
-export { Permissions } from './permissions';
-export { UserManager } from './user-manager';
-export { User } from './user';
+export { type ClientOptions } from './client-options'
+export { Client } from './client'
+export { ChannelManager } from './channel-manager'
+export { Channel } from './channel'
+export { type PacketType } from './packet-type'
+export { Permissions } from './permissions'
+export { UserManager } from './user-manager'
+export { User } from './user'
 export { type Events } from './events'
-export * from './errors';
-export * from './mumbleproto';
+export { type SpeakingStateChange } from './speaking-state-change'
+export { type ITransport } from './transport'
+export { TlsTransport } from './tls-transport'
+export { WsTransport } from './ws-transport'
+export { WebRTCVoice } from './webrtc-voice'
+export * from './errors'
+export * from './mumbleproto'

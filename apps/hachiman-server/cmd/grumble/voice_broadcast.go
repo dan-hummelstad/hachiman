@@ -128,6 +128,30 @@ func (v *VoiceBroadcast) Broadcast() error {
 	var lastBytes []byte = nil
 
 	for _, recv := range v.receiver {
+		// WebRTC clients receive audio via the SFU, not UDP
+		if recv.Client.webrtcEnabled && recv.Client.webrtcClient != nil && v.sender.server.sfu != nil {
+			senderSSRC := uint32(0)
+			if v.sender.webrtcClient != nil {
+				senderSSRC = v.sender.webrtcClient.SSRC
+			} else if ssrc, ok := v.sender.server.sfu.SSRCPool.SSRCForSession(v.sender.Session()); ok {
+				senderSSRC = ssrc
+			} else {
+				// Allocate an SSRC for the native sender so WebRTC clients can identify them
+				senderSSRC = v.sender.server.sfu.SSRCPool.Get(v.sender.Session())
+			}
+
+			// Marker-bit / talkspurt-start detection is handled inside the
+			// SFU based on the wall-clock gap between forwarded packets;
+			// no need to pass an explicit isFirst flag.
+			v.sender.server.sfu.ForwardToWebRTC(
+				recv.Client.webrtcClient,
+				senderSSRC,
+				v.packet.Payload,
+				v.packet.FrameNumber,
+			)
+			continue
+		}
+
 		if lastBytes == nil || !lastReceiver.Equal(&recv) {
 			if !recv.HasPositional {
 				v.packet.PositionalData = nil

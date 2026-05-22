@@ -1,31 +1,22 @@
 {
-  "name": "hachiman",
+  "name": "@hachiman/hachiman",
   "version": "1.0.0",
-  "description": "An Electron application with React and TypeScript",
-  "main": "./out/main/index.js",
-  "author": "example.com",
-  "homepage": "https://electron-vite.org",
+  "description": "Hachiman shared renderer library (UI, stores, services, platform abstraction)",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./shared/*": "./src/shared/*",
+    "./style.css": "./src/assets/main.css"
+  },
   "scripts": {
     "format": "prettier --write .",
     "lint": "eslint --cache .",
-    "typecheck:node": "tsc --noEmit -p tsconfig.node.json --composite false",
-    "typecheck:web": "tsc --noEmit -p tsconfig.web.json --composite false",
-    "typecheck": "pnpm run typecheck:node && pnpm run typecheck:web",
-    "start": "electron-vite preview",
-    "dev": "NODE_TLS_REJECT_UNAUTHORIZED=0 VITE_TARGET=electron electron-vite dev",
-    "build": "pnpm run typecheck && VITE_TARGET=electron electron-vite build",
-    "postinstall": "electron-builder install-app-deps",
-    "build:unpack": "pnpm run build && electron-builder --dir",
-    "build:win": "pnpm run build && electron-builder --win",
-    "build:mac": "pnpm run build && electron-builder --mac",
-    "build:linux": "pnpm run build && electron-builder --linux",
+    "typecheck": "tsc --noEmit -p tsconfig.web.json --composite false",
     "shadcn:add": "pnpm dlx shadcn@latest add"
   },
   "dependencies": {
-    "@discordjs/opus": "^0.10.0",
-    "@electron-toolkit/preload": "^3.0.2",
-    "@electron-toolkit/utils": "^4.0.0",
-    "@electron/remote": "^2.1.3",
     "@hachiman/hachiman-node": "file:../../pkgs/hachiman-node",
     "@radix-ui/react-avatar": "^1.1.11",
     "@radix-ui/react-dialog": "^1.1.15",
@@ -37,29 +28,24 @@
     "@radix-ui/react-switch": "^1.2.6",
     "@radix-ui/react-tooltip": "^1.2.8",
     "@redux-devtools/extension": "^3.3.0",
-    "@tailwindcss/vite": "^4.1.18",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
-    "electron-updater": "^6.3.9",
     "lucide-react": "^0.562.0",
-    "pem": "1.14.8",
     "tailwind-merge": "^3.4.0",
     "tailwindcss": "^4.1.18",
     "tw-animate-css": "^1.4.0",
     "zustand": "^5.0.9"
   },
+  "peerDependencies": {
+    "react": "^19.2.1",
+    "react-dom": "^19.2.1"
+  },
   "devDependencies": {
     "@electron-toolkit/eslint-config-prettier": "^3.0.0",
     "@electron-toolkit/eslint-config-ts": "^3.1.0",
-    "@electron-toolkit/tsconfig": "^2.0.0",
-    "@electron/rebuild": "^4.0.2",
     "@types/node": "^22.19.3",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
-    "@vitejs/plugin-react": "^5.1.1",
-    "electron": "^39.2.6",
-    "electron-builder": "^26.0.12",
-    "electron-vite": "^5.0.0",
     "eslint": "^9.39.1",
     "eslint-plugin-react": "^7.37.5",
     "eslint-plugin-react-hooks": "^7.0.1",
@@ -67,8 +53,6 @@
     "prettier": "^3.7.4",
     "react": "^19.2.1",
     "react-dom": "^19.2.1",
-    "typescript": "^5.9.3",
-    "vite": "^7.2.6",
-    "vite-plugin-commonjs-externals": "^0.1.4"
+    "typescript": "^5.9.3"
   }
 }

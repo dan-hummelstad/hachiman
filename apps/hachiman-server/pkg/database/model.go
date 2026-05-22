@@ -48,7 +48,7 @@ func NewDB(cfg *DbConfig) (*GrumbleDb, error) {
 }
 
 func (d *GrumbleDb) Init() error {
-	err := d.db.AutoMigrate(&Meta{}, &Server{}, &ServerLog{}, &Config{}, &Channel{}, &ChannelInfo{}, &User{}, &UserInfo{}, &Group{}, &GroupMember{}, &ACL{}, &ChannelLink{}, &Ban{}, &ChannelListener{})
+	err := d.db.AutoMigrate(&Meta{}, &Server{}, &ServerLog{}, &Config{}, &Channel{}, &ChannelInfo{}, &User{}, &UserInfo{}, &Group{}, &GroupMember{}, &ACL{}, &ChannelLink{}, &Ban{}, &ChannelListener{}, &Message{})
 	if err != nil {
 		return err
 	}

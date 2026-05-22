@@ -1,0 +1,18 @@
+{
+  "extends": "@electron-toolkit/tsconfig/tsconfig.web.json",
+  "include": [
+    "src/renderer/src/**/*",
+    "src/renderer/src/**/*.tsx",
+    "src/preload/*.d.ts",
+    "platforms/electron/**/*",
+    "../hachiman/src/**/*"
+  ],
+  "compilerOptions": {
+    "rootDir": "..",
+    "composite": true,
+    "jsx": "react-jsx",
+    "paths": {
+      "@/*": ["../hachiman/src/*"]
+    }
+  }
+}

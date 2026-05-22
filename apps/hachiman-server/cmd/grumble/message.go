@@ -7,6 +7,7 @@ package main
 import (
 	"crypto/aes"
 	"crypto/tls"
+	"database/sql"
 	"fmt"
 	"net"
 	"strings"
@@ -16,6 +17,7 @@ import (
 	"mumble.info/grumble/pkg/acl"
 	"mumble.info/grumble/pkg/ban"
 	"mumble.info/grumble/pkg/cryptstate"
+	"mumble.info/grumble/pkg/database"
 	"mumble.info/grumble/pkg/mumbleproto"
 )
 
@@ -828,6 +830,7 @@ func (server *Server) handleUserStateMessage(client *Client, msg *Message) {
 			userstate.SelfDeaf = proto.Bool(false)
 			target.SelfDeaf = false
 		}
+		broadcast = true
 	}
 
 	if userstate.PluginContext != nil {
@@ -1151,6 +1154,10 @@ func (server *Server) handleTextMessage(client *Client, msg *Message) {
 	clients := make(map[uint32]*Client)
 	channels := make([]*Channel, 0)
 
+	// Set of channel IDs to persist this message to. Whisper-to-user targets
+	// (txtmsg.Session) are intentionally excluded — DMs are out of scope.
+	persistChannelIDs := make(map[int]bool)
+
 	// Tree
 	for _, chanid := range txtmsg.TreeId {
 		if channel, ok := server.Channels[int(chanid)]; ok {
@@ -1171,6 +1178,8 @@ func (server *Server) handleTextMessage(client *Client, msg *Message) {
 		channel := channels[0]
 		channels = channels[1:]
 		if acl.HasPermission(&channel.ACL, client, acl.TextMessagePermission) {
+			// Persist for every subtree channel actually reached.
+			persistChannelIDs[channel.Id] = true
 			for _, sub := range channel.children {
 				channels = append(channels, sub)
 			}
@@ -1195,6 +1204,7 @@ func (server *Server) handleTextMessage(client *Client, msg *Message) {
 				client.sendPermissionDenied(client, channel, acl.TextMessagePermission)
 				return
 			}
+			persistChannelIDs[channel.Id] = true
 			// Users directly in that channel
 			for _, target := range channel.clients {
 				clients[target.Session()] = target
@@ -1231,6 +1241,108 @@ func (server *Server) handleTextMessage(client *Client, msg *Message) {
 			TreeId:    txtmsg.TreeId,
 			Message:   txtmsg.Message,
 		})
+	}
+
+	// Persist one row per directly-addressed channel (and per subtree channel
+	// actually reached). DMs are skipped. Persistence failures are logged but
+	// do not interrupt delivery — the live broadcast above already succeeded.
+	if len(persistChannelIDs) > 0 {
+		actorUserID := sql.NullInt64{}
+		if client.user != nil {
+			actorUserID = sql.NullInt64{Valid: true, Int64: int64(client.user.Id)}
+		}
+		actorName := client.ShownName()
+		body := *txtmsg.Message
+		now := time.Now().UnixMilli()
+		serverID := int64(server.Id)
+		actorSession := client.Session()
+
+		err := server.DB.Transaction(func(tx *database.DbTx) error {
+			for chanID := range persistChannelIDs {
+				if _, err := tx.MessageInsert(serverID, chanID, actorSession, actorUserID, actorName, body, now); err != nil {
+					return err
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			server.Printf("Failed to persist text message: %v", err)
+		}
+	}
+}
+
+// handleRequestChannelMessages returns a paginated page of persisted chat
+// history for a single channel. The client passes an optional cursor (before_id)
+// to walk older messages and a request_id that is echoed in the response so it
+// can disambiguate concurrent fetches.
+func (server *Server) handleRequestChannelMessages(client *Client, msg *Message) {
+	req := &mumbleproto.RequestChannelMessages{}
+	if err := proto.Unmarshal(msg.buf, req); err != nil {
+		client.Panic(err)
+		return
+	}
+
+	if client.GlobalLimit.RateLimit(1) {
+		return
+	}
+
+	if req.ChannelId == nil {
+		return
+	}
+
+	channel, ok := server.Channels[int(*req.ChannelId)]
+	if !ok {
+		return
+	}
+
+	if !acl.HasPermission(&channel.ACL, client, acl.TextMessagePermission) {
+		client.sendPermissionDenied(client, channel, acl.TextMessagePermission)
+		return
+	}
+
+	const defaultLimit = 30
+	const maxLimit = 100
+	limit := int(req.GetLimit())
+	if limit <= 0 {
+		limit = defaultLimit
+	}
+	if limit > maxLimit {
+		limit = maxLimit
+	}
+
+	beforeID := req.GetBeforeId()
+
+	tx := server.DB.Tx()
+	defer tx.Rollback()
+	dbMsgs, hasMore, err := tx.ChannelMessageHistory(int64(server.Id), channel.Id, beforeID, limit)
+	if err != nil {
+		server.Printf("Failed to fetch channel %d history: %v", channel.Id, err)
+		return
+	}
+
+	resp := &mumbleproto.ChannelMessageHistory{
+		ChannelId: proto.Uint32(uint32(channel.Id)),
+		HasMore:   proto.Bool(hasMore),
+		Messages:  make([]*mumbleproto.PersistedMessage, 0, len(dbMsgs)),
+	}
+	if req.RequestId != nil {
+		resp.RequestId = proto.Uint32(*req.RequestId)
+	}
+	for i := range dbMsgs {
+		m := &dbMsgs[i]
+		resp.Messages = append(resp.Messages, &mumbleproto.PersistedMessage{
+			Id:          proto.Uint64(m.ID),
+			ChannelId:   proto.Uint32(uint32(m.ChannelID)),
+			ActorSession: proto.Uint32(m.ActorSession),
+			ActorName:   proto.String(m.ActorName),
+			Message:     proto.String(m.Message),
+			CreatedAtMs: proto.Int64(m.CreatedAtMs),
+		})
+	}
+
+	if err := client.sendMessage(resp); err != nil {
+		client.Panic(err)
+		return
 	}
 }
 

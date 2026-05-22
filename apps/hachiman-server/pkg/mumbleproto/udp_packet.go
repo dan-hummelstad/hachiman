@@ -144,8 +144,14 @@ func (p *AudioPacket) ProtobufData() ([]byte, error) {
 		return p.LegacyData(), nil
 	}
 
+	// Sync wrapper fields into the AudioUDP protobuf struct before marshaling.
+	// Broadcast() updates wrapper fields (TargetOrContext, VolumeAdjustment, etc.)
+	// but ProtobufData() marshals AudioUDP directly.
+	p.AudioUDP.Header = &AudioUDP_Context{Context: uint32(p.TargetOrContext)}
+	p.AudioUDP.OpusData = p.Payload
+
 	buffer := make([]byte, 1)
-	buffer[0] = byte(UDPPacketPing)
+	buffer[0] = byte(UDPPacketAudio)
 	data, err := proto.Marshal(&p.AudioUDP)
 	if err != nil {
 		return nil, err

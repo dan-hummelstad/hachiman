@@ -2,21 +2,26 @@ import {
   ACL,
   Authenticate,
   BanList,
+  ChannelMessageHistory,
   ChannelRemove,
   ChannelState,
   CodecVersion,
   ContextAction,
   ContextActionModify,
   CryptSetup,
+  IceCandidate,
   PermissionDenied,
   PermissionQuery,
   Ping,
+  PluginDataTransmission,
   QueryUsers,
   Reject,
   RequestBlob,
+  RequestChannelMessages,
   ServerConfig,
   ServerSync,
   SuggestConfig,
+  TalkingState,
   TextMessage,
   UDPTunnel,
   UserList,
@@ -25,6 +30,7 @@ import {
   UserStats,
   Version,
   VoiceTarget,
+  WebRTC,
 } from './mumbleproto';
 import { MessageType } from '@protobuf-ts/runtime';
 
@@ -59,6 +65,12 @@ const packetForPacketType = new Map<number, AnyMessage>([
   [23, RequestBlob],
   [24, ServerConfig],
   [25, SuggestConfig],
+  [26, PluginDataTransmission],
+  [27, WebRTC],
+  [28, IceCandidate],
+  [29, TalkingState],
+  [30, RequestChannelMessages],
+  [31, ChannelMessageHistory],
 ]);
 
 const packetTypeForPacket = new Map<AnyMessage, number>();

@@ -1,0 +1,157 @@
+import { serversService } from './ServersService'
+import { useVoiceStore } from '@/stores/voiceStore'
+import type { SpeakingStateChange } from '@hachiman/hachiman-node'
+
+export class VoiceService {
+  private _speakingListener: ((state: SpeakingStateChange) => void) | null = null
+  private _connectionCleanup: (() => void) | null = null
+  private _activeUrl: string | null = null
+
+  initVoice(url: string): void {
+    const server = serversService.getServer(url)
+    if (!server || !server.isConnected()) return
+
+    this._activeUrl = url
+    const store = useVoiceStore.getState()
+
+    this._speakingListener = (state: SpeakingStateChange) => {
+      if (state.speaking) {
+        store.addSpeaking(state.user.session)
+      } else {
+        store.removeSpeaking(state.user.session)
+      }
+    }
+
+    server.on('speakingStateChange', this._speakingListener)
+
+    // Track WebRTC connection state
+    const webrtcVoice = server.mumbleClient.webrtcVoice
+    if (webrtcVoice) {
+      const sub = webrtcVoice.connectionState.subscribe((state) => {
+        store.setVoiceConnected(state === 'connected')
+      })
+      this._connectionCleanup = () => sub.unsubscribe()
+    }
+  }
+
+  /**
+   * Join voice on the given channel: start the microphone and record the
+   * voice-connected channel in the store. Assumes the caller has already
+   * moved the user into the channel (Mumble-side).
+   */
+  async joinVoice(url: string, channelId: number): Promise<void> {
+    const store = useVoiceStore.getState()
+    store.setVoiceChannel(url, channelId)
+
+    const server = serversService.getServer(url)
+    if (!server || !server.isConnected()) return
+
+    if (!store.selfMute && !store.selfDeaf) {
+      await server.startMicrophone().catch((err) => {
+        console.warn('Failed to start microphone:', err)
+      })
+      store.setMicActive(true)
+    }
+  }
+
+  /**
+   * Leave voice on the given server: stop the microphone and clear the
+   * voice-connected channel for this server.
+   */
+  async leaveVoice(url: string): Promise<void> {
+    const store = useVoiceStore.getState()
+    const server = serversService.getServer(url)
+    if (server) {
+      server.stopMicrophone()
+    }
+    store.setMicActive(false)
+    store.setVoiceChannel(url, null)
+  }
+
+  async startMicrophone(url: string): Promise<void> {
+    const store = useVoiceStore.getState()
+    if (store.selfMute || store.selfDeaf) return
+
+    const server = serversService.getServer(url)
+    if (!server || !server.isConnected()) return
+
+    await server.startMicrophone()
+    store.setMicActive(true)
+  }
+
+  stopMicrophone(url: string): void {
+    const store = useVoiceStore.getState()
+    const server = serversService.getServer(url)
+    if (!server) return
+
+    server.stopMicrophone()
+    store.setMicActive(false)
+  }
+
+  async toggleMute(url: string): Promise<void> {
+    const store = useVoiceStore.getState()
+    const server = serversService.getServer(url)
+    if (!server || !server.isConnected()) return
+
+    const wasMuted = store.selfMute
+    store.toggleMute()
+
+    if (wasMuted) {
+      await server.mumbleClient.self?.setSelfMute(false).catch((err) => {
+        console.warn('setSelfMute(false) failed:', err)
+      })
+      await server.startMicrophone()
+      store.setMicActive(true)
+    } else {
+      server.stopMicrophone()
+      store.setMicActive(false)
+      await server.mumbleClient.self?.setSelfMute(true).catch((err) => {
+        console.warn('setSelfMute(true) failed:', err)
+      })
+    }
+  }
+
+  async toggleDeaf(url: string): Promise<void> {
+    const store = useVoiceStore.getState()
+    const server = serversService.getServer(url)
+    if (!server || !server.isConnected()) return
+
+    const wasDeaf = store.selfDeaf
+    store.toggleDeaf()
+
+    if (wasDeaf) {
+      await server.mumbleClient.self?.setSelfDeaf(false).catch((err) => {
+        console.warn('setSelfDeaf(false) failed:', err)
+      })
+      if (!store.selfMute) {
+        await server.startMicrophone()
+        store.setMicActive(true)
+      }
+    } else {
+      server.stopMicrophone()
+      store.setMicActive(false)
+      await server.mumbleClient.self?.setSelfDeaf(true).catch((err) => {
+        console.warn('setSelfDeaf(true) failed:', err)
+      })
+      if (!store.selfMute) {
+        store.toggleMute()
+      }
+    }
+  }
+
+  cleanup(): void {
+    if (this._activeUrl && this._speakingListener) {
+      const server = serversService.getServer(this._activeUrl)
+      if (server) {
+        server.off('speakingStateChange', this._speakingListener)
+      }
+    }
+    this._connectionCleanup?.()
+    this._connectionCleanup = null
+    this._speakingListener = null
+    this._activeUrl = null
+    useVoiceStore.getState().reset()
+  }
+}
+
+export const voiceService = new VoiceService()

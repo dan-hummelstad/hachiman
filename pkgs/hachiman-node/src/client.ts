@@ -1,4 +1,6 @@
 import { tlsConnect } from './tls-connect';
+import { TlsTransport } from './tls-transport';
+import { WsTransport } from './ws-transport';
 import { MumbleSocket } from './mumble-socket';
 import {
   concatMap,
@@ -19,17 +21,23 @@ import {
 } from 'rxjs';
 import {
   Authenticate,
+  ChannelMessageHistory,
   PermissionDenied,
   PermissionQuery,
+  PersistedMessage,
   Ping,
   Reject,
+  RequestChannelMessages,
   ServerConfig,
   ServerSync,
+  TalkingState,
   TextMessage,
   UserList,
   UserList_User,
   UserRemove,
+  UserState,
   Version,
+  WebRTC,
 } from './mumbleproto';
 import { User } from './user';
 import { ChannelManager } from './channel-manager';
@@ -43,13 +51,13 @@ import {
   PermissionDeniedError,
 } from './errors';
 import { filterPacket } from './rxjs-operators/filter-packet';
-import { platform, release } from 'os';
 import { Permissions } from './permissions';
 import { encodeMumbleVersionLegacy } from './encode-mumble-version-legacy';
 import { TypedEventEmitter } from './typed-event-emitter';
 import { Events } from './events';
 import { MessageType } from '@protobuf-ts/runtime';
 import { CommandTimeout } from './config';
+import { WebRTCVoice } from './webrtc-voice';
 
 type PacketTuple<T extends object> = [MessageType<T>, T];
 type ManyPackets<T extends object[]> = { [K in keyof T]: PacketTuple<T[K]> };
@@ -88,6 +96,12 @@ export class Client extends TypedEventEmitter<Events, Events> {
   socket?: MumbleSocket;
   session?: number;
   welcomeText?: string;
+  webrtcVoice?: WebRTCVoice;
+  private _pendingWebRTCOffer?: string;
+  // Monotonically increasing identifier used to disambiguate concurrent
+  // fetchChannelMessages() calls. The server echoes the value back in
+  // ChannelMessageHistory.requestId.
+  private _nextChannelHistoryRequestId = 1;
   readonly options: ClientOptions;
 
   // Channel permission cache
@@ -137,9 +151,21 @@ export class Client extends TypedEventEmitter<Events, Events> {
    * Establishes a connection to the provided Mumble server.
    */
   async connect(): Promise<this> {
-    this.socket = new MumbleSocket(
-      await tlsConnect(this.options.host, this.options.port, this.options),
-    );
+    if (this.options.transport === 'websocket') {
+      const wsUrl =
+        this.options.wsUrl ?? `ws://${this.options.host}:${this.options.port}/`;
+      const ws = new WsTransport(wsUrl);
+      await ws.waitForOpen();
+      this.socket = new MumbleSocket(ws);
+    } else {
+      const tlsSocket = await tlsConnect(this.options.host, this.options.port, {
+        cert: this.options.cert,
+        key: this.options.key,
+        rejectUnauthorized: this.options.rejectUnauthorized,
+      });
+      this.socket = new MumbleSocket(new TlsTransport(tlsSocket));
+    }
+
     this.socket.audioPacket
       .pipe(groupBy(packet => packet.source))
       .subscribe(group => {
@@ -165,7 +191,11 @@ export class Client extends TypedEventEmitter<Events, Events> {
     this.socket.packet
       .pipe(filterPacket(TextMessage))
       .subscribe(textMessage => {
-        this.emit('textMessage', { message: textMessage.message, fromUserId: textMessage.actor, channelIds: textMessage.channelId });
+        this.emit('textMessage', {
+          message: textMessage.message,
+          fromUserId: textMessage.actor,
+          channelIds: textMessage.channelId,
+        });
       });
     this.emit('socketConnect', this.socket);
 
@@ -194,6 +224,27 @@ export class Client extends TypedEventEmitter<Events, Events> {
         delete this.socket;
       });
 
+    // Subscribe to WebRTC messages EARLY — the server sends the initial
+    // offer before ServerSync, so we must be listening before the zip() wait.
+    if (this.options.webrtc) {
+      const webrtcSub = this.socket.packet
+        .pipe(filterPacket(WebRTC))
+        .subscribe(async msg => {
+          if (msg.sdpType === 'offer' && msg.sdp) {
+            if (this.webrtcVoice) {
+              await this.webrtcVoice.handleServerOffer(msg.sdp);
+            } else {
+              this._pendingWebRTCOffer = msg.sdp;
+            }
+          } else if (msg.sdpType === 'answer' && msg.sdp && this.webrtcVoice) {
+            await this.webrtcVoice.handleServerAnswer(msg.sdp);
+          }
+        });
+      this.on('disconnect', () => {
+        webrtcSub.unsubscribe();
+      });
+    }
+
     const initialize: Promise<this> = lastValueFrom(
       race(
         zip(
@@ -210,6 +261,8 @@ export class Client extends TypedEventEmitter<Events, Events> {
             this.serverConfig = serverConfig;
             this.emit('connect');
             this.startPinger();
+            this.setupWebRTC();
+            this.setupTalkingState();
           }),
           map(() => this),
         ),
@@ -232,6 +285,8 @@ export class Client extends TypedEventEmitter<Events, Events> {
    * Disconnects from the server.
    */
   disconnect(): this {
+    this.webrtcVoice?.close();
+    delete this.webrtcVoice;
     this.emit('disconnect');
     this.socket?.end();
     delete this.socket;
@@ -320,6 +375,49 @@ export class Client extends TypedEventEmitter<Events, Events> {
   }
 
   /**
+   * Fetch a paginated page of persisted chat history for a single channel.
+   *
+   * Messages are returned newest-first. To page backwards, pass the smallest
+   * `id` from the previous page as `beforeId`.
+   *
+   * Concurrent calls are disambiguated by a monotonically-increasing
+   * `requestId` that the server echoes back in its response — each call
+   * only resolves for the matching response.
+   *
+   * @param opts.channelId - Channel to fetch history for.
+   * @param opts.beforeId - Cursor; only messages with id < beforeId are returned.
+   *                       Omit (or pass 0n) to fetch the latest page.
+   * @param opts.limit - Page size. Server default is 30, capped at 100.
+   */
+  async fetchChannelMessages(opts: {
+    channelId: number;
+    beforeId?: bigint;
+    limit?: number;
+  }): Promise<{ messages: PersistedMessage[]; hasMore: boolean }> {
+    const requestId = this._nextChannelHistoryRequestId++;
+    const payload = RequestChannelMessages.create({
+      channelId: opts.channelId,
+      beforeId: opts.beforeId ?? 0n,
+      requestId,
+    });
+    if (opts.limit !== undefined) {
+      payload.limit = opts.limit;
+    }
+    const ret = await this.command('fetchChannelMessages', {
+      sendPacket: [RequestChannelMessages, payload],
+      expectPacket: [
+        ChannelMessageHistory,
+        packet =>
+          packet.requestId === requestId && packet.channelId === opts.channelId,
+      ],
+    });
+    return {
+      messages: ret.messages,
+      hasMore: ret.hasMore ?? false,
+    };
+  }
+
+  /**
    * @internal
    */
   private async sendVersion(): Promise<void> {
@@ -328,14 +426,33 @@ export class Client extends TypedEventEmitter<Events, Events> {
       minor: 4,
       patch: 287,
     };
+
+    // Detect browser vs Node.js environment
+    const isBrowser = typeof globalThis.navigator !== 'undefined';
+    let osName = 'Unknown';
+    let osVersion = 'Unknown';
+
+    if (isBrowser) {
+      osName = 'Web';
+      osVersion = globalThis.navigator.userAgent;
+    } else {
+      try {
+        const os = await import('os');
+        osName = os.platform();
+        osVersion = os.release();
+      } catch {
+        // os module not available (browser build)
+      }
+    }
+
     return await this.socket?.send(
       Version,
       Version.create({
         release: this.options.clientName ?? '',
         versionV1: encodeMumbleVersionLegacy(version),
         versionV2: encodeMumbleVersion(version),
-        os: platform(),
-        osVersion: release(),
+        os: osName,
+        osVersion,
       }),
     );
   }
@@ -351,6 +468,7 @@ export class Client extends TypedEventEmitter<Events, Events> {
         ...(this.options.password ? { password: this.options.password } : {}),
         tokens: this.options.tokens ?? [],
         opus: true,
+        webrtc: this.options.webrtc ?? false,
       }),
     );
   }
@@ -371,6 +489,63 @@ export class Client extends TypedEventEmitter<Events, Events> {
       .subscribe();
     this.on('disconnect', () => {
       subscription.unsubscribe();
+    });
+  }
+
+  /**
+   * @internal
+   * Sets up WebRTC voice transport if the client requested it.
+   */
+  private setupWebRTC() {
+    if (!this.options.webrtc || !this.socket || !this.session) return;
+
+    this.webrtcVoice = new WebRTCVoice(this.socket, this.session);
+
+    // Process any offer that arrived before WebRTCVoice was created
+    // (the server sends the initial offer before ServerSync)
+    if (this._pendingWebRTCOffer) {
+      const offer = this._pendingWebRTCOffer;
+      delete this._pendingWebRTCOffer;
+      this.webrtcVoice.handleServerOffer(offer);
+    }
+
+    // Track SSRC from UserState updates and register with WebRTCVoice
+    const userStateSub = this.socket.packet
+      .pipe(
+        filterPacket(UserState),
+        filter(us => us.ssrc !== undefined && us.session !== undefined),
+      )
+      .subscribe(us => {
+        this.webrtcVoice?.registerSSRC(us.session!, us.ssrc!);
+      });
+
+    this.on('disconnect', () => {
+      userStateSub.unsubscribe();
+    });
+  }
+
+  /**
+   * @internal
+   * Subscribes to TalkingState messages for WebRTC speaking state detection.
+   */
+  private setupTalkingState() {
+    if (!this.options.webrtc || !this.socket) return;
+
+    const sub = this.socket.packet
+      .pipe(filterPacket(TalkingState))
+      .subscribe(msg => {
+        const session = msg.session ?? 0;
+        const user = this.users.bySession(session);
+        if (!user) return;
+
+        this.emit('speakingStateChange', {
+          user,
+          speaking: (msg.target ?? 0) > 0,
+        });
+      });
+
+    this.on('disconnect', () => {
+      sub.unsubscribe();
     });
   }
 }

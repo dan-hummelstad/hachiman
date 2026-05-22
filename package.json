@@ -4,7 +4,10 @@
   "description": "",
   "scripts": {
     "dev": "pnpm --parallel run dev",
-    "dev:electron": "pnpm -F hachiman dev",
+    "dev:electron": "pnpm -F @hachiman/hachiman-electron dev",
+    "dev:browser": "pnpm -F @hachiman/hachiman-browser dev",
+    "build:electron": "pnpm -F @hachiman/hachiman-electron build",
+    "build:browser": "pnpm -F @hachiman/hachiman-browser build",
     "build:server": "pnpm -F hachiman-server build",
     "dev:server": "pnpm -F hachiman-server dev"
   },

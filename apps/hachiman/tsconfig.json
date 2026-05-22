@@ -1,16 +1,10 @@
 {
   "files": [],
-  "references": [{ "path": "./tsconfig.node.json" }, { "path": "./tsconfig.web.json" }],
+  "references": [{ "path": "./tsconfig.web.json" }],
   "compilerOptions": {
-    "types": [
-      "node",
-      "electron",
-      "vite/client"
-    ],
+    "types": ["node", "vite/client"],
     "paths": {
-      "@renderer/*": [
-        "./src/renderer/src/*"
-      ],
+      "@/*": ["./src/*"]
     }
   }
 }

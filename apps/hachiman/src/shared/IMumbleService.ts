@@ -1,5 +1,5 @@
 import { Client, User, Channel, Permissions } from '@hachiman/hachiman-node'
-import type { Events } from '@hachiman/hachiman-node'
+import type { Events, PersistedMessage } from '@hachiman/hachiman-node'
 
 export interface IMumbleService {
   // Core client access
@@ -32,7 +32,18 @@ export interface IMumbleService {
   moveToChannel: (channelId: number) => Promise<void>
   sendTextMessage: (message: string, channelIds?: number[]) => Promise<void>
 
+  // Chat history (server-persisted)
+  fetchChannelMessages: (opts: {
+    channelId: number
+    beforeId?: bigint
+    limit?: number
+  }) => Promise<{ messages: PersistedMessage[]; hasMore: boolean }>
+
   recieveAudioFrame: (onAudio: (decoded: Buffer) => void) => void
+
+  // Voice control (WebRTC)
+  startMicrophone: () => Promise<void>
+  stopMicrophone: () => void
 
   // User management (admin functions)
   fetchRegisteredUsers: () => Promise<Array<{ userId: number; name: string }>>
@@ -52,3 +63,22 @@ export interface IMumbleService {
 // Re-export common event types for convenience
 export type MumbleEvents = Events
 export type MumbleEventHandler<K extends keyof Events> = (data: Events[K]) => void
+
+/**
+ * Connection parameters the renderer hands to the platform-specific Mumble service factory.
+ * Each platform implementation decides how to materialize a connection from these inputs
+ * (e.g. Electron generates a TLS cert internally; browser opens a WebSocket).
+ */
+export interface MumbleConnectOptions {
+  serverUrl: string
+  port: string
+  username: string
+}
+
+/**
+ * Factory that returns a platform-specific IMumbleService for a given connection.
+ * Platform apps construct this in their entry point and pass it through PlatformProvider.
+ *
+ * Implementations may be async (e.g. Electron needs to generate a self-signed cert).
+ */
+export type IMumbleServiceFactory = (opts: MumbleConnectOptions) => Promise<IMumbleService>
