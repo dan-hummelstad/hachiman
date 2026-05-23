@@ -197,7 +197,7 @@ func NewServer(id int64, dataDir string, db *database.GrumbleDb) (s *Server, err
 			return err
 		}
 		for _, v := range channels {
-			channel := NewChannel(int(v.ChannelID), v.Name)
+			channel := NewChannel(int(v.ChannelID), v.Name, mumbleproto.ChannelState_ChannelType(v.Type))
 			channel.ACL.InheritACL = v.InheritACL
 
 			// Additional information in channel_info table
@@ -505,7 +505,7 @@ func (server *Server) RemoveClient(client *Client, kicked bool) {
 }
 
 // AddChannel adds a new channel to the server. Automatically assign it a channel ID.
-func (server *Server) AddChannel(name string, parent *Channel, isTemp bool) (channel *Channel) {
+func (server *Server) AddChannel(name string, parent *Channel, isTemp bool, channelType mumbleproto.ChannelState_ChannelType) (channel *Channel) {
 	channelID := server.nextTempChanID
 	if !isTemp {
 		parentId := -1
@@ -514,7 +514,7 @@ func (server *Server) AddChannel(name string, parent *Channel, isTemp bool) (cha
 		}
 
 		tx := server.DB.Tx()
-		ch, err := tx.ChannelAdd(uint64(server.Id), name, int64(parentId))
+		ch, err := tx.ChannelAdd(uint64(server.Id), name, int64(parentId), uint8(channelType))
 		if err != nil {
 			tx.Rollback()
 			return nil
@@ -525,7 +525,7 @@ func (server *Server) AddChannel(name string, parent *Channel, isTemp bool) (cha
 		server.nextTempChanID += 1
 	}
 
-	channel = NewChannel(channelID, name)
+	channel = NewChannel(channelID, name, channelType)
 	channel.temporary = isTemp
 	if parent != nil {
 		parent.AddChild(channel)

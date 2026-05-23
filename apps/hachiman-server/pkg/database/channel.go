@@ -12,6 +12,10 @@ type Channel struct {
 
 	Name       string
 	InheritACL bool `gorm:"column:inheritacl"`
+	// Discord-style channel type. 0 = VOICE (default — what existing rows fall
+	// back to when the column is added), 1 = TEXT. Mirrors
+	// MumbleProto.ChannelState.ChannelType. Immutable after create.
+	Type uint8 `gorm:"not null;default:0"`
 }
 
 func (s Channel) TableName() string {
@@ -56,14 +60,14 @@ func (d *DbTx) channelInit(sid uint64, defaultName string) (*Channel, error) {
 	return &channel, nil
 }
 
-func (d *DbTx) ChannelAdd(sid uint64, name string, parentID int64) (*Channel, error) {
+func (d *DbTx) ChannelAdd(sid uint64, name string, parentID int64, channelType uint8) (*Channel, error) {
 	channelID := uint64(0)
 	err := d.db.Model(&Channel{}).Where("server_id = ?", sid).Select("MAX(`channel_id`)+1").Scan(&channelID).Error
 	if err != nil {
 		return nil, err
 	}
 
-	channel := Channel{ServerID: sid, ChannelID: channelID, ParentID: nullInt64(parentID), Name: name}
+	channel := Channel{ServerID: sid, ChannelID: channelID, ParentID: nullInt64(parentID), Name: name, Type: channelType}
 	err = d.db.Create(&channel).Error
 	if err != nil {
 		return nil, err

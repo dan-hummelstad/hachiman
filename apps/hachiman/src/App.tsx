@@ -5,6 +5,7 @@ import { serversService } from '@/services/ServersService'
 import { channelsService } from '@/services/ChannelsService'
 
 import { AddServerDialog } from '@/components/add-server-dialog'
+import { CreateChannelDialog } from '@/components/create-channel-dialog'
 import { ServerIconRail } from '@/components/server-icon-rail'
 import { ChannelSidebar } from '@/components/channel-sidebar'
 import { ChatArea } from '@/components/chat-area'
@@ -12,7 +13,7 @@ import { MemberList } from '@/components/member-list'
 import { TooltipProvider } from '@/components/ui/tooltip'
 
 import { useServerStore } from '@/stores/serverStore'
-import { useChannelStore, type Channel } from '@/stores/channelStore'
+import { useChannelStore, type Channel, type ChannelType } from '@/stores/channelStore'
 import { useVoiceStore } from '@/stores/voiceStore'
 
 // Stable empty-array reference for the no-channels case so downstream
@@ -31,6 +32,7 @@ function App(): React.JSX.Element {
   )
   const voiceChannelByServer = useVoiceStore((s) => s.voiceChannelByServer)
   const [openAddServerDialog, setOpenAddServerDialog] = useState(false)
+  const [createChannelType, setCreateChannelType] = useState<ChannelType | null>(null)
   const [membersOpen, setMembersOpen] = useState(true)
 
   const serverIds = useMemo(() => Array.from(servers.keys()), [servers])
@@ -43,7 +45,9 @@ function App(): React.JSX.Element {
   const voiceChannelId = selectedServerId
     ? (voiceChannelByServer.get(selectedServerId) ?? null)
     : null
-  const selectedChannelName = serverChannels.find((c) => c.id === selectedChannelId)?.name ?? null
+  const selectedChannel = serverChannels.find((c) => c.id === selectedChannelId) ?? null
+  const selectedChannelName = selectedChannel?.name ?? null
+  const selectedChannelType = selectedChannel?.type ?? null
 
   // When a server is freshly selected and has channels but no selection,
   // default to the first channel so the chat area isn't empty.
@@ -99,6 +103,11 @@ function App(): React.JSX.Element {
     await channelsService.sendTextMessage(selectedServerId, message)
   }
 
+  const onCreateChannel = async (name: string, type: ChannelType): Promise<void> => {
+    if (!selectedServerId) return
+    await channelsService.createChannel(selectedServerId, name, type)
+  }
+
   return (
     <TooltipProvider delayDuration={200}>
       <AddServerDialog
@@ -121,10 +130,17 @@ function App(): React.JSX.Element {
           onSelectChannel={onSelectChannel}
           onJoinVoice={(id) => void onJoinVoice(id)}
           onLeaveVoice={() => void onLeaveVoice()}
+          onCreateChannel={(type) => setCreateChannelType(type)}
+        />
+        <CreateChannelDialog
+          type={createChannelType}
+          onClose={() => setCreateChannelType(null)}
+          onCreate={onCreateChannel}
         />
         <ChatArea
           channelId={selectedChannelId}
           channelName={selectedChannelName}
+          channelType={selectedChannelType}
           membersOpen={membersOpen}
           onToggleMembers={() => setMembersOpen((v) => !v)}
           onSendMessage={(text) => void onSendMessage(text)}

@@ -2,6 +2,7 @@ import {
   ACL,
   ChannelRemove,
   ChannelState,
+  ChannelState_ChannelType,
   PermissionQuery,
   PersistedMessage,
 } from './mumbleproto';
@@ -29,6 +30,10 @@ export class Channel {
   name?: string;
   parent?: number;
   temporary: boolean;
+  // Server-assigned channel type. Immutable after create on the server side,
+  // so we don't expose a setter — `syncState` simply ignores subsequent
+  // values. Defaults to VOICE for pre-upgrade servers that never set it.
+  readonly type: ChannelState_ChannelType;
   private links: number[] = [];
 
   constructor(
@@ -40,6 +45,12 @@ export class Channel {
     this.parent = channelState.parent ?? 0;
     this.links = [...channelState.links];
     this.temporary = channelState.temporary ?? false;
+    this.type = channelState.channelType ?? ChannelState_ChannelType.VOICE;
+  }
+
+  /** True if this is a Discord-style persistent text channel. */
+  get isTextChannel(): boolean {
+    return this.type === ChannelState_ChannelType.TEXT;
   }
 
   /**
@@ -98,9 +109,14 @@ export class Channel {
   /**
    * Create a sub-channel.
    * @param name The name of the channel to create.
+   * @param channelType Optional Hachiman channel type. Defaults to VOICE on
+   *   the server when omitted, matching pre-text-channel behaviour.
    * @returns The newly created channel.
    */
-  async createSubChannel(name: string): Promise<Channel> {
+  async createSubChannel(
+    name: string,
+    channelType?: ChannelState_ChannelType,
+  ): Promise<Channel> {
     const permissions = await this.getPermissions();
     if (!permissions.canCreateChannel) {
       throw new InsufficientPermissionsError();
@@ -109,7 +125,11 @@ export class Channel {
     const ret = await this.client.command('createChannel', {
       sendPacket: [
         ChannelState,
-        ChannelState.create({ parent: this.id, name }),
+        ChannelState.create({
+          parent: this.id,
+          name,
+          ...(channelType !== undefined && { channelType }),
+        }),
       ],
       expectPacket: [
         ChannelState,

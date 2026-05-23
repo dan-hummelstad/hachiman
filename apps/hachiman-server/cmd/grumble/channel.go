@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 
 	"mumble.info/grumble/pkg/acl"
+	"mumble.info/grumble/pkg/mumbleproto"
 )
 
 // A Mumble channel
@@ -23,6 +24,11 @@ type Channel struct {
 
 	MaxUsers int
 
+	// Discord-style channel type. VOICE channels accept audio and broadcast
+	// text without persisting it. TEXT channels reject audio (no one is meant
+	// to be "in" them voice-wise) and persist every text message they receive.
+	Type mumbleproto.ChannelState_ChannelType
+
 	// ACL
 	ACL acl.Context
 
@@ -33,15 +39,23 @@ type Channel struct {
 	DescriptionBlob string
 }
 
-func NewChannel(id int, name string) (channel *Channel) {
+func NewChannel(id int, name string, channelType mumbleproto.ChannelState_ChannelType) (channel *Channel) {
 	channel = new(Channel)
 	channel.Id = id
 	channel.Name = name
+	channel.Type = channelType
 	channel.clients = make(map[uint32]*Client)
 	channel.children = make(map[int]*Channel)
 	channel.ACL.Groups = make(map[string]acl.Group)
 	channel.Links = make(map[int]*Channel)
 	return
+}
+
+// IsTextChannel reports whether this is a Discord-style persistent text
+// channel. Convenience for hot-path callers that don't want to import the
+// enum constant directly.
+func (channel *Channel) IsTextChannel() bool {
+	return channel.Type == mumbleproto.ChannelState_CHANNEL_TYPE_TEXT
 }
 
 // AddChild adds a child channel to a channel

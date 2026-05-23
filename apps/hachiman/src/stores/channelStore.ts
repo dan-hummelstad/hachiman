@@ -2,9 +2,12 @@ import type {} from '@redux-devtools/extension'
 import { create } from 'zustand'
 import { devtools } from 'zustand/middleware'
 
+export type ChannelType = 'text' | 'voice'
+
 export type Channel = {
   id: number
   name: string
+  type: ChannelType
 }
 
 interface ChannelsState {

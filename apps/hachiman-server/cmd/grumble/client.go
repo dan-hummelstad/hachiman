@@ -537,8 +537,9 @@ func (client *Client) sendChannelList() {
 
 func (client *Client) sendChannelTree(channel *Channel) {
 	chanstate := &mumbleproto.ChannelState{
-		ChannelId: proto.Uint32(uint32(channel.Id)),
-		Name:      proto.String(channel.Name),
+		ChannelId:   proto.Uint32(uint32(channel.Id)),
+		Name:        proto.String(channel.Name),
+		ChannelType: channel.Type.Enum(),
 	}
 	if channel.parent != nil {
 		chanstate.Parent = proto.Uint32(uint32(channel.parent.Id))

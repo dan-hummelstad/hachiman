@@ -239,8 +239,11 @@ func (server *Server) handleChannelStateMessage(client *Client, msg *Message) {
 		}
 
 		// Check whether the client has permission to create the channel in parent.
+		// Use the GetX accessors here: optional proto fields are *bool / *int32
+		// and the client may omit them. Direct deref panics on nil.
+		isTemp := chanstate.GetTemporary()
 		perm := acl.Permission(acl.NonePermission)
-		if *chanstate.Temporary {
+		if isTemp {
 			perm = acl.Permission(acl.TempChannelPermission)
 		} else {
 			perm = acl.Permission(acl.MakeChannelPermission)
@@ -270,10 +273,21 @@ func (server *Server) handleChannelStateMessage(client *Client, msg *Message) {
 			}
 		}
 
+		// Channel type defaults to VOICE when the client doesn't specify, so
+		// pre-upgrade clients keep their existing create-channel behaviour.
+		channelType := mumbleproto.ChannelState_CHANNEL_TYPE_VOICE
+		if chanstate.ChannelType != nil {
+			channelType = *chanstate.ChannelType
+		}
+
 		// Add the new channel
-		channel = server.AddChannel(name, parent, *chanstate.Temporary)
+		channel = server.AddChannel(name, parent, isTemp, channelType)
 		channel.DescriptionBlob = key
-		channel.Position = int(*chanstate.Position)
+		channel.Position = int(chanstate.GetPosition())
+
+		// Echo the resolved type back so the broadcast carries the canonical
+		// value (clients that omitted the field will still see VOICE on the wire).
+		chanstate.ChannelType = channelType.Enum()
 
 		// Add the creator to the channel's admin group
 		if client.IsRegistered() {
@@ -328,6 +342,15 @@ func (server *Server) handleChannelStateMessage(client *Client, msg *Message) {
 	} else {
 		// Edit existing channel.
 		// First, check whether the actor has the neccessary permissions.
+
+		// Channel type is immutable post-create. The UX assumption is that
+		// changing a channel from VOICE to TEXT (or vice versa) would either
+		// strand in-flight voice sessions or strand persisted chat history, so
+		// the easier story is "make a new channel". Silently drop the field
+		// rather than rejecting — clients that always echo the type back
+		// (e.g. the existing Channel.syncState path in our TS lib) shouldn't
+		// hit a permission error for re-sending an unchanged value.
+		chanstate.ChannelType = nil
 
 		// Name change.
 		if chanstate.Name != nil {
@@ -1178,8 +1201,11 @@ func (server *Server) handleTextMessage(client *Client, msg *Message) {
 		channel := channels[0]
 		channels = channels[1:]
 		if acl.HasPermission(&channel.ACL, client, acl.TextMessagePermission) {
-			// Persist for every subtree channel actually reached.
-			persistChannelIDs[channel.Id] = true
+			// Persist for every subtree TEXT channel actually reached.
+			// VOICE channels broadcast text but don't persist it.
+			if channel.IsTextChannel() {
+				persistChannelIDs[channel.Id] = true
+			}
 			for _, sub := range channel.children {
 				channels = append(channels, sub)
 			}
@@ -1204,7 +1230,9 @@ func (server *Server) handleTextMessage(client *Client, msg *Message) {
 				client.sendPermissionDenied(client, channel, acl.TextMessagePermission)
 				return
 			}
-			persistChannelIDs[channel.Id] = true
+			if channel.IsTextChannel() {
+				persistChannelIDs[channel.Id] = true
+			}
 			// Users directly in that channel
 			for _, target := range channel.clients {
 				clients[target.Session()] = target
@@ -1297,6 +1325,24 @@ func (server *Server) handleRequestChannelMessages(client *Client, msg *Message)
 
 	if !acl.HasPermission(&channel.ACL, client, acl.TextMessagePermission) {
 		client.sendPermissionDenied(client, channel, acl.TextMessagePermission)
+		return
+	}
+
+	// VOICE channels don't persist history. Return an empty page rather than
+	// 404-ing so the client can disambiguate "no permission" from "no history
+	// to fetch" via the response shape.
+	if !channel.IsTextChannel() {
+		resp := &mumbleproto.ChannelMessageHistory{
+			ChannelId: proto.Uint32(uint32(channel.Id)),
+			HasMore:   proto.Bool(false),
+			Messages:  []*mumbleproto.PersistedMessage{},
+		}
+		if req.RequestId != nil {
+			resp.RequestId = proto.Uint32(*req.RequestId)
+		}
+		if err := client.sendMessage(resp); err != nil {
+			client.Panic(err)
+		}
 		return
 	}
 

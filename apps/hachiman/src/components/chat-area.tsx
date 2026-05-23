@@ -1,21 +1,23 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Hash, Users } from 'lucide-react'
+import { Hash, Users, Volume2 } from 'lucide-react'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { MessageToolbar } from '@/components/message-toolbar'
 import { messagesService } from '@/services/MessagesService'
 import { useMessageStore, type Message } from '@/stores/messagesStore'
+import type { ChannelType } from '@/stores/channelStore'
 
 interface ChatAreaProps {
   channelId: number | null
   channelName: string | null
+  channelType: ChannelType | null
   membersOpen: boolean
   onToggleMembers: () => void
   onSendMessage: (text: string) => void
 }
 
-const PAGE_SIZE = 30
+const PAGE_SIZE = 25
 
 // Stable empty-array reference so the zustand selector returns a cached
 // snapshot when the channel has no messages yet, avoiding the
@@ -23,7 +25,7 @@ const PAGE_SIZE = 30
 const EMPTY_MESSAGES: Message[] = []
 
 export function ChatArea(props: ChatAreaProps): React.JSX.Element {
-  const { channelId, channelName, membersOpen, onToggleMembers, onSendMessage } = props
+  const { channelId, channelName, channelType, membersOpen, onToggleMembers, onSendMessage } = props
 
   const messages = useMessageStore((s) =>
     channelId !== null ? (s.history.get(channelId) ?? EMPTY_MESSAGES) : EMPTY_MESSAGES
@@ -32,10 +34,14 @@ export function ChatArea(props: ChatAreaProps): React.JSX.Element {
   const [hasMore, setHasMore] = useState(false)
   const [isLoadingMore, setIsLoadingMore] = useState(false)
   const scrollRef = useRef<HTMLDivElement | null>(null)
+  // Voice channels are non-persistent: skip the history fetch and pagination
+  // wiring entirely so we don't burn a round-trip on a guaranteed-empty page.
+  const isPersistent = channelType === 'text'
 
-  // Reset + load latest history when the selected channel changes.
+  // Reset + load latest history when the selected channel changes. Voice
+  // channels skip this — their chat is live-only (no persisted history).
   useEffect(() => {
-    if (channelId === null) {
+    if (channelId === null || !isPersistent) {
       setHasMore(false)
       return
     }
@@ -47,7 +53,7 @@ export function ChatArea(props: ChatAreaProps): React.JSX.Element {
     return () => {
       cancelled = true
     }
-  }, [channelId])
+  }, [channelId, isPersistent])
 
   // Older-message pagination: when scrolled near the top, fetch the next
   // older page using the oldest currently-loaded historic message's id.
@@ -55,7 +61,7 @@ export function ChatArea(props: ChatAreaProps): React.JSX.Element {
   // and are skipped over when picking the cursor.
   const handleScroll = useCallback(
     (e: React.UIEvent<HTMLDivElement>) => {
-      if (channelId === null) return
+      if (channelId === null || !isPersistent) return
       if (!hasMore || isLoadingMore) return
       const el = e.currentTarget
       if (el.scrollTop > 80) return
@@ -77,7 +83,7 @@ export function ChatArea(props: ChatAreaProps): React.JSX.Element {
         .then((res) => setHasMore(res.hasMore))
         .finally(() => setIsLoadingMore(false))
     },
-    [channelId, hasMore, isLoadingMore, messages]
+    [channelId, hasMore, isLoadingMore, messages, isPersistent]
   )
 
   if (channelId === null) {
@@ -92,11 +98,17 @@ export function ChatArea(props: ChatAreaProps): React.JSX.Element {
   return (
     <section className="flex h-screen flex-1 flex-col overflow-hidden">
       <header className="bg-background flex h-12 shrink-0 items-center gap-2 border-b px-4">
-        <Hash className="text-muted-foreground h-4 w-4" />
+        {channelType === 'voice' ? (
+          <Volume2 className="text-muted-foreground h-4 w-4" />
+        ) : (
+          <Hash className="text-muted-foreground h-4 w-4" />
+        )}
         <h1 className="text-sm font-semibold">{channelName ?? '—'}</h1>
         <Separator orientation="vertical" className="mx-2 data-[orientation=vertical]:h-4" />
         <span className="text-muted-foreground text-xs">
-          Viewing — send messages without joining voice.
+          {channelType === 'voice'
+            ? 'Voice channel — chat here is not saved.'
+            : 'Viewing — send messages without joining voice.'}
         </span>
         <div className="ml-auto flex items-center gap-1">
           <Button

@@ -409,6 +409,28 @@ export interface ChannelState {
      * @generated from protobuf field: optional bool can_enter = 13
      */
     canEnter?: boolean;
+    /**
+     * @generated from protobuf field: optional MumbleProto.ChannelState.ChannelType channel_type = 14 [default = CHANNEL_TYPE_VOICE]
+     */
+    channelType?: ChannelState_ChannelType;
+}
+/**
+ * Hachiman extension: Discord-style channel type. VOICE is the default so
+ * existing rows (which never set this field) and pre-upgrade clients keep
+ * their pre-text-channel behaviour. TEXT channels persist their chat
+ * history; VOICE channels do not.
+ *
+ * @generated from protobuf enum MumbleProto.ChannelState.ChannelType
+ */
+export enum ChannelState_ChannelType {
+    /**
+     * @generated from protobuf enum value: CHANNEL_TYPE_VOICE = 0;
+     */
+    VOICE = 0,
+    /**
+     * @generated from protobuf enum value: CHANNEL_TYPE_TEXT = 1;
+     */
+    TEXT = 1
 }
 /**
  * Used to communicate user leaving or being kicked. May be sent by the client
@@ -2308,7 +2330,8 @@ class ChannelState$Type extends MessageType<ChannelState> {
             { no: 10, name: "description_hash", kind: "scalar", opt: true, T: 12 /*ScalarType.BYTES*/ },
             { no: 11, name: "max_users", kind: "scalar", opt: true, T: 13 /*ScalarType.UINT32*/ },
             { no: 12, name: "is_enter_restricted", kind: "scalar", opt: true, T: 8 /*ScalarType.BOOL*/ },
-            { no: 13, name: "can_enter", kind: "scalar", opt: true, T: 8 /*ScalarType.BOOL*/ }
+            { no: 13, name: "can_enter", kind: "scalar", opt: true, T: 8 /*ScalarType.BOOL*/ },
+            { no: 14, name: "channel_type", kind: "enum", opt: true, T: () => ["MumbleProto.ChannelState.ChannelType", ChannelState_ChannelType, "CHANNEL_TYPE_"] }
         ]);
     }
     create(value?: PartialMessage<ChannelState>): ChannelState {
@@ -2376,6 +2399,9 @@ class ChannelState$Type extends MessageType<ChannelState> {
                 case /* optional bool can_enter */ 13:
                     message.canEnter = reader.bool();
                     break;
+                case /* optional MumbleProto.ChannelState.ChannelType channel_type = 14 [default = CHANNEL_TYPE_VOICE] */ 14:
+                    message.channelType = reader.int32();
+                    break;
                 default:
                     let u = options.readUnknownField;
                     if (u === "throw")
@@ -2427,6 +2453,9 @@ class ChannelState$Type extends MessageType<ChannelState> {
         /* optional bool can_enter = 13; */
         if (message.canEnter !== undefined)
             writer.tag(13, WireType.Varint).bool(message.canEnter);
+        /* optional MumbleProto.ChannelState.ChannelType channel_type = 14 [default = CHANNEL_TYPE_VOICE]; */
+        if (message.channelType !== undefined)
+            writer.tag(14, WireType.Varint).int32(message.channelType);
         let u = options.writeUnknownFields;
         if (u !== false)
             (u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);

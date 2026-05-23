@@ -164,6 +164,15 @@ message ChannelState {
 	optional bool is_enter_restricted = 12;
 	// Whether the receiver of this msg is considered to be able to enter this channel
 	optional bool can_enter = 13;
+	// Hachiman extension: Discord-style channel type. VOICE is the default so
+	// existing rows (which never set this field) and pre-upgrade clients keep
+	// their pre-text-channel behaviour. TEXT channels persist their chat
+	// history; VOICE channels do not.
+	enum ChannelType {
+		CHANNEL_TYPE_VOICE = 0;
+		CHANNEL_TYPE_TEXT = 1;
+	}
+	optional ChannelType channel_type = 14 [default = CHANNEL_TYPE_VOICE];
 }
 
 // Used to communicate user leaving or being kicked. May be sent by the client
