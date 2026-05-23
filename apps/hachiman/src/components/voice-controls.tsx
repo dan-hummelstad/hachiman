@@ -2,20 +2,21 @@ import { Mic, MicOff, Headphones, HeadphoneOff, Radio } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import { Button } from '@/components/ui/button'
 import { useVoiceStore } from '@/stores/voiceStore'
+import { useUserStore } from '@/stores/userStore'
 import { useServerStore } from '@/stores/serverStore'
 import { voiceService } from '@/services/VoiceService'
 import { cn } from '@/lib/utils'
 
 export function VoiceControls(): React.JSX.Element | null {
-  const { selfMute, selfDeaf, micActive, voiceConnected, speakingUsers } = useVoiceStore(
+  const { micActive, voiceConnected, speakingUsers } = useVoiceStore(
     useShallow((s) => ({
-      selfMute: s.selfMute,
-      selfDeaf: s.selfDeaf,
       micActive: s.micActive,
       voiceConnected: s.voiceConnected,
       speakingUsers: s.speakingUsers
     }))
   )
+  const selfMute = useUserStore((s) => s.selfMute)
+  const selfDeaf = useUserStore((s) => s.selfDeaf)
   const selectedServerId = useServerStore((s) => s.selectedServerId)
 
   if (!selectedServerId) return null

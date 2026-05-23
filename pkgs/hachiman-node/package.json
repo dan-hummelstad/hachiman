@@ -21,6 +21,7 @@
   "scripts": {
     "lint": "eslint \"src/**/*.ts\"",
     "format": "prettier --write .",
+    "typecheck": "tsgo --project tsconfig.build.json && tsc-alias -p tsconfig.build.json",
     "build": "tsgo --project tsconfig.build.json && tsc-alias -p tsconfig.build.json",
     "test": "vitest",
     "test:e2e": "vitest --config ./e2e/vitest.config.ts",

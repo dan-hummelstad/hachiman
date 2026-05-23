@@ -1,5 +1,6 @@
 import { serversService } from './ServersService'
 import { useVoiceStore } from '@/stores/voiceStore'
+import { useUserStore } from '@/stores/userStore'
 import type { SpeakingStateChange } from '@hachiman/hachiman-node'
 
 export class VoiceService {
@@ -41,12 +42,13 @@ export class VoiceService {
    */
   async joinVoice(url: string, channelId: number): Promise<void> {
     const store = useVoiceStore.getState()
+    const userStore = useUserStore.getState()
     store.setVoiceChannel(url, channelId)
 
     const server = serversService.getServer(url)
     if (!server || !server.isConnected()) return
 
-    if (!store.selfMute && !store.selfDeaf) {
+    if (!userStore.selfMute && !userStore.selfDeaf) {
       await server.startMicrophone().catch((err) => {
         console.warn('Failed to start microphone:', err)
       })
@@ -70,7 +72,8 @@ export class VoiceService {
 
   async startMicrophone(url: string): Promise<void> {
     const store = useVoiceStore.getState()
-    if (store.selfMute || store.selfDeaf) return
+    const userStore = useUserStore.getState()
+    if (userStore.selfMute || userStore.selfDeaf) return
 
     const server = serversService.getServer(url)
     if (!server || !server.isConnected()) return
@@ -90,11 +93,12 @@ export class VoiceService {
 
   async toggleMute(url: string): Promise<void> {
     const store = useVoiceStore.getState()
+    const userStore = useUserStore.getState()
     const server = serversService.getServer(url)
     if (!server || !server.isConnected()) return
 
-    const wasMuted = store.selfMute
-    store.toggleMute()
+    const wasMuted = userStore.selfMute
+    userStore.setSelfMute(!wasMuted)
 
     if (wasMuted) {
       await server.mumbleClient.self?.setSelfMute(false).catch((err) => {
@@ -113,29 +117,32 @@ export class VoiceService {
 
   async toggleDeaf(url: string): Promise<void> {
     const store = useVoiceStore.getState()
+    const userStore = useUserStore.getState()
     const server = serversService.getServer(url)
     if (!server || !server.isConnected()) return
 
-    const wasDeaf = store.selfDeaf
-    store.toggleDeaf()
+    const wasDeaf = userStore.selfDeaf
 
     if (wasDeaf) {
+      userStore.setSelfDeaf(false)
       await server.mumbleClient.self?.setSelfDeaf(false).catch((err) => {
         console.warn('setSelfDeaf(false) failed:', err)
       })
-      if (!store.selfMute) {
+      if (!useUserStore.getState().selfMute) {
         await server.startMicrophone()
         store.setMicActive(true)
       }
     } else {
+      userStore.setSelfDeaf(true)
+      userStore.setSelfMute(true)
       server.stopMicrophone()
       store.setMicActive(false)
       await server.mumbleClient.self?.setSelfDeaf(true).catch((err) => {
         console.warn('setSelfDeaf(true) failed:', err)
       })
-      if (!store.selfMute) {
-        store.toggleMute()
-      }
+      await server.mumbleClient.self?.setSelfMute(true).catch((err) => {
+        console.warn('setSelfMute(true) failed:', err)
+      })
     }
   }
 

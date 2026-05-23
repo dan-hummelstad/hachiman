@@ -56,9 +56,16 @@ export const useMessageStore = create<MessageState>()(
       addMessage: (channelId, message) =>
         set((state) => {
           const newHistory = new Map(state.history)
-          const channelMessages = newHistory.get(channelId) || []
-          channelMessages.push(message)
-          newHistory.set(channelId, channelMessages)
+          const existing = newHistory.get(channelId) || []
+          // Build a NEW array — never mutate the existing reference, or the
+          // zustand selector in chat-area.tsx will return the same snapshot
+          // and React won't re-render until something else triggers a fetch.
+          // Insertion-sort by date so a late-arriving message with an earlier
+          // timestamp (clock skew, race with an optimistic local send) slots
+          // into chronological order instead of being appended at the bottom.
+          const merged = [...existing, message]
+          merged.sort((a, b) => a.date.getTime() - b.date.getTime())
+          newHistory.set(channelId, merged)
           return { history: newHistory }
         }),
       prependHistory: (channelId, incoming) =>

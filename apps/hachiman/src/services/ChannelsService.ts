@@ -76,10 +76,18 @@ export class ChannelsService {
       author: server.clientSession?.toString() ?? 'Unknown',
       content: message,
       date: new Date(),
-      avatar: '' // Placeholder, implement avatar fetching if needed
+      avatar: ''
     }
-    await server.sendTextMessage(message, [channelId])
+    // Eager-add so the sender sees their message immediately, before the
+    // server round-trip. If the send fails, roll it back so the UI doesn't
+    // claim a delivery that never happened.
     messageStore.addMessage(channelId, newMessage)
+    try {
+      await server.sendTextMessage(message, [channelId])
+    } catch (err) {
+      messageStore.deleteMessage(channelId, newMessage.id)
+      throw err
+    }
   }
 
   /**

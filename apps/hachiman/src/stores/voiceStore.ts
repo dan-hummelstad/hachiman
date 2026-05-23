@@ -3,8 +3,6 @@ import { create } from 'zustand'
 import { devtools } from 'zustand/middleware'
 
 interface VoiceState {
-  selfMute: boolean
-  selfDeaf: boolean
   micActive: boolean
   voiceConnected: boolean
   speakingUsers: Set<number>
@@ -13,8 +11,6 @@ interface VoiceState {
   // Independent of channelStore.selectedChannelByServer (the channel being viewed).
   voiceChannelByServer: Map<string, number>
 
-  toggleMute: () => void
-  toggleDeaf: () => void
   setMicActive: (active: boolean) => void
   setVoiceConnected: (connected: boolean) => void
   addSpeaking: (session: number) => void
@@ -26,15 +22,11 @@ interface VoiceState {
 
 export const useVoiceStore = create<VoiceState>()(
   devtools((set, get) => ({
-    selfMute: false,
-    selfDeaf: false,
     micActive: false,
     voiceConnected: false,
     speakingUsers: new Set<number>(),
     voiceChannelByServer: new Map<string, number>(),
 
-    toggleMute: () => set((state) => ({ selfMute: !state.selfMute })),
-    toggleDeaf: () => set((state) => ({ selfDeaf: !state.selfDeaf })),
     setMicActive: (active: boolean) => set({ micActive: active }),
     setVoiceConnected: (connected: boolean) => set({ voiceConnected: connected }),
     addSpeaking: (session: number) =>
@@ -65,8 +57,6 @@ export const useVoiceStore = create<VoiceState>()(
     },
     reset: () =>
       set({
-        selfMute: false,
-        selfDeaf: false,
         micActive: false,
         voiceConnected: false,
         speakingUsers: new Set<number>(),
