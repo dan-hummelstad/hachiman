@@ -1,6 +1,9 @@
 {
   "files": [],
-  "references": [{ "path": "./tsconfig.web.json" }],
+  "references": [
+    { "path": "./tsconfig.web.json" },
+    { "path": "../../pkgs/hachiman-node" }
+  ],
   "compilerOptions": {
     "types": ["node", "vite/client"],
     "paths": {

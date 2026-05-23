@@ -5,10 +5,13 @@
   "scripts": {
     "build": "go build -o ./bin/hachiman-server mumble.info/grumble/cmd/grumble ",
     "start": "./bin/hachiman-server --datadir ./bin/data --log ./bin/data/grumble.log",
-    "dev": "pnpm run build && pnpm run start"
+    "dev": "nodemon --exec go run mumble.info/grumble/cmd/grumble --signal SIGTERM --watch . --ext go --ignore bin/ --ignore node_modules/"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "packageManager": "pnpm@10.6.3"
+  "packageManager": "pnpm@10.6.3",
+  "devDependencies": {
+    "nodemon": "^3.1.14"
+  }
 }

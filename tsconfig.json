@@ -1,0 +1,9 @@
+{
+  "files": [],
+  "references": [
+    { "path": "./pkgs/hachiman-node" },
+    { "path": "./apps/hachiman" },
+    { "path": "./apps/hachiman-electron" },
+    { "path": "./apps/hachiman-browser" }
+  ]
+}

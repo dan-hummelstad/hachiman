@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useShallow } from 'zustand/react/shallow'
 
 import { serversService } from '@/services/ServersService'
 import { channelsService } from '@/services/ChannelsService'
@@ -11,18 +12,31 @@ import { MemberList } from '@/components/member-list'
 import { TooltipProvider } from '@/components/ui/tooltip'
 
 import { useServerStore } from '@/stores/serverStore'
-import { useChannelStore } from '@/stores/channelStore'
+import { useChannelStore, type Channel } from '@/stores/channelStore'
 import { useVoiceStore } from '@/stores/voiceStore'
 
+// Stable empty-array reference for the no-channels case so downstream
+// memoization and prop equality holds across renders.
+const EMPTY_CHANNELS: Channel[] = []
+
 function App(): React.JSX.Element {
-  const { servers, selectedServerId } = useServerStore()
-  const { channels, selectedChannelByServer } = useChannelStore()
+  const { servers, selectedServerId } = useServerStore(
+    useShallow((s) => ({ servers: s.servers, selectedServerId: s.selectedServerId }))
+  )
+  const { channels, selectedChannelByServer } = useChannelStore(
+    useShallow((s) => ({
+      channels: s.channels,
+      selectedChannelByServer: s.selectedChannelByServer
+    }))
+  )
   const voiceChannelByServer = useVoiceStore((s) => s.voiceChannelByServer)
   const [openAddServerDialog, setOpenAddServerDialog] = useState(false)
   const [membersOpen, setMembersOpen] = useState(true)
 
   const serverIds = useMemo(() => Array.from(servers.keys()), [servers])
-  const serverChannels = selectedServerId ? (channels.get(selectedServerId) ?? []) : []
+  const serverChannels = selectedServerId
+    ? (channels.get(selectedServerId) ?? EMPTY_CHANNELS)
+    : EMPTY_CHANNELS
   const selectedChannelId = selectedServerId
     ? (selectedChannelByServer.get(selectedServerId) ?? null)
     : null

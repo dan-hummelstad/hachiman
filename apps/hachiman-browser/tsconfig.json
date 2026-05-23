@@ -1,24 +1,17 @@
 {
+  "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "target": "ESNext",
-    "module": "ESNext",
-    "moduleResolution": "bundler",
     "lib": ["ESNext", "DOM", "DOM.Iterable"],
     "jsx": "react-jsx",
-    "strict": true,
-    "esModuleInterop": true,
-    "resolveJsonModule": true,
-    "isolatedModules": true,
-    "skipLibCheck": true,
-    "forceConsistentCasingInFileNames": true,
-    "noUnusedLocals": true,
-    "noUnusedParameters": true,
-    "noImplicitReturns": true,
-    "rootDir": "..",
-    "types": ["vite/client"],
-    "paths": {
-      "@/*": ["../hachiman/src/*"]
-    }
+    "rootDir": ".",
+    "composite": true,
+    "noEmit": true,
+    "tsBuildInfoFile": "../../ts-dist/hachiman-browser/tsconfig.tsbuildinfo",
+    "types": ["vite/client"]
   },
-  "include": ["src/**/*", "vite.config.ts", "../hachiman/src/**/*"]
+  "references": [
+    { "path": "../hachiman/tsconfig.web.json" },
+    { "path": "../../pkgs/hachiman-node" }
+  ],
+  "include": ["src/**/*", "vite.config.ts"]
 }

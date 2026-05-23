@@ -1,29 +1,18 @@
 {
+  "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "target": "ESNext",
-    "module": "ESNext",
-    "moduleResolution": "bundler",
     "lib": ["ESNext", "DOM", "DOM.Iterable"],
     "jsx": "react-jsx",
-    "strict": true,
-    "esModuleInterop": true,
-    "resolveJsonModule": true,
-    "isolatedModules": true,
-    "skipLibCheck": true,
-    "forceConsistentCasingInFileNames": true,
-    "noUnusedLocals": true,
-    "noUnusedParameters": true,
-    "noImplicitReturns": true,
     "rootDir": ".",
     "composite": true,
+    "outDir": "../../ts-dist/hachiman",
+    "tsBuildInfoFile": "../../ts-dist/hachiman/tsconfig.web.tsbuildinfo",
+    "declaration": true,
     "types": ["node"],
     "paths": {
       "@/*": ["./src/*"]
     }
   },
-  "include": [
-    "src/env.d.ts",
-    "src/**/*",
-    "src/**/*.tsx"
-  ]
+  "references": [{ "path": "../../pkgs/hachiman-node" }],
+  "include": ["src/env.d.ts", "src/**/*", "src/**/*.tsx"]
 }

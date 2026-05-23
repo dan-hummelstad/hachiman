@@ -8,8 +8,8 @@
   "scripts": {
     "format": "prettier --write .",
     "lint": "eslint --cache .",
-    "typecheck:node": "tsc --noEmit -p tsconfig.node.json --composite false",
-    "typecheck:web": "tsc --noEmit -p tsconfig.web.json --composite false",
+    "typecheck:node": "tsgo --noEmit -p tsconfig.node.json",
+    "typecheck:web": "tsgo --noEmit -p tsconfig.web.json",
     "typecheck": "pnpm run typecheck:node && pnpm run typecheck:web",
     "start": "electron-vite preview",
     "dev": "NODE_TLS_REJECT_UNAUTHORIZED=0 electron-vite dev",
@@ -52,7 +52,6 @@
     "prettier": "^3.7.4",
     "react": "^19.2.1",
     "react-dom": "^19.2.1",
-    "typescript": "^5.9.3",
     "vite": "^7.2.6",
     "vite-plugin-commonjs-externals": "^0.1.4"
   }

@@ -21,7 +21,7 @@
   "scripts": {
     "lint": "eslint \"src/**/*.ts\"",
     "format": "prettier --write .",
-    "build": "tsc --project tsconfig.build.json && tsc-alias -p tsconfig.build.json",
+    "build": "tsgo --project tsconfig.build.json && tsc-alias -p tsconfig.build.json",
     "test": "vitest",
     "test:e2e": "vitest --config ./e2e/vitest.config.ts",
     "release": "release-it",
@@ -49,7 +49,6 @@
     "release-it": "19.1.0",
     "tsc-alias": "1.8.16",
     "tsconfig-paths": "4.2.0",
-    "typescript": "5.9.3",
     "typescript-eslint": "^8.24.0",
     "vitest": "4.0.15"
   }

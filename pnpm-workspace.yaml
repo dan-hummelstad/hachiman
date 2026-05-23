@@ -1,6 +1,10 @@
 packages:
   - apps/*
   - pkgs/*
+
+ignoredBuiltDependencies:
+  - '@discordjs/opus'
+
 onlyBuiltDependencies:
   - '@swc/core'
   - electron

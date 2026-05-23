@@ -17,18 +17,21 @@ interface ChatAreaProps {
 
 const PAGE_SIZE = 30
 
+// Stable empty-array reference so the zustand selector returns a cached
+// snapshot when the channel has no messages yet, avoiding the
+// "getSnapshot should be cached" render loop.
+const EMPTY_MESSAGES: Message[] = []
+
 export function ChatArea(props: ChatAreaProps): React.JSX.Element {
   const { channelId, channelName, membersOpen, onToggleMembers, onSendMessage } = props
 
   const messages = useMessageStore((s) =>
-    channelId !== null ? s.history.get(channelId) || [] : []
+    channelId !== null ? (s.history.get(channelId) ?? EMPTY_MESSAGES) : EMPTY_MESSAGES
   )
 
   const [hasMore, setHasMore] = useState(false)
   const [isLoadingMore, setIsLoadingMore] = useState(false)
   const scrollRef = useRef<HTMLDivElement | null>(null)
-
-  //claude --resume c8609c75-8805-4a47-ad93-41db82d379a1
 
   // Reset + load latest history when the selected channel changes.
   useEffect(() => {

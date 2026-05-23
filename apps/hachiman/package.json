@@ -13,7 +13,7 @@
   "scripts": {
     "format": "prettier --write .",
     "lint": "eslint --cache .",
-    "typecheck": "tsc --noEmit -p tsconfig.web.json --composite false",
+    "typecheck": "tsgo --noEmit -p tsconfig.web.json",
     "shadcn:add": "pnpm dlx shadcn@latest add"
   },
   "dependencies": {
@@ -52,7 +52,6 @@
     "eslint-plugin-react-refresh": "^0.4.24",
     "prettier": "^3.7.4",
     "react": "^19.2.1",
-    "react-dom": "^19.2.1",
-    "typescript": "^5.9.3"
+    "react-dom": "^19.2.1"
   }
 }

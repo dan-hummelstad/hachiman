@@ -8,9 +8,13 @@ Hachiman provides a desktop application for Mumble voice communication, a TypeSc
 
 | Package | Description | Tech |
 |---------|-------------|------|
-| [`apps/hachiman`](apps/hachiman/) | Electron desktop app | React 19, Tailwind CSS 4, Zustand |
-| [`pkgs/hachiman-node`](pkgs/hachiman-node/) | TypeScript Mumble client library | RxJS, Protobuf, WebRTC |
+| [`apps/hachiman`](apps/hachiman/) | Shared React UI library (components, stores, services, platform abstraction) | React 19, Tailwind CSS 4, Zustand |
+| [`apps/hachiman-electron`](apps/hachiman-electron/) | Electron desktop host | electron-vite, native TLS + Opus |
+| [`apps/hachiman-browser`](apps/hachiman-browser/) | Browser host | Vite, WebSocket + WebRTC |
 | [`apps/hachiman-server`](apps/hachiman-server/) | Mumble-compatible voice server | Go, Pion WebRTC, SQLite |
+| [`pkgs/hachiman-node`](pkgs/hachiman-node/) | TypeScript Mumble client library | RxJS, Protobuf, WebRTC |
+
+The host apps (`hachiman-electron`, `hachiman-browser`) both depend on the shared UI in `@hachiman/hachiman` and the protocol/transport library in `@hachiman/hachiman-node`. The shared UI talks to Mumble through the `IMumbleService` / `IPlatformService` interfaces; each host provides its own implementation under `platforms/<host>/`.
 
 ## Architecture
 
@@ -192,27 +196,44 @@ graph TB
 # Install all dependencies
 pnpm install
 
-# Start everything (server + electron app) with hot-reload
+# Start everything (server + apps) in parallel with hot-reload
 pnpm dev
 
 # Or run individually:
-pnpm dev:server      # Build and start the Go server
-pnpm dev:electron    # Start the Electron app with hot-reload
+pnpm dev:server      # Go server with nodemon hot-reload
+pnpm dev:electron    # Electron desktop app
+pnpm dev:browser     # Browser app on Vite
 ```
 
-The server listens on port **64738** (TCP + UDP). The Electron app connects with self-signed certificates generated at runtime.
+The server listens on port **64738** (TCP, UDP, and WebSocket share the port). Hosts connect with self-signed certificates generated at runtime.
 
 ### Build
 
 ```bash
-# Build server binary
+# Server binary
 pnpm build:server
 
-# Build desktop app
-cd apps/hachiman
+# Browser bundle (Vite)
+pnpm build:browser
+
+# Desktop app
+pnpm build:electron
+# Or for an installer for a specific platform:
+cd apps/hachiman-electron
 pnpm build:mac       # macOS
 pnpm build:win       # Windows
 pnpm build:linux     # Linux (AppImage, snap, deb)
+```
+
+### TypeScript: `tsgo`, not `tsc`
+
+All TypeScript work in this repo uses the [TypeScript-native compiler](https://github.com/microsoft/typescript-go) (`@typescript/native-preview`, binary `tsgo`), installed once as a root devDependency. Every workspace's `typecheck` and `build` script invokes `tsgo` directly — do not run `tsc` or add `typescript` as a devDependency to any package.
+
+```bash
+# Typecheck a single workspace
+pnpm -F @hachiman/hachiman          typecheck
+pnpm -F @hachiman/hachiman-electron typecheck
+pnpm -F @hachiman/hachiman-browser  typecheck
 ```
 
 ## Client Library
@@ -294,39 +315,48 @@ Hachiman implements the [Mumble protocol](https://mumble-protocol.readthedocs.io
 ```
 hachiman/
 ├── apps/
-│   ├── hachiman/                  # Electron desktop app
-│   │   ├── src/
-│   │   │   ├── main/              # Electron main process
-│   │   │   ├── preload/           # IPC bridge
-│   │   │   ├── renderer/src/      # React app
-│   │   │   │   ├── components/    # UI (shadcn/ui + custom)
-│   │   │   │   ├── services/      # ServersService, ChannelsService, VoiceService
-│   │   │   │   └── stores/        # Zustand stores (5)
-│   │   │   └── shared/            # Cross-process interfaces
-│   │   └── platforms/
-│   │       ├── electron/          # Native TLS + Opus
-│   │       └── browser/           # WebSocket + WebRTC
+│   ├── hachiman/                       # Shared React UI library (@hachiman/hachiman)
+│   │   └── src/
+│   │       ├── App.tsx                 # Root layout (server rail + channel sidebar + chat + members)
+│   │       ├── components/             # UI (shadcn/ui + custom: chat-area, channel-sidebar, member-list, …)
+│   │       ├── services/               # ServersService, ChannelsService, VoiceService, MessagesService
+│   │       ├── stores/                 # Zustand stores (server, channel, message, user, voice)
+│   │       └── shared/                 # IMumbleService, IPlatformService, PlatformContext
 │   │
-│   └── hachiman-server/           # Go Mumble server
-│       ├── cmd/grumble/           # Server entry point + handlers
+│   ├── hachiman-electron/              # Electron host (@hachiman/hachiman-electron)
+│   │   ├── src/
+│   │   │   ├── main/                   # Electron main process
+│   │   │   ├── preload/                # IPC bridge
+│   │   │   └── renderer/src/           # Mounts the shared <App />
+│   │   └── platforms/electron/         # MumbleService (TLS + Opus), PlatformService
+│   │
+│   ├── hachiman-browser/               # Browser host (@hachiman/hachiman-browser)
+│   │   └── src/
+│   │       ├── main.tsx                # Mounts the shared <App />
+│   │       └── platforms/browser/      # MumbleService (WebSocket + WebRTC), PlatformService
+│   │
+│   └── hachiman-server/                # Go Mumble server (Grumble fork)
+│       ├── cmd/grumble/                # Server entry point + packet handlers + voice broadcast
 │       └── pkg/
-│           ├── web/               # WebRTC SFU
-│           ├── mumbleproto/       # Protobuf definitions
-│           ├── database/          # GORM + SQLite
-│           ├── acl/               # Permission system
-│           └── cryptstate/        # Voice encryption
+│           ├── web/                    # WebRTC SFU + SSRC pool
+│           ├── mumbleproto/            # Protobuf definitions (authoritative for both sides)
+│           ├── database/               # GORM + SQLite
+│           ├── acl/                    # Permission system
+│           └── cryptstate/             # Voice encryption
 │
 └── pkgs/
-    └── hachiman-node/             # TypeScript Mumble client library
+    └── hachiman-node/                  # Mumble client library (@hachiman/hachiman-node)
         └── src/
-            ├── client.ts          # Main client API
-            ├── transport.ts       # ITransport interface
-            ├── tls-transport.ts   # Node.js TLS
-            ├── ws-transport.ts    # Browser WebSocket
-            ├── webrtc-voice.ts    # WebRTC voice
-            ├── mumble-socket.ts   # Protocol framing
-            └── mumbleproto/       # Generated protobuf types
+            ├── client.ts               # Main client API
+            ├── transport.ts            # ITransport interface
+            ├── tls-transport.ts        # Node.js TLS
+            ├── ws-transport.ts         # Browser WebSocket
+            ├── webrtc-voice.ts         # WebRTC voice
+            ├── mumble-socket.ts        # Protocol framing
+            └── mumbleproto/            # Generated protobuf bindings (do not edit by hand)
 ```
+
+See [`CLAUDE.md`](CLAUDE.md) for repo conventions (Zustand selector patterns, the `tsgo`-only rule, protobuf regeneration workflow, etc.).
 
 ## License
 
