@@ -31,24 +31,31 @@ export function ChatArea(props: ChatAreaProps): React.JSX.Element {
     channelId !== null ? (s.history.get(channelId) ?? EMPTY_MESSAGES) : EMPTY_MESSAGES
   )
 
-  const [hasMore, setHasMore] = useState(false)
+  // Tag the async hasMore result with the channel it came from. On channel
+  // switch the tag stops matching, so `hasMore` derives back to false without
+  // a synchronous reset inside the effect.
+  const [pagination, setPagination] = useState<{
+    channelId: number
+    hasMore: boolean
+  } | null>(null)
   const [isLoadingMore, setIsLoadingMore] = useState(false)
   const scrollRef = useRef<HTMLDivElement | null>(null)
   // Voice channels are non-persistent: skip the history fetch and pagination
   // wiring entirely so we don't burn a round-trip on a guaranteed-empty page.
   const isPersistent = channelType === 'text'
+  const hasMore =
+    isPersistent && pagination !== null && pagination.channelId === channelId
+      ? pagination.hasMore
+      : false
 
-  // Reset + load latest history when the selected channel changes. Voice
+  // Load the latest history page when the selected channel changes. Voice
   // channels skip this — their chat is live-only (no persisted history).
   useEffect(() => {
-    if (channelId === null || !isPersistent) {
-      setHasMore(false)
-      return
-    }
+    if (channelId === null || !isPersistent) return
     let cancelled = false
     void messagesService.loadHistory(channelId, { limit: PAGE_SIZE }).then((res) => {
       if (cancelled) return
-      setHasMore(res.hasMore)
+      setPagination({ channelId, hasMore: res.hasMore })
     })
     return () => {
       cancelled = true
@@ -80,7 +87,7 @@ export function ChatArea(props: ChatAreaProps): React.JSX.Element {
           channelId,
           beforeId !== undefined ? { beforeId, limit: PAGE_SIZE } : { limit: PAGE_SIZE }
         )
-        .then((res) => setHasMore(res.hasMore))
+        .then((res) => setPagination({ channelId, hasMore: res.hasMore }))
         .finally(() => setIsLoadingMore(false))
     },
     [channelId, hasMore, isLoadingMore, messages, isPersistent]

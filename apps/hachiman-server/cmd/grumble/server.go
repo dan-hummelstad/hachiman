@@ -739,6 +739,52 @@ func (server *Server) handleAuthenticate(client *Client, msg *Message) {
 		}
 	}
 
+	// Oracle / Takusen SSO. We run introspection in this same goroutine —
+	// it's already off the accept loop, and the 5s HTTP timeout inside
+	// introspectOracleToken bounds the worst case.
+	oracleCfg := OracleIntrospectConfig{
+		URL:          server.cfg.StringValue("OracleIntrospectionURL"),
+		ClientID:     server.cfg.StringValue("OracleClientID"),
+		ClientSecret: server.cfg.StringValue("OracleClientSecret"),
+	}
+	oracleOnly := server.cfg.BoolValue("OracleOnly")
+	oracleToken := auth.GetOracleToken()
+	switch {
+	case oracleToken != "" && oracleCfg.Enabled():
+		result, err := introspectOracleToken(oracleCfg, oracleToken)
+		if err != nil || result == nil || !result.Active {
+			if err != nil {
+				server.Printf("Oracle introspection failed for %v: %v", client.Session(), err)
+			}
+			if oracleOnly {
+				client.RejectAuth(mumbleproto.Reject_AuthenticatorFail,
+					"Oracle authentication failed")
+				return
+			}
+			// Fall back to anonymous — proceed as if no token was sent.
+		} else {
+			client.OracleSub = result.Sub
+			client.OracleHandle = result.PreferredUsername
+			client.OracleVerified = true
+		}
+	case oracleToken != "" && !oracleCfg.Enabled():
+		// Client offered a token but the server has no introspection
+		// endpoint configured. In OracleOnly mode there is no way to
+		// satisfy the policy, so reject; otherwise silently drop the
+		// token and proceed anonymously.
+		server.Printf("Client %v sent oracle_token but server has no introspection configured",
+			client.Session())
+		if oracleOnly {
+			client.RejectAuth(mumbleproto.Reject_AuthenticatorFail,
+				"Oracle authentication is required but not configured on this server")
+			return
+		}
+	case oracleToken == "" && oracleOnly:
+		client.RejectAuth(mumbleproto.Reject_AuthenticatorFail,
+			"This server requires Oracle authentication")
+		return
+	}
+
 	// Check if the client wants WebRTC voice transport
 	if auth.GetWebrtc() && server.sfu != nil {
 		if err := server.setupWebRTCForClient(client); err != nil {
@@ -867,6 +913,16 @@ func (server *Server) finishAuthenticate(client *Client) {
 	// Include SSRC for WebRTC clients
 	if client.webrtcEnabled && client.webrtcClient != nil {
 		userstate.Ssrc = proto.Uint32(client.webrtcClient.SSRC)
+	}
+
+	// Broadcast Oracle/Takusen identity so other clients can render a
+	// verified badge next to this user. Only set when introspection
+	// actually succeeded — never inferred from the absence of a token.
+	if client.OracleVerified {
+		userstate.Verified = proto.Bool(true)
+		if client.OracleHandle != "" {
+			userstate.OracleHandle = proto.String(client.OracleHandle)
+		}
 	}
 
 	if client.HasCertificate() {
@@ -1111,6 +1167,15 @@ func (server *Server) sendUserList(client *Client) {
 		}
 		if len(connectedClient.PluginIdentity) > 0 {
 			userstate.PluginIdentity = proto.String(connectedClient.PluginIdentity)
+		}
+		// Mirror the same Oracle fields broadcast at first-join so a
+		// late-arriving client sees the verified badge for users that
+		// were already present.
+		if connectedClient.OracleVerified {
+			userstate.Verified = proto.Bool(true)
+			if connectedClient.OracleHandle != "" {
+				userstate.OracleHandle = proto.String(connectedClient.OracleHandle)
+			}
 		}
 
 		err := client.sendMessage(userstate)

@@ -26,6 +26,17 @@ var DefaultCfg = map[string]string{
 	"MessageBurst":          "5",
 	"PluginMessageLimit":    "4",
 	"PluginMessageBurst":    "15",
+
+	// Oracle / Takusen SSO (RFC 7662 introspection).
+	// All three URL/ClientID/ClientSecret must be set for the server to
+	// attempt introspection on inbound Authenticate.oracle_token values.
+	"OracleIntrospectionURL": "",
+	"OracleClientID":         "",
+	"OracleClientSecret":     "",
+	// When true, reject any client that does not present a verifiable
+	// Oracle token. Defaults to false so anonymous clients are still
+	// accepted on servers that haven't opted in.
+	"OracleOnly": "false",
 }
 
 type ConfigRepo interface {

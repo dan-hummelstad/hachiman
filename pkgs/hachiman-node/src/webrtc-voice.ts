@@ -77,13 +77,15 @@ export class WebRTCVoice {
     // Listen for server's ICE candidates
     const iceSub = this.socket.packet
       .pipe(filterPacket(IceCandidate))
-      .subscribe(async msg => {
-        try {
-          const candidate = JSON.parse(msg.content);
-          await this.pc.addIceCandidate(candidate);
-        } catch (err) {
-          console.warn('WebRTCVoice: failed to add ICE candidate', err);
-        }
+      .subscribe(msg => {
+        void (async () => {
+          try {
+            const candidate = JSON.parse(msg.content) as RTCIceCandidateInit;
+            await this.pc.addIceCandidate(candidate);
+          } catch (err) {
+            console.warn('WebRTCVoice: failed to add ICE candidate', err);
+          }
+        })();
       });
     this.subscriptions.push(iceSub);
 
@@ -220,7 +222,7 @@ export class WebRTCVoice {
   }
 
   private sendIceCandidate(candidate: RTCIceCandidate): void {
-    this.socket.send(
+    void this.socket.send(
       IceCandidate,
       IceCandidate.create({
         content: JSON.stringify(candidate.toJSON()),
@@ -236,7 +238,7 @@ export class WebRTCVoice {
     audio.srcObject = stream;
     audio.autoplay = true;
     this.audioElements.set(stream.id, audio);
-    audio.play().catch(err => {
+    audio.play().catch((err: unknown) => {
       console.warn('WebRTCVoice: autoplay blocked', err);
     });
 

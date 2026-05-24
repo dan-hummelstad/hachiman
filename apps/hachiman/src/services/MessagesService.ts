@@ -2,13 +2,14 @@ import type { PersistedMessage } from '@hachiman/hachiman-node'
 import { serversService } from './ServersService'
 import { useServerStore } from '@/stores/serverStore'
 import { type HistoricMessage, useMessageStore, type Message } from '@/stores/messagesStore'
+import type { IMumbleService } from '@/shared/IMumbleService'
 
 /**
  * Resolve the IMumbleService for the currently selected server. We use the
  * selected server (rather than threading a server URL through the component
  * tree) because the chat view always operates against the active server.
  */
-function resolveActiveMumbleService() {
+function resolveActiveMumbleService(): IMumbleService {
   const { selectedServerId } = useServerStore.getState()
   if (!selectedServerId) {
     throw new Error('No server is selected')

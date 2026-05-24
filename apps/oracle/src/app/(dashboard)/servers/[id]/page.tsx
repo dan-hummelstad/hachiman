@@ -20,6 +20,7 @@ import { EditServerForm } from './_components/edit-server-form'
 import { VerifyDomainPanel } from './_components/verify-domain-panel'
 import { InvitesPanel } from './_components/invites-panel'
 import { OidcClientPanel } from './_components/oidc-client-panel'
+import { OracleOnlyToggle } from './_components/oracle-only-toggle'
 
 export const dynamic = 'force-dynamic'
 
@@ -79,7 +80,7 @@ export default async function ServerDetailPage({ params }: PageProps): Promise<R
           <TabsTrigger value="oidc">OIDC client</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="overview">
+        <TabsContent value="overview" className="grid gap-6">
           <Card>
             <CardHeader>
               <CardTitle>Overview</CardTitle>
@@ -99,6 +100,11 @@ export default async function ServerDetailPage({ params }: PageProps): Promise<R
               />
             </CardContent>
           </Card>
+
+          <OracleOnlyToggle
+            serverId={server.id}
+            initialOracleOnly={server.oracleOnly}
+          />
         </TabsContent>
 
         <TabsContent value="verify">

@@ -13,14 +13,7 @@
     "types": ["vitest/globals", "node"]
   },
   "include": ["src/**/*"],
-  "exclude": [
-    "node_modules",
-    "dist",
-    "coverage",
-    "e2e",
-    "**/*.spec.ts",
-    "**/__mocks__"
-  ],
+  "exclude": ["node_modules", "dist", "coverage", "e2e", "**/__mocks__"],
   "tsc-alias": {
     "resolveFullPaths": true
   }

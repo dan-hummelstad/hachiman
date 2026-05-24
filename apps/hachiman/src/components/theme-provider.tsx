@@ -62,6 +62,10 @@ export function ThemeProvider({
   )
 }
 
+// Co-located so the hook + provider stay legible in one file. The
+// react-refresh rule's split-everything-out preference doesn't really apply
+// — the hook IS a component-facing API for this provider.
+// eslint-disable-next-line react-refresh/only-export-components
 export const useTheme = (): ThemeProviderState => {
   const context = useContext(ThemeProviderContext)
 

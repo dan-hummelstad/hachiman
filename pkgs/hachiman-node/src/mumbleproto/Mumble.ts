@@ -117,6 +117,13 @@ export interface Authenticate {
      * @generated from protobuf field: optional bool webrtc = 7 [default = false]
      */
     webrtc?: boolean;
+    /**
+     * Opaque Oracle/Takusen access token. The server validates by RFC 7662
+     * introspection against its configured Oracle endpoint. Omit for anonymous.
+     *
+     * @generated from protobuf field: optional string oracle_token = 8
+     */
+    oracleToken?: string;
 }
 /**
  * Sent by the client to notify the server that the client is still alive.
@@ -415,9 +422,7 @@ export interface ChannelState {
     channelType?: ChannelState_ChannelType;
 }
 /**
- * Hachiman extension: Discord-style channel type. VOICE is the default so
- * existing rows (which never set this field) and pre-upgrade clients keep
- * their pre-text-channel behaviour. TEXT channels persist their chat
+ * Persistence class of this channel: TEXT channels store messages and
  * history; VOICE channels do not.
  *
  * @generated from protobuf enum MumbleProto.ChannelState.ChannelType
@@ -629,6 +634,20 @@ export interface UserState {
      * @generated from protobuf field: optional uint32 ssrc = 24
      */
     ssrc?: number;
+    /**
+     * Verified Oracle/Takusen username (preferred_username). Set by server
+     * after successful introspection. Other clients render it next to the
+     * Mumble nick with a verified badge.
+     *
+     * @generated from protobuf field: optional string oracle_handle = 25
+     */
+    oracleHandle?: string;
+    /**
+     * True iff the user authenticated through Oracle introspection.
+     *
+     * @generated from protobuf field: optional bool verified = 26
+     */
+    verified?: boolean;
 }
 /**
  * @generated from protobuf message MumbleProto.UserState.VolumeAdjustment
@@ -1947,7 +1966,8 @@ class Authenticate$Type extends MessageType<Authenticate> {
             { no: 4, name: "celt_versions", kind: "scalar", repeat: 2 /*RepeatType.UNPACKED*/, T: 5 /*ScalarType.INT32*/ },
             { no: 5, name: "opus", kind: "scalar", opt: true, T: 8 /*ScalarType.BOOL*/ },
             { no: 6, name: "client_type", kind: "scalar", opt: true, T: 5 /*ScalarType.INT32*/ },
-            { no: 7, name: "webrtc", kind: "scalar", opt: true, T: 8 /*ScalarType.BOOL*/ }
+            { no: 7, name: "webrtc", kind: "scalar", opt: true, T: 8 /*ScalarType.BOOL*/ },
+            { no: 8, name: "oracle_token", kind: "scalar", opt: true, T: 9 /*ScalarType.STRING*/ }
         ]);
     }
     create(value?: PartialMessage<Authenticate>): Authenticate {
@@ -1988,6 +2008,9 @@ class Authenticate$Type extends MessageType<Authenticate> {
                 case /* optional bool webrtc = 7 [default = false] */ 7:
                     message.webrtc = reader.bool();
                     break;
+                case /* optional string oracle_token */ 8:
+                    message.oracleToken = reader.string();
+                    break;
                 default:
                     let u = options.readUnknownField;
                     if (u === "throw")
@@ -2021,6 +2044,9 @@ class Authenticate$Type extends MessageType<Authenticate> {
         /* optional bool webrtc = 7 [default = false]; */
         if (message.webrtc !== undefined)
             writer.tag(7, WireType.Varint).bool(message.webrtc);
+        /* optional string oracle_token = 8; */
+        if (message.oracleToken !== undefined)
+            writer.tag(8, WireType.LengthDelimited).string(message.oracleToken);
         let u = options.writeUnknownFields;
         if (u !== false)
             (u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
@@ -2561,7 +2587,9 @@ class UserState$Type extends MessageType<UserState> {
             { no: 21, name: "listening_channel_add", kind: "scalar", repeat: 2 /*RepeatType.UNPACKED*/, T: 13 /*ScalarType.UINT32*/ },
             { no: 22, name: "listening_channel_remove", kind: "scalar", repeat: 2 /*RepeatType.UNPACKED*/, T: 13 /*ScalarType.UINT32*/ },
             { no: 23, name: "listening_volume_adjustment", kind: "message", repeat: 2 /*RepeatType.UNPACKED*/, T: () => UserState_VolumeAdjustment },
-            { no: 24, name: "ssrc", kind: "scalar", opt: true, T: 13 /*ScalarType.UINT32*/ }
+            { no: 24, name: "ssrc", kind: "scalar", opt: true, T: 13 /*ScalarType.UINT32*/ },
+            { no: 25, name: "oracle_handle", kind: "scalar", opt: true, T: 9 /*ScalarType.STRING*/ },
+            { no: 26, name: "verified", kind: "scalar", opt: true, T: 8 /*ScalarType.BOOL*/ }
         ]);
     }
     create(value?: PartialMessage<UserState>): UserState {
@@ -2659,6 +2687,12 @@ class UserState$Type extends MessageType<UserState> {
                 case /* optional uint32 ssrc */ 24:
                     message.ssrc = reader.uint32();
                     break;
+                case /* optional string oracle_handle */ 25:
+                    message.oracleHandle = reader.string();
+                    break;
+                case /* optional bool verified */ 26:
+                    message.verified = reader.bool();
+                    break;
                 default:
                     let u = options.readUnknownField;
                     if (u === "throw")
@@ -2743,6 +2777,12 @@ class UserState$Type extends MessageType<UserState> {
         /* optional uint32 ssrc = 24; */
         if (message.ssrc !== undefined)
             writer.tag(24, WireType.Varint).uint32(message.ssrc);
+        /* optional string oracle_handle = 25; */
+        if (message.oracleHandle !== undefined)
+            writer.tag(25, WireType.LengthDelimited).string(message.oracleHandle);
+        /* optional bool verified = 26; */
+        if (message.verified !== undefined)
+            writer.tag(26, WireType.Varint).bool(message.verified);
         let u = options.writeUnknownFields;
         if (u !== false)
             (u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);

@@ -11,8 +11,15 @@ import {
 
 export class MumbleService implements IMumbleService {
   private _rootClient: Client
+  private _oracleToken: string | undefined
 
-  constructor(serverUrl: string, port: string, username: string) {
+  constructor(
+    serverUrl: string,
+    port: string,
+    username: string,
+    opts?: { oracleToken?: string }
+  ) {
+    this._oracleToken = opts?.oracleToken
     this._rootClient = new Client({
       host: serverUrl,
       port: parseInt(port, 10),
@@ -20,6 +27,7 @@ export class MumbleService implements IMumbleService {
       transport: 'websocket',
       wsUrl: `ws://${serverUrl}:${port}/`,
       webrtc: true,
+      ...(this._oracleToken ? { oracleToken: this._oracleToken } : {}),
     })
   }
 
@@ -50,9 +58,23 @@ export class MumbleService implements IMumbleService {
     return this._rootClient?.isConnected() ?? false
   }
 
-  async connect(_serverUrl?: string, _port?: string, _username?: string): Promise<Client> {
+  async connect(
+    _serverUrl?: string,
+    _port?: string,
+    _username?: string,
+    opts?: { oracleToken?: string }
+  ): Promise<Client> {
     if (this.isConnected()) {
       return this._rootClient
+    }
+
+    // Latest-call token wins, in case ServersService re-mints between
+    // construction and connect. The token is read from the Client's options
+    // inside `authenticate()`, so we mutate options in place — the Client
+    // hasn't authenticated yet at this point.
+    if (opts?.oracleToken !== undefined) {
+      this._oracleToken = opts.oracleToken
+      this._rootClient.options.oracleToken = opts.oracleToken
     }
 
     await this._rootClient.connect()

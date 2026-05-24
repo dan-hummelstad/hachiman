@@ -42,6 +42,7 @@ export const createServerSchema = z.object({
 export const updateServerSchema = z.object({
   name: z.string().trim().min(1, 'Name is required').max(80, 'Name is too long').optional(),
   description: z.string().max(1000, 'Description is too long').optional().nullable(),
+  oracleOnly: z.boolean().optional(),
 })
 
 export type CreateServerInput = z.infer<typeof createServerSchema> & {

@@ -5,7 +5,7 @@
   "scripts": {
     "build": "go build -o ./bin/hachiman-server mumble.info/grumble/cmd/grumble ",
     "start": "./bin/hachiman-server --datadir ./bin/data --log ./bin/data/grumble.log",
-    "dev": "nodemon --exec go run mumble.info/grumble/cmd/grumble --signal SIGTERM --watch . --ext go --ignore bin/ --ignore node_modules/ --ignore ts-dist/"
+    "dev": "nodemon --exec go run mumble.info/grumble/cmd/grumble --datadir ./bin/data --signal SIGTERM --watch . --ext go --ignore bin/ --ignore node_modules/ --ignore ts-dist/"
   },
   "keywords": [],
   "author": "",

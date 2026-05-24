@@ -20,7 +20,7 @@ if (!databaseUrl) {
 }
 
 declare global {
-  // eslint-disable-next-line no-var
+   
   var __oraclePostgresClient: ReturnType<typeof postgres> | undefined
 }
 

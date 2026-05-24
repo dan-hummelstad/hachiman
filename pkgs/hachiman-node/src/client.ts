@@ -1,5 +1,6 @@
-import { tlsConnect } from './tls-connect';
-import { TlsTransport } from './tls-transport';
+// tls-connect / tls-transport are dynamic-imported inside connect() so the
+// browser bundle never pulls in Node's `tls` module (which would emit a
+// `require()` the browser can't resolve). See connect() below.
 import { WsTransport } from './ws-transport';
 import { MumbleSocket } from './mumble-socket';
 import {
@@ -158,6 +159,12 @@ export class Client extends TypedEventEmitter<Events, Events> {
       await ws.waitForOpen();
       this.socket = new MumbleSocket(ws);
     } else {
+      // Dynamic import keeps Node's `tls` out of browser bundles — Vite
+      // tree-shakes this branch when the host app only uses 'websocket'.
+      const [{ tlsConnect }, { TlsTransport }] = await Promise.all([
+        import('./tls-connect'),
+        import('./tls-transport'),
+      ]);
       const tlsSocket = await tlsConnect(this.options.host, this.options.port, {
         cert: this.options.cert,
         key: this.options.key,
@@ -229,16 +236,22 @@ export class Client extends TypedEventEmitter<Events, Events> {
     if (this.options.webrtc) {
       const webrtcSub = this.socket.packet
         .pipe(filterPacket(WebRTC))
-        .subscribe(async msg => {
-          if (msg.sdpType === 'offer' && msg.sdp) {
-            if (this.webrtcVoice) {
-              await this.webrtcVoice.handleServerOffer(msg.sdp);
-            } else {
-              this._pendingWebRTCOffer = msg.sdp;
+        .subscribe(msg => {
+          void (async () => {
+            if (msg.sdpType === 'offer' && msg.sdp) {
+              if (this.webrtcVoice) {
+                await this.webrtcVoice.handleServerOffer(msg.sdp);
+              } else {
+                this._pendingWebRTCOffer = msg.sdp;
+              }
+            } else if (
+              msg.sdpType === 'answer' &&
+              msg.sdp &&
+              this.webrtcVoice
+            ) {
+              await this.webrtcVoice.handleServerAnswer(msg.sdp);
             }
-          } else if (msg.sdpType === 'answer' && msg.sdp && this.webrtcVoice) {
-            await this.webrtcVoice.handleServerAnswer(msg.sdp);
-          }
+          })();
         });
       this.on('disconnect', () => {
         webrtcSub.unsubscribe();
@@ -469,6 +482,9 @@ export class Client extends TypedEventEmitter<Events, Events> {
         tokens: this.options.tokens ?? [],
         opus: true,
         webrtc: this.options.webrtc ?? false,
+        ...(this.options.oracleToken
+          ? { oracleToken: this.options.oracleToken }
+          : {}),
       }),
     );
   }
@@ -506,7 +522,7 @@ export class Client extends TypedEventEmitter<Events, Events> {
     if (this._pendingWebRTCOffer) {
       const offer = this._pendingWebRTCOffer;
       delete this._pendingWebRTCOffer;
-      this.webrtcVoice.handleServerOffer(offer);
+      void this.webrtcVoice.handleServerOffer(offer);
     }
 
     // Track SSRC from UserState updates and register with WebRTCVoice

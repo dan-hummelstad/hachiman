@@ -89,6 +89,25 @@ function buildConfiguration(): Configuration {
     },
     scopes: ['openid', 'email', 'profile', 'offline_access'],
     clientAuthMethods: ['client_secret_basic', 'client_secret_post', 'none'],
+    // panva builds discovery URLs as `issuer.origin + routes[name]` — the
+    // issuer's PATH component (`/api/oidc`) is just an identifier, not a
+    // route prefix. Since we mount the bridge at /api/oidc/[...path], we
+    // have to mirror that prefix in every route here so discovery advertises
+    // working URLs. Keep these in sync with the catch-all route's mount.
+    routes: {
+      authorization: '/api/oidc/auth',
+      backchannel_authentication: '/api/oidc/backchannel',
+      code_verification: '/api/oidc/device',
+      device_authorization: '/api/oidc/device/auth',
+      end_session: '/api/oidc/session/end',
+      introspection: '/api/oidc/token/introspection',
+      jwks: '/api/oidc/jwks',
+      pushed_authorization_request: '/api/oidc/request',
+      registration: '/api/oidc/reg',
+      revocation: '/api/oidc/token/revocation',
+      token: '/api/oidc/token',
+      userinfo: '/api/oidc/me',
+    },
     ttl: {
       AccessToken: ONE_HOUR,
       IdToken: ONE_HOUR,
@@ -100,6 +119,25 @@ function buildConfiguration(): Configuration {
     },
     interactions: {
       url: (_ctx, interaction) => `/oidc/interaction/${interaction.uid}`,
+    },
+    // panva defaults clientBasedCORS to `() => false`, so browser-based
+    // public clients (PKCE) get a 400 "origin not allowed" on the token
+    // endpoint. Allow any origin that matches a registered redirect URI's
+    // origin — the redirect_uris list is the per-client allowlist we already
+    // curate at registration time.
+    clientBasedCORS: (_ctx, origin, client) => {
+      const redirects =
+        (client.metadata() as { redirect_uris?: string[] }).redirect_uris ?? []
+      for (const uri of redirects) {
+        try {
+          if (new URL(uri).origin === origin) return true
+        } catch {
+          // Custom-scheme URIs (e.g. app.hachiman://...) don't have an
+          // origin in the HTTP sense — they're never the source of a CORS
+          // preflight, so skipping them is correct.
+        }
+      }
+      return false
     },
     async findAccount(_ctx, id) {
       const row = await db.query.users.findFirst({
@@ -134,7 +172,7 @@ function buildConfiguration(): Configuration {
 }
 
 declare global {
-  // eslint-disable-next-line no-var
+   
   var __oracleOidcProvider: Promise<Provider> | undefined
 }
 

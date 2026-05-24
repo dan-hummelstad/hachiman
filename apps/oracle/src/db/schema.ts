@@ -128,6 +128,11 @@ export const servers = pgTable(
     description: text('description'),
     host: text('host').notNull(),
     port: integer('port').notNull().default(64738),
+    // When true, the server has opted in to Oracle-only authentication.
+    // Informational from this layer's perspective: surfaced to clients via
+    // the registry / introspection, and enforced by the Mumble server's own
+    // OracleOnly configuration. Owner-toggleable from the dashboard.
+    oracleOnly: boolean('oracle_only').notNull().default(false),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
       .notNull()
       .defaultNow(),
@@ -158,22 +163,37 @@ export const serverDomainVerifications = pgTable('server_domain_verifications', 
 })
 
 // ---------------------------------------------------------------------------
-// OIDC clients — one per server. Servers redirect their users through Oracle
-// for sign-in; this row holds the client_id, client_secret (stored as a
-// plaintext high-entropy string — oidc-provider compares the wire value
-// against this field directly and has no hook for hash comparison), and the
-// allowed redirect URIs.
+// OIDC clients. Two flavours coexist in this table:
+//
+//  1. Per-server confidential clients (default). Federated Mumble servers
+//     redirect their users through Oracle for sign-in; the row holds the
+//     client_id + client_secret (plaintext high-entropy — oidc-provider
+//     compares the wire value directly with no hash hook), and the allowed
+//     redirect URIs.
+//
+//  2. Public first-party clients (isPublic = true, serverId IS NULL,
+//     clientSecret empty). Used by the Hachiman desktop/browser apps for
+//     end-user PKCE sign-in. PKCE is globally required in oidc-provider, so
+//     a public client with token_endpoint_auth_method='none' is safe — the
+//     code interception window is closed by the PKCE binding.
+//
+// serverId is unique-when-set so the per-server invariant still holds, while
+// any number of public clients may exist with serverId IS NULL (Postgres
+// treats NULLs as distinct under UNIQUE).
 // ---------------------------------------------------------------------------
 export const oidcClients = pgTable(
   'oidc_clients',
   {
     id: uuid('id').primaryKey().defaultRandom(),
     serverId: uuid('server_id')
-      .notNull()
       .unique()
       .references(() => servers.id, { onDelete: 'cascade' }),
     clientId: text('client_id').notNull().unique(),
+    // Empty string for public clients. NEVER store an actual secret here for
+    // a row where isPublic = true; the adapter omits the field entirely from
+    // the metadata it hands to oidc-provider.
     clientSecret: text('client_secret').notNull(),
+    isPublic: boolean('is_public').notNull().default(false),
     redirectUris: jsonb('redirect_uris').$type<string[]>().notNull().default(sql`'[]'::jsonb`),
     scopes: jsonb('scopes')
       .$type<string[]>()
@@ -211,6 +231,39 @@ export const inviteCodes = pgTable(
 )
 
 // ---------------------------------------------------------------------------
+// User servers — a user's personal list of "joined" servers, used by the
+// client UI as a sidebar/server list. May reference a registered Oracle
+// server (serverId set), or carry raw host/port for unregistered servers the
+// user joined manually.
+// ---------------------------------------------------------------------------
+export const userServers = pgTable(
+  'user_servers',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    // If this row refers to a registered Oracle server, set serverId.
+    // For unregistered (raw host:port) servers the user joined manually,
+    // serverId is null and host/port/name carry the info.
+    serverId: uuid('server_id').references(() => servers.id, { onDelete: 'set null' }),
+    name: text('name').notNull(),
+    host: text('host').notNull(),
+    port: integer('port').notNull().default(64738),
+    addedAt: timestamp('added_at', { withTimezone: true, mode: 'date' })
+      .notNull()
+      .defaultNow(),
+    lastUsedAt: timestamp('last_used_at', { withTimezone: true, mode: 'date' }),
+    updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('user_servers_user_host_port_unique').on(table.userId, table.host, table.port),
+  ],
+)
+
+// ---------------------------------------------------------------------------
 // Inferred row types — re-export for downstream consumers.
 // ---------------------------------------------------------------------------
 export type User = typeof users.$inferSelect
@@ -220,6 +273,8 @@ export type NewServer = typeof servers.$inferInsert
 export type ServerDomainVerification = typeof serverDomainVerifications.$inferSelect
 export type OidcClient = typeof oidcClients.$inferSelect
 export type InviteCode = typeof inviteCodes.$inferSelect
+export type UserServer = typeof userServers.$inferSelect
+export type NewUserServer = typeof userServers.$inferInsert
 
 // ===== Auth UI agent additions =====
 // Password reset tokens — short-lived (e.g. 1h) one-time tokens. We store only

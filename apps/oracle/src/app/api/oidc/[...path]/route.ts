@@ -38,9 +38,14 @@ export const runtime = 'nodejs'
 
 async function buildIncomingMessage(req: Request): Promise<IncomingMessage> {
   const url = new URL(req.url)
-  // `oidc-provider` looks at `req.url` relative to its mount. We mount it
-  // at `/api/oidc/*` via this catch-all route, so we strip that prefix.
-  const pathname = url.pathname.replace(/^\/api\/oidc/, '') || '/'
+  // panva's `routes` (see oidc-provider.ts) include the `/api/oidc/` prefix
+  // so discovery advertises working URLs and we can forward req.url verbatim
+  // for those — EXCEPT `/.well-known/*`, which panva mounts at the router
+  // root (not configurable). Strip the prefix there so panva's hardcoded
+  // discovery route can match.
+  const pathname = url.pathname.startsWith('/api/oidc/.well-known/')
+    ? url.pathname.replace('/api/oidc', '')
+    : url.pathname
   const search = url.search
 
   const bodyBuffer =

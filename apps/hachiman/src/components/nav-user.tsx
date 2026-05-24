@@ -1,4 +1,13 @@
-import { BadgeCheck, Bell, ChevronsUpDown, CreditCard, LogOut } from 'lucide-react'
+import { useState } from 'react'
+import {
+  BadgeCheck,
+  Bell,
+  ChevronsUpDown,
+  CreditCard,
+  LogIn,
+  LogOut,
+  ShieldCheck
+} from 'lucide-react'
 
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import {
@@ -11,7 +20,10 @@ import {
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu'
 import { useIsMobile } from '@/hooks/use-mobile'
-import { cn } from '@/lib/utils'
+import { OracleSignInDialog } from '@/components/oracle-signin-dialog'
+import { oracleService } from '@/services/OracleService'
+import { useOracleStore } from '@/stores/oracleStore'
+import { useUserStore } from '@/stores/userStore'
 import { ThemeToggle } from './theme-toggle'
 
 export function NavUser({
@@ -20,33 +32,42 @@ export function NavUser({
   user: {
     name: string
     email: string
-    // TODO: user avatars aren't persisted in userStore yet — fall back to initials.
     avatar?: string
   }
 }): React.JSX.Element {
   const isMobile = useIsMobile()
-  const initials = user.name.slice(0, 2).toUpperCase() || '?'
+  const username = useUserStore((s) => s.username)
+  const oracleSession = useOracleStore((s) => s.session)
+  const [dialogOpen, setDialogOpen] = useState(false)
+
+  // Prefer Oracle identity when signed in; fall back to UserStore username;
+  // finally fall back to whatever the caller passed (legacy placeholder data).
+  const displayName = oracleSession?.user.handle ?? username ?? user.name
+  const displayEmail = oracleSession?.user.email ?? user.email
+  const initials = (displayName || 'U').slice(0, 1).toUpperCase()
 
   return (
-    <div className="p-2">
+    <>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button
             type="button"
-            className={cn(
-              'flex w-full items-center gap-2 overflow-hidden rounded-md p-2 text-left text-sm outline-hidden',
-              'hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
-              'focus-visible:ring-2 focus-visible:ring-sidebar-ring',
-              'data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground'
-            )}
+            className="hover:bg-sidebar-accent data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground flex w-full items-center gap-2 rounded-md p-2 text-left text-sm transition-colors"
           >
             <Avatar className="h-8 w-8 rounded-lg">
-              {user.avatar ? <AvatarImage src={user.avatar} alt={user.name} /> : null}
+              <AvatarImage src={user.avatar} alt={displayName} />
               <AvatarFallback className="rounded-lg">{initials}</AvatarFallback>
             </Avatar>
             <div className="grid flex-1 text-left text-sm leading-tight">
-              <span className="truncate font-medium">{user.name}</span>
-              <span className="truncate text-xs">{user.email}</span>
+              <span className="flex items-center gap-1 truncate font-medium">
+                {displayName}
+                {oracleSession && (
+                  <BadgeCheck className="h-3 w-3 shrink-0 text-blue-500" aria-label="Verified" />
+                )}
+              </span>
+              <span className="text-muted-foreground truncate text-xs">
+                {displayEmail || 'Not signed in to Takusen'}
+              </span>
             </div>
             <ChevronsUpDown className="ml-auto size-4" />
           </button>
@@ -60,12 +81,12 @@ export function NavUser({
           <DropdownMenuLabel className="p-0 font-normal">
             <div className="flex items-center gap-2 px-1 py-1.5 text-left text-sm">
               <Avatar className="h-8 w-8 rounded-lg">
-                {user.avatar ? <AvatarImage src={user.avatar} alt={user.name} /> : null}
+                <AvatarImage src={user.avatar} alt={displayName} />
                 <AvatarFallback className="rounded-lg">{initials}</AvatarFallback>
               </Avatar>
               <div className="grid flex-1 text-left text-sm leading-tight">
-                <span className="truncate font-medium">{user.name}</span>
-                <span className="truncate text-xs">{user.email}</span>
+                <span className="truncate font-medium">{displayName}</span>
+                <span className="truncate text-xs">{displayEmail}</span>
               </div>
             </div>
           </DropdownMenuLabel>
@@ -91,12 +112,24 @@ export function NavUser({
             </DropdownMenuItem>
           </DropdownMenuGroup>
           <DropdownMenuSeparator />
+          {oracleSession ? (
+            <DropdownMenuItem onSelect={() => oracleService.signOut()}>
+              <LogOut />
+              Sign out of Takusen
+            </DropdownMenuItem>
+          ) : (
+            <DropdownMenuItem onSelect={() => setDialogOpen(true)}>
+              <ShieldCheck />
+              Sign in with Takusen
+            </DropdownMenuItem>
+          )}
           <DropdownMenuItem>
-            <LogOut />
-            Log out
+            <LogIn />
+            App settings
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
-    </div>
+      <OracleSignInDialog isOpen={dialogOpen} onClose={() => setDialogOpen(false)} />
+    </>
   )
 }

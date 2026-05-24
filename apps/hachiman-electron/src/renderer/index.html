@@ -3,10 +3,22 @@
   <head>
     <meta charset="UTF-8" />
     <title>Electron</title>
-    <!-- https://developer.mozilla.org/en-US/docs/Web/HTTP/CSP -->
+    <!--
+      Content Security Policy.
+      https://developer.mozilla.org/en-US/docs/Web/HTTP/CSP
+
+      connect-src includes the Takusen/Oracle dev origin (http://localhost:3000)
+      so the renderer can hit the OIDC discovery / token / userinfo endpoints
+      plus the /api/me/* sync APIs. Native Mumble TCP/TLS goes through Node's
+      `tls` module and bypasses CSP entirely, so no entry is needed for that.
+
+      For production deployments, replace `http://localhost:3000` with your
+      Takusen issuer origin (e.g. `https://takusen.example.com`), and add
+      any additional WebSocket / WebRTC origins your server uses.
+    -->
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' http://localhost:3000"
     />
   </head>
 

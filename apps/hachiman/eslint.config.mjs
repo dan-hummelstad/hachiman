@@ -37,5 +37,17 @@ export default defineConfig(
       ...eslintPluginReactRefresh.configs.vite.rules
     }
   },
+  {
+    // shadcn-ui components are managed by the shadcn CLI — they don't ship
+    // with explicit return types, intentionally export variant constants
+    // alongside the component, and use Math.random() inside skeleton helpers.
+    // Linting them as user code creates churn every time we `shadcn add`.
+    files: ['src/components/ui/**/*.{ts,tsx}', 'src/hooks/use-*.{ts,tsx}'],
+    rules: {
+      '@typescript-eslint/explicit-function-return-type': 'off',
+      'react-refresh/only-export-components': 'off',
+      'react-hooks/purity': 'off'
+    }
+  },
   eslintConfigPrettier
 )

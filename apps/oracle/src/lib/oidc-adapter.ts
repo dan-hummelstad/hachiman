@@ -31,6 +31,7 @@ export class DrizzleAdapter implements Adapter {
       .select({
         clientId: oidcClients.clientId,
         clientSecret: oidcClients.clientSecret,
+        isPublic: oidcClients.isPublic,
         redirectUris: oidcClients.redirectUris,
         scopes: oidcClients.scopes,
         serverName: servers.name,
@@ -42,6 +43,24 @@ export class DrizzleAdapter implements Adapter {
       .then((rows) => rows[0])
 
     if (!row) return undefined
+
+    if (row.isPublic) {
+      // Public PKCE client: omit client_secret and use 'none' auth method.
+      // `application_type: 'native'` loosens panva's redirect URI scheme
+      // validation so reverse-DNS custom schemes like `app.hachiman://oauth-callback` and
+      // loopback URLs like `http://localhost:5173/...` are both accepted.
+      const metadata: AllClientMetadata = {
+        client_id: row.clientId,
+        client_name: row.serverName ?? row.clientId,
+        redirect_uris: row.redirectUris,
+        grant_types: ['authorization_code', 'refresh_token'],
+        response_types: ['code'],
+        scope: row.scopes.join(' '),
+        token_endpoint_auth_method: 'none',
+        application_type: 'native',
+      }
+      return metadata as AdapterPayload
+    }
 
     const metadata: AllClientMetadata = {
       client_id: row.clientId,

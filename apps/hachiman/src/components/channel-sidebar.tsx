@@ -4,6 +4,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { Separator } from '@/components/ui/separator'
 import { VoiceControls } from '@/components/voice-controls'
 import { NavUser } from '@/components/nav-user'
+import { OracleSignInPrompt } from '@/components/oracle-signin-prompt'
 import { cn } from '@/lib/utils'
 import type { Channel, ChannelType } from '@/stores/channelStore'
 import { useServerStore } from '@/stores/serverStore'
@@ -65,6 +66,7 @@ export function ChannelSidebar(props: ChannelSidebarProps): React.JSX.Element {
       <header className="flex h-12 shrink-0 items-center border-b px-4">
         <h2 className="truncate text-sm font-semibold">{headerLabel}</h2>
       </header>
+      <OracleSignInPrompt />
       <div className="flex-1 overflow-y-auto p-2">
         <ChannelSection
           title="Text Channels"

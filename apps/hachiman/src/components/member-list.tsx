@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
-import { Headphones, Mic, MicOff, Volume2, VolumeX } from 'lucide-react'
+import { BadgeCheck, Headphones, Mic, MicOff, Volume2, VolumeX } from 'lucide-react'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import { serversService } from '@/services/ServersService'
 import { useVoiceStore } from '@/stores/voiceStore'
@@ -12,6 +13,10 @@ export interface MemberRow {
   name: string
   selfMute: boolean
   selfDeaf: boolean
+  /** Set by the server when the session was bound to an Oracle account. */
+  verified: boolean
+  /** Display handle from Oracle (e.g. `@alice`); may differ from the Mumble name. */
+  oracleHandle?: string
 }
 
 interface MemberListProps {
@@ -35,6 +40,8 @@ export function MemberList(props: MemberListProps): React.JSX.Element | null {
   const [members, setMembers] = useState<MemberRow[]>([])
 
   useEffect(() => {
+    // Reset-on-prop-change is the intent here: member list is per-channel.
+    /* eslint-disable react-hooks/set-state-in-effect */
     if (!serverId || channelId === null) {
       setMembers([])
       return
@@ -59,6 +66,7 @@ export function MemberList(props: MemberListProps): React.JSX.Element | null {
       server.off('userCreate', onUserCreate)
       server.off('userRemove', onUserRemove)
     }
+    /* eslint-enable react-hooks/set-state-in-effect */
   }, [serverId, channelId])
 
   return (
@@ -113,7 +121,10 @@ function MemberRowItem({
           </span>
         )}
       </div>
-      <span className="flex-1 truncate">{member.name}</span>
+      <span className="flex flex-1 items-center gap-1 truncate">
+        <span className="truncate">{member.name}</span>
+        {member.verified && <VerifiedBadge name={member.name} handle={member.oracleHandle} />}
+      </span>
       <span className="text-muted-foreground flex items-center gap-1">
         {member.selfMute ? (
           <MicOff className="h-3 w-3 text-destructive" />
@@ -127,14 +138,46 @@ function MemberRowItem({
   )
 }
 
+function VerifiedBadge({
+  name,
+  handle
+}: {
+  name: string
+  handle: string | undefined
+}): React.JSX.Element {
+  const label = handle ? `Verified as ${handle}` : 'Verified'
+  const badge = <BadgeCheck className="h-3 w-3 shrink-0 text-blue-500" aria-label={label} />
+  // Show a tooltip only when the Oracle handle differs from the Mumble name,
+  // otherwise the badge alone speaks for itself.
+  if (!handle || handle === name) return badge
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span tabIndex={0} className="inline-flex">
+          {badge}
+        </span>
+      </TooltipTrigger>
+      <TooltipContent side="left">{label}</TooltipContent>
+    </Tooltip>
+  )
+}
+
 function collectMembers(server: IMumbleService, channelId: number): MemberRow[] {
   return server.users
     .filter((u) => u.channelId === channelId)
-    .map((u) => ({
-      session: u.session,
-      name: u.name ?? `user-${u.session}`,
-      selfMute: u.selfMute ?? false,
-      selfDeaf: u.selfDeaf ?? false
-    }))
+    .map((u) => {
+      // Agent A surfaces `verified` and `oracleHandle` on the User shape; we
+      // read them defensively so this code compiles before those proto fields
+      // land. Cast preserves the contract documented in the team handoff.
+      const oracleish = u as unknown as { verified?: boolean; oracleHandle?: string }
+      return {
+        session: u.session,
+        name: u.name ?? `user-${u.session}`,
+        selfMute: u.selfMute ?? false,
+        selfDeaf: u.selfDeaf ?? false,
+        verified: oracleish.verified === true,
+        oracleHandle: oracleish.oracleHandle
+      }
+    })
     .sort((a, b) => a.name.localeCompare(b.name))
 }

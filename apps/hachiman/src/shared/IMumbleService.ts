@@ -7,7 +7,18 @@ export interface IMumbleService {
   get clientSession(): number | null
 
   // Connection management
-  connect: (serverUrl: string, port: string, username: string) => Promise<Client>
+  /**
+   * Establish the Mumble session. `oracleToken` is a per-server JWT minted by
+   * the Takusen backend; if present, the server uses it to bind this session
+   * to the authenticated Oracle user (verified badge + cross-device identity).
+   * Absent → anonymous connection, server picks usual fallback path.
+   */
+  connect: (
+    serverUrl: string,
+    port: string,
+    username: string,
+    opts?: { oracleToken?: string }
+  ) => Promise<Client>
   disconnect: () => Promise<void>
   isConnected: () => boolean
 
@@ -73,6 +84,12 @@ export interface MumbleConnectOptions {
   serverUrl: string
   port: string
   username: string
+  /**
+   * Optional per-server Oracle/Takusen access token (JWT). Forwarded by the
+   * platform impl to `client.connect()` so the server can verify the
+   * authenticated identity. Omit for anonymous connections.
+   */
+  oracleToken?: string
 }
 
 /**

@@ -35,6 +35,7 @@ export function PlatformProvider({ value, children }: PlatformProviderProps): Re
   return <PlatformContext.Provider value={value}>{children}</PlatformContext.Provider>
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function usePlatform(): PlatformContextValue {
   const ctx = useContext(PlatformContext)
   if (!ctx) {

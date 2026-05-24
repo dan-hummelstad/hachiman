@@ -102,6 +102,16 @@ type Client struct {
 	// WebRTC
 	webrtcEnabled bool             // client requested WebRTC voice transport
 	webrtcClient  *web.WebRTCClient // non-nil when WebRTC is active
+
+	// Oracle / Takusen SSO
+	// Populated only after a successful RFC 7662 introspection in
+	// handleAuthenticate. OracleVerified is the single source of truth
+	// for whether the client should be treated as Oracle-authenticated;
+	// the handle/sub fields are informational and may be empty even when
+	// verified is true (e.g. AS omits preferred_username).
+	OracleSub      string
+	OracleHandle   string
+	OracleVerified bool
 }
 
 // Debugf implements debug-level printing for Clients.

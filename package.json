@@ -7,6 +7,7 @@
     "dev": "pnpm --parallel run dev",
     "dev:electron": "pnpm -F @hachiman/hachiman-electron dev",
     "dev:browser": "pnpm -F @hachiman/hachiman-browser dev",
+    "dev:oracle": "pnpm -F @hachiman/oracle dev",
     "build:electron": "pnpm -F @hachiman/hachiman-electron build",
     "build:browser": "pnpm -F @hachiman/hachiman-browser build",
     "build:server": "pnpm -F hachiman-server build",

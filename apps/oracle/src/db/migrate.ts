@@ -23,12 +23,12 @@ async function main(): Promise<void> {
   await migrate(db, { migrationsFolder: './drizzle' })
 
   await sql.end()
-  // eslint-disable-next-line no-console
+   
   console.log('[oracle] migrations applied')
 }
 
 main().catch((err) => {
-  // eslint-disable-next-line no-console
+   
   console.error('[oracle] migration failed', err)
   process.exit(1)
 })

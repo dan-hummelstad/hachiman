@@ -210,6 +210,7 @@ export async function updateServer(
   }
   if (parsed.name !== undefined) updates.name = parsed.name
   if (parsed.description !== undefined) updates.description = parsed.description
+  if (parsed.oracleOnly !== undefined) updates.oracleOnly = parsed.oracleOnly
 
   const rows = await db
     .update(servers)

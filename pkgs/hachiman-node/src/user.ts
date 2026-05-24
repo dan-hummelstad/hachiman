@@ -39,6 +39,19 @@ export class User {
   selfDeaf = false;
   ssrc?: number;
 
+  /**
+   * Verified Oracle/Takusen username (preferred_username), set by the server
+   * after successful RFC 7662 introspection. Undefined for anonymous users
+   * or when the AS does not return a preferred_username.
+   */
+  oracleHandle?: string;
+
+  /**
+   * True iff the server validated this user's Oracle/Takusen token. The
+   * shared UI uses this to render a verified badge next to the Mumble nick.
+   */
+  verified = false;
+
   constructor(
     private readonly client: Client,
     userState: UserState & { session: number },
@@ -86,6 +99,12 @@ export class User {
     };
     if (userState.ssrc !== undefined) {
       this.ssrc = userState.ssrc;
+    }
+    if (userState.oracleHandle !== undefined) {
+      this.oracleHandle = userState.oracleHandle;
+    }
+    if (userState.verified !== undefined) {
+      this.verified = userState.verified;
     }
     return changes;
   }

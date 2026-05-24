@@ -114,9 +114,7 @@ func (Reject_RejectType) EnumDescriptor() ([]byte, []int) {
 	return file_Mumble_proto_rawDescGZIP(), []int{4, 0}
 }
 
-// Hachiman extension: Discord-style channel type. VOICE is the default so
-// existing rows (which never set this field) and pre-upgrade clients keep
-// their pre-text-channel behaviour. TEXT channels persist their chat
+// Persistence class of this channel: TEXT channels store messages and
 // history; VOICE channels do not.
 type ChannelState_ChannelType int32
 
@@ -549,7 +547,10 @@ type Authenticate struct {
 	// 0 = REGULAR, 1 = BOT
 	ClientType *int32 `protobuf:"varint,6,opt,name=client_type,json=clientType,def=0" json:"client_type,omitempty"`
 	// Whether to use WebRTC instead of native UDP packets for voice transport.
-	Webrtc        *bool `protobuf:"varint,7,opt,name=webrtc,def=0" json:"webrtc,omitempty"`
+	Webrtc *bool `protobuf:"varint,7,opt,name=webrtc,def=0" json:"webrtc,omitempty"`
+	// Opaque Oracle/Takusen access token. The server validates by RFC 7662
+	// introspection against its configured Oracle endpoint. Omit for anonymous.
+	OracleToken   *string `protobuf:"bytes,8,opt,name=oracle_token,json=oracleToken" json:"oracle_token,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -638,6 +639,13 @@ func (x *Authenticate) GetWebrtc() bool {
 		return *x.Webrtc
 	}
 	return Default_Authenticate_Webrtc
+}
+
+func (x *Authenticate) GetOracleToken() string {
+	if x != nil && x.OracleToken != nil {
+		return *x.OracleToken
+	}
+	return ""
 }
 
 // Sent by the client to notify the server that the client is still alive.
@@ -1270,7 +1278,13 @@ type UserState struct {
 	// SSRCs are reused after a user disconnects to keep the total count low
 	// (SRTP retains crypto state per SSRC for the entire session).
 	// SSRC 0 is reserved for client-to-server audio.
-	Ssrc          *uint32 `protobuf:"varint,24,opt,name=ssrc" json:"ssrc,omitempty"`
+	Ssrc *uint32 `protobuf:"varint,24,opt,name=ssrc" json:"ssrc,omitempty"`
+	// Verified Oracle/Takusen username (preferred_username). Set by server
+	// after successful introspection. Other clients render it next to the
+	// Mumble nick with a verified badge.
+	OracleHandle *string `protobuf:"bytes,25,opt,name=oracle_handle,json=oracleHandle" json:"oracle_handle,omitempty"`
+	// True iff the user authenticated through Oracle introspection.
+	Verified      *bool `protobuf:"varint,26,opt,name=verified" json:"verified,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1471,6 +1485,20 @@ func (x *UserState) GetSsrc() uint32 {
 		return *x.Ssrc
 	}
 	return 0
+}
+
+func (x *UserState) GetOracleHandle() string {
+	if x != nil && x.OracleHandle != nil {
+		return *x.OracleHandle
+	}
+	return ""
+}
+
+func (x *UserState) GetVerified() bool {
+	if x != nil && x.Verified != nil {
+		return *x.Verified
+	}
+	return false
 }
 
 // Relays information on the bans. The client may send the BanList message to
@@ -3914,7 +3942,7 @@ const file_Mumble_proto_rawDesc = "" +
 	"\n" +
 	"os_version\x18\x04 \x01(\tR\tosVersion\"#\n" +
 	"\tUDPTunnel\x12\x16\n" +
-	"\x06packet\x18\x01 \x02(\fR\x06packet\"\xe1\x01\n" +
+	"\x06packet\x18\x01 \x02(\fR\x06packet\"\x84\x02\n" +
 	"\fAuthenticate\x12\x1a\n" +
 	"\busername\x18\x01 \x01(\tR\busername\x12\x1a\n" +
 	"\bpassword\x18\x02 \x01(\tR\bpassword\x12\x16\n" +
@@ -3923,7 +3951,8 @@ const file_Mumble_proto_rawDesc = "" +
 	"\x04opus\x18\x05 \x01(\b:\x05falseR\x04opus\x12\"\n" +
 	"\vclient_type\x18\x06 \x01(\x05:\x010R\n" +
 	"clientType\x12\x1d\n" +
-	"\x06webrtc\x18\a \x01(\b:\x05falseR\x06webrtc\"\xc2\x02\n" +
+	"\x06webrtc\x18\a \x01(\b:\x05falseR\x06webrtc\x12!\n" +
+	"\foracle_token\x18\b \x01(\tR\voracleToken\"\xc2\x02\n" +
 	"\x04Ping\x12\x1c\n" +
 	"\ttimestamp\x18\x01 \x01(\x04R\ttimestamp\x12\x12\n" +
 	"\x04good\x18\x02 \x01(\rR\x04good\x12\x12\n" +
@@ -3992,7 +4021,7 @@ const file_Mumble_proto_rawDesc = "" +
 	"\asession\x18\x01 \x02(\rR\asession\x12\x14\n" +
 	"\x05actor\x18\x02 \x01(\rR\x05actor\x12\x16\n" +
 	"\x06reason\x18\x03 \x01(\tR\x06reason\x12\x10\n" +
-	"\x03ban\x18\x04 \x01(\bR\x03ban\"\xbd\a\n" +
+	"\x03ban\x18\x04 \x01(\bR\x03ban\"\xfe\a\n" +
 	"\tUserState\x12\x18\n" +
 	"\asession\x18\x01 \x01(\rR\asession\x12\x14\n" +
 	"\x05actor\x18\x02 \x01(\rR\x05actor\x12\x12\n" +
@@ -4019,7 +4048,9 @@ const file_Mumble_proto_rawDesc = "" +
 	"\x15listening_channel_add\x18\x15 \x03(\rR\x13listeningChannelAdd\x128\n" +
 	"\x18listening_channel_remove\x18\x16 \x03(\rR\x16listeningChannelRemove\x12g\n" +
 	"\x1blistening_volume_adjustment\x18\x17 \x03(\v2'.MumbleProto.UserState.VolumeAdjustmentR\x19listeningVolumeAdjustment\x12\x12\n" +
-	"\x04ssrc\x18\x18 \x01(\rR\x04ssrc\x1al\n" +
+	"\x04ssrc\x18\x18 \x01(\rR\x04ssrc\x12#\n" +
+	"\roracle_handle\x18\x19 \x01(\tR\foracleHandle\x12\x1a\n" +
+	"\bverified\x18\x1a \x01(\bR\bverified\x1al\n" +
 	"\x10VolumeAdjustment\x12+\n" +
 	"\x11listening_channel\x18\x01 \x01(\rR\x10listeningChannel\x12+\n" +
 	"\x11volume_adjustment\x18\x02 \x01(\x02R\x10volumeAdjustment\"\x86\x02\n" +

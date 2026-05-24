@@ -11,7 +11,9 @@ import {
   InviteNotFoundError,
   InviteRevokedError,
 } from '@/lib/invite-signing'
+import { ServerTokenServerNotFoundError } from '@/lib/server-tokens'
 import { ServerNotFoundError, SlugTakenError } from '@/lib/servers'
+import { UserServerNotFoundError } from '@/lib/user-servers'
 
 export function errorResponse(err: unknown): NextResponse {
   if (err instanceof UnauthorizedError) {
@@ -32,6 +34,12 @@ export function errorResponse(err: unknown): NextResponse {
   if (err instanceof ServerNotFoundError) {
     return NextResponse.json({ error: 'NotFound' }, { status: 404 })
   }
+  if (err instanceof UserServerNotFoundError) {
+    return NextResponse.json({ error: 'NotFound' }, { status: 404 })
+  }
+  if (err instanceof ServerTokenServerNotFoundError) {
+    return NextResponse.json({ error: 'NotFound' }, { status: 404 })
+  }
   if (err instanceof InviteNotFoundError) {
     return NextResponse.json({ error: 'InviteNotFound' }, { status: 404 })
   }
@@ -45,7 +53,7 @@ export function errorResponse(err: unknown): NextResponse {
     return NextResponse.json({ error: 'InviteExhausted' }, { status: 429 })
   }
 
-  // eslint-disable-next-line no-console
+   
   console.error('Unhandled API error:', err)
   return NextResponse.json({ error: 'InternalServerError' }, { status: 500 })
 }

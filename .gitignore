@@ -25,7 +25,11 @@ ts-dist
 *.sln
 *.sw?
 .pnpm/
+.pnpm-store
 node_modules/*
+.eslintcache
 
 .claude/worktrees
 .claude/agents
+.claude/scratch
+.claude/*.lock

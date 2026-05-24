@@ -17,3 +17,11 @@ export type {
   MumbleEventHandler
 } from './shared/IMumbleService'
 export type { IPlatformService } from './shared/IPlatformService'
+
+// Oracle / Takusen SSO surface — host apps need these for the OAuth callback
+// flow and for the deep-link handler (agent D).
+export { oracleService, OracleService } from './services/OracleService'
+export type { PKCEFlow } from './services/OracleService'
+export { useOracleStore } from './stores/oracleStore'
+export type { OracleSession, OracleUser } from './stores/oracleStore'
+export { serversService } from './services/ServersService'
