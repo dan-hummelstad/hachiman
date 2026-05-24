@@ -27,4 +27,5 @@ ts-dist
 .pnpm/
 node_modules/*
 
-CLAUDE.md
+.claude/worktrees
+.claude/agents

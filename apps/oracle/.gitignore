@@ -1,0 +1,23 @@
+# Next.js
+.next/
+out/
+build/
+next-env.d.ts.bak
+*.tsbuildinfo
+
+# Env
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+
+# Dependencies
+node_modules/
+
+# Editor
+.DS_Store
+
+# Drizzle migration artifacts go in drizzle/ — keep that, but ignore meta journals
+drizzle/meta/_journal_local.json

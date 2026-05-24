@@ -1,0 +1,267 @@
+'use server'
+
+import { eq } from 'drizzle-orm'
+import bcrypt from 'bcryptjs'
+import { AuthError } from 'next-auth'
+import { z } from 'zod'
+
+import { signIn } from '@/auth'
+import { db } from '@/db/client'
+import { passwordResetTokens, users } from '@/db/schema'
+import {
+  RESET_TOKEN_TTL_MS,
+  buildResetUrl,
+  generateResetToken,
+  hashResetToken,
+} from '@/lib/password-reset'
+
+const BCRYPT_COST = 12
+
+export interface FormActionResult {
+  ok: boolean
+  error?: string
+  // For requestPasswordResetAction: hide success/failure distinction from the
+  // user (anti-enumeration) but still let the page show a confirmation message.
+  message?: string
+}
+
+// ---------------------------------------------------------------------------
+// Validation schemas
+// ---------------------------------------------------------------------------
+const emailField = z
+  .string()
+  .min(1, 'Email is required')
+  .email('Enter a valid email address')
+  .max(254, 'Email is too long')
+  .transform((value) => value.trim().toLowerCase())
+
+const passwordField = z
+  .string()
+  .min(8, 'Password must be at least 8 characters')
+  .max(128, 'Password is too long')
+
+const signupSchema = z.object({
+  displayName: z
+    .string()
+    .min(1, 'Display name is required')
+    .max(64, 'Display name is too long')
+    .transform((value) => value.trim()),
+  email: emailField,
+  password: passwordField,
+})
+
+const loginSchema = z.object({
+  email: emailField,
+  password: z.string().min(1, 'Password is required'),
+})
+
+const requestResetSchema = z.object({
+  email: emailField,
+})
+
+const resetSchema = z.object({
+  token: z.string().min(1, 'Reset token is missing'),
+  password: passwordField,
+})
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+function isRedirectError(error: unknown): boolean {
+  // next/navigation's `redirect()` throws an internal error tagged
+  // NEXT_REDIRECT. Server actions need to re-throw it so Next can intercept.
+  if (!error || typeof error !== 'object') return false
+  const message = (error as { message?: string }).message
+  const digest = (error as { digest?: string }).digest
+  return (
+    typeof digest === 'string' && digest.startsWith('NEXT_REDIRECT')
+  ) || message === 'NEXT_REDIRECT'
+}
+
+function safeNextPath(value: FormDataEntryValue | null): string {
+  if (typeof value !== 'string') return '/dashboard'
+  // Only accept same-origin relative paths to prevent open redirects.
+  if (!value.startsWith('/') || value.startsWith('//')) return '/dashboard'
+  return value
+}
+
+// ---------------------------------------------------------------------------
+// signupAction — create a new user + immediately sign them in.
+// ---------------------------------------------------------------------------
+export async function signupAction(
+  _prev: FormActionResult | undefined,
+  formData: FormData,
+): Promise<FormActionResult> {
+  const parsed = signupSchema.safeParse({
+    displayName: formData.get('displayName'),
+    email: formData.get('email'),
+    password: formData.get('password'),
+  })
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0]
+    return { ok: false, error: issue?.message ?? 'Invalid input' }
+  }
+
+  const { displayName, email, password } = parsed.data
+
+  const existing = await db.query.users.findFirst({
+    where: eq(users.email, email),
+    columns: { id: true },
+  })
+  if (existing) {
+    return { ok: false, error: 'An account with that email already exists' }
+  }
+
+  const passwordHash = await bcrypt.hash(password, BCRYPT_COST)
+  await db.insert(users).values({
+    email,
+    displayName,
+    name: displayName,
+    passwordHash,
+  })
+
+  try {
+    await signIn('credentials', {
+      email,
+      password,
+      redirect: true,
+      redirectTo: '/dashboard',
+    })
+  } catch (error) {
+    if (isRedirectError(error)) throw error
+    if (error instanceof AuthError) {
+      return {
+        ok: false,
+        error: 'Account created, but sign-in failed. Try logging in.',
+      }
+    }
+    throw error
+  }
+  return { ok: true }
+}
+
+// ---------------------------------------------------------------------------
+// loginAction — sign in with credentials, then redirect to `next` (or
+// /dashboard). The `redirect: true` mode lets Auth.js perform the redirect
+// itself by throwing a NEXT_REDIRECT — we re-throw to preserve that.
+// ---------------------------------------------------------------------------
+export async function loginAction(
+  _prev: FormActionResult | undefined,
+  formData: FormData,
+): Promise<FormActionResult> {
+  const parsed = loginSchema.safeParse({
+    email: formData.get('email'),
+    password: formData.get('password'),
+  })
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0]
+    return { ok: false, error: issue?.message ?? 'Invalid input' }
+  }
+
+  const next = safeNextPath(formData.get('next'))
+
+  try {
+    await signIn('credentials', {
+      email: parsed.data.email,
+      password: parsed.data.password,
+      redirect: true,
+      redirectTo: next,
+    })
+  } catch (error) {
+    if (isRedirectError(error)) throw error
+    if (error instanceof AuthError) {
+      return { ok: false, error: 'Invalid email or password' }
+    }
+    throw error
+  }
+  return { ok: true }
+}
+
+// ---------------------------------------------------------------------------
+// requestPasswordResetAction — insert a reset token row + log the link to
+// the server console. Always returns a generic confirmation to avoid leaking
+// which addresses have accounts.
+// ---------------------------------------------------------------------------
+export async function requestPasswordResetAction(
+  _prev: FormActionResult | undefined,
+  formData: FormData,
+): Promise<FormActionResult> {
+  const parsed = requestResetSchema.safeParse({
+    email: formData.get('email'),
+  })
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0]
+    return { ok: false, error: issue?.message ?? 'Invalid email' }
+  }
+
+  const { email } = parsed.data
+  const message =
+    'If an account exists for that address, a password reset link has been sent.'
+
+  const user = await db.query.users.findFirst({
+    where: eq(users.email, email),
+    columns: { id: true },
+  })
+  if (!user) {
+    // Silently succeed — anti-enumeration.
+    return { ok: true, message }
+  }
+
+  const token = generateResetToken()
+  const tokenHash = hashResetToken(token)
+  const expiresAt = new Date(Date.now() + RESET_TOKEN_TTL_MS)
+
+  await db.insert(passwordResetTokens).values({
+    userId: user.id,
+    tokenHash,
+    expiresAt,
+  })
+
+  const baseUrl = process.env.NEXTAUTH_URL ?? 'http://localhost:3000'
+  const resetUrl = buildResetUrl(baseUrl, token)
+  // No email transport wired up yet — log to the server console so a dev can
+  // grab the URL during local testing.
+  console.info(
+    `[password-reset] ${email} -> ${resetUrl} (expires ${expiresAt.toISOString()})`,
+  )
+
+  return { ok: true, message }
+}
+
+// ---------------------------------------------------------------------------
+// resetPasswordAction — verify a token, set a new password, consume the row.
+// ---------------------------------------------------------------------------
+export async function resetPasswordAction(
+  _prev: FormActionResult | undefined,
+  formData: FormData,
+): Promise<FormActionResult> {
+  const parsed = resetSchema.safeParse({
+    token: formData.get('token'),
+    password: formData.get('password'),
+  })
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0]
+    return { ok: false, error: issue?.message ?? 'Invalid input' }
+  }
+
+  const { token, password } = parsed.data
+  const tokenHash = hashResetToken(token)
+
+  const row = await db.query.passwordResetTokens.findFirst({
+    where: eq(passwordResetTokens.tokenHash, tokenHash),
+  })
+  if (!row || row.expiresAt.getTime() < Date.now()) {
+    return { ok: false, error: 'This reset link has expired or is invalid' }
+  }
+
+  const passwordHash = await bcrypt.hash(password, BCRYPT_COST)
+  await db
+    .update(users)
+    .set({ passwordHash, updatedAt: new Date() })
+    .where(eq(users.id, row.userId))
+  await db
+    .delete(passwordResetTokens)
+    .where(eq(passwordResetTokens.id, row.id))
+
+  return { ok: true, message: 'Password updated. You can now sign in.' }
+}
