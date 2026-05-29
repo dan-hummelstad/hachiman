@@ -1827,6 +1827,165 @@ export interface PersistedMessage {
      */
     createdAtMs?: bigint;
 }
+/**
+ * Client -> server request for the relay's thin/on-path voice instrumentation.
+ * Authenticated, operator-only: the server replies with a RelayMetricsSnapshot
+ * only if the requester is the SuperUser or holds Write permission on the root
+ * channel (same gate as the ACL fetch); otherwise it returns PermissionDenied.
+ * Carries no fields today (the relay reports a single global snapshot), but is
+ * kept as a distinct message so future scoping (per-transport, per-region) can
+ * be added without overloading another type.
+ *
+ * @generated from protobuf message MumbleProto.RelayMetricsQuery
+ */
+export interface RelayMetricsQuery {
+}
+/**
+ * Server -> client reply mirroring the Go web.RelaySnapshot
+ * (apps/hachiman-server/pkg/web/relaymetrics.go) and the TS RelayPathSnapshot
+ * (apps/hachiman/src/lib/connection-quality.ts). Read-only operator view of
+ * whether voice forwarding is staying "thin & on-path".
+ *
+ * @generated from protobuf message MumbleProto.RelayMetricsSnapshot
+ */
+export interface RelayMetricsSnapshot {
+    /**
+     * Region the relay is homed in ("" / absent = unplaced / region unknown).
+     *
+     * @generated from protobuf field: optional string region = 1
+     */
+    region?: string;
+    /**
+     * True when the relay has a configured region (region != "").
+     *
+     * @generated from protobuf field: optional bool placed = 2
+     */
+    placed?: boolean;
+    /**
+     * Seconds since the relay metrics started accumulating.
+     *
+     * @generated from protobuf field: optional double uptime_seconds = 3
+     */
+    uptimeSeconds?: number;
+    /**
+     * Per-transport forwarding counters (native UDP, WebRTC SFU).
+     *
+     * @generated from protobuf field: repeated MumbleProto.RelayTransportSnapshot transports = 4
+     */
+    transports: RelayTransportSnapshot[];
+    /**
+     * Forwarding-hop added-latency summary.
+     *
+     * @generated from protobuf field: optional MumbleProto.RelayHopSnapshot hop = 5
+     */
+    hop?: RelayHopSnapshot;
+    /**
+     * Off-the-hot-path tally of forwards per distinct receiver region.
+     *
+     * @generated from protobuf field: map<string, uint64> region_forwards = 6
+     */
+    regionForwards: {
+        [key: string]: bigint;
+    };
+    /**
+     * True only when no off-path (cross-region) forwards have been observed.
+     *
+     * @generated from protobuf field: optional bool on_path = 7
+     */
+    onPath?: boolean;
+    /**
+     * Total off-path forwards across all transports.
+     *
+     * @generated from protobuf field: optional uint64 total_off_path = 8
+     */
+    totalOffPath?: bigint;
+}
+/**
+ * Mirror of web.TransportSnapshot: one transport's forwarding counters.
+ *
+ * @generated from protobuf message MumbleProto.RelayTransportSnapshot
+ */
+export interface RelayTransportSnapshot {
+    /**
+     * "native-udp" or "webrtc".
+     *
+     * @generated from protobuf field: optional string transport = 1
+     */
+    transport?: string;
+    /**
+     * @generated from protobuf field: optional uint64 packets = 2
+     */
+    packets?: bigint;
+    /**
+     * @generated from protobuf field: optional uint64 bytes = 3
+     */
+    bytes?: bigint;
+    /**
+     * @generated from protobuf field: optional uint64 on_path_count = 4
+     */
+    onPathCount?: bigint;
+    /**
+     * @generated from protobuf field: optional uint64 off_path_count = 5
+     */
+    offPathCount?: bigint;
+    /**
+     * @generated from protobuf field: optional uint64 unknown_count = 6
+     */
+    unknownCount?: bigint;
+    /**
+     * Best-effort forwards that failed to write.
+     *
+     * @generated from protobuf field: optional uint64 drops = 7
+     */
+    drops?: bigint;
+}
+/**
+ * Mirror of web.HopSnapshot: forwarding-hop added-latency summary. Latencies
+ * are provided both in nanoseconds (raw counters) and milliseconds (convenience
+ * for the UI, which renders ms).
+ *
+ * @generated from protobuf message MumbleProto.RelayHopSnapshot
+ */
+export interface RelayHopSnapshot {
+    /**
+     * Number of hop-latency observations.
+     *
+     * @generated from protobuf field: optional uint64 samples = 1
+     */
+    samples?: bigint;
+    /**
+     * @generated from protobuf field: optional uint64 mean_nanos = 2
+     */
+    meanNanos?: bigint;
+    /**
+     * @generated from protobuf field: optional uint64 max_nanos = 3
+     */
+    maxNanos?: bigint;
+    /**
+     * Thin-hop latency budget (0 = budget tracking disabled).
+     *
+     * @generated from protobuf field: optional uint64 budget_nanos = 4
+     */
+    budgetNanos?: bigint;
+    /**
+     * Observations exceeding the thin-hop budget.
+     *
+     * @generated from protobuf field: optional uint64 over_budget_count = 5
+     */
+    overBudgetCount?: bigint;
+    /**
+     * @generated from protobuf field: optional double mean_millis = 6
+     */
+    meanMillis?: number;
+    /**
+     * @generated from protobuf field: optional double max_millis = 7
+     */
+    maxMillis?: number;
+    /**
+     * @generated from protobuf field: optional double budget_millis = 8
+     */
+    budgetMillis?: number;
+}
 // @generated message type with reflection information, may provide speed optimized methods
 class Version$Type extends MessageType<Version> {
     constructor() {
@@ -4991,3 +5150,337 @@ class PersistedMessage$Type extends MessageType<PersistedMessage> {
  * @generated MessageType for protobuf message MumbleProto.PersistedMessage
  */
 export const PersistedMessage = new PersistedMessage$Type();
+// @generated message type with reflection information, may provide speed optimized methods
+class RelayMetricsQuery$Type extends MessageType<RelayMetricsQuery> {
+    constructor() {
+        super("MumbleProto.RelayMetricsQuery", []);
+    }
+    create(value?: PartialMessage<RelayMetricsQuery>): RelayMetricsQuery {
+        const message = globalThis.Object.create((this.messagePrototype!));
+        if (value !== undefined)
+            reflectionMergePartial<RelayMetricsQuery>(this, message, value);
+        return message;
+    }
+    internalBinaryRead(reader: IBinaryReader, length: number, options: BinaryReadOptions, target?: RelayMetricsQuery): RelayMetricsQuery {
+        let message = target ?? this.create(), end = reader.pos + length;
+        while (reader.pos < end) {
+            let [fieldNo, wireType] = reader.tag();
+            switch (fieldNo) {
+                default:
+                    let u = options.readUnknownField;
+                    if (u === "throw")
+                        throw new globalThis.Error(`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`);
+                    let d = reader.skip(wireType);
+                    if (u !== false)
+                        (u === true ? UnknownFieldHandler.onRead : u)(this.typeName, message, fieldNo, wireType, d);
+            }
+        }
+        return message;
+    }
+    internalBinaryWrite(message: RelayMetricsQuery, writer: IBinaryWriter, options: BinaryWriteOptions): IBinaryWriter {
+        let u = options.writeUnknownFields;
+        if (u !== false)
+            (u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
+        return writer;
+    }
+}
+/**
+ * @generated MessageType for protobuf message MumbleProto.RelayMetricsQuery
+ */
+export const RelayMetricsQuery = new RelayMetricsQuery$Type();
+// @generated message type with reflection information, may provide speed optimized methods
+class RelayMetricsSnapshot$Type extends MessageType<RelayMetricsSnapshot> {
+    constructor() {
+        super("MumbleProto.RelayMetricsSnapshot", [
+            { no: 1, name: "region", kind: "scalar", opt: true, T: 9 /*ScalarType.STRING*/ },
+            { no: 2, name: "placed", kind: "scalar", opt: true, T: 8 /*ScalarType.BOOL*/ },
+            { no: 3, name: "uptime_seconds", kind: "scalar", opt: true, T: 1 /*ScalarType.DOUBLE*/ },
+            { no: 4, name: "transports", kind: "message", repeat: 2 /*RepeatType.UNPACKED*/, T: () => RelayTransportSnapshot },
+            { no: 5, name: "hop", kind: "message", T: () => RelayHopSnapshot },
+            { no: 6, name: "region_forwards", kind: "map", K: 9 /*ScalarType.STRING*/, V: { kind: "scalar", T: 4 /*ScalarType.UINT64*/, L: 0 /*LongType.BIGINT*/ } },
+            { no: 7, name: "on_path", kind: "scalar", opt: true, T: 8 /*ScalarType.BOOL*/ },
+            { no: 8, name: "total_off_path", kind: "scalar", opt: true, T: 4 /*ScalarType.UINT64*/, L: 0 /*LongType.BIGINT*/ }
+        ]);
+    }
+    create(value?: PartialMessage<RelayMetricsSnapshot>): RelayMetricsSnapshot {
+        const message = globalThis.Object.create((this.messagePrototype!));
+        message.transports = [];
+        message.regionForwards = {};
+        if (value !== undefined)
+            reflectionMergePartial<RelayMetricsSnapshot>(this, message, value);
+        return message;
+    }
+    internalBinaryRead(reader: IBinaryReader, length: number, options: BinaryReadOptions, target?: RelayMetricsSnapshot): RelayMetricsSnapshot {
+        let message = target ?? this.create(), end = reader.pos + length;
+        while (reader.pos < end) {
+            let [fieldNo, wireType] = reader.tag();
+            switch (fieldNo) {
+                case /* optional string region */ 1:
+                    message.region = reader.string();
+                    break;
+                case /* optional bool placed */ 2:
+                    message.placed = reader.bool();
+                    break;
+                case /* optional double uptime_seconds */ 3:
+                    message.uptimeSeconds = reader.double();
+                    break;
+                case /* repeated MumbleProto.RelayTransportSnapshot transports */ 4:
+                    message.transports.push(RelayTransportSnapshot.internalBinaryRead(reader, reader.uint32(), options));
+                    break;
+                case /* optional MumbleProto.RelayHopSnapshot hop */ 5:
+                    message.hop = RelayHopSnapshot.internalBinaryRead(reader, reader.uint32(), options, message.hop);
+                    break;
+                case /* map<string, uint64> region_forwards */ 6:
+                    this.binaryReadMap6(message.regionForwards, reader, options);
+                    break;
+                case /* optional bool on_path */ 7:
+                    message.onPath = reader.bool();
+                    break;
+                case /* optional uint64 total_off_path */ 8:
+                    message.totalOffPath = reader.uint64().toBigInt();
+                    break;
+                default:
+                    let u = options.readUnknownField;
+                    if (u === "throw")
+                        throw new globalThis.Error(`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`);
+                    let d = reader.skip(wireType);
+                    if (u !== false)
+                        (u === true ? UnknownFieldHandler.onRead : u)(this.typeName, message, fieldNo, wireType, d);
+            }
+        }
+        return message;
+    }
+    private binaryReadMap6(map: RelayMetricsSnapshot["regionForwards"], reader: IBinaryReader, options: BinaryReadOptions): void {
+        let len = reader.uint32(), end = reader.pos + len, key: keyof RelayMetricsSnapshot["regionForwards"] | undefined, val: RelayMetricsSnapshot["regionForwards"][any] | undefined;
+        while (reader.pos < end) {
+            let [fieldNo, wireType] = reader.tag();
+            switch (fieldNo) {
+                case 1:
+                    key = reader.string();
+                    break;
+                case 2:
+                    val = reader.uint64().toBigInt();
+                    break;
+                default: throw new globalThis.Error("unknown map entry field for MumbleProto.RelayMetricsSnapshot.region_forwards");
+            }
+        }
+        map[key ?? ""] = val ?? 0n;
+    }
+    internalBinaryWrite(message: RelayMetricsSnapshot, writer: IBinaryWriter, options: BinaryWriteOptions): IBinaryWriter {
+        /* optional string region = 1; */
+        if (message.region !== undefined)
+            writer.tag(1, WireType.LengthDelimited).string(message.region);
+        /* optional bool placed = 2; */
+        if (message.placed !== undefined)
+            writer.tag(2, WireType.Varint).bool(message.placed);
+        /* optional double uptime_seconds = 3; */
+        if (message.uptimeSeconds !== undefined)
+            writer.tag(3, WireType.Bit64).double(message.uptimeSeconds);
+        /* repeated MumbleProto.RelayTransportSnapshot transports = 4; */
+        for (let i = 0; i < message.transports.length; i++)
+            RelayTransportSnapshot.internalBinaryWrite(message.transports[i], writer.tag(4, WireType.LengthDelimited).fork(), options).join();
+        /* optional MumbleProto.RelayHopSnapshot hop = 5; */
+        if (message.hop)
+            RelayHopSnapshot.internalBinaryWrite(message.hop, writer.tag(5, WireType.LengthDelimited).fork(), options).join();
+        /* map<string, uint64> region_forwards = 6; */
+        for (let k of globalThis.Object.keys(message.regionForwards))
+            writer.tag(6, WireType.LengthDelimited).fork().tag(1, WireType.LengthDelimited).string(k).tag(2, WireType.Varint).uint64(message.regionForwards[k]).join();
+        /* optional bool on_path = 7; */
+        if (message.onPath !== undefined)
+            writer.tag(7, WireType.Varint).bool(message.onPath);
+        /* optional uint64 total_off_path = 8; */
+        if (message.totalOffPath !== undefined)
+            writer.tag(8, WireType.Varint).uint64(message.totalOffPath);
+        let u = options.writeUnknownFields;
+        if (u !== false)
+            (u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
+        return writer;
+    }
+}
+/**
+ * @generated MessageType for protobuf message MumbleProto.RelayMetricsSnapshot
+ */
+export const RelayMetricsSnapshot = new RelayMetricsSnapshot$Type();
+// @generated message type with reflection information, may provide speed optimized methods
+class RelayTransportSnapshot$Type extends MessageType<RelayTransportSnapshot> {
+    constructor() {
+        super("MumbleProto.RelayTransportSnapshot", [
+            { no: 1, name: "transport", kind: "scalar", opt: true, T: 9 /*ScalarType.STRING*/ },
+            { no: 2, name: "packets", kind: "scalar", opt: true, T: 4 /*ScalarType.UINT64*/, L: 0 /*LongType.BIGINT*/ },
+            { no: 3, name: "bytes", kind: "scalar", opt: true, T: 4 /*ScalarType.UINT64*/, L: 0 /*LongType.BIGINT*/ },
+            { no: 4, name: "on_path_count", kind: "scalar", opt: true, T: 4 /*ScalarType.UINT64*/, L: 0 /*LongType.BIGINT*/ },
+            { no: 5, name: "off_path_count", kind: "scalar", opt: true, T: 4 /*ScalarType.UINT64*/, L: 0 /*LongType.BIGINT*/ },
+            { no: 6, name: "unknown_count", kind: "scalar", opt: true, T: 4 /*ScalarType.UINT64*/, L: 0 /*LongType.BIGINT*/ },
+            { no: 7, name: "drops", kind: "scalar", opt: true, T: 4 /*ScalarType.UINT64*/, L: 0 /*LongType.BIGINT*/ }
+        ]);
+    }
+    create(value?: PartialMessage<RelayTransportSnapshot>): RelayTransportSnapshot {
+        const message = globalThis.Object.create((this.messagePrototype!));
+        if (value !== undefined)
+            reflectionMergePartial<RelayTransportSnapshot>(this, message, value);
+        return message;
+    }
+    internalBinaryRead(reader: IBinaryReader, length: number, options: BinaryReadOptions, target?: RelayTransportSnapshot): RelayTransportSnapshot {
+        let message = target ?? this.create(), end = reader.pos + length;
+        while (reader.pos < end) {
+            let [fieldNo, wireType] = reader.tag();
+            switch (fieldNo) {
+                case /* optional string transport */ 1:
+                    message.transport = reader.string();
+                    break;
+                case /* optional uint64 packets */ 2:
+                    message.packets = reader.uint64().toBigInt();
+                    break;
+                case /* optional uint64 bytes */ 3:
+                    message.bytes = reader.uint64().toBigInt();
+                    break;
+                case /* optional uint64 on_path_count */ 4:
+                    message.onPathCount = reader.uint64().toBigInt();
+                    break;
+                case /* optional uint64 off_path_count */ 5:
+                    message.offPathCount = reader.uint64().toBigInt();
+                    break;
+                case /* optional uint64 unknown_count */ 6:
+                    message.unknownCount = reader.uint64().toBigInt();
+                    break;
+                case /* optional uint64 drops */ 7:
+                    message.drops = reader.uint64().toBigInt();
+                    break;
+                default:
+                    let u = options.readUnknownField;
+                    if (u === "throw")
+                        throw new globalThis.Error(`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`);
+                    let d = reader.skip(wireType);
+                    if (u !== false)
+                        (u === true ? UnknownFieldHandler.onRead : u)(this.typeName, message, fieldNo, wireType, d);
+            }
+        }
+        return message;
+    }
+    internalBinaryWrite(message: RelayTransportSnapshot, writer: IBinaryWriter, options: BinaryWriteOptions): IBinaryWriter {
+        /* optional string transport = 1; */
+        if (message.transport !== undefined)
+            writer.tag(1, WireType.LengthDelimited).string(message.transport);
+        /* optional uint64 packets = 2; */
+        if (message.packets !== undefined)
+            writer.tag(2, WireType.Varint).uint64(message.packets);
+        /* optional uint64 bytes = 3; */
+        if (message.bytes !== undefined)
+            writer.tag(3, WireType.Varint).uint64(message.bytes);
+        /* optional uint64 on_path_count = 4; */
+        if (message.onPathCount !== undefined)
+            writer.tag(4, WireType.Varint).uint64(message.onPathCount);
+        /* optional uint64 off_path_count = 5; */
+        if (message.offPathCount !== undefined)
+            writer.tag(5, WireType.Varint).uint64(message.offPathCount);
+        /* optional uint64 unknown_count = 6; */
+        if (message.unknownCount !== undefined)
+            writer.tag(6, WireType.Varint).uint64(message.unknownCount);
+        /* optional uint64 drops = 7; */
+        if (message.drops !== undefined)
+            writer.tag(7, WireType.Varint).uint64(message.drops);
+        let u = options.writeUnknownFields;
+        if (u !== false)
+            (u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
+        return writer;
+    }
+}
+/**
+ * @generated MessageType for protobuf message MumbleProto.RelayTransportSnapshot
+ */
+export const RelayTransportSnapshot = new RelayTransportSnapshot$Type();
+// @generated message type with reflection information, may provide speed optimized methods
+class RelayHopSnapshot$Type extends MessageType<RelayHopSnapshot> {
+    constructor() {
+        super("MumbleProto.RelayHopSnapshot", [
+            { no: 1, name: "samples", kind: "scalar", opt: true, T: 4 /*ScalarType.UINT64*/, L: 0 /*LongType.BIGINT*/ },
+            { no: 2, name: "mean_nanos", kind: "scalar", opt: true, T: 4 /*ScalarType.UINT64*/, L: 0 /*LongType.BIGINT*/ },
+            { no: 3, name: "max_nanos", kind: "scalar", opt: true, T: 4 /*ScalarType.UINT64*/, L: 0 /*LongType.BIGINT*/ },
+            { no: 4, name: "budget_nanos", kind: "scalar", opt: true, T: 4 /*ScalarType.UINT64*/, L: 0 /*LongType.BIGINT*/ },
+            { no: 5, name: "over_budget_count", kind: "scalar", opt: true, T: 4 /*ScalarType.UINT64*/, L: 0 /*LongType.BIGINT*/ },
+            { no: 6, name: "mean_millis", kind: "scalar", opt: true, T: 1 /*ScalarType.DOUBLE*/ },
+            { no: 7, name: "max_millis", kind: "scalar", opt: true, T: 1 /*ScalarType.DOUBLE*/ },
+            { no: 8, name: "budget_millis", kind: "scalar", opt: true, T: 1 /*ScalarType.DOUBLE*/ }
+        ]);
+    }
+    create(value?: PartialMessage<RelayHopSnapshot>): RelayHopSnapshot {
+        const message = globalThis.Object.create((this.messagePrototype!));
+        if (value !== undefined)
+            reflectionMergePartial<RelayHopSnapshot>(this, message, value);
+        return message;
+    }
+    internalBinaryRead(reader: IBinaryReader, length: number, options: BinaryReadOptions, target?: RelayHopSnapshot): RelayHopSnapshot {
+        let message = target ?? this.create(), end = reader.pos + length;
+        while (reader.pos < end) {
+            let [fieldNo, wireType] = reader.tag();
+            switch (fieldNo) {
+                case /* optional uint64 samples */ 1:
+                    message.samples = reader.uint64().toBigInt();
+                    break;
+                case /* optional uint64 mean_nanos */ 2:
+                    message.meanNanos = reader.uint64().toBigInt();
+                    break;
+                case /* optional uint64 max_nanos */ 3:
+                    message.maxNanos = reader.uint64().toBigInt();
+                    break;
+                case /* optional uint64 budget_nanos */ 4:
+                    message.budgetNanos = reader.uint64().toBigInt();
+                    break;
+                case /* optional uint64 over_budget_count */ 5:
+                    message.overBudgetCount = reader.uint64().toBigInt();
+                    break;
+                case /* optional double mean_millis */ 6:
+                    message.meanMillis = reader.double();
+                    break;
+                case /* optional double max_millis */ 7:
+                    message.maxMillis = reader.double();
+                    break;
+                case /* optional double budget_millis */ 8:
+                    message.budgetMillis = reader.double();
+                    break;
+                default:
+                    let u = options.readUnknownField;
+                    if (u === "throw")
+                        throw new globalThis.Error(`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`);
+                    let d = reader.skip(wireType);
+                    if (u !== false)
+                        (u === true ? UnknownFieldHandler.onRead : u)(this.typeName, message, fieldNo, wireType, d);
+            }
+        }
+        return message;
+    }
+    internalBinaryWrite(message: RelayHopSnapshot, writer: IBinaryWriter, options: BinaryWriteOptions): IBinaryWriter {
+        /* optional uint64 samples = 1; */
+        if (message.samples !== undefined)
+            writer.tag(1, WireType.Varint).uint64(message.samples);
+        /* optional uint64 mean_nanos = 2; */
+        if (message.meanNanos !== undefined)
+            writer.tag(2, WireType.Varint).uint64(message.meanNanos);
+        /* optional uint64 max_nanos = 3; */
+        if (message.maxNanos !== undefined)
+            writer.tag(3, WireType.Varint).uint64(message.maxNanos);
+        /* optional uint64 budget_nanos = 4; */
+        if (message.budgetNanos !== undefined)
+            writer.tag(4, WireType.Varint).uint64(message.budgetNanos);
+        /* optional uint64 over_budget_count = 5; */
+        if (message.overBudgetCount !== undefined)
+            writer.tag(5, WireType.Varint).uint64(message.overBudgetCount);
+        /* optional double mean_millis = 6; */
+        if (message.meanMillis !== undefined)
+            writer.tag(6, WireType.Bit64).double(message.meanMillis);
+        /* optional double max_millis = 7; */
+        if (message.maxMillis !== undefined)
+            writer.tag(7, WireType.Bit64).double(message.maxMillis);
+        /* optional double budget_millis = 8; */
+        if (message.budgetMillis !== undefined)
+            writer.tag(8, WireType.Bit64).double(message.budgetMillis);
+        let u = options.writeUnknownFields;
+        if (u !== false)
+            (u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
+        return writer;
+    }
+}
+/**
+ * @generated MessageType for protobuf message MumbleProto.RelayHopSnapshot
+ */
+export const RelayHopSnapshot = new RelayHopSnapshot$Type();

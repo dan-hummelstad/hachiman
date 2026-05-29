@@ -37,6 +37,8 @@ const (
 	MessageTalkingState
 	MessageRequestChannelMessages
 	MessageChannelMessageHistory
+	MessageRelayMetricsQuery
+	MessageRelayMetricsSnapshot
 )
 
 const (
@@ -115,6 +117,10 @@ func MessageType(msg interface{}) uint16 {
 		return MessageRequestChannelMessages
 	case *ChannelMessageHistory:
 		return MessageChannelMessageHistory
+	case *RelayMetricsQuery:
+		return MessageRelayMetricsQuery
+	case *RelayMetricsSnapshot:
+		return MessageRelayMetricsSnapshot
 	}
 	panic("unknown type")
 }

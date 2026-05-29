@@ -19,6 +19,7 @@ import (
 	"mumble.info/grumble/pkg/cryptstate"
 	"mumble.info/grumble/pkg/database"
 	"mumble.info/grumble/pkg/mumbleproto"
+	"mumble.info/grumble/pkg/web"
 )
 
 type Message struct {
@@ -2157,4 +2158,96 @@ func (server *Server) handleContextAction(client *Client, msg *Message) {
 		chanid = int(*ctx.ChannelId)
 	}
 	server.Printf("MessageContextAction from client: %d, channel: %d, action: %s", client.session, chanid, ctx.GetAction())
+}
+
+// handleRelayMetricsQuery answers an operator request for the relay's
+// thin/on-path voice instrumentation over the control channel. This is the
+// authenticated replacement for the (now removed) unauthenticated
+// GET /metrics/relay HTTP endpoint: it runs in a per-client context so we can
+// gate on identity, mirroring how handleAclMessage gates ACL reads.
+//
+// Permission model (identical to the operator gate in client.go's root-channel
+// admin paths): the requester must be the SuperUser OR hold Write permission on
+// the root channel. Anything else gets a PermissionDenied — the same response
+// the client's command() helper already understands and rejects on.
+func (server *Server) handleRelayMetricsQuery(client *Client, msg *Message) {
+	query := &mumbleproto.RelayMetricsQuery{}
+	if err := proto.Unmarshal(msg.buf, query); err != nil {
+		client.Panic(err)
+		return
+	}
+
+	// Operator-only. Root-channel Write is the closest existing analogue to an
+	// "operator" capability; SuperUser always qualifies.
+	rootChan := server.RootChannel()
+	if !client.IsSuperUser() && !acl.HasPermission(&rootChan.ACL, client, acl.WritePermission) {
+		client.sendPermissionDenied(client, rootChan, acl.WritePermission)
+		return
+	}
+
+	if client.GlobalLimit.RateLimit(1) {
+		return
+	}
+
+	// Pull a consistent snapshot off the voice hot path. Metrics is nil-safe
+	// (Snapshot on a nil *RelayMetrics returns a zero snapshot), but guard the
+	// SFU itself so a server started without WebRTC still answers cleanly.
+	var snap web.RelaySnapshot
+	if server.sfu != nil {
+		snap = server.sfu.Metrics.Snapshot()
+	}
+
+	reply := relayMetricsSnapshotToProto(snap)
+	if err := client.sendMessage(reply); err != nil {
+		client.Panic(err)
+		return
+	}
+}
+
+// relayMetricsSnapshotToProto maps the internal web.RelaySnapshot onto the wire
+// message. Counters are uint64 on both sides; the *_millis convenience fields
+// (float64) are carried through so the UI can render milliseconds without
+// re-deriving them from nanos. budget_millis has no direct counterpart on the
+// Go snapshot (which only exposes BudgetNanos), so it is computed here.
+func relayMetricsSnapshotToProto(snap web.RelaySnapshot) *mumbleproto.RelayMetricsSnapshot {
+	reply := &mumbleproto.RelayMetricsSnapshot{
+		Region:        proto.String(snap.Region),
+		Placed:        proto.Bool(snap.Placed),
+		UptimeSeconds: proto.Float64(snap.UptimeSeconds),
+		OnPath:        proto.Bool(snap.OnPath),
+		TotalOffPath:  proto.Uint64(snap.TotalOffPath),
+	}
+
+	reply.Transports = make([]*mumbleproto.RelayTransportSnapshot, 0, len(snap.Transports))
+	for _, t := range snap.Transports {
+		reply.Transports = append(reply.Transports, &mumbleproto.RelayTransportSnapshot{
+			Transport:    proto.String(t.Transport),
+			Packets:      proto.Uint64(t.Packets),
+			Bytes:        proto.Uint64(t.Bytes),
+			OnPathCount:  proto.Uint64(t.OnPathCount),
+			OffPathCount: proto.Uint64(t.OffPathCount),
+			UnknownCount: proto.Uint64(t.UnknownCount),
+			Drops:        proto.Uint64(t.Drops),
+		})
+	}
+
+	reply.Hop = &mumbleproto.RelayHopSnapshot{
+		Samples:         proto.Uint64(snap.Hop.Samples),
+		MeanNanos:       proto.Uint64(snap.Hop.MeanNanos),
+		MaxNanos:        proto.Uint64(snap.Hop.MaxNanos),
+		BudgetNanos:     proto.Uint64(snap.Hop.BudgetNanos),
+		OverBudgetCount: proto.Uint64(snap.Hop.OverBudgetCount),
+		MeanMillis:      proto.Float64(snap.Hop.MeanMillis),
+		MaxMillis:       proto.Float64(snap.Hop.MaxMillis),
+		BudgetMillis:    proto.Float64(float64(snap.Hop.BudgetNanos) / 1e6),
+	}
+
+	if len(snap.RegionForwards) > 0 {
+		reply.RegionForwards = make(map[string]uint64, len(snap.RegionForwards))
+		for region, count := range snap.RegionForwards {
+			reply.RegionForwards[region] = count
+		}
+	}
+
+	return reply
 }

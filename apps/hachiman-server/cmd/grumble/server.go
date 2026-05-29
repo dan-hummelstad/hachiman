@@ -1277,6 +1277,8 @@ func (server *Server) handleIncomingMessage(msg *Message) {
 		server.handleTalkingStateMessage(msg.client, msg)
 	case mumbleproto.MessageRequestChannelMessages:
 		server.handleRequestChannelMessages(msg.client, msg)
+	case mumbleproto.MessageRelayMetricsQuery:
+		server.handleRelayMetricsQuery(msg.client, msg)
 	}
 }
 
@@ -2018,14 +2020,15 @@ func (server *Server) Start() (err error) {
 		}
 		server.webwsl = web.NewListener(server.tcpl.Addr(), server.Logger)
 		mux := http.NewServeMux()
-		// Relay thin/on-path metrics snapshot (JSON). Read-only and off the
-		// voice hot path; consumed by the operator Health/Diagnostics view.
-		// NOTE: not yet auth-gated — see THIN-RELAY-DESIGN.md "What to
-		// monitor"; should sit behind operator auth / a private bind before
-		// production exposure.
-		if server.sfu != nil && server.sfu.Metrics != nil {
-			mux.Handle("/metrics/relay", server.sfu.Metrics)
-		}
+		// Relay thin/on-path metrics are now served over the
+		// authenticated Mumble control channel (RelayMetricsQuery ->
+		// RelayMetricsSnapshot, see handleRelayMetricsQuery), gated on
+		// SuperUser / root-channel Write. The previous unauthenticated
+		// GET /metrics/relay mount was globally reachable on the shared
+		// HTTP/WS port with no client identity to gate on, so it has been
+		// removed rather than left open or bolted onto with brittle HTTP
+		// auth. RelayMetrics.ServeHTTP is retained for an operator who
+		// wants to mount it behind their own private/localhost listener.
 		mux.Handle("/", server.webwsl)
 
 		server.webhttp = &http.Server{

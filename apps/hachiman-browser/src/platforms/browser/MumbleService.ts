@@ -1,4 +1,5 @@
-import type { IMumbleService } from '@hachiman/hachiman'
+import type { IMumbleService, RelayPathSnapshot } from '@hachiman/hachiman'
+import { relayPathFromMetrics } from '@hachiman/hachiman'
 import {
   ACL,
   Channel,
@@ -190,6 +191,11 @@ export class MumbleService implements IMumbleService {
     const channel = this._rootClient.channels.byId(channelId)
     if (!channel) throw new Error(`Channel ${channelId} not found`)
     await channel.saveAcl(acl)
+  }
+
+  async fetchRelayMetrics(): Promise<RelayPathSnapshot> {
+    const snapshot = await this._rootClient.fetchRelayMetrics()
+    return relayPathFromMetrics(snapshot)
   }
 
   on<K extends keyof Events>(event: K, listener: Events[K]): void {

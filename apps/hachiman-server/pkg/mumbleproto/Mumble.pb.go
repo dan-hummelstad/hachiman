@@ -3331,6 +3331,362 @@ func (x *PersistedMessage) GetCreatedAtMs() int64 {
 	return 0
 }
 
+// Client -> server request for the relay's thin/on-path voice instrumentation.
+// Authenticated, operator-only: the server replies with a RelayMetricsSnapshot
+// only if the requester is the SuperUser or holds Write permission on the root
+// channel (same gate as the ACL fetch); otherwise it returns PermissionDenied.
+// Carries no fields today (the relay reports a single global snapshot), but is
+// kept as a distinct message so future scoping (per-transport, per-region) can
+// be added without overloading another type.
+type RelayMetricsQuery struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RelayMetricsQuery) Reset() {
+	*x = RelayMetricsQuery{}
+	mi := &file_Mumble_proto_msgTypes[33]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RelayMetricsQuery) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RelayMetricsQuery) ProtoMessage() {}
+
+func (x *RelayMetricsQuery) ProtoReflect() protoreflect.Message {
+	mi := &file_Mumble_proto_msgTypes[33]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RelayMetricsQuery.ProtoReflect.Descriptor instead.
+func (*RelayMetricsQuery) Descriptor() ([]byte, []int) {
+	return file_Mumble_proto_rawDescGZIP(), []int{33}
+}
+
+// Server -> client reply mirroring the Go web.RelaySnapshot
+// (apps/hachiman-server/pkg/web/relaymetrics.go) and the TS RelayPathSnapshot
+// (apps/hachiman/src/lib/connection-quality.ts). Read-only operator view of
+// whether voice forwarding is staying "thin & on-path".
+type RelayMetricsSnapshot struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Region the relay is homed in ("" / absent = unplaced / region unknown).
+	Region *string `protobuf:"bytes,1,opt,name=region" json:"region,omitempty"`
+	// True when the relay has a configured region (region != "").
+	Placed *bool `protobuf:"varint,2,opt,name=placed" json:"placed,omitempty"`
+	// Seconds since the relay metrics started accumulating.
+	UptimeSeconds *float64 `protobuf:"fixed64,3,opt,name=uptime_seconds,json=uptimeSeconds" json:"uptime_seconds,omitempty"`
+	// Per-transport forwarding counters (native UDP, WebRTC SFU).
+	Transports []*RelayTransportSnapshot `protobuf:"bytes,4,rep,name=transports" json:"transports,omitempty"`
+	// Forwarding-hop added-latency summary.
+	Hop *RelayHopSnapshot `protobuf:"bytes,5,opt,name=hop" json:"hop,omitempty"`
+	// Off-the-hot-path tally of forwards per distinct receiver region.
+	RegionForwards map[string]uint64 `protobuf:"bytes,6,rep,name=region_forwards,json=regionForwards" json:"region_forwards,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"varint,2,opt,name=value"`
+	// True only when no off-path (cross-region) forwards have been observed.
+	OnPath *bool `protobuf:"varint,7,opt,name=on_path,json=onPath" json:"on_path,omitempty"`
+	// Total off-path forwards across all transports.
+	TotalOffPath  *uint64 `protobuf:"varint,8,opt,name=total_off_path,json=totalOffPath" json:"total_off_path,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RelayMetricsSnapshot) Reset() {
+	*x = RelayMetricsSnapshot{}
+	mi := &file_Mumble_proto_msgTypes[34]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RelayMetricsSnapshot) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RelayMetricsSnapshot) ProtoMessage() {}
+
+func (x *RelayMetricsSnapshot) ProtoReflect() protoreflect.Message {
+	mi := &file_Mumble_proto_msgTypes[34]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RelayMetricsSnapshot.ProtoReflect.Descriptor instead.
+func (*RelayMetricsSnapshot) Descriptor() ([]byte, []int) {
+	return file_Mumble_proto_rawDescGZIP(), []int{34}
+}
+
+func (x *RelayMetricsSnapshot) GetRegion() string {
+	if x != nil && x.Region != nil {
+		return *x.Region
+	}
+	return ""
+}
+
+func (x *RelayMetricsSnapshot) GetPlaced() bool {
+	if x != nil && x.Placed != nil {
+		return *x.Placed
+	}
+	return false
+}
+
+func (x *RelayMetricsSnapshot) GetUptimeSeconds() float64 {
+	if x != nil && x.UptimeSeconds != nil {
+		return *x.UptimeSeconds
+	}
+	return 0
+}
+
+func (x *RelayMetricsSnapshot) GetTransports() []*RelayTransportSnapshot {
+	if x != nil {
+		return x.Transports
+	}
+	return nil
+}
+
+func (x *RelayMetricsSnapshot) GetHop() *RelayHopSnapshot {
+	if x != nil {
+		return x.Hop
+	}
+	return nil
+}
+
+func (x *RelayMetricsSnapshot) GetRegionForwards() map[string]uint64 {
+	if x != nil {
+		return x.RegionForwards
+	}
+	return nil
+}
+
+func (x *RelayMetricsSnapshot) GetOnPath() bool {
+	if x != nil && x.OnPath != nil {
+		return *x.OnPath
+	}
+	return false
+}
+
+func (x *RelayMetricsSnapshot) GetTotalOffPath() uint64 {
+	if x != nil && x.TotalOffPath != nil {
+		return *x.TotalOffPath
+	}
+	return 0
+}
+
+// Mirror of web.TransportSnapshot: one transport's forwarding counters.
+type RelayTransportSnapshot struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// "native-udp" or "webrtc".
+	Transport    *string `protobuf:"bytes,1,opt,name=transport" json:"transport,omitempty"`
+	Packets      *uint64 `protobuf:"varint,2,opt,name=packets" json:"packets,omitempty"`
+	Bytes        *uint64 `protobuf:"varint,3,opt,name=bytes" json:"bytes,omitempty"`
+	OnPathCount  *uint64 `protobuf:"varint,4,opt,name=on_path_count,json=onPathCount" json:"on_path_count,omitempty"`
+	OffPathCount *uint64 `protobuf:"varint,5,opt,name=off_path_count,json=offPathCount" json:"off_path_count,omitempty"`
+	UnknownCount *uint64 `protobuf:"varint,6,opt,name=unknown_count,json=unknownCount" json:"unknown_count,omitempty"`
+	// Best-effort forwards that failed to write.
+	Drops         *uint64 `protobuf:"varint,7,opt,name=drops" json:"drops,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RelayTransportSnapshot) Reset() {
+	*x = RelayTransportSnapshot{}
+	mi := &file_Mumble_proto_msgTypes[35]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RelayTransportSnapshot) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RelayTransportSnapshot) ProtoMessage() {}
+
+func (x *RelayTransportSnapshot) ProtoReflect() protoreflect.Message {
+	mi := &file_Mumble_proto_msgTypes[35]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RelayTransportSnapshot.ProtoReflect.Descriptor instead.
+func (*RelayTransportSnapshot) Descriptor() ([]byte, []int) {
+	return file_Mumble_proto_rawDescGZIP(), []int{35}
+}
+
+func (x *RelayTransportSnapshot) GetTransport() string {
+	if x != nil && x.Transport != nil {
+		return *x.Transport
+	}
+	return ""
+}
+
+func (x *RelayTransportSnapshot) GetPackets() uint64 {
+	if x != nil && x.Packets != nil {
+		return *x.Packets
+	}
+	return 0
+}
+
+func (x *RelayTransportSnapshot) GetBytes() uint64 {
+	if x != nil && x.Bytes != nil {
+		return *x.Bytes
+	}
+	return 0
+}
+
+func (x *RelayTransportSnapshot) GetOnPathCount() uint64 {
+	if x != nil && x.OnPathCount != nil {
+		return *x.OnPathCount
+	}
+	return 0
+}
+
+func (x *RelayTransportSnapshot) GetOffPathCount() uint64 {
+	if x != nil && x.OffPathCount != nil {
+		return *x.OffPathCount
+	}
+	return 0
+}
+
+func (x *RelayTransportSnapshot) GetUnknownCount() uint64 {
+	if x != nil && x.UnknownCount != nil {
+		return *x.UnknownCount
+	}
+	return 0
+}
+
+func (x *RelayTransportSnapshot) GetDrops() uint64 {
+	if x != nil && x.Drops != nil {
+		return *x.Drops
+	}
+	return 0
+}
+
+// Mirror of web.HopSnapshot: forwarding-hop added-latency summary. Latencies
+// are provided both in nanoseconds (raw counters) and milliseconds (convenience
+// for the UI, which renders ms).
+type RelayHopSnapshot struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Number of hop-latency observations.
+	Samples   *uint64 `protobuf:"varint,1,opt,name=samples" json:"samples,omitempty"`
+	MeanNanos *uint64 `protobuf:"varint,2,opt,name=mean_nanos,json=meanNanos" json:"mean_nanos,omitempty"`
+	MaxNanos  *uint64 `protobuf:"varint,3,opt,name=max_nanos,json=maxNanos" json:"max_nanos,omitempty"`
+	// Thin-hop latency budget (0 = budget tracking disabled).
+	BudgetNanos *uint64 `protobuf:"varint,4,opt,name=budget_nanos,json=budgetNanos" json:"budget_nanos,omitempty"`
+	// Observations exceeding the thin-hop budget.
+	OverBudgetCount *uint64  `protobuf:"varint,5,opt,name=over_budget_count,json=overBudgetCount" json:"over_budget_count,omitempty"`
+	MeanMillis      *float64 `protobuf:"fixed64,6,opt,name=mean_millis,json=meanMillis" json:"mean_millis,omitempty"`
+	MaxMillis       *float64 `protobuf:"fixed64,7,opt,name=max_millis,json=maxMillis" json:"max_millis,omitempty"`
+	BudgetMillis    *float64 `protobuf:"fixed64,8,opt,name=budget_millis,json=budgetMillis" json:"budget_millis,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *RelayHopSnapshot) Reset() {
+	*x = RelayHopSnapshot{}
+	mi := &file_Mumble_proto_msgTypes[36]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RelayHopSnapshot) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RelayHopSnapshot) ProtoMessage() {}
+
+func (x *RelayHopSnapshot) ProtoReflect() protoreflect.Message {
+	mi := &file_Mumble_proto_msgTypes[36]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RelayHopSnapshot.ProtoReflect.Descriptor instead.
+func (*RelayHopSnapshot) Descriptor() ([]byte, []int) {
+	return file_Mumble_proto_rawDescGZIP(), []int{36}
+}
+
+func (x *RelayHopSnapshot) GetSamples() uint64 {
+	if x != nil && x.Samples != nil {
+		return *x.Samples
+	}
+	return 0
+}
+
+func (x *RelayHopSnapshot) GetMeanNanos() uint64 {
+	if x != nil && x.MeanNanos != nil {
+		return *x.MeanNanos
+	}
+	return 0
+}
+
+func (x *RelayHopSnapshot) GetMaxNanos() uint64 {
+	if x != nil && x.MaxNanos != nil {
+		return *x.MaxNanos
+	}
+	return 0
+}
+
+func (x *RelayHopSnapshot) GetBudgetNanos() uint64 {
+	if x != nil && x.BudgetNanos != nil {
+		return *x.BudgetNanos
+	}
+	return 0
+}
+
+func (x *RelayHopSnapshot) GetOverBudgetCount() uint64 {
+	if x != nil && x.OverBudgetCount != nil {
+		return *x.OverBudgetCount
+	}
+	return 0
+}
+
+func (x *RelayHopSnapshot) GetMeanMillis() float64 {
+	if x != nil && x.MeanMillis != nil {
+		return *x.MeanMillis
+	}
+	return 0
+}
+
+func (x *RelayHopSnapshot) GetMaxMillis() float64 {
+	if x != nil && x.MaxMillis != nil {
+		return *x.MaxMillis
+	}
+	return 0
+}
+
+func (x *RelayHopSnapshot) GetBudgetMillis() float64 {
+	if x != nil && x.BudgetMillis != nil {
+		return *x.BudgetMillis
+	}
+	return 0
+}
+
 type UserState_VolumeAdjustment struct {
 	state            protoimpl.MessageState `protogen:"open.v1"`
 	ListeningChannel *uint32                `protobuf:"varint,1,opt,name=listening_channel,json=listeningChannel" json:"listening_channel,omitempty"`
@@ -3341,7 +3697,7 @@ type UserState_VolumeAdjustment struct {
 
 func (x *UserState_VolumeAdjustment) Reset() {
 	*x = UserState_VolumeAdjustment{}
-	mi := &file_Mumble_proto_msgTypes[33]
+	mi := &file_Mumble_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3353,7 +3709,7 @@ func (x *UserState_VolumeAdjustment) String() string {
 func (*UserState_VolumeAdjustment) ProtoMessage() {}
 
 func (x *UserState_VolumeAdjustment) ProtoReflect() protoreflect.Message {
-	mi := &file_Mumble_proto_msgTypes[33]
+	mi := &file_Mumble_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3405,7 +3761,7 @@ type BanList_BanEntry struct {
 
 func (x *BanList_BanEntry) Reset() {
 	*x = BanList_BanEntry{}
-	mi := &file_Mumble_proto_msgTypes[34]
+	mi := &file_Mumble_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3417,7 +3773,7 @@ func (x *BanList_BanEntry) String() string {
 func (*BanList_BanEntry) ProtoMessage() {}
 
 func (x *BanList_BanEntry) ProtoReflect() protoreflect.Message {
-	mi := &file_Mumble_proto_msgTypes[34]
+	mi := &file_Mumble_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3512,7 +3868,7 @@ const (
 
 func (x *ACL_ChanGroup) Reset() {
 	*x = ACL_ChanGroup{}
-	mi := &file_Mumble_proto_msgTypes[35]
+	mi := &file_Mumble_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3524,7 +3880,7 @@ func (x *ACL_ChanGroup) String() string {
 func (*ACL_ChanGroup) ProtoMessage() {}
 
 func (x *ACL_ChanGroup) ProtoReflect() protoreflect.Message {
-	mi := &file_Mumble_proto_msgTypes[35]
+	mi := &file_Mumble_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3618,7 +3974,7 @@ const (
 
 func (x *ACL_ChanACL) Reset() {
 	*x = ACL_ChanACL{}
-	mi := &file_Mumble_proto_msgTypes[36]
+	mi := &file_Mumble_proto_msgTypes[40]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3630,7 +3986,7 @@ func (x *ACL_ChanACL) String() string {
 func (*ACL_ChanACL) ProtoMessage() {}
 
 func (x *ACL_ChanACL) ProtoReflect() protoreflect.Message {
-	mi := &file_Mumble_proto_msgTypes[36]
+	mi := &file_Mumble_proto_msgTypes[40]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3709,7 +4065,7 @@ type UserList_User struct {
 
 func (x *UserList_User) Reset() {
 	*x = UserList_User{}
-	mi := &file_Mumble_proto_msgTypes[37]
+	mi := &file_Mumble_proto_msgTypes[41]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3721,7 +4077,7 @@ func (x *UserList_User) String() string {
 func (*UserList_User) ProtoMessage() {}
 
 func (x *UserList_User) ProtoReflect() protoreflect.Message {
-	mi := &file_Mumble_proto_msgTypes[37]
+	mi := &file_Mumble_proto_msgTypes[41]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3790,7 +4146,7 @@ const (
 
 func (x *VoiceTarget_Target) Reset() {
 	*x = VoiceTarget_Target{}
-	mi := &file_Mumble_proto_msgTypes[38]
+	mi := &file_Mumble_proto_msgTypes[42]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3802,7 +4158,7 @@ func (x *VoiceTarget_Target) String() string {
 func (*VoiceTarget_Target) ProtoMessage() {}
 
 func (x *VoiceTarget_Target) ProtoReflect() protoreflect.Message {
-	mi := &file_Mumble_proto_msgTypes[38]
+	mi := &file_Mumble_proto_msgTypes[42]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3869,7 +4225,7 @@ type UserStats_Stats struct {
 
 func (x *UserStats_Stats) Reset() {
 	*x = UserStats_Stats{}
-	mi := &file_Mumble_proto_msgTypes[39]
+	mi := &file_Mumble_proto_msgTypes[43]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3881,7 +4237,7 @@ func (x *UserStats_Stats) String() string {
 func (*UserStats_Stats) ProtoMessage() {}
 
 func (x *UserStats_Stats) ProtoReflect() protoreflect.Message {
-	mi := &file_Mumble_proto_msgTypes[39]
+	mi := &file_Mumble_proto_msgTypes[43]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4278,7 +4634,42 @@ const file_Mumble_proto_rawDesc = "" +
 	"\n" +
 	"actor_name\x18\x04 \x01(\tR\tactorName\x12\x18\n" +
 	"\amessage\x18\x05 \x01(\tR\amessage\x12\"\n" +
-	"\rcreated_at_ms\x18\x06 \x01(\x03R\vcreatedAtMsB'H\x01Z#mumble.info/grumble/pkg/mumbleproto"
+	"\rcreated_at_ms\x18\x06 \x01(\x03R\vcreatedAtMs\"\x13\n" +
+	"\x11RelayMetricsQuery\"\xc5\x03\n" +
+	"\x14RelayMetricsSnapshot\x12\x16\n" +
+	"\x06region\x18\x01 \x01(\tR\x06region\x12\x16\n" +
+	"\x06placed\x18\x02 \x01(\bR\x06placed\x12%\n" +
+	"\x0euptime_seconds\x18\x03 \x01(\x01R\ruptimeSeconds\x12C\n" +
+	"\n" +
+	"transports\x18\x04 \x03(\v2#.MumbleProto.RelayTransportSnapshotR\n" +
+	"transports\x12/\n" +
+	"\x03hop\x18\x05 \x01(\v2\x1d.MumbleProto.RelayHopSnapshotR\x03hop\x12^\n" +
+	"\x0fregion_forwards\x18\x06 \x03(\v25.MumbleProto.RelayMetricsSnapshot.RegionForwardsEntryR\x0eregionForwards\x12\x17\n" +
+	"\aon_path\x18\a \x01(\bR\x06onPath\x12$\n" +
+	"\x0etotal_off_path\x18\b \x01(\x04R\ftotalOffPath\x1aA\n" +
+	"\x13RegionForwardsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\x04R\x05value:\x028\x01\"\xeb\x01\n" +
+	"\x16RelayTransportSnapshot\x12\x1c\n" +
+	"\ttransport\x18\x01 \x01(\tR\ttransport\x12\x18\n" +
+	"\apackets\x18\x02 \x01(\x04R\apackets\x12\x14\n" +
+	"\x05bytes\x18\x03 \x01(\x04R\x05bytes\x12\"\n" +
+	"\ron_path_count\x18\x04 \x01(\x04R\vonPathCount\x12$\n" +
+	"\x0eoff_path_count\x18\x05 \x01(\x04R\foffPathCount\x12#\n" +
+	"\runknown_count\x18\x06 \x01(\x04R\funknownCount\x12\x14\n" +
+	"\x05drops\x18\a \x01(\x04R\x05drops\"\x9c\x02\n" +
+	"\x10RelayHopSnapshot\x12\x18\n" +
+	"\asamples\x18\x01 \x01(\x04R\asamples\x12\x1d\n" +
+	"\n" +
+	"mean_nanos\x18\x02 \x01(\x04R\tmeanNanos\x12\x1b\n" +
+	"\tmax_nanos\x18\x03 \x01(\x04R\bmaxNanos\x12!\n" +
+	"\fbudget_nanos\x18\x04 \x01(\x04R\vbudgetNanos\x12*\n" +
+	"\x11over_budget_count\x18\x05 \x01(\x04R\x0foverBudgetCount\x12\x1f\n" +
+	"\vmean_millis\x18\x06 \x01(\x01R\n" +
+	"meanMillis\x12\x1d\n" +
+	"\n" +
+	"max_millis\x18\a \x01(\x01R\tmaxMillis\x12#\n" +
+	"\rbudget_millis\x18\b \x01(\x01R\fbudgetMillisB'H\x01Z#mumble.info/grumble/pkg/mumbleproto"
 
 var (
 	file_Mumble_proto_rawDescOnce sync.Once
@@ -4293,7 +4684,7 @@ func file_Mumble_proto_rawDescGZIP() []byte {
 }
 
 var file_Mumble_proto_enumTypes = make([]protoimpl.EnumInfo, 5)
-var file_Mumble_proto_msgTypes = make([]protoimpl.MessageInfo, 40)
+var file_Mumble_proto_msgTypes = make([]protoimpl.MessageInfo, 45)
 var file_Mumble_proto_goTypes = []any{
 	(Reject_RejectType)(0),             // 0: MumbleProto.Reject.RejectType
 	(ChannelState_ChannelType)(0),      // 1: MumbleProto.ChannelState.ChannelType
@@ -4333,34 +4724,42 @@ var file_Mumble_proto_goTypes = []any{
 	(*RequestChannelMessages)(nil),     // 35: MumbleProto.RequestChannelMessages
 	(*ChannelMessageHistory)(nil),      // 36: MumbleProto.ChannelMessageHistory
 	(*PersistedMessage)(nil),           // 37: MumbleProto.PersistedMessage
-	(*UserState_VolumeAdjustment)(nil), // 38: MumbleProto.UserState.VolumeAdjustment
-	(*BanList_BanEntry)(nil),           // 39: MumbleProto.BanList.BanEntry
-	(*ACL_ChanGroup)(nil),              // 40: MumbleProto.ACL.ChanGroup
-	(*ACL_ChanACL)(nil),                // 41: MumbleProto.ACL.ChanACL
-	(*UserList_User)(nil),              // 42: MumbleProto.UserList.User
-	(*VoiceTarget_Target)(nil),         // 43: MumbleProto.VoiceTarget.Target
-	(*UserStats_Stats)(nil),            // 44: MumbleProto.UserStats.Stats
+	(*RelayMetricsQuery)(nil),          // 38: MumbleProto.RelayMetricsQuery
+	(*RelayMetricsSnapshot)(nil),       // 39: MumbleProto.RelayMetricsSnapshot
+	(*RelayTransportSnapshot)(nil),     // 40: MumbleProto.RelayTransportSnapshot
+	(*RelayHopSnapshot)(nil),           // 41: MumbleProto.RelayHopSnapshot
+	(*UserState_VolumeAdjustment)(nil), // 42: MumbleProto.UserState.VolumeAdjustment
+	(*BanList_BanEntry)(nil),           // 43: MumbleProto.BanList.BanEntry
+	(*ACL_ChanGroup)(nil),              // 44: MumbleProto.ACL.ChanGroup
+	(*ACL_ChanACL)(nil),                // 45: MumbleProto.ACL.ChanACL
+	(*UserList_User)(nil),              // 46: MumbleProto.UserList.User
+	(*VoiceTarget_Target)(nil),         // 47: MumbleProto.VoiceTarget.Target
+	(*UserStats_Stats)(nil),            // 48: MumbleProto.UserStats.Stats
+	nil,                                // 49: MumbleProto.RelayMetricsSnapshot.RegionForwardsEntry
 }
 var file_Mumble_proto_depIdxs = []int32{
 	0,  // 0: MumbleProto.Reject.type:type_name -> MumbleProto.Reject.RejectType
 	1,  // 1: MumbleProto.ChannelState.channel_type:type_name -> MumbleProto.ChannelState.ChannelType
-	38, // 2: MumbleProto.UserState.listening_volume_adjustment:type_name -> MumbleProto.UserState.VolumeAdjustment
-	39, // 3: MumbleProto.BanList.bans:type_name -> MumbleProto.BanList.BanEntry
+	42, // 2: MumbleProto.UserState.listening_volume_adjustment:type_name -> MumbleProto.UserState.VolumeAdjustment
+	43, // 3: MumbleProto.BanList.bans:type_name -> MumbleProto.BanList.BanEntry
 	2,  // 4: MumbleProto.PermissionDenied.type:type_name -> MumbleProto.PermissionDenied.DenyType
-	40, // 5: MumbleProto.ACL.groups:type_name -> MumbleProto.ACL.ChanGroup
-	41, // 6: MumbleProto.ACL.acls:type_name -> MumbleProto.ACL.ChanACL
+	44, // 5: MumbleProto.ACL.groups:type_name -> MumbleProto.ACL.ChanGroup
+	45, // 6: MumbleProto.ACL.acls:type_name -> MumbleProto.ACL.ChanACL
 	4,  // 7: MumbleProto.ContextActionModify.operation:type_name -> MumbleProto.ContextActionModify.Operation
-	42, // 8: MumbleProto.UserList.users:type_name -> MumbleProto.UserList.User
-	43, // 9: MumbleProto.VoiceTarget.targets:type_name -> MumbleProto.VoiceTarget.Target
-	44, // 10: MumbleProto.UserStats.from_client:type_name -> MumbleProto.UserStats.Stats
-	44, // 11: MumbleProto.UserStats.from_server:type_name -> MumbleProto.UserStats.Stats
+	46, // 8: MumbleProto.UserList.users:type_name -> MumbleProto.UserList.User
+	47, // 9: MumbleProto.VoiceTarget.targets:type_name -> MumbleProto.VoiceTarget.Target
+	48, // 10: MumbleProto.UserStats.from_client:type_name -> MumbleProto.UserStats.Stats
+	48, // 11: MumbleProto.UserStats.from_server:type_name -> MumbleProto.UserStats.Stats
 	5,  // 12: MumbleProto.UserStats.version:type_name -> MumbleProto.Version
 	37, // 13: MumbleProto.ChannelMessageHistory.messages:type_name -> MumbleProto.PersistedMessage
-	14, // [14:14] is the sub-list for method output_type
-	14, // [14:14] is the sub-list for method input_type
-	14, // [14:14] is the sub-list for extension type_name
-	14, // [14:14] is the sub-list for extension extendee
-	0,  // [0:14] is the sub-list for field type_name
+	40, // 14: MumbleProto.RelayMetricsSnapshot.transports:type_name -> MumbleProto.RelayTransportSnapshot
+	41, // 15: MumbleProto.RelayMetricsSnapshot.hop:type_name -> MumbleProto.RelayHopSnapshot
+	49, // 16: MumbleProto.RelayMetricsSnapshot.region_forwards:type_name -> MumbleProto.RelayMetricsSnapshot.RegionForwardsEntry
+	17, // [17:17] is the sub-list for method output_type
+	17, // [17:17] is the sub-list for method input_type
+	17, // [17:17] is the sub-list for extension type_name
+	17, // [17:17] is the sub-list for extension extendee
+	0,  // [0:17] is the sub-list for field type_name
 }
 
 func init() { file_Mumble_proto_init() }
@@ -4374,7 +4773,7 @@ func file_Mumble_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_Mumble_proto_rawDesc), len(file_Mumble_proto_rawDesc)),
 			NumEnums:      5,
-			NumMessages:   40,
+			NumMessages:   45,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

@@ -16,6 +16,8 @@ import {
   PluginDataTransmission,
   QueryUsers,
   Reject,
+  RelayMetricsQuery,
+  RelayMetricsSnapshot,
   RequestBlob,
   RequestChannelMessages,
   ServerConfig,
@@ -71,6 +73,8 @@ const packetForPacketType = new Map<number, AnyMessage>([
   [29, TalkingState],
   [30, RequestChannelMessages],
   [31, ChannelMessageHistory],
+  [32, RelayMetricsQuery],
+  [33, RelayMetricsSnapshot],
 ]);
 
 const packetTypeForPacket = new Map<AnyMessage, number>();

@@ -28,6 +28,8 @@ import {
   PersistedMessage,
   Ping,
   Reject,
+  RelayMetricsQuery,
+  RelayMetricsSnapshot,
   RequestChannelMessages,
   ServerConfig,
   ServerSync,
@@ -430,6 +432,27 @@ export class Client extends TypedEventEmitter<Events, Events> {
       messages: ret.messages,
       hasMore: ret.hasMore ?? false,
     };
+  }
+
+  /**
+   * Fetch the server relay's thin/on-path voice metrics snapshot.
+   *
+   * Sends an (empty) {@link RelayMetricsQuery} over the control channel and
+   * resolves with the {@link RelayMetricsSnapshot} reply. Mirrors how
+   * {@link Channel.fetchAcl} issues a request/reply over the control channel.
+   *
+   * The server gates this on operator privilege (SuperUser or Write on the
+   * root channel) and responds with a PermissionDenied to anyone else — which
+   * {@link Client.command} surfaces as a rejected promise
+   * ({@link PermissionDeniedError}). A `RelayMetricsSnapshot` is only ever sent
+   * in reply to a query, so the reply needs no correlation id.
+   */
+  async fetchRelayMetrics(): Promise<RelayMetricsSnapshot> {
+    const snapshot = await this.command('fetchRelayMetrics', {
+      sendPacket: [RelayMetricsQuery, RelayMetricsQuery.create()],
+      expectPacket: [RelayMetricsSnapshot, () => true],
+    });
+    return snapshot;
   }
 
   /**
