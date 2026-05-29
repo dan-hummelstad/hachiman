@@ -9,6 +9,7 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsgo --noEmit -p tsconfig.json",
+    "test": "tsx src/lib/placement.test.ts",
     "lint": "eslint src",
     "format": "prettier --write .",
     "db:generate": "drizzle-kit generate",
