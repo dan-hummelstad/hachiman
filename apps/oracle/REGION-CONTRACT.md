@@ -25,7 +25,18 @@ Defined in `apps/oracle/src/db/schema.ts`; migrated by
 | `display_name` | `text` NOT NULL               | human label, e.g. `US East`                        |
 | `lat`          | `double precision` (nullable) | rough region centroid; future geodesic scoring only |
 | `lon`          | `double precision` (nullable) | rough region centroid; future geodesic scoring only |
+| `probe_host`   | `text` (nullable)             | endpoint a latency-capable client TCP-probes to measure client→region RTT; nullable because real infra doesn't exist yet (seed fills dev placeholders) |
+| `probe_port`   | `integer` NOT NULL            | default `64738` (Mumble port — same port the server answers TLS/TCP + UDP browser-pings on) |
 | `created_at`   | `timestamptz` NOT NULL        | default `now()`                                    |
+
+`probe_host`/`probe_port` were added so a latency-capable host (the Electron
+client today; browsers can't open raw sockets) can fetch the region set, probe
+each endpoint with `probeRegionsRtt` from `@hachiman/hachiman-node`, and POST the
+measured RTTs to `/api/servers/recommend-region` for a real recommendation. They
+are exposed read-only via the public `GET /api/regions` route. The seed's probe
+hosts are **dev placeholders** (public cloud endpoints that merely answer a TCP
+connect, not Mumble servers) until the managed-infra islands under "Future"
+exist; swap them for the real per-region island hosts (on port 64738) then.
 
 Seeded idempotently by `apps/oracle/src/db/seed.ts` (`pnpm -F @hachiman/oracle db:seed`),
 keyed on `code` via `onConflictDoUpdate`. Initial set:
@@ -87,7 +98,9 @@ Server-side helpers (`apps/oracle/src/lib/servers.ts`):
   `setServerRegion` exists today — it would be speculative with no consumer;
   extract one from that branch when the fan-out is actually built.)
 - `listRegions(): Promise<Region[]>` — ordered by `display_name`; populates the
-  dashboard `<Select>` and (later) the placement scorer.
+  dashboard `<Select>`, the public `GET /api/regions` route (which projects it to
+  `{ code, displayName, probeHost, probePort }` for latency-capable clients), and
+  (later) the placement scorer.
 
 Client mirror — **forward-declared for Team B, NOT yet populated** (obeys the
 Zustand selector rules in `CLAUDE.md`):

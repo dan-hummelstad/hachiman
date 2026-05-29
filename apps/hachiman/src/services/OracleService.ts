@@ -72,6 +72,37 @@ interface ServerTokenResponse {
   scope?: string
 }
 
+/**
+ * A voice region exposed by Oracle's public `GET /api/regions`, including the
+ * endpoint a latency-capable host probes to measure client→region RTT.
+ * `probeHost` is null until the managed-infra hosts exist (the seed fills dev
+ * placeholders); a null host is simply skipped by the prober.
+ */
+export interface RegionInfo {
+  code: string
+  displayName: string
+  probeHost: string | null
+  probePort: number
+}
+
+/** One client-measured region RTT, POSTed to `recommend-region`. */
+export interface RegionMeasurement {
+  region: string
+  /** Best measured RTT in ms, or `null` if the probe failed / was skipped. */
+  rttMs: number | null
+}
+
+/** Shape returned by `POST /api/servers/recommend-region`. */
+export interface RegionRecommendation {
+  /** Recommended region code, or `null` if nothing was rankable. */
+  recommended: string | null
+  ranking: Array<{ code: string; rttMs: number; loadScore: number | null }>
+  /** Known regions with no usable RTT this round. */
+  unmeasured: string[]
+  /** Code → display-name labels for the candidate set. */
+  regions: Array<{ code: string; displayName: string }>
+}
+
 interface RemoteServerRecord {
   id: string // server-side UUID
   host: string
@@ -349,6 +380,44 @@ export class OracleService {
       return j.accessToken
     } catch (e) {
       console.warn('[oracle] mintServerToken failed', e)
+      return undefined
+    }
+  }
+
+  // ---- REST: region placement ---------------------------------------------
+
+  /**
+   * GET /api/regions → the known voice regions + their probe endpoints. Public
+   * (no auth) — a latency-capable host fetches this, probes each region, and
+   * POSTs the measurements to {@link recommendRegion}.
+   */
+  async listRegions(): Promise<RegionInfo[]> {
+    const url = `${this.env.apiBase.replace(/\/$/, '')}/regions`
+    const r = await fetch(url, { headers: { accept: 'application/json' } })
+    if (!r.ok) throw new Error(`listRegions failed: ${r.status}`)
+    return (await r.json()) as RegionInfo[]
+  }
+
+  /**
+   * POST /api/servers/recommend-region with client-measured RTTs → the ranked
+   * recommendation. Requires an Oracle session (the endpoint requires an
+   * authenticated user). Returns undefined if not signed in or the request
+   * fails, so callers can fall back to the honest "not measured" hint.
+   */
+  async recommendRegion(
+    measurements: RegionMeasurement[]
+  ): Promise<RegionRecommendation | undefined> {
+    if (!useOracleStore.getState().session) return undefined
+    try {
+      const r = await this.authedFetch('/servers/recommend-region', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ measurements })
+      })
+      if (!r.ok) return undefined
+      return (await r.json()) as RegionRecommendation
+    } catch (e) {
+      console.warn('[oracle] recommendRegion failed', e)
       return undefined
     }
   }

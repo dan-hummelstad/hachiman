@@ -6,6 +6,11 @@
   "compilerOptions": {
     "composite": true,
     "noEmit": true,
+    // Lets the unit test import its sibling helper as `./probe-target-guard.ts`
+    // — node's native TS type-stripping test runner needs the real extension at
+    // runtime. Safe here because this project only typechecks (`noEmit`); the
+    // actual main/preload bundle is built by electron-vite (esbuild), not tsgo.
+    "allowImportingTsExtensions": true,
     "tsBuildInfoFile": "../../ts-dist/hachiman-electron/tsconfig.node.tsbuildinfo",
     "types": ["electron-vite/node"]
   },

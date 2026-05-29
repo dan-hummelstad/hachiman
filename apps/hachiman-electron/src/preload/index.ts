@@ -1,8 +1,18 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
+import type { RegionProbeResult, RegionProbeTarget } from '@hachiman/hachiman-node'
 
-// Custom APIs for renderer
-const api = {}
+// Custom APIs for renderer. `probeRegions` relays region-latency probe targets
+// to the main process (where raw node sockets live) and returns the measured
+// RTTs. The channel name MUST match `ipcMain.handle('hachiman:probe-regions')`
+// in main/index.ts.
+const api = {
+  probeRegions(targets: RegionProbeTarget[]): Promise<RegionProbeResult[]> {
+    return ipcRenderer.invoke('hachiman:probe-regions', targets) as Promise<
+      RegionProbeResult[]
+    >
+  }
+}
 
 // `takusen://` deep-link bridge. The main process pushes inbound URIs over
 // IPC; we expose a thin subscribe-style API to the renderer so the shared UI

@@ -2,8 +2,10 @@ import { app, shell, BrowserWindow, ipcMain, systemPreferences } from "electron"
 import { join } from "path";
 import { URL as NodeURL } from "url";
 import { electronApp, optimizer, is } from "@electron-toolkit/utils";
+import { probeRegionsRtt } from "@hachiman/hachiman-node";
 import icon from "../../resources/icon.png?asset";
 import { flushPendingUrls, registerProtocolHandlers } from "./protocol-handler";
+import { validateProbeTargets } from "./probe-target-guard";
 
 // Custom scheme for the Oracle/Takusen OAuth PKCE callback. Kept separate
 // from agent D's `takusen://` deep-link scheme so the two flows are
@@ -116,6 +118,28 @@ app.on("open-url", (event, url) => {
   if (url.startsWith(`${HACHIMAN_PROTOCOL}://`)) {
     event.preventDefault();
     handleHachimanProtocolUrl(url);
+  }
+});
+
+// IPC: renderer asks main to measure client→region RTTs. The prober uses raw
+// node `net` sockets (TCP connect-time RTT), which only exist in the main
+// process — the renderer relays targets here and gets back the results. The
+// prober never throws (failures surface as `rttMs: null` per result).
+//
+// SECURITY: the payload is attacker-influenceable (renderer XSS reaches IPC
+// because contextIsolation is off; targets come from the public/unauthed Oracle
+// `GET /api/regions`). `validateProbeTargets` enforces host (no loopback /
+// private / link-local / metadata, DNS-resolved), port (allowlist), count
+// (≤ 64) and shape BEFORE any socket is opened, turning a would-be SSRF /
+// internal-port-scan primitive into a narrow region prober. It never throws;
+// bad input is filtered to `[]`. See ./probe-target-guard.ts.
+ipcMain.handle("hachiman:probe-regions", async (_e, targets: unknown) => {
+  try {
+    const safe = await validateProbeTargets(targets);
+    return await probeRegionsRtt(safe);
+  } catch (e) {
+    console.warn("[hachiman] probe-regions rejected", e);
+    return [];
   }
 });
 

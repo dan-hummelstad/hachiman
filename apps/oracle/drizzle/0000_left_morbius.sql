@@ -66,6 +66,8 @@ CREATE TABLE "regions" (
 	"display_name" text NOT NULL,
 	"lat" double precision,
 	"lon" double precision,
+	"probe_host" text,
+	"probe_port" integer DEFAULT 64738 NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint

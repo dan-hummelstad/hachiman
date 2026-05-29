@@ -17,6 +17,9 @@ export type {
   MumbleEventHandler
 } from './shared/IMumbleService'
 export type { IPlatformService } from './shared/IPlatformService'
+// Re-exported from the client lib so host PlatformService impls and region-aware
+// UI can type their probe surface against the shared package.
+export type { RegionProbeResult, RegionProbeTarget } from '@hachiman/hachiman-node'
 
 // Oracle / Takusen SSO surface — host apps need these for the OAuth callback
 // flow and for the deep-link handler (agent D).

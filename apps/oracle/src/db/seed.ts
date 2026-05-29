@@ -24,16 +24,30 @@ const HACHIMAN_CLIENT_ID = 'hachiman-client'
 // Fixed dev region set. lat/lon are rough region centroids — good enough for a
 // future geodesic placement scorer, not meant to be precise. Keep this list
 // small and stable; it is the authoritative seed for the `regions` table.
+//
+// `probeHost`/`probePort` are the endpoint a latency-capable client (the
+// Electron host) TCP-connect-probes to measure client→region RTT. THESE HOSTS
+// ARE DEV PLACEHOLDERS: the managed-infra islands they should point at do not
+// exist yet (see REGION-CONTRACT.md "Future"). They are intentionally
+// well-known anycast/cloud public IPs that respond to a TCP connect so the
+// probe path is exercisable end-to-end in dev; they are NOT Mumble servers and
+// the measured RTT is only a rough geographic proxy. Swap these for the real
+// per-region island hosts (on the Mumble port 64738) when that infra lands.
+// `probePort` 443 here because the placeholders are public HTTPS endpoints that
+// accept a TCP connect; real region hosts will use the Mumble default 64738.
 const REGIONS: ReadonlyArray<{
   code: string
   displayName: string
   lat: number
   lon: number
+  probeHost: string
+  probePort: number
 }> = [
-  { code: 'us-east', displayName: 'US East', lat: 39.0438, lon: -77.4874 },
-  { code: 'us-west', displayName: 'US West', lat: 45.5946, lon: -121.1787 },
-  { code: 'eu-west', displayName: 'EU West', lat: 53.3331, lon: -6.2489 },
-  { code: 'ap-southeast', displayName: 'Asia Pacific (Southeast)', lat: 1.3521, lon: 103.8198 },
+  // DEV PLACEHOLDER probe hosts — see comment above. Not real region infra.
+  { code: 'us-east', displayName: 'US East', lat: 39.0438, lon: -77.4874, probeHost: 'us-east-1.amazonaws.com', probePort: 443 },
+  { code: 'us-west', displayName: 'US West', lat: 45.5946, lon: -121.1787, probeHost: 'us-west-2.amazonaws.com', probePort: 443 },
+  { code: 'eu-west', displayName: 'EU West', lat: 53.3331, lon: -6.2489, probeHost: 'eu-west-1.amazonaws.com', probePort: 443 },
+  { code: 'ap-southeast', displayName: 'Asia Pacific (Southeast)', lat: 1.3521, lon: 103.8198, probeHost: 'ap-southeast-1.amazonaws.com', probePort: 443 },
 ]
 
 // Defaults match the dev hosts:
@@ -76,10 +90,23 @@ async function main(): Promise<void> {
   for (const r of REGIONS) {
     await db
       .insert(regions)
-      .values({ code: r.code, displayName: r.displayName, lat: r.lat, lon: r.lon })
+      .values({
+        code: r.code,
+        displayName: r.displayName,
+        lat: r.lat,
+        lon: r.lon,
+        probeHost: r.probeHost,
+        probePort: r.probePort,
+      })
       .onConflictDoUpdate({
         target: regions.code,
-        set: { displayName: r.displayName, lat: r.lat, lon: r.lon },
+        set: {
+          displayName: r.displayName,
+          lat: r.lat,
+          lon: r.lon,
+          probeHost: r.probeHost,
+          probePort: r.probePort,
+        },
       })
   }
   console.log(`[seed] upserted ${REGIONS.length} regions (${REGIONS.map((r) => r.code).join(', ')})`)

@@ -135,6 +135,13 @@ export const regions = pgTable('regions', {
   // scoring only; double precision to match Postgres `float8`.
   lat: doublePrecision('lat'),
   lon: doublePrecision('lon'),
+  // Endpoint a latency-capable client probes to measure client→region RTT (see
+  // the RTT prober in `@hachiman/hachiman-node` and `/api/servers/recommend-region`).
+  // Nullable because the real managed-infra hosts don't exist yet — until then
+  // the seed fills dev placeholders. `probePort` defaults to the Mumble port
+  // (64738), the same port the server answers TLS/TCP and UDP browser-pings on.
+  probeHost: text('probe_host'),
+  probePort: integer('probe_port').notNull().default(64738),
   createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
     .notNull()
     .defaultNow(),
