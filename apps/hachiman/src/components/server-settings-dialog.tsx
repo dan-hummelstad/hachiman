@@ -1,7 +1,7 @@
 /**
  * Server Settings dialog. Opens from a right-click on the active server icon.
  *
- * Two tabs:
+ * Three tabs:
  *
  *   Roles ────── manages groups on the root channel (channel 0). Mumble's
  *                permission system propagates root-channel groups into every
@@ -16,6 +16,12 @@
  *                entries (one per group or user target), and edit grant/deny
  *                masks. Mirrors Discord's "Channel Permissions" page.
  *
+ *   Health ──── operator voice-relay diagnostics. Fetches a live relay
+ *                thin/on-path snapshot over the authenticated control channel
+ *                (`IMumbleService.fetchRelayMetrics`) and renders the
+ *                forwarding path + per-hop latency. Operator-gated server-side;
+ *                shows an "operator only" state when the server denies.
+ *
  * Persists by calling `IMumbleService.fetchAcl` / `saveAcl`. The save payload
  * mirrors what Mumble Client sends: groups with `inherited:false` (so the
  * server treats them as locally-defined), and `acls` containing every entry
@@ -26,6 +32,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ACL, ACL_ChanACL, ACL_ChanGroup, Channel } from '@hachiman/hachiman-node'
+import { PermissionDeniedError } from '@hachiman/hachiman-node'
 import { CheckIcon, MinusIcon, PlusIcon, TrashIcon, XIcon } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
@@ -50,6 +57,7 @@ import {
   type PermissionDef
 } from '@/lib/mumble-permissions'
 import { fmtMs, placeholderRelayPath, type RelayPathSnapshot } from '@/lib/connection-quality'
+import type { IMumbleService } from '@/shared/IMumbleService'
 import { connectionManager } from '@/services/ServersService'
 import { useServerStore } from '@/stores/serverStore'
 
@@ -583,7 +591,7 @@ export function ServerSettingsDialog(props: ServerSettingsDialogProps): React.JS
             </TabsContent>
 
             <TabsContent value="health" className="overflow-hidden">
-              <HealthTab relayRegion={relayRegion} />
+              <HealthTab relayRegion={relayRegion} service={service} active={tab === 'health'} />
             </TabsContent>
           </Tabs>
         )}
@@ -599,21 +607,78 @@ export function ServerSettingsDialog(props: ServerSettingsDialogProps): React.JS
  * on-host wake proxy → SFU), the per-hop added latency, and an on-path
  * indicator.
  *
- * Placeholder wiring, NOT fabricated numbers. The server exposes a live
- * `RelaySnapshot` over `GET /metrics/relay`
- * (apps/hachiman-server/pkg/web/relaymetrics.go), but there is no passthrough
- * on `IMumbleService` to reach it from the shared UI yet. Until that lands we
- * render the *shape* from `placeholderRelayPath` with null latencies — the
- * relay region label is the one real value (when serverStore has it). Every
- * unavailable field shows an em-dash and the panel is clearly marked as not
- * yet wired to live metrics.
+ * Live data, fetched over the authenticated control channel. On mount (when the
+ * tab is shown) we call `IMumbleService.fetchRelayMetrics()`, which sends a
+ * `RelayMetricsQuery` and maps the `RelayMetricsSnapshot` reply onto the
+ * `RelayPathSnapshot` shape rendered below. The server gates the query on
+ * operator privilege (SuperUser / root-channel Write) and rejects everyone else
+ * with PermissionDenied — surfaced here as a clearly-marked "operator only"
+ * state. While loading (or on any other error) we fall back to the
+ * `placeholderRelayPath` topology with null latencies (em-dashes), so the
+ * intended path shape is always visible without inventing numbers.
  */
-function HealthTab({ relayRegion }: { relayRegion: string | null }): React.JSX.Element {
-  // Memoise so the placeholder object identity is stable across renders.
-  const snapshot: RelayPathSnapshot = useMemo(
+type HealthStatus = 'loading' | 'ready' | 'denied' | 'error'
+
+function HealthTab({
+  relayRegion,
+  service,
+  active
+}: {
+  relayRegion: string | null
+  service: IMumbleService | null
+  active: boolean
+}): React.JSX.Element {
+  // Stable placeholder identity for the not-yet-loaded / denied / error states.
+  const placeholder: RelayPathSnapshot = useMemo(
     () => placeholderRelayPath(relayRegion),
     [relayRegion]
   )
+
+  const [status, setStatus] = useState<HealthStatus>('loading')
+  const [data, setData] = useState<RelayPathSnapshot | null>(null)
+  const [errorMsg, setErrorMsg] = useState<string | null>(null)
+
+  // De-dupe the fetch across StrictMode's double-mount and re-renders. Keyed on
+  // (active, connected) so toggling away and back, or a reconnect, re-fetches.
+  const isConnected = service?.isConnected() ?? false
+  const fetchedKeyRef = useRef<string | null>(null)
+
+  useEffect(() => {
+    if (!active || !service || !isConnected) return
+    const key = `${active}|${isConnected}`
+    if (fetchedKeyRef.current === key) return
+    fetchedKeyRef.current = key
+
+    let cancelled = false
+    // State resets live inside the async body (not synchronously in the effect)
+    // to avoid a cascading re-render; mirrors the ACL-load effect above.
+    void (async () => {
+      setStatus('loading')
+      setErrorMsg(null)
+      try {
+        const snap = await service.fetchRelayMetrics()
+        if (cancelled) return
+        setData(snap)
+        setStatus('ready')
+      } catch (err) {
+        if (cancelled) return
+        // Reset the dedupe key so a re-open / reconnect can retry.
+        fetchedKeyRef.current = null
+        if (err instanceof PermissionDeniedError) {
+          setStatus('denied')
+        } else {
+          setStatus('error')
+          setErrorMsg(err instanceof Error ? err.message : 'Failed to load relay metrics.')
+        }
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [active, service, isConnected])
+
+  // Render the live snapshot once ready; otherwise the placeholder topology.
+  const snapshot = status === 'ready' && data ? data : placeholder
 
   // onPath === null → unknown (no metrics yet); true/false → real verdict.
   const onPathLabel =
@@ -697,12 +762,31 @@ function HealthTab({ relayRegion }: { relayRegion: string | null }): React.JSX.E
           ) : null}
         </section>
 
-        <p className="text-muted-foreground border-t pt-3 text-[11px] leading-snug">
-          Live relay metrics are exposed by the server at{' '}
-          <code className="font-mono">GET /metrics/relay</code> but are not yet wired through to
-          this client. Values shown as <span className="font-mono">—</span> are awaiting a metrics
-          passthrough; the path and on-path indicator above reflect the intended topology.
-        </p>
+        {/* Status footer: reflects the live fetch state. */}
+        {status === 'denied' ? (
+          <p className="text-muted-foreground border-t pt-3 text-[11px] leading-snug">
+            Relay metrics are <span className="font-medium">operator only</span>. The server
+            requires SuperUser access (or Write permission on the root channel) to read them. The
+            path and on-path indicator above reflect the intended topology; live values are
+            unavailable for your account.
+          </p>
+        ) : status === 'error' ? (
+          <p className="text-destructive border-t pt-3 text-[11px] leading-snug">
+            Couldn&rsquo;t load live relay metrics{errorMsg ? `: ${errorMsg}` : '.'} Showing the
+            intended path shape with values as <span className="font-mono">—</span>.
+          </p>
+        ) : status === 'loading' ? (
+          <p className="text-muted-foreground border-t pt-3 text-[11px] leading-snug">
+            Measuring… fetching live relay metrics from the server. Values shown as{' '}
+            <span className="font-mono">—</span> until the snapshot arrives.
+          </p>
+        ) : (
+          <p className="text-muted-foreground border-t pt-3 text-[11px] leading-snug">
+            Live relay metrics fetched over the authenticated control channel. The relay only
+            instruments its own forwarding hop, so upstream hop latencies show as{' '}
+            <span className="font-mono">—</span>.
+          </p>
+        )}
       </div>
     </ScrollArea>
   )
