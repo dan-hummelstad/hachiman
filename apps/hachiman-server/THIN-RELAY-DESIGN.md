@@ -142,9 +142,12 @@ Empty string = "unplaced / unknown", matching REGION-CONTRACT's empty
 - Logging is **sampled** (1 line / `defaultSampleEvery = 1000` forwards) behind
   an atomic tick, and off-path samples emit a dedicated greppable
   `relay-OFF-PATH` line. **No logging or map writes happen per packet.**
-- `GET /metrics/relay` (mounted in `server.go`) serves the JSON snapshot for
-  operators / the UI Health tab. Read-only, off the hot path. *(Not yet
-  auth-gated — see §6.)*
+- The snapshot is served to operators / the UI Health tab over an
+  **authenticated Mumble control-channel** request (`RelayMetricsQuery` →
+  `RelayMetricsSnapshot`, gated on SuperUser / root-channel Write in
+  `handleRelayMetricsQuery`). Read-only, off the hot path. The previously-open,
+  unauthenticated `GET /metrics/relay` HTTP mount was removed;
+  `RelayMetrics.ServeHTTP` remains for a private/localhost operator mount.
 
 Today every directly-served participant is in the relay's region by topology,
 so the runtime path passes `relayRegion` for receivers and reads on-path. The
@@ -188,7 +191,8 @@ GOCACHE="$TMPDIR/gocache" go test ./pkg/web/ -run '^$' -bench 'Forward|Record|Ho
 
 ## 6. What to monitor
 
-From the `/metrics/relay` snapshot (`RelaySnapshot`):
+From the relay snapshot (`RelaySnapshot`, fetched via the `RelayMetricsQuery`
+control-channel message):
 
 - **`onPath` / `totalOffPath`** — the headline. `onPath=false` (or
   `totalOffPath` climbing) ⇒ voice is detouring across regions: page someone.
@@ -205,15 +209,19 @@ From the `/metrics/relay` snapshot (`RelaySnapshot`):
 - **`transports[].drops`** — best-effort forward write failures; a proxy for SFU
   back-pressure / track teardown races.
 
-### Follow-ups (not in this PR)
+### Done since the original PR
 
-- **Auth-gate / private-bind `/metrics/relay`** before production exposure
-  (operator-only).
+- **Authenticated metrics delivery** — relay metrics are now served over the
+  `RelayMetricsQuery` → `RelayMetricsSnapshot` control-channel message
+  (SuperUser / root-channel Write gated), and the unauthenticated
+  `GET /metrics/relay` HTTP mount was removed. This resolves the original
+  "auth-gate `/metrics/relay`" follow-up and the previously-deferred
+  control-channel proto change.
+
+### Follow-ups (still open)
+
 - **Per-client region** on `Client` (sourced from ingress / the Oracle registry)
   so the on-path classifier compares real participant regions instead of
   assuming directly-served clients are in-region.
 - **Regional TURN URIs** in the SFU's ICE config (§2.2) — empty today.
-- A proto/message change would be needed to surface relay metrics to clients
-  over the Mumble control channel; **explicitly deferred** (do not hand-edit
-  generated proto). The HTTP snapshot is the interim transport.
 ```

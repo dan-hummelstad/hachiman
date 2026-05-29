@@ -6,18 +6,18 @@
  *   • the OPERATOR relay-path Health tab in `server-settings-dialog.tsx`
  *     (the server-side "is voice thin & on-path?" view).
  *
- * IMPORTANT — placeholder wiring, not fabricated data. The Go server exposes a
- * `RelaySnapshot` over `GET /metrics/relay` (see
- * `apps/hachiman-server/pkg/web/relaymetrics.go`), and the Mumble Ping message
- * carries client UDP stats — but neither is currently threaded through
- * `IMumbleService` to the shared UI. So these types describe the *shape* both
- * views render, and every field is explicitly nullable: a `null`/`undefined`
- * value means "no live data yet", which the UI renders as a clearly-marked
- * "unavailable / measuring" state rather than inventing numbers.
- *
- * When the client library starts populating round-trip stats and a metrics
- * passthrough lands on `IMumbleService`, populate these slots and the existing
- * UI lights up with zero rework.
+ * Both surfaces are wired to real data (no fabricated numbers):
+ *   • Client connection quality arrives via the client library's
+ *     `connectionQuality` event — RTT from the control-channel Ping round-trip,
+ *     jitter and packet-loss from the WebRTC voice RTCStats report.
+ *   • The operator relay snapshot is fetched via
+ *     `IMumbleService.fetchRelayMetrics()` — an authenticated, SuperUser-gated
+ *     Mumble control-channel request (`RelayMetricsQuery` → `RelayMetricsSnapshot`).
+ *     (The previously-open, unauthenticated `GET /metrics/relay` HTTP mount was
+ *     removed; `RelayMetrics.ServeHTTP` remains for private/localhost mounting.)
+ * Every field stays nullable: a `null`/`undefined` value means "not measured
+ * yet / unavailable" (before voice flows, or an older/denying server), which the
+ * UI renders as a clearly-marked unavailable state rather than inventing numbers.
  */
 
 // ── Client-side connection quality ──────────────────────────────────────────
