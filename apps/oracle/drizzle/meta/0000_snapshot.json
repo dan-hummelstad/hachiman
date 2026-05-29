@@ -1,5 +1,5 @@
 {
-  "id": "412b9769-a163-47b1-892c-76e3dad2867d",
+  "id": "118e2c55-88bc-452d-8495-49b0a9c381a4",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -542,6 +542,19 @@
           "type": "double precision",
           "primaryKey": false,
           "notNull": false
+        },
+        "probe_host": {
+          "name": "probe_host",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "probe_port": {
+          "name": "probe_port",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 64738
         },
         "created_at": {
           "name": "created_at",
