@@ -2,8 +2,9 @@ import { ServerIcon, ServerOffIcon } from 'lucide-react'
 
 import { requireUser } from '@/lib/auth-helpers'
 import { getIslandsOverview } from '@/lib/islands'
+import { ISLAND_LOAD_WEIGHTS } from '@/lib/scheduler'
 import { listRegions } from '@/lib/servers'
-import type { IslandStatus, VirtualServer, VirtualServerStatus } from '@/db/schema'
+import type { Island, IslandStatus, VirtualServer, VirtualServerStatus } from '@/db/schema'
 
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -50,6 +51,28 @@ function vServerStatusVariant(
   }
 }
 
+// The scheduler's vServer-fill term: how full an island is, as a [0,1] fraction
+// of its hard cap (`placedCount / maxVservers`). This is the DURABLE half of the
+// scheduler's load score (`scheduler.ts`) — the only part computable here. The
+// CPU + bandwidth terms are LIVE (Redis, deferred), so the full load score can't
+// be shown yet; we surface the fill term and its weighted contribution so an
+// operator can see at a glance which islands the bin-packer would prefer.
+function fillFraction(placedCount: number, maxVservers: number): number {
+  if (maxVservers <= 0) return 1
+  const frac = placedCount / maxVservers
+  return frac < 0 ? 0 : frac > 1 ? 1 : frac
+}
+
+const formatPct = (frac: number): string => `${Math.round(frac * 100)}%`
+
+// Tone the fill readout by how close the island is to its cap, so a nearly-full
+// island stands out. At/over cap = destructive (the scheduler drops it).
+function fillTone(island: Island, placedCount: number): string {
+  if (placedCount >= island.maxVservers) return 'text-destructive'
+  const frac = fillFraction(placedCount, island.maxVservers)
+  return frac >= 0.8 ? 'text-amber-600 dark:text-amber-500' : 'text-muted-foreground'
+}
+
 export default async function IslandsAdminPage(): Promise<React.JSX.Element> {
   // Islands are a platform-operator concern: admin-only.
   await requireUser({ role: 'admin' })
@@ -85,9 +108,11 @@ export default async function IslandsAdminPage(): Promise<React.JSX.Element> {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Islands</h1>
         <p className="text-sm text-muted-foreground">
-          Managed Murmur host processes and the virtual servers placed on them. Live load
-          metrics (users / CPU / bandwidth) are not shown here — they come from the runtime
-          layer (Redis) at scheduling time.
+          Managed Murmur host processes and the virtual servers placed on them. Each island
+          shows its vServer <span className="font-medium">fill</span> — the durable half of the
+          bin-packing scheduler&apos;s load score (placed ÷ {''}
+          <code className="font-mono text-xs">maxVservers</code>). The live CPU / bandwidth terms
+          come from the runtime layer (Redis) at scheduling time and are not shown here yet.
         </p>
       </div>
 
@@ -102,7 +127,11 @@ export default async function IslandsAdminPage(): Promise<React.JSX.Element> {
           </CardHeader>
         </Card>
       ) : (
-        islands.map(({ island, vServers }) => (
+        islands.map(({ island, vServers }) => {
+          const placed = vServers.length
+          const fill = fillFraction(placed, island.maxVservers)
+          const atCap = placed >= island.maxVservers
+          return (
           <Card key={island.id}>
             <CardHeader>
               <div className="flex flex-wrap items-center justify-between gap-3">
@@ -110,6 +139,9 @@ export default async function IslandsAdminPage(): Promise<React.JSX.Element> {
                   <ServerIcon className="size-4 text-muted-foreground" />
                   <CardTitle className="font-mono text-base">{island.host}</CardTitle>
                   <Badge variant={islandStatusVariant(island.status)}>{island.status}</Badge>
+                  {atCap && island.status === 'active' && (
+                    <Badge variant="destructive">at capacity</Badge>
+                  )}
                 </div>
                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
                   <span>{regionLabel(island.region)}</span>
@@ -117,9 +149,37 @@ export default async function IslandsAdminPage(): Promise<React.JSX.Element> {
                   <span className="font-mono">gRPC :{island.grpcPort}</span>
                   <span aria-hidden>·</span>
                   <span>
-                    {vServers.length}/{island.maxVservers} vServers
+                    {placed}/{island.maxVservers} vServers
                   </span>
                 </div>
+              </div>
+              <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
+                <span className="flex items-center gap-1.5">
+                  <span className="text-muted-foreground">Fill</span>
+                  <span className={`font-mono font-medium ${fillTone(island, placed)}`}>
+                    {formatPct(fill)}
+                  </span>
+                </span>
+                {/* Visual fill bar — the durable half of the bin-pack load. */}
+                <span
+                  className="h-1.5 w-32 overflow-hidden rounded-full bg-muted"
+                  role="presentation"
+                >
+                  <span
+                    className={`block h-full rounded-full ${atCap ? 'bg-destructive' : 'bg-foreground/60'}`}
+                    style={{ width: `${Math.round(fill * 100)}%` }}
+                  />
+                </span>
+                <span className="text-muted-foreground">
+                  load contribution{' '}
+                  <span className="font-mono">
+                    {(fill * ISLAND_LOAD_WEIGHTS.fill).toFixed(2)}
+                  </span>{' '}
+                  <span className="opacity-70">
+                    (fill × {ISLAND_LOAD_WEIGHTS.fill}; + cpu × {ISLAND_LOAD_WEIGHTS.cpu} + bw ×{' '}
+                    {ISLAND_LOAD_WEIGHTS.bandwidth} once live)
+                  </span>
+                </span>
               </div>
             </CardHeader>
             <CardContent className="px-0">
@@ -144,7 +204,8 @@ export default async function IslandsAdminPage(): Promise<React.JSX.Element> {
               )}
             </CardContent>
           </Card>
-        ))
+          )
+        })
       )}
 
       {unplaced.length > 0 && (
