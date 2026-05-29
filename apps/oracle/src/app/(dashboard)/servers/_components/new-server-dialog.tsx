@@ -1,10 +1,10 @@
 'use client'
 
 import { useRouter } from 'next/navigation'
-import { useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { CopyIcon, KeyRoundIcon, PlusIcon } from 'lucide-react'
+import { CopyIcon, GaugeIcon, KeyRoundIcon, PlusIcon, SparklesIcon } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -55,6 +55,76 @@ export interface RegionOption {
   displayName: string
 }
 
+// Shape returned by POST /api/servers/recommend-region (see placement.ts).
+interface RecommendResponse {
+  recommended: string | null
+  ranking: { code: string; rttMs: number; loadScore: number | null }[]
+  unmeasured: string[]
+}
+
+interface RegionLatencyState {
+  /** code -> measured RTT in ms (only present for regions that were probed). */
+  rttByCode: Map<string, number>
+  /** The endpoint's recommended region code, or null when there's no signal. */
+  recommended: string | null
+  loading: boolean
+}
+
+const EMPTY_RTT = new Map<string, number>()
+
+/**
+ * Ask Oracle to rank regions by latency. The browser cannot open raw TCP/UDP
+ * sockets, so it has no per-region RTT to send today — we POST an empty
+ * measurement set, which makes the endpoint report every region as unmeasured
+ * and `recommended: null`. That keeps the UI HONEST: we surface a real
+ * recommendation + real latencies the moment a client-side probe source is
+ * wired (e.g. the Node host's TCP prober relaying RTTs, or a per-region probe
+ * endpoint), and until then we show "not measured" rather than a fake number.
+ *
+ * TODO(placement): feed real client-measured RTTs here once the host app can
+ * probe regions (pkgs/hachiman-node `probeRegionsRtt`) — see PLACEMENT-DESIGN.md.
+ */
+function useRegionLatency(open: boolean): RegionLatencyState {
+  const [state, setState] = useState<RegionLatencyState>({
+    rttByCode: EMPTY_RTT,
+    recommended: null,
+    loading: false,
+  })
+
+  const fetchRecommendation = useCallback(async (signal: AbortSignal) => {
+    setState((s) => ({ ...s, loading: true }))
+    try {
+      const res = await fetch('/api/servers/recommend-region', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        // No client-measured RTTs available in the browser yet (see above).
+        body: JSON.stringify({ measurements: [] }),
+        signal,
+      })
+      if (!res.ok) {
+        setState({ rttByCode: EMPTY_RTT, recommended: null, loading: false })
+        return
+      }
+      const body = (await res.json()) as RecommendResponse
+      const rttByCode = new Map<string, number>()
+      for (const r of body.ranking) rttByCode.set(r.code, r.rttMs)
+      setState({ rttByCode, recommended: body.recommended, loading: false })
+    } catch (err) {
+      if (signal.aborted) return
+      setState({ rttByCode: EMPTY_RTT, recommended: null, loading: false })
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!open) return
+    const controller = new AbortController()
+    void fetchRecommendation(controller.signal)
+    return () => controller.abort()
+  }, [open, fetchRecommendation])
+
+  return state
+}
+
 export function NewServerDialog({
   trigger,
   regions = [],
@@ -67,6 +137,7 @@ export function NewServerDialog({
   const [submitting, setSubmitting] = useState(false)
   const [serverError, setServerError] = useState<string | null>(null)
   const [created, setCreated] = useState<CreatedSecret | null>(null)
+  const latency = useRegionLatency(open && !created)
 
   const form = useForm<FormValues>({
     resolver: zodResolver(createServerSchema),
@@ -300,15 +371,37 @@ export function NewServerDialog({
                       </FormControl>
                       <SelectContent>
                         <SelectItem value={NO_REGION}>No region</SelectItem>
-                        {regions.map((r) => (
-                          <SelectItem key={r.code} value={r.code}>
-                            {r.displayName}
-                          </SelectItem>
-                        ))}
+                        {regions.map((r) => {
+                          const rtt = latency.rttByCode.get(r.code)
+                          const isRecommended = latency.recommended === r.code
+                          return (
+                            <SelectItem key={r.code} value={r.code}>
+                              <span className="flex w-full items-center justify-between gap-2">
+                                <span className="flex items-center gap-1.5">
+                                  {r.displayName}
+                                  {isRecommended ? (
+                                    <span className="inline-flex items-center gap-1 rounded-sm bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+                                      <SparklesIcon className="size-3" /> Recommended
+                                    </span>
+                                  ) : null}
+                                </span>
+                                <span className="inline-flex items-center gap-1 font-mono text-xs text-muted-foreground tabular-nums">
+                                  <GaugeIcon className="size-3" />
+                                  {typeof rtt === 'number' ? `${Math.round(rtt)} ms` : '—'}
+                                </span>
+                              </span>
+                            </SelectItem>
+                          )
+                        })}
                       </SelectContent>
                     </Select>
                     <FormDescription>
-                      Voice region this server is homed in. You can change it later.
+                      Voice region this server is homed in. You can change it later.{' '}
+                      {latency.loading
+                        ? 'Measuring latency…'
+                        : latency.recommended === null
+                          ? 'Latency probing isn’t wired in this browser yet, so no region is measured — pick the one nearest your users.'
+                          : 'Latencies are measured from your network; “Recommended” is the lowest.'}
                     </FormDescription>
                     <FormMessage />
                   </FormItem>

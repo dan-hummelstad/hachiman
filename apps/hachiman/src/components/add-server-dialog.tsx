@@ -10,7 +10,14 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { ChevronLeftIcon, GlobeIcon, LinkIcon, ShieldCheckIcon, ShieldOffIcon } from 'lucide-react'
+import {
+  ChevronLeftIcon,
+  GaugeIcon,
+  GlobeIcon,
+  LinkIcon,
+  ShieldCheckIcon,
+  ShieldOffIcon
+} from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 
 import { parseTakusenUri, type JoinUriParseResult } from '@/services/JoinUriService'
@@ -49,6 +56,37 @@ const SUPERUSER_NAME = 'SuperUser'
 
 function isSuperUsername(name: string): boolean {
   return name.trim().toLowerCase() === SUPERUSER_NAME.toLowerCase()
+}
+
+/**
+ * Latency-aware region hint for the connect-by-address step.
+ *
+ * Voice quality is dominated by network distance to the box mixing audio, so
+ * Takusen-registered servers are placed in the voice region with the lowest
+ * measured client→region latency (see Oracle's PLACEMENT-DESIGN.md). This hint
+ * surfaces that to the user when they connect by raw address.
+ *
+ * It deliberately shows NO fabricated millisecond numbers: the shared UI has no
+ * raw-socket access to probe regions (the platform abstraction exposes none
+ * yet), and a raw host:port connection isn't region-managed. When a real probe
+ * source lands — the Node host relaying `probeRegionsRtt` RTTs from
+ * `@hachiman/hachiman-node`, or a per-region probe endpoint — this is where the
+ * measured "recommended region" would render.
+ *
+ * TODO(placement): wire real client-measured RTTs once the platform exposes a
+ * region prober; until then this stays an honest, number-free hint.
+ */
+function RegionLatencyHint(): React.JSX.Element {
+  return (
+    <div className="text-muted-foreground flex items-start gap-2 text-xs">
+      <GaugeIcon className="mt-0.5 size-3.5 shrink-0" />
+      <span>
+        Takusen-registered servers are auto-placed in the voice region with the lowest latency to
+        your network. Self-hosted addresses connect directly — pick a host near your group for the
+        best voice quality.
+      </span>
+    </div>
+  )
 }
 
 export function AddServerDialog(props: AddServerDialogProps): React.JSX.Element {
@@ -319,6 +357,7 @@ export function AddServerDialog(props: AddServerDialogProps): React.JSX.Element 
                   />
                 </div>
               </div>
+              <RegionLatencyHint />
               <div className="grid gap-1.5">
                 <Label htmlFor="server-username">Username</Label>
                 <Input
