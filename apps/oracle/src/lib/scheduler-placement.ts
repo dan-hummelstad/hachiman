@@ -31,7 +31,9 @@ import {
   type IslandPlacementResult,
 } from './scheduler'
 import {
+  canTransitionVServer,
   getVServerById,
+  InvalidVServerTransitionError,
   placeVServer,
   transitionVServer,
   VirtualServerNotFoundError,
@@ -94,6 +96,15 @@ export async function scheduleVServerPlacement(
   const vServer = await getVServerById(vserverId)
   if (!vServer) throw new VirtualServerNotFoundError(vserverId)
 
+  // Coherence guard, fail-fast BEFORE any read/score/write: only a vServer that
+  // can legally transition to `starting` (i.e. `inactive`) is placeable. Without
+  // this, an already-running vServer would be relocated by `placeVServer` and
+  // only THEN rejected by `transitionVServer` — committing the island
+  // reassignment while leaving it un-transitioned (placed-while-running).
+  if (!canTransitionVServer(vServer.status, 'starting')) {
+    throw new InvalidVServerTransitionError(vServer.status, 'starting')
+  }
+
   // The region is already decided; the vServer carries its target region
   // denormalized (see schema.ts / ISLAND-PLATFORM.md).
   const region = vServer.region
@@ -121,8 +132,11 @@ export async function scheduleVServerPlacement(
   }
 
   // Commit the placement in the documented order: place onto the island FIRST,
-  // THEN drive the lifecycle to `starting`. This preserves the coherence
-  // invariant (a vServer is placed before it leaves `inactive`).
+  // THEN drive the lifecycle to `starting`. The up-front guard above guarantees
+  // the transition is legal, so the only residual gap is a transient DB fault
+  // BETWEEN these two writes — they are not yet wrapped in a single transaction
+  // (a follow-up for when the live scheduler/runtime is wired; harmless today as
+  // there is no caller, and re-running re-places idempotently).
   await placeVServer(vserverId, result.chosen)
   const started = await transitionVServer(vserverId, 'starting')
 
