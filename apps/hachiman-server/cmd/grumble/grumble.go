@@ -22,8 +22,10 @@ var blobStore blobstore.BlobStore
 // SQLite (the default) is unchanged from the original behaviour: when no path
 // is given it falls back to $DATADIR/murmur.sqlite and logs that choice, so the
 // self-host zero-config flow is preserved exactly. Postgres uses the configured
-// DSN verbatim. An empty/unknown driver is treated as sqlite to stay backwards
-// compatible with existing launchers.
+// DSN verbatim. An EMPTY driver string is treated as "sqlite" (backwards
+// compatible with launchers that set nothing); a non-empty UNRECOGNISED driver
+// is passed through and rejected by NewDB rather than silently falling back — a
+// typo'd driver should fail loudly, not quietly write a local sqlite file.
 func resolveDbConfig(args args) *database.DbConfig {
 	driver := args.DatabaseDriver
 	if driver == "" {
@@ -38,8 +40,10 @@ func resolveDbConfig(args args) *database.DbConfig {
 			Conn: args.DatabaseDSN,
 		}
 	default:
-		// sqlite (and any unexpected value falls back to sqlite below via
-		// NewDB's own validation; keep the self-host default intact here).
+		// "sqlite" (the default) lands here. A non-empty unrecognised driver
+		// also lands here and is passed through as-is; NewDB then REJECTS it
+		// (it does NOT fall back to sqlite). The block below preserves the
+		// self-host default DB path for the sqlite case.
 		sqliteDB := args.SQLiteDB
 		if len(sqliteDB) == 0 {
 			sqliteDB = filepath.Join(args.DataDir, "murmur.sqlite")
