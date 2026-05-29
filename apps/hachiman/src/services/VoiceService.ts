@@ -26,9 +26,10 @@ export class VoiceService {
 
     server.on('speakingStateChange', this._speakingListener)
 
-    // Surface measured connection quality (RTT / jitter / packet-loss) from
-    // the client library's Ping round-trip into the store. The sample shape
-    // mirrors voiceStore's ConnectionQuality slot, so it flows straight in.
+    // Surface measured connection quality into the store: RTT from the client
+    // library's control-channel Ping round-trip, and packet-loss / jitter from
+    // the WebRTC voice path's RTCStats. The sample shape mirrors voiceStore's
+    // ConnectionQuality slot, so it flows straight in.
     this._connectionQualityListener = (sample: ConnectionQualitySample) => {
       store.setConnectionQuality(sample)
     }

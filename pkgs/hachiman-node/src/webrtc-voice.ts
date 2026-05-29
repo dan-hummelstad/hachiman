@@ -14,6 +14,25 @@ export interface TalkingStateEvent {
 }
 
 /**
+ * A point-in-time snapshot of voice-path quality read from the WebRTC
+ * PeerConnection's RTCStats. All values are the *cumulative* counters/latest
+ * gauges the browser reports for the audio media flow; callers difference the
+ * cumulative packet counters across samples to obtain an interval loss rate.
+ * Any field is `null` when the corresponding stat is absent (e.g. before any
+ * audio has been received, or when the remote-inbound report isn't available).
+ */
+export interface WebRTCQualityStats {
+  /** Cumulative audio RTP packets reported lost (inbound-rtp). */
+  packetsLost: number | null;
+  /** Cumulative audio RTP packets received (inbound-rtp). */
+  packetsReceived: number | null;
+  /** Latest inbound audio jitter, milliseconds (inbound-rtp `jitter` × 1000). */
+  jitterMs: number | null;
+  /** Latest round-trip time, milliseconds (remote-inbound-rtp `roundTripTime` × 1000). */
+  rttMs: number | null;
+}
+
+/**
  * Manages a browser-side WebRTC PeerConnection for voice transport.
  * Handles SDP exchange via the Mumble control channel (WebRTC/IceCandidate
  * protobuf messages), microphone capture, and remote audio playback.
@@ -197,6 +216,72 @@ export class WebRTCVoice {
         target,
       }),
     );
+  }
+
+  /**
+   * Read voice-path quality from the PeerConnection's RTCStats.
+   *
+   * Pulls from the inbound audio RTP report (`inbound-rtp` / `kind: 'audio'`)
+   * for `packetsLost`, `packetsReceived` and `jitter` (seconds → ms), and from
+   * the `remote-inbound-rtp` report (if present) for `roundTripTime`
+   * (seconds → ms). Each field is `null` when its stat is missing, including
+   * the case where no inbound audio report exists yet.
+   *
+   * These are the authoritative loss/jitter figures for this client: voice
+   * travels over WebRTC, so the server's native-UDP crypt good/late/lost
+   * counters never advance and can't be used.
+   */
+  async getQualityStats(): Promise<WebRTCQualityStats> {
+    const result: WebRTCQualityStats = {
+      packetsLost: null,
+      packetsReceived: null,
+      jitterMs: null,
+      rttMs: null,
+    };
+
+    let report: RTCStatsReport;
+    try {
+      report = await this.pc.getStats();
+    } catch {
+      return result;
+    }
+
+    report.forEach((raw: unknown) => {
+      const stat = raw as {
+        type?: string;
+        kind?: string;
+        mediaType?: string;
+        packetsLost?: number;
+        packetsReceived?: number;
+        jitter?: number;
+        roundTripTime?: number;
+      };
+
+      // `kind` is the modern field; older implementations used `mediaType`.
+      const isAudio = stat.kind === 'audio' || stat.mediaType === 'audio';
+
+      if (stat.type === 'inbound-rtp' && isAudio) {
+        if (typeof stat.packetsLost === 'number') {
+          result.packetsLost = stat.packetsLost;
+        }
+        if (typeof stat.packetsReceived === 'number') {
+          result.packetsReceived = stat.packetsReceived;
+        }
+        if (typeof stat.jitter === 'number') {
+          result.jitterMs = stat.jitter * 1000;
+        }
+      } else if (stat.type === 'remote-inbound-rtp') {
+        // The remote peer's report about the audio we send (our send-path RTT).
+        // Some browsers omit kind/mediaType here; only filter it out when it is
+        // explicitly a non-audio kind, otherwise accept the figure.
+        const notAudio = stat.kind === 'video' || stat.mediaType === 'video';
+        if (!notAudio && typeof stat.roundTripTime === 'number') {
+          result.rttMs = stat.roundTripTime * 1000;
+        }
+      }
+    });
+
+    return result;
   }
 
   /** Clean up all resources. */

@@ -524,21 +524,30 @@ export class Client extends TypedEventEmitter<Events, Events> {
    * @internal
    *
    * Subscribes to inbound Ping responses and emits a `connectionQuality`
-   * sample for each one. Derivations (no fabricated values — anything that
-   * can't be computed from the data seen so far is left `null`):
+   * sample for each one. Each Ping doubles as the poll tick for WebRTC voice
+   * stats. Derivations (no fabricated values — anything that can't be computed
+   * from the data seen so far is left `null`):
    *
-   *  - **RTT**: `Date.now() - echo.timestamp`. The server echoes the client's
-   *    Ping `timestamp` verbatim (which `ping()` stamps with ms-since-epoch),
-   *    so the delta is the round-trip time in ms. Pings sent before this build
-   *    stamped a timestamp (or any echo missing it) yield `rttMs: null`.
-   *  - **Jitter**: mean absolute deviation of the last `RTT_WINDOW` RTT
-   *    samples. `null` until at least two samples exist.
-   *  - **Packet loss**: from the server-reported cumulative `good`/`late`/
-   *    `lost` counters, differenced against the previous Ping so the figure
-   *    reflects the most recent interval rather than a since-connect average:
-   *    `Δlost / (Δgood + Δlate + Δlost)`. `null` for the first Ping and
-   *    whenever no packets were accounted in the interval (denominator 0),
-   *    e.g. before any voice has flowed.
+   *  - **RTT**: `Date.now() - echo.timestamp` from the control-channel Ping.
+   *    The server echoes the client's Ping `timestamp` verbatim (which
+   *    `ping()` stamps with ms-since-epoch), so the delta is the round-trip
+   *    time in ms. This works before any voice flows. When WebRTC voice
+   *    reports a `roundTripTime` it is preferred (it measures the actual voice
+   *    path); otherwise the Ping RTT is used. Echoes missing a usable
+   *    timestamp yield `null` (unless a WebRTC RTT is available).
+   *  - **Jitter**: taken from the WebRTC inbound audio RTP report when voice
+   *    is flowing (the real voice-path jitter). Before that — or in the
+   *    non-WebRTC case — it falls back to the mean absolute deviation of the
+   *    last `RTT_WINDOW` control-channel RTT samples (`null` until two exist).
+   *  - **Packet loss**: derived from the WebRTC inbound audio RTP report's
+   *    cumulative `packetsLost`/`packetsReceived`, differenced against the
+   *    previous sample so the figure reflects the most recent interval:
+   *    `Δlost / (Δlost + Δreceived)`. `null` until two samples exist, when the
+   *    interval saw no packets (denominator 0), or in the non-WebRTC case
+   *    (this client has no native-UDP voice path, and the server's crypt
+   *    good/late/lost counters never advance for a WebRTC client — see
+   *    cryptstate.Decrypt — so they cannot be used). Counter resets on
+   *    track/reconnect are floored to 0.
    *  - **Transport**: `'webrtc'` when WebRTC voice was requested, else `null`
    *    (this client has no native-UDP voice path to label otherwise).
    */
@@ -547,60 +556,116 @@ export class Client extends TypedEventEmitter<Events, Events> {
 
     const RTT_WINDOW = 10;
     const rttSamples: number[] = [];
-    let prevCounters: { good: number; late: number; lost: number } | undefined;
+
+    // Previous cumulative WebRTC voice packet counters, for interval-differencing.
+    let prevVoiceCounters:
+      | { packetsLost: number; packetsReceived: number }
+      | undefined;
 
     const transport: ConnectionQualitySample['transport'] = this.options.webrtc
       ? 'webrtc'
       : null;
+
+    // True while a WebRTC stats poll is in flight, so overlapping pings don't
+    // stack concurrent getStats() calls or race the counter diff.
+    let polling = false;
 
     const sub = this.socket.packet.pipe(filterPacket(Ping)).subscribe(ping => {
       const now = Date.now();
 
       // RTT from the echoed timestamp. Guard against missing/zero/future
       // timestamps (e.g. an unstamped legacy Ping) — those aren't RTTs.
-      let rttMs: number | null = null;
+      let pingRttMs: number | null = null;
       if (ping.timestamp !== undefined && ping.timestamp > 0n) {
         const delta = now - Number(ping.timestamp);
         if (Number.isFinite(delta) && delta >= 0) {
-          rttMs = delta;
+          pingRttMs = delta;
           rttSamples.push(delta);
           if (rttSamples.length > RTT_WINDOW) rttSamples.shift();
         }
       }
 
-      // Jitter as mean absolute deviation of recent RTTs (needs >= 2).
-      let jitterMs: number | null = null;
+      // Jitter as mean absolute deviation of recent RTTs (needs >= 2). Used as
+      // the fallback when WebRTC voice jitter isn't available yet.
+      let rttMadJitterMs: number | null = null;
       if (rttSamples.length >= 2) {
         const mean = rttSamples.reduce((a, b) => a + b, 0) / rttSamples.length;
-        jitterMs =
+        rttMadJitterMs =
           rttSamples.reduce((a, b) => a + Math.abs(b - mean), 0) /
           rttSamples.length;
       }
 
-      // Packet loss from the delta of cumulative good/late/lost counters.
-      let packetLoss: number | null = null;
-      const good = ping.good ?? 0;
-      const late = ping.late ?? 0;
-      const lost = ping.lost ?? 0;
-      if (prevCounters) {
-        const dGood = Math.max(0, good - prevCounters.good);
-        const dLate = Math.max(0, late - prevCounters.late);
-        const dLost = Math.max(0, lost - prevCounters.lost);
-        const expected = dGood + dLate + dLost;
-        if (expected > 0) {
-          packetLoss = dLost / expected;
-        }
+      // Non-WebRTC path: no voice transport to measure loss/jitter from, so
+      // emit RTT only and leave the voice-path metrics null (honest).
+      if (!this.options.webrtc || !this.webrtcVoice) {
+        this.emit('connectionQuality', {
+          rttMs: pingRttMs,
+          jitterMs: rttMadJitterMs,
+          packetLoss: null,
+          transport,
+          sampledAt: now,
+        });
+        return;
       }
-      prevCounters = { good, late, lost };
 
-      const sample: ConnectionQualitySample = {
-        rttMs,
-        jitterMs,
-        packetLoss,
-        transport,
-        sampledAt: now,
-      };
-      this.emit('connectionQuality', sample);
+      // WebRTC path: fold in voice-path stats from RTCStats. getStats() is
+      // async; if a previous poll is still running, emit the Ping-only sample
+      // now rather than queueing.
+      if (polling) {
+        this.emit('connectionQuality', {
+          rttMs: pingRttMs,
+          jitterMs: rttMadJitterMs,
+          packetLoss: null,
+          transport,
+          sampledAt: now,
+        });
+        return;
+      }
+
+      polling = true;
+      const webrtcVoice = this.webrtcVoice;
+      void webrtcVoice
+        .getQualityStats()
+        .then(stats => {
+          // Packet loss from the delta of cumulative WebRTC packet counters.
+          let packetLoss: number | null = null;
+          if (stats.packetsLost !== null && stats.packetsReceived !== null) {
+            if (prevVoiceCounters) {
+              const dLost = Math.max(
+                0,
+                stats.packetsLost - prevVoiceCounters.packetsLost,
+              );
+              const dRecv = Math.max(
+                0,
+                stats.packetsReceived - prevVoiceCounters.packetsReceived,
+              );
+              const total = dLost + dRecv;
+              if (total > 0) {
+                packetLoss = dLost / total;
+              }
+            }
+            prevVoiceCounters = {
+              packetsLost: stats.packetsLost,
+              packetsReceived: stats.packetsReceived,
+            };
+          }
+
+          // Prefer WebRTC voice-path jitter/RTT; fall back to Ping-derived.
+          // (`?? fallback` keeps a real 0 and only substitutes on null.)
+          const jitterMs = stats.jitterMs ?? rttMadJitterMs;
+          const rttMs = stats.rttMs ?? pingRttMs;
+
+          this.emit('connectionQuality', {
+            rttMs,
+            jitterMs,
+            packetLoss,
+            transport,
+            sampledAt: now,
+          });
+        })
+        .finally(() => {
+          polling = false;
+        });
     });
 
     this.on('disconnect', () => {
