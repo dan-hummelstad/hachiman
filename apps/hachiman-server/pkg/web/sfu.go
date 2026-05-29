@@ -68,10 +68,17 @@ type SFU struct {
 	SSRCPool *SSRCPool
 	api      *webrtc.API
 	logger   *log.Logger
+
+	// Metrics carries the relay's region and the thin/on-path counters.
+	// Shared with the native voice broadcaster so both forwarding paths
+	// report into one place. Never nil after NewSFU.
+	Metrics *RelayMetrics
 }
 
-// NewSFU creates a new SFU instance.
-func NewSFU(logger *log.Logger) *SFU {
+// NewSFU creates a new SFU instance tagged with the relay's region. region
+// should be cfg.StringValue("ServerRegion") ("" = unplaced); it is used purely
+// for on-path instrumentation and does not change forwarding behaviour.
+func NewSFU(logger *log.Logger, region string) *SFU {
 	m := &webrtc.MediaEngine{}
 	if err := m.RegisterCodec(webrtc.RTPCodecParameters{
 		RTPCodecCapability: webrtc.RTPCodecCapability{
@@ -92,6 +99,7 @@ func NewSFU(logger *log.Logger) *SFU {
 		SSRCPool: NewSSRCPool(),
 		api:      api,
 		logger:   logger,
+		Metrics:  NewRelayMetrics(region, logger),
 	}
 }
 
@@ -309,12 +317,19 @@ func (s *SFU) AddICECandidate(session uint32, candidate webrtc.ICECandidateInit)
 // WebRTC receiver. The opus payload is the raw Opus-encoded audio data.
 // senderSSRC is the SSRC assigned to the sending user.
 // mumbleSeq is the Mumble voice packet sequence number.
+// receiverRegion is the region the receiver is homed in ("" if unknown); it is
+// used only for on-path instrumentation and never changes forwarding.
 //
 // The RTP marker bit is set automatically whenever the gap since the previous
 // forwarded packet exceeds markerGapThreshold (or this is the first packet
 // ever for this sender). This implements RFC 3551 §4.1 talkspurt-start
 // semantics so receivers can reset jitter-buffer adaptation on resume.
-func (s *SFU) ForwardToWebRTC(receiver *WebRTCClient, senderSSRC uint32, opusPayload []byte, mumbleSeq uint64) {
+//
+// HOT PATH: the instrumentation added here is allocation-free — a bounded
+// time.Since measurement around the existing WriteRTP plus atomic counter
+// updates in RelayMetrics. No logging or map work runs per packet (it is
+// sampled inside RelayMetrics).
+func (s *SFU) ForwardToWebRTC(receiver *WebRTCClient, senderSSRC uint32, opusPayload []byte, mumbleSeq uint64, receiverRegion string) {
 	receiver.mu.Lock()
 	defer receiver.mu.Unlock()
 
@@ -346,10 +361,16 @@ func (s *SFU) ForwardToWebRTC(receiver *WebRTCClient, senderSSRC uint32, opusPay
 		Payload: opusPayload,
 	}
 
+	// Measure the forwarding-hop work itself (the SFU's added latency) and
+	// record it. time.Since uses the monotonic clock captured in `now`; both
+	// it and the metrics calls are atomic-only / allocation-free.
 	if err := track.WriteRTP(pkt); err != nil {
-		// best-effort; log and continue
+		// best-effort; count the drop and continue.
+		s.Metrics.RecordWebRTCDrop()
 		return
 	}
+	s.Metrics.ObserveHopLatency(time.Since(now))
+	s.Metrics.RecordWebRTCForward(len(opusPayload), receiverRegion)
 
 	state.seqOffset++
 	state.frames++

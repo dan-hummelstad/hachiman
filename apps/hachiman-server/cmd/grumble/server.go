@@ -1999,7 +1999,9 @@ func (server *Server) Start() (err error) {
 
 	// Initialize SFU for WebRTC voice forwarding — signaling goes over the
 	// Mumble control channel (TCP/TLS), so this is independent of the web server.
-	server.sfu = web.NewSFU(server.Logger)
+	// Tag the relay with its configured region so the thin/on-path
+	// instrumentation can detect cross-region voice detours.
+	server.sfu = web.NewSFU(server.Logger, server.cfg.StringValue("ServerRegion"))
 
 	if shouldListenWeb {
 		// Multiplex TLS and HTTP/WebSocket on the same TCP port by sniffing
@@ -2016,6 +2018,14 @@ func (server *Server) Start() (err error) {
 		}
 		server.webwsl = web.NewListener(server.tcpl.Addr(), server.Logger)
 		mux := http.NewServeMux()
+		// Relay thin/on-path metrics snapshot (JSON). Read-only and off the
+		// voice hot path; consumed by the operator Health/Diagnostics view.
+		// NOTE: not yet auth-gated — see THIN-RELAY-DESIGN.md "What to
+		// monitor"; should sit behind operator auth / a private bind before
+		// production exposure.
+		if server.sfu != nil && server.sfu.Metrics != nil {
+			mux.Handle("/metrics/relay", server.sfu.Metrics)
+		}
 		mux.Handle("/", server.webwsl)
 
 		server.webhttp = &http.Server{

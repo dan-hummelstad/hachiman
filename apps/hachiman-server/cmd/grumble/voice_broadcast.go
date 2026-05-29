@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"math"
 	"sort"
+	"time"
 
 	"mumble.info/grumble/pkg/mumbleproto"
+	"mumble.info/grumble/pkg/web"
 )
 
 type VoiceBroadcast struct {
@@ -104,6 +106,17 @@ func (v *VoiceBroadcast) AddReceiver(client *Client, ctx mumbleproto.AudioContex
 }
 
 func (v *VoiceBroadcast) Broadcast() error {
+	// Relay region for on-path instrumentation. Both the WebRTC and native
+	// forwarding paths below report into the SFU's RelayMetrics so a single
+	// place answers "is voice staying on-path?". relayRegion is read once
+	// here (off the per-receiver loop) to keep the hot path allocation-free.
+	var relayMetrics *web.RelayMetrics
+	relayRegion := ""
+	if v.sender.server.sfu != nil {
+		relayMetrics = v.sender.server.sfu.Metrics
+		relayRegion = relayMetrics.Region()
+	}
+
 	// Sort by parameter
 	sort.Slice(v.receiver, func(i, j int) bool {
 		a := v.receiver[i]
@@ -143,11 +156,18 @@ func (v *VoiceBroadcast) Broadcast() error {
 			// Marker-bit / talkspurt-start detection is handled inside the
 			// SFU based on the wall-clock gap between forwarded packets;
 			// no need to pass an explicit isFirst flag.
+			//
+			// A WebRTC receiver is, by topology, directly served by this
+			// relay's regional ingress, so its region equals the relay's
+			// region — pass relayRegion so the on-path classifier sees an
+			// in-region (on-path) hop. (There is no per-client region field
+			// yet; when one lands, thread it through here instead.)
 			v.sender.server.sfu.ForwardToWebRTC(
 				recv.Client.webrtcClient,
 				senderSSRC,
 				v.packet.Payload,
 				v.packet.FrameNumber,
+				relayRegion,
 			)
 			continue
 		}
@@ -174,8 +194,22 @@ func (v *VoiceBroadcast) Broadcast() error {
 			lastReceiver = recv
 		}
 
+		// Instrument the native UDP forwarding hop. The send is the relay's
+		// added-latency contribution for native receivers; measure it and
+		// record the forward. A native receiver is directly served by this
+		// relay, so its region equals relayRegion (on-path). Metrics calls
+		// are atomic-only / allocation-free; ObserveHopLatency is fed only
+		// on the sampled duty cycle inside RelayMetrics, but the measurement
+		// itself is cheap (monotonic clock read).
+		sendStart := time.Now()
 		if err := recv.Client.SendUDP(lastBytes); err != nil {
+			if relayMetrics != nil {
+				relayMetrics.RecordNativeDrop()
+			}
 			recv.Client.Panicf("Unable to send UDP message: %v", err.Error())
+		} else if relayMetrics != nil {
+			relayMetrics.ObserveHopLatency(time.Since(sendStart))
+			relayMetrics.RecordNativeForward(len(lastBytes), relayRegion)
 		}
 	}
 
