@@ -23,6 +23,12 @@ export type Server = {
    * connect success so other devices reflect "recently used" ordering.
    */
   lastUsedAt?: number
+  /**
+   * The server's selected voice region code (e.g. "us-east"), or null/undefined
+   * if unplaced. Mirrors the Oracle registry's mutable, re-selectable region;
+   * carried for display and future region-aware connection routing.
+   */
+  region?: string | null
 }
 
 interface ServersState {

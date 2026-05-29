@@ -4,9 +4,12 @@
  * Currently seeds:
  *   - the first-party `hachiman-client` public OIDC client used by the
  *     Hachiman desktop + browser apps for end-user PKCE sign-in.
+ *   - the fixed set of voice `regions` (us-east, us-west, eu-west,
+ *     ap-southeast) a server can be homed in.
  *
- * Safe to re-run: each upsert is keyed on `client_id` so re-running updates
- * the redirect URI list and leaves everything else alone.
+ * Safe to re-run: each upsert is keyed on its natural key (client_id /
+ * region code) so re-running refreshes mutable fields and leaves the rest
+ * alone.
  *
  * Invoked by `pnpm -F @hachiman/oracle db:seed`.
  */
@@ -14,9 +17,24 @@ import { drizzle } from 'drizzle-orm/postgres-js'
 import { eq } from 'drizzle-orm'
 import postgres from 'postgres'
 
-import { oidcClients } from './schema'
+import { oidcClients, regions } from './schema'
 
 const HACHIMAN_CLIENT_ID = 'hachiman-client'
+
+// Fixed dev region set. lat/lon are rough region centroids — good enough for a
+// future geodesic placement scorer, not meant to be precise. Keep this list
+// small and stable; it is the authoritative seed for the `regions` table.
+const REGIONS: ReadonlyArray<{
+  code: string
+  displayName: string
+  lat: number
+  lon: number
+}> = [
+  { code: 'us-east', displayName: 'US East', lat: 39.0438, lon: -77.4874 },
+  { code: 'us-west', displayName: 'US West', lat: 45.5946, lon: -121.1787 },
+  { code: 'eu-west', displayName: 'EU West', lat: 53.3331, lon: -6.2489 },
+  { code: 'ap-southeast', displayName: 'Asia Pacific (Southeast)', lat: 1.3521, lon: 103.8198 },
+]
 
 // Defaults match the dev hosts:
 //   - app.hachiman://oauth-callback     — Electron's custom-scheme deep link
@@ -51,6 +69,20 @@ async function main(): Promise<void> {
 
   const sql = postgres(databaseUrl, { max: 1 })
   const db = drizzle(sql)
+
+  // --- Regions ------------------------------------------------------------
+  // Idempotent upsert keyed on the `code` primary key: re-running refreshes
+  // displayName/lat/lon and leaves any servers referencing the code intact.
+  for (const r of REGIONS) {
+    await db
+      .insert(regions)
+      .values({ code: r.code, displayName: r.displayName, lat: r.lat, lon: r.lon })
+      .onConflictDoUpdate({
+        target: regions.code,
+        set: { displayName: r.displayName, lat: r.lat, lon: r.lon },
+      })
+  }
+  console.log(`[seed] upserted ${REGIONS.length} regions (${REGIONS.map((r) => r.code).join(', ')})`)
 
   const redirectUris = readRedirectUris()
 

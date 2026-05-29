@@ -37,6 +37,11 @@ var DefaultCfg = map[string]string{
 	// Oracle token. Defaults to false so anonymous clients are still
 	// accepted on servers that haven't opted in.
 	"OracleOnly": "false",
+	// The logical voice region this server is currently homed in (e.g.
+	// "us-east"), mirroring the Oracle registry's mutable `servers.region`.
+	// Empty = unplaced. Read via cfg.StringValue("ServerRegion"); informational
+	// today, consumed by the future placement/re-home layer.
+	"ServerRegion": "",
 }
 
 type ConfigRepo interface {

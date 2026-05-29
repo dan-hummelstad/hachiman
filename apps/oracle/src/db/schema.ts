@@ -16,6 +16,7 @@ import { sql } from 'drizzle-orm'
 import {
   boolean,
   customType,
+  doublePrecision,
   integer,
   jsonb,
   pgEnum,
@@ -114,6 +115,32 @@ export const verificationTokens = pgTable(
 )
 
 // ---------------------------------------------------------------------------
+// Regions — the logical voice-placement regions a server can be homed in.
+//
+// This is a small, fixed reference table (seeded by db:seed): "us-east",
+// "us-west", "eu-west", "ap-southeast", etc. A region is a *logical* location
+// the owner re-selects; the future managed-infra layer maps a region to a
+// physical island and, eventually, a placed vServer (see REGION-CONTRACT.md).
+//
+// `lat`/`lon` are nullable and exist purely so a future geodesic scorer can
+// place/re-home a server near its users for low latency. Nothing in this layer
+// reads them today.
+// ---------------------------------------------------------------------------
+export const regions = pgTable('regions', {
+  // Stable machine code, e.g. "us-east". Primary key so `servers.region` can
+  // reference it directly and so seeds are idempotent on the code.
+  code: text('code').primaryKey(),
+  displayName: text('display_name').notNull(),
+  // Rough geographic centroid of the region. Nullable: future geodesic
+  // scoring only; double precision to match Postgres `float8`.
+  lat: doublePrecision('lat'),
+  lon: doublePrecision('lon'),
+  createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
+    .notNull()
+    .defaultNow(),
+})
+
+// ---------------------------------------------------------------------------
 // Servers — registered Mumble servers in the Takusen registry.
 // ---------------------------------------------------------------------------
 export const servers = pgTable(
@@ -133,6 +160,11 @@ export const servers = pgTable(
     // the registry / introspection, and enforced by the Mumble server's own
     // OracleOnly configuration. Owner-toggleable from the dashboard.
     oracleOnly: boolean('oracle_only').notNull().default(false),
+    // The server's currently-selected voice region. MUTABLE and re-selectable
+    // (Discord-style): changing it is the future "re-home" trigger. Nullable
+    // because legacy/un-placed servers have no region yet. ON DELETE SET NULL
+    // so removing a region code never cascades into deleting servers.
+    region: text('region').references(() => regions.code, { onDelete: 'set null' }),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
       .notNull()
       .defaultNow(),
@@ -268,6 +300,8 @@ export const userServers = pgTable(
 // ---------------------------------------------------------------------------
 export type User = typeof users.$inferSelect
 export type NewUser = typeof users.$inferInsert
+export type Region = typeof regions.$inferSelect
+export type NewRegion = typeof regions.$inferInsert
 export type Server = typeof servers.$inferSelect
 export type NewServer = typeof servers.$inferInsert
 export type ServerDomainVerification = typeof serverDomainVerifications.$inferSelect

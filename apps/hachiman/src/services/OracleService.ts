@@ -79,6 +79,12 @@ interface RemoteServerRecord {
   name: string
   updatedAt: number
   lastUsedAt?: number
+  /**
+   * The server's currently-selected voice region code (e.g. "us-east"), or
+   * null/undefined if unplaced. Mutable + re-selectable from the Oracle
+   * dashboard; surfaced here for display and future region-aware connect.
+   */
+  region?: string | null
 }
 
 // --- PKCE helpers (WebCrypto; works in renderer + browser) ---

@@ -1,5 +1,6 @@
 /**
- * PATCH /api/servers/[id] — update name/description (slug and host immutable).
+ * PATCH /api/servers/[id] — update name/description/region (slug and host
+ * immutable; region is the mutable, re-selectable voice-placement property).
  * DELETE /api/servers/[id] — owner only.
  */
 import { NextResponse, type NextRequest } from 'next/server'

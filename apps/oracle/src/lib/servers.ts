@@ -11,8 +11,10 @@ import { db } from '@/db/client'
 import {
   inviteCodes,
   oidcClients,
+  regions,
   serverDomainVerifications,
   servers,
+  type Region,
   type Server,
 } from '@/db/schema'
 
@@ -148,6 +150,7 @@ export async function createServer(
         host: parsed.host,
         port: parsed.port ?? 64738,
         description: parsed.description ?? null,
+        region: parsed.region ?? null,
       })
       .returning()
     const server = insertedServers[0]
@@ -211,6 +214,8 @@ export async function updateServer(
   if (parsed.name !== undefined) updates.name = parsed.name
   if (parsed.description !== undefined) updates.description = parsed.description
   if (parsed.oracleOnly !== undefined) updates.oracleOnly = parsed.oracleOnly
+  // `region` is mutable: an explicit `null` clears it, a code re-homes it.
+  if (parsed.region !== undefined) updates.region = parsed.region
 
   const rows = await db
     .update(servers)
@@ -220,6 +225,37 @@ export async function updateServer(
   const row = rows[0]
   if (!row) throw new ServerNotFoundError(id)
   return row
+}
+
+/**
+ * Set (or clear) a server's voice region directly.
+ *
+ * This is the explicit "re-home" entry point the future managed-infra layer
+ * will call: today it only mutates the registry row, but it is intentionally
+ * separated from {@link updateServer} so the cold-migration trigger (drain →
+ * re-place → swap host) can hang off this single call later. Passing `null`
+ * clears the region. See REGION-CONTRACT.md.
+ */
+export async function setServerRegion(
+  id: string,
+  code: string | null,
+): Promise<Server> {
+  const rows = await db
+    .update(servers)
+    .set({ region: code, updatedAt: new Date() })
+    .where(eq(servers.id, id))
+    .returning()
+  const row = rows[0]
+  if (!row) throw new ServerNotFoundError(id)
+  return row
+}
+
+/**
+ * List the known voice regions, ordered by display name. Used to populate the
+ * region <Select> in the dashboard and (later) by the placement scorer.
+ */
+export async function listRegions(): Promise<Region[]> {
+  return await db.select().from(regions).orderBy(asc(regions.displayName))
 }
 
 export async function deleteServer(id: string): Promise<void> {

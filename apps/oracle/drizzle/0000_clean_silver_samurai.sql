@@ -61,6 +61,14 @@ CREATE TABLE "password_reset_tokens" (
 	CONSTRAINT "password_reset_tokens_token_hash_unique" UNIQUE("token_hash")
 );
 --> statement-breakpoint
+CREATE TABLE "regions" (
+	"code" text PRIMARY KEY NOT NULL,
+	"display_name" text NOT NULL,
+	"lat" double precision,
+	"lon" double precision,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
 CREATE TABLE "server_domain_verifications" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"server_id" uuid NOT NULL,
@@ -80,6 +88,7 @@ CREATE TABLE "servers" (
 	"host" text NOT NULL,
 	"port" integer DEFAULT 64738 NOT NULL,
 	"oracle_only" boolean DEFAULT false NOT NULL,
+	"region" text,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
@@ -131,6 +140,7 @@ ALTER TABLE "oidc_clients" ADD CONSTRAINT "oidc_clients_server_id_servers_id_fk"
 ALTER TABLE "password_reset_tokens" ADD CONSTRAINT "password_reset_tokens_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "server_domain_verifications" ADD CONSTRAINT "server_domain_verifications_server_id_servers_id_fk" FOREIGN KEY ("server_id") REFERENCES "public"."servers"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "servers" ADD CONSTRAINT "servers_owner_user_id_users_id_fk" FOREIGN KEY ("owner_user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "servers" ADD CONSTRAINT "servers_region_regions_code_fk" FOREIGN KEY ("region") REFERENCES "public"."regions"("code") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "sessions" ADD CONSTRAINT "sessions_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "user_servers" ADD CONSTRAINT "user_servers_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "user_servers" ADD CONSTRAINT "user_servers_server_id_servers_id_fk" FOREIGN KEY ("server_id") REFERENCES "public"."servers"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
