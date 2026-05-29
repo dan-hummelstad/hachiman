@@ -49,7 +49,9 @@ import {
   ROOT_PERMISSIONS,
   type PermissionDef
 } from '@/lib/mumble-permissions'
+import { fmtMs, placeholderRelayPath, type RelayPathSnapshot } from '@/lib/connection-quality'
 import { connectionManager } from '@/services/ServersService'
+import { useServerStore } from '@/stores/serverStore'
 
 interface ServerSettingsDialogProps {
   open: boolean
@@ -111,7 +113,16 @@ export function ServerSettingsDialog(props: ServerSettingsDialogProps): React.JS
   const isConnected = service?.isConnected() ?? false
   const isSuperUser = service?.currentUser?.userId === 0
 
-  const [tab, setTab] = useState<'roles' | 'channels'>('roles')
+  // The server's configured voice region, for the Health tab's relay-path
+  // labelling. Forward-declared in serverStore (not populated by the sync
+  // layer yet — REGION-CONTRACT); reads as a single primitive (string | null
+  // | undefined), so no fresh-literal selector concern. null/undefined → the
+  // Health tab shows an "unplaced / region unknown" label.
+  const relayRegion = useServerStore((s) =>
+    props.serverId ? (s.servers.get(props.serverId)?.region ?? null) : null
+  )
+
+  const [tab, setTab] = useState<'roles' | 'channels' | 'health'>('roles')
   const [registeredUsers, setRegisteredUsers] = useState<RegisteredUser[]>([])
   const [loadError, setLoadError] = useState<string | null>(null)
 
@@ -477,13 +488,14 @@ export function ServerSettingsDialog(props: ServerSettingsDialogProps): React.JS
         ) : (
           <Tabs
             value={tab}
-            onValueChange={(v) => setTab(v as 'roles' | 'channels')}
+            onValueChange={(v) => setTab(v as 'roles' | 'channels' | 'health')}
             className="flex min-h-0 flex-1 flex-col gap-0"
           >
             <div className="px-6 pt-3">
               <TabsList>
                 <TabsTrigger value="roles">Roles</TabsTrigger>
                 <TabsTrigger value="channels">Channels</TabsTrigger>
+                <TabsTrigger value="health">Health</TabsTrigger>
               </TabsList>
             </div>
             <Separator className="mt-3" />
@@ -569,10 +581,139 @@ export function ServerSettingsDialog(props: ServerSettingsDialogProps): React.JS
                 onSave={() => void saveChannelAcl()}
               />
             </TabsContent>
+
+            <TabsContent value="health" className="overflow-hidden">
+              <HealthTab relayRegion={relayRegion} />
+            </TabsContent>
           </Tabs>
         )}
       </DialogContent>
     </Dialog>
+  )
+}
+
+// ───────────────────────── Health / Diagnostics tab ─────────────────────────
+
+/**
+ * Operator voice-health view: the forwarding path (client → regional ingress →
+ * on-host wake proxy → SFU), the per-hop added latency, and an on-path
+ * indicator.
+ *
+ * Placeholder wiring, NOT fabricated numbers. The server exposes a live
+ * `RelaySnapshot` over `GET /metrics/relay`
+ * (apps/hachiman-server/pkg/web/relaymetrics.go), but there is no passthrough
+ * on `IMumbleService` to reach it from the shared UI yet. Until that lands we
+ * render the *shape* from `placeholderRelayPath` with null latencies — the
+ * relay region label is the one real value (when serverStore has it). Every
+ * unavailable field shows an em-dash and the panel is clearly marked as not
+ * yet wired to live metrics.
+ */
+function HealthTab({ relayRegion }: { relayRegion: string | null }): React.JSX.Element {
+  // Memoise so the placeholder object identity is stable across renders.
+  const snapshot: RelayPathSnapshot = useMemo(
+    () => placeholderRelayPath(relayRegion),
+    [relayRegion]
+  )
+
+  // onPath === null → unknown (no metrics yet); true/false → real verdict.
+  const onPathLabel =
+    snapshot.onPath === null ? 'Unknown' : snapshot.onPath ? 'On-path' : 'Off-path'
+  const onPathColor =
+    snapshot.onPath === null
+      ? 'bg-muted-foreground'
+      : snapshot.onPath
+        ? 'bg-green-500'
+        : 'bg-destructive'
+
+  return (
+    <ScrollArea className="h-full min-h-0">
+      <div className="space-y-6 p-6">
+        {/* Summary row: region + on-path verdict */}
+        <section className="grid grid-cols-2 gap-4">
+          <div className="border-border rounded-md border p-4">
+            <span className="text-muted-foreground text-xs font-semibold uppercase">
+              Voice region
+            </span>
+            <p className="mt-1 text-sm font-medium">
+              {snapshot.relayRegion ?? 'Unplaced (no region selected)'}
+            </p>
+          </div>
+          <div className="border-border rounded-md border p-4">
+            <span className="text-muted-foreground text-xs font-semibold uppercase">On-path</span>
+            <p className="mt-1 flex items-center gap-2 text-sm font-medium">
+              <span className={`h-2.5 w-2.5 rounded-full ${onPathColor}`} />
+              {onPathLabel}
+            </p>
+          </div>
+        </section>
+
+        {/* Forwarding path with per-hop region + latency */}
+        <section className="space-y-3">
+          <Label>Voice forwarding path</Label>
+          <ol className="border-border divide-border divide-y rounded-md border">
+            {snapshot.hops.map((hop, idx) => {
+              const hopOnPathColor =
+                hop.onPath === null
+                  ? 'bg-muted-foreground'
+                  : hop.onPath
+                    ? 'bg-green-500'
+                    : 'bg-destructive'
+              return (
+                <li
+                  key={`${hop.label}-${idx}`}
+                  className="flex items-center justify-between gap-3 px-3 py-2.5"
+                >
+                  <div className="flex min-w-0 items-center gap-2.5">
+                    <span className={`h-2 w-2 shrink-0 rounded-full ${hopOnPathColor}`} />
+                    <div className="flex min-w-0 flex-col">
+                      <span className="truncate text-sm font-medium">{hop.label}</span>
+                      <span className="text-muted-foreground text-xs">
+                        {hop.region ?? 'region —'}
+                      </span>
+                    </div>
+                  </div>
+                  <span className="text-muted-foreground shrink-0 text-xs tabular-nums">
+                    {fmtMs(hop.latencyMs)}
+                  </span>
+                </li>
+              )
+            })}
+          </ol>
+        </section>
+
+        {/* Thin-hop latency budget */}
+        <section className="space-y-3">
+          <Label>Relay forwarding hop (thin budget)</Label>
+          <div className="border-border grid grid-cols-3 gap-px overflow-hidden rounded-md border bg-border">
+            <HealthStat label="Mean added" value={fmtMs(snapshot.hopMeanMs)} />
+            <HealthStat label="Max added" value={fmtMs(snapshot.hopMaxMs)} />
+            <HealthStat label="Budget" value={fmtMs(snapshot.hopBudgetMs)} />
+          </div>
+          {snapshot.overBudgetCount != null && snapshot.overBudgetCount > 0 ? (
+            <p className="text-destructive text-xs">
+              {snapshot.overBudgetCount} forwarding hop
+              {snapshot.overBudgetCount === 1 ? '' : 's'} exceeded the thin-hop latency budget.
+            </p>
+          ) : null}
+        </section>
+
+        <p className="text-muted-foreground border-t pt-3 text-[11px] leading-snug">
+          Live relay metrics are exposed by the server at{' '}
+          <code className="font-mono">GET /metrics/relay</code> but are not yet wired through to
+          this client. Values shown as <span className="font-mono">—</span> are awaiting a metrics
+          passthrough; the path and on-path indicator above reflect the intended topology.
+        </p>
+      </div>
+    </ScrollArea>
+  )
+}
+
+function HealthStat({ label, value }: { label: string; value: string }): React.JSX.Element {
+  return (
+    <div className="bg-background flex flex-col gap-1 p-3">
+      <span className="text-muted-foreground text-xs">{label}</span>
+      <span className="text-sm font-medium tabular-nums">{value}</span>
+    </div>
   )
 }
 
