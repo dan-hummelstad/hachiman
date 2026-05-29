@@ -7,6 +7,7 @@ import {
   assertOwner,
   getServerById,
   listInvitesForServer,
+  listRegions,
 } from '@/lib/servers'
 import { getActiveVerification, dnsVerificationHostname } from '@/lib/dns-verify'
 import { getOidcClientForServer } from '@/lib/oidc-client-admin'
@@ -38,14 +39,19 @@ export default async function ServerDetailPage({ params }: PageProps): Promise<R
     notFound()
   }
 
-  const [server, verification, invites, oidcClient] = await Promise.all([
+  const [server, verification, invites, oidcClient, regions] = await Promise.all([
     getServerById(id),
     getActiveVerification(id),
     listInvitesForServer(id),
     getOidcClientForServer(id),
+    listRegions(),
   ])
 
   if (!server) notFound()
+
+  const regionOptions = regions.map((r) => ({ code: r.code, displayName: r.displayName }))
+  const currentRegionLabel =
+    regions.find((r) => r.code === server.region)?.displayName ?? server.region
 
   return (
     <main className="mx-auto flex w-full max-w-5xl flex-col gap-6 p-6">
@@ -68,7 +74,8 @@ export default async function ServerDetailPage({ params }: PageProps): Promise<R
           )}
         </div>
         <p className="font-mono text-xs text-muted-foreground">
-          {server.host}:{server.port} · slug <span className="text-foreground">{server.slug}</span>
+          {server.host}:{server.port} · slug <span className="text-foreground">{server.slug}</span> · region{' '}
+          <span className="text-foreground">{currentRegionLabel ?? 'none'}</span>
         </p>
       </div>
 
@@ -97,6 +104,8 @@ export default async function ServerDetailPage({ params }: PageProps): Promise<R
                 host={server.host}
                 port={server.port}
                 slug={server.slug}
+                region={server.region}
+                regions={regionOptions}
               />
             </CardContent>
           </Card>
