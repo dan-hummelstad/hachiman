@@ -147,9 +147,9 @@ const (
 // per-packet allocation or a histogram. count is bumped on every observation,
 // so a sampled subset (or all) of forwards can feed it.
 type hopLatencyStats struct {
-	count   atomic.Uint64
-	sumNs   atomic.Uint64
-	maxNs   atomic.Uint64
+	count           atomic.Uint64
+	sumNs           atomic.Uint64
+	maxNs           atomic.Uint64
 	overBudgetCount atomic.Uint64 // observations exceeding budgetNs
 }
 
@@ -326,10 +326,12 @@ func (m *RelayMetrics) RecordDrop(t transport) {
 func (m *RelayMetrics) RecordWebRTCDrop() { m.RecordDrop(transportWebRTC) }
 func (m *RelayMetrics) RecordNativeDrop() { m.RecordDrop(transportNative) }
 
-// ObserveHopLatency records the added latency of one forwarding hop. Intended
-// to be fed by a SAMPLED caller (e.g. inside the sampled branch) rather than
-// per packet, but it is itself atomic-only and safe to call on the hot path if
-// desired. NO ALLOCATION.
+// ObserveHopLatency records the added latency of one forwarding hop. It is
+// called on EVERY successful forward (not sampled), so hop.count is a full
+// population rather than a subset. That is intentional and cheap: the
+// implementation is atomic-only (sum/count adds + a CAS for max), allocation-
+// free, and benchmarks in the low-nanosecond range, so a per-forward mean/max
+// is both accurate and effectively free. NO ALLOCATION.
 func (m *RelayMetrics) ObserveHopLatency(d time.Duration) {
 	if m == nil {
 		return
@@ -388,26 +390,26 @@ func classToVerdict(c pathClass) PathVerdict {
 
 // TransportSnapshot is a point-in-time read of one transport's counters.
 type TransportSnapshot struct {
-	Transport     string `json:"transport"`
-	Packets       uint64 `json:"packets"`
-	Bytes         uint64 `json:"bytes"`
-	OnPathCount   uint64 `json:"onPathCount"`
-	OffPathCount  uint64 `json:"offPathCount"`
-	UnknownCount  uint64 `json:"unknownCount"`
-	Drops         uint64 `json:"drops"`
+	Transport    string `json:"transport"`
+	Packets      uint64 `json:"packets"`
+	Bytes        uint64 `json:"bytes"`
+	OnPathCount  uint64 `json:"onPathCount"`
+	OffPathCount uint64 `json:"offPathCount"`
+	UnknownCount uint64 `json:"unknownCount"`
+	Drops        uint64 `json:"drops"`
 }
 
 // RelaySnapshot is a JSON-serialisable view of relay health for operators and
 // the UI Health/Diagnostics tab.
 type RelaySnapshot struct {
-	Region          string              `json:"region"`
-	Placed          bool                `json:"placed"`
-	UptimeSeconds   float64             `json:"uptimeSeconds"`
-	Transports      []TransportSnapshot `json:"transports"`
-	Hop             HopSnapshot         `json:"hop"`
-	RegionForwards  map[string]uint64   `json:"regionForwards"`
-	OnPath          bool                `json:"onPath"`          // no off-path forwards observed
-	TotalOffPath    uint64              `json:"totalOffPath"`    // across all transports
+	Region         string              `json:"region"`
+	Placed         bool                `json:"placed"`
+	UptimeSeconds  float64             `json:"uptimeSeconds"`
+	Transports     []TransportSnapshot `json:"transports"`
+	Hop            HopSnapshot         `json:"hop"`
+	RegionForwards map[string]uint64   `json:"regionForwards"`
+	OnPath         bool                `json:"onPath"`       // no off-path forwards observed
+	TotalOffPath   uint64              `json:"totalOffPath"` // across all transports
 }
 
 // HopSnapshot summarises forwarding-hop added latency.

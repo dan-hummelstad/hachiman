@@ -197,10 +197,10 @@ func (v *VoiceBroadcast) Broadcast() error {
 		// Instrument the native UDP forwarding hop. The send is the relay's
 		// added-latency contribution for native receivers; measure it and
 		// record the forward. A native receiver is directly served by this
-		// relay, so its region equals relayRegion (on-path). Metrics calls
-		// are atomic-only / allocation-free; ObserveHopLatency is fed only
-		// on the sampled duty cycle inside RelayMetrics, but the measurement
-		// itself is cheap (monotonic clock read).
+		// relay, so its region equals relayRegion (on-path). All metrics
+		// calls are atomic-only / allocation-free, so ObserveHopLatency runs
+		// on every forward (a full-population mean/max, not a sampled subset);
+		// the measurement itself is just a monotonic-clock read.
 		sendStart := time.Now()
 		if err := recv.Client.SendUDP(lastBytes); err != nil {
 			if relayMetrics != nil {
