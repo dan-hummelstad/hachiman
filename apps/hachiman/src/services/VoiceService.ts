@@ -1,10 +1,11 @@
 import { serversService } from './ServersService'
 import { useVoiceStore } from '@/stores/voiceStore'
 import { useUserStore } from '@/stores/userStore'
-import type { SpeakingStateChange } from '@hachiman/hachiman-node'
+import type { ConnectionQualitySample, SpeakingStateChange } from '@hachiman/hachiman-node'
 
 export class VoiceService {
   private _speakingListener: ((state: SpeakingStateChange) => void) | null = null
+  private _connectionQualityListener: ((sample: ConnectionQualitySample) => void) | null = null
   private _connectionCleanup: (() => void) | null = null
   private _activeUrl: string | null = null
 
@@ -24,6 +25,15 @@ export class VoiceService {
     }
 
     server.on('speakingStateChange', this._speakingListener)
+
+    // Surface measured connection quality (RTT / jitter / packet-loss) from
+    // the client library's Ping round-trip into the store. The sample shape
+    // mirrors voiceStore's ConnectionQuality slot, so it flows straight in.
+    this._connectionQualityListener = (sample: ConnectionQualitySample) => {
+      store.setConnectionQuality(sample)
+    }
+
+    server.on('connectionQuality', this._connectionQualityListener)
 
     // Track WebRTC connection state
     const webrtcVoice = server.mumbleClient.webrtcVoice
@@ -159,15 +169,21 @@ export class VoiceService {
   }
 
   cleanup(): void {
-    if (this._activeUrl && this._speakingListener) {
+    if (this._activeUrl) {
       const server = serversService.getServer(this._activeUrl)
       if (server) {
-        server.off('speakingStateChange', this._speakingListener)
+        if (this._speakingListener) {
+          server.off('speakingStateChange', this._speakingListener)
+        }
+        if (this._connectionQualityListener) {
+          server.off('connectionQuality', this._connectionQualityListener)
+        }
       }
     }
     this._connectionCleanup?.()
     this._connectionCleanup = null
     this._speakingListener = null
+    this._connectionQualityListener = null
     this._activeUrl = null
     useVoiceStore.getState().reset()
   }
