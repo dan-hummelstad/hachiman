@@ -3,6 +3,7 @@ package database
 import (
 	"fmt"
 
+	"gorm.io/driver/postgres"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/schema"
@@ -27,8 +28,13 @@ func NewDB(cfg *DbConfig) (*GrumbleDb, error) {
 	switch cfg.Type {
 	case "sqlite":
 		dialet = sqlite.Open(cfg.Conn)
+	case "postgres":
+		if cfg.Conn == "" {
+			return nil, fmt.Errorf("postgres database selected but no DSN/connection string configured")
+		}
+		dialet = postgres.Open(cfg.Conn)
 	default:
-		return nil, fmt.Errorf("invalid sql database type %s", cfg.Conn)
+		return nil, fmt.Errorf("invalid sql database type %q", cfg.Type)
 	}
 
 	db, err := gorm.Open(dialet, &gorm.Config{
