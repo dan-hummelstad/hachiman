@@ -1,4 +1,6 @@
+CREATE TYPE "public"."island_status" AS ENUM('provisioning', 'active', 'draining', 'down');--> statement-breakpoint
 CREATE TYPE "public"."user_role" AS ENUM('user', 'admin');--> statement-breakpoint
+CREATE TYPE "public"."virtual_server_status" AS ENUM('inactive', 'starting', 'active', 'cooling');--> statement-breakpoint
 CREATE TABLE "accounts" (
 	"user_id" uuid NOT NULL,
 	"type" text NOT NULL,
@@ -25,6 +27,17 @@ CREATE TABLE "invite_codes" (
 	"revoked" boolean DEFAULT false NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	CONSTRAINT "invite_codes_code_unique" UNIQUE("code")
+);
+--> statement-breakpoint
+CREATE TABLE "islands" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"host" text NOT NULL,
+	"grpc_port" integer NOT NULL,
+	"region" text NOT NULL,
+	"status" "island_status" DEFAULT 'provisioning' NOT NULL,
+	"max_vservers" integer DEFAULT 50 NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
 CREATE TABLE "oidc_adapter_payloads" (
@@ -135,9 +148,26 @@ CREATE TABLE "verification_tokens" (
 	CONSTRAINT "verification_tokens_identifier_token_pk" PRIMARY KEY("identifier","token")
 );
 --> statement-breakpoint
+CREATE TABLE "virtual_servers" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"server_id" uuid NOT NULL,
+	"status" "virtual_server_status" DEFAULT 'inactive' NOT NULL,
+	"island_id" uuid,
+	"murmur_id" integer,
+	"port" integer DEFAULT 64738 NOT NULL,
+	"region" text NOT NULL,
+	"max_users" integer DEFAULT 100 NOT NULL,
+	"max_bandwidth" integer DEFAULT 558000 NOT NULL,
+	"last_active_at" timestamp with time zone,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "virtual_servers_server_id_unique" UNIQUE("server_id")
+);
+--> statement-breakpoint
 ALTER TABLE "accounts" ADD CONSTRAINT "accounts_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "invite_codes" ADD CONSTRAINT "invite_codes_server_id_servers_id_fk" FOREIGN KEY ("server_id") REFERENCES "public"."servers"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "invite_codes" ADD CONSTRAINT "invite_codes_created_by_user_id_users_id_fk" FOREIGN KEY ("created_by_user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "islands" ADD CONSTRAINT "islands_region_regions_code_fk" FOREIGN KEY ("region") REFERENCES "public"."regions"("code") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "oidc_clients" ADD CONSTRAINT "oidc_clients_server_id_servers_id_fk" FOREIGN KEY ("server_id") REFERENCES "public"."servers"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "password_reset_tokens" ADD CONSTRAINT "password_reset_tokens_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "server_domain_verifications" ADD CONSTRAINT "server_domain_verifications_server_id_servers_id_fk" FOREIGN KEY ("server_id") REFERENCES "public"."servers"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
@@ -146,6 +176,9 @@ ALTER TABLE "servers" ADD CONSTRAINT "servers_region_regions_code_fk" FOREIGN KE
 ALTER TABLE "sessions" ADD CONSTRAINT "sessions_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "user_servers" ADD CONSTRAINT "user_servers_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "user_servers" ADD CONSTRAINT "user_servers_server_id_servers_id_fk" FOREIGN KEY ("server_id") REFERENCES "public"."servers"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "virtual_servers" ADD CONSTRAINT "virtual_servers_server_id_servers_id_fk" FOREIGN KEY ("server_id") REFERENCES "public"."servers"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "virtual_servers" ADD CONSTRAINT "virtual_servers_island_id_islands_id_fk" FOREIGN KEY ("island_id") REFERENCES "public"."islands"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "virtual_servers" ADD CONSTRAINT "virtual_servers_region_regions_code_fk" FOREIGN KEY ("region") REFERENCES "public"."regions"("code") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 CREATE INDEX "oidc_adapter_payloads_model_uid_idx" ON "oidc_adapter_payloads" USING btree ("model","uid");--> statement-breakpoint
 CREATE INDEX "oidc_adapter_payloads_model_user_code_idx" ON "oidc_adapter_payloads" USING btree ("model","user_code");--> statement-breakpoint
 CREATE INDEX "oidc_adapter_payloads_grant_id_idx" ON "oidc_adapter_payloads" USING btree ("grant_id");--> statement-breakpoint

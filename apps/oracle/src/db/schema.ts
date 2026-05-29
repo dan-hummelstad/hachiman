@@ -46,6 +46,32 @@ const citext = customType<{ data: string; driverData: string }>({
 // ---------------------------------------------------------------------------
 export const userRoleEnum = pgEnum('user_role', ['user', 'admin'])
 
+// Island lifecycle (the physical Murmur host process). See ISLAND-PLATFORM.md.
+//   provisioning — the k3s pod is being brought up; not yet placement-eligible
+//   active       — healthy and accepting vServer placements
+//   draining     — no NEW placements; existing vServers migrate off before down
+//   down         — unhealthy / terminated; the scheduler skips it
+export const islandStatusEnum = pgEnum('island_status', [
+  'provisioning',
+  'active',
+  'draining',
+  'down',
+])
+
+// Virtual-server lifecycle. The valid transitions form a single cycle, enforced
+// by `transitionVServer` in lib/virtual-servers.ts:
+//   inactive → starting → active → cooling → inactive
+//   inactive — provisioned but not running anywhere (islandId is typically null)
+//   starting — placed on an island; the in-process Murmur vServer is booting
+//   active   — running and accepting users
+//   cooling  — drained of users, kept warm briefly before returning to inactive
+export const virtualServerStatusEnum = pgEnum('virtual_server_status', [
+  'inactive',
+  'starting',
+  'active',
+  'cooling',
+])
+
 // ---------------------------------------------------------------------------
 // Auth.js core tables (users, accounts, sessions, verificationTokens)
 // Extended with Oracle-specific columns (role, passwordHash, displayName).
@@ -183,6 +209,106 @@ export const servers = pgTable(
 )
 
 // ---------------------------------------------------------------------------
+// Islands — a managed-infra control-plane row: ONE Murmur process (one k3s pod)
+// that hosts MANY in-process virtual servers, living inside a region. This is
+// the PHYSICAL layer the REGION-CONTRACT.md region→island→vServer model has so
+// far left "Not modeled yet"; this slice realizes it.
+//
+// Only durable control-plane facts live here. LIVE metrics (active users, CPU,
+// bandwidth) are NOT columns — they live in Redis and are fed to the bin-packing
+// scheduler at scoring time (see ISLAND-PLATFORM.md). The scheduler keys
+// placement off `id` / `host` / `grpcPort` / `region` / `maxVservers` plus the
+// current vServer count (derived) and those Redis-supplied metrics.
+// ---------------------------------------------------------------------------
+export const islands = pgTable('islands', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  // Routable host of the island's Murmur pod (DNS name or IP). Future HAProxy
+  // L4 mapping + DNS SRV records resolve a vServer's advertised endpoint here.
+  host: text('host').notNull(),
+  // Port of the island's control gRPC endpoint (the always-on wake proxy /
+  // scheduler talks to this to start/stop in-process vServers). NOT the Mumble
+  // voice port — each vServer carries its own `port`.
+  grpcPort: integer('grpc_port').notNull(),
+  // The region this island physically sits in. ON DELETE RESTRICT: a region
+  // with live islands must not be deleted out from under them (unlike
+  // servers.region, which SET NULLs — an island without a region is nonsense).
+  region: text('region')
+    .notNull()
+    .references(() => regions.code, { onDelete: 'restrict' }),
+  status: islandStatusEnum('status').notNull().default('provisioning'),
+  // Hard cap on in-process vServers this island will host. The bin-packing
+  // scheduler refuses to place beyond this; LIVE load (Redis) may push the
+  // effective cap lower, but never higher.
+  maxVservers: integer('max_vservers').notNull().default(50),
+  createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
+    .notNull()
+    .defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' })
+    .notNull()
+    .defaultNow(),
+})
+
+// ---------------------------------------------------------------------------
+// Virtual servers — a MANAGED Mumble instance with a lifecycle, placed (or not
+// yet placed) onto an island. This is the FUTURE "vServer" of the
+// region→island→vServer model, now realized.
+//
+// KEY MODELING DECISION (1:1 with the registry): `serverId` is a UNIQUE FK to
+// `servers.id`. A registry server is therefore EITHER
+//   - self-hosted  → a `servers` row only (no virtual_servers row), or
+//   - managed      → a `servers` row PLUS exactly one `virtual_servers` row.
+// This extends the existing model without duplicating identity (slug, owner,
+// host/port advertised to clients, OIDC client, invites, region all stay on
+// `servers`); `virtual_servers` adds only the managed-placement/lifecycle facts.
+// See ISLAND-PLATFORM.md for the alternatives that were rejected.
+//
+// `islandId` is NULLABLE = UNPLACED (the scheduler hasn't bin-packed it onto an
+// island yet, or it has been drained off one). `region` is denormalized from
+// the linked server's region so the scheduler can filter candidate islands by
+// region without a join, and so an unplaced vServer still carries its target
+// region. LIVE metrics are NOT stored here (Redis; see above).
+// ---------------------------------------------------------------------------
+export const virtualServers = pgTable('virtual_servers', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  // The registry server this managed instance backs. UNIQUE → strict 1:1.
+  // ON DELETE CASCADE: deleting the registry server tears down its managed
+  // placement row too (the runtime teardown is a separate, deferred concern).
+  serverId: uuid('server_id')
+    .notNull()
+    .unique()
+    .references(() => servers.id, { onDelete: 'cascade' }),
+  status: virtualServerStatusEnum('status').notNull().default('inactive'),
+  // Island placement. NULL = unplaced (awaiting/between scheduling). ON DELETE
+  // SET NULL: if an island row is removed, its vServers become unplaced rather
+  // than being deleted — the scheduler will re-home them.
+  islandId: uuid('island_id').references(() => islands.id, { onDelete: 'set null' }),
+  // The in-process vServer id WITHIN the island's Murmur process (Murmur's
+  // numeric virtual-server id). NULL until placed/assigned on an island.
+  murmurId: integer('murmur_id'),
+  // The Mumble voice port this vServer is advertised/reachable on (via the
+  // future HAProxy L4 port→island map). The client connects here.
+  port: integer('port').notNull().default(64738),
+  // Target voice region (denormalized from servers.region). NOT NULL: a managed
+  // vServer is always placed-or-to-be-placed in a concrete region. ON DELETE
+  // RESTRICT mirrors `islands.region`.
+  region: text('region')
+    .notNull()
+    .references(() => regions.code, { onDelete: 'restrict' }),
+  // Per-vServer capacity caps the scheduler/runtime enforce.
+  maxUsers: integer('max_users').notNull().default(100),
+  // Bandwidth ceiling in bits/sec (matches Murmur's `bandwidth` semantics).
+  maxBandwidth: integer('max_bandwidth').notNull().default(558000),
+  // Last time this vServer had activity; drives the cooling→inactive sweep.
+  lastActiveAt: timestamp('last_active_at', { withTimezone: true, mode: 'date' }),
+  createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
+    .notNull()
+    .defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' })
+    .notNull()
+    .defaultNow(),
+})
+
+// ---------------------------------------------------------------------------
 // Server domain verifications — DNS TXT challenges. A server is considered
 // "verified" iff there exists a row with verifiedAt IS NOT NULL for its
 // current host. History is preserved so we can show audit trail / re-verify.
@@ -311,6 +437,12 @@ export type Region = typeof regions.$inferSelect
 export type NewRegion = typeof regions.$inferInsert
 export type Server = typeof servers.$inferSelect
 export type NewServer = typeof servers.$inferInsert
+export type Island = typeof islands.$inferSelect
+export type NewIsland = typeof islands.$inferInsert
+export type IslandStatus = (typeof islandStatusEnum.enumValues)[number]
+export type VirtualServer = typeof virtualServers.$inferSelect
+export type NewVirtualServer = typeof virtualServers.$inferInsert
+export type VirtualServerStatus = (typeof virtualServerStatusEnum.enumValues)[number]
 export type ServerDomainVerification = typeof serverDomainVerifications.$inferSelect
 export type OidcClient = typeof oidcClients.$inferSelect
 export type InviteCode = typeof inviteCodes.$inferSelect
