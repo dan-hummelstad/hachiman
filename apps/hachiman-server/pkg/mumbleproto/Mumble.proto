@@ -731,3 +731,66 @@ message PersistedMessage {
 	// Unix epoch milliseconds the message was persisted.
 	optional int64 created_at_ms = 6;
 }
+
+// Client -> server request for the relay's thin/on-path voice instrumentation.
+// Authenticated, operator-only: the server replies with a RelayMetricsSnapshot
+// only if the requester is the SuperUser or holds Write permission on the root
+// channel (same gate as the ACL fetch); otherwise it returns PermissionDenied.
+// Carries no fields today (the relay reports a single global snapshot), but is
+// kept as a distinct message so future scoping (per-transport, per-region) can
+// be added without overloading another type.
+message RelayMetricsQuery {
+}
+
+// Server -> client reply mirroring the Go web.RelaySnapshot
+// (apps/hachiman-server/pkg/web/relaymetrics.go) and the TS RelayPathSnapshot
+// (apps/hachiman/src/lib/connection-quality.ts). Read-only operator view of
+// whether voice forwarding is staying "thin & on-path".
+message RelayMetricsSnapshot {
+	// Region the relay is homed in ("" / absent = unplaced / region unknown).
+	optional string region = 1;
+	// True when the relay has a configured region (region != "").
+	optional bool placed = 2;
+	// Seconds since the relay metrics started accumulating.
+	optional double uptime_seconds = 3;
+	// Per-transport forwarding counters (native UDP, WebRTC SFU).
+	repeated RelayTransportSnapshot transports = 4;
+	// Forwarding-hop added-latency summary.
+	optional RelayHopSnapshot hop = 5;
+	// Off-the-hot-path tally of forwards per distinct receiver region.
+	map<string, uint64> region_forwards = 6;
+	// True only when no off-path (cross-region) forwards have been observed.
+	optional bool on_path = 7;
+	// Total off-path forwards across all transports.
+	optional uint64 total_off_path = 8;
+}
+
+// Mirror of web.TransportSnapshot: one transport's forwarding counters.
+message RelayTransportSnapshot {
+	// "native-udp" or "webrtc".
+	optional string transport = 1;
+	optional uint64 packets = 2;
+	optional uint64 bytes = 3;
+	optional uint64 on_path_count = 4;
+	optional uint64 off_path_count = 5;
+	optional uint64 unknown_count = 6;
+	// Best-effort forwards that failed to write.
+	optional uint64 drops = 7;
+}
+
+// Mirror of web.HopSnapshot: forwarding-hop added-latency summary. Latencies
+// are provided both in nanoseconds (raw counters) and milliseconds (convenience
+// for the UI, which renders ms).
+message RelayHopSnapshot {
+	// Number of hop-latency observations.
+	optional uint64 samples = 1;
+	optional uint64 mean_nanos = 2;
+	optional uint64 max_nanos = 3;
+	// Thin-hop latency budget (0 = budget tracking disabled).
+	optional uint64 budget_nanos = 4;
+	// Observations exceeding the thin-hop budget.
+	optional uint64 over_budget_count = 5;
+	optional double mean_millis = 6;
+	optional double max_millis = 7;
+	optional double budget_millis = 8;
+}
