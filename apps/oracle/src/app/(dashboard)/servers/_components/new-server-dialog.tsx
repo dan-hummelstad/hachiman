@@ -38,7 +38,9 @@ import {
 import { Textarea } from '@/components/ui/textarea'
 import { createServerSchema, type CreateServerInput } from '@/lib/server-schemas'
 
-// Radix Select can't use "" as a value; map this sentinel to null on submit.
+// Radix Select can't use "" as a value; this sentinel represents "no region"
+// in the Select and is mapped to null in the field value (so it never reaches
+// the zod resolver, which would reject the underscores).
 const NO_REGION = '__none__'
 
 type FormValues = Omit<CreateServerInput, 'ownerUserId'>
@@ -74,7 +76,7 @@ export function NewServerDialog({
       host: '',
       port: 64738,
       description: '',
-      region: NO_REGION,
+      region: null,
     },
   })
 
@@ -85,10 +87,7 @@ export function NewServerDialog({
       const res = await fetch('/api/servers', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          ...values,
-          region: values.region === NO_REGION ? null : values.region,
-        }),
+        body: JSON.stringify(values),
       })
       if (!res.ok) {
         const body = await res.json().catch(() => ({}))
@@ -288,7 +287,12 @@ export function NewServerDialog({
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Region (optional)</FormLabel>
-                    <Select value={field.value ?? NO_REGION} onValueChange={field.onChange}>
+                    <Select
+                      value={field.value ?? NO_REGION}
+                      onValueChange={(value) =>
+                        field.onChange(value === NO_REGION ? null : value)
+                      }
+                    >
                       <FormControl>
                         <SelectTrigger className="w-full">
                           <SelectValue placeholder="No region" />

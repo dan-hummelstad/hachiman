@@ -80,18 +80,25 @@ Validation (`apps/oracle/src/lib/server-schemas.ts`):
 Server-side helpers (`apps/oracle/src/lib/servers.ts`):
 
 - `createServer(input)` — sets initial `region` (`input.region ?? null`).
-- `updateServer(id, patch)` — persists `region` when present in the patch.
-- `setServerRegion(id, code: string | null)` — **explicit re-home entry
-  point**, intentionally separate from `updateServer` so the future cold-
-  migration trigger can hang off this single call.
+- `updateServer(id, patch)` — persists `region` when present in the patch. This
+  is the **single region-write path** (the dashboard and the future re-home
+  fan-out both go through it), so the cold-migration trigger has exactly one
+  call site to hook: the `region` branch of `updateServer`. (No standalone
+  `setServerRegion` exists today — it would be speculative with no consumer;
+  extract one from that branch when the fan-out is actually built.)
 - `listRegions(): Promise<Region[]>` — ordered by `display_name`; populates the
   dashboard `<Select>` and (later) the placement scorer.
 
-Client mirror (display-only today; obeys the Zustand selector rules in
-`CLAUDE.md`):
+Client mirror — **forward-declared for Team B, NOT yet populated** (obeys the
+Zustand selector rules in `CLAUDE.md`):
 
 - `apps/hachiman/src/services/OracleService.ts` — `RemoteServerRecord.region?: string | null`.
 - `apps/hachiman/src/stores/serverStore.ts` — `Server.region?: string | null`.
+
+  These give region-aware client code a typed slot, but nothing writes them yet:
+  `/api/me/servers` serializes `user_servers` rows, which have no region column.
+  The eventual source is the `servers` registry table — wiring that up is Team
+  B's job, not this slice's.
 
 Go server (`apps/hachiman-server/pkg/serverconf/config.go`):
 
@@ -130,8 +137,8 @@ define and is intentionally absent here.
 Selecting a new `region` on an existing server is the **logical signal** to
 re-home it. The mechanics do not exist yet; the intended future shape:
 
-1. Owner picks a new region in the dashboard → `setServerRegion(id, code)`
-   updates `servers.region` (this is all that happens **today**).
+1. Owner picks a new region in the dashboard → PATCH `/api/servers/[id]` →
+   `updateServer` writes `servers.region` (this is all that happens **today**).
 2. **Future:** that write fans out to the managed-infra layer, which:
    - selects a target **island** in the new region (geodesic scoring via
      `lat`/`lon` + user population),
@@ -140,10 +147,11 @@ re-home it. The mechanics do not exist yet; the intended future shape:
 3. Because this is a cold migration, the UI already warns the owner that
    changing region "may briefly interrupt voice" (see `edit-server-form.tsx`).
 
-`setServerRegion` is deliberately a distinct function from `updateServer` so the
-fan-out in step 2 has exactly one call site to hook, and so re-home auditing /
-rate-limiting can be added there without disturbing ordinary name/description
-edits.
+`region` is written in exactly one place — the `region` branch of `updateServer`
+(`apps/oracle/src/lib/servers.ts`) — so the fan-out in step 2 has a single call
+site to hook, and re-home auditing / rate-limiting can be added there. When the
+fan-out is built it may be worth extracting that branch into a dedicated re-home
+function; it is intentionally NOT split out today because there is no consumer.
 
 ### Explicitly out of scope (do not build against assumptions here)
 

@@ -215,34 +215,13 @@ export async function updateServer(
   if (parsed.description !== undefined) updates.description = parsed.description
   if (parsed.oracleOnly !== undefined) updates.oracleOnly = parsed.oracleOnly
   // `region` is mutable: an explicit `null` clears it, a code re-homes it.
+  // This is the single region-write path; the future cold-migration ("re-home")
+  // fan-out hooks this branch. See REGION-CONTRACT.md.
   if (parsed.region !== undefined) updates.region = parsed.region
 
   const rows = await db
     .update(servers)
     .set(updates)
-    .where(eq(servers.id, id))
-    .returning()
-  const row = rows[0]
-  if (!row) throw new ServerNotFoundError(id)
-  return row
-}
-
-/**
- * Set (or clear) a server's voice region directly.
- *
- * This is the explicit "re-home" entry point the future managed-infra layer
- * will call: today it only mutates the registry row, but it is intentionally
- * separated from {@link updateServer} so the cold-migration trigger (drain →
- * re-place → swap host) can hang off this single call later. Passing `null`
- * clears the region. See REGION-CONTRACT.md.
- */
-export async function setServerRegion(
-  id: string,
-  code: string | null,
-): Promise<Server> {
-  const rows = await db
-    .update(servers)
-    .set({ region: code, updatedAt: new Date() })
     .where(eq(servers.id, id))
     .returning()
   const row = rows[0]

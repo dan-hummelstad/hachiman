@@ -24,9 +24,9 @@ export type Server = {
    */
   lastUsedAt?: number
   /**
-   * The server's selected voice region code (e.g. "us-east"), or null/undefined
-   * if unplaced. Mirrors the Oracle registry's mutable, re-selectable region;
-   * carried for display and future region-aware connection routing.
+   * The server's voice region code (e.g. "us-east"). Forward-declared for
+   * region-aware client code (Team B); NOT yet populated by the sync layer
+   * today. Mirrors the Oracle `servers` registry's mutable, re-selectable region.
    */
   region?: string | null
 }
