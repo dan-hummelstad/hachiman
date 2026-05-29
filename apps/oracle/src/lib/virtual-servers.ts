@@ -97,6 +97,12 @@ export interface UpdateVServerInput {
 // CRUD
 // ---------------------------------------------------------------------------
 
+/**
+ * Create a managed vServer backing a registry server. NOTE: `region` is
+ * denormalized from the backing `servers.region` — the caller must pass the
+ * server's region, and the future re-home flow must keep the two in sync (the
+ * FK to `regions` guarantees validity, not agreement with the server's region).
+ */
 export async function createVServer(input: CreateVServerInput): Promise<VirtualServer> {
   const values: NewVirtualServer = {
     serverId: input.serverId,
@@ -187,9 +193,12 @@ export async function deleteVServer(id: string): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// Placement (the scheduler's write surface). Separate from the lifecycle:
-// a vServer can be placed/unplaced independent of its run state, though in
-// practice the scheduler places before `starting` and unplaces after `cooling`.
+// Placement (the scheduler's write surface). Intended sequence:
+//   place → transitionVServer('starting') → 'active' … 'cooling' → unplace.
+// To keep `status` and `islandId` coherent (never "active but nowhere"),
+// `unplaceVServer` and `deleteIsland` reset affected vServers to `inactive`.
+// `placeVServer` only assigns the island; the scheduler then drives the
+// lifecycle via `transitionVServer`.
 // ---------------------------------------------------------------------------
 
 /** Bind a vServer to an island (the bin-packing scheduler's output). */
@@ -207,11 +216,15 @@ export async function placeVServer(
   return row
 }
 
-/** Detach a vServer from its island (drained / re-home). */
+/**
+ * Detach a vServer from its island (drained / re-home). An unplaced vServer
+ * isn't running anywhere, so this also resets its lifecycle to `inactive`,
+ * keeping `status` and `islandId` coherent (never "active but nowhere").
+ */
 export async function unplaceVServer(id: string): Promise<VirtualServer> {
   const rows = await db
     .update(virtualServers)
-    .set({ islandId: null, updatedAt: new Date() })
+    .set({ islandId: null, status: 'inactive', updatedAt: new Date() })
     .where(eq(virtualServers.id, id))
     .returning()
   const row = rows[0]

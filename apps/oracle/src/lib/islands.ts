@@ -77,7 +77,7 @@ export async function getIslandById(id: string): Promise<Island | null> {
   return rows[0] ?? null
 }
 
-/** All islands, newest first. */
+/** All islands, ordered by region then host. */
 export async function listIslands(): Promise<Island[]> {
   return await db.select().from(islands).orderBy(asc(islands.region), asc(islands.host))
 }
@@ -109,10 +109,21 @@ export async function updateIsland(
 }
 
 export async function deleteIsland(id: string): Promise<void> {
-  // FK from virtual_servers.island_id is ON DELETE SET NULL, so removing an
-  // island simply unplaces its vServers (it does NOT delete them).
-  const rows = await db.delete(islands).where(eq(islands.id, id)).returning({ id: islands.id })
-  if (rows.length === 0) throw new IslandNotFoundError(id)
+  // The FK from virtual_servers.island_id is ON DELETE SET NULL, so removing an
+  // island unplaces its vServers (it does NOT delete them). We also reset those
+  // vServers to `inactive` first, so none persists as "active but nowhere" —
+  // keeping status and placement coherent for the scheduler to re-home them.
+  await db.transaction(async (tx) => {
+    await tx
+      .update(virtualServers)
+      .set({ status: 'inactive', islandId: null, updatedAt: new Date() })
+      .where(eq(virtualServers.islandId, id))
+    const rows = await tx
+      .delete(islands)
+      .where(eq(islands.id, id))
+      .returning({ id: islands.id })
+    if (rows.length === 0) throw new IslandNotFoundError(id)
+  })
 }
 
 // ---------------------------------------------------------------------------
