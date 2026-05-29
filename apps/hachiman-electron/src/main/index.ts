@@ -2,6 +2,10 @@ import { app, shell, BrowserWindow, ipcMain, systemPreferences } from "electron"
 import { join } from "path";
 import { URL as NodeURL } from "url";
 import { electronApp, optimizer, is } from "@electron-toolkit/utils";
+import {
+  probeRegionsRtt,
+  type RegionProbeTarget,
+} from "@hachiman/hachiman-node";
 import icon from "../../resources/icon.png?asset";
 import { flushPendingUrls, registerProtocolHandlers } from "./protocol-handler";
 
@@ -118,6 +122,15 @@ app.on("open-url", (event, url) => {
     handleHachimanProtocolUrl(url);
   }
 });
+
+// IPC: renderer asks main to measure client→region RTTs. The prober uses raw
+// node `net` sockets (TCP connect-time RTT), which only exist in the main
+// process — the renderer relays targets here and gets back the results. The
+// prober never throws (failures surface as `rttMs: null` per result).
+ipcMain.handle(
+  "hachiman:probe-regions",
+  (_e, targets: RegionProbeTarget[]) => probeRegionsRtt(targets),
+);
 
 // IPC: renderer asks main to open the system browser for the OAuth authorize URL.
 ipcMain.handle("hachiman:open-external", async (_e, url: string) => {
