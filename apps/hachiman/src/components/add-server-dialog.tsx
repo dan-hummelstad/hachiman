@@ -15,12 +15,15 @@ import {
   GaugeIcon,
   GlobeIcon,
   LinkIcon,
+  Loader2Icon,
   ShieldCheckIcon,
   ShieldOffIcon
 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 
 import { parseTakusenUri, type JoinUriParseResult } from '@/services/JoinUriService'
+import { oracleService, type RegionRecommendation } from '@/services/OracleService'
+import { usePlatform } from '@/shared/PlatformContext'
 import { useOracleStore } from '@/stores/oracleStore'
 
 export type AddServerSubmission =
@@ -58,25 +61,9 @@ function isSuperUsername(name: string): boolean {
   return name.trim().toLowerCase() === SUPERUSER_NAME.toLowerCase()
 }
 
-/**
- * Latency-aware region hint for the connect-by-address step.
- *
- * Voice quality is dominated by network distance to the box mixing audio, so
- * Takusen-registered servers are placed in the voice region with the lowest
- * measured client→region latency (see Oracle's PLACEMENT-DESIGN.md). This hint
- * surfaces that to the user when they connect by raw address.
- *
- * It deliberately shows NO fabricated millisecond numbers: the shared UI has no
- * raw-socket access to probe regions (the platform abstraction exposes none
- * yet), and a raw host:port connection isn't region-managed. When a real probe
- * source lands — the Node host relaying `probeRegionsRtt` RTTs from
- * `@hachiman/hachiman-node`, or a per-region probe endpoint — this is where the
- * measured "recommended region" would render.
- *
- * TODO(placement): wire real client-measured RTTs once the platform exposes a
- * region prober; until then this stays an honest, number-free hint.
- */
-function RegionLatencyHint(): React.JSX.Element {
+/** The honest, number-free fallback: shown when the host can't probe (browser),
+ * when no region exposes a probe endpoint yet, or when every probe failed. */
+function RegionLatencyFallback(): React.JSX.Element {
   return (
     <div className="text-muted-foreground flex items-start gap-2 text-xs">
       <GaugeIcon className="mt-0.5 size-3.5 shrink-0" />
@@ -85,6 +72,142 @@ function RegionLatencyHint(): React.JSX.Element {
         your network. Self-hosted addresses connect directly — pick a host near your group for the
         best voice quality.
       </span>
+    </div>
+  )
+}
+
+type RegionLatencyState =
+  | { phase: 'probing' }
+  // No host could measure (browser), no region had a probe endpoint, or every
+  // probe failed → fall back to the honest number-free hint.
+  | { phase: 'fallback' }
+  | {
+      phase: 'measured'
+      rows: Array<{ code: string; label: string; rttMs: number | null }>
+      recommended: string | null
+    }
+
+/**
+ * Latency-aware region hint for the connect-by-address step.
+ *
+ * Voice quality is dominated by network distance to the box mixing audio, so
+ * Takusen-registered servers are placed in the voice region with the lowest
+ * measured client→region latency (see Oracle's PLACEMENT-DESIGN.md).
+ *
+ * On a latency-capable host (Electron), this fetches the region set from Oracle
+ * (`GET /api/regions`), measures real client→region RTTs via
+ * `platform.probeRegions` (which relays `probeRegionsRtt` from
+ * `@hachiman/hachiman-node` over IPC), POSTs the measurements to
+ * `POST /api/servers/recommend-region`, and renders the measured latencies plus
+ * the recommended region.
+ *
+ * On the browser host (raw sockets unavailable → empty probe result) or when no
+ * region exposes a probe endpoint yet, it shows the honest, number-free
+ * {@link RegionLatencyFallback} instead of fabricating numbers.
+ */
+function RegionLatencyHint(): React.JSX.Element {
+  const { platform } = usePlatform()
+  const [state, setState] = useState<RegionLatencyState>({ phase: 'probing' })
+
+  useEffect(() => {
+    let cancelled = false
+
+    void (async () => {
+      try {
+        const regions = await oracleService.listRegions()
+        // Only regions that actually publish a probe endpoint are measurable.
+        const targets = regions
+          .filter((r) => r.probeHost !== null && r.probeHost.length > 0)
+          .map((r) => ({ code: r.code, host: r.probeHost as string, port: r.probePort }))
+
+        if (targets.length === 0) {
+          if (!cancelled) setState({ phase: 'fallback' })
+          return
+        }
+
+        const results = await platform.probeRegions(targets)
+        // Empty result == host can't probe (browser) → honest fallback.
+        if (results.length === 0) {
+          if (!cancelled) setState({ phase: 'fallback' })
+          return
+        }
+
+        const labelByCode = new Map(regions.map((r) => [r.code, r.displayName]))
+        const measurements = results.map((r) => ({ region: r.code, rttMs: r.rttMs }))
+
+        // Ask Oracle to rank them. Requires an Oracle session; without one (or on
+        // failure) we still show the measured numbers, just no "recommended" pick.
+        const recommendation: RegionRecommendation | undefined =
+          await oracleService.recommendRegion(measurements)
+
+        if (cancelled) return
+        const rows = results
+          .map((r) => ({
+            code: r.code,
+            label: labelByCode.get(r.code) ?? r.code,
+            rttMs: r.rttMs
+          }))
+          // Lowest latency first; unreachable (null) sinks to the bottom.
+          .sort((a, b) => (a.rttMs ?? Infinity) - (b.rttMs ?? Infinity))
+
+        setState({ phase: 'measured', rows, recommended: recommendation?.recommended ?? null })
+      } catch {
+        // Region fetch failed (Oracle unreachable / not configured) — degrade to
+        // the honest hint rather than surfacing an error in this minor affordance.
+        if (!cancelled) setState({ phase: 'fallback' })
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [platform])
+
+  if (state.phase === 'probing') {
+    return (
+      <div className="text-muted-foreground flex items-center gap-2 text-xs">
+        <Loader2Icon className="size-3.5 shrink-0 animate-spin" />
+        <span>Measuring latency to voice regions…</span>
+      </div>
+    )
+  }
+
+  if (state.phase === 'fallback') {
+    return <RegionLatencyFallback />
+  }
+
+  const recommendedLabel =
+    state.recommended !== null
+      ? (state.rows.find((r) => r.code === state.recommended)?.label ?? state.recommended)
+      : null
+
+  return (
+    <div className="text-muted-foreground flex flex-col gap-1.5 text-xs">
+      <div className="flex items-center gap-2">
+        <GaugeIcon className="size-3.5 shrink-0" />
+        <span>
+          {recommendedLabel !== null ? (
+            <>
+              Lowest latency to your network: <strong>{recommendedLabel}</strong>
+            </>
+          ) : (
+            'Measured latency to voice regions:'
+          )}
+        </span>
+      </div>
+      <ul className="flex flex-col gap-0.5 pl-5.5">
+        {state.rows.map((r) => (
+          <li key={r.code} className="flex items-center justify-between gap-2">
+            <span className={r.code === state.recommended ? 'text-foreground font-medium' : ''}>
+              {r.label}
+              {r.code === state.recommended ? ' ★' : ''}
+            </span>
+            <span className="font-mono">
+              {r.rttMs !== null ? `${Math.round(r.rttMs)} ms` : 'unreachable'}
+            </span>
+          </li>
+        ))}
+      </ul>
     </div>
   )
 }
