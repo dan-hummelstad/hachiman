@@ -7,7 +7,11 @@ declare global {
     /**
      * Custom preload bridge. `probeRegions` relays region-latency probe targets
      * to the main process (raw node sockets) and returns the measured RTTs.
-     * Optional so the shared UI's ambient `Window['api']?` shape merges cleanly.
+     * Marked optional because the renderer only sees `window.api` under
+     * Electron; the shared UI must defensively guard `window.api?.…`. This
+     * augmentation applies because the electron `tsconfig.web.json` includes
+     * `src/preload/*.d.ts` — the shared UI declares no ambient `Window['api']`,
+     * so there is nothing to "merge" with here.
      */
     api?: {
       probeRegions(targets: RegionProbeTarget[]): Promise<RegionProbeResult[]>

@@ -11,6 +11,7 @@
     "typecheck:node": "tsgo --noEmit -p tsconfig.node.json",
     "typecheck:web": "tsgo --noEmit -p tsconfig.web.json",
     "typecheck": "pnpm run typecheck:node && pnpm run typecheck:web",
+    "test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test \"src/**/*.test.mts\"",
     "start": "electron-vite preview",
     "dev": "NODE_TLS_REJECT_UNAUTHORIZED=0 electron-vite dev",
     "build": "pnpm run typecheck && electron-vite build",
