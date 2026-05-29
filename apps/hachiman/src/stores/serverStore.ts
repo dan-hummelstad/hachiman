@@ -37,6 +37,12 @@ export type Server = {
    * connect success so other devices reflect "recently used" ordering.
    */
   lastUsedAt?: number
+  /**
+   * The server's voice region code (e.g. "us-east"). Forward-declared for
+   * region-aware client code (Team B); NOT yet populated by the sync layer
+   * today. Mirrors the Oracle `servers` registry's mutable, re-selectable region.
+   */
+  region?: string | null
 }
 
 interface ServersState {

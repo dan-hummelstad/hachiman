@@ -18,6 +18,22 @@ export const slugSchema = z
     'Slug must be lowercase kebab-case (a-z, 0-9, hyphens; no leading/trailing hyphen)',
   )
 
+/**
+ * Region codes are short machine identifiers (e.g. "us-east"). We keep the
+ * format loose here — the authoritative set lives in the `regions` table and
+ * the FK enforces existence — but cap length and shape so obviously-bogus
+ * values are rejected before they hit the database.
+ */
+export const regionCodeSchema = z
+  .string()
+  .trim()
+  .min(2, 'Region code is too short')
+  .max(32, 'Region code is too long')
+  .regex(
+    /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/,
+    'Region code must be lowercase kebab-case (a-z, 0-9, hyphens)',
+  )
+
 export const createServerSchema = z.object({
   name: z.string().trim().min(1, 'Name is required').max(80, 'Name is too long'),
   slug: slugSchema,
@@ -37,12 +53,17 @@ export const createServerSchema = z.object({
     .max(65535, 'Port must be between 1 and 65535')
     .optional(),
   description: z.string().max(1000, 'Description is too long').optional().nullable(),
+  // Initial voice region. Optional + nullable: a server may be created without
+  // a region and have one selected later.
+  region: regionCodeSchema.optional().nullable(),
 })
 
 export const updateServerSchema = z.object({
   name: z.string().trim().min(1, 'Name is required').max(80, 'Name is too long').optional(),
   description: z.string().max(1000, 'Description is too long').optional().nullable(),
   oracleOnly: z.boolean().optional(),
+  // Re-selectable voice region. `null` explicitly clears the region.
+  region: regionCodeSchema.optional().nullable(),
 })
 
 export type CreateServerInput = z.infer<typeof createServerSchema> & {

@@ -11,8 +11,10 @@ import { db } from '@/db/client'
 import {
   inviteCodes,
   oidcClients,
+  regions,
   serverDomainVerifications,
   servers,
+  type Region,
   type Server,
 } from '@/db/schema'
 
@@ -148,6 +150,7 @@ export async function createServer(
         host: parsed.host,
         port: parsed.port ?? 64738,
         description: parsed.description ?? null,
+        region: parsed.region ?? null,
       })
       .returning()
     const server = insertedServers[0]
@@ -211,6 +214,10 @@ export async function updateServer(
   if (parsed.name !== undefined) updates.name = parsed.name
   if (parsed.description !== undefined) updates.description = parsed.description
   if (parsed.oracleOnly !== undefined) updates.oracleOnly = parsed.oracleOnly
+  // `region` is mutable: an explicit `null` clears it, a code re-homes it.
+  // This is the single region-write path; the future cold-migration ("re-home")
+  // fan-out hooks this branch. See REGION-CONTRACT.md.
+  if (parsed.region !== undefined) updates.region = parsed.region
 
   const rows = await db
     .update(servers)
@@ -220,6 +227,14 @@ export async function updateServer(
   const row = rows[0]
   if (!row) throw new ServerNotFoundError(id)
   return row
+}
+
+/**
+ * List the known voice regions, ordered by display name. Used to populate the
+ * region <Select> in the dashboard and (later) by the placement scorer.
+ */
+export async function listRegions(): Promise<Region[]> {
+  return await db.select().from(regions).orderBy(asc(regions.displayName))
 }
 
 export async function deleteServer(id: string): Promise<void> {

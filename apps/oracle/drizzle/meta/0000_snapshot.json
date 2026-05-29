@@ -1,5 +1,5 @@
 {
-  "id": "d4ef3c02-973e-4d60-8bd9-fdc2ba62eeee",
+  "id": "412b9769-a163-47b1-892c-76e3dad2867d",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -515,6 +515,50 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.regions": {
+      "name": "regions",
+      "schema": "",
+      "columns": {
+        "code": {
+          "name": "code",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "display_name": {
+          "name": "display_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "lat": {
+          "name": "lat",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "lon": {
+          "name": "lon",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.server_domain_verifications": {
       "name": "server_domain_verifications",
       "schema": "",
@@ -641,6 +685,12 @@
           "notNull": true,
           "default": false
         },
+        "region": {
+          "name": "region",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -685,6 +735,19 @@
             "id"
           ],
           "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "servers_region_regions_code_fk": {
+          "name": "servers_region_regions_code_fk",
+          "tableFrom": "servers",
+          "tableTo": "regions",
+          "columnsFrom": [
+            "region"
+          ],
+          "columnsTo": [
+            "code"
+          ],
+          "onDelete": "set null",
           "onUpdate": "no action"
         }
       },

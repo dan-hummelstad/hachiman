@@ -22,20 +22,38 @@ import {
 import {
   Form,
   FormControl,
+  FormDescription,
   FormField,
   FormItem,
   FormLabel,
   FormMessage,
 } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
+
+// Sentinel value for the "no region" option. Radix Select cannot use an empty
+// string as an item value, so we map this to `null` in the PATCH payload.
+const NO_REGION = '__none__'
 
 const editFormSchema = z.object({
   name: z.string().trim().min(1, 'Name is required').max(80, 'Name is too long'),
   description: z.string().max(1000, 'Description is too long'),
+  region: z.string(),
 })
 
 type FormValues = z.infer<typeof editFormSchema>
+
+export interface RegionOption {
+  code: string
+  displayName: string
+}
 
 interface Props {
   serverId: string
@@ -44,6 +62,8 @@ interface Props {
   host: string
   port: number
   slug: string
+  region: string | null
+  regions: RegionOption[]
 }
 
 export function EditServerForm({
@@ -53,6 +73,8 @@ export function EditServerForm({
   host,
   port,
   slug,
+  region,
+  regions,
 }: Props): React.JSX.Element {
   const router = useRouter()
   const [submitting, setSubmitting] = useState(false)
@@ -64,6 +86,7 @@ export function EditServerForm({
     defaultValues: {
       name,
       description: description ?? '',
+      region: region ?? NO_REGION,
     },
   })
 
@@ -77,6 +100,7 @@ export function EditServerForm({
         body: JSON.stringify({
           name: values.name,
           description: values.description || null,
+          region: values.region === NO_REGION ? null : values.region,
         }),
       })
       if (!res.ok) {
@@ -150,6 +174,45 @@ export function EditServerForm({
                 <FormMessage />
               </FormItem>
             )}
+          />
+
+          <FormField
+            control={form.control}
+            name="region"
+            render={({ field }) => {
+              const changed = field.value !== (region ?? NO_REGION)
+              return (
+                <FormItem>
+                  <FormLabel>Region</FormLabel>
+                  <Select value={field.value} onValueChange={field.onChange}>
+                    <FormControl>
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="No region" />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      <SelectItem value={NO_REGION}>No region</SelectItem>
+                      {regions.map((r) => (
+                        <SelectItem key={r.code} value={r.code}>
+                          {r.displayName}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <FormDescription>
+                    The voice region this server is homed in. You can re-select it
+                    at any time.
+                  </FormDescription>
+                  {changed ? (
+                    <p className="text-xs text-amber-600 dark:text-amber-500">
+                      Changing the region may briefly interrupt voice while the
+                      server is moved.
+                    </p>
+                  ) : null}
+                  <FormMessage />
+                </FormItem>
+              )
+            }}
           />
 
           <div className="grid gap-2 sm:grid-cols-3">

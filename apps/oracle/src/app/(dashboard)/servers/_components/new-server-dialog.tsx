@@ -28,8 +28,20 @@ import {
   FormMessage,
 } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import { createServerSchema, type CreateServerInput } from '@/lib/server-schemas'
+
+// Radix Select can't use "" as a value; this sentinel represents "no region"
+// in the Select and is mapped to null in the field value (so it never reaches
+// the zod resolver, which would reject the underscores).
+const NO_REGION = '__none__'
 
 type FormValues = Omit<CreateServerInput, 'ownerUserId'>
 
@@ -38,7 +50,18 @@ interface CreatedSecret {
   oidcClientSecret: string
 }
 
-export function NewServerDialog({ trigger }: { trigger?: ReactNode }): React.JSX.Element {
+export interface RegionOption {
+  code: string
+  displayName: string
+}
+
+export function NewServerDialog({
+  trigger,
+  regions = [],
+}: {
+  trigger?: ReactNode
+  regions?: RegionOption[]
+}): React.JSX.Element {
   const router = useRouter()
   const [open, setOpen] = useState(false)
   const [submitting, setSubmitting] = useState(false)
@@ -53,6 +76,7 @@ export function NewServerDialog({ trigger }: { trigger?: ReactNode }): React.JSX
       host: '',
       port: 64738,
       description: '',
+      region: null,
     },
   })
 
@@ -252,6 +276,40 @@ export function NewServerDialog({ trigger }: { trigger?: ReactNode }): React.JSX
                         onChange={(e) => field.onChange(Number.parseInt(e.target.value, 10))}
                       />
                     </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="region"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Region (optional)</FormLabel>
+                    <Select
+                      value={field.value ?? NO_REGION}
+                      onValueChange={(value) =>
+                        field.onChange(value === NO_REGION ? null : value)
+                      }
+                    >
+                      <FormControl>
+                        <SelectTrigger className="w-full">
+                          <SelectValue placeholder="No region" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value={NO_REGION}>No region</SelectItem>
+                        {regions.map((r) => (
+                          <SelectItem key={r.code} value={r.code}>
+                            {r.displayName}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormDescription>
+                      Voice region this server is homed in. You can change it later.
+                    </FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}

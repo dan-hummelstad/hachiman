@@ -79,6 +79,13 @@ interface RemoteServerRecord {
   name: string
   updatedAt: number
   lastUsedAt?: number
+  /**
+   * The server's voice region code (e.g. "us-east"). Forward-declared for
+   * region-aware client code (Team B); NOT yet populated — `/api/me/servers`
+   * serializes `user_servers` rows, which have no region column. The eventual
+   * source is the Oracle `servers` registry table.
+   */
+  region?: string | null
 }
 
 // --- PKCE helpers (WebCrypto; works in renderer + browser) ---

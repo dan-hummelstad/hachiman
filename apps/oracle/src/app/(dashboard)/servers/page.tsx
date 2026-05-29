@@ -2,7 +2,7 @@ import Link from 'next/link'
 import { ArrowRightIcon, PlusIcon, ShieldCheckIcon, ShieldOffIcon } from 'lucide-react'
 
 import { requireUser } from '@/lib/auth-helpers'
-import { listServersByOwner } from '@/lib/servers'
+import { listRegions, listServersByOwner } from '@/lib/servers'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -22,7 +22,13 @@ export const dynamic = 'force-dynamic'
 
 export default async function ServersPage(): Promise<React.JSX.Element> {
   const session = await requireUser()
-  const servers = await listServersByOwner(session.user.id)
+  const [servers, regions] = await Promise.all([
+    listServersByOwner(session.user.id),
+    listRegions(),
+  ])
+  const regionOptions = regions.map((r) => ({ code: r.code, displayName: r.displayName }))
+  const regionLabel = (code: string | null): string =>
+    code ? (regions.find((r) => r.code === code)?.displayName ?? code) : '—'
 
   return (
     <main className="mx-auto flex w-full max-w-6xl flex-col gap-6 p-6">
@@ -33,7 +39,7 @@ export default async function ServersPage(): Promise<React.JSX.Element> {
             Mumble servers you have registered with Takusen.
           </p>
         </div>
-        <NewServerDialog />
+        <NewServerDialog regions={regionOptions} />
       </div>
 
       {servers.length === 0 ? (
@@ -46,6 +52,7 @@ export default async function ServersPage(): Promise<React.JSX.Element> {
           </CardHeader>
           <CardContent>
             <NewServerDialog
+              regions={regionOptions}
               trigger={
                 <Button>
                   <PlusIcon /> Register your first server
@@ -63,6 +70,7 @@ export default async function ServersPage(): Promise<React.JSX.Element> {
                   <TableHead className="pl-6">Name</TableHead>
                   <TableHead>Slug</TableHead>
                   <TableHead>Host</TableHead>
+                  <TableHead>Region</TableHead>
                   <TableHead>Verified</TableHead>
                   <TableHead className="pr-6 text-right">Actions</TableHead>
                 </TableRow>
@@ -76,6 +84,9 @@ export default async function ServersPage(): Promise<React.JSX.Element> {
                     </TableCell>
                     <TableCell className="font-mono text-xs">
                       {server.host}:{server.port}
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground">
+                      {regionLabel(server.region)}
                     </TableCell>
                     <TableCell>
                       {server.verifiedAt ? (
