@@ -14,6 +14,20 @@ export type Server = {
    */
   serverId?: string
   /**
+   * Mumble username used at connect time. Defaults to the Oracle handle when
+   * `useOracle` is true, or whatever the user typed manually otherwise.
+   * Notably set to "SuperUser" for self-hosted admin sessions.
+   */
+  username?: string
+  /**
+   * Whether subsequent reconnects should mint an Oracle per-server token and
+   * use the Oracle handle as username. False means "manual" auth: use the
+   * stored `username` verbatim and, if it's SuperUser, prompt for the password.
+   * Undefined on legacy rows added before this flag existed → treated as
+   * `true` if an Oracle session is available, else `false`.
+   */
+  useOracle?: boolean
+  /**
    * When this row was last touched locally. Used for last-write-wins reconciliation
    * with the Oracle backend during sync.
    */
@@ -68,7 +82,16 @@ export const useServerStore = create<ServersState>()(
           set((state) => {
             const newServers = new Map(state.servers)
             newServers.delete(id)
-            return { servers: newServers }
+            // If the removed server was the active one, pick the next remaining
+            // server (insertion order) so the UI doesn't stay frozen on a dead
+            // id. Falls through to null when no servers remain, which the App
+            // shell renders as the welcome / empty state.
+            let nextSelected = state.selectedServerId
+            if (nextSelected === id) {
+              const remaining = newServers.keys().next()
+              nextSelected = remaining.done ? null : remaining.value
+            }
+            return { servers: newServers, selectedServerId: nextSelected }
           }),
         clearServers: () => set({ servers: new Map<string, Server>() }),
         setSelectedServerId: (id: string | null) => set({ selectedServerId: id })

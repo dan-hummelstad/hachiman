@@ -91,14 +91,20 @@ export class VoiceService {
     store.setMicActive(false)
   }
 
-  async toggleMute(url: string): Promise<void> {
+  /**
+   * Toggle the user's self-mute preference. `url` is the server to push the
+   * state change to; pass null (or any disconnected url) to just flip the
+   * local pref. The pref is global — when the user later joins voice on a
+   * server, `joinVoice` honours it.
+   */
+  async toggleMute(url: string | null): Promise<void> {
     const store = useVoiceStore.getState()
     const userStore = useUserStore.getState()
-    const server = serversService.getServer(url)
-    if (!server || !server.isConnected()) return
-
     const wasMuted = userStore.selfMute
     userStore.setSelfMute(!wasMuted)
+
+    const server = url ? serversService.getServer(url) : null
+    if (!server || !server.isConnected()) return
 
     if (wasMuted) {
       await server.mumbleClient.self?.setSelfMute(false).catch((err) => {
@@ -115,16 +121,24 @@ export class VoiceService {
     }
   }
 
-  async toggleDeaf(url: string): Promise<void> {
+  /** Same shape as `toggleMute` — null/disconnected url just flips the pref. */
+  async toggleDeaf(url: string | null): Promise<void> {
     const store = useVoiceStore.getState()
     const userStore = useUserStore.getState()
-    const server = serversService.getServer(url)
-    if (!server || !server.isConnected()) return
-
     const wasDeaf = userStore.selfDeaf
 
     if (wasDeaf) {
       userStore.setSelfDeaf(false)
+    } else {
+      // Deafen implies mute — same semantics as Mumble's native client.
+      userStore.setSelfDeaf(true)
+      userStore.setSelfMute(true)
+    }
+
+    const server = url ? serversService.getServer(url) : null
+    if (!server || !server.isConnected()) return
+
+    if (wasDeaf) {
       await server.mumbleClient.self?.setSelfDeaf(false).catch((err) => {
         console.warn('setSelfDeaf(false) failed:', err)
       })
@@ -133,8 +147,6 @@ export class VoiceService {
         store.setMicActive(true)
       }
     } else {
-      userStore.setSelfDeaf(true)
-      userStore.setSelfMute(true)
       server.stopMicrophone()
       store.setMicActive(false)
       await server.mumbleClient.self?.setSelfDeaf(true).catch((err) => {

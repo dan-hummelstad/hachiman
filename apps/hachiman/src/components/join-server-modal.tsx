@@ -47,49 +47,18 @@ function formatVerifiedDate(iso: string | null): string {
   })}`
 }
 
-/**
- * Bridge into ServersService. Agent C is adding `addAndConnect({host, port,
- * name, serverId?, ...})`; until that lands we fall back to the existing
- * `addServer(url, port, username)` path. The conditional check is intentional
- * — once Agent C's signature is merged this branch will take over with no
- * call-site change.
- */
 async function callAddAndConnect(opts: {
   host: string
   port: number
   name: string
   username: string
 }): Promise<void> {
-  // Narrow runtime probe — Agent C may attach `addAndConnect` to the existing
-  // singleton. Cast away the IServersService type since the canonical
-  // interface doesn't include it yet.
-  const svc = serversService as unknown as {
-    addAndConnect?: (opts: {
-      host: string
-      port: number
-      name: string
-      serverId?: string
-      username?: string
-    }) => Promise<void>
-    addServer: (url: string, port: string, username: string) => Promise<void>
-  }
-  if (typeof svc.addAndConnect === 'function') {
-    await svc.addAndConnect({
-      host: opts.host,
-      port: opts.port,
-      name: opts.name,
-      username: opts.username
-    })
-    return
-  }
-  // TODO(agent-c): remove once `addAndConnect` is exported by ServersService.
-  // The fallback preserves the deep-link flow against the existing
-  // `addServer(url, port, username)` signature, but doesn't pass the
-  // `name` / `serverId` Agent C plans to use for display + Oracle sync.
-  console.warn(
-    '[JoinServerModal] ServersService.addAndConnect not found; falling back to addServer.'
-  )
-  await svc.addServer(opts.host, String(opts.port), opts.username)
+  await serversService.addAndConnect({
+    host: opts.host,
+    port: opts.port,
+    name: opts.name,
+    username: opts.username
+  })
 }
 
 export function JoinServerModal(props: JoinServerModalProps): React.JSX.Element {

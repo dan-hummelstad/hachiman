@@ -2328,8 +2328,7 @@ class ChannelRemove$Type extends MessageType<ChannelRemove> {
     }
     internalBinaryWrite(message: ChannelRemove, writer: IBinaryWriter, options: BinaryWriteOptions): IBinaryWriter {
         /* required uint32 channel_id = 1; */
-        if (message.channelId !== 0)
-            writer.tag(1, WireType.Varint).uint32(message.channelId);
+        writer.tag(1, WireType.Varint).uint32(message.channelId);
         let u = options.writeUnknownFields;
         if (u !== false)
             (u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
@@ -2539,8 +2538,7 @@ class UserRemove$Type extends MessageType<UserRemove> {
     }
     internalBinaryWrite(message: UserRemove, writer: IBinaryWriter, options: BinaryWriteOptions): IBinaryWriter {
         /* required uint32 session = 1; */
-        if (message.session !== 0)
-            writer.tag(1, WireType.Varint).uint32(message.session);
+        writer.tag(1, WireType.Varint).uint32(message.session);
         /* optional uint32 actor = 2; */
         if (message.actor !== undefined)
             writer.tag(2, WireType.Varint).uint32(message.actor);
@@ -2963,8 +2961,7 @@ class BanList_BanEntry$Type extends MessageType<BanList_BanEntry> {
         if (message.address.length)
             writer.tag(1, WireType.LengthDelimited).bytes(message.address);
         /* required uint32 mask = 2; */
-        if (message.mask !== 0)
-            writer.tag(2, WireType.Varint).uint32(message.mask);
+        writer.tag(2, WireType.Varint).uint32(message.mask);
         /* optional string name = 3; */
         if (message.name !== undefined)
             writer.tag(3, WireType.LengthDelimited).string(message.name);
@@ -3068,8 +3065,7 @@ class TextMessage$Type extends MessageType<TextMessage> {
         for (let i = 0; i < message.treeId.length; i++)
             writer.tag(4, WireType.Varint).uint32(message.treeId[i]);
         /* required string message = 5; */
-        if (message.message !== "")
-            writer.tag(5, WireType.LengthDelimited).string(message.message);
+        writer.tag(5, WireType.LengthDelimited).string(message.message);
         let u = options.writeUnknownFields;
         if (u !== false)
             (u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
@@ -3214,8 +3210,7 @@ class ACL$Type extends MessageType<ACL> {
     }
     internalBinaryWrite(message: ACL, writer: IBinaryWriter, options: BinaryWriteOptions): IBinaryWriter {
         /* required uint32 channel_id = 1; */
-        if (message.channelId !== 0)
-            writer.tag(1, WireType.Varint).uint32(message.channelId);
+        writer.tag(1, WireType.Varint).uint32(message.channelId);
         /* optional bool inherit_acls = 2 [default = true]; */
         if (message.inheritAcls !== undefined)
             writer.tag(2, WireType.Varint).bool(message.inheritAcls);
@@ -3312,8 +3307,7 @@ class ACL_ChanGroup$Type extends MessageType<ACL_ChanGroup> {
     }
     internalBinaryWrite(message: ACL_ChanGroup, writer: IBinaryWriter, options: BinaryWriteOptions): IBinaryWriter {
         /* required string name = 1; */
-        if (message.name !== "")
-            writer.tag(1, WireType.LengthDelimited).string(message.name);
+        writer.tag(1, WireType.LengthDelimited).string(message.name);
         /* optional bool inherited = 2 [default = true]; */
         if (message.inherited !== undefined)
             writer.tag(2, WireType.Varint).bool(message.inherited);
@@ -3596,8 +3590,7 @@ class ContextActionModify$Type extends MessageType<ContextActionModify> {
     }
     internalBinaryWrite(message: ContextActionModify, writer: IBinaryWriter, options: BinaryWriteOptions): IBinaryWriter {
         /* required string action = 1; */
-        if (message.action !== "")
-            writer.tag(1, WireType.LengthDelimited).string(message.action);
+        writer.tag(1, WireType.LengthDelimited).string(message.action);
         /* optional string text = 2; */
         if (message.text !== undefined)
             writer.tag(2, WireType.LengthDelimited).string(message.text);
@@ -3666,8 +3659,7 @@ class ContextAction$Type extends MessageType<ContextAction> {
         if (message.channelId !== undefined)
             writer.tag(2, WireType.Varint).uint32(message.channelId);
         /* required string action = 3; */
-        if (message.action !== "")
-            writer.tag(3, WireType.LengthDelimited).string(message.action);
+        writer.tag(3, WireType.LengthDelimited).string(message.action);
         let u = options.writeUnknownFields;
         if (u !== false)
             (u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
@@ -3772,8 +3764,7 @@ class UserList_User$Type extends MessageType<UserList_User> {
     }
     internalBinaryWrite(message: UserList_User, writer: IBinaryWriter, options: BinaryWriteOptions): IBinaryWriter {
         /* required uint32 user_id = 1; */
-        if (message.userId !== 0)
-            writer.tag(1, WireType.Varint).uint32(message.userId);
+        writer.tag(1, WireType.Varint).uint32(message.userId);
         /* optional string name = 2; */
         if (message.name !== undefined)
             writer.tag(2, WireType.LengthDelimited).string(message.name);
@@ -4035,14 +4026,11 @@ class CodecVersion$Type extends MessageType<CodecVersion> {
     }
     internalBinaryWrite(message: CodecVersion, writer: IBinaryWriter, options: BinaryWriteOptions): IBinaryWriter {
         /* required int32 alpha = 1; */
-        if (message.alpha !== 0)
-            writer.tag(1, WireType.Varint).int32(message.alpha);
+        writer.tag(1, WireType.Varint).int32(message.alpha);
         /* required int32 beta = 2; */
-        if (message.beta !== 0)
-            writer.tag(2, WireType.Varint).int32(message.beta);
+        writer.tag(2, WireType.Varint).int32(message.beta);
         /* required bool prefer_alpha = 3 [default = true]; */
-        if (message.preferAlpha !== false)
-            writer.tag(3, WireType.Varint).bool(message.preferAlpha);
+        writer.tag(3, WireType.Varint).bool(message.preferAlpha);
         /* optional bool opus = 4 [default = false]; */
         if (message.opus !== undefined)
             writer.tag(4, WireType.Varint).bool(message.opus);
@@ -4723,8 +4711,7 @@ class IceCandidate$Type extends MessageType<IceCandidate> {
     }
     internalBinaryWrite(message: IceCandidate, writer: IBinaryWriter, options: BinaryWriteOptions): IBinaryWriter {
         /* required string content = 1; */
-        if (message.content !== "")
-            writer.tag(1, WireType.LengthDelimited).string(message.content);
+        writer.tag(1, WireType.LengthDelimited).string(message.content);
         let u = options.writeUnknownFields;
         if (u !== false)
             (u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);

@@ -1,9 +1,42 @@
+import { ConnectionRejectedError, Reject_RejectType } from '@hachiman/hachiman-node'
 import { IMumbleService } from '@/shared/IMumbleService'
 import { useServerStore, type Server } from '@/stores/serverStore'
 import { useOracleStore } from '@/stores/oracleStore'
 import { voiceService } from './VoiceService'
 import { oracleService } from './OracleService'
 import { getMumbleServiceFactory } from './platformRegistry'
+
+/**
+ * When a server rejects an anonymous connection with `AuthenticatorFail`
+ * (Grumble's signal for "this server is OracleOnly"), and the client already
+ * has a signed-in Oracle session, we treat the rejection as an instruction
+ * to retry with the Oracle path instead of surfacing the error or — worse —
+ * triggering a fresh PKCE flow the user has already completed.
+ */
+function shouldRetryWithOracle(err: unknown): boolean {
+  if (!(err instanceof ConnectionRejectedError)) return false
+  if (err.reject.type !== Reject_RejectType.AuthenticatorFail) return false
+  return useOracleStore.getState().session !== null
+}
+
+/**
+ * Connection parameters for adding or reconnecting to a server. `useOracle`
+ * picks the auth path: true → mint an Oracle token (requires `serverId` and
+ * an active session); false → send `username` + optional `password` verbatim.
+ * Mumble's built-in SuperUser account requires `useOracle: false` and a
+ * non-empty password.
+ */
+export interface ConnectOptions {
+  url: string
+  port: string
+  username: string
+  useOracle: boolean
+  password?: string
+  /** Display name for first-time adds. Defaults to the host if omitted. */
+  name?: string
+  /** Oracle server UUID. Required when `useOracle: true` to mint a token. */
+  serverId?: string
+}
 
 // Services to manage the interaction between the app and multiple Mumble servers
 // Basically the interface between the actual mumble connection and the interface state.
@@ -21,39 +54,77 @@ export class ServersService {
     return await oracleService.mintServerToken(server.serverId)
   }
 
-  async addServer(url: string, port: string, username: string): Promise<void> {
+  async addServer(opts: ConnectOptions): Promise<void> {
     const serverStore = useServerStore.getState()
-    if (serverStore.servers.has(url)) {
-      throw new Error(`Server with url ${url} already exists`)
+    if (serverStore.servers.has(opts.url)) {
+      throw new Error(`Server with url ${opts.url} already exists`)
     }
-    const portNum = parseInt(port, 10)
-    const factory = getMumbleServiceFactory()
+    const portNum = parseInt(opts.port, 10)
     // Optimistically add the row so a freshly-typed (non-Oracle) server gets
     // an entry even if the mint or connect fails. We mark `connected: false`
-    // until the handshake lands.
+    // until the handshake lands. `password` is never persisted — it's only
+    // held in memory for the lifetime of this call.
     const newServer: Server = {
-      id: url,
-      name: url,
+      id: opts.url,
+      name: opts.name ?? opts.url,
       port: portNum,
       connected: false,
+      serverId: opts.serverId,
+      username: opts.username,
+      useOracle: opts.useOracle,
       updatedAt: Date.now()
     }
     serverStore.addServer(newServer)
 
-    const oracleToken = await this.resolveOracleToken(newServer)
-    const client = await factory({ serverUrl: url, port, username, oracleToken })
-    await client.connect(url, port, username, { oracleToken })
-
-    if (client.mumbleClient.isConnected()) {
-      connectionManager.add(client)
-      serverStore.updateServer(url, { connected: true, lastUsedAt: Date.now() })
-      serverStore.setSelectedServerId(url)
-      voiceService.initVoice(url)
-      this.handleDisconnect(client, url)
-      // Fire-and-forget: bump remote lastUsedAt if the server is Oracle-registered.
-      const persisted = serverStore.servers.get(url)
-      if (persisted?.serverId) void oracleService.touchLastUsed(persisted.serverId)
+    try {
+      await this.attemptConnect(opts.url, opts.port, opts.username, opts.useOracle, opts.password)
+    } catch (err) {
+      if (opts.useOracle || !shouldRetryWithOracle(err)) throw err
+      // Server is OracleOnly and we have a session — retry transparently
+      // using the Oracle path. Patch the persisted record so future
+      // reconnects skip the bounce.
+      const handle = useOracleStore.getState().session?.user.handle ?? opts.username
+      serverStore.updateServer(opts.url, { useOracle: true, username: handle })
+      await this.attemptConnect(opts.url, opts.port, handle, true, undefined)
     }
+    // Whether the first attempt succeeded or the Oracle retry did, the user
+    // expects the freshly-added server to be the active one.
+    serverStore.setSelectedServerId(opts.url)
+  }
+
+  /**
+   * Single connect attempt. Resolves an Oracle token if `useOracle` is true,
+   * wires up the factory + connect handshake, and registers the resulting
+   * client with the connection manager + voice service on success.
+   */
+  private async attemptConnect(
+    url: string,
+    port: string,
+    username: string,
+    useOracle: boolean,
+    password: string | undefined
+  ): Promise<void> {
+    const serverStore = useServerStore.getState()
+    const newServer = serverStore.servers.get(url)
+    if (!newServer) throw new Error(`Server with url ${url} not found`)
+    const oracleToken = useOracle ? await this.resolveOracleToken(newServer) : undefined
+    const factory = getMumbleServiceFactory()
+    const client = await factory({
+      serverUrl: url,
+      port,
+      username,
+      oracleToken,
+      password
+    })
+    await client.connect(url, port, username, { oracleToken, password })
+
+    if (!client.mumbleClient.isConnected()) return
+    connectionManager.add(client)
+    serverStore.updateServer(url, { connected: true, lastUsedAt: Date.now() })
+    voiceService.initVoice(url)
+    this.handleDisconnect(client, url)
+    const persisted = serverStore.servers.get(url)
+    if (persisted?.serverId) void oracleService.touchLastUsed(persisted.serverId)
   }
 
   /**
@@ -75,6 +146,8 @@ export class ServersService {
         port: info.port,
         connected: false,
         serverId: info.serverId,
+        username: info.username,
+        useOracle: Boolean(useOracleStore.getState().session && info.serverId),
         updatedAt: Date.now()
       })
     } else if (info.serverId) {
@@ -82,27 +155,42 @@ export class ServersService {
     }
     const portStr = info.port.toString()
     // reconnect path handles the actual handshake + mint
-    await this.reconnectServer(info.host, portStr, info.username)
+    await this.reconnectServer({ url: info.host, port: portStr, username: info.username })
   }
 
-  async reconnectServer(url: string, port: string, username: string): Promise<void> {
+  /**
+   * Reconnect to a previously-added server. Reads `username` / `useOracle`
+   * from the persisted row; callers can override (e.g. to supply a SuperUser
+   * password that we never persist). Throws if the server isn't in the store.
+   */
+  async reconnectServer(opts: {
+    url: string
+    port: string
+    /** Overrides the persisted username for this attempt only. */
+    username?: string
+    /** Required for SuperUser reconnects — never persisted. */
+    password?: string
+    /** Forces the Oracle path on (true) or off (false) for this attempt. */
+    useOracle?: boolean
+  }): Promise<void> {
     const serverStore = useServerStore.getState()
-    const server = serverStore.servers.get(url)
+    const server = serverStore.servers.get(opts.url)
     if (!server) {
-      throw new Error(`Server with url ${url} does not exist`)
+      throw new Error(`Server with url ${opts.url} does not exist`)
     }
-    const factory = getMumbleServiceFactory()
-    const oracleToken = await this.resolveOracleToken(server)
-    const client = await factory({ serverUrl: url, port, username, oracleToken })
-    await client.connect(url, port, username, { oracleToken })
+    const username = opts.username ?? server.username ?? 'HachimanUser'
+    const useOracle =
+      opts.useOracle ??
+      server.useOracle ??
+      Boolean(useOracleStore.getState().session && server.serverId)
 
-    if (client.mumbleClient?.isConnected()) {
-      connectionManager.add(client)
-      serverStore.updateServer(url, { connected: true, lastUsedAt: Date.now() })
-      voiceService.initVoice(url)
-      this.handleDisconnect(client, url)
-      const persisted = serverStore.servers.get(url)
-      if (persisted?.serverId) void oracleService.touchLastUsed(persisted.serverId)
+    try {
+      await this.attemptConnect(opts.url, opts.port, username, useOracle, opts.password)
+    } catch (err) {
+      if (useOracle || !shouldRetryWithOracle(err)) throw err
+      const handle = useOracleStore.getState().session?.user.handle ?? username
+      serverStore.updateServer(opts.url, { useOracle: true, username: handle })
+      await this.attemptConnect(opts.url, opts.port, handle, true, undefined)
     }
   }
 
@@ -209,8 +297,9 @@ export class ServersService {
     if (!server) {
       throw new Error(`Server with url ${url} not found`)
     }
+    const useOracle = server.useOracle ?? false
     await this.removeServer(url)
-    await this.addServer(url, port, username)
+    await this.addServer({ url, port, username, useOracle })
   }
 
   private handleDisconnect(client: IMumbleService, url: string): void {

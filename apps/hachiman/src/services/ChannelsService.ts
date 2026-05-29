@@ -14,6 +14,13 @@ function toUiChannel(channel: MumbleChannel): Channel {
   }
 }
 
+// Mumble's root channel is always id=0 and exists for protocol reasons (ACL
+// anchor, parent of top-level channels). The UI doesn't expose it as a
+// navigable channel — admin views (server-settings) read straight from
+// `service.channels` so they still see it for ACL editing.
+const ROOT_CHANNEL_ID = 0
+const isUserVisible = (c: MumbleChannel): boolean => c.id !== ROOT_CHANNEL_ID
+
 // Use the Web Crypto API (available in modern browsers and Node 19+ globalThis)
 // so this module is portable between the Electron renderer and a plain browser build.
 const randomUUID = (): string => globalThis.crypto.randomUUID()
@@ -33,6 +40,7 @@ export class ChannelsService {
     const server = serversService.getServer(url)
     if (!server) return
     server.on('channelCreate', (channel) => {
+      if (!isUserVisible(channel)) return
       useChannelStore.getState().addChannel(url, toUiChannel(channel))
     })
     server.on('channelRemove', (channel) => {
@@ -48,7 +56,7 @@ export class ChannelsService {
       throw new Error(`Server with url ${url} is not connected`)
     }
 
-    const channels: Channel[] = server.channels.map(toUiChannel)
+    const channels: Channel[] = server.channels.filter(isUserVisible).map(toUiChannel)
     channelStore.setChannels(url, channels)
     this.subscribeToChannelLifecycle(url)
     return channels

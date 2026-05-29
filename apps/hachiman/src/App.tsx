@@ -4,10 +4,13 @@ import { useShallow } from 'zustand/react/shallow'
 import { serversService } from '@/services/ServersService'
 import { channelsService } from '@/services/ChannelsService'
 
-import { AddServerDialog } from '@/components/add-server-dialog'
+import { AddServerDialog, type AddServerSubmission } from '@/components/add-server-dialog'
 import { CreateChannelDialog } from '@/components/create-channel-dialog'
 import { JoinServerModal } from '@/components/join-server-modal'
+import { RemoveServerDialog } from '@/components/remove-server-dialog'
 import { ServerIconRail } from '@/components/server-icon-rail'
+import { ServerSettingsDialog } from '@/components/server-settings-dialog'
+import { SuperUserPasswordDialog } from '@/components/superuser-password-dialog'
 import { ChannelSidebar } from '@/components/channel-sidebar'
 import { ChatArea } from '@/components/chat-area'
 import { MemberList } from '@/components/member-list'
@@ -38,6 +41,17 @@ function App(): React.JSX.Element {
   const [openAddServerDialog, setOpenAddServerDialog] = useState(false)
   const [createChannelType, setCreateChannelType] = useState<ChannelType | null>(null)
   const [membersOpen, setMembersOpen] = useState(true)
+  // SuperUser sessions need a fresh password per connect (never persisted).
+  // When `pendingSuperUserPrompt` is non-null, a modal blocks reconnect until
+  // the user supplies the password (or cancels, which leaves the server
+  // selected but unconnected).
+  const [pendingSuperUserPrompt, setPendingSuperUserPrompt] = useState<{
+    url: string
+    port: string
+    username: string
+  } | null>(null)
+  const [settingsServerId, setSettingsServerId] = useState<string | null>(null)
+  const [removingServerId, setRemovingServerId] = useState<string | null>(null)
   const lastSyncedUserId = useRef<string | null>(null)
 
   // Deep-link (takusen://join…) arrival → open the join modal. We derive
@@ -89,10 +103,20 @@ function App(): React.JSX.Element {
     // from the connection manager — if it's there, nothing to do.
     if (serversService.getServer(selectedServerId)) return
 
+    const portStr = String(server.port)
+    const username = server.username ?? 'HachimanUser'
+    // SuperUser auth always requires a password we don't persist. Stop here
+    // and surface a modal so the user can enter it — the modal's submit path
+    // calls reconnectServer with the password in-memory.
+    if (server.useOracle === false && username.toLowerCase() === 'superuser') {
+      setPendingSuperUserPrompt({ url: selectedServerId, port: portStr, username })
+      return
+    }
+
     let cancelled = false
     void (async () => {
       try {
-        await serversService.reconnectServer(selectedServerId, String(server.port), 'HachimanUser')
+        await serversService.reconnectServer({ url: selectedServerId, port: portStr })
         if (cancelled) return
         await channelsService.getChannelsForServer(selectedServerId)
       } catch (err) {
@@ -115,13 +139,56 @@ function App(): React.JSX.Element {
     }
   }, [selectedServerId, selectedChannelId, channels])
 
-  const onAddServer = async (url: string, port: string): Promise<void> => {
+  const onAddServer = async (submission: AddServerSubmission): Promise<void> => {
+    if (submission.kind === 'manual') {
+      await serversService.addServer({
+        url: submission.url,
+        port: submission.port,
+        username: submission.username,
+        useOracle: false,
+        ...(submission.password ? { password: submission.password } : {})
+      })
+      await channelsService.getChannelsForServer(submission.url)
+    } else if (submission.kind === 'oracle') {
+      const handle = oracleSession?.user.handle ?? 'HachimanUser'
+      await serversService.addServer({
+        url: submission.url,
+        port: submission.port,
+        username: handle,
+        useOracle: true
+      })
+      await channelsService.getChannelsForServer(submission.url)
+    } else {
+      // Join-code path reuses addAndConnect so the server record gets the
+      // friendly display name and (eventually) any serverId carried by the
+      // signed invite payload.
+      await serversService.addAndConnect({
+        host: submission.host,
+        port: submission.port,
+        name: submission.name,
+        username: oracleSession?.user.handle ?? 'HachimanUser'
+      })
+      await channelsService.getChannelsForServer(submission.host)
+    }
+    setOpenAddServerDialog(false)
+  }
+
+  const onSuperUserSubmit = async (password: string): Promise<void> => {
+    if (!pendingSuperUserPrompt) return
     try {
-      await serversService.addServer(url, port, 'HachimanUser')
-      await channelsService.getChannelsForServer(url)
-      setOpenAddServerDialog(false)
-    } catch (error) {
-      console.error('Error adding server:', error)
+      await serversService.reconnectServer({
+        url: pendingSuperUserPrompt.url,
+        port: pendingSuperUserPrompt.port,
+        username: pendingSuperUserPrompt.username,
+        useOracle: false,
+        password
+      })
+      await channelsService.getChannelsForServer(pendingSuperUserPrompt.url)
+      setPendingSuperUserPrompt(null)
+    } catch (err) {
+      // Surface failure into the modal so the user can retry without
+      // dismissing. We re-throw so the dialog flips into its error state.
+      throw err
     }
   }
 
@@ -168,7 +235,13 @@ function App(): React.JSX.Element {
       <AddServerDialog
         isOpen={openAddServerDialog}
         onClose={() => setOpenAddServerDialog(false)}
-        onAddServer={onAddServer}
+        onSubmit={onAddServer}
+      />
+      <SuperUserPasswordDialog
+        open={pendingSuperUserPrompt !== null}
+        serverUrl={pendingSuperUserPrompt?.url ?? ''}
+        onCancel={() => setPendingSuperUserPrompt(null)}
+        onSubmit={onSuperUserSubmit}
       />
       <JoinServerModal
         open={joinModalOpen}
@@ -185,7 +258,15 @@ function App(): React.JSX.Element {
           selectedServerId={selectedServerId}
           onSelectServer={onSelectServer}
           onAddServer={() => setOpenAddServerDialog(true)}
+          onOpenServerSettings={(id) => setSettingsServerId(id)}
+          onRemoveServer={(id) => setRemovingServerId(id)}
         />
+        <ServerSettingsDialog
+          open={settingsServerId !== null}
+          serverId={settingsServerId}
+          onClose={() => setSettingsServerId(null)}
+        />
+        <RemoveServerDialog serverId={removingServerId} onClose={() => setRemovingServerId(null)} />
         <ChannelSidebar
           serverId={selectedServerId}
           channels={serverChannels}
@@ -209,13 +290,7 @@ function App(): React.JSX.Element {
           onToggleMembers={() => setMembersOpen((v) => !v)}
           onSendMessage={(text) => void onSendMessage(text)}
         />
-        {membersOpen && (
-          <MemberList
-            serverId={selectedServerId}
-            channelId={selectedChannelId}
-            channelName={selectedChannelName}
-          />
-        )}
+        {membersOpen && <MemberList serverId={selectedServerId} />}
       </div>
     </TooltipProvider>
   )

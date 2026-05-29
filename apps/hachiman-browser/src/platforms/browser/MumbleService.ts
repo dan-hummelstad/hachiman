@@ -1,5 +1,6 @@
 import type { IMumbleService } from '@hachiman/hachiman'
 import {
+  ACL,
   Channel,
   Client,
   Events,
@@ -17,7 +18,7 @@ export class MumbleService implements IMumbleService {
     serverUrl: string,
     port: string,
     username: string,
-    opts?: { oracleToken?: string }
+    opts?: { oracleToken?: string; password?: string }
   ) {
     this._oracleToken = opts?.oracleToken
     this._rootClient = new Client({
@@ -28,6 +29,7 @@ export class MumbleService implements IMumbleService {
       wsUrl: `ws://${serverUrl}:${port}/`,
       webrtc: true,
       ...(this._oracleToken ? { oracleToken: this._oracleToken } : {}),
+      ...(opts?.password ? { password: opts.password } : {}),
     })
   }
 
@@ -62,19 +64,22 @@ export class MumbleService implements IMumbleService {
     _serverUrl?: string,
     _port?: string,
     _username?: string,
-    opts?: { oracleToken?: string }
+    opts?: { oracleToken?: string; password?: string }
   ): Promise<Client> {
     if (this.isConnected()) {
       return this._rootClient
     }
 
-    // Latest-call token wins, in case ServersService re-mints between
-    // construction and connect. The token is read from the Client's options
-    // inside `authenticate()`, so we mutate options in place — the Client
-    // hasn't authenticated yet at this point.
+    // Latest-call token / password wins, in case ServersService re-resolves
+    // between construction and connect. Both are read from the Client's
+    // options inside `authenticate()`, so we mutate options in place — the
+    // Client hasn't authenticated yet at this point.
     if (opts?.oracleToken !== undefined) {
       this._oracleToken = opts.oracleToken
       this._rootClient.options.oracleToken = opts.oracleToken
+    }
+    if (opts?.password !== undefined) {
+      this._rootClient.options.password = opts.password
     }
 
     await this._rootClient.connect()
@@ -173,6 +178,18 @@ export class MumbleService implements IMumbleService {
 
   async getChannelPermissions(channelId: number): Promise<Permissions | undefined> {
     return await this._rootClient.channels.byId(channelId)?.getPermissions()
+  }
+
+  async fetchAcl(channelId: number): Promise<ACL> {
+    const channel = this._rootClient.channels.byId(channelId)
+    if (!channel) throw new Error(`Channel ${channelId} not found`)
+    return await channel.fetchAcl()
+  }
+
+  async saveAcl(channelId: number, acl: ACL): Promise<void> {
+    const channel = this._rootClient.channels.byId(channelId)
+    if (!channel) throw new Error(`Channel ${channelId} not found`)
+    await channel.saveAcl(acl)
   }
 
   on<K extends keyof Events>(event: K, listener: Events[K]): void {

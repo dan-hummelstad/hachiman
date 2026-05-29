@@ -1,5 +1,5 @@
 import { Client, User, Channel, Permissions } from '@hachiman/hachiman-node'
-import type { Events, PersistedMessage } from '@hachiman/hachiman-node'
+import type { ACL, Events, PersistedMessage } from '@hachiman/hachiman-node'
 
 export interface IMumbleService {
   // Core client access
@@ -8,16 +8,23 @@ export interface IMumbleService {
 
   // Connection management
   /**
-   * Establish the Mumble session. `oracleToken` is a per-server JWT minted by
-   * the Takusen backend; if present, the server uses it to bind this session
-   * to the authenticated Oracle user (verified badge + cross-device identity).
-   * Absent → anonymous connection, server picks usual fallback path.
+   * Establish the Mumble session.
+   *
+   * - `oracleToken` is a per-server JWT minted by the Takusen backend; if
+   *   present, the server uses it to bind this session to the authenticated
+   *   Oracle user (verified badge + cross-device identity).
+   * - `password` is the classic Mumble user/server password. Required for the
+   *   built-in SuperUser account on self-hosted servers; the Go server
+   *   rejects an empty password for username=SuperUser.
+   *
+   * Token and password are independent — typically you'd send one or the
+   * other, but the wire protocol permits both.
    */
   connect: (
     serverUrl: string,
     port: string,
     username: string,
-    opts?: { oracleToken?: string }
+    opts?: { oracleToken?: string; password?: string }
   ) => Promise<Client>
   disconnect: () => Promise<void>
   isConnected: () => boolean
@@ -64,6 +71,15 @@ export interface IMumbleService {
   // Permissions
   getChannelPermissions: (channelId: number) => Promise<Permissions | undefined>
 
+  // ACL administration (SuperUser / WritePermission required server-side).
+  // `fetchAcl` returns the full ACL state for `channelId`: groups (with
+  // inherited members + add/remove deltas) and ChanACL entries (grant/deny
+  // masks per user or group). `saveAcl` writes back; the server expects
+  // the same shape with `query` left unset so it persists rather than
+  // returning a snapshot.
+  fetchAcl: (channelId: number) => Promise<ACL>
+  saveAcl: (channelId: number, acl: ACL) => Promise<void>
+
   // Event handling
   on<K extends keyof Events>(event: K, listener: Events[K]): void
   once<K extends keyof Events>(event: K, listener: Events[K]): void
@@ -90,6 +106,12 @@ export interface MumbleConnectOptions {
    * authenticated identity. Omit for anonymous connections.
    */
   oracleToken?: string
+  /**
+   * Mumble user/server password. Required for the built-in SuperUser
+   * account on self-hosted servers. Never persisted client-side — supplied
+   * fresh per connection attempt.
+   */
+  password?: string
 }
 
 /**
