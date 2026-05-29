@@ -65,7 +65,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     // mutating server routes.
     await requireUser()
 
-    const body = await req.json()
+    // Tolerate a malformed/empty body: `.catch` yields `{}`, which then fails
+    // Zod validation and returns a clean 400 (rather than a 500 from json()).
+    const body = await req.json().catch(() => ({}))
     const { measurements, rttToleranceMs } = recommendRegionSchema.parse(body)
 
     // Candidates are authoritative: only regions that exist in the registry can

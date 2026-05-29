@@ -240,6 +240,55 @@ test('realistic mix: nearest region chosen; ties broken by load; ranking complet
   assert.deepEqual(result.unrankable, [])
 })
 
+// --- transitivity / permutation stability -----------------------------------
+// Regression for an intransitive comparator: a tolerance band used directly as
+// a sort's primary key is not a total order, so `recommended` (= ranking[0])
+// depended on input order and could rank a materially-farther region first.
+
+function permutations<T>(xs: T[]): T[][] {
+  if (xs.length <= 1) return [xs]
+  const out: T[][] = []
+  for (let i = 0; i < xs.length; i++) {
+    const rest = [...xs.slice(0, i), ...xs.slice(i + 1)]
+    for (const p of permutations(rest)) out.push([xs[i], ...p])
+  }
+  return out
+}
+
+test('recommendation + ranking are permutation-stable (intransitive-comparator regression)', () => {
+  // a is closest (28ms) but saturated; b (40ms) is within the 15ms band of a and
+  // idle; c (52ms) is >tolerance beyond a (its own bucket) but the emptiest. The
+  // old band-comparator could return a, b, OR c depending on input order. Correct:
+  // a and b are "equally near" → load picks b; c is materially farther → never wins.
+  const regions: RegionCandidate[] = [
+    { code: 'a', rttMs: 28, load: { activeUsers: 98, maxUsers: 100, cpuPct: 0.95, bandwidthPct: 0.95 } },
+    { code: 'b', rttMs: 40, load: { activeUsers: 5, maxUsers: 100, cpuPct: 0.05, bandwidthPct: 0.05 } },
+    { code: 'c', rttMs: 52, load: { activeUsers: 0, maxUsers: 100, cpuPct: 0, bandwidthPct: 0 } },
+  ]
+  const recs = new Set<string | null>()
+  const rankings = new Set<string>()
+  for (const perm of permutations(regions)) {
+    const r = scorePlacement(perm)
+    recs.add(r.recommended)
+    rankings.add(r.ranking.map((x) => x.code).join(','))
+    assert.notEqual(r.recommended, 'c', 'a materially-farther region must never be recommended')
+  }
+  assert.equal(recs.size, 1, `recommendation must be input-order-independent, got: ${[...recs].join('|')}`)
+  assert.equal([...recs][0], 'b')
+  assert.equal(rankings.size, 1, `full ranking must be input-order-independent, got: ${[...rankings].join(' / ')}`)
+})
+
+test('a materially-closer region always wins despite a 24ms gap and heavier load', () => {
+  // The DA's reproduction: 52ms is 24ms beyond 28ms — far outside the band — so
+  // it can never be recommended even when it is the emptiest region.
+  for (const perm of permutations([
+    { code: 'far-empty', rttMs: 52, load: { activeUsers: 0, maxUsers: 100 } },
+    { code: 'near-busy', rttMs: 28, load: { activeUsers: 99, maxUsers: 100 } },
+  ] as RegionCandidate[])) {
+    assert.equal(scorePlacement(perm).recommended, 'near-busy')
+  }
+})
+
 // --- report -----------------------------------------------------------------
 
 if (failures.length > 0) {

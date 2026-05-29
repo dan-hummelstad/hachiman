@@ -68,11 +68,14 @@ export interface ProbeOptions {
   samples?: number;
   /** Default port when a target omits one. Default 64738 (Mumble). */
   defaultPort?: number;
+  /** Max regions probed concurrently. Default 8. */
+  concurrency?: number;
 }
 
 const DEFAULT_PORT = 64738;
 const DEFAULT_TIMEOUT_MS = 2000;
 const DEFAULT_SAMPLES = 3;
+const DEFAULT_CONCURRENCY = 8;
 
 /**
  * One TCP connect, timed. Resolves the elapsed ms from `connect()` call to the
@@ -102,13 +105,13 @@ export const tcpConnectRtt = (
     socket.setTimeout(timeoutMs);
     socket.once('connect', () => {
       const rtt = performanceNow() - start;
-      done(() => resolve(rtt));
+      done(() => { resolve(rtt); });
     });
     socket.once('timeout', () => {
-      done(() => reject(new Error(`connect timed out after ${timeoutMs}ms`)));
+      done(() => { reject(new Error(`connect timed out after ${timeoutMs}ms`)); });
     });
     socket.once('error', (err: Error) => {
-      done(() => reject(err));
+      done(() => { reject(err); });
     });
 
     socket.connect(port, host);
@@ -159,7 +162,20 @@ export async function probeRegionsRtt(
   targets: RegionProbeTarget[],
   options: ProbeOptions = {},
 ): Promise<RegionProbeResult[]> {
-  return Promise.all(targets.map(t => probeRegionRtt(t, options)));
+  // Bounded fan-out: a caller may probe up to the endpoint's 64-region cap, and
+  // an unbounded Promise.all would open that many concurrent sockets at once.
+  // Probe in ordered chunks of `concurrency` so at most that many sockets are
+  // open at a time; results stay in target order.
+  const concurrency = Math.max(1, options.concurrency ?? DEFAULT_CONCURRENCY);
+  const results: RegionProbeResult[] = [];
+  for (let i = 0; i < targets.length; i += concurrency) {
+    const chunk = targets.slice(i, i + concurrency);
+    const chunkResults = await Promise.all(
+      chunk.map(t => probeRegionRtt(t, options)),
+    );
+    results.push(...chunkResults);
+  }
+  return results;
 }
 
 // ---------------------------------------------------------------------------

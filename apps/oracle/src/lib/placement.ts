@@ -142,19 +142,35 @@ export function scorePlacement(
   const ranked: RankedRegion[] = []
 
   for (const c of candidates) {
-    if (typeof c.rttMs !== 'number' || !Number.isFinite(c.rttMs)) {
+    if (typeof c.rttMs !== 'number' || !Number.isFinite(c.rttMs) || c.rttMs < 0) {
+      // No usable RTT (missing/NaN/Infinity) or a nonsensical negative RTT:
+      // cannot be affinity-ranked, reported separately.
       unrankable.push(c.code)
       continue
     }
     ranked.push({ code: c.code, rttMs: c.rttMs, loadScore: loadScore(c.load) })
   }
 
+  // Affinity-dominant ordering, expressed as a TOTAL order. A tolerance band
+  // used directly as the primary comparison is intransitive (A≈B and B≈C, yet
+  // A≫C), which makes Array.sort input-order-dependent and can rank a
+  // materially-farther region first. Instead, anchor fixed-width tolerance
+  // buckets at the closest RTT: bucket 0 holds every region within `tolerance`
+  // of the nearest, and a region more than `tolerance` slower than the nearest
+  // lands in a higher bucket and can never outrank it — regardless of load.
+  // Within a bucket, the bin-pack load score breaks the tie.
+  const minRtt = ranked.reduce((m, r) => (r.rttMs < m ? r.rttMs : m), Infinity)
+  // `tolerance <= 0` disables banding: each distinct RTT is its own bucket, so
+  // any RTT difference dominates (load only breaks exact-RTT ties).
+  const bucketOf = (rttMs: number): number =>
+    tolerance > 0 ? Math.floor((rttMs - minRtt) / tolerance) : rttMs
+
   ranked.sort((a, b) => {
-    // 1. Affinity dominance: outside the tolerance band, RTT decides outright.
-    if (Math.abs(a.rttMs - b.rttMs) > tolerance) {
-      return a.rttMs - b.rttMs
-    }
-    // 2. Within the band, the bin-pack load tiebreak applies.
+    // 1. Affinity dominance via min-anchored tolerance buckets (total order).
+    const bucketA = bucketOf(a.rttMs)
+    const bucketB = bucketOf(b.rttMs)
+    if (bucketA !== bucketB) return bucketA - bucketB
+    // 2. Same proximity band → the bin-pack load tiebreak applies.
     const aHasLoad = a.loadScore !== null
     const bHasLoad = b.loadScore !== null
     if (aHasLoad && bHasLoad) {
@@ -163,7 +179,7 @@ export function scorePlacement(
       // Prefer the region whose load we actually know (and can balance against).
       return aHasLoad ? -1 : 1
     }
-    // 3. Still tied: nudge by the (sub-tolerance) RTT, then code for determinism.
+    // 3. Still tied: lower RTT, then code, for a stable deterministic order.
     if (a.rttMs !== b.rttMs) return a.rttMs - b.rttMs
     return a.code < b.code ? -1 : a.code > b.code ? 1 : 0
   })
