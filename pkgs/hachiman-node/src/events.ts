@@ -1,4 +1,5 @@
 import { Channel, ChannelChanges } from './channel';
+import { ConnectionQualitySample } from './connection-quality-sample';
 import { MumbleSocket } from './mumble-socket';
 import { SpeakingStateChange } from './speaking-state-change';
 import { TextMessageState } from './text-message-state';
@@ -22,4 +23,13 @@ export type Events = {
   speakingStateChange: (stateChange: SpeakingStateChange) => void;
 
   textMessage: (messageState: TextMessageState) => void;
+
+  /**
+   * Emitted on every inbound Ping response from the server (~every
+   * `pingInterval` ms once connected). Carries a measured connection-quality
+   * sample for this client's control-channel session — RTT, jitter, and
+   * packet-loss. Fields that cannot be derived yet (e.g. jitter before two
+   * RTT samples exist) are `null` rather than fabricated.
+   */
+  connectionQuality: (sample: ConnectionQualitySample) => void;
 };

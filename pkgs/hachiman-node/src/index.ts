@@ -8,6 +8,7 @@ export { UserManager } from './user-manager';
 export { User } from './user';
 export { type Events } from './events';
 export { type SpeakingStateChange } from './speaking-state-change';
+export { type ConnectionQualitySample } from './connection-quality-sample';
 export { type ITransport } from './transport';
 export { TlsTransport } from './tls-transport';
 export { WsTransport } from './ws-transport';

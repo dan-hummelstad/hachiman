@@ -56,6 +56,7 @@ import { Permissions } from './permissions';
 import { encodeMumbleVersionLegacy } from './encode-mumble-version-legacy';
 import { TypedEventEmitter } from './typed-event-emitter';
 import { Events } from './events';
+import { ConnectionQualitySample } from './connection-quality-sample';
 import { MessageType } from '@protobuf-ts/runtime';
 import { CommandTimeout } from './config';
 import { WebRTCVoice } from './webrtc-voice';
@@ -274,6 +275,7 @@ export class Client extends TypedEventEmitter<Events, Events> {
             this.serverConfig = serverConfig;
             this.emit('connect');
             this.startPinger();
+            this.setupConnectionQuality();
             this.setupWebRTC();
             this.setupTalkingState();
           }),
@@ -491,9 +493,19 @@ export class Client extends TypedEventEmitter<Events, Events> {
 
   /**
    * @internal
+   *
+   * Sends a Ping stamped with the current wall-clock time (ms since epoch) in
+   * the `timestamp` field. The server echoes this value back verbatim (see the
+   * Go `handlePingMessage`), so `setupConnectionQuality()` recovers the
+   * round-trip time as `Date.now() - echo.timestamp`. Mumble's `timestamp` is
+   * an opaque uint64 the server must not decode, so using ms-since-epoch here
+   * is safe and makes the echo delta directly an RTT in milliseconds.
    */
   private async ping() {
-    return await this.socket?.send(Ping, Ping.create());
+    return await this.socket?.send(
+      Ping,
+      Ping.create({ timestamp: BigInt(Date.now()) }),
+    );
   }
 
   /**
@@ -505,6 +517,94 @@ export class Client extends TypedEventEmitter<Events, Events> {
       .subscribe();
     this.on('disconnect', () => {
       subscription.unsubscribe();
+    });
+  }
+
+  /**
+   * @internal
+   *
+   * Subscribes to inbound Ping responses and emits a `connectionQuality`
+   * sample for each one. Derivations (no fabricated values — anything that
+   * can't be computed from the data seen so far is left `null`):
+   *
+   *  - **RTT**: `Date.now() - echo.timestamp`. The server echoes the client's
+   *    Ping `timestamp` verbatim (which `ping()` stamps with ms-since-epoch),
+   *    so the delta is the round-trip time in ms. Pings sent before this build
+   *    stamped a timestamp (or any echo missing it) yield `rttMs: null`.
+   *  - **Jitter**: mean absolute deviation of the last `RTT_WINDOW` RTT
+   *    samples. `null` until at least two samples exist.
+   *  - **Packet loss**: from the server-reported cumulative `good`/`late`/
+   *    `lost` counters, differenced against the previous Ping so the figure
+   *    reflects the most recent interval rather than a since-connect average:
+   *    `Δlost / (Δgood + Δlate + Δlost)`. `null` for the first Ping and
+   *    whenever no packets were accounted in the interval (denominator 0),
+   *    e.g. before any voice has flowed.
+   *  - **Transport**: `'webrtc'` when WebRTC voice was requested, else `null`
+   *    (this client has no native-UDP voice path to label otherwise).
+   */
+  private setupConnectionQuality() {
+    if (!this.socket) return;
+
+    const RTT_WINDOW = 10;
+    const rttSamples: number[] = [];
+    let prevCounters: { good: number; late: number; lost: number } | undefined;
+
+    const transport: ConnectionQualitySample['transport'] = this.options.webrtc
+      ? 'webrtc'
+      : null;
+
+    const sub = this.socket.packet.pipe(filterPacket(Ping)).subscribe(ping => {
+      const now = Date.now();
+
+      // RTT from the echoed timestamp. Guard against missing/zero/future
+      // timestamps (e.g. an unstamped legacy Ping) — those aren't RTTs.
+      let rttMs: number | null = null;
+      if (ping.timestamp !== undefined && ping.timestamp > 0n) {
+        const delta = now - Number(ping.timestamp);
+        if (Number.isFinite(delta) && delta >= 0) {
+          rttMs = delta;
+          rttSamples.push(delta);
+          if (rttSamples.length > RTT_WINDOW) rttSamples.shift();
+        }
+      }
+
+      // Jitter as mean absolute deviation of recent RTTs (needs >= 2).
+      let jitterMs: number | null = null;
+      if (rttSamples.length >= 2) {
+        const mean = rttSamples.reduce((a, b) => a + b, 0) / rttSamples.length;
+        jitterMs =
+          rttSamples.reduce((a, b) => a + Math.abs(b - mean), 0) /
+          rttSamples.length;
+      }
+
+      // Packet loss from the delta of cumulative good/late/lost counters.
+      let packetLoss: number | null = null;
+      const good = ping.good ?? 0;
+      const late = ping.late ?? 0;
+      const lost = ping.lost ?? 0;
+      if (prevCounters) {
+        const dGood = Math.max(0, good - prevCounters.good);
+        const dLate = Math.max(0, late - prevCounters.late);
+        const dLost = Math.max(0, lost - prevCounters.lost);
+        const expected = dGood + dLate + dLost;
+        if (expected > 0) {
+          packetLoss = dLost / expected;
+        }
+      }
+      prevCounters = { good, late, lost };
+
+      const sample: ConnectionQualitySample = {
+        rttMs,
+        jitterMs,
+        packetLoss,
+        transport,
+        sampledAt: now,
+      };
+      this.emit('connectionQuality', sample);
+    });
+
+    this.on('disconnect', () => {
+      sub.unsubscribe();
     });
   }
 
