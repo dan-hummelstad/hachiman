@@ -18,6 +18,16 @@ export type {
 } from './shared/IMumbleService'
 export type { IPlatformService } from './shared/IPlatformService'
 
+// Relay voice-health types + the wire→UI mapper, so host MumbleService impls
+// can turn a RelayMetricsSnapshot into the RelayPathSnapshot the Health tab
+// renders without duplicating the mapping per platform.
+export { relayPathFromMetrics } from './lib/connection-quality'
+export type {
+  RelayPathSnapshot,
+  RelayPathHop,
+  RelayMetricsSnapshotLike
+} from './lib/connection-quality'
+
 // Oracle / Takusen SSO surface — host apps need these for the OAuth callback
 // flow and for the deep-link handler (agent D).
 export { oracleService, OracleService } from './services/OracleService'

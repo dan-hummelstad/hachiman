@@ -170,3 +170,63 @@ export function placeholderRelayPath(relayRegion: string | null): RelayPathSnaps
     ]
   }
 }
+
+/**
+ * Loosely-typed view of the wire `RelayMetricsSnapshot` (the generated proto
+ * type lives in `@hachiman/hachiman-node`, which this shared lib does not
+ * depend on). Carries only the fields the Health tab consumes. `uint64` fields
+ * arrive as `bigint` over protobuf-ts; the millisecond fields are `double`
+ * (plain `number`). Every field is optional to match proto2 presence semantics.
+ */
+export interface RelayMetricsSnapshotLike {
+  region?: string
+  onPath?: boolean
+  hop?: {
+    meanMillis?: number
+    maxMillis?: number
+    budgetMillis?: number
+    overBudgetCount?: bigint | number
+  }
+}
+
+const numOrNull = (v: number | null | undefined): number | null =>
+  v == null || Number.isNaN(v) ? null : v
+
+/**
+ * Map the server's `RelayMetricsSnapshot` (fetched over the authenticated
+ * control channel via `IMumbleService.fetchRelayMetrics`) onto the
+ * `RelayPathSnapshot` shape the Health tab renders.
+ *
+ * No fabricated data: the relay only measures the added latency of its own
+ * forwarding hop, so that figure is attached to the "Voice relay / SFU" hop;
+ * the client / regional-ingress / wake-proxy hops keep `null` latency (their
+ * timing isn't instrumented). The per-hop `onPath` flag reflects the relay's
+ * overall on-path verdict for the relay-side hops, and the region label is the
+ * relay's configured region (empty string → null = unplaced).
+ */
+export function relayPathFromMetrics(snap: RelayMetricsSnapshotLike): RelayPathSnapshot {
+  const relayRegion = snap.region && snap.region.length > 0 ? snap.region : null
+  const onPath = snap.onPath ?? null
+  const hopMeanMs = numOrNull(snap.hop?.meanMillis)
+  const hopMaxMs = numOrNull(snap.hop?.maxMillis)
+  const hopBudgetMs = numOrNull(snap.hop?.budgetMillis)
+  const overBudgetCount =
+    snap.hop?.overBudgetCount == null ? null : Number(snap.hop.overBudgetCount)
+
+  return {
+    relayRegion,
+    onPath,
+    hopMeanMs,
+    hopMaxMs,
+    hopBudgetMs,
+    overBudgetCount,
+    hops: [
+      // Client → ingress → wake-proxy timing is not instrumented; leave null.
+      { label: 'Client', region: null, latencyMs: null, onPath: null },
+      { label: 'Regional ingress', region: relayRegion, latencyMs: null, onPath },
+      { label: 'Wake proxy (on-host)', region: relayRegion, latencyMs: null, onPath },
+      // The relay forwarding hop is the one the server actually measures.
+      { label: 'Voice relay / SFU', region: relayRegion, latencyMs: hopMeanMs, onPath }
+    ]
+  }
+}

@@ -1,5 +1,6 @@
 import { Client, User, Channel, Permissions } from '@hachiman/hachiman-node'
 import type { ACL, Events, PersistedMessage } from '@hachiman/hachiman-node'
+import type { RelayPathSnapshot } from '../lib/connection-quality'
 
 export interface IMumbleService {
   // Core client access
@@ -79,6 +80,14 @@ export interface IMumbleService {
   // returning a snapshot.
   fetchAcl: (channelId: number) => Promise<ACL>
   saveAcl: (channelId: number, acl: ACL) => Promise<void>
+
+  // Operator relay metrics (thin/on-path voice instrumentation).
+  // Sends an authenticated RelayMetricsQuery over the control channel and
+  // resolves with the relay-path snapshot the Health tab renders. The server
+  // gates this on SuperUser / root-channel Write and rejects everyone else with
+  // PermissionDenied (surfaced as a rejected promise), so callers should treat
+  // a rejection as "operator only / unavailable".
+  fetchRelayMetrics: () => Promise<RelayPathSnapshot>
 
   // Event handling
   on<K extends keyof Events>(event: K, listener: Events[K]): void
