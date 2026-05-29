@@ -43,6 +43,17 @@ var usageTmpl = `usage: grumble [options]
      Use the --cleanup argument to force grumble to
      clean up its data directory when doing the
      import. This is *DESTRUCTIVE*! Use with care.
+
+ --database-driver <sqlite|postgres> (default: sqlite, env: DATABASE_DRIVER)
+     Selects the persistence backend. "sqlite" keeps the
+     zero-config self-host database in the data directory.
+     "postgres" points the server at a central Postgres
+     (managed deployments); requires --database-dsn.
+
+ --database-dsn <dsn> (default: empty, env: DATABASE_DSN)
+     Postgres connection string, used only when
+     --database-driver=postgres. Example:
+     "host=localhost user=oracle password=oracle dbname=oracle port=5432 sslmode=disable".
 `
 
 type args struct {
@@ -52,6 +63,24 @@ type args struct {
 	RegenKeys bool
 	SQLiteDB  string
 	CleanUp   bool
+
+	// Persistence backend selection (bootstrap; see serverconf.DefaultCfg).
+	// DatabaseDriver is "sqlite" (default, self-host) or "postgres" (managed).
+	// DatabaseDSN is the Postgres connection string, only used when
+	// DatabaseDriver=postgres.
+	DatabaseDriver string
+	DatabaseDSN    string
+}
+
+// envOr returns the value of the environment variable named by key, or def if
+// the variable is unset or empty. Used to let bootstrap settings be supplied
+// via the environment (convenient for container deployments) while still
+// allowing an explicit CLI flag to win.
+func envOr(key, def string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return def
 }
 
 func defaultDataDir() string {
@@ -97,6 +126,12 @@ func ParseCommandLines() args {
 
 	flag.StringVar(&arg.SQLiteDB, "import-murmurdb", "", "")
 	flag.BoolVar(&arg.CleanUp, "cleanup", false, "")
+
+	// Bootstrap persistence settings. Default to the environment so container
+	// deployments can configure them without rewriting the launch command;
+	// an explicit flag still overrides. SQLite remains the zero-config default.
+	flag.StringVar(&arg.DatabaseDriver, "database-driver", envOr("DATABASE_DRIVER", "sqlite"), "")
+	flag.StringVar(&arg.DatabaseDSN, "database-dsn", envOr("DATABASE_DSN", ""), "")
 
 	flag.Parse()
 

@@ -62,7 +62,7 @@ func (d *DbTx) channelInit(sid uint64, defaultName string) (*Channel, error) {
 
 func (d *DbTx) ChannelAdd(sid uint64, name string, parentID int64, channelType uint8) (*Channel, error) {
 	channelID := uint64(0)
-	err := d.db.Model(&Channel{}).Where("server_id = ?", sid).Select("MAX(`channel_id`)+1").Scan(&channelID).Error
+	err := d.db.Model(&Channel{}).Where("server_id = ?", sid).Select("MAX(channel_id)+1").Scan(&channelID).Error
 	if err != nil {
 		return nil, err
 	}

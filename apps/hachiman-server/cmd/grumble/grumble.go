@@ -17,6 +17,45 @@ import (
 
 var blobStore blobstore.BlobStore
 
+// resolveDbConfig turns the boot-time persistence args into a database.DbConfig.
+//
+// SQLite (the default) is unchanged from the original behaviour: when no path
+// is given it falls back to $DATADIR/murmur.sqlite and logs that choice, so the
+// self-host zero-config flow is preserved exactly. Postgres uses the configured
+// DSN verbatim. An EMPTY driver string is treated as "sqlite" (backwards
+// compatible with launchers that set nothing); a non-empty UNRECOGNISED driver
+// is passed through and rejected by NewDB rather than silently falling back — a
+// typo'd driver should fail loudly, not quietly write a local sqlite file.
+func resolveDbConfig(args args) *database.DbConfig {
+	driver := args.DatabaseDriver
+	if driver == "" {
+		driver = "sqlite"
+	}
+
+	switch driver {
+	case "postgres":
+		log.Printf("Using Postgres database backend.")
+		return &database.DbConfig{
+			Type: "postgres",
+			Conn: args.DatabaseDSN,
+		}
+	default:
+		// "sqlite" (the default) lands here. A non-empty unrecognised driver
+		// also lands here and is passed through as-is; NewDB then REJECTS it
+		// (it does NOT fall back to sqlite). The block below preserves the
+		// self-host default DB path for the sqlite case.
+		sqliteDB := args.SQLiteDB
+		if len(sqliteDB) == 0 {
+			sqliteDB = filepath.Join(args.DataDir, "murmur.sqlite")
+			log.Printf("Murmur SQLite database is not specified, will use %s as default.", sqliteDB)
+		}
+		return &database.DbConfig{
+			Type: driver,
+			Conn: sqliteDB,
+		}
+	}
+}
+
 func main() {
 	var err error
 
@@ -116,15 +155,11 @@ func main() {
 		log.Fatalf("Unable to create servers directory: %v", err)
 	}
 
-	// Load database file, create server from database
-	if len(args.SQLiteDB) == 0 {
-		args.SQLiteDB = filepath.Join(args.DataDir, "murmur.sqlite")
-		log.Printf("Murmur SQLite database is not specified, will use %s as default.", args.SQLiteDB)
-	}
-	db, err := database.NewDB(&database.DbConfig{
-		Type: "sqlite",
-		Conn: args.SQLiteDB,
-	})
+	// Load database, create server from database. The backend is selected at
+	// boot (CLI flag / env, see args.go); SQLite is the zero-config self-host
+	// default, Postgres is opt-in for managed deployments.
+	dbCfg := resolveDbConfig(args)
+	db, err := database.NewDB(dbCfg)
 	if err != nil {
 		log.Fatalf("Unable to open the servers database: %v", err.Error())
 	}

@@ -46,7 +46,7 @@ func (d *DbTx) userInitSuperuser(sid uint64, name string, pass UserPasswordHash)
 
 func (d *DbTx) UserRegister(sid uint64, name string) (*User, error) {
 	userID := 0
-	err := d.db.Model(&User{}).Where("server_id = ?", sid).Select("MAX(`user_id`)+1").Scan(&userID).Error
+	err := d.db.Model(&User{}).Where("server_id = ?", sid).Select("MAX(user_id)+1").Scan(&userID).Error
 	if err != nil {
 		return nil, err
 	}

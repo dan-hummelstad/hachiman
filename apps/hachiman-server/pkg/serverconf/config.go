@@ -42,6 +42,25 @@ var DefaultCfg = map[string]string{
 	// Empty = unplaced. Read via cfg.StringValue("ServerRegion"); informational
 	// today, consumed by the future placement/re-home layer.
 	"ServerRegion": "",
+
+	// Persistence backend selection.
+	//
+	// NOTE: unlike the keys above, these are *bootstrap* settings. The
+	// per-vServer config map is itself stored in the database, so the DB
+	// backend must be resolved before any config can be read from it
+	// (chicken-and-egg). The authoritative values are therefore read at
+	// process start from CLI flags / environment (DATABASE_DRIVER,
+	// DATABASE_DSN) in cmd/grumble; these defaults document the contract and
+	// give callers a single place to discover the supported values.
+	//
+	// DatabaseDriver selects the GORM dialector: "sqlite" (default, self-host,
+	// zero-config) or "postgres" (managed — points the vServer at a central
+	// Postgres so any island can restore any vServer).
+	"DatabaseDriver": "sqlite",
+	// DatabaseDSN is the Postgres connection string, used only when
+	// DatabaseDriver=postgres. Empty ⇒ fall back to the SQLite path/default.
+	// Example: "host=localhost user=oracle password=oracle dbname=oracle port=5432 sslmode=disable".
+	"DatabaseDSN": "",
 }
 
 type ConfigRepo interface {
