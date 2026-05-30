@@ -7,17 +7,27 @@
  * It lives separately from `scheduler.ts` so the scorer module never imports
  * the DB client (keeping it pure + unit-testable without a `DATABASE_URL`).
  *
- * ── METRICS ARE AN INPUT, not fetched here ─────────────────────────────────
+ * ── METRICS PRECEDENCE (Redis live → caller-supplied → MISSING fallback) ───
  *
  * Per the published contract (ISLAND-PLATFORM.md §3/§4 and `islands.ts`), live
- * per-island load (`activeUsers`/`cpuPct`/`bandwidthPct`) lives in REDIS — which
- * does not exist yet. So the caller supplies a `metricsByIsland` map; this
- * function does NOT reach for Redis. Islands missing from the map are scored
- * with zeroed metrics (`MISSING_ISLAND_METRICS`): they are NOT dropped, so a
- * brand-new active island that has not published metrics yet is still a
- * placement candidate (it simply scores on vServer-fill alone until its metrics
- * arrive). When the Redis layer is built, the caller fans the published metrics
- * into this map; no change is needed here.
+ * per-island load (`activeUsers`/`cpuPct`/`bandwidthPct`) lives in REDIS. This
+ * function consults THREE sources, in order of precedence:
+ *
+ *   1. FRESH Redis publication for the island id (TTL'd, fetched here via
+ *      `getIslandMetrics(activeIslandIds)`). Wins when present.
+ *   2. CALLER-SUPPLIED `metricsByIsland` map. Used only for ids that have no
+ *      fresh Redis reading. Lets the caller seed test metrics or override the
+ *      scheduler from an experimental data source without unplugging Redis.
+ *   3. `MISSING_ISLAND_METRICS` fallback (zeroed). Used for ids absent from
+ *      both sources — a brand-new island that hasn't published yet, or an
+ *      island whose publisher has stopped (its key expired). In either case
+ *      the island stays a placement candidate but scores on vServer-fill only.
+ *
+ * The "stopped publishing" vs "never published" distinction collapses to the
+ * same Redis-side signal (key absent), which is the cleanest contract — the
+ * caller doesn't need a separate "is stale" flag. With Redis disabled (no
+ * `REDIS_URL`) `getIslandMetrics` returns an empty map and we fall through
+ * to the caller-supplied / MISSING path uniformly.
  */
 import {
   countVServersByIsland,
@@ -26,6 +36,7 @@ import {
   type IslandLiveMetrics,
   type IslandScoringInput,
 } from './islands'
+import { getIslandMetrics } from './island-metrics'
 import {
   scoreIslandPlacement,
   type IslandPlacementResult,
@@ -75,19 +86,26 @@ export interface ScheduleOutcome {
  *      the latency-based region scorer — we bin-pack WITHIN it).
  *   2. Fetch candidate islands in that region (`listIslandsByRegion`) and the
  *      per-island placement counts (`countVServersByIsland`).
- *   3. Keep only `status === 'active'` islands; build `IslandScoringInput` via
- *      `toIslandScoringBase` + the SUPPLIED `metricsByIsland` (Redis is an
- *      input, not fetched here — see the file header).
- *   4. Score with the pure `scoreIslandPlacement`.
- *   5. If an island was chosen → `placeVServer` then `transitionVServer(...,
+ *   3. Filter to `status === 'active'` islands.
+ *   4. Pull FRESH metrics from Redis for those active islands
+ *      (`getIslandMetrics`), then merge — Redis WINS over the caller-supplied
+ *      map for any id present in both. See the file header for the full
+ *      precedence model (Redis → caller → MISSING fallback).
+ *   5. Build `IslandScoringInput` via `toIslandScoringBase` + the merged
+ *      metrics map (with `MISSING_ISLAND_METRICS` as a last-resort default
+ *      so a brand-new island still scores on vServer-fill alone).
+ *   6. Score with the pure `scoreIslandPlacement`.
+ *   7. If an island was chosen → `placeVServer` then `transitionVServer(...,
  *      'starting')`, returning the updated row. If `no-capacity` → return the
  *      provision signal with `vServer: null` (placement/lifecycle untouched).
  *
  * @param vserverId  The managed vServer to place (must be `inactive` for the
  *                   `inactive → starting` transition to be legal).
- * @param metricsByIsland  Live per-island metrics keyed by islandId, supplied
- *                   by the caller from Redis. Islands not present are scored
- *                   with `MISSING_ISLAND_METRICS`.
+ * @param metricsByIsland  Caller-supplied per-island metrics keyed by islandId,
+ *                   used as a SECONDARY source for ids without a fresh Redis
+ *                   reading. Pass an empty Map for the pure-Redis flow.
+ *                   Islands absent from BOTH sources are scored with
+ *                   `MISSING_ISLAND_METRICS`.
  */
 export async function scheduleVServerPlacement(
   vserverId: string,
@@ -115,13 +133,31 @@ export async function scheduleVServerPlacement(
   ])
 
   // Step 1 of the documented procedure: only `active` islands are placeable
-  // (provisioning/draining/down are not). Build the scoring inputs.
-  const candidates: IslandScoringInput[] = regionIslands
-    .filter((island) => island.status === 'active')
-    .map((island) => ({
+  // (provisioning/draining/down are not). Compute the active set once so we
+  // can pass its ids to the Redis fetch and reuse them for scoring.
+  const activeIslands = regionIslands.filter((island) => island.status === 'active')
+  const activeIslandIds = activeIslands.map((island) => island.id)
+
+  // Fetch FRESH metrics for the active set. With no REDIS_URL, this resolves
+  // to an empty map and we fall through to the caller-supplied path
+  // immediately — preserving the pre-Redis behaviour. Errors inside the
+  // consumer are swallowed and returned as an empty map; we never crash the
+  // scheduler over a Redis hiccup.
+  const fresh = await getIslandMetrics(activeIslandIds)
+
+  // Merge: Redis WINS over the caller-supplied map. `metricsByIsland` is the
+  // SECONDARY source for ids that have no fresh Redis reading (e.g. an island
+  // that just spun up and hasn't published yet, or stopped publishing and
+  // had its key TTL-expire).
+  const candidates: IslandScoringInput[] = activeIslands.map((island) => {
+    const freshReading = fresh.get(island.id)
+    const supplied = metricsByIsland.get(island.id)
+    const metrics = freshReading?.metrics ?? supplied ?? MISSING_ISLAND_METRICS
+    return {
       ...toIslandScoringBase(island, counts.get(island.id) ?? 0),
-      metrics: metricsByIsland.get(island.id) ?? MISSING_ISLAND_METRICS,
-    }))
+      metrics,
+    }
+  })
 
   const result = scoreIslandPlacement(candidates)
 
