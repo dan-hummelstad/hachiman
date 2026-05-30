@@ -12,5 +12,20 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
+  # Live per-island metrics bus. Each Grumble process (an "island") periodically
+  # PUBLISHES per-island metrics under `island:{islandId}:metrics` (HASH, TTL'd
+  # so a stopped publisher's key expires); the Oracle scheduler READS them at
+  # placement time. See apps/hachiman-server/ISLAND-METRICS.md and
+  # apps/oracle/ISLAND-PLATFORM.md §4 for the schema + staleness model.
+  #
+  # No volume — the data is transient liveness state, not durable; on restart
+  # publishers republish within one PublishInterval (default 5s).
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+
 volumes:
   postgres_data:

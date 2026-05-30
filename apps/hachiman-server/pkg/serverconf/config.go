@@ -71,6 +71,18 @@ var DefaultCfg = map[string]string{
 	// — production exposure requires mTLS or a bearer token (deferred). See
 	// pkg/management/service.go for the full posture.
 	"ManagementListen": "",
+
+	// Island live-metrics publisher. Each Grumble process ("island") may
+	// periodically publish its per-island load (active users, CPU, bandwidth)
+	// to Redis so the Oracle scheduler can read fresh metrics at placement
+	// time. Like the management API, this is OPT-IN: the publisher only
+	// launches when BOTH IslandMetricsRedisURL and IslandMetricsIslandID are
+	// non-empty. Zero-config self-host opens no Redis connection and starts
+	// no extra goroutine. See pkg/islandmetrics/ and
+	// apps/hachiman-server/ISLAND-METRICS.md for the schema and lifecycle.
+	"IslandMetricsRedisURL":           "",
+	"IslandMetricsIslandID":           "",
+	"IslandMetricsPublishIntervalSec": "5",
 }
 
 type ConfigRepo interface {

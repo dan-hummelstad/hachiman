@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"text/template"
 )
 
@@ -63,6 +64,23 @@ var usageTmpl = `usage: grumble [options]
      SECURITY: MVP has no auth; non-loopback addresses are
      rejected at startup. Production exposure requires mTLS
      or a bearer token (deferred follow-up).
+
+ --island-metrics-redis-url <url> (default: empty, env: ISLAND_METRICS_REDIS_URL)
+     Redis connection string the island metrics publisher
+     writes to, e.g. "redis://localhost:6379". Empty (the
+     default) disables the publisher entirely — no Redis
+     connection, no extra goroutine. Both this AND
+     --island-metrics-island-id must be set to enable.
+
+ --island-metrics-island-id <uuid> (default: empty, env: ISLAND_METRICS_ISLAND_ID)
+     This island's UUID, matching the Oracle islands.id row.
+     Required (along with --island-metrics-redis-url) to
+     enable the publisher.
+
+ --island-metrics-publish-interval-sec <seconds> (default: 5, env: ISLAND_METRICS_PUBLISH_INTERVAL_SEC)
+     How often per-island metrics are pushed to Redis. The
+     Redis key TTL is 3x this interval, so a stopped
+     publisher's metrics expire after ~15s by default.
 `
 
 type args struct {
@@ -84,6 +102,15 @@ type args struct {
 	// Empty disables the API — zero-config self-host preserved. See
 	// pkg/management/ for the full security posture.
 	ManagementListen string
+
+	// Island metrics publisher (see pkg/islandmetrics/ and ISLAND-METRICS.md).
+	// All three are gated together: the publisher only starts when BOTH
+	// IslandMetricsRedisURL and IslandMetricsIslandID are non-empty. With
+	// either empty (the default), zero-config self-host is preserved — no
+	// Redis connection and no extra goroutine.
+	IslandMetricsRedisURL           string
+	IslandMetricsIslandID           string
+	IslandMetricsPublishIntervalSec int
 }
 
 // envOr returns the value of the environment variable named by key, or def if
@@ -95,6 +122,21 @@ func envOr(key, def string) string {
 		return v
 	}
 	return def
+}
+
+// envOrInt is the int-typed sibling of envOr. Unset / empty / unparseable
+// values fall through to def — silent rather than fatal because these are
+// optional bootstrap flags; a typo'd env var should not crash the boot.
+func envOrInt(key string, def int) int {
+	v := os.Getenv(key)
+	if v == "" {
+		return def
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		return def
+	}
+	return n
 }
 
 func defaultDataDir() string {
@@ -150,6 +192,13 @@ func ParseCommandLines() args {
 	// Management gRPC API listen address (mirrors the database flag pattern:
 	// flag wins over env, env wins over default-empty/disabled).
 	flag.StringVar(&arg.ManagementListen, "management-listen", envOr("MANAGEMENT_LISTEN", ""), "")
+
+	// Island metrics publisher (mirrors the management/database pattern: flag
+	// wins over env, env wins over default-empty/disabled). The interval is
+	// a positive integer in seconds; an unparseable env falls through to 5.
+	flag.StringVar(&arg.IslandMetricsRedisURL, "island-metrics-redis-url", envOr("ISLAND_METRICS_REDIS_URL", ""), "")
+	flag.StringVar(&arg.IslandMetricsIslandID, "island-metrics-island-id", envOr("ISLAND_METRICS_ISLAND_ID", ""), "")
+	flag.IntVar(&arg.IslandMetricsPublishIntervalSec, "island-metrics-publish-interval-sec", envOrInt("ISLAND_METRICS_PUBLISH_INTERVAL_SEC", 5), "")
 
 	flag.Parse()
 

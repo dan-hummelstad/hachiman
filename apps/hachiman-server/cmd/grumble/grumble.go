@@ -5,13 +5,16 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"os"
 	"path/filepath"
+	"time"
 
 	"mumble.info/grumble/pkg/blobstore"
 	"mumble.info/grumble/pkg/database"
+	"mumble.info/grumble/pkg/islandmetrics"
 	"mumble.info/grumble/pkg/logtarget"
 	"mumble.info/grumble/pkg/management"
 )
@@ -237,6 +240,35 @@ func main() {
 				log.Printf("Management gRPC API stopped: %v", err)
 			}
 		}()
+	}
+
+	// Island live-metrics publisher. Gated on BOTH the Redis URL and the
+	// island id being set — either empty (the default) means zero-config
+	// self-host: no Redis client constructed, no goroutine started. See
+	// pkg/islandmetrics/ for the schema and TTL/staleness model, and
+	// apps/hachiman-server/ISLAND-METRICS.md for the published contract.
+	if args.IslandMetricsRedisURL != "" && args.IslandMetricsIslandID != "" {
+		mcfg := islandmetrics.Config{
+			RedisURL:        args.IslandMetricsRedisURL,
+			IslandID:        args.IslandMetricsIslandID,
+			PublishInterval: time.Duration(args.IslandMetricsPublishIntervalSec) * time.Second,
+		}
+		adapter := &islandMetricsRegistryAdapter{registry: registry}
+		pub, err := islandmetrics.New(mcfg, adapter, nil)
+		if err != nil {
+			// Don't take the whole server down for a publisher misconfig —
+			// log and continue. The scheduler will fall back to
+			// MISSING_ISLAND_METRICS for this island until the operator
+			// corrects the config and restarts.
+			log.Printf("Island metrics publisher not started: %v", err)
+		} else {
+			// ctx is intentionally never cancelled — the publisher runs for
+			// the full process lifetime, matching the existing
+			// SignalHandler-blocks-forever pattern below. A clean
+			// shutdown path is a follow-up alongside whole-process
+			// graceful shutdown.
+			go pub.Run(context.Background())
+		}
 	}
 
 	// If any servers were loaded, launch the signal
