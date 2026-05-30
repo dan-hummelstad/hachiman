@@ -54,6 +54,15 @@ var usageTmpl = `usage: grumble [options]
      Postgres connection string, used only when
      --database-driver=postgres. Example:
      "host=localhost user=oracle password=oracle dbname=oracle port=5432 sslmode=disable".
+
+ --management-listen <host:port> (default: empty, env: MANAGEMENT_LISTEN)
+     Enables the INTERNAL gRPC management API on the given
+     LOOPBACK address (e.g. "127.0.0.1:50051"). Empty
+     (the default) disables the API entirely — no extra
+     port is opened, zero-config self-host is unchanged.
+     SECURITY: MVP has no auth; non-loopback addresses are
+     rejected at startup. Production exposure requires mTLS
+     or a bearer token (deferred follow-up).
 `
 
 type args struct {
@@ -70,6 +79,11 @@ type args struct {
 	// DatabaseDriver=postgres.
 	DatabaseDriver string
 	DatabaseDSN    string
+
+	// Internal management gRPC API listen address (e.g. "127.0.0.1:50051").
+	// Empty disables the API — zero-config self-host preserved. See
+	// pkg/management/ for the full security posture.
+	ManagementListen string
 }
 
 // envOr returns the value of the environment variable named by key, or def if
@@ -132,6 +146,10 @@ func ParseCommandLines() args {
 	// an explicit flag still overrides. SQLite remains the zero-config default.
 	flag.StringVar(&arg.DatabaseDriver, "database-driver", envOr("DATABASE_DRIVER", "sqlite"), "")
 	flag.StringVar(&arg.DatabaseDSN, "database-dsn", envOr("DATABASE_DSN", ""), "")
+
+	// Management gRPC API listen address (mirrors the database flag pattern:
+	// flag wins over env, env wins over default-empty/disabled).
+	flag.StringVar(&arg.ManagementListen, "management-listen", envOr("MANAGEMENT_LISTEN", ""), "")
 
 	flag.Parse()
 

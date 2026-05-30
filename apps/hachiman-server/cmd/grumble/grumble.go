@@ -13,6 +13,7 @@ import (
 	"mumble.info/grumble/pkg/blobstore"
 	"mumble.info/grumble/pkg/database"
 	"mumble.info/grumble/pkg/logtarget"
+	"mumble.info/grumble/pkg/management"
 )
 
 var blobStore blobstore.BlobStore
@@ -176,6 +177,11 @@ func main() {
 	}
 	tx.Commit()
 
+	// In-process registry of running vServers, shared between the boot loop
+	// here and the management gRPC API (so a runtime CreateVirtualServer
+	// drops the new server into the same map the boot-loaded ones live in).
+	registry := NewServerRegistry()
+
 	servers := make([]*Server, len(dbServerList))
 	for i, v := range dbServerList {
 		serv, err := NewServer(int64(v.ServerID), args.DataDir, db)
@@ -203,12 +209,34 @@ func main() {
 		servers = append(servers, s)
 	}
 
-	// Launch the servers we found during launch...
+	// Launch the servers we found during launch. Register each one as it
+	// comes up so the management API (if enabled) can see them.
 	for _, server := range servers {
 		err = server.Start()
 		if err != nil {
 			log.Printf("Unable to start server %v: %v", server.Id, err.Error())
+			continue
 		}
+		registry.Register(server)
+	}
+
+	// Internal management gRPC API. Empty ManagementListen (the default)
+	// disables it entirely — zero-config self-host opens no extra port and
+	// starts no extra goroutines. See pkg/management/ for the security
+	// posture (loopback only, no auth on the MVP).
+	if args.ManagementListen != "" {
+		lifecycle := newVServerLifecycle(registry, db, args.DataDir)
+		svc := management.NewService(db, lifecycle)
+		mgmt, err := management.Listen(args.ManagementListen, svc)
+		if err != nil {
+			log.Fatalf("Unable to start management API: %v", err)
+		}
+		log.Printf("Management gRPC API listening on %s", mgmt.Addr())
+		go func() {
+			if err := mgmt.Serve(); err != nil {
+				log.Printf("Management gRPC API stopped: %v", err)
+			}
+		}()
 	}
 
 	// If any servers were loaded, launch the signal

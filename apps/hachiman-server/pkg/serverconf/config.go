@@ -61,6 +61,16 @@ var DefaultCfg = map[string]string{
 	// DatabaseDriver=postgres. Empty ⇒ fall back to the SQLite path/default.
 	// Example: "host=localhost user=oracle password=oracle dbname=oracle port=5432 sslmode=disable".
 	"DatabaseDSN": "",
+
+	// Internal management gRPC API listen address. Empty (the default)
+	// disables the API entirely — zero-config self-host behaviour is
+	// preserved, no extra port is opened. Set to a LOOPBACK address (e.g.
+	// "127.0.0.1:50051") to enable the API for an Oracle control plane.
+	//
+	// SECURITY: MVP has NO auth. A non-loopback host is rejected at startup
+	// — production exposure requires mTLS or a bearer token (deferred). See
+	// pkg/management/service.go for the full posture.
+	"ManagementListen": "",
 }
 
 type ConfigRepo interface {
