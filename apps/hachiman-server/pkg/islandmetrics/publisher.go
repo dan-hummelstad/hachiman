@@ -39,6 +39,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net/url"
 	"strconv"
 	"time"
 
@@ -213,8 +214,16 @@ func (p *Publisher) Run(ctx context.Context) {
 		}
 	}()
 
+	// Redact the URL's userinfo before logging — a `redis://user:pass@host` URL
+	// would otherwise write credentials into the log file. `Redacted()` returns
+	// the original string unchanged when no password is present, so self-host
+	// URLs log identically to before.
+	redactedURL := p.cfg.RedisURL
+	if u, err := url.Parse(p.cfg.RedisURL); err == nil {
+		redactedURL = u.Redacted()
+	}
 	p.logger.Printf("islandmetrics: publishing island=%s every %s (TTL=%s) → %s",
-		p.cfg.IslandID, p.cfg.PublishInterval, p.ttl, p.cfg.RedisURL)
+		p.cfg.IslandID, p.cfg.PublishInterval, p.ttl, redactedURL)
 
 	// Publish once immediately so the scheduler sees us within the first
 	// PublishInterval rather than after it. A startup-time failure is logged
