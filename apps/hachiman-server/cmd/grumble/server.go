@@ -2138,14 +2138,13 @@ func (server *Server) Stop() (err error) {
 			return err
 		}
 
-		// webhttp.Shutdown above has already closed the underlying
-		// wsBranch via its httpServer-owned listener; this Close is a
-		// belt-and-braces second close. Tolerate ErrClosedSniffListener
-		// so a benign double-close doesn't surface as a Stop() error
-		// (which the management gRPC layer would otherwise map to an
-		// Internal error on Delete).
+		// Close the web.Listener instance that was mounted on the HTTP mux
+		// as a Handler (`mux.Handle("/", server.webwsl)`). This is the FIRST
+		// and only close of this listener — webhttp.Shutdown above closed
+		// webhttp's OWN listener (the wsBranch from web.Sniff), which is a
+		// different object. No double-close tolerance is needed here.
 		err = server.webwsl.Close()
-		if err != nil && !errors.Is(err, web.ErrClosedSniffListener) {
+		if err != nil {
 			return err
 		}
 

@@ -14,6 +14,18 @@ Mumble over TLS/WebSocket on port 64738. This service is purely an
 out-of-band admin API and is **disabled by default** (zero-config self-host
 behaviour is unchanged — see "Compatibility" below).
 
+## Compatibility
+
+- **Self-host (zero-config) is unchanged.** `ManagementListen=""` (the default)
+  skips listener startup entirely — no extra port, no goroutines, no extra log
+  lines.
+- **Go version bump.** This package pulls in `google.golang.org/grpc v1.81.1`,
+  whose own `go.mod` requires **`go 1.25.0`** (its transitive `golang.org/x/*`
+  set also requires it). The repo's `go.mod` directive moves from `1.21` to
+  `1.25.0` as a result. It cannot be pinned back without downgrading grpc; the
+  earlier Postgres-backend work deliberately stayed on 1.21 because that landed
+  before the grpc dep.
+
 ## API surface (MVP)
 
 Proto: `pkg/management/management.proto`. Package: `grumble.management.v1`.
@@ -122,6 +134,23 @@ a non-collocated topology), one of:
 
 The `requireLoopback` check would then be relaxed (or replaced with an
 explicit "I have configured auth" config key).
+
+## Operator contract: single-writer per `server_id`
+
+The MVP serializes operations only WITHIN a single Create or Delete call, not
+ACROSS calls for the same `server_id`. The control plane (Oracle) is the
+natural single writer per id (it allocates an id via Create → records it → and
+only later Deletes that id), and as long as it does not race itself on the
+same id, all operations stay coherent.
+
+In the unlikely event two callers race a Create-vs-Delete for an id mid-flight
+(e.g. a Delete arriving between Create's `tx.Commit()` and the in-process
+`CreateAndStart`), the Delete can return success while the late-bound Create
+restores a server on the same row (`ServerInit` is create-if-not-exists). A
+follow-up adding a per-id mutex around Create/Delete in
+`pkg/management/service.go` would close this; it is deferred because the only
+realistic caller — the Oracle scheduler — is single-writer-per-id by
+construction.
 
 ## Oracle wiring (out of scope for this team — for reference only)
 
