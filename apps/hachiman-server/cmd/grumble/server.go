@@ -75,6 +75,10 @@ type Server struct {
 	sniffStop func()
 	sfu       *web.SFU
 	bye       chan bool
+	// stopCh is closed in Stop() to wake any per-server goroutines that
+	// don't go through the bye/netwg path (e.g. the deferred registration
+	// timer). Allocated alongside bye in initPerLaunchData.
+	stopCh    chan struct{}
 	netwg     sync.WaitGroup
 	running   bool
 
@@ -1884,6 +1888,7 @@ func (server *Server) initPerLaunchData() {
 	server.hpclients = make(map[string]*Client)
 
 	server.bye = make(chan bool)
+	server.stopCh = make(chan struct{})
 	server.incoming = make(chan *Message)
 	server.voicebroadcast = make(chan *VoiceBroadcast)
 	server.tempRemove = make(chan *Channel, 1)
@@ -1898,6 +1903,7 @@ func (server *Server) cleanPerLaunchData() {
 	server.hpclients = nil
 
 	server.bye = nil
+	server.stopCh = nil
 	server.incoming = nil
 	server.voicebroadcast = nil
 	server.tempRemove = nil
@@ -2083,10 +2089,16 @@ func (server *Server) Start() (err error) {
 		go server.acceptLoop(server.webwsl)
 	}
 
-	// Schedule a server registration update (if needed)
+	// Schedule a server registration update (if needed). Watch stopCh so a
+	// runtime DeleteVirtualServer (via the management API) doesn't leak this
+	// goroutine for up to a minute after the server is gone.
 	go func() {
-		time.Sleep(1 * time.Minute)
-		server.RegisterPublicServer()
+		select {
+		case <-time.After(1 * time.Minute):
+			server.RegisterPublicServer()
+		case <-server.stopCh:
+			return
+		}
 	}()
 
 	return nil
@@ -2097,6 +2109,12 @@ func (server *Server) Stop() (err error) {
 	if !server.running {
 		return errors.New("server not running")
 	}
+
+	// Signal any per-server goroutines outside the bye/netwg path (the
+	// deferred RegisterPublicServer timer) to exit. Closed-channel
+	// signaling is cheap and idempotent — Stop() never runs twice
+	// concurrently thanks to the !running guard above.
+	close(server.stopCh)
 
 	// Stop the handler goroutine and disconnect all
 	// clients
@@ -2120,8 +2138,14 @@ func (server *Server) Stop() (err error) {
 			return err
 		}
 
+		// webhttp.Shutdown above has already closed the underlying
+		// wsBranch via its httpServer-owned listener; this Close is a
+		// belt-and-braces second close. Tolerate ErrClosedSniffListener
+		// so a benign double-close doesn't surface as a Stop() error
+		// (which the management gRPC layer would otherwise map to an
+		// Internal error on Delete).
 		err = server.webwsl.Close()
-		if err != nil {
+		if err != nil && !errors.Is(err, web.ErrClosedSniffListener) {
 			return err
 		}
 
@@ -2130,9 +2154,12 @@ func (server *Server) Stop() (err error) {
 		}
 	}
 
-	// Close the listeners
+	// Close the listeners. tlsl wraps the tlsBranch from web.Sniff, which
+	// sniffStop above already closed — its Close will return
+	// ErrClosedSniffListener in that case. Same tolerance reasoning as the
+	// webwsl close above.
 	err = server.tlsl.Close()
-	if err != nil {
+	if err != nil && !errors.Is(err, web.ErrClosedSniffListener) {
 		return err
 	}
 

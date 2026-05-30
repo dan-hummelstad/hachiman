@@ -36,13 +36,13 @@ func (l *channelListener) Accept() (net.Conn, error) {
 	case c := <-l.queue:
 		return c, nil
 	case <-l.done:
-		return nil, errClosedSniffListener
+		return nil, ErrClosedSniffListener
 	}
 }
 
 func (l *channelListener) Close() error {
 	if !l.closed.CompareAndSwap(false, true) {
-		return errClosedSniffListener
+		return ErrClosedSniffListener
 	}
 	close(l.done)
 	return nil
@@ -61,7 +61,13 @@ func (l *channelListener) dispatch(c net.Conn) bool {
 	}
 }
 
-var errClosedSniffListener = errors.New("sniff listener closed")
+// ErrClosedSniffListener is returned by a channelListener's Accept and Close
+// after Close has already been called. Exported so callers performing
+// best-effort double-closes during shutdown (e.g. Server.Stop after
+// http.Server.Shutdown has already torn down the underlying listener) can
+// distinguish a benign already-closed signal from a real error via
+// errors.Is(err, web.ErrClosedSniffListener).
+var ErrClosedSniffListener = errors.New("sniff listener closed")
 
 // peekedConn replays bytes that were already buffered via Peek before
 // delegating to the underlying conn for subsequent reads.
