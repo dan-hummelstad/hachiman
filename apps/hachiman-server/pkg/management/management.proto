@@ -1,0 +1,58 @@
+// Copyright (c) 2026 The Grumble Authors
+// The use of this source code is goverened by a BSD-style
+// license that can be found in the LICENSE-file.
+
+syntax = "proto3";
+
+package grumble.management.v1;
+
+option go_package = "mumble.info/grumble/pkg/management;management";
+
+// GrumbleManagement is the INTERNAL gRPC control surface that lets a control
+// plane (the Oracle) create and delete virtual servers at runtime on a
+// running Grumble process.
+//
+// This is NOT the Mumble control channel — clients still speak the standard
+// Mumble protocol over TLS/WebSocket. This service is purely an out-of-band
+// admin API and MUST be bound to loopback (or fronted by mTLS / a shared
+// bearer token) before being exposed.
+//
+// MVP slice (this proto): CreateVirtualServer + DeleteVirtualServer.
+// Deferred to follow-up: GetStats (live user count, CPU, bandwidth),
+// SetConfig (push runtime config keys onto a running vServer).
+service GrumbleManagement {
+  // CreateVirtualServer allocates a new vServer in the database AND boots it
+  // in-process (listeners up, registry populated). Returns the freshly
+  // allocated server_id. The request body is currently empty — Grumble's
+  // ServerAdd() takes no parameters; per-server config is set out-of-band
+  // afterwards (deferred SetConfig RPC).
+  rpc CreateVirtualServer(CreateVirtualServerRequest) returns (CreateVirtualServerResponse);
+
+  // DeleteVirtualServer stops the vServer in-process (if running) and removes
+  // its database row. Returns NotFound if the server_id is unknown to BOTH
+  // the database and the in-process registry.
+  rpc DeleteVirtualServer(DeleteVirtualServerRequest) returns (DeleteVirtualServerResponse);
+}
+
+message CreateVirtualServerRequest {
+  // Intentionally empty for the MVP. Reserved range left open for follow-up
+  // fields (e.g. initial config bundle).
+  reserved 1 to 16;
+}
+
+message CreateVirtualServerResponse {
+  // The numeric id allocated by the database — corresponds to Server.Id /
+  // database.Server.ServerID. Stable across restarts of this process.
+  int64 server_id = 1;
+}
+
+message DeleteVirtualServerRequest {
+  int64 server_id = 1;
+}
+
+message DeleteVirtualServerResponse {
+  // Empty for the MVP — gRPC status codes carry success/failure. Left as a
+  // message rather than google.protobuf.Empty so future fields (e.g. final
+  // session count for accounting) can be added without changing the
+  // signature.
+}
