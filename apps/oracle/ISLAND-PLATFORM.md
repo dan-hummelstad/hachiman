@@ -171,6 +171,14 @@ None of the following exists yet. It is specified here so it can be built
   `{ activeUsers, cpuPct, bandwidthPct }` per `island.id` (the `metrics` half of
   §3) and hold transient session/wake state. **Authoritative for liveness;
   never mirrored into Postgres.**
+  - The **island metrics** half is now shipped — see
+    [`apps/hachiman-server/ISLAND-METRICS.md`](../hachiman-server/ISLAND-METRICS.md)
+    for the schema + TTL/staleness model, plus the publisher
+    (`apps/hachiman-server/pkg/islandmetrics`) and consumer
+    (`apps/oracle/src/lib/island-metrics.ts`) wiring. The scheduler reads it
+    in `scheduler-placement.ts`. Self-host zero-config is preserved: with
+    no Redis URL set, nothing in the layer is started or contacted.
+  - The **session/wake state** half is still deferred.
 
 ### Re-home / cold migration ties in here
 
