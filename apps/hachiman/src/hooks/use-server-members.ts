@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { serversService } from '@/services/ServersService'
+import { useServerStore } from '@/stores/serverStore'
 import type { IMumbleService, MumbleEvents } from '@/shared/IMumbleService'
 
 /**
@@ -34,10 +35,22 @@ export interface ServerMember {
  */
 export function useServerMembers(serverId: string | null): ServerMember[] {
   const [members, setMembers] = useState<ServerMember[]>([])
+  // Reactive connection state: serversService.getServer() and the
+  // connectionManager it queries are plain singletons (not reactive), so
+  // an effect keyed on serverId alone won't re-run when a connection
+  // lands. On cold app restart the React tree mounts with serverId already
+  // set (persisted via serverStore), the effect runs once with no live
+  // service, sets [], and never re-fires — members stay empty forever.
+  // serverStore.servers[].connected flips true on successful connect and
+  // false on disconnect, so it's the right reactive trigger to (re)bind
+  // listeners to whatever IMumbleService is currently live for this URL.
+  const connected = useServerStore((s) =>
+    serverId ? s.servers.get(serverId)?.connected === true : false
+  )
 
   useEffect(() => {
     /* eslint-disable react-hooks/set-state-in-effect */
-    if (!serverId) {
+    if (!serverId || !connected) {
       setMembers([])
       return
     }
@@ -60,7 +73,7 @@ export function useServerMembers(serverId: string | null): ServerMember[] {
       service.off('userRemove', onRemove)
     }
     /* eslint-enable react-hooks/set-state-in-effect */
-  }, [serverId])
+  }, [serverId, connected])
 
   return members
 }

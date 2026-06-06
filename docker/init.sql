@@ -1,0 +1,26 @@
+-- Bootstraps the Postgres namespace used by Grumble in managed mode.
+--
+-- WHY: Oracle (Drizzle) owns its tables under the default `public` schema —
+-- `users`, `servers`, `islands`, `virtual_servers`, ... Grumble's GORM owns
+-- table NAMES that collide with several of those (`servers`, `users`,
+-- `groups`, ...) but with completely different shapes (Oracle's `servers.id`
+-- is a uuid; Grumble's `servers.server_id` is a bigint). Pointing both at the
+-- same Postgres database with no namespace separation produces a foreign-key
+-- constraint failure the first time Grumble AutoMigrates.
+--
+-- This script creates the `grumble` schema; the schema separation is then
+-- enforced at the CONNECTION level via the Grumble DSN: every managed-mode
+-- Grumble connection passes `search_path=grumble`, so unqualified CREATE
+-- TABLE / SELECT against `servers` resolves to `grumble.servers`. Oracle is
+-- untouched (its connections don't set search_path, so they stay in `public`).
+--
+-- Why not GORM's `NamingStrategy.TablePrefix`: every Grumble model implements
+-- `TableName()` (the Tabler interface), which makes GORM bypass TablePrefix
+-- entirely. `search_path` is the connection-side equivalent that works
+-- regardless of Tabler. SQLite has no schemas, so this is a postgres-only
+-- concern; self-host (SQLite) opens no Redis connection and is unaffected.
+--
+-- Postgres image contract: this only runs when /var/lib/postgresql/data is
+-- empty. To re-run it (e.g. you already started postgres before this file
+-- existed), nuke the volume: `docker-compose -f docker/docker-compose.yml down -v`.
+CREATE SCHEMA IF NOT EXISTS grumble;

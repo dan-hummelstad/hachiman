@@ -40,7 +40,7 @@ export default async function InvitePage({ params }: InvitePageProps): Promise<R
     return <InviteErrorCard title="Invite exhausted" message="This invite has reached its maximum number of uses." />
   }
 
-  const server = await getServerById(invite.serverId)
+  const server = await getServerById(invite.virtualServerId)
   if (!server) return <InviteErrorCard title="Server unavailable" message="The server backing this invite is no longer registered." />
 
   // Pre-built fallback URI for the "Open in browser" path — preview only, does

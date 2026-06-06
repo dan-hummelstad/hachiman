@@ -30,6 +30,11 @@ export class Channel {
   name?: string;
   parent?: number;
   temporary: boolean;
+  // Sort weight inside the parent. Mutable — see `edit({ position })`. The
+  // raw value comes from the server's `ChannelState.position` field and is
+  // what drives stable ordering in Discord-style sidebars (lowest first,
+  // ties broken by id).
+  position = 0;
   // Server-assigned channel type. Immutable after create on the server side,
   // so we don't expose a setter — `syncState` simply ignores subsequent
   // values. Defaults to VOICE for pre-upgrade servers that never set it.
@@ -43,6 +48,7 @@ export class Channel {
     this.id = channelState.channelId;
     this.name = channelState.name ?? '';
     this.parent = channelState.parent ?? 0;
+    this.position = channelState.position ?? 0;
     this.links = [...channelState.links];
     this.temporary = channelState.temporary ?? false;
     this.type = channelState.channelType ?? ChannelState_ChannelType.VOICE;
@@ -61,6 +67,7 @@ export class Channel {
       ...syncProperty(this, 'name', channelState.name),
       ...syncProperty(this, 'parent', channelState.parent),
       ...syncProperty(this, 'temporary', channelState.temporary),
+      ...syncProperty(this, 'position', channelState.position),
     };
 
     if (channelState.linksAdd.length + channelState.linksRemove.length > 0) {
@@ -138,6 +145,41 @@ export class Channel {
       ],
     });
     return this.client.channels.byId(ret.channelId!)!;
+  }
+
+  /**
+   * Apply a partial mutation to this channel. Sends a `ChannelState` with
+   * `channelId` set and only the supplied fields populated; the server
+   * processes the diff (see `handleChannelStateMessage` on the Go side) and
+   * broadcasts the canonical post-update state, which our `syncState` then
+   * folds into this instance.
+   *
+   * Resolves once the echo arrives. The wait is what makes drag-to-reorder
+   * feel atomic: the UI optimistically reorders, the promise lands, and the
+   * authoritative broadcast confirms (or contradicts, on permission denial).
+   */
+  async edit(patch: {
+    name?: string;
+    description?: string;
+    position?: number;
+    parent?: number;
+  }): Promise<this> {
+    await this.client.command('editChannel', {
+      sendPacket: [
+        ChannelState,
+        ChannelState.create({
+          channelId: this.id,
+          ...(patch.name !== undefined && { name: patch.name }),
+          ...(patch.description !== undefined && {
+            description: patch.description,
+          }),
+          ...(patch.position !== undefined && { position: patch.position }),
+          ...(patch.parent !== undefined && { parent: patch.parent }),
+        }),
+      ],
+      expectPacket: [ChannelState, ({ channelId }) => channelId === this.id],
+    });
+    return this;
   }
 
   /**

@@ -32,7 +32,11 @@ function toHistoricMessage(p: PersistedMessage): HistoricMessage | null {
     author: p.actorName ?? p.actorSession?.toString() ?? 'Unknown',
     avatar: '',
     content: p.message ?? '',
-    date: createdAt
+    date: createdAt,
+    // Carry the session through so prependHistory can dedup live UUID
+    // entries against their canonical persisted form (see
+    // stores/messagesStore.ts prependHistory).
+    actorSession: p.actorSession
   }
 }
 

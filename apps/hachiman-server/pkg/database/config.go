@@ -44,7 +44,21 @@ func (d *DbTx) ConfigSet(sid uint64, key, value string) error {
 		Value:    value,
 	}
 	err := d.db.Clauses(clause.OnConflict{
+		// Postgres requires the conflict target on UPSERT; SQLite is lenient.
+		// Matches the `config_key` index defined on the model.
+		Columns:   []clause.Column{{Name: "server_id"}, {Name: "key"}},
 		UpdateAll: true,
 	}).Create(&cfg).Error
 	return err
+}
+
+// ConfigClear removes a single per-server config key. Idempotent: deleting a
+// non-existent (sid, key) returns nil. Needed for callers that have to clean
+// up specific config rows independently of the parent server row — notably the
+// management gRPC CreateVirtualServer rollback path, which can't rely on
+// FK-cascade on Postgres (the GORM config sets
+// DisableForeignKeyConstraintWhenMigrating=true for the Postgres driver to
+// work around composite-unique-index issues; see pkg/database/model.go).
+func (d *DbTx) ConfigClear(sid uint64, key string) error {
+	return d.db.Where("server_id = ? AND key = ?", sid, key).Delete(&Config{}).Error
 }

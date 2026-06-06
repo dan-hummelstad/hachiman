@@ -140,7 +140,7 @@ export async function createUserServer(
 
   const values: NewUserServer = {
     userId,
-    serverId: parsed.serverId ?? null,
+    virtualServerId: parsed.serverId ?? null,
     name: parsed.name,
     host: parsed.host,
     port: parsed.port,
@@ -168,9 +168,15 @@ export async function createUserServer(
   return { server: row, created: false }
 }
 
+/**
+ * Update the calling user's user_servers row that points at the given
+ * canonical server (servers.id). The Hachiman client identifies servers by
+ * their Oracle-registry UUID, so we look up by `userServers.serverId` rather
+ * than the user_servers row's own primary key — those are different UUIDs.
+ */
 export async function updateUserServer(
   userId: string,
-  id: string,
+  serverId: string,
   patch: UpdateUserServerInput,
 ): Promise<UserServer> {
   const parsed = updateUserServerSchema.parse(patch)
@@ -185,21 +191,26 @@ export async function updateUserServer(
   const rows = await db
     .update(userServers)
     .set(updates)
-    .where(and(eq(userServers.id, id), eq(userServers.userId, userId)))
+    .where(and(eq(userServers.virtualServerId, serverId), eq(userServers.userId, userId)))
     .returning()
 
   const row = rows[0]
-  if (!row) throw new UserServerNotFoundError(id)
+  if (!row) throw new UserServerNotFoundError(serverId)
   return row
 }
 
-export async function deleteUserServer(userId: string, id: string): Promise<void> {
+/**
+ * Delete the calling user's user_servers row that points at the given
+ * canonical server. See {@link updateUserServer} for why the lookup is by
+ * `serverId` and not the row primary key.
+ */
+export async function deleteUserServer(userId: string, serverId: string): Promise<void> {
   const rows = await db
     .delete(userServers)
-    .where(and(eq(userServers.id, id), eq(userServers.userId, userId)))
+    .where(and(eq(userServers.virtualServerId, serverId), eq(userServers.userId, userId)))
     .returning({ id: userServers.id })
   if (rows.length === 0) {
-    throw new UserServerNotFoundError(id)
+    throw new UserServerNotFoundError(serverId)
   }
 }
 
@@ -211,7 +222,10 @@ export function serializeUserServer(row: UserServer) {
   return {
     id: row.id,
     userId: row.userId,
-    serverId: row.serverId,
+    // External wire field name stays `serverId` for backwards compat with
+    // the Hachiman client (which calls this an "Oracle server id"). The
+    // underlying column changed to `virtualServerId` post-refactor.
+    serverId: row.virtualServerId,
     name: row.name,
     host: row.host,
     port: row.port,

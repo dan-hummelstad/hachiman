@@ -24,7 +24,7 @@
 import { eq } from 'drizzle-orm'
 
 import { db } from '@/db/client'
-import { oidcClients, servers } from '@/db/schema'
+import { oidcClients, virtualServers } from '@/db/schema'
 import { getOidcProvider } from './oidc-provider'
 
 export const SERVER_TOKEN_SCOPE = 'openid profile email'
@@ -55,13 +55,17 @@ export async function mintServerToken(
   accountId: string,
   serverId: string,
 ): Promise<MintedServerToken> {
+  // `serverId` argument is the IDENTITY id (virtual_servers.id) — same as
+  // every other external id contract in this codebase. The OIDC client
+  // FKs to identity (post-refactor), so we can resolve the client_id
+  // directly off oidcClients without joining a parent table.
   const rows = await db
     .select({
       clientId: oidcClients.clientId,
     })
-    .from(servers)
-    .innerJoin(oidcClients, eq(oidcClients.serverId, servers.id))
-    .where(eq(servers.id, serverId))
+    .from(oidcClients)
+    .innerJoin(virtualServers, eq(virtualServers.id, oidcClients.virtualServerId))
+    .where(eq(virtualServers.id, serverId))
     .limit(1)
 
   const row = rows[0]

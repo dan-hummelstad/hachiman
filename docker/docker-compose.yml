@@ -11,6 +11,10 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      # Creates the `grumble` schema on first init so Grumble's GORM tables
+      # (`grumble.servers`, `grumble.users`, ...) don't collide with Oracle's
+      # public-schema tables of the same name. See init.sql for the rationale.
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro
 
   # Live per-island metrics bus. Each Grumble process (an "island") periodically
   # PUBLISHES per-island metrics under `island:{islandId}:metrics` (HASH, TTL'd

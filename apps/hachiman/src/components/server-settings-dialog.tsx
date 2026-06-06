@@ -65,6 +65,15 @@ interface ServerSettingsDialogProps {
   open: boolean
   serverId: string | null
   onClose: () => void
+  /**
+   * When set, the dialog opens directly on `initialTab` (defaults to
+   * 'channels') with `initialChannelId` pre-selected in the Channels tab.
+   * Used by the channel-sidebar context menu's "Manage Channel" action.
+   * Cleared internally on close so the next open without these props
+   * falls back to the default Roles tab.
+   */
+  initialTab?: 'roles' | 'channels' | 'health'
+  initialChannelId?: number | null
 }
 
 type RegisteredUser = { userId: number; name: string }
@@ -160,23 +169,25 @@ export function ServerSettingsDialog(props: ServerSettingsDialogProps): React.JS
 
   const channels: Channel[] = useMemo(() => service?.channels ?? [], [service])
 
-  // Reset state every time the dialog reopens (or switches server).
+  // Reset state every time the dialog reopens (or switches server). If the
+  // caller seeded an initial tab / channel (right-click "Manage Channel"),
+  // honor those instead of defaulting to the Roles tab.
   useEffect(() => {
     if (!props.open) return
-    setTab('roles')
+    setTab(props.initialTab ?? 'roles')
     setRegisteredUsers([])
     setLoadError(null)
     setRootAcl(null)
     setRootSelectedGroup(null)
     setRootSaving(false)
     setChannelAclByChannel(new Map())
-    setSelectedChannelId(null)
+    setSelectedChannelId(props.initialChannelId ?? null)
     setChannelSaving(false)
     setAddRoleDraft(null)
     setAddRoleError(null)
     setDeleteRoleCandidate(null)
     loadedKeyRef.current = null
-  }, [props.open, props.serverId])
+  }, [props.open, props.serverId, props.initialTab, props.initialChannelId])
 
   // Initial load: registered users + root ACL. Both require RegisterPermission
   // / WritePermission server-side — so we *only* fire when the current session

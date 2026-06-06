@@ -77,6 +77,9 @@ func (d *DbTx) ACLGet(sid, cid uint64) ([]ACL, error) {
 
 func (d *DbTx) ACLAdd(acl ACL) error {
 	return d.db.Clauses(clause.OnConflict{
+		// Postgres requires the conflict target on UPSERT; SQLite is lenient.
+		// Matches the `acl_channel_pri` index defined on the model.
+		Columns:   []clause.Column{{Name: "server_id"}, {Name: "channel_id"}, {Name: "priority"}},
 		UpdateAll: true,
 	}).Create(&acl).Error
 }

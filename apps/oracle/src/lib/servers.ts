@@ -1,9 +1,21 @@
 /**
  * Server registry CRUD.
  *
- * Owners create servers, which start unverified. A matching `oidcClients` row
- * is created at the same time — the OIDC agent owns the schema for that
- * table but registry creation is the only place rows get inserted.
+ * "Server" is the user-facing concept; physically it's split between two
+ * tables (see schema.ts):
+ *   - `virtual_servers` (identity) — id, owner, slug, name, description,
+ *     region, oracleOnly. STABLE across re-homes; every FK from invites,
+ *     OIDC clients, and domain verifications points HERE.
+ *   - `servers` (placement) — host, port, islandId, murmurId, status,
+ *     capacity caps, lastActiveAt. Mutates when a vServer is placed,
+ *     re-homed, or its lifecycle advances.
+ *
+ * This module's PUBLIC surface (the `Server` type, `createServer`,
+ * `updateServer`, `getServerById`, …) pretends the two tables are one — it
+ * joins them on every read and writes both atomically. The `id` exposed
+ * to callers is `virtual_servers.id` (the external identity); the
+ * placement row's own id is internal-only. Lifecycle / placement writes
+ * (place/unplace/transition) live in `lib/virtual-servers.ts`.
  */
 import { and, asc, desc, eq, ilike, or, sql } from 'drizzle-orm'
 
@@ -13,9 +25,12 @@ import {
   oidcClients,
   regions,
   serverDomainVerifications,
-  servers,
+  servers as placements,
+  virtualServers,
   type Region,
-  type Server,
+  type Server as Placement,
+  type VirtualServer,
+  type VirtualServerStatus,
 } from '@/db/schema'
 
 // Validation schemas live in a sibling module so client components can import
@@ -27,7 +42,36 @@ export {
   type CreateServerInput,
   type UpdateServerInput,
 } from './server-schemas'
-import { createServerSchema, updateServerSchema, type CreateServerInput, type UpdateServerInput } from './server-schemas'
+import {
+  createServerSchema,
+  updateServerSchema,
+  type CreateServerInput,
+  type UpdateServerInput,
+} from './server-schemas'
+
+// Managed-host stamping lives in a DB-free sibling so the unit test can run
+// without importing the postgres-js pool.
+import { resolveServerEndpoint } from './managed-host'
+export { ManagedGatewayNotConfiguredError } from './managed-host'
+
+// The gRPC client to the managed-gateway Grumble process. Only the managed
+// branch of createServer + deleteServer call it.
+import {
+  createVirtualServer as createGrumbleVirtualServer,
+  deleteVirtualServer as deleteGrumbleVirtualServer,
+  GrumbleManagementError,
+} from './grumble-management'
+
+// ---------------------------------------------------------------------------
+// Managed-server introspection URL.
+// ---------------------------------------------------------------------------
+
+const INTROSPECTION_PATH = '/token/introspection'
+
+function getIntrospectionUrl(): string {
+  const issuer = process.env.OIDC_ISSUER_URL?.trim() || 'http://localhost:3000/api/oidc'
+  return `${issuer.replace(/\/+$/, '')}${INTROSPECTION_PATH}`
+}
 
 // ---------------------------------------------------------------------------
 // Errors
@@ -48,30 +92,42 @@ export class ServerNotFoundError extends Error {
 }
 
 // ---------------------------------------------------------------------------
-// OIDC client secret helpers
+// Public types — the unified Server shape callers see.
 // ---------------------------------------------------------------------------
 
-function randomBase64Url(byteLength: number): string {
-  const buf = new Uint8Array(byteLength)
-  crypto.getRandomValues(buf)
-  let str = ''
-  for (const b of buf) str += String.fromCharCode(b)
-  return Buffer.from(str, 'binary').toString('base64url')
+/**
+ * The unified "Server" shape exposed by this module. Identity fields come
+ * from `virtual_servers`; placement fields come from `servers`. The `id`
+ * is the identity id — that's the value invites/OIDC/verifications/the
+ * dashboard URL all key off.
+ *
+ * `host`/`port`/`status`/`islandId`/`murmurId`/`maxUsers`/`maxBandwidth`/
+ * `lastActiveAt` can be NULL for a freshly-created identity row whose
+ * placement row was created concurrently in the same tx (impossible in
+ * practice — both inserts share a transaction — but the LEFT JOIN
+ * widening forces these to be optional in the type). Callers should
+ * treat their presence as "always set for any server returned by this
+ * module" and the nullability as a type-system artifact.
+ */
+export interface Server {
+  id: string
+  ownerUserId: string
+  slug: string
+  name: string
+  description: string | null
+  oracleOnly: boolean
+  region: string | null
+  host: string
+  port: number
+  islandId: string | null
+  murmurId: number | null
+  status: VirtualServerStatus
+  maxUsers: number
+  maxBandwidth: number
+  lastActiveAt: Date | null
+  createdAt: Date
+  updatedAt: Date
 }
-
-function generateClientId(): string {
-  // 16 bytes -> 22 char base64url; prefix for human recognisability.
-  return `takusen_${randomBase64Url(16)}`
-}
-
-function generateClientSecret(): string {
-  // 32 bytes of entropy.
-  return randomBase64Url(32)
-}
-
-// ---------------------------------------------------------------------------
-// Public types
-// ---------------------------------------------------------------------------
 
 export interface PublicServerSummary {
   slug: string
@@ -87,18 +143,103 @@ export interface ServerWithVerification extends Server {
 }
 
 // ---------------------------------------------------------------------------
-// Internal: latest-verification subquery (LATERAL) for "is verified" status.
+// Internal helpers
 // ---------------------------------------------------------------------------
 
-function verifiedAtForServer(serverId: string) {
-  // Returns the most-recent verifiedAt for this serverId across all
-  // verification rows. NULL if never verified.
+const POSTGRES_UNIQUE_VIOLATION = '23505'
+
+function isUniqueViolation(err: unknown): boolean {
+  return (
+    typeof err === 'object' &&
+    err !== null &&
+    'code' in err &&
+    (err as { code: unknown }).code === POSTGRES_UNIQUE_VIOLATION
+  )
+}
+
+function normalizeDescription(d: string | null | undefined): string | null {
+  if (d == null) return null
+  const trimmed = d.trim()
+  return trimmed === '' ? null : trimmed
+}
+
+function randomBase64Url(byteLength: number): string {
+  const buf = new Uint8Array(byteLength)
+  crypto.getRandomValues(buf)
+  let str = ''
+  for (const b of buf) str += String.fromCharCode(b)
+  return Buffer.from(str, 'binary').toString('base64url')
+}
+
+function generateClientId(): string {
+  return `takusen_${randomBase64Url(16)}`
+}
+
+function generateClientSecret(): string {
+  return randomBase64Url(32)
+}
+
+/**
+ * Project the (virtual_servers + servers) join into the unified Server
+ * shape. NULL fields from the LEFT JOIN are folded back to schema
+ * defaults so callers see a stable Server object regardless of the
+ * (impossible-in-practice) "identity row exists, placement row missing"
+ * state.
+ */
+function projectJoined(
+  v: VirtualServer,
+  p: Placement | null,
+): Server {
+  return {
+    id: v.id,
+    ownerUserId: v.ownerUserId,
+    slug: v.slug,
+    name: v.name,
+    description: v.description,
+    oracleOnly: v.oracleOnly,
+    region: v.region,
+    host: p?.host ?? '',
+    port: p?.port ?? 64738,
+    islandId: p?.islandId ?? null,
+    murmurId: p?.murmurId ?? null,
+    status: p?.status ?? 'inactive',
+    maxUsers: p?.maxUsers ?? 100,
+    maxBandwidth: p?.maxBandwidth ?? 558000,
+    lastActiveAt: p?.lastActiveAt ?? null,
+    createdAt: v.createdAt,
+    updatedAt: v.updatedAt,
+  }
+}
+
+/** Internal: LEFT JOIN the placement row onto an identity row. */
+async function loadOne(
+  where: (typeof virtualServers)['id']['_']['data'] extends never
+    ? never
+    : Parameters<typeof eq>[1] | ReturnType<typeof and>,
+): Promise<Server | null> {
+  // Drizzle's join return shape is `{ virtual_servers: VirtualServer; servers: Placement | null }`.
+  const rows = await db
+    .select()
+    .from(virtualServers)
+    .leftJoin(placements, eq(placements.virtualServerId, virtualServers.id))
+    .where(where as never)
+    .limit(1)
+  const row = rows[0]
+  if (!row) return null
+  return projectJoined(row.virtual_servers, row.servers)
+}
+
+// ---------------------------------------------------------------------------
+// Verification subquery (latest-verifiedAt).
+// ---------------------------------------------------------------------------
+
+function verifiedAtForServer(virtualServerId: string) {
   return db
     .select({ verifiedAt: serverDomainVerifications.verifiedAt })
     .from(serverDomainVerifications)
     .where(
       and(
-        eq(serverDomainVerifications.serverId, serverId),
+        eq(serverDomainVerifications.virtualServerId, virtualServerId),
         sql`${serverDomainVerifications.verifiedAt} IS NOT NULL`,
       ),
     )
@@ -122,71 +263,110 @@ export interface CreateServerResult {
   oidcClientSecret: string
 }
 
-export async function createServer(
-  input: CreateServerInput,
-): Promise<CreateServerResult> {
+export async function createServer(input: CreateServerInput): Promise<CreateServerResult> {
   const parsed = createServerSchema.parse(input)
 
-  // Check slug uniqueness up-front to give a friendlier error than the DB.
-  const existing = await db
-    .select({ id: servers.id })
-    .from(servers)
-    .where(eq(servers.slug, parsed.slug))
-    .limit(1)
-  if (existing.length > 0) {
-    throw new SlugTakenError(parsed.slug)
-  }
+  // Decide the final host:port pair BEFORE the DB transaction. Throws
+  // ManagedGatewayNotConfiguredError on the managed branch when env unset.
+  const { host, port } = resolveServerEndpoint(parsed)
 
   const clientId = generateClientId()
   const clientSecret = generateClientSecret()
 
   return await db.transaction(async (tx) => {
-    const insertedServers = await tx
-      .insert(servers)
+    // Identity row first (unique slug lives here now). Catch unique
+    // violations and translate to SlugTakenError.
+    let identityRows: VirtualServer[]
+    try {
+      identityRows = await tx
+        .insert(virtualServers)
+        .values({
+          ownerUserId: input.ownerUserId,
+          name: parsed.name,
+          slug: parsed.slug,
+          description: normalizeDescription(parsed.description),
+          region: parsed.region ?? null,
+        })
+        .returning()
+    } catch (err) {
+      if (isUniqueViolation(err)) throw new SlugTakenError(parsed.slug)
+      throw err
+    }
+    const identity = identityRows[0]
+    if (!identity) throw new Error('Failed to insert virtual_server (identity)')
+
+    // Placement row — always exactly one (1:1, self-hosted gets islandId=null).
+    const placementRows = await tx
+      .insert(placements)
       .values({
-        ownerUserId: input.ownerUserId,
-        name: parsed.name,
-        slug: parsed.slug,
-        host: parsed.host,
-        port: parsed.port ?? 64738,
-        description: parsed.description ?? null,
-        region: parsed.region ?? null,
+        virtualServerId: identity.id,
+        host,
+        port,
+        // murmurId stays null until set by the gRPC create below (managed
+        // branch) or until a future placement scheduler assigns one.
       })
       .returning()
-    const server = insertedServers[0]
-    if (!server) {
-      throw new Error('Failed to insert server')
-    }
+    const placement = placementRows[0]
+    if (!placement) throw new Error('Failed to insert servers (placement)')
 
+    // OIDC client FKs to identity (survives re-home).
     await tx.insert(oidcClients).values({
-      serverId: server.id,
+      virtualServerId: identity.id,
       clientId,
       clientSecret,
       redirectUris: [],
     })
 
-    return { server, oidcClientId: clientId, oidcClientSecret: clientSecret }
+    // Managed branch: provision the in-process vServer on the gateway and
+    // stash the resulting murmurId + actual listening port on the placement
+    // row. Held INSIDE the transaction so a gRPC failure rolls back all
+    // four inserts.
+    //
+    // Why the port update: Grumble derives the listening port from the
+    // vServer id (default 64738 + id - 1) — the initial placement insert
+    // landed with the `MANAGED_SERVER_PORT` placeholder, which would
+    // misadvertise the address for the 2nd+ vServer. The gRPC response
+    // carries the real port so we persist what Grumble actually opened.
+    if (parsed.mode === 'managed') {
+      const result = await createGrumbleVirtualServer({
+        adminOracleUserId: input.ownerUserId,
+        oracleIntrospectionUrl: getIntrospectionUrl(),
+        oracleClientId: clientId,
+        oracleClientSecret: clientSecret,
+      })
+      await tx
+        .update(placements)
+        .set({
+          murmurId: result.serverId,
+          port: result.port,
+          updatedAt: new Date(),
+        })
+        .where(eq(placements.id, placement.id))
+      placement.murmurId = result.serverId
+      placement.port = result.port
+      console.info(
+        `[managed] Grumble provisioned vServer id=${result.serverId} on ` +
+          `port ${result.port} for oracle server ${identity.id} ` +
+          `(slug=${identity.slug}, owner=${input.ownerUserId})`,
+      )
+    }
+
+    return {
+      server: projectJoined(identity, placement),
+      oidcClientId: clientId,
+      oidcClientSecret: clientSecret,
+    }
   })
 }
 
-export async function getServerById(
-  id: string,
-): Promise<ServerWithVerification | null> {
-  const rows = await db.select().from(servers).where(eq(servers.id, id)).limit(1)
-  const server = rows[0]
+export async function getServerById(id: string): Promise<ServerWithVerification | null> {
+  const server = await loadOne(eq(virtualServers.id, id))
   if (!server) return null
   return attachVerifiedAt(server)
 }
 
-export async function getServerBySlug(
-  slug: string,
-): Promise<ServerWithVerification | null> {
-  const rows = await db
-    .select()
-    .from(servers)
-    .where(eq(servers.slug, slug))
-    .limit(1)
-  const server = rows[0]
+export async function getServerBySlug(slug: string): Promise<ServerWithVerification | null> {
+  const server = await loadOne(eq(virtualServers.slug, slug))
   if (!server) return null
   return attachVerifiedAt(server)
 }
@@ -196,53 +376,82 @@ export async function listServersByOwner(
 ): Promise<ServerWithVerification[]> {
   const rows = await db
     .select()
-    .from(servers)
-    .where(eq(servers.ownerUserId, ownerUserId))
-    .orderBy(asc(servers.name))
-
-  return Promise.all(rows.map(attachVerifiedAt))
+    .from(virtualServers)
+    .leftJoin(placements, eq(placements.virtualServerId, virtualServers.id))
+    .where(eq(virtualServers.ownerUserId, ownerUserId))
+    .orderBy(asc(virtualServers.name))
+  const projected = rows.map((r) => projectJoined(r.virtual_servers, r.servers))
+  return Promise.all(projected.map(attachVerifiedAt))
 }
 
-export async function updateServer(
-  id: string,
-  patch: UpdateServerInput,
-): Promise<Server> {
+export async function updateServer(id: string, patch: UpdateServerInput): Promise<Server> {
   const parsed = updateServerSchema.parse(patch)
-  const updates: Partial<typeof servers.$inferInsert> = {
+
+  // All four updatable fields live on virtual_servers (identity). Placement
+  // updates have their own helpers in lib/virtual-servers.ts.
+  const updates: Partial<typeof virtualServers.$inferInsert> = {
     updatedAt: new Date(),
   }
   if (parsed.name !== undefined) updates.name = parsed.name
-  if (parsed.description !== undefined) updates.description = parsed.description
+  if (parsed.description !== undefined)
+    updates.description = normalizeDescription(parsed.description)
   if (parsed.oracleOnly !== undefined) updates.oracleOnly = parsed.oracleOnly
-  // `region` is mutable: an explicit `null` clears it, a code re-homes it.
-  // This is the single region-write path; the future cold-migration ("re-home")
-  // fan-out hooks this branch. See REGION-CONTRACT.md.
   if (parsed.region !== undefined) updates.region = parsed.region
 
   const rows = await db
-    .update(servers)
+    .update(virtualServers)
     .set(updates)
-    .where(eq(servers.id, id))
+    .where(eq(virtualServers.id, id))
     .returning()
   const row = rows[0]
   if (!row) throw new ServerNotFoundError(id)
-  return row
+
+  // Re-load the joined view so callers get host/port back too.
+  const reloaded = await loadOne(eq(virtualServers.id, id))
+  if (!reloaded) throw new ServerNotFoundError(id)
+  return reloaded
 }
 
-/**
- * List the known voice regions, ordered by display name. Used to populate the
- * region <Select> in the dashboard and (later) by the placement scorer.
- */
 export async function listRegions(): Promise<Region[]> {
   return await db.select().from(regions).orderBy(asc(regions.displayName))
 }
 
 export async function deleteServer(id: string): Promise<void> {
-  const rows = await db.delete(servers).where(eq(servers.id, id)).returning({
-    id: servers.id,
-  })
+  // Look up the placement's murmurId BEFORE the cascade — once we delete
+  // the identity row, the placement row goes with it (ON DELETE CASCADE).
+  const pRows = await db
+    .select({ murmurId: placements.murmurId })
+    .from(placements)
+    .where(eq(placements.virtualServerId, id))
+    .limit(1)
+  const murmurId = pRows[0]?.murmurId ?? null
+
+  // Cascade: deleting virtual_servers takes servers + oidc_clients +
+  // invite_codes + server_domain_verifications with it.
+  const rows = await db
+    .delete(virtualServers)
+    .where(eq(virtualServers.id, id))
+    .returning({ id: virtualServers.id })
   if (rows.length === 0) {
     throw new ServerNotFoundError(id)
+  }
+
+  // Best-effort gateway teardown for managed servers. murmurId === null =
+  // self-hosted (or pre-managed-create), skip.
+  if (murmurId !== null) {
+    try {
+      await deleteGrumbleVirtualServer({ serverId: murmurId })
+    } catch (err) {
+      if (err instanceof GrumbleManagementError) {
+        console.warn(
+          `[managed] DeleteVirtualServer best-effort teardown failed for ` +
+            `murmurId=${murmurId} (oracle server ${id}): ${err.message}. ` +
+            `The Oracle-side delete succeeded; the gateway vServer may be orphaned.`,
+        )
+      } else {
+        throw err
+      }
+    }
   }
 }
 
@@ -269,14 +478,18 @@ export async function listPublicServers(
   const search = options.search?.trim() ?? ''
 
   // "Verified" = at least one verification row with verifiedAt IS NOT NULL.
+  // FK now points at virtual_servers.id (identity).
   const verifiedFilter = sql`EXISTS (
     SELECT 1 FROM ${serverDomainVerifications} sdv
-    WHERE sdv.server_id = ${servers.id}
+    WHERE sdv.virtual_server_id = ${virtualServers.id}
       AND sdv.verified_at IS NOT NULL
   )`
 
   const searchFilter = search
-    ? or(ilike(servers.name, `%${search}%`), eq(servers.slug, search.toLowerCase()))
+    ? or(
+        ilike(virtualServers.name, `%${search}%`),
+        eq(virtualServers.slug, search.toLowerCase()),
+      )
     : undefined
 
   const where = searchFilter ? and(verifiedFilter, searchFilter) : verifiedFilter
@@ -284,33 +497,34 @@ export async function listPublicServers(
   const [rows, totalRows] = await Promise.all([
     db
       .select({
-        slug: servers.slug,
-        name: servers.name,
-        description: servers.description,
-        host: servers.host,
-        port: servers.port,
-        serverId: servers.id,
+        slug: virtualServers.slug,
+        name: virtualServers.name,
+        description: virtualServers.description,
+        host: placements.host,
+        port: placements.port,
+        virtualServerId: virtualServers.id,
       })
-      .from(servers)
+      .from(virtualServers)
+      .leftJoin(placements, eq(placements.virtualServerId, virtualServers.id))
       .where(where)
-      .orderBy(asc(servers.name))
+      .orderBy(asc(virtualServers.name))
       .limit(limit)
       .offset(offset),
     db
       .select({ count: sql<number>`count(*)::int` })
-      .from(servers)
+      .from(virtualServers)
       .where(where),
   ])
 
   const results: PublicServerSummary[] = await Promise.all(
     rows.map(async (r) => {
-      const v = await verifiedAtForServer(r.serverId)
+      const v = await verifiedAtForServer(r.virtualServerId)
       return {
         slug: r.slug,
         name: r.name,
         description: r.description,
-        host: r.host,
-        port: r.port,
+        host: r.host ?? '',
+        port: r.port ?? 64738,
         verifiedAt: v[0]?.verifiedAt ?? null,
       }
     }),
@@ -327,12 +541,9 @@ export async function listPublicServers(
 // ---------------------------------------------------------------------------
 
 export async function assertOwner(serverId: string, userId: string): Promise<Server> {
-  const rows = await db
-    .select()
-    .from(servers)
-    .where(and(eq(servers.id, serverId), eq(servers.ownerUserId, userId)))
-    .limit(1)
-  const server = rows[0]
+  const server = await loadOne(
+    and(eq(virtualServers.id, serverId), eq(virtualServers.ownerUserId, userId)),
+  )
   if (!server) {
     throw new ServerNotFoundError(serverId)
   }
@@ -340,13 +551,13 @@ export async function assertOwner(serverId: string, userId: string): Promise<Ser
 }
 
 // ---------------------------------------------------------------------------
-// Invite listing (used by /servers/[id] detail page)
+// Invite listing (used by /servers/[id] detail page).
 // ---------------------------------------------------------------------------
 
-export async function listInvitesForServer(serverId: string) {
+export async function listInvitesForServer(virtualServerId: string) {
   return await db
     .select()
     .from(inviteCodes)
-    .where(eq(inviteCodes.serverId, serverId))
+    .where(eq(inviteCodes.virtualServerId, virtualServerId))
     .orderBy(desc(inviteCodes.createdAt))
 }

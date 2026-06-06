@@ -16,7 +16,7 @@ func TestChannelAdd(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ch, err := tx.ChannelAdd(sid, "Test Channel", 0)
+	ch, err := tx.ChannelAdd(sid, "Test Channel", 0, 0)
 	if ch == nil || err != nil {
 		t.Fatal(err)
 	}
@@ -117,7 +117,7 @@ func TestChannelRemove(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ch, err := tx.ChannelAdd(sid, "Test Channel", 0)
+	ch, err := tx.ChannelAdd(sid, "Test Channel", 0, 0)
 	if ch == nil || err != nil {
 		t.Fatal(err)
 	}

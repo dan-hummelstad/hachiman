@@ -21,21 +21,32 @@ import (
 // the service makes against it without spinning up a real Server (which
 // would need TLS cert files, sockets, etc. — out of scope for unit tests).
 type fakeLifecycle struct {
-	mu        sync.Mutex
-	created   []int64
-	stopped   []int64
-	failStart bool // when set, CreateAndStart returns an error
-	failStop  bool // when set, StopAndRemove returns an error
+	mu          sync.Mutex
+	created     []int64
+	stopped     []int64
+	failStart   bool  // when set, CreateAndStart returns an error
+	failStop    bool  // when set, StopAndRemove returns an error
+	portBase    int32 // when non-zero, CreateAndStart reports (portBase+id-1, 0). Defaults to 64738.
+	webPortBase int32 // when non-zero, CreateAndStart reports webPortBase+id-1 as the web port.
 }
 
-func (f *fakeLifecycle) CreateAndStart(id int64) error {
+func (f *fakeLifecycle) CreateAndStart(id int64) (int32, int32, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.failStart {
-		return testErr("simulated start failure")
+		return 0, 0, testErr("simulated start failure")
 	}
 	f.created = append(f.created, id)
-	return nil
+	base := f.portBase
+	if base == 0 {
+		base = 64738
+	}
+	port := base + int32(id) - 1
+	var webPort int32
+	if f.webPortBase != 0 {
+		webPort = f.webPortBase + int32(id) - 1
+	}
+	return port, webPort, nil
 }
 
 func (f *fakeLifecycle) StopAndRemove(id int64) error {
@@ -111,6 +122,169 @@ func TestCreateVirtualServer_AllocatesIdAndBootsInProcess(t *testing.T) {
 	// Lifecycle was invoked.
 	if got := len(lc.created); got != 1 || lc.created[0] != resp.ServerId {
 		t.Fatalf("lifecycle.created = %v, want [%d]", lc.created, resp.ServerId)
+	}
+
+	// The response surfaces the port the freshly-booted vServer is listening
+	// on so Oracle can persist it without having to recompute Grumble's
+	// auto-derivation. The fakeLifecycle returns 64738 + id - 1 by default.
+	wantPort := int32(64738) + int32(resp.ServerId) - 1
+	if resp.Port != wantPort {
+		t.Fatalf("resp.Port = %d, want %d", resp.Port, wantPort)
+	}
+	// WebPort is 0 when web listening is disabled (fakeLifecycle defaults).
+	if resp.WebPort != 0 {
+		t.Fatalf("resp.WebPort = %d, want 0 (no web listener configured)", resp.WebPort)
+	}
+
+	// Without admin_oracle_user_id the config row MUST NOT be written —
+	// self-host vServers stay in their existing zero-config state and the
+	// Authenticate-time owner grant never fires.
+	tx = db.Tx()
+	val, err := tx.ConfigGet(uint64(resp.ServerId), AdminOracleUserIDConfigKey)
+	_ = tx.Rollback()
+	if err != nil {
+		t.Fatalf("ConfigGet AdminOracleUserID: %v", err)
+	}
+	if val != "" {
+		t.Fatalf("AdminOracleUserID = %q, want empty (no admin_oracle_user_id in request)", val)
+	}
+}
+
+// TestCreateVirtualServer_PersistsAdminOracleUserID locks in the contract
+// that an admin_oracle_user_id supplied on Create is written to the
+// per-server config under AdminOracleUserIDConfigKey. The Authenticate-time
+// grant in cmd/grumble reads that exact key. Defense in depth: the grant
+// also requires a SUCCESSFUL Oracle introspection — this RPC just stores the
+// expected `sub`, it cannot grant on its own.
+func TestCreateVirtualServer_PersistsAdminOracleUserID(t *testing.T) {
+	db := newTestDB(t)
+	lc := &fakeLifecycle{}
+	svc := NewService(db, lc)
+
+	const adminID = "550e8400-e29b-41d4-a716-446655440000"
+	resp, err := svc.CreateVirtualServer(context.Background(),
+		&CreateVirtualServerRequest{AdminOracleUserId: adminID})
+	if err != nil {
+		t.Fatalf("CreateVirtualServer: %v", err)
+	}
+
+	tx := db.Tx()
+	val, err := tx.ConfigGet(uint64(resp.ServerId), AdminOracleUserIDConfigKey)
+	_ = tx.Rollback()
+	if err != nil {
+		t.Fatalf("ConfigGet: %v", err)
+	}
+	if val != adminID {
+		t.Fatalf("AdminOracleUserID = %q, want %q", val, adminID)
+	}
+}
+
+// TestCreateVirtualServer_PersistsOracleSSOConfig locks in the contract that
+// the Oracle introspection URL, client_id, client_secret AND OracleOnly=true
+// are all stamped on the new vServer's config alongside AdminOracleUserID.
+// Without these four, the handleAuthenticate Oracle-grant path is a silent
+// no-op (introspectOracleToken's Enabled() check requires URL+ID+secret),
+// which would defeat the whole point of "managed" servers.
+func TestCreateVirtualServer_PersistsOracleSSOConfig(t *testing.T) {
+	db := newTestDB(t)
+	lc := &fakeLifecycle{}
+	svc := NewService(db, lc)
+
+	const (
+		adminID = "550e8400-e29b-41d4-a716-446655440000"
+		url     = "https://oracle.example/api/oidc/token/introspection"
+		clntID  = "grumble-management"
+		secret  = "do-not-log-this"
+	)
+	resp, err := svc.CreateVirtualServer(context.Background(),
+		&CreateVirtualServerRequest{
+			AdminOracleUserId:      adminID,
+			OracleIntrospectionUrl: url,
+			OracleClientId:         clntID,
+			OracleClientSecret:     secret,
+		})
+	if err != nil {
+		t.Fatalf("CreateVirtualServer: %v", err)
+	}
+
+	tx := db.Tx()
+	defer func() { _ = tx.Rollback() }()
+	want := map[string]string{
+		AdminOracleUserIDConfigKey:      adminID,
+		OracleIntrospectionURLConfigKey: url,
+		OracleClientIDConfigKey:         clntID,
+		OracleClientSecretConfigKey:     secret,
+		OracleOnlyConfigKey:             "true",
+	}
+	for key, expected := range want {
+		got, err := tx.ConfigGet(uint64(resp.ServerId), key)
+		if err != nil {
+			t.Fatalf("ConfigGet %s: %v", key, err)
+		}
+		if got != expected {
+			t.Fatalf("%s = %q, want %q", key, got, expected)
+		}
+	}
+}
+
+// TestCreateVirtualServer_SkipsOracleSSOConfigForBareCreate ensures the
+// Oracle/SSO stamping is gated on admin_oracle_user_id — a bare
+// CreateVirtualServer (no admin id supplied, e.g. self-host parity tests
+// and the existing TestCreateVirtualServer_AllocatesIdAndBootsInProcess
+// flow) does NOT silently flip OracleOnly=true or stash blank credentials.
+func TestCreateVirtualServer_SkipsOracleSSOConfigForBareCreate(t *testing.T) {
+	db := newTestDB(t)
+	lc := &fakeLifecycle{}
+	svc := NewService(db, lc)
+
+	resp, err := svc.CreateVirtualServer(context.Background(), &CreateVirtualServerRequest{})
+	if err != nil {
+		t.Fatalf("CreateVirtualServer: %v", err)
+	}
+
+	tx := db.Tx()
+	defer func() { _ = tx.Rollback() }()
+	for _, key := range []string{
+		OracleIntrospectionURLConfigKey,
+		OracleClientIDConfigKey,
+		OracleClientSecretConfigKey,
+		OracleOnlyConfigKey,
+	} {
+		val, err := tx.ConfigGet(uint64(resp.ServerId), key)
+		if err != nil {
+			t.Fatalf("ConfigGet %s: %v", key, err)
+		}
+		if val != "" {
+			t.Fatalf("%s = %q, want empty (no admin_oracle_user_id supplied)", key, val)
+		}
+	}
+}
+
+// TestCreateVirtualServer_AdminOracleUserID_RollsBackOnStartFailure ensures
+// the persistence is tied to the in-process boot succeeding: if
+// CreateAndStart fails, the parent server row is deleted, which cascades the
+// config rows too — no stranded owner-id row pointing at a deleted server.
+func TestCreateVirtualServer_AdminOracleUserID_RollsBackOnStartFailure(t *testing.T) {
+	db := newTestDB(t)
+	lc := &fakeLifecycle{failStart: true}
+	svc := NewService(db, lc)
+
+	const adminID = "00000000-0000-0000-0000-000000000001"
+	_, err := svc.CreateVirtualServer(context.Background(),
+		&CreateVirtualServerRequest{AdminOracleUserId: adminID})
+	if err == nil {
+		t.Fatal("expected error when CreateAndStart fails")
+	}
+
+	// No server rows.
+	tx := db.Tx()
+	list, err := tx.ServerList(0, 100)
+	_ = tx.Rollback()
+	if err != nil {
+		t.Fatalf("ServerList: %v", err)
+	}
+	if len(list) != 0 {
+		t.Fatalf("expected 0 servers after rollback, got %d", len(list))
 	}
 }
 

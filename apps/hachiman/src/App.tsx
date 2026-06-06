@@ -14,6 +14,16 @@ import { SuperUserPasswordDialog } from '@/components/superuser-password-dialog'
 import { ChannelSidebar } from '@/components/channel-sidebar'
 import { ChatArea } from '@/components/chat-area'
 import { MemberList } from '@/components/member-list'
+import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle
+} from '@/components/ui/dialog'
 import { TooltipProvider } from '@/components/ui/tooltip'
 
 import { useTakusenJoinUri } from '@/hooks/use-takusen-join-uri'
@@ -39,7 +49,31 @@ function App(): React.JSX.Element {
   const voiceChannelByServer = useVoiceStore((s) => s.voiceChannelByServer)
   const oracleSession = useOracleStore((s) => s.session)
   const [openAddServerDialog, setOpenAddServerDialog] = useState(false)
-  const [createChannelType, setCreateChannelType] = useState<ChannelType | null>(null)
+  // createChannelTarget carries the prospective parent id alongside the
+  // type so the dialog can label itself ("Create Subchannel of #general")
+  // and the create call can nest correctly. parentId === undefined means
+  // top-level (under root) — the section "+" button path.
+  const [createChannelTarget, setCreateChannelTarget] = useState<{
+    type: ChannelType
+    parentId?: number
+  } | null>(null)
+  // When set by the channel-sidebar context menu's "Manage Channel" item,
+  // opens ServerSettingsDialog pre-targeted at the Channels tab with this
+  // channel selected. Cleared on dialog close so the next plain "Server
+  // Settings" open lands back on the Roles tab.
+  const [manageChannelTarget, setManageChannelTarget] = useState<{
+    serverId: string
+    channelId: number
+  } | null>(null)
+  // The right-click "Delete channel" target awaiting user confirmation.
+  // Deletion is destructive (cascades to subchannels + persisted text
+  // history server-side; see Server.RemoveChannel) so we always route
+  // through a confirm step rather than letting the menu item fire
+  // straight through to ChannelsService.deleteChannel.
+  const [deleteChannelTarget, setDeleteChannelTarget] = useState<{
+    serverId: string
+    channelId: number
+  } | null>(null)
   const [membersOpen, setMembersOpen] = useState(true)
   // SuperUser sessions need a fresh password per connect (never persisted).
   // When `pendingSuperUserPrompt` is non-null, a modal blocks reconnect until
@@ -95,38 +129,72 @@ function App(): React.JSX.Element {
   // so on a fresh page load the rail shows restored servers with no live
   // Mumble session. Without this effect, clicking one would just set the
   // selection and leave the chat area empty.
+  //
+  // Auto-reconnect policy (anonymous joins are gone):
+  //   - `server.superUser`           → prompt for the password, then connect.
+  //   - `server.useOracle` + session → auto-reconnect (token mint is silent).
+  //   - `server.useOracle` w/o session → skip; the Oracle sign-in prompt
+  //     elsewhere in the UI is what gets them moving.
+  //   - Legacy rows with neither flag → log a clear warning; the user has to
+  //     remove + re-add via the dialog. We don't auto-migrate because we have
+  //     no way to ask "did you mean SuperUser or Oracle?" from this surface.
   useEffect(() => {
-    if (!selectedServerId) return
-    const server = servers.get(selectedServerId)
-    if (!server) return
+    if (!selectedServerId) return undefined
+    // Read the server snapshot via getState() instead of from the
+    // `servers` closure so this effect can OMIT `servers` from its deps.
+    // The fields we read (port / superUser / useOracle) are set at
+    // add-time and never mutate; meanwhile the connect we kick off below
+    // ends with `updateServer(url, { connected: true })`, which DOES
+    // change the `servers` Map reference. With `servers` as a dep, that
+    // post-connect mutation re-triggers this effect mid-flight, the
+    // cleanup flips `cancelled=true`, the awaited `getChannelsForServer`
+    // never runs, and the freshly-bound IMumbleService is left without a
+    // channel-lifecycle listener — new channel broadcasts arrive on the
+    // wire and silently die in the (empty) EventEmitter.
+    const server = useServerStore.getState().servers.get(selectedServerId)
+    if (!server) return undefined
     // Already connected? `serversService.getServer()` returns the live IMumbleService
     // from the connection manager — if it's there, nothing to do.
-    if (serversService.getServer(selectedServerId)) return
+    if (serversService.getServer(selectedServerId)) return undefined
 
     const portStr = String(server.port)
-    const username = server.username ?? 'HachimanUser'
+
     // SuperUser auth always requires a password we don't persist. Stop here
     // and surface a modal so the user can enter it — the modal's submit path
     // calls reconnectServer with the password in-memory.
-    if (server.useOracle === false && username.toLowerCase() === 'superuser') {
-      setPendingSuperUserPrompt({ url: selectedServerId, port: portStr, username })
-      return
+    if (server.superUser === true) {
+      setPendingSuperUserPrompt({ url: selectedServerId, port: portStr, username: 'SuperUser' })
+      return undefined
     }
 
-    let cancelled = false
-    void (async () => {
-      try {
-        await serversService.reconnectServer({ url: selectedServerId, port: portStr })
-        if (cancelled) return
-        await channelsService.getChannelsForServer(selectedServerId)
-      } catch (err) {
-        if (!cancelled) console.error('[app] reconnect-on-select failed', err)
+    // Oracle path. Without a session we can't mint a token, so skip rather
+    // than attempt — the user's only path forward is signing in.
+    if (server.useOracle === true) {
+      if (oracleSession === null) return undefined
+      let cancelled = false
+      void (async () => {
+        try {
+          await serversService.reconnectServer({ url: selectedServerId, port: portStr })
+          if (cancelled) return
+          await channelsService.getChannelsForServer(selectedServerId)
+        } catch (err) {
+          if (!cancelled) console.error('[app] reconnect-on-select failed', err)
+        }
+      })()
+      return () => {
+        cancelled = true
       }
-    })()
-    return () => {
-      cancelled = true
     }
-  }, [selectedServerId, servers])
+
+    // Legacy / invalid entry — no auth mode declared. We refuse to reconnect
+    // and ask the user to re-add the server (see ServersService.reconnectServer
+    // which throws the same way; surfaces in the error toast if anything calls
+    // through).
+    console.warn(
+      `[app] Server "${selectedServerId}" has no auth mode (legacy entry). Remove and re-add via Add Server.`
+    )
+    return undefined
+  }, [selectedServerId, oracleSession])
 
   // When a server is freshly selected and has channels but no selection,
   // default to the first channel so the chat area isn't empty.
@@ -140,33 +208,31 @@ function App(): React.JSX.Element {
   }, [selectedServerId, selectedChannelId, channels])
 
   const onAddServer = async (submission: AddServerSubmission): Promise<void> => {
-    if (submission.kind === 'manual') {
+    if (submission.kind === 'superuser') {
       await serversService.addServer({
         url: submission.url,
         port: submission.port,
-        username: submission.username,
+        // Username is hardcoded inside ServersService for SuperUser, but the
+        // ConnectOptions interface still requires the field — pass the literal
+        // for clarity.
+        username: 'SuperUser',
         useOracle: false,
-        ...(submission.password ? { password: submission.password } : {})
-      })
-      await channelsService.getChannelsForServer(submission.url)
-    } else if (submission.kind === 'oracle') {
-      const handle = oracleSession?.user.handle ?? 'HachimanUser'
-      await serversService.addServer({
-        url: submission.url,
-        port: submission.port,
-        username: handle,
-        useOracle: true
+        superUser: true,
+        password: submission.password
       })
       await channelsService.getChannelsForServer(submission.url)
     } else {
-      // Join-code path reuses addAndConnect so the server record gets the
-      // friendly display name and (eventually) any serverId carried by the
-      // signed invite payload.
+      // Join-code path. `addAndConnect` itself refuses without an Oracle
+      // session, so the dialog's gate is the only sanctioned entry point.
+      // The fallback to `''` keeps the call type-correct; the service
+      // throws a clean error before this value is consumed.
+      const handle = oracleSession?.user.handle ?? ''
       await serversService.addAndConnect({
         host: submission.host,
         port: submission.port,
         name: submission.name,
-        username: oracleSession?.user.handle ?? 'HachimanUser'
+        serverId: submission.serverId,
+        username: handle
       })
       await channelsService.getChannelsForServer(submission.host)
     }
@@ -227,8 +293,53 @@ function App(): React.JSX.Element {
 
   const onCreateChannel = async (name: string, type: ChannelType): Promise<void> => {
     if (!selectedServerId) return
-    await channelsService.createChannel(selectedServerId, name, type)
+    await channelsService.createChannel(selectedServerId, name, type, createChannelTarget?.parentId)
   }
+
+  // The Manage Channel context-menu item routes through the settings dialog
+  // pre-targeted at the Channels tab; we also stash the channel id so the
+  // dialog can pick it up via initialChannelId. Setting both at the same
+  // time ensures the dialog reads them together on open.
+  const onManageChannel = (channelId: number): void => {
+    if (!selectedServerId) return
+    setManageChannelTarget({ serverId: selectedServerId, channelId })
+  }
+
+  // Stage a delete request — the actual call lives behind a confirm
+  // dialog below. We capture the serverId at request time rather than
+  // re-reading selectedServerId on confirm, so a stray server switch
+  // between right-click and confirm-click can't accidentally delete a
+  // channel on the wrong server.
+  const onDeleteChannel = (channelId: number): void => {
+    if (!selectedServerId) return
+    setDeleteChannelTarget({ serverId: selectedServerId, channelId })
+  }
+
+  const onConfirmDeleteChannel = async (): Promise<void> => {
+    if (!deleteChannelTarget) return
+    const { serverId: url, channelId } = deleteChannelTarget
+    setDeleteChannelTarget(null)
+    try {
+      await channelsService.deleteChannel(url, channelId)
+    } catch (err) {
+      console.error('[app] delete channel failed', err)
+    }
+  }
+
+  // Look up the channel about to be deleted so the confirm dialog can
+  // reference its name + type. Reads off the same `serverChannels` the
+  // sidebar uses — kept in sync via the channelRemove broadcast.
+  const deleteChannelMeta =
+    deleteChannelTarget !== null
+      ? (serverChannels.find((c) => c.id === deleteChannelTarget.channelId) ?? null)
+      : null
+
+  // Look up the parent channel name (if any) so the create dialog can show
+  // "Create Subchannel of #general" instead of the bare "Create Channel".
+  const createChannelParentName =
+    createChannelTarget?.parentId !== undefined
+      ? (serverChannels.find((c) => c.id === createChannelTarget.parentId)?.name ?? null)
+      : null
 
   return (
     <TooltipProvider delayDuration={200}>
@@ -262,9 +373,14 @@ function App(): React.JSX.Element {
           onRemoveServer={(id) => setRemovingServerId(id)}
         />
         <ServerSettingsDialog
-          open={settingsServerId !== null}
-          serverId={settingsServerId}
-          onClose={() => setSettingsServerId(null)}
+          open={settingsServerId !== null || manageChannelTarget !== null}
+          serverId={manageChannelTarget?.serverId ?? settingsServerId}
+          initialTab={manageChannelTarget ? 'channels' : undefined}
+          initialChannelId={manageChannelTarget?.channelId ?? null}
+          onClose={() => {
+            setSettingsServerId(null)
+            setManageChannelTarget(null)
+          }}
         />
         <RemoveServerDialog serverId={removingServerId} onClose={() => setRemovingServerId(null)} />
         <ChannelSidebar
@@ -275,11 +391,59 @@ function App(): React.JSX.Element {
           onSelectChannel={onSelectChannel}
           onJoinVoice={(id) => void onJoinVoice(id)}
           onLeaveVoice={() => void onLeaveVoice()}
-          onCreateChannel={(type) => setCreateChannelType(type)}
+          onCreateChannel={(type, parentId) => setCreateChannelTarget({ type, parentId })}
+          onManageChannel={onManageChannel}
+          onDeleteChannel={onDeleteChannel}
         />
+        <Dialog
+          open={deleteChannelTarget !== null}
+          onOpenChange={(open) => {
+            if (!open) setDeleteChannelTarget(null)
+          }}
+        >
+          <DialogContent className="sm:max-w-100">
+            <DialogHeader>
+              <DialogTitle>
+                Delete {deleteChannelMeta?.type === 'voice' ? 'voice' : 'text'} channel?
+              </DialogTitle>
+              <DialogDescription>
+                {deleteChannelMeta ? (
+                  <>
+                    This will permanently remove{' '}
+                    <span className="text-foreground font-medium">
+                      {deleteChannelMeta.type === 'voice' ? '🔊' : '#'}
+                      {deleteChannelMeta.name}
+                    </span>
+                    {deleteChannelMeta.type === 'text'
+                      ? ', including all persisted chat history,'
+                      : ''}{' '}
+                    along with every subchannel underneath it. This cannot be undone.
+                  </>
+                ) : (
+                  'This channel will be permanently removed along with all subchannels.'
+                )}
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <DialogClose asChild>
+                <Button type="button" variant="ghost">
+                  Cancel
+                </Button>
+              </DialogClose>
+              <Button
+                type="button"
+                variant="destructive"
+                onClick={() => void onConfirmDeleteChannel()}
+              >
+                Delete channel
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
         <CreateChannelDialog
-          type={createChannelType}
-          onClose={() => setCreateChannelType(null)}
+          type={createChannelTarget?.type ?? null}
+          parentName={createChannelParentName}
+          onClose={() => setCreateChannelTarget(null)}
           onCreate={onCreateChannel}
         />
         <ChatArea

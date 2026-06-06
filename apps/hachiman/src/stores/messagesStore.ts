@@ -4,15 +4,28 @@ import { create } from 'zustand'
 import { devtools } from 'zustand/middleware'
 
 export type Message = {
-  // Dedup model: historic (server-persisted) messages carry a stringified
-  // server-assigned bigint id and are merged by that id. Live messages from
-  // the realtime pipe use locally-generated UUIDs (no server id yet) and are
-  // always appended — they cannot collide with historic ids by construction.
+  // Dedup model:
+  //   - Historic (server-persisted) messages carry a stringified
+  //     server-assigned bigint id and are merged by that id.
+  //   - Live messages from the realtime `textMessage` echo use locally-
+  //     generated UUIDs (no server id yet) and are appended.
+  // The cross-shape collision case (a live UUID entry whose persisted
+  // version later arrives via history reload) is resolved on the
+  // historic side: prependHistory drops live UUIDs that match the
+  // incoming historic by (actorSession, content, |t-t|<5s). That's why
+  // every insert carries `actorSession` — it's the cross-path key.
   id: string
   author: string // name
   avatar: string
   content: string
   date: Date
+  /**
+   * Mumble session id of the sender at send time. Carried on every
+   * insert path so live UUID entries can be deduplicated against the
+   * canonical historic row when chat history is later (re)loaded for
+   * the channel. undefined for placeholder/system rows.
+   */
+  actorSession?: number
 }
 
 /**
@@ -26,6 +39,8 @@ export type HistoricMessage = {
   avatar: string
   content: string
   date: Date
+  /** See {@link Message.actorSession}. */
+  actorSession?: number
 }
 
 interface MessageState {
@@ -76,27 +91,48 @@ export const useMessageStore = create<MessageState>()(
 
           // Index existing historic messages (those whose id is a numeric
           // string — i.e. came from the server). Live messages keyed by
-          // UUID never collide because UUIDs aren't numeric strings.
-          const seen = new Set<string>()
+          // UUID never collide on id by construction.
+          const seenHistoricId = new Set<string>()
           for (const m of existing) {
-            if (/^\d+$/.test(m.id)) seen.add(m.id)
+            if (/^\d+$/.test(m.id)) seenHistoricId.add(m.id)
           }
 
+          // Filter incoming historic against existing historic IDs first.
           const toAdd: Message[] = []
           for (const h of incoming) {
             const idStr = h.id.toString()
-            if (seen.has(idStr)) continue
-            seen.add(idStr)
+            if (seenHistoricId.has(idStr)) continue
+            seenHistoricId.add(idStr)
             toAdd.push({
               id: idStr,
               author: h.author,
               avatar: h.avatar,
               content: h.content,
-              date: h.date
+              date: h.date,
+              actorSession: h.actorSession
             })
           }
 
-          const merged = [...toAdd, ...existing]
+          // Drop live (UUID-keyed) rows that the just-arrived historic
+          // batch has a canonical persisted copy of. Match on
+          // (actorSession, content, |t-t|<5s) — that's the same (sender,
+          // payload, send instant) tuple regardless of which path landed
+          // it. Without this, sending a message and later switching off
+          // the channel and back round-trips into two visible rows: the
+          // live UUID echo and the bigint-keyed persisted form.
+          const DEDUP_WINDOW_MS = 5_000
+          const filteredExisting = existing.filter((m) => {
+            if (/^\d+$/.test(m.id)) return true // historic survives
+            if (m.actorSession === undefined) return true
+            return !toAdd.some(
+              (h) =>
+                h.actorSession === m.actorSession &&
+                h.content === m.content &&
+                Math.abs(h.date.getTime() - m.date.getTime()) < DEDUP_WINDOW_MS
+            )
+          })
+
+          const merged = [...toAdd, ...filteredExisting]
           merged.sort((a, b) => a.date.getTime() - b.date.getTime())
           newHistory.set(channelId, merged)
           return { history: newHistory }

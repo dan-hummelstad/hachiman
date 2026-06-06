@@ -254,8 +254,11 @@ func (server *Server) handleChannelStateMessage(client *Client, msg *Message) {
 			return
 		}
 
-		// Only registered users can create channels.
-		if !client.IsRegistered() && !client.HasCertificate() {
+		// Only registered users can create channels. SuperUser bypass: an
+		// Oracle-admin granted via the AdminOracleUserID path has user == nil
+		// and no client cert, so without this short-circuit they'd be rejected
+		// here even though acl.HasPermission already granted them MakeChannel.
+		if !client.IsSuperUser() && !client.IsRegistered() && !client.HasCertificate() {
 			client.sendPermissionDeniedTypeUser(mumbleproto.PermissionDenied_MissingCertificate, client)
 			return
 		}

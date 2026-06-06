@@ -15,11 +15,12 @@ import { asc, eq, isNull, sql } from 'drizzle-orm'
 import { db } from '@/db/client'
 import {
   islands,
+  servers as placements,
   virtualServers,
   type Island,
   type IslandStatus,
   type NewIsland,
-  type VirtualServer,
+  type VirtualServerStatus,
 } from '@/db/schema'
 
 // ---------------------------------------------------------------------------
@@ -109,15 +110,16 @@ export async function updateIsland(
 }
 
 export async function deleteIsland(id: string): Promise<void> {
-  // The FK from virtual_servers.island_id is ON DELETE SET NULL, so removing an
-  // island unplaces its vServers (it does NOT delete them). We also reset those
-  // vServers to `inactive` first, so none persists as "active but nowhere" —
-  // keeping status and placement coherent for the scheduler to re-home them.
+  // The FK from servers.island_id is ON DELETE SET NULL, so removing an
+  // island unplaces its vServers (does NOT delete them). We also reset those
+  // vServers to `inactive` first, so none persists as "active but nowhere"
+  // — keeping status and placement coherent for the scheduler to re-home them.
+  // Both fields live on the placement table (`servers`) post-refactor.
   await db.transaction(async (tx) => {
     await tx
-      .update(virtualServers)
+      .update(placements)
       .set({ status: 'inactive', islandId: null, updatedAt: new Date() })
-      .where(eq(virtualServers.islandId, id))
+      .where(eq(placements.islandId, id))
     const rows = await tx
       .delete(islands)
       .where(eq(islands.id, id))
@@ -133,14 +135,15 @@ export async function deleteIsland(id: string): Promise<void> {
 
 /** Number of vServers currently placed on each island, keyed by island id. */
 export async function countVServersByIsland(): Promise<Map<string, number>> {
+  // islandId lives on the placement table (`servers`) post-refactor.
   const rows = await db
     .select({
-      islandId: virtualServers.islandId,
+      islandId: placements.islandId,
       count: sql<number>`count(*)::int`,
     })
-    .from(virtualServers)
-    .where(sql`${virtualServers.islandId} IS NOT NULL`)
-    .groupBy(virtualServers.islandId)
+    .from(placements)
+    .where(sql`${placements.islandId} IS NOT NULL`)
+    .groupBy(placements.islandId)
 
   const out = new Map<string, number>()
   for (const r of rows) {
@@ -212,41 +215,90 @@ export function toIslandScoringBase(
 // unplaced vServers (islandId IS NULL). Read-only aggregation for the admin UI.
 // ---------------------------------------------------------------------------
 
+/**
+ * Joined identity+placement view used by the islands admin dashboard.
+ * `id` is the IDENTITY id (virtual_servers.id) — the same id callers see
+ * everywhere else. Placement-only fields (status, islandId, murmurId, port,
+ * maxUsers) live on `servers` but are surfaced flat here so the table
+ * renderer doesn't need to thread two records per row.
+ */
+export interface PlacedVServerView {
+  /** Identity id (virtual_servers.id). Stable, what invites/OIDC/etc. key off. */
+  id: string
+  /** Owner-selected region (from identity row). */
+  region: string | null
+  status: VirtualServerStatus
+  islandId: string | null
+  murmurId: number | null
+  port: number
+  maxUsers: number
+  createdAt: Date
+}
+
 export interface IslandWithVServers {
   island: Island
-  vServers: VirtualServer[]
+  vServers: PlacedVServerView[]
 }
 
 export interface IslandsOverview {
   islands: IslandWithVServers[]
   /** Managed vServers awaiting placement (islandId IS NULL). */
-  unplaced: VirtualServer[]
+  unplaced: PlacedVServerView[]
 }
 
 export async function getIslandsOverview(): Promise<IslandsOverview> {
-  const [allIslands, allVServers, unplacedVServers] = await Promise.all([
+  // Join identity + placement once and bucket in JS — simpler than two
+  // round-trips, and the dashboard's cardinality (dozens of vServers) makes
+  // this cheap. `region` and the externally-visible id come from identity;
+  // placement fields come from `placements`.
+  const [allIslands, joined] = await Promise.all([
     listIslands(),
-    db.select().from(virtualServers).orderBy(asc(virtualServers.createdAt)),
     db
-      .select()
+      .select({
+        identityId: virtualServers.id,
+        region: virtualServers.region,
+        createdAt: virtualServers.createdAt,
+        status: placements.status,
+        islandId: placements.islandId,
+        murmurId: placements.murmurId,
+        port: placements.port,
+        maxUsers: placements.maxUsers,
+      })
       .from(virtualServers)
-      .where(isNull(virtualServers.islandId))
+      .innerJoin(placements, eq(placements.virtualServerId, virtualServers.id))
       .orderBy(asc(virtualServers.createdAt)),
   ])
 
-  const byIsland = new Map<string, VirtualServer[]>()
-  for (const vs of allVServers) {
-    if (!vs.islandId) continue
-    const list = byIsland.get(vs.islandId)
-    if (list) list.push(vs)
-    else byIsland.set(vs.islandId, [vs])
+  const byIsland = new Map<string, PlacedVServerView[]>()
+  const unplaced: PlacedVServerView[] = []
+  for (const r of joined) {
+    const view: PlacedVServerView = {
+      id: r.identityId,
+      region: r.region,
+      status: r.status,
+      islandId: r.islandId,
+      murmurId: r.murmurId,
+      port: r.port,
+      maxUsers: r.maxUsers,
+      createdAt: r.createdAt,
+    }
+    if (r.islandId === null) {
+      unplaced.push(view)
+    } else {
+      const list = byIsland.get(r.islandId)
+      if (list) list.push(view)
+      else byIsland.set(r.islandId, [view])
+    }
   }
+  // Silence the otherwise-unused `isNull` import retained for any future
+  // dashboard read that wants to filter directly at the DB layer.
+  void isNull
 
   return {
     islands: allIslands.map((island) => ({
       island,
       vServers: byIsland.get(island.id) ?? [],
     })),
-    unplaced: unplacedVServers,
+    unplaced,
   }
 }

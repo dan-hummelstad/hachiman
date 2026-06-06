@@ -1,5 +1,5 @@
 {
-  "id": "db3b93d3-fdf7-438f-b40b-82da2f0aa9fc",
+  "id": "a57ed894-83ab-4833-bf06-62addaf62a61",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -116,8 +116,8 @@
           "notNull": true,
           "default": "gen_random_uuid()"
         },
-        "server_id": {
-          "name": "server_id",
+        "virtual_server_id": {
+          "name": "virtual_server_id",
           "type": "uuid",
           "primaryKey": false,
           "notNull": true
@@ -170,12 +170,12 @@
       },
       "indexes": {},
       "foreignKeys": {
-        "invite_codes_server_id_servers_id_fk": {
-          "name": "invite_codes_server_id_servers_id_fk",
+        "invite_codes_virtual_server_id_virtual_servers_id_fk": {
+          "name": "invite_codes_virtual_server_id_virtual_servers_id_fk",
           "tableFrom": "invite_codes",
-          "tableTo": "servers",
+          "tableTo": "virtual_servers",
           "columnsFrom": [
-            "server_id"
+            "virtual_server_id"
           ],
           "columnsTo": [
             "id"
@@ -445,8 +445,8 @@
           "notNull": true,
           "default": "gen_random_uuid()"
         },
-        "server_id": {
-          "name": "server_id",
+        "virtual_server_id": {
+          "name": "virtual_server_id",
           "type": "uuid",
           "primaryKey": false,
           "notNull": false
@@ -494,12 +494,12 @@
       },
       "indexes": {},
       "foreignKeys": {
-        "oidc_clients_server_id_servers_id_fk": {
-          "name": "oidc_clients_server_id_servers_id_fk",
+        "oidc_clients_virtual_server_id_virtual_servers_id_fk": {
+          "name": "oidc_clients_virtual_server_id_virtual_servers_id_fk",
           "tableFrom": "oidc_clients",
-          "tableTo": "servers",
+          "tableTo": "virtual_servers",
           "columnsFrom": [
-            "server_id"
+            "virtual_server_id"
           ],
           "columnsTo": [
             "id"
@@ -510,11 +510,11 @@
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {
-        "oidc_clients_server_id_unique": {
-          "name": "oidc_clients_server_id_unique",
+        "oidc_clients_virtual_server_id_unique": {
+          "name": "oidc_clients_virtual_server_id_unique",
           "nullsNotDistinct": false,
           "columns": [
-            "server_id"
+            "virtual_server_id"
           ]
         },
         "oidc_clients_client_id_unique": {
@@ -664,8 +664,8 @@
           "notNull": true,
           "default": "gen_random_uuid()"
         },
-        "server_id": {
-          "name": "server_id",
+        "virtual_server_id": {
+          "name": "virtual_server_id",
           "type": "uuid",
           "primaryKey": false,
           "notNull": true
@@ -704,12 +704,12 @@
       },
       "indexes": {},
       "foreignKeys": {
-        "server_domain_verifications_server_id_servers_id_fk": {
-          "name": "server_domain_verifications_server_id_servers_id_fk",
+        "server_domain_verifications_virtual_server_id_virtual_servers_id_fk": {
+          "name": "server_domain_verifications_virtual_server_id_virtual_servers_id_fk",
           "tableFrom": "server_domain_verifications",
-          "tableTo": "servers",
+          "tableTo": "virtual_servers",
           "columnsFrom": [
-            "server_id"
+            "virtual_server_id"
           ],
           "columnsTo": [
             "id"
@@ -735,27 +735,29 @@
           "notNull": true,
           "default": "gen_random_uuid()"
         },
-        "owner_user_id": {
-          "name": "owner_user_id",
+        "virtual_server_id": {
+          "name": "virtual_server_id",
           "type": "uuid",
           "primaryKey": false,
           "notNull": true
         },
-        "slug": {
-          "name": "slug",
-          "type": "citext",
+        "status": {
+          "name": "status",
+          "type": "virtual_server_status",
+          "typeSchema": "public",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "default": "'inactive'"
         },
-        "name": {
-          "name": "name",
-          "type": "text",
+        "island_id": {
+          "name": "island_id",
+          "type": "uuid",
           "primaryKey": false,
-          "notNull": true
+          "notNull": false
         },
-        "description": {
-          "name": "description",
-          "type": "text",
+        "murmur_id": {
+          "name": "murmur_id",
+          "type": "integer",
           "primaryKey": false,
           "notNull": false
         },
@@ -772,16 +774,23 @@
           "notNull": true,
           "default": 64738
         },
-        "oracle_only": {
-          "name": "oracle_only",
-          "type": "boolean",
+        "max_users": {
+          "name": "max_users",
+          "type": "integer",
           "primaryKey": false,
           "notNull": true,
-          "default": false
+          "default": 100
         },
-        "region": {
-          "name": "region",
-          "type": "text",
+        "max_bandwidth": {
+          "name": "max_bandwidth",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 558000
+        },
+        "last_active_at": {
+          "name": "last_active_at",
+          "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false
         },
@@ -800,30 +809,14 @@
           "default": "now()"
         }
       },
-      "indexes": {
-        "servers_slug_unique": {
-          "name": "servers_slug_unique",
-          "columns": [
-            {
-              "expression": "slug",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
+      "indexes": {},
       "foreignKeys": {
-        "servers_owner_user_id_users_id_fk": {
-          "name": "servers_owner_user_id_users_id_fk",
+        "servers_virtual_server_id_virtual_servers_id_fk": {
+          "name": "servers_virtual_server_id_virtual_servers_id_fk",
           "tableFrom": "servers",
-          "tableTo": "users",
+          "tableTo": "virtual_servers",
           "columnsFrom": [
-            "owner_user_id"
+            "virtual_server_id"
           ],
           "columnsTo": [
             "id"
@@ -831,22 +824,30 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "servers_region_regions_code_fk": {
-          "name": "servers_region_regions_code_fk",
+        "servers_island_id_islands_id_fk": {
+          "name": "servers_island_id_islands_id_fk",
           "tableFrom": "servers",
-          "tableTo": "regions",
+          "tableTo": "islands",
           "columnsFrom": [
-            "region"
+            "island_id"
           ],
           "columnsTo": [
-            "code"
+            "id"
           ],
           "onDelete": "set null",
           "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
+      "uniqueConstraints": {
+        "servers_virtual_server_id_unique": {
+          "name": "servers_virtual_server_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "virtual_server_id"
+          ]
+        }
+      },
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
@@ -913,8 +914,8 @@
           "primaryKey": false,
           "notNull": true
         },
-        "server_id": {
-          "name": "server_id",
+        "virtual_server_id": {
+          "name": "virtual_server_id",
           "type": "uuid",
           "primaryKey": false,
           "notNull": false
@@ -1002,12 +1003,12 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "user_servers_server_id_servers_id_fk": {
-          "name": "user_servers_server_id_servers_id_fk",
+        "user_servers_virtual_server_id_virtual_servers_id_fk": {
+          "name": "user_servers_virtual_server_id_virtual_servers_id_fk",
           "tableFrom": "user_servers",
-          "tableTo": "servers",
+          "tableTo": "virtual_servers",
           "columnsFrom": [
-            "server_id"
+            "virtual_server_id"
           ],
           "columnsTo": [
             "id"
@@ -1164,62 +1165,40 @@
           "notNull": true,
           "default": "gen_random_uuid()"
         },
-        "server_id": {
-          "name": "server_id",
+        "owner_user_id": {
+          "name": "owner_user_id",
           "type": "uuid",
           "primaryKey": false,
           "notNull": true
         },
-        "status": {
-          "name": "status",
-          "type": "virtual_server_status",
-          "typeSchema": "public",
+        "slug": {
+          "name": "slug",
+          "type": "citext",
           "primaryKey": false,
-          "notNull": true,
-          "default": "'inactive'"
+          "notNull": true
         },
-        "island_id": {
-          "name": "island_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "murmur_id": {
-          "name": "murmur_id",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "port": {
-          "name": "port",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 64738
-        },
-        "region": {
-          "name": "region",
+        "name": {
+          "name": "name",
           "type": "text",
           "primaryKey": false,
           "notNull": true
         },
-        "max_users": {
-          "name": "max_users",
-          "type": "integer",
+        "description": {
+          "name": "description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "oracle_only": {
+          "name": "oracle_only",
+          "type": "boolean",
           "primaryKey": false,
           "notNull": true,
-          "default": 100
+          "default": false
         },
-        "max_bandwidth": {
-          "name": "max_bandwidth",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 558000
-        },
-        "last_active_at": {
-          "name": "last_active_at",
-          "type": "timestamp with time zone",
+        "region": {
+          "name": "region",
+          "type": "text",
           "primaryKey": false,
           "notNull": false
         },
@@ -1238,32 +1217,35 @@
           "default": "now()"
         }
       },
-      "indexes": {},
+      "indexes": {
+        "virtual_servers_slug_unique": {
+          "name": "virtual_servers_slug_unique",
+          "columns": [
+            {
+              "expression": "slug",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
       "foreignKeys": {
-        "virtual_servers_server_id_servers_id_fk": {
-          "name": "virtual_servers_server_id_servers_id_fk",
+        "virtual_servers_owner_user_id_users_id_fk": {
+          "name": "virtual_servers_owner_user_id_users_id_fk",
           "tableFrom": "virtual_servers",
-          "tableTo": "servers",
+          "tableTo": "users",
           "columnsFrom": [
-            "server_id"
+            "owner_user_id"
           ],
           "columnsTo": [
             "id"
           ],
           "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "virtual_servers_island_id_islands_id_fk": {
-          "name": "virtual_servers_island_id_islands_id_fk",
-          "tableFrom": "virtual_servers",
-          "tableTo": "islands",
-          "columnsFrom": [
-            "island_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
           "onUpdate": "no action"
         },
         "virtual_servers_region_regions_code_fk": {
@@ -1276,20 +1258,12 @@
           "columnsTo": [
             "code"
           ],
-          "onDelete": "restrict",
+          "onDelete": "set null",
           "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "virtual_servers_server_id_unique": {
-          "name": "virtual_servers_server_id_unique",
-          "nullsNotDistinct": false,
-          "columns": [
-            "server_id"
-          ]
-        }
-      },
+      "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false

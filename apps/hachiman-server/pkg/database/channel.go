@@ -35,6 +35,14 @@ func nullInt64(val int64) sql.NullInt64 {
 	}
 }
 
+// ChannelInit idempotently creates the root channel (ChannelID=0) for the
+// given vServer. Returns (existing, nil) when channel 0 already exists, or
+// (created, nil) on insert. Exported so callers outside the package can use
+// it as a safety net (see cmd/grumble.Server.RootChannel).
+func (d *DbTx) ChannelInit(sid uint64, defaultName string) (*Channel, error) {
+	return d.channelInit(sid, defaultName)
+}
+
 func (d *DbTx) channelInit(sid uint64, defaultName string) (*Channel, error) {
 	ch, err := d.ChannelGet(sid, 0)
 	if err != nil {
@@ -42,7 +50,7 @@ func (d *DbTx) channelInit(sid uint64, defaultName string) (*Channel, error) {
 	}
 
 	if ch != nil {
-		return nil, nil
+		return ch, nil
 	}
 
 	channel := Channel{

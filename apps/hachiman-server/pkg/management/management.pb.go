@@ -26,9 +26,48 @@ const (
 )
 
 type CreateVirtualServerRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Oracle users.id (UUID string) of the user who created this managed
+	// vServer. When set, this user — on authenticating against the vServer
+	// with an Oracle OIDC access token that introspects to the same `sub`
+	// (see cmd/grumble/oracle_introspect.go) — is granted SuperUser-equivalent
+	// privileges on this vServer (Client.user.Id is mapped to 0; the existing
+	// acl.HasPermission SuperUser short-circuit then applies).
+	//
+	// Empty (the default) = no Oracle-user-mapped admin; self-host behaviour
+	// is unchanged and the only path to SuperUser is the local "SuperUser"
+	// password account.
+	//
+	// Defense in depth: the grant is gated on a SUCCESSFUL introspection of
+	// the client's token. A client sending a fake oracle_token claiming a
+	// matching `sub` will fail introspection and never reach the grant.
+	//
+	// Stored on the vServer side in the per-server config KV table under key
+	// "AdminOracleUserID", so a future SetConfig RPC can update it without
+	// a schema migration. See serverconf.DefaultCfg.
+	AdminOracleUserId string `protobuf:"bytes,1,opt,name=admin_oracle_user_id,json=adminOracleUserId,proto3" json:"admin_oracle_user_id,omitempty"`
+	// RFC 7662 introspection endpoint of the Oracle / Takusen authorisation
+	// server (e.g. "https://oracle.example/api/oidc/token/introspection").
+	// When non-empty (typically alongside oracle_client_id + oracle_client_secret),
+	// Grumble stamps it onto the new vServer's `OracleIntrospectionURL` config
+	// and uses it to introspect Authenticate.oracle_token values. Empty leaves
+	// OracleIntrospectionURL at its DefaultCfg default (empty = introspection
+	// disabled). See pkg/serverconf/config.go.
+	OracleIntrospectionUrl string `protobuf:"bytes,2,opt,name=oracle_introspection_url,json=oracleIntrospectionUrl,proto3" json:"oracle_introspection_url,omitempty"`
+	// OIDC client_id Grumble presents on the introspection call (RFC 7662
+	// §2.1 client_secret_basic). This is THIS vServer's per-server OIDC
+	// client — the same one that user access tokens are minted bound to
+	// (lib/server-tokens.ts on the Oracle side). Using the same client for
+	// both introspection-auth and audience-binding means oracle_introspect.go's
+	// `result.ClientID != cfg.ClientID` audience check naturally passes.
+	// Stored as the per-vServer `OracleClientID` config key.
+	OracleClientId string `protobuf:"bytes,3,opt,name=oracle_client_id,json=oracleClientId,proto3" json:"oracle_client_id,omitempty"`
+	// OIDC client_secret paired with oracle_client_id. Sent over the
+	// (loopback-only) management gRPC channel and stored as the per-vServer
+	// `OracleClientSecret` config key. NEVER log or echo this value.
+	OracleClientSecret string `protobuf:"bytes,4,opt,name=oracle_client_secret,json=oracleClientSecret,proto3" json:"oracle_client_secret,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *CreateVirtualServerRequest) Reset() {
@@ -61,11 +100,49 @@ func (*CreateVirtualServerRequest) Descriptor() ([]byte, []int) {
 	return file_management_proto_rawDescGZIP(), []int{0}
 }
 
+func (x *CreateVirtualServerRequest) GetAdminOracleUserId() string {
+	if x != nil {
+		return x.AdminOracleUserId
+	}
+	return ""
+}
+
+func (x *CreateVirtualServerRequest) GetOracleIntrospectionUrl() string {
+	if x != nil {
+		return x.OracleIntrospectionUrl
+	}
+	return ""
+}
+
+func (x *CreateVirtualServerRequest) GetOracleClientId() string {
+	if x != nil {
+		return x.OracleClientId
+	}
+	return ""
+}
+
+func (x *CreateVirtualServerRequest) GetOracleClientSecret() string {
+	if x != nil {
+		return x.OracleClientSecret
+	}
+	return ""
+}
+
 type CreateVirtualServerResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The numeric id allocated by the database — corresponds to Server.Id /
 	// database.Server.ServerID. Stable across restarts of this process.
-	ServerId      int64 `protobuf:"varint,1,opt,name=server_id,json=serverId,proto3" json:"server_id,omitempty"`
+	ServerId int64 `protobuf:"varint,1,opt,name=server_id,json=serverId,proto3" json:"server_id,omitempty"`
+	// The TCP/UDP port the freshly-booted vServer is listening on. Returned
+	// because Grumble auto-derives the port from the vServer id (default
+	// 64738 + id - 1) unless an explicit `Port` config key is set — Oracle
+	// needs to know which port to advertise to clients without having to
+	// hard-code that derivation. Always non-zero on a successful response.
+	Port int32 `protobuf:"varint,2,opt,name=port,proto3" json:"port,omitempty"`
+	// The WebSocket port the vServer is listening on, or 0 when WebSocket
+	// listening is disabled for this vServer. Same rationale as `port`:
+	// derived from `WebPort` config + id, so Oracle should not guess.
+	WebPort       int32 `protobuf:"varint,3,opt,name=web_port,json=webPort,proto3" json:"web_port,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -103,6 +180,20 @@ func (*CreateVirtualServerResponse) Descriptor() ([]byte, []int) {
 func (x *CreateVirtualServerResponse) GetServerId() int64 {
 	if x != nil {
 		return x.ServerId
+	}
+	return 0
+}
+
+func (x *CreateVirtualServerResponse) GetPort() int32 {
+	if x != nil {
+		return x.Port
+	}
+	return 0
+}
+
+func (x *CreateVirtualServerResponse) GetWebPort() int32 {
+	if x != nil {
+		return x.WebPort
 	}
 	return 0
 }
@@ -191,10 +282,16 @@ var File_management_proto protoreflect.FileDescriptor
 
 const file_management_proto_rawDesc = "" +
 	"\n" +
-	"\x10management.proto\x12\x15grumble.management.v1\"\"\n" +
-	"\x1aCreateVirtualServerRequestJ\x04\b\x01\x10\x11\":\n" +
+	"\x10management.proto\x12\x15grumble.management.v1\"\xe9\x01\n" +
+	"\x1aCreateVirtualServerRequest\x12/\n" +
+	"\x14admin_oracle_user_id\x18\x01 \x01(\tR\x11adminOracleUserId\x128\n" +
+	"\x18oracle_introspection_url\x18\x02 \x01(\tR\x16oracleIntrospectionUrl\x12(\n" +
+	"\x10oracle_client_id\x18\x03 \x01(\tR\x0eoracleClientId\x120\n" +
+	"\x14oracle_client_secret\x18\x04 \x01(\tR\x12oracleClientSecretJ\x04\b\x05\x10\x11\"i\n" +
 	"\x1bCreateVirtualServerResponse\x12\x1b\n" +
-	"\tserver_id\x18\x01 \x01(\x03R\bserverId\"9\n" +
+	"\tserver_id\x18\x01 \x01(\x03R\bserverId\x12\x12\n" +
+	"\x04port\x18\x02 \x01(\x05R\x04port\x12\x19\n" +
+	"\bweb_port\x18\x03 \x01(\x05R\awebPort\"9\n" +
 	"\x1aDeleteVirtualServerRequest\x12\x1b\n" +
 	"\tserver_id\x18\x01 \x01(\x03R\bserverId\"\x1d\n" +
 	"\x1bDeleteVirtualServerResponse2\x8f\x02\n" +

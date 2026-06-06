@@ -21,12 +21,19 @@ interface CreateChannelDialogProps {
    * keeps the dialog closed.
    */
   type: ChannelType | null
+  /**
+   * Optional name of the parent channel. When present, the dialog labels
+   * itself as creating a subchannel of that parent. The parent id itself
+   * is owned by the caller (App.tsx) and forwarded into `onCreate`, so
+   * the dialog stays a dumb input surface.
+   */
+  parentName?: string | null
   onClose: () => void
   onCreate: (name: string, type: ChannelType) => Promise<void>
 }
 
 export function CreateChannelDialog(props: CreateChannelDialogProps): React.JSX.Element {
-  const { type, onClose, onCreate } = props
+  const { type, parentName, onClose, onCreate } = props
   const [name, setName] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
@@ -62,9 +69,17 @@ export function CreateChannelDialog(props: CreateChannelDialogProps): React.JSX.
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Icon className="h-4 w-4" />
-              Create {type === 'voice' ? 'Voice' : 'Text'} Channel
+              {parentName
+                ? `Create ${type === 'voice' ? 'Voice' : 'Text'} Subchannel`
+                : `Create ${type === 'voice' ? 'Voice' : 'Text'} Channel`}
             </DialogTitle>
             <DialogDescription>
+              {parentName ? (
+                <>
+                  Nested under <span className="text-foreground font-medium">{parentName}</span>
+                  .{' '}
+                </>
+              ) : null}
               {type === 'voice'
                 ? 'Voice channels carry audio plus a live (non-persistent) chat.'
                 : 'Text channels keep persistent chat history. No voice.'}

@@ -168,9 +168,27 @@ func NewServer(id int64, dataDir string, db *database.GrumbleDb) (s *Server, err
 	rand.Read(randomBytes)
 	rootPassword := base64.StdEncoding.EncodeToString(randomBytes)
 
-	// Create root account, channel, groups
-	db.Transaction(func(tx *database.DbTx) error {
-		isNew, err := tx.ServerInit(uint64(id), s.generatePasswordHash(rootPassword))
+	// Create root account, channel, groups, and seed the default per-vServer
+	// ACL rows. ServerInit is idempotent across all of (SuperUser, root
+	// channel, admin group, admin GroupMember) and seedRootChannelACLs is
+	// idempotent across the ACL UPSERTs, so re-running NewServer on an
+	// existing vServer is a safe no-op. Errors propagate out of the tx so
+	// gorm rolls back the whole bundle on partial failure — we then log
+	// the failure rather than swallow it (the previous behaviour left
+	// half-initialised servers that Fatalf'd on first client connect; the
+	// defense-in-depth in RootChannel() below now catches that, but we
+	// still surface the cause loudly here).
+	// Managed vServers (provisioned via the gRPC CreateVirtualServer flow)
+	// are detected by the AdminOracleUserID config key, which the management
+	// service stamps in the SAME tx as ServerAdd BEFORE this NewServer call
+	// runs. Self-host vServers leave it empty (DefaultCfg) and get the
+	// classic SuperUser-row bootstrap. See pkg/database/server.go ServerInit
+	// for the managed-mode contract (no SuperUser row, no admin GroupMember;
+	// the Oracle owner-grant in handleAuthenticate replaces both).
+	isManaged := s.cfg.StringValue("AdminOracleUserID") != ""
+
+	if txErr := db.Transaction(func(tx *database.DbTx) error {
+		isNew, err := tx.ServerInit(uint64(id), s.generatePasswordHash(rootPassword), isManaged)
 		if err != nil {
 			return err
 		}
@@ -179,20 +197,11 @@ func NewServer(id int64, dataDir string, db *database.GrumbleDb) (s *Server, err
 			s.Logger.Printf("Password for 'SuperUser' set to '%s'", rootPassword)
 		}
 
-		// If new server, create initial ACL table
-		if isNew {
-			err = tx.ACLAdd(database.NewACL(uint64(id), 0, 1).WithGroup("admin").Apply(true, true).Grant(acl.WritePermission))
-			if err != nil {
-				return err
-			}
-			err = tx.ACLAdd(database.NewACL(uint64(id), 0, 2).WithGroup("auth").Apply(true, true).Grant(acl.TempChannelPermission))
-			if err != nil {
-				return err
-			}
-			err = tx.ACLAdd(database.NewACL(uint64(id), 0, 3).WithGroup("all").Apply(true, false).Grant(acl.SelfRegisterPermission))
-			if err != nil {
-				return err
-			}
+		// Seed (or re-seed) the canonical per-vServer ACL rows on the root
+		// channel. ACLAdd is OnConflict-UpdateAll, so this is idempotent on
+		// the (server_id, channel_id, priority) unique key.
+		if err := seedRootChannelACLs(tx, uint64(id)); err != nil {
+			return err
 		}
 
 		// Load channel data from db
@@ -281,7 +290,14 @@ func NewServer(id int64, dataDir string, db *database.GrumbleDb) (s *Server, err
 		}
 
 		return nil
-	})
+	}); txErr != nil {
+		// Seeding/load failed — propagate so the boot loop / management
+		// CreateAndStart caller knows the vServer is not viable. The
+		// previous code silently ignored this and went on to construct a
+		// Server with an empty Channels map, which then Fatalf'd on the
+		// first client connect.
+		return nil, fmt.Errorf("seed/load vServer %d: %w", id, txErr)
+	}
 
 	s.listenerManager = NewChannelListenerManager()
 	// Ban list
@@ -295,12 +311,92 @@ func (server *Server) Debugf(format string, v ...interface{}) {
 	server.Printf(format, v...)
 }
 
-// RootChannel gets a pointer to the root channel
+// RootChannel returns the root channel (ChannelID=0) for this vServer.
+//
+// Defense in depth: if the root channel is missing (e.g. an earlier seeding
+// transaction was rolled back due to a transient DB error, or the persistent
+// row was hand-deleted), recover by creating it on demand instead of taking
+// the whole process down. This matches the user-facing contract that a
+// brand-new vServer is connectable on first try without operator
+// intervention. The canonical seed path is still ServerInit +
+// seedRootChannelACLs in NewServer; this fallback only fires when that path
+// somehow left a hole.
 func (server *Server) RootChannel() *Channel {
-	root, exists := server.Channels[0]
-	if !exists {
-		server.Fatalf("Not Root channel found for server")
+	if root, exists := server.Channels[0]; exists {
+		return root
 	}
+
+	server.Printf("RootChannel: channel 0 missing in memory — repairing")
+	var root *Channel
+	if err := server.DB.Transaction(func(tx *database.DbTx) error {
+		// channelInit is no-op if channel 0 already exists in the DB.
+		if _, err := tx.ChannelInit(uint64(server.Id), "Root"); err != nil {
+			return err
+		}
+		// Re-seed admin group + ACLs if missing. Both calls are idempotent.
+		if _, err := tx.GroupEnsure(uint64(server.Id), 0, "admin"); err != nil {
+			return err
+		}
+		if err := seedRootChannelACLs(tx, uint64(server.Id)); err != nil {
+			return err
+		}
+
+		// Load the just-seeded ACLs + groups into the in-memory channel
+		// inside the SAME tx, mirroring NewServer's load step. Without this
+		// the repaired channel runs with empty ACL.ACLs / ACL.Groups in
+		// memory — the admin group is powerless until the next process
+		// restart re-reads the row from the database.
+		root = NewChannel(0, "Root", mumbleproto.ChannelState_CHANNEL_TYPE_VOICE)
+		acls, err := tx.ACLGet(uint64(server.Id), 0)
+		if err != nil {
+			return err
+		}
+		for _, a := range acls {
+			ACL := acl.ACL{
+				UserId:    int(a.UserID.Int64),
+				Group:     a.GroupName,
+				ApplyHere: a.ApplyHere,
+				ApplySubs: a.ApplySub,
+				Allow:     acl.Permission(a.GrantPriv),
+				Deny:      acl.Permission(a.RevokePriv),
+			}
+			if !a.UserID.Valid {
+				ACL.UserId = -1
+			}
+			root.ACL.ACLs = append(root.ACL.ACLs, ACL)
+		}
+		groups, err := tx.GroupGetByChannel(uint64(server.Id), 0)
+		if err != nil {
+			return err
+		}
+		for _, g := range groups {
+			group := acl.Group{
+				Name:        g.Name,
+				Inherit:     g.Inherit,
+				Inheritable: g.Inheritable,
+				Add:         make(map[int]bool),
+				Remove:      make(map[int]bool),
+				Temporary:   make(map[int]bool),
+			}
+			members, err := tx.GroupMemberList(uint64(server.Id), g.GroupID)
+			if err != nil {
+				return err
+			}
+			for _, m := range members {
+				if m.Addit {
+					group.Add[int(m.UserID)] = true
+				} else {
+					group.Remove[int(m.UserID)] = true
+				}
+			}
+			root.ACL.Groups[g.Name] = group
+		}
+		return nil
+	}); err != nil {
+		server.Fatalf("RootChannel: failed to repair root channel: %v", err)
+	}
+
+	server.Channels[0] = root
 	return root
 }
 
@@ -757,8 +853,20 @@ func (server *Server) handleAuthenticate(client *Client, msg *Message) {
 	case oracleToken != "" && oracleCfg.Enabled():
 		result, err := introspectOracleToken(oracleCfg, oracleToken)
 		if err != nil || result == nil || !result.Active {
-			if err != nil {
+			// Log every failure mode so an operator debugging "why am I
+			// not getting admin even though I'm sending a token" can tell
+			// whether the AS rejected it (active=false), returned an empty
+			// body (result==nil), or the HTTP call itself blew up (err).
+			// Without these lines a non-OracleOnly server silently drops the
+			// token and treats the client as anonymous — invisible from the
+			// logs.
+			switch {
+			case err != nil:
 				server.Printf("Oracle introspection failed for %v: %v", client.Session(), err)
+			case result == nil:
+				server.Printf("Oracle introspection returned no result for %v (treating as anonymous)", client.Session())
+			default: // result != nil && !result.Active
+				server.Printf("Oracle introspection returned active=false for %v (treating as anonymous)", client.Session())
 			}
 			if oracleOnly {
 				client.RejectAuth(mumbleproto.Reject_AuthenticatorFail,
@@ -770,6 +878,39 @@ func (server *Server) handleAuthenticate(client *Client, msg *Message) {
 			client.OracleSub = result.Sub
 			client.OracleHandle = result.PreferredUsername
 			client.OracleVerified = true
+
+			// Managed-mode owner grant: if the introspected Oracle `sub`
+			// matches the AdminOracleUserID this vServer was created with
+			// (see pkg/management/management.proto and
+			// pkg/management/service.go), promote this client to
+			// SuperUser-equivalent. The grant is gated on
+			// OracleVerified=true above — an Oracle token that FAILED
+			// introspection cannot reach this branch, so a forged token
+			// claiming a matching `sub` is rejected before we ever read
+			// the AdminOracleUserID config. Self-host servers leave
+			// AdminOracleUserID empty in DefaultCfg and never hit this
+			// path, so behaviour is unchanged. Defense-in-depth: the
+			// `adminID != ""` guard short-circuits the empty-vs-empty match
+			// case (a vServer with no admin configured cannot grant to a
+			// token with an empty `sub`).
+			//
+			// We set client.superUser as a side-channel flag instead of
+			// overwriting client.user with a synthesised &User{Id: 0}. The
+			// overwrite approach caused two real problems: (a) every
+			// Oracle-admin's ShownName became "SuperUser" even when they
+			// were also a registered local user, and (b) finishAuthenticate's
+			// `UserId() == 0` dedup collapsed all concurrent Oracle-admin
+			// connections (and any concurrent local-password SuperUser)
+			// onto one identity, rejecting the second connection with
+			// Reject_UsernameInUse. With the flag, IsSuperUser() and
+			// acl.HasPermission's UserId()==0 short-circuit still grant
+			// blanket admin to anonymous Oracle admins, while registered
+			// users keep their real UserId so per-identity dedup works.
+			if shouldGrantOracleAdmin(server.cfg.StringValue("AdminOracleUserID"), result.Sub) {
+				client.superUser = true
+				server.Printf("Client %v granted SuperUser via Oracle owner mapping (sub=%s)",
+					client.Session(), result.Sub)
+			}
 		}
 	case oracleToken != "" && !oracleCfg.Enabled():
 		// Client offered a token but the server has no introspection
@@ -933,9 +1074,19 @@ func (server *Server) finishAuthenticate(client *Client) {
 		userstate.Hash = proto.String(client.CertHash())
 	}
 
-	if client.IsRegistered() {
+	// Wire UserId is the client-side signal for "this session is logged in
+	// as a known identity" — the TS client treats UserId === 0 as
+	// SuperUser for permission gates (e.g. server-settings-dialog). Oracle-
+	// granted admins have `client.user == nil` but `IsSuperUser() == true`
+	// and `UserId() == 0`; without this branch the wire packet omits
+	// UserId for them and every SuperUser-gated UI stays locked closed.
+	// Texture / comment blobs still require a registered user row, so
+	// that branch stays gated on IsRegistered().
+	if client.IsRegistered() || client.IsSuperUser() {
 		userstate.UserId = proto.Uint32(uint32(client.UserId()))
+	}
 
+	if client.IsRegistered() {
 		if client.user.HasTexture() {
 			// Does the client support blobs?
 			if client.Version.SupportCommentTextureHash() {
@@ -1118,9 +1269,15 @@ func (server *Server) sendUserList(client *Client) {
 			userstate.Hash = proto.String(connectedClient.CertHash())
 		}
 
-		if connectedClient.IsRegistered() {
+		// See the matching block in the own-userstate path above: stamping
+		// UserId for Oracle-granted SuperUsers (client.user == nil, but
+		// UserId() == 0) is what unlocks the TS client's IsSuperUser
+		// permission gates.
+		if connectedClient.IsRegistered() || connectedClient.IsSuperUser() {
 			userstate.UserId = proto.Uint32(uint32(connectedClient.UserId()))
+		}
 
+		if connectedClient.IsRegistered() {
 			if connectedClient.user.HasTexture() {
 				// Does the client support blobs?
 				if client.Version.SupportCommentTextureHash() {
@@ -1191,16 +1348,26 @@ func (server *Server) sendUserList(client *Client) {
 }
 
 // Send a client its permissions for channel.
+//
+// The legacy short-circuit was "skip the send entirely for SuperUser" — fine
+// for the original Mumble desktop client (which knew it was the SuperUser
+// from the local-password login and synthesised AllPermissions locally) but
+// fatal for any client that treats PermissionQuery as a real request/reply:
+// the reply never came, the client's `await fetchChannelPermissions` timed
+// out (see pkgs/hachiman-node/src/channel.ts), and the UI's "create channel"
+// affordance hung. Oracle-granted SuperUsers compound this — there's no
+// local-password handshake for the client to infer SuperUser from in the
+// first place, so silence is genuinely indistinguishable from "I have no
+// permissions".
+//
+// Send AllPermissions explicitly for SuperUsers, mirroring the non-SuperUser
+// branch (which is itself stubbed to AllPermissions until the proper ACL
+// computation is wired — see the older fixme below).
 func (server *Server) sendClientPermissions(client *Client, channel *Channel) {
-	// No caching for SuperUser
-	if client.IsSuperUser() {
-		return
-	}
-
-	// fixme(mkrautz): re-add when we have ACL caching
-	// return
-
-	// Fix to actually check user's permissions. For now just give it all.
+	// fixme(mkrautz): re-add ACL caching + actually compute the per-channel
+	// permission set. For now both branches collapse to AllPermissions —
+	// matching the prior non-SuperUser behaviour — so the client UI can
+	// proceed deterministically.
 	perm := acl.AllPermissions
 	client.sendMessage(&mumbleproto.PermissionQuery{
 		ChannelId:   proto.Uint32(uint32(channel.Id)),
@@ -1614,6 +1781,19 @@ func (server *Server) RemoveChannel(channel *Channel, dest *Channel) {
 		if err := server.broadcastProtoMessage(userstate); err != nil {
 			server.Panicf("%v", err)
 		}
+	}
+
+	// Cascade-delete the persisted chat history first. Voice channels
+	// have nothing persisted (live-only chat); text channels carry every
+	// TextMessage broadcast under this channel id. Without this, deleting
+	// a text channel would leak its messages forever — they'd be
+	// unreachable through the normal history query (which filters by
+	// channel_id) but still on disk, and a recycled channel id (next
+	// auto-increment after enough churn) could even resurface them.
+	// Same tx as ChannelRemove so either both apply or neither does.
+	if err := tx.MessageDeleteByChannel(server.Id, channel.Id); err != nil {
+		tx.Rollback()
+		server.Panicf("Failed to remove channel messages: %v", err)
 	}
 
 	// Remove from database

@@ -112,6 +112,18 @@ type Client struct {
 	OracleSub      string
 	OracleHandle   string
 	OracleVerified bool
+
+	// superUser is set when the client has been granted SuperUser-equivalent
+	// privileges OUT-OF-BAND from the registered-user system — currently only
+	// via the Oracle owner-grant in handleAuthenticate (when the introspected
+	// `sub` matches the vServer's AdminOracleUserID config). Keeping this as
+	// a side-channel flag lets us preserve the client's real `user` record
+	// (so display name + finishAuthenticate's UserId-based dedup keep working
+	// for registered users) while still passing IsSuperUser() and the
+	// acl.HasPermission UserId()==0 short-circuit for anonymous Oracle admins.
+	// The legacy local-password SuperUser path (UserGetAuth → user.Id==0)
+	// continues to work unchanged via the second arm of IsSuperUser().
+	superUser bool
 }
 
 // Debugf implements debug-level printing for Clients.
@@ -135,7 +147,14 @@ func (client *Client) IsCertificateVerified() bool {
 }
 
 // IsSuperUser Is the client the SuperUser?
+//
+// True if either (a) the client logged in as the local "SuperUser" account
+// (user.Id == 0, the original Murmur path) OR (b) the client was granted
+// SuperUser out-of-band via the Oracle owner-grant in handleAuthenticate.
 func (client *Client) IsSuperUser() bool {
+	if client.superUser {
+		return true
+	}
 	if client.user == nil {
 		return false
 	}
@@ -160,16 +179,44 @@ func (client *Client) Tokens() []string {
 
 // UserId gets the User ID of this client.
 // Returns -1 if the client is not a registered user.
+//
+// Anonymous Oracle admins (granted via the Oracle owner-grant — see
+// IsSuperUser comment) report UserId == 0 so the acl.HasPermission
+// UserId() == 0 short-circuit grants them the same blanket privileges the
+// local "SuperUser" account gets. Registered users who are also Oracle
+// admins keep their real UserId (so finishAuthenticate's per-UserId dedup
+// can't collapse two distinct registered identities into one).
 func (client *Client) UserId() int {
 	if client.user == nil {
+		if client.superUser {
+			return 0
+		}
 		return -1
 	}
 	return int(client.user.Id)
 }
 
 // ShownName gets the client's shown name.
+//
+// Precedence for SuperUsers:
+//   - Oracle-granted admins (managed-mode owner via AdminOracleUserID) surface
+//     their actual Oracle identity — OracleHandle (preferred_username from
+//     introspection) when present, otherwise the username they sent in
+//     Authenticate. The legacy "SuperUser" literal is wrong here: the only
+//     identity Grumble persists for an Oracle user is the sub (UUID), and
+//     the display name is live data from each introspection — collapsing it
+//     to "SuperUser" both lies to other clients in the member list and
+//     defeats the cross-client identity guarantee.
+//   - Local-password SuperUsers (the legacy self-host UserId=0 path) keep
+//     the "SuperUser" literal — that account literally has no other name.
 func (client *Client) ShownName() string {
 	if client.IsSuperUser() {
+		if client.OracleVerified {
+			if client.OracleHandle != "" {
+				return client.OracleHandle
+			}
+			return client.Username
+		}
 		return "SuperUser"
 	}
 	if client.IsRegistered() {

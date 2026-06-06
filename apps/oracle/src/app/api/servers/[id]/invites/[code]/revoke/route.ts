@@ -25,7 +25,7 @@ export async function POST(
     const { id, code } = await ctx.params
     await assertOwner(id, session.user.id)
     const invite = await getInviteByCode(code)
-    if (!invite || invite.serverId !== id) {
+    if (!invite || invite.virtualServerId !== id) {
       throw new InviteNotFoundError()
     }
     await revokeInvite(invite.id, id)

@@ -174,10 +174,17 @@ export const regions = pgTable('regions', {
 })
 
 // ---------------------------------------------------------------------------
-// Servers — registered Mumble servers in the Takusen registry.
+// Virtual servers — the IDENTITY row for a registered Mumble server. Owns
+// the cosmetic / addressable-by-name data (owner, slug, name, description,
+// region, OracleOnly). Persistent across re-homes — FKs from invites, OIDC
+// clients, and domain verifications all point here so they survive a change
+// of host / port / island.
+//
+// Companion 1:1 row in `servers` (below) carries the physical placement
+// (host / port / island / lifecycle / capacity).
 // ---------------------------------------------------------------------------
-export const servers = pgTable(
-  'servers',
+export const virtualServers = pgTable(
+  'virtual_servers',
   {
     id: uuid('id').primaryKey().defaultRandom(),
     ownerUserId: uuid('owner_user_id')
@@ -186,17 +193,14 @@ export const servers = pgTable(
     slug: citext('slug').notNull(),
     name: text('name').notNull(),
     description: text('description'),
-    host: text('host').notNull(),
-    port: integer('port').notNull().default(64738),
-    // When true, the server has opted in to Oracle-only authentication.
-    // Informational from this layer's perspective: surfaced to clients via
-    // the registry / introspection, and enforced by the Mumble server's own
-    // OracleOnly configuration. Owner-toggleable from the dashboard.
+    // When true, this server only accepts Oracle-authenticated clients.
+    // Identity-layer concern: shapes auth-mode UX regardless of which
+    // physical island is currently hosting. Owner-toggleable.
     oracleOnly: boolean('oracle_only').notNull().default(false),
-    // The server's currently-selected voice region. MUTABLE and re-selectable
-    // (Discord-style): changing it is the future "re-home" trigger. Nullable
-    // because legacy/un-placed servers have no region yet. ON DELETE SET NULL
-    // so removing a region code never cascades into deleting servers.
+    // Owner-selected voice region. MUTABLE: changing it is the re-home
+    // trigger. Manual today via the admin "Place now" action; auto-on-
+    // region-change is a future follow-up. Nullable for freshly-created
+    // identity rows that haven't picked a region yet.
     region: text('region').references(() => regions.code, { onDelete: 'set null' }),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
       .notNull()
@@ -205,7 +209,7 @@ export const servers = pgTable(
       .notNull()
       .defaultNow(),
   },
-  (table) => [uniqueIndex('servers_slug_unique').on(table.slug)],
+  (table) => [uniqueIndex('virtual_servers_slug_unique').on(table.slug)],
 )
 
 // ---------------------------------------------------------------------------
@@ -249,51 +253,46 @@ export const islands = pgTable('islands', {
 })
 
 // ---------------------------------------------------------------------------
-// Virtual servers — a MANAGED Mumble instance with a lifecycle, placed (or not
-// yet placed) onto an island. This is the FUTURE "vServer" of the
-// region→island→vServer model, now realized.
+// Servers — the PHYSICAL placement / connection record for a virtual server.
+// One row per identity row in `virtual_servers` (1:1 via the unique
+// `virtualServerId` FK). Carries operational facts that change on a re-home
+// without invalidating identity (host, port, island, lifecycle, capacity).
 //
-// KEY MODELING DECISION (1:1 with the registry): `serverId` is a UNIQUE FK to
-// `servers.id`. A registry server is therefore EITHER
-//   - self-hosted  → a `servers` row only (no virtual_servers row), or
-//   - managed      → a `servers` row PLUS exactly one `virtual_servers` row.
-// This extends the existing model without duplicating identity (slug, owner,
-// host/port advertised to clients, OIDC client, invites, region all stay on
-// `servers`); `virtual_servers` adds only the managed-placement/lifecycle facts.
-// See ISLAND-PLATFORM.md for the alternatives that were rejected.
+// Self-hosted entries: `islandId = null`, `host`/`port` owner-supplied.
+// Managed entries:     `islandId` filled by the bin-packer, `host` from the
+//                      gateway env, `port` allocated per vServer.
 //
-// `islandId` is NULLABLE = UNPLACED (the scheduler hasn't bin-packed it onto an
-// island yet, or it has been drained off one). `region` is denormalized from
-// the linked server's region so the scheduler can filter candidate islands by
-// region without a join, and so an unplaced vServer still carries its target
-// region. LIVE metrics are NOT stored here (Redis; see above).
+// Region intentionally lives on `virtual_servers`, NOT here — region is an
+// owner-selected identity attribute, not a function of the current placement.
+// The scheduler reads region by joining up to the identity row.
+//
+// LIVE metrics (active users / CPU / bandwidth) are NOT stored here; they
+// live in Redis and are supplied to the bin-packing scheduler at scoring
+// time (see ISLAND-PLATFORM.md).
 // ---------------------------------------------------------------------------
-export const virtualServers = pgTable('virtual_servers', {
+export const servers = pgTable('servers', {
   id: uuid('id').primaryKey().defaultRandom(),
-  // The registry server this managed instance backs. UNIQUE → strict 1:1.
-  // ON DELETE CASCADE: deleting the registry server tears down its managed
-  // placement row too (the runtime teardown is a separate, deferred concern).
-  serverId: uuid('server_id')
+  // The identity row this placement backs. UNIQUE → strict 1:1.
+  // ON DELETE CASCADE: deleting the virtual server tears down its placement
+  // row too (runtime teardown is a separate, deferred concern).
+  virtualServerId: uuid('virtual_server_id')
     .notNull()
     .unique()
-    .references(() => servers.id, { onDelete: 'cascade' }),
+    .references(() => virtualServers.id, { onDelete: 'cascade' }),
   status: virtualServerStatusEnum('status').notNull().default('inactive'),
-  // Island placement. NULL = unplaced (awaiting/between scheduling). ON DELETE
-  // SET NULL: if an island row is removed, its vServers become unplaced rather
-  // than being deleted — the scheduler will re-home them.
+  // Island placement. NULL = unplaced (awaiting/between scheduling, OR a
+  // self-hosted server living on the owner's hardware). ON DELETE SET NULL:
+  // removing an island row unplaces its vServers rather than deleting them.
   islandId: uuid('island_id').references(() => islands.id, { onDelete: 'set null' }),
-  // The in-process vServer id WITHIN the island's Murmur process (Murmur's
-  // numeric virtual-server id). NULL until placed/assigned on an island.
+  // The in-process vServer id WITHIN the island's Murmur process. NULL until
+  // placed/assigned on an island, or permanently NULL for self-hosted.
   murmurId: integer('murmur_id'),
-  // The Mumble voice port this vServer is advertised/reachable on (via the
-  // future HAProxy L4 port→island map). The client connects here.
+  // Mumble voice host the client connects to. Managed: gateway env. Self-
+  // hosted: owner-supplied.
+  host: text('host').notNull(),
+  // Mumble voice port the client connects to. Managed: gateway-allocated.
+  // Self-hosted: owner-supplied. Default 64738.
   port: integer('port').notNull().default(64738),
-  // Target voice region (denormalized from servers.region). NOT NULL: a managed
-  // vServer is always placed-or-to-be-placed in a concrete region. ON DELETE
-  // RESTRICT mirrors `islands.region`.
-  region: text('region')
-    .notNull()
-    .references(() => regions.code, { onDelete: 'restrict' }),
   // Per-vServer capacity caps the scheduler/runtime enforce.
   maxUsers: integer('max_users').notNull().default(100),
   // Bandwidth ceiling in bits/sec (matches Murmur's `bandwidth` semantics).
@@ -315,9 +314,11 @@ export const virtualServers = pgTable('virtual_servers', {
 // ---------------------------------------------------------------------------
 export const serverDomainVerifications = pgTable('server_domain_verifications', {
   id: uuid('id').primaryKey().defaultRandom(),
-  serverId: uuid('server_id')
+  // FK to the identity row — verification survives a re-home; changing
+  // the placement host doesn't invalidate proven domain control.
+  virtualServerId: uuid('virtual_server_id')
     .notNull()
-    .references(() => servers.id, { onDelete: 'cascade' }),
+    .references(() => virtualServers.id, { onDelete: 'cascade' }),
   domain: text('domain').notNull(),
   txtToken: text('txt_token').notNull(),
   verifiedAt: timestamp('verified_at', { withTimezone: true, mode: 'date' }),
@@ -350,9 +351,11 @@ export const oidcClients = pgTable(
   'oidc_clients',
   {
     id: uuid('id').primaryKey().defaultRandom(),
-    serverId: uuid('server_id')
+    // FK to the identity row. OIDC client survives re-homes (audience /
+    // clientId in already-issued tokens stays valid).
+    virtualServerId: uuid('virtual_server_id')
       .unique()
-      .references(() => servers.id, { onDelete: 'cascade' }),
+      .references(() => virtualServers.id, { onDelete: 'cascade' }),
     clientId: text('client_id').notNull().unique(),
     // Empty string for public clients. NEVER store an actual secret here for
     // a row where isPublic = true; the adapter omits the field entirely from
@@ -378,9 +381,12 @@ export const inviteCodes = pgTable(
   'invite_codes',
   {
     id: uuid('id').primaryKey().defaultRandom(),
-    serverId: uuid('server_id')
+    // Invite is owned by IDENTITY: the redeemer's connection target comes
+    // from the current placement row at redeem time, but the invite itself
+    // survives a re-home.
+    virtualServerId: uuid('virtual_server_id')
       .notNull()
-      .references(() => servers.id, { onDelete: 'cascade' }),
+      .references(() => virtualServers.id, { onDelete: 'cascade' }),
     code: text('code').notNull().unique(),
     createdByUserId: uuid('created_by_user_id')
       .notNull()
@@ -408,10 +414,13 @@ export const userServers = pgTable(
     userId: uuid('user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
-    // If this row refers to a registered Oracle server, set serverId.
-    // For unregistered (raw host:port) servers the user joined manually,
-    // serverId is null and host/port/name carry the info.
-    serverId: uuid('server_id').references(() => servers.id, { onDelete: 'set null' }),
+    // If this row refers to a registered Oracle server, set virtualServerId
+    // (the identity row — survives re-homes). For unregistered (raw
+    // host:port) servers the user joined manually, virtualServerId is null
+    // and host/port/name carry the info.
+    virtualServerId: uuid('virtual_server_id').references(() => virtualServers.id, {
+      onDelete: 'set null',
+    }),
     name: text('name').notNull(),
     host: text('host').notNull(),
     port: integer('port').notNull().default(64738),

@@ -194,8 +194,17 @@ func main() {
 		servers[i] = serv
 	}
 
-	// If no servers were found, create the default virtual server.
-	if len(servers) == 0 {
+	// If no servers were found, create the default virtual server — UNLESS
+	// the management gRPC is enabled, in which case the control plane owns
+	// vServer lifecycle and we must NOT pre-create id=1. Auto-creating it
+	// here would (a) put a vServer with no AdminOracleUserID on the gateway
+	// port 64738 and (b) push the operator's first managed CreateVirtualServer
+	// onto vServer id=2 / port 64739 — and the Oracle dashboard always
+	// advertises managed servers on port 64738 (see apps/oracle/src/lib/
+	// managed-host.ts MANAGED_SERVER_PORT), so clients connecting to the
+	// stamped host:port would land on the wrong (un-owned) vServer and the
+	// Oracle owner SuperUser grant would never fire.
+	if len(servers) == 0 && args.ManagementListen == "" {
 		tx := db.Tx()
 		rootSrv, err := tx.ServerAdd()
 		if err != nil {
@@ -271,9 +280,15 @@ func main() {
 		}
 	}
 
-	// If any servers were loaded, launch the signal
-	// handler goroutine and sleep...
-	if len(servers) > 0 {
+	// Block on the signal handler if we have anything live to keep around:
+	// either at least one booted vServer, OR the management gRPC listener
+	// (which is on a goroutine — falling off main() here would yank it).
+	// In managed mode the initial server list is legitimately empty until
+	// the control plane issues its first CreateVirtualServer, so we MUST
+	// keep main alive on `ManagementListen != ""` alone; otherwise the
+	// process exits immediately after wiring gRPC and Oracle hits
+	// ECONNREFUSED on its very next dial.
+	if len(servers) > 0 || args.ManagementListen != "" {
 		go SignalHandler()
 		select {}
 	}

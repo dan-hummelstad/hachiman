@@ -35,6 +35,9 @@ func (s UserInfo) UserInfo() string {
 func (d *DbTx) UserInfoSet(serverID uint64, uid uint64, info map[UserInfoKey]string) error {
 	for k, v := range info {
 		err := d.db.Clauses(&clause.OnConflict{
+			// Postgres requires the conflict target on UPSERT; SQLite is lenient.
+			// Matches the `user_info_id` index defined on the model.
+			Columns:   []clause.Column{{Name: "server_id"}, {Name: "user_id"}, {Name: "key"}},
 			UpdateAll: true,
 		}).Create(&UserInfo{
 			ServerID: serverID,

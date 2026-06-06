@@ -37,6 +37,16 @@ var DefaultCfg = map[string]string{
 	// Oracle token. Defaults to false so anonymous clients are still
 	// accepted on servers that haven't opted in.
 	"OracleOnly": "false",
+	// Oracle users.id (UUID string) of the user who is the owner/admin of
+	// this managed vServer, set at CreateVirtualServer time by the Oracle
+	// control plane (see pkg/management/management.proto). On a successful
+	// RFC 7662 introspection where `sub` matches this value, the client is
+	// granted SuperUser-equivalent privileges (Client.user.Id is mapped to
+	// 0; acl.HasPermission short-circuits to true for any non-speak/whisper
+	// permission). Empty (the default) = no Oracle-mapped admin; self-host
+	// behaviour is unchanged. Defense in depth: an Oracle token that fails
+	// introspection MUST NOT grant admin even if the claimed `sub` matches.
+	"AdminOracleUserID": "",
 	// The logical voice region this server is currently homed in (e.g.
 	// "us-east"), mirroring the Oracle registry's mutable `servers.region`.
 	// Empty = unplaced. Read via cfg.StringValue("ServerRegion"); informational

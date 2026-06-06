@@ -8,6 +8,19 @@ export type Channel = {
   id: number
   name: string
   type: ChannelType
+  /**
+   * Server-supplied sort weight (Mumble `ChannelState.position`). The
+   * sidebar sorts by `(position ASC, id ASC)` so reordering survives
+   * reconnect without per-client local state. Defaults to 0 for
+   * pre-position-aware servers.
+   */
+  position: number
+  /**
+   * Parent channel id. Mumble's root channel is always id=0 and every
+   * top-level channel is parented to it. Subchannels point at their
+   * immediate parent. The sidebar groups by parent to render a tree.
+   */
+  parent: number
 }
 
 interface ChannelsState {
@@ -37,12 +50,8 @@ export const useChannelStore = create<ChannelsState>()(
     addChannel: (server: string, channel: Channel) =>
       set((state) => {
         const newChannels = new Map(state.channels)
-        if (!newChannels.has(server)) {
-          newChannels.set(server, [])
-        }
-        const serverChannels = newChannels.get(server)!
-        serverChannels.push(channel)
-        newChannels.set(server, serverChannels)
+        const existing = newChannels.get(server) ?? []
+        newChannels.set(server, [...existing, channel])
         return { channels: newChannels }
       }),
     updateChannel: (server: string, id: number, channel: Partial<Channel>) =>

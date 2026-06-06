@@ -14,7 +14,9 @@ package management
 // Contract:
 //   - CreateAndStart MUST construct an in-process vServer for the given id
 //     (allocated by the caller via ServerAdd) and bring it fully online
-//     (listeners up, registry populated). Errors propagate as gRPC Internal.
+//     (listeners up, registry populated). On success it returns the TCP/UDP
+//     port the vServer is now listening on plus the WebSocket port (0 when
+//     web listening is disabled). Errors propagate as gRPC Internal.
 //   - StopAndRemove MUST tear down the in-process vServer cleanly (no
 //     goroutine or listener leaks) if it is running. It is OK if the id is
 //     not registered — the DB row may exist without a live process (e.g.
@@ -24,7 +26,7 @@ package management
 //     primary "does this server exist?" check (the DB is the source of
 //     truth there).
 type VServerLifecycle interface {
-	CreateAndStart(id int64) error
+	CreateAndStart(id int64) (port int32, webPort int32, err error)
 	StopAndRemove(id int64) error
 	Exists(id int64) bool
 }

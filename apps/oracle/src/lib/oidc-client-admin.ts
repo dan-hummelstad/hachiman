@@ -26,7 +26,7 @@ export async function getOidcClientForServer(
   const rows = await db
     .select()
     .from(oidcClients)
-    .where(eq(oidcClients.serverId, serverId))
+    .where(eq(oidcClients.virtualServerId, serverId))
     .limit(1)
   return rows[0] ?? null
 }
@@ -39,7 +39,7 @@ export async function updateRedirectUris(
   const rows = await db
     .update(oidcClients)
     .set({ redirectUris: parsed })
-    .where(eq(oidcClients.serverId, serverId))
+    .where(eq(oidcClients.virtualServerId, serverId))
     .returning()
   const row = rows[0]
   if (!row) {
@@ -69,7 +69,7 @@ export async function regenerateClientSecret(
   const rows = await db
     .update(oidcClients)
     .set({ clientSecret: secret })
-    .where(eq(oidcClients.serverId, serverId))
+    .where(eq(oidcClients.virtualServerId, serverId))
     .returning()
   const row = rows[0]
   if (!row) {

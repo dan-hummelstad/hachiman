@@ -9,7 +9,7 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsgo --noEmit -p tsconfig.json",
-    "test": "tsx src/lib/placement.test.ts && tsx src/lib/scheduler.test.ts && tsx src/lib/island-metrics.test.ts",
+    "test": "tsx src/lib/placement.test.ts && tsx src/lib/scheduler.test.ts && tsx src/lib/island-metrics.test.ts && tsx src/lib/server-schemas.test.ts && tsx src/lib/managed-host.test.ts",
     "test:scheduler": "tsx src/lib/scheduler.test.ts",
     "test:island-metrics": "tsx src/lib/island-metrics.test.ts",
     "lint": "eslint src",
@@ -22,6 +22,8 @@
   "dependencies": {
     "@auth/core": "^0.39.1",
     "@auth/drizzle-adapter": "^1.7.4",
+    "@grpc/grpc-js": "^1.14.4",
+    "@grpc/proto-loader": "^0.8.1",
     "@hookform/resolvers": "^5.4.0",
     "@radix-ui/react-alert-dialog": "^1.1.14",
     "@radix-ui/react-avatar": "^1.1.9",

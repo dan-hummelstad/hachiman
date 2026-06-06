@@ -58,6 +58,17 @@ func (d *DbTx) MessageInsert(
 	return m.ID, nil
 }
 
+// MessageDeleteByChannel removes every persisted message for the given
+// (server, channel) pair. Used as part of channel deletion so removing a
+// text channel also clears its chat history rather than leaking orphaned
+// rows that would never be readable again (no FK, no cascade — the
+// Postgres driver runs with DisableForeignKeyConstraintWhenMigrating).
+// No-op when there are no rows; safe to call for voice channels too
+// (live-only chat means there's nothing persisted to delete).
+func (d *DbTx) MessageDeleteByChannel(serverID int64, channelID int) error {
+	return d.db.Where("server_id = ? AND channel_id = ?", serverID, channelID).Delete(&Message{}).Error
+}
+
 // ChannelMessageHistory returns up to `limit` persisted messages for a given
 // channel, ordered newest-first. If `beforeID` is zero, the latest `limit`
 // messages are returned. Otherwise messages with id < beforeID are returned.

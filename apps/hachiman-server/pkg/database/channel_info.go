@@ -27,6 +27,9 @@ func (s ChannelInfo) TableName() string {
 func (d *DbTx) ChannelInfoSet(sid, cid uint64, info map[ChannelInfoKey]string) error {
 	for k, v := range info {
 		err := d.db.Clauses(&clause.OnConflict{
+			// Postgres requires the conflict target on UPSERT; SQLite is lenient.
+			// Matches the `channel_info_id` index defined on the model.
+			Columns:   []clause.Column{{Name: "server_id"}, {Name: "channel_id"}, {Name: "key"}},
 			UpdateAll: true,
 		}).Create(&ChannelInfo{
 			ServerID:  sid,

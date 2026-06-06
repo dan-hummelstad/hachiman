@@ -61,20 +61,92 @@ func NewService(db *database.GrumbleDb, lifecycle VServerLifecycle) *Service {
 	}
 }
 
+// AdminOracleUserIDConfigKey is the per-vServer config key under which the
+// "Oracle user that owns this vServer" id is stored. Looked up at
+// Authenticate time in cmd/grumble.handleAuthenticate after a successful
+// Oracle introspection; when the introspected `sub` matches this value, the
+// client is granted SuperUser-equivalent privileges.
+//
+// Empty / unset = no Oracle-mapped admin (self-host default; the only
+// SuperUser path is the local password account).
+const AdminOracleUserIDConfigKey = "AdminOracleUserID"
+
+// Oracle SSO config keys stamped on the new vServer alongside
+// AdminOracleUserID when the Oracle control plane wires up a managed server.
+// Names match the keys in pkg/serverconf/config.go DefaultCfg — the
+// handleAuthenticate path reads them via cfg.StringValue(...). All four are
+// stamped together: introspection is "all or nothing" on the cmd/grumble
+// side (oracleIntrospectConfig.Enabled() requires URL + ClientID + Secret).
+const (
+	OracleIntrospectionURLConfigKey = "OracleIntrospectionURL"
+	OracleClientIDConfigKey         = "OracleClientID"
+	OracleClientSecretConfigKey     = "OracleClientSecret"
+	OracleOnlyConfigKey             = "OracleOnly"
+)
+
 // CreateVirtualServer allocates a new vServer row in the database AND boots
 // it in-process. The boot reuses the same NewServer + Start flow main()
 // uses for the boot-time server list, so a vServer created via this RPC is
 // indistinguishable from one loaded at startup.
 //
+// When req.admin_oracle_user_id is non-empty the value is persisted on the
+// new vServer's config under AdminOracleUserIDConfigKey BEFORE the in-process
+// boot is invoked. NewServer's seed transaction is independent of this row
+// (it lives in the per-server `config` KV table, not in any seeded row), so
+// the write order is safe — the worst case on partial failure is a config
+// row left for an id that didn't boot, and the rollback path below already
+// covers that by deleting the parent server row (config rows cascade).
+//
 // On any error after ServerAdd, the database tx is rolled back so we don't
-// leave an orphaned row pointing at a never-started server.
-func (s *Service) CreateVirtualServer(ctx context.Context, _ *CreateVirtualServerRequest) (*CreateVirtualServerResponse, error) {
+// leave an orphaned row pointing at a never-started server. Idempotency: a
+// repeated CreateVirtualServer with the same admin_oracle_user_id allocates
+// a *new* server id (ServerAdd is auto-increment, not upsert) — callers
+// that want at-most-once semantics MUST keep their own (logical_id ->
+// server_id) mapping.
+func (s *Service) CreateVirtualServer(ctx context.Context, req *CreateVirtualServerRequest) (*CreateVirtualServerResponse, error) {
 	tx := s.db.Tx()
 	dbServer, err := tx.ServerAdd()
 	if err != nil {
 		_ = tx.Rollback()
 		return nil, status.Errorf(codes.Internal, "ServerAdd: %v", err)
 	}
+
+	// Stash the Oracle/SSO config alongside ServerAdd in the SAME tx so
+	// either both land or neither does — avoids config rows pointing at a
+	// never-committed server. ConfigSet is OnConflict UpdateAll, so repeating
+	// for the same key is idempotent.
+	//
+	// Stamped keys (only when admin_oracle_user_id is non-empty, i.e. this is
+	// a managed server, not a bare ServerAdd for self-hosted parity):
+	//   - AdminOracleUserID — owner mapping; gates SuperUser short-circuit.
+	//   - OracleIntrospectionURL / OracleClientID / OracleClientSecret — the
+	//     RFC 7662 endpoint + credentials Grumble uses to verify inbound
+	//     Authenticate.oracle_token. Empty inputs leave the key at default
+	//     (introspection disabled), but if the URL is non-empty the caller
+	//     should normally supply id+secret too — handleAuthenticate's
+	//     Enabled() check requires all three.
+	//   - OracleOnly=true — reject non-Oracle (anonymous / password) clients.
+	//     Set unconditionally for managed servers because the whole point of
+	//     "managed" is that Oracle is the only login path.
+	adminID := req.GetAdminOracleUserId()
+	if adminID != "" {
+		stamps := []struct {
+			key, value string
+		}{
+			{AdminOracleUserIDConfigKey, adminID},
+			{OracleIntrospectionURLConfigKey, req.GetOracleIntrospectionUrl()},
+			{OracleClientIDConfigKey, req.GetOracleClientId()},
+			{OracleClientSecretConfigKey, req.GetOracleClientSecret()},
+			{OracleOnlyConfigKey, "true"},
+		}
+		for _, kv := range stamps {
+			if err := tx.ConfigSet(dbServer.ServerID, kv.key, kv.value); err != nil {
+				_ = tx.Rollback()
+				return nil, status.Errorf(codes.Internal, "ConfigSet %s: %v", kv.key, err)
+			}
+		}
+	}
+
 	if err := tx.Commit(); err != nil {
 		return nil, status.Errorf(codes.Internal, "commit ServerAdd: %v", err)
 	}
@@ -85,9 +157,33 @@ func (s *Service) CreateVirtualServer(ctx context.Context, _ *CreateVirtualServe
 	// (a control plane) can retry without leaking a row that nothing is
 	// serving. Note: a failed start could be transient (port in use) or
 	// permanent (config bug) — in both cases the cleanest contract is
-	// "Create either fully succeeds or leaves no trace".
-	if err := s.lifecycle.CreateAndStart(id); err != nil {
+	// "Create either fully succeeds or leaves no trace". We explicitly
+	// ConfigClear the AdminOracleUserID key before ServerDelete because the
+	// Postgres driver runs with DisableForeignKeyConstraintWhenMigrating=true
+	// (see pkg/database/model.go), so there is no FK to cascade the config
+	// row off the parent server. SQLite-mode would handle this implicitly,
+	// but the explicit path keeps the rollback driver-independent.
+	port, webPort, err := s.lifecycle.CreateAndStart(id)
+	if err != nil {
 		undoTx := s.db.Tx()
+		// Clear every key we may have stamped above. ConfigClear is idempotent
+		// (delete of a non-existent (sid, key) returns nil), so iterating
+		// across all five is safe even when admin_oracle_user_id was empty
+		// and none were actually written.
+		for _, key := range []string{
+			AdminOracleUserIDConfigKey,
+			OracleIntrospectionURLConfigKey,
+			OracleClientIDConfigKey,
+			OracleClientSecretConfigKey,
+			OracleOnlyConfigKey,
+		} {
+			if clearErr := undoTx.ConfigClear(uint64(id), key); clearErr != nil {
+				_ = undoTx.Rollback()
+				return nil, status.Errorf(codes.Internal,
+					"start failed (%v) AND config rollback (%s) failed (%v) — server %d orphaned in DB",
+					err, key, clearErr, id)
+			}
+		}
 		if delErr := undoTx.ServerDelete(uint64(id)); delErr != nil {
 			_ = undoTx.Rollback()
 			return nil, status.Errorf(codes.Internal,
@@ -102,7 +198,7 @@ func (s *Service) CreateVirtualServer(ctx context.Context, _ *CreateVirtualServe
 		return nil, status.Errorf(codes.Internal, "CreateAndStart: %v", err)
 	}
 
-	return &CreateVirtualServerResponse{ServerId: id}, nil
+	return &CreateVirtualServerResponse{ServerId: id, Port: port, WebPort: webPort}, nil
 }
 
 // DeleteVirtualServer stops the vServer in-process (if running) and removes

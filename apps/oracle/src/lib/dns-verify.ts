@@ -53,7 +53,7 @@ export async function startDomainVerification(
   const rows = await db
     .insert(serverDomainVerifications)
     .values({
-      serverId,
+      virtualServerId: serverId,
       domain,
       txtToken: token,
     })
@@ -71,7 +71,7 @@ export async function getActiveVerification(
   const rows = await db
     .select()
     .from(serverDomainVerifications)
-    .where(eq(serverDomainVerifications.serverId, serverId))
+    .where(eq(serverDomainVerifications.virtualServerId, serverId))
     .orderBy(desc(serverDomainVerifications.createdAt))
     .limit(1)
   return rows[0] ?? null

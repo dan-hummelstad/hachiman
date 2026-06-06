@@ -1,8 +1,27 @@
 /**
- * JoinUriService — parse and verify `takusen://join#<base64url>` URIs.
+ * JoinUriService — parse and verify join URIs in three equivalent shapes:
+ *   1. https://<oracle-host>/i/<code>          ← short invite link (what
+ *                                                the Oracle dashboard's
+ *                                                "Copy URL" button hands
+ *                                                out; resolved by fetching
+ *                                                the Oracle's preview API)
+ *   2. https://<oracle-host>/join#<base64url>  ← canonical signed-payload
+ *                                                form (emitted by the
+ *                                                Oracle's invite-redeem
+ *                                                endpoint, and shareable
+ *                                                anywhere a URL works)
+ *   3. takusen://join#<base64url>              ← legacy custom-scheme form
+ *                                                (Electron registers the
+ *                                                `takusen://` scheme so the
+ *                                                Oracle's /join page can
+ *                                                wake an installed app)
  *
- * URI format (mirrors `apps/oracle/src/lib/invite-signing.ts`):
- *   takusen://join#<base64url(JSON.stringify({
+ * Form (1) requires a network round-trip to the Oracle to swap the code for
+ * the signed payload — that's what `resolveShortInvite` below does. Forms
+ * (2) and (3) carry the signed payload inline so they parse offline.
+ *
+ * Payload shape (mirrors `apps/oracle/src/lib/invite-signing.ts`):
+ *   <base64url(JSON.stringify({
  *     v: 1, host, port, name, slug, verifiedAt: ISO|null, sig: <hex hmac>
  *   }))>
  *
@@ -18,6 +37,14 @@
 
 export interface JoinPayload {
   v: 1
+  /**
+   * Oracle's UUID for this server. Required so `ServersService` can mint a
+   * per-server OIDC access token at connect time — without it, the client
+   * has no way to ask Oracle for an audience-bound token and falls back to
+   * an "Oracle sign-in required" error (even when the user IS signed in).
+   * Included in the canonical HMAC so a forged id is rejected by verify.
+   */
+  serverId: string
   host: string
   port: number
   name: string
@@ -35,6 +62,15 @@ export type JoinUriParseResult =
 
 const TAKUSEN_SCHEME = 'takusen:'
 const TAKUSEN_HOST = 'join'
+const JOIN_PATHNAME = '/join'
+const SHORT_INVITE_PATH_PREFIX = '/i/'
+
+interface ShortInviteRef {
+  /** Origin (scheme://host[:port]) of the Oracle that issued the invite. */
+  origin: string
+  /** Bare invite code as it appears in the URL (e.g. "EG99YGGH"). */
+  code: string
+}
 
 /**
  * Canonical JSON for HMAC: keys sorted alphabetically, no whitespace, no
@@ -46,6 +82,7 @@ export function canonicalizeJoinPayload(payload: JoinPayload): string {
     host: payload.host,
     name: payload.name,
     port: payload.port,
+    serverId: payload.serverId,
     slug: payload.slug,
     v: payload.v,
     verifiedAt: payload.verifiedAt
@@ -55,22 +92,112 @@ export function canonicalizeJoinPayload(payload: JoinPayload): string {
 
 /**
  * Parse the URI shell and return the raw hash fragment, or null if this
- * isn't a valid takusen://join URI.
+ * isn't a recognized join URI. Accepts both:
+ *   - `https://<oracle-host>/join#<payload>` (any http(s) origin, pathname
+ *     `/join` exactly — we don't validate the host because it's the
+ *     Oracle's, not the Mumble server's, and the operator picks it)
+ *   - `takusen://join#<payload>` (legacy custom-scheme form)
  */
 function extractHash(uri: string): string | null {
-  // `URL` is happy to parse `takusen://join#…` in all modern engines.
+  // `URL` is happy to parse both forms in all modern engines.
   let url: URL
   try {
     url = new URL(uri)
   } catch {
     return null
   }
-  if (url.protocol !== TAKUSEN_SCHEME) return null
-  // `new URL('takusen://join#foo').hostname` is 'join'; `pathname` is empty.
-  if (url.hostname !== TAKUSEN_HOST) return null
+  const isLegacyScheme = url.protocol === TAKUSEN_SCHEME && url.hostname === TAKUSEN_HOST
+  // Normalize trailing slash so `/join/` matches `/join`.
+  const path = url.pathname.replace(/\/+$/, '')
+  const isHttpJoinPath =
+    (url.protocol === 'https:' || url.protocol === 'http:') && path === JOIN_PATHNAME
+  if (!isLegacyScheme && !isHttpJoinPath) return null
   // url.hash includes the leading '#'.
   if (!url.hash || url.hash.length <= 1) return null
   return url.hash.slice(1)
+}
+
+/**
+ * Detect the dashboard-style short invite URL `https://<oracle>/i/<code>`
+ * and pull out the Oracle origin + bare code. Returns null for anything
+ * else so the caller can fall through to the inline-hash parsers.
+ *
+ * The Oracle origin from the URL itself is what we hit for the preview
+ * lookup — invites are always served by the Oracle that minted them, and
+ * the user pasted *this* URL, so trusting its origin is intentional.
+ */
+function extractShortInvite(uri: string): ShortInviteRef | null {
+  let url: URL
+  try {
+    url = new URL(uri)
+  } catch {
+    return null
+  }
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') return null
+  if (!url.pathname.startsWith(SHORT_INVITE_PATH_PREFIX)) return null
+  const code = url.pathname.slice(SHORT_INVITE_PATH_PREFIX.length).replace(/\/+$/, '')
+  // A bare /i/ with no code, or a code containing a slash (i.e. extra path
+  // segments), isn't a recognized short invite — bail rather than
+  // hand-waving the code out of it.
+  if (code === '' || code.includes('/')) return null
+  return { origin: url.origin, code }
+}
+
+interface PreviewResponse {
+  joinUri?: string
+}
+
+/**
+ * Swap a `/i/<code>` short invite for the signed `${origin}/join#<hash>`
+ * URI by hitting the Oracle's non-consuming preview endpoint. Returns
+ * `{ ok: false, reason }` if the network call fails or the invite is
+ * revoked/expired/exhausted, mirroring the inline-parse error shape.
+ */
+async function resolveShortInvite(ref: ShortInviteRef): Promise<JoinUriParseResult> {
+  let res: Response
+  try {
+    res = await fetch(`${ref.origin}/api/invites/${encodeURIComponent(ref.code)}/preview`, {
+      method: 'GET',
+      headers: { accept: 'application/json' }
+    })
+  } catch {
+    return { ok: false, reason: 'Could not reach the Oracle to resolve this invite' }
+  }
+  if (!res.ok) {
+    let detail: string | undefined
+    try {
+      const body = (await res.json()) as { error?: string }
+      detail = body.error
+    } catch {
+      // body wasn't JSON or was empty; fall back to the status code.
+    }
+    return {
+      ok: false,
+      reason:
+        detail === 'InviteNotFound'
+          ? 'Invite not found'
+          : detail === 'InviteRevoked'
+            ? 'This invite has been revoked'
+            : detail === 'InviteExpired'
+              ? 'This invite has expired'
+              : detail === 'InviteExhausted'
+                ? 'This invite has no remaining uses'
+                : `Invite preview failed (${res.status})`
+    }
+  }
+  let body: PreviewResponse
+  try {
+    body = (await res.json()) as PreviewResponse
+  } catch {
+    return { ok: false, reason: 'Invite preview returned invalid JSON' }
+  }
+  if (!body.joinUri) {
+    return { ok: false, reason: 'Invite preview did not return a joinUri' }
+  }
+  // The returned joinUri carries the signed payload in its hash — feed it
+  // back through the standard parser so verification + payload extraction
+  // share one code path.
+  return parseTakusenUri(body.joinUri)
 }
 
 function base64UrlDecodeToString(s: string): string | null {
@@ -93,6 +220,7 @@ function isSignedJoinPayload(value: unknown): value is SignedJoinPayload {
   const v = value as Record<string, unknown>
   return (
     v.v === 1 &&
+    typeof v.serverId === 'string' &&
     typeof v.host === 'string' &&
     typeof v.port === 'number' &&
     typeof v.name === 'string' &&
@@ -171,6 +299,7 @@ export async function verifyJoinPayload(payload: SignedJoinPayload): Promise<boo
   // `canonicalizeJoinPayload` on the Oracle side, which never includes it.
   const rest: JoinPayload = {
     v: payload.v,
+    serverId: payload.serverId,
     host: payload.host,
     port: payload.port,
     name: payload.name,
@@ -214,13 +343,27 @@ export async function parseAndVerifyHash(hash: string): Promise<JoinUriParseResu
 }
 
 /**
- * Parse a full `takusen://join#…` URI. Returns `{ ok: false }` if the scheme
- * is wrong or the hash is missing.
+ * Parse a full join URI in any of the three accepted forms:
+ *   - `https://<host>/i/<code>`           → resolves via Oracle's preview API
+ *   - `https://<host>/join#<payload>`     → parses signed payload offline
+ *   - `takusen://join#<payload>`          → parses signed payload offline
+ * Returns `{ ok: false }` if none of the shapes match or resolution fails.
+ *
+ * Kept named `parseTakusenUri` for backwards-compat with existing imports
+ * — the "Takusen" prefix refers to the invite-system brand, not the URL
+ * scheme.
  */
 export async function parseTakusenUri(uri: string): Promise<JoinUriParseResult> {
+  // Short invite links come first because their pathname (`/i/<code>`)
+  // does NOT match `/join`, so extractHash returns null for them — without
+  // this branch they would silently fall into "Not a recognized join URL".
+  const shortRef = extractShortInvite(uri)
+  if (shortRef !== null) {
+    return resolveShortInvite(shortRef)
+  }
   const hash = extractHash(uri)
   if (hash === null) {
-    return { ok: false, reason: 'Not a takusen://join URI' }
+    return { ok: false, reason: 'Not a recognized join URL' }
   }
   return parseAndVerifyHash(hash)
 }

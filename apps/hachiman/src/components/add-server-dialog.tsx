@@ -12,32 +12,31 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
   ChevronLeftIcon,
-  GaugeIcon,
-  GlobeIcon,
-  LinkIcon,
-  Loader2Icon,
+  LockIcon,
+  ShieldCheck,
   ShieldCheckIcon,
-  ShieldOffIcon
+  ShieldOffIcon,
+  TicketIcon
 } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 
+import { OracleSignInDialog } from '@/components/oracle-signin-dialog'
 import { parseTakusenUri, type JoinUriParseResult } from '@/services/JoinUriService'
-import { oracleService, type RegionRecommendation } from '@/services/OracleService'
-import { usePlatform } from '@/shared/PlatformContext'
 import { useOracleStore } from '@/stores/oracleStore'
 
+/**
+ * Result of a successful add-server flow. The dialog now only emits two
+ * shapes — Oracle-authenticated invite joins, and self-hosted SuperUser. The
+ * legacy `kind: 'oracle'` (free-form host with Oracle auth) and `kind:
+ * 'manual'` (anonymous host + username) variants are gone.
+ */
 export type AddServerSubmission =
   | {
-      kind: 'manual'
+      /** Self-hosted SuperUser. Username is implicitly "SuperUser". */
+      kind: 'superuser'
       url: string
       port: string
-      username: string
-      password?: string
-    }
-  | {
-      kind: 'oracle'
-      url: string
-      port: string
+      password: string
     }
   | {
       kind: 'join'
@@ -45,6 +44,8 @@ export type AddServerSubmission =
       port: number
       name: string
       verified: boolean
+      /** Oracle UUID, copied from the signed join payload. */
+      serverId: string
     }
 
 interface AddServerDialogProps {
@@ -55,182 +56,55 @@ interface AddServerDialogProps {
 
 type Step = 'choose' | 'join' | 'ip'
 
-const SUPERUSER_NAME = 'SuperUser'
-
-function isSuperUsername(name: string): boolean {
-  return name.trim().toLowerCase() === SUPERUSER_NAME.toLowerCase()
-}
-
-/** The honest, number-free fallback: shown when the host can't probe (browser),
- * when no region exposes a probe endpoint yet, or when every probe failed. */
-function RegionLatencyFallback(): React.JSX.Element {
-  return (
-    <div className="text-muted-foreground flex items-start gap-2 text-xs">
-      <GaugeIcon className="mt-0.5 size-3.5 shrink-0" />
-      <span>
-        Takusen-registered servers are auto-placed in the voice region with the lowest latency to
-        your network. Self-hosted addresses connect directly — pick a host near your group for the
-        best voice quality.
-      </span>
-    </div>
-  )
-}
-
-type RegionLatencyState =
-  | { phase: 'probing' }
-  // No host could measure (browser), no region had a probe endpoint, or every
-  // probe failed → fall back to the honest number-free hint.
-  | { phase: 'fallback' }
-  | {
-      phase: 'measured'
-      rows: Array<{ code: string; label: string; rttMs: number | null }>
-      recommended: string | null
-    }
-
 /**
- * Latency-aware region hint for the connect-by-address step.
- *
- * Voice quality is dominated by network distance to the box mixing audio, so
- * Takusen-registered servers are placed in the voice region with the lowest
- * measured client→region latency (see Oracle's PLACEMENT-DESIGN.md).
- *
- * On a latency-capable host (Electron), this fetches the region set from Oracle
- * (`GET /api/regions`), measures real client→region RTTs via
- * `platform.probeRegions` (which relays `probeRegionsRtt` from
- * `@hachiman/hachiman-node` over IPC), POSTs the measurements to
- * `POST /api/servers/recommend-region`, and renders the measured latencies plus
- * the recommended region.
- *
- * On the browser host (raw sockets unavailable → empty probe result) or when no
- * region exposes a probe endpoint yet, it shows the honest, number-free
- * {@link RegionLatencyFallback} instead of fabricating numbers.
+ * Inline "sign in to Takusen" affordance shown inside the join-code step when
+ * Oracle is required but missing. Mounts the `OracleSignInDialog` locally so
+ * the parent dialog stays open while the sign-in handshake happens in the
+ * system browser.
  */
-function RegionLatencyHint(): React.JSX.Element {
-  const { platform } = usePlatform()
-  const [state, setState] = useState<RegionLatencyState>({ phase: 'probing' })
-
-  useEffect(() => {
-    let cancelled = false
-
-    void (async () => {
-      try {
-        const regions = await oracleService.listRegions()
-        // Only regions that actually publish a probe endpoint are measurable.
-        const targets = regions
-          .filter((r) => r.probeHost !== null && r.probeHost.length > 0)
-          .map((r) => ({ code: r.code, host: r.probeHost as string, port: r.probePort }))
-
-        if (targets.length === 0) {
-          if (!cancelled) setState({ phase: 'fallback' })
-          return
-        }
-
-        const results = await platform.probeRegions(targets)
-        // Empty result == host can't probe (browser) → honest fallback.
-        if (results.length === 0) {
-          if (!cancelled) setState({ phase: 'fallback' })
-          return
-        }
-
-        const labelByCode = new Map(regions.map((r) => [r.code, r.displayName]))
-        const measurements = results.map((r) => ({ region: r.code, rttMs: r.rttMs }))
-
-        // Ask Oracle to rank them. Requires an Oracle session; without one (or on
-        // failure) we still show the measured numbers, just no "recommended" pick.
-        const recommendation: RegionRecommendation | undefined =
-          await oracleService.recommendRegion(measurements)
-
-        if (cancelled) return
-        const rows = results
-          .map((r) => ({
-            code: r.code,
-            label: labelByCode.get(r.code) ?? r.code,
-            rttMs: r.rttMs
-          }))
-          // Lowest latency first; unreachable (null) sinks to the bottom.
-          .sort((a, b) => (a.rttMs ?? Infinity) - (b.rttMs ?? Infinity))
-
-        setState({ phase: 'measured', rows, recommended: recommendation?.recommended ?? null })
-      } catch {
-        // Region fetch failed (Oracle unreachable / not configured) — degrade to
-        // the honest hint rather than surfacing an error in this minor affordance.
-        if (!cancelled) setState({ phase: 'fallback' })
-      }
-    })()
-
-    return () => {
-      cancelled = true
-    }
-  }, [platform])
-
-  if (state.phase === 'probing') {
-    return (
-      <div className="text-muted-foreground flex items-center gap-2 text-xs">
-        <Loader2Icon className="size-3.5 shrink-0 animate-spin" />
-        <span>Measuring latency to voice regions…</span>
-      </div>
-    )
-  }
-
-  if (state.phase === 'fallback') {
-    return <RegionLatencyFallback />
-  }
-
-  const recommendedLabel =
-    state.recommended !== null
-      ? (state.rows.find((r) => r.code === state.recommended)?.label ?? state.recommended)
-      : null
-
+function OracleSignInGate(props: { reason: string }): React.JSX.Element {
+  const [signInOpen, setSignInOpen] = useState(false)
   return (
-    <div className="text-muted-foreground flex flex-col gap-1.5 text-xs">
-      <div className="flex items-center gap-2">
-        <GaugeIcon className="size-3.5 shrink-0" />
-        <span>
-          {recommendedLabel !== null ? (
-            <>
-              Lowest latency to your network: <strong>{recommendedLabel}</strong>
-            </>
-          ) : (
-            'Measured latency to voice regions:'
-          )}
-        </span>
+    <>
+      <div className="bg-muted/40 flex flex-col gap-3 rounded-md border p-4">
+        <div className="flex items-start gap-2.5">
+          <ShieldCheck className="mt-0.5 size-4 shrink-0 text-blue-500" aria-hidden />
+          <div className="flex flex-col gap-1">
+            <span className="text-sm font-medium">Sign in to Takusen first</span>
+            <p className="text-muted-foreground text-xs">{props.reason}</p>
+          </div>
+        </div>
+        <Button size="sm" className="self-start" type="button" onClick={() => setSignInOpen(true)}>
+          Sign in to Takusen
+        </Button>
       </div>
-      <ul className="flex flex-col gap-0.5 pl-5.5">
-        {state.rows.map((r) => (
-          <li key={r.code} className="flex items-center justify-between gap-2">
-            <span className={r.code === state.recommended ? 'text-foreground font-medium' : ''}>
-              {r.label}
-              {r.code === state.recommended ? ' ★' : ''}
-            </span>
-            <span className="font-mono">
-              {r.rttMs !== null ? `${Math.round(r.rttMs)} ms` : 'unreachable'}
-            </span>
-          </li>
-        ))}
-      </ul>
-    </div>
+      <OracleSignInDialog isOpen={signInOpen} onClose={() => setSignInOpen(false)} />
+    </>
   )
 }
 
 export function AddServerDialog(props: AddServerDialogProps): React.JSX.Element {
   const oracleSession = useOracleStore((s) => s.session)
-  const oracleHandle = oracleSession?.user.handle ?? null
   const oracleSignedIn = oracleSession !== null
 
   const [step, setStep] = useState<Step>('choose')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // IP-step state
+  // IP-step state — username is hardcoded to SuperUser; we only collect the
+  // host, port, and password.
   const [serverUrl, setServerUrl] = useState('localhost')
   const [serverPort, setServerPort] = useState('64738')
-  const [usernameInput, setUsernameInput] = useState('')
   const [password, setPassword] = useState('')
 
   // Join-step state
   const [joinUri, setJoinUri] = useState('')
   const [joinPreview, setJoinPreview] = useState<JoinUriParseResult | null>(null)
   const [joinParseInFlight, setJoinParseInFlight] = useState(false)
+
+  // "I have a join code" was clicked while not signed in to Oracle — gate
+  // the click with an inline sign-in prompt instead of silently disabling.
+  const [pendingJoinClick, setPendingJoinClick] = useState(false)
 
   // Reset every time the dialog is reopened so a previous attempt's data
   // doesn't leak into a fresh flow.
@@ -241,11 +115,21 @@ export function AddServerDialog(props: AddServerDialogProps): React.JSX.Element 
     setError(null)
     setServerUrl('localhost')
     setServerPort('64738')
-    setUsernameInput(oracleHandle ?? 'HachimanUser')
     setPassword('')
     setJoinUri('')
     setJoinPreview(null)
-  }, [props.isOpen, oracleHandle])
+    setPendingJoinClick(false)
+  }, [props.isOpen])
+
+  // If the user signed in (in a side flow) after clicking the join card while
+  // signed out, automatically advance them into the join step now that they
+  // can use it.
+  useEffect(() => {
+    if (oracleSignedIn && pendingJoinClick) {
+      setStep('join')
+      setPendingJoinClick(false)
+    }
+  }, [oracleSignedIn, pendingJoinClick])
 
   // Live-parse the pasted takusen:// URI so the user sees the verified state
   // (or a parse error) before they hit Join. Debounced lightly via the
@@ -268,35 +152,28 @@ export function AddServerDialog(props: AddServerDialogProps): React.JSX.Element 
     }
   }, [joinUri])
 
-  const superUserMode = useMemo(() => isSuperUsername(usernameInput), [usernameInput])
-
   const handleOpenChange = (next: boolean): void => {
     if (!next && !submitting) props.onClose()
   }
 
-  const handleManualSubmit = async (): Promise<void> => {
+  const handleJoinCardClick = (): void => {
+    // Oracle is required to mint a per-server token for invite-link joins;
+    // without it the join step itself surfaces a sign-in prompt rather than
+    // gating the click silently.
+    if (!oracleSignedIn) setPendingJoinClick(true)
+    setStep('join')
+  }
+
+  const handleSuperUserSubmit = async (): Promise<void> => {
     setSubmitting(true)
     setError(null)
     try {
       await props.onSubmit({
-        kind: 'manual',
+        kind: 'superuser',
         url: serverUrl,
         port: serverPort,
-        username: usernameInput.trim() || 'HachimanUser',
-        ...(superUserMode ? { password } : {})
+        password
       })
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to connect')
-    } finally {
-      setSubmitting(false)
-    }
-  }
-
-  const handleOracleSubmit = async (): Promise<void> => {
-    setSubmitting(true)
-    setError(null)
-    try {
-      await props.onSubmit({ kind: 'oracle', url: serverUrl, port: serverPort })
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to connect')
     } finally {
@@ -314,7 +191,8 @@ export function AddServerDialog(props: AddServerDialogProps): React.JSX.Element 
         host: joinPreview.payload.host,
         port: joinPreview.payload.port,
         name: joinPreview.payload.name,
-        verified: joinPreview.verified
+        verified: joinPreview.verified,
+        serverId: joinPreview.payload.serverId
       })
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to connect')
@@ -331,33 +209,41 @@ export function AddServerDialog(props: AddServerDialogProps): React.JSX.Element 
             <DialogHeader>
               <DialogTitle>Add Server</DialogTitle>
               <DialogDescription>
-                How are you joining? Paste a Takusen invite link, or type a server&apos;s address.
+                Most people should use a Takusen invite link. The SuperUser path is for admins of
+                self-hosted servers only.
               </DialogDescription>
             </DialogHeader>
             <div className="grid gap-3 py-2">
               <button
                 type="button"
-                onClick={() => setStep('join')}
+                onClick={handleJoinCardClick}
                 className="border-border hover:bg-accent flex w-full items-center gap-3 rounded-md border px-4 py-3 text-left transition-colors"
               >
-                <LinkIcon className="text-primary size-5 shrink-0" />
+                <TicketIcon className="text-primary size-5 shrink-0" />
                 <div className="flex flex-col">
                   <span className="font-medium">I have a join code</span>
                   <span className="text-muted-foreground text-xs">
-                    Paste a <code className="font-mono">takusen://join…</code> link from a friend
+                    Paste an invite link from a friend — short (https://…/i/&lt;code&gt;) or signed
+                    (https://…/join#…). Requires Takusen sign-in.
                   </span>
                 </div>
               </button>
               <button
                 type="button"
                 onClick={() => setStep('ip')}
-                className="border-border hover:bg-accent flex w-full items-center gap-3 rounded-md border px-4 py-3 text-left transition-colors"
+                className="border-border hover:bg-accent/60 flex w-full items-center gap-3 rounded-md border px-4 py-3 text-left opacity-90 transition-colors"
               >
-                <GlobeIcon className="text-primary size-5 shrink-0" />
+                <LockIcon className="text-muted-foreground size-5 shrink-0" />
                 <div className="flex flex-col">
-                  <span className="font-medium">I have an IP address</span>
+                  <span className="font-medium">
+                    Self-hosted SuperUser{' '}
+                    <span className="text-muted-foreground text-[10px] font-normal uppercase">
+                      Advanced
+                    </span>
+                  </span>
                   <span className="text-muted-foreground text-xs">
-                    Type the host and port directly — self-hosted servers
+                    Sign in as the built-in admin of a Mumble server you run yourself — requires the
+                    SuperUser password.
                   </span>
                 </div>
               </button>
@@ -387,42 +273,51 @@ export function AddServerDialog(props: AddServerDialogProps): React.JSX.Element 
                 Paste your join code
               </DialogTitle>
               <DialogDescription>
-                Takusen invite links start with <code className="font-mono">takusen://join</code>.
+                Paste the invite link — short (
+                <code className="font-mono">https://&hellip;/i/&lt;code&gt;</code>) or signed (
+                <code className="font-mono">https://&hellip;/join#&hellip;</code>). Legacy{' '}
+                <code className="font-mono">takusen://join</code> links also work.
               </DialogDescription>
             </DialogHeader>
-            <div className="grid gap-3 py-1">
-              <Label htmlFor="join-uri">Invite link</Label>
-              <Input
-                id="join-uri"
-                value={joinUri}
-                onChange={(e) => setJoinUri(e.target.value)}
-                placeholder="takusen://join#..."
-                autoFocus
-              />
-              {joinPreview?.ok === false ? (
-                <div className="text-destructive text-sm">{joinPreview.reason}</div>
-              ) : null}
-              {joinPreview?.ok === true ? (
-                <div className="bg-muted rounded-md px-3 py-2 text-sm">
-                  <div className="flex items-center gap-2">
-                    <strong>{joinPreview.payload.name}</strong>
-                    {joinPreview.verified ? (
-                      <span className="text-primary inline-flex items-center gap-1 text-xs">
-                        <ShieldCheckIcon className="size-3.5" /> Verified
-                      </span>
-                    ) : (
-                      <span className="text-destructive inline-flex items-center gap-1 text-xs">
-                        <ShieldOffIcon className="size-3.5" /> Unverified
-                      </span>
-                    )}
+            {!oracleSignedIn ? (
+              <div className="grid gap-3 py-1">
+                <OracleSignInGate reason="Joining by invite link requires a Takusen identity so the server can recognize you across devices. It's a one-time sign-in." />
+              </div>
+            ) : (
+              <div className="grid gap-3 py-1">
+                <Label htmlFor="join-uri">Invite link</Label>
+                <Input
+                  id="join-uri"
+                  value={joinUri}
+                  onChange={(e) => setJoinUri(e.target.value)}
+                  placeholder="https://…/i/<code>"
+                  autoFocus
+                />
+                {joinPreview?.ok === false ? (
+                  <div className="text-destructive text-sm">{joinPreview.reason}</div>
+                ) : null}
+                {joinPreview?.ok === true ? (
+                  <div className="bg-muted rounded-md px-3 py-2 text-sm">
+                    <div className="flex items-center gap-2">
+                      <strong>{joinPreview.payload.name}</strong>
+                      {joinPreview.verified ? (
+                        <span className="text-primary inline-flex items-center gap-1 text-xs">
+                          <ShieldCheckIcon className="size-3.5" /> Verified
+                        </span>
+                      ) : (
+                        <span className="text-destructive inline-flex items-center gap-1 text-xs">
+                          <ShieldOffIcon className="size-3.5" /> Unverified
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-muted-foreground font-mono text-xs">
+                      {joinPreview.payload.host}:{joinPreview.payload.port}
+                    </div>
                   </div>
-                  <div className="text-muted-foreground font-mono text-xs">
-                    {joinPreview.payload.host}:{joinPreview.payload.port}
-                  </div>
-                </div>
-              ) : null}
-              {error ? <div className="text-destructive text-sm">{error}</div> : null}
-            </div>
+                ) : null}
+                {error ? <div className="text-destructive text-sm">{error}</div> : null}
+              </div>
+            )}
             <DialogFooter>
               <DialogClose asChild>
                 <Button variant="outline" disabled={submitting}>
@@ -430,7 +325,7 @@ export function AddServerDialog(props: AddServerDialogProps): React.JSX.Element 
                 </Button>
               </DialogClose>
               <Button
-                disabled={!joinPreview?.ok || submitting || joinParseInFlight}
+                disabled={!oracleSignedIn || !joinPreview?.ok || submitting || joinParseInFlight}
                 onClick={() => void handleJoinSubmit()}
               >
                 {submitting ? 'Connecting…' : 'Join server'}
@@ -453,11 +348,13 @@ export function AddServerDialog(props: AddServerDialogProps): React.JSX.Element 
                 >
                   <ChevronLeftIcon className="size-4" />
                 </Button>
-                Connect by address
+                <LockIcon className="size-4" />
+                Self-hosted SuperUser
               </DialogTitle>
               <DialogDescription>
-                Use this for self-hosted servers. To sign in as the built-in admin, type{' '}
-                <strong>SuperUser</strong> as the username.
+                Connect to a Mumble server you administer as the built-in <strong>SuperUser</strong>{' '}
+                account. This is a Mumble-specific admin path — managed Takusen servers don&apos;t
+                accept it; use a join link or Takusen sign-in for those.
               </DialogDescription>
             </DialogHeader>
             <div className="grid gap-3 py-1">
@@ -480,67 +377,41 @@ export function AddServerDialog(props: AddServerDialogProps): React.JSX.Element 
                   />
                 </div>
               </div>
-              <RegionLatencyHint />
               <div className="grid gap-1.5">
                 <Label htmlFor="server-username">Username</Label>
-                <Input
-                  id="server-username"
-                  value={usernameInput}
-                  onChange={(e) => setUsernameInput(e.target.value)}
-                  placeholder={oracleHandle ?? 'HachimanUser'}
-                />
+                <Input id="server-username" value="SuperUser" disabled readOnly />
+                <p className="text-muted-foreground text-xs">
+                  Fixed to the Mumble admin account. Regular users join via a Takusen invite link.
+                </p>
               </div>
-              {superUserMode && (
-                <div className="grid gap-1.5">
-                  <Label htmlFor="server-password">SuperUser password</Label>
-                  <Input
-                    id="server-password"
-                    type="password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    autoComplete="current-password"
-                    autoFocus
-                  />
-                  <p className="text-muted-foreground text-xs">
-                    Not stored on this device — you&apos;ll be asked again next time.
-                  </p>
-                </div>
-              )}
+              <div className="grid gap-1.5">
+                <Label htmlFor="server-password">SuperUser password</Label>
+                <Input
+                  id="server-password"
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  autoComplete="current-password"
+                  autoFocus
+                />
+                <p className="text-muted-foreground text-xs">
+                  Not stored on this device — you&apos;ll be asked again on every reconnect.
+                </p>
+              </div>
               {error ? <div className="text-destructive text-sm">{error}</div> : null}
             </div>
-            <DialogFooter className="flex-col gap-2 sm:flex-row sm:justify-between">
-              <Button
-                type="button"
-                variant="secondary"
-                disabled={!oracleSignedIn || submitting}
-                onClick={() => void handleOracleSubmit()}
-                title={
-                  oracleSignedIn
-                    ? 'Connect using your Oracle identity (ignores the username above)'
-                    : 'Sign in to Oracle to enable this'
-                }
-              >
-                Join with Oracle
-              </Button>
-              <div className="flex justify-end gap-2">
-                <DialogClose asChild>
-                  <Button variant="outline" disabled={submitting}>
-                    Cancel
-                  </Button>
-                </DialogClose>
-                <Button
-                  disabled={
-                    !serverUrl ||
-                    !serverPort ||
-                    !usernameInput.trim() ||
-                    (superUserMode && !password) ||
-                    submitting
-                  }
-                  onClick={() => void handleManualSubmit()}
-                >
-                  {submitting ? 'Connecting…' : 'Connect'}
+            <DialogFooter>
+              <DialogClose asChild>
+                <Button variant="outline" disabled={submitting}>
+                  Cancel
                 </Button>
-              </div>
+              </DialogClose>
+              <Button
+                disabled={!serverUrl || !serverPort || !password || submitting}
+                onClick={() => void handleSuperUserSubmit()}
+              >
+                {submitting ? 'Connecting…' : 'Connect as SuperUser'}
+              </Button>
             </DialogFooter>
           </>
         )}

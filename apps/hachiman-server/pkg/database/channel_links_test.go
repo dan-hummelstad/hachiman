@@ -16,11 +16,11 @@ func TestChannelLink(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ch1, err := tx.ChannelAdd(sid, "ch1", 0)
+	ch1, err := tx.ChannelAdd(sid, "ch1", 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	ch2, err := tx.ChannelAdd(sid, "ch2", 0)
+	ch2, err := tx.ChannelAdd(sid, "ch2", 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}

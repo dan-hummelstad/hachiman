@@ -2,15 +2,39 @@ import type {} from '@redux-devtools/extension'
 import { create } from 'zustand'
 import { createJSONStorage, devtools, persist } from 'zustand/middleware'
 
+import { deriveServerId } from '@/lib/server-key'
+
 export type Server = {
-  id: string // the server's address (or remote serverId for Oracle-registered servers)
+  /**
+   * Stable identity key — what the Map is keyed on, what the UI passes around
+   * as `serverId`/`selectedServerId`, what the connection manager indexes by.
+   *
+   * Two regimes:
+   *   - Oracle-registered (managed) servers: equal to the Takusen `serverId`
+   *     (server-side UUID). Lets multiple managed vServers on the SAME
+   *     gateway host coexist — one host can front-door many in-process
+   *     vServers, so host alone is no longer unique.
+   *   - Self-hosted servers: composite `${host}:${port}`. Lets the user run
+   *     multiple local dev servers on the same host, while still preventing
+   *     a duplicate add of the same address.
+   *
+   * Use {@link deriveServerId} (lib/server-key.ts) to compute this from a
+   * partial record; never set it by hand.
+   */
+  id: string
   name: string // the server's display name
+  /**
+   * The actual network address the client connects to. Previously implicit
+   * in `id` (when id was just the host); now stored explicitly because
+   * `id` may be a UUID instead.
+   */
+  host: string
   port: number // the server's port
   connected: boolean // whether the client is connected to the server
   /**
    * Oracle-registered server UUID. Present when the user discovered the server
    * through Takusen / synced it from their Oracle profile. Used to mint
-   * per-server tokens before connect.
+   * per-server tokens before connect, AND used as the keying `id` above.
    */
   serverId?: string
   /**
@@ -21,12 +45,19 @@ export type Server = {
   username?: string
   /**
    * Whether subsequent reconnects should mint an Oracle per-server token and
-   * use the Oracle handle as username. False means "manual" auth: use the
-   * stored `username` verbatim and, if it's SuperUser, prompt for the password.
-   * Undefined on legacy rows added before this flag existed → treated as
-   * `true` if an Oracle session is available, else `false`.
+   * use the Oracle handle as username. Mutually exclusive with `superUser`:
+   * one of the two MUST be true on every persisted row — anonymous joins are
+   * no longer supported, so a row with neither flag set is a legacy/invalid
+   * entry the user is asked to re-add.
    */
   useOracle?: boolean
+  /**
+   * Self-hosted SuperUser entry. Username is implicitly "SuperUser"; the
+   * password is never persisted, so on every fresh connect (including app
+   * relaunch) the user has to re-enter it via {@link SuperUserPasswordDialog}.
+   * Mutually exclusive with `useOracle`.
+   */
+  superUser?: boolean
   /**
    * When this row was last touched locally. Used for last-write-wins reconciliation
    * with the Oracle backend during sync.
@@ -124,7 +155,28 @@ export const useServerStore = create<ServersState>()(
               typeof value === 'object' &&
               (value as { __type?: string }).__type === 'Map'
             ) {
-              return new Map((value as { value: Array<[string, Server]> }).value)
+              // One-time migration of pre-host-aware rows:
+              //   Old shape:  id === host (no `host` field on the record;
+              //               `serverId` may or may not be set).
+              //   New shape:  id === deriveServerId({serverId, host, port});
+              //               `host` always set explicitly.
+              // Re-key entries whose stored id doesn't match the derived id
+              // and backfill `host` from the legacy id when absent. Done at
+              // hydration time so the rest of the app never sees the old
+              // shape.
+              const entries = (value as { value: Array<[string, Server]> }).value
+              const migrated = new Map<string, Server>()
+              for (const [storedKey, raw] of entries) {
+                const host =
+                  typeof raw.host === 'string' && raw.host.length > 0 ? raw.host : storedKey
+                const id = deriveServerId({
+                  serverId: raw.serverId,
+                  host,
+                  port: raw.port
+                })
+                migrated.set(id, { ...raw, id, host })
+              }
+              return migrated
             }
             return value
           }

@@ -30,17 +30,30 @@ func newVServerLifecycle(registry *ServerRegistry, db *database.GrumbleDb, dataD
 
 // CreateAndStart spins up a freshly-created vServer (the id was just allocated
 // by ServerAdd on the caller's tx). Mirrors the per-server boot the existing
-// main() loop does: NewServer -> Start -> Register.
-func (l *vserverLifecycle) CreateAndStart(id int64) error {
+// main() loop does: NewServer -> Start -> Register. Returns the TCP/UDP port
+// the vServer landed on (read from the live listener via CurrentPort) and the
+// web port the vServer is configured to listen on (or 0 when web listening is
+// disabled) so the management gRPC layer can report them upstream — the
+// auto-derived port (DefaultPort + id - 1) is an implementation detail Oracle
+// should never have to recompute.
+func (l *vserverLifecycle) CreateAndStart(id int64) (int32, int32, error) {
 	srv, err := NewServer(id, l.dataDir, l.db)
 	if err != nil {
-		return err
+		return 0, 0, err
 	}
 	if err := srv.Start(); err != nil {
-		return err
+		return 0, 0, err
 	}
 	l.registry.Register(srv)
-	return nil
+
+	// CurrentPort reads from the live tcp listener address. WebPort is the
+	// configured value; gate on ListenWebPort so we report 0 when no web
+	// listener is up.
+	var webPort int32
+	if srv.ListenWebPort() {
+		webPort = int32(srv.WebPort())
+	}
+	return int32(srv.CurrentPort()), webPort, nil
 }
 
 // StopAndRemove tears down a running vServer cleanly. The management service

@@ -1,10 +1,12 @@
 /**
- * PUT    /api/me/servers/[id] — patch name or lastUsedAt on a user-server row.
- * DELETE /api/me/servers/[id] — remove from the user's list (204).
+ * PUT    /api/me/servers/[id] — patch name/lastUsedAt on the calling user's
+ *                              row that points at canonical server `[id]`.
+ * DELETE /api/me/servers/[id] — remove that row from the user's list (204).
  *
- * Both 404 if the row isn't owned by the session user — we filter on
- * (id, userId) inside the helper rather than fetching+checking, so a row
- * belonging to another user is indistinguishable from "doesn't exist".
+ * `[id]` is the canonical `servers.id` UUID (what the Hachiman client carries
+ * around as `server.serverId`), NOT the `user_servers` row primary key. The
+ * helper filters on (serverId, userId), so a row belonging to another user
+ * is indistinguishable from "doesn't exist" — both return 404.
  */
 import { NextResponse, type NextRequest } from 'next/server'
 
@@ -27,10 +29,10 @@ export async function PUT(
 ): Promise<NextResponse> {
   try {
     const session = await requireUser()
-    const { id } = await ctx.params
+    const { id: serverId } = await ctx.params
     const body = await req.json()
     const parsed = updateUserServerSchema.parse(body)
-    const server = await updateUserServer(session.user.id, id, parsed)
+    const server = await updateUserServer(session.user.id, serverId, parsed)
     return NextResponse.json(serializeUserServer(server))
   } catch (err) {
     return errorResponse(err)
@@ -43,8 +45,8 @@ export async function DELETE(
 ): Promise<NextResponse> {
   try {
     const session = await requireUser()
-    const { id } = await ctx.params
-    await deleteUserServer(session.user.id, id)
+    const { id: serverId } = await ctx.params
+    await deleteUserServer(session.user.id, serverId)
     return new NextResponse(null, { status: 204 })
   } catch (err) {
     return errorResponse(err)

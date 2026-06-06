@@ -48,8 +48,8 @@ import {
   placeVServer,
   transitionVServer,
   VirtualServerNotFoundError,
+  type VServerView,
 } from './virtual-servers'
-import type { VirtualServer } from '@/db/schema'
 
 /**
  * Live metrics assumed for an island absent from the supplied map. Zeroed =
@@ -72,7 +72,7 @@ export interface ScheduleOutcome {
    * `null` when the result was `no-capacity` (caller should provision a new
    * island and retry). Coherent with the place→transition invariant.
    */
-  vServer: VirtualServer | null
+  vServer: VServerView | null
 }
 
 /**
@@ -124,8 +124,23 @@ export async function scheduleVServerPlacement(
   }
 
   // The region is already decided; the vServer carries its target region
-  // denormalized (see schema.ts / ISLAND-PLATFORM.md).
+  // denormalized (see schema.ts / ISLAND-PLATFORM.md). A NULL region means
+  // the vServer was created without one (e.g. through the dashboard's
+  // optional region field) — it's unschedulable until set. Surface that as
+  // an empty-island-set scoring outcome rather than crashing the scheduler
+  // on a null-region listIslandsByRegion call.
   const region = vServer.region
+  if (region === null) {
+    return {
+      result: {
+        chosen: null,
+        reason: 'no-capacity',
+        ranking: [],
+        atCapacity: [],
+      },
+      vServer: null,
+    }
+  }
 
   const [regionIslands, counts] = await Promise.all([
     listIslandsByRegion(region),
