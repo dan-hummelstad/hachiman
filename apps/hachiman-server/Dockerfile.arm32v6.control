@@ -1,0 +1,29 @@
+# arm/v6 variant of Dockerfile.control. golang:1.25-alpine is built multi-arch;
+# BuildKit handles QEMU emulation when building on a non-arm host. Pair:
+# Dockerfile.arm32v6.media and Dockerfile.arm32v6.recorder.
+
+FROM --platform=linux/arm/v6 golang:1.25-alpine AS builder
+
+COPY . /go/src/mumble.info/grumble
+
+WORKDIR /go/src/mumble.info/grumble
+
+RUN apk add --no-cache git build-base
+
+RUN go build -o hachiman-control mumble.info/grumble/cmd/hachiman-control
+
+FROM --platform=linux/arm/v6 alpine:edge
+
+COPY --from=builder /go/src/mumble.info/grumble/hachiman-control /usr/bin/hachiman-control
+
+ENV DATADIR=/data
+
+RUN mkdir /data
+
+WORKDIR /data
+
+VOLUME /data
+
+EXPOSE 64738/tcp
+
+ENTRYPOINT [ "/usr/bin/hachiman-control", "--datadir", "/data", "--log", "/data/hachiman-control.log" ]

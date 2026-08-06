@@ -16,11 +16,17 @@ if (!databaseUrl) {
   // Typecheck-friendly: only throws at runtime. Build-time `next build` will
   // also fail if this is hit, which is intentional — we don't want a deploy
   // without a database to silently succeed.
+  //
+  // Test harnesses that don't actually query (e.g. the grpc tests that
+  // inject an InMemoryMediaNodesRepo) set DATABASE_URL to a placeholder
+  // (test:grpc / test scripts in package.json) so the import succeeds.
+  // postgres-js is itself lazy — no TCP dial happens before the first
+  // query — so a placeholder url is safe at the module-load level.
   throw new Error('DATABASE_URL is not set')
 }
 
 declare global {
-   
+
   var __oraclePostgresClient: ReturnType<typeof postgres> | undefined
 }
 

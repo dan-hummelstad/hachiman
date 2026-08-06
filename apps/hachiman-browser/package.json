@@ -15,22 +15,22 @@
     "@hachiman/hachiman": "workspace:*",
     "@hachiman/hachiman-node": "file:../../pkgs/hachiman-node",
     "events": "^3.3.0",
-    "react": "^19.2.1",
-    "react-dom": "^19.2.1"
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
   },
   "devDependencies": {
     "@electron-toolkit/eslint-config-prettier": "^3.0.0",
     "@electron-toolkit/eslint-config-ts": "^3.1.0",
-    "@tailwindcss/vite": "^4.1.18",
-    "@types/react": "^19.2.7",
-    "@types/react-dom": "^19.2.3",
-    "@vitejs/plugin-react": "^5.1.1",
-    "eslint": "^9.39.1",
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "@vitejs/plugin-react": "^5.2.0",
+    "eslint": "^9.39.5",
     "eslint-plugin-react": "^7.37.5",
-    "eslint-plugin-react-hooks": "^7.0.1",
+    "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.4.26",
-    "prettier": "^3.7.4",
-    "tailwindcss": "^4.1.18",
-    "vite": "^7.2.6"
+    "prettier": "^3.9.6",
+    "tailwindcss": "^4.3.3",
+    "vite": "^7.3.6"
   }
 }

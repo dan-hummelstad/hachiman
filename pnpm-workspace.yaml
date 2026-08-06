@@ -4,6 +4,7 @@ packages:
 
 ignoredBuiltDependencies:
   - '@discordjs/opus'
+  - protobufjs
 
 onlyBuiltDependencies:
   - '@swc/core'

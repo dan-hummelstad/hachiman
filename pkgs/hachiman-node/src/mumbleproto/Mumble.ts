@@ -9,6 +9,72 @@
 // that can be found in the LICENSE file at the root of the
 // Mumble source tree or at <https://www.mumble.info/LICENSE>.
 //
+//
+// =============================================================================
+// Packet-type registry (Hachiman fork)
+// =============================================================================
+//
+// IDs are assigned from a flat sequence and MUST stay in lock-step with the
+// authoritative dispatch tables. Source of truth:
+//   - Go:  apps/hachiman-server/pkg/mumbleproto/types.go
+//   - TS:  pkgs/hachiman-node/src/packet-type-registry.ts
+// `proto-sync-checker` enforces no drift between this comment block, the Go
+// constants, and the TS map.
+//
+// Existing assignments (0–33) — DO NOT renumber:
+//
+//    0  Version
+//    1  RESERVED — was UDPTunnel (deleted in media-plane phase 2)
+//    2  Authenticate
+//    3  Ping
+//    4  Reject
+//    5  ServerSync
+//    6  ChannelRemove
+//    7  ChannelState
+//    8  UserRemove
+//    9  UserState
+//   10  BanList
+//   11  TextMessage
+//   12  PermissionDenied
+//   13  ACL
+//   14  QueryUsers
+//   15  RESERVED — was CryptSetup (deleted in media-plane phase 2)
+//   16  ContextActionModify
+//   17  ContextAction
+//   18  UserList
+//   19  RESERVED — was VoiceTarget (deleted in media-plane phase 2)
+//   20  PermissionQuery
+//   21  CodecVersion
+//   22  UserStats
+//   23  RequestBlob
+//   24  ServerConfig
+//   25  SuggestConfig
+//   26  PluginDataTransmission
+//   27  WebRTC
+//   28  IceCandidate
+//   29  TalkingState
+//   30  RequestChannelMessages
+//   31  ChannelMessageHistory
+//   32  RelayMetricsQuery
+//   33  RelayMetricsSnapshot
+//
+// Media-plane phase 2 additions (34–43) — see MEDIA-PLANE-MIGRATION.md:
+//
+//   34  VoiceTokenRequest
+//   35  VoiceTokenGrant
+//   36  MediaTrackPublish
+//   37  MediaTrackUnpublish
+//   38  MediaTrackSubscribe
+//   39  MediaTrackUnsubscribe
+//   40  ScreenShareStart
+//   41  ScreenShareStop
+//   42  QualityProfile
+//   43  E2EEKeyMaterial
+//
+// IDs 1 / 15 / 19 are PERMANENTLY BURNED. Do not reuse for new messages — the
+// old wire types may still be on the network of some long-lived deployment.
+// =============================================================================
+//
 import type { BinaryWriteOptions } from "@protobuf-ts/runtime";
 import type { IBinaryWriter } from "@protobuf-ts/runtime";
 import { WireType } from "@protobuf-ts/runtime";
@@ -58,19 +124,14 @@ export interface Version {
      */
     osVersion?: string;
 }
-/**
- * Not used. Not even for tunneling UDP through TCP.
- *
- * @generated from protobuf message MumbleProto.UDPTunnel
- */
-export interface UDPTunnel {
-    /**
-     * Not used.
-     *
-     * @generated from protobuf field: required bytes packet = 1
-     */
-    packet: Uint8Array;
-}
+// =============================================================================
+// RESERVED — message UDPTunnel (was packet-type ID 1).
+// 
+// Deleted in media-plane phase 2: the native Mumble UDP voice path is gone;
+// clients use WebRTC for media. The packet-type ID 1 is permanently burned in
+// the registry (types.go / packet-type-registry.ts). Do not reintroduce.
+// =============================================================================
+
 /**
  * Used by the client to send the authentication credentials to the server.
  *
@@ -313,6 +374,19 @@ export interface ServerSync {
      * @generated from protobuf field: optional uint64 permissions = 4
      */
     permissions?: bigint;
+    /**
+     * Quality profile to apply for this session — embedded here so clients
+     * without a WebRTC voice token (legacy text-only paths, clients that
+     * decline media) still get codec / ladder / jitter / FEC configuration
+     * at join time. Clients with WebRTC sessions ALSO receive the profile
+     * bound to their session via `VoiceTokenGrant.quality_profile`; when
+     * both are present, `VoiceTokenGrant.quality_profile` wins for the
+     * audible session (it's the one the media node is configured to honor).
+     * Pushed again on change — see `requires_renegotiation` on the profile.
+     *
+     * @generated from protobuf field: optional MumbleProto.QualityProfile quality_profile = 5
+     */
+    qualityProfile?: QualityProfile;
 }
 /**
  * Sent by the client when it wants a channel removed. Sent by the server when
@@ -630,6 +704,13 @@ export interface UserState {
      * SSRCs are reused after a user disconnects to keep the total count low
      * (SRTP retains crypto state per SSRC for the entire session).
      * SSRC 0 is reserved for client-to-server audio.
+     *
+     * LEGACY: superseded by VoiceTokenGrant.assigned_ssrc for WebRTC
+     * sessions — control allocates the SSRC at token mint time and embeds
+     * it in the signed token; the field here is echoed back by the server
+     * for backward-compat with older clients that read SSRC off UserState.
+     * Do NOT write from new code; new code reads from
+     * VoiceTokenGrant.assigned_ssrc.
      *
      * @generated from protobuf field: optional uint32 ssrc = 24
      */
@@ -1052,34 +1133,14 @@ export interface QueryUsers {
      */
     names: string[];
 }
-/**
- * Used to initialize and resync the UDP encryption. Either side may request a
- * resync by sending the message without any values filled. The resync is
- * performed by sending the message with only the client or server nonce
- * filled.
- *
- * @generated from protobuf message MumbleProto.CryptSetup
- */
-export interface CryptSetup {
-    /**
-     * Encryption key.
-     *
-     * @generated from protobuf field: optional bytes key = 1
-     */
-    key?: Uint8Array;
-    /**
-     * Client nonce.
-     *
-     * @generated from protobuf field: optional bytes client_nonce = 2
-     */
-    clientNonce?: Uint8Array;
-    /**
-     * Server nonce.
-     *
-     * @generated from protobuf field: optional bytes server_nonce = 3
-     */
-    serverNonce?: Uint8Array;
-}
+// =============================================================================
+// RESERVED — message CryptSetup (was packet-type ID 15).
+// 
+// Deleted in media-plane phase 2: OCB session-key negotiation for the native
+// UDP voice path is gone. WebRTC DTLS-SRTP handles encryption. The packet-type
+// ID 15 is permanently burned in the registry. Do not reintroduce.
+// =============================================================================
+
 /**
  * Used to add or remove custom context menu item on client-side.
  *
@@ -1218,64 +1279,15 @@ export interface UserList_User {
      */
     lastChannel?: number;
 }
-/**
- * Sent by the client when it wants to register or clear whisper targets.
- *
- * Note: The first available target ID is 1 as 0 is reserved for normal
- * talking. Maximum target ID is 30.
- *
- * @generated from protobuf message MumbleProto.VoiceTarget
- */
-export interface VoiceTarget {
-    /**
-     * Voice target ID.
-     *
-     * @generated from protobuf field: optional uint32 id = 1
-     */
-    id?: number;
-    /**
-     * The receivers that this voice target includes.
-     *
-     * @generated from protobuf field: repeated MumbleProto.VoiceTarget.Target targets = 2
-     */
-    targets: VoiceTarget_Target[];
-}
-/**
- * @generated from protobuf message MumbleProto.VoiceTarget.Target
- */
-export interface VoiceTarget_Target {
-    /**
-     * Users that are included as targets.
-     *
-     * @generated from protobuf field: repeated uint32 session = 1
-     */
-    session: number[];
-    /**
-     * Channel that is included as a target.
-     *
-     * @generated from protobuf field: optional uint32 channel_id = 2
-     */
-    channelId?: number;
-    /**
-     * ACL group that is included as a target.
-     *
-     * @generated from protobuf field: optional string group = 3
-     */
-    group?: string;
-    /**
-     * True if the voice should follow links from the specified channel.
-     *
-     * @generated from protobuf field: optional bool links = 4 [default = false]
-     */
-    links?: boolean;
-    /**
-     * True if the voice should also be sent to children of the specific
-     * channel.
-     *
-     * @generated from protobuf field: optional bool children = 5 [default = false]
-     */
-    children?: boolean;
-}
+// =============================================================================
+// RESERVED — message VoiceTarget (was packet-type ID 19).
+// 
+// Deleted in media-plane phase 2: whisper-target registration moves to the
+// control↔media sidechannel (`SubscriptionMatrixUpdate`). Control pre-computes
+// who-can-hear-whom; media has zero ACL/whisper logic. The packet-type ID 19
+// is permanently burned in the registry. Do not reintroduce.
+// =============================================================================
+
 /**
  * Sent by the client when it wants permissions for a certain channel. Sent by
  * the server when it replies to the query or wants the user to resync all
@@ -1637,6 +1649,12 @@ export interface PluginDataTransmission {
  * client indicated WebRTC support. The client replies with its own WebRTC
  * message containing its SDP answer.
  *
+ * Fields (session_id, generation, seq) are present so SDP/ICE ordering across
+ * the client↔control↔media hop is wire-representable. The runtime state
+ * machine (polite-peer rollback, generation barriers, ICE buffering) lands in
+ * a later phase — the wire fields are reserved now so adding them later does
+ * not force a protocol break.
+ *
  * @generated from protobuf message MumbleProto.WebRTC
  */
 export interface WebRTC {
@@ -1676,10 +1694,37 @@ export interface WebRTC {
      * @generated from protobuf field: optional string sdp_type = 6
      */
     sdpType?: string;
+    /**
+     * Session this offer/answer belongs to. Matches VoiceTokenGrant.session_id
+     * and the media-side OpenSession.session_id. Stable for the call lifetime.
+     *
+     * @generated from protobuf field: optional string session_id = 7
+     */
+    sessionId?: string;
+    /**
+     * Generation counter — bumped by the impolite peer (client) on every new
+     * offer cycle. The polite peer (media) rolls back on collision per
+     * RFC 8829. Receivers MUST discard messages whose generation < the latest
+     * applied generation for the session.
+     *
+     * @generated from protobuf field: optional uint32 generation = 8
+     */
+    generation?: number;
+    /**
+     * Per-(session, generation) monotonic sequence. Lets receivers detect
+     * reordering of fragments belonging to the same generation.
+     *
+     * @generated from protobuf field: optional uint32 seq = 9
+     */
+    seq?: number;
 }
 /**
  * Used to exchange ICE candidates between client and server during WebRTC
  * connection establishment.
+ *
+ * Same (session_id, generation, seq) ordering envelope as WebRTC — the client
+ * buffers remote ICE candidates until the matching SDP generation has been
+ * applied.
  *
  * @generated from protobuf message MumbleProto.IceCandidate
  */
@@ -1690,6 +1735,26 @@ export interface IceCandidate {
      * @generated from protobuf field: required string content = 1
      */
     content: string;
+    /**
+     * Session this candidate belongs to. Matches WebRTC.session_id.
+     *
+     * @generated from protobuf field: optional string session_id = 2
+     */
+    sessionId?: string;
+    /**
+     * SDP generation this candidate is gated to. Receivers buffer candidates
+     * whose generation > the currently-applied SDP generation and drain on
+     * generation advance.
+     *
+     * @generated from protobuf field: optional uint32 generation = 3
+     */
+    generation?: number;
+    /**
+     * Monotonic sequence within (session, generation).
+     *
+     * @generated from protobuf field: optional uint32 seq = 4
+     */
+    seq?: number;
 }
 /**
  * Indicates whether a user is currently talking (or whispering/shouting).
@@ -1986,6 +2051,540 @@ export interface RelayHopSnapshot {
      */
     budgetMillis?: number;
 }
+/**
+ * Client → server. Sent after Authenticate and before joining a voice channel.
+ * Carries the locally-computed DTLS fingerprint and ICE ufrag so control can
+ * bind them into the signed voice token (DTLS-fingerprint binding is critical
+ * — a leaked token replayed from a different peer fails at the TLS layer).
+ *
+ * @generated from protobuf message MumbleProto.VoiceTokenRequest
+ */
+export interface VoiceTokenRequest {
+    /**
+     * Lower-case `<algo> <hex>:<hex>:...:<hex>` canonical form per RFC 8122 §5
+     * (e.g. `sha-256 a1:b2:c3:...`). Control MUST normalize to this exact form
+     * before stamping the claim.
+     *
+     * @generated from protobuf field: optional string dtls_fingerprint = 1
+     */
+    dtlsFingerprint?: string;
+    /**
+     * ICE ufrag the client committed at RTCPeerConnection creation.
+     *
+     * @generated from protobuf field: optional string ice_ufrag = 2
+     */
+    iceUfrag?: string;
+    /**
+     * Channel the client intends to publish into. Control uses this for the
+     * `channel_id` claim and to look up the channel's quality profile.
+     *
+     * @generated from protobuf field: optional uint32 channel_id = 3
+     */
+    channelId?: number;
+    /**
+     * Echoes back in VoiceTokenGrant so concurrent requests can be matched.
+     *
+     * @generated from protobuf field: optional uint32 request_id = 4
+     */
+    requestId?: number;
+}
+/**
+ * Server → client. Carries the voice token bytes plus everything the client
+ * needs to open a WebRTC session against the assigned media node. Sent inside
+ * or after ServerSync on initial connection; push-able later for mid-call
+ * token refresh before `expires_at_unix - 15s`.
+ *
+ * @generated from protobuf message MumbleProto.VoiceTokenGrant
+ */
+export interface VoiceTokenGrant {
+    /**
+     * `host:port` of the media node Oracle's placement service assigned for
+     * this session.
+     *
+     * @generated from protobuf field: optional string media_node_addr = 1
+     */
+    mediaNodeAddr?: string;
+    /**
+     * Opaque media node identifier (matches RegisterMediaNode.node_id).
+     *
+     * @generated from protobuf field: optional string media_node_id = 2
+     */
+    mediaNodeId?: string;
+    /**
+     * Token bytes. Format is PASETO v4.public over Ed25519 (pkg/voicetoken).
+     * SAME bytes that control pushed to media via sidechannel OpenSession —
+     * the two transport paths MUST NOT diverge.
+     *
+     * @generated from protobuf field: optional bytes token = 3
+     */
+    token?: Uint8Array;
+    /**
+     * TURN endpoints with HMAC-derived ephemeral credentials. Per-region
+     * co-located coturn.
+     *
+     * @generated from protobuf field: repeated MumbleProto.IceServer ice_servers = 4
+     */
+    iceServers: IceServer[];
+    /**
+     * Quality profile to apply for this session (codec / ladder / jitter).
+     *
+     * @generated from protobuf field: optional MumbleProto.QualityProfile quality_profile = 5
+     */
+    qualityProfile?: QualityProfile;
+    /**
+     * SSRC allocated by control at mint time and embedded in the signed token.
+     * Client MUST use this SSRC for its outbound audio.
+     *
+     * @generated from protobuf field: optional uint32 assigned_ssrc = 6
+     */
+    assignedSsrc?: number;
+    /**
+     * Wall-clock expiry in Unix seconds. Client refreshes before
+     * `expires_at_unix - 15s` via a fresh VoiceTokenRequest.
+     *
+     * @generated from protobuf field: optional int64 expires_at_unix = 7
+     */
+    expiresAtUnix?: bigint;
+    /**
+     * Echo of VoiceTokenRequest.request_id.
+     *
+     * @generated from protobuf field: optional uint32 request_id = 8
+     */
+    requestId?: number;
+}
+/**
+ * Single entry in VoiceTokenGrant.ice_servers — TURN/STUN endpoint with
+ * optional time-bounded HMAC credentials.
+ *
+ * @generated from protobuf message MumbleProto.IceServer
+ */
+export interface IceServer {
+    /**
+     * `turn:host:port?transport=udp` / `stun:host:port` / etc.
+     *
+     * @generated from protobuf field: optional string url = 1
+     */
+    url?: string;
+    /**
+     * Ephemeral username (timestamp:user-id) per coturn's REST API scheme.
+     *
+     * @generated from protobuf field: optional string username = 2
+     */
+    username?: string;
+    /**
+     * HMAC-SHA1 of `username` keyed with the per-region TURN secret,
+     * base64-encoded. Bounded by the embedded timestamp in `username`.
+     *
+     * @generated from protobuf field: optional string credential = 3
+     */
+    credential?: string;
+}
+/**
+ * Client → server. Announces a new media track the client is about to publish.
+ * `kind` is an open enum (see MediaKind comment) — receivers ignore unknown
+ * kinds rather than failing.
+ *
+ * E2EE metadata: when `e2ee_key_id == 0` the track is hop-by-hop encrypted
+ * only (DTLS-SRTP) — i.e. E2EE disabled for this publisher / room. When set,
+ * receivers use it to look up the per-sender ratcheting key derived from the
+ * per-room shared secret.
+ *
+ * @generated from protobuf message MumbleProto.MediaTrackPublish
+ */
+export interface MediaTrackPublish {
+    /**
+     * Publishing user's session id.
+     *
+     * @generated from protobuf field: optional uint32 session = 1
+     */
+    session?: number;
+    /**
+     * Open enum — UNSPECIFIED / unknown values are ignored by receivers.
+     *
+     * @generated from protobuf field: optional MumbleProto.MediaKind kind = 2 [default = KIND_UNSPECIFIED]
+     */
+    kind?: MediaKind;
+    /**
+     * Track id, unique per (session, kind). Used to correlate Subscribe /
+     * Unsubscribe / Unpublish. Stable for the track's lifetime.
+     *
+     * @generated from protobuf field: optional string track_id = 3
+     */
+    trackId?: string;
+    /**
+     * SSRC the client will use for this track.
+     *
+     * @generated from protobuf field: optional uint32 ssrc = 4
+     */
+    ssrc?: number;
+    /**
+     * Sender's current SFrame key identifier. 0 = E2EE disabled for this
+     * track (hop-by-hop DTLS-SRTP only).
+     *
+     * @generated from protobuf field: optional uint32 e2ee_key_id = 5
+     */
+    e2EeKeyId?: number;
+    /**
+     * Monotonic per-sender epoch — bumped on every per-room key rotation
+     * (E2EEMemberJoin / E2EEMemberLeave).
+     *
+     * @generated from protobuf field: optional uint32 e2ee_epoch = 6
+     */
+    e2EeEpoch?: number;
+    /**
+     * SFrame cipher suite identifier (e.g. `SFRAME_AES_128_GCM_SHA256`).
+     *
+     * @generated from protobuf field: optional string sframe_profile = 7
+     */
+    sframeProfile?: string;
+}
+/**
+ * Client → server. Announces the client is tearing down a previously-published
+ * track.
+ *
+ * @generated from protobuf message MumbleProto.MediaTrackUnpublish
+ */
+export interface MediaTrackUnpublish {
+    /**
+     * @generated from protobuf field: optional uint32 session = 1
+     */
+    session?: number;
+    /**
+     * @generated from protobuf field: optional MumbleProto.MediaKind kind = 2 [default = KIND_UNSPECIFIED]
+     */
+    kind?: MediaKind;
+    /**
+     * @generated from protobuf field: optional string track_id = 3
+     */
+    trackId?: string;
+}
+/**
+ * Client → server. Subscription intent for another participant's track. The
+ * server forwards the resulting subscription matrix to media via
+ * `SubscriptionMatrixUpdate` (sidechannel).
+ *
+ * @generated from protobuf message MumbleProto.MediaTrackSubscribe
+ */
+export interface MediaTrackSubscribe {
+    /**
+     * Publishing user's session id.
+     *
+     * @generated from protobuf field: optional uint32 publisher_session = 1
+     */
+    publisherSession?: number;
+    /**
+     * @generated from protobuf field: optional MumbleProto.MediaKind kind = 2 [default = KIND_UNSPECIFIED]
+     */
+    kind?: MediaKind;
+    /**
+     * @generated from protobuf field: optional string track_id = 3
+     */
+    trackId?: string;
+    /**
+     * Receiver-driven simulcast / SVC layer hint. 0 = let server pick;
+     * higher values request progressively higher layers. Bound by the
+     * publisher's actual ladder.
+     *
+     * @generated from protobuf field: optional uint32 preferred_layer = 4
+     */
+    preferredLayer?: number;
+}
+/**
+ * @generated from protobuf message MumbleProto.MediaTrackUnsubscribe
+ */
+export interface MediaTrackUnsubscribe {
+    /**
+     * @generated from protobuf field: optional uint32 publisher_session = 1
+     */
+    publisherSession?: number;
+    /**
+     * @generated from protobuf field: optional MumbleProto.MediaKind kind = 2 [default = KIND_UNSPECIFIED]
+     */
+    kind?: MediaKind;
+    /**
+     * @generated from protobuf field: optional string track_id = 3
+     */
+    trackId?: string;
+}
+/**
+ * Client → server intent. The corresponding MediaTrackPublish with
+ * `kind == KIND_SCREEN` carries the wire details (SSRC, E2EE metadata); this
+ * message is the high-level "user clicked share" signal so the server can
+ * drive UI state for other participants.
+ *
+ * @generated from protobuf message MumbleProto.ScreenShareStart
+ */
+export interface ScreenShareStart {
+    /**
+     * @generated from protobuf field: optional uint32 session = 1
+     */
+    session?: number;
+    /**
+     * Opaque identifier the screen-share track will reference. Matches the
+     * subsequent MediaTrackPublish.track_id.
+     *
+     * @generated from protobuf field: optional string share_id = 2
+     */
+    shareId?: string;
+    /**
+     * True if the share includes a separate audio track.
+     *
+     * @generated from protobuf field: optional bool with_audio = 3 [default = false]
+     */
+    withAudio?: boolean;
+}
+/**
+ * @generated from protobuf message MumbleProto.ScreenShareStop
+ */
+export interface ScreenShareStop {
+    /**
+     * @generated from protobuf field: optional uint32 session = 1
+     */
+    session?: number;
+    /**
+     * @generated from protobuf field: optional string share_id = 2
+     */
+    shareId?: string;
+}
+/**
+ * Server → client. Codec / ladder / jitter / FEC configuration to apply for
+ * this session. Embedded in ServerSync at join time and push-able on change.
+ *
+ * `requires_renegotiation` lets the client distinguish runtime-tunable changes
+ * (bitrate via `setParameters()`) from changes that force SDP renegotiation
+ * (codec, ptime, FEC, ladder shape). When set, the client is free to defer the
+ * audible glitch — e.g. wait until call end.
+ *
+ * @generated from protobuf message MumbleProto.QualityProfile
+ */
+export interface QualityProfile {
+    /**
+     * Profile DB id (control-plane FK). 0 = ad-hoc / inline.
+     *
+     * @generated from protobuf field: optional uint32 profile_id = 1
+     */
+    profileId?: number;
+    /**
+     * Human-readable name (e.g. "Hachiman-Standard"). Informational.
+     *
+     * @generated from protobuf field: optional string name = 2
+     */
+    name?: string;
+    /**
+     * Voice codec ("opus") and bitrate range.
+     *
+     * @generated from protobuf field: optional string voice_codec = 3
+     */
+    voiceCodec?: string;
+    /**
+     * @generated from protobuf field: optional uint32 voice_bitrate_min = 4
+     */
+    voiceBitrateMin?: number;
+    /**
+     * @generated from protobuf field: optional uint32 voice_bitrate_max = 5
+     */
+    voiceBitrateMax?: number;
+    /**
+     * Opus frame duration in ms (10 ms target).
+     *
+     * @generated from protobuf field: optional uint32 voice_ptime_ms = 6
+     */
+    voicePtimeMs?: number;
+    /**
+     * @generated from protobuf field: optional bool voice_fec = 7 [default = true]
+     */
+    voiceFec?: boolean;
+    /**
+     * @generated from protobuf field: optional bool voice_dtx = 8 [default = false]
+     */
+    voiceDtx?: boolean;
+    /**
+     * Jitter buffer target window in ms.
+     *
+     * @generated from protobuf field: optional uint32 jitter_target_ms = 9
+     */
+    jitterTargetMs?: number;
+    /**
+     * @generated from protobuf field: optional uint32 jitter_max_ms = 10
+     */
+    jitterMaxMs?: number;
+    /**
+     * Screen codec preference order — first entry wins when the client's
+     * `RTCRtpReceiver.getCapabilities()` probe accepts it. Phase 2 ladder is
+     * ["av1", "vp9", "vp8"] with VP9 fallback negotiated automatically.
+     *
+     * @generated from protobuf field: repeated string screen_codecs = 11
+     */
+    screenCodecs: string[];
+    /**
+     * Simulcast / SVC ladder entries (e.g. ["1080p60", "720p30", "480p15"]).
+     *
+     * @generated from protobuf field: repeated string screen_ladder = 12
+     */
+    screenLadder: string[];
+    /**
+     * True when applying this profile forces an SDP renegotiation (codec,
+     * ptime, FEC, ladder shape change). Client uses this to schedule the
+     * audible glitch around a quiet moment.
+     *
+     * @generated from protobuf field: optional bool requires_renegotiation = 13 [default = false]
+     */
+    requiresRenegotiation?: boolean;
+}
+/**
+ * Server → client. Per-room E2EE key material — distributed over the
+ * authenticated TCP control channel, never over the WebRTC wire. SFU never
+ * sees room keys.
+ *
+ * Envelope: signed by the same Ed25519 key family as voice tokens; verification
+ * is bound to the client's `dtls_fingerprint` (replay from a different peer
+ * fails at decode). Wraps the per-room shared secret + sender-ratcheting key
+ * material for a single recipient.
+ *
+ * @generated from protobuf message MumbleProto.E2EEKeyMaterial
+ */
+export interface E2EEKeyMaterial {
+    /**
+     * Room this material is scoped to. Stable per `OpenRoom` lifetime.
+     *
+     * @generated from protobuf field: optional string room_id = 1
+     */
+    roomId?: string;
+    /**
+     * Recipient binding — MUST match the recipient client's current DTLS
+     * fingerprint (RFC 8122 §5 canonical form). Mismatch → reject.
+     *
+     * @generated from protobuf field: optional string recipient_dtls_fingerprint = 2
+     */
+    recipientDtlsFingerprint?: string;
+    /**
+     * Monotonic per-room epoch. Bumped on every E2EEMemberJoin /
+     * E2EEMemberLeave. Receivers keep a small ring of accepted epochs around
+     * the current one so in-flight frames decrypt during rotation.
+     *
+     * @generated from protobuf field: optional uint32 epoch = 3
+     */
+    epoch?: number;
+    /**
+     * Opaque sealed envelope, HPKE-style sealed-box keyed to the recipient's
+     * E2EE pubkey (distributed at join time via the existing user state
+     * pump). The envelope is also signed by one of the voice-token Ed25519
+     * signing keys (see `signing_key_id` below) so receivers can verify the
+     * material came from control before unsealing.
+     *
+     * Internal layout (authoritative byte order pinned by the SFrame work;
+     * the precise byte offsets are not part of this proto contract):
+     *   signature || cipher_suite_id || ciphertext_payload
+     * where:
+     *   - `signature` is Ed25519 over (signing_key_id || cipher_suite_id ||
+     *     ciphertext_payload || epoch || recipient_dtls_fingerprint), so a
+     *     leaked envelope cannot be re-targeted to a different recipient or
+     *     replayed under a different epoch;
+     *   - `cipher_suite_id` is mirrored as `envelope_suite` below for
+     *     receivers that want to dispatch without parsing the envelope;
+     *   - `ciphertext_payload` decrypts to the per-room shared secret + the
+     *     sender-ratcheting seed for the recipient's view of the room.
+     *
+     * Receivers MUST verify the signature with the public key identified by
+     * `signing_key_id` (looked up in the local `KeySetUpdate` trust set)
+     * BEFORE unsealing — verification failure → drop, log, request refresh.
+     *
+     * @generated from protobuf field: optional bytes sealed_envelope = 4
+     */
+    sealedEnvelope?: Uint8Array;
+    /**
+     * Cipher suite of the sealed envelope itself. Distinct from the SFrame
+     * profile in MediaTrackPublish.
+     *
+     * @generated from protobuf field: optional string envelope_suite = 5
+     */
+    envelopeSuite?: string;
+    /**
+     * Wall-clock expiry — clients SHOULD discard material past this time and
+     * request a refresh.
+     *
+     * @generated from protobuf field: optional int64 expires_at_unix = 6
+     */
+    expiresAtUnix?: bigint;
+    /**
+     * Signing-key identifier — selects which Ed25519 public key from the
+     * client's local `KeySetUpdate` trust set verifies `sealed_envelope`'s
+     * signature. Surfaced at the top level so the client can pick the right
+     * verify key without parsing into the opaque envelope. During the
+     * two-key 90-day rotation overlap window both the outgoing and incoming
+     * keys appear in the trust set; this field disambiguates per-envelope
+     * which one was used at mint time. Mismatch / unknown id → drop & log
+     * against `e2ee_decrypt_failures_total{reason="unknown_key_id"}`.
+     *
+     * @generated from protobuf field: optional string signing_key_id = 7
+     */
+    signingKeyId?: string;
+}
+// =============================================================================
+// Media-plane phase 2 — wire surface.
+// 
+// See MEDIA-PLANE-MIGRATION.md "Phase 2 — Protocol changes" for the full
+// rationale behind each message. Packet-type IDs are assigned at the top of
+// this file and mirrored into types.go / packet-type-registry.ts.
+// =============================================================================
+
+/**
+ * MediaKind is intentionally OPEN: new kinds get appended without forcing a
+ * proto break. Receivers MUST treat KIND_UNSPECIFIED and any unknown value as
+ * "ignore this track for now" rather than failing the session.
+ *
+ * 4–9 are reserved for forward-compat (e.g. KIND_AUDIO_PROCESS for spatial /
+ * background-audio sources). The reserved range is documented here rather than
+ * expressed as proto2 `reserved` because proto2 reservations apply to message
+ * fields, not enum values. Adding a new kind: pick the next free integer and
+ * update both registries plus the doc comment.
+ *
+ * @generated from protobuf enum MumbleProto.MediaKind
+ */
+export enum MediaKind {
+    /**
+     * @generated from protobuf enum value: KIND_UNSPECIFIED = 0;
+     */
+    KIND_UNSPECIFIED = 0,
+    /**
+     * @generated from protobuf enum value: KIND_VOICE = 1;
+     */
+    KIND_VOICE = 1,
+    /**
+     * @generated from protobuf enum value: KIND_SCREEN = 2;
+     */
+    KIND_SCREEN = 2,
+    /**
+     * @generated from protobuf enum value: KIND_CAMERA = 3;
+     */
+    KIND_CAMERA = 3,
+    /**
+     * 4..9 reserved for forward compatibility.
+     *
+     * @generated from protobuf enum value: KIND_RESERVED_4 = 4;
+     */
+    KIND_RESERVED_4 = 4,
+    /**
+     * @generated from protobuf enum value: KIND_RESERVED_5 = 5;
+     */
+    KIND_RESERVED_5 = 5,
+    /**
+     * @generated from protobuf enum value: KIND_RESERVED_6 = 6;
+     */
+    KIND_RESERVED_6 = 6,
+    /**
+     * @generated from protobuf enum value: KIND_RESERVED_7 = 7;
+     */
+    KIND_RESERVED_7 = 7,
+    /**
+     * @generated from protobuf enum value: KIND_RESERVED_8 = 8;
+     */
+    KIND_RESERVED_8 = 8,
+    /**
+     * @generated from protobuf enum value: KIND_RESERVED_9 = 9;
+     */
+    KIND_RESERVED_9 = 9
+}
 // @generated message type with reflection information, may provide speed optimized methods
 class Version$Type extends MessageType<Version> {
     constructor() {
@@ -2068,53 +2667,6 @@ class Version$Type extends MessageType<Version> {
  * @generated MessageType for protobuf message MumbleProto.Version
  */
 export const Version = new Version$Type();
-// @generated message type with reflection information, may provide speed optimized methods
-class UDPTunnel$Type extends MessageType<UDPTunnel> {
-    constructor() {
-        super("MumbleProto.UDPTunnel", [
-            { no: 1, name: "packet", kind: "scalar", T: 12 /*ScalarType.BYTES*/ }
-        ]);
-    }
-    create(value?: PartialMessage<UDPTunnel>): UDPTunnel {
-        const message = globalThis.Object.create((this.messagePrototype!));
-        message.packet = new Uint8Array(0);
-        if (value !== undefined)
-            reflectionMergePartial<UDPTunnel>(this, message, value);
-        return message;
-    }
-    internalBinaryRead(reader: IBinaryReader, length: number, options: BinaryReadOptions, target?: UDPTunnel): UDPTunnel {
-        let message = target ?? this.create(), end = reader.pos + length;
-        while (reader.pos < end) {
-            let [fieldNo, wireType] = reader.tag();
-            switch (fieldNo) {
-                case /* required bytes packet */ 1:
-                    message.packet = reader.bytes();
-                    break;
-                default:
-                    let u = options.readUnknownField;
-                    if (u === "throw")
-                        throw new globalThis.Error(`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`);
-                    let d = reader.skip(wireType);
-                    if (u !== false)
-                        (u === true ? UnknownFieldHandler.onRead : u)(this.typeName, message, fieldNo, wireType, d);
-            }
-        }
-        return message;
-    }
-    internalBinaryWrite(message: UDPTunnel, writer: IBinaryWriter, options: BinaryWriteOptions): IBinaryWriter {
-        /* required bytes packet = 1; */
-        if (message.packet.length)
-            writer.tag(1, WireType.LengthDelimited).bytes(message.packet);
-        let u = options.writeUnknownFields;
-        if (u !== false)
-            (u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
-        return writer;
-    }
-}
-/**
- * @generated MessageType for protobuf message MumbleProto.UDPTunnel
- */
-export const UDPTunnel = new UDPTunnel$Type();
 // @generated message type with reflection information, may provide speed optimized methods
 class Authenticate$Type extends MessageType<Authenticate> {
     constructor() {
@@ -2392,7 +2944,8 @@ class ServerSync$Type extends MessageType<ServerSync> {
             { no: 1, name: "session", kind: "scalar", opt: true, T: 13 /*ScalarType.UINT32*/ },
             { no: 2, name: "max_bandwidth", kind: "scalar", opt: true, T: 13 /*ScalarType.UINT32*/ },
             { no: 3, name: "welcome_text", kind: "scalar", opt: true, T: 9 /*ScalarType.STRING*/ },
-            { no: 4, name: "permissions", kind: "scalar", opt: true, T: 4 /*ScalarType.UINT64*/, L: 0 /*LongType.BIGINT*/ }
+            { no: 4, name: "permissions", kind: "scalar", opt: true, T: 4 /*ScalarType.UINT64*/, L: 0 /*LongType.BIGINT*/ },
+            { no: 5, name: "quality_profile", kind: "message", T: () => QualityProfile }
         ]);
     }
     create(value?: PartialMessage<ServerSync>): ServerSync {
@@ -2418,6 +2971,9 @@ class ServerSync$Type extends MessageType<ServerSync> {
                 case /* optional uint64 permissions */ 4:
                     message.permissions = reader.uint64().toBigInt();
                     break;
+                case /* optional MumbleProto.QualityProfile quality_profile */ 5:
+                    message.qualityProfile = QualityProfile.internalBinaryRead(reader, reader.uint32(), options, message.qualityProfile);
+                    break;
                 default:
                     let u = options.readUnknownField;
                     if (u === "throw")
@@ -2442,6 +2998,9 @@ class ServerSync$Type extends MessageType<ServerSync> {
         /* optional uint64 permissions = 4; */
         if (message.permissions !== undefined)
             writer.tag(4, WireType.Varint).uint64(message.permissions);
+        /* optional MumbleProto.QualityProfile quality_profile = 5; */
+        if (message.qualityProfile)
+            QualityProfile.internalBinaryWrite(message.qualityProfile, writer.tag(5, WireType.LengthDelimited).fork(), options).join();
         let u = options.writeUnknownFields;
         if (u !== false)
             (u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
@@ -3643,66 +4202,6 @@ class QueryUsers$Type extends MessageType<QueryUsers> {
  */
 export const QueryUsers = new QueryUsers$Type();
 // @generated message type with reflection information, may provide speed optimized methods
-class CryptSetup$Type extends MessageType<CryptSetup> {
-    constructor() {
-        super("MumbleProto.CryptSetup", [
-            { no: 1, name: "key", kind: "scalar", opt: true, T: 12 /*ScalarType.BYTES*/ },
-            { no: 2, name: "client_nonce", kind: "scalar", opt: true, T: 12 /*ScalarType.BYTES*/ },
-            { no: 3, name: "server_nonce", kind: "scalar", opt: true, T: 12 /*ScalarType.BYTES*/ }
-        ]);
-    }
-    create(value?: PartialMessage<CryptSetup>): CryptSetup {
-        const message = globalThis.Object.create((this.messagePrototype!));
-        if (value !== undefined)
-            reflectionMergePartial<CryptSetup>(this, message, value);
-        return message;
-    }
-    internalBinaryRead(reader: IBinaryReader, length: number, options: BinaryReadOptions, target?: CryptSetup): CryptSetup {
-        let message = target ?? this.create(), end = reader.pos + length;
-        while (reader.pos < end) {
-            let [fieldNo, wireType] = reader.tag();
-            switch (fieldNo) {
-                case /* optional bytes key */ 1:
-                    message.key = reader.bytes();
-                    break;
-                case /* optional bytes client_nonce */ 2:
-                    message.clientNonce = reader.bytes();
-                    break;
-                case /* optional bytes server_nonce */ 3:
-                    message.serverNonce = reader.bytes();
-                    break;
-                default:
-                    let u = options.readUnknownField;
-                    if (u === "throw")
-                        throw new globalThis.Error(`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`);
-                    let d = reader.skip(wireType);
-                    if (u !== false)
-                        (u === true ? UnknownFieldHandler.onRead : u)(this.typeName, message, fieldNo, wireType, d);
-            }
-        }
-        return message;
-    }
-    internalBinaryWrite(message: CryptSetup, writer: IBinaryWriter, options: BinaryWriteOptions): IBinaryWriter {
-        /* optional bytes key = 1; */
-        if (message.key !== undefined)
-            writer.tag(1, WireType.LengthDelimited).bytes(message.key);
-        /* optional bytes client_nonce = 2; */
-        if (message.clientNonce !== undefined)
-            writer.tag(2, WireType.LengthDelimited).bytes(message.clientNonce);
-        /* optional bytes server_nonce = 3; */
-        if (message.serverNonce !== undefined)
-            writer.tag(3, WireType.LengthDelimited).bytes(message.serverNonce);
-        let u = options.writeUnknownFields;
-        if (u !== false)
-            (u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
-        return writer;
-    }
-}
-/**
- * @generated MessageType for protobuf message MumbleProto.CryptSetup
- */
-export const CryptSetup = new CryptSetup$Type();
-// @generated message type with reflection information, may provide speed optimized methods
 class ContextActionModify$Type extends MessageType<ContextActionModify> {
     constructor() {
         super("MumbleProto.ContextActionModify", [
@@ -3943,139 +4442,6 @@ class UserList_User$Type extends MessageType<UserList_User> {
  * @generated MessageType for protobuf message MumbleProto.UserList.User
  */
 export const UserList_User = new UserList_User$Type();
-// @generated message type with reflection information, may provide speed optimized methods
-class VoiceTarget$Type extends MessageType<VoiceTarget> {
-    constructor() {
-        super("MumbleProto.VoiceTarget", [
-            { no: 1, name: "id", kind: "scalar", opt: true, T: 13 /*ScalarType.UINT32*/ },
-            { no: 2, name: "targets", kind: "message", repeat: 2 /*RepeatType.UNPACKED*/, T: () => VoiceTarget_Target }
-        ]);
-    }
-    create(value?: PartialMessage<VoiceTarget>): VoiceTarget {
-        const message = globalThis.Object.create((this.messagePrototype!));
-        message.targets = [];
-        if (value !== undefined)
-            reflectionMergePartial<VoiceTarget>(this, message, value);
-        return message;
-    }
-    internalBinaryRead(reader: IBinaryReader, length: number, options: BinaryReadOptions, target?: VoiceTarget): VoiceTarget {
-        let message = target ?? this.create(), end = reader.pos + length;
-        while (reader.pos < end) {
-            let [fieldNo, wireType] = reader.tag();
-            switch (fieldNo) {
-                case /* optional uint32 id */ 1:
-                    message.id = reader.uint32();
-                    break;
-                case /* repeated MumbleProto.VoiceTarget.Target targets */ 2:
-                    message.targets.push(VoiceTarget_Target.internalBinaryRead(reader, reader.uint32(), options));
-                    break;
-                default:
-                    let u = options.readUnknownField;
-                    if (u === "throw")
-                        throw new globalThis.Error(`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`);
-                    let d = reader.skip(wireType);
-                    if (u !== false)
-                        (u === true ? UnknownFieldHandler.onRead : u)(this.typeName, message, fieldNo, wireType, d);
-            }
-        }
-        return message;
-    }
-    internalBinaryWrite(message: VoiceTarget, writer: IBinaryWriter, options: BinaryWriteOptions): IBinaryWriter {
-        /* optional uint32 id = 1; */
-        if (message.id !== undefined)
-            writer.tag(1, WireType.Varint).uint32(message.id);
-        /* repeated MumbleProto.VoiceTarget.Target targets = 2; */
-        for (let i = 0; i < message.targets.length; i++)
-            VoiceTarget_Target.internalBinaryWrite(message.targets[i], writer.tag(2, WireType.LengthDelimited).fork(), options).join();
-        let u = options.writeUnknownFields;
-        if (u !== false)
-            (u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
-        return writer;
-    }
-}
-/**
- * @generated MessageType for protobuf message MumbleProto.VoiceTarget
- */
-export const VoiceTarget = new VoiceTarget$Type();
-// @generated message type with reflection information, may provide speed optimized methods
-class VoiceTarget_Target$Type extends MessageType<VoiceTarget_Target> {
-    constructor() {
-        super("MumbleProto.VoiceTarget.Target", [
-            { no: 1, name: "session", kind: "scalar", repeat: 2 /*RepeatType.UNPACKED*/, T: 13 /*ScalarType.UINT32*/ },
-            { no: 2, name: "channel_id", kind: "scalar", opt: true, T: 13 /*ScalarType.UINT32*/ },
-            { no: 3, name: "group", kind: "scalar", opt: true, T: 9 /*ScalarType.STRING*/ },
-            { no: 4, name: "links", kind: "scalar", opt: true, T: 8 /*ScalarType.BOOL*/ },
-            { no: 5, name: "children", kind: "scalar", opt: true, T: 8 /*ScalarType.BOOL*/ }
-        ]);
-    }
-    create(value?: PartialMessage<VoiceTarget_Target>): VoiceTarget_Target {
-        const message = globalThis.Object.create((this.messagePrototype!));
-        message.session = [];
-        if (value !== undefined)
-            reflectionMergePartial<VoiceTarget_Target>(this, message, value);
-        return message;
-    }
-    internalBinaryRead(reader: IBinaryReader, length: number, options: BinaryReadOptions, target?: VoiceTarget_Target): VoiceTarget_Target {
-        let message = target ?? this.create(), end = reader.pos + length;
-        while (reader.pos < end) {
-            let [fieldNo, wireType] = reader.tag();
-            switch (fieldNo) {
-                case /* repeated uint32 session */ 1:
-                    if (wireType === WireType.LengthDelimited)
-                        for (let e = reader.int32() + reader.pos; reader.pos < e;)
-                            message.session.push(reader.uint32());
-                    else
-                        message.session.push(reader.uint32());
-                    break;
-                case /* optional uint32 channel_id */ 2:
-                    message.channelId = reader.uint32();
-                    break;
-                case /* optional string group */ 3:
-                    message.group = reader.string();
-                    break;
-                case /* optional bool links = 4 [default = false] */ 4:
-                    message.links = reader.bool();
-                    break;
-                case /* optional bool children = 5 [default = false] */ 5:
-                    message.children = reader.bool();
-                    break;
-                default:
-                    let u = options.readUnknownField;
-                    if (u === "throw")
-                        throw new globalThis.Error(`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`);
-                    let d = reader.skip(wireType);
-                    if (u !== false)
-                        (u === true ? UnknownFieldHandler.onRead : u)(this.typeName, message, fieldNo, wireType, d);
-            }
-        }
-        return message;
-    }
-    internalBinaryWrite(message: VoiceTarget_Target, writer: IBinaryWriter, options: BinaryWriteOptions): IBinaryWriter {
-        /* repeated uint32 session = 1; */
-        for (let i = 0; i < message.session.length; i++)
-            writer.tag(1, WireType.Varint).uint32(message.session[i]);
-        /* optional uint32 channel_id = 2; */
-        if (message.channelId !== undefined)
-            writer.tag(2, WireType.Varint).uint32(message.channelId);
-        /* optional string group = 3; */
-        if (message.group !== undefined)
-            writer.tag(3, WireType.LengthDelimited).string(message.group);
-        /* optional bool links = 4 [default = false]; */
-        if (message.links !== undefined)
-            writer.tag(4, WireType.Varint).bool(message.links);
-        /* optional bool children = 5 [default = false]; */
-        if (message.children !== undefined)
-            writer.tag(5, WireType.Varint).bool(message.children);
-        let u = options.writeUnknownFields;
-        if (u !== false)
-            (u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
-        return writer;
-    }
-}
-/**
- * @generated MessageType for protobuf message MumbleProto.VoiceTarget.Target
- */
-export const VoiceTarget_Target = new VoiceTarget_Target$Type();
 // @generated message type with reflection information, may provide speed optimized methods
 class PermissionQuery$Type extends MessageType<PermissionQuery> {
     constructor() {
@@ -4763,7 +5129,10 @@ class WebRTC$Type extends MessageType<WebRTC> {
             { no: 3, name: "dtls_fingerprint", kind: "scalar", opt: true, T: 9 /*ScalarType.STRING*/ },
             { no: 4, name: "dtls_fingerprint_hash", kind: "scalar", opt: true, T: 9 /*ScalarType.STRING*/ },
             { no: 5, name: "sdp", kind: "scalar", opt: true, T: 9 /*ScalarType.STRING*/ },
-            { no: 6, name: "sdp_type", kind: "scalar", opt: true, T: 9 /*ScalarType.STRING*/ }
+            { no: 6, name: "sdp_type", kind: "scalar", opt: true, T: 9 /*ScalarType.STRING*/ },
+            { no: 7, name: "session_id", kind: "scalar", opt: true, T: 9 /*ScalarType.STRING*/ },
+            { no: 8, name: "generation", kind: "scalar", opt: true, T: 13 /*ScalarType.UINT32*/ },
+            { no: 9, name: "seq", kind: "scalar", opt: true, T: 13 /*ScalarType.UINT32*/ }
         ]);
     }
     create(value?: PartialMessage<WebRTC>): WebRTC {
@@ -4795,6 +5164,15 @@ class WebRTC$Type extends MessageType<WebRTC> {
                 case /* optional string sdp_type */ 6:
                     message.sdpType = reader.string();
                     break;
+                case /* optional string session_id */ 7:
+                    message.sessionId = reader.string();
+                    break;
+                case /* optional uint32 generation */ 8:
+                    message.generation = reader.uint32();
+                    break;
+                case /* optional uint32 seq */ 9:
+                    message.seq = reader.uint32();
+                    break;
                 default:
                     let u = options.readUnknownField;
                     if (u === "throw")
@@ -4825,6 +5203,15 @@ class WebRTC$Type extends MessageType<WebRTC> {
         /* optional string sdp_type = 6; */
         if (message.sdpType !== undefined)
             writer.tag(6, WireType.LengthDelimited).string(message.sdpType);
+        /* optional string session_id = 7; */
+        if (message.sessionId !== undefined)
+            writer.tag(7, WireType.LengthDelimited).string(message.sessionId);
+        /* optional uint32 generation = 8; */
+        if (message.generation !== undefined)
+            writer.tag(8, WireType.Varint).uint32(message.generation);
+        /* optional uint32 seq = 9; */
+        if (message.seq !== undefined)
+            writer.tag(9, WireType.Varint).uint32(message.seq);
         let u = options.writeUnknownFields;
         if (u !== false)
             (u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
@@ -4839,7 +5226,10 @@ export const WebRTC = new WebRTC$Type();
 class IceCandidate$Type extends MessageType<IceCandidate> {
     constructor() {
         super("MumbleProto.IceCandidate", [
-            { no: 1, name: "content", kind: "scalar", T: 9 /*ScalarType.STRING*/ }
+            { no: 1, name: "content", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
+            { no: 2, name: "session_id", kind: "scalar", opt: true, T: 9 /*ScalarType.STRING*/ },
+            { no: 3, name: "generation", kind: "scalar", opt: true, T: 13 /*ScalarType.UINT32*/ },
+            { no: 4, name: "seq", kind: "scalar", opt: true, T: 13 /*ScalarType.UINT32*/ }
         ]);
     }
     create(value?: PartialMessage<IceCandidate>): IceCandidate {
@@ -4857,6 +5247,15 @@ class IceCandidate$Type extends MessageType<IceCandidate> {
                 case /* required string content */ 1:
                     message.content = reader.string();
                     break;
+                case /* optional string session_id */ 2:
+                    message.sessionId = reader.string();
+                    break;
+                case /* optional uint32 generation */ 3:
+                    message.generation = reader.uint32();
+                    break;
+                case /* optional uint32 seq */ 4:
+                    message.seq = reader.uint32();
+                    break;
                 default:
                     let u = options.readUnknownField;
                     if (u === "throw")
@@ -4871,6 +5270,15 @@ class IceCandidate$Type extends MessageType<IceCandidate> {
     internalBinaryWrite(message: IceCandidate, writer: IBinaryWriter, options: BinaryWriteOptions): IBinaryWriter {
         /* required string content = 1; */
         writer.tag(1, WireType.LengthDelimited).string(message.content);
+        /* optional string session_id = 2; */
+        if (message.sessionId !== undefined)
+            writer.tag(2, WireType.LengthDelimited).string(message.sessionId);
+        /* optional uint32 generation = 3; */
+        if (message.generation !== undefined)
+            writer.tag(3, WireType.Varint).uint32(message.generation);
+        /* optional uint32 seq = 4; */
+        if (message.seq !== undefined)
+            writer.tag(4, WireType.Varint).uint32(message.seq);
         let u = options.writeUnknownFields;
         if (u !== false)
             (u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
@@ -5484,3 +5892,834 @@ class RelayHopSnapshot$Type extends MessageType<RelayHopSnapshot> {
  * @generated MessageType for protobuf message MumbleProto.RelayHopSnapshot
  */
 export const RelayHopSnapshot = new RelayHopSnapshot$Type();
+// @generated message type with reflection information, may provide speed optimized methods
+class VoiceTokenRequest$Type extends MessageType<VoiceTokenRequest> {
+    constructor() {
+        super("MumbleProto.VoiceTokenRequest", [
+            { no: 1, name: "dtls_fingerprint", kind: "scalar", opt: true, T: 9 /*ScalarType.STRING*/ },
+            { no: 2, name: "ice_ufrag", kind: "scalar", opt: true, T: 9 /*ScalarType.STRING*/ },
+            { no: 3, name: "channel_id", kind: "scalar", opt: true, T: 13 /*ScalarType.UINT32*/ },
+            { no: 4, name: "request_id", kind: "scalar", opt: true, T: 13 /*ScalarType.UINT32*/ }
+        ]);
+    }
+    create(value?: PartialMessage<VoiceTokenRequest>): VoiceTokenRequest {
+        const message = globalThis.Object.create((this.messagePrototype!));
+        if (value !== undefined)
+            reflectionMergePartial<VoiceTokenRequest>(this, message, value);
+        return message;
+    }
+    internalBinaryRead(reader: IBinaryReader, length: number, options: BinaryReadOptions, target?: VoiceTokenRequest): VoiceTokenRequest {
+        let message = target ?? this.create(), end = reader.pos + length;
+        while (reader.pos < end) {
+            let [fieldNo, wireType] = reader.tag();
+            switch (fieldNo) {
+                case /* optional string dtls_fingerprint */ 1:
+                    message.dtlsFingerprint = reader.string();
+                    break;
+                case /* optional string ice_ufrag */ 2:
+                    message.iceUfrag = reader.string();
+                    break;
+                case /* optional uint32 channel_id */ 3:
+                    message.channelId = reader.uint32();
+                    break;
+                case /* optional uint32 request_id */ 4:
+                    message.requestId = reader.uint32();
+                    break;
+                default:
+                    let u = options.readUnknownField;
+                    if (u === "throw")
+                        throw new globalThis.Error(`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`);
+                    let d = reader.skip(wireType);
+                    if (u !== false)
+                        (u === true ? UnknownFieldHandler.onRead : u)(this.typeName, message, fieldNo, wireType, d);
+            }
+        }
+        return message;
+    }
+    internalBinaryWrite(message: VoiceTokenRequest, writer: IBinaryWriter, options: BinaryWriteOptions): IBinaryWriter {
+        /* optional string dtls_fingerprint = 1; */
+        if (message.dtlsFingerprint !== undefined)
+            writer.tag(1, WireType.LengthDelimited).string(message.dtlsFingerprint);
+        /* optional string ice_ufrag = 2; */
+        if (message.iceUfrag !== undefined)
+            writer.tag(2, WireType.LengthDelimited).string(message.iceUfrag);
+        /* optional uint32 channel_id = 3; */
+        if (message.channelId !== undefined)
+            writer.tag(3, WireType.Varint).uint32(message.channelId);
+        /* optional uint32 request_id = 4; */
+        if (message.requestId !== undefined)
+            writer.tag(4, WireType.Varint).uint32(message.requestId);
+        let u = options.writeUnknownFields;
+        if (u !== false)
+            (u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
+        return writer;
+    }
+}
+/**
+ * @generated MessageType for protobuf message MumbleProto.VoiceTokenRequest
+ */
+export const VoiceTokenRequest = new VoiceTokenRequest$Type();
+// @generated message type with reflection information, may provide speed optimized methods
+class VoiceTokenGrant$Type extends MessageType<VoiceTokenGrant> {
+    constructor() {
+        super("MumbleProto.VoiceTokenGrant", [
+            { no: 1, name: "media_node_addr", kind: "scalar", opt: true, T: 9 /*ScalarType.STRING*/ },
+            { no: 2, name: "media_node_id", kind: "scalar", opt: true, T: 9 /*ScalarType.STRING*/ },
+            { no: 3, name: "token", kind: "scalar", opt: true, T: 12 /*ScalarType.BYTES*/ },
+            { no: 4, name: "ice_servers", kind: "message", repeat: 2 /*RepeatType.UNPACKED*/, T: () => IceServer },
+            { no: 5, name: "quality_profile", kind: "message", T: () => QualityProfile },
+            { no: 6, name: "assigned_ssrc", kind: "scalar", opt: true, T: 13 /*ScalarType.UINT32*/ },
+            { no: 7, name: "expires_at_unix", kind: "scalar", opt: true, T: 3 /*ScalarType.INT64*/, L: 0 /*LongType.BIGINT*/ },
+            { no: 8, name: "request_id", kind: "scalar", opt: true, T: 13 /*ScalarType.UINT32*/ }
+        ]);
+    }
+    create(value?: PartialMessage<VoiceTokenGrant>): VoiceTokenGrant {
+        const message = globalThis.Object.create((this.messagePrototype!));
+        message.iceServers = [];
+        if (value !== undefined)
+            reflectionMergePartial<VoiceTokenGrant>(this, message, value);
+        return message;
+    }
+    internalBinaryRead(reader: IBinaryReader, length: number, options: BinaryReadOptions, target?: VoiceTokenGrant): VoiceTokenGrant {
+        let message = target ?? this.create(), end = reader.pos + length;
+        while (reader.pos < end) {
+            let [fieldNo, wireType] = reader.tag();
+            switch (fieldNo) {
+                case /* optional string media_node_addr */ 1:
+                    message.mediaNodeAddr = reader.string();
+                    break;
+                case /* optional string media_node_id */ 2:
+                    message.mediaNodeId = reader.string();
+                    break;
+                case /* optional bytes token */ 3:
+                    message.token = reader.bytes();
+                    break;
+                case /* repeated MumbleProto.IceServer ice_servers */ 4:
+                    message.iceServers.push(IceServer.internalBinaryRead(reader, reader.uint32(), options));
+                    break;
+                case /* optional MumbleProto.QualityProfile quality_profile */ 5:
+                    message.qualityProfile = QualityProfile.internalBinaryRead(reader, reader.uint32(), options, message.qualityProfile);
+                    break;
+                case /* optional uint32 assigned_ssrc */ 6:
+                    message.assignedSsrc = reader.uint32();
+                    break;
+                case /* optional int64 expires_at_unix */ 7:
+                    message.expiresAtUnix = reader.int64().toBigInt();
+                    break;
+                case /* optional uint32 request_id */ 8:
+                    message.requestId = reader.uint32();
+                    break;
+                default:
+                    let u = options.readUnknownField;
+                    if (u === "throw")
+                        throw new globalThis.Error(`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`);
+                    let d = reader.skip(wireType);
+                    if (u !== false)
+                        (u === true ? UnknownFieldHandler.onRead : u)(this.typeName, message, fieldNo, wireType, d);
+            }
+        }
+        return message;
+    }
+    internalBinaryWrite(message: VoiceTokenGrant, writer: IBinaryWriter, options: BinaryWriteOptions): IBinaryWriter {
+        /* optional string media_node_addr = 1; */
+        if (message.mediaNodeAddr !== undefined)
+            writer.tag(1, WireType.LengthDelimited).string(message.mediaNodeAddr);
+        /* optional string media_node_id = 2; */
+        if (message.mediaNodeId !== undefined)
+            writer.tag(2, WireType.LengthDelimited).string(message.mediaNodeId);
+        /* optional bytes token = 3; */
+        if (message.token !== undefined)
+            writer.tag(3, WireType.LengthDelimited).bytes(message.token);
+        /* repeated MumbleProto.IceServer ice_servers = 4; */
+        for (let i = 0; i < message.iceServers.length; i++)
+            IceServer.internalBinaryWrite(message.iceServers[i], writer.tag(4, WireType.LengthDelimited).fork(), options).join();
+        /* optional MumbleProto.QualityProfile quality_profile = 5; */
+        if (message.qualityProfile)
+            QualityProfile.internalBinaryWrite(message.qualityProfile, writer.tag(5, WireType.LengthDelimited).fork(), options).join();
+        /* optional uint32 assigned_ssrc = 6; */
+        if (message.assignedSsrc !== undefined)
+            writer.tag(6, WireType.Varint).uint32(message.assignedSsrc);
+        /* optional int64 expires_at_unix = 7; */
+        if (message.expiresAtUnix !== undefined)
+            writer.tag(7, WireType.Varint).int64(message.expiresAtUnix);
+        /* optional uint32 request_id = 8; */
+        if (message.requestId !== undefined)
+            writer.tag(8, WireType.Varint).uint32(message.requestId);
+        let u = options.writeUnknownFields;
+        if (u !== false)
+            (u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
+        return writer;
+    }
+}
+/**
+ * @generated MessageType for protobuf message MumbleProto.VoiceTokenGrant
+ */
+export const VoiceTokenGrant = new VoiceTokenGrant$Type();
+// @generated message type with reflection information, may provide speed optimized methods
+class IceServer$Type extends MessageType<IceServer> {
+    constructor() {
+        super("MumbleProto.IceServer", [
+            { no: 1, name: "url", kind: "scalar", opt: true, T: 9 /*ScalarType.STRING*/ },
+            { no: 2, name: "username", kind: "scalar", opt: true, T: 9 /*ScalarType.STRING*/ },
+            { no: 3, name: "credential", kind: "scalar", opt: true, T: 9 /*ScalarType.STRING*/ }
+        ]);
+    }
+    create(value?: PartialMessage<IceServer>): IceServer {
+        const message = globalThis.Object.create((this.messagePrototype!));
+        if (value !== undefined)
+            reflectionMergePartial<IceServer>(this, message, value);
+        return message;
+    }
+    internalBinaryRead(reader: IBinaryReader, length: number, options: BinaryReadOptions, target?: IceServer): IceServer {
+        let message = target ?? this.create(), end = reader.pos + length;
+        while (reader.pos < end) {
+            let [fieldNo, wireType] = reader.tag();
+            switch (fieldNo) {
+                case /* optional string url */ 1:
+                    message.url = reader.string();
+                    break;
+                case /* optional string username */ 2:
+                    message.username = reader.string();
+                    break;
+                case /* optional string credential */ 3:
+                    message.credential = reader.string();
+                    break;
+                default:
+                    let u = options.readUnknownField;
+                    if (u === "throw")
+                        throw new globalThis.Error(`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`);
+                    let d = reader.skip(wireType);
+                    if (u !== false)
+                        (u === true ? UnknownFieldHandler.onRead : u)(this.typeName, message, fieldNo, wireType, d);
+            }
+        }
+        return message;
+    }
+    internalBinaryWrite(message: IceServer, writer: IBinaryWriter, options: BinaryWriteOptions): IBinaryWriter {
+        /* optional string url = 1; */
+        if (message.url !== undefined)
+            writer.tag(1, WireType.LengthDelimited).string(message.url);
+        /* optional string username = 2; */
+        if (message.username !== undefined)
+            writer.tag(2, WireType.LengthDelimited).string(message.username);
+        /* optional string credential = 3; */
+        if (message.credential !== undefined)
+            writer.tag(3, WireType.LengthDelimited).string(message.credential);
+        let u = options.writeUnknownFields;
+        if (u !== false)
+            (u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
+        return writer;
+    }
+}
+/**
+ * @generated MessageType for protobuf message MumbleProto.IceServer
+ */
+export const IceServer = new IceServer$Type();
+// @generated message type with reflection information, may provide speed optimized methods
+class MediaTrackPublish$Type extends MessageType<MediaTrackPublish> {
+    constructor() {
+        super("MumbleProto.MediaTrackPublish", [
+            { no: 1, name: "session", kind: "scalar", opt: true, T: 13 /*ScalarType.UINT32*/ },
+            { no: 2, name: "kind", kind: "enum", opt: true, T: () => ["MumbleProto.MediaKind", MediaKind] },
+            { no: 3, name: "track_id", kind: "scalar", opt: true, T: 9 /*ScalarType.STRING*/ },
+            { no: 4, name: "ssrc", kind: "scalar", opt: true, T: 13 /*ScalarType.UINT32*/ },
+            { no: 5, name: "e2ee_key_id", kind: "scalar", jsonName: "e2eeKeyId", opt: true, T: 13 /*ScalarType.UINT32*/ },
+            { no: 6, name: "e2ee_epoch", kind: "scalar", jsonName: "e2eeEpoch", opt: true, T: 13 /*ScalarType.UINT32*/ },
+            { no: 7, name: "sframe_profile", kind: "scalar", opt: true, T: 9 /*ScalarType.STRING*/ }
+        ]);
+    }
+    create(value?: PartialMessage<MediaTrackPublish>): MediaTrackPublish {
+        const message = globalThis.Object.create((this.messagePrototype!));
+        if (value !== undefined)
+            reflectionMergePartial<MediaTrackPublish>(this, message, value);
+        return message;
+    }
+    internalBinaryRead(reader: IBinaryReader, length: number, options: BinaryReadOptions, target?: MediaTrackPublish): MediaTrackPublish {
+        let message = target ?? this.create(), end = reader.pos + length;
+        while (reader.pos < end) {
+            let [fieldNo, wireType] = reader.tag();
+            switch (fieldNo) {
+                case /* optional uint32 session */ 1:
+                    message.session = reader.uint32();
+                    break;
+                case /* optional MumbleProto.MediaKind kind = 2 [default = KIND_UNSPECIFIED] */ 2:
+                    message.kind = reader.int32();
+                    break;
+                case /* optional string track_id */ 3:
+                    message.trackId = reader.string();
+                    break;
+                case /* optional uint32 ssrc */ 4:
+                    message.ssrc = reader.uint32();
+                    break;
+                case /* optional uint32 e2ee_key_id */ 5:
+                    message.e2EeKeyId = reader.uint32();
+                    break;
+                case /* optional uint32 e2ee_epoch */ 6:
+                    message.e2EeEpoch = reader.uint32();
+                    break;
+                case /* optional string sframe_profile */ 7:
+                    message.sframeProfile = reader.string();
+                    break;
+                default:
+                    let u = options.readUnknownField;
+                    if (u === "throw")
+                        throw new globalThis.Error(`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`);
+                    let d = reader.skip(wireType);
+                    if (u !== false)
+                        (u === true ? UnknownFieldHandler.onRead : u)(this.typeName, message, fieldNo, wireType, d);
+            }
+        }
+        return message;
+    }
+    internalBinaryWrite(message: MediaTrackPublish, writer: IBinaryWriter, options: BinaryWriteOptions): IBinaryWriter {
+        /* optional uint32 session = 1; */
+        if (message.session !== undefined)
+            writer.tag(1, WireType.Varint).uint32(message.session);
+        /* optional MumbleProto.MediaKind kind = 2 [default = KIND_UNSPECIFIED]; */
+        if (message.kind !== undefined)
+            writer.tag(2, WireType.Varint).int32(message.kind);
+        /* optional string track_id = 3; */
+        if (message.trackId !== undefined)
+            writer.tag(3, WireType.LengthDelimited).string(message.trackId);
+        /* optional uint32 ssrc = 4; */
+        if (message.ssrc !== undefined)
+            writer.tag(4, WireType.Varint).uint32(message.ssrc);
+        /* optional uint32 e2ee_key_id = 5; */
+        if (message.e2EeKeyId !== undefined)
+            writer.tag(5, WireType.Varint).uint32(message.e2EeKeyId);
+        /* optional uint32 e2ee_epoch = 6; */
+        if (message.e2EeEpoch !== undefined)
+            writer.tag(6, WireType.Varint).uint32(message.e2EeEpoch);
+        /* optional string sframe_profile = 7; */
+        if (message.sframeProfile !== undefined)
+            writer.tag(7, WireType.LengthDelimited).string(message.sframeProfile);
+        let u = options.writeUnknownFields;
+        if (u !== false)
+            (u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
+        return writer;
+    }
+}
+/**
+ * @generated MessageType for protobuf message MumbleProto.MediaTrackPublish
+ */
+export const MediaTrackPublish = new MediaTrackPublish$Type();
+// @generated message type with reflection information, may provide speed optimized methods
+class MediaTrackUnpublish$Type extends MessageType<MediaTrackUnpublish> {
+    constructor() {
+        super("MumbleProto.MediaTrackUnpublish", [
+            { no: 1, name: "session", kind: "scalar", opt: true, T: 13 /*ScalarType.UINT32*/ },
+            { no: 2, name: "kind", kind: "enum", opt: true, T: () => ["MumbleProto.MediaKind", MediaKind] },
+            { no: 3, name: "track_id", kind: "scalar", opt: true, T: 9 /*ScalarType.STRING*/ }
+        ]);
+    }
+    create(value?: PartialMessage<MediaTrackUnpublish>): MediaTrackUnpublish {
+        const message = globalThis.Object.create((this.messagePrototype!));
+        if (value !== undefined)
+            reflectionMergePartial<MediaTrackUnpublish>(this, message, value);
+        return message;
+    }
+    internalBinaryRead(reader: IBinaryReader, length: number, options: BinaryReadOptions, target?: MediaTrackUnpublish): MediaTrackUnpublish {
+        let message = target ?? this.create(), end = reader.pos + length;
+        while (reader.pos < end) {
+            let [fieldNo, wireType] = reader.tag();
+            switch (fieldNo) {
+                case /* optional uint32 session */ 1:
+                    message.session = reader.uint32();
+                    break;
+                case /* optional MumbleProto.MediaKind kind = 2 [default = KIND_UNSPECIFIED] */ 2:
+                    message.kind = reader.int32();
+                    break;
+                case /* optional string track_id */ 3:
+                    message.trackId = reader.string();
+                    break;
+                default:
+                    let u = options.readUnknownField;
+                    if (u === "throw")
+                        throw new globalThis.Error(`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`);
+                    let d = reader.skip(wireType);
+                    if (u !== false)
+                        (u === true ? UnknownFieldHandler.onRead : u)(this.typeName, message, fieldNo, wireType, d);
+            }
+        }
+        return message;
+    }
+    internalBinaryWrite(message: MediaTrackUnpublish, writer: IBinaryWriter, options: BinaryWriteOptions): IBinaryWriter {
+        /* optional uint32 session = 1; */
+        if (message.session !== undefined)
+            writer.tag(1, WireType.Varint).uint32(message.session);
+        /* optional MumbleProto.MediaKind kind = 2 [default = KIND_UNSPECIFIED]; */
+        if (message.kind !== undefined)
+            writer.tag(2, WireType.Varint).int32(message.kind);
+        /* optional string track_id = 3; */
+        if (message.trackId !== undefined)
+            writer.tag(3, WireType.LengthDelimited).string(message.trackId);
+        let u = options.writeUnknownFields;
+        if (u !== false)
+            (u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
+        return writer;
+    }
+}
+/**
+ * @generated MessageType for protobuf message MumbleProto.MediaTrackUnpublish
+ */
+export const MediaTrackUnpublish = new MediaTrackUnpublish$Type();
+// @generated message type with reflection information, may provide speed optimized methods
+class MediaTrackSubscribe$Type extends MessageType<MediaTrackSubscribe> {
+    constructor() {
+        super("MumbleProto.MediaTrackSubscribe", [
+            { no: 1, name: "publisher_session", kind: "scalar", opt: true, T: 13 /*ScalarType.UINT32*/ },
+            { no: 2, name: "kind", kind: "enum", opt: true, T: () => ["MumbleProto.MediaKind", MediaKind] },
+            { no: 3, name: "track_id", kind: "scalar", opt: true, T: 9 /*ScalarType.STRING*/ },
+            { no: 4, name: "preferred_layer", kind: "scalar", opt: true, T: 13 /*ScalarType.UINT32*/ }
+        ]);
+    }
+    create(value?: PartialMessage<MediaTrackSubscribe>): MediaTrackSubscribe {
+        const message = globalThis.Object.create((this.messagePrototype!));
+        if (value !== undefined)
+            reflectionMergePartial<MediaTrackSubscribe>(this, message, value);
+        return message;
+    }
+    internalBinaryRead(reader: IBinaryReader, length: number, options: BinaryReadOptions, target?: MediaTrackSubscribe): MediaTrackSubscribe {
+        let message = target ?? this.create(), end = reader.pos + length;
+        while (reader.pos < end) {
+            let [fieldNo, wireType] = reader.tag();
+            switch (fieldNo) {
+                case /* optional uint32 publisher_session */ 1:
+                    message.publisherSession = reader.uint32();
+                    break;
+                case /* optional MumbleProto.MediaKind kind = 2 [default = KIND_UNSPECIFIED] */ 2:
+                    message.kind = reader.int32();
+                    break;
+                case /* optional string track_id */ 3:
+                    message.trackId = reader.string();
+                    break;
+                case /* optional uint32 preferred_layer */ 4:
+                    message.preferredLayer = reader.uint32();
+                    break;
+                default:
+                    let u = options.readUnknownField;
+                    if (u === "throw")
+                        throw new globalThis.Error(`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`);
+                    let d = reader.skip(wireType);
+                    if (u !== false)
+                        (u === true ? UnknownFieldHandler.onRead : u)(this.typeName, message, fieldNo, wireType, d);
+            }
+        }
+        return message;
+    }
+    internalBinaryWrite(message: MediaTrackSubscribe, writer: IBinaryWriter, options: BinaryWriteOptions): IBinaryWriter {
+        /* optional uint32 publisher_session = 1; */
+        if (message.publisherSession !== undefined)
+            writer.tag(1, WireType.Varint).uint32(message.publisherSession);
+        /* optional MumbleProto.MediaKind kind = 2 [default = KIND_UNSPECIFIED]; */
+        if (message.kind !== undefined)
+            writer.tag(2, WireType.Varint).int32(message.kind);
+        /* optional string track_id = 3; */
+        if (message.trackId !== undefined)
+            writer.tag(3, WireType.LengthDelimited).string(message.trackId);
+        /* optional uint32 preferred_layer = 4; */
+        if (message.preferredLayer !== undefined)
+            writer.tag(4, WireType.Varint).uint32(message.preferredLayer);
+        let u = options.writeUnknownFields;
+        if (u !== false)
+            (u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
+        return writer;
+    }
+}
+/**
+ * @generated MessageType for protobuf message MumbleProto.MediaTrackSubscribe
+ */
+export const MediaTrackSubscribe = new MediaTrackSubscribe$Type();
+// @generated message type with reflection information, may provide speed optimized methods
+class MediaTrackUnsubscribe$Type extends MessageType<MediaTrackUnsubscribe> {
+    constructor() {
+        super("MumbleProto.MediaTrackUnsubscribe", [
+            { no: 1, name: "publisher_session", kind: "scalar", opt: true, T: 13 /*ScalarType.UINT32*/ },
+            { no: 2, name: "kind", kind: "enum", opt: true, T: () => ["MumbleProto.MediaKind", MediaKind] },
+            { no: 3, name: "track_id", kind: "scalar", opt: true, T: 9 /*ScalarType.STRING*/ }
+        ]);
+    }
+    create(value?: PartialMessage<MediaTrackUnsubscribe>): MediaTrackUnsubscribe {
+        const message = globalThis.Object.create((this.messagePrototype!));
+        if (value !== undefined)
+            reflectionMergePartial<MediaTrackUnsubscribe>(this, message, value);
+        return message;
+    }
+    internalBinaryRead(reader: IBinaryReader, length: number, options: BinaryReadOptions, target?: MediaTrackUnsubscribe): MediaTrackUnsubscribe {
+        let message = target ?? this.create(), end = reader.pos + length;
+        while (reader.pos < end) {
+            let [fieldNo, wireType] = reader.tag();
+            switch (fieldNo) {
+                case /* optional uint32 publisher_session */ 1:
+                    message.publisherSession = reader.uint32();
+                    break;
+                case /* optional MumbleProto.MediaKind kind = 2 [default = KIND_UNSPECIFIED] */ 2:
+                    message.kind = reader.int32();
+                    break;
+                case /* optional string track_id */ 3:
+                    message.trackId = reader.string();
+                    break;
+                default:
+                    let u = options.readUnknownField;
+                    if (u === "throw")
+                        throw new globalThis.Error(`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`);
+                    let d = reader.skip(wireType);
+                    if (u !== false)
+                        (u === true ? UnknownFieldHandler.onRead : u)(this.typeName, message, fieldNo, wireType, d);
+            }
+        }
+        return message;
+    }
+    internalBinaryWrite(message: MediaTrackUnsubscribe, writer: IBinaryWriter, options: BinaryWriteOptions): IBinaryWriter {
+        /* optional uint32 publisher_session = 1; */
+        if (message.publisherSession !== undefined)
+            writer.tag(1, WireType.Varint).uint32(message.publisherSession);
+        /* optional MumbleProto.MediaKind kind = 2 [default = KIND_UNSPECIFIED]; */
+        if (message.kind !== undefined)
+            writer.tag(2, WireType.Varint).int32(message.kind);
+        /* optional string track_id = 3; */
+        if (message.trackId !== undefined)
+            writer.tag(3, WireType.LengthDelimited).string(message.trackId);
+        let u = options.writeUnknownFields;
+        if (u !== false)
+            (u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
+        return writer;
+    }
+}
+/**
+ * @generated MessageType for protobuf message MumbleProto.MediaTrackUnsubscribe
+ */
+export const MediaTrackUnsubscribe = new MediaTrackUnsubscribe$Type();
+// @generated message type with reflection information, may provide speed optimized methods
+class ScreenShareStart$Type extends MessageType<ScreenShareStart> {
+    constructor() {
+        super("MumbleProto.ScreenShareStart", [
+            { no: 1, name: "session", kind: "scalar", opt: true, T: 13 /*ScalarType.UINT32*/ },
+            { no: 2, name: "share_id", kind: "scalar", opt: true, T: 9 /*ScalarType.STRING*/ },
+            { no: 3, name: "with_audio", kind: "scalar", opt: true, T: 8 /*ScalarType.BOOL*/ }
+        ]);
+    }
+    create(value?: PartialMessage<ScreenShareStart>): ScreenShareStart {
+        const message = globalThis.Object.create((this.messagePrototype!));
+        if (value !== undefined)
+            reflectionMergePartial<ScreenShareStart>(this, message, value);
+        return message;
+    }
+    internalBinaryRead(reader: IBinaryReader, length: number, options: BinaryReadOptions, target?: ScreenShareStart): ScreenShareStart {
+        let message = target ?? this.create(), end = reader.pos + length;
+        while (reader.pos < end) {
+            let [fieldNo, wireType] = reader.tag();
+            switch (fieldNo) {
+                case /* optional uint32 session */ 1:
+                    message.session = reader.uint32();
+                    break;
+                case /* optional string share_id */ 2:
+                    message.shareId = reader.string();
+                    break;
+                case /* optional bool with_audio = 3 [default = false] */ 3:
+                    message.withAudio = reader.bool();
+                    break;
+                default:
+                    let u = options.readUnknownField;
+                    if (u === "throw")
+                        throw new globalThis.Error(`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`);
+                    let d = reader.skip(wireType);
+                    if (u !== false)
+                        (u === true ? UnknownFieldHandler.onRead : u)(this.typeName, message, fieldNo, wireType, d);
+            }
+        }
+        return message;
+    }
+    internalBinaryWrite(message: ScreenShareStart, writer: IBinaryWriter, options: BinaryWriteOptions): IBinaryWriter {
+        /* optional uint32 session = 1; */
+        if (message.session !== undefined)
+            writer.tag(1, WireType.Varint).uint32(message.session);
+        /* optional string share_id = 2; */
+        if (message.shareId !== undefined)
+            writer.tag(2, WireType.LengthDelimited).string(message.shareId);
+        /* optional bool with_audio = 3 [default = false]; */
+        if (message.withAudio !== undefined)
+            writer.tag(3, WireType.Varint).bool(message.withAudio);
+        let u = options.writeUnknownFields;
+        if (u !== false)
+            (u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
+        return writer;
+    }
+}
+/**
+ * @generated MessageType for protobuf message MumbleProto.ScreenShareStart
+ */
+export const ScreenShareStart = new ScreenShareStart$Type();
+// @generated message type with reflection information, may provide speed optimized methods
+class ScreenShareStop$Type extends MessageType<ScreenShareStop> {
+    constructor() {
+        super("MumbleProto.ScreenShareStop", [
+            { no: 1, name: "session", kind: "scalar", opt: true, T: 13 /*ScalarType.UINT32*/ },
+            { no: 2, name: "share_id", kind: "scalar", opt: true, T: 9 /*ScalarType.STRING*/ }
+        ]);
+    }
+    create(value?: PartialMessage<ScreenShareStop>): ScreenShareStop {
+        const message = globalThis.Object.create((this.messagePrototype!));
+        if (value !== undefined)
+            reflectionMergePartial<ScreenShareStop>(this, message, value);
+        return message;
+    }
+    internalBinaryRead(reader: IBinaryReader, length: number, options: BinaryReadOptions, target?: ScreenShareStop): ScreenShareStop {
+        let message = target ?? this.create(), end = reader.pos + length;
+        while (reader.pos < end) {
+            let [fieldNo, wireType] = reader.tag();
+            switch (fieldNo) {
+                case /* optional uint32 session */ 1:
+                    message.session = reader.uint32();
+                    break;
+                case /* optional string share_id */ 2:
+                    message.shareId = reader.string();
+                    break;
+                default:
+                    let u = options.readUnknownField;
+                    if (u === "throw")
+                        throw new globalThis.Error(`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`);
+                    let d = reader.skip(wireType);
+                    if (u !== false)
+                        (u === true ? UnknownFieldHandler.onRead : u)(this.typeName, message, fieldNo, wireType, d);
+            }
+        }
+        return message;
+    }
+    internalBinaryWrite(message: ScreenShareStop, writer: IBinaryWriter, options: BinaryWriteOptions): IBinaryWriter {
+        /* optional uint32 session = 1; */
+        if (message.session !== undefined)
+            writer.tag(1, WireType.Varint).uint32(message.session);
+        /* optional string share_id = 2; */
+        if (message.shareId !== undefined)
+            writer.tag(2, WireType.LengthDelimited).string(message.shareId);
+        let u = options.writeUnknownFields;
+        if (u !== false)
+            (u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
+        return writer;
+    }
+}
+/**
+ * @generated MessageType for protobuf message MumbleProto.ScreenShareStop
+ */
+export const ScreenShareStop = new ScreenShareStop$Type();
+// @generated message type with reflection information, may provide speed optimized methods
+class QualityProfile$Type extends MessageType<QualityProfile> {
+    constructor() {
+        super("MumbleProto.QualityProfile", [
+            { no: 1, name: "profile_id", kind: "scalar", opt: true, T: 13 /*ScalarType.UINT32*/ },
+            { no: 2, name: "name", kind: "scalar", opt: true, T: 9 /*ScalarType.STRING*/ },
+            { no: 3, name: "voice_codec", kind: "scalar", opt: true, T: 9 /*ScalarType.STRING*/ },
+            { no: 4, name: "voice_bitrate_min", kind: "scalar", opt: true, T: 13 /*ScalarType.UINT32*/ },
+            { no: 5, name: "voice_bitrate_max", kind: "scalar", opt: true, T: 13 /*ScalarType.UINT32*/ },
+            { no: 6, name: "voice_ptime_ms", kind: "scalar", opt: true, T: 13 /*ScalarType.UINT32*/ },
+            { no: 7, name: "voice_fec", kind: "scalar", opt: true, T: 8 /*ScalarType.BOOL*/ },
+            { no: 8, name: "voice_dtx", kind: "scalar", opt: true, T: 8 /*ScalarType.BOOL*/ },
+            { no: 9, name: "jitter_target_ms", kind: "scalar", opt: true, T: 13 /*ScalarType.UINT32*/ },
+            { no: 10, name: "jitter_max_ms", kind: "scalar", opt: true, T: 13 /*ScalarType.UINT32*/ },
+            { no: 11, name: "screen_codecs", kind: "scalar", repeat: 2 /*RepeatType.UNPACKED*/, T: 9 /*ScalarType.STRING*/ },
+            { no: 12, name: "screen_ladder", kind: "scalar", repeat: 2 /*RepeatType.UNPACKED*/, T: 9 /*ScalarType.STRING*/ },
+            { no: 13, name: "requires_renegotiation", kind: "scalar", opt: true, T: 8 /*ScalarType.BOOL*/ }
+        ]);
+    }
+    create(value?: PartialMessage<QualityProfile>): QualityProfile {
+        const message = globalThis.Object.create((this.messagePrototype!));
+        message.screenCodecs = [];
+        message.screenLadder = [];
+        if (value !== undefined)
+            reflectionMergePartial<QualityProfile>(this, message, value);
+        return message;
+    }
+    internalBinaryRead(reader: IBinaryReader, length: number, options: BinaryReadOptions, target?: QualityProfile): QualityProfile {
+        let message = target ?? this.create(), end = reader.pos + length;
+        while (reader.pos < end) {
+            let [fieldNo, wireType] = reader.tag();
+            switch (fieldNo) {
+                case /* optional uint32 profile_id */ 1:
+                    message.profileId = reader.uint32();
+                    break;
+                case /* optional string name */ 2:
+                    message.name = reader.string();
+                    break;
+                case /* optional string voice_codec */ 3:
+                    message.voiceCodec = reader.string();
+                    break;
+                case /* optional uint32 voice_bitrate_min */ 4:
+                    message.voiceBitrateMin = reader.uint32();
+                    break;
+                case /* optional uint32 voice_bitrate_max */ 5:
+                    message.voiceBitrateMax = reader.uint32();
+                    break;
+                case /* optional uint32 voice_ptime_ms */ 6:
+                    message.voicePtimeMs = reader.uint32();
+                    break;
+                case /* optional bool voice_fec = 7 [default = true] */ 7:
+                    message.voiceFec = reader.bool();
+                    break;
+                case /* optional bool voice_dtx = 8 [default = false] */ 8:
+                    message.voiceDtx = reader.bool();
+                    break;
+                case /* optional uint32 jitter_target_ms */ 9:
+                    message.jitterTargetMs = reader.uint32();
+                    break;
+                case /* optional uint32 jitter_max_ms */ 10:
+                    message.jitterMaxMs = reader.uint32();
+                    break;
+                case /* repeated string screen_codecs */ 11:
+                    message.screenCodecs.push(reader.string());
+                    break;
+                case /* repeated string screen_ladder */ 12:
+                    message.screenLadder.push(reader.string());
+                    break;
+                case /* optional bool requires_renegotiation = 13 [default = false] */ 13:
+                    message.requiresRenegotiation = reader.bool();
+                    break;
+                default:
+                    let u = options.readUnknownField;
+                    if (u === "throw")
+                        throw new globalThis.Error(`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`);
+                    let d = reader.skip(wireType);
+                    if (u !== false)
+                        (u === true ? UnknownFieldHandler.onRead : u)(this.typeName, message, fieldNo, wireType, d);
+            }
+        }
+        return message;
+    }
+    internalBinaryWrite(message: QualityProfile, writer: IBinaryWriter, options: BinaryWriteOptions): IBinaryWriter {
+        /* optional uint32 profile_id = 1; */
+        if (message.profileId !== undefined)
+            writer.tag(1, WireType.Varint).uint32(message.profileId);
+        /* optional string name = 2; */
+        if (message.name !== undefined)
+            writer.tag(2, WireType.LengthDelimited).string(message.name);
+        /* optional string voice_codec = 3; */
+        if (message.voiceCodec !== undefined)
+            writer.tag(3, WireType.LengthDelimited).string(message.voiceCodec);
+        /* optional uint32 voice_bitrate_min = 4; */
+        if (message.voiceBitrateMin !== undefined)
+            writer.tag(4, WireType.Varint).uint32(message.voiceBitrateMin);
+        /* optional uint32 voice_bitrate_max = 5; */
+        if (message.voiceBitrateMax !== undefined)
+            writer.tag(5, WireType.Varint).uint32(message.voiceBitrateMax);
+        /* optional uint32 voice_ptime_ms = 6; */
+        if (message.voicePtimeMs !== undefined)
+            writer.tag(6, WireType.Varint).uint32(message.voicePtimeMs);
+        /* optional bool voice_fec = 7 [default = true]; */
+        if (message.voiceFec !== undefined)
+            writer.tag(7, WireType.Varint).bool(message.voiceFec);
+        /* optional bool voice_dtx = 8 [default = false]; */
+        if (message.voiceDtx !== undefined)
+            writer.tag(8, WireType.Varint).bool(message.voiceDtx);
+        /* optional uint32 jitter_target_ms = 9; */
+        if (message.jitterTargetMs !== undefined)
+            writer.tag(9, WireType.Varint).uint32(message.jitterTargetMs);
+        /* optional uint32 jitter_max_ms = 10; */
+        if (message.jitterMaxMs !== undefined)
+            writer.tag(10, WireType.Varint).uint32(message.jitterMaxMs);
+        /* repeated string screen_codecs = 11; */
+        for (let i = 0; i < message.screenCodecs.length; i++)
+            writer.tag(11, WireType.LengthDelimited).string(message.screenCodecs[i]);
+        /* repeated string screen_ladder = 12; */
+        for (let i = 0; i < message.screenLadder.length; i++)
+            writer.tag(12, WireType.LengthDelimited).string(message.screenLadder[i]);
+        /* optional bool requires_renegotiation = 13 [default = false]; */
+        if (message.requiresRenegotiation !== undefined)
+            writer.tag(13, WireType.Varint).bool(message.requiresRenegotiation);
+        let u = options.writeUnknownFields;
+        if (u !== false)
+            (u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
+        return writer;
+    }
+}
+/**
+ * @generated MessageType for protobuf message MumbleProto.QualityProfile
+ */
+export const QualityProfile = new QualityProfile$Type();
+// @generated message type with reflection information, may provide speed optimized methods
+class E2EEKeyMaterial$Type extends MessageType<E2EEKeyMaterial> {
+    constructor() {
+        super("MumbleProto.E2EEKeyMaterial", [
+            { no: 1, name: "room_id", kind: "scalar", opt: true, T: 9 /*ScalarType.STRING*/ },
+            { no: 2, name: "recipient_dtls_fingerprint", kind: "scalar", opt: true, T: 9 /*ScalarType.STRING*/ },
+            { no: 3, name: "epoch", kind: "scalar", opt: true, T: 13 /*ScalarType.UINT32*/ },
+            { no: 4, name: "sealed_envelope", kind: "scalar", opt: true, T: 12 /*ScalarType.BYTES*/ },
+            { no: 5, name: "envelope_suite", kind: "scalar", opt: true, T: 9 /*ScalarType.STRING*/ },
+            { no: 6, name: "expires_at_unix", kind: "scalar", opt: true, T: 3 /*ScalarType.INT64*/, L: 0 /*LongType.BIGINT*/ },
+            { no: 7, name: "signing_key_id", kind: "scalar", opt: true, T: 9 /*ScalarType.STRING*/ }
+        ]);
+    }
+    create(value?: PartialMessage<E2EEKeyMaterial>): E2EEKeyMaterial {
+        const message = globalThis.Object.create((this.messagePrototype!));
+        if (value !== undefined)
+            reflectionMergePartial<E2EEKeyMaterial>(this, message, value);
+        return message;
+    }
+    internalBinaryRead(reader: IBinaryReader, length: number, options: BinaryReadOptions, target?: E2EEKeyMaterial): E2EEKeyMaterial {
+        let message = target ?? this.create(), end = reader.pos + length;
+        while (reader.pos < end) {
+            let [fieldNo, wireType] = reader.tag();
+            switch (fieldNo) {
+                case /* optional string room_id */ 1:
+                    message.roomId = reader.string();
+                    break;
+                case /* optional string recipient_dtls_fingerprint */ 2:
+                    message.recipientDtlsFingerprint = reader.string();
+                    break;
+                case /* optional uint32 epoch */ 3:
+                    message.epoch = reader.uint32();
+                    break;
+                case /* optional bytes sealed_envelope */ 4:
+                    message.sealedEnvelope = reader.bytes();
+                    break;
+                case /* optional string envelope_suite */ 5:
+                    message.envelopeSuite = reader.string();
+                    break;
+                case /* optional int64 expires_at_unix */ 6:
+                    message.expiresAtUnix = reader.int64().toBigInt();
+                    break;
+                case /* optional string signing_key_id */ 7:
+                    message.signingKeyId = reader.string();
+                    break;
+                default:
+                    let u = options.readUnknownField;
+                    if (u === "throw")
+                        throw new globalThis.Error(`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`);
+                    let d = reader.skip(wireType);
+                    if (u !== false)
+                        (u === true ? UnknownFieldHandler.onRead : u)(this.typeName, message, fieldNo, wireType, d);
+            }
+        }
+        return message;
+    }
+    internalBinaryWrite(message: E2EEKeyMaterial, writer: IBinaryWriter, options: BinaryWriteOptions): IBinaryWriter {
+        /* optional string room_id = 1; */
+        if (message.roomId !== undefined)
+            writer.tag(1, WireType.LengthDelimited).string(message.roomId);
+        /* optional string recipient_dtls_fingerprint = 2; */
+        if (message.recipientDtlsFingerprint !== undefined)
+            writer.tag(2, WireType.LengthDelimited).string(message.recipientDtlsFingerprint);
+        /* optional uint32 epoch = 3; */
+        if (message.epoch !== undefined)
+            writer.tag(3, WireType.Varint).uint32(message.epoch);
+        /* optional bytes sealed_envelope = 4; */
+        if (message.sealedEnvelope !== undefined)
+            writer.tag(4, WireType.LengthDelimited).bytes(message.sealedEnvelope);
+        /* optional string envelope_suite = 5; */
+        if (message.envelopeSuite !== undefined)
+            writer.tag(5, WireType.LengthDelimited).string(message.envelopeSuite);
+        /* optional int64 expires_at_unix = 6; */
+        if (message.expiresAtUnix !== undefined)
+            writer.tag(6, WireType.Varint).int64(message.expiresAtUnix);
+        /* optional string signing_key_id = 7; */
+        if (message.signingKeyId !== undefined)
+            writer.tag(7, WireType.LengthDelimited).string(message.signingKeyId);
+        let u = options.writeUnknownFields;
+        if (u !== false)
+            (u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
+        return writer;
+    }
+}
+/**
+ * @generated MessageType for protobuf message MumbleProto.E2EEKeyMaterial
+ */
+export const E2EEKeyMaterial = new E2EEKeyMaterial$Type();

@@ -1,0 +1,36 @@
+# Builds the hachiman-control binary — the long-lived signaling / auth /
+# placement-broker process. Entrypoint runs it against /data with logs there.
+# Pair: Dockerfile.media (SFU) and Dockerfile.recorder (recording subscriber).
+
+FROM golang:1.25-alpine AS builder
+
+COPY . /go/src/mumble.info/grumble
+
+WORKDIR /go/src/mumble.info/grumble
+
+RUN apk add --no-cache git build-base
+
+RUN go build -o hachiman-control mumble.info/grumble/cmd/hachiman-control
+
+FROM alpine:edge
+
+COPY --from=builder /go/src/mumble.info/grumble/hachiman-control /usr/bin/hachiman-control
+
+ENV DATADIR=/data
+
+RUN mkdir /data
+
+WORKDIR /data
+
+VOLUME /data
+
+# 64738/tcp — Mumble control channel (TCP/TLS + WSS multiplexed on the same
+# port via sniffing). The sidechannel listener (--media-sidechannel-addr /
+# MEDIA_SIDECHANNEL_ADDR) defaults to EMPTY — the listener is OFF unless the
+# operator opts in explicitly. When set, the recommended posture is to keep
+# it loopback-only (e.g. 127.0.0.1:7880) until mTLS lands (follow-up #10);
+# operators who bind it to a routable address open the port themselves on
+# the container runtime.
+EXPOSE 64738/tcp
+
+ENTRYPOINT [ "/usr/bin/hachiman-control", "--datadir", "/data", "--log", "/data/hachiman-control.log" ]

@@ -1,7 +1,24 @@
 package database
 
+import "log"
+
 type Server struct {
 	ServerID uint64 `gorm:"primaryKey;autoIncrement"`
+
+	// Server-level defaults for channel media configuration. Channels with
+	// null HomeRegion / QualityProfileID inherit these. Set by the server-
+	// create UI; admins can change them at runtime.
+	//
+	// DefaultHomeRegion is NOT NULL with an empty-string default — empty
+	// means "no preference; Oracle's placement scorer picks". Freshly-
+	// migrated rows land here automatically.
+	//
+	// DefaultQualityProfileID is nullable: until the seed runs there is no
+	// profile to point at, so the FK has to allow null. Once seeded the
+	// server-create path can stamp the Hachiman-Standard ID.
+	DefaultHomeRegion       string `gorm:"not null;default:''"`
+	DefaultQualityProfileID *uint
+	DefaultQualityProfile   *QualityProfile `gorm:"foreignKey:DefaultQualityProfileID;references:ID;constraint:OnDelete:SET NULL"`
 }
 
 func (s Server) TableName() string {
@@ -16,8 +33,26 @@ func (d *DbTx) ServerList(offset, limit int) ([]Server, error) {
 
 func (d *DbTx) ServerAdd() (*Server, error) {
 	var server Server
-	err := d.db.Create(&server).Error
-	return &server, err
+	// Stamp the seeded default quality profile FK so freshly-created vServers
+	// have a real ladder/jitter target to inherit instead of nil (which the
+	// channel-level resolver would have to fall through to a hardcoded
+	// fallback). The seed runs in Init() so this lookup should always hit;
+	// if it doesn't (race or out-of-band DB tampering) we log a warning and
+	// proceed with a nil FK rather than failing server creation outright —
+	// the channel-level resolver will still produce something sensible.
+	profile, err := d.QualityProfileGetByName("Hachiman-Standard")
+	if err != nil {
+		log.Printf("ServerAdd: lookup Hachiman-Standard profile: %v (proceeding without default FK)", err)
+	} else if profile == nil {
+		log.Printf("ServerAdd: Hachiman-Standard profile not seeded (proceeding without default FK)")
+	} else {
+		id := profile.ID
+		server.DefaultQualityProfileID = &id
+	}
+	if err := d.db.Create(&server).Error; err != nil {
+		return nil, err
+	}
+	return &server, nil
 }
 
 func (d *DbTx) ServerExists(sid uint64) (bool, error) {

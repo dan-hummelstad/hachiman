@@ -72,6 +72,8 @@ pnpm -F @hachiman/hachiman-node generate-proto
 
 Server port is **64738** (TCP + UDP + WebSocket on the same port).
 
+**Dev DB schema churn:** during phase 1 of the media-plane split, schemas on both sides are still moving. Per `feedback_dev_migrations.md`, drop the dev DB and reseed instead of stacking ALTERs — for Postgres use `pnpm -F @hachiman/oracle db:migrate` after wiping the schema; for the SQLite control DB just delete `$DATADIR/murmur.sqlite` and restart so `Init()` reseeds (the `Hachiman-Standard` quality profile lands automatically).
+
 ## Working in the shared UI (`apps/hachiman/src/`)
 
 This is where most React work lands. Layout: `components/`, `stores/` (Zustand), `services/` (singleton services bridging stores ↔ `IMumbleService`), `shared/` (platform-abstraction interfaces).
@@ -116,13 +118,32 @@ When adding a new Mumble control-channel message type, use the `add-mumble-messa
 ## Working in the Go server (`apps/hachiman-server`)
 
 Run from the package directory or via `pnpm dev:server` / `pnpm build:server`. Key areas:
-- `cmd/grumble/` — entry point, packet handlers, voice broadcast
-- `pkg/web/` — WebRTC SFU, SSRC pool, browser bridge
-- `pkg/mumbleproto/` — protobuf definitions (authoritative for both server and client)
-- `pkg/database/` — GORM + SQLite persistence
-- `pkg/acl/`, `pkg/cryptstate/` — permissions and voice encryption
+- `cmd/hachiman-control/` — control plane: auth, channels, ACL, text messages, WebRTC signaling shim, placement, sidechannel listener
+- `cmd/hachiman-media/` — stateless WebRTC SFU (split per phase 1 of the media-plane migration)
+- `cmd/hachiman-recorder/` — recording subscriber scaffold (phase 3a; segment writes land in phase 4)
+- `pkg/media/` — SFU primitives (SSRC pool, peer connection wiring) — imported only by hachiman-media
+- `pkg/mediaproto/`, `pkg/recorderproto/` — control↔media and media↔recorder sidechannel protos
+- `pkg/mumbleproto/` — Mumble client protocol (authoritative for both server and client)
+- `pkg/database/` — GORM + SQLite/Postgres persistence
+- `pkg/oracleclient/` — wrapper around Oracle's GrumbleManagement gRPC (RegisterMediaNode / MediaNodeHeartbeat / PlaceMediaSession)
+- `pkg/coturn/` — per-region TURN credential minting (HMAC-SHA1, coturn REST API scheme)
+- `pkg/acl/` — permissions
+
+Containerization (phase 3a): three Dockerfiles per arch — `Dockerfile.control`, `Dockerfile.media`, `Dockerfile.recorder` (amd64); `Dockerfile.arm32v6.control`, `.media`, `.recorder`. Each builds exactly one binary; control is the only one with a `/data` VOLUME.
 
 For changes to the SFU stack or the UDP↔WebRTC bridge, use the `webrtc-reviewer` agent — there's a class of SSRC pool / renegotiation race bugs that a generic review will miss.
+
+## Working in Oracle (`apps/oracle`)
+
+Two processes:
+- The Next.js app (`pnpm dev`) — OIDC, OAuth, dashboard UI, REST API.
+- A standalone gRPC server (`pnpm dev:grpc`) — implements the media-plane RPCs (`RegisterMediaNode`, `MediaNodeHeartbeat`, `PlaceMediaSession`) that hachiman-control consumes. Lives separately because Next has no clean "after listen" hook and a colocated gRPC port would flap on every dev file-watcher restart.
+
+Both processes share the same Postgres DB via Drizzle; the proto source of truth is `apps/hachiman-server/pkg/management/management.proto` and Oracle's gRPC server loads it dynamically via `@grpc/proto-loader` (no generated TS bindings).
+
+Storage seam: `apps/oracle/src/grpc/repo.ts` defines `MediaNodesRepo`, the narrow interface every media-plane handler uses for DB access. Production wires Drizzle via `drizzleMediaNodesRepo`; tests inject `InMemoryMediaNodesRepo` (`repo.in-memory.ts`) so the same handler code paths exercise without `DATABASE_URL`. When adding a new RPC that touches `media_nodes`, add a method to `MediaNodesRepo` and update BOTH implementations in lockstep — duplicating the SQL outside the repo (the old `placement-rank.ts` antipattern) lets the test and production paths drift silently.
+
+Oracle gRPC security posture: the server binds **loopback by default** (`127.0.0.1`) because `RegisterMediaNode` / `MediaNodeHeartbeat` / `PlaceMediaSession` currently have NO application-layer auth. Operators who need an external bind set `ORACLE_GRPC_BIND_ADDR` explicitly; the server logs a prominent warning at startup. mTLS lands with Phase 5 cert provisioning (paired with the Go-side follow-up #10 in `pkg/oracleclient/client.go`).
 
 ## Architecture references
 

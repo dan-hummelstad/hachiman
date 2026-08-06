@@ -567,10 +567,11 @@ export class Client extends TypedEventEmitter<Events, Events> {
    *    previous sample so the figure reflects the most recent interval:
    *    `Δlost / (Δlost + Δreceived)`. `null` until two samples exist, when the
    *    interval saw no packets (denominator 0), or in the non-WebRTC case
-   *    (this client has no native-UDP voice path, and the server's crypt
-   *    good/late/lost counters never advance for a WebRTC client — see
-   *    cryptstate.Decrypt — so they cannot be used). Counter resets on
-   *    track/reconnect are floored to 0.
+   *    (the native-UDP voice path was deleted in media-plane phase 1
+   *    step 3; the legacy server-side OCB good/late/lost counters that
+   *    sat behind `pkg/cryptstate/` went with it, so the non-WebRTC fallback
+   *    has no packet-loss source at all). Counter resets on track/reconnect
+   *    are floored to 0.
    *  - **Transport**: `'webrtc'` when WebRTC voice was requested, else `null`
    *    (this client has no native-UDP voice path to label otherwise).
    */

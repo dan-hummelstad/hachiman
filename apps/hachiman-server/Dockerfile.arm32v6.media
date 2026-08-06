@@ -1,0 +1,18 @@
+# arm/v6 variant of Dockerfile.media. Pair: Dockerfile.arm32v6.control and
+# Dockerfile.arm32v6.recorder. Stateless SFU; no VOLUME, no EXPOSE.
+
+FROM --platform=linux/arm/v6 golang:1.25-alpine AS builder
+
+COPY . /go/src/mumble.info/grumble
+
+WORKDIR /go/src/mumble.info/grumble
+
+RUN apk add --no-cache git build-base
+
+RUN go build -o hachiman-media mumble.info/grumble/cmd/hachiman-media
+
+FROM --platform=linux/arm/v6 alpine:edge
+
+COPY --from=builder /go/src/mumble.info/grumble/hachiman-media /usr/bin/hachiman-media
+
+ENTRYPOINT [ "/usr/bin/hachiman-media" ]

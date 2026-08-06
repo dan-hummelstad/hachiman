@@ -515,3 +515,74 @@ export const oidcAdapterPayloads = pgTable(
 
 export type OidcAdapterPayload = typeof oidcAdapterPayloads.$inferSelect
 export type NewOidcAdapterPayload = typeof oidcAdapterPayloads.$inferInsert
+
+// ---------------------------------------------------------------------------
+// Media nodes — placement registry for the WebRTC SFU plane.
+//
+// Per the MEDIA-PLANE-MIGRATION.md "Oracle owns placement and registry"
+// decision, hachiman-media instances self-register with Oracle on boot and
+// heartbeat liveness. The placement scorer reads this table when
+// hachiman-control calls `PlaceMediaSession` (extension on management.proto;
+// runtime wires in alongside phase 2 step 7).
+//
+// `capacity` is stored as jsonb so the descriptor can grow with the per-node
+// resource model without a schema change (phase 1 stores `{cpu_cores, max_sessions}`;
+// later passes add network egress caps, per-codec encode budgets, etc.).
+//
+// `status` is a free text column on the same enum-as-varchar pattern used in
+// `channel.cascade_mode` on the control side — keeps drizzle migrations simple
+// across SQLite dev shards while still letting placement scorers branch on a
+// stable set ("active" | "draining" | "dead").
+// ---------------------------------------------------------------------------
+export const mediaNodes = pgTable(
+  'media_nodes',
+  {
+    // Node-generated UUID (string PK rather than uuid() because the node sets it,
+    // not Postgres). Stable for a node's lifetime; on partition + reconnect the
+    // node re-registers with the same id.
+    nodeId: text('node_id').primaryKey(),
+    region: text('region').notNull(),
+    capacity: jsonb('capacity').$type<{ cpu_cores: number; max_sessions: number }>().notNull(),
+    // Live counter reported in each heartbeat. Placement scoring picks the
+    // lowest-loaded node within the region (cf. PlacementService below). Phase
+    // 3a simplification: heartbeat-reported value rather than a derived
+    // aggregate over an active-sessions table — keeps the schema flat. Defaults
+    // to 0 so the first register-without-heartbeat row scores as empty.
+    activeSessions: integer('active_sessions').notNull().default(0),
+    // CPU fraction reported in each heartbeat. Placement uses it only as a
+    // secondary tiebreaker today; phase 4 weights it into the scorer.
+    cpuFraction: doublePrecision('cpu_fraction').notNull().default(0),
+    lastHeartbeatAt: timestamp('last_heartbeat_at', { withTimezone: true, mode: 'date' }).notNull(),
+    version: text('version').notNull(),
+    status: text('status').notNull(),
+    // Single-tenant-per-node enforcement: stamped on the first PlaceMediaSession
+    // call that lands a tenant on this node; cleared by the recovery sweeper
+    // when activeSessions drops to 0. Phase 3a simplification — instead of a
+    // separate active_sessions table tracking (node, tenant) tuples, we treat
+    // a node as "owned" by the first tenant to land on it until it drains.
+    // Null = unassigned / drained; an existing non-null value that doesn't
+    // match the incoming tenant_id excludes the node from placement.
+    tenantId: text('tenant_id'),
+    // Sidechannel address control should dial to reach this node. Mirrored
+    // from RegisterMediaNode payload; returned in PlaceMediaSession so
+    // hachiman-control can stamp it into VoiceTokenGrant.media_node_addr.
+    sidechannelAddr: text('sidechannel_addr').notNull().default(''),
+  },
+  (table) => [
+    // Composite index covering the pickPlacement filter:
+    //   WHERE region = $1 AND status = 'active' AND last_heartbeat_at > $cutoff
+    //   ORDER BY active_sessions ASC, node_id ASC LIMIT 1
+    // Postgres uses the leading region-prefix for equality, then status, then
+    // a range scan on last_heartbeat_at. The ORDER BY runs on the already-
+    // narrow result set; an extra include on active_sessions would help only
+    // at very large fleet sizes — keep this index lean for now.
+    index('idx_media_nodes_placement').on(
+      table.region,
+      table.status,
+      table.lastHeartbeatAt,
+    ),
+  ],
+)
+
+export type MediaNode = typeof mediaNodes.$inferSelect
+export type NewMediaNode = typeof mediaNodes.$inferInsert

@@ -25,6 +25,9 @@ const _ = grpc.SupportPackageIsVersion9
 const (
 	GrumbleManagement_CreateVirtualServer_FullMethodName = "/grumble.management.v1.GrumbleManagement/CreateVirtualServer"
 	GrumbleManagement_DeleteVirtualServer_FullMethodName = "/grumble.management.v1.GrumbleManagement/DeleteVirtualServer"
+	GrumbleManagement_RegisterMediaNode_FullMethodName   = "/grumble.management.v1.GrumbleManagement/RegisterMediaNode"
+	GrumbleManagement_MediaNodeHeartbeat_FullMethodName  = "/grumble.management.v1.GrumbleManagement/MediaNodeHeartbeat"
+	GrumbleManagement_PlaceMediaSession_FullMethodName   = "/grumble.management.v1.GrumbleManagement/PlaceMediaSession"
 )
 
 // GrumbleManagementClient is the client API for GrumbleManagement service.
@@ -54,6 +57,20 @@ type GrumbleManagementClient interface {
 	// its database row. Returns NotFound if the server_id is unknown to BOTH
 	// the database and the in-process registry.
 	DeleteVirtualServer(ctx context.Context, in *DeleteVirtualServerRequest, opts ...grpc.CallOption) (*DeleteVirtualServerResponse, error)
+	// RegisterMediaNode is invoked by a freshly-booted media node (via
+	// control, which is the only outbound-from-VPC actor) to announce itself
+	// to Oracle's placement service. Idempotent: re-registering with the
+	// same node_id replaces the existing row.
+	RegisterMediaNode(ctx context.Context, in *RegisterMediaNodeRequest, opts ...grpc.CallOption) (*RegisterMediaNodeResponse, error)
+	// MediaNodeHeartbeat reports live capacity / load. Oracle excludes nodes
+	// that miss 3 consecutive heartbeats from placement. `accepting=false`
+	// signals graceful drain (existing sessions kept, no new placements).
+	MediaNodeHeartbeat(ctx context.Context, in *MediaNodeHeartbeatRequest, opts ...grpc.CallOption) (*MediaNodeHeartbeatResponse, error)
+	// PlaceMediaSession asks Oracle to pick a node for a new session. Inputs
+	// are the channel (drives quality profile + home region inheritance) and
+	// the tenant. Output is the node Oracle picked plus the SSRC it allocated
+	// for this session — control embeds both in the signed voice token.
+	PlaceMediaSession(ctx context.Context, in *PlaceMediaSessionRequest, opts ...grpc.CallOption) (*PlaceMediaSessionResponse, error)
 }
 
 type grumbleManagementClient struct {
@@ -78,6 +95,36 @@ func (c *grumbleManagementClient) DeleteVirtualServer(ctx context.Context, in *D
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(DeleteVirtualServerResponse)
 	err := c.cc.Invoke(ctx, GrumbleManagement_DeleteVirtualServer_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *grumbleManagementClient) RegisterMediaNode(ctx context.Context, in *RegisterMediaNodeRequest, opts ...grpc.CallOption) (*RegisterMediaNodeResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RegisterMediaNodeResponse)
+	err := c.cc.Invoke(ctx, GrumbleManagement_RegisterMediaNode_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *grumbleManagementClient) MediaNodeHeartbeat(ctx context.Context, in *MediaNodeHeartbeatRequest, opts ...grpc.CallOption) (*MediaNodeHeartbeatResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(MediaNodeHeartbeatResponse)
+	err := c.cc.Invoke(ctx, GrumbleManagement_MediaNodeHeartbeat_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *grumbleManagementClient) PlaceMediaSession(ctx context.Context, in *PlaceMediaSessionRequest, opts ...grpc.CallOption) (*PlaceMediaSessionResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(PlaceMediaSessionResponse)
+	err := c.cc.Invoke(ctx, GrumbleManagement_PlaceMediaSession_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -111,6 +158,20 @@ type GrumbleManagementServer interface {
 	// its database row. Returns NotFound if the server_id is unknown to BOTH
 	// the database and the in-process registry.
 	DeleteVirtualServer(context.Context, *DeleteVirtualServerRequest) (*DeleteVirtualServerResponse, error)
+	// RegisterMediaNode is invoked by a freshly-booted media node (via
+	// control, which is the only outbound-from-VPC actor) to announce itself
+	// to Oracle's placement service. Idempotent: re-registering with the
+	// same node_id replaces the existing row.
+	RegisterMediaNode(context.Context, *RegisterMediaNodeRequest) (*RegisterMediaNodeResponse, error)
+	// MediaNodeHeartbeat reports live capacity / load. Oracle excludes nodes
+	// that miss 3 consecutive heartbeats from placement. `accepting=false`
+	// signals graceful drain (existing sessions kept, no new placements).
+	MediaNodeHeartbeat(context.Context, *MediaNodeHeartbeatRequest) (*MediaNodeHeartbeatResponse, error)
+	// PlaceMediaSession asks Oracle to pick a node for a new session. Inputs
+	// are the channel (drives quality profile + home region inheritance) and
+	// the tenant. Output is the node Oracle picked plus the SSRC it allocated
+	// for this session — control embeds both in the signed voice token.
+	PlaceMediaSession(context.Context, *PlaceMediaSessionRequest) (*PlaceMediaSessionResponse, error)
 	mustEmbedUnimplementedGrumbleManagementServer()
 }
 
@@ -126,6 +187,15 @@ func (UnimplementedGrumbleManagementServer) CreateVirtualServer(context.Context,
 }
 func (UnimplementedGrumbleManagementServer) DeleteVirtualServer(context.Context, *DeleteVirtualServerRequest) (*DeleteVirtualServerResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method DeleteVirtualServer not implemented")
+}
+func (UnimplementedGrumbleManagementServer) RegisterMediaNode(context.Context, *RegisterMediaNodeRequest) (*RegisterMediaNodeResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method RegisterMediaNode not implemented")
+}
+func (UnimplementedGrumbleManagementServer) MediaNodeHeartbeat(context.Context, *MediaNodeHeartbeatRequest) (*MediaNodeHeartbeatResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method MediaNodeHeartbeat not implemented")
+}
+func (UnimplementedGrumbleManagementServer) PlaceMediaSession(context.Context, *PlaceMediaSessionRequest) (*PlaceMediaSessionResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method PlaceMediaSession not implemented")
 }
 func (UnimplementedGrumbleManagementServer) mustEmbedUnimplementedGrumbleManagementServer() {}
 func (UnimplementedGrumbleManagementServer) testEmbeddedByValue()                           {}
@@ -184,6 +254,60 @@ func _GrumbleManagement_DeleteVirtualServer_Handler(srv interface{}, ctx context
 	return interceptor(ctx, in, info, handler)
 }
 
+func _GrumbleManagement_RegisterMediaNode_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RegisterMediaNodeRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(GrumbleManagementServer).RegisterMediaNode(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: GrumbleManagement_RegisterMediaNode_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(GrumbleManagementServer).RegisterMediaNode(ctx, req.(*RegisterMediaNodeRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _GrumbleManagement_MediaNodeHeartbeat_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(MediaNodeHeartbeatRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(GrumbleManagementServer).MediaNodeHeartbeat(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: GrumbleManagement_MediaNodeHeartbeat_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(GrumbleManagementServer).MediaNodeHeartbeat(ctx, req.(*MediaNodeHeartbeatRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _GrumbleManagement_PlaceMediaSession_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PlaceMediaSessionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(GrumbleManagementServer).PlaceMediaSession(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: GrumbleManagement_PlaceMediaSession_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(GrumbleManagementServer).PlaceMediaSession(ctx, req.(*PlaceMediaSessionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // GrumbleManagement_ServiceDesc is the grpc.ServiceDesc for GrumbleManagement service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -198,6 +322,18 @@ var GrumbleManagement_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "DeleteVirtualServer",
 			Handler:    _GrumbleManagement_DeleteVirtualServer_Handler,
+		},
+		{
+			MethodName: "RegisterMediaNode",
+			Handler:    _GrumbleManagement_RegisterMediaNode_Handler,
+		},
+		{
+			MethodName: "MediaNodeHeartbeat",
+			Handler:    _GrumbleManagement_MediaNodeHeartbeat_Handler,
+		},
+		{
+			MethodName: "PlaceMediaSession",
+			Handler:    _GrumbleManagement_PlaceMediaSession_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

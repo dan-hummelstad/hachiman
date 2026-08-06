@@ -3,6 +3,71 @@
 // that can be found in the LICENSE file at the root of the
 // Mumble source tree or at <https://www.mumble.info/LICENSE>.
 
+// =============================================================================
+// Packet-type registry (Hachiman fork)
+// =============================================================================
+//
+// IDs are assigned from a flat sequence and MUST stay in lock-step with the
+// authoritative dispatch tables. Source of truth:
+//   - Go:  apps/hachiman-server/pkg/mumbleproto/types.go
+//   - TS:  pkgs/hachiman-node/src/packet-type-registry.ts
+// `proto-sync-checker` enforces no drift between this comment block, the Go
+// constants, and the TS map.
+//
+// Existing assignments (0–33) — DO NOT renumber:
+//
+//    0  Version
+//    1  RESERVED — was UDPTunnel (deleted in media-plane phase 2)
+//    2  Authenticate
+//    3  Ping
+//    4  Reject
+//    5  ServerSync
+//    6  ChannelRemove
+//    7  ChannelState
+//    8  UserRemove
+//    9  UserState
+//   10  BanList
+//   11  TextMessage
+//   12  PermissionDenied
+//   13  ACL
+//   14  QueryUsers
+//   15  RESERVED — was CryptSetup (deleted in media-plane phase 2)
+//   16  ContextActionModify
+//   17  ContextAction
+//   18  UserList
+//   19  RESERVED — was VoiceTarget (deleted in media-plane phase 2)
+//   20  PermissionQuery
+//   21  CodecVersion
+//   22  UserStats
+//   23  RequestBlob
+//   24  ServerConfig
+//   25  SuggestConfig
+//   26  PluginDataTransmission
+//   27  WebRTC
+//   28  IceCandidate
+//   29  TalkingState
+//   30  RequestChannelMessages
+//   31  ChannelMessageHistory
+//   32  RelayMetricsQuery
+//   33  RelayMetricsSnapshot
+//
+// Media-plane phase 2 additions (34–43) — see MEDIA-PLANE-MIGRATION.md:
+//
+//   34  VoiceTokenRequest
+//   35  VoiceTokenGrant
+//   36  MediaTrackPublish
+//   37  MediaTrackUnpublish
+//   38  MediaTrackSubscribe
+//   39  MediaTrackUnsubscribe
+//   40  ScreenShareStart
+//   41  ScreenShareStop
+//   42  QualityProfile
+//   43  E2EEKeyMaterial
+//
+// IDs 1 / 15 / 19 are PERMANENTLY BURNED. Do not reuse for new messages — the
+// old wire types may still be on the network of some long-lived deployment.
+// =============================================================================
+
 syntax = "proto2";
 
 package MumbleProto;
@@ -27,11 +92,13 @@ message Version {
 	optional string os_version = 4;
 }
 
-// Not used. Not even for tunneling UDP through TCP.
-message UDPTunnel {
-	// Not used.
-	required bytes packet = 1;
-}
+// =============================================================================
+// RESERVED — message UDPTunnel (was packet-type ID 1).
+//
+// Deleted in media-plane phase 2: the native Mumble UDP voice path is gone;
+// clients use WebRTC for media. The packet-type ID 1 is permanently burned in
+// the registry (types.go / packet-type-registry.ts). Do not reintroduce.
+// =============================================================================
 
 // Used by the client to send the authentication credentials to the server.
 message Authenticate {
@@ -125,6 +192,16 @@ message ServerSync {
 	// it is uint64 because of an oversight in the past. Nonetheless it should never exceed the uin32 range.
 	// See also: https://github.com/mumble-voip/mumble/issues/5139
 	optional uint64 permissions = 4;
+
+	// Quality profile to apply for this session — embedded here so clients
+	// without a WebRTC voice token (legacy text-only paths, clients that
+	// decline media) still get codec / ladder / jitter / FEC configuration
+	// at join time. Clients with WebRTC sessions ALSO receive the profile
+	// bound to their session via `VoiceTokenGrant.quality_profile`; when
+	// both are present, `VoiceTokenGrant.quality_profile` wins for the
+	// audible session (it's the one the media node is configured to honor).
+	// Pushed again on change — see `requires_renegotiation` on the profile.
+	optional QualityProfile quality_profile = 5;
 }
 
 // Sent by the client when it wants a channel removed. Sent by the server when
@@ -258,6 +335,13 @@ message UserState {
 	// SSRCs are reused after a user disconnects to keep the total count low
 	// (SRTP retains crypto state per SSRC for the entire session).
 	// SSRC 0 is reserved for client-to-server audio.
+	//
+	// LEGACY: superseded by VoiceTokenGrant.assigned_ssrc for WebRTC
+	// sessions — control allocates the SSRC at token mint time and embeds
+	// it in the signed token; the field here is echoed back by the server
+	// for backward-compat with older clients that read SSRC off UserState.
+	// Do NOT write from new code; new code reads from
+	// VoiceTokenGrant.assigned_ssrc.
 	optional uint32 ssrc = 24;
 	// Verified Oracle/Takusen username (preferred_username). Set by server
 	// after successful introspection. Other clients render it next to the
@@ -412,18 +496,13 @@ message QueryUsers {
 	repeated string names = 2;
 }
 
-// Used to initialize and resync the UDP encryption. Either side may request a
-// resync by sending the message without any values filled. The resync is
-// performed by sending the message with only the client or server nonce
-// filled.
-message CryptSetup {
-	// Encryption key.
-	optional bytes key = 1;
-	// Client nonce.
-	optional bytes client_nonce = 2;
-	// Server nonce.
-	optional bytes server_nonce = 3;
-}
+// =============================================================================
+// RESERVED — message CryptSetup (was packet-type ID 15).
+//
+// Deleted in media-plane phase 2: OCB session-key negotiation for the native
+// UDP voice path is gone. WebRTC DTLS-SRTP handles encryption. The packet-type
+// ID 15 is permanently burned in the registry. Do not reintroduce.
+// =============================================================================
 
 // Used to add or remove custom context menu item on client-side.
 message ContextActionModify {
@@ -477,29 +556,14 @@ message UserList {
 	repeated User users = 1;
 }
 
-// Sent by the client when it wants to register or clear whisper targets.
+// =============================================================================
+// RESERVED — message VoiceTarget (was packet-type ID 19).
 //
-// Note: The first available target ID is 1 as 0 is reserved for normal
-// talking. Maximum target ID is 30.
-message VoiceTarget {
-	message Target {
-		// Users that are included as targets.
-		repeated uint32 session = 1;
-		// Channel that is included as a target.
-		optional uint32 channel_id = 2;
-		// ACL group that is included as a target.
-		optional string group = 3;
-		// True if the voice should follow links from the specified channel.
-		optional bool links = 4 [default = false];
-		// True if the voice should also be sent to children of the specific
-		// channel.
-		optional bool children = 5 [default = false];
-	}
-	// Voice target ID.
-	optional uint32 id = 1;
-	// The receivers that this voice target includes.
-	repeated Target targets = 2;
-}
+// Deleted in media-plane phase 2: whisper-target registration moves to the
+// control↔media sidechannel (`SubscriptionMatrixUpdate`). Control pre-computes
+// who-can-hear-whom; media has zero ACL/whisper logic. The packet-type ID 19
+// is permanently burned in the registry. Do not reintroduce.
+// =============================================================================
 
 // Sent by the client when it wants permissions for a certain channel. Sent by
 // the server when it replies to the query or wants the user to resync all
@@ -650,6 +714,12 @@ message PluginDataTransmission {
 // server. Sent by the server after Authenticate (before ServerSync) if the
 // client indicated WebRTC support. The client replies with its own WebRTC
 // message containing its SDP answer.
+//
+// Fields (session_id, generation, seq) are present so SDP/ICE ordering across
+// the client↔control↔media hop is wire-representable. The runtime state
+// machine (polite-peer rollback, generation barriers, ICE buffering) lands in
+// a later phase — the wire fields are reserved now so adding them later does
+// not force a protocol break.
 message WebRTC {
 	// ICE password for the WebRTC connection.
 	optional string ice_pwd = 1;
@@ -663,13 +733,36 @@ message WebRTC {
 	optional string sdp = 5;
 	// SDP type: "offer" or "answer".
 	optional string sdp_type = 6;
+	// Session this offer/answer belongs to. Matches VoiceTokenGrant.session_id
+	// and the media-side OpenSession.session_id. Stable for the call lifetime.
+	optional string session_id = 7;
+	// Generation counter — bumped by the impolite peer (client) on every new
+	// offer cycle. The polite peer (media) rolls back on collision per
+	// RFC 8829. Receivers MUST discard messages whose generation < the latest
+	// applied generation for the session.
+	optional uint32 generation = 8;
+	// Per-(session, generation) monotonic sequence. Lets receivers detect
+	// reordering of fragments belonging to the same generation.
+	optional uint32 seq = 9;
 }
 
 // Used to exchange ICE candidates between client and server during WebRTC
 // connection establishment.
+//
+// Same (session_id, generation, seq) ordering envelope as WebRTC — the client
+// buffers remote ICE candidates until the matching SDP generation has been
+// applied.
 message IceCandidate {
 	// JSON-encoded ICE candidate.
 	required string content = 1;
+	// Session this candidate belongs to. Matches WebRTC.session_id.
+	optional string session_id = 2;
+	// SDP generation this candidate is gated to. Receivers buffer candidates
+	// whose generation > the currently-applied SDP generation and drain on
+	// generation advance.
+	optional uint32 generation = 3;
+	// Monotonic sequence within (session, generation).
+	optional uint32 seq = 4;
 }
 
 // Indicates whether a user is currently talking (or whispering/shouting).
@@ -742,8 +835,8 @@ message PersistedMessage {
 message RelayMetricsQuery {
 }
 
-// Server -> client reply mirroring the Go web.RelaySnapshot
-// (apps/hachiman-server/pkg/web/relaymetrics.go) and the TS RelayPathSnapshot
+// Server -> client reply mirroring the Go media.RelaySnapshot
+// (apps/hachiman-server/pkg/media/relaymetrics.go) and the TS RelayPathSnapshot
 // (apps/hachiman/src/lib/connection-quality.ts). Read-only operator view of
 // whether voice forwarding is staying "thin & on-path".
 message RelayMetricsSnapshot {
@@ -765,7 +858,7 @@ message RelayMetricsSnapshot {
 	optional uint64 total_off_path = 8;
 }
 
-// Mirror of web.TransportSnapshot: one transport's forwarding counters.
+// Mirror of media.TransportSnapshot: one transport's forwarding counters.
 message RelayTransportSnapshot {
 	// "native-udp" or "webrtc".
 	optional string transport = 1;
@@ -778,7 +871,7 @@ message RelayTransportSnapshot {
 	optional uint64 drops = 7;
 }
 
-// Mirror of web.HopSnapshot: forwarding-hop added-latency summary. Latencies
+// Mirror of media.HopSnapshot: forwarding-hop added-latency summary. Latencies
 // are provided both in nanoseconds (raw counters) and milliseconds (convenience
 // for the UI, which renders ms).
 message RelayHopSnapshot {
@@ -793,4 +886,262 @@ message RelayHopSnapshot {
 	optional double mean_millis = 6;
 	optional double max_millis = 7;
 	optional double budget_millis = 8;
+}
+
+// =============================================================================
+// Media-plane phase 2 — wire surface.
+//
+// See MEDIA-PLANE-MIGRATION.md "Phase 2 — Protocol changes" for the full
+// rationale behind each message. Packet-type IDs are assigned at the top of
+// this file and mirrored into types.go / packet-type-registry.ts.
+// =============================================================================
+
+// MediaKind is intentionally OPEN: new kinds get appended without forcing a
+// proto break. Receivers MUST treat KIND_UNSPECIFIED and any unknown value as
+// "ignore this track for now" rather than failing the session.
+//
+// 4–9 are reserved for forward-compat (e.g. KIND_AUDIO_PROCESS for spatial /
+// background-audio sources). The reserved range is documented here rather than
+// expressed as proto2 `reserved` because proto2 reservations apply to message
+// fields, not enum values. Adding a new kind: pick the next free integer and
+// update both registries plus the doc comment.
+enum MediaKind {
+	KIND_UNSPECIFIED = 0;
+	KIND_VOICE = 1;
+	KIND_SCREEN = 2;
+	KIND_CAMERA = 3;
+	// 4..9 reserved for forward compatibility.
+	KIND_RESERVED_4 = 4;
+	KIND_RESERVED_5 = 5;
+	KIND_RESERVED_6 = 6;
+	KIND_RESERVED_7 = 7;
+	KIND_RESERVED_8 = 8;
+	KIND_RESERVED_9 = 9;
+}
+
+// Client → server. Sent after Authenticate and before joining a voice channel.
+// Carries the locally-computed DTLS fingerprint and ICE ufrag so control can
+// bind them into the signed voice token (DTLS-fingerprint binding is critical
+// — a leaked token replayed from a different peer fails at the TLS layer).
+message VoiceTokenRequest {
+	// Lower-case `<algo> <hex>:<hex>:...:<hex>` canonical form per RFC 8122 §5
+	// (e.g. `sha-256 a1:b2:c3:...`). Control MUST normalize to this exact form
+	// before stamping the claim.
+	optional string dtls_fingerprint = 1;
+	// ICE ufrag the client committed at RTCPeerConnection creation.
+	optional string ice_ufrag = 2;
+	// Channel the client intends to publish into. Control uses this for the
+	// `channel_id` claim and to look up the channel's quality profile.
+	optional uint32 channel_id = 3;
+	// Echoes back in VoiceTokenGrant so concurrent requests can be matched.
+	optional uint32 request_id = 4;
+}
+
+// Server → client. Carries the voice token bytes plus everything the client
+// needs to open a WebRTC session against the assigned media node. Sent inside
+// or after ServerSync on initial connection; push-able later for mid-call
+// token refresh before `expires_at_unix - 15s`.
+message VoiceTokenGrant {
+	// `host:port` of the media node Oracle's placement service assigned for
+	// this session.
+	optional string media_node_addr = 1;
+	// Opaque media node identifier (matches RegisterMediaNode.node_id).
+	optional string media_node_id = 2;
+	// Token bytes. Format is PASETO v4.public over Ed25519 (pkg/voicetoken).
+	// SAME bytes that control pushed to media via sidechannel OpenSession —
+	// the two transport paths MUST NOT diverge.
+	optional bytes token = 3;
+	// TURN endpoints with HMAC-derived ephemeral credentials. Per-region
+	// co-located coturn.
+	repeated IceServer ice_servers = 4;
+	// Quality profile to apply for this session (codec / ladder / jitter).
+	optional QualityProfile quality_profile = 5;
+	// SSRC allocated by control at mint time and embedded in the signed token.
+	// Client MUST use this SSRC for its outbound audio.
+	optional uint32 assigned_ssrc = 6;
+	// Wall-clock expiry in Unix seconds. Client refreshes before
+	// `expires_at_unix - 15s` via a fresh VoiceTokenRequest.
+	optional int64 expires_at_unix = 7;
+	// Echo of VoiceTokenRequest.request_id.
+	optional uint32 request_id = 8;
+}
+
+// Single entry in VoiceTokenGrant.ice_servers — TURN/STUN endpoint with
+// optional time-bounded HMAC credentials.
+message IceServer {
+	// `turn:host:port?transport=udp` / `stun:host:port` / etc.
+	optional string url = 1;
+	// Ephemeral username (timestamp:user-id) per coturn's REST API scheme.
+	optional string username = 2;
+	// HMAC-SHA1 of `username` keyed with the per-region TURN secret,
+	// base64-encoded. Bounded by the embedded timestamp in `username`.
+	optional string credential = 3;
+}
+
+// Client → server. Announces a new media track the client is about to publish.
+// `kind` is an open enum (see MediaKind comment) — receivers ignore unknown
+// kinds rather than failing.
+//
+// E2EE metadata: when `e2ee_key_id == 0` the track is hop-by-hop encrypted
+// only (DTLS-SRTP) — i.e. E2EE disabled for this publisher / room. When set,
+// receivers use it to look up the per-sender ratcheting key derived from the
+// per-room shared secret.
+message MediaTrackPublish {
+	// Publishing user's session id.
+	optional uint32 session = 1;
+	// Open enum — UNSPECIFIED / unknown values are ignored by receivers.
+	optional MediaKind kind = 2 [default = KIND_UNSPECIFIED];
+	// Track id, unique per (session, kind). Used to correlate Subscribe /
+	// Unsubscribe / Unpublish. Stable for the track's lifetime.
+	optional string track_id = 3;
+	// SSRC the client will use for this track.
+	optional uint32 ssrc = 4;
+	// Sender's current SFrame key identifier. 0 = E2EE disabled for this
+	// track (hop-by-hop DTLS-SRTP only).
+	optional uint32 e2ee_key_id = 5;
+	// Monotonic per-sender epoch — bumped on every per-room key rotation
+	// (E2EEMemberJoin / E2EEMemberLeave). When `e2ee_key_id == 0` this field
+	// is meaningless (E2EE disabled for the track); set to 0 by convention.
+	optional uint32 e2ee_epoch = 6;
+	// SFrame cipher suite identifier (e.g. `SFRAME_AES_128_GCM_SHA256`).
+	optional string sframe_profile = 7;
+}
+
+// Client → server. Announces the client is tearing down a previously-published
+// track.
+message MediaTrackUnpublish {
+	optional uint32 session = 1;
+	optional MediaKind kind = 2 [default = KIND_UNSPECIFIED];
+	optional string track_id = 3;
+}
+
+// Client → server. Subscription intent for another participant's track. The
+// server forwards the resulting subscription matrix to media via
+// `SubscriptionMatrixUpdate` (sidechannel).
+message MediaTrackSubscribe {
+	// Publishing user's session id.
+	optional uint32 publisher_session = 1;
+	optional MediaKind kind = 2 [default = KIND_UNSPECIFIED];
+	optional string track_id = 3;
+	// Receiver-driven simulcast / SVC layer hint. 0 = let server pick;
+	// higher values request progressively higher layers. Bound by the
+	// publisher's actual ladder.
+	optional uint32 preferred_layer = 4;
+}
+
+message MediaTrackUnsubscribe {
+	optional uint32 publisher_session = 1;
+	optional MediaKind kind = 2 [default = KIND_UNSPECIFIED];
+	optional string track_id = 3;
+}
+
+// Client → server intent. The corresponding MediaTrackPublish with
+// `kind == KIND_SCREEN` carries the wire details (SSRC, E2EE metadata); this
+// message is the high-level "user clicked share" signal so the server can
+// drive UI state for other participants.
+message ScreenShareStart {
+	optional uint32 session = 1;
+	// Opaque identifier the screen-share track will reference. Matches the
+	// subsequent MediaTrackPublish.track_id.
+	optional string share_id = 2;
+	// True if the share includes a separate audio track.
+	optional bool with_audio = 3 [default = false];
+}
+
+message ScreenShareStop {
+	optional uint32 session = 1;
+	optional string share_id = 2;
+}
+
+// Server → client. Codec / ladder / jitter / FEC configuration to apply for
+// this session. Embedded in ServerSync at join time and push-able on change.
+//
+// `requires_renegotiation` lets the client distinguish runtime-tunable changes
+// (bitrate via `setParameters()`) from changes that force SDP renegotiation
+// (codec, ptime, FEC, ladder shape). When set, the client is free to defer the
+// audible glitch — e.g. wait until call end.
+message QualityProfile {
+	// Profile DB id (control-plane FK). 0 = ad-hoc / inline.
+	optional uint32 profile_id = 1;
+	// Human-readable name (e.g. "Hachiman-Standard"). Informational.
+	optional string name = 2;
+	// Voice codec ("opus") and bitrate range.
+	optional string voice_codec = 3;
+	optional uint32 voice_bitrate_min = 4;
+	optional uint32 voice_bitrate_max = 5;
+	// Opus frame duration in ms (10 ms target).
+	optional uint32 voice_ptime_ms = 6;
+	optional bool voice_fec = 7 [default = true];
+	optional bool voice_dtx = 8 [default = false];
+	// Jitter buffer target window in ms.
+	optional uint32 jitter_target_ms = 9;
+	optional uint32 jitter_max_ms = 10;
+	// Screen codec preference order — first entry wins when the client's
+	// `RTCRtpReceiver.getCapabilities()` probe accepts it. Phase 2 ladder is
+	// ["av1", "vp9", "vp8"] with VP9 fallback negotiated automatically.
+	repeated string screen_codecs = 11;
+	// Simulcast / SVC ladder entries (e.g. ["1080p60", "720p30", "480p15"]).
+	repeated string screen_ladder = 12;
+	// True when applying this profile forces an SDP renegotiation (codec,
+	// ptime, FEC, ladder shape change). Client uses this to schedule the
+	// audible glitch around a quiet moment.
+	optional bool requires_renegotiation = 13 [default = false];
+}
+
+// Server → client. Per-room E2EE key material — distributed over the
+// authenticated TCP control channel, never over the WebRTC wire. SFU never
+// sees room keys.
+//
+// Envelope: signed by the same Ed25519 key family as voice tokens; verification
+// is bound to the client's `dtls_fingerprint` (replay from a different peer
+// fails at decode). Wraps the per-room shared secret + sender-ratcheting key
+// material for a single recipient.
+message E2EEKeyMaterial {
+	// Room this material is scoped to. Stable per `OpenRoom` lifetime.
+	optional string room_id = 1;
+	// Recipient binding — MUST match the recipient client's current DTLS
+	// fingerprint (RFC 8122 §5 canonical form). Mismatch → reject.
+	optional string recipient_dtls_fingerprint = 2;
+	// Monotonic per-room epoch. Bumped on every E2EEMemberJoin /
+	// E2EEMemberLeave. Receivers keep a small ring of accepted epochs around
+	// the current one so in-flight frames decrypt during rotation.
+	optional uint32 epoch = 3;
+	// Opaque sealed envelope, HPKE-style sealed-box keyed to the recipient's
+	// E2EE pubkey (distributed at join time via the existing user state
+	// pump). The envelope is also signed by one of the voice-token Ed25519
+	// signing keys (see `signing_key_id` below) so receivers can verify the
+	// material came from control before unsealing.
+	//
+	// Internal layout (authoritative byte order pinned by the SFrame work;
+	// the precise byte offsets are not part of this proto contract):
+	//   signature || cipher_suite_id || ciphertext_payload
+	// where:
+	//   - `signature` is Ed25519 over (signing_key_id || cipher_suite_id ||
+	//     ciphertext_payload || epoch || recipient_dtls_fingerprint), so a
+	//     leaked envelope cannot be re-targeted to a different recipient or
+	//     replayed under a different epoch;
+	//   - `cipher_suite_id` is mirrored as `envelope_suite` below for
+	//     receivers that want to dispatch without parsing the envelope;
+	//   - `ciphertext_payload` decrypts to the per-room shared secret + the
+	//     sender-ratcheting seed for the recipient's view of the room.
+	//
+	// Receivers MUST verify the signature with the public key identified by
+	// `signing_key_id` (looked up in the local `KeySetUpdate` trust set)
+	// BEFORE unsealing — verification failure → drop, log, request refresh.
+	optional bytes sealed_envelope = 4;
+	// Cipher suite of the sealed envelope itself. Distinct from the SFrame
+	// profile in MediaTrackPublish.
+	optional string envelope_suite = 5;
+	// Wall-clock expiry — clients SHOULD discard material past this time and
+	// request a refresh.
+	optional int64 expires_at_unix = 6;
+	// Signing-key identifier — selects which Ed25519 public key from the
+	// client's local `KeySetUpdate` trust set verifies `sealed_envelope`'s
+	// signature. Surfaced at the top level so the client can pick the right
+	// verify key without parsing into the opaque envelope. During the
+	// two-key 90-day rotation overlap window both the outgoing and incoming
+	// keys appear in the trust set; this field disambiguates per-envelope
+	// which one was used at mint time. Mismatch / unknown id → drop & log
+	// against `e2ee_decrypt_failures_total{reason="unknown_key_id"}`.
+	optional string signing_key_id = 7;
 }

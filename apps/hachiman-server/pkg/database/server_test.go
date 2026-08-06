@@ -35,6 +35,42 @@ func TestServerAdd(t *testing.T) {
 	}
 }
 
+// TestServerAdd_StampsDefaultQualityProfile locks in MEDIUM #6: a freshly
+// created server points at the seeded "Hachiman-Standard" quality profile so
+// channels can inherit a real ladder/jitter target without falling through to
+// a hardcoded fallback. The seed runs in Init() (which NewTestDB invokes), so
+// every new server gets a non-nil FK.
+func TestServerAdd_StampsDefaultQualityProfile(t *testing.T) {
+	db, err := NewTestDB()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tx := db.Tx()
+	defer tx.Rollback()
+
+	// Locate the seeded profile so the assertion compares concrete IDs.
+	seeded, err := tx.QualityProfileGetByName("Hachiman-Standard")
+	if err != nil {
+		t.Fatalf("look up seeded profile: %v", err)
+	}
+	if seeded == nil {
+		t.Fatal("seed missing: Init() should have inserted Hachiman-Standard")
+	}
+
+	serv, err := tx.ServerAdd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if serv.DefaultQualityProfileID == nil {
+		t.Fatal("ServerAdd left DefaultQualityProfileID nil; expected the seeded profile FK")
+	}
+	if *serv.DefaultQualityProfileID != seeded.ID {
+		t.Errorf("DefaultQualityProfileID = %d, want %d (Hachiman-Standard)",
+			*serv.DefaultQualityProfileID, seeded.ID)
+	}
+}
+
 func TestServerList(t *testing.T) {
 	db, err := NewTestDB()
 	if err != nil {

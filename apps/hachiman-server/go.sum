@@ -1,3 +1,7 @@
+aidanwoods.dev/go-paseto v1.6.0 h1:JA/PFk5lVsB/PakQGqnfmik/1tIHjE6F0UoPPoAO/nU=
+aidanwoods.dev/go-paseto v1.6.0/go.mod h1:LdqkL0Z2mLL0kBWzmHVR1cGFniX+zyOweQmbNKYrDxQ=
+aidanwoods.dev/go-result v0.3.1 h1:ee98hpohYUVYbI+pa6gUHTyoRerIudgjky/IPSowDXQ=
+aidanwoods.dev/go-result v0.3.1/go.mod h1:GKnFg8p/BKulVD3wsfULiPhpPmrTWyiTIbz8EWuUqSk=
 github.com/alicebob/miniredis/v2 v2.38.0 h1:nZAzCR+Lj+Vxk4ZXzm2NuKq2O33RXj1XxJ2e2uP9jiw=
 github.com/alicebob/miniredis/v2 v2.38.0/go.mod h1:TcL7YfarKPGDAthEtl5NBeHZfeUQj6OXMm/+iu5cLMM=
 github.com/bsm/ginkgo/v2 v2.12.0 h1:Ny8MWAHyOepLGlLKYmXG4IEkioBysk6GpaRTLC8zwWs=
@@ -22,8 +26,6 @@ github.com/google/uuid v1.6.0 h1:NIvaJDMOsjHA8n1jAhLSgzrAzy1Hgr+hNrb57e+94F0=
 github.com/google/uuid v1.6.0/go.mod h1:TIyPZe4MgqvfeYDBFedMoGGpEw/LqOeaOT+nhxU+yHo=
 github.com/gorilla/websocket v1.5.1 h1:gmztn0JnHVt9JZquRuzLw3g4wouNVzKL15iLr/zn/QY=
 github.com/gorilla/websocket v1.5.1/go.mod h1:x3kM2JMyaluk02fnUJpQuwD2dCS5NDG2ZHL0uE0tcaY=
-github.com/hraban/opus v0.0.0-20251117090126-c76ea7e21bf3 h1:0Cfb13Z/8Hdt9TSqgAQbQDAHgXyeq242y2lZ2JzFjNw=
-github.com/hraban/opus v0.0.0-20251117090126-c76ea7e21bf3/go.mod h1:12ayqqPQ1IxPiV4oWRgHfcDGhNQkx12X5k2hAayezW0=
 github.com/jackc/pgpassfile v1.0.0 h1:/6Hmqy13Ss2zCq62VdNG8tM1wchn8zjSGOBJ6icpsIM=
 github.com/jackc/pgpassfile v1.0.0/go.mod h1:CEx0iS5ambNFdcRtxPj5JhEz+xB6uRky5eyVu/W2HEg=
 github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 h1:iCEnooe7UlwOQYpKFhBabPMi4aNAfoODPEFNiAnClxo=

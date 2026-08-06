@@ -87,7 +87,7 @@ that list must be region-scoped when TURN is added — it is empty today.)
 
 The relay's own per-packet work is the only latency it controls. Measured
 against the **current** SFU on this PR (Apple M4, `go test -bench`, see
-`pkg/web/relaymetrics_bench_test.go`):
+`pkg/media/relaymetrics_bench_test.go`):
 
 | Operation | ns/op | allocs/op | Notes |
 | --- | --- | --- | --- |
@@ -97,7 +97,7 @@ against the **current** SFU on this PR (Apple M4, `go test -bench`, see
 | Concurrent forwards (`RunParallel`) | **~170 ns** | **0** | atomics under fan-out, no contention cliff |
 
 Budget: **`DefaultHopLatencyBudget = 2 ms`** per forwarding hop
-(`pkg/web/relaymetrics.go`). This is generous next to the ~70 ns of CPU work —
+(`pkg/media/relaymetrics.go`). This is generous next to the ~70 ns of CPU work —
 the headroom absorbs scheduler jitter and a localhost wake-proxy hop while still
 catching a real regression (GC stall, CPU starvation, or an accidental
 cross-host/cross-region network hop sneaking into the path). `ObserveHopLatency`
@@ -115,7 +115,7 @@ allocations** per packet, so making the relay *verifiable* does not make it
 ### 4.1 Single source of truth
 
 `EvaluatePath(relayRegion, senderRegion, receiverRegion) PathVerdict`
-(`pkg/web/relaymetrics.go`) is the **one** definition of on-path, and it is a
+(`pkg/media/relaymetrics.go`) is the **one** definition of on-path, and it is a
 pure, allocation-free function:
 
 - **`PathOnPath`** — relay is placed and every *known* participant region equals
@@ -133,7 +133,7 @@ Empty string = "unplaced / unknown", matching REGION-CONTRACT's empty
 - `NewSFU(logger, cfg.StringValue("ServerRegion"))` tags the relay with its
   region at construction.
 - Both forwarding paths report into one `RelayMetrics`:
-  - **WebRTC**: `pkg/web/sfu.go` `ForwardToWebRTC` → `RecordWebRTCForward`.
+  - **WebRTC**: `pkg/media/sfu.go` `ForwardToWebRTC` → `RecordWebRTCForward`.
   - **Native UDP**: `cmd/grumble/voice_broadcast.go` `Broadcast` → the
     `SendUDP` loop → `RecordNativeForward`.
 - Each forward is classified (on/off/unknown) with **atomic counters only**.
@@ -157,7 +157,7 @@ start counting with zero further plumbing.
 
 ### 4.3 CI enforcement (guard test)
 
-`pkg/web/relaymetrics_guard_test.go` is the off-path guard:
+`pkg/media/relaymetrics_guard_test.go` is the off-path guard:
 
 - `TestEvaluatePath_Invariant` — exhaustive truth table for the invariant.
 - `TestOffPathGuard_DetectsCrossRegionDetour` — an on-path forward must read
@@ -174,12 +174,12 @@ start counting with zero further plumbing.
 
 ## 5. The "thin" benchmark
 
-`pkg/web/relaymetrics_bench_test.go` benchmarks the forwarding hop against the
+`pkg/media/relaymetrics_bench_test.go` benchmarks the forwarding hop against the
 current SFU to establish/regress-guard the thin baseline:
 
 ```bash
 cd apps/hachiman-server
-GOCACHE="$TMPDIR/gocache" go test ./pkg/web/ -run '^$' -bench 'Forward|Record|Hop|Observe' -benchmem
+GOCACHE="$TMPDIR/gocache" go test ./pkg/media/ -run '^$' -bench 'Forward|Record|Hop|Observe' -benchmem
 ```
 
 `BenchmarkForwardToWebRTC_Hop` drives a real `pion` `TrackLocalStaticRTP`; the

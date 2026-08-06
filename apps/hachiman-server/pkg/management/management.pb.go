@@ -278,6 +278,371 @@ func (*DeleteVirtualServerResponse) Descriptor() ([]byte, []int) {
 	return file_management_proto_rawDescGZIP(), []int{3}
 }
 
+type RegisterMediaNodeRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Node-generated UUID, stable for the node's lifetime.
+	NodeId string `protobuf:"bytes,1,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
+	// Region tag, e.g. "us-east", "eu-west". Set via the media node's -region
+	// flag.
+	Region string `protobuf:"bytes,2,opt,name=region,proto3" json:"region,omitempty"`
+	// Inbound sidechannel address (`host:port`) for the control↔media gRPC
+	// stream. Oracle stores this so control can dial the node when placement
+	// returns it.
+	SidechannelAddr string `protobuf:"bytes,3,opt,name=sidechannel_addr,json=sidechannelAddr,proto3" json:"sidechannel_addr,omitempty"`
+	// Static capacity declaration: max concurrent sessions this node will
+	// serve. Placement weights by `1 - active_sessions/max_sessions`.
+	MaxSessions uint32 `protobuf:"varint,4,opt,name=max_sessions,json=maxSessions,proto3" json:"max_sessions,omitempty"`
+	// Build version for ops visibility. Surfaced in the island-metrics
+	// pump alongside the existing hachiman-control / hachiman-oracle
+	// entries.
+	Version       string `protobuf:"bytes,5,opt,name=version,proto3" json:"version,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RegisterMediaNodeRequest) Reset() {
+	*x = RegisterMediaNodeRequest{}
+	mi := &file_management_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RegisterMediaNodeRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RegisterMediaNodeRequest) ProtoMessage() {}
+
+func (x *RegisterMediaNodeRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_management_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RegisterMediaNodeRequest.ProtoReflect.Descriptor instead.
+func (*RegisterMediaNodeRequest) Descriptor() ([]byte, []int) {
+	return file_management_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *RegisterMediaNodeRequest) GetNodeId() string {
+	if x != nil {
+		return x.NodeId
+	}
+	return ""
+}
+
+func (x *RegisterMediaNodeRequest) GetRegion() string {
+	if x != nil {
+		return x.Region
+	}
+	return ""
+}
+
+func (x *RegisterMediaNodeRequest) GetSidechannelAddr() string {
+	if x != nil {
+		return x.SidechannelAddr
+	}
+	return ""
+}
+
+func (x *RegisterMediaNodeRequest) GetMaxSessions() uint32 {
+	if x != nil {
+		return x.MaxSessions
+	}
+	return 0
+}
+
+func (x *RegisterMediaNodeRequest) GetVersion() string {
+	if x != nil {
+		return x.Version
+	}
+	return ""
+}
+
+type RegisterMediaNodeResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RegisterMediaNodeResponse) Reset() {
+	*x = RegisterMediaNodeResponse{}
+	mi := &file_management_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RegisterMediaNodeResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RegisterMediaNodeResponse) ProtoMessage() {}
+
+func (x *RegisterMediaNodeResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_management_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RegisterMediaNodeResponse.ProtoReflect.Descriptor instead.
+func (*RegisterMediaNodeResponse) Descriptor() ([]byte, []int) {
+	return file_management_proto_rawDescGZIP(), []int{5}
+}
+
+type MediaNodeHeartbeatRequest struct {
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	NodeId string                 `protobuf:"bytes,1,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
+	// Live counters at the moment of emission.
+	ActiveSessions uint32 `protobuf:"varint,2,opt,name=active_sessions,json=activeSessions,proto3" json:"active_sessions,omitempty"`
+	// 0..1 fraction. Placement avoids nodes above 0.7 (matching the load-test
+	// gate in MEDIA-PLANE-MIGRATION.md phase 6).
+	CpuFraction float32 `protobuf:"fixed32,3,opt,name=cpu_fraction,json=cpuFraction,proto3" json:"cpu_fraction,omitempty"`
+	// True = accepting new sessions, false = drain mode (placement excludes).
+	Accepting     bool `protobuf:"varint,4,opt,name=accepting,proto3" json:"accepting,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *MediaNodeHeartbeatRequest) Reset() {
+	*x = MediaNodeHeartbeatRequest{}
+	mi := &file_management_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MediaNodeHeartbeatRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MediaNodeHeartbeatRequest) ProtoMessage() {}
+
+func (x *MediaNodeHeartbeatRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_management_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MediaNodeHeartbeatRequest.ProtoReflect.Descriptor instead.
+func (*MediaNodeHeartbeatRequest) Descriptor() ([]byte, []int) {
+	return file_management_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *MediaNodeHeartbeatRequest) GetNodeId() string {
+	if x != nil {
+		return x.NodeId
+	}
+	return ""
+}
+
+func (x *MediaNodeHeartbeatRequest) GetActiveSessions() uint32 {
+	if x != nil {
+		return x.ActiveSessions
+	}
+	return 0
+}
+
+func (x *MediaNodeHeartbeatRequest) GetCpuFraction() float32 {
+	if x != nil {
+		return x.CpuFraction
+	}
+	return 0
+}
+
+func (x *MediaNodeHeartbeatRequest) GetAccepting() bool {
+	if x != nil {
+		return x.Accepting
+	}
+	return false
+}
+
+type MediaNodeHeartbeatResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *MediaNodeHeartbeatResponse) Reset() {
+	*x = MediaNodeHeartbeatResponse{}
+	mi := &file_management_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MediaNodeHeartbeatResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MediaNodeHeartbeatResponse) ProtoMessage() {}
+
+func (x *MediaNodeHeartbeatResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_management_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MediaNodeHeartbeatResponse.ProtoReflect.Descriptor instead.
+func (*MediaNodeHeartbeatResponse) Descriptor() ([]byte, []int) {
+	return file_management_proto_rawDescGZIP(), []int{7}
+}
+
+type PlaceMediaSessionRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Control's channel id — drives the home_region / quality_profile_id
+	// inheritance Oracle reads from the `media_nodes` registry alongside the
+	// control DB.
+	ChannelId uint64 `protobuf:"varint,1,opt,name=channel_id,json=channelId,proto3" json:"channel_id,omitempty"`
+	// Region hint from the requesting client (geo-IP / latency probe). Oracle
+	// weights this when the channel has no explicit `home_region`.
+	HomeRegion string `protobuf:"bytes,2,opt,name=home_region,json=homeRegion,proto3" json:"home_region,omitempty"`
+	// Tenant id — Oracle's placement scorer refuses to assign a room from
+	// tenant B to a node already serving tenant A (single-tenant-per-node
+	// rule).
+	TenantId      string `protobuf:"bytes,3,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PlaceMediaSessionRequest) Reset() {
+	*x = PlaceMediaSessionRequest{}
+	mi := &file_management_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PlaceMediaSessionRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PlaceMediaSessionRequest) ProtoMessage() {}
+
+func (x *PlaceMediaSessionRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_management_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PlaceMediaSessionRequest.ProtoReflect.Descriptor instead.
+func (*PlaceMediaSessionRequest) Descriptor() ([]byte, []int) {
+	return file_management_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *PlaceMediaSessionRequest) GetChannelId() uint64 {
+	if x != nil {
+		return x.ChannelId
+	}
+	return 0
+}
+
+func (x *PlaceMediaSessionRequest) GetHomeRegion() string {
+	if x != nil {
+		return x.HomeRegion
+	}
+	return ""
+}
+
+func (x *PlaceMediaSessionRequest) GetTenantId() string {
+	if x != nil {
+		return x.TenantId
+	}
+	return ""
+}
+
+type PlaceMediaSessionResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Selected media node id.
+	NodeId string `protobuf:"bytes,1,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
+	// `host:port` for the WebRTC client to connect to (matches
+	// VoiceTokenGrant.media_node_addr on the Mumble control side).
+	Addr string `protobuf:"bytes,2,opt,name=addr,proto3" json:"addr,omitempty"`
+	// SSRC Oracle allocated for this session. Control embeds it in the signed
+	// voice token; media validates the token's `assigned_ssrc` claim against
+	// the SSRC the client actually publishes.
+	AssignedSsrc  uint32 `protobuf:"varint,3,opt,name=assigned_ssrc,json=assignedSsrc,proto3" json:"assigned_ssrc,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PlaceMediaSessionResponse) Reset() {
+	*x = PlaceMediaSessionResponse{}
+	mi := &file_management_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PlaceMediaSessionResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PlaceMediaSessionResponse) ProtoMessage() {}
+
+func (x *PlaceMediaSessionResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_management_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PlaceMediaSessionResponse.ProtoReflect.Descriptor instead.
+func (*PlaceMediaSessionResponse) Descriptor() ([]byte, []int) {
+	return file_management_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *PlaceMediaSessionResponse) GetNodeId() string {
+	if x != nil {
+		return x.NodeId
+	}
+	return ""
+}
+
+func (x *PlaceMediaSessionResponse) GetAddr() string {
+	if x != nil {
+		return x.Addr
+	}
+	return ""
+}
+
+func (x *PlaceMediaSessionResponse) GetAssignedSsrc() uint32 {
+	if x != nil {
+		return x.AssignedSsrc
+	}
+	return 0
+}
+
 var File_management_proto protoreflect.FileDescriptor
 
 const file_management_proto_rawDesc = "" +
@@ -294,10 +659,36 @@ const file_management_proto_rawDesc = "" +
 	"\bweb_port\x18\x03 \x01(\x05R\awebPort\"9\n" +
 	"\x1aDeleteVirtualServerRequest\x12\x1b\n" +
 	"\tserver_id\x18\x01 \x01(\x03R\bserverId\"\x1d\n" +
-	"\x1bDeleteVirtualServerResponse2\x8f\x02\n" +
+	"\x1bDeleteVirtualServerResponse\"\xb3\x01\n" +
+	"\x18RegisterMediaNodeRequest\x12\x17\n" +
+	"\anode_id\x18\x01 \x01(\tR\x06nodeId\x12\x16\n" +
+	"\x06region\x18\x02 \x01(\tR\x06region\x12)\n" +
+	"\x10sidechannel_addr\x18\x03 \x01(\tR\x0fsidechannelAddr\x12!\n" +
+	"\fmax_sessions\x18\x04 \x01(\rR\vmaxSessions\x12\x18\n" +
+	"\aversion\x18\x05 \x01(\tR\aversion\"\x1b\n" +
+	"\x19RegisterMediaNodeResponse\"\x9e\x01\n" +
+	"\x19MediaNodeHeartbeatRequest\x12\x17\n" +
+	"\anode_id\x18\x01 \x01(\tR\x06nodeId\x12'\n" +
+	"\x0factive_sessions\x18\x02 \x01(\rR\x0eactiveSessions\x12!\n" +
+	"\fcpu_fraction\x18\x03 \x01(\x02R\vcpuFraction\x12\x1c\n" +
+	"\taccepting\x18\x04 \x01(\bR\taccepting\"\x1c\n" +
+	"\x1aMediaNodeHeartbeatResponse\"w\n" +
+	"\x18PlaceMediaSessionRequest\x12\x1d\n" +
+	"\n" +
+	"channel_id\x18\x01 \x01(\x04R\tchannelId\x12\x1f\n" +
+	"\vhome_region\x18\x02 \x01(\tR\n" +
+	"homeRegion\x12\x1b\n" +
+	"\ttenant_id\x18\x03 \x01(\tR\btenantId\"m\n" +
+	"\x19PlaceMediaSessionResponse\x12\x17\n" +
+	"\anode_id\x18\x01 \x01(\tR\x06nodeId\x12\x12\n" +
+	"\x04addr\x18\x02 \x01(\tR\x04addr\x12#\n" +
+	"\rassigned_ssrc\x18\x03 \x01(\rR\fassignedSsrc2\xfa\x04\n" +
 	"\x11GrumbleManagement\x12|\n" +
 	"\x13CreateVirtualServer\x121.grumble.management.v1.CreateVirtualServerRequest\x1a2.grumble.management.v1.CreateVirtualServerResponse\x12|\n" +
-	"\x13DeleteVirtualServer\x121.grumble.management.v1.DeleteVirtualServerRequest\x1a2.grumble.management.v1.DeleteVirtualServerResponseB/Z-mumble.info/grumble/pkg/management;managementb\x06proto3"
+	"\x13DeleteVirtualServer\x121.grumble.management.v1.DeleteVirtualServerRequest\x1a2.grumble.management.v1.DeleteVirtualServerResponse\x12v\n" +
+	"\x11RegisterMediaNode\x12/.grumble.management.v1.RegisterMediaNodeRequest\x1a0.grumble.management.v1.RegisterMediaNodeResponse\x12y\n" +
+	"\x12MediaNodeHeartbeat\x120.grumble.management.v1.MediaNodeHeartbeatRequest\x1a1.grumble.management.v1.MediaNodeHeartbeatResponse\x12v\n" +
+	"\x11PlaceMediaSession\x12/.grumble.management.v1.PlaceMediaSessionRequest\x1a0.grumble.management.v1.PlaceMediaSessionResponseB/Z-mumble.info/grumble/pkg/management;managementb\x06proto3"
 
 var (
 	file_management_proto_rawDescOnce sync.Once
@@ -311,20 +702,32 @@ func file_management_proto_rawDescGZIP() []byte {
 	return file_management_proto_rawDescData
 }
 
-var file_management_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
+var file_management_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
 var file_management_proto_goTypes = []any{
 	(*CreateVirtualServerRequest)(nil),  // 0: grumble.management.v1.CreateVirtualServerRequest
 	(*CreateVirtualServerResponse)(nil), // 1: grumble.management.v1.CreateVirtualServerResponse
 	(*DeleteVirtualServerRequest)(nil),  // 2: grumble.management.v1.DeleteVirtualServerRequest
 	(*DeleteVirtualServerResponse)(nil), // 3: grumble.management.v1.DeleteVirtualServerResponse
+	(*RegisterMediaNodeRequest)(nil),    // 4: grumble.management.v1.RegisterMediaNodeRequest
+	(*RegisterMediaNodeResponse)(nil),   // 5: grumble.management.v1.RegisterMediaNodeResponse
+	(*MediaNodeHeartbeatRequest)(nil),   // 6: grumble.management.v1.MediaNodeHeartbeatRequest
+	(*MediaNodeHeartbeatResponse)(nil),  // 7: grumble.management.v1.MediaNodeHeartbeatResponse
+	(*PlaceMediaSessionRequest)(nil),    // 8: grumble.management.v1.PlaceMediaSessionRequest
+	(*PlaceMediaSessionResponse)(nil),   // 9: grumble.management.v1.PlaceMediaSessionResponse
 }
 var file_management_proto_depIdxs = []int32{
 	0, // 0: grumble.management.v1.GrumbleManagement.CreateVirtualServer:input_type -> grumble.management.v1.CreateVirtualServerRequest
 	2, // 1: grumble.management.v1.GrumbleManagement.DeleteVirtualServer:input_type -> grumble.management.v1.DeleteVirtualServerRequest
-	1, // 2: grumble.management.v1.GrumbleManagement.CreateVirtualServer:output_type -> grumble.management.v1.CreateVirtualServerResponse
-	3, // 3: grumble.management.v1.GrumbleManagement.DeleteVirtualServer:output_type -> grumble.management.v1.DeleteVirtualServerResponse
-	2, // [2:4] is the sub-list for method output_type
-	0, // [0:2] is the sub-list for method input_type
+	4, // 2: grumble.management.v1.GrumbleManagement.RegisterMediaNode:input_type -> grumble.management.v1.RegisterMediaNodeRequest
+	6, // 3: grumble.management.v1.GrumbleManagement.MediaNodeHeartbeat:input_type -> grumble.management.v1.MediaNodeHeartbeatRequest
+	8, // 4: grumble.management.v1.GrumbleManagement.PlaceMediaSession:input_type -> grumble.management.v1.PlaceMediaSessionRequest
+	1, // 5: grumble.management.v1.GrumbleManagement.CreateVirtualServer:output_type -> grumble.management.v1.CreateVirtualServerResponse
+	3, // 6: grumble.management.v1.GrumbleManagement.DeleteVirtualServer:output_type -> grumble.management.v1.DeleteVirtualServerResponse
+	5, // 7: grumble.management.v1.GrumbleManagement.RegisterMediaNode:output_type -> grumble.management.v1.RegisterMediaNodeResponse
+	7, // 8: grumble.management.v1.GrumbleManagement.MediaNodeHeartbeat:output_type -> grumble.management.v1.MediaNodeHeartbeatResponse
+	9, // 9: grumble.management.v1.GrumbleManagement.PlaceMediaSession:output_type -> grumble.management.v1.PlaceMediaSessionResponse
+	5, // [5:10] is the sub-list for method output_type
+	0, // [0:5] is the sub-list for method input_type
 	0, // [0:0] is the sub-list for extension type_name
 	0, // [0:0] is the sub-list for extension extendee
 	0, // [0:0] is the sub-list for field type_name
@@ -341,7 +744,7 @@ func file_management_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_management_proto_rawDesc), len(file_management_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   4,
+			NumMessages:   10,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

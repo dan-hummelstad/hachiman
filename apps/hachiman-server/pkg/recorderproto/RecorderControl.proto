@@ -1,0 +1,123 @@
+// Copyright (c) 2026 The Hachiman Authors
+// The use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE-file.
+
+syntax = "proto3";
+
+package hachiman.recorder.v1;
+
+option go_package = "mumble.info/grumble/pkg/recorderproto;recorderproto";
+
+// RecorderControl is the media↔recorder sidechannel — separate from the
+// control↔media `MediaControl` service per
+// MEDIA-PLANE-MIGRATION.md Phase 2 step 4:
+//
+//   "Recorder subscribes via `SubscribeAsRecorder` against the room's
+//    primary SFU only (never a cascade peer). In cascaded rooms, cascade
+//    peers already forward their region's published frames to the primary
+//    for inter-region distribution; the recorder reads from the primary,
+//    getting one unified stream per room regardless of cascade fan-out."
+//
+// Surface:
+//   - Recorder dials the primary SFU (address comes from control's
+//     `RecordingStart` payload).
+//   - The recorder authenticates via `recorder_credential` — a separately
+//     minted token bound to the recorder's identity; media validates against
+//     the trusted-key set published by control on `KeySetUpdate`.
+//   - The stream multiplexes per-track encoded frames + timestamps for every
+//     active publisher in the room. Frames are forwarded as-is; under E2EE
+//     they remain encrypted (recorder must hold the per-room key share from
+//     `AttachRecorder` to decrypt).
+//
+// Phase 2 ships the proto only. The runtime lands in phase 4+ along with
+// the `apps/hachiman-recorder` binary.
+
+service RecorderControl {
+  // SubscribeAsRecorder opens a long-lived server-streaming RPC. Media is
+  // the server; recorder is the client. Recorder receives `EncodedFrame`
+  // messages until the room closes or the recorder cancels.
+  rpc SubscribeAsRecorder(SubscribeAsRecorderRequest) returns (stream RecorderEvent);
+}
+
+message SubscribeAsRecorderRequest {
+  // Room the recorder is attaching to. Media MUST reject if it isn't the
+  // primary SFU for this room (cascade peers fail closed).
+  string room_id = 1;
+  // Recorder-side credential — signed claim from control, validated against
+  // the trusted-key set. Carries the recorder's identity + the room id;
+  // bound to a short TTL.
+  bytes recorder_credential = 2;
+  // Opaque recorder identifier (matches AttachRecorder.recorder_id on the
+  // control↔media side).
+  string recorder_id = 3;
+}
+
+// RecorderEvent is the multiplexed stream payload. Most messages are
+// EncodedFrame; control-plane sub-events (track add / remove, key
+// rotation) are interleaved so the recorder can keep its per-track segment
+// state consistent without a separate control channel.
+message RecorderEvent {
+  oneof payload {
+    EncodedFrame encoded_frame = 1;
+    TrackAdded track_added = 2;
+    TrackRemoved track_removed = 3;
+    // Notification that the per-room E2EE epoch advanced. Recorder rotates
+    // its segment boundary so a single segment never spans epochs.
+    EpochAdvanced epoch_advanced = 4;
+    // Heartbeat from media so recorder can detect a stalled stream.
+    StreamHeartbeat heartbeat = 5;
+  }
+}
+
+message EncodedFrame {
+  // Track this frame belongs to (matches TrackAdded.track_id).
+  string track_id = 1;
+  // SSRC at the publishing client.
+  uint32 originating_ssrc = 2;
+  // Publisher session id — needed for the recorder's per-session segment
+  // path under `s3://.../{session_id}/{track_id}/...`.
+  string publisher_session_id = 3;
+  // Codec name (e.g. "opus", "av1", "vp9", "vp8"). Recorder mux-decides the
+  // container based on this (Ogg for Opus, WebM for video).
+  string codec = 4;
+  // RTP timestamp (90 kHz for video / 48 kHz for audio per RTP convention).
+  uint32 rtp_timestamp = 5;
+  // Wall-clock receive time at media in Unix microseconds — recorder uses
+  // this for the segment-duration accounting.
+  int64 received_at_unix_micros = 6;
+  // Encoded payload. Under E2EE this is the SFrame-encrypted body — the
+  // recorder needs the per-room key share to decrypt before muxing.
+  bytes payload = 7;
+  // True for frames that mark a coded picture / GOP boundary — recorder
+  // uses these to start a new segment.
+  bool is_keyframe = 8;
+  // Per-sender SFrame epoch (mirrors MediaTrackPublish.e2ee_epoch). 0 when
+  // E2EE is disabled for this publisher.
+  uint32 e2ee_epoch = 9;
+  // Per-sender SFrame key id.
+  uint32 e2ee_key_id = 10;
+}
+
+message TrackAdded {
+  string track_id = 1;
+  string publisher_session_id = 2;
+  // Mirrors MediaKind in Mumble.proto. String to keep the proto independent
+  // of the Mumble proto enum.
+  string kind = 3;
+  string codec = 4;
+  uint32 originating_ssrc = 5;
+}
+
+message TrackRemoved {
+  string track_id = 1;
+}
+
+message EpochAdvanced {
+  string room_id = 1;
+  uint32 new_epoch = 2;
+}
+
+message StreamHeartbeat {
+  // Unix microseconds at send time. Recorder asserts liveness on a 5 s window.
+  int64 sent_at_unix_micros = 1;
+}

@@ -10,7 +10,9 @@
 // Requires (one-time setup):
 //   go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
 //   go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
-//   (and protoc itself, e.g. `brew install protobuf`)
+//   (and protoc itself: `brew install protobuf` on macOS,
+//    `apt install protobuf-compiler` on Debian/Ubuntu,
+//    `dnf install protobuf-compiler` on Fedora/RHEL.)
 //
 // This is a SEPARATE generation from pkg/mumbleproto/ — that one downloads
 // the upstream Mumble proto and regenerates `Mumble.pb.go`; this one is

@@ -1,0 +1,30 @@
+# Builds the hachiman-media binary — the stateless WebRTC SFU. Outbound dials
+# control over the sidechannel; no inbound listener is exposed at the container
+# layer (RTP / DTLS-SRTP ports are allocated dynamically by pion and require
+# host networking in production deploys).
+# Pair: Dockerfile.control and Dockerfile.recorder.
+
+FROM golang:1.25-alpine AS builder
+
+COPY . /go/src/mumble.info/grumble
+
+WORKDIR /go/src/mumble.info/grumble
+
+RUN apk add --no-cache git build-base
+
+RUN go build -o hachiman-media mumble.info/grumble/cmd/hachiman-media
+
+FROM alpine:edge
+
+COPY --from=builder /go/src/mumble.info/grumble/hachiman-media /usr/bin/hachiman-media
+
+# Media is stateless — no /data, no VOLUME. Per-session state lives in RAM and
+# is rebuilt from the control plane's RoomMembershipSnapshot on reconnect.
+
+# No EXPOSE: media's only inbound channel is RTP/DTLS-SRTP which pion allocates
+# from the OS ephemeral port range and is normally served via host networking
+# in cloud deploys (see MEDIA-PLANE-MIGRATION.md "Service topology"). The
+# sidechannel gRPC connection is OUTBOUND to control — no inbound socket on the
+# media side at all.
+
+ENTRYPOINT [ "/usr/bin/hachiman-media" ]

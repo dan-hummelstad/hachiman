@@ -1,4 +1,8 @@
-project_name: grumble
+# project_name is the SHARED library identity — both binaries ship out of this
+# repo (rev 6 "embedded mode" / split deployment). Per-binary archives are
+# namespaced via the build id (see archives.name_template below) so the two
+# builds don't collide on the same os/arch tuple.
+project_name: hachiman-server
 dist: build/
 env:
   - GO111MODULE=on
@@ -6,10 +10,11 @@ before:
   hooks:
     - go mod download
 builds:
-  - env:
+  - id: hachiman-control
+    env:
       - CGO_ENABLED=0
-    main: ./cmd/grumble/
-    binary: grumble
+    main: ./cmd/hachiman-control/
+    binary: hachiman-control
     goos:
       - darwin
       - linux
@@ -21,14 +26,57 @@ builds:
     ignore:
       - goos: darwin
         goarch: arm
-      - goos: darwin
+      - goos: windows
+        goarch: arm
+      - goos: windows
         goarch: arm64
+  - id: hachiman-media
+    env:
+      - CGO_ENABLED=0
+    main: ./cmd/hachiman-media/
+    binary: hachiman-media
+    goos:
+      - darwin
+      - linux
+      - windows
+    goarch:
+      - amd64
+      - arm
+      - arm64
+    ignore:
+      - goos: darwin
+        goarch: arm
+      - goos: windows
+        goarch: arm
+      - goos: windows
+        goarch: arm64
+  - id: hachiman-recorder
+    env:
+      - CGO_ENABLED=0
+    main: ./cmd/hachiman-recorder/
+    binary: hachiman-recorder
+    goos:
+      - darwin
+      - linux
+      - windows
+    goarch:
+      - amd64
+      - arm
+      - arm64
+    ignore:
+      - goos: darwin
+        goarch: arm
       - goos: windows
         goarch: arm
       - goos: windows
         goarch: arm64
 archives:
-  - files:
+  # name_template embeds the binary name so hachiman-control_* /
+  # hachiman-media_* / hachiman-recorder_* archives don't collide on the same
+  # os/arch tuple. {{ .Binary }} resolves to the per-build `binary:` field,
+  # which is unique per build id.
+  - name_template: "{{ .Binary }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
       - LICENSE
     format_overrides:
       - goos: windows

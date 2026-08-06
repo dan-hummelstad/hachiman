@@ -16,6 +16,21 @@ type Channel struct {
 	// back to when the column is added), 1 = TEXT. Mirrors
 	// MumbleProto.ChannelState.ChannelType. Immutable after create.
 	Type uint8 `gorm:"not null;default:0"`
+
+	// Media-plane channel-scope configuration. All three are nullable so the
+	// channel-create UI can offer a "inherit from server default" picker
+	// (null = inherit). The server-level defaults live on `servers`.
+	//
+	// HomeRegion is the region the channel's primary SFU node lands in.
+	// QualityProfileID points at a `quality_profiles` row.
+	// CascadeMode is one of "EAGER" | "THRESHOLD_50" | "OFF" (stored as
+	// varchar — the small enum keeps the wire/storage stable across both
+	// SQLite and Postgres without a Postgres-specific enum type). EAGER is
+	// the global default per the cascade decision.
+	HomeRegion       *string `gorm:"type:varchar(64)"`
+	QualityProfileID *uint
+	QualityProfile   *QualityProfile `gorm:"foreignKey:QualityProfileID;references:ID;constraint:OnDelete:SET NULL"`
+	CascadeMode      *string         `gorm:"type:varchar(32)"`
 }
 
 func (s Channel) TableName() string {

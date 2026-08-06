@@ -32,6 +32,34 @@ service GrumbleManagement {
   // its database row. Returns NotFound if the server_id is unknown to BOTH
   // the database and the in-process registry.
   rpc DeleteVirtualServer(DeleteVirtualServerRequest) returns (DeleteVirtualServerResponse);
+
+  // ─── media-plane phase 2 — Oracle ↔ control surface ──────────────────────
+  //
+  // Per MEDIA-PLANE-MIGRATION.md "Decisions / Placement and registry":
+  // Oracle owns the media node registry and placement. Control queries via
+  // the three RPCs below at voice-token mint time. The registry persists in
+  // Oracle's `media_nodes` table; no parallel registry in control.
+  //
+  // Mumble UDP control protocol → control speaks this surface OVER its
+  // existing management gRPC channel to Oracle. Phase 2 ships the proto;
+  // wire-up lands in phase 3.
+
+  // RegisterMediaNode is invoked by a freshly-booted media node (via
+  // control, which is the only outbound-from-VPC actor) to announce itself
+  // to Oracle's placement service. Idempotent: re-registering with the
+  // same node_id replaces the existing row.
+  rpc RegisterMediaNode(RegisterMediaNodeRequest) returns (RegisterMediaNodeResponse);
+
+  // MediaNodeHeartbeat reports live capacity / load. Oracle excludes nodes
+  // that miss 3 consecutive heartbeats from placement. `accepting=false`
+  // signals graceful drain (existing sessions kept, no new placements).
+  rpc MediaNodeHeartbeat(MediaNodeHeartbeatRequest) returns (MediaNodeHeartbeatResponse);
+
+  // PlaceMediaSession asks Oracle to pick a node for a new session. Inputs
+  // are the channel (drives quality profile + home region inheritance) and
+  // the tenant. Output is the node Oracle picked plus the SSRC it allocated
+  // for this session — control embeds both in the signed voice token.
+  rpc PlaceMediaSession(PlaceMediaSessionRequest) returns (PlaceMediaSessionResponse);
 }
 
 message CreateVirtualServerRequest {
@@ -111,4 +139,70 @@ message DeleteVirtualServerResponse {
   // message rather than google.protobuf.Empty so future fields (e.g. final
   // session count for accounting) can be added without changing the
   // signature.
+}
+
+// ─── media-plane phase 2 — Oracle ↔ control messages ────────────────────────
+
+message RegisterMediaNodeRequest {
+  // Node-generated UUID, stable for the node's lifetime.
+  string node_id = 1;
+  // Region tag, e.g. "us-east", "eu-west". Set via the media node's -region
+  // flag.
+  string region = 2;
+  // Inbound sidechannel address (`host:port`) for the control↔media gRPC
+  // stream. Oracle stores this so control can dial the node when placement
+  // returns it.
+  string sidechannel_addr = 3;
+  // Static capacity declaration: max concurrent sessions this node will
+  // serve. Placement weights by `1 - active_sessions/max_sessions`.
+  uint32 max_sessions = 4;
+  // Build version for ops visibility. Surfaced in the island-metrics
+  // pump alongside the existing hachiman-control / hachiman-oracle
+  // entries.
+  string version = 5;
+}
+
+message RegisterMediaNodeResponse {
+  // Empty for the MVP — gRPC status codes carry success/failure.
+}
+
+message MediaNodeHeartbeatRequest {
+  string node_id = 1;
+  // Live counters at the moment of emission.
+  uint32 active_sessions = 2;
+  // 0..1 fraction. Placement avoids nodes above 0.7 (matching the load-test
+  // gate in MEDIA-PLANE-MIGRATION.md phase 6).
+  float cpu_fraction = 3;
+  // True = accepting new sessions, false = drain mode (placement excludes).
+  bool accepting = 4;
+}
+
+message MediaNodeHeartbeatResponse {
+  // Empty for the MVP — gRPC status codes carry success/failure.
+}
+
+message PlaceMediaSessionRequest {
+  // Control's channel id — drives the home_region / quality_profile_id
+  // inheritance Oracle reads from the `media_nodes` registry alongside the
+  // control DB.
+  uint64 channel_id = 1;
+  // Region hint from the requesting client (geo-IP / latency probe). Oracle
+  // weights this when the channel has no explicit `home_region`.
+  string home_region = 2;
+  // Tenant id — Oracle's placement scorer refuses to assign a room from
+  // tenant B to a node already serving tenant A (single-tenant-per-node
+  // rule).
+  string tenant_id = 3;
+}
+
+message PlaceMediaSessionResponse {
+  // Selected media node id.
+  string node_id = 1;
+  // `host:port` for the WebRTC client to connect to (matches
+  // VoiceTokenGrant.media_node_addr on the Mumble control side).
+  string addr = 2;
+  // SSRC Oracle allocated for this session. Control embeds it in the signed
+  // voice token; media validates the token's `assigned_ssrc` claim against
+  // the SSRC the client actually publishes.
+  uint32 assigned_ssrc = 3;
 }

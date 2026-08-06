@@ -3,9 +3,13 @@
   "version": "1.0.0",
   "description": "",
   "scripts": {
-    "build": "go build -o ./bin/hachiman-server mumble.info/grumble/cmd/grumble ",
-    "start": "./bin/hachiman-server --datadir ./bin/data --log ./bin/data/grumble.log",
-    "dev": "nodemon --exec go run mumble.info/grumble/cmd/grumble --datadir ./bin/data --signal SIGTERM --watch . --ext go --ignore bin/ --ignore node_modules/ --ignore ts-dist/"
+    "build": "pnpm build:control",
+    "build:control": "go build -o ./bin/hachiman-control mumble.info/grumble/cmd/hachiman-control",
+    "build:media": "go build -o ./bin/hachiman-media mumble.info/grumble/cmd/hachiman-media",
+    "start": "./bin/hachiman-control --datadir ./bin/data --log ./bin/data/hachiman-control.log",
+    "dev": "pnpm dev:control",
+    "dev:control": "nodemon --exec go run mumble.info/grumble/cmd/hachiman-control --datadir ./bin/data --signal SIGTERM --watch . --ext go --ignore bin/ --ignore node_modules/ --ignore ts-dist/",
+    "dev:media": "nodemon --exec go run mumble.info/grumble/cmd/hachiman-media --signal SIGTERM --watch . --ext go --ignore bin/ --ignore node_modules/ --ignore ts-dist/"
   },
   "keywords": [],
   "author": "",

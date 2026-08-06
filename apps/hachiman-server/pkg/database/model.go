@@ -10,6 +10,16 @@ import (
 )
 
 const (
+	// DBStructureVersion is informational only. AutoMigrate is the only
+	// migration tool wired into Init() — there is no per-version migration
+	// step keyed off this constant, and no MetaGetVersion gate that decides
+	// whether a migration runs. Bump it ONLY when you wire a real per-version
+	// migration step alongside the bump.
+	//
+	// Until then, the canonical dev-stage workflow is "drop the SQLite file
+	// and let the next boot reseed" (see the user's dev-migrations note);
+	// stacking ALTERs through AutoMigrate-then-bump is the anti-pattern we
+	// are explicitly avoiding.
 	DBStructureVersion = 9
 )
 
@@ -88,18 +98,33 @@ func NewDB(cfg *DbConfig) (*GrumbleDb, error) {
 }
 
 func (d *GrumbleDb) Init() error {
-	err := d.db.AutoMigrate(&Meta{}, &Server{}, &ServerLog{}, &Config{}, &Channel{}, &ChannelInfo{}, &User{}, &UserInfo{}, &Group{}, &GroupMember{}, &ACL{}, &ChannelLink{}, &Ban{}, &ChannelListener{}, &Message{})
+	// AutoMigrate order matters for SQLite (FKs are enforced in GORM's
+	// sqlite driver, so referenced tables must exist before the table that
+	// references them). On Postgres FK CONSTRAINT creation is suppressed via
+	// DisableForeignKeyConstraintWhenMigrating, so order is tolerant there
+	// too — placing QualityProfile first is harmless either way. The same
+	// constraint applies to any future model that holds a FK target column.
+	err := d.db.AutoMigrate(&Meta{}, &QualityProfile{}, &Server{}, &ServerLog{}, &Config{}, &Channel{}, &ChannelInfo{}, &User{}, &UserInfo{}, &Group{}, &GroupMember{}, &ACL{}, &ChannelLink{}, &Ban{}, &ChannelListener{}, &Message{})
 	if err != nil {
 		return err
 	}
 
+	// Use the explicit commit/rollback pattern so a mid-transaction error
+	// doesn't leak a half-applied state via a deferred Commit (was a real
+	// hazard pre-fix: the deferred Commit ran even when SeedDefaultQualityProfile
+	// failed, persisting the version bump without the seed).
 	tx := d.Tx()
-	defer tx.Commit()
-	err = tx.MetaSetVersion(DBStructureVersion)
-	if err != nil {
+	if err := tx.MetaSetVersion(DBStructureVersion); err != nil {
+		_ = tx.Rollback()
 		return err
 	}
-	return nil
+	// Seed the default quality profile. Idempotent — re-running Init() on a
+	// populated DB is a no-op via the unique index on `quality_profiles.name`.
+	if _, err := tx.SeedDefaultQualityProfile(); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	return tx.Commit()
 }
 
 type DbTx struct {
