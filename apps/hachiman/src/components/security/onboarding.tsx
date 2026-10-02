@@ -1,6 +1,6 @@
 import { useEffect, useId, useState } from 'react'
 import { KeyRound, Link2, RotateCcw, Sparkles } from 'lucide-react'
-import { LOCK_HELD_MESSAGE, type CryptoState } from '@hachiman/crypto'
+import type { CryptoState } from '@hachiman/crypto'
 import { Button } from '@/components/ui/button'
 import { ErrorText } from '@/components/ui/field'
 import { friendly } from '@/components/security/errors'
@@ -355,13 +355,15 @@ function StartError(): React.JSX.Element {
   const userId = useTakusenStore((s) => s.session?.user.id ?? null)
   const platform = usePlatform()
   const message = startError?.message ?? ''
-  const text = message.includes(LOCK_HELD_MESSAGE)
-    ? 'Hachiman is open in another tab or window. Close it there, then select Try again.'
-    : startError?.code === 'SecureStorageUnavailable'
-      ? 'This device has no safe storage for keys, so Hachiman cannot keep your keys here.'
-      : startError?.code === 'StoreCorrupt'
-        ? 'The key store of this device is damaged. Sign out, then sign in and link this device again.'
-        : `Encryption did not start: ${message || 'unknown error'}.`
+  // 'Internal' and every other code: the generic text, with Try again and Sign out.
+  const text =
+    startError?.code === 'LockHeld'
+      ? 'Hachiman is open in another tab or window. Close it there, then select Try again.'
+      : startError?.code === 'SecureStorageUnavailable'
+        ? 'This device has no safe storage for keys, so Hachiman cannot keep your keys here.'
+        : startError?.code === 'StoreCorrupt'
+          ? 'The key store of this device is damaged. Sign out, then sign in and link this device again.'
+          : `Encryption did not start: ${message || 'unknown error'}.`
 
   const retry = (): void => {
     if (!userId) return

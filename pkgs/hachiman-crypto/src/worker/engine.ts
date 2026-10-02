@@ -23,11 +23,12 @@ import {
   type IdentityService,
   type InitOptions,
   type MessageService,
+  type VoiceService,
 } from '../api'
 import { createAdminService } from '../admin/service'
 import { createMessageService } from '../envelope/service'
 import { createIdentityService } from '../identity/service'
-import { createVoiceService, type VoiceServiceExt, type VoiceStartOptions } from '../media/service'
+import { createVoiceService } from '../media/service'
 import { mls } from '../mls/index'
 import { createGroupService, type GroupServiceExt } from '../mls/service'
 import { createCryptoStore } from '../store/index'
@@ -43,11 +44,8 @@ export interface EngineEnv {
   random?: (n: number) => Uint8Array
 }
 
-/** CryptoApi, with the voiceStart options that VoiceService takes (the guild of the call). */
-export type EngineApi = Omit<CryptoApi, 'voiceStart'> & { voiceStart(opts: VoiceStartOptions): ReturnType<CryptoApi['voiceStart']> }
-
 export interface Engine {
-  api: EngineApi
+  api: CryptoApi
   /** Resolves when the background work of the group service is done (tests). */
   idle(): Promise<void>
 }
@@ -58,7 +56,7 @@ interface Services {
   identity: IdentityService
   groups: GroupServiceExt
   messages: MessageService
-  voice: VoiceServiceExt
+  voice: VoiceService
   admin: AdminService
 }
 
@@ -165,7 +163,7 @@ export function createEngine(env: EngineEnv): Engine {
     // Any other type is from a newer contract: nothing here consumes it.
   }
 
-  const api: EngineApi = {
+  const api: CryptoApi = {
     init,
     status: () =>
       Promise.resolve(
@@ -190,6 +188,7 @@ export function createEngine(env: EngineEnv): Engine {
     renameDevice: (id, name) => s().identity.renameDevice(id, name),
 
     getTrust: (u) => s().identity.getTrust(u),
+    listContactDevices: (u) => s().identity.listContactDevices(u),
     getSafetyNumber: (u) => s().identity.getSafetyNumber(u),
     verifyQr: (p) => s().identity.verifyQr(p),
     setVerified: (u, v) => s().identity.setVerified(u, v),

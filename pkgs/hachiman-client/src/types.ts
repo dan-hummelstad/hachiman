@@ -257,8 +257,22 @@ export interface CommitRequest {
   ratchetTree: B64url
   welcome: B64url | null
   batchId: string | null
-  rejected: { pendingId: string; reason: BatchRejectReason }[]
+  /**
+   * What the committer of an MLS_BATCH_ASSIGN leaves out: a join by `pendingId`, or a DS
+   * proposal by `proposalRef` (base64url RFC 9420 ProposalRef). RestClient.postCommit sends
+   * the `proposalRef` entries as `rejectedProposals` on the wire (§12.12).
+   */
+  rejected: BatchRejection[]
+  /** DS Add proposals that the committer refused. Merged with the `proposalRef` entries of `rejected`. */
+  rejectedProposals?: ProposalRejection[]
 }
+
+export interface ProposalRejection {
+  proposalRef: B64url
+  reason: BatchRejectReason
+}
+
+export type BatchRejection = { pendingId: string; reason: BatchRejectReason } | ProposalRejection
 
 /** POST /mls/groups/:groupId/commits. 409 EpochConflict resolves as a value, not as an error. */
 export type CommitResult =

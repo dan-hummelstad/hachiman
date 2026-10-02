@@ -71,15 +71,9 @@ function typeName(p: Proposal): ProposalTypeName {
   }
 }
 
-/** The master public key that Takusen holds: 32 raw bytes or an encoded MasterKeyRecord. */
+/** The raw 32-byte master public key that Takusen holds. Any other length is unknown. */
 function masterPublicKey(v: Uint8Array | null): Uint8Array | null {
-  if (v === null) return null
-  if (v.length === 32) return v
-  try {
-    return identity.decodeMasterKeyRecord(v).publicKey
-  } catch {
-    return null
-  }
+  return v !== null && v.length === 32 ? v : null
 }
 
 /** Check 7: identity, chain signatures and the leaf key. No TOFU, no revocation (Takusen has the rows). */
@@ -131,13 +125,6 @@ async function signatureAndHash(d: Decoded): Promise<{ signatureValid: boolean; 
 function applyRemove(tree: RatchetTree, leaf: number): RatchetTree {
   if (treeLeaves(tree)[leaf] === undefined) throw new Error(`remove of blank leaf ${leaf}`)
   return removeLeafNode(tree, toLeafIndex(leaf))
-}
-
-function blankLeafSlots(tree: RatchetTree, count: number): number[] {
-  const leaves = treeLeaves(tree)
-  const out: number[] = []
-  for (let i = 0; out.length < count; i++) if (i >= leaves.length || leaves[i] === undefined) out.push(i)
-  return out
 }
 
 async function checkCommit(input: Parameters<DsModule['checkCommit']>[0]): Promise<CommitCheck> {
@@ -192,14 +179,8 @@ async function checkCommit(input: Parameters<DsModule['checkCommit']>[0]): Promi
   if (!sigOk) return fail('sender: commit signature')
 
   // 6. Proposal references: each one a DS proposal that Takusen published for this epoch.
-  const published = new Map<string, Proposal | null>()
-  for (const item of input.publishedProposalRefs) {
-    if (item.length === cs.kdf.size) {
-      const k = hex(item)
-      if (!published.has(k)) published.set(k, null)
-      continue
-    }
-    // A full MLSMessage proposal also works: then the transition below is exact.
+  const published = new Map<string, Proposal>()
+  for (const item of input.publishedProposals) {
     try {
       const p = decodePublicMessage(item)
       if (p.content.contentType !== 'proposal') continue
@@ -216,7 +197,6 @@ async function checkCommit(input: Parameters<DsModule['checkCommit']>[0]): Promi
   const knownRefRemoves: number[] = []
   /** Known Adds (by value and by known ref) in list order: ts-mls fills blanks in this order. */
   const knownAdds: LeafNode[] = []
-  let unknownRefs = 0
   let externalInit = 0
   let descriptorChanged = false
   for (const p of c.commit.proposals) {
@@ -224,11 +204,7 @@ async function checkCommit(input: Parameters<DsModule['checkCommit']>[0]): Promi
       proposalRefs.push(p.reference)
       const k = hex(p.reference)
       if (!published.has(k)) return fail('proposal_ref: not a published DS proposal')
-      const known = published.get(k) ?? null
-      if (known === null) {
-        unknownRefs++
-        continue
-      }
+      const known = published.get(k)!
       proposalTypes.push(typeName(known))
       if (known.proposalType === 'remove') knownRefRemoves.push(known.remove.removed)
       else if (known.proposalType === 'add') knownAdds.push(known.add.keyPackage.leafNode)
@@ -320,15 +296,9 @@ async function checkCommit(input: Parameters<DsModule['checkCommit']>[0]): Promi
       if (got !== null) return fail(`roster: ${got}`)
     } else {
       for (const r of [...knownRefRemoves, ...valueRemoves]) expectedTree = applyRemove(expectedTree, r)
-      if (unknownRefs === 0) {
-        for (const leaf of knownAdds) expectedTree = addLeafNode(expectedTree, leaf)[0]
-        const got = transitionMatches(expectedTree, next.tree)
-        if (got !== null) return fail(`roster: ${got}`)
-      } else {
-        // Only refs were given: each unknown ref is one Remove or one Add of a key package leaf.
-        const why = inferTransition(expectedTree, nextLeaves, knownAdds, unknownRefs, committerIndex)
-        if (why !== null) return fail(`roster: ${why}`)
-      }
+      for (const leaf of knownAdds) expectedTree = addLeafNode(expectedTree, leaf)[0]
+      const got = transitionMatches(expectedTree, next.tree)
+      if (got !== null) return fail(`roster: ${got}`)
     }
   } catch (e) {
     return fail(`roster: ${(e as Error).message}`)
@@ -367,55 +337,6 @@ function transitionMatches(expected: RatchetTree, got: RatchetTree): string | nu
   const a = treeLeaves(expected)
   const b = treeLeaves(got)
   for (let i = 0; i < Math.max(a.length, b.length); i++) if (!sameMember(a[i], b[i])) return `leaf ${i} does not follow from the proposals`
-  return null
-}
-
-/**
- * Refs without contents: every leaf that changed must be explained by a known Remove or Add, or
- * by one unknown ref (a Remove of a leaf, or an Add of a key package leaf into the next blank slot).
- */
-function inferTransition(
-  afterKnownRemoves: RatchetTree,
-  nextLeaves: readonly (LeafNode | undefined)[],
-  knownAdds: readonly LeafNode[],
-  unknownRefs: number,
-  committerIndex: number,
-): string | null {
-  const known = treeLeaves(afterKnownRemoves)
-  // Leaves that the known removes kept but the next tree removed or replaced: inferred ref Removes.
-  let inferredRemoves = 0
-  let base = afterKnownRemoves
-  for (let i = 0; i < known.length; i++) {
-    const k = known[i]
-    if (k === undefined) continue
-    if (sameMember(k, nextLeaves[i])) continue
-    if (i === committerIndex) return 'the committer leaf changed identity or key'
-    base = applyRemove(base, i)
-    inferredRemoves++
-  }
-  // New leaves fill the leftmost blank slots of `base`, in order.
-  const added = nextLeaves.map((l, i) => ({ l, i })).filter(({ l, i }) => l !== undefined && !sameMember(treeLeaves(base)[i], l))
-  const slots = blankLeafSlots(base, added.length)
-  if (added.some((x, j) => x.i !== slots[j])) return 'added leaves are not in the leftmost blank slots'
-  const pending = [...knownAdds]
-  let inferredAdds = 0
-  for (const { l } of added) {
-    const j = pending.findIndex((p) => sameMember(p, l))
-    if (j >= 0) {
-      pending.splice(j, 1)
-      continue
-    }
-    if (l!.leafNodeSource !== 'key_package') return 'an added leaf is not from a key package'
-    inferredAdds++
-  }
-  if (pending.length > 0) return 'an Add by value is missing from the tree'
-  // Leaves outside `added` must be unchanged.
-  const baseLeaves = treeLeaves(base)
-  for (let i = 0; i < Math.max(baseLeaves.length, nextLeaves.length); i++) {
-    if (added.some((x) => x.i === i)) continue
-    if (!sameMember(baseLeaves[i], nextLeaves[i])) return `leaf ${i} does not follow from the proposals`
-  }
-  if (inferredRemoves + inferredAdds !== unknownRefs) return 'the tree changes more leaves than the proposals'
   return null
 }
 

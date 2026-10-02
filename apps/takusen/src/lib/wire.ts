@@ -33,7 +33,7 @@ import type {
 import type { AcceptedEnvelope } from '@/lib/mls/envelopes'
 import { fromB64, toB64 } from '@/lib/mls/bytes'
 
-import { MAX_ATTACHMENTS_PER_MESSAGE, MAX_MESSAGE_UPLOAD_IDS } from '../../../../pkgs/hachiman-crypto/src/constants'
+import { MAX_ATTACHMENTS_PER_MESSAGE, MAX_MESSAGE_UPLOAD_IDS } from '@hachiman/crypto/constants'
 
 /** The `users` columns every wire `User` is built from. */
 export interface UserLike {
@@ -56,7 +56,7 @@ export function toUser(u: UserLike): User {
 export const DEFAULT_PUBLIC_HISTORY_VISIBILITY: HistoryVisibility = 'shared'
 
 /** `publicHistoryVisibility` mirrors the guild's current public_set group (§12.6). */
-export function toGuild(g: GuildRow, publicHistoryVisibility: HistoryVisibility = DEFAULT_PUBLIC_HISTORY_VISIBILITY): Guild {
+export function toGuild(g: GuildRow, publicHistoryVisibility: HistoryVisibility): Guild {
   return {
     id: g.id,
     name: g.name,
@@ -208,7 +208,7 @@ export function assembleGuildFull(input: GuildFullInput): GuildFull {
   )
   const roles = input.roles.map(toRole)
   const roleMap = new Map(roles.map((r) => [r.id, r]))
-  const guild = toGuild(input.guild, input.publicHistoryVisibility)
+  const guild = toGuild(input.guild, input.publicHistoryVisibility ?? DEFAULT_PUBLIC_HISTORY_VISIBILITY)
   const viewer = members.find((m) => m.user.id === input.viewerId)
   const channels = input.channels
     .map((c) => toChannel(c, input.overwrites, input.groups))

@@ -51,10 +51,10 @@ Preview state persists under `preview:*` localStorage keys, so it never touches 
 
 ## Unit tests
 
-`apps/hachiman` has no vitest dependency yet. Run the tests with the vitest of a sibling package, from `apps/hachiman`:
+Run the tests from the repo root:
 
 ```bash
-../../pkgs/hachiman-client/node_modules/.bin/vitest run --config src/dev/vitest.config.ts
+pnpm -F @hachiman/hachiman test
 ```
 
-`vitest-shim.d.ts` declares the vitest API for tsgo until then.
+The config is `src/dev/vitest.config.ts`. It runs every `src/**/*.test.ts` in a Node environment.

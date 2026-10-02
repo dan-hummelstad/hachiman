@@ -24,6 +24,27 @@ const RETRY_BASE_MS = 300
 let lastTyping = { channelId: '', at: 0 }
 /** channelId → the history page request in flight, so overlapping triggers share one fetch. */
 const loading = new Map<string, Promise<void>>()
+/** Channels whose group this device joined, or is joining, in this session (§12.7.8). */
+const joined = new Set<string>()
+
+/**
+ * A device joins the group of a channel on its first open, not only on its first send (§12.7.8):
+ * a member who only reads gets the keys too. Best effort: a failure tries again on the next open.
+ */
+function joinGroup(channelId: string): void {
+  if (joined.has(channelId)) return
+  let crypto
+  try {
+    crypto = cryptoService.client()
+  } catch {
+    return // not ready: the next open tries again
+  }
+  joined.add(channelId)
+  void crypto.ensureChannelGroup(channelId).catch((e: unknown) => {
+    joined.delete(channelId)
+    console.warn('[messages] channel group join failed', e)
+  })
+}
 
 const decryptor = createMessageDecryptor({
   decrypt: (messages) => cryptoService.client().decryptMessages(messages),
@@ -130,8 +151,9 @@ export const messagesService = {
     return request
   },
 
-  /** Load the latest page unless this channel's history was already loaded. */
+  /** Channel open: join its group, and load the latest page unless the history is loaded. */
   ensureLoaded(channelId: string): void {
+    joinGroup(channelId)
     if (!useMessageStore.getState().hasMore.has(channelId))
       void messagesService.loadOlder(channelId)
   },
@@ -158,6 +180,7 @@ export const messagesService = {
 
   /** Sign-out. */
   reset(): void {
+    joined.clear()
     decryptor.reset()
   },
 

@@ -4,14 +4,14 @@
  * createCryptoClient proxies CryptoApi to the Worker, serves the Worker's DsTransport calls with
  * the given transport, and delivers CryptoEvents to on() listeners. init() first takes the Web Lock
  * `hachiman-crypto:{origin}:{userId}`: two Workers on one store would fork the group state, so a
- * second tab gets CryptoError('Unsupported') with a message that says so.
+ * second tab gets CryptoError('LockHeld') (§12.17 "open in another tab").
  *
  * This file imports no engine module. The Worker code loads only inside the Worker.
  */
 import { CryptoError, type CreateCryptoClient, type CryptoApi, type CryptoClient, type CryptoEvents, type InitOptions } from '../api'
 import { createRpcPeer, CRYPTO_API_METHODS, CRYPTO_EVENTS, DS_TRANSPORT_METHODS, type RpcHandler } from '../worker/rpc'
 
-/** The UI shows "open in another tab" for this message prefix. */
+/** The message prefix of the CryptoError('LockHeld') rejection. */
 export const LOCK_HELD_MESSAGE = 'hachiman-crypto is open in another tab'
 
 export function cryptoLockName(origin: string, userId: string): string {
@@ -35,7 +35,7 @@ function acquireLock(name: string): Promise<HeldLock> {
     locks
       .request(name, { ifAvailable: true }, async (lock) => {
         if (lock === null) {
-          reject(new CryptoError('Unsupported', `${LOCK_HELD_MESSAGE} (${name})`))
+          reject(new CryptoError('LockHeld', `${LOCK_HELD_MESSAGE} (${name})`))
           return
         }
         resolve({ name, release })

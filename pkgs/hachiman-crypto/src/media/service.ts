@@ -25,7 +25,6 @@ import {
   type VoiceE2eeServerOp,
   type VoiceRosterEntry,
   type VoiceService,
-  type VoiceSessionStart,
 } from '../api'
 import { Reader, fromB64url, toB64url } from '../codec'
 import { DEFAULT_CIPHER_SUITE, EXPORTER_LENGTH, ExporterLabel } from '../constants'
@@ -75,17 +74,6 @@ interface Call {
   lock: Promise<unknown>
 }
 
-/**
- * voiceStart also takes the guild of the voice channel: the creator writes it into the group
- * descriptor, and a joiner checks the descriptor against it (§12.10.1). Without it, this device
- * does not create the group (the media node gives the create to the next joiner after 5 s).
- */
-export interface VoiceStartOptions {
-  channelId: ChannelId
-  guildId?: GuildId | null
-}
-
-export type VoiceServiceExt = Omit<VoiceService, 'voiceStart'> & { voiceStart(opts: VoiceStartOptions): Promise<VoiceSessionStart> }
 
 function failingContext(nowMs: number): ChainContext {
   return { pinnedMaster: null, currentDsk: null, highestSeenDskGeneration: null, revokedDeviceIds: new Set(), leaf: null, entering: false, nowMs }
@@ -114,7 +102,7 @@ function reasonOf(e: unknown): string {
   return e instanceof Error ? e.message : String(e)
 }
 
-export const createVoiceService = ((ctx: EngineContext, identity: IdentityService): VoiceServiceExt => {
+export const createVoiceService = ((ctx: EngineContext, identity: IdentityService): VoiceService => {
   const calls = new Map<string, Call>()
 
   function callOf(handle: string): Call {
@@ -471,7 +459,7 @@ export const createVoiceService = ((ctx: EngineContext, identity: IdentityServic
   }
 
   const service = {
-    async voiceStart(opts: VoiceStartOptions) {
+    async voiceStart(opts: Parameters<VoiceService['voiceStart']>[0]) {
       const self = identity.self()
       const [kp] = await mls.generateKeyPackages({ chain: self.chain, signatureKey: self.mlsSignatureKey, cipherSuite: DEFAULT_CIPHER_SUITE, count: 1, lastResort: false })
       if (kp === undefined) throw new CryptoError('Malformed', 'no key package')
@@ -548,7 +536,7 @@ export const createVoiceService = ((ctx: EngineContext, identity: IdentityServic
         return Promise.resolve()
       })
     },
-  } satisfies VoiceServiceExt
+  } satisfies VoiceService
 
   return service
 }) satisfies CreateVoiceService

@@ -200,7 +200,7 @@ Contract §12.7 and §12.18. The DS orders and checks the MLS handshakes of the 
 |---|---|
 | `repo.ts`, `repo.drizzle.ts`, `repo.in-memory.ts` | `MlsRepo`, the storage seam. One method per behavior. Change the two implementations in the same commit. |
 | `readers.ts` | `channelReaders`, `isPublicChannel`, `groupReaders` (§12.6). The one Takusen implementation, on `@hachiman/client/permissions`. |
-| `device-auth.ts` | `requireDevice`: the `X-Hachiman-Device` check of the D routes. |
+| `device-auth.ts`, `device-binding.ts` | `requireDevice`: the `X-Hachiman-Device` check of the D routes. The first device that an OIDC grant names is bound to that grant (Redis `takusen:grant_device:{grantId}`). After that, the bearer token can claim only that device. A revoked device's grants and tokens are deleted after the commit. |
 | `membership.ts` | `onMembershipChange` and `wakeScheduler`, the seams for the content routes. They queue Removes and Adds, allocate and retire groups, and move channels between groups. |
 | `commits.ts` | The commit upload: `DsModule.checkCommit` for checks 2-7, then the database checks, the policy table, the compare-and-set on the epoch, and the writes (§12.7.3). |
 | `proposals.ts` | One signed DS proposal per pending item and epoch, appended to the handshake stream before a batch uses it (§12.7.4). |
@@ -257,6 +257,7 @@ pnpm -F @hachiman/takusen start        # next start
 pnpm -F @hachiman/takusen start:grpc   # gRPC process (production)
 pnpm -F @hachiman/takusen typecheck    # tsgo
 pnpm -F @hachiman/takusen test         # every src/**/*.test.ts on node --test with the tsx loader, no DB, no Redis
+pnpm -F @hachiman/takusen test:canary  # the E2EE canary against a running test deployment (below)
 pnpm -F @hachiman/takusen lint
 pnpm -F @hachiman/takusen format
 
@@ -265,6 +266,13 @@ pnpm -F @hachiman/takusen db:migrate
 pnpm -F @hachiman/takusen db:seed          # regions and the hachiman-client OIDC client
 pnpm -F @hachiman/takusen db:studio
 pnpm -F @hachiman/takusen sessions:revoke  # sign out all users
+```
+
+The E2EE canary (`src/e2ee/canary.integration.ts`) needs a running test deployment: Takusen, its gRPC process and the gateway. Two headless clients sign in, send a unique string in a DM, a private channel and a public channel, and decrypt it. Then the script searches every Postgres column, S3 object, Redis key and Redis command, and every client frame for that string. Run it only against a test database, because it creates users and guilds:
+
+```bash
+CANARY_BASE_URL=http://localhost:3100 CANARY_GATEWAY_URL=ws://localhost:8180/gateway \
+  node --env-file=<test env file> --import tsx src/e2ee/canary.integration.ts   # from apps/takusen
 ```
 
 The schema still changes. Do not add ALTER migrations to a dev DB. Drop the schema, then run `db:migrate` and `db:seed` again.
@@ -280,6 +288,7 @@ All processes read the repo-root `.env`. Copy it from [`.env.example`](../../.en
 | Auth and OIDC | `AUTH_SECRET`, `NEXTAUTH_URL`, `OIDC_ISSUER_URL`, `OIDC_COOKIES_KEY`, `OIDC_JWKS_JSON` (production) |
 | HTTP | `TAKUSEN_ALLOWED_ORIGINS`, `HACHIMAN_WEB_URL`, `TAKUSEN_MAX_UPLOAD_BYTES` |
 | Seed | `HACHIMAN_CLIENT_REDIRECT_URIS` |
+| Dev | `TAKUSEN_NEXT_DIST_DIR` (default `.next`): give a second `next dev` in the same checkout its own directory, for example `.next-2` |
 | gRPC | `TAKUSEN_GRPC_PORT`, `TAKUSEN_GRPC_BIND_ADDR` (production) |
 | E2EE delivery service | `TAKUSEN_DS_SIGNING_KEY`, `TAKUSEN_KT_SIGNING_KEY`, `TAKUSEN_MLS_SUITES`, `TAKUSEN_MAX_ENVELOPE_BYTES`, `TAKUSEN_PUBLIC_SET_MAX_MEMBERS`, `TAKUSEN_MLS_BATCH_INTERVAL_MS`, `TAKUSEN_MLS_BATCH_TIMEOUT_MS` |
 

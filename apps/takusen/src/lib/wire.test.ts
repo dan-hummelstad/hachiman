@@ -14,6 +14,7 @@ import type { ChannelRow, GuildMemberRow, MessageRow, PermissionOverwriteRow, Ro
 import {
   assembleGuildFull,
   createMessageSchema,
+  DEFAULT_PUBLIC_HISTORY_VISIBILITY,
   editMessageSchema,
   MESSAGE_MAX_UPLOAD_IDS,
   parseMessageQuery,
@@ -145,7 +146,7 @@ const GROUP_B64 = Buffer.from(GROUP).toString('base64url')
 
 test('guild publicHistoryVisibility: the given value, shared by default', () => {
   const g = input(OWNER, []).guild
-  assert.equal(toGuild(g).publicHistoryVisibility, 'shared')
+  assert.equal(toGuild(g, DEFAULT_PUBLIC_HISTORY_VISIBILITY).publicHistoryVisibility, 'shared')
   assert.equal(toGuild(g, 'joined').publicHistoryVisibility, 'joined')
   const i = input(OWNER, [])
   i.publicHistoryVisibility = 'joined'

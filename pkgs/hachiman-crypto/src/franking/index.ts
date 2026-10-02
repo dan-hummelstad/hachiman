@@ -2,7 +2,7 @@
  * Message franking (docs/gateway-protocol.md §12.16):
  * franking_tag = HMAC-SHA256(franking_key, "hachiman franking v1" ‖ channel_id(16) ‖ client_msg_id(16) ‖ encode(EnvelopeContent)).
  *
- * Pure @noble/hashes, so Takusen (`DsModule.verifyFrankingOpening`) can use it in Node.
+ * Pure @noble/hashes, so Takusen (`DsModule.verifyFrankingOpening`, '@hachiman/crypto/franking') can use it in Node.
  */
 import { hmac } from '@noble/hashes/hmac.js'
 import { sha256 } from '@noble/hashes/sha2.js'

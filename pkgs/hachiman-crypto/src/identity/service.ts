@@ -10,6 +10,7 @@ import {
   type AdminAction,
   type AdminReplayState,
   type ChainContext,
+  type ContactDevice,
   type CreateIdentityService,
   type CryptoGatewayEvent,
   type CryptoState,
@@ -55,15 +56,17 @@ import { identity, keyPairMatches, verifyDeviceCert, verifyDskCert, verifyMaster
 import { createLinkEngine } from './link-engine'
 import type { BackupKeys } from './recovery'
 
-/**
- * The store row of this device. `backupKey` is K_backup and its key id (not the recovery key),
- * kept so this device can upload history blobs (§12.11.3). StoreSchema has no field for it yet.
- */
-type IdentityRow = StoreSchema['identity'] & { backupKey?: BackupKeys | null }
+/** The store row of this device. */
+type IdentityRow = StoreSchema['identity']
 
 const SELF = 'self'
 /** Fetched user keys stay cached this long unless a USER_KEYS_UPDATE invalidates them. */
 const USER_KEYS_TTL_MS = 5 * 60_000
+/**
+ * An unknown device id refetches the user's keys at most this often. A new device also arrives as
+ * USER_KEYS_UPDATE, which drops the cache, so the limit only stops a refetch per message.
+ */
+export const KEY_REFRESH_MIN_MS = 10_000
 /** §12.11.3: a history blob per group at 64 unbacked epochs, or after 24 h. */
 const BACKUP_EPOCH_THRESHOLD = 64
 const BACKUP_INTERVAL_MS = 24 * 60 * 60_000
@@ -94,6 +97,8 @@ interface VerifiedKeys {
   revoked: Set<DeviceId>
   /** Unchecked: the DS reports a master that differs from the pin (self only). */
   masterMismatch: boolean
+  /** A contact whose served master is a candidate, not the pin (trust 'changed', §12.5). */
+  pendingChange: boolean
 }
 
 const groupKey = (groupId: Uint8Array): string => toB64url(groupId)
@@ -225,6 +230,9 @@ export const createIdentityService: CreateIdentityService = (ctx, deps) => {
       backupKey: null,
     }
     await saveRow(pending)
+    // The UI thread sends X-Hachiman-Device from the status: the next calls (master key,
+    // certificate, link) are device routes (§12.12).
+    emitStatus()
     return pending
   }
 
@@ -366,20 +374,28 @@ export const createIdentityService: CreateIdentityService = (ctx, deps) => {
     const r = requireRow()
     const s = requireSelf()
     if (r.dsk === null) throw new CryptoError('NoIdentity', 'no device-signing key')
-    const rk = identity.generateRecoveryKey()
-    const bk = identity.deriveBackupKeys(rk.bytes)
+    // §12.11.3: the new key is stored before the first upload, and a later call after a failure
+    // (crash, network error, 429) continues with it. The key is returned only after every upload.
+    let text = r.pendingRecoveryKey ?? null
+    if (text === null) {
+      text = identity.generateRecoveryKey().text
+      await saveRow({ ...r, pendingRecoveryKey: text })
+    }
+    const bk = identity.deriveBackupKeys(identity.parseRecoveryKey(text))
     const secrets = await store.list('epochSecrets')
     const batches = historyBatches(secrets.map((x) => x.value)).map((b) => ({ ...b, blob: identity.sealBackup(bk, BackupKind.HISTORY, identity.encodeHistoryBatch(b.entries)) }))
-    // DELETE /backups removes every blob, so it runs before the uploads under the new key id.
+    // The DS keeps one identity blob and one key id per user, and DELETE /backups removes every
+    // blob: it runs before the uploads under the new key id. Until they finish, this device holds
+    // every key and the pending recovery key, so a retry restores the backups.
     await transport.deleteBackups()
     await sealIdentityBackup(bk, master.record, master.keyPair.privateKey, s.chain.dsk, r.dsk.privateKey)
     for (const b of batches) {
       await transport.postHistoryBackup({ keyId: toB64url(bk.keyId), groupId: toB64url(b.groupId), epochFrom: b.epochFrom, epochTo: b.epochTo, blob: toB64url(b.blob) })
     }
     await markBackedUp(secrets.map((x) => x.value))
-    await saveRow({ ...r, recoveryKeyId: bk.keyId, backupKey: bk })
+    await saveRow({ ...requireRow(), recoveryKeyId: bk.keyId, backupKey: bk, pendingRecoveryKey: null })
     emitStatus()
-    return { recoveryKey: rk.text }
+    return { recoveryKey: text }
   }
 
   // MARK: - history keys and backups
@@ -414,8 +430,9 @@ export const createIdentityService: CreateIdentityService = (ctx, deps) => {
 
   async function backupNow(): Promise<{ uploaded: number }> {
     const r = requireRow()
-    const bk = r.backupKey ?? null
-    if (bk === null) return { uploaded: 0 }
+    const bk = r.backupKey
+    // A recovery key rotation in progress uploads every key under the new key id itself.
+    if (bk === null || r.pendingRecoveryKey != null) return { uploaded: 0 }
     const pending = (await store.list('epochSecrets')).map((x) => x.value).filter((v) => !v.backedUp)
     let uploaded = 0
     const now = ctx.now()
@@ -534,28 +551,35 @@ export const createIdentityService: CreateIdentityService = (ctx, deps) => {
         }
       }
     }
-    if (!isSelf) await updateContact(userId, master, dsk)
-    return { userId, fetchedAtMs: ctx.now(), master, dsk, certs, revoked, masterMismatch }
+    const pendingChange = !isSelf && (await updateContact(userId, master, dsk))
+    return { userId, fetchedAtMs: ctx.now(), master, dsk, certs, revoked, masterMismatch, pendingChange }
   }
 
-  /** TOFU (§12.5) and the rule 9 DSK generation record. */
-  async function updateContact(userId: UserId, master: MasterKeyRecord, dsk: DeviceSigningKeyCert | null): Promise<void> {
+  /**
+   * TOFU (§12.5) and the rule 9 DSK generation record. A served master that is not the pin and
+   * not a valid prev_signature rotation of it does not replace the pin: it is stored as the
+   * candidate (trust 'changed') until acknowledgeKeyChange or a new verification. Returns true
+   * while such a change is pending.
+   */
+  async function updateContact(userId: UserId, master: MasterKeyRecord, dsk: DeviceSigningKeyCert | null): Promise<boolean> {
     const dskGen = dsk?.generation ?? 0
     const c = await store.get('contacts', userId)
     if (!c) {
-      await store.put('contacts', userId, { userId, masterKey: master.publicKey, generation: master.generation, dskGeneration: dskGen, trust: 'tofu', changedAtMs: null })
-      return
+      await store.put('contacts', userId, { userId, masterKey: master.publicKey, generation: master.generation, dskGeneration: dskGen, trust: 'tofu', changedAtMs: null, candidate: null })
+      return false
     }
     if (!equalBytes(c.masterKey, master.publicKey) || c.generation !== master.generation) {
       const continued =
         master.prevSignature !== null && master.generation === c.generation + 1 && identity.verifyMasterKeyRecord(master, c.masterKey)
       if (continued) {
         await store.put('contacts', userId, { ...c, masterKey: master.publicKey, generation: master.generation, dskGeneration: Math.max(c.dskGeneration, dskGen) })
-        return
+        return c.trust === 'changed'
       }
+      const cand = c.candidate ?? null
+      if (c.trust === 'changed' && cand !== null && equalBytes(cand.masterKey, master.publicKey) && cand.generation === master.generation) return true
       ctx.emit('keyChange', { userId, severity: c.trust === 'verified' ? 'blocking' : 'notice' })
-      await store.put('contacts', userId, { userId, masterKey: master.publicKey, generation: master.generation, dskGeneration: dskGen, trust: 'changed', changedAtMs: ctx.now() })
-      return
+      await store.put('contacts', userId, { ...c, trust: 'changed', changedAtMs: ctx.now(), candidate: { masterKey: master.publicKey, generation: master.generation } })
+      return true
     }
     if (dskGen < c.dskGeneration) {
       // Rule 9: keep the higher value, so verifyChain gives 'dsk_downgrade'.
@@ -563,6 +587,20 @@ export const createIdentityService: CreateIdentityService = (ctx, deps) => {
     } else if (dskGen > c.dskGeneration) {
       await store.put('contacts', userId, { ...c, dskGeneration: dskGen })
     }
+    return c.trust === 'changed'
+  }
+
+  /** Makes the candidate of a key change the pin. The next fetch checks the user's keys against it. */
+  async function adoptCandidate(c: StoreSchema['contacts'], trust: 'tofu' | 'verified'): Promise<StoreSchema['contacts']> {
+    const cand = c.candidate ?? null
+    // A new master starts its own DSK generations: the rule 9 record of the old one does not apply.
+    const next: StoreSchema['contacts'] =
+      cand === null
+        ? { ...c, trust, changedAtMs: null, candidate: null }
+        : { ...c, masterKey: cand.masterKey, generation: cand.generation, dskGeneration: 0, trust, changedAtMs: null, candidate: null }
+    await store.put('contacts', c.userId, next)
+    keyCache.delete(c.userId)
+    return next
   }
 
   function userKeys(userId: UserId, fresh = false): Promise<VerifiedKeys | null> {
@@ -595,9 +633,12 @@ export const createIdentityService: CreateIdentityService = (ctx, deps) => {
       }
     }
     const c = await store.get('contacts', userId)
+    // A pending key change: the old pin stays, and no current DSK is known under it. A chain of the
+    // new master gives 'master_changed', a chain of the old one 'dsk_superseded' (fail closed).
+    const pending = keys.pendingChange || c?.trust === 'changed'
     return {
       pinnedMaster: c ? { publicKey: c.masterKey, generation: c.generation } : null,
-      currentDsk,
+      currentDsk: pending ? null : currentDsk,
       highestSeenDskGeneration: c?.dskGeneration ?? null,
       revokedDeviceIds: keys.revoked,
       leaf: null,
@@ -606,10 +647,38 @@ export const createIdentityService: CreateIdentityService = (ctx, deps) => {
     }
   }
 
+  /** userKeys(userId, true), unless the cached value is younger than KEY_REFRESH_MIN_MS. */
+  function refreshKeys(userId: UserId): Promise<VerifiedKeys | null> {
+    const hit = keyCache.get(userId)
+    if (hit && ctx.now() - hit.at < KEY_REFRESH_MIN_MS) return hit.value
+    return userKeys(userId, true)
+  }
+
   async function deviceCertificate(userId: UserId, deviceId: DeviceId): Promise<DeviceCertificate | null> {
     let keys = await userKeys(userId)
-    if (keys !== null && !keys.certs.has(deviceId)) keys = await userKeys(userId, true)
+    if (keys !== null && !keys.certs.has(deviceId)) keys = await refreshKeys(userId)
     return keys?.certs.get(deviceId) ?? null
+  }
+
+  async function deviceOwnerCertificate(deviceId: DeviceId, hintUserId: UserId): Promise<DeviceCertificate | null> {
+    const hinted = (await userKeys(hintUserId))?.certs.get(deviceId)
+    if (hinted !== undefined) return hinted
+    // Keys of other users that this Worker already fetched and verified (group members, contacts).
+    for (const [userId, entry] of [...keyCache]) {
+      if (userId === hintUserId) continue
+      const cert = (await entry.value.catch(() => null))?.certs.get(deviceId)
+      if (cert !== undefined) return cert
+    }
+    return (await refreshKeys(hintUserId))?.certs.get(deviceId) ?? null
+  }
+
+  async function listContactDevices(userId: UserId): Promise<ContactDevice[]> {
+    const keys = await userKeys(userId)
+    if (keys === null || keys.masterMismatch || keys.pendingChange) return []
+    return [...keys.certs.values()]
+      .filter((c) => !keys.revoked.has(c.deviceId))
+      .sort((a, b) => a.issuedAtMs - b.issuedAtMs || (a.deviceId < b.deviceId ? -1 : 1))
+      .map((c) => ({ deviceId: c.deviceId, displayName: c.displayName, dskGeneration: c.dskGeneration, issuedAtMs: c.issuedAtMs }))
   }
 
   async function trustOf(userId: UserId): Promise<SenderTrust> {
@@ -798,9 +867,51 @@ export const createIdentityService: CreateIdentityService = (ctx, deps) => {
     await rotateDsk(new Set([deviceId]))
   }
 
+  /**
+   * This device is revoked on the DS. Only a revocation that verifies (master-signed, or a
+   * signed_out by this device) erases the store. An unsigned one (password_reset: the server, or
+   * whoever can reset the password) locks the device and keeps the identity and epoch secrets, so
+   * the user can still save them; signOutDevice is the explicit wipe.
+   */
+  async function onSelfRevoked(me: { revocation: string | null } | null): Promise<void> {
+    const s = requireSelf()
+    let signed = false
+    if (me?.revocation != null) {
+      try {
+        const rev = identity.decodeRevocation(fromB64url(me.revocation))
+        signed = rev.deviceId === s.deviceId && identity.verifyRevocation(rev, { master: s.chain.master, device: s.chain.device })
+      } catch {
+        signed = false
+      }
+    }
+    if (signed) {
+      await forget()
+      return
+    }
+    await lock(requireRow())
+  }
+
+  async function lock(r: IdentityRow): Promise<void> {
+    if (r.lockedAtMs == null) await saveRow({ ...r, lockedAtMs: ctx.now() })
+    self = null
+    keyCache.clear()
+    state = 'revoked'
+    emitStatus()
+  }
+
   async function signOutDevice(): Promise<void> {
     if (row === null) throw new CryptoError('NoIdentity', 'this device has no identity')
     const r = row
+    if (r.lockedAtMs != null) {
+      // The explicit wipe of a locked device: the DS revoked it already.
+      try {
+        await transport.revokeDevice(r.deviceId, { revocation: null, reason: 'signed_out' })
+      } catch {
+        // A revoked device cannot sign out again on the DS. The local store goes anyway.
+      }
+      await forget()
+      return
+    }
     let revocation: string | null = null
     if (self !== null) {
       const rev = identity.signOut({ userId: self.userId, deviceId: self.deviceId, masterGeneration: self.chain.master.generation, mlsSignatureKey: self.mlsSignatureKey }, ctx.now())
@@ -964,9 +1075,10 @@ export const createIdentityService: CreateIdentityService = (ctx, deps) => {
           keyCache.delete(d.userId)
           if (self !== null && d.userId === self.userId) {
             if (d.kind === 'device_revoked' && d.deviceId === self.deviceId) {
-              const me = (await transport.listOwnDevices()).find((x) => x.id === self!.deviceId)
+              // GET /users/:id/keys needs no active device (GET /devices may refuse a revoked caller).
+              const me = (await transport.getUserKeys(self.userId)).devices.find((x) => x.id === self!.deviceId)
               if (!me || me.status === 'revoked') {
-                await forget()
+                await onSelfRevoked(me ?? null)
                 return
               }
             }
@@ -1017,7 +1129,7 @@ export const createIdentityService: CreateIdentityService = (ctx, deps) => {
   const service: IdentityService = {
     async load(opts) {
       init = opts
-      const stored = (await store.get('identity', SELF)) as IdentityRow | undefined
+      const stored = await store.get('identity', SELF)
       if (!stored) {
         row = null
         self = null
@@ -1026,6 +1138,11 @@ export const createIdentityService: CreateIdentityService = (ctx, deps) => {
       }
       if (stored.userId !== opts.userId) throw new CryptoError('StoreCorrupt', 'the store belongs to another user')
       row = stored
+      if (stored.lockedAtMs != null) {
+        self = null
+        state = 'revoked'
+        return null
+      }
       if (stored.deviceCertificate.length === 0 || stored.master === null || stored.dsk === null) {
         self = null
         state = 'linking'
@@ -1066,30 +1183,36 @@ export const createIdentityService: CreateIdentityService = (ctx, deps) => {
       const s = requireSelf()
       if (userId === s.userId) throw new CryptoError('Unsupported', 'no safety number with yourself')
       const c = await requireContact(userId)
-      return identity.safetyNumber({ userId: s.userId, masterKey: s.chain.master.publicKey }, { userId, masterKey: c.masterKey })
+      return identity.safetyNumber({ userId: s.userId, masterKey: s.chain.master.publicKey }, { userId, masterKey: (c.candidate ?? null)?.masterKey ?? c.masterKey })
     },
     async verifyQr(payload) {
       const s = requireSelf()
       const q = identity.parseVerifyQr(payload)
       if (q.peerUserId !== s.userId || q.userId === s.userId) return { userId: q.userId, match: false }
       const c = await requireContact(q.userId)
-      const match = equalBytes(q.peerMasterKey, s.chain.master.publicKey) && equalBytes(q.masterKey, c.masterKey)
-      if (match) await store.put('contacts', q.userId, { ...c, trust: 'verified', changedAtMs: null })
+      // During a key change the QR code of the new master key verifies it (§12.5 re-verification).
+      const expected = (c.candidate ?? null)?.masterKey ?? c.masterKey
+      const match = equalBytes(q.peerMasterKey, s.chain.master.publicKey) && equalBytes(q.masterKey, expected)
+      if (match) await adoptCandidate(c, 'verified')
       return { userId: q.userId, match }
     },
     async setVerified(userId, verified) {
       const c = await requireContact(userId)
-      await store.put('contacts', userId, { ...c, trust: verified ? 'verified' : 'tofu', changedAtMs: verified ? null : c.changedAtMs })
+      if (verified) await adoptCandidate(c, 'verified')
+      // A pending key change stays pending: only an acknowledgement or a verification ends it.
+      else if (c.trust !== 'changed') await store.put('contacts', userId, { ...c, trust: 'tofu' })
       return trustInfo(userId)
     },
     async acknowledgeKeyChange(userId) {
       const c = await store.get('contacts', userId)
-      if (c?.trust === 'changed') await store.put('contacts', userId, { ...c, trust: 'tofu', changedAtMs: null })
+      if (c?.trust === 'changed') await adoptCandidate(c, 'tofu')
       return trustInfo(userId)
     },
 
     chainContextFor,
     deviceCertificate,
+    deviceOwnerCertificate,
+    listContactDevices,
     trustOf,
     onGatewayEvent,
     handleInboxItem,

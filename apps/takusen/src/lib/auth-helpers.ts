@@ -81,20 +81,7 @@ export async function getOptionalUser(): Promise<Session | null> {
  */
 async function sessionFromBearer(): Promise<Session | null> {
   const headerStore = await headers()
-  const authHeader = headerStore.get('authorization')
-  if (!authHeader) return null
-  const match = /^bearer\s+(.+)$/i.exec(authHeader.trim())
-  if (!match) return null
-  const token = match[1].trim()
-  if (!token) return null
-
-  let provider
-  try {
-    provider = await getOidcProvider()
-  } catch {
-    return null
-  }
-  const accessToken = await provider.AccessToken.find(token)
+  const accessToken = await findAccessToken(headerStore.get('authorization'))
   if (!accessToken?.accountId) return null
 
   const row = await db.query.users.findFirst({ where: eq(users.id, accessToken.accountId) })
@@ -117,4 +104,30 @@ async function sessionFromBearer(): Promise<Session | null> {
     },
     expires: new Date(expSeconds * 1000).toISOString(),
   }
+}
+
+/** The live OIDC access token of an `Authorization: Bearer` header, or null. */
+async function findAccessToken(authHeader: string | null) {
+  if (!authHeader) return null
+  const match = /^bearer\s+(.+)$/i.exec(authHeader.trim())
+  if (!match) return null
+  const token = match[1].trim()
+  if (!token) return null
+  let provider
+  try {
+    provider = await getOidcProvider()
+  } catch {
+    return null
+  }
+  return (await provider.AccessToken.find(token)) ?? null
+}
+
+/**
+ * The OIDC grant of the request's bearer token: the credential that a device
+ * binding names (lib/mls/device-binding.ts). Null for a cookie session or a
+ * token without a grant.
+ */
+export async function bearerGrantId(req: Request): Promise<string | null> {
+  const token = await findAccessToken(req.headers.get('authorization'))
+  return token?.grantId ?? null
 }

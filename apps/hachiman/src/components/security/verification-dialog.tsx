@@ -1,17 +1,20 @@
 import { useCallback, useEffect, useState } from 'react'
 import { BadgeCheck, MonitorSmartphone, ScanLine, ShieldAlert } from 'lucide-react'
-import { VERIFY_QR_PREFIX, type SafetyNumber, type TrustInfo } from '@hachiman/crypto'
+import {
+  VERIFY_QR_PREFIX,
+  type ContactDevice,
+  type SafetyNumber,
+  type TrustInfo
+} from '@hachiman/crypto'
 import { Button } from '@/components/ui/button'
 import { ErrorText, SectionHeading } from '@/components/ui/field'
 import { ModalWindow } from '@/components/ui/modal-window'
-import { contactDevices, type ContactDevice } from '@/components/security/device-names'
 import { cryptoErrorText, friendly } from '@/components/security/errors'
 import { QrCodeView, ScanOrPaste } from '@/components/security/qr-view'
 import { Warning } from '@/components/security/screen-window'
 import { useUserName } from '@/components/security/use-user-name'
 import { useAction } from '@/hooks/use-action'
 import { cryptoService } from '@/services/CryptoService'
-import { hachiman } from '@/services/hachiman'
 import { dismissKeyChange } from '@/stores/cryptoStore'
 import { useDialog } from '@/stores/dialogStore'
 
@@ -26,7 +29,7 @@ const TRUST_TEXT: Record<TrustInfo['state'], string> = {
  * Dialog kind 'verification' (§12.5): the safety number of me and one contact, as 12 groups of 5
  * digits and as a QR code. Verify by a scan of their code, or by comparing the digits and then
  * "Mark as verified". Users verify accounts, not devices. The device list shows the names from
- * the device certificates.
+ * the device certificates, only for devices whose certificate chain the Worker checked (§12.4).
  */
 export function VerificationDialog(): React.JSX.Element {
   const { dialog, open, close } = useDialog('verification')
@@ -54,10 +57,13 @@ export function VerificationDialog(): React.JSX.Element {
         },
         (e: unknown) => setLoadError(cryptoErrorText(e))
       )
-    hachiman.rest.getUserKeys(userId).then(
-      (keys) => setDevices(contactDevices(keys)),
-      () => setDevices([])
-    )
+    // Only chain-checked devices come back. A device that fails the check is not shown.
+    Promise.resolve()
+      .then(() => cryptoService.client().listContactDevices(userId))
+      .then(
+        (list) => setDevices([...list].sort((a, b) => a.issuedAtMs - b.issuedAtMs)),
+        () => setDevices([])
+      )
   }, [userId])
   useEffect(load, [load])
 
@@ -212,15 +218,15 @@ export function VerificationDialog(): React.JSX.Element {
           {devices === null ? (
             <p className="text-muted-foreground text-sm">Loading…</p>
           ) : devices.length === 0 ? (
-            <p className="text-muted-foreground text-sm">No active devices.</p>
+            <p className="text-muted-foreground text-sm">No verified devices.</p>
           ) : (
             <ul className="grid gap-1 text-sm">
               {devices.map((d) => (
                 <li key={d.deviceId} className="flex items-center gap-2">
                   <MonitorSmartphone className="size-4 shrink-0" />
-                  <span className="truncate">{d.name}</span>
+                  <span className="truncate">{d.displayName}</span>
                   <span className="text-muted-foreground ml-auto shrink-0 text-xs">
-                    since {d.issuedAt.toLocaleDateString()}
+                    since {new Date(d.issuedAtMs).toLocaleDateString()}
                   </span>
                 </li>
               ))}

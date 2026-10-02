@@ -3,9 +3,10 @@
  * that collects them inside a transaction. Routes publish the outbox after the
  * commit (`flushOutbox`), so no event describes a write that rolled back.
  */
-import { publishEvents, publishJson, type BusEvent } from '@/lib/events'
+import { publishEvents, publishJson, redis, type BusEvent } from '@/lib/events'
 
 import { toB64 } from './bytes'
+import { redisDeviceBindings, revokeDeviceGrants } from './device-binding'
 import { HANDSHAKE_INLINE_MAX_BYTES, type WireBatchAssign, type WireKtTreeHead, type WireMlsGroup } from './crypto'
 import type { GroupRow, HandshakeRow, MlsRepo } from './repo'
 
@@ -40,6 +41,8 @@ export class Outbox {
   readonly events: BusEvent[] = []
   /** Group ids (base64url) whose pending items changed. */
   readonly wake = new Set<string>()
+  /** Revoked devices whose OIDC grants die after the commit (device-binding.ts). */
+  readonly revokedDevices = new Set<string>()
 
   emit<T extends E2eeEventName>(channel: string, t: T, d: E2eeEvents[T], channelId?: string): void {
     this.events.push(channelId ? { channel, t, d, channelId } : { channel, t, d })
@@ -56,11 +59,23 @@ export class Outbox {
   merge(other: Outbox): void {
     this.events.push(...other.events)
     for (const g of other.wake) this.wake.add(g)
+    for (const d of other.revokedDevices) this.revokedDevices.add(d)
   }
 }
 
-/** Publishes the events, then the wakeups. */
+/** Revokes the tokens of revoked devices, then publishes the events, then the wakeups. */
 export async function flushOutbox(out: Outbox): Promise<void> {
+  if (out.revokedDevices.size > 0) {
+    // Lazy: the DB client loads only when a device was revoked.
+    // A failure must not drop the events: the revoked status already blocks the
+    // device header, and the binding keeps the grant off every other device.
+    try {
+      const { deleteGrantOidcRows } = await import('@/lib/session-revocation')
+      await revokeDeviceGrants(redisDeviceBindings(redis()), deleteGrantOidcRows, out.revokedDevices)
+    } catch (err) {
+      console.error('[mls] token revocation of revoked devices failed', err)
+    }
+  }
   await publishEvents(out.events)
   for (const groupId of out.wake) await publishJson(MLS_WAKEUP_CHANNEL, { groupId })
 }

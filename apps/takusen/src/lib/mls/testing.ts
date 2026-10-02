@@ -71,7 +71,7 @@ function afterGroupContext(bytes: Uint8Array): Uint8Array {
   return bytes.subarray(bytes.length - r.remaining)
 }
 
-function afterCommitPrefix(bytes: Uint8Array): Uint8Array {
+function afterMessagePrefix(bytes: Uint8Array): Uint8Array {
   const r = new Reader(bytes)
   r.u16()
   r.u16()
@@ -153,8 +153,11 @@ const sameLeaf = (a: FakeLeaf, b: FakeLeaf) => a.userId === b.userId && a.device
 
 // MARK: - FakeDs
 
+type FakeProposal = { op: 'remove'; leaf: number } | { op: 'add'; keyPackage: string }
+
 export class FakeDs implements DsModule {
-  readonly proposals = new Map<string, { op: 'remove'; leaf: number } | { op: 'add'; keyPackage: string }>()
+  /** Every proposal the fake signed, by ref. Only test helpers (`transition`) read it; checkCommit does not. */
+  readonly proposals = new Map<string, FakeProposal>()
   /** Every checkCommit call, for assertions. */
   readonly checks: Parameters<DsModule['checkCommit']>[0][] = []
   kt = kt
@@ -206,7 +209,7 @@ export class FakeDs implements DsModule {
     const fail = (reason: string) => ({ ok: false as const, reason })
     const prefix = parsePublicMessagePrefix(input.commit)
     if (!bytesEqual(prefix.groupId, input.groupId) || prefix.epoch !== input.epoch) return fail('wrong group or epoch')
-    const rest = JSON.parse(td.decode(afterCommitPrefix(input.commit))) as FakeCommitRest
+    const rest = JSON.parse(td.decode(afterMessagePrefix(input.commit))) as FakeCommitRest
     const prev = readTree(input.previous.ratchetTree)
     const next = readTree(input.ratchetTree)
     const gi = readGroupInfo(input.groupInfo)
@@ -229,16 +232,21 @@ export class FakeDs implements DsModule {
       sender = { type: 'new_member_commit' }
     }
 
-    // 6. Every reference is a published DS proposal.
+    // 6. Every reference is a published DS proposal. Like ds.ts, the fake gets
+    // the signed proposals and applies them: it has no ref-only path.
+    const published = new Map<string, FakeProposal>()
+    for (const msg of input.publishedProposals) {
+      const m = parsePublicMessagePrefix(msg)
+      if (m.contentType !== 'proposal' || !bytesEqual(m.groupId, input.groupId) || m.epoch !== input.epoch) return fail('a published item is not a proposal of this epoch')
+      published.set(toB64(await this.proposalRef(msg)), JSON.parse(td.decode(afterMessagePrefix(msg))) as FakeProposal)
+    }
     const proposalTypes: CommitInspection['proposalTypes'] = []
     const expected = new Map(prev.map((l) => [l.leafIndex, l]))
     const removedLeaves: number[] = []
     const refAdds: string[] = []
     for (const ref of rest.refs) {
-      const r = fromB64(ref)!
-      if (!input.publishedProposalRefs.some((p) => bytesEqual(p, r))) return fail('unpublished proposal ref')
-      const p = this.proposals.get(ref)
-      if (!p) return fail('unknown proposal ref')
+      const p = published.get(ref)
+      if (!p) return fail('unpublished proposal ref')
       if (p.op === 'remove') {
         expected.delete(p.leaf)
         removedLeaves.push(p.leaf)

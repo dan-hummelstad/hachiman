@@ -278,7 +278,7 @@ Implemented extras (Discord semantics):
 | POST `/uploads?filename=<name>` raw body | auth | `{id, key, size}` (201): a plaintext profile image | — |
 | GET `/files/:uploadId/:filename` | **public** | file bytes (`/files/{uploadId}/blob` for blobs) | — |
 
-The E2EE routes (devices, keys, MLS, inbox, backups, linking, key transparency, reports) are in §12.12. In Phase 4, the role, overwrite and member-role routes and the channel `historyVisibility` change also take the header `X-Hachiman-Signed-Action` (§12.16).
+The E2EE routes (devices, keys, MLS, inbox, backups, linking, key transparency, reports) are in §12.12. In Phase 4, the role, overwrite and member-role routes and the channel `historyVisibility` change also take the header `X-Hachiman-Signed-Action` (§12.16). The header is necessary only when the request changes signed state: a role PATCH only with `permissions`, a member PATCH only with `roles`. A signed `role_create` names the role id, and `POST /guilds/:id/roles` creates the role with that id. The guild `publicHistoryVisibility` has no admin action type and is not signed.
 
 ### Files
 
@@ -479,9 +479,11 @@ After INVALID_SESSION, the socket stays open for a fresh IDENTIFY.
 The gateway re-materializes GUILD_CREATE on `user:{me}` from Postgres (it needs hidden channels for later visibility diffs).
 Visibility diffs (synthetic CHANNEL_CREATE/DELETE) also follow GUILD_ROLE_*, GUILD_MEMBER_UPDATE for the viewer, and GUILD_UPDATE.
 
-Resume: on RESUME, the gateway loads `session:{id}`. Missing or user mismatch ⇒ INVALID_SESSION(false).
+Resume: on RESUME, the gateway first runs check 1 (token, else 4004) and check 3 (device, else 4013) of §12.13. It does not run check 2: the session passed it at IDENTIFY.
+A RESUME without `deviceId` fails check 3 and gives 4013. Then the gateway loads `session:{id}`. A missing session, a user mismatch, or a valid `deviceId` that differs from the stored session ⇒ INVALID_SESSION(false).
 Otherwise, the gateway replays frames from `events:{id}` with `s > seq` (gap ⇒ INVALID_SESSION(false)), then sends RESUMED.
 Sessions are not pinned to a node.
+After IDENTIFY and after RESUME, the gateway subscribes the session and then does the device check again, before READY or RESUMED (§12.13).
 
 Presence: IDENTIFY sets `online` (or the last client-requested status). The session TTL expiring ⇒ offline.
 The gateway publishes `offline` itself when a socket closes without resuming within 60 s (in-process timer).
@@ -549,7 +551,7 @@ JSON text frames `{ "op": string, "d": any }`. Media is always the SDP **offerer
 
 | op | Direction | d |
 |---|---|---|
-| identify | C→M | `{ token, e2ee: { version: 1, keyPackage } }` — must be the first frame, within 10 s. A missing `e2ee` or another version closes 4012 |
+| identify | C→M | `{ token, e2ee: { version: 1, keyPackage } }` — must be the first frame, within 10 s. A missing `e2ee` or another version closes 4012. A `keyPackage` that is not base64url closes 4014. A voice token without `deviceId` closes 4004 |
 | ready | M→C | `{ sessionId, ssrc }` |
 | offer | M→C | `{ sdp }` (initial + every renegotiation) |
 | answer | C→M | `{ sdp }` |
@@ -557,11 +559,11 @@ JSON text frames `{ "op": string, "d": any }`. Media is always the SDP **offerer
 | peers | M→C | `{ peers: [{ userId, ssrc }] }` — full snapshot of other room members; sent on join and on every change |
 | speaking | C→M | `{ speaking: boolean }` |
 | speaking | M→C | `{ userId, speaking }` — relayed to other room members |
-| e2ee_roster | M→C | `{ groupId, epoch: number \| null, committer: sessionId \| null, create: boolean, members: [{sessionId, userId, deviceId, leafIndex}], pending: [{sessionId, userId, deviceId}], departed: [{sessionId, userId, deviceId, leafIndex}] }` — to every session, on join and on every change. `create: true` tells the committer to create the group (epoch 0) |
+| e2ee_roster | M→C | `{ groupId, epoch: number \| null, committer: sessionId \| null, create: boolean, members: [{sessionId, userId, deviceId, leafIndex: number \| null}], pending: [{sessionId, userId, deviceId}], departed: [{sessionId, userId, deviceId, leafIndex: number \| null}] }` — to every session, on join and on every change. `create: true` tells the committer to create the group (epoch 0). `members[].leafIndex` is null for a session that a commit added and that did not send `e2ee_ready` yet. `departed[].leafIndex` is null when the session left before it reported its leaf: the committer then finds the leaf by the device id of the leaf credential |
 | e2ee_key_package | M→C | `{ sessionId, userId, deviceId, keyPackage }` — to the committer, for each pending joiner (again after a committer change) |
 | e2ee_commit | C→M | `{ epoch, commit, welcome: string \| null, added: sessionId[], removed: sessionId[] }` — `epoch` is the epoch that the commit applies to. When `welcome` is not null, the next `e2ee_*` frame from that session is `e2ee_ratchet_tree` (other ops, such as `candidate` or `speaking`, may come between) |
 | e2ee_ratchet_tree | C→M | `{ epoch, ratchetTree }` — epoch = commit epoch + 1. A separate frame, so the Welcome stays small |
-| e2ee_commit_rejected | M→C | `{ epoch, currentEpoch }` — another commit won the epoch |
+| e2ee_commit_rejected | M→C | `{ epoch, currentEpoch: number \| null }` — the media node did not accept the commit: another commit won the epoch, an earlier transition is not executed yet (`currentEpoch` is then the new epoch), `added` names a session that is no longer pending, or `removed` names a session that is not departed. This is not a violation. The committer tries again from the latest roster |
 | e2ee_prepare_transition | M→C | `{ transitionId, epoch, commit }` — the winning commit, to every member. The committer merges its pending commit when it gets its own commit back |
 | e2ee_welcome | M→C | `{ transitionId, epoch, welcome }` — to each added session |
 | e2ee_ratchet_tree | M→C | `{ transitionId, epoch, ratchetTree }` — to each added session, after `e2ee_welcome` |
@@ -569,15 +571,17 @@ JSON text frames `{ "op": string, "d": any }`. Media is always the SDP **offerer
 | e2ee_execute_transition | M→C | `{ transitionId, epoch }` — when every member of the new epoch sent `e2ee_ready`, or after 3 s. Senders switch keys now |
 | e2ee_invalid | C→M | `{ transitionId: number \| null, reason, committerLeaf: number \| null }` — the client cannot apply the transition. `committerLeaf` is the sender leaf of the commit that failed. See the rule below the table |
 
-E2EE (§12.10): the media node relays and orders. It never signs, proposes or commits. It accepts the first `e2ee_commit` whose epoch is the room epoch, after the commit parse of §12.10.1. A committer that sends no commit within 5 s of new work loses the role. A member that sends no `e2ee_ready` within 10 s is closed with 4013.
+E2EE (§12.10): the media node relays and orders. It never signs, proposes or commits. It accepts the first `e2ee_commit` whose epoch is the room epoch, after the commit parse of §12.10.1, from any member (not only the selected committer) whose own reported leaf equals the `leaf_index` in the commit header. The first such commit for the room epoch wins. A committer that sends no commit within 5 s of new work loses the role: the timer starts at the first new work, and more work does not start it again. Before the group exists, the failover gives the create role to the next joiner. A member that sends no `e2ee_ready` within 10 s is closed with 4013. When the committer sent a commit with a `welcome` and its `e2ee_ratchet_tree` did not arrive 10 s after the commit, the media node closes the committer with 4014, and the room stays in the previous epoch.
+
+`e2ee_invalid` closes the sender with 4013 (a resync) when `transitionId` is null, when it names an unknown or resolved transition, a transition that does not include the sender, or a transition that the sender committed. When no live participant holds the group state but participants remain, the room starts a new group: a new room session id and group id, epoch null, and an empty `departed` list.
 
 **Bad commits.** For one `transitionId`, when at least two members send `e2ee_invalid`, or every other member when fewer than two other members exist, the media node closes the committer of that transition with 4014. It keeps the other members, selects a new committer and sends the roster again. The members drop the pending transition and stay in the previous epoch. A single `e2ee_invalid` while the other members send `e2ee_ready` closes only that member with 4013. Frames on m-line 0 and 1 and on every peer track are SFrame (§12.10.2).
 
 Keepalive: media pings every ~20 s and drops sockets silent for 60 s. Media closes 1011 if an offer goes unanswered ~15 s or the PC is not `connected` ~30 s after join. Media rejects frames above `MEDIA_WS_READ_LIMIT` (default 1 MiB). The send queue holds 256 frames.
 
-Close codes: 4004 bad token (incl. replayed jti — clients need a fresh VOICE_SERVER_UPDATE token per voice-WS connect), 4009 token expired / identify timeout,
+Close codes: 4004 bad token (incl. replayed jti — clients need a fresh VOICE_SERVER_UPDATE token per voice-WS connect — and a token without `deviceId`), 4009 token expired / identify timeout,
 4010 kicked (Redis `media:{nodeId}` kick), 4011 replaced (same sessionId connected again), 4012 E2EE required (no or unsupported `e2ee` in identify),
-4013 E2EE resync (`e2ee_invalid`, or no `e2ee_ready` in 10 s), 4014 E2EE protocol violation (a malformed op, a commit for another group or with a false leaf, or a commit that the members reject, above),
+4013 E2EE resync (`e2ee_invalid`, or no `e2ee_ready` in 10 s), 4014 E2EE protocol violation (a malformed op or identify `keyPackage`, a commit for another group or with a false leaf, a commit that the members reject, above, or no `e2ee_ratchet_tree` 10 s after a commit with a Welcome),
 1011 ICE/negotiation failure, 1008 client send queue overflow, 1001 shutdown.
 
 `ssrc` in `ready`/`peers` is a node-unique id from `SSRCPool`, **not** the on-wire RTP SSRC (pion v3 picks those). Map tracks by msid (below).
@@ -648,12 +652,13 @@ export class RestClient {
   // getDeviceId: the current device id, sent as X-Hachiman-Device on every request when not null (§12.12)
   constructor(opts: { baseUrl: string /* e.g. http://localhost:3000/api/v1 */; getToken: TokenProvider; getDeviceId?: () => string | null })
   // one method per §4 row, e.g.:
-  getMe(); createGuild(body); getGuild(id); updateGuild(id, body); deleteGuild(id)
-  createChannel(guildId, body); reorderChannels(guildId, body); updateChannel(id, body); deleteChannel(id)
-  putOverwrite(channelId, targetId, body); deleteOverwrite(channelId, targetId)
+  // opts?: SignedActionOptions = { signedAction?: string } — the encoded AdminAction(s) for X-Hachiman-Signed-Action (§12.16, Phase 4)
+  getMe(); createGuild(body); getGuild(id); updateGuild(id, body, opts?); deleteGuild(id)
+  createChannel(guildId, body); reorderChannels(guildId, body); updateChannel(id, body, opts?); deleteChannel(id)
+  putOverwrite(channelId, targetId, body, opts?); deleteOverwrite(channelId, targetId, opts?)
   getMessages(channelId, { before?, limit? }); editMessage(...); deleteMessage(...); triggerTyping(channelId)
-  getMembers(guildId); updateMember(guildId, userId, body); kickMember(guildId, userId); leaveGuild(guildId)
-  getRoles(guildId); createRole(...); reorderRoles(...); updateRole(...); deleteRole(...)
+  getMembers(guildId); updateMember(guildId, userId, body, opts?); kickMember(guildId, userId); leaveGuild(guildId)
+  getRoles(guildId); createRole(guildId, body, opts?); reorderRoles(guildId, positions, opts?); updateRole(guildId, roleId, body, opts?); deleteRole(guildId, roleId, opts?)
   getInvites(guildId); createInvite(guildId, body); deleteInvite(code); previewInvite(code); acceptInvite(code)
   getDmChannels(); openDm(recipientIds); getUser(id)
   updateMe({ avatar? }); getLimits()
@@ -678,7 +683,13 @@ export class RestClient {
 }
 export const EMBEDDABLE: { image: readonly string[]; video: readonly string[]; audio: readonly string[] }   // src/files.ts
 export function embedKind(contentType: string): 'image' | 'video' | 'audio' | 'file'   // ignores MIME parameters (`; codecs=...`) and case
-export class RestError extends Error { status: number; code: string }
+export const blobKey: (uploadId: string) => string   // `${uploadId}/blob`: the file key of an encrypted blob (§4 Files), for fileUrl / fetchBlob
+export class RestError extends Error {
+  status: number; code: string
+  details: Readonly<Record<string, unknown>>   // the other fields of the error body, e.g. { epoch } or { userIds }
+  retryAfterSec: number | null                 // from Retry-After (429 RateLimited), else null
+}
+export function parseRetryAfter(value: string | null, now?: number): number | null   // RFC 9110 delay-seconds or HTTP date → whole seconds
 
 export class GatewayClient extends TypedEventEmitter<GatewayClientEvents> {
   // device: sent in IDENTIFY and RESUME (§12.13). Close 4012 or 4013 → state 'closed', no reconnect, event 'fatal' ({ code })
@@ -717,13 +728,15 @@ export class VoiceConnection extends TypedEventEmitter<VoiceEvents> {
   setScreen(track: MediaStreamTrack | null, encoding?: { maxBitrate: number; maxFramerate: number } | null): Promise<void>   // null = stop sending
   getStats(): Promise<{ rttMs: number | null; jitterMs: number | null; packetLoss: number | null }>
   // events: 'state' (RTCPeerConnectionState), 'speaking' ({userId, speaking}), 'peers' ({userId, ssrc}[]),
-  //         'screen' ({userId, stream: MediaStream | null})
+  //         'screen' ({userId, stream: MediaStream | null}), 'resync' ({code, reason}: media closed 4013, fires just before 'close'),
+  //         'close' ({code, reason})
 }
 
 export class HachimanClient extends TypedEventEmitter<HachimanClientEvents> {
   constructor(opts: {
     apiUrl: string; gatewayUrl: string; getToken: TokenProvider
-    device: () => { deviceId: string; capabilities: string[]; clientVersion: string } | null   // null: no device yet (onboarding). connect() waits
+    device: () => { deviceId: string; capabilities: string[]; clientVersion: string } | null   // null: no device yet (onboarding). connect() waits:
+                                                                                                // it polls device() every 250 ms. There is no 'device ready' signal
     voiceE2ee: () => VoiceE2eeDelegate                                                          // one per joinVoice
   })
   readonly rest: RestClient
@@ -746,7 +759,10 @@ export class HachimanClient extends TypedEventEmitter<HachimanClientEvents> {
   setSelfVoice(change: Partial<SelfVoice>): SelfVoiceState   // SelfVoice = { selfMute, selfDeaf }
   setScreen(track: MediaStreamTrack | null, encoding?: ScreenEncoding | null): Promise<void>   // null = stop; sets selfStream
   readonly voice: VoiceConnection | null
-  // events: 'ready', 'state', 'update' (fired after any cache mutation with { t, d }), plus every gateway event re-emitted after the cache is updated
+  // events: 'ready', 'state', 'update' (fired after any cache mutation with { t, d }), 'voice' (VoiceConnection | null),
+  //         'fatal' ({ code }: the gateway closed 4012 or 4013 and does not reconnect),
+  //         'voiceResync' ({ guildId, channelId }: media closed the call 4013; the client left voice, call joinVoice with the same target),
+  //         plus every gateway event re-emitted after the cache is updated
   // The cache keeps Message as ciphertext. The shared UI decrypts with @hachiman/crypto before messagesStore.upsert.
 }
 ```
@@ -795,15 +811,22 @@ export interface ISecureStorage {
   /**
    * The store wrap key of this install and user: AES-GCM 256, non-extractable, usages encrypt/decrypt.
    * The host creates it on the first call. Rejects with SecureStorageUnavailable when no OS keystore exists.
+   * The error is an `Error` whose `name` and `code` are a `SecureStorageErrorCode`.
    */
   getWrapKey(userId: string): Promise<CryptoKey>
   /** Deletes the wrap key. The store of that user becomes unreadable. */
   clear(userId: string): Promise<void>
 }
+
+// The values are CryptoErrorCode values of @hachiman/crypto, so the UI handles them like crypto errors.
+export type SecureStorageErrorCode = 'SecureStorageUnavailable' | 'StoreCorrupt' | 'Malformed'
+export function secureStorageErrorCode(e: unknown): SecureStorageErrorCode | null
 ```
 
 `secureStorage` (§12.17):
-- Electron: the main process keeps 32 random bytes per user, encrypted with `safeStorage`, in `userData/keys/<userId>.bin`. On Linux it refuses the `basic_text` backend (`safeStorage.getSelectedStorageBackend()`), and `getWrapKey` rejects with `SecureStorageUnavailable`. The preload script gives the bytes to the renderer over IPC. The renderer imports them as a non-extractable `CryptoKey` and overwrites the bytes.
+- Electron: the main process keeps 32 random bytes per user, encrypted with `safeStorage`, in `userData/keys/<userId>.bin`. On Linux it refuses the `basic_text` and `unknown` backends (`safeStorage.getSelectedStorageBackend()`), and `getWrapKey` rejects with `SecureStorageUnavailable`. The preload script gives the bytes to the renderer over IPC on the channels `hachiman:secure-storage-get` and `hachiman:secure-storage-clear`. The main process answers only the top frame of the app page (else `Malformed`). The renderer imports the bytes as a non-extractable `CryptoKey` and overwrites them.
+- Errors: a rejection is an `Error` whose `name` and `code` are `SecureStorageUnavailable` (no OS keystore, or no IndexedDB), `StoreCorrupt` (the stored key does not decrypt or decode) or `Malformed` (a bad user id or caller). `secureStorageErrorCode(e)` reads the code.
+- Residual risk (Electron): the main process zeroes the buffers that it holds, but it cannot zero every copy of the wrap key bytes (`safeStorage` results, IPC serialization, V8 copies).
 - Browser: the host makes a non-extractable `CryptoKey` with `crypto.subtle.generateKey` and stores the key object in its own IndexedDB database (`hachiman-wrap`). The raw bytes never exist in JavaScript.
 - The shared UI gives the key to the crypto Worker in `CryptoApi.init`. A `CryptoKey` is structured-cloneable.
 
@@ -842,7 +865,9 @@ The packaged Electron app does not load the renderer from `file://`. A `file://`
 - The handler serves only files in the built renderer directory. Other paths get a 404 response. The renderer has no client-side routes, thus there is no `index.html` fallback.
 - `hachiman` is not an OS deep-link scheme. The deep-link schemes stay `takusen://` and `app.hachiman://`.
 - The main process blocks navigation to all URLs outside the app origin. `window.open` gives `http(s)` URLs to the system browser and opens no window.
-- The main process sends the Content-Security-Policy (CSP) as a response header (`apps/hachiman-electron/src/main/csp.ts`). The `index.html` file has no CSP meta tag. In the packaged app, the `hachiman` handler sends the header. In dev, the header goes on the responses from the dev server.
+- The main process sends the Content-Security-Policy (CSP) as a response header. The rules are in `apps/hachiman-electron/src/main/csp-policy.ts` (`cspFromEndpoints`). `csp.ts` resolves the endpoints and applies the header. The Electron `index.html` has no CSP meta tag. In the packaged app, the `hachiman` handler sends the header. In dev, the header goes on the responses from the dev server.
+- The browser host imports the same rules (`apps/hachiman-browser/csp.ts`). It sends the policy as a header from the Vite dev server and from `vite preview`. The built `index.html` has the policy as a meta tag, without the header-only directives. A production server must send the policy as a response header, because a meta tag covers neither Worker scripts nor `frame-ancestors`.
+- `worker-src` is `'self'` (plus the dev server origin in dev), for the crypto Worker and the transform Worker (§12.17). `img-src` and `media-src` also allow `blob:`: the local preview of a picked file, and the object URL of a decrypted attachment.
 - `connect-src` gets the origins of `VITE_TAKUSEN_OIDC_ISSUER`, `VITE_TAKUSEN_API_BASE` and `VITE_HACHIMAN_GATEWAY_URL`, plus `wss:` for the media nodes. The main process and the renderer use the same resolver (`@hachiman/hachiman/takusen-env`) and the same defaults.
 - `connect-src` also allows `ws:` when one of these endpoints, or the dev server, uses `ws:` or `http:`. Thus a local stack keeps voice in `electron-vite preview` too.
 - `script-src` is `'self'`. With the dev server only, it also allows `'unsafe-inline'`, because the React Fast Refresh preamble is an inline script.
@@ -888,7 +913,7 @@ This section is normative for E2EE. `docs/e2ee-plan.md` gives the reasons. `pkgs
 
 The format is deterministic. Thus a hash or a signature over an encoding is stable.
 
-**JSON wires.** Bytes on every JSON wire (REST, gateway, voice WS, Redis) are base64url (RFC 4648 §5) without padding. A decoder rejects padding, other alphabets and non-zero trailing bits. Epochs and sequence numbers are JSON numbers. They stay below 2^53.
+**JSON wires.** Bytes on every JSON wire (REST, gateway, voice WS, Redis) are base64url (RFC 4648 §5) without padding. A decoder rejects padding, other alphabets and non-zero trailing bits. The empty string is the encoding of zero bytes. Each field has its own length rule, and most fields must not be empty. The media node decoder (`decodeB64url` in `cmd/hachiman-media`) rejects the empty string, and the TypeScript decoders accept it. No voice WS field (§8) can be empty, so this difference has no effect (`docs/e2ee-audit-scope.md`, FZ-6). Epochs and sequence numbers are JSON numbers. They stay below 2^53.
 
 **Signatures.** All Hachiman signatures are Ed25519 with a label, in the style of the MLS `SignWithLabel`:
 
@@ -1011,7 +1036,7 @@ Reason 3 (`password_reset`) is a server revocation only. No device signs it. A `
 4. `dsk.signature` is valid under the master key, and `dsk.master_generation` is the master generation.
 5. `device.signature` is valid under `dsk.public_key`, and `device.dsk_generation` is `dsk.generation`.
 6. `device.mls_signature_key` is the leaf signature key.
-7. The device is not revoked (a `DeviceRevocation` or a server revocation, §12.12).
+7. The device is not revoked (a `DeviceRevocation` or a server revocation, §12.12). Exception: a joiner or a resyncing device accepts a revoked leaf that is already in the tree when a Remove for its leaf index is queued (a DS Remove proposal, §12.7.4). It commits that Remove before it sends (§12.7.6).
 8. A leaf that enters a group now (Add or external commit, a resync included) has the current DSK generation. A leaf that is already in the group can keep a superseded DSK generation for 30 days after the newer DSK cert was issued (`DSK_ROTATION_GRACE_MS`).
 9. The current DSK generation that the DS reports is not below the highest generation that the client saw for the user (store table `contacts`, `dskGeneration`). A lower value is a downgrade: the check fails and the client raises `keyChange`.
 
@@ -1024,6 +1049,8 @@ The chain check is synchronous, because ts-mls calls its commit callback synchro
 4. Each remaining device resyncs its leaf in each group by external commit (`joinExternal`, `resync = true`), with a new key package that carries the new chain. It does this within `DSK_ROTATION_GRACE_MS`. ts-mls copies the old leaf extensions into an update path (`createUpdatePath`), so a normal commit cannot change the chain (`smoke.spec.ts`).
 5. Takusen queues Removes for the revoked device in every group (§12.7).
 
+**Known limitation (ts-mls 1.6.4).** The only member of a group cannot resync its leaf: `removeLeafNode` condenses the tree to nothing (`mls.spec.ts`). Thus, after a DSK rotation, a group with one member keeps the leaf with the old chain. After `DSK_ROTATION_GRACE_MS`, a joiner of that group fails the chain check of the old leaf (rule 8, `dsk_superseded`).
+
 A device accepts a `dsk_transfer` only when its DSK generation is above the stored generation and the DSK cert verifies under the pinned own master key. Thus a replayed old `dsk_transfer` has no effect.
 
 **Password reset.** A reset revokes all sessions and all devices of the user on the server (reason `password_reset`). It deletes their key packages. It sets `superseded_at` on the current master key, so the user has no current master key. The user then restores the master key from the recovery key (the same record), or makes a new master key (`generation + 1`, `prev_signature` null). Contacts see "security key changed" for a new master key. Old history stays unreadable without the recovery key. A user who has lost the recovery key and all devices does a password reset first. A bearer token alone cannot replace the master key.
@@ -1032,7 +1059,7 @@ A device accepts a `dsk_transfer` only when its DSK generation is above the stor
 
 **TOFU.** A client pins the first master key that it sees for a user. A change shows a blocking warning for a verified contact and a quiet notice for an unverified contact. Users verify accounts, not devices. The client also stores the highest DSK generation that it saw for each user (§12.4 rule 9), and never accepts a lower current generation.
 
-**Device names.** The UI shows the certificate `display_name` for the devices of other users. It shows the REST `Device.name` only in the user's own device list. A rename (`PATCH /devices/:id`) changes only the REST name. It does not certify the device again.
+**Device names.** The UI shows the certificate `display_name` for the devices of other users. It gets them from `CryptoApi.listContactDevices(userId)`, which returns only the devices whose chain the Worker verified (pinned master key, DSK, device certificate) and leaves out revoked devices. It shows the REST `Device.name` only in the user's own device list. A rename (`PATCH /devices/:id`) changes only the REST name. It does not certify the device again.
 
 **Safety number.** For one user:
 
@@ -1099,7 +1126,8 @@ struct {
   DeviceSigningKeyCert dsk;
   opaque dsk_private_key[32];
   DeviceCertificate device;        // the new device, certified by the existing device
-  HistoryKey history<V>;           // optional epoch secrets (§12.11)
+  HistoryBatch history<V>;         // optional epoch secrets, one HistoryBatch (§12.11.3) per group:
+                                   // a HistoryKey alone has no group id
 } LinkTransfer;
 ```
 
@@ -1245,7 +1273,7 @@ All handshakes are PublicMessage. A client uploads a commit with `POST /mls/grou
 5. **Roster transition.** `checkCommit` applies the proposals of the commit to the leaves of `previous`: Adds by value, proposals by reference, Removes, and the external init and resync Remove of an external commit. The result must equal the leaves of the uploaded tree (credential identity and signature key per leaf index). Else 400 `InvalidCommit`. Thus a tree cannot hide an Add.
 6. **Proposal references.** Each proposal by reference is a DS proposal that Takusen published for this epoch (`mls_pending.proposal_ref` with `proposal_epoch` = epoch). Members cannot reference their own proposals (the policy rejects Update, PSK and ReInit proposals by reference). Else 400 `InvalidCommit`.
 7. **New and changed leaves.** Every leaf that is new or changed in the uploaded tree (not byte-equal to the leaf of `previous` at the same index) has a valid credential identity and a valid chain (signatures only). Its device is registered, belongs to the user and is not revoked.
-8. **Unchanged leaves** are not checked again, with one exception. A leaf whose device is revoked or deleted, or whose user is deleted, is allowed only while a Remove for its leaf index is queued (`mls_pending`).
+8. **Unchanged leaves** are not checked again, with one exception. A leaf whose device is revoked or deleted, whose user is deleted, or whose user is not a reader, is allowed only while a Remove for its leaf index is queued (`mls_pending`). Else 403 `IllegalMembership`. The non-reader case is necessary for the external-commit fallback of §12.7.5 step 7: an external commit cannot carry the Remove. A new or changed leaf of a non-reader always gives 403 `IllegalMembership`.
 9. The next roster passes the policy (below). Else 403 `IllegalMembership` (a user who must not be a member) or 403 `IllegalRemove` / `IllegalAdd`.
 10. Compare-and-set: `UPDATE mls_groups SET epoch = E + 1, … WHERE group_id = $1 AND epoch = E`. Zero rows gives 409 `EpochConflict`.
 11. In the same transaction: append the handshake (next `seq`), store GroupInfo and tree for epoch + 1 (keep 8 epochs), replace the DS roster, write the Welcome to the inbox of each new device, and delete the pending items that the commit applied.
@@ -1280,10 +1308,10 @@ The scheduler runs in the Takusen gRPC process (`apps/takusen/src/grpc/main.ts`)
 
 1. Takusen queues Add and Remove items per group in `mls_pending`. A Remove queues immediately and publishes `takusen:mls_wakeup` (Redis pub/sub).
 2. Every `TAKUSEN_MLS_BATCH_INTERVAL_MS` (default 2000), and on each wakeup, the scheduler takes each group that has queued items and no live batch.
-3. It selects the committer: the online member device with the lowest leaf index. A device is online when the gateway key `device_online:{deviceId}` exists. The scheduler skips devices that are in the batch as Removes and devices that timed out on this group in the last 60 s.
+3. It selects the committer: the online member device with the lowest leaf index. A device is online when the gateway key `device_online:{deviceId}` exists. The scheduler skips devices that are in the batch as Removes and devices that timed out on this group in the last 60 s. The timeout cooldown uses the expired batch rows: a batch row stays 60 s after its deadline, and the scheduler skips its device while the row exists. Then the scheduler deletes the row.
 4. It makes a batch with at most 100 Adds and all queued Removes. `proposals` holds the stored proposals of §12.7.4 for the current epoch (Removes, and `public_set` Adds). `joins` holds the Adds by value (`channel` and `dm`). It publishes `MLS_BATCH_ASSIGN` to `device:{committer}` with a deadline of `TAKUSEN_MLS_BATCH_TIMEOUT_MS` (default 5000).
-5. The device checks each item, makes one commit for the batch, sends the Welcome in the commit upload, and lists the items that it rejected (`rejected`). It does this automatically. The user takes no action.
-6. If the deadline passes without an accepted commit, the scheduler marks the device as timed out and sends the batch to the next online device. A device that cannot commit (for example, it is not caught up) calls `POST /mls/batches/:id/decline` to skip the wait.
+5. The device checks each item, makes one commit for the batch, sends the Welcome in the commit upload, and lists the items that it rejected: joins in `rejected`, DS proposals in `rejectedProposals` (§12.12 "Batch rejections"). It does this automatically. The user takes no action.
+6. If the deadline passes without an accepted commit, the scheduler marks the device as timed out and sends the batch to the next online device. A device that cannot commit (for example, it is not caught up) calls `POST /mls/batches/:id/decline` to skip the wait. A decline sets the deadline of the batch to now, so the declining device is in the cooldown too. A second decline of the same batch gives 410 `BatchExpired`.
 7. When no member device is online:
    - A queued Add in `public_set` gets `MLS_JOIN_UPDATE` status `external_commit`. The joiner joins by external commit.
    - A queued Add in another kind gets status `waiting`. It stays queued.
@@ -1294,6 +1322,7 @@ The scheduler runs in the Takusen gRPC process (`apps/takusen/src/grpc/main.ts`)
 
 - The committer puts the Welcome in the commit upload. Takusen writes one inbox item per new device and publishes `DEVICE_INBOX` to `device:{id}`.
 - The Welcome does not carry the ratchet tree. The joiner fetches `GET /mls/groups/:groupId/state?epoch=E`. Takusen keeps the state of the last 8 epochs. When the epoch is no longer kept, the joiner resyncs by external commit. This is allowed, because the device has a leaf.
+- A joiner or a resyncing device can find a revoked leaf in the tree. It accepts that leaf when a Remove for its leaf index is queued (§12.4 rule 7), and it commits that Remove before it sends (§12.7.4).
 - Inbox item bodies:
   - `welcome`: `struct { uint8 version = 1; opaque group_id<V>; uint64 epoch; opaque welcome<V>; /* MLSMessage */ } WelcomeItem`.
   - `dsk_transfer`, `history_keys`: `SealedDeviceMessage` (§12.5). Only devices of the same user can post them.
@@ -1320,7 +1349,7 @@ The scheduler runs in the Takusen gRPC process (`apps/takusen/src/grpc/main.ts`)
 - Takusen checks that the user reads the group. It queues an Add (`public_set`: as a DS proposal, other kinds: by value). Statuses: `queued`, `committed`, `rejected`, `external_commit`, `waiting`. Takusen publishes `MLS_JOIN_UPDATE` to `device:{id}` on each change.
 - In `channel` and `dm` groups, when the user already has a leaf in the group, Takusen sets the status `external_commit` at once, and the new device joins by external commit. A join request of a user without a leaf stays queued for a member to commit.
 - `GroupService.sync()` posts a join request for each group of `GET /mls/groups` with `member = false`, except `public_set` groups. A `public_set` join waits for the first open of a public channel (`ensureChannelGroup`).
-- A `public_set` group has at most `TAKUSEN_PUBLIC_SET_MAX_MEMBERS` leaves (default `PUBLIC_SET_MAX_MEMBERS`, 10000). Above the cap, a join request gets 403 `GroupFull`. There is no plaintext fallback. The Phase 3 load test sets the final value.
+- A `public_set` group has at most `TAKUSEN_PUBLIC_SET_MAX_MEMBERS` leaves (default `PUBLIC_SET_MAX_MEMBERS`, 250). Above the cap, a join request gets 403 `GroupFull`. There is no plaintext fallback. The Phase 3 load test (`docs/e2ee-load-test.md`) set this value: at 400 leaves, a full batch of 100 Adds misses the 5 s batch deadline. Fewer Adds per `public_set` batch and an empty commit with a path after each join would allow a higher cap. Both are contract changes that are not made yet (`docs/e2ee-load-test.md`, "How to increase the cap").
 
 #### 12.7.9 Retention and catch-up
 
@@ -1328,6 +1357,7 @@ The scheduler runs in the Takusen gRPC process (`apps/takusen/src/grpc/main.ts`)
 - A client fetches handshakes by sequence number (`GET /mls/groups/:groupId/handshakes?after=seq`). The gateway resume buffer does not carry them.
 - A client that is further behind gets 410 `HandshakesExpired`. It resyncs by external commit and gets the missed history keys from its own devices (`history_keys` device message) or from its backup.
 - A client buffers envelopes of an epoch that it has not reached (store table `buffered`). `MessageService` writes the table. `GroupService` drains it after it fetches the handshakes, and emits `epochKeysAvailable`. The UI then calls `decryptMessages` again.
+- **Rejected commits.** A client that rejects a commit that the DS accepted stops the group and resyncs automatically (§12.8.7, `commit_rejected`).
 - **Own commits after a crash.** Before a client posts a commit, it stores the next state in the store table `pendingCommits` (key: group id, with the epoch). When the DS accepts, the client adopts the state and deletes the row. When the client sees a commit in the stream with `senderDevice` = itself and the stored epoch, it adopts the stored state, because ts-mls cannot process its own commit. When no stored state matches, the client resyncs by external commit. On 409, it deletes the row.
 
 ### 12.8 Message envelopes
@@ -1440,9 +1470,9 @@ On send, Takusen stores `group_id`, `epoch`, `sender_device`, `client_msg_id`, `
 For each message, in history order (`MessageService.decryptMessages`). Each step gives one result code (`DecryptFailure` in `src/api.ts`):
 
 1. **Header.** Decode the header. It does not decode: `malformed`. `channel_id` differs from the row: `wrong_channel`. `group_id` or `epoch` differs from the row: `wrong_group`. `client_msg_id` differs from the row: `replay`. `sender_device_id` differs from the row `senderDevice`: `device_mismatch`.
-2. **Epoch secret.** Get `S_e`. The epoch is ahead of the local state: buffer the message, `pending` `epoch_ahead`. The client never held the group and has no bundle or backup key for it: `pending` `group_unknown` (a Welcome can still come). The client knows the group but has no key for that old epoch: `pending` `no_history_key`.
+2. **Epoch secret.** Get `S_e`. The epoch is ahead of the local state: buffer the message, `pending` `epoch_ahead`. The client never held the group and has no bundle or backup key for it: `pending` `group_unknown` (a Welcome can still come). The client knows the group but has no key for that old epoch: `pending` `no_history_key`. A DS call for this message failed (`CryptoError` `Transport`): `pending` `transport`. This is not a verdict on the message. The UI decrypts it again later.
 3. **Decrypt.** A failed tag: `failed` `aead`, and the failure counts toward the fork alert. A plaintext that does not decode, or that breaks a §12.8.1 limit: `malformed`.
-4. **Sender.** Get the `DeviceCertificate` of `sender_device_id` (`IdentityService.deviceCertificate`, revoked devices included). No certificate, or the chain check fails: `invalid_chain`. The certificate user is not the row author: `device_mismatch` (kind 1) or `edit_not_author` (kind 2).
+4. **Sender.** Get the verified `DeviceCertificate` of `sender_device_id`, revoked devices included (`IdentityService.deviceOwnerCertificate`). The lookup tries the keys of the row author first, then the keys of each user that the Worker already fetched and verified, and then fetches the keys of the author again. It fetches the keys of one user again at most once per `KEY_REFRESH_MIN_MS` (10 s). Thus a device of another user is found, and gives `device_mismatch` or `edit_not_author`, not `invalid_chain`. No certificate, or the chain check fails: `invalid_chain`. The certificate user is not the row author: `device_mismatch` (kind 1) or `edit_not_author` (kind 2).
 5. **Signature.** Check the signature with the certificate `mls_signature_key`. Else `bad_signature`.
 6. **Franking.** Compute the HMAC of §12.16 from the decrypted `franking_key`, the header `channel_id` and `client_msg_id`, and the received `encode(EnvelopeContent)`. It must equal the header `franking_tag`. Else `bad_franking`. Thus a report can always prove the content that the recipients saw.
 7. **Kind.** Kind 1 has no `edit_of`. Kind 2 has `edit_of` = the header `client_msg_id` = the row `clientMsgId`. Else `malformed`.
@@ -1462,7 +1492,9 @@ For each message, in history order (`MessageService.decryptMessages`). Each step
 
 - After each commit, the client compares its new `tree_hash` and `confirmed_transcript_hash` with `next` of the `MLS_HANDSHAKE` event or the handshake row. A difference raises `forkAlert` (`group_info_mismatch`).
 - A client that has `S_e` for an epoch counts AEAD failures. Three failures from at least two sender devices in 10 minutes raise `forkAlert` (`aead_failures`).
-- After a fork alert, the client resyncs by external commit (`resync = true`).
+- The DS accepted a commit that this client rejects (the policy or the chain check fails): the group stops on this device (fail closed) and the client raises `forkAlert` (`commit_rejected`). A rejected proposal does not stop the group.
+- The `forkAlert` event carries `groupId`, `channelId`, `epoch` (the epoch of the local state when the alert fired, or null) and `reason`.
+- After a fork alert, the client resyncs by external commit (`resync = true`). For `commit_rejected`, the resync is automatic: the Worker tries it after waits of 1, 2, 4, 8 and 16 s (`COMMIT_REJECTED_RESYNC_DELAYS_MS`). A successful resync enters the DS epoch and asks the own devices for the keys of the skipped epochs (`history_keys`). When all five attempts fail, the group stays stopped, and the next `GroupService.sync()` (READY, RESUMED) starts the attempts again.
 
 ### 12.9 Attachments
 
@@ -1490,16 +1522,20 @@ blob        = header ‖ ciphertext_0 ‖ … ‖ ciphertext_n
 
 #### 12.10.1 Voice group and committer
 
-- Each voice room session has its own MLS group of kind `voice`. The media node chooses 16 random bytes as the room session id when the room goes from empty to not empty. The group id is `GroupId{kind 4, scope = room session id, generation 0}`. The descriptor has `guild_id` = the guild of the voice channel, `channel_id` null, `history_visibility = joined`, and no external sender.
+- Each voice room session has its own MLS group of kind `voice`. The media node chooses 16 random bytes as the room session id when the room goes from empty to not empty. The group id is `GroupId{kind 4, scope = room session id, generation 0}`. The descriptor has `guild_id` = the guild of the voice channel, `channel_id` null, `history_visibility = joined`, and no external sender. The UI passes the guild id in `CryptoApi.voiceStart({channelId, guildId})`. The creator writes it into the descriptor, and a joiner checks the descriptor against it. A device that has no guild id does not create the group. The media node then gives the create to the next joiner after 5 s.
 - The room epoch is null until the creator sends `e2ee_ready` with `transitionId: null`. The media node then sets the epoch to 0.
 - The media node has no MLS library. It signs nothing and proposes nothing. It relays key packages, Welcomes, commits and roster changes, and it orders commits.
-- **Committer.** The member session with the lowest leaf index, from the `leafIndex` values that clients report in `e2ee_ready`. The committer commits Adds for pending joiners and Removes for departed participants. If no commit arrives 5 s after the media node gave the committer work, the media node selects the next member and sends the roster again.
+- **Committer.** The member session with the lowest leaf index, from the `leafIndex` values that clients report in `e2ee_ready`. The committer commits Adds for pending joiners and Removes for departed participants. If no commit arrives 5 s after the media node gave the committer work, the media node selects the next member and sends the roster again. The 5 s timer starts at the first new work, and more work does not start it again. Before the group exists, the committer is the earliest joiner (it creates the group), and the failover gives the create role to the next joiner.
+- **Any member can commit.** The media node accepts a commit from any member, not only from the selected committer, when the `leaf_index` of the commit header equals the leaf that this member reported. The first such commit for the room epoch wins.
+- **Leaf indexes in the roster.** `members[].leafIndex` is null for a session that a commit added and that did not send `e2ee_ready` yet. `departed[].leafIndex` is null when the session left before it reported its leaf. The committer then finds the leaf by the device id of the leaf credential.
 - A client can report a false `leafIndex`. Its commit then carries that leaf, and the other members reject it (wrong signer). The members report `e2ee_invalid` with the `committerLeaf` that they saw, and the media node closes the committer with 4014 (§8, "Bad commits").
-- The committer adds a key package only when the chain is valid, the credential `{userId}:{deviceId}` equals the roster entry (from the voice token claims), and the user is in the voice channel (gateway voice states). It removes the leaves whose credential device id is in `departed`.
+- The committer adds a key package only when the chain is valid and the credential `{userId}:{deviceId}` equals the roster entry (from the voice token claims). It does not check the gateway voice states (`DsTransport` has no voice-state query). It trusts the media roster, as Implementation note 2 of `docs/e2ee-plan.md` accepts. It removes the leaves whose credential device id is in `departed`.
 - The UI shows the participants from the MLS tree, not from the server roster.
-- **Ordering.** The media node accepts the first `e2ee_commit` whose epoch is the room epoch. It reads the group id and the epoch from the commit bytes (below). It answers other commits with `e2ee_commit_rejected`. The losers process the winning commit and try again.
+- **Ordering.** The media node accepts the first `e2ee_commit` whose epoch is the room epoch. It reads the group id and the epoch from the commit bytes (below). It answers other commits with `e2ee_commit_rejected`. It also sends `e2ee_commit_rejected` while an earlier transition is not executed yet (`currentEpoch` is then the new epoch), and when `added` names a session that is no longer pending or `removed` names a session that is not departed. A rejection is not a violation. The losers process the winning commit and try again from the latest roster.
+- **No ratchet tree.** When the `e2ee_ratchet_tree` of the committer did not arrive 10 s after a commit with a Welcome, the media node closes the committer with 4014. The room stays in the previous epoch.
+- **New group.** When no live participant holds the group state but participants remain, the room starts a new group: a new room session id and group id, epoch null, and an empty `departed` list.
 
-Media commit parse (no MLS library): MLSMessage = `uint16 version (1) ‖ uint16 wire_format (1 = public) ‖ FramedContent`. FramedContent starts with `opaque group_id<V> ‖ uint64 epoch ‖ uint8 sender_type (1 = member) ‖ uint32 leaf_index`. The media node checks version, wire format, group id, epoch, `sender_type = 1` and `leaf_index` = the committer's reported leaf. A mismatch closes the sender with 4014.
+Media commit parse (no MLS library): MLSMessage = `uint16 version (1) ‖ uint16 wire_format (1 = public) ‖ FramedContent`. FramedContent starts with `opaque group_id<V> ‖ uint64 epoch ‖ uint8 sender_type (1 = member) ‖ uint32 leaf_index`. The media node checks version, wire format, group id, epoch, `sender_type = 1` and `leaf_index` = the leaf that the sender reported (any member can commit). A mismatch closes the sender with 4014.
 
 The voice ops are in §8.
 
@@ -1592,9 +1628,11 @@ struct {
 
 struct {
   opaque group_id<V>;
-  HistoryKey keys<V>;
+  HistoryKey keys<V>;              // at least 1 key. The encoder writes ascending epochs
 } HistoryBatch;                    // kind 2. One blob per batch of epochs of one group
 ```
+
+- A `HistoryBatch` has at least one key, and its `group_id` is not empty. The encoder sorts the keys by epoch. The decoder does not require ascending epochs and does not reject a duplicate epoch (`docs/e2ee-audit-scope.md`, FZ-4, open). Only devices of the user can write the blob, because it is under `K_backup`.
 
 - A client uploads a history blob per group when it has 64 epochs without a backup, and at most every 24 h.
 - Limits: 64 KiB for the identity blob, 1 MiB per history blob, 256 MiB per user.
@@ -1602,7 +1640,11 @@ struct {
 
 ### 12.12 REST routes (Takusen, base `/api/v1`)
 
-Every route here needs `Authorization`. The routes marked **D** also need the header `X-Hachiman-Device: <deviceId>`. Takusen checks that the device belongs to the user and is not revoked (400 `DeviceRequired`, 403 `DeviceNotActive`). `pending` devices may call only the device and link routes.
+Every route here needs `Authorization`. The routes marked **D** also need the header `X-Hachiman-Device: <deviceId>`. Takusen checks that the device belongs to the user and is not revoked (400 `DeviceRequired`, 403 `DeviceNotActive`). A `pending` device may call only these **D** routes (every other **D** route gives 403 `DeviceNotActive`):
+- the device routes: `PATCH /devices/:id`, `PUT /devices/:id/certificate`, `POST /devices/:id/revoke`
+- the link routes: `/devices/link-sessions` and its sub-routes
+- `PUT /users/@me/master-key` (first device, and a new identity or a restore after a password reset)
+- `GET /backups`, `GET /backups/:id` and `PUT /users/@me/device-signing-key`: a restore from the recovery key runs before the device has its certificate
 
 Bytes are base64url. Errors use the §4 envelope with the codes of §12.19. Rate limits give 429 `RateLimited` with `Retry-After`.
 
@@ -1628,6 +1670,14 @@ CORS (§4) allows the request headers `X-Hachiman-Device` and `X-Hachiman-Signed
 - `PATCH /devices/:id`: changes only the REST name (§12.5 "Device names").
 - `GET /users/:id/keys`: the caller must share a guild or a DM with the user, or be the user. Each `ktIndex` has the encoded `KtEntry` beside it (`ktEntry`), so the client can compute the leaf hash (§12.14).
 
+**Batch rejections** (`POST /mls/groups/:groupId/commits` and `POST /mls/batches/:id/decline`):
+- `rejected` names the joins of `MLS_BATCH_ASSIGN.joins` that the committer left out, by `pendingId`. Only the commit body has it.
+- `rejectedProposals` names the DS proposals of `MLS_BATCH_ASSIGN.proposals` that the committer refused (a bad chain or a malformed key package), by `proposalRef`: base64url of the RFC 9420 ProposalRef of the proposal MLSMessage (`mls_pending.proposal_ref`). The proposals carry no `pendingId`, so the ref is the name. Both bodies can have it. `DsTransport.declineBatch` of `@hachiman/crypto` does not send it yet.
+- Takusen accepts a report only from the assigned committer of the batch, and only for items of that batch that the commit did not apply. It ignores other entries. It marks only Adds as rejected: a DS Remove is a Takusen decision, so it ignores the ref of a Remove proposal. A rejected Add of a join request gets `MLS_JOIN_UPDATE` status `rejected` with the reason. The next batch leaves the rejected items out.
+- On a commit, Takusen marks the rejections in the transaction of the commit. On a decline, it marks them before it expires the batch.
+- `@hachiman/crypto` (`WireCommitRequest.rejected: BatchRejection[]`) and `@hachiman/client` (`CommitRequest.rejected`) accept both forms in one list: `{pendingId, reason}` or `{proposalRef, reason}`. `RestClient.postCommit` sends the `proposalRef` entries as `rejectedProposals` on the wire.
+- **Body size.** The Takusen middleware does not run for `POST /mls/groups/:groupId/commits`, because Next.js truncates every body that middleware sees at 10 MB, and the ratchet tree can be 8 MiB (about 10.7 MB as base64url). The route applies the same CORS policy itself, as `POST /uploads` does (§4).
+
 **MLS**
 
 | Method + path | D | Body | Returns | Publishes |
@@ -1644,7 +1694,7 @@ CORS (§4) allows the request headers `X-Hachiman-Device` and `X-Hachiman-Signed
 | GET `/mls/groups/:groupId/handshakes?after=&limit=` | D | — | `{handshakes: Handshake[], latestSeq}`. `limit` ≤ 200 (default 100). 410 `HandshakesExpired` | — |
 | POST `/mls/groups/:groupId/join-requests` | D | `{keyPackage}` | `JoinRequest` (202). 403 `GroupFull` (§12.7.8) | `MLS_JOIN_UPDATE` |
 | GET `/mls/join-requests/:id` | D | — | `JoinRequest` | — |
-| POST `/mls/batches/:id/decline` | D | `{reason: 'not_synced'\|'busy'}` | 204 | `MLS_BATCH_ASSIGN` → next device |
+| POST `/mls/batches/:id/decline` | D | `{reason: 'not_synced'\|'busy', rejectedProposals?}` | 204. 410 `BatchExpired` | `MLS_BATCH_ASSIGN` → next device; `MLS_JOIN_UPDATE` per rejected Add |
 | POST `/mls/groups/:groupId/history-bundles` | D | `{epoch, blob}` | 201. One per (group, epoch, sender) | — |
 | GET `/mls/groups/:groupId/history-bundles?epoch=` | D | — | `HistoryBundle[]` | — |
 
@@ -1675,7 +1725,7 @@ CORS (§4) allows the request headers `X-Hachiman-Device` and `X-Hachiman-Signed
 | GET `/kt/consistency?from=&to=` | | — | `KtConsistencyProof` |
 | GET `/kt/entries?userId=&after=&limit=` | | — | `KtEntry[]` (`limit` ≤ 1000) |
 | GET `/kt/entries?start=&end=` | | — | `KtEntry[]` (auditors, at most 1000 per call) |
-| GET `/guilds/:id/admin-actions?after=&limit=` | | — | `AdminAction[]` (member only) |
+| GET `/guilds/:id/admin-actions?after=&limit=` | | — | `AdminAction[]` with `seq > after`, ascending (member only). `after` default -1 (from the genesis). `limit` default 100, at most 1000 |
 | POST `/reports` | D | `{messageId, content, frankingKey, reason}` | `{id, verified}` (201) |
 
 **Wire shapes.** These are the TS types in `pkgs/hachiman-crypto/src/api.ts` (`Wire*`). `@hachiman/client` exports the same shapes without the `Wire` prefix (§10).
@@ -1695,8 +1745,10 @@ interface MlsGroup { groupId; kind: 'public_set' | 'channel' | 'dm'; guildId: st
   latestSeq: number; member: boolean }
 interface GroupState { groupId; epoch; groupInfo; ratchetTree }
 interface CreateGroupRequest { groupId; kind; guildId: string | null; channelId: string | null; cipherSuite; groupInfo; ratchetTree; assignmentId: string | null }
+type BatchRejectReason = 'invalid_chain' | 'not_reader' | 'revoked' | 'policy' | 'malformed'
 interface CommitRequest { epoch; commit; groupInfo; ratchetTree; welcome: string | null; batchId: string | null;
-  rejected: { pendingId; reason: 'invalid_chain' | 'not_reader' | 'revoked' | 'policy' | 'malformed' }[] }
+  rejected: { pendingId; reason: BatchRejectReason }[]                 // joins (Adds by value), at most 200
+  rejectedProposals?: { proposalRef; reason: BatchRejectReason }[] }   // DS proposals, at most 200, default []
 interface Handshake { seq; epoch; kind: 'commit' | 'external_commit' | 'proposal'; senderDevice: string | null; message;
   next: { treeHash; confirmedTranscriptHash } | null; createdAt }
 interface JoinRequest { id; groupId; deviceId; status: 'queued' | 'committed' | 'rejected' | 'external_commit' | 'waiting'; reason: string | null; createdAt }
@@ -1721,9 +1773,11 @@ interface AdminAction { guildId; seq; action; createdAt }
 The gateway checks, in this order:
 1. The token (non-200 from Takusen gives 4004).
 2. `capabilities` includes `e2ee/1`, and `clientVersion` is a semver at or above `GATEWAY_MIN_CLIENT_VERSION` (default `0.1.0`). Else close 4012. The shared UI sends the `version` of `apps/hachiman/package.json` (now `1.0.0`).
-3. The `devices` row exists, belongs to the user and is not `revoked`. Else close 4013. `pending` devices are allowed (linking).
+3. The `devices` row exists, belongs to the user and is not `revoked`. Else close 4013. `pending` devices are allowed (linking). A missing or malformed `deviceId` fails this check.
 
-A RESUME with another `deviceId` than the stored session gives INVALID_SESSION(false). READY adds `deviceId`.
+RESUME runs check 1 and check 3 only (the session passed check 2 at IDENTIFY). A RESUME without `deviceId` gives 4013. A `deviceId` that passes check 3 but differs from the `deviceId` of the stored session gives INVALID_SESSION(false). A missing session also gives INVALID_SESSION(false). READY adds `deviceId`.
+
+**Revocation race.** Check 3 can pass just before Takusen commits a revocation. Thus, on IDENTIFY and on RESUME, the gateway does check 3 again after it subscribes the session (it then receives `DEVICE_REVOKED`) and before it sends READY or RESUMED. Either this lookup sees the revocation (close 4013), or the session gets the `DEVICE_REVOKED` event. If the lookup fails (a database error), the gateway closes with 4000, so the client tries again.
 
 **Close codes:** 4012 client unsupported (no `e2ee/1`, or the version is too old). 4013 device unknown or revoked. Clients do not reconnect after 4012 or 4013.
 
@@ -1818,10 +1872,14 @@ struct {
 
 Payloads: genesis `{opaque owner_id[16]}`. Role: `{opaque role_id[16]; uint64 permissions; uint32 position}` (delete: `role_id` only). Reorder: `{RolePosition positions<V>}` with `struct { opaque role_id[16]; uint32 position; } RolePosition`. Overwrite: `{opaque channel_id[16]; opaque target_id[16]; uint8 target_type /* 1 role, 2 member */; uint64 allow; uint64 deny}` (delete: no `allow`/`deny`). Member roles: `{opaque user_id[16]; opaque role_ids<V> /* 16-byte ids */}`. History visibility: `{opaque channel_id[16]; uint8 history_visibility}`.
 
-- The client sends the encoded action in the header `X-Hachiman-Signed-Action` on the matching route (§4: roles, overwrites, member roles, channel PATCH). Takusen checks that the action matches the request and that `seq` and `prev_hash` continue the chain. It stores the action in `admin_actions` in the same transaction. Else 409 `AdminActionConflict` or 400 `InvalidAdminAction`.
+- The client sends the encoded action in the header `X-Hachiman-Signed-Action` on the matching route (§4: roles, overwrites, member roles, channel PATCH). The header holds one base64url action, or two separated by a comma: the genesis, then the action of the request. The two-action form is for the first signed request of a guild. Takusen checks the signature under the actor device certificate, that the action matches the request, and that `seq` and `prev_hash` continue the chain. It stores the action in `admin_actions` in the same transaction. Else 409 `AdminActionConflict` or 400 `InvalidAdminAction`. The header is optional until the guild has a genesis action, then it is required on each request that changes signed state.
+- **Which requests change signed state.** `POST /guilds/:id/roles` (`role_create`), a role PATCH only when it has `permissions` (`role_update`), the role reorder (`role_reorder`), a role DELETE (`role_delete`), an overwrite PUT or DELETE (`overwrite_put`, `overwrite_delete`), a member PATCH only when it has `roles` (`member_roles`), and a channel PATCH with `historyVisibility` (`channel_history_visibility`). Other fields of these routes are not signed.
+- **Match rules.** A signed `role_create` names the role id, and `POST /guilds/:id/roles` creates the role with that id (it must be a new UUID). The `role_reorder` positions and the `member_roles` role ids match the request as sets: the order does not matter. The `target_type` of an `overwrite_delete` payload is the type of the existing overwrite.
+- **History visibility.** `PATCH /channels/:id` `historyVisibility` and `PATCH /guilds/:id` `publicHistoryVisibility` write `mls_groups.history_visibility`. That column is only the REST mirror. Members change the group descriptor with a GCE commit (§12.6). The guild `publicHistoryVisibility` has no admin action type, and it is not signed.
+- **No permission replay on Takusen.** Takusen does not replay the permissions of signed actions. The REST permission checks on the unsigned state stay authoritative. Takusen checks only the signature, the chain continuity and the match with the request.
 - The guild owner's client writes the genesis action when it creates the guild: it calls `CryptoApi.signAdminAction` after `POST /guilds` and posts the action with the first signed request, or with `PATCH /guilds/:id` and no other change.
 - `@hachiman/crypto` holds the codecs, `sign`, `verify`, `hash` and `replay` (`AdminActionModule`, `src/admin/`). Takusen verifies with `DsModule.verifyAdminAction`. The client signs with `CryptoApi.signAdminAction(guildId, type, payload)`, which fetches the chain head and fills `seq` and `prev_hash`.
-- **Client check.** A client replays the chain from genesis. Each action needs a valid signature, a valid actor chain, and an actor that had the permission in the state before the action (§2 rules, owner from genesis). Before a client commits an Add in a `channel` group, it checks that the replayed state gives the joiner VIEW_CHANNEL (`ProposalPolicy.adminReaders`). A guild without a genesis action uses the unsigned REST state, and the UI timeline still shows "A added B". The replay applies the §2 rules through `@hachiman/client/permissions`, so each language keeps one permission implementation.
+- **Client check.** A client replays the chain from genesis. Each action needs a valid signature, a valid actor chain, and an actor that had the permission in the state before the action (§2 rules, owner from genesis). Before a client commits an Add in a `channel` group, it checks that the replayed state gives the joiner VIEW_CHANNEL (`ProposalPolicy.adminReaders`). A guild without a genesis action uses the unsigned REST state, and the UI timeline still shows "A added B". The replay applies the §2 rules through `@hachiman/client/permissions`, so each language keeps one permission implementation. The replay accepts actions from an actor device that was revoked later: it does not check revocations. `// ponytail:` the Phase 4 audit must decide if an action of a device that is now revoked stays valid.
 
 **Message franking.**
 
@@ -1837,10 +1895,10 @@ franking_tag = HMAC-SHA256(franking_key, "hachiman franking v1" ‖ channel_id(1
 
 - **DsTransport adapter.** The main thread implements `DsTransport` over `RestClient`. It maps 404 `UnknownGroup` from `GET /channels/:id/mls-group` to `null` (`getGroupForChannel`).
 - **Worker.** All key material lives in the `@hachiman/crypto` Worker. The UI thread never holds private keys. The UI holds decrypted content and attachment pointers.
-- **One tab per device.** The bridge takes the Web Lock `hachiman-crypto:{origin}:{userId}`. A second tab shows "open in another tab". Two Workers on one store would fork the group state.
+- **One tab per device.** The bridge takes the Web Lock `hachiman-crypto:{origin}:{userId}`. A second tab gets `CryptoError` `LockHeld` and shows "open in another tab". Two Workers on one store would fork the group state.
 - **Store.** IndexedDB, one database per (origin, user). Each record is AES-256-GCM under the non-extractable wrap key from `IPlatformService.secureStorage` (§11), with a random 12-byte nonce. The AAD is `encode(struct { opaque table<V>; opaque key<V>; })`, so the AAD is injective. The wrap key is used directly. There is no HKDF step, because a non-extractable AES-GCM key cannot be an HKDF input.
 - **Browser host.** The browser host shows the label "trusts the server's code", because a hostile server can send hostile JavaScript. The Electron host is the strong client. `CryptoStatus.hostTrust` gives the value.
-- **CSP.** Electron (`apps/hachiman-electron/src/main/csp.ts`) adds `worker-src 'self'`, and `blob:` to `img-src` and `media-src` (decrypted attachments are object URLs). It does not add `blob:` to `script-src` or `worker-src`. The browser host sends the same policy. ts-mls, @noble and @hpke are pure TypeScript on WebCrypto, so the hosts do not add `'wasm-unsafe-eval'`. Both hosts build the crypto Worker and the transform Worker with Vite (`new Worker(new URL(…, import.meta.url), { type: 'module' })`).
+- **CSP.** Electron (rules in `apps/hachiman-electron/src/main/csp-policy.ts`, applied by `csp.ts`, §11) adds `worker-src 'self'`, and `blob:` to `img-src` and `media-src` (decrypted attachments are object URLs). It does not add `blob:` to `script-src` or `worker-src`. The browser host sends the same policy. ts-mls, @noble and @hpke are pure TypeScript on WebCrypto, so the hosts do not add `'wasm-unsafe-eval'`. Both hosts build the crypto Worker and the transform Worker with Vite (`new Worker(new URL(…, import.meta.url), { type: 'module' })`).
 - **Light clients.** Deferred until ts-mls supports partial trees: joining with a membership proof, and processing commits without the full ratchet tree (IETF MLS light clients draft). The condition is testable: the `smoke.spec.ts` case "needs the full ratchet tree to join" fails when support exists. Until then, every member holds the full tree, and the Phase 3 load test measures its size.
 - **Later:** search (a local index), sender-made link previews, content-free push.
 
@@ -1869,10 +1927,15 @@ export type MembershipChange =
   | { kind: 'user_deleted'; userId: string }
   | { kind: 'devices_revoked'; userId: string; deviceIds: string[] | 'all'; reason: RevocationReason }
 export async function onMembershipChange(tx: Tx, change: MembershipChange, actorDeviceId: string | null): Promise<void>
-export async function wakeScheduler(): Promise<void>          // after the transaction commits
+export async function wakeScheduler(tx: Tx): Promise<void>    // after the transaction commits: flushes the work of that transaction only
+export function discardMembershipWork(tx: object): void       // after a rollback: drops the work of that transaction unpublished
 
 // lib/mls/envelopes.ts
-export async function acceptEnvelope(tx: Tx, input: { channelId: string; userId: string; deviceId: string; envelope: Uint8Array; edit: boolean }):
+type EnvelopeInputBase = { channelId: string; userId: string; deviceId: string /* X-Hachiman-Device */; envelope: Uint8Array }
+export type EnvelopeInput =
+  | (EnvelopeInputBase & { edit: false })                               // a send
+  | (EnvelopeInputBase & { edit: true; rowClientMsgId: Uint8Array })    // an edit: the client_msg_id of the stored row
+export async function acceptEnvelope(tx: Tx, input: EnvelopeInput):
   Promise<{ groupId: Uint8Array; epoch: number; senderDeviceId: string; clientMsgId: Uint8Array; frankingTag: Uint8Array; size: number }>   // throws ApiError (§12.8.4)
 
 // lib/errors.ts + lib/api-helpers.ts
@@ -1886,10 +1949,14 @@ export class ApiError extends Error {
 - `user_deleted` runs before the user row is deleted, in the same transaction. It queues a Remove (keyed by leaf index, §3) for every leaf of every device of the user in every group. The `mls_pending` and `mls_group_members` rows keep their leaf index when the FKs set the device and user to null. The Removes stay valid, and §12.7.3 check 8 accepts the orphan leaves until a commit removes them.
 - `guild_deleted` retires the groups of the guild and deletes their DS rows in the same transaction. The FK cascades delete the rest.
 - `devices_revoked` with `'all'` is the password reset path (`lib/password-reset.ts`). The reset also calls `revokeUserSessions`. A password change (`account/actions.ts`) revokes the other sessions of the user and keeps the devices.
-- The scheduler, the KT tree-head timer and the daily sweeps run in `apps/takusen/src/grpc/main.ts`. The gRPC process subscribes to `takusen:mls_wakeup`.
-- Takusen imports `@hachiman/crypto/ds` as TypeScript source. `apps/takusen/next.config.ts` lists `@hachiman/crypto` in `transpilePackages`. The import graph of `src/mls/ds.ts` uses only `globalThis.crypto` and excludes `src/attachments`, `src/store`, `src/worker`, `src/bridge` and `src/media`.
+- **Password reset seam.** The reset calls `onMembershipChange(tx, { kind: 'devices_revoked', userId, deviceIds: 'all', reason: 'password_reset' }, null)` in the transaction that sets the password. After the commit it calls `wakeScheduler(tx)`. After a rollback it calls `discardMembershipWork(tx)`, so nothing of a rolled-back transaction is published.
+- **Outbox per transaction.** `onMembershipChange` records its events and wakeups in an outbox keyed by the transaction handle. `wakeScheduler(tx)` publishes only that outbox. `discardMembershipWork(tx)` drops it. Each route that calls `onMembershipChange` calls one of the two.
+- An edit passes `rowClientMsgId`: the edit header must repeat that `client_msg_id` (§12.8.6), and the uniqueness check is skipped.
+- `DsModule.checkCommit` takes `masterKeys(userId)`: the current raw 32-byte master public key of the user, or null. `DsModule.verifyMasterKeyRecord(record, prev)` takes as `prev` the encoded previous `MasterKeyRecord` (not a public key), or null.
+- The scheduler, the KT tree-head timer and the daily sweeps run in `apps/takusen/src/grpc/main.ts`. The gRPC process subscribes to `takusen:mls_wakeup`. The payload on that channel is raw JSON `{ groupId }` (base64url), not a `{t, d}` event envelope.
+- Takusen imports `@hachiman/crypto/ds` as TypeScript source. Other code can import the pure entry points `@hachiman/crypto/admin` (§12.16, Takusen uses it), `@hachiman/crypto/franking`, `@hachiman/crypto/constants` and `@hachiman/crypto/codec`. They use no Worker-only or ts-mls code. `apps/takusen/next.config.ts` lists `@hachiman/crypto` in `transpilePackages`. The import graph of `src/mls/ds.ts` uses only `globalThis.crypto` and excludes `src/attachments`, `src/store`, `src/worker`, `src/bridge` and `src/media`.
 
-**Env (Takusen):** `TAKUSEN_DS_SIGNING_KEY`, `TAKUSEN_KT_SIGNING_KEY`, `TAKUSEN_MLS_SUITES` (default `1`), `TAKUSEN_MAX_ENVELOPE_BYTES` (default 32768), `TAKUSEN_PUBLIC_SET_MAX_MEMBERS` (default 10000), `TAKUSEN_MLS_BATCH_INTERVAL_MS` (default 2000), `TAKUSEN_MLS_BATCH_TIMEOUT_MS` (default 5000). **Gateway:** `GATEWAY_MIN_CLIENT_VERSION` (default `0.1.0`). **Media:** `MEDIA_WS_READ_LIMIT` (default 1048576). Add each one to `.env.example`.
+**Env (Takusen):** `TAKUSEN_DS_SIGNING_KEY`, `TAKUSEN_KT_SIGNING_KEY`, `TAKUSEN_MLS_SUITES` (default `1`), `TAKUSEN_MAX_ENVELOPE_BYTES` (default 32768), `TAKUSEN_PUBLIC_SET_MAX_MEMBERS` (default 250, `docs/e2ee-load-test.md`), `TAKUSEN_MLS_BATCH_INTERVAL_MS` (default 2000), `TAKUSEN_MLS_BATCH_TIMEOUT_MS` (default 5000). **Gateway:** `GATEWAY_MIN_CLIENT_VERSION` (default `0.1.0`). **Media:** `MEDIA_WS_READ_LIMIT` (default 1048576). Add each one to `.env.example`.
 
 ### 12.19 Error codes
 
@@ -1931,3 +1998,7 @@ export class ApiError extends Error {
 | `InvalidAdminAction` | 400 | the action does not decode, verify or match the request |
 | `AdminActionConflict` | 409 | `seq` or `prev_hash` does not continue the chain |
 | `RateLimited` | 429 | a §12.12 rate limit. Header `Retry-After` |
+
+**Client error codes.** The `@hachiman/crypto` Worker rejects with `CryptoError` (`CryptoErrorCode` in `src/api.ts`). `dsCode` holds the REST code above when the cause was a DS response. Two codes have no REST cause:
+- `LockHeld`: the Web Lock refused the store, because it is open in another tab (§12.17).
+- `Internal`: an exception inside the Worker that carried no `CryptoErrorCode` (a bug).

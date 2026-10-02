@@ -5,6 +5,10 @@
  * - 'ok': the decrypted row replaces the row of that id (an edit replaces the content).
  * - 'pending': a placeholder row. The ciphertext waits here, and `retryGroup` decrypts it again
  *   when the Worker emits epochKeysAvailable. A row that already shows content keeps it.
+ * - A rejected call (the Worker is not there, or a Worker transport error) and a 'pending'
+ *   'transport' result (a DS call inside the Worker failed) are not verdicts: the messages show
+ *   'pending' 'transport' and are tried again after RETRY_DELAYS_MS. After the last delay they
+ *   wait for retryGroup / retryAll like other pending messages.
  * - 'failed': an "unable to decrypt" row with the reason. 'stale_edit' (a rollback by the server)
  *   keeps the newer content that the store has.
  *
@@ -116,16 +120,40 @@ export function rowFor(
   return { ...baseRow(m), decrypt }
 }
 
+/** The waits before each new try of a rejected call or a 'transport' result. */
+export const RETRY_DELAYS_MS = [1_000, 5_000, 30_000] as const
+
 export function createMessageDecryptor(deps: DecryptorDeps): MessageDecryptor {
   /** groupId → messageId → the ciphertext that waits for keys. */
   const waiting = new Map<string, Map<string, Message>>()
+  /** messageId → the ciphertext of a rejected call or a 'transport' result, for the timed retry. */
+  const rejected = new Map<string, Message>()
+  let retryAttempt = 0
+  let retryTimer: ReturnType<typeof setTimeout> | null = null
   let generation = 0
   let queue: Promise<unknown> = Promise.resolve()
 
   const unwait = (id: string): void => {
+    rejected.delete(id)
     for (const [groupId, byId] of waiting) {
       if (byId.delete(id) && byId.size === 0) waiting.delete(groupId)
     }
+  }
+
+  const cancelRetry = (): void => {
+    if (retryTimer !== null) clearTimeout(retryTimer)
+    retryTimer = null
+  }
+
+  /** Tries the `rejected` messages again after the next delay, if one is left. */
+  const scheduleRetry = (): void => {
+    const delay = RETRY_DELAYS_MS[retryAttempt]
+    if (retryTimer !== null || delay === undefined || rejected.size === 0) return
+    retryAttempt++
+    retryTimer = setTimeout(() => {
+      retryTimer = null
+      void enqueue(() => [...rejected.values()]).catch(() => undefined)
+    }, delay)
   }
 
   /** `started`: the generation when the call was made, so a reset before it ran drops it too. */
@@ -136,14 +164,11 @@ export function createMessageDecryptor(deps: DecryptorDeps): MessageDecryptor {
     try {
       results = await deps.decrypt(ordered.map(toEncrypted))
     } catch (e) {
-      // The Worker is not there (signed out, not set up): keep everything for the next retry.
+      // The Worker is not there (signed out, not set up) or a transport error: keep everything
+      // for the timed retry and for the next retryGroup / retryAll.
       if (started !== generation) return []
       console.warn('[messages] decrypt failed', e)
-      results = ordered.map((m) => ({
-        status: 'pending',
-        messageId: m.id,
-        reason: 'group_unknown'
-      }))
+      results = ordered.map((m) => ({ status: 'pending', messageId: m.id, reason: 'transport' }))
     }
     if (started !== generation) return []
     const byId = new Map(results.map((r) => [r.messageId, r]))
@@ -157,6 +182,7 @@ export function createMessageDecryptor(deps: DecryptorDeps): MessageDecryptor {
         let g = waiting.get(m.groupId)
         if (!g) waiting.set(m.groupId, (g = new Map()))
         g.set(m.id, m)
+        if (r.reason === 'transport') rejected.set(m.id, m)
       }
       const row = rowFor(m, r, deps.existing(m.channelId, m.id))
       if (!row) continue
@@ -166,6 +192,13 @@ export function createMessageDecryptor(deps: DecryptorDeps): MessageDecryptor {
       out.push(row)
     }
     for (const [channelId, list] of rows) deps.upsert(channelId, list)
+    if (rejected.size > 0) {
+      scheduleRetry()
+    } else {
+      // Every rejected message has a result now: a later rejection starts at the first delay.
+      cancelRetry()
+      retryAttempt = 0
+    }
     return out
   }
 
@@ -184,6 +217,9 @@ export function createMessageDecryptor(deps: DecryptorDeps): MessageDecryptor {
     reset() {
       generation++
       waiting.clear()
+      rejected.clear()
+      cancelRetry()
+      retryAttempt = 0
     },
     pendingIds: () => [...waiting.values()].flatMap((g) => [...g.keys()])
   }

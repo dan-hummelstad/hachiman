@@ -53,9 +53,15 @@ const EVENTS = [
 function asShape(e: unknown): { code: CryptoError['code']; message: string; dsCode?: string } {
   if (e instanceof CryptoError) return { code: e.code, message: e.message, dsCode: e.dsCode }
   const code = (e as { code?: unknown } | null)?.code
-  if (code === 'SecureStorageUnavailable' || code === 'StoreCorrupt' || code === 'Malformed')
-    return { code, message: e instanceof Error ? e.message : String(e) }
-  return { code: 'Unsupported', message: e instanceof Error ? e.message : String(e) }
+  const message = e instanceof Error ? e.message : String(e)
+  if (
+    code === 'SecureStorageUnavailable' ||
+    code === 'StoreCorrupt' ||
+    code === 'Malformed' ||
+    code === 'LockHeld'
+  )
+    return { code, message }
+  return { code: 'Internal', message }
 }
 
 /** A throwaway wrap key for the stub, which stores nothing. */

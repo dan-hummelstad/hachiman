@@ -17,8 +17,9 @@ export function serveCryptoWorker(endpoint: RpcEndpoint, opts: ServeOptions = {}
   const peer = createRpcPeer(endpoint, {
     serve: () => handlers,
     allow: CRYPTO_API_METHODS,
-    // An exception without a CryptoErrorCode is a bug or a broken input, never a success.
-    fallbackCode: 'Malformed',
+    // An exception without a CryptoErrorCode is a bug, never a success. 'Transport' stays for
+    // errors that carry a dsCode (toErrorShape).
+    fallbackCode: 'Internal',
   })
   const transport = Object.fromEntries(DS_TRANSPORT_METHODS.map((m) => [m, (...args: unknown[]) => peer.call(m, args)])) as unknown as DsTransport
   const engine = createEngine({
@@ -29,6 +30,6 @@ export function serveCryptoWorker(endpoint: RpcEndpoint, opts: ServeOptions = {}
     adminPermissions: clientPermissions,
     ...(opts.store !== undefined ? { store: opts.store } : {}),
   })
-  handlers = engine.api
+  handlers = engine.api as unknown as Record<string, RpcHandler>
   return engine
 }

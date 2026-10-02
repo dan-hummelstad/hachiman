@@ -5,6 +5,7 @@
 import type {
   AttachmentPointer,
   CreateMessageService,
+  CryptoErrorShape,
   DecryptFailure,
   DecryptResult,
   EncryptedMessage,
@@ -51,6 +52,16 @@ interface Verified {
 }
 
 type Step = { ok: true; value: Verified } | { ok: false; result: DecryptResult }
+
+function dsCodeOf(e: unknown): string | undefined {
+  if (typeof e === 'object' && e !== null && 'dsCode' in e && typeof e.dsCode === 'string') return e.dsCode
+  return undefined
+}
+
+/** A DS or transport failure: the message is retried later, never given a failure code. */
+function isTransient(e: unknown): boolean {
+  return dsCodeOf(e) !== undefined || (e instanceof CryptoError && e.code === 'Transport')
+}
 
 export const createMessageService: CreateMessageService = (ctx, identity, groups) => {
   let maxEnvelopeBytes: Promise<number> | null = null
@@ -110,9 +121,10 @@ export const createMessageService: CreateMessageService = (ctx, identity, groups
       return { ok: false, result: { status: 'pending', messageId: m.id, reason } }
     }
 
-    // Steps 3 to 7. Step 4 runs in the callback, after the decrypt.
+    // Steps 3 to 7. Step 4 runs in the callback, after the decrypt. The lookup finds the device
+    // under any known user, so a foreign device gives device_mismatch or edit_not_author.
     const opened = await envelope.open(bytes, epochSecret, async (h, kind) => {
-      const cert = await identity.deviceCertificate(m.authorId, h.senderDeviceId)
+      const cert = await identity.deviceOwnerCertificate(h.senderDeviceId, m.authorId)
       if (cert === null) return { failure: 'invalid_chain' }
       if (cert.deviceId !== h.senderDeviceId) return { failure: 'invalid_chain' }
       if (cert.userId !== m.authorId) return { failure: kind === 'message' ? 'device_mismatch' : 'edit_not_author' }
@@ -241,7 +253,23 @@ export const createMessageService: CreateMessageService = (ctx, identity, groups
 
     async decryptMessages(messages) {
       const out: DecryptResult[] = []
-      for (const m of messages) out.push(await decryptOne(m))
+      let transient: { first: CryptoErrorShape; count: number } | null = null
+      for (const m of messages) {
+        try {
+          out.push(await decryptOne(m))
+        } catch (e) {
+          // One failed DS call marks only its own message. 'pending' and not 'failed': the UI
+          // decrypts it again later (a transient error is never a verdict on the message).
+          if (!isTransient(e)) throw e
+          out.push({ status: 'pending', messageId: m.id, reason: 'transport' })
+          transient ??= { first: { code: 'Transport', message: e instanceof Error ? e.message : String(e), dsCode: dsCodeOf(e) }, count: 0 }
+          transient.count++
+        }
+      }
+      if (transient !== null) {
+        const { first, count } = transient
+        ctx.emit('error', { ...first, message: `decryptMessages: ${count} of ${messages.length} messages pending after a DS error: ${first.message}` })
+      }
       return out
     },
 

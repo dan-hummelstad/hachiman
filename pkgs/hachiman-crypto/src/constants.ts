@@ -121,6 +121,12 @@ export const MentionType = { USER: 1, ROLE: 2, EVERYONE: 3 } as const
 /** Fork alert: this many AEAD failures from 2+ senders in the window (§12.8). */
 export const FORK_ALERT_FAILURES = 3
 export const FORK_ALERT_WINDOW_MS = 10 * 60_000
+/**
+ * After this device rejects a commit that the DS accepted, it resyncs by external commit after
+ * each of these waits (5 attempts, about 31 s in total). Then the group stays stopped until the
+ * next sync() (READY / RESUMED) starts the attempts again.
+ */
+export const COMMIT_REJECTED_RESYNC_DELAYS_MS: readonly number[] = [1_000, 2_000, 4_000, 8_000, 16_000]
 
 // MARK: - Attachments (§12.9)
 
@@ -180,9 +186,15 @@ export const HISTORY_BUNDLE_MAX_EPOCHS = 4096
 export const HISTORY_BUNDLE_MAX_BYTES = 524_288
 /**
  * Default for TAKUSEN_PUBLIC_SET_MAX_MEMBERS: leaves of one public_set group (§12.7.8).
- * Above it, a join gets 403 GroupFull. The Phase 3 load test (src/mls/load.bench.ts) sets the final value.
+ * Above it, a join gets 403 GroupFull. Set by the Phase 3 load test (src/mls/load.bench.ts,
+ * docs/e2ee-load-test.md). After the lazy state encoding, the chain signature memo and
+ * retainKeysForEpochs 1 (src/mls/index.ts), a full batch of BATCH_MAX_ADDS DS Adds takes the
+ * committer 0.35 s at 250 leaves, 0.43 s at 500 and 0.58 s at 1000 (deadline 5 s). The limit now
+ * is a join by Welcome: 0.6 s at 250, 2.2 s at 500, 8.3 s at 1000 (budget 10 s, desktop CPU, it
+ * grows about with the square of the leaves). ts-mls 1.6.4 also cannot encode more than 2048
+ * leaves with the default V8 stack.
  */
-export const PUBLIC_SET_MAX_MEMBERS = 10_000
+export const PUBLIC_SET_MAX_MEMBERS = 500
 
 // MARK: - Key transparency (§12.14)
 

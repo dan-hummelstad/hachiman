@@ -1,16 +1,16 @@
 import { describe, expect, it } from 'vitest'
 
-import type { FrameKeyMessage, VoiceE2eeClientOp } from '../api'
+import type { FrameKeyMessage, VoiceE2eeClientOp, VoiceService } from '../api'
 import { fromB64url, toB64url } from '../codec'
 import { FakeMlsDs, type Client } from '../mls/fake-ds'
 import { keyPackageIdentity } from '../mls/index'
 import { FakeMedia, type VoiceClient } from './fake-media'
-import { commitSenderLeaf, createVoiceService, type VoiceServiceExt } from './service'
+import { commitSenderLeaf, createVoiceService } from './service'
 import { FrameKeyRing } from './transform'
 
 interface Member {
   client: Client
-  voice: VoiceServiceExt
+  voice: VoiceService
   port: { messages: FrameKeyMessage[] }
   call: VoiceClient
 }

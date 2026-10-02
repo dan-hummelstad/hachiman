@@ -78,8 +78,8 @@ pnpm -F @hachiman/crypto typecheck   # tsgo
 cd pkgs/hachiman-crypto && node_modules/.bin/vitest run
 cd pkgs/hachiman-crypto && ../../node_modules/.bin/tsgo --noEmit -p tsconfig.json
 
-# MLS load benchmark (not part of the test run)
-cd pkgs/hachiman-crypto && LOAD_N=1000 LOAD_CHURN=20 LOAD_REPLAY=20 node_modules/.bin/vitest bench --run src/mls/load.bench.ts
+# MLS load test (not part of the test run). Results: docs/e2ee-load-test.md
+cd pkgs/hachiman-crypto && LOAD_SIZES=1000,2000 LOAD_ROUNDS=3 node_modules/.bin/vitest bench --run --execArgv=--expose-gc src/mls/load.bench.ts   # above 2048 leaves: see the file header
 ```
 
 Use `tsgo`, never `tsc`.

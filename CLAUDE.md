@@ -92,7 +92,8 @@ pnpm -F @hachiman/hachiman-electron typecheck   # runs typecheck:node + typechec
 pnpm -F @hachiman/hachiman-browser  typecheck
 pnpm -F @hachiman/client            typecheck
 pnpm -F @hachiman/crypto            typecheck   # tsgo --noEmit -p tsconfig.json
-pnpm -F @hachiman/takusen            typecheck
+pnpm -F @hachiman/takusen            typecheck   # incremental (tsbuildinfo): if results look stale, run
+                                                 # tsgo --noEmit --incremental false -p apps/takusen/tsconfig.json
 
 # Lint / format
 pnpm -F <package> lint
@@ -100,6 +101,7 @@ pnpm -F <package> format
 
 # Tests
 pnpm -F @hachiman/client test              # vitest
+pnpm -F @hachiman/hachiman test            # vitest: shared UI services, hooks and helpers (src/dev/vitest.config.ts)
 pnpm -F @hachiman/crypto test              # vitest (node environment, fake-indexeddb), incl. the ts-mls smoke spec
 pnpm -F @hachiman/takusen test              # tsx scripts incl. gRPC handlers and the DS (no DB needed)
 pnpm -F @hachiman/hachiman-electron test   # main-process unit tests (CSP, secure storage, ...)
@@ -125,7 +127,7 @@ One name has one meaning in the shared file. Give a new variable a service prefi
 E2EE variables (contract §12.18):
 
 - Takusen: `TAKUSEN_DS_SIGNING_KEY` and `TAKUSEN_KT_SIGNING_KEY` (Ed25519 seed files, relative to `apps/takusen`). The first process that finds no file creates it with mode 0600. All Takusen instances must share the files.
-- Takusen: `TAKUSEN_MLS_SUITES` (default `1`), `TAKUSEN_MAX_ENVELOPE_BYTES` (default 32768), `TAKUSEN_PUBLIC_SET_MAX_MEMBERS` (default 10000), `TAKUSEN_MLS_BATCH_INTERVAL_MS` (default 2000), `TAKUSEN_MLS_BATCH_TIMEOUT_MS` (default 5000).
+- Takusen: `TAKUSEN_MLS_SUITES` (default `1`), `TAKUSEN_MAX_ENVELOPE_BYTES` (default 32768), `TAKUSEN_PUBLIC_SET_MAX_MEMBERS` (default 250, set by the load test in `docs/e2ee-load-test.md`), `TAKUSEN_MLS_BATCH_INTERVAL_MS` (default 2000), `TAKUSEN_MLS_BATCH_TIMEOUT_MS` (default 5000).
 - Gateway: `GATEWAY_MIN_CLIENT_VERSION` (default `0.1.0`). IDENTIFY with an older `clientVersion` gets close 4012.
 - Media: `MEDIA_WS_READ_LIMIT` (default 1048576). The voice WebSocket rejects larger frames. Commits, Welcomes and ratchet trees use this socket.
 
@@ -135,9 +137,9 @@ E2EE variables (contract §12.18):
 
 Most React work lands here. Layout:
 
-- `components/`: `shell/`, `chat/`, `voice/` (incl. screen share and call security), `people/`, `settings/`, `security/` (onboarding, devices, verification, linking, recovery, fatal screens), `ui/` (shadcn primitives)
+- `components/`: `shell/`, `chat/`, `voice/` (incl. screen share and call security), `people/`, `settings/`, `security/` (`CryptoGate` onboarding in front of the shell, the QR encoder `qr.ts`, and the security dialogs: devices, verification, linking, key change, recovery, fatal screens), `ui/` (shadcn primitives)
 - `stores/` (Zustand): guild, channel, messages, voice, user, takusen, prefs, limits, nav, dialog, crypto
-- `services/`: `hachiman.ts` owns the `HachimanClient` singleton and mirrors its cache into the stores. `MessagesService` / `VoiceService` / `InviteService` / `UploadService` / `TakusenService` sit on top. `SoundService` plays event chimes (`lib/sounds.ts` lists the events) as `prefsStore` permits.
+- `services/`: `hachiman.ts` owns the `HachimanClient` singleton and mirrors its cache into the stores. `App.tsx` calls `startHachiman(platform)`: the crypto Worker does not start without the platform (it needs `secureStorage` for the wrap key). `MessagesService` / `VoiceService` / `InviteService` / `UploadService` / `TakusenService` sit on top. `SoundService` plays event chimes (`lib/sounds.ts` lists the events) as `prefsStore` permits.
 - `services/CryptoService.ts` owns the one `CryptoClient` (the crypto Worker) and mirrors its events into `cryptoStore`. `ds-transport.ts` serves the Worker's REST calls. `message-decrypt.ts` decrypts messages. `voice-e2ee.ts` is the voice delegate. `AdminActionService` signs admin changes.
 - `hooks/`, `lib/` (helpers: mentions, stream quality, connection quality, sounds, ...)
 - `shared/`: `IPlatformService.ts` (the seam), `PlatformContext.tsx`, `takusen-env.ts`

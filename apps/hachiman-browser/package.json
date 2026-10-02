@@ -28,6 +28,7 @@
     "eslint-plugin-react": "^7.37.5",
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.4.26",
+    "fake-indexeddb": "^6.0.0",
     "prettier": "^3.9.6",
     "tailwindcss": "^4.3.3",
     "vite": "^7.3.6"

@@ -12,7 +12,7 @@ import { body, dsRoute, noContent } from '@/lib/mls/route'
 
 const schema = z.object({ cert: b64(1024) })
 
-export const PUT = dsRoute<{ id: string }>('active', async (ctx) => {
+export const PUT = dsRoute<{ id: string }>('pending', async (ctx) => {
   requireMe(ctx.params.id)
   const { cert } = await body(ctx.req, schema)
   await putDeviceSigningKey(ctx.repo, await ctx.deps(), ctx.out, ctx.userId, cert)

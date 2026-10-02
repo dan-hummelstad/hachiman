@@ -1,8 +1,13 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Message } from '@hachiman/client'
 import type { DecryptResult, EncryptedMessage, MessageContent } from '@hachiman/crypto'
 import type { ChatMessage } from '@/stores/messagesStore'
-import { createMessageDecryptor, toEncrypted, type MessageDecryptor } from './message-decrypt'
+import {
+  createMessageDecryptor,
+  RETRY_DELAYS_MS,
+  toEncrypted,
+  type MessageDecryptor
+} from './message-decrypt'
 
 const author = { id: 'u-1', username: 'alice', avatar: null }
 
@@ -217,5 +222,107 @@ describe('createMessageDecryptor', () => {
     release()
     expect(await running).toEqual([])
     expect(rows.size).toBe(0)
+  })
+
+  describe('timed retry after a rejected call', () => {
+    afterEach(() => {
+      vi.useRealTimers()
+      vi.restoreAllMocks()
+    })
+
+    /** Lets the timer callback's enqueued call run to the end. */
+    const settle = async (): Promise<void> => {
+      for (let i = 0; i < 10; i++) await Promise.resolve()
+    }
+
+    it('tries again after 1 s, 5 s and 30 s, then stops', async () => {
+      vi.useFakeTimers()
+      vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+      let calls = 0
+      const { d, rows } = harness(async () => {
+        calls++
+        throw new Error('Transport')
+      })
+      await d.ingest([wire('m1')])
+      expect(calls).toBe(1)
+      expect(rows.get('m1')?.decrypt.status).toBe('pending')
+
+      for (const [i, delay] of RETRY_DELAYS_MS.entries()) {
+        await vi.advanceTimersByTimeAsync(delay - 1)
+        expect(calls).toBe(i + 1)
+        await vi.advanceTimersByTimeAsync(1)
+        await settle()
+        expect(calls).toBe(i + 2)
+      }
+      await vi.advanceTimersByTimeAsync(10 * 60_000)
+      expect(calls).toBe(RETRY_DELAYS_MS.length + 1)
+      expect(vi.getTimerCount()).toBe(0)
+      expect(d.pendingIds()).toEqual(['m1'])
+    })
+
+    it('shows the content when a timed retry succeeds', async () => {
+      vi.useFakeTimers()
+      vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+      let up = false
+      const { d, rows } = harness(async (ms) => {
+        if (!up) throw new Error('Transport')
+        return ms.map((m) => ok(m, 'back'))
+      })
+      await d.ingest([wire('m1')])
+      expect(rows.get('m1')?.decrypt.status).toBe('pending')
+      up = true
+      await vi.advanceTimersByTimeAsync(RETRY_DELAYS_MS[0])
+      await settle()
+      expect(rows.get('m1')?.content).toBe('back')
+      expect(d.pendingIds()).toEqual([])
+      expect(vi.getTimerCount()).toBe(0)
+    })
+
+    it("tries a pending 'transport' result again on a timer", async () => {
+      vi.useFakeTimers()
+      let up = false
+      const { d, rows } = harness(async (ms) =>
+        ms.map((m) =>
+          up ? ok(m, 'back') : { status: 'pending', messageId: m.id, reason: 'transport' }
+        )
+      )
+      await d.ingest([wire('m1')])
+      expect(rows.get('m1')?.decrypt).toEqual({ status: 'pending', reason: 'transport' })
+      up = true
+      await vi.advanceTimersByTimeAsync(RETRY_DELAYS_MS[0])
+      await settle()
+      expect(rows.get('m1')?.content).toBe('back')
+      expect(vi.getTimerCount()).toBe(0)
+    })
+
+    it('does not retry a pending result on a timer', async () => {
+      vi.useFakeTimers()
+      let calls = 0
+      const { d } = harness(async (ms) => {
+        calls++
+        return ms.map((m) => ({ status: 'pending', messageId: m.id, reason: 'epoch_ahead' }))
+      })
+      await d.ingest([wire('m1')])
+      expect(vi.getTimerCount()).toBe(0)
+      await vi.advanceTimersByTimeAsync(60_000)
+      expect(calls).toBe(1)
+    })
+
+    it('cancels the timed retry on reset', async () => {
+      vi.useFakeTimers()
+      vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+      let calls = 0
+      const { d } = harness(async () => {
+        calls++
+        throw new Error('Transport')
+      })
+      await d.ingest([wire('m1')])
+      expect(vi.getTimerCount()).toBe(1)
+      d.reset()
+      expect(vi.getTimerCount()).toBe(0)
+      await vi.advanceTimersByTimeAsync(60_000)
+      expect(calls).toBe(1)
+      expect(d.pendingIds()).toEqual([])
+    })
   })
 })

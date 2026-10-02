@@ -12,11 +12,11 @@ import { errorResponse, parseBody } from '@/lib/api-helpers'
 import { requireUser } from '@/lib/auth-helpers'
 import { NotFoundError } from '@/lib/errors'
 import { loadChannelAccess } from '@/lib/guild-access'
-import { redisRateLimiter } from '@/lib/mls/context'
+import { rateLimit, redisRateLimiter } from '@/lib/mls/context'
 import { getDsModule } from '@/lib/mls/crypto'
 import { requireDevice } from '@/lib/mls/device-auth'
 
-import { openReport, REPORT_RATE, reportSchema } from './report'
+import { openReport, reportSchema } from './report'
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
   try {
@@ -24,7 +24,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     const userId = session.user.id
     await requireDevice(req, userId)
     const body = await parseBody(req, reportSchema)
-    await redisRateLimiter.hit(REPORT_RATE.bucket, userId, REPORT_RATE.limit, REPORT_RATE.windowSec)
+    await rateLimit({ rate: redisRateLimiter }, 'reports', userId)
 
     const [message] = await db
       .select({ id: messages.id, channelId: messages.channelId, clientMsgId: messages.clientMsgId, frankingTag: messages.frankingTag })

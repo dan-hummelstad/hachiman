@@ -99,17 +99,43 @@ const authService: AuthenticationService = {
   },
 }
 
-export const clientConfig: ClientConfig = { ...defaultClientConfig, authService }
+/**
+ * Hachiman sends only PublicMessage handshakes, so no secret tree of a past epoch is ever read.
+ * ts-mls keeps retainKeysForEpochs of them in every state; 1 is its minimum (0 keeps all).
+ */
+export const clientConfig: ClientConfig = {
+  ...defaultClientConfig,
+  keyRetentionConfig: { ...defaultClientConfig.keyRetentionConfig, retainKeysForEpochs: 1 },
+  authService,
+}
 
 const states = new WeakMap<MlsGroupHandle, ClientState>()
 
+/** `state` encodes on first read: a handle that is never stored (a proposal within a batch) costs no encoding. */
 function makeHandle(state: ClientState): MlsGroupHandle {
+  let encoded: Uint8Array | null = null
+  const handle = Object.freeze(
+    Object.defineProperties(
+      {
+        groupId: state.groupContext.groupId,
+        epoch: bigintEpoch(state.groupContext.epoch),
+        cipherSuite: suiteId(state.groupContext.cipherSuite),
+        ownLeaf: state.privatePath.leafIndex,
+      },
+      { state: { enumerable: true, get: () => (encoded ??= encodeGroupState(state)) } },
+    ),
+  ) as MlsGroupHandle
+  states.set(handle, state)
+  return handle
+}
+
+function restoredHandle(bytes: Uint8Array, state: ClientState): MlsGroupHandle {
   const handle: MlsGroupHandle = Object.freeze({
     groupId: state.groupContext.groupId,
     epoch: bigintEpoch(state.groupContext.epoch),
     cipherSuite: suiteId(state.groupContext.cipherSuite),
     ownLeaf: state.privatePath.leafIndex,
-    state: encodeGroupState(state),
+    state: bytes,
   })
   states.set(handle, state)
   return handle
@@ -173,16 +199,22 @@ function diffRoster(before: ClientState, after: ClientState): { added: LeafEntry
 }
 
 /**
- * Every leaf of a tree must pass the chain check (joins). A revoked device is the one exception:
- * its leaf stays until a member commits the queued Remove (§12.7.3 check 8), and the joiner
- * commits that Remove before it sends (§12.7.4).
+ * Every leaf of a tree must pass the chain check (joins). A revoked device is the one exception
+ * (§12.4 rule 7): a joiner holds no proposals, so it cannot see the queued Remove. The rest of the
+ * chain must still pass (signatures, pin, DSK downgrade); only a DSK superseded by the
+ * revocation's rotation is allowed. The joiner never encrypts to the leaf: GroupService.sendState
+ * commits a Remove by value for every revoked leaf before it returns an epoch secret.
  */
 function precheckTree(state: Pick<ClientState, 'ratchetTree'>, policy: ProposalPolicy, skipKey: Uint8Array | null): void {
+  const unrevoked = (u: UserId) => ({ ...policy.chainContextFor(u), revokedDeviceIds: new Set<DeviceId>() })
   treeLeaves(state.ratchetTree).forEach((leaf, i) => {
     if (leaf === undefined) return
     if (skipKey !== null && equalBytes(leaf.signaturePublicKey, skipKey)) return
     const v = checkLeafChain(leaf, (u) => policy.chainContextFor(u), false)
-    if (!v.ok && v.reason !== 'revoked') throw new CryptoError('InvalidChain', `leaf ${i}: ${v.reason}`)
+    if (v.ok) return
+    if (v.reason !== 'revoked') throw new CryptoError('InvalidChain', `leaf ${i}: ${v.reason}`)
+    const rest = checkLeafChain(leaf, unrevoked, false)
+    if (!rest.ok && rest.reason !== 'dsk_superseded') throw new CryptoError('InvalidChain', `leaf ${i}: revoked, and ${rest.reason}`)
   })
 }
 
@@ -273,6 +305,26 @@ function decodeMessageAsPublic(message: Uint8Array): PublicMessage {
 /** True when the state holds this stored proposal. */
 export function hasStoredProposal(handle: MlsGroupHandle, ref: Uint8Array): boolean {
   return stateOf(handle).unappliedProposals[bytesToBase64(ref)] !== undefined
+}
+
+/**
+ * The committer check of a stored proposal at commit time: an Add must still pass the chain,
+ * readers and admin readers checks (they can change after the proposal was stored). Null when
+ * it may go into the commit, or when the state does not hold it.
+ */
+export function checkStoredProposal(handle: MlsGroupHandle, ref: Uint8Array, policy: ProposalPolicy): string | null {
+  const p = stateOf(handle).unappliedProposals[bytesToBase64(ref)]
+  if (p?.proposal.proposalType !== 'add') return null
+  return checkAddKeyPackage(p.proposal.add.keyPackage, policy)
+}
+
+/** The same state without these stored proposals: the next commit does not include them. */
+export function dropStoredProposals(handle: MlsGroupHandle, refs: readonly Uint8Array[]): MlsGroupHandle {
+  if (refs.length === 0) return handle
+  const state = stateOf(handle)
+  const drop = new Set(refs.map(bytesToBase64))
+  const unappliedProposals = Object.fromEntries(Object.entries(state.unappliedProposals).filter(([k]) => !drop.has(k)))
+  return makeHandle({ ...state, unappliedProposals })
 }
 
 /** The descriptor and the hashes of the current epoch (fork check, §12.8.7). */
@@ -571,7 +623,7 @@ export const mls: MlsModule = {
   restore(state) {
     try {
       const s = restoreState(state)
-      return Promise.resolve(makeHandle(s))
+      return Promise.resolve(restoredHandle(state, s))
     } catch (e) {
       return Promise.reject(wrap(e))
     }

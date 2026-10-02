@@ -4,18 +4,17 @@
  * commits" eviction with revert), without sockets or timers. `failover()` stands in for the 5 s
  * committer timer. Not part of the package exports.
  */
-import type { ChannelId, GuildId, VoiceE2eeClientOp, VoiceE2eeServerOp } from '../api'
+import type { ChannelId, GuildId, VoiceE2eeClientOp, VoiceE2eeServerOp, VoiceService } from '../api'
 import { Reader, fromB64url, toB64url } from '../codec'
 import { equalBytes } from '../identity/bytes'
 import { mls } from '../mls/index'
 import { uuid } from '../mls/test-helpers'
-import type { VoiceServiceExt } from './service'
 
 export interface VoiceClient {
   name: string
   userId: string
   deviceId: string
-  voice: VoiceServiceExt
+  voice: VoiceService
   handle: string
 }
 
@@ -84,7 +83,7 @@ export class FakeMedia {
     this.groupId = toB64url(mls.groupId({ kind: 'voice', scope: uuid(), generation: 0 }))
   }
 
-  async join(name: string, userId: string, deviceId: string, voice: VoiceServiceExt, sid = uuid()): Promise<VoiceClient> {
+  async join(name: string, userId: string, deviceId: string, voice: VoiceService, sid = uuid()): Promise<VoiceClient> {
     const start = await voice.voiceStart({ channelId: this.channelId, guildId: this.guildId })
     const client: VoiceClient = { name, userId, deviceId, voice, handle: start.handle }
     this.parts.set(sid, { sid, client, keyPackage: start.keyPackage, seq: ++this.seq, leaf: null, addedIn: 0, acked: 0, kpSentTo: null, demoted: false, expectTree: null })

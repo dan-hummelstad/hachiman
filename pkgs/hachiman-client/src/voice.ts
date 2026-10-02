@@ -383,22 +383,26 @@ export class VoiceConnection extends TypedEventEmitter<VoiceEvents> {
     const pc = this.pc
     if (!pc) return
     await pc.setRemoteDescription({ type: 'offer', sdp })
-    for (const c of this.remoteCandidates.splice(0)) await this.addRemoteCandidate(c)
     // Media's first m-line is a recvonly slot reserved exclusively for our mic; peers' audio uses
     // separate sendonly transceivers. Answering sendrecv on it lets us upload.
     const [mic, screen] = pc.getTransceivers()
-    // The transforms go on before any track, so no frame leaves without SFrame.
+    // The transforms go on before any track, so no frame leaves without SFrame. They go on in the
+    // same task as setRemoteDescription, before any other await: Chromium (142, 154) binds the
+    // sender's frame transformer shortly after setRemoteDescription, and a transform assigned
+    // later (after addIceCandidate, or ~500 ms later) is silently ignored, so the sender sends
+    // plaintext (e2e/calls found it).
     if (mic) {
       this.installSenderTransform(mic, 'audio')
       mic.direction = 'sendrecv'
       this.micTransceiver = mic
-      await this.applyMic()
     }
     if (screen) {
       this.installSenderTransform(screen, 'video')
       screen.direction = 'sendrecv'
       this.screenTransceiver = screen
     }
+    for (const c of this.remoteCandidates.splice(0)) await this.addRemoteCandidate(c)
+    if (mic) await this.applyMic()
     const answer = await pc.createAnswer()
     await pc.setLocalDescription(answer)
     // After setLocalDescription: before the first one, the sender has no encodings to limit.

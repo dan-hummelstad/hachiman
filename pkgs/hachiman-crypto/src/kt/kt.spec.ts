@@ -3,7 +3,7 @@ import { sha256 } from '@noble/hashes/sha2.js'
 import fc from 'fast-check'
 import { describe, expect, it } from 'vitest'
 
-import type { CryptoEvents, StoreSchema, WireKtTreeHead } from '../api'
+import { CryptoError, type CryptoEvents, type StoreSchema, type WireKtTreeHead } from '../api'
 import { CodecError, toB64url } from '../codec'
 import { generateEd25519 } from '../sign'
 import { createKtClient } from './client'
@@ -105,7 +105,8 @@ describe('entries and tree heads', () => {
 })
 
 describe('KT client', () => {
-  function setup() {
+  /** `missingHeads`: the first GET /kt/tree-head calls answer 404 NotFound (no head signed yet). */
+  function setup(missingHeads = 0) {
     const key = generateEd25519()
     const log: Uint8Array[] = []
     let row: StoreSchema['kt'] | undefined
@@ -124,7 +125,10 @@ describe('KT client', () => {
     let heads = 0
     const client = createKtClient({
       transport: {
-        ktTreeHead: async () => (heads++, head()),
+        ktTreeHead: async () => {
+          if (++heads <= missingHeads) throw new CryptoError('Transport', 'no tree head yet', 'NotFound')
+          return head()
+        },
         ktInclusion: async (index, treeSize) => ({ leafIndex: index, treeSize, auditPath: kt.inclusionProof(log, index, treeSize).map(toB64url) }),
         ktConsistency: async (from, to) => ({ from, to, proof: kt.consistencyProof(log, from, to).map(toB64url) }),
       },
@@ -165,6 +169,15 @@ describe('KT client', () => {
     await expect(t.client.prove(uncovered.index, uncovered.entry, { type: 3, userId: '0f8fad5b-d9cb-469f-a165-70867728950e', object: new Uint8Array([3]) })).rejects.toMatchObject({ code: 'InvalidChain' })
     expect(t.heads()).toBe(3)
     expect(t.alerts.map((a) => a.kind)).toEqual(['bad_proof'])
+  })
+
+  it('waits for the first head when the DS has signed none yet', async () => {
+    const t = setup(1)
+    const e = t.append(new Uint8Array([1]))
+    await t.client.prove(e.index, e.entry, { type: 3, userId: '0f8fad5b-d9cb-469f-a165-70867728950e', object: new Uint8Array([1]) })
+    expect(t.heads()).toBe(2)
+    expect((await t.client.storedHead())?.treeSize).toBe(1)
+    expect(t.alerts).toEqual([])
   })
 
   it('raises split_view for two roots of one size and for an inconsistent head', async () => {

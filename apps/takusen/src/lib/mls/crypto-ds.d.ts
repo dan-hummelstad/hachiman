@@ -4,5 +4,5 @@
  * against the interface and not against one implementation.
  */
 declare module '@hachiman/crypto/ds' {
-  export const ds: import('../../../../../pkgs/hachiman-crypto/src/api').DsModule
+  export const ds: import('@hachiman/crypto').DsModule
 }

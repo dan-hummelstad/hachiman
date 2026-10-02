@@ -33,6 +33,7 @@ import type {
   Member,
   Message,
   MlsGroup,
+  ProposalRejection,
   RevocationReason,
   Role,
   User,
@@ -177,6 +178,23 @@ export type KtEntriesQuery =
   | { start: number; end: number }
 
 const e = encodeURIComponent
+
+/**
+ * The CommitRequest wire body (§12.12): `rejected` holds only joins by pendingId, and the
+ * DS proposals by proposalRef go in `rejectedProposals` (omitted when empty).
+ */
+function commitWireBody(body: CommitRequest) {
+  const { rejected, rejectedProposals = [], ...rest } = body
+  const joins: { pendingId: string; reason: ProposalRejection['reason'] }[] = []
+  const proposals: ProposalRejection[] = [...rejectedProposals]
+  for (const r of rejected) {
+    if ('pendingId' in r) joins.push({ pendingId: r.pendingId, reason: r.reason })
+    else proposals.push({ proposalRef: r.proposalRef, reason: r.reason })
+  }
+  return proposals.length > 0
+    ? { ...rest, rejected: joins, rejectedProposals: proposals }
+    : { ...rest, rejected: joins }
+}
 
 function query(params: Record<string, string | number | undefined>): string {
   const qs = new URLSearchParams()
@@ -340,7 +358,7 @@ export class RestClient {
       const r = await this.req<{ epoch: number; seq: number }>(
         'POST',
         `/mls/groups/${e(groupId)}/commits`,
-        body,
+        commitWireBody(body),
       )
       return { ok: true, epoch: r.epoch, seq: r.seq }
     } catch (err) {
@@ -364,8 +382,18 @@ export class RestClient {
   postJoinRequest = (groupId: B64url, body: { keyPackage: B64url }) =>
     this.req<JoinRequest>('POST', `/mls/groups/${e(groupId)}/join-requests`, body)
   getJoinRequest = (id: string) => this.req<JoinRequest>('GET', `/mls/join-requests/${e(id)}`)
-  declineBatch = (batchId: string, reason: 'not_synced' | 'busy') =>
-    this.req<undefined>('POST', `/mls/batches/${e(batchId)}/decline`, { reason })
+  declineBatch = (
+    batchId: string,
+    reason: 'not_synced' | 'busy',
+    rejectedProposals?: ProposalRejection[],
+  ) =>
+    this.req<undefined>(
+      'POST',
+      `/mls/batches/${e(batchId)}/decline`,
+      rejectedProposals !== undefined && rejectedProposals.length > 0
+        ? { reason, rejectedProposals }
+        : { reason },
+    )
   postHistoryBundle = (groupId: B64url, body: { epoch: number; blob: B64url }) =>
     this.req<undefined>('POST', `/mls/groups/${e(groupId)}/history-bundles`, body)
   getHistoryBundles = (groupId: B64url, epoch: number) =>

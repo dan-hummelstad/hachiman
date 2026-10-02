@@ -51,7 +51,7 @@ flowchart LR
 
 - The host renders `<PlatformProvider value={platformService}><ThemeProvider><App /></ThemeProvider></PlatformProvider>`.
 - The host supplies only the platform seam. It does not create a client or a store.
-- `services/hachiman.ts` creates the one `HachimanClient`. The access token comes from `takusenService.getAccessToken`. `App.tsx` calls `startHachiman(platform)`, so the crypto Worker gets the host's `secureStorage`.
+- `services/hachiman.ts` creates the one `HachimanClient`. The access token comes from `takusenService.getAccessToken`. `App.tsx` calls `startHachiman(platform)`, so the crypto Worker gets the host's `secureStorage`. Without the platform, the crypto Worker does not start (there is no wrap key for its store).
 - `CryptoService` starts the crypto Worker of the signed-in user. The gateway connects only when the Worker has a device id, because IDENTIFY needs it.
 - `TakusenService` runs the OIDC PKCE flow and refreshes the token. The host only opens the authorization page and delivers the callback URL.
 - `TakusenService` also reads the public region list and posts region RTTs to `/api/v1/regions/recommend`.
@@ -142,7 +142,7 @@ Only `services/hachiman.ts` writes the mirror stores (`guildStore`, `channelStor
 | `src/components/chat/` | Transcript, message row and toolbar, composer, typing line, the "unable to decrypt" text (`decrypt-text.ts`), MLS membership lines |
 | `src/components/chat/attachments/` | `useUploads`, upload tray, drop zone, attachment grid, lightbox |
 | `src/components/voice/` | Voice room, `stream-grid`, `screen-share-controls`, `screen-source-picker`, stream quality fields, self mute and deafen toggles, call security (`call-roster`, `call-security`, `verify-call-dialog`) |
-| `src/components/security/` | `CryptoGate` and the onboarding (set up, link, restore, reset). Devices panel, device linking (QR and SAS emoji), verification, key-change dialog. Recovery key view and panel, security log and notices, the host trust label, fatal screens. `qr.ts` is a small QR encoder (no dependency) |
+| `src/components/security/` | `CryptoGate` (`onboarding.tsx`): the gate in front of `Shell`, and the onboarding (set up, link, restore, reset). Devices panel, device linking (QR and SAS emoji), verification, key-change dialog. Recovery key view and panel, security log and notices, the host trust label, fatal screens. `qr.ts` is a small QR encoder (no dependency) |
 | `src/components/people/` | Member list sections by presence |
 | `src/components/settings/` | Settings layout. `user/` holds account, appearance, voice and sounds. The guild settings dialogs are in `src/components/`. |
 | `src/components/ui/` | shadcn and local primitives (dialog, tooltip, avatar, window strip, title bar) |
@@ -280,11 +280,12 @@ pnpm -F @hachiman/hachiman typecheck   # tsgo --noEmit -p tsconfig.web.json --co
 pnpm -F @hachiman/hachiman lint        # eslint --cache .
 pnpm -F @hachiman/hachiman format      # prettier --write .
 pnpm -F @hachiman/hachiman shadcn:add <component>   # adds to src/components/ui (components.json)
+pnpm -F @hachiman/hachiman test        # vitest run --config src/dev/vitest.config.ts
 ```
 
 This package has no `dev` script. Run it through a host: `pnpm dev:browser` or `pnpm dev:electron`.
 
-The unit tests (`src/**/*.test.ts`) cover the services, hooks and helpers. Examples are the decrypt order, the DS transport, the voice delegate, the QR encoder and the recovery key input. This package has no vitest dependency yet, so run the binary of a sibling package from `apps/hachiman`:
+The unit tests (`src/**/*.test.ts`) cover the services, hooks and helpers. Examples are the decrypt order, the DS transport, the voice delegate, the QR encoder and the recovery key input. Run them with `pnpm -F @hachiman/hachiman test`. The `vitest` devDependency of this package needs a `pnpm install` outside the sandbox. Until then, or inside the sandbox, run the binary of a sibling package from `apps/hachiman`:
 
 ```bash
 ../../pkgs/hachiman-client/node_modules/.bin/vitest run --config src/dev/vitest.config.ts

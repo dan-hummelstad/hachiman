@@ -37,10 +37,10 @@ import { createMessageSchema } from '@/lib/wire'
 import { editMessage, sendMessage, type MessageStore, type NewMessage } from '@/app/api/v1/channels/[id]/messages/service'
 import { openReport, reportSchema } from '@/app/api/v1/reports/report'
 
-import { admin } from '../../../../pkgs/hachiman-crypto/src/admin/index'
-import type { AdminAction } from '../../../../pkgs/hachiman-crypto/src/api'
-import { AdminActionType } from '../../../../pkgs/hachiman-crypto/src/constants'
-import { frankingTagSync } from '../../../../pkgs/hachiman-crypto/src/franking/index'
+import { admin } from '@hachiman/crypto/admin'
+import type { AdminAction } from '@hachiman/crypto'
+import { AdminActionType } from '@hachiman/crypto/constants'
+import { frankingTagSync } from '@hachiman/crypto/franking'
 import { identity } from '../../../../pkgs/hachiman-crypto/src/identity/index'
 import { ds as realDs } from '../../../../pkgs/hachiman-crypto/src/mls/ds'
 import { generateEd25519 } from '../../../../pkgs/hachiman-crypto/src/sign'
@@ -321,6 +321,7 @@ describe('membership triggers (§12.18)', () => {
       async wake(tx) {
         woken.push(tx)
       },
+      discard() {},
     })
     const tx = { id: 'tx' } as unknown as Tx
     const [g, u, c, r] = [randomUUID(), randomUUID(), randomUUID(), randomUUID()]
@@ -350,7 +351,7 @@ describe('membership triggers (§12.18)', () => {
   })
 
   test('a wake failure is logged, not thrown: the write has committed', async () => {
-    setMembershipSeam({ change: async () => {}, wake: async () => Promise.reject(new Error('redis down')) })
+    setMembershipSeam({ change: async () => {}, wake: async () => Promise.reject(new Error('redis down')), discard() {} })
     const error = console.error
     console.error = () => {}
     try {
@@ -407,6 +408,9 @@ describe('password reset and change (§12.4, §12.18)', () => {
       async afterCommit(tx) {
         log.push(`wake:${tx}`)
       },
+      discard(tx) {
+        log.push(`discard:${tx}`)
+      },
       async revokeSessions(userId) {
         log.push(`sessions:${userId}`)
       },
@@ -437,6 +441,22 @@ describe('password reset and change (§12.4, §12.18)', () => {
     assert.deepEqual(again.log, [])
   })
 
+  test('a reset whose transaction throws drops its DS work and revokes nothing', async () => {
+    const w = await newWorld()
+    const alice = w.repo.addUser()
+    await activeDevice(w, alice)
+    const { ports, log } = resetPorts(w, new Outbox(), new Map([['h1', alice]]))
+    const failing: PasswordResetPorts<string> = {
+      ...ports,
+      transaction: async (fn) => {
+        await fn('tx')
+        throw new Error('commit failed')
+      },
+    }
+    await assert.rejects(completePasswordReset(failing, { tokenHash: 'h1', passwordHash: 'x', now: new Date() }), /commit failed/)
+    assert.deepEqual(log, [`password:${alice}`, 'discard:tx'])
+  })
+
   test('a password change revokes the sessions, keeps this browser and the devices', async () => {
     const calls: string[] = []
     setMembershipSeam({
@@ -445,6 +465,9 @@ describe('password reset and change (§12.4, §12.18)', () => {
       },
       async wake() {
         calls.push('ds:wake')
+      },
+      discard() {
+        calls.push('ds:discard')
       },
     })
     await completePasswordChange(

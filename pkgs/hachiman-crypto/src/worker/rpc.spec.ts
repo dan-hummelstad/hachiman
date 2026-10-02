@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { CryptoError, type CryptoStatus, type InitOptions } from '../api'
+import { LOCK_HELD_MESSAGE } from '../bridge/index'
 import { inProcessClient, LocksShim, wrapKey } from '../bridge/test-harness'
+import { createCryptoStore } from '../store/index'
 import { FakeDs } from '../identity/test-helpers'
 import { createRpcPeer, CRYPTO_API_METHODS, DS_TRANSPORT_METHODS, toErrorShape, type RpcPeer } from './rpc'
 
@@ -36,7 +38,7 @@ describe('rpc peer', () => {
         slow: () => new Promise(() => undefined),
       }),
       allow: ['add', 'fail', 'boom', 'transport', 'blob', 'port', 'slow'],
-      fallbackCode: 'Malformed',
+      fallbackCode: 'Internal',
     })
     b = createRpcPeer(port2, { serve: () => null, allow: [], fallbackCode: 'Transport', onEvent: (event, payload) => events.push({ event, payload }) })
   })
@@ -50,7 +52,7 @@ describe('rpc peer', () => {
   it('returns values and maps errors to CryptoError', async () => {
     expect(await b.call('add', [2, 3])).toBe(5)
     await expect(b.call('fail', [])).rejects.toSatisfy(isCode('TooLarge', 'EnvelopeTooLarge'))
-    await expect(b.call('boom', [])).rejects.toSatisfy(isCode('Malformed'))
+    await expect(b.call('boom', [])).rejects.toSatisfy(isCode('Internal'))
     await expect(b.call('transport', [])).rejects.toSatisfy(isCode('Transport', 'EpochConflict'))
     await expect(b.call('hidden', [])).rejects.toSatisfy(isCode('Unsupported'))
     await expect(b.call('nope', [])).rejects.toSatisfy(isCode('Unsupported'))
@@ -90,10 +92,13 @@ describe('rpc peer', () => {
     expect(toErrorShape({ code: 'Transport', message: 'x', dsCode: 'UnknownGroup' }, 'Malformed')).toEqual({ code: 'Transport', message: 'x', dsCode: 'UnknownGroup' })
     expect(toErrorShape({ code: 'Weird', message: 'x', dsCode: 'RateLimited' }, 'Malformed')).toEqual({ code: 'Transport', message: 'x', dsCode: 'RateLimited' })
     expect(toErrorShape('text', 'Malformed')).toEqual({ code: 'Malformed', message: 'text' })
+    // Without a CryptoErrorCode and without a dsCode: the fallback, never 'Transport'.
+    expect(toErrorShape(new TypeError('bug'), 'Internal')).toEqual({ code: 'Internal', message: 'bug', dsCode: undefined })
+    expect(toErrorShape({ code: 'LockHeld', message: 'x' }, 'Internal')).toEqual({ code: 'LockHeld', message: 'x', dsCode: undefined })
   })
 
   it('lists every CryptoApi and DsTransport method', () => {
-    expect(CRYPTO_API_METHODS).toHaveLength(40)
+    expect(CRYPTO_API_METHODS).toHaveLength(41)
     expect(DS_TRANSPORT_METHODS).toHaveLength(43)
   })
 })
@@ -163,7 +168,7 @@ describe('bridge and Worker engine', () => {
     const first = inProcessClient(ds.transport(userId)).client
     const second = inProcessClient(ds.transport(userId)).client
     await first.init(init)
-    await expect(second.init(init)).rejects.toSatisfy((e: unknown) => isCode('Unsupported')(e) && (e as Error).message.includes('open in another tab'))
+    await expect(second.init(init)).rejects.toSatisfy((e: unknown) => isCode('LockHeld')(e) && (e as Error).message.startsWith(LOCK_HELD_MESSAGE))
     // Another user on the same origin has its own lock.
     const other = inProcessClient(ds.transport(ds.id())).client
     await other.init({ ...init, userId: ds.id() })
@@ -173,6 +178,18 @@ describe('bridge and Worker engine', () => {
     })
     second.dispose()
     other.dispose()
+  })
+
+  it("gives a Worker exception without a CryptoErrorCode the code 'Internal'", async () => {
+    const ds = new FakeDs()
+    const userId = ds.id()
+    const store = createCryptoStore()
+    store.open = () => Promise.reject(new TypeError('store bug'))
+    const { client } = inProcessClient(ds.transport(userId), { store })
+    await expect(client.init({ userId, wrapKey: await wrapKey(), platform: 'electron', clientVersion: '1.0.0', deviceName: 'x', origin: 'https://takusen.test' })).rejects.toSatisfy(
+      (e: unknown) => isCode('Internal')(e) && (e as Error).message === 'store bug',
+    )
+    client.dispose()
   })
 
   it('fails closed without a Web Locks API', async () => {

@@ -6,7 +6,7 @@
  * The DsModule loads lazily: route modules and tests that never touch MLS do
  * not load ts-mls. Tests inject a fake with `setDsModule`.
  */
-import type { DsModule, DsSigner } from '../../../../../pkgs/hachiman-crypto/src/api'
+import type { DsModule, DsSigner } from '@hachiman/crypto'
 
 export type {
   B64url,
@@ -36,8 +36,8 @@ export type {
   WireKtTreeHead,
   WireMlsGroup,
   WireUserKeys,
-} from '../../../../../pkgs/hachiman-crypto/src/api'
-export type { CipherSuiteId, GroupKindName, HistoryVisibilityName } from '../../../../../pkgs/hachiman-crypto/src/constants'
+} from '@hachiman/crypto'
+export type { CipherSuiteId, GroupKindName, HistoryVisibilityName } from '@hachiman/crypto/constants'
 export {
   ADD_ONLY_EPOCH_GRACE_MS,
   BATCH_INTERVAL_MS,
@@ -62,7 +62,7 @@ export {
   MAX_ENVELOPE_BYTES,
   PUBLIC_SET_MAX_MEMBERS,
   WIRE_VERSION,
-} from '../../../../../pkgs/hachiman-crypto/src/constants'
+} from '@hachiman/crypto/constants'
 
 let override: DsModule | null = null
 let loading: Promise<DsModule> | null = null

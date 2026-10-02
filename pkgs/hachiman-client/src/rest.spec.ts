@@ -390,6 +390,39 @@ describe('RestClient fetch routes', () => {
       expect(last()).toMatchObject({ url: 'http://api/v1/mls/groups/g1/commits', method: 'POST', body })
     })
 
+    it('sends proposalRef rejections as rejectedProposals', async () => {
+      reply = json(201, { epoch: 5, seq: 78 })
+      await rest.postCommit('g1', {
+        ...body,
+        rejected: [
+          { pendingId: 'p1', reason: 'invalid_chain' },
+          { proposalRef: 'ref1', reason: 'malformed' },
+        ],
+      })
+      expect(last().body).toEqual({
+        epoch: 4,
+        commit: 'c',
+        groupInfo: 'gi',
+        ratchetTree: 'rt',
+        welcome: null,
+        batchId: 'b1',
+        rejected: [{ pendingId: 'p1', reason: 'invalid_chain' }],
+        rejectedProposals: [{ proposalRef: 'ref1', reason: 'malformed' }],
+      })
+    })
+
+    it('declineBatch carries rejectedProposals only when present', async () => {
+      reply = () => new Response(null, { status: 204 })
+      await rest.declineBatch('b1', 'busy')
+      expect(last().body).toEqual({ reason: 'busy' })
+      reply = () => new Response(null, { status: 204 })
+      await rest.declineBatch('b1', 'not_synced', [{ proposalRef: 'r', reason: 'invalid_chain' }])
+      expect(last().body).toEqual({
+        reason: 'not_synced',
+        rejectedProposals: [{ proposalRef: 'r', reason: 'invalid_chain' }],
+      })
+    })
+
     it('409 EpochConflict resolves as a value with the DS epoch', async () => {
       reply = json(409, { error: 'EpochConflict', epoch: 6 })
       await expect(rest.postCommit('g1', body)).resolves.toEqual({

@@ -14,7 +14,10 @@ import { uuidToBytes } from './bytes'
 import { createLinkSession, fetchHandshakes, postHistoryBackup, postLinkMessage, putIdentityBackup } from './device-data'
 import { Outbox } from './events'
 import { uploadKeyPackages } from './key-packages'
-import { onMembershipChangeWith } from './membership'
+import type { Tx } from '@/db/client'
+import { membershipTransactionWith } from '@/lib/guilds'
+
+import { hasMembershipWork, onMembershipChangeWith, recordMembershipChange, wakeScheduler } from './membership'
 import { activate, activeDevice, fakeKeyPackage, newWorld, runBatchAndCommit } from './testing'
 import { encodeForTests } from './wire-format'
 
@@ -108,6 +111,38 @@ describe('channel moves (§12.6)', () => {
     for (const g of await w.repo.listGroupsByGuild(guildId)) {
       assert.equal(g.status, 'retired')
       assert.equal((await w.repo.listBatchesOfGroup(g.groupId)).length, 0)
+    }
+  })
+})
+
+describe('membership work of a rolled-back transaction (§12.18)', () => {
+  test('a thrown transaction leaves no outbox entry and publishes nothing', async () => {
+    const w = await newWorld()
+    const alice = w.repo.addUser()
+    const bob = w.repo.addUser()
+    const aDev = await activeDevice(w, alice)
+    await activeDevice(w, bob)
+    const channelId = w.repo.addDm([alice, bob])
+    const tx = { id: 'rolled-back' } as unknown as Tx
+    const published: string[] = []
+    setBusPublisher(async (channel) => void published.push(channel))
+    try {
+      await assert.rejects(
+        membershipTransactionWith(
+          async (fn) => fn(tx),
+          async (t) => {
+            await recordMembershipChange(t, w.repo, w.deps, { kind: 'dm_created', channelId }, aDev.id)
+            assert.ok(hasMembershipWork(t), 'the change recorded work for the transaction')
+            throw new Error('rollback')
+          },
+        ),
+        /rollback/,
+      )
+      assert.equal(hasMembershipWork(tx), false)
+      await wakeScheduler(tx)
+      assert.deepEqual(published, [])
+    } finally {
+      setBusPublisher(async () => undefined)
     }
   })
 })

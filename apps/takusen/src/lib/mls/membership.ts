@@ -2,7 +2,8 @@
  * Membership changes → DS work (docs/gateway-protocol.md §12.18).
  *
  * Content routes call `onMembershipChange` inside their transaction, after
- * the write, and `wakeScheduler` after the commit. The change queues Removes
+ * the write, and `wakeScheduler` after the commit (`discardMembershipWork`
+ * after a rollback). The change queues Removes
  * and Adds, allocates and retires groups, and moves channels between the
  * `public_set` group and their own group (§12.6). `wakeScheduler` then signs
  * the DS proposals for the new items (one per item and epoch, §12.7.4),
@@ -37,7 +38,12 @@ export type MembershipChange =
 
 // MARK: - The seam
 
-/** Outboxes of open transactions, flushed by wakeScheduler after the commit. */
+/**
+ * Outboxes of open transactions, keyed by the transaction handle. After the
+ * commit, `wakeScheduler(tx)` flushes and drops the entry. After a rollback,
+ * `discardMembershipWork(tx)` drops it, so nothing of a rolled-back
+ * transaction is ever published.
+ */
 const outboxes = new Map<object, Outbox>()
 
 function outboxFor(tx: object): Outbox {
@@ -48,25 +54,30 @@ function outboxFor(tx: object): Outbox {
 
 /** Call inside the route transaction, after the write. */
 export async function onMembershipChange(tx: Tx, change: MembershipChange, actorDeviceId: string | null): Promise<void> {
-  await onMembershipChangeWith(drizzleMlsRepo(tx), lightDeps(), outboxFor(tx), change, actorDeviceId)
+  await recordMembershipChange(tx, drizzleMlsRepo(tx), lightDeps(), change, actorDeviceId)
 }
 
-/**
- * Call after the transaction commits. With `tx`, it flushes the work of that
- * transaction only. Without it, it flushes the work of every change that this
- * process recorded.
- */
-export async function wakeScheduler(tx?: Tx): Promise<void> {
-  const out = new Outbox()
-  if (tx) {
-    const own = outboxes.get(tx)
-    outboxes.delete(tx)
-    if (own) out.merge(own)
-  } else {
-    for (const own of outboxes.values()) out.merge(own)
-    outboxes.clear()
-  }
-  await flushWithProposals(drizzleMlsRepo(), out)
+/** `onMembershipChange` with an explicit repo and deps. `key` is the transaction handle. Tests use the in-memory repo. */
+export async function recordMembershipChange(key: object, repo: MlsRepo, deps: LightDeps, change: MembershipChange, actorDeviceId: string | null): Promise<void> {
+  await onMembershipChangeWith(repo, deps, outboxFor(key), change, actorDeviceId)
+}
+
+/** Call after the transaction commits: flushes the work of that transaction only. */
+export async function wakeScheduler(tx: Tx): Promise<void> {
+  const own = outboxes.get(tx)
+  outboxes.delete(tx)
+  if (!own) return
+  await flushWithProposals(drizzleMlsRepo(), own)
+}
+
+/** Call after the transaction rolls back: drops its work unpublished. */
+export function discardMembershipWork(tx: object): void {
+  outboxes.delete(tx)
+}
+
+/** True while the transaction has recorded work that is neither flushed nor discarded. */
+export function hasMembershipWork(tx: object): boolean {
+  return outboxes.has(tx)
 }
 
 /**
@@ -176,7 +187,10 @@ async function reclassifyChannel(repo: MlsRepo, deps: LightDeps, out: Outbox, ch
   if (!data) return
   const overwrites = await repo.getChannelOverwrites(channel.id)
   const isPublic = isPublicFrom(guildId, data.roles.get(guildId)?.permissions ?? 0, overwrites)
-  const current = channel.mlsGroupId ? await repo.getGroup(channel.mlsGroupId) : null
+  // FOR UPDATE: a createGroup of this group that runs now computed its readers before this
+  // change committed. The lock waits for it, so the reconcile below sees the group active
+  // and queues the Adds that the create missed.
+  const current = channel.mlsGroupId ? await repo.lockGroup(channel.mlsGroupId) : null
 
   if (isPublic) {
     const set = await ensurePublicSet(repo, deps, out, guildId, actorDeviceId)
@@ -277,6 +291,7 @@ export async function revokeDevicesWith(
     await repo.insertRevocation({ deviceId: device.id, userId: input.userId, reason: input.reason, revocation: w.revocation })
     await repo.deleteDeviceKeyPackages(device.id)
     revoked.push(device.id)
+    out.revokedDevices.add(device.id)
   }
   for (const m of await repo.membershipsOfDevices(revoked)) {
     const group = await repo.getGroup(m.groupId)

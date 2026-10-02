@@ -15,6 +15,9 @@ if (existsSync(rootEnv)) process.loadEnvFile(rootEnv)
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  // Dev only: two `next dev` processes in one checkout must not share .next
+  // (random 404s and ENOENT). Give the second one its own directory.
+  distDir: process.env.TAKUSEN_NEXT_DIST_DIR || '.next',
   // oidc-provider is server-only and uses dynamic requires; keep it external
   // so Next/webpack doesn't try to bundle it.
   serverExternalPackages: ['oidc-provider'],

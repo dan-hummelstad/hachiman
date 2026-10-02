@@ -68,7 +68,8 @@ const identityRow = (): StoreSchema['identity'] => ({
   hpkeKey: { publicKey: new Uint8Array(32).fill(9), privateKey: new Uint8Array(0) },
   dsk: null,
   master: { record: new Uint8Array([4]), privateKey: null },
-  recoveryKeyId: null,
+  recoveryKeyId: new Uint8Array(16).fill(3),
+  backupKey: { key: new Uint8Array(32).fill(1), keyId: new Uint8Array(16).fill(3) },
   dsExternalSender: new Uint8Array([5, 6]),
   ktPublicKey: null,
 })
@@ -84,6 +85,15 @@ describe('serialize', () => {
     expect(new TextDecoder().decode(bytes)).toBe('{"a":{"c":{"$b":""}},"b":[1,"x",null,true,{"$b":"AP8"}]}')
     expect(deserializeValue(bytes)).toEqual({ a: { c: new Uint8Array(0) }, b: [1, 'x', null, true, new Uint8Array([0, 255])] })
     expect(serializeValue({ y: 1, x: 2 })).toEqual(serializeValue({ x: 2, y: 1 }))
+  })
+
+  it('round-trips the identity row with its backup key', () => {
+    const row = identityRow()
+    const back = deserializeValue(serializeValue(row)) as StoreSchema['identity']
+    expect(back).toEqual(row)
+    expect(back.backupKey?.key).toEqual(new Uint8Array(32).fill(1))
+    expect(back.backupKey?.keyId).toEqual(new Uint8Array(16).fill(3))
+    expect((deserializeValue(serializeValue({ ...row, backupKey: null })) as StoreSchema['identity']).backupKey).toBeNull()
   })
 
   it('rejects values that JSON would change silently', () => {

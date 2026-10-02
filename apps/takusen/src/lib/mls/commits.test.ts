@@ -225,7 +225,7 @@ describe('POST /mls/groups/:id/commits (§12.7.3)', () => {
     const body = await commitRequest(w, group.groupId, aDev, { refs: [ref], adds: [], removes: [] })
     const err = await rejects(uploadCommit(w.repo, w.deps, new Outbox(), { userId: aDev.userId, device: aDev }, group.groupId, body), 'InvalidCommit', 400)
     assert.match(err.message, /unpublished/)
-    assert.equal(w.ds.checks.at(-1)!.publishedProposalRefs.length, 0)
+    assert.equal(w.ds.checks.at(-1)!.publishedProposals.length, 0)
   })
 
   test('IllegalMembership: an Add of a user without VIEW_CHANNEL', async () => {

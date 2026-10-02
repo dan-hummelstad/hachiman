@@ -150,24 +150,29 @@ func TestIntegrationMessageFlowAndCrossNodeResume(t *testing.T) {
 		c.expect("CHANNEL_CREATE")
 	}
 
-	rest("POST", "/channels/"+channelID+"/messages", map[string]string{"content": "hello", "nonce": "n-1"}, nil)
-	msg := c.expect("MESSAGE_CREATE")
-	if !strings.Contains(string(msg.D), `"nonce":"n-1"`) {
-		t.Fatalf("MESSAGE_CREATE %s lacks the nonce", msg.D)
+	// Messages need an MLS envelope (§12.8), so a channel topic change is the
+	// dispatched event: CHANNEL_UPDATE goes to every member, the author too.
+	setTopic := func(topic string) {
+		rest("PATCH", "/channels/"+channelID, map[string]string{"topic": topic}, nil)
+	}
+	setTopic("n-1")
+	msg := c.expect("CHANNEL_UPDATE")
+	if !strings.Contains(string(msg.D), `"topic":"n-1"`) {
+		t.Fatalf("CHANNEL_UPDATE %s lacks the topic", msg.D)
 	}
 
 	// Drop the socket without a clean close, send while detached, RESUME on node B.
 	c.ws.Close()
-	rest("POST", "/channels/"+channelID+"/messages", map[string]string{"content": "while-away", "nonce": "n-2"}, nil)
+	setTopic("n-2")
 	time.Sleep(200 * time.Millisecond) // let node A buffer it
 	c2 := nodeB.dial()
 	c2.send(opResume, map[string]any{"token": token, "sessionId": r.SessionID, "seq": msg.S, "deviceId": deviceID})
-	if f := c2.expect("MESSAGE_CREATE"); !strings.Contains(string(f.D), "n-2") {
+	if f := c2.expect("CHANNEL_UPDATE"); !strings.Contains(string(f.D), "n-2") {
 		t.Fatalf("replayed %s, want the n-2 message", f.D)
 	}
 	c2.expect("RESUMED")
-	rest("POST", "/channels/"+channelID+"/messages", map[string]string{"content": "after-resume", "nonce": "n-3"}, nil)
-	if f := c2.expect("MESSAGE_CREATE"); !strings.Contains(string(f.D), "n-3") {
+	setTopic("n-3")
+	if f := c2.expect("CHANNEL_UPDATE"); !strings.Contains(string(f.D), "n-3") {
 		t.Fatalf("live on node B: %s", f.D)
 	}
 }

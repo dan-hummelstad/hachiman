@@ -16,7 +16,7 @@ import { and, eq, gt } from 'drizzle-orm'
 
 import { db, type Tx } from '@/db/client'
 import { passwordResetTokens, users } from '@/db/schema'
-import { membershipChanged, MembershipTriggers, wakeAfterCommit, type MembershipChange } from '@/lib/guilds'
+import { discardAfterRollback, membershipChanged, MembershipTriggers, wakeAfterCommit, type MembershipChange } from '@/lib/guilds'
 import { revokeUserSessions } from '@/lib/session-revocation'
 
 export const RESET_TOKEN_TTL_MS = 60 * 60 * 1000 // 1 hour
@@ -46,6 +46,8 @@ export interface PasswordResetPorts<X> {
   membership(tx: X, change: MembershipChange): Promise<void>
   /** After the commit: the DS events and the scheduler wakeup. */
   afterCommit(tx: X): Promise<void>
+  /** After a rollback: drops the DS work of the transaction unpublished. */
+  discard(tx: X): void
   /** After the commit: every dashboard cookie and OIDC token of the user. */
   revokeSessions(userId: string): Promise<void>
 }
@@ -56,14 +58,20 @@ export async function completePasswordReset<X>(
   input: { tokenHash: string; passwordHash: string; now: Date },
 ): Promise<string | null> {
   let handle: X | undefined
-  const userId = await ports.transaction(async (tx) => {
-    handle = tx
-    const owner = await ports.consumeToken(tx, input.tokenHash, input.now)
-    if (!owner) return null
-    await ports.setPassword(tx, owner, input.passwordHash, input.now)
-    await ports.membership(tx, MembershipTriggers.passwordReset(owner))
-    return owner
-  })
+  let userId: string | null
+  try {
+    userId = await ports.transaction(async (tx) => {
+      handle = tx
+      const owner = await ports.consumeToken(tx, input.tokenHash, input.now)
+      if (!owner) return null
+      await ports.setPassword(tx, owner, input.passwordHash, input.now)
+      await ports.membership(tx, MembershipTriggers.passwordReset(owner))
+      return owner
+    })
+  } catch (err) {
+    if (handle !== undefined) ports.discard(handle)
+    throw err
+  }
   if (!userId) return null
   await ports.afterCommit(handle as X)
   await ports.revokeSessions(userId)
@@ -84,6 +92,7 @@ export const drizzlePasswordResetPorts: PasswordResetPorts<Tx> = {
   },
   membership: (tx, change) => membershipChanged(tx, change, null),
   afterCommit: (tx) => wakeAfterCommit(tx),
+  discard: (tx) => discardAfterRollback(tx),
   async revokeSessions(userId) {
     await revokeUserSessions(userId)
   },

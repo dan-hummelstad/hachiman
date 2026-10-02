@@ -315,7 +315,10 @@ function writeHistoryBatch(w: Writer, groupId: Uint8Array, keys: readonly Histor
 function readHistoryBatch(r: Reader): HistoryKeyEntry[] {
   const groupId = r.opaque(MAX_GROUP_ID)
   if (groupId.length === 0) throw new CodecError('empty group id')
-  return r.vector(readHistoryKey).map((k) => ({ groupId, epoch: k.epoch, secret: k.secret }))
+  const keys = r.vector(readHistoryKey)
+  // The encoder never writes an empty batch (its group id would be lost in the entry list).
+  if (keys.length === 0) throw new CodecError('empty history batch')
+  return keys.map((k) => ({ groupId, epoch: k.epoch, secret: k.secret }))
 }
 
 /** Groups entries by group id (in first-seen order) and sorts each group by epoch. */

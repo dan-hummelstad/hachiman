@@ -1,27 +1,15 @@
 /**
  * Tests for the browser wrap key store (./secure-storage.ts) on fake-indexeddb and
- * the WebCrypto of Node. Run via the package `test` script. The test skips when
- * fake-indexeddb is not installed in this package.
+ * the WebCrypto of Node. Run via the package `test` script.
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { IDBFactory } from "fake-indexeddb";
 import { createBrowserSecureStorage } from "./secure-storage.ts";
-
-// A variable specifier keeps tsgo from resolving the optional module.
-const FAKE_IDB = "fake-indexeddb";
-const fake = (await import(FAKE_IDB).catch(() => null)) as {
-  IDBFactory: new () => IDBFactory;
-} | null;
 
 test(
   "browser secure storage: create, reuse, tabs, bad userId, clear, corrupt records, no backend",
-  {
-    skip: fake
-      ? false
-      : "fake-indexeddb is not installed in @hachiman/hachiman-browser",
-  },
   async () => {
-    const { IDBFactory } = fake!;
     const U = "0b6f2c4e-8d1a-4f3b-9c2e-5a7d1e0f3b29";
     const V = "7e1d9a03-2b4c-4d5e-8f60-1a2b3c4d5e6f";
     const factory = new IDBFactory();

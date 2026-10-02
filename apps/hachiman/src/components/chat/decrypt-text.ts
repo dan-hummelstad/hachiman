@@ -20,7 +20,8 @@ const FAILURE_TEXT: Record<DecryptFailure, string> = {
 const PENDING_TEXT: Record<Extract<DecryptState, { status: 'pending' }>['reason'], string> = {
   epoch_ahead: 'Waiting for the keys of this message…',
   group_unknown: 'Waiting for access to the keys of this channel…',
-  no_history_key: 'This device has no key for this older message.'
+  no_history_key: 'This device has no key for this older message.',
+  transport: 'Could not load the keys of this message. Trying again…'
 }
 
 /** The placeholder text of a row that did not decrypt, or null for 'ok'. */

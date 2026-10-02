@@ -8,6 +8,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./ds": "./src/mls/ds.ts",
+    "./admin": "./src/admin/index.ts",
+    "./franking": "./src/franking/index.ts",
     "./constants": "./src/constants.ts",
     "./codec": "./src/codec.ts"
   },

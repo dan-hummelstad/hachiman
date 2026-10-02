@@ -25,7 +25,8 @@ const CODE_TEXT: Partial<Record<CryptoErrorCode, string>> = {
   InvalidChain: 'A security key did not pass its checks.',
   LinkAborted: 'The link stopped.',
   LinkExpired: 'The link request expired. Start again.',
-  SasMismatch: 'The emoji did not match. The link stopped and no keys were sent.'
+  SasMismatch: 'The emoji did not match. The link stopped and no keys were sent.',
+  LockHeld: 'Hachiman is open in another tab or window. Close it there, then try again.'
 }
 
 const codeOf = (e: unknown): { code?: string; dsCode?: string } =>

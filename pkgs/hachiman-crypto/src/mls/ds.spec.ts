@@ -49,7 +49,7 @@ function input(w: World, req: { commit: string; groupInfo: string; ratchetTree: 
     ratchetTree: fromB64url(req.ratchetTree),
     previous: w.stored,
     sender: { userId: sender.user.userId, deviceId: sender.deviceId },
-    publishedProposalRefs: [],
+    publishedProposals: [],
     masterKeys: w.masterKeys,
     ...extra,
   }
@@ -113,7 +113,7 @@ describe('DsModule.checkCommit', () => {
     expect(res).toMatchObject({ ok: false, reason: 'leaf 2: chain:bad_signature' })
   }, 60_000)
 
-  it('accepts DS Removes by reference only when Takusen published them, with refs or full messages', async () => {
+  it('accepts DS Removes by reference only when Takusen published them', async () => {
     const w = await world()
     const remove = await ds.proposeRemove(w.signer, w.stored.groupInfo, 1)
     const ref = await ds.proposalRef(remove, 1)
@@ -121,17 +121,17 @@ describe('DsModule.checkCommit', () => {
     if (r.result !== 'proposal_stored') throw new Error(r.result)
     const pc = await mls.commit(r.handle, { adds: [], removes: [], descriptor: null, policy: w.p })
     expect(await ds.checkCommit(input(w, pc.request, w.a))).toMatchObject({ ok: false, reason: 'proposal_ref: not a published DS proposal' })
-    for (const published of [[ref], [remove]]) {
-      const ok = await ds.checkCommit(input(w, pc.request, w.a, { publishedProposalRefs: published }))
-      expect(ok.ok).toBe(true)
-      if (ok.ok) {
-        expect(ok.inspection.removedLeaves).toEqual([1])
-        expect(ok.inspection.proposalRefs).toEqual([ref])
-      }
+    // The ref alone is not a published proposal: Takusen passes the stored MLSMessage.
+    expect((await ds.checkCommit(input(w, pc.request, w.a, { publishedProposals: [ref] }))).ok).toBe(false)
+    const ok = await ds.checkCommit(input(w, pc.request, w.a, { publishedProposals: [remove] }))
+    expect(ok.ok).toBe(true)
+    if (ok.ok) {
+      expect(ok.inspection.removedLeaves).toEqual([1])
+      expect(ok.inspection.proposalRefs).toEqual([ref])
     }
   }, 60_000)
 
-  it('infers the transition of public_set DS Adds and Removes from refs alone', async () => {
+  it('applies the published public_set DS Adds and Removes to the transition', async () => {
     const w = await world('public_set')
     const add = await ds.proposeAdd(w.signer, w.stored.groupInfo, (await keyPackage(w.c)).publicPackage)
     const remove = await ds.proposeRemove(w.signer, w.stored.groupInfo, 1)
@@ -142,16 +142,15 @@ describe('DsModule.checkCommit', () => {
       h = r.handle
     }
     const pc = await mls.commit(h, { adds: [], removes: [], descriptor: null, policy: w.p })
-    const refs = [await ds.proposalRef(add, 1), await ds.proposalRef(remove, 1)]
-    const ok = await ds.checkCommit(input(w, pc.request, w.a, { publishedProposalRefs: refs }))
+    const ok = await ds.checkCommit(input(w, pc.request, w.a, { publishedProposals: [add, remove] }))
     expect(ok.ok).toBe(true)
     if (ok.ok) {
       expect(ok.inspection.removedLeaves).toEqual([1])
       expect(ok.inspection.changedLeaves).toEqual([0, 1])
       expect(ok.inspection.next.roster.map((x) => x.deviceId)).toEqual([w.a.deviceId, w.c.deviceId])
     }
-    // Only one of the two refs published: rejected.
-    expect((await ds.checkCommit(input(w, pc.request, w.a, { publishedProposalRefs: refs.slice(0, 1) }))).ok).toBe(false)
+    // Only one of the two proposals published: rejected.
+    expect((await ds.checkCommit(input(w, pc.request, w.a, { publishedProposals: [add] }))).ok).toBe(false)
   }, 60_000)
 
   it('rejects a tree that hides an Add', async () => {

@@ -24,8 +24,12 @@ import {
   type UpdateMemberBody,
   type UpdateRoleBody
 } from '@hachiman/client'
-import { AdminActionType, CryptoError, type AdminPayload } from '@hachiman/crypto'
-import { encodeAdminPayload } from '@/lib/admin-payload'
+import {
+  AdminActionType,
+  CryptoError,
+  encodeAdminPayload,
+  type AdminPayload
+} from '@hachiman/crypto'
 import { cryptoService } from '@/services/CryptoService'
 import { hachiman } from '@/services/hachiman'
 

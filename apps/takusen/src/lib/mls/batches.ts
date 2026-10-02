@@ -9,13 +9,14 @@
  */
 import { ApiError } from '@/lib/errors'
 
-import { toB64 } from './bytes'
+import { bytesEqual, toB64 } from './bytes'
 import { BATCH_TIMEOUT_COOLDOWN_MS } from './config'
 import type { DsDeps, LightDeps } from './context'
 import { BATCH_MAX_ADDS, type CipherSuiteId, type WireBatchAssign } from './crypto'
 import type { Outbox } from './events'
 import { signPendingProposals } from './proposals'
 import { readersOfGroup } from './readers'
+import { rejectPendingAdd } from './reconcile'
 import type { BatchRow, DeviceRow, GroupRow, MlsRepo, PendingRow } from './repo'
 import { activeDevicesOf } from './groups'
 
@@ -214,13 +215,66 @@ export async function runSchedulerTick(repo: MlsRepo, deps: DsDeps, out: Outbox,
 }
 
 /** POST /mls/batches/:id/decline: the batch goes to the next device at once (§12.7.5 step 6). */
-export async function declineBatch(repo: MlsRepo, deps: DsDeps, out: Outbox, deviceId: string, batchId: string): Promise<void> {
+/** A DS proposal of the batch that the committer refused, by its RFC 9420 ProposalRef. */
+export interface RejectedProposal {
+  proposalRef: Uint8Array
+  reason: string
+}
+
+/**
+ * Marks the DS Add proposals of `batch` that its committer refused (bad chain,
+ * malformed key package, ...) as 'rejected', so the next batch of the group
+ * leaves them out. MLS_BATCH_ASSIGN.proposals carry no pendingId, so the
+ * committer names each one by its ProposalRef. A join request of a rejected
+ * Add gets MLS_JOIN_UPDATE rejected.
+ *
+ * Only Adds: a DS Remove is Takusen's own decision, and a committer cannot
+ * keep a member in the group by refusing it. Refs that are not a queued or
+ * assigned Add of the batch, or that are in `skip` (applied), are ignored.
+ */
+export async function rejectBatchProposals(
+  repo: MlsRepo,
+  out: Outbox,
+  group: GroupRow,
+  batch: BatchRow,
+  rejected: readonly RejectedProposal[],
+  now: Date,
+  skip: ReadonlySet<string> = new Set(),
+): Promise<void> {
+  if (rejected.length === 0) return
+  const rows = (await repo.getPendingByIds(batch.pendingIds)).filter(
+    (p) => p.op === 'add' && p.proposalRef !== null && (p.status === 'queued' || p.status === 'assigned') && !skip.has(p.id),
+  )
+  for (const x of rejected) {
+    const p = rows.find((r) => bytesEqual(r.proposalRef!, x.proposalRef))
+    if (!p) continue
+    await rejectPendingAdd(repo, out, group, p, x.reason, now)
+    rows.splice(rows.indexOf(p), 1)
+  }
+}
+
+/**
+ * POST /mls/batches/:id/decline. Only the assigned device may decline. With
+ * `rejectedProposals`, the committer also reports the DS proposals that it refused
+ * (`rejectBatchProposals`); the next batch leaves them out.
+ */
+export async function declineBatch(
+  repo: MlsRepo,
+  deps: DsDeps,
+  out: Outbox,
+  deviceId: string,
+  batchId: string,
+  rejected: readonly RejectedProposal[] = [],
+): Promise<void> {
   const batch = await repo.getBatch(batchId)
   if (!batch || batch.deviceId !== deviceId) throw new ApiError('UnknownBatch', 404, 'unknown batch')
   const now = deps.now()
   if (batch.deadlineAt <= now) throw new ApiError('BatchExpired', 410, 'the batch deadline passed')
-  const group = await repo.getGroup(batch.groupId)
-  if (!group || (group.status === 'active' && group.epoch !== batch.epoch)) throw new ApiError('BatchExpired', 410, 'the epoch changed')
-  await repo.expireBatch(batch.id, now)
+  await repo.transaction(async (r) => {
+    const group = await r.lockGroup(batch.groupId)
+    if (!group || (group.status === 'active' && group.epoch !== batch.epoch)) throw new ApiError('BatchExpired', 410, 'the epoch changed')
+    await rejectBatchProposals(r, out, group, batch, rejected, now)
+    await r.expireBatch(batch.id, now)
+  })
   await scheduleGroup(repo, deps, out, batch.groupId)
 }

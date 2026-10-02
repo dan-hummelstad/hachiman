@@ -10,6 +10,7 @@ import { computeBasePermissions, has, Permissions } from '@hachiman/client/permi
 
 import { ApiError } from '@/lib/errors'
 
+import { rejectBatchProposals, type RejectedProposal } from './batches'
 import { bytesEqual, toB64 } from './bytes'
 import { INBOX_ITEM_MAX_BYTES, INBOX_RETENTION_MS } from './config'
 import type { DsDeps } from './context'
@@ -30,6 +31,8 @@ export interface CommitBody {
   welcome: Uint8Array | null
   batchId: string | null
   rejected: { pendingId: string; reason: string }[]
+  /** DS proposals of the batch that the committer refused, by ProposalRef (`rejectBatchProposals`). */
+  rejectedProposals?: RejectedProposal[]
 }
 
 type Deps = Pick<DsDeps, 'ds' | 'signer' | 'config' | 'now'>
@@ -80,7 +83,10 @@ export async function uploadCommit(
 
     // 3-7 without the database.
     const pending = await r.listPending(groupId, ['queued', 'assigned'])
-    const published = pending.filter((p) => p.proposalRef && p.proposalEpoch === epoch).map((p) => p.proposalRef!)
+    // The signed proposals themselves, not their refs: ds.ts then applies each
+    // referenced proposal, so the roster transition is exact and a commit cannot
+    // hide an Add (Implementation note 3).
+    const published = pending.filter((p) => p.proposal && p.proposalEpoch === epoch).map((p) => p.proposal!)
     const previousMembers = await r.listMembers(groupId)
     let uploadedRoster: LeafEntry[]
     try {
@@ -97,7 +103,7 @@ export async function uploadCommit(
       ratchetTree: body.ratchetTree,
       previous: { groupInfo: group.groupInfo, ratchetTree: group.ratchetTree },
       sender: { userId: caller.userId, deviceId: caller.device.id },
-      publishedProposalRefs: published,
+      publishedProposals: published,
       masterKeys: (userId) => masterKeys.get(userId) ?? null,
     })
     if (!check.ok) throw commitCheckError(check.reason)
@@ -305,11 +311,14 @@ async function settlePending(
     out.toDevice(jr.deviceId, 'MLS_JOIN_UPDATE', { requestId: jr.id, groupId: toB64(group.groupId), status: 'committed', reason: null })
   }
 
-  if (!body.batchId || body.rejected.length === 0) return
+  const rejectedProposals = body.rejectedProposals ?? []
+  if (!body.batchId || (body.rejected.length === 0 && rejectedProposals.length === 0)) return
   const batch = await r.getBatch(body.batchId)
+  // Only the assigned committer of the batch reports rejections.
   if (!batch || batch.deviceId !== caller.device.id || !bytesEqual(batch.groupId, group.groupId)) return
   const inBatch = new Set(batch.pendingIds)
   const appliedSet = new Set(applied)
+  await rejectBatchProposals(r, out, group, batch, rejectedProposals, now, appliedSet)
   const rows = await r.getPendingByIds(body.rejected.map((x) => x.pendingId).filter((id) => inBatch.has(id) && !appliedSet.has(id)))
   for (const p of rows) {
     const reason = body.rejected.find((x) => x.pendingId === p.id)!.reason

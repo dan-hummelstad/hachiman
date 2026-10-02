@@ -19,6 +19,7 @@ import {
   type PublicMessage,
   type RatchetTree,
   type Welcome,
+  bytesToBase64,
   decodeExternalSender,
   decodeMlsMessage,
   encodeExternalSender,
@@ -45,7 +46,7 @@ import {
   type HistoryVisibilityName,
 } from '../constants'
 import { equalBytes } from '../identity/bytes'
-import { identity } from '../identity/index'
+import { identity, verifyChainMemo, type ChainSignatureMemo } from '../identity/index'
 
 const te = new TextEncoder()
 const td = new TextDecoder('utf-8', { fatal: true })
@@ -90,6 +91,9 @@ export function decodeMessage(bytes: Uint8Array): MLSMessage {
   }
   if (r === undefined) throw new CryptoError('Malformed', 'MLSMessage does not decode')
   if (r[1] !== bytes.length) throw new CryptoError('Malformed', 'MLSMessage has trailing bytes')
+  // FZ-2: ts-mls reads some non-canonical bytes (an optional presence octet other than 0 or 1) as
+  // a valid value. Only the canonical encoding is accepted, so one value has one byte string.
+  if (!equalBytes(encodeMlsMessage(r[0]), bytes)) throw new CryptoError('Malformed', 'MLSMessage is not canonically encoded')
   return r[0]
 }
 
@@ -132,6 +136,7 @@ export function decodeTree(bytes: Uint8Array): RatchetTree {
   if (r === undefined) throw new CryptoError('Malformed', 'ratchet tree does not decode')
   if (r[1] !== bytes.length) throw new CryptoError('Malformed', 'ratchet tree has trailing bytes')
   if (r[0].length === 0) throw new CryptoError('Malformed', 'empty ratchet tree')
+  if (!equalBytes(encodeRatchetTree(r[0]), bytes)) throw new CryptoError('Malformed', 'ratchet tree is not canonically encoded')
   return r[0]
 }
 
@@ -429,14 +434,35 @@ export function sameLeafBytes(a: LeafNode | undefined, b: LeafNode | undefined):
  * The chain pre-check of §12.4 for one leaf: credential identity, DEVICE_CHAIN extension, and
  * IdentityModule.verifyChain with the context of the user. Synchronous (the ts-mls callback is).
  */
+/** Decoded DEVICE_CHAIN extensions and their signature results, by the extension bytes (bounded). */
+const chainCache = new Map<string, { chain: DeviceChain; sigs: ChainSignatureMemo } | null>()
+const CHAIN_CACHE_MAX = 4096
+
+function cachedChain(leaf: LeafNode): { chain: DeviceChain; sigs: ChainSignatureMemo } | null {
+  const ext = findExtension(leaf.extensions, ExtensionType.DEVICE_CHAIN)
+  if (ext === undefined) return null
+  const key = bytesToBase64(ext.extensionData)
+  const hit = chainCache.get(key)
+  if (hit !== undefined) return hit
+  let v: { chain: DeviceChain; sigs: ChainSignatureMemo } | null
+  try {
+    v = { chain: identity.decodeDeviceChain(ext.extensionData), sigs: {} }
+  } catch {
+    v = null
+  }
+  if (chainCache.size >= CHAIN_CACHE_MAX) chainCache.delete(chainCache.keys().next().value!)
+  chainCache.set(key, v)
+  return v
+}
+
 export function checkLeafChain(leaf: LeafNode, ctxFor: (userId: UserId) => ChainContext, entering: boolean): ChainVerdict {
   const text = credentialText(leaf.credential)
   const id = text === null ? null : identity.parseCredentialIdentity(text)
   if (text === null || id === null) return { ok: false, reason: 'malformed' }
-  const chain = leafChain(leaf)
-  if (chain === null) return { ok: false, reason: 'malformed' }
+  const c = cachedChain(leaf)
+  if (c === null) return { ok: false, reason: 'malformed' }
   const base = ctxFor(id.userId)
-  return identity.verifyChain(chain, { ...base, entering, leaf: { credentialIdentity: text, signatureKey: leaf.signaturePublicKey } })
+  return verifyChainMemo(c.chain, { ...base, entering, leaf: { credentialIdentity: text, signatureKey: leaf.signaturePublicKey } }, c.sigs)
 }
 
 export function bigintEpoch(e: bigint): number {

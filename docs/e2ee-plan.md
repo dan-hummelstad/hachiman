@@ -296,7 +296,7 @@ Each phase ships by itself and keeps `docs/gateway-protocol.md` in step.
   - When the chosen device does not answer, the batch goes to the next device.
   - When no member is online, the joiner falls back to an external commit.
   - Clients reject an Add from the server in any group except the public set group.
-- **Load test (Phase 3):** 10,000 members with churn. Measure the commit rate, ratchet tree size and catch-up time.
+- **Load test (Phase 3):** 10,000 members with churn. Measure the commit rate, ratchet tree size and catch-up time. Result: `docs/e2ee-load-test.md`. The default cap is 250 members.
 - **Canary test:**
   1. Send a message whose text is a unique string.
   2. Check that the string is in no Postgres column, no S3 object and no Redis frame.
@@ -321,7 +321,7 @@ Each phase ships by itself and keeps `docs/gateway-protocol.md` in step.
    - Batched commits that Takusen starts.
    - Light clients later.
 
-   The Phase 3 load test measures commit rate, tree size and catch-up time at 10,000 members. Note that E2EE in a public channel protects little, because anyone can join.
+   The Phase 3 load test measures commit rate, tree size and catch-up time at 10,000 members. It set the default cap to 250 members (`docs/e2ee-load-test.md`). Note that E2EE in a public channel protects little, because anyone can join.
 2. **History for new members.** Default: `shared` in public channels, `joined` in DMs and private channels.
 3. **The browser host.** Default: supported, with the "trusts the server's code" label.
 4. **Recovery.** Default: a recovery key only, no passphrase.
@@ -360,6 +360,7 @@ What the smoke test shows:
 - This is stronger than decision 7 of the plan, because the server signs nothing in a voice group.
 - The cost: a hostile media node can say that a participant left, or hide that a participant left. The first case is a denial of service. In the second case, the participant keeps the keys only while the server keeps the session open.
 - When two members report a bad commit, the media node closes the committer with 4014. Thus one member cannot disconnect the whole room.
+- The committer does not check that a joiner is in the voice channel (gateway voice states). `DsTransport` has no voice-state query. The committer checks the chain and that the credential equals the roster entry from the voice token claims. Thus it trusts the media roster for Adds. This is the accepted cost above: a hostile media node can already decide who is in the room.
 - The final voice op set is in contract §8. It replaces the op list of Phase 1. There are no `e2ee_external_sender` and `e2ee_proposals` ops.
   - Media to client: `e2ee_roster`, `e2ee_key_package`, `e2ee_commit_rejected`, `e2ee_prepare_transition`, `e2ee_welcome`, `e2ee_ratchet_tree`, `e2ee_execute_transition`.
   - Client to media: `e2ee_commit`, `e2ee_ratchet_tree`, `e2ee_ready`, `e2ee_invalid`.
@@ -392,5 +393,13 @@ What the smoke test shows:
 - **Password reset.** A reset also marks the master key as superseded. The user then restores the old master key or makes a new one. A bearer token alone cannot replace a current master key.
 - **Deleted users.** A Remove is keyed by its leaf index. Thus a user delete does not lose the queued Removes, and the orphan leaves do not block later commits.
 - **Signed admin actions.** The replay uses the permission rules of `@hachiman/client/permissions`. Thus `@hachiman/crypto` needs the workspace dependency `@hachiman/client`. Each language keeps one permission implementation.
-- **Group size cap.** A public set group has at most 10,000 leaves by default. A join above the cap gets `GroupFull`. The Phase 3 load test sets the final value.
+- **Group size cap.** A public set group has at most 250 leaves by default (`PUBLIC_SET_MAX_MEMBERS`, `TAKUSEN_PUBLIC_SET_MAX_MEMBERS`). A join above the cap gets `GroupFull`.
+- **Group size cap, measured.** The Phase 3 load test (`docs/e2ee-load-test.md`, bench `pkgs/hachiman-crypto/src/mls/load.bench.ts`) set the cap to 250. It was 10,000. The limit is the full batch: 100 DS Adds take 3.4 s at 250 leaves and 5.1 s at 400 leaves, and the batch deadline is 5 s. A group of 10,000 leaves fails every time budget of the test. ts-mls 1.6.4 also has two defects that block large groups (invalid join rejections, and no encode above 2,048 leaves). "How to increase the cap" in the load test document lists the changes that allow a higher cap.
 - **QR codes.** The UI has a small QR encoder. It reads QR codes with `BarcodeDetector` where the browser has it. Every host also accepts a pasted code, and SAS mode needs no camera.
+
+### 5. Deviations found in the code
+
+- **No SFU roster hook.** `pkg/media/sfu.go` needed no change and has no roster hook (Critical files item). The add and remove order of voice members is in `cmd/hachiman-media/e2ee.go`. The check that the SFU forwards RTP payloads byte-identical is the pion loopback test in `cmd/hachiman-media/voice_test.go`, not a test in `pkg/media`.
+- **Fuzzing.** The fuzzing of the envelope and frame parsers (Phase 4) is done as fast-check property tests in the crypto specs (`*.spec.ts` and `*.fuzz.spec.ts`), as Go native fuzz targets in `apps/hachiman-server`, and as seeded fuzz tests of the Takusen parsers (`apps/takusen/src/lib/mls/__fuzz__`). `docs/e2ee-audit-scope.md` lists every target, the commands and the findings.
+- **Group size cap.** See "Group size cap, measured" in note 4.
+- **Tests that need devDependencies.** The browser secure-storage test (`apps/hachiman-browser/src/platforms/browser/secure-storage.test.mts`) needs `fake-indexeddb`, and the shared-UI tests need `vitest`. Both need a `pnpm install` outside the sandbox. Until then, the secure-storage test is skipped.

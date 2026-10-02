@@ -7,14 +7,17 @@
  */
 import {
   CryptoError,
-  type AdminPermissionModel,
   type ChainContext,
   type CreateGroupService,
+  type CryptoEvents,
   type CryptoGatewayEvent,
   type DeviceCertificate as DeviceCertificateT,
   type DeviceId,
   type EngineContext,
   type GroupDescriptor,
+  type GroupServiceDeps,
+  type BatchRejectReason,
+  type BatchRejection,
   type GroupService,
   type GroupStatus,
   type HistoryKeyEntry,
@@ -22,7 +25,6 @@ import {
   type LeafEntry,
   type MembershipEvent,
   type MlsGroupHandle,
-  type MlsModule,
   type PendingCommit,
   type ProposalPolicy,
   type StoreSchema,
@@ -33,14 +35,16 @@ import {
   type WireMlsGroup,
 } from '../api'
 import { CodecError, decode, fromB64url, toB64url } from '../codec'
-import { DSK_ROTATION_GRACE_MS, FORK_ALERT_FAILURES, FORK_ALERT_WINDOW_MS, GROUP_STATE_EPOCHS_KEPT, HISTORY_BUNDLE_MAX_EPOCHS, WIRE_VERSION, type CipherSuiteId } from '../constants'
+import { COMMIT_REJECTED_RESYNC_DELAYS_MS, DSK_ROTATION_GRACE_MS, FORK_ALERT_FAILURES, FORK_ALERT_WINDOW_MS, GROUP_STATE_EPOCHS_KEPT, HISTORY_BUNDLE_MAX_EPOCHS, WIRE_VERSION, type CipherSuiteId } from '../constants'
 import { equalBytes } from '../identity/bytes'
 import { decodeHistoryKeysPayload, encodeHistoryKeysPayload } from '../identity/codec'
 import { openDeviceMessage, sealDeviceMessage } from '../identity/device-message'
 import { identity as identityModule } from '../identity/index'
 import {
   checkAdd,
+  checkStoredProposal,
   contextOf,
+  dropStoredProposals,
   handshakeUserIds,
   hasStoredProposal,
   keyPackageIdentity,
@@ -61,12 +65,7 @@ const HANDSHAKE_PAGE = 100
 const TIMELINE_MAX = 1000
 const COMMIT_ATTEMPTS = 5
 
-export interface GroupServiceDeps {
-  /** The §2 rules over `@hachiman/client/permissions` (worker/main.ts). Without it, adminReaders is null and no GCE is accepted. */
-  adminPermissions?: AdminPermissionModel
-  /** Tests pass a wrapped module. */
-  mls?: MlsModule
-}
+export type { GroupServiceDeps } from '../api'
 
 export interface GroupServiceExt extends GroupService {
   /** Resolves when the background work (resyncs after a DSK rotation or a fork alert) is done. */
@@ -104,6 +103,20 @@ export function decodeWelcomeItem(b: Uint8Array): { groupId: Uint8Array; epoch: 
 
 const descriptorOfWire = (g: WireMlsGroup): Omit<GroupDescriptor, 'createdByUserId'> => ({ kind: g.kind, guildId: g.guildId, channelId: g.channelId, historyVisibility: g.historyVisibility })
 
+const defaultSleep = (ms: number): Promise<void> =>
+  new Promise((resolve) => {
+    setTimeout(resolve, ms)
+  })
+
+const REJECT: Record<string, BatchRejectReason> = { not_reader: 'not_reader', not_admin_reader: 'not_reader', malformed: 'malformed', malformed_credential: 'malformed' }
+
+/** A policy or chain verdict (checkAdd, processHandshake) as a batch rejection reason. */
+function rejectReason(why: string): BatchRejectReason {
+  if (why.includes('invalid_chain:revoked')) return 'revoked'
+  if (why.includes('invalid_chain')) return 'invalid_chain'
+  return REJECT[why] ?? 'policy'
+}
+
 function failingContext(nowMs: number): ChainContext {
   return { pinnedMaster: null, currentDsk: null, highestSeenDskGeneration: null, revokedDeviceIds: new Set(), leaf: null, entering: false, nowMs }
 }
@@ -111,12 +124,15 @@ function failingContext(nowMs: number): ChainContext {
 export const createGroupService = ((ctx: EngineContext, identity: IdentityService, deps: GroupServiceDeps = {}): GroupServiceExt => {
   const { store, transport } = ctx
   const mls = deps.mls ?? defaultMls
+  const sleep = deps.sleep ?? defaultSleep
   const handles = new Map<string, MlsGroupHandle>()
   /** Handles of recent epochs: history bundles need K_hist of their epoch (§12.11.2). */
   const recent = new Map<string, Map<number, MlsGroupHandle>>()
   const locks = new Map<string, Promise<unknown>>()
   const stuck = new Map<string, string>()
   const joinRequested = new Set<string>()
+  /** Groups with an automatic resync scheduled after a rejected commit. */
+  const recovering = new Set<string>()
   const background = new Set<Promise<unknown>>()
   let inboxLock: Promise<unknown> = Promise.resolve()
 
@@ -324,8 +340,46 @@ export const createGroupService = ((ctx: EngineContext, identity: IdentityServic
     return equalBytes(c.treeHash, fromB64url(next.treeHash)) && equalBytes(c.confirmedTranscriptHash, fromB64url(next.confirmedTranscriptHash))
   }
 
-  function forkAlert(g: Ctx, reason: 'aead_failures' | 'group_info_mismatch'): void {
-    ctx.emit('forkAlert', { groupId: g.gid, channelId: g.row.channelId, reason })
+  function forkAlert(g: Ctx, reason: CryptoEvents['forkAlert']['reason']): void {
+    ctx.emit('forkAlert', { groupId: g.gid, channelId: g.row.channelId, epoch: g.handle?.epoch ?? null, reason })
+  }
+
+  /**
+   * §12.7.9, §12.8.7: this device rejected a commit that the DS accepted, so its state stops. It
+   * resyncs its own leaf by external commit after each wait of COMMIT_REJECTED_RESYNC_DELAYS_MS
+   * (5 attempts). The resync enters the DS epoch, drains the buffered envelopes and asks the own
+   * devices for the skipped epoch keys. When every attempt fails, the group stays stopped (fail
+   * closed) until the next sync() schedules the attempts again. Voice groups never come here
+   * (the media service owns them, and §12.10 has no external commit).
+   */
+  function scheduleRecovery(gid: string): void {
+    if (recovering.has(gid)) return
+    recovering.add(gid)
+    const run = async (): Promise<void> => {
+      let last: unknown = null
+      for (const delay of COMMIT_REJECTED_RESYNC_DELAYS_MS) {
+        await sleep(delay)
+        try {
+          await withGroup(gid, async (g) => {
+            if (g?.handle == null || g.row.kind === 'voice' || g.row.status === 'retired' || !stuck.has(gid)) return
+            const before = g.handle.epoch
+            await resyncLocked(g, 'fork')
+            const now = g.handle as MlsGroupHandle | null
+            if (now !== null && now.epoch - before > 1) spawn(requestHistoryKeys(now.groupId, before + 1, now.epoch - 1))
+          })
+          return
+        } catch (e) {
+          last = e
+        }
+      }
+      const why = last instanceof Error ? last.message : String(last)
+      throw new CryptoError('InvalidChain', `group ${gid} stays stopped after ${COMMIT_REJECTED_RESYNC_DELAYS_MS.length} resync attempts: ${why}`)
+    }
+    spawn(
+      run().finally(() => {
+        recovering.delete(gid)
+      }),
+    )
   }
 
   // MARK: - handshakes
@@ -374,9 +428,12 @@ export const createGroupService = ((ctx: EngineContext, identity: IdentityServic
         await saveRow(g, handle, h.seq)
         return true
       }
-      // The DS accepted a commit that this client rejects: stop, fail closed.
+      // The DS accepted a commit that this client rejects: stop (fail closed), raise the fork
+      // alert and resync the own leaf by external commit (§12.7.9).
       stuck.set(g.gid, r.reason)
       report(new CryptoError('InvalidChain', `group ${g.gid}: commit ${h.seq} rejected: ${r.reason}`))
+      forkAlert(g, 'commit_rejected')
+      scheduleRecovery(g.gid)
       return false
     }
     if (r.result === 'proposal_stored') {
@@ -449,7 +506,7 @@ export const createGroupService = ((ctx: EngineContext, identity: IdentityServic
   // MARK: - own commits
 
   /** Writes pendingCommits before the POST (§12.7.9). 'conflict' on 409 EpochConflict. */
-  async function postOwnCommit(g: Ctx, pc: PendingCommit, batch: { batchId: string | null; rejected: { pendingId: string; reason: Parameters<typeof transport.postCommit>[1]['rejected'][number]['reason'] }[] }, kind: MembershipEvent['kind']): Promise<'ok' | 'conflict'> {
+  async function postOwnCommit(g: Ctx, pc: PendingCommit, batch: { batchId: string | null; rejected: BatchRejection[] }, kind: MembershipEvent['kind']): Promise<'ok' | 'conflict'> {
     await store.put('pendingCommits', g.gid, { epoch: pc.epoch, state: pc.next.state, createdAtMs: ctx.now() })
     const res = await transport.postCommit(g.gid, { ...pc.request, batchId: batch.batchId, rejected: batch.rejected })
     if (!res.ok) {
@@ -479,6 +536,15 @@ export const createGroupService = ((ctx: EngineContext, identity: IdentityServic
     } catch (e) {
       report(e)
     }
+  }
+
+  /** The leaves of revoked devices other than the own leaf, and their users (§12.4 rule 7). */
+  async function revokedLeaves(h: MlsGroupHandle): Promise<{ leaves: number[]; users: UserId[] }> {
+    const roster = mls.roster(h)
+    const users = [...new Set(roster.map((e) => e.userId))]
+    const revokedOf = new Map(await Promise.all(users.map(async (u) => [u, (await identity.chainContextFor(u, false)).revokedDeviceIds] as const)))
+    const hit = roster.filter((e) => e.leafIndex !== h.ownLeaf && revokedOf.get(e.userId)?.has(e.deviceId) === true)
+    return { leaves: hit.map((e) => e.leafIndex), users: [...new Set(hit.map((e) => e.userId))] }
   }
 
   // MARK: - joins and resyncs
@@ -543,6 +609,23 @@ export const createGroupService = ((ctx: EngineContext, identity: IdentityServic
       g.gid,
       [...extra.values()].map((subjects) => ({ groupId: g.gid, channelId: g.row.channelId, epoch: g.handle!.epoch, actorUserId: null, kind: 'added' as const, subjects })),
     )
+  }
+
+  /**
+   * The DS lists this device as a member, but it holds no state: the Welcome of the Add can still
+   * be in the device inbox. Drain it first, so an Add does not turn into a resync external commit.
+   * The drain runs outside the group lock (handleWelcome takes it).
+   */
+  async function joinAsMember(gid: string): Promise<void> {
+    try {
+      await drainInbox()
+    } catch (e) {
+      report(e)
+    }
+    await withGroup(gid, async (g) => {
+      if (g?.handle != null) return
+      await externalCommit(gid, g)
+    })
   }
 
   async function requestJoin(group: WireMlsGroup): Promise<void> {
@@ -636,8 +719,6 @@ export const createGroupService = ((ctx: EngineContext, identity: IdentityServic
 
   // MARK: - batches
 
-  const REJECT: Record<string, Parameters<typeof transport.postCommit>[1]['rejected'][number]['reason']> = { not_reader: 'not_reader', not_admin_reader: 'not_reader', malformed: 'malformed', malformed_credential: 'malformed' }
-
   async function createAssigned(d: WireBatchAssign): Promise<void> {
     const c = d.create!
     await withGroup(c.groupId, async (existing) => {
@@ -677,18 +758,47 @@ export const createGroupService = ((ctx: EngineContext, identity: IdentityServic
       const h = g.handle as MlsGroupHandle | null
       if (h?.epoch !== d.epoch) return decline('not_synced')
       const desc = descriptorOf(g)
-      // Bundles for earlier epochs that the previous committer did not send (§12.11.2).
-      for (const e of d.historyBundleEpochs) {
-        const h = recent.get(g.gid)?.get(e)
-        if (h !== undefined) await sendBundle(g, h).catch(report)
+      // Bundles for earlier epochs that the previous committer did not send (§12.11.2). Only in a
+      // group whose MLS-authenticated descriptor says 'shared', now and at that epoch: the DS list
+      // alone never makes a 'joined' group share its history.
+      if (desc.historyVisibility === 'shared') {
+        for (const e of d.historyBundleEpochs) {
+          const he = recent.get(g.gid)?.get(e)
+          if (he !== undefined && contextOf(he).descriptor?.historyVisibility === 'shared') await sendBundle(g, he).catch(report)
+        }
       }
-      // The DS proposals are in the stream already; process any that this state misses.
+      // The DS proposals are in the stream already; process any that this state misses. A DS
+      // proposal that this device rejects is reported by its ProposalRef, so Takusen can mark the
+      // pending row rejected instead of waiting for the batch deadline.
+      const rejected: BatchRejection[] = []
+      const dsProposals: { ref: Uint8Array; users: UserId[] }[] = []
+      let dirty = false
       for (const p of d.proposals) {
-        const bytes = fromB64url(p)
-        if (hasStoredProposal(g.handle, await proposalRefOf(bytes, g.handle.cipherSuite))) continue
-        const r = await mls.processHandshake(g.handle, bytes, await buildPolicy(desc, handshakeUserIds(g.handle, bytes)))
-        if (r.result === 'proposal_stored') await saveRow(g, r.handle, g.row.lastSeq)
+        let bytes: Uint8Array
+        let ref: Uint8Array
+        try {
+          bytes = fromB64url(p)
+          ref = await proposalRefOf(bytes, g.handle.cipherSuite)
+        } catch {
+          // Not a proposal: nothing to reference it by. checkCommit rejects any ref to it anyway.
+          continue
+        }
+        const users = handshakeUserIds(g.handle, bytes)
+        if (!hasStoredProposal(g.handle, ref)) {
+          const r = await mls.processHandshake(g.handle, bytes, await buildPolicy(desc, users))
+          if (r.result === 'rejected') {
+            rejected.push({ proposalRef: toB64url(ref), reason: rejectReason(r.reason) })
+            continue
+          }
+          if (r.result === 'proposal_stored') {
+            // Stored once after the loop: one state encoding per batch, not one per proposal.
+            g.handle = r.handle
+            dirty = true
+          }
+        }
+        dsProposals.push({ ref, users })
       }
+      if (dirty) await saveRow(g, g.handle, g.row.lastSeq)
       const joinUsers = d.joins.flatMap((j) => {
         try {
           return [keyPackageIdentity(fromB64url(j.keyPackage)).userId]
@@ -696,9 +806,17 @@ export const createGroupService = ((ctx: EngineContext, identity: IdentityServic
           return []
         }
       })
-      const policy = await buildPolicy(desc, joinUsers)
+      const policy = await buildPolicy(desc, [...joinUsers, ...dsProposals.flatMap((x) => x.users)])
+      // A stored DS Add that no longer passes (a chain revoked or a reader gone since it was stored).
+      const drop: Uint8Array[] = []
+      for (const { ref } of dsProposals) {
+        const why = checkStoredProposal(g.handle, ref, policy)
+        if (why === null) continue
+        drop.push(ref)
+        rejected.push({ proposalRef: toB64url(ref), reason: rejectReason(why) })
+      }
+      if (drop.length > 0) await saveRow(g, dropStoredProposals(g.handle, drop), g.row.lastSeq)
       const adds: Uint8Array[] = []
-      const rejected: { pendingId: string; reason: Parameters<typeof transport.postCommit>[1]['rejected'][number]['reason'] }[] = []
       const inTree = new Set(mls.roster(g.handle).map((x) => x.deviceId))
       for (const j of d.joins) {
         const bytes = fromB64url(j.keyPackage)
@@ -717,9 +835,7 @@ export const createGroupService = ((ctx: EngineContext, identity: IdentityServic
         if (why === null) {
           adds.push(bytes)
           inTree.add(id.deviceId)
-        } else if (why === 'invalid_chain:revoked') rejected.push({ pendingId: j.pendingId, reason: 'revoked' })
-        else if (why.startsWith('invalid_chain')) rejected.push({ pendingId: j.pendingId, reason: 'invalid_chain' })
-        else rejected.push({ pendingId: j.pendingId, reason: REJECT[why] ?? 'policy' })
+        } else rejected.push({ pendingId: j.pendingId, reason: rejectReason(why) })
       }
       const before = mls.roster(g.handle)
       const pc = await mls.commit(g.handle, { adds, removes: [], descriptor: null, policy })
@@ -877,6 +993,13 @@ export const createGroupService = ((ctx: EngineContext, identity: IdentityServic
       } catch (e) {
         report(e)
       }
+      // READY and RESUMED: a failed replenish elsewhere must not leave the device without key
+      // packages (KEY_PACKAGES_LOW comes only after a claim).
+      try {
+        await identity.replenishKeyPackages()
+      } catch (e) {
+        report(e)
+      }
       const self = identity.self()
       for (const group of await transport.listGroups()) {
         try {
@@ -885,12 +1008,16 @@ export const createGroupService = ((ctx: EngineContext, identity: IdentityServic
           if (local !== undefined && local.status !== group.status) await store.put('groups', group.groupId, { ...local, status: group.status })
           if (group.status !== 'active') continue
           if (!hasState) {
-            if (group.member) await withGroup(group.groupId, (g) => externalCommit(group.groupId, g))
+            if (group.member) await joinAsMember(group.groupId)
             else if (group.kind !== 'public_set') await requestJoin(group)
             continue
           }
           await withGroup(group.groupId, async (g) => {
             if (g === null) return
+            if (stuck.has(g.gid)) {
+              scheduleRecovery(g.gid)
+              return
+            }
             await catchUp(g)
             // A leaf with an older chain than the own one: resync within DSK_ROTATION_GRACE_MS (§12.4).
             const own = g.handle === null ? null : ownLeafEntry(g.handle)
@@ -958,7 +1085,9 @@ export const createGroupService = ((ctx: EngineContext, identity: IdentityServic
         })
         return group
       }
-      if (group.status === 'active') await requestJoin(group)
+      if (group.status !== 'active') return group
+      if (group.member) await joinAsMember(group.groupId)
+      else await requestJoin(group)
       return group
     },
 
@@ -995,13 +1124,15 @@ export const createGroupService = ((ctx: EngineContext, identity: IdentityServic
           await catchUp(g)
           const h = g.handle as MlsGroupHandle | null
           if (h === null) throw new CryptoError('NotMember', 'removed from the group')
-          if (!mls.hasPendingRemoves(h)) {
+          const revoked = await revokedLeaves(h)
+          if (!mls.hasPendingRemoves(h) && revoked.leaves.length === 0) {
             const epochSecret = (await service.epochSecret(h.groupId, h.epoch)) ?? (await messageSecret(h))
             return { groupId: h.groupId, epoch: h.epoch, ownLeaf: h.ownLeaf, epochSecret }
           }
-          // §12.7.4: commit the pending Removes before the device encrypts.
-          const policy = await buildPolicy(descriptorOf(g), [])
-          const pc = await mls.commit(h, { adds: [], removes: [], descriptor: null, policy })
+          // §12.7.4: commit the pending Removes before the device encrypts. A revoked leaf goes by
+          // value too (§12.4 rule 7): a DS that withholds its Remove does not keep it in the tree.
+          const policy = await buildPolicy(descriptorOf(g), revoked.users)
+          const pc = await mls.commit(h, { adds: [], removes: revoked.leaves, descriptor: null, policy })
           await postOwnCommit(g, pc, { batchId: null, rejected: [] }, 'removed')
         }
         throw new CryptoError('PendingRemoves', 'pending Removes are not committed yet')
@@ -1039,7 +1170,7 @@ export const createGroupService = ((ctx: EngineContext, identity: IdentityServic
       if (failures.length >= FORK_ALERT_FAILURES && new Set(failures.map((f) => f.senderDevice)).size >= 2) {
         await store.delete('aeadFailures', gid)
         const g = await load(gid)
-        ctx.emit('forkAlert', { groupId: gid, channelId: g?.row.channelId ?? null, reason: 'aead_failures' })
+        ctx.emit('forkAlert', { groupId: gid, channelId: g?.row.channelId ?? null, epoch: g?.handle?.epoch ?? null, reason: 'aead_failures' })
         spawnResync(gid, 'fork')
       }
     },

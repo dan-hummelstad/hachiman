@@ -4,4 +4,4 @@
 import { getBackup } from '@/lib/mls/device-data'
 import { dsRoute, json, uuidParam } from '@/lib/mls/route'
 
-export const GET = dsRoute<{ id: string }>('active', async (ctx) => json(await getBackup(ctx.repo, ctx.userId, uuidParam(ctx.params.id, 'backup'))))
+export const GET = dsRoute<{ id: string }>('pending', async (ctx) => json(await getBackup(ctx.repo, ctx.userId, uuidParam(ctx.params.id, 'backup'))))

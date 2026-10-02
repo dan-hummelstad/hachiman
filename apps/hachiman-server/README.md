@@ -155,11 +155,13 @@ sequenceDiagram
   C->>G: op 6 RESUME (token, sessionId, seq, deviceId) on any node
   G->>P: checkDevice (else 4013)
   G->>R: takeoverScript (same deviceId, set new owner, read seq + buffer)
-  G->>C: replay frames after seq, then RESUMED
+  G->>C: replay frames after seq
+  G->>P: checkDevice again (revocation race)
+  G->>C: RESUMED
   Note over G,R: old owner's next append fails, so it stops
 ```
 
-A missing session, a gap in the buffer or another `deviceId` than the stored one gives op 9 INVALID_SESSION. The client then sends IDENTIFY on the same socket.
+RESUME runs the token check and the device check, not the capability check. A RESUME without `deviceId` gives 4013. A missing session, a gap in the buffer or another valid `deviceId` than the stored one gives op 9 INVALID_SESSION. The client then sends IDENTIFY on the same socket.
 
 Device scope (§12.13): each session is in the index of its user, its device and its guilds. An event on `device:{id}` goes to every session of that device. The Takusen batch scheduler reads `device_online:{deviceId}` to choose an online committer. The gateway deletes the key when the session ends.
 
@@ -233,7 +235,8 @@ sequenceDiagram
 
 - The media node has no MLS library. It signs nothing, proposes nothing and commits nothing. One mutex guards all rooms. The media node closes sockets only after it releases the mutex.
 - **Committer.** Before the group exists, the earliest joiner creates it. After that, the member with the lowest reported leaf index commits. If no commit arrives 5 s after new work, the next member gets the role, and the media node sends the roster again.
-- **Order.** The media node checks version, wire format, group id, epoch, sender type and sender leaf in the commit header. It accepts the first commit whose epoch is the room epoch. Other commits get `e2ee_commit_rejected`.
+- **Order.** The media node checks version, wire format, group id, epoch, sender type and sender leaf in the commit header. The sender leaf must be the leaf that the sending member reported. Any member can commit, not only the selected committer. The media node accepts the first commit whose epoch is the room epoch. Other commits get `e2ee_commit_rejected`, and so do commits while a transition is not executed yet, and commits whose `added` or `removed` lists are out of date.
+- **No ratchet tree.** When the committer sent a Welcome and its `e2ee_ratchet_tree` does not arrive within 10 s, the media node closes it with 4014. The room stays in the previous epoch.
 - **Bad commits.** The media node closes the committer with 4014 when enough members send `e2ee_invalid` for one transition. Enough is at least two members, or all other members if fewer than two exist. The members stay in the previous epoch. A single `e2ee_invalid` closes only that member with 4013.
 - The media node closes a member with 4013 when it sends no `e2ee_ready` within 10 s. When no member holds the group state any more, the room starts a new group.
 
@@ -243,7 +246,7 @@ Media close codes for E2EE:
 |---|---|
 | 4012 | `identify` has no `e2ee` field, or the version is not 1. |
 | 4013 | Resync: the client sent `e2ee_invalid`, or no `e2ee_ready` came within 10 s. The client joins again with a new leaf. |
-| 4014 | Protocol violation: a malformed op or key package, a commit for another group or with a false leaf, or a commit that members reject. |
+| 4014 | Protocol violation: a malformed op or key package, a commit for another group or with a false leaf, a commit that members reject, or no `e2ee_ratchet_tree` 10 s after a commit with a Welcome. |
 
 `MEDIA_WS_READ_LIMIT` (default 1 MiB) sets the largest client frame. Commits, Welcomes and ratchet trees of a large call use the same socket.
 

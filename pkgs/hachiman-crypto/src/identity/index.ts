@@ -16,7 +16,6 @@ import {
   type DeviceSigningKeyCert,
   type Ed25519KeyPair,
   type IdentityModule,
-  type InboxKind,
   type MasterKeyRecord,
   type UserId,
 } from '../api'
@@ -80,7 +79,22 @@ export function verifyDeviceCert(c: DeviceCertificate, dsk: Pick<DeviceSigningKe
   return c.userId === dsk.userId && c.dskGeneration === dsk.generation && verifyWithLabel(dsk.publicKey, SignLabel.DEVICE_CERTIFICATE, encodeDeviceCertTbs(c), c.signature)
 }
 
+/**
+ * The three signature results of one chain. They do not depend on the ChainContext, so a caller
+ * that sees the same chain bytes again (a key package checked at precheck, policy and commit
+ * time) passes the same memo and skips the Ed25519 verifies.
+ */
+export interface ChainSignatureMemo {
+  master?: boolean
+  dsk?: boolean
+  device?: boolean
+}
+
 function verifyChain(chain: DeviceChain, ctx: ChainContext): ChainVerdict {
+  return verifyChainMemo(chain, ctx, {})
+}
+
+export function verifyChainMemo(chain: DeviceChain, ctx: ChainContext, memo: ChainSignatureMemo): ChainVerdict {
   const { master, dsk, device } = chain
   // 1. Identity and user/device consistency.
   if (ctx.leaf !== null) {
@@ -91,17 +105,17 @@ function verifyChain(chain: DeviceChain, ctx: ChainContext): ChainVerdict {
   }
   if (dsk.userId !== master.userId || device.userId !== master.userId) return { ok: false, reason: 'user_mismatch' }
   // 2. Master self-signature.
-  if (!verifyMasterSelfSignature(master)) return { ok: false, reason: 'bad_signature' }
+  if (!(memo.master ??= verifyMasterSelfSignature(master))) return { ok: false, reason: 'bad_signature' }
   // 3. TOFU pin.
   if (ctx.pinnedMaster !== null && (!equalBytes(ctx.pinnedMaster.publicKey, master.publicKey) || ctx.pinnedMaster.generation !== master.generation)) {
     return { ok: false, reason: 'master_changed' }
   }
   // 4. DSK under the master.
   if (dsk.masterGeneration !== master.generation) return { ok: false, reason: 'key_mismatch' }
-  if (!verifyWithLabel(master.publicKey, SignLabel.DEVICE_SIGNING_KEY, encodeDskTbs(dsk), dsk.signature)) return { ok: false, reason: 'bad_signature' }
+  if (!(memo.dsk ??= verifyWithLabel(master.publicKey, SignLabel.DEVICE_SIGNING_KEY, encodeDskTbs(dsk), dsk.signature))) return { ok: false, reason: 'bad_signature' }
   // 5. Device certificate under the DSK.
   if (device.dskGeneration !== dsk.generation) return { ok: false, reason: 'key_mismatch' }
-  if (!verifyWithLabel(dsk.publicKey, SignLabel.DEVICE_CERTIFICATE, encodeDeviceCertTbs(device), device.signature)) return { ok: false, reason: 'bad_signature' }
+  if (!(memo.device ??= verifyWithLabel(dsk.publicKey, SignLabel.DEVICE_CERTIFICATE, encodeDeviceCertTbs(device), device.signature))) return { ok: false, reason: 'bad_signature' }
   // 6. The leaf signs with the certified key.
   if (ctx.leaf !== null && !equalBytes(ctx.leaf.signatureKey, device.mlsSignatureKey)) return { ok: false, reason: 'key_mismatch' }
   // 7. Not revoked.
@@ -156,21 +170,8 @@ function verifyRevocation(r: DeviceRevocation, keys: { master: MasterKeyRecord; 
   }
 }
 
-type SealedKind = Exclude<InboxKind, 'welcome'>
-
 export interface IdentityModuleExt extends IdentityModule {
   link: LinkProtocolExt
-  /**
-   * `opts` is required at run time: the HPKE info binds the recipient device id, and the inner
-   * signature needs the sender's MLS key (§12.5). Without `opts` the call throws Unsupported.
-   */
-  sealToDevice(recipientHpkeKey: Uint8Array, kind: SealedKind, senderDeviceId: DeviceId, plaintext: Uint8Array, opts?: { recipientDeviceId: DeviceId; signatureKey: Uint8Array }): Promise<Uint8Array>
-  /** `opts` is required at run time (see sealToDevice). `plaintext` is the verified payload. */
-  openFromDevice(
-    recipientHpkePrivateKey: Uint8Array,
-    sealed: Uint8Array,
-    opts?: { recipientDeviceId: DeviceId; senderSignatureKey: (senderDeviceId: DeviceId, kind: SealedKind) => Promise<Uint8Array | null> },
-  ): Promise<{ kind: SealedKind; senderDeviceId: DeviceId; plaintext: Uint8Array }>
 }
 
 export const identity: IdentityModuleExt = {
@@ -253,12 +254,10 @@ export const identity: IdentityModuleExt = {
   decodeHistoryBatch,
 
   async sealToDevice(recipientHpkeKey, kind, senderDeviceId, plaintext, opts) {
-    if (!opts) throw new CryptoError('Unsupported', 'sealToDevice needs the recipient device id and the sender signature key')
     return sealDeviceMessage({ recipientHpkeKey, recipientDeviceId: opts.recipientDeviceId, kind, senderDeviceId, signatureKey: opts.signatureKey, payload: plaintext })
   },
 
   async openFromDevice(recipientHpkePrivateKey, sealed, opts) {
-    if (!opts) throw new CryptoError('Unsupported', 'openFromDevice needs the recipient device id and a sender key lookup')
     const r = await openDeviceMessage({ recipientHpkePrivateKey, recipientDeviceId: opts.recipientDeviceId, sealed, senderSignatureKey: opts.senderSignatureKey })
     return { kind: r.kind, senderDeviceId: r.senderDeviceId, plaintext: r.payload }
   },

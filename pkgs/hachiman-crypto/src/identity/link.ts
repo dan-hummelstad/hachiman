@@ -53,10 +53,6 @@ export function doneConfirmation(key: Uint8Array, transcriptHash: Uint8Array): U
 }
 
 export interface LinkProtocolExt extends LinkProtocol {
-  /** The QR text needs the session id, so the new device builds it after POST /devices/link-sessions. */
-  encodeQr(offer: LinkOffer, sessionId: string, ephemeralPublic: Uint8Array, linkSecret: Uint8Array): string
-  /** parseQr also gives the session id from LinkQr. */
-  parseQr(payload: string): { offer: LinkOffer; ephemeralPublic: Uint8Array; linkSecret: Uint8Array; sessionId: string }
   confirmation(key: Uint8Array, transcriptHash: Uint8Array): Uint8Array
   verifyConfirmation(key: Uint8Array, transcriptHash: Uint8Array, confirmation: Uint8Array): boolean
 }

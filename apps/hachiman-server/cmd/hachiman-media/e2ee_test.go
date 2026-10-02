@@ -598,9 +598,9 @@ func TestE2EE_ReadLimit(t *testing.T) {
 	e2eeTimers(t, time.Second, time.Minute, time.Second)
 	h := newHarness(t)
 	a := h.joinE2EE("sA", "room")
-	b := h.joinE2EE("sB", "room")
 	a.peers() // own join
-	a.offer()
+	a.offer() // before B joins: else B's peers frame can come first
+	b := h.joinE2EE("sB", "room")
 	a.peers() // B joined; the renegotiation waits for A's answer
 	pad := strings.Repeat("x", 900<<10)
 	b.send("speaking", map[string]any{"speaking": true, "pad": pad})
@@ -611,5 +611,107 @@ func TestE2EE_ReadLimit(t *testing.T) {
 	_ = b.ws.WriteMessage(websocket.TextMessage, []byte(big))
 	if code := b.closeCode(); code != websocket.CloseMessageTooBig {
 		t.Fatalf("close %d, want %d", code, websocket.CloseMessageTooBig)
+	}
+}
+
+func TestE2EE_NoTreeNoExecute(t *testing.T) {
+	e2eeTimers(t, 200*time.Millisecond, time.Minute, 800*time.Millisecond)
+	h := newHarness(t)
+	g := newGroup(t, h, "r", 2)
+	a, b := g.members[0], g.members[1]
+	d := h.joinE2EE("sD", "r")
+	a.c.next("e2ee_key_package")
+	// A commits an Add with a Welcome and never sends the tree.
+	a.c.send("e2ee_commit", map[string]any{"epoch": g.epoch, "commit": fakeCommit(g.gid, g.epoch, 0), "welcome": testWelcome, "added": []string{"sD"}, "removed": []string{}})
+	tid := decode[transitionMsg](t, b.c.next("e2ee_prepare_transition")).TransitionID
+	b.c.send("e2ee_ready", map[string]any{"transitionId": tid, "epoch": g.epoch + 1, "leafIndex": b.leaf})
+	// No execute at the execute timeout; at the ready timeout the room goes
+	// back to the old epoch and the committer is evicted.
+	start := time.Now()
+	r := b.c.expectRoster(func(r rosterMsg) bool { return r.committer() == b.sid })
+	if el := time.Since(start); el < 500*time.Millisecond {
+		t.Fatalf("eviction after %v, want the ready timeout", el)
+	}
+	if *r.Epoch != g.epoch || sids(r.Pending) != "sD" || sids(r.Departed) != a.sid {
+		t.Fatalf("roster after eviction = %+v (epoch want %d)", r, g.epoch)
+	}
+	if code := a.c.closeCode(); code != closeE2EEProtocol {
+		t.Fatalf("committer close %d, want %d", code, closeE2EEProtocol)
+	}
+	if kp := decode[map[string]string](t, b.c.next("e2ee_key_package")); kp["sessionId"] != "sD" {
+		t.Fatalf("kp %v", kp)
+	}
+	d.quietE2EE(50 * time.Millisecond)
+}
+
+func TestE2EE_LateTreeExecutes(t *testing.T) {
+	e2eeTimers(t, 100*time.Millisecond, time.Minute, 2*time.Second)
+	h := newHarness(t)
+	g := newGroup(t, h, "r", 2)
+	a, b := g.members[0], g.members[1]
+	d := h.joinE2EE("sD", "r")
+	a.c.next("e2ee_key_package")
+	a.c.send("e2ee_commit", map[string]any{"epoch": g.epoch, "commit": fakeCommit(g.gid, g.epoch, 0), "welcome": testWelcome, "added": []string{"sD"}, "removed": []string{}})
+	tid := decode[transitionMsg](t, b.c.next("e2ee_prepare_transition")).TransitionID
+	a.c.next("e2ee_prepare_transition")
+	b.c.quietE2EE(300 * time.Millisecond) // past the execute timeout: no execute without the tree
+	a.c.send("e2ee_ratchet_tree", map[string]any{"epoch": g.epoch + 1, "ratchetTree": testTree})
+	d.next("e2ee_welcome")
+	d.next("e2ee_ratchet_tree")
+	for _, c := range []*wsClient{a.c, b.c, d} {
+		if ex := decode[transitionMsg](t, c.next("e2ee_execute_transition")); ex.TransitionID != tid {
+			t.Fatalf("execute %+v", ex)
+		}
+	}
+}
+
+func TestE2EE_InvalidAfterExecuteKeepsEpoch(t *testing.T) {
+	e2eeTimers(t, 200*time.Millisecond, time.Minute, 5*time.Second)
+	h := newHarness(t)
+	g := newGroup(t, h, "r", 3)
+	a, b, c := g.members[0], g.members[1], g.members[2]
+	d := &member{c: h.joinE2EE("sD", "r"), sid: "sD", leaf: 3}
+	tid := g.commitAdd(a, d)
+	for _, m := range []*member{a, d} {
+		m.c.send("e2ee_ready", map[string]any{"transitionId": tid, "epoch": g.epoch, "leafIndex": m.leaf})
+	}
+	// B and C are slow: the execute timeout executes the transition.
+	for _, m := range []*member{a, b, c, d} {
+		m.c.next("e2ee_execute_transition")
+	}
+	for _, m := range []*member{b, c} {
+		m.c.send("e2ee_invalid", map[string]any{"transitionId": tid, "reason": "bad signature", "committerLeaf": 0})
+	}
+	if code := a.c.closeCode(); code != closeE2EEProtocol {
+		t.Fatalf("committer close %d, want %d", code, closeE2EEProtocol)
+	}
+	for _, m := range []*member{b, c} {
+		if code := m.c.closeCode(); code != closeE2EEResync {
+			t.Fatalf("%s close %d, want %d", m.sid, code, closeE2EEResync)
+		}
+	}
+	// D executed the new epoch: the room keeps it.
+	r := d.c.expectRoster(func(r rosterMsg) bool { return r.committer() == d.sid && len(r.Departed) == 3 })
+	if *r.Epoch != g.epoch || sids(r.Members) != "sD" || len(r.Pending) != 0 {
+		t.Fatalf("roster after eviction = %+v (epoch want %d)", r, g.epoch)
+	}
+	d.c.send("e2ee_commit", map[string]any{"epoch": g.epoch, "commit": fakeCommit(g.gid, g.epoch, d.leaf), "welcome": nil, "added": []string{}, "removed": []string{a.sid, b.sid, c.sid}})
+	if p := decode[transitionMsg](t, d.c.next("e2ee_prepare_transition")); p.Epoch != g.epoch+1 {
+		t.Fatalf("prepare %+v", p)
+	}
+}
+
+func TestE2EE_StaleCreatorResyncs(t *testing.T) {
+	e2eeTimers(t, time.Second, 300*time.Millisecond, time.Second)
+	h := newHarness(t)
+	a := h.joinE2EE("sA", "room")
+	b := h.joinE2EE("sB", "room")
+	b.expectRoster(func(r rosterMsg) bool { return r.Create && r.committer() == "sB" })
+	b.send("e2ee_ready", map[string]any{"transitionId": nil, "epoch": 0, "leafIndex": 0})
+	b.expectRoster(func(r rosterMsg) bool { return r.Epoch != nil })
+	// A's createGroup finished after the failover.
+	a.send("e2ee_ready", map[string]any{"transitionId": nil, "epoch": 0, "leafIndex": 0})
+	if code := a.closeCode(); code != closeE2EEResync {
+		t.Fatalf("A close %d, want %d", code, closeE2EEResync)
 	}
 }

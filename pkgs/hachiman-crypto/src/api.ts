@@ -70,6 +70,10 @@ export type CryptoErrorCode =
   | 'Malformed'
   | 'TooLarge'
   | 'Unsupported'
+  /** Web Lock refusal: the crypto store is open in another tab (§12.17). */
+  | 'LockHeld'
+  /** An exception inside the Worker that carried no CryptoErrorCode (a bug). */
+  | 'Internal'
 
 /** The error shape that crosses the Worker boundary. */
 export interface CryptoErrorShape {
@@ -199,9 +203,16 @@ export interface WireCommitRequest {
   /** MLSMessage (mls_welcome) or null. */
   welcome: B64url | null
   batchId: string | null
-  rejected: { pendingId: string; reason: BatchRejectReason }[]
+  /** What the committer of an MLS_BATCH_ASSIGN leaves out of the commit, and why. */
+  rejected: BatchRejection[]
 }
 export type BatchRejectReason = 'invalid_chain' | 'not_reader' | 'revoked' | 'policy' | 'malformed'
+/**
+ * A join by value (`pendingId` of WireBatchAssign.joins), or a DS proposal of
+ * WireBatchAssign.proposals by `proposalRef`: base64url of the RFC 9420 ProposalRef of the
+ * MLSMessage (the value Takusen stores in mls_pending.proposal_ref).
+ */
+export type BatchRejection = { pendingId: string; reason: BatchRejectReason } | { proposalRef: B64url; reason: BatchRejectReason }
 
 export type WireCommitResult =
   | { ok: true; epoch: number; seq: number }
@@ -534,9 +545,10 @@ export type DecryptResult =
   /**
    * Step 2. epoch_ahead: buffered until the handshakes arrive. group_unknown: this device
    * never held the group and has no bundle or backup key (a Welcome can still come).
-   * no_history_key: a known group, but no key for that old epoch.
+   * no_history_key: a known group, but no key for that old epoch. transport: a DS call failed
+   * (CryptoError 'Transport'): try this message again later, it is not a verdict.
    */
-  | { status: 'pending'; messageId: MessageId; reason: 'epoch_ahead' | 'group_unknown' | 'no_history_key' }
+  | { status: 'pending'; messageId: MessageId; reason: 'epoch_ahead' | 'group_unknown' | 'no_history_key' | 'transport' }
   | { status: 'failed'; messageId: MessageId; reason: DecryptFailure }
 
 export interface EncryptMessageInput {
@@ -585,7 +597,11 @@ export type CryptoState =
   /** A device row exists but no certificate: linking is in progress. */
   | 'linking'
   | 'ready'
-  /** The DS or the master key revoked this device. The store is cleared. */
+  /**
+   * The DS or the master key revoked this device. A revocation that verifies (signed by the master
+   * key, or a signed_out by this device) clears the store. An unsigned server revocation
+   * (password_reset) only locks the device: the store stays until signOutDevice wipes it.
+   */
   | 'revoked'
 
 export interface CryptoStatus {
@@ -651,6 +667,15 @@ export interface DeviceSummary {
   primary: boolean
   lastSeenAt: string | null
   createdAt: string
+}
+
+/** A device of a contact whose chain verified in the Worker (§12.4, §12.5). */
+export interface ContactDevice {
+  deviceId: DeviceId
+  /** From the signed DeviceCertificate (not the REST name). */
+  displayName: string
+  dskGeneration: number
+  issuedAtMs: number
 }
 
 export interface KtSelfCheckResult {
@@ -739,7 +764,10 @@ export interface CryptoApi {
   // lifecycle
   init(opts: InitOptions): Promise<CryptoStatus>
   status(): Promise<CryptoStatus>
-  /** Forget this device: revokes it on the DS (reason signed_out) and deletes the store. */
+  /**
+   * Forget this device: revokes it on the DS (reason signed_out) and deletes the store. On a
+   * locked device (state 'revoked' after an unsigned server revocation) this is the explicit wipe.
+   */
   signOutDevice(): Promise<void>
 
   // identity setup
@@ -747,6 +775,10 @@ export interface CryptoApi {
   restoreFromRecoveryKey(recoveryKey: string): Promise<CryptoStatus>
   /** After a password reset without the recovery key: new master key, old history unreadable. */
   resetIdentity(): Promise<{ recoveryKey: string; status: CryptoStatus }>
+  /**
+   * Returns the new key only after every blob is uploaded under it. The new key is stored on the
+   * device first, so a call after a failed one continues with the same key.
+   */
   rotateRecoveryKey(): Promise<{ recoveryKey: string }>
 
   // device linking (§12.5)
@@ -768,10 +800,22 @@ export interface CryptoApi {
 
   // trust and verification
   getTrust(userId: UserId): Promise<TrustInfo>
+  /**
+   * The devices of a user whose chain verified in the Worker: the pinned (or TOFU) master key, a
+   * DSK signed by it, a device certificate signed by that DSK. Revoked devices are left out.
+   * Empty when the user has no identity, or the DS serves another master for this user.
+   */
+  listContactDevices(userId: UserId): Promise<ContactDevice[]>
+  /** During a key change (trust 'changed'): the number of the new master key. */
   getSafetyNumber(userId: UserId): Promise<SafetyNumber>
-  /** Scanned VERIFY_QR payload. Sets 'verified' on a match. */
+  /** Scanned VERIFY_QR payload. Sets 'verified' on a match. During a key change, a match accepts the new master key. */
   verifyQr(qrPayload: string): Promise<{ userId: UserId; match: boolean }>
+  /** true during a key change accepts the new master key as verified. */
   setVerified(userId: UserId, verified: boolean): Promise<TrustInfo>
+  /**
+   * Accepts the new master key of a key change ('changed' → 'tofu'). Until then the chain checks
+   * keep the old pin, so no device of the user passes them (no Add, no join, no commit).
+   */
   acknowledgeKeyChange(userId: UserId): Promise<TrustInfo>
   /** 30 digits from the current epoch authenticator (§12.5). */
   getEpochCode(groupId: GroupIdB64): Promise<string>
@@ -811,7 +855,12 @@ export interface CryptoApi {
   signAdminAction(guildId: GuildId, type: AdminActionTypeId, payload: Uint8Array): Promise<{ header: B64url; seq: number }>
 
   // voice (§8, §12.10)
-  voiceStart(opts: { channelId: ChannelId }): Promise<VoiceSessionStart>
+  /**
+   * guildId: the guild of the voice channel. The creator writes it into the group descriptor and a
+   * joiner checks the descriptor against it (§12.10.1). Without it, this device does not create the
+   * group (the media node gives the create to the next joiner after 5 s).
+   */
+  voiceStart(opts: { channelId: ChannelId; guildId?: GuildId | null }): Promise<VoiceSessionStart>
   /** One media op in, zero or more client ops out (send in order). */
   voiceHandle(handle: string, op: VoiceE2eeServerOp): Promise<VoiceE2eeClientOp[]>
   /** Gives the transform Worker a port that receives FrameKeyMessage. */
@@ -825,10 +874,17 @@ export interface CryptoApi {
 /** Worker → UI events. */
 export interface CryptoEvents {
   status: CryptoStatus
-  /** A contact's master key changed. 'blocking' for a verified contact. */
+  /**
+   * The DS serves another master key for a contact, not a valid rotation of the pin. The pin
+   * stays until acknowledgeKeyChange (or a new verification). 'blocking' for a verified contact.
+   */
   keyChange: { userId: UserId; severity: 'blocking' | 'notice' }
-  /** The group state forked (§12.8). The Worker starts a resync. */
-  forkAlert: { groupId: GroupIdB64; channelId: ChannelId | null; reason: 'aead_failures' | 'group_info_mismatch' }
+  /**
+   * The group state forked (§12.8.7), or this device rejected a commit that the DS accepted
+   * ('commit_rejected', §12.7.9). The Worker starts a resync by external commit. `epoch` is the
+   * epoch of the local state when the alert fired (null when unknown).
+   */
+  forkAlert: { groupId: GroupIdB64; channelId: ChannelId | null; epoch: number | null; reason: 'aead_failures' | 'group_info_mismatch' | 'commit_rejected' }
   membership: MembershipEvent
   /** Existing device, SAS mode: show these emoji. */
   linkSas: { sessionId: string; emoji: SasEmoji[] }
@@ -849,7 +905,7 @@ export interface CryptoClient extends CryptoApi {
 
 export interface CreateCryptoClientOptions {
   transport: DsTransport
-  /** Default: new Worker(new URL('./worker/main.ts', import.meta.url), { type: 'module' }). */
+  /** Default: new Worker(new URL('../worker/main.ts', import.meta.url), { type: 'module' }), resolved from src/bridge. */
   worker?: Worker
 }
 export type CreateCryptoClient = (opts: CreateCryptoClientOptions) => CryptoClient
@@ -1009,8 +1065,27 @@ export interface IdentityModule {
   decodeHistoryBatch(b: Uint8Array): HistoryKeyEntry[]
 
   // sealed device messages: HPKE base mode to DeviceCertificate.hpkeKey (§12.5)
-  sealToDevice(recipientHpkeKey: Uint8Array, kind: Exclude<InboxKind, 'welcome'>, senderDeviceId: DeviceId, plaintext: Uint8Array): Promise<Uint8Array>
-  openFromDevice(recipientHpkePrivateKey: Uint8Array, sealed: Uint8Array): Promise<{ kind: Exclude<InboxKind, 'welcome'>; senderDeviceId: DeviceId; plaintext: Uint8Array }>
+  /**
+   * The HPKE info binds `opts.recipientDeviceId`. The inner signature uses `opts.signatureKey`,
+   * the sender device's MLS signature private key (§12.5).
+   */
+  sealToDevice(
+    recipientHpkeKey: Uint8Array,
+    kind: Exclude<InboxKind, 'welcome'>,
+    senderDeviceId: DeviceId,
+    plaintext: Uint8Array,
+    opts: { recipientDeviceId: DeviceId; signatureKey: Uint8Array },
+  ): Promise<Uint8Array>
+  /**
+   * `opts.recipientDeviceId` is this device (HPKE info). `opts.senderSignatureKey` returns the
+   * verified MLS signature public key of the sender device, or null (the open then fails).
+   * `plaintext` is the verified payload.
+   */
+  openFromDevice(
+    recipientHpkePrivateKey: Uint8Array,
+    sealed: Uint8Array,
+    opts: { recipientDeviceId: DeviceId; senderSignatureKey: (senderDeviceId: DeviceId, kind: Exclude<InboxKind, 'welcome'>) => Promise<Uint8Array | null> },
+  ): Promise<{ kind: Exclude<InboxKind, 'welcome'>; senderDeviceId: DeviceId; plaintext: Uint8Array }>
 
   // device linking (§12.5): pure steps, the engine moves messages over the DS
   link: LinkProtocol
@@ -1082,9 +1157,15 @@ export interface LinkSecrets {
 export interface LinkProtocol {
   encodeOffer(o: LinkOffer): Uint8Array
   decodeOffer(b: Uint8Array): LinkOffer
-  /** New device. */
+  /**
+   * New device. `qrPayload` is always null: LinkQr.session_id exists only after
+   * POST /devices/link-sessions, so the caller builds the QR with encodeQr afterwards.
+   */
   createOffer(base: Omit<LinkOffer, 'commitment' | 'mode'>, mode: 'qr' | 'sas'): { offer: LinkOffer; secrets: LinkSecrets; qrPayload: string | null }
-  parseQr(payload: string): { offer: LinkOffer; ephemeralPublic: Uint8Array; linkSecret: Uint8Array }
+  /** New device, QR mode: LINK_QR_PREFIX + base64url(LinkQr) (§12.5). */
+  encodeQr(offer: LinkOffer, sessionId: string, ephemeralPublic: Uint8Array, linkSecret: Uint8Array): string
+  /** Existing device: the scanned LinkQr, with its session id. */
+  parseQr(payload: string): { offer: LinkOffer; ephemeralPublic: Uint8Array; linkSecret: Uint8Array; sessionId: string }
   /** Message bodies on the link session (§12.5): LinkMessage = accept | reveal | transfer | done | abort. */
   encodeMessage(m: LinkMessage): Uint8Array
   decodeMessage(b: Uint8Array): LinkMessage
@@ -1321,7 +1402,7 @@ export interface DsModule {
    * The §12.7.3 checks that need no database, without group secrets: framing, group id, epoch
    * (2), sender credential = `sender` (3), GroupInfo signature by the signer leaf and tree hash
    * (4), the roster transition from `previous` (5: Adds by value, refs, Removes, external init,
-   * resync), every proposal ref in `publishedProposalRefs` (6), and the chain signatures of new
+   * resync), every proposal ref against `publishedProposals` (6), and the chain signatures of new
    * or changed leaves (7, no TOFU). Takusen keeps the DB checks (1, device rows in 7, 8, 10, 11)
    * and the policy (9), from `inspection.next.roster`, `changedLeaves` and `removedLeaves`.
    */
@@ -1335,8 +1416,13 @@ export interface DsModule {
     previous: { groupInfo: Uint8Array; ratchetTree: Uint8Array }
     /** The X-Hachiman-Device of the request. */
     sender: { userId: UserId; deviceId: DeviceId }
-    /** RFC 9420 ProposalRefs of the DS proposals that Takusen published for `epoch`. */
-    publishedProposalRefs: readonly Uint8Array[]
+    /**
+     * The DS proposals that Takusen published for `epoch`: the full MLSMessage (mls_public_message)
+     * bytes as stored in mls_pending, not the refs. checkCommit computes each ProposalRef itself and
+     * applies the proposal content to the roster transition.
+     */
+    publishedProposals: readonly Uint8Array[]
+    /** The raw 32-byte Ed25519 public key of the user's current master key, or null for an unknown user. */
     masterKeys: (userId: UserId) => Uint8Array | null
   }): Promise<CommitCheck>
   /** For POST /mls/groups (§12.7.7): epoch, signature, tree hash, leaves, extension order and the descriptor. */
@@ -1464,8 +1550,14 @@ export interface StoreSchema {
     dsk: { cert: Uint8Array; privateKey: Uint8Array } | null
     master: { record: Uint8Array; privateKey: Uint8Array | null } | null
     recoveryKeyId: Uint8Array | null
+    /** K_backup and its key id (not the recovery key), so this device can upload history blobs (§12.11.3). */
+    backupKey: { key: Uint8Array; keyId: Uint8Array } | null
     dsExternalSender: Uint8Array | null
     ktPublicKey: Uint8Array | null
+    /** A rotateRecoveryKey that has not finished: the new key, stored before the first upload. */
+    pendingRecoveryKey?: string | null
+    /** Set when an unsigned server revocation locked this device (state 'revoked', store kept). */
+    lockedAtMs?: number | null
   }
   /** Key: groupId base64url. */
   groups: { groupId: Uint8Array; state: Uint8Array; channelId: ChannelId | null; kind: GroupKindName; lastSeq: number; status: GroupStatus }
@@ -1479,7 +1571,16 @@ export interface StoreSchema {
    */
   seen: { messageId: MessageId; sentAtMs: number }
   /** Key: userId. dskGeneration: the highest DSK generation seen (§12.4 rule 9). */
-  contacts: { userId: UserId; masterKey: Uint8Array; generation: number; dskGeneration: number; trust: SenderTrust; changedAtMs: number | null }
+  contacts: {
+    userId: UserId
+    masterKey: Uint8Array
+    generation: number
+    dskGeneration: number
+    trust: SenderTrust
+    changedAtMs: number | null
+    /** trust 'changed': the master key that the DS serves now. It replaces the pin only on acknowledgement. */
+    candidate?: { masterKey: Uint8Array; generation: number } | null
+  }
   /** Key: 'self'. */
   kt: { treeHead: Uint8Array | null; lastSelfCheckMs: number; lastSelfIndex: number }
   /** Key: groupId base64url. Envelopes for epochs this device has not reached. MessageService writes, GroupService drains. */
@@ -1576,6 +1677,7 @@ export interface IdentityService
     | 'revokeDevice'
     | 'renameDevice'
     | 'getTrust'
+    | 'listContactDevices'
     | 'getSafetyNumber'
     | 'verifyQr'
     | 'setVerified'
@@ -1589,8 +1691,15 @@ export interface IdentityService
   status(): CryptoStatus
   /** Fetches and verifies a user's keys (TOFU pin, KT proof in Phase 4). Cached. */
   chainContextFor(userId: UserId, entering: boolean): Promise<ChainContext>
-  /** The verified certificate of any device, revoked ones included (history checks). */
+  /** The verified certificate of a device of `userId`, revoked ones included (history checks). */
   deviceCertificate(userId: UserId, deviceId: DeviceId): Promise<DeviceCertificate | null>
+  /**
+   * The verified certificate of `deviceId` whoever owns it (cert.userId), revoked ones included.
+   * Looks at `hintUserId` first, then at every user whose keys this Worker already fetched, then
+   * refetches `hintUserId` (at most once per KEY_REFRESH_MIN_MS). Null when no known user owns it.
+   * MessageService uses it so a foreign device gives 'device_mismatch' or 'edit_not_author'.
+   */
+  deviceOwnerCertificate(deviceId: DeviceId, hintUserId: UserId): Promise<DeviceCertificate | null>
   trustOf(userId: UserId): Promise<SenderTrust>
   /** USER_KEYS_UPDATE, KT_TREE_HEAD, KEY_PACKAGES_LOW, DEVICE_LINK. (DEVICE_INBOX goes to GroupService.) */
   onGatewayEvent(event: CryptoGatewayEvent): Promise<void>
@@ -1659,13 +1768,25 @@ export type CreateAdminService = (ctx: EngineContext, identity: IdentityService)
 export type VoiceService = Pick<CryptoApi, 'voiceStart' | 'voiceHandle' | 'voiceAttachTransform' | 'voiceRoster' | 'voiceEpochCode' | 'voiceStop'>
 
 /**
- * The deps break the identity → mls import cycle: worker/main.ts passes `mls` (and the
- * admin permission model over @hachiman/client/permissions). Tests pass fakes.
+ * The deps break the identity → mls import cycle: worker/engine.ts passes `mls`, and the admin
+ * permission model over @hachiman/client/permissions (worker/permissions.ts, given to the engine by
+ * worker/serve.ts). Tests pass fakes.
  */
 export type CreateIdentityService = (
   ctx: EngineContext,
   deps: { mls: Pick<MlsModule, 'generateKeyPackages'>; adminPermissions: AdminPermissionModel },
 ) => IdentityService
-export type CreateGroupService = (ctx: EngineContext, identity: IdentityService) => GroupService
+export interface GroupServiceDeps {
+  /**
+   * The §2 rules over `@hachiman/client/permissions` (worker/permissions.ts, passed by
+   * worker/serve.ts through worker/engine.ts). Without it, adminReaders is null and no GCE is accepted.
+   */
+  adminPermissions?: AdminPermissionModel
+  /** Tests pass a wrapped module. */
+  mls?: MlsModule
+  /** The wait between automatic resync attempts after a rejected commit. Default: setTimeout. Tests pass their own. */
+  sleep?: (ms: number) => Promise<void>
+}
+export type CreateGroupService = (ctx: EngineContext, identity: IdentityService, deps?: GroupServiceDeps) => GroupService
 export type CreateMessageService = (ctx: EngineContext, identity: IdentityService, groups: GroupService) => MessageService
 export type CreateVoiceService = (ctx: EngineContext, identity: IdentityService) => VoiceService

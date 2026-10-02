@@ -19,7 +19,8 @@ import { countKeyPackages, uploadKeyPackages } from './key-packages'
 import { flushWithProposals, onMembershipChangeWith } from './membership'
 import { signPendingProposals } from './proposals'
 import type { DeviceRow } from './repo'
-import { activate, activeDevice, commitLiveBatch, commitRequest, fakeKeyPackage, leafOf, newWorld, type World } from './testing'
+import { commitRequestSchema, splitRejections } from './schemas'
+import { activate, activeDevice, commitLiveBatch, commitRequest, fakeKeyPackage, leafOf, newWorld, runBatchAndCommit, type World } from './testing'
 
 setBusPublisher(async () => undefined)
 
@@ -90,6 +91,21 @@ describe('DS proposals (§12.7.4)', () => {
     assert.equal(res.epoch, 1)
     assert.ok(await w.repo.memberByDevice(group.groupId, members[0]!.device.id))
     assert.equal((await w.repo.getJoinRequest(jr.id))!.status, 'committed')
+  })
+
+  test('checkCommit gets the signed proposals, so a commit cannot reference an Add and hide it', async () => {
+    const w = await newWorld()
+    const { group, members, oDev } = await publicGuild(w, 1)
+    await join(w, group.groupId, members[0]!)
+    const [item] = await w.repo.listPending(group.groupId, ['queued'])
+    const ref = toB64(item!.proposalRef!)
+    const caller = { userId: oDev.userId, device: oDev }
+    const g = (await w.repo.getGroup(group.groupId))!
+    const hidden = await commitRequest(w, group.groupId, oDev, { refs: [ref], adds: [], removes: [] }, { welcome: true, nextTree: [leafOf(oDev, 0)] })
+    const err = await rejects(uploadCommit(w.repo, w.deps, new Outbox(), caller, group.groupId, hidden), 'InvalidCommit')
+    assert.match(err.message, /roster transition/)
+    assert.deepEqual(w.ds.checks.at(-1)!.publishedProposals, [item!.proposal], 'the stored MLSMessage, not the ref')
+    assert.equal((await w.repo.getGroup(group.groupId))!.epoch, g.epoch)
   })
 
   test('a Remove is signed once per epoch, appended before the batch, and signed again after an epoch change', async () => {
@@ -187,6 +203,103 @@ describe('batch scheduler (§12.7.5)', () => {
 
     await commitLiveBatch(w, out, group.groupId)
     assert.ok(await w.repo.memberByDevice(group.groupId, members[2]!.device.id))
+  })
+
+  test('a decline with rejectedProposals rejects the DS Add by ref; the next batch leaves it out', async () => {
+    const w = await newWorld()
+    const { group, members, oDev } = await publicGuild(w, 3)
+    const bad = members[0]!
+    const good = members[1]!
+    // members[2] joins first, so the batch can fail over to it.
+    await join(w, group.groupId, members[2]!)
+    await runBatchAndCommit(w, group.groupId)
+    const jrBad = await join(w, group.groupId, bad)
+    await join(w, group.groupId, good)
+    const pending = await w.repo.listPending(group.groupId, ['queued'])
+    const badRow = pending.find((p) => p.deviceId === bad.device.id)!
+    const goodRow = pending.find((p) => p.deviceId === good.device.id)!
+
+    let out = new Outbox()
+    await runSchedulerTick(w.repo, w.deps, out)
+    const first = out.events.find((e) => e.t === 'MLS_BATCH_ASSIGN')!
+    assert.equal(first.channel, `device:${oDev.id}`)
+    const batchId = (first.d as { batchId: string }).batchId
+    const report = [{ proposalRef: badRow.proposalRef!, reason: 'invalid_chain' }]
+
+    // Only the assigned committer may report.
+    await rejects(declineBatch(w.repo, w.deps, new Outbox(), members[2]!.device.id, batchId, report), 'UnknownBatch')
+    assert.notEqual((await w.repo.getPendingByIds([badRow.id]))[0]!.status, 'rejected')
+
+    out = new Outbox()
+    await declineBatch(w.repo, w.deps, out, oDev.id, batchId, report)
+    const [row] = await w.repo.getPendingByIds([badRow.id])
+    assert.equal(row!.status, 'rejected')
+    assert.equal(row!.reason, 'invalid_chain')
+    assert.equal((await w.repo.getJoinRequest(jrBad.id))!.status, 'rejected')
+    const update = out.events.find((e) => e.t === 'MLS_JOIN_UPDATE' && e.channel === `device:${bad.device.id}`)
+    assert.deepEqual(update?.d, { requestId: jrBad.id, groupId: toB64(group.groupId), status: 'rejected', reason: 'invalid_chain' })
+    const next = out.events.find((e) => e.t === 'MLS_BATCH_ASSIGN')!
+    assert.equal(next.channel, `device:${members[2]!.device.id}`)
+    assert.deepEqual((next.d as { proposals: string[] }).proposals, [toB64(goodRow.proposal!)], 'the rejected Add is not in the next batch')
+
+    await commitLiveBatch(w, out, group.groupId)
+    assert.ok(await w.repo.memberByDevice(group.groupId, good.device.id))
+    assert.equal(await w.repo.memberByDevice(group.groupId, bad.device.id), null)
+  })
+
+  test('a commit with rejectedProposals settles the applied Adds and rejects the refused one', async () => {
+    const w = await newWorld()
+    const { group, members, oDev } = await publicGuild(w, 2)
+    const [bad, good] = [members[0]!, members[1]!]
+    const jrBad = await join(w, group.groupId, bad)
+    await join(w, group.groupId, good)
+    const out = new Outbox()
+    await runSchedulerTick(w.repo, w.deps, out)
+    const assign = out.events.find((e) => e.t === 'MLS_BATCH_ASSIGN')!
+    const pending = await w.repo.listPending(group.groupId, ['assigned', 'queued'])
+    const badRow = pending.find((p) => p.deviceId === bad.device.id)!
+    const goodRow = pending.find((p) => p.deviceId === good.device.id)!
+
+    const body = await commitRequest(w, group.groupId, oDev, { refs: [toB64(goodRow.proposalRef!)], adds: [], removes: [] }, { welcome: true })
+    body.batchId = (assign.d as { batchId: string }).batchId
+    const withReport = { ...body, rejectedProposals: [{ proposalRef: badRow.proposalRef!, reason: 'malformed' }] }
+    const res = await uploadCommit(w.repo, w.deps, out, { userId: oDev.userId, device: oDev }, group.groupId, withReport)
+    assert.equal(res.epoch, 1)
+    assert.ok(await w.repo.memberByDevice(group.groupId, good.device.id))
+    assert.equal((await w.repo.getPendingByIds([badRow.id]))[0]!.status, 'rejected')
+    assert.equal((await w.repo.getJoinRequest(jrBad.id))!.status, 'rejected')
+    assert.equal((await w.repo.listPending(group.groupId, ['queued', 'assigned'])).length, 0, 'nothing is left for the next batch')
+  })
+
+  test('a commit whose rejected[] names a DS Add by proposalRef (BatchRejection) rejects it in the commit transaction', async () => {
+    const w = await newWorld()
+    const { group, members, oDev } = await publicGuild(w, 2)
+    const [bad, good] = [members[0]!, members[1]!]
+    const jrBad = await join(w, group.groupId, bad)
+    await join(w, group.groupId, good)
+    const out = new Outbox()
+    await runSchedulerTick(w.repo, w.deps, out)
+    const assign = out.events.find((e) => e.t === 'MLS_BATCH_ASSIGN')!
+    const pending = await w.repo.listPending(group.groupId, ['assigned', 'queued'])
+    const badRow = pending.find((p) => p.deviceId === bad.device.id)!
+    const goodRow = pending.find((p) => p.deviceId === good.device.id)!
+
+    const body = await commitRequest(w, group.groupId, oDev, { refs: [toB64(goodRow.proposalRef!)], adds: [], removes: [] }, { welcome: true })
+    body.batchId = (assign.d as { batchId: string }).batchId
+    const wire = commitRequestSchema.parse({
+      epoch: body.epoch,
+      commit: toB64(body.commit),
+      groupInfo: toB64(body.groupInfo),
+      ratchetTree: toB64(body.ratchetTree),
+      welcome: body.welcome ? toB64(body.welcome) : null,
+      batchId: body.batchId,
+      rejected: [{ proposalRef: toB64(badRow.proposalRef!), reason: 'malformed' }],
+    })
+    const res = await uploadCommit(w.repo, w.deps, out, { userId: oDev.userId, device: oDev }, group.groupId, { ...wire, ...splitRejections(wire) })
+    assert.equal(res.epoch, 1)
+    assert.ok(await w.repo.memberByDevice(group.groupId, good.device.id))
+    assert.equal((await w.repo.getPendingByIds([badRow.id]))[0]!.status, 'rejected')
+    assert.equal((await w.repo.getJoinRequest(jrBad.id))!.status, 'rejected')
   })
 
   test('no online member: public_set joiners get external_commit, dm Adds get waiting', async () => {

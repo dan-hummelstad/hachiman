@@ -32,10 +32,10 @@ const sameShapes: [
 ] = [true, true, true]
 void sameShapes
 
-export type VoiceCrypto = Pick<CryptoApi, 'voiceHandle' | 'voiceAttachTransform' | 'voiceStop'> & {
-  /** CryptoApi.voiceStart. The Worker also reads `guildId`: it puts it in the group descriptor. */
-  voiceStart(opts: { channelId: string; guildId: string }): ReturnType<CryptoApi['voiceStart']>
-}
+export type VoiceCrypto = Pick<
+  CryptoApi,
+  'voiceStart' | 'voiceHandle' | 'voiceAttachTransform' | 'voiceStop'
+>
 
 export interface VoiceE2eeDeps {
   crypto: VoiceCrypto

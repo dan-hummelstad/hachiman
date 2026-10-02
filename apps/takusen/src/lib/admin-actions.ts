@@ -25,9 +25,9 @@ import { bytesEqual, fromB64, toB64 } from '@/lib/mls/bytes'
 import { getDsModule, type DsModule } from '@/lib/mls/crypto'
 import { requireDevice } from '@/lib/mls/device-auth'
 
-import type { AdminAction, AdminPayload, WireAdminAction } from '../../../../pkgs/hachiman-crypto/src/api'
-import { admin } from '../../../../pkgs/hachiman-crypto/src/admin/index'
-import { AdminActionType } from '../../../../pkgs/hachiman-crypto/src/constants'
+import type { AdminAction, AdminPayload, WireAdminAction } from '@hachiman/crypto'
+import { admin } from '@hachiman/crypto/admin'
+import { AdminActionType } from '@hachiman/crypto/constants'
 
 export type { AdminPayload }
 

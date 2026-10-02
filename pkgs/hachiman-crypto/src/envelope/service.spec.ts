@@ -20,6 +20,8 @@ import type {
   UserId,
 } from '../api'
 import { CryptoError } from '../api'
+import { DsError, FakeDs, makeDevice, type TestDevice } from '../identity/test-helpers'
+import { KEY_REFRESH_MIN_MS } from '../identity/service'
 import { fromB64url, toB64url } from '../codec'
 import { MAX_ENVELOPE_BYTES } from '../constants'
 import { franking } from '../franking'
@@ -106,6 +108,8 @@ class World {
   readonly secrets = new Map<string, Uint8Array>()
   readonly current = new Map<string, number>()
   channelGroup = new Map<string, Uint8Array>()
+  /** Certificate lookups of these devices reject (a DS outage). */
+  readonly failLookups = new Map<DeviceId, Error>()
 
   add(d: Device): Device {
     this.devices.set(d.deviceId, d)
@@ -224,8 +228,17 @@ function makeIdentity(world: World, self: Device, gossip: { out: Uint8Array | nu
     replenishKeyPackages: unimplemented,
     backupNow: unimplemented,
     self: () => selfIdentity,
+    deviceCertificate: (userId, deviceId) => {
+      const cert = world.devices.get(deviceId)?.cert ?? null
+      return Promise.resolve(cert?.userId === userId ? cert : null)
+    },
     // The verified certificate of the device, whoever owns it (the service compares the user).
-    deviceCertificate: (_userId, deviceId) => Promise.resolve(world.devices.get(deviceId)?.cert ?? null),
+    deviceOwnerCertificate: (deviceId) => {
+      const fail = world.failLookups.get(deviceId)
+      if (fail !== undefined) return Promise.reject(fail)
+      return Promise.resolve(world.devices.get(deviceId)?.cert ?? null)
+    },
+    listContactDevices: unimplemented,
     trustOf: () => Promise.resolve('tofu'),
     treeHeadForGossip: () => Promise.resolve(gossip.out),
     observeTreeHead: (head, from) => {
@@ -245,7 +258,7 @@ interface Peer {
   events: { event: keyof CryptoEvents; payload: unknown }[]
 }
 
-function peer(world: World, dev: Device, maxEnvelopeBytes = MAX_ENVELOPE_BYTES): Peer {
+function peer(world: World, dev: Device, maxEnvelopeBytes = MAX_ENVELOPE_BYTES, realIdentity: IdentityService | null = null): Peer {
   const store = new MemoryStore()
   const view: View = { limits: new Map(), unknown: new Set(), leafOverride: new Map(), aeadReports: [], forkedSecret: false }
   const gossip = { out: null as Uint8Array | null, seen: [] as { head: Uint8Array; from: UserId }[] }
@@ -270,7 +283,7 @@ function peer(world: World, dev: Device, maxEnvelopeBytes = MAX_ENVELOPE_BYTES):
     platform: 'browser',
     clientVersion: '1.0.0',
   }
-  const svc = createMessageService(ctx, makeIdentity(world, dev, gossip), makeGroups(world, dev, view))
+  const svc = createMessageService(ctx, realIdentity ?? makeIdentity(world, dev, gossip), makeGroups(world, dev, view))
   return { dev, svc, store, view, gossip, clock, events }
 }
 
@@ -661,6 +674,32 @@ describe('MessageService', () => {
     expect(ok.draft.mime).toBe('application/octet-stream')
   })
 
+  it('a DS error marks only its own message pending, with one error event per batch', async () => {
+    const { world, alice, bob, carol } = setup()
+    const a1 = row(await alice.svc.encryptMessage(msg('a1')), alice.dev)
+    const b1 = row(await bob.svc.encryptMessage(msg('b1')), bob.dev)
+    const a2 = row(await alice.svc.encryptMessage(msg('a2')), alice.dev)
+    world.failLookups.set(ALICE_DEV, new DsError('ServiceUnavailable'))
+    const r = await carol.svc.decryptMessages([a1, b1, a2])
+    expect(r.map(reason)).toEqual(['pending:transport', 'ok', 'pending:transport'])
+    const errors = carol.events.filter((e) => e.event === 'error')
+    expect(errors).toHaveLength(1)
+    expect(errors[0]!.payload).toMatchObject({ code: 'Transport', dsCode: 'ServiceUnavailable' })
+    // A CryptoError('Transport') without a dsCode (a fetch that failed) is transient too.
+    world.failLookups.set(ALICE_DEV, new CryptoError('Transport', 'network down'))
+    expect(reason(await one(carol, a1))).toBe('pending:transport')
+    // The DS is back: the same messages decrypt.
+    world.failLookups.clear()
+    expect((await carol.svc.decryptMessages([a1, a2])).map(reason)).toEqual(['ok', 'ok'])
+  })
+
+  it('a bug in a lookup still rejects the batch (it is not a DS error)', async () => {
+    const { world, alice, carol } = setup()
+    const a1 = row(await alice.svc.encryptMessage(msg('a1')), alice.dev)
+    world.failLookups.set(ALICE_DEV, new TypeError('bug'))
+    await expect(carol.svc.decryptMessages([a1])).rejects.toBeInstanceOf(TypeError)
+  })
+
   it('fuzz: decryptMessages never throws on mutated envelopes and never accepts them', async () => {
     const { alice, carol } = setup()
     const out = await alice.svc.encryptMessage(msg('fuzz', { attachments: [pointer(1)] }))
@@ -676,5 +715,74 @@ describe('MessageService', () => {
       }),
       { numRuns: 300 },
     )
+  })
+})
+
+// MARK: - With the real IdentityService (certificates verified from a fake Takusen)
+
+describe('MessageService with the real IdentityService', () => {
+  async function real() {
+    const ds = new FakeDs()
+    const users = { alice: ds.id(), bob: ds.id(), carol: ds.id() }
+    const devs: Record<keyof typeof users, TestDevice> = {} as never
+    for (const k of Object.keys(users) as (keyof typeof users)[]) {
+      devs[k] = await makeDevice(ds, users[k], k)
+      await devs[k].svc.setupFirstDevice()
+    }
+    await ds.flush()
+    const world = new World()
+    const asDevice = (t: TestDevice, leaf: number): Device => {
+      const s = t.svc.self()
+      return world.add({ userId: s.userId, deviceId: s.deviceId, keys: s.mlsSignatureKey, leaf, cert: s.chain.device })
+    }
+    const alice = peer(world, asDevice(devs.alice, 0))
+    const bob = peer(world, asDevice(devs.bob, 1))
+    const carolDev = asDevice(devs.carol, 2)
+    const carol = peer(world, carolDev, MAX_ENVELOPE_BYTES, devs.carol.svc)
+    const g1 = World.groupId(1)
+    world.channelGroup.set(CHANNEL, g1)
+    world.setEpoch(g1, 5)
+    const keyFetches: UserId[] = []
+    const getUserKeys = devs.carol.transport.getUserKeys
+    devs.carol.transport.getUserKeys = (userId) => {
+      keyFetches.push(userId)
+      return getUserKeys(userId)
+    }
+    return { ds, users, alice, bob, carol, keyFetches }
+  }
+
+  it('an edit signed by a foreign device gives edit_not_author', async () => {
+    const { alice, bob, carol } = await real()
+    const out = await alice.svc.encryptMessage(msg('v1'))
+    const orig = row(out, alice.dev)
+    expect(reason(await one(carol, orig))).toBe('ok')
+    // Carol has Bob's keys (a group member), so his device is known under his user.
+    expect(reason(await one(carol, row(await bob.svc.encryptMessage(msg('hello')), bob.dev)))).toBe('ok')
+    bob.clock.now += 1000
+    const e = await bob.svc.encryptMessage(edit(out.clientMsgId, 'pwned'))
+    expect(reason(await one(carol, patched(orig, e, bob.dev)))).toBe('failed:edit_not_author')
+  })
+
+  it('a kind-1 message attributed to another user gives device_mismatch, and an unknown owner invalid_chain', async () => {
+    const { users, alice, bob, carol } = await real()
+    const real1 = await bob.svc.encryptMessage(msg('from bob'))
+    // Before Carol knows Bob, nothing proves who owns the device: invalid_chain, fail closed.
+    expect(reason(await one(carol, { ...row(real1, bob.dev), authorId: users.alice }))).toBe('failed:invalid_chain')
+    expect(reason(await one(carol, row(await bob.svc.encryptMessage(msg('again')), bob.dev)))).toBe('ok')
+    const real2 = await bob.svc.encryptMessage(msg('from bob 2'))
+    expect(reason(await one(carol, { ...row(real2, bob.dev), authorId: users.alice }))).toBe('failed:device_mismatch')
+    expect(reason(await one(carol, row(await alice.svc.encryptMessage(msg('alice')), alice.dev)))).toBe('ok')
+  })
+
+  it('an unknown device id refetches the hinted user at most once per KEY_REFRESH_MIN_MS', async () => {
+    const { ds, users, bob, carol, keyFetches } = await real()
+    const misattributed = async (n: number) => ({ ...row(await bob.svc.encryptMessage(msg(`m${n}`)), bob.dev), authorId: users.alice })
+    for (let i = 0; i < 5; i++) expect(reason(await one(carol, await misattributed(i)))).toBe('failed:invalid_chain')
+    const aliceFetches = () => keyFetches.filter((u) => u === users.alice).length
+    expect(aliceFetches()).toBe(1)
+    ds.now += KEY_REFRESH_MIN_MS + 1
+    carol.clock.now += KEY_REFRESH_MIN_MS + 1
+    expect(reason(await one(carol, await misattributed(9)))).toBe('failed:invalid_chain')
+    expect(aliceFetches()).toBe(2)
   })
 })

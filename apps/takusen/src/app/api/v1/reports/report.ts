@@ -7,16 +7,12 @@
  * author's device sent this content in this channel. Takusen stores the
  * report with the revealed content either way.
  */
+import { FRANKING_KEY_LENGTH, MAX_ENVELOPE_BYTES } from '@hachiman/crypto/constants'
 import { z } from 'zod'
 
 import type { MessageRow } from '@/db/schema'
 import { b64 } from '@/lib/mls/bytes'
 import type { DsModule } from '@/lib/mls/crypto'
-
-import { FRANKING_KEY_LENGTH, MAX_ENVELOPE_BYTES } from '../../../../../../../pkgs/hachiman-crypto/src/constants'
-
-/** §12.12: 10 reports per hour per user. */
-export const REPORT_RATE = { bucket: 'report', limit: 10, windowSec: 3600 } as const
 
 export const reportSchema = z.object({
   messageId: z.string().uuid(),

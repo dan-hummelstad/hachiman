@@ -2,6 +2,9 @@
  * Signed admin actions (docs/gateway-protocol.md §12.16, Phase 4): codecs, sign, verify, hash
  * and the chain replay. The §2 permission rules come in through AdminPermissionModel, so this
  * module never imports @hachiman/client.
+ *
+ * Exported as '@hachiman/crypto/admin' for Takusen (Node) and the UI thread: keep its imports to
+ * pure modules (@noble/*, codec, constants, sign). No WebCrypto-only, Worker-only or ts-mls code.
  */
 import { sha256 } from '@noble/hashes/sha2.js'
 
@@ -339,3 +342,7 @@ export const admin: AdminActionModule = {
   hash,
   replay,
 }
+
+/** AdminActionModule.encodePayload: the `payload` argument of CryptoApi.signAdminAction. */
+export const encodeAdminPayload = encodePayload
+export const decodeAdminPayload = decodePayload

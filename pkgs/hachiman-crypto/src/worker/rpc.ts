@@ -49,6 +49,7 @@ const CRYPTO_API_METHOD_SET = {
   revokeDevice: true,
   renameDevice: true,
   getTrust: true,
+  listContactDevices: true,
   getSafetyNumber: true,
   verifyQr: true,
   setVerified: true,
@@ -157,6 +158,8 @@ const ERROR_CODE_SET = {
   Malformed: true,
   TooLarge: true,
   Unsupported: true,
+  LockHeld: true,
+  Internal: true,
 } as const satisfies Record<CryptoErrorCode, true>
 
 export function isCryptoErrorCode(v: unknown): v is CryptoErrorCode {

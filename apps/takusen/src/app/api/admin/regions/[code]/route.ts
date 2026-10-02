@@ -14,6 +14,7 @@ import { toAdminRegion } from '@/lib/admin'
 import { adminRoute, noContent, parseBody } from '@/lib/api-helpers'
 import { NotFoundError } from '@/lib/errors'
 import { publishToGuild } from '@/lib/events'
+import { publicHistoryVisibility } from '@/lib/guilds'
 import { regionFieldsSchema } from '@/lib/regions'
 import { toGuild } from '@/lib/wire'
 
@@ -38,6 +39,6 @@ export const DELETE = adminRoute<{ code: string }>(async ({ params: { code } }) 
     if (deleted.length === 0) throw new NotFoundError('Unknown region')
     return rows
   })
-  await Promise.all(rehomed.map((g) => publishToGuild(g.id, 'GUILD_UPDATE', toGuild(g))))
+  await Promise.all(rehomed.map(async (g) => publishToGuild(g.id, 'GUILD_UPDATE', toGuild(g, await publicHistoryVisibility(g.id)))))
   return noContent()
 })

@@ -264,10 +264,6 @@ describe('sealed device messages', () => {
     relabelled[2]! ^= 1
     await expect(identity.openFromDevice(recipient.hpke.privateKey, relabelled, { recipientDeviceId: DEV2, senderSignatureKey: async () => sender.mls.publicKey })).rejects.toThrow(/does not open/)
   })
-
-  it('needs the recipient id and signer', async () => {
-    await expect(identity.sealToDevice(recipient.hpke.publicKey, 'dsk_transfer', DEV, payload)).rejects.toMatchObject({ code: 'Unsupported' })
-  })
 })
 
 describe('link protocol', () => {

@@ -180,7 +180,13 @@ export class Reader {
   }
 
   utf8(max = Number.MAX_SAFE_INTEGER): string {
-    return new TextDecoder('utf-8', { fatal: true }).decode(this.opaque(max))
+    const b = this.opaque(max)
+    try {
+      return new TextDecoder('utf-8', { fatal: true }).decode(b)
+    } catch {
+      // The decoder throws a TypeError on bad UTF-8. Callers expect only CodecError.
+      throw new CodecError('invalid UTF-8')
+    }
   }
 
   vector<T>(read: (r: Reader) => T, maxItems = Number.MAX_SAFE_INTEGER): T[] {

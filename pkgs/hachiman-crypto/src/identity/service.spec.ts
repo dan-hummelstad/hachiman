@@ -400,6 +400,40 @@ describe('trust and verification', () => {
     expect(identity.verifyChain(b.svc.self().chain, ctx)).toEqual({ ok: false, reason: 'dsk_downgrade' })
   })
 
+  it('lists only the contact devices whose chain verifies, and finds a device under its owner', async () => {
+    const { dev: a } = await primary(ALICE)
+    const { dev: b } = await primary(BOB, 'Bob')
+    const c = await linkSas(b, 'Bob phone')
+    const phone = c.svc.self().deviceId
+    const names = async () => (await a.svc.listContactDevices(BOB)).map((d) => d.displayName).sort()
+    expect(await names()).toEqual(['Bob', 'Bob phone'])
+    expect((await a.svc.listContactDevices(BOB)).find((d) => d.displayName === 'Bob')).toMatchObject({ deviceId: b.svc.self().deviceId, dskGeneration: 1 })
+    // Bob's phone under Alice's hint: found among the users this Worker already fetched.
+    expect((await a.svc.deviceOwnerCertificate(phone, ALICE))?.userId).toBe(BOB)
+    expect(await a.svc.deviceCertificate(ALICE, phone)).toBeNull()
+    // A certificate whose signature does not verify is left out.
+    ds.tamperKeys = (k) =>
+      k.userId !== BOB
+        ? k
+        : {
+            ...k,
+            devices: k.devices.map((d) => {
+              if (d.id !== phone || d.certificate === null) return d
+              const bytes = fromB64url(d.certificate)
+              bytes[bytes.length - 1]! ^= 1
+              return { ...d, certificate: toB64url(bytes) }
+            }),
+          }
+    await a.svc.onGatewayEvent({ t: 'USER_KEYS_UPDATE', d: { userId: BOB, kind: 'device_added', deviceId: phone } })
+    expect(await names()).toEqual(['Bob'])
+    ds.tamperKeys = null
+    // A revoked device is left out.
+    await b.svc.revokeDevice(phone, 'lost')
+    await ds.flush()
+    await a.svc.onGatewayEvent({ t: 'USER_KEYS_UPDATE', d: { userId: BOB, kind: 'device_revoked', deviceId: phone } })
+    expect(await names()).toEqual(['Bob'])
+  })
+
   it('lists own devices with the REST name and renames without re-certifying', async () => {
     const { dev: a } = await primary()
     const b = await linkSas(a, 'Phone')
@@ -500,5 +534,102 @@ describe('signed admin actions', () => {
     const forged = admin.decodeAction(fromB64url(g.header))
     ds.storeAdminAction(GUILD, toB64url(admin.encodeAction({ ...forged, timestampMs: forged.timestampMs + 1 })))
     await expect(a.svc.adminState(GUILD)).rejects.toMatchObject({ code: 'Malformed' } satisfies Partial<CryptoErrorShape>)
+  })
+})
+
+describe('key changes, revocation of this device, recovery key rotation', () => {
+  it('keeps the old pin on a key change until a new verification', async () => {
+    const { dev: a } = await primary(ALICE)
+    const { dev: bob } = await primary(BOB, 'Bob desktop')
+    await bob.svc.setVerified(ALICE, true)
+    const oldChain = a.svc.self().chain
+    ds.passwordReset(ALICE)
+    const n = await makeDevice(ds, ALICE, 'After reset')
+    await n.svc.resetIdentity()
+    await ds.flush()
+    expect(bob.of('keyChange')).toEqual([{ userId: ALICE, severity: 'blocking' }])
+    // The DS serves the new master, but the pin stays: no chain of the user passes.
+    const before = await bob.svc.chainContextFor(ALICE, true)
+    expect(before.pinnedMaster).toEqual({ publicKey: oldChain.master.publicKey, generation: oldChain.master.generation })
+    expect(before.currentDsk).toBeNull()
+    expect(identity.verifyChain(n.svc.self().chain, before)).toEqual({ ok: false, reason: 'master_changed' })
+    expect(await bob.svc.listContactDevices(ALICE)).toEqual([])
+    expect(await bob.svc.trustOf(ALICE)).toBe('changed')
+    // A second fetch of the same candidate raises no second alert.
+    await bob.svc.onGatewayEvent({ t: 'USER_KEYS_UPDATE', d: { userId: ALICE, kind: 'master_key_changed', deviceId: null } })
+    expect(bob.of('keyChange')).toHaveLength(1)
+    // setVerified(false) does not end a pending change.
+    expect((await bob.svc.setVerified(ALICE, false)).state).toBe('changed')
+    // Re-verification by QR code accepts the new master key.
+    const qr = (await n.svc.getSafetyNumber(BOB)).qrPayload
+    expect(await bob.svc.verifyQr(qr)).toEqual({ userId: ALICE, match: true })
+    expect((await bob.svc.getTrust(ALICE)).state).toBe('verified')
+    const after = await bob.svc.chainContextFor(ALICE, true)
+    expect(identity.verifyChain(n.svc.self().chain, after)).toEqual({ ok: true, firstSight: false })
+    expect(identity.verifyChain(oldChain, after)).toEqual({ ok: false, reason: 'master_changed' })
+  })
+
+  it('acknowledgeKeyChange moves the pin to the candidate', async () => {
+    await primary(ALICE)
+    const { dev: bob } = await primary(BOB, 'Bob desktop')
+    await bob.svc.getTrust(ALICE)
+    ds.passwordReset(ALICE)
+    const n = await makeDevice(ds, ALICE, 'After reset')
+    await n.svc.resetIdentity()
+    await ds.flush()
+    expect(bob.of('keyChange')).toEqual([{ userId: ALICE, severity: 'notice' }])
+    expect(identity.verifyChain(n.svc.self().chain, await bob.svc.chainContextFor(ALICE, true)).ok).toBe(false)
+    await bob.svc.acknowledgeKeyChange(ALICE)
+    expect(identity.verifyChain(n.svc.self().chain, await bob.svc.chainContextFor(ALICE, true)).ok).toBe(true)
+    expect((await bob.svc.listContactDevices(ALICE)).map((d) => d.displayName)).toEqual(['After reset'])
+  })
+
+  it('locks the device on an unsigned server revocation and keeps the store until an explicit wipe', async () => {
+    const { dev: a } = await primary(ALICE)
+    ds.passwordReset(ALICE)
+    await a.svc.onGatewayEvent({ t: 'USER_KEYS_UPDATE', d: { userId: ALICE, kind: 'device_revoked', deviceId: a.svc.status().deviceId! } })
+    expect(a.svc.status().state).toBe('revoked')
+    const row = await a.store.get('identity', 'self')
+    expect(row?.master?.privateKey).not.toBeNull()
+    expect(row?.lockedAtMs).toBe(ds.now)
+    // A restart keeps the lock.
+    const again = await makeDevice(ds, ALICE, 'Desktop', a.store)
+    expect(again.svc.status().state).toBe('revoked')
+    await again.svc.signOutDevice()
+    expect(await again.store.get('identity', 'self')).toBeUndefined()
+  })
+
+  it('erases the store on a master-signed revocation', async () => {
+    const { dev: a } = await primary(ALICE)
+    const b = await linkSas(a, 'Phone')
+    const id = b.svc.self().deviceId
+    await a.svc.revokeDevice(id, 'lost')
+    await ds.flush()
+    // The DS sends no event to a revoked device: the event as the gateway would have sent it.
+    await b.svc.onGatewayEvent({ t: 'USER_KEYS_UPDATE', d: { userId: ALICE, kind: 'device_revoked', deviceId: id } })
+    expect(b.of('error')).toEqual([])
+    expect(b.svc.status().state).toBe('revoked')
+    expect(await b.store.get('identity', 'self')).toBeUndefined()
+  })
+
+  it('continues a failed recovery key rotation with the same key', async () => {
+    const { dev: a, recoveryKey } = await primary()
+    const g = new Uint8Array(22).fill(4)
+    await a.store.put('epochSecrets', secretKey(g, 0), { groupId: g, epoch: 0, secret: new Uint8Array(32).fill(1), backedUp: false })
+    const post = a.transport.postHistoryBackup.bind(a.transport)
+    a.transport.postHistoryBackup = () => Promise.reject(new Error('network'))
+    await expect(a.svc.rotateRecoveryKey()).rejects.toThrow('network')
+    const pending = (await a.store.get('identity', 'self'))?.pendingRecoveryKey
+    expect(typeof pending).toBe('string')
+    // No upload under the old key while the rotation is open.
+    expect(await a.svc.backupNow()).toEqual({ uploaded: 0 })
+    a.transport.postHistoryBackup = post
+    const { recoveryKey: next } = await a.svc.rotateRecoveryKey()
+    expect(next).toBe(pending)
+    expect(next).not.toBe(recoveryKey)
+    expect((await a.store.get('identity', 'self'))?.pendingRecoveryKey).toBeNull()
+    const n = await makeDevice(ds, ALICE, 'New')
+    await n.svc.restoreFromRecoveryKey(next)
+    expect((await n.store.list('epochSecrets')).map((s) => s.value.epoch)).toEqual([0])
   })
 })

@@ -274,7 +274,7 @@ describe('GroupService', () => {
     await alice.groups.sendState(channelId)
     ds.tamperNext = null
     await ds.flush()
-    expect(bob.of<CryptoEvents['forkAlert']>('forkAlert')).toEqual([{ groupId: gid, channelId, reason: 'group_info_mismatch' }])
+    expect(bob.of<CryptoEvents['forkAlert']>('forkAlert')).toEqual([{ groupId: gid, channelId, epoch: 1, reason: 'group_info_mismatch' }])
     // bob resynced by external commit; alice processes it and both agree again.
     await alice.groups.sync()
     expect(await secretOf(alice, gid)).toBe(await secretOf(bob, gid))
@@ -285,8 +285,105 @@ describe('GroupService', () => {
     expect(alice.of('forkAlert')).toHaveLength(0)
     await alice.groups.reportAeadFailure(fromB64url(gid), e, carol.deviceId)
     await ds.flush()
-    expect(alice.of<CryptoEvents['forkAlert']>('forkAlert')).toEqual([{ groupId: gid, channelId, reason: 'aead_failures' }])
+    expect(alice.of<CryptoEvents['forkAlert']>('forkAlert')).toEqual([{ groupId: gid, channelId, epoch: e, reason: 'aead_failures' }])
     expect(await epochOf(alice, gid)).toBe(e + 1)
+  }, 120_000)
+
+  it('a device that rejects a DS-accepted commit raises a fork alert, resyncs with backoff and drains its buffer', async () => {
+    const { ds, c } = await world(['alice', 'bob', 'carol'])
+    const { alice, bob, carol } = c as Record<'alice' | 'bob' | 'carol', Client>
+    const { guildId, channelId, gid } = await channelGroup(ds, [alice, bob])
+    // The waits between resync attempts (no real time passes in the test).
+    const waits: number[] = []
+    ds.sleep = (ms) => {
+      waits.push(ms)
+      return Promise.resolve()
+    }
+    // The DS state fetch of the external commit fails 7 times: 5 attempts, then 2 more after sync().
+    let stateFailures = 7
+    const getGroupState = bob.transport.getGroupState
+    bob.transport.getGroupState = (groupId, epoch) => (stateFailures-- > 0 ? Promise.reject(new DsError('ServiceUnavailable')) : getGroupState(groupId, epoch))
+    // carol becomes a reader, but bob's permission view is stale: he rejects the Add that the DS accepts.
+    ds.channels.get(channelId)!.readers.add(carol.userId)
+    const readers = bob.transport.channelReaders
+    bob.transport.channelReaders = () => Promise.resolve([alice.userId, bob.userId])
+    await ds.queueAdd(gid, carol.deviceId)
+    ds.batch(gid, alice.deviceId)
+    await ds.flush()
+    expect(await epochOf(alice, gid)).toBe(2)
+    expect(await epochOf(bob, gid)).toBe(1)
+    expect(bob.of<CryptoEvents['forkAlert']>('forkAlert')).toEqual([{ groupId: gid, channelId, epoch: 1, reason: 'commit_rejected' }])
+    // Every attempt fails: the retry bound, then the group stays stopped (fail closed).
+    expect(waits).toEqual([1_000, 2_000, 4_000, 8_000, 16_000])
+    expect(bob.of<{ message: string }>('error').some((e) => e.message.includes('stays stopped after 5 resync attempts'))).toBe(true)
+    await expect(bob.groups.sendState(channelId)).rejects.toMatchObject({ code: 'InvalidChain' })
+    // An envelope of epoch 2 waits in bob's buffer.
+    const sent = await alice.messages.encryptMessage({ channelId, kind: 'message', editOf: null, content: { text: 'epoch 2', mentions: [], attachments: [], replyTo: null } })
+    const row = (e: typeof sent, id: string, from: Client): EncryptedMessage => ({ id, channelId, guildId, authorId: from.userId, senderDevice: from.deviceId, groupId: e.groupId, epoch: e.epoch, clientMsgId: e.clientMsgId, envelope: e.envelope, attachments: [], createdAt: '', editedAt: null })
+    expect(await bob.messages.decryptMessages([row(sent, 'm2', alice)])).toEqual([{ status: 'pending', messageId: 'm2', reason: 'epoch_ahead' }])
+
+    // bob's permission view catches up; the next sync() starts the attempts again.
+    bob.transport.channelReaders = readers
+    await bob.groups.sync()
+    await bob.groups.idle()
+    await ds.flush()
+    expect(waits).toEqual([1_000, 2_000, 4_000, 8_000, 16_000, 1_000, 2_000, 4_000])
+    expect(await epochOf(bob, gid)).toBe(3)
+    expect(await epochOf(alice, gid)).toBe(3)
+    expect(await secretOf(bob, gid)).toBe(await secretOf(alice, gid))
+    // The buffered envelope was drained (epochKeysAvailable for epoch 2).
+    expect(bob.of<CryptoEvents['epochKeysAvailable']>('epochKeysAvailable').some((e) => e.groupId === gid && e.epochs.includes(2))).toBe(true)
+    expect(await bob.store.get('buffered', gid)).toBeUndefined()
+    // Bob sends again, and alice reads it.
+    const back = await bob.messages.encryptMessage({ channelId, kind: 'message', editOf: null, content: { text: 'back', mentions: [], attachments: [], replyTo: null } })
+    expect(back.epoch).toBe(3)
+    const [r] = await alice.messages.decryptMessages([row(back, 'm3', bob)])
+    expect(r).toMatchObject({ status: 'ok', content: { text: 'back' } })
+    expect(ds.log.filter((l) => l.startsWith('Invalid') || l.startsWith('Illegal'))).toEqual([])
+  }, 120_000)
+
+  it('the committer reports a DS proposal it rejects by ProposalRef, so the batch does not stall', async () => {
+    const { ds, c } = await world(['alice', 'bob', 'carol'])
+    const { alice, bob, carol } = c as Record<'alice' | 'bob' | 'carol', Client>
+    const guildId = ds.guild([alice.userId, bob.userId, carol.userId])
+    const general = ds.channel(guildId, [alice.userId, bob.userId, carol.userId])
+    const gid = ds.allocate('public_set', { guildId, channelId: null }, alice.deviceId)
+    await ds.flush()
+    await bob.groups.ensureChannelGroup(general)
+    await ds.flush()
+    ds.batch(gid, alice.deviceId)
+    await ds.flush()
+    expect(await epochOf(bob, gid)).toBe(1)
+    // carol asks to join: bob stores the DS Add, then sees carol leave the guild before he commits.
+    await carol.groups.ensureChannelGroup(general)
+    await ds.flush()
+    const ref = toB64url(ds.groups.get(gid)!.pending.find((p) => p.deviceId === carol.deviceId)!.proposal!.ref)
+    bob.transport.guildMembers = () => Promise.resolve([alice.userId, bob.userId])
+    const postCommit = bob.transport.postCommit
+    const bodies: Parameters<typeof postCommit>[1][] = []
+    bob.transport.postCommit = (groupId, body) => {
+      bodies.push(body)
+      return postCommit(groupId, body)
+    }
+    ds.batch(gid, bob.deviceId)
+    await ds.flush()
+    expect(bodies.at(-1)!.rejected).toEqual([{ proposalRef: ref, reason: 'not_reader' }])
+    expect(ds.log).toContain('rejected proposal not_reader')
+    expect(ds.groups.get(gid)!.pending.some((p) => p.deviceId === carol.deviceId)).toBe(false)
+    // The commit went through without carol; alice follows.
+    for (const x of [alice, bob]) expect(await epochOf(x, gid)).toBe(2)
+    expect(await epochOf(carol, gid)).toBeNull()
+    expect(await secretOf(alice, gid)).toBe(await secretOf(bob, gid))
+
+    // A DS proposal that the committer rejects when it first sees it (not stored) is reported too.
+    await ds.queueAdd(gid, carol.deviceId)
+    await ds.flush()
+    const again = toB64url(ds.groups.get(gid)!.pending.find((p) => p.deviceId === carol.deviceId)!.proposal!.ref)
+    ds.batch(gid, bob.deviceId)
+    await ds.flush()
+    expect(bodies.at(-1)!.rejected).toEqual([{ proposalRef: again, reason: 'not_reader' }])
+    for (const x of [alice, bob]) expect(await epochOf(x, gid)).toBe(3)
+    expect(ds.log.filter((l) => l.startsWith('Invalid') || l.startsWith('Illegal'))).toEqual([])
   }, 120_000)
 
   it('shows extra users in the joiner timeline when the tree has users outside its own channelReaders', async () => {
@@ -336,5 +433,54 @@ describe('GroupService', () => {
     expect(bob.of<CryptoEvents['epochKeysAvailable']>('epochKeysAvailable').at(-1)).toEqual({ groupId: gid, epochs: [0] })
     expect(await bob.groups.leafAt(fromB64url(gid), alice.deviceId, 1)).toBe(0)
     expect(await bob.groups.leafAt(fromB64url(gid), alice.deviceId, 0)).toBeNull()
+  }, 120_000)
+
+  it('sends no history bundle for a joined group, even when the batch lists historyBundleEpochs', async () => {
+    const { ds, c } = await world(['alice', 'bob', 'carol'])
+    const { alice, bob, carol } = c as Record<'alice' | 'bob', Client> & { carol: Client }
+    const { channelId, gid } = await channelGroup(ds, [alice, bob])
+    ds.channels.get(channelId)!.readers.add(carol.userId)
+    await ds.queueAdd(gid, carol.deviceId)
+    ds.batch(gid, alice.deviceId, [1])
+    await ds.flush()
+    expect(await epochOf(carol, gid)).toBe(2)
+    expect(ds.groups.get(gid)!.bundles).toEqual([])
+    expect(await carol.groups.epochSecret(fromB64url(gid), 1)).toBeNull()
+  }, 120_000)
+
+  it('removes a revoked leaf by value before it sends when the DS queues no Remove', async () => {
+    const { ds, c } = await world(['alice', 'bob'])
+    const { alice, bob } = c as Record<'alice' | 'bob', Client>
+    const alice2 = await ds.client(alice.userId, { recoveryKey: (alice as Client & { recoveryKey: string }).recoveryKey })
+    await ds.flush()
+    const { channelId, gid } = await channelGroup(ds, [alice, alice2, bob])
+    await alice.identity.revokeDevice(alice2.deviceId, 'compromised')
+    alice2.online = false
+    await ds.flush()
+    await bob.groups.sync()
+    await ds.flush()
+    const roster = async (x: Client) => mls.roster(await mls.restore((await x.store.get('groups', gid))!.state)).map((r) => r.deviceId)
+    expect(await roster(bob)).toContain(alice2.deviceId)
+    const send = await bob.groups.sendState(channelId)
+    expect(await roster(bob)).not.toContain(alice2.deviceId)
+    await ds.flush()
+    expect(await secretOf(alice, gid)).toBe(toB64url(send.epochSecret))
+    // IllegalMembership entries are alice's DSK-rotation resyncs: the fake DS (check 8) refuses a
+    // tree that keeps the revoked leaf without a queued Remove. bob's commit passes every check.
+    expect(ds.log.filter((l) => l.startsWith('Invalid'))).toEqual([])
+  }, 120_000)
+
+  it('a member without state processes the Welcome in its inbox instead of an external commit', async () => {
+    const { ds, c } = await world(['alice', 'bob'])
+    const { alice, bob } = c as Record<'alice' | 'bob', Client>
+    bob.online = false
+    const { channelId, gid } = await channelGroup(ds, [alice, bob])
+    bob.online = true
+    expect(await epochOf(bob, gid)).toBeNull()
+    await bob.groups.ensureChannelGroup(channelId)
+    await ds.flush()
+    expect(await epochOf(bob, gid)).toBe(1)
+    expect(ds.groups.get(gid)!.handshakes.map((h) => h.kind)).toEqual(['commit'])
+    expect(await secretOf(bob, gid)).toBe(await secretOf(alice, gid))
   }, 120_000)
 })

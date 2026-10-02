@@ -33,7 +33,7 @@ import {
 import { NotFoundError } from '@/lib/errors'
 import { publishToGuild, publishToUser, redis } from '@/lib/events'
 import { toB64 } from '@/lib/mls/bytes'
-import { onMembershipChange, wakeScheduler, type MembershipChange } from '@/lib/mls/membership'
+import { discardMembershipWork, onMembershipChange, wakeScheduler, type MembershipChange } from '@/lib/mls/membership'
 import { deleteObjects } from '@/lib/storage'
 import { deleteAttachmentRows } from '@/lib/uploads'
 import {
@@ -50,13 +50,16 @@ import {
 
 export type { MembershipChange }
 
-/** The two DS calls of a content route. Tests replace them with `setMembershipSeam`. */
+/** The DS calls of a content route. Tests replace them with `setMembershipSeam`. */
 export interface MembershipSeam {
   change(tx: Tx, change: MembershipChange, actorDeviceId: string | null): Promise<void>
+  /** After the commit. */
   wake(tx: Tx): Promise<void>
+  /** After a rollback: drop the work of the transaction unpublished. */
+  discard(tx: Tx): void
 }
 
-const dsSeam: MembershipSeam = { change: onMembershipChange, wake: wakeScheduler }
+const dsSeam: MembershipSeam = { change: onMembershipChange, wake: wakeScheduler, discard: discardMembershipWork }
 let seam: MembershipSeam = dsSeam
 
 /** Tests only: record the calls instead of running the DS (null restores it). */
@@ -88,16 +91,33 @@ export async function wakeAfterCommit(tx: Tx | undefined): Promise<void> {
   }
 }
 
+/** Call after the transaction rolls back: the DS work of the transaction is dropped unpublished. */
+export function discardAfterRollback(tx: Tx | undefined): void {
+  if (tx) seam.discard(tx)
+}
+
 /**
  * `db.transaction` for a route that calls `membershipChanged`. It wakes the
- * scheduler for this transaction after the commit, and not after a rollback.
+ * scheduler for this transaction after the commit. After a rollback it drops
+ * the DS work of the transaction.
  */
 export async function membershipTransaction<T>(fn: (tx: Tx) => Promise<T>): Promise<T> {
+  return membershipTransactionWith((f) => db.transaction(f), fn)
+}
+
+/** `membershipTransaction` over any transaction runner. Tests pass a fake one. */
+export async function membershipTransactionWith<T>(run: (fn: (tx: Tx) => Promise<T>) => Promise<T>, fn: (tx: Tx) => Promise<T>): Promise<T> {
   let handle: Tx | undefined
-  const result = await db.transaction(async (tx) => {
-    handle = tx
-    return fn(tx)
-  })
+  let result: T
+  try {
+    result = await run(async (tx) => {
+      handle = tx
+      return fn(tx)
+    })
+  } catch (err) {
+    discardAfterRollback(handle)
+    throw err
+  }
   await wakeAfterCommit(handle)
   return result
 }

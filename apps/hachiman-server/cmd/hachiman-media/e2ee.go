@@ -70,6 +70,7 @@ type e2eeParticipant struct {
 	acked                       int64   // highest transitionId in an e2ee_ready
 	kpSentTo                    *e2eeParticipant
 	demoted                     bool      // lost the committer role (5 s failover)
+	lostCreate                  bool      // lost the create role (5 s failover)
 	expectTree                  *treeWait // set by e2ee_commit with a welcome
 }
 
@@ -102,6 +103,7 @@ type e2eeTransition struct {
 	invalid       map[*e2eeParticipant]bool
 	prevLeaves    map[*e2eeParticipant]*uint32
 	executed      bool
+	execDue       bool // the 3 s deadline passed before the tree arrived
 	execTimer     *time.Timer
 	readyTimer    *time.Timer
 }
@@ -237,7 +239,7 @@ func (e *e2eeState) handle(c *voiceConn, op string, raw json.RawMessage) {
 		case "e2ee_ratchet_tree":
 			ok = e.onTree(r, p, raw)
 		case "e2ee_ready":
-			ok = e.onReady(r, p, raw)
+			ok = e.onReady(r, p, raw, fx)
 		case "e2ee_invalid":
 			ok = e.onInvalid(r, p, raw, fx)
 		}
@@ -380,10 +382,13 @@ func (e *e2eeState) onTree(r *e2eeRoom, p *e2eeParticipant, raw json.RawMessage)
 			q.conn.send("e2ee_ratchet_tree", map[string]any{"transitionId": t.id, "epoch": t.epoch, "ratchetTree": t.tree})
 		}
 	}
+	if t.execDue {
+		e.execute(t)
+	}
 	return true
 }
 
-func (e *e2eeState) onReady(r *e2eeRoom, p *e2eeParticipant, raw json.RawMessage) bool {
+func (e *e2eeState) onReady(r *e2eeRoom, p *e2eeParticipant, raw json.RawMessage, fx *e2eeEffects) bool {
 	var d struct {
 		TransitionID *int64 `json:"transitionId"`
 		Epoch        uint64 `json:"epoch"`
@@ -394,7 +399,17 @@ func (e *e2eeState) onReady(r *e2eeRoom, p *e2eeParticipant, raw json.RawMessage
 	}
 	if d.TransitionID == nil {
 		// The creator made the group (epoch 0, leaf 0).
-		if r.epoch != nil || r.committer != p || d.Epoch != 0 || d.LeafIndex != 0 {
+		if d.Epoch != 0 || d.LeafIndex != 0 || p.leaf != nil {
+			return false
+		}
+		if (r.epoch != nil || r.committer != p) && p.lostCreate {
+			// A slow creator lost the role (5 s failover) while its
+			// createGroup ran. Its local group has the room's group id, so
+			// the roster cannot reset it: the client rejoins.
+			e.drop(r, p, fx, closeE2EEResync, "group created after the create failover")
+			return true
+		}
+		if r.epoch != nil || r.committer != p {
 			return false
 		}
 		zero, leaf := uint64(0), uint32(0)
@@ -481,7 +496,13 @@ func (e *e2eeState) onTimer(r *e2eeRoom, t *e2eeTransition, readyDeadline bool) 
 			return
 		}
 		if !readyDeadline {
-			e.execute(t)
+			if t.welcome != "" && t.tree == "" {
+				// The joiners cannot ack without the tree, and an executed
+				// transition cannot be reverted: wait for the tree.
+				t.execDue = true
+			} else {
+				e.execute(t)
+			}
 		} else if t.welcome != "" && t.tree == "" && r.parts[t.committer.sessionID] == t.committer {
 			e.evict(r, t, fx, "no e2ee_ratchet_tree")
 		} else {
@@ -540,16 +561,33 @@ func (e *e2eeState) evaluate(r *e2eeRoom, t *e2eeTransition, fx *e2eeEffects) bo
 	return false
 }
 
-// evict closes the committer of t with 4014. While t is the latest
-// transition, the room goes back to the previous epoch, as the members do.
+// evict closes the committer of t with 4014. Before execute, while t is the
+// latest transition, the room goes back to the previous epoch, as the members
+// do. After execute, the members that acked are on the new epoch and cannot
+// go back: the room keeps it, and the members that did not ack (or reported
+// t invalid) are on the old epoch, so they resync with 4013.
 func (e *e2eeState) evict(r *e2eeRoom, t *e2eeTransition, fx *e2eeEffects, reason string) {
-	if r.transitions[len(r.transitions)-1] == t && r.epoch != nil && *r.epoch == t.epoch {
+	var behind []*e2eeParticipant
+	switch {
+	case t.executed:
+		for q := range t.expected {
+			if q != t.committer && (t.invalid[q] || q.acked < t.id) {
+				behind = append(behind, q)
+			}
+		}
+		e.resolve(r, t)
+	case r.transitions[len(r.transitions)-1] == t && r.epoch != nil && *r.epoch == t.epoch:
 		e.revert(r, t)
-	} else {
+	default:
 		e.resolve(r, t)
 	}
 	if r.parts[t.committer.sessionID] == t.committer {
 		e.drop(r, t.committer, fx, closeE2EEProtocol, reason)
+	}
+	for _, q := range behind {
+		if r.parts[q.sessionID] == q {
+			e.drop(r, q, fx, closeE2EEResync, "behind an evicted transition")
+		}
 	}
 }
 
@@ -815,6 +853,7 @@ func (e *e2eeState) armWork(r *e2eeRoom) {
 				if r.epoch == nil {
 					r.seq++
 					c.seq = r.seq // the next joiner creates the group
+					c.lostCreate = true
 				} else {
 					c.demoted = true
 				}

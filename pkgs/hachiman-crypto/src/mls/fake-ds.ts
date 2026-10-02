@@ -23,6 +23,7 @@ import type {
 import { encode, fromB64url, toB64url } from '../codec'
 import { WIRE_VERSION, type CipherSuiteId, type GroupKindName, type HistoryVisibilityName } from '../constants'
 import { randomBytes } from '../identity/bytes'
+import { identity } from '../identity/index'
 import { DsError, FakeDs, MemoryStore, testPermissions } from '../identity/test-helpers'
 import { createIdentityService } from '../identity/service'
 import { createMessageService } from '../envelope/service'
@@ -90,10 +91,10 @@ export class FakeMlsDs {
   inbox = new Map<string, WireInboxItem[]>()
   joinRequests = new Map<string, WireJoinRequest & { userId: string }>()
   clients = new Map<string, Client>()
-  /** Pass full proposal messages to checkCommit instead of refs (both are valid inputs). */
-  fullProposals = false
   /** Rewrites the `next` hashes of published handshakes (fork tests). */
   tamperNext: ((h: WireHandshake) => WireHandshake['next']) | null = null
+  /** The wait between automatic resync attempts of every client (GroupServiceDeps.sleep). */
+  sleep: (ms: number) => Promise<void> = () => Promise.resolve()
   /** Called before a commit is stored; throwing simulates a lost response. */
   onCommit: ((deviceId: string) => void) | null = null
   log: string[] = []
@@ -127,7 +128,7 @@ export class FakeMlsDs {
       clientVersion: '1.0.0',
     }
     const identity = createIdentityService(ctx, { mls, adminPermissions: testPermissions })
-    const groups = createGroupService(ctx, identity)
+    const groups = createGroupService(ctx, identity, { sleep: (ms) => this.sleep(ms) })
     const messages = createMessageService(ctx, identity, groups)
     const loaded = await identity.load({ userId, wrapKey: {} as CryptoKey, platform: 'electron', clientVersion: '1.0.0', deviceName: 'test', origin: ctx.origin })
     let recoveryKey: string | null = null
@@ -306,7 +307,8 @@ export class FakeMlsDs {
 
   private masterKeys(userId: string): Uint8Array | null {
     const row = this.id.users.get(userId)?.masters.find((m) => !m.superseded)
-    return row?.record ?? null
+    // Takusen passes the raw 32-byte key (master_keys.public_key), not the record.
+    return row === undefined ? null : identity.decodeMasterKeyRecord(row.record).publicKey
   }
 
   private async storeCommit(g: Group, caller: { id: string; userId: string }, body: Parameters<DsTransport['postCommit']>[1]): Promise<{ epoch: number; seq: number }> {
@@ -315,8 +317,8 @@ export class FakeMlsDs {
     const commit = fromB64url(body.commit)
     const groupInfo = fromB64url(body.groupInfo)
     const ratchetTree = fromB64url(body.ratchetTree)
-    const published = g.pending.filter((p) => p.proposal?.epoch === epoch).map((p) => (this.fullProposals ? p.proposal!.bytes : p.proposal!.ref))
-    const check = await ds.checkCommit({ groupId: fromB64url(g.groupId), epoch, commit, groupInfo, ratchetTree, previous, sender: { userId: caller.userId, deviceId: caller.id }, publishedProposalRefs: published, masterKeys: (u) => this.masterKeys(u) })
+    const published = g.pending.filter((p) => p.proposal?.epoch === epoch).map((p) => p.proposal!.bytes)
+    const check = await ds.checkCommit({ groupId: fromB64url(g.groupId), epoch, commit, groupInfo, ratchetTree, previous, sender: { userId: caller.userId, deviceId: caller.id }, publishedProposals: published, masterKeys: (u) => this.masterKeys(u) })
     if (!check.ok) {
       this.log.push(`InvalidCommit: ${check.reason}`)
       throw new DsError('InvalidCommit')
@@ -458,7 +460,14 @@ export class FakeMlsDs {
         // One commit at a time per group: the compare-and-set of §12.7.3 check 10.
         const run = g.commitLock.then(async () => {
           if (g.epoch !== body.epoch) return { ok: false as const, code: 'EpochConflict' as const, epoch: g.epoch! }
-          for (const x of body.rejected) self.log.push(`rejected ${x.reason}`)
+          for (const x of body.rejected) {
+            if ('proposalRef' in x) {
+              // A DS proposal that the committer rejects: the pending row is rejected (mls_pending.proposal_ref).
+              const i = g.pending.findIndex((p) => p.proposal !== null && toB64url(p.proposal.ref) === x.proposalRef)
+              self.log.push(i >= 0 ? `rejected proposal ${x.reason}` : `rejected unknown proposal`)
+              if (i >= 0) g.pending.splice(i, 1)
+            } else self.log.push(`rejected ${x.reason}`)
+          }
           const r = await self.storeCommit(g, c, body)
           return { ok: true as const, ...r }
         })

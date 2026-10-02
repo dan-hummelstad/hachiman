@@ -113,6 +113,7 @@ export const createCryptoStub: CreateCryptoStub = () => {
     renameDevice: ok,
 
     getTrust: (u) => Promise.resolve({ userId: u, state: 'unknown', masterKeyGeneration: null, changedAt: null }),
+    listContactDevices: () => Promise.resolve([]),
     getSafetyNumber: () => Promise.resolve({ digits: '0'.repeat(60), groups: Array.from({ length: 12 }, () => '00000'), qrPayload: '' }),
     verifyQr: () => Promise.resolve({ userId: '', match: false }),
     setVerified: (u) => Promise.resolve({ userId: u, state: 'unknown', masterKeyGeneration: null, changedAt: null }),

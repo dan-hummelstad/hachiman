@@ -195,6 +195,8 @@ app.whenReady().then(() => {
   // macOS requires explicit microphone permission via TCC. Other platforms
   // handle this at the OS / browser layer and have no Electron-level prompt.
   void ensureMicrophoneAccess();
+  // The camera is not requested here: only the QR scan uses it, and its getUserMedia call
+  // shows the OS prompt on first use. A denial shows the paste field (qr-view.tsx ScanOrPaste).
 
   renderer.serve(CSP);
 

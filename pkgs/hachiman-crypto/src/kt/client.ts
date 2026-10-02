@@ -95,7 +95,14 @@ export function createKtClient(deps: KtClientDeps): KtClient {
   }
 
   async function fetchHead(): Promise<SignedTreeHead | null> {
-    const wire = await deps.transport.ktTreeHead()
+    let wire: WireKtTreeHead
+    try {
+      wire = await deps.transport.ktTreeHead()
+    } catch (e) {
+      // 404 NotFound: the DS has signed no head yet (a new deployment). `covering` waits for one.
+      if (e instanceof CryptoError && e.code === 'Transport' && e.dsCode === 'NotFound') return null
+      throw e
+    }
     const h = decodeWire(wire)
     return (await observe(h)) ? h : null
   }

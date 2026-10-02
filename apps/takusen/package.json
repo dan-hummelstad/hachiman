@@ -13,6 +13,7 @@
     "start:grpc": "tsx --env-file-if-exists=../../.env src/grpc/main.ts",
     "typecheck": "tsgo --noEmit -p tsconfig.json",
     "test": "DATABASE_URL=postgres://test:test@localhost:1/test node --import tsx --test \"src/**/*.test.ts\"",
+    "test:canary": "node --import tsx src/e2ee/canary.integration.ts",
     "test:grpc": "DATABASE_URL=postgres://test:test@localhost:1/test node --import tsx --test \"src/grpc/*.test.ts\"",
     "lint": "eslint src",
     "format": "prettier --write .",

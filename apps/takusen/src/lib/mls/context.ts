@@ -62,6 +62,8 @@ export const RateLimits = {
   linkMessages: { bucket: 'linkmsg', limit: 30, windowSec: 60 },
   linkSessions: { bucket: 'linksess', limit: 5, windowSec: 3600 },
   backups: { bucket: 'backup', limit: 60, windowSec: 3600 },
+  /** Per user, not per device. */
+  reports: { bucket: 'report', limit: 10, windowSec: 3600 },
 } as const
 
 export async function rateLimit(deps: Pick<DsDeps, 'rate'>, which: keyof typeof RateLimits, subject: string): Promise<void> {
