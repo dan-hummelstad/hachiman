@@ -1,5 +1,5 @@
 // Copyright (c) 2026 The Hachiman Authors
-// The use of this source code is goverened by a BSD-style
+// The use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE-file.
 
 package main
@@ -25,16 +25,16 @@ type args struct {
 	// container smoke tests and the eventual k8s readiness probe.
 	MediaAddr string
 
-	// Room the recorder subscribes to. Phase 3a accepts a single room only;
-	// multi-room batching arrives with the recorder runtime in phase 4.
+	// Room the recorder subscribes to. One room only; multi-room batching
+	// is not implemented.
 	RoomID string
 
 	// Placeholder credential the media node verifies on SubscribeAsRecorder.
-	// Real signed credential lands with the recorder-trust path in phase 4.
+	// A real signed credential is not implemented.
 	RecorderCredential string
 
-	// S3 bucket for segment writes. Captured for phase 4; phase 3a logs
-	// received frames and discards payload, so this is informational only.
+	// S3 bucket for segment writes. The recorder logs received frames and
+	// discards payload, so this is informational only.
 	S3Bucket string
 
 	// Path to a log file. Empty = stderr.
@@ -57,7 +57,7 @@ func ParseCommandLines() args {
 	fs.StringVar(&a.MediaAddr, "media-addr", "", "host:port of the media node hosting the room's primary SFU (empty = boot-test, no subscription)")
 	fs.StringVar(&a.RoomID, "room-id", "", "room id to record; required when --media-addr is set")
 	fs.StringVar(&a.RecorderCredential, "recorder-credential", "", "credential the media node verifies on SubscribeAsRecorder")
-	fs.StringVar(&a.S3Bucket, "s3-bucket", "", "S3 bucket for segment writes (captured for phase 4; phase 3a does not write to S3)")
+	fs.StringVar(&a.S3Bucket, "s3-bucket", "", "S3 bucket for segment writes (informational; the scaffold does not write to S3)")
 	fs.StringVar(&a.LogPath, "log", "", "path to log file; empty writes to stderr")
 	fs.BoolVar(&a.ShowHelp, "help", false, "print this help")
 	fs.Usage = func() {

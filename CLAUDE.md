@@ -6,31 +6,31 @@ Guidance for Claude Code when it works in this repository.
 
 Hachiman is guild-based voice and text chat with a Discord-style architecture, in a pnpm monorepo. The monorepo contains:
 
-- Takusen (Next.js identity + REST API + Postgres schema)
-- a Go gateway fleet (WebSocket events) and Go media nodes (WebRTC SFU)
+- Takusen (Next.js identity + REST API + file storage + Postgres schema)
+- a Go gateway fleet (WebSocket events) and Go media nodes (WebRTC SFU for voice and screen share)
 - a browser-safe TypeScript client library
 - a shared React UI
 - two host apps (Electron + Browser)
 
-Postgres holds durable data. Redis holds sessions, presence, voice state and the event bus.
+Postgres holds durable data. S3 (SeaweedFS in dev) holds file bytes, and only Takusen talks to it. Redis holds sessions, the resume buffer, presence, voice state and the event bus.
 
-The wire contract for every process boundary is **`docs/gateway-protocol.md`**. It covers entity shapes, permissions, schema, REST routes, Redis keys, gateway ops, voice token, media voice WS, management proto, client API and platform seam. If code and the contract disagree, fix one of them in the same change. `docs/discord-refactor.md` records the design decisions.
+The wire contract for every process boundary is **`docs/gateway-protocol.md`**. It covers entity shapes, permissions, schema, REST routes, Redis keys, gateway ops, voice token, media voice WS, management proto, client API and platform seam. If code and the contract disagree, fix one of them in the same change. `docs/discord-refactor.md` records the design decisions. `docs/ui-redesign.md` is the UI spec.
 
 ## Monorepo layout
 
 ```
 apps/
-  takusen/              @hachiman/takusen             — Next.js: OIDC, REST /api/v1, Drizzle schema, Redis publisher; separate gRPC process for media registry + placement
-  hachiman/            @hachiman/hachiman           — shared React UI library (components, stores, services, platform abstraction)
-  hachiman-electron/   @hachiman/hachiman-electron  — Electron host (preload bridge implements IPlatformService, region probe in main)
+  takusen/            @hachiman/takusen            — Next.js: OIDC, REST /api/v1, uploads/files (S3), Drizzle schema, Redis publisher; separate gRPC process for media registry + placement
+  hachiman/            @hachiman/hachiman           — shared React UI library (components, stores, services, hooks, platform abstraction, ?preview mode)
+  hachiman-electron/   @hachiman/hachiman-electron  — Electron host (main: CSP, deep links, region probe, screen picker; preload bridge; renderer PlatformService)
   hachiman-browser/    @hachiman/hachiman-browser   — Browser host (Vite)
-  hachiman-server/     hachiman-server              — Go module hachiman/server: hachiman-gateway, hachiman-media, hachiman-recorder
+  hachiman-server/     hachiman-server              — Go module hachiman/server: hachiman-gateway, hachiman-media, hachiman-recorder (scaffold)
 
 pkgs/
-  hachiman-client/     @hachiman/client             — browser-safe client library (RestClient, GatewayClient, VoiceConnection, HachimanClient, permissions, types)
+  hachiman-client/     @hachiman/client             — browser-safe client library (RestClient, GatewayClient, VoiceConnection, HachimanClient, permissions, files, types)
 ```
 
-Host apps (`hachiman-electron`, `hachiman-browser`) depend on the shared UI library (`@hachiman/hachiman`) AND the client library (`@hachiman/client`). The shared UI owns the one `HachimanClient` (`apps/hachiman/src/services/hachiman.ts`). Hosts only implement `IPlatformService` (`apps/hachiman/src/shared/IPlatformService.ts`) under their own `platforms/<host>/` or preload code.
+Host apps (`hachiman-electron`, `hachiman-browser`) depend only on the shared UI library (`@hachiman/hachiman`), which depends on the client library (`@hachiman/client`). Hosts do not import `@hachiman/client`. The shared UI owns the one `HachimanClient` (`apps/hachiman/src/services/hachiman.ts`). Hosts only implement `IPlatformService` (`apps/hachiman/src/shared/IPlatformService.ts`): Electron in `src/renderer/src/PlatformService.ts` (a thin adapter over the preload bridge `window.hachiman`), the browser in `src/platforms/browser/PlatformService.ts`. A new seam method needs both implementations, the preload bridge, and an IPC channel in `apps/hachiman-electron/src/shared/ipc.ts`.
 
 ## TypeScript: use tsgo, never tsc
 
@@ -76,7 +76,7 @@ pnpm sessions:revoke          # sign every user out (dashboard cookies + OIDC se
 pnpm admin:grant <email>      # make an existing user a deployment admin (admin API: /api/admin, contract §4)
 
 # Build
-pnpm build:server
+pnpm build:server                  # gateway + media into apps/hachiman-server/bin (the recorder builds only from its Dockerfile)
 pnpm build:electron
 pnpm build:browser
 
@@ -99,7 +99,7 @@ cd apps/hachiman-server && go test ./...   # gateway, media, permissions, voicet
 # gateway integration test: build tag `integration`, needs DATABASE_URL / REDIS_URL / TAKUSEN_URL
 ```
 
-**Environment:** local dev uses one file, the repo-root `.env`. The template is the repo-root `.env.example`. It has a `# MARK: -` section for each service (Shared, Object storage, Takusen, Gateway, Media, Desktop / Web). There are no per-project env files. Each runner loads the root file and keeps a variable that is already set in the real environment:
+**Environment:** local dev uses one file, the repo-root `.env`. The template is the repo-root `.env.example`. It has a `# MARK: -` section for each service (Shared, Object storage, Takusen, Gateway, Media, Desktop / Web, Production only). There are no per-project env files. Each runner loads the root file and keeps a variable that is already set in the real environment:
 
 - Takusen Next.js and `drizzle.config.ts`: `process.loadEnvFile` in the config. Next.js also auto-loads `apps/takusen/.env*`. Do not keep env files there, because they shadow the root file.
 - Takusen tsx scripts (`dev:grpc`, `start:grpc`, `db:migrate`, `db:seed`, `db:reset`, `sessions:revoke`, `admin:grant`): `--env-file-if-exists=../../.env`.
@@ -114,10 +114,12 @@ One name has one meaning in the shared file. Give a new variable a service prefi
 
 Most React work lands here. Layout:
 
-- `components/`
-- `stores/` (Zustand)
-- `services/`: `hachiman.ts` owns the `HachimanClient` singleton and mirrors its cache into the stores. `MessagesService` / `VoiceService` / `InviteService` / `TakusenService` sit on top.
-- `shared/` (platform-abstraction interfaces)
+- `components/`: `shell/`, `chat/`, `voice/` (incl. screen share), `people/`, `settings/`, `ui/` (shadcn primitives)
+- `stores/` (Zustand): guild, channel, messages, voice, user, takusen, prefs, limits, nav, dialog
+- `services/`: `hachiman.ts` owns the `HachimanClient` singleton and mirrors its cache into the stores. `MessagesService` / `VoiceService` / `InviteService` / `UploadService` / `TakusenService` sit on top. `SoundService` plays event chimes (`lib/sounds.ts` lists the events) as `prefsStore` permits.
+- `hooks/`, `lib/` (helpers: mentions, stream quality, connection quality, sounds, ...)
+- `shared/`: `IPlatformService.ts` (the seam), `PlatformContext.tsx`, `takusen-env.ts`
+- `dev/preview/`: the `?preview` mode (Vite dev only). Stubbed REST and gateway data drive the UI with no backend. Use it for UI checks. See `dev/README.md`.
 
 ### Zustand selector conventions
 
@@ -147,7 +149,7 @@ If a selector returns a fresh array/object literal, React shows the warning "get
 ### Other UI conventions
 
 - Tooltips: there is **one** `TooltipProvider` at the App root (`App.tsx`). Do not nest more. Radix tolerates it, but the delay gets shadowed and the behavior becomes inconsistent.
-- `NavUser` uses plain markup + `useIsMobile()`. Do **not** use `useSidebar()` / `SidebarMenu*` from `components/ui/sidebar.tsx`. Those require a `SidebarProvider`, and no code mounts one.
+- `NavUser` uses plain markup + `useIsMobile()`. There is no shadcn sidebar component, and no code mounts a `SidebarProvider`. Do not add one.
 - `userData` should come from `useUserStore`, not hardcoded.
 
 ## Working in the client library (`pkgs/hachiman-client`)
@@ -160,15 +162,15 @@ Browser-safe only (`fetch`, `WebSocket`, `RTCPeerConnection`): no Node imports, 
   - `GatewayEvents` in `pkgs/hachiman-client/src/types.ts` (and the `HachimanClient` cache if the event mutates state)
   - the Takusen publish call (`apps/takusen/src/lib/events.ts` callers)
   - the gateway handling in `cmd/hachiman-gateway` (dispatch/visibility filtering)
-- The `regen-proto` skill and its sibling message-type skill in `.claude/skills` are obsolete (they target the deleted protobuf protocol). Their removal is pending. Do not use them.
+- Screen share: `VoiceConnection.setScreen(track, encoding)` swaps the track on the screen sender (m-line 1) with no renegotiation, and sets `selfStream` through op 4. No media frame carries the share state.
 
 ## Working in the Go server (`apps/hachiman-server`)
 
 Go module `hachiman/server`. Run from the package directory or through `pnpm dev:server` / `pnpm build:server`. Key areas:
-- `cmd/hachiman-gateway/` — stateless WebSocket gateway: HELLO/IDENTIFY/RESUME, Redis event dispatch with VIEW_CHANNEL filtering, presence, voice join + voice-token minting
-- `cmd/hachiman-media/` — stateless WebRTC SFU: voice WS (`/voice`), token verification, Takusen registration/heartbeat, Redis `media:{nodeId}` kicks
-- `cmd/hachiman-recorder/` — recording subscriber scaffold (not wired to media)
-- `pkg/media/` — SFU primitives (SSRC pool, peer connection wiring). Only hachiman-media imports it.
+- `cmd/hachiman-gateway/` — stateless WebSocket gateway: HELLO/IDENTIFY/RESUME (resume buffer `events:{sessionId}`), Redis event dispatch with VIEW_CHANNEL filtering, presence, voice join + placement + voice-token minting, TURN credentials. It calls Takusen REST only for `GET /users/@me` at IDENTIFY and Takusen gRPC only for `PlaceMediaSession`. It reads Postgres directly for READY and `media_nodes.signaling_url`.
+- `cmd/hachiman-media/` — stateless WebRTC SFU: voice WS (`/voice`), token verification + replay check, Takusen registration/heartbeat, Redis `media:{nodeId}` kicks. Each client has a mic track (Opus, stream id `<userId>`) and a screen track (VP8, stream id `screen-<userId>`).
+- `cmd/hachiman-recorder/` — recording subscriber scaffold. Not wired: media serves no `RecorderControl`, and `pnpm build:server` does not build it.
+- `pkg/media/` — SFU primitives (`sfu.go`, `ssrc_pool.go`). Only hachiman-media imports it.
 - `pkg/voicetoken/` — PASETO voice token: `Signer` (gateway), `Verifier` (media)
 - `pkg/permissions/` — Go half of the permission lib (+ `sync_test.go` against the TS file)
 - `pkg/coturn/` — per-region TURN credential minting (HMAC-SHA1, coturn REST API scheme) for `iceServers`
@@ -178,12 +180,25 @@ Go module `hachiman/server`. Run from the package directory or through `pnpm dev
 
 Containerization: `Dockerfile.gateway`, `Dockerfile.media`, `Dockerfile.recorder` (amd64) and the `Dockerfile.arm32v6.*` variants. Each builds exactly one binary.
 
-For changes to the voice stack (`pkg/media`, `cmd/hachiman-media/voice.go`, `pkgs/hachiman-client/src/voice.ts`), use the `webrtc-reviewer` agent. There is a class of SSRC pool / renegotiation race bugs that a generic review will miss.
+For changes to the voice stack (`pkg/media/sfu.go`, `pkg/media/ssrc_pool.go`, `cmd/hachiman-media/voice.go`, `pkgs/hachiman-client/src/voice.ts`), use the `webrtc-reviewer` agent. There is a class of SSRC pool / renegotiation race bugs that a generic review will miss. The file list in the agent definition predates the refactor (`pkg/web`, `cmd/grumble`, `hachiman-node`), so give the agent the paths above.
+
+## Working in the Electron host (`apps/hachiman-electron`)
+
+`src/main/`:
+
+- `csp.ts` — CSP built from the `VITE_` URLs
+- `protocol-handler.ts` — deep links `takusen://invite/<code>` and `app.hachiman://oauth-callback`, single-instance lock
+- `renderer-protocol.ts` + `renderer-path.ts` — packaged renderer on `hachiman://app/`
+- `region-probe.ts` + `probe-target-guard.ts` — TCP RTT probe to each region's `probeHost`, with an SSRF guard
+- `screen-share.ts` — desktopCapturer sources + display-media handler
+
+`src/preload/index.ts` exposes `window.hachiman`. Tests are `src/main/*.test.mts` (`node --test`).
 
 ## Working in Takusen (`apps/takusen`)
 
 Two processes:
-- The Next.js app (`pnpm dev`) — OIDC, OAuth, dashboard UI, REST API (`src/app/api/v1`). Every REST mutation publishes its gateway event to Redis after the DB commit (`src/lib/events.ts`).
+- The Next.js app (`pnpm dev`) — OIDC provider (`src/lib/oidc-provider.ts`, panva `oidc-provider`), next-auth dashboard sign-in, dashboard UI, REST API (`src/app/api/v1`), and the public `GET /api/regions` for the Electron region probe. Every REST mutation publishes its gateway event to Redis after the DB commit (`src/lib/events.ts`).
+- Files: `POST /api/v1/uploads` streams the raw body to S3 (`src/lib/storage.ts`), and `GET /api/v1/files/:uploadId/:filename` streams it back with Range support. A message, avatar, icon or banner then claims the upload ids (`src/lib/uploads.ts`). Deletes go through `deleteAttachmentRows` so that objects do not leak. Clients never talk to S3.
 - A standalone gRPC server (`pnpm dev:grpc`) — implements the media-plane RPCs (`RegisterMediaNode`, `MediaNodeHeartbeat`, `PlaceMediaSession`) that hachiman-media and hachiman-gateway consume. It is a separate process because Next has no clean "after listen" hook. A colocated gRPC port would flap on every dev file-watcher restart.
 
 Both processes share the same Postgres DB through Drizzle. The proto source of truth is `apps/hachiman-server/pkg/management/management.proto`. The Takusen gRPC server loads it dynamically through `@grpc/proto-loader` (no generated TS bindings).
@@ -194,7 +209,15 @@ Takusen gRPC security posture: the server binds **loopback by default** (`127.0.
 
 ## Architecture references
 
-The top-level `README.md` has mermaid diagrams for: component topology, connection + event flow, voice join, and the store/service/component layout of the shared UI. Skim those before larger changes. They capture relationships that text does not.
+The top-level `README.md` has mermaid diagrams for: component topology, connection + event flow (incl. uploads and RESUME), voice join + screen share, and the store/service/component layout of the shared UI. Each package README (`apps/*/README.md`, `pkgs/hachiman-client/README.md`) has diagrams of where it fits, its code architecture and its key flows. Skim those before larger changes, and update them when a change moves a module or an interaction. They capture relationships that text does not.
+
+## Stale tooling in `.claude/`
+
+These files predate the Discord-style refactor and target the deleted Mumble/protobuf stack. Their removal is pending. Do not use them:
+
+- skills `regen-proto` and `add-mumble-message`
+- agent `proto-sync-checker`
+- hooks `block-generated.sh` (guards `mumbleproto` paths, not `pkg/management` or `pkg/recorderproto`) and `format-edit.sh` (maps old package names)
 
 ## Don'ts
 

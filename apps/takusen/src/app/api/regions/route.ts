@@ -4,13 +4,14 @@
  * Public, no auth — returns the known voice regions and the endpoint a
  * latency-capable client probes to measure client→region RTT.
  *
- * A client (the Electron host; browsers can't open raw sockets) fetches this,
- * probes each `{ probeHost, probePort }` with `probeRegionsRtt` from
- * `@hachiman/client`, and POSTs the measured RTTs to
- * `/api/v1/regions/recommend` for a real region recommendation.
+ * The shared UI (TakusenService.listRegions) fetches this and hands each
+ * `{ probeHost, probePort }` to `IPlatformService.probeRegions`. Only the
+ * Electron host probes (a TCP connect RTT in its main process; browsers can't
+ * open raw sockets). The UI then POSTs the measured RTTs to
+ * `/api/v1/regions/recommend` for a region recommendation.
  *
- * Only the probe-relevant projection is exposed (`lat`/`lon`/`createdAt` are
- * internal to the future placement scorer and intentionally withheld).
+ * Only the probe-relevant projection is exposed (`lat`/`lon`/`createdAt` stay
+ * internal and are intentionally withheld).
  */
 import { NextResponse } from 'next/server'
 

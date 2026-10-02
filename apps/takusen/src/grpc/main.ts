@@ -1,10 +1,9 @@
 /**
- * Standalone gRPC server entry point. Run via `pnpm dev:takusen-grpc` (script
- * added to apps/takusen/package.json) or via the equivalent production runner.
+ * Standalone gRPC server entry point. Run via `pnpm dev:grpc` (or `pnpm dev`,
+ * which starts it next to Next.js) and `pnpm start:grpc` in production.
  *
- * Lives separate from Next.js per Phase 3a spec section D: Next has no clean
- * "after listen" hook and a colocated gRPC port would flap on every Next dev
- * file-watcher restart.
+ * Lives separate from Next.js: Next has no clean "after listen" hook and a
+ * colocated gRPC port would flap on every Next dev file-watcher restart.
  *
  * Env vars:
  *   - TAKUSEN_GRPC_PORT       — port number (default 50051).

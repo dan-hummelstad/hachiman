@@ -1,5 +1,5 @@
 // Copyright (c) 2026 The Hachiman Authors
-// The use of this source code is goverened by a BSD-style
+// The use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE-file.
 
 package main
@@ -19,37 +19,29 @@ import (
 	"hachiman/server/pkg/recorderproto"
 )
 
-// Phase 3a recorder scaffold — SubscribeAsRecorder client loop.
+// Recorder scaffold — SubscribeAsRecorder client loop.
 //
-// The subscriber dials a media node's RecorderControl gRPC service, opens a
+// The subscriber dials a RecorderControl gRPC service, opens a
 // server-streaming SubscribeAsRecorder RPC, and receives RecorderEvent
-// envelopes in a loop. Phase 3a logs each envelope's metadata (track id,
-// codec, e2ee epoch, etc.) and discards payload; real segment writes land
-// with the recording runtime in phase 4.
+// envelopes in a loop. It logs each envelope's metadata (track id, codec,
+// e2ee epoch, etc.) and discards payload. hachiman-media serves no
+// RecorderControl yet, and no segment writer exists.
 //
-// Reconnect uses the same exponential-jittered backoff as hachiman-media's
-// sidechannel client: 1s → 30s with ±25% jitter; reset to the minimum on
-// every successful stream (one that stayed open longer than the heartbeat
-// cadence). Sharing the math is a deliberate choice — see the comment on
-// subscribeReconnectBackoffMin below — but no code is shared yet because
-// hachiman-media holds its copy under internal package scope.
+// Reconnect uses exponential backoff, 1s → 30s, reset to the minimum on
+// every successful stream (one that stayed open longer than
+// subscribeBackoffResetWindow).
 
 const (
 	// subscribeReconnectBackoffMin / Max bracket the exponential backoff
-	// between reconnect attempts. Numbers match
-	// sidechannelReconnectBackoffMin / Max in cmd/hachiman-media — phase 3a
-	// keeps them as two constants in two binaries so the recorder doesn't
-	// pull a dependency on internal media helpers. If/when we factor a
-	// shared backoff helper out (likely once a third binary lands), this
-	// constant moves there.
+	// between reconnect attempts. The bounds match the 1s → 30s backoff in
+	// cmd/hachiman-media (takusen.go, kick.go), which keeps its own copy.
 	subscribeReconnectBackoffMin = 1 * time.Second
 	subscribeReconnectBackoffMax = 30 * time.Second
 
 	// subscribeBackoffResetWindow is the minimum stream duration that
-	// counts as a "successful" connection — exiting that fast resets
-	// backoff to the floor. Matches the heartbeat cadence on
-	// hachiman-media's sidechannel so a recorder that survives at least
-	// one stream-heartbeat cycle is treated the same way.
+	// counts as a "successful" connection — a stream that lasts at least
+	// this long resets backoff to the floor. Matches hachiman-media's 10s
+	// Takusen heartbeat cadence.
 	subscribeBackoffResetWindow = 10 * time.Second
 )
 
@@ -73,13 +65,13 @@ type subscriber struct {
 
 	// dialer is the gRPC client constructor. Tests inject a mock that
 	// dials a local server; production calls grpc.NewClient with insecure
-	// creds. mTLS lands with the same dev-cert provisioning the
-	// hachiman-media sidechannel waits for (follow-up #10 there).
+	// creds. mTLS lands with the same cert provisioning as the Takusen
+	// management gRPC (follow-up #10 in pkg/takusenclient).
 	dialer func(ctx context.Context, addr string) (*grpc.ClientConn, error)
 }
 
 // newSubscriber constructs a subscriber with production defaults: the gRPC
-// client uses insecure-creds (phase 3a; mTLS lands later) and envelope
+// client uses insecure-creds (mTLS lands later) and envelope
 // handling logs metadata then drops payload.
 func newSubscriber(a args, logger *log.Logger) *subscriber {
 	s := &subscriber{
@@ -187,8 +179,8 @@ func (s *subscriber) runOnce(ctx context.Context) error {
 }
 
 // logEnvelope is the default per-envelope handler — prints a one-line summary
-// of the event metadata and discards payload. Phase 4 swaps this for the
-// segment-writer pipeline; the handler signature is stable so the swap is
+// of the event metadata and discards payload. A segment-writer pipeline
+// replaces it later; the handler signature is stable so the swap is
 // a one-line change.
 func (s *subscriber) logEnvelope(ev *recorderproto.RecorderEvent) error {
 	switch p := ev.GetPayload().(type) {

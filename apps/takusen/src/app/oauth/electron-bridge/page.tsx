@@ -25,8 +25,9 @@ const DEEP_LINK_SCHEME = 'app.hachiman://oauth-callback'
 
 function buildDeepLink(params: URLSearchParams): string {
   // Preserve every param Takusen handed us (code, state, iss, error,
-  // error_description, …). The Electron main process parses them out of
-  // the URL we hand it via the OS protocol handler.
+  // error_description, …). The Electron main process forwards the raw URL
+  // it gets from the OS protocol handler to the renderer, and
+  // TakusenService.completeSignIn parses them there.
   const qs = new URLSearchParams()
   for (const [key, value] of params.entries()) {
     qs.set(key, value)

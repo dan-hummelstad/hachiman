@@ -449,7 +449,7 @@ export type NewOidcAdapterPayload = typeof oidcAdapterPayloads.$inferInsert
 // `PlaceMediaSession` (management.proto).
 //
 // `capacity` is stored as jsonb so the descriptor can grow with the per-node
-// resource model without a schema change (phase 1 stores `{cpu_cores, max_sessions}`;
+// resource model without a schema change (today it stores `{cpu_cores, max_sessions}`;
 // later passes add network egress caps, per-codec encode budgets, etc.).
 //
 // `status` is a free text column (enum-as-varchar) — keeps drizzle migrations
@@ -466,13 +466,13 @@ export const mediaNodes = pgTable(
     region: text('region').notNull(),
     capacity: jsonb('capacity').$type<{ cpu_cores: number; max_sessions: number }>().notNull(),
     // Live counter reported in each heartbeat. Placement scoring picks the
-    // lowest-loaded node within the region (cf. PlacementService below). Phase
-    // 3a simplification: heartbeat-reported value rather than a derived
+    // lowest-loaded node within the region (MediaNodesRepo in src/grpc/repo.ts). A
+    // simplification: heartbeat-reported value rather than a derived
     // aggregate over an active-sessions table — keeps the schema flat. Defaults
     // to 0 so the first register-without-heartbeat row scores as empty.
     activeSessions: integer('active_sessions').notNull().default(0),
-    // CPU fraction reported in each heartbeat. Placement uses it only as a
-    // secondary tiebreaker today; phase 4 weights it into the scorer.
+    // CPU fraction reported in each heartbeat. Node placement does not read
+    // it yet: it ranks by active_sessions, then node_id.
     cpuFraction: doublePrecision('cpu_fraction').notNull().default(0),
     lastHeartbeatAt: timestamp('last_heartbeat_at', { withTimezone: true, mode: 'date' }).notNull(),
     version: text('version').notNull(),

@@ -299,7 +299,7 @@ export class TakusenService {
 
   /**
    * POST /api/v1/regions/recommend with client-measured RTTs → the ranked
-   * recommendation. Requires an Takusen session (the endpoint requires an
+   * recommendation. Requires a Takusen session (the endpoint requires an
    * authenticated user). Returns undefined if not signed in or the request
    * fails, so callers can fall back to the honest "not measured" hint.
    */

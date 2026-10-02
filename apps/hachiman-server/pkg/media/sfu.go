@@ -149,7 +149,7 @@ func NewSFU(cfg Config, logger *log.Logger) (*SFU, error) {
 }
 
 // Join creates the session's PeerConnection, allocates its SSRC and wires its
-// audio into roomID. Existing room peers get Renegotiate + PeersChanged; the
+// mic and screen tracks into roomID. Existing room peers get Renegotiate + PeersChanged; the
 // joiner gets neither — the caller sends its initial offer and peers
 // snapshot itself.
 //

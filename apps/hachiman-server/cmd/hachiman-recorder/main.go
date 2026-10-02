@@ -1,11 +1,11 @@
-// hachiman-recorder is the recording subscriber binary in the split-mode
-// deployment. It dials a media node's RecorderControl gRPC service, opens a
-// SubscribeAsRecorder server-streaming RPC for a single room, and (in phase
-// 3a) logs each received frame's metadata while discarding payload.
+// hachiman-recorder is the recording subscriber scaffold. It dials a
+// RecorderControl gRPC service (pkg/recorderproto), opens a
+// SubscribeAsRecorder server-streaming RPC for a single room, and logs each
+// received frame's metadata while discarding payload.
 //
-// Phase 3a scope: scaffold only — flags, signal handling, reconnect loop,
-// envelope handler, in-process test coverage. The actual S3 segment writer
-// lands with the recording runtime in phase 4.
+// Not wired: hachiman-media serves no RecorderControl yet, and
+// `pnpm build:server` does not build this binary. Scope is flags, signal
+// handling, reconnect loop, envelope handler and in-process test coverage.
 //
 // What lives here:
 //   - args.go             — CLI surface (region, media-addr, room-id, etc.)
@@ -13,11 +13,12 @@
 //   - main.go (this file) — boot sequence, signal handling, shutdown wait
 //   - subscriber_test.go  — in-process gRPC fake exercising the recv loop
 //
-// Remaining for later phases:
-//   - segment encoder + S3 writer (phase 4)
+// Remaining:
+//   - a RecorderControl server in hachiman-media
+//   - segment encoder + S3 writer
 //   - mTLS on the SubscribeAsRecorder dial (currently insecure-creds)
-//   - recorder-credential minting + verification (phase 4)
-//   - multi-room batching (phase 4)
+//   - recorder-credential minting + verification
+//   - multi-room batching
 package main
 
 import (

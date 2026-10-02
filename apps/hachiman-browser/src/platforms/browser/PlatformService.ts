@@ -48,7 +48,7 @@ export function consumeLaunchUrl(loc: Location = window.location): void {
 export const platformService: IPlatformService = {
   platform: "browser",
   insetTitleBar: false,
-  // Must match an Takusen client redirect URI (apps/takusen/src/db/seed.ts); override when serving on another origin.
+  // Must match a Takusen client redirect URI (apps/takusen/src/db/seed.ts); override when serving on another origin.
   oauthRedirectUri:
     import.meta.env.VITE_HACHIMAN_OIDC_REDIRECT ??
     `${window.location.origin}/oauth/callback`,
