@@ -5,11 +5,11 @@ import type { ReactNode } from 'react'
  *
  * The dashboard layout already renders the top nav and a `<main>` element; this
  * shell just provides consistent padding + a max-width container so individual
- * pages (Servers, Account, etc.) look uniform without each having to repeat
+ * pages (Account, Admin, etc.) look uniform without each having to repeat
  * the same layout boilerplate.
  *
  * Usage from another specialist's page:
- *   <DashboardShell title="Servers" description="...">{...}</DashboardShell>
+ *   <DashboardShell title="Account" description="...">{...}</DashboardShell>
  */
 export interface DashboardShellProps {
   title?: string

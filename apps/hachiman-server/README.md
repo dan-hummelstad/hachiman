@@ -1,91 +1,68 @@
+# hachiman-server
 
-```sh
-$ ./grumble --datadir ./data --log ./data/grumble.log --regen-keys 
-```
+Go module `hachiman/server`. It holds the realtime and media processes of Hachiman.
+Oracle (`apps/oracle`) owns auth, the REST API and the Postgres schema. The wire
+contracts live in [`docs/gateway-protocol.md`](../../docs/gateway-protocol.md).
 
+## Layout
 
-What is Grumble?
-================
+| Path | What |
+|---|---|
+| `cmd/hachiman-gateway` | Stateless WebSocket gateway (`/gateway`). HELLO/IDENTIFY/RESUME, event dispatch from Redis, presence, voice join + voice-token minting. Run N identical nodes behind a load balancer. |
+| `cmd/hachiman-media` | Stateless WebRTC SFU. Voice WebSocket (`/voice`) for SDP/ICE, peers and speaking state. Registers and heartbeats with Oracle gRPC. Takes kicks from Redis `media:{nodeId}`. |
+| `cmd/hachiman-recorder` | Recording scaffold. Not wired to media yet. |
+| `pkg/media` | SFU primitives (SSRC pool, peer connections). |
+| `pkg/voicetoken` | PASETO voice token: `Signer` (gateway), `Verifier` (media). |
+| `pkg/management` | Oracle management gRPC proto + generated code. |
+| `pkg/oracleclient` | Client for the management gRPC (register, heartbeat, placement). |
+| `pkg/permissions` | Permission bit math, shared with the TS client. |
+| `pkg/coturn` | TURN REST credential minting for `iceServers`. |
+| `pkg/recorderproto` | Media ↔ recorder proto (scaffold). |
 
-Grumble is an implementation of a server for the Mumble voice chat system. It is an alternative to Murmur, the typical Mumble server.
+## Run locally
 
-Compiling Grumble from source
-=============================
+1. Start Postgres and Redis: `docker compose -f docker/docker-compose.yml up -d` (repo root).
+2. Run the Oracle DB migrations.
+3. Start Oracle: `pnpm dev:oracle` (Next.js REST + auth on `:3000`, management gRPC on `127.0.0.1:50051`).
+4. Start the server processes: `pnpm dev:server` runs gateway and media together with nodemon
+   hot reload. To start only one, use `pnpm dev:gateway` or `pnpm dev:media`.
 
-You must have a Go 1 environment installed to build Grumble. Those are available at:
+Environment: the dev scripts start nodemon with `node --env-file-if-exists=../../.env`, so `go run` gets the
+repo-root `.env`. To make it, copy the repo-root `.env.example`. A variable that is already set in your shell keeps its value.
 
-https://golang.org/dl/
+Dev defaults: gateway on `ws://localhost:8080/gateway`, media on `ws://localhost:8090/voice`.
+Gateway and media share the voice key file `.dev/keys/voice-signer.ed25519`
+(if the file does not exist, the gateway creates it).
 
-Once Go is installed, you should set up a GOPATH to avoid clobbering your Go environment's root directory with third party packages.
+Build binaries into `./bin`: `pnpm build:server` (or `pnpm -F hachiman-server build:gateway` / `build:media`).
+Docker images: `Dockerfile.{gateway,media,recorder}` and the `Dockerfile.arm32v6.*` variants.
 
-Set up a GOPATH. On Unix, do something like this
-```shell script
-$ export GOPATH=$HOME/gocode
-$ mkdir -p $GOPATH
-```
+In the Claude sandbox, set `GOCACHE=$TMPDIR/gocache CGO_ENABLED=0` before `go build`.
 
-and on Windows, do something like this (for cmd.exe):
-```shell script
-c:\> set GOPATH=%USERPROFILE%\gocode
-c:\> mkdir %GOPATH%
-```
+## Flags / env
 
-Then, it's time to install Grumble. The following line should do the trick:
-```shell script
-$ go get mumble.info/grumble/cmd/grumble
-```
+The contract is authoritative (gateway: §6, voice token: §7, media: §8). Run a binary with `--help` for the full list.
 
-And that should be it. Grumble has been built, and is available in $GOPATH/bin as 'grumble'.
+| Process | Flag | Env | Default / notes |
+|---|---|---|---|
+| gateway | `--listen` | `GATEWAY_LISTEN_ADDR` | `:8080` |
+| gateway | `--database-url` | `DATABASE_URL` | Postgres (the Oracle DB) |
+| gateway | `--redis-url` | `REDIS_URL` | event bus, sessions, presence, voice state |
+| gateway | `--oracle-url` | `ORACLE_URL` | IDENTIFY calls `GET {ORACLE_URL}/api/v1/users/@me` |
+| gateway | `--oracle-grpc-addr` | `ORACLE_GRPC_ADDR` | `PlaceMediaSession` |
+| gateway | `--voice-key` | `VOICE_KEY` | Ed25519 seed for minting voice tokens |
+| gateway | `--turn-secret`, `--turn-urls` | `TURN_SECRET`, `TURN_URLS` | optional. If not set, the Google STUN fallback |
+| media | `--node-id`, `--region` | `MEDIA_NODE_ID`, `MEDIA_REGION` | identity registered with Oracle |
+| media | `--listen` | | `:8090` |
+| media | `--signaling-url` | | public voice WS URL, e.g. `ws://localhost:8090/voice` |
+| media | `--oracle-grpc-addr` | `ORACLE_GRPC_ADDR` | register + heartbeat every 10 s |
+| media | `--redis-url` | `REDIS_URL` | `media:{nodeId}` kick channel |
+| media | `--voice-pubkey` or `--voice-key` | `VOICE_PUBKEY`, `VOICE_KEY` | verifies voice tokens |
+| media | `--public-ip` | | pion NAT 1:1 when behind NAT |
+| media | `--udp-port-min`, `--udp-port-max` | | RTP/DTLS-SRTP UDP range. Publish it in containers |
 
-Project status
-==============
+A flag overrides its env var.
 
-Grumble is pretty much feature complete, except for a few "minor" things.
+## License
 
-There is no bandwidth limiting, and there is no API to remote control it.
-
-Grumble's persistence layer is very ad-hoc. It uses an append-only file to store delta updates to each server's internal data, and periodically, it syncs a server's full data to disk.
-
-Grumble is currently architected to have all data in memory. That means it's not ideal for use with very very large servers. (And large servers in this context are servers with many registered users, ACLs, etc.).
-
-It is architected this way because it allowed me to write a pure-Go program with very few external dependencies, back 4-5 years ago.
-
-The current thinking is that if registered users are taking up too much of your memory, you should use an external authenticator. But that code isn't written yet. The concept would be equivalent to Murmur's authenticator API via RPC. But a Grumble authenticator would probably be set up more akin to a webhook -- so just a URL in the config file.
-
-Then there's the API problem. You can't currently remote control Grumble. Which can make it hard to use in production. I imagine Grumble will grow an API that it makes available via HTTP. Murmur's API is already quite stateless in many regards, so it shouldn't be too much of a stretch to put a RESTful API in Grumble to do the same job.
-
-Docker
-==============
-
-## Getting the image
-
-### Building
-```shell script
-$ git clone https://github.com/mumble-voip/grumble.git
-$ cd grumble/
-$ docker build -t mumble-voip/grumble .
-```
-
-## Running
-
-### Command line
-```shell script
-$ docker run \
-  -v $HOME/.grumble:/data \
-  -p 64738:64738 \
-  -p 64738:64738/udp \
-  mumble-voip/grumble
-```
-
-### Compose
-```yaml
-version: '3'
-services:
-  grumble:
-    image: mumble-voip/grumble
-    ports:
-      - 64738:64738
-      - 64738:64738/udp
-    volumes:
-      - $HOME/.grumble:/data
-```
+This module derives from BSD-licensed upstream code. See `LICENSE` and `AUTHORS` for the copyright notice.

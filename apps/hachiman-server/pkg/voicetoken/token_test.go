@@ -5,260 +5,197 @@
 package voicetoken_test
 
 import (
-	"crypto/ed25519"
-	"crypto/sha256"
-	"encoding/base64"
-	"encoding/hex"
+	"errors"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
 
-	"mumble.info/grumble/pkg/voicetoken"
+	"hachiman/server/pkg/voicetoken"
 )
 
-// testNodeID is the audience all helper-built signers/claims bind to. Tests
-// that exercise cross-node rejection construct their own signers explicitly.
 const testNodeID = "media-us-east-1"
 
-func mustNewFileSigner(t *testing.T) *voicetoken.FileSigner {
+func newPair(t *testing.T) (*voicetoken.Signer, *voicetoken.Verifier) {
 	t.Helper()
-	dir := t.TempDir()
-	s, err := voicetoken.NewFileSigner(filepath.Join(dir, "voice-signer.ed25519"), testNodeID)
+	s, err := voicetoken.NewSigner(filepath.Join(t.TempDir(), "keys", "voice-signer.ed25519"))
 	if err != nil {
-		t.Fatalf("NewFileSigner: %v", err)
+		t.Fatalf("NewSigner: %v", err)
 	}
-	return s
-}
-
-// mustNewFileSignerWithSeed builds a deterministic signer from a fixed 32-byte
-// seed. Used by the rotation overlap test that needs to know A's pubkey ahead
-// of time to register it as additional trust on B.
-func mustNewFileSignerWithSeed(t *testing.T, seed []byte) (*voicetoken.FileSigner, ed25519.PublicKey) {
-	t.Helper()
-	return mustNewFileSignerWithSeedAndNode(t, seed, testNodeID)
-}
-
-func mustNewFileSignerWithSeedAndNode(t *testing.T, seed []byte, nodeID string) (*voicetoken.FileSigner, ed25519.PublicKey) {
-	t.Helper()
-	dir := t.TempDir()
-	path := filepath.Join(dir, "voice-signer.ed25519")
-	if err := os.WriteFile(path, seed, 0o600); err != nil {
-		t.Fatalf("write seed: %v", err)
-	}
-	s, err := voicetoken.NewFileSigner(path, nodeID)
+	v, err := voicetoken.NewVerifier(s.PublicKeyHex(), testNodeID)
 	if err != nil {
-		t.Fatalf("NewFileSigner: %v", err)
+		t.Fatalf("NewVerifier: %v", err)
 	}
-	priv := ed25519.NewKeyFromSeed(seed)
-	return s, priv.Public().(ed25519.PublicKey)
-}
-
-func computeKeyID(pub ed25519.PublicKey) string {
-	sum := sha256.Sum256(pub)
-	return hex.EncodeToString(sum[:8])
+	return s, v
 }
 
 func validClaims() voicetoken.Claims {
 	now := time.Now().Truncate(time.Second)
 	return voicetoken.Claims{
-		SessionID:        "sess-abc123",
-		UserID:           "user-opaque-7",
-		ChannelID:        42,
-		MediaNodeID:      "media-us-east-1",
-		QualityProfileID: 1,
-		SSRC:             1234567,
-		DTLSFingerprint:  "sha-256 AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99:00:11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF",
-		ICEUfrag:         "abcd",
-		JTI:              "11111111-2222-3333-4444-555555555555",
-		IssuedAt:         now,
-		ExpiresAt:        now.Add(90 * time.Second),
+		SessionID:   "sess-abc",
+		UserID:      "user-1",
+		GuildID:     "guild-1",
+		ChannelID:   "chan-1",
+		MediaNodeID: testNodeID,
+		JTI:         "jti-1",
+		IssuedAt:    now,
+		ExpiresAt:   now.Add(90 * time.Second),
 	}
 }
 
-func TestMintAndVerifyRoundTrip(t *testing.T) {
-	s := mustNewFileSigner(t)
-	in := validClaims()
-
-	tok, err := s.MintToken(in)
+func TestMintVerifyRoundTrip(t *testing.T) {
+	s, v := newPair(t)
+	want := validClaims()
+	tok, err := s.Mint(want)
 	if err != nil {
-		t.Fatalf("MintToken: %v", err)
+		t.Fatalf("Mint: %v", err)
 	}
-	if !strings.HasPrefix(tok, "v4.public.") {
-		t.Fatalf("token doesn't have v4.public prefix: %q", tok)
-	}
-
-	out, err := s.VerifyToken(tok)
+	got, err := v.Verify(tok)
 	if err != nil {
-		t.Fatalf("VerifyToken: %v", err)
+		t.Fatalf("Verify: %v", err)
 	}
-
-	if out.SessionID != in.SessionID {
-		t.Errorf("SessionID: got %q want %q", out.SessionID, in.SessionID)
-	}
-	if out.UserID != in.UserID {
-		t.Errorf("UserID: got %q want %q", out.UserID, in.UserID)
-	}
-	if out.ChannelID != in.ChannelID {
-		t.Errorf("ChannelID: got %d want %d", out.ChannelID, in.ChannelID)
-	}
-	if out.MediaNodeID != in.MediaNodeID {
-		t.Errorf("MediaNodeID: got %q want %q", out.MediaNodeID, in.MediaNodeID)
-	}
-	if out.QualityProfileID != in.QualityProfileID {
-		t.Errorf("QualityProfileID: got %d want %d", out.QualityProfileID, in.QualityProfileID)
-	}
-	if out.SSRC != in.SSRC {
-		t.Errorf("SSRC: got %d want %d", out.SSRC, in.SSRC)
-	}
-	if out.DTLSFingerprint != in.DTLSFingerprint {
-		t.Errorf("DTLSFingerprint mismatch")
-	}
-	if out.ICEUfrag != in.ICEUfrag {
-		t.Errorf("ICEUfrag mismatch")
-	}
-	if out.JTI != in.JTI {
-		t.Errorf("JTI mismatch")
-	}
-	if !out.IssuedAt.Equal(in.IssuedAt) {
-		t.Errorf("IssuedAt: got %v want %v", out.IssuedAt, in.IssuedAt)
-	}
-	if !out.ExpiresAt.Equal(in.ExpiresAt) {
-		t.Errorf("ExpiresAt: got %v want %v", out.ExpiresAt, in.ExpiresAt)
+	if got.SessionID != want.SessionID || got.UserID != want.UserID || got.GuildID != want.GuildID ||
+		got.ChannelID != want.ChannelID || got.MediaNodeID != want.MediaNodeID || got.JTI != want.JTI ||
+		!got.IssuedAt.Equal(want.IssuedAt) || !got.ExpiresAt.Equal(want.ExpiresAt) {
+		t.Errorf("claims mismatch:\n got %+v\nwant %+v", *got, want)
 	}
 }
 
-func TestVoiceTargetsRoundTrip(t *testing.T) {
-	s := mustNewFileSigner(t)
-	in := validClaims()
-	in.VoiceTargets = []uint32{10, 20, 30}
-
-	tok, err := s.MintToken(in)
+func TestMintFillsDefaults(t *testing.T) {
+	s, v := newPair(t)
+	c := validClaims()
+	c.JTI, c.IssuedAt, c.ExpiresAt = "", time.Time{}, time.Time{}
+	tok, err := s.Mint(c)
 	if err != nil {
-		t.Fatalf("MintToken: %v", err)
+		t.Fatalf("Mint: %v", err)
 	}
-	out, err := s.VerifyToken(tok)
+	got, err := v.Verify(tok)
 	if err != nil {
-		t.Fatalf("VerifyToken: %v", err)
+		t.Fatalf("Verify: %v", err)
 	}
-	if len(out.VoiceTargets) != 3 || out.VoiceTargets[0] != 10 || out.VoiceTargets[2] != 30 {
-		t.Errorf("VoiceTargets round-trip wrong: %v", out.VoiceTargets)
+	if got.JTI == "" || got.ExpiresAt.Sub(got.IssuedAt) != voicetoken.DefaultTTL {
+		t.Errorf("defaults not applied: %+v", *got)
 	}
 }
 
-func TestMintRejectsTTLOutOfBounds(t *testing.T) {
-	s := mustNewFileSigner(t)
-
-	tooShort := validClaims()
-	tooShort.ExpiresAt = tooShort.IssuedAt.Add(30 * time.Second) // < MinTTL=60s
-	if _, err := s.MintToken(tooShort); err == nil {
-		t.Error("MintToken accepted TTL below MinTTL")
-	}
-
-	tooLong := validClaims()
-	tooLong.ExpiresAt = tooLong.IssuedAt.Add(300 * time.Second) // > MaxTTL=120s
-	if _, err := s.MintToken(tooLong); err == nil {
-		t.Error("MintToken accepted TTL above MaxTTL")
-	}
-}
-
-func TestMintRejectsMissingRequiredFields(t *testing.T) {
-	s := mustNewFileSigner(t)
-
-	for _, tc := range []struct {
-		name string
-		mut  func(*voicetoken.Claims)
-	}{
-		{"no session_id", func(c *voicetoken.Claims) { c.SessionID = "" }},
-		{"no media_node_id", func(c *voicetoken.Claims) { c.MediaNodeID = "" }},
-		{"no dtls_fingerprint", func(c *voicetoken.Claims) { c.DTLSFingerprint = "" }},
-		{"no jti", func(c *voicetoken.Claims) { c.JTI = "" }},
-		{"no iat", func(c *voicetoken.Claims) { c.IssuedAt = time.Time{} }},
-		{"no exp", func(c *voicetoken.Claims) { c.ExpiresAt = time.Time{} }},
+func TestMintRejectsBadInput(t *testing.T) {
+	s, _ := newPair(t)
+	for name, mut := range map[string]func(*voicetoken.Claims){
+		"ttl too short": func(c *voicetoken.Claims) { c.ExpiresAt = c.IssuedAt.Add(30 * time.Second) },
+		"ttl too long":  func(c *voicetoken.Claims) { c.ExpiresAt = c.IssuedAt.Add(5 * time.Minute) },
+		"no session":    func(c *voicetoken.Claims) { c.SessionID = "" },
+		"no user":       func(c *voicetoken.Claims) { c.UserID = "" },
+		"no guild":      func(c *voicetoken.Claims) { c.GuildID = "" },
+		"no channel":    func(c *voicetoken.Claims) { c.ChannelID = "" },
+		"no aud":        func(c *voicetoken.Claims) { c.MediaNodeID = "" },
 	} {
-		t.Run(tc.name, func(t *testing.T) {
-			c := validClaims()
-			tc.mut(&c)
-			if _, err := s.MintToken(c); err == nil {
-				t.Errorf("MintToken accepted invalid claims (%s)", tc.name)
-			}
-		})
+		c := validClaims()
+		mut(&c)
+		if _, err := s.Mint(c); err == nil {
+			t.Errorf("%s: Mint succeeded, want error", name)
+		}
 	}
 }
 
-func TestVerifyRejectsTampering(t *testing.T) {
-	s := mustNewFileSigner(t)
-	tok, err := s.MintToken(validClaims())
+func TestVerifyRejectsForeignAudience(t *testing.T) {
+	s, v := newPair(t)
+	c := validClaims()
+	c.MediaNodeID = "media-eu-west-1"
+	tok, err := s.Mint(c) // Signer mints for any aud
 	if err != nil {
-		t.Fatalf("MintToken: %v", err)
+		t.Fatalf("Mint: %v", err)
 	}
-
-	// Flip a byte in the middle of the encoded payload.
-	parts := strings.Split(tok, ".")
-	if len(parts) < 3 {
-		t.Fatalf("unexpected token shape: %q", tok)
-	}
-	payload := []byte(parts[2])
-	if len(payload) > 4 {
-		payload[4] ^= 0x01
-	}
-	parts[2] = string(payload)
-	tampered := strings.Join(parts, ".")
-	if _, err := s.VerifyToken(tampered); err == nil {
-		t.Error("VerifyToken accepted tampered payload")
+	if _, err := v.Verify(tok); err == nil || !strings.Contains(err.Error(), "audience") {
+		t.Errorf("Verify foreign aud: err = %v, want audience error", err)
 	}
 }
 
-func TestVerifyRejectsUnknownKey(t *testing.T) {
-	// Mint with signer A, try to verify with signer B (different key dir).
-	a := mustNewFileSigner(t)
-	tok, err := a.MintToken(validClaims())
-	if err != nil {
-		t.Fatalf("MintToken: %v", err)
+func TestVerifyRejectsReplay(t *testing.T) {
+	s, v := newPair(t)
+	tok, _ := s.Mint(validClaims())
+	if _, err := v.Verify(tok); err != nil {
+		t.Fatalf("first Verify: %v", err)
 	}
-	b := mustNewFileSigner(t)
-	if _, err := b.VerifyToken(tok); err == nil {
-		t.Error("VerifyToken accepted token signed by foreign signer")
+	if _, err := v.Verify(tok); err == nil || !strings.Contains(err.Error(), "replayed") {
+		t.Errorf("second Verify: err = %v, want replay error", err)
 	}
 }
 
-func TestVerifyAcceptsAdditionalTrustedKey(t *testing.T) {
-	// Simulate the rotation overlap window: signer B issues new tokens, but
-	// signer A's public key is registered as additional trust so A's tokens
-	// continue to verify until they expire naturally.
-	seedA := make([]byte, ed25519.SeedSize)
-	seedB := make([]byte, ed25519.SeedSize)
-	for i := range seedA {
-		seedA[i] = 0xAA
-		seedB[i] = 0xBB
+func TestVerifyRejectsExpired(t *testing.T) {
+	s, v := newPair(t)
+	c := validClaims()
+	c.IssuedAt = time.Now().Add(-100 * time.Second)
+	c.ExpiresAt = c.IssuedAt.Add(90 * time.Second)
+	tok, _ := s.Mint(c)
+	if _, err := v.Verify(tok); !errors.Is(err, voicetoken.ErrExpired) {
+		t.Errorf("Verify expired: err = %v, want ErrExpired", err)
 	}
+}
 
-	sA, pubA := mustNewFileSignerWithSeed(t, seedA)
-	sB, _ := mustNewFileSignerWithSeed(t, seedB)
-	kidA := computeKeyID(pubA)
+func TestVerifyRejectsFutureIat(t *testing.T) {
+	s, v := newPair(t)
+	c := validClaims()
+	c.IssuedAt = time.Now().Add(time.Hour)
+	c.ExpiresAt = c.IssuedAt.Add(90 * time.Second)
+	tok, _ := s.Mint(c)
+	if _, err := v.Verify(tok); err == nil {
+		t.Error("Verify future iat: want error")
+	}
+}
 
-	tok, err := sA.MintToken(validClaims())
+func TestVerifyRejectsOtherKeyAndTampering(t *testing.T) {
+	s, v := newPair(t)
+	other, _ := newPair(t)
+	tok, _ := other.Mint(validClaims())
+	if _, err := v.Verify(tok); err == nil {
+		t.Error("Verify token from other key: want error")
+	}
+	tok, _ = s.Mint(validClaims())
+	b := []byte(tok)
+	i := len("v4.public.") + 5
+	b[i] ^= 1
+	if _, err := v.Verify(string(b)); err == nil {
+		t.Error("Verify tampered token: want error")
+	}
+}
+
+func TestVerifierFromSeedSharesKeyFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "voice-signer.ed25519")
+	v, err := voicetoken.NewVerifierFromSeed(path, testNodeID) // generates
 	if err != nil {
-		t.Fatalf("sA.MintToken: %v", err)
+		t.Fatalf("NewVerifierFromSeed: %v", err)
 	}
+	s, err := voicetoken.NewSigner(path) // reuses
+	if err != nil {
+		t.Fatalf("NewSigner: %v", err)
+	}
+	tok, _ := s.Mint(validClaims())
+	if _, err := v.Verify(tok); err != nil {
+		t.Fatalf("Verify: %v", err)
+	}
+	if fi, _ := os.Stat(path); fi.Size() != 32 || fi.Mode().Perm() != 0o600 {
+		t.Errorf("keyfile size/mode = %d/%v", fi.Size(), fi.Mode().Perm())
+	}
+}
 
-	// sB doesn't trust A yet.
-	if _, err := sB.VerifyToken(tok); err == nil {
-		t.Error("sB verified A's token without trusting A")
+func TestNewSignerRejectsMalformedKeyfile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "k")
+	if err := os.WriteFile(path, make([]byte, 16), 0o600); err != nil {
+		t.Fatal(err)
 	}
+	if _, err := voicetoken.NewSigner(path); err == nil {
+		t.Error("NewSigner on 16-byte keyfile: want error")
+	}
+}
 
-	if err := sB.TrustAdditionalKey(kidA, pubA); err != nil {
-		t.Fatalf("TrustAdditionalKey: %v", err)
+func TestNewVerifierRejectsBadInput(t *testing.T) {
+	s, _ := newPair(t)
+	if _, err := voicetoken.NewVerifier(s.PublicKeyHex(), ""); err == nil {
+		t.Error("empty node id: want error")
 	}
-	if _, err := sB.VerifyToken(tok); err != nil {
-		t.Errorf("sB rejected A's token even after trust: %v", err)
-	}
-
-	ids := sB.ActiveKeyIDs()
-	if len(ids) != 2 {
-		t.Errorf("ActiveKeyIDs after rotation: got %d, want 2 (%v)", len(ids), ids)
+	if _, err := voicetoken.NewVerifier("zz", testNodeID); err == nil {
+		t.Error("bad hex: want error")
 	}
 }
 
@@ -360,212 +297,3 @@ func TestReplayCacheEvictsExpiredEntries(t *testing.T) {
 
 // TestFileSignerRejectsMalformedKeyfile covers refusal to start on a keyfile
 // that isn't exactly 32 bytes — protects production material from being
-// silently overwritten by a fresh seed.
-func TestFileSignerRejectsMalformedKeyfile(t *testing.T) {
-	for _, sz := range []int{16, 64} {
-		t.Run(strconv.Itoa(sz), func(t *testing.T) {
-			dir := t.TempDir()
-			path := filepath.Join(dir, "voice-signer.ed25519")
-			if err := os.WriteFile(path, make([]byte, sz), 0o600); err != nil {
-				t.Fatalf("write malformed keyfile: %v", err)
-			}
-			_, err := voicetoken.NewFileSigner(path, testNodeID)
-			if err == nil {
-				t.Fatalf("NewFileSigner accepted %d-byte keyfile", sz)
-			}
-			if !strings.Contains(err.Error(), "bytes, want 32") {
-				t.Errorf("unexpected error: %v", err)
-			}
-		})
-	}
-}
-
-// TestFileSignerPersistsAcrossReopen verifies that two FileSigners constructed
-// against the same keyfile path share signing identity — i.e. a restart
-// preserves outstanding tokens' verifiability.
-func TestFileSignerPersistsAcrossReopen(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "voice-signer.ed25519")
-
-	a, err := voicetoken.NewFileSigner(path, testNodeID)
-	if err != nil {
-		t.Fatalf("NewFileSigner A: %v", err)
-	}
-	tok, err := a.MintToken(validClaims())
-	if err != nil {
-		t.Fatalf("a.MintToken: %v", err)
-	}
-
-	b, err := voicetoken.NewFileSigner(path, testNodeID)
-	if err != nil {
-		t.Fatalf("NewFileSigner B: %v", err)
-	}
-	if _, err := b.VerifyToken(tok); err != nil {
-		t.Fatalf("b.VerifyToken after reopen: %v", err)
-	}
-
-	idsA := a.ActiveKeyIDs()
-	idsB := b.ActiveKeyIDs()
-	if len(idsA) == 0 || len(idsB) == 0 || idsA[0] != idsB[0] {
-		t.Errorf("active key id changed across reopen: A=%v B=%v", idsA, idsB)
-	}
-}
-
-// TestVerifyRejectsForeignAudience confirms the package-level audience-binding
-// fix (finding #6): a token minted for node A is rejected by node B even when
-// B trusts A's signing key.
-func TestVerifyRejectsForeignAudience(t *testing.T) {
-	seedA := make([]byte, ed25519.SeedSize)
-	seedB := make([]byte, ed25519.SeedSize)
-	for i := range seedA {
-		seedA[i] = 0xAA
-		seedB[i] = 0xBB
-	}
-
-	sA, pubA := mustNewFileSignerWithSeedAndNode(t, seedA, "node-A")
-	sB, _ := mustNewFileSignerWithSeedAndNode(t, seedB, "node-B")
-	kidA := computeKeyID(pubA)
-
-	in := validClaims()
-	in.MediaNodeID = "node-A"
-	tok, err := sA.MintToken(in)
-	if err != nil {
-		t.Fatalf("sA.MintToken: %v", err)
-	}
-
-	if err := sB.TrustAdditionalKey(kidA, pubA); err != nil {
-		t.Fatalf("TrustAdditionalKey: %v", err)
-	}
-	// Signature verifies (A's key is trusted), but audience binds to node-A
-	// and B should reject regardless.
-	_, err = sB.VerifyToken(tok)
-	if err == nil {
-		t.Fatal("sB accepted token minted for node-A")
-	}
-	if !strings.Contains(err.Error(), "audience") {
-		t.Errorf("expected audience rejection, got: %v", err)
-	}
-}
-
-// TestMintRejectsForeignAudience covers the symmetric mint-side guard: callers
-// can't accidentally hand the signer a token for someone else's audience.
-func TestMintRejectsForeignAudience(t *testing.T) {
-	s := mustNewFileSigner(t)
-	in := validClaims()
-	in.MediaNodeID = "some-other-node"
-	if _, err := s.MintToken(in); err == nil {
-		t.Error("MintToken accepted claim for foreign media_node_id")
-	}
-}
-
-// TestVerifyRejectsFooterSwap covers finding #18: an attacker who controls the
-// raw token bytes can't swap the key-id footer to point at a different trusted
-// key, because PASETO authenticates the footer in the signature.
-func TestVerifyRejectsFooterSwap(t *testing.T) {
-	seedA := make([]byte, ed25519.SeedSize)
-	seedB := make([]byte, ed25519.SeedSize)
-	for i := range seedA {
-		seedA[i] = 0xCC
-		seedB[i] = 0xDD
-	}
-
-	sA, pubA := mustNewFileSignerWithSeed(t, seedA)
-	sB, pubB := mustNewFileSignerWithSeed(t, seedB)
-	kidA := computeKeyID(pubA)
-	kidB := computeKeyID(pubB)
-
-	// sB trusts A as additional, so it has both kids in its set.
-	if err := sB.TrustAdditionalKey(kidA, pubA); err != nil {
-		t.Fatalf("TrustAdditionalKey: %v", err)
-	}
-
-	tok, err := sA.MintToken(validClaims())
-	if err != nil {
-		t.Fatalf("sA.MintToken: %v", err)
-	}
-
-	parts := strings.Split(tok, ".")
-	if len(parts) != 4 {
-		t.Fatalf("expected v4.public.<payload>.<footer> shape, got %d parts", len(parts))
-	}
-	// Swap A's footer for B's key id, base64url-unpadded encoded the same
-	// way the original was (raw hex bytes round-trip cleanly through PASETO's
-	// b64 footer).
-	swapped := encodeFooterToB64(kidB)
-	parts[3] = swapped
-	tampered := strings.Join(parts, ".")
-
-	if _, err := sB.VerifyToken(tampered); err == nil {
-		t.Error("VerifyToken accepted token with swapped footer")
-	}
-}
-
-// encodeFooterToB64 produces the base64url-unpadded form PASETO uses for the
-// footer segment. The PASETO footer is the raw bytes of the key id string.
-func encodeFooterToB64(footer string) string {
-	return base64.RawURLEncoding.EncodeToString([]byte(footer))
-}
-
-// TestTrustAdditionalKeyIdempotent covers finding #19: calling TrustAdditionalKey
-// twice with the same key id is a no-op on the active set.
-func TestTrustAdditionalKeyIdempotent(t *testing.T) {
-	seed := make([]byte, ed25519.SeedSize)
-	for i := range seed {
-		seed[i] = 0xEE
-	}
-	_, pub := mustNewFileSignerWithSeed(t, seed)
-	kid := computeKeyID(pub)
-
-	s := mustNewFileSigner(t)
-	before := len(s.ActiveKeyIDs())
-	if err := s.TrustAdditionalKey(kid, pub); err != nil {
-		t.Fatalf("TrustAdditionalKey first: %v", err)
-	}
-	afterFirst := len(s.ActiveKeyIDs())
-	if afterFirst != before+1 {
-		t.Fatalf("first trust didn't add: got %d want %d", afterFirst, before+1)
-	}
-	if err := s.TrustAdditionalKey(kid, pub); err != nil {
-		t.Fatalf("TrustAdditionalKey second: %v", err)
-	}
-	if got := len(s.ActiveKeyIDs()); got != afterFirst {
-		t.Errorf("ActiveKeyIDs grew on duplicate trust: got %d want %d", got, afterFirst)
-	}
-}
-
-// TestTrustAdditionalKeyRejectsEmptyKeyID covers the explicit empty-id guard.
-func TestTrustAdditionalKeyRejectsEmptyKeyID(t *testing.T) {
-	s := mustNewFileSigner(t)
-	seed := make([]byte, ed25519.SeedSize)
-	for i := range seed {
-		seed[i] = 0xFF
-	}
-	pub := ed25519.NewKeyFromSeed(seed).Public().(ed25519.PublicKey)
-	if err := s.TrustAdditionalKey("", pub); err == nil {
-		t.Error("TrustAdditionalKey accepted empty key id")
-	}
-}
-
-// TestVerifyRejectsExpiredToken covers finding #20: tokens whose exp is in the
-// past are rejected at verify time even if the signature is valid.
-func TestVerifyRejectsExpiredToken(t *testing.T) {
-	s := mustNewFileSigner(t)
-	in := validClaims()
-	now := time.Now().Truncate(time.Second)
-	// IssuedAt 180s ago, ExpiresAt 90s ago. TTL = 90s, within [60s, 120s]
-	// so MintToken accepts. VerifyToken should still reject for being expired.
-	in.IssuedAt = now.Add(-180 * time.Second)
-	in.ExpiresAt = now.Add(-90 * time.Second)
-
-	tok, err := s.MintToken(in)
-	if err != nil {
-		t.Fatalf("MintToken: %v", err)
-	}
-	_, err = s.VerifyToken(tok)
-	if err == nil {
-		t.Fatal("VerifyToken accepted expired token")
-	}
-	if !strings.Contains(err.Error(), "expired") {
-		t.Errorf("expected 'expired' in error, got: %v", err)
-	}
-}

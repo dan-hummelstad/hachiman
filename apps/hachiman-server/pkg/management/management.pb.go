@@ -1,4 +1,4 @@
-// Copyright (c) 2026 The Grumble Authors
+// Copyright (c) 2026 The Hachiman Authors
 // The use of this source code is goverened by a BSD-style
 // license that can be found in the LICENSE-file.
 
@@ -25,276 +25,13 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-type CreateVirtualServerRequest struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// Oracle users.id (UUID string) of the user who created this managed
-	// vServer. When set, this user — on authenticating against the vServer
-	// with an Oracle OIDC access token that introspects to the same `sub`
-	// (see cmd/grumble/oracle_introspect.go) — is granted SuperUser-equivalent
-	// privileges on this vServer (Client.user.Id is mapped to 0; the existing
-	// acl.HasPermission SuperUser short-circuit then applies).
-	//
-	// Empty (the default) = no Oracle-user-mapped admin; self-host behaviour
-	// is unchanged and the only path to SuperUser is the local "SuperUser"
-	// password account.
-	//
-	// Defense in depth: the grant is gated on a SUCCESSFUL introspection of
-	// the client's token. A client sending a fake oracle_token claiming a
-	// matching `sub` will fail introspection and never reach the grant.
-	//
-	// Stored on the vServer side in the per-server config KV table under key
-	// "AdminOracleUserID", so a future SetConfig RPC can update it without
-	// a schema migration. See serverconf.DefaultCfg.
-	AdminOracleUserId string `protobuf:"bytes,1,opt,name=admin_oracle_user_id,json=adminOracleUserId,proto3" json:"admin_oracle_user_id,omitempty"`
-	// RFC 7662 introspection endpoint of the Oracle / Takusen authorisation
-	// server (e.g. "https://oracle.example/api/oidc/token/introspection").
-	// When non-empty (typically alongside oracle_client_id + oracle_client_secret),
-	// Grumble stamps it onto the new vServer's `OracleIntrospectionURL` config
-	// and uses it to introspect Authenticate.oracle_token values. Empty leaves
-	// OracleIntrospectionURL at its DefaultCfg default (empty = introspection
-	// disabled). See pkg/serverconf/config.go.
-	OracleIntrospectionUrl string `protobuf:"bytes,2,opt,name=oracle_introspection_url,json=oracleIntrospectionUrl,proto3" json:"oracle_introspection_url,omitempty"`
-	// OIDC client_id Grumble presents on the introspection call (RFC 7662
-	// §2.1 client_secret_basic). This is THIS vServer's per-server OIDC
-	// client — the same one that user access tokens are minted bound to
-	// (lib/server-tokens.ts on the Oracle side). Using the same client for
-	// both introspection-auth and audience-binding means oracle_introspect.go's
-	// `result.ClientID != cfg.ClientID` audience check naturally passes.
-	// Stored as the per-vServer `OracleClientID` config key.
-	OracleClientId string `protobuf:"bytes,3,opt,name=oracle_client_id,json=oracleClientId,proto3" json:"oracle_client_id,omitempty"`
-	// OIDC client_secret paired with oracle_client_id. Sent over the
-	// (loopback-only) management gRPC channel and stored as the per-vServer
-	// `OracleClientSecret` config key. NEVER log or echo this value.
-	OracleClientSecret string `protobuf:"bytes,4,opt,name=oracle_client_secret,json=oracleClientSecret,proto3" json:"oracle_client_secret,omitempty"`
-	unknownFields      protoimpl.UnknownFields
-	sizeCache          protoimpl.SizeCache
-}
-
-func (x *CreateVirtualServerRequest) Reset() {
-	*x = CreateVirtualServerRequest{}
-	mi := &file_management_proto_msgTypes[0]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *CreateVirtualServerRequest) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*CreateVirtualServerRequest) ProtoMessage() {}
-
-func (x *CreateVirtualServerRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_management_proto_msgTypes[0]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use CreateVirtualServerRequest.ProtoReflect.Descriptor instead.
-func (*CreateVirtualServerRequest) Descriptor() ([]byte, []int) {
-	return file_management_proto_rawDescGZIP(), []int{0}
-}
-
-func (x *CreateVirtualServerRequest) GetAdminOracleUserId() string {
-	if x != nil {
-		return x.AdminOracleUserId
-	}
-	return ""
-}
-
-func (x *CreateVirtualServerRequest) GetOracleIntrospectionUrl() string {
-	if x != nil {
-		return x.OracleIntrospectionUrl
-	}
-	return ""
-}
-
-func (x *CreateVirtualServerRequest) GetOracleClientId() string {
-	if x != nil {
-		return x.OracleClientId
-	}
-	return ""
-}
-
-func (x *CreateVirtualServerRequest) GetOracleClientSecret() string {
-	if x != nil {
-		return x.OracleClientSecret
-	}
-	return ""
-}
-
-type CreateVirtualServerResponse struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// The numeric id allocated by the database — corresponds to Server.Id /
-	// database.Server.ServerID. Stable across restarts of this process.
-	ServerId int64 `protobuf:"varint,1,opt,name=server_id,json=serverId,proto3" json:"server_id,omitempty"`
-	// The TCP/UDP port the freshly-booted vServer is listening on. Returned
-	// because Grumble auto-derives the port from the vServer id (default
-	// 64738 + id - 1) unless an explicit `Port` config key is set — Oracle
-	// needs to know which port to advertise to clients without having to
-	// hard-code that derivation. Always non-zero on a successful response.
-	Port int32 `protobuf:"varint,2,opt,name=port,proto3" json:"port,omitempty"`
-	// The WebSocket port the vServer is listening on, or 0 when WebSocket
-	// listening is disabled for this vServer. Same rationale as `port`:
-	// derived from `WebPort` config + id, so Oracle should not guess.
-	WebPort       int32 `protobuf:"varint,3,opt,name=web_port,json=webPort,proto3" json:"web_port,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *CreateVirtualServerResponse) Reset() {
-	*x = CreateVirtualServerResponse{}
-	mi := &file_management_proto_msgTypes[1]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *CreateVirtualServerResponse) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*CreateVirtualServerResponse) ProtoMessage() {}
-
-func (x *CreateVirtualServerResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_management_proto_msgTypes[1]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use CreateVirtualServerResponse.ProtoReflect.Descriptor instead.
-func (*CreateVirtualServerResponse) Descriptor() ([]byte, []int) {
-	return file_management_proto_rawDescGZIP(), []int{1}
-}
-
-func (x *CreateVirtualServerResponse) GetServerId() int64 {
-	if x != nil {
-		return x.ServerId
-	}
-	return 0
-}
-
-func (x *CreateVirtualServerResponse) GetPort() int32 {
-	if x != nil {
-		return x.Port
-	}
-	return 0
-}
-
-func (x *CreateVirtualServerResponse) GetWebPort() int32 {
-	if x != nil {
-		return x.WebPort
-	}
-	return 0
-}
-
-type DeleteVirtualServerRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	ServerId      int64                  `protobuf:"varint,1,opt,name=server_id,json=serverId,proto3" json:"server_id,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *DeleteVirtualServerRequest) Reset() {
-	*x = DeleteVirtualServerRequest{}
-	mi := &file_management_proto_msgTypes[2]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *DeleteVirtualServerRequest) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*DeleteVirtualServerRequest) ProtoMessage() {}
-
-func (x *DeleteVirtualServerRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_management_proto_msgTypes[2]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use DeleteVirtualServerRequest.ProtoReflect.Descriptor instead.
-func (*DeleteVirtualServerRequest) Descriptor() ([]byte, []int) {
-	return file_management_proto_rawDescGZIP(), []int{2}
-}
-
-func (x *DeleteVirtualServerRequest) GetServerId() int64 {
-	if x != nil {
-		return x.ServerId
-	}
-	return 0
-}
-
-type DeleteVirtualServerResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *DeleteVirtualServerResponse) Reset() {
-	*x = DeleteVirtualServerResponse{}
-	mi := &file_management_proto_msgTypes[3]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *DeleteVirtualServerResponse) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*DeleteVirtualServerResponse) ProtoMessage() {}
-
-func (x *DeleteVirtualServerResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_management_proto_msgTypes[3]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use DeleteVirtualServerResponse.ProtoReflect.Descriptor instead.
-func (*DeleteVirtualServerResponse) Descriptor() ([]byte, []int) {
-	return file_management_proto_rawDescGZIP(), []int{3}
-}
-
 type RegisterMediaNodeRequest struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// Node-generated UUID, stable for the node's lifetime.
-	NodeId string `protobuf:"bytes,1,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
-	// Region tag, e.g. "us-east", "eu-west". Set via the media node's -region
-	// flag.
-	Region string `protobuf:"bytes,2,opt,name=region,proto3" json:"region,omitempty"`
-	// Inbound sidechannel address (`host:port`) for the control↔media gRPC
-	// stream. Oracle stores this so control can dial the node when placement
-	// returns it.
-	SidechannelAddr string `protobuf:"bytes,3,opt,name=sidechannel_addr,json=sidechannelAddr,proto3" json:"sidechannel_addr,omitempty"`
-	// Static capacity declaration: max concurrent sessions this node will
-	// serve. Placement weights by `1 - active_sessions/max_sessions`.
-	MaxSessions uint32 `protobuf:"varint,4,opt,name=max_sessions,json=maxSessions,proto3" json:"max_sessions,omitempty"`
-	// Build version for ops visibility. Surfaced in the island-metrics
-	// pump alongside the existing hachiman-control / hachiman-oracle
-	// entries.
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	NodeId string                 `protobuf:"bytes,1,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
+	Region string                 `protobuf:"bytes,2,opt,name=region,proto3" json:"region,omitempty"`
+	// Public voice WS URL clients dial, e.g. wss://media-1.example.com/voice.
+	SignalingUrl  string `protobuf:"bytes,3,opt,name=signaling_url,json=signalingUrl,proto3" json:"signaling_url,omitempty"`
+	MaxSessions   uint32 `protobuf:"varint,4,opt,name=max_sessions,json=maxSessions,proto3" json:"max_sessions,omitempty"`
 	Version       string `protobuf:"bytes,5,opt,name=version,proto3" json:"version,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -302,7 +39,7 @@ type RegisterMediaNodeRequest struct {
 
 func (x *RegisterMediaNodeRequest) Reset() {
 	*x = RegisterMediaNodeRequest{}
-	mi := &file_management_proto_msgTypes[4]
+	mi := &file_management_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -314,7 +51,7 @@ func (x *RegisterMediaNodeRequest) String() string {
 func (*RegisterMediaNodeRequest) ProtoMessage() {}
 
 func (x *RegisterMediaNodeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_management_proto_msgTypes[4]
+	mi := &file_management_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -327,7 +64,7 @@ func (x *RegisterMediaNodeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RegisterMediaNodeRequest.ProtoReflect.Descriptor instead.
 func (*RegisterMediaNodeRequest) Descriptor() ([]byte, []int) {
-	return file_management_proto_rawDescGZIP(), []int{4}
+	return file_management_proto_rawDescGZIP(), []int{0}
 }
 
 func (x *RegisterMediaNodeRequest) GetNodeId() string {
@@ -344,9 +81,9 @@ func (x *RegisterMediaNodeRequest) GetRegion() string {
 	return ""
 }
 
-func (x *RegisterMediaNodeRequest) GetSidechannelAddr() string {
+func (x *RegisterMediaNodeRequest) GetSignalingUrl() string {
 	if x != nil {
-		return x.SidechannelAddr
+		return x.SignalingUrl
 	}
 	return ""
 }
@@ -373,7 +110,7 @@ type RegisterMediaNodeResponse struct {
 
 func (x *RegisterMediaNodeResponse) Reset() {
 	*x = RegisterMediaNodeResponse{}
-	mi := &file_management_proto_msgTypes[5]
+	mi := &file_management_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -385,7 +122,7 @@ func (x *RegisterMediaNodeResponse) String() string {
 func (*RegisterMediaNodeResponse) ProtoMessage() {}
 
 func (x *RegisterMediaNodeResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_management_proto_msgTypes[5]
+	mi := &file_management_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -398,26 +135,22 @@ func (x *RegisterMediaNodeResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RegisterMediaNodeResponse.ProtoReflect.Descriptor instead.
 func (*RegisterMediaNodeResponse) Descriptor() ([]byte, []int) {
-	return file_management_proto_rawDescGZIP(), []int{5}
+	return file_management_proto_rawDescGZIP(), []int{1}
 }
 
 type MediaNodeHeartbeatRequest struct {
-	state  protoimpl.MessageState `protogen:"open.v1"`
-	NodeId string                 `protobuf:"bytes,1,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
-	// Live counters at the moment of emission.
-	ActiveSessions uint32 `protobuf:"varint,2,opt,name=active_sessions,json=activeSessions,proto3" json:"active_sessions,omitempty"`
-	// 0..1 fraction. Placement avoids nodes above 0.7 (matching the load-test
-	// gate in MEDIA-PLANE-MIGRATION.md phase 6).
-	CpuFraction float32 `protobuf:"fixed32,3,opt,name=cpu_fraction,json=cpuFraction,proto3" json:"cpu_fraction,omitempty"`
-	// True = accepting new sessions, false = drain mode (placement excludes).
-	Accepting     bool `protobuf:"varint,4,opt,name=accepting,proto3" json:"accepting,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	NodeId         string                 `protobuf:"bytes,1,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
+	ActiveSessions uint32                 `protobuf:"varint,2,opt,name=active_sessions,json=activeSessions,proto3" json:"active_sessions,omitempty"`
+	CpuFraction    float32                `protobuf:"fixed32,3,opt,name=cpu_fraction,json=cpuFraction,proto3" json:"cpu_fraction,omitempty"`
+	Accepting      bool                   `protobuf:"varint,4,opt,name=accepting,proto3" json:"accepting,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *MediaNodeHeartbeatRequest) Reset() {
 	*x = MediaNodeHeartbeatRequest{}
-	mi := &file_management_proto_msgTypes[6]
+	mi := &file_management_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -429,7 +162,7 @@ func (x *MediaNodeHeartbeatRequest) String() string {
 func (*MediaNodeHeartbeatRequest) ProtoMessage() {}
 
 func (x *MediaNodeHeartbeatRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_management_proto_msgTypes[6]
+	mi := &file_management_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -442,7 +175,7 @@ func (x *MediaNodeHeartbeatRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MediaNodeHeartbeatRequest.ProtoReflect.Descriptor instead.
 func (*MediaNodeHeartbeatRequest) Descriptor() ([]byte, []int) {
-	return file_management_proto_rawDescGZIP(), []int{6}
+	return file_management_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *MediaNodeHeartbeatRequest) GetNodeId() string {
@@ -481,7 +214,7 @@ type MediaNodeHeartbeatResponse struct {
 
 func (x *MediaNodeHeartbeatResponse) Reset() {
 	*x = MediaNodeHeartbeatResponse{}
-	mi := &file_management_proto_msgTypes[7]
+	mi := &file_management_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -493,7 +226,7 @@ func (x *MediaNodeHeartbeatResponse) String() string {
 func (*MediaNodeHeartbeatResponse) ProtoMessage() {}
 
 func (x *MediaNodeHeartbeatResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_management_proto_msgTypes[7]
+	mi := &file_management_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -506,29 +239,21 @@ func (x *MediaNodeHeartbeatResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MediaNodeHeartbeatResponse.ProtoReflect.Descriptor instead.
 func (*MediaNodeHeartbeatResponse) Descriptor() ([]byte, []int) {
-	return file_management_proto_rawDescGZIP(), []int{7}
+	return file_management_proto_rawDescGZIP(), []int{3}
 }
 
 type PlaceMediaSessionRequest struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// Control's channel id — drives the home_region / quality_profile_id
-	// inheritance Oracle reads from the `media_nodes` registry alongside the
-	// control DB.
-	ChannelId uint64 `protobuf:"varint,1,opt,name=channel_id,json=channelId,proto3" json:"channel_id,omitempty"`
-	// Region hint from the requesting client (geo-IP / latency probe). Oracle
-	// weights this when the channel has no explicit `home_region`.
-	HomeRegion string `protobuf:"bytes,2,opt,name=home_region,json=homeRegion,proto3" json:"home_region,omitempty"`
-	// Tenant id — Oracle's placement scorer refuses to assign a room from
-	// tenant B to a node already serving tenant A (single-tenant-per-node
-	// rule).
-	TenantId      string `protobuf:"bytes,3,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ChannelId     string                 `protobuf:"bytes,1,opt,name=channel_id,json=channelId,proto3" json:"channel_id,omitempty"`
+	HomeRegion    string                 `protobuf:"bytes,2,opt,name=home_region,json=homeRegion,proto3" json:"home_region,omitempty"`
+	GuildId       string                 `protobuf:"bytes,3,opt,name=guild_id,json=guildId,proto3" json:"guild_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *PlaceMediaSessionRequest) Reset() {
 	*x = PlaceMediaSessionRequest{}
-	mi := &file_management_proto_msgTypes[8]
+	mi := &file_management_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -540,7 +265,7 @@ func (x *PlaceMediaSessionRequest) String() string {
 func (*PlaceMediaSessionRequest) ProtoMessage() {}
 
 func (x *PlaceMediaSessionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_management_proto_msgTypes[8]
+	mi := &file_management_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -553,14 +278,14 @@ func (x *PlaceMediaSessionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PlaceMediaSessionRequest.ProtoReflect.Descriptor instead.
 func (*PlaceMediaSessionRequest) Descriptor() ([]byte, []int) {
-	return file_management_proto_rawDescGZIP(), []int{8}
+	return file_management_proto_rawDescGZIP(), []int{4}
 }
 
-func (x *PlaceMediaSessionRequest) GetChannelId() uint64 {
+func (x *PlaceMediaSessionRequest) GetChannelId() string {
 	if x != nil {
 		return x.ChannelId
 	}
-	return 0
+	return ""
 }
 
 func (x *PlaceMediaSessionRequest) GetHomeRegion() string {
@@ -570,31 +295,24 @@ func (x *PlaceMediaSessionRequest) GetHomeRegion() string {
 	return ""
 }
 
-func (x *PlaceMediaSessionRequest) GetTenantId() string {
+func (x *PlaceMediaSessionRequest) GetGuildId() string {
 	if x != nil {
-		return x.TenantId
+		return x.GuildId
 	}
 	return ""
 }
 
 type PlaceMediaSessionResponse struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// Selected media node id.
-	NodeId string `protobuf:"bytes,1,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
-	// `host:port` for the WebRTC client to connect to (matches
-	// VoiceTokenGrant.media_node_addr on the Mumble control side).
-	Addr string `protobuf:"bytes,2,opt,name=addr,proto3" json:"addr,omitempty"`
-	// SSRC Oracle allocated for this session. Control embeds it in the signed
-	// voice token; media validates the token's `assigned_ssrc` claim against
-	// the SSRC the client actually publishes.
-	AssignedSsrc  uint32 `protobuf:"varint,3,opt,name=assigned_ssrc,json=assignedSsrc,proto3" json:"assigned_ssrc,omitempty"`
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	NodeId        string                 `protobuf:"bytes,1,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
+	SignalingUrl  string                 `protobuf:"bytes,2,opt,name=signaling_url,json=signalingUrl,proto3" json:"signaling_url,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *PlaceMediaSessionResponse) Reset() {
 	*x = PlaceMediaSessionResponse{}
-	mi := &file_management_proto_msgTypes[9]
+	mi := &file_management_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -606,7 +324,7 @@ func (x *PlaceMediaSessionResponse) String() string {
 func (*PlaceMediaSessionResponse) ProtoMessage() {}
 
 func (x *PlaceMediaSessionResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_management_proto_msgTypes[9]
+	mi := &file_management_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -619,7 +337,7 @@ func (x *PlaceMediaSessionResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PlaceMediaSessionResponse.ProtoReflect.Descriptor instead.
 func (*PlaceMediaSessionResponse) Descriptor() ([]byte, []int) {
-	return file_management_proto_rawDescGZIP(), []int{9}
+	return file_management_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *PlaceMediaSessionResponse) GetNodeId() string {
@@ -629,41 +347,22 @@ func (x *PlaceMediaSessionResponse) GetNodeId() string {
 	return ""
 }
 
-func (x *PlaceMediaSessionResponse) GetAddr() string {
+func (x *PlaceMediaSessionResponse) GetSignalingUrl() string {
 	if x != nil {
-		return x.Addr
+		return x.SignalingUrl
 	}
 	return ""
-}
-
-func (x *PlaceMediaSessionResponse) GetAssignedSsrc() uint32 {
-	if x != nil {
-		return x.AssignedSsrc
-	}
-	return 0
 }
 
 var File_management_proto protoreflect.FileDescriptor
 
 const file_management_proto_rawDesc = "" +
 	"\n" +
-	"\x10management.proto\x12\x15grumble.management.v1\"\xe9\x01\n" +
-	"\x1aCreateVirtualServerRequest\x12/\n" +
-	"\x14admin_oracle_user_id\x18\x01 \x01(\tR\x11adminOracleUserId\x128\n" +
-	"\x18oracle_introspection_url\x18\x02 \x01(\tR\x16oracleIntrospectionUrl\x12(\n" +
-	"\x10oracle_client_id\x18\x03 \x01(\tR\x0eoracleClientId\x120\n" +
-	"\x14oracle_client_secret\x18\x04 \x01(\tR\x12oracleClientSecretJ\x04\b\x05\x10\x11\"i\n" +
-	"\x1bCreateVirtualServerResponse\x12\x1b\n" +
-	"\tserver_id\x18\x01 \x01(\x03R\bserverId\x12\x12\n" +
-	"\x04port\x18\x02 \x01(\x05R\x04port\x12\x19\n" +
-	"\bweb_port\x18\x03 \x01(\x05R\awebPort\"9\n" +
-	"\x1aDeleteVirtualServerRequest\x12\x1b\n" +
-	"\tserver_id\x18\x01 \x01(\x03R\bserverId\"\x1d\n" +
-	"\x1bDeleteVirtualServerResponse\"\xb3\x01\n" +
+	"\x10management.proto\x12\x16hachiman.management.v1\"\xad\x01\n" +
 	"\x18RegisterMediaNodeRequest\x12\x17\n" +
 	"\anode_id\x18\x01 \x01(\tR\x06nodeId\x12\x16\n" +
-	"\x06region\x18\x02 \x01(\tR\x06region\x12)\n" +
-	"\x10sidechannel_addr\x18\x03 \x01(\tR\x0fsidechannelAddr\x12!\n" +
+	"\x06region\x18\x02 \x01(\tR\x06region\x12#\n" +
+	"\rsignaling_url\x18\x03 \x01(\tR\fsignalingUrl\x12!\n" +
 	"\fmax_sessions\x18\x04 \x01(\rR\vmaxSessions\x12\x18\n" +
 	"\aversion\x18\x05 \x01(\tR\aversion\"\x1b\n" +
 	"\x19RegisterMediaNodeResponse\"\x9e\x01\n" +
@@ -672,23 +371,21 @@ const file_management_proto_rawDesc = "" +
 	"\x0factive_sessions\x18\x02 \x01(\rR\x0eactiveSessions\x12!\n" +
 	"\fcpu_fraction\x18\x03 \x01(\x02R\vcpuFraction\x12\x1c\n" +
 	"\taccepting\x18\x04 \x01(\bR\taccepting\"\x1c\n" +
-	"\x1aMediaNodeHeartbeatResponse\"w\n" +
+	"\x1aMediaNodeHeartbeatResponse\"u\n" +
 	"\x18PlaceMediaSessionRequest\x12\x1d\n" +
 	"\n" +
-	"channel_id\x18\x01 \x01(\x04R\tchannelId\x12\x1f\n" +
+	"channel_id\x18\x01 \x01(\tR\tchannelId\x12\x1f\n" +
 	"\vhome_region\x18\x02 \x01(\tR\n" +
-	"homeRegion\x12\x1b\n" +
-	"\ttenant_id\x18\x03 \x01(\tR\btenantId\"m\n" +
+	"homeRegion\x12\x19\n" +
+	"\bguild_id\x18\x03 \x01(\tR\aguildId\"Y\n" +
 	"\x19PlaceMediaSessionResponse\x12\x17\n" +
-	"\anode_id\x18\x01 \x01(\tR\x06nodeId\x12\x12\n" +
-	"\x04addr\x18\x02 \x01(\tR\x04addr\x12#\n" +
-	"\rassigned_ssrc\x18\x03 \x01(\rR\fassignedSsrc2\xfa\x04\n" +
-	"\x11GrumbleManagement\x12|\n" +
-	"\x13CreateVirtualServer\x121.grumble.management.v1.CreateVirtualServerRequest\x1a2.grumble.management.v1.CreateVirtualServerResponse\x12|\n" +
-	"\x13DeleteVirtualServer\x121.grumble.management.v1.DeleteVirtualServerRequest\x1a2.grumble.management.v1.DeleteVirtualServerResponse\x12v\n" +
-	"\x11RegisterMediaNode\x12/.grumble.management.v1.RegisterMediaNodeRequest\x1a0.grumble.management.v1.RegisterMediaNodeResponse\x12y\n" +
-	"\x12MediaNodeHeartbeat\x120.grumble.management.v1.MediaNodeHeartbeatRequest\x1a1.grumble.management.v1.MediaNodeHeartbeatResponse\x12v\n" +
-	"\x11PlaceMediaSession\x12/.grumble.management.v1.PlaceMediaSessionRequest\x1a0.grumble.management.v1.PlaceMediaSessionResponseB/Z-mumble.info/grumble/pkg/management;managementb\x06proto3"
+	"\anode_id\x18\x01 \x01(\tR\x06nodeId\x12#\n" +
+	"\rsignaling_url\x18\x02 \x01(\tR\fsignalingUrl2\xfd\x02\n" +
+	"\n" +
+	"Management\x12x\n" +
+	"\x11RegisterMediaNode\x120.hachiman.management.v1.RegisterMediaNodeRequest\x1a1.hachiman.management.v1.RegisterMediaNodeResponse\x12{\n" +
+	"\x12MediaNodeHeartbeat\x121.hachiman.management.v1.MediaNodeHeartbeatRequest\x1a2.hachiman.management.v1.MediaNodeHeartbeatResponse\x12x\n" +
+	"\x11PlaceMediaSession\x120.hachiman.management.v1.PlaceMediaSessionRequest\x1a1.hachiman.management.v1.PlaceMediaSessionResponseB+Z)hachiman/server/pkg/management;managementb\x06proto3"
 
 var (
 	file_management_proto_rawDescOnce sync.Once
@@ -702,32 +399,24 @@ func file_management_proto_rawDescGZIP() []byte {
 	return file_management_proto_rawDescData
 }
 
-var file_management_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
+var file_management_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
 var file_management_proto_goTypes = []any{
-	(*CreateVirtualServerRequest)(nil),  // 0: grumble.management.v1.CreateVirtualServerRequest
-	(*CreateVirtualServerResponse)(nil), // 1: grumble.management.v1.CreateVirtualServerResponse
-	(*DeleteVirtualServerRequest)(nil),  // 2: grumble.management.v1.DeleteVirtualServerRequest
-	(*DeleteVirtualServerResponse)(nil), // 3: grumble.management.v1.DeleteVirtualServerResponse
-	(*RegisterMediaNodeRequest)(nil),    // 4: grumble.management.v1.RegisterMediaNodeRequest
-	(*RegisterMediaNodeResponse)(nil),   // 5: grumble.management.v1.RegisterMediaNodeResponse
-	(*MediaNodeHeartbeatRequest)(nil),   // 6: grumble.management.v1.MediaNodeHeartbeatRequest
-	(*MediaNodeHeartbeatResponse)(nil),  // 7: grumble.management.v1.MediaNodeHeartbeatResponse
-	(*PlaceMediaSessionRequest)(nil),    // 8: grumble.management.v1.PlaceMediaSessionRequest
-	(*PlaceMediaSessionResponse)(nil),   // 9: grumble.management.v1.PlaceMediaSessionResponse
+	(*RegisterMediaNodeRequest)(nil),   // 0: hachiman.management.v1.RegisterMediaNodeRequest
+	(*RegisterMediaNodeResponse)(nil),  // 1: hachiman.management.v1.RegisterMediaNodeResponse
+	(*MediaNodeHeartbeatRequest)(nil),  // 2: hachiman.management.v1.MediaNodeHeartbeatRequest
+	(*MediaNodeHeartbeatResponse)(nil), // 3: hachiman.management.v1.MediaNodeHeartbeatResponse
+	(*PlaceMediaSessionRequest)(nil),   // 4: hachiman.management.v1.PlaceMediaSessionRequest
+	(*PlaceMediaSessionResponse)(nil),  // 5: hachiman.management.v1.PlaceMediaSessionResponse
 }
 var file_management_proto_depIdxs = []int32{
-	0, // 0: grumble.management.v1.GrumbleManagement.CreateVirtualServer:input_type -> grumble.management.v1.CreateVirtualServerRequest
-	2, // 1: grumble.management.v1.GrumbleManagement.DeleteVirtualServer:input_type -> grumble.management.v1.DeleteVirtualServerRequest
-	4, // 2: grumble.management.v1.GrumbleManagement.RegisterMediaNode:input_type -> grumble.management.v1.RegisterMediaNodeRequest
-	6, // 3: grumble.management.v1.GrumbleManagement.MediaNodeHeartbeat:input_type -> grumble.management.v1.MediaNodeHeartbeatRequest
-	8, // 4: grumble.management.v1.GrumbleManagement.PlaceMediaSession:input_type -> grumble.management.v1.PlaceMediaSessionRequest
-	1, // 5: grumble.management.v1.GrumbleManagement.CreateVirtualServer:output_type -> grumble.management.v1.CreateVirtualServerResponse
-	3, // 6: grumble.management.v1.GrumbleManagement.DeleteVirtualServer:output_type -> grumble.management.v1.DeleteVirtualServerResponse
-	5, // 7: grumble.management.v1.GrumbleManagement.RegisterMediaNode:output_type -> grumble.management.v1.RegisterMediaNodeResponse
-	7, // 8: grumble.management.v1.GrumbleManagement.MediaNodeHeartbeat:output_type -> grumble.management.v1.MediaNodeHeartbeatResponse
-	9, // 9: grumble.management.v1.GrumbleManagement.PlaceMediaSession:output_type -> grumble.management.v1.PlaceMediaSessionResponse
-	5, // [5:10] is the sub-list for method output_type
-	0, // [0:5] is the sub-list for method input_type
+	0, // 0: hachiman.management.v1.Management.RegisterMediaNode:input_type -> hachiman.management.v1.RegisterMediaNodeRequest
+	2, // 1: hachiman.management.v1.Management.MediaNodeHeartbeat:input_type -> hachiman.management.v1.MediaNodeHeartbeatRequest
+	4, // 2: hachiman.management.v1.Management.PlaceMediaSession:input_type -> hachiman.management.v1.PlaceMediaSessionRequest
+	1, // 3: hachiman.management.v1.Management.RegisterMediaNode:output_type -> hachiman.management.v1.RegisterMediaNodeResponse
+	3, // 4: hachiman.management.v1.Management.MediaNodeHeartbeat:output_type -> hachiman.management.v1.MediaNodeHeartbeatResponse
+	5, // 5: hachiman.management.v1.Management.PlaceMediaSession:output_type -> hachiman.management.v1.PlaceMediaSessionResponse
+	3, // [3:6] is the sub-list for method output_type
+	0, // [0:3] is the sub-list for method input_type
 	0, // [0:0] is the sub-list for extension type_name
 	0, // [0:0] is the sub-list for extension extendee
 	0, // [0:0] is the sub-list for field type_name
@@ -744,7 +433,7 @@ func file_management_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_management_proto_rawDesc), len(file_management_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   10,
+			NumMessages:   6,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

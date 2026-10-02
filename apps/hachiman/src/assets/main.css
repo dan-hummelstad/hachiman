@@ -8,112 +8,128 @@
 
 @custom-variant dark (&:is(.dark *));
 
-:root {
-  --background: #ffffff;
-  --foreground: #000000;
+@font-face {
+  font-family: 'IBM Plex Sans';
+  font-style: normal;
+  font-weight: 100 700;
+  font-display: swap;
+  src: url('./fonts/ibm-plex-sans-latin.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'IBM Plex Sans';
+  font-style: italic;
+  font-weight: 100 700;
+  font-display: swap;
+  src: url('./fonts/ibm-plex-sans-italic-latin.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Geist Mono';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('./fonts/geist-mono-latin.woff2') format('woff2');
+}
+
+/* Tokens: docs/ui-redesign.md §2. Square everything; one warm signal accent.
+   `.light` re-scopes the light tokens inside a `.dark` tree (e.g. the theme swatches). */
+:root,
+.light {
+  --rail: #dfe2e7;
+  --sidebar: #e9ecf0;
+  --background: #f6f7f9;
+  --foreground: #1a1d23;
   --card: #ffffff;
-  --card-foreground: #000000;
+  --card-foreground: #1a1d23;
   --popover: #ffffff;
-  --popover-foreground: #00000;
-  --primary: #009966;
-  --primary-foreground: #fafafa;
-  --secondary: #f5f5f5;
-  --secondary-foreground: #000000;
-  --muted: #f5f5f5;
-  --muted-foreground: #717171;
-  --accent: #f5f5f5;
-  --accent-foreground: #000000;
-  --destructive: #e7000b;
-  --destructive-foreground: #f5f5f5;
-  --border: #e5e5e5;
-  --input: #e5e5e5;
-  --ring: #a1a1a1;
-  --chart-1: #737373;
-  --chart-2: #737373;
-  --chart-3: #737373;
-  --chart-4: #737373;
-  --chart-5: #737373;
-  --sidebar: #fafafa;
-  --sidebar-foreground: #0a0a0a;
-  --sidebar-primary: #171717;
-  --sidebar-primary-foreground: #fafafa;
-  --sidebar-accent: #f5f5f5;
-  --sidebar-accent-foreground: #171717;
-  --sidebar-border: #e5e5e5;
-  --sidebar-ring: #a1a1a1;
-  --font-sans: Geist Mono, monospace;
-  --font-serif: Geist Mono, monospace;
-  --font-mono: Geist Mono, monospace;
+  --popover-foreground: #1a1d23;
+  --primary: #c98a0b;
+  --primary-foreground: #1b1404;
+  --secondary: #dde1e7;
+  --secondary-foreground: #1a1d23;
+  --muted: #e9ecf0;
+  --muted-foreground: #5b6270;
+  --accent: #dde1e7;
+  --accent-foreground: #1a1d23;
+  --destructive: #c9303a;
+  --destructive-foreground: #ffffff;
+  --border: #cfd4db;
+  --input: #cfd4db;
+  --ring: #c98a0b;
+  --online: #1f883d;
+  --idle: #9a6700;
+  --dnd: #c9303a;
+  --offline: #8c939e;
+  --mention: #c98a0b14;
+  --shadow-ink: #1a1d2333;
+  --sidebar-foreground: #1a1d23;
+  --sidebar-primary: #c98a0b;
+  --sidebar-primary-foreground: #1b1404;
+  --sidebar-accent: #dde1e7;
+  --sidebar-accent-foreground: #1a1d23;
+  --sidebar-border: #cfd4db;
+  --sidebar-ring: #c98a0b;
+  --chart-1: #c98a0b;
+  --chart-2: #1f883d;
+  --chart-3: #5b6270;
+  --chart-4: #c9303a;
+  --chart-5: #9a6700;
+  --font-sans: 'IBM Plex Sans', ui-sans-serif, system-ui, sans-serif;
+  --font-serif: 'IBM Plex Sans', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'Geist Mono', ui-monospace, 'SF Mono', Menlo, monospace;
   --radius: 0rem;
-  --shadow-x: 1px;
-  --shadow-y: 1px;
-  --shadow-blur: 10px;
-  --shadow-spread: 0px;
-  --shadow-opacity: 0.15;
-  --shadow-color: hsl(0 0% 0%);
-  --shadow-2xs: 1px 1px 10px 0px hsl(0 0% 0% / 0.07);
-  --shadow-xs: 1px 1px 10px 0px hsl(0 0% 0% / 0.07);
-  --shadow-sm: 1px 1px 10px 0px hsl(0 0% 0% / 0.15), 1px 1px 2px -1px hsl(0 0% 0% / 0.15);
-  --shadow: 1px 1px 10px 0px hsl(0 0% 0% / 0.15), 1px 1px 2px -1px hsl(0 0% 0% / 0.15);
-  --shadow-md: 1px 1px 10px 0px hsl(0 0% 0% / 0.15), 1px 2px 4px -1px hsl(0 0% 0% / 0.15);
-  --shadow-lg: 1px 1px 10px 0px hsl(0 0% 0% / 0.15), 1px 4px 6px -1px hsl(0 0% 0% / 0.15);
-  --shadow-xl: 1px 1px 10px 0px hsl(0 0% 0% / 0.15), 1px 8px 10px -1px hsl(0 0% 0% / 0.15);
-  --shadow-2xl: 1px 1px 10px 0px hsl(0 0% 0% / 0.38);
+  --hard-shadow: 4px 4px 0 var(--shadow-ink);
+  --shadow-2xs: none;
+  --shadow-xs: none;
+  --shadow-sm: none;
+  --shadow: none;
+  --shadow-md: var(--hard-shadow);
+  --shadow-lg: var(--hard-shadow);
+  --shadow-xl: var(--hard-shadow);
+  --shadow-2xl: var(--hard-shadow);
   --tracking-normal: 0em;
-  --spacing: 0.2rem;
+  --spacing: 0.25rem;
 }
 
 .dark {
-  --background: #0a0a0a;
-  --foreground: #fafafa;
-  --card: #191919;
-  --card-foreground: #fafafa;
-  --popover: #262626;
-  --popover-foreground: #fafafa;
-  --primary: #004f3b;
-  --primary-foreground: #fafafa;
-  --secondary: #404040;
-  --secondary-foreground: #fafafa;
-  --muted: #262626;
-  --muted-foreground: #a1a1a1;
-  --accent: #404040;
-  --accent-foreground: #fafafa;
-  --destructive: #ff6467;
-  --destructive-foreground: #262626;
-  --border: #383838;
-  --input: #525252;
-  --ring: #737373;
-  --chart-1: #737373;
-  --chart-2: #737373;
-  --chart-3: #737373;
-  --chart-4: #737373;
-  --chart-5: #737373;
-  --sidebar: #171717;
-  --sidebar-foreground: #fafafa;
-  --sidebar-primary: #fafafa;
-  --sidebar-primary-foreground: #171717;
-  --sidebar-accent: #262626;
-  --sidebar-accent-foreground: #fafafa;
-  --sidebar-border: #ffffff;
-  --sidebar-ring: #525252;
-  --font-sans: Geist Mono, monospace;
-  --font-serif: Geist Mono, monospace;
-  --font-mono: Geist Mono, monospace;
-  --radius: 0rem;
-  --shadow-x: 1px;
-  --shadow-y: 1px;
-  --shadow-blur: 10px;
-  --shadow-spread: 0px;
-  --shadow-opacity: 0.15;
-  --shadow-color: hsl(0 0% 0%);
-  --shadow-2xs: 1px 1px 10px 0px hsl(0 0% 0% / 0.07);
-  --shadow-xs: 1px 1px 10px 0px hsl(0 0% 0% / 0.07);
-  --shadow-sm: 1px 1px 10px 0px hsl(0 0% 0% / 0.15), 1px 1px 2px -1px hsl(0 0% 0% / 0.15);
-  --shadow: 1px 1px 10px 0px hsl(0 0% 0% / 0.15), 1px 1px 2px -1px hsl(0 0% 0% / 0.15);
-  --shadow-md: 1px 1px 10px 0px hsl(0 0% 0% / 0.15), 1px 2px 4px -1px hsl(0 0% 0% / 0.15);
-  --shadow-lg: 1px 1px 10px 0px hsl(0 0% 0% / 0.15), 1px 4px 6px -1px hsl(0 0% 0% / 0.15);
-  --shadow-xl: 1px 1px 10px 0px hsl(0 0% 0% / 0.15), 1px 8px 10px -1px hsl(0 0% 0% / 0.15);
-  --shadow-2xl: 1px 1px 10px 0px hsl(0 0% 0% / 0.38);
+  --rail: #16181d;
+  --sidebar: #1c1f25;
+  --background: #22252c;
+  --foreground: #e6e8ec;
+  --card: #2a2e36;
+  --card-foreground: #e6e8ec;
+  --popover: #2a2e36;
+  --popover-foreground: #e6e8ec;
+  --primary: #f0b429;
+  --primary-foreground: #1b1404;
+  --secondary: #2f343d;
+  --secondary-foreground: #e6e8ec;
+  --muted: #2a2e36;
+  --muted-foreground: #99a0ac;
+  --accent: #2f343d;
+  --accent-foreground: #e6e8ec;
+  --destructive: #f2545b;
+  --destructive-foreground: #1b0d0e;
+  --border: #353a44;
+  --input: #353a44;
+  --ring: #f0b429;
+  --online: #3fb950;
+  --idle: #d29922;
+  --dnd: #f2545b;
+  --offline: #6e7681;
+  --mention: #f0b42914;
+  --shadow-ink: #000000b3;
+  --sidebar-foreground: #e6e8ec;
+  --sidebar-primary: #f0b429;
+  --sidebar-primary-foreground: #1b1404;
+  --sidebar-accent: #2f343d;
+  --sidebar-accent-foreground: #e6e8ec;
+  --sidebar-border: #353a44;
+  --sidebar-ring: #f0b429;
+  --chart-1: #f0b429;
+  --chart-2: #3fb950;
+  --chart-3: #99a0ac;
+  --chart-4: #f2545b;
+  --chart-5: #d29922;
 }
 
 @theme inline {
@@ -141,6 +157,12 @@
   --color-chart-3: var(--chart-3);
   --color-chart-4: var(--chart-4);
   --color-chart-5: var(--chart-5);
+  --color-rail: var(--rail);
+  --color-online: var(--online);
+  --color-idle: var(--idle);
+  --color-dnd: var(--dnd);
+  --color-offline: var(--offline);
+  --color-mention: var(--mention);
   --color-sidebar: var(--sidebar);
   --color-sidebar-foreground: var(--sidebar-foreground);
   --color-sidebar-primary: var(--sidebar-primary);
@@ -154,10 +176,10 @@
   --font-mono: var(--font-mono);
   --font-serif: var(--font-serif);
 
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
+  --radius-sm: var(--radius);
+  --radius-md: var(--radius);
   --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) + 4px);
+  --radius-xl: var(--radius);
 
   --shadow-2xs: var(--shadow-2xs);
   --shadow-xs: var(--shadow-xs);
@@ -169,11 +191,69 @@
   --shadow-2xl: var(--shadow-2xl);
 }
 
+/* Group / section label (docs/ui-redesign.md §3): 12/16, 600, muted, sentence case. */
+@utility section-label {
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--muted-foreground);
+}
+
 @layer base {
   * {
-    @apply border-border outline-ring/50;
+    @apply border-border outline-ring;
+  }
+  html {
+    color-scheme: light;
+    background-color: var(--background);
+  }
+  html.dark {
+    color-scheme: dark;
+  }
+  ::selection {
+    background-color: color-mix(in srgb, var(--primary) 35%, transparent);
   }
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground font-sans antialiased;
+    font-size: 14px;
+    line-height: 20px;
+  }
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 1px;
+  }
+  /* Thin square scrollbars. Chromium (Electron + browser) uses the
+     ::-webkit-scrollbar pseudo-elements; setting scrollbar-width/-color would
+     make Chromium ignore them, so those are Firefox-only. */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  ::-webkit-scrollbar-track,
+  ::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background-color: var(--border);
+    border: 0;
+    border-radius: 0;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: color-mix(in srgb, var(--muted-foreground) 60%, transparent);
+  }
+  @supports not selector(::-webkit-scrollbar) {
+    * {
+      scrollbar-width: thin;
+      scrollbar-color: var(--border) transparent;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
   }
 }

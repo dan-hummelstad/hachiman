@@ -1,6 +1,4 @@
-import { PlusIcon, SettingsIcon, Trash2Icon } from 'lucide-react'
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
-import { Button } from '@/components/ui/button'
+import { MessageSquare, PlusIcon } from 'lucide-react'
 import {
   ContextMenu,
   ContextMenuContent,
@@ -8,121 +6,103 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger
 } from '@/components/ui/context-menu'
+import { GuildTile } from '@/components/ui/guild-tile'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { NavUser } from '@/components/nav-user'
-import { VoiceControls } from '@/components/voice-controls'
+import { GuildMenuItems } from '@/components/shell/guild-menu-items'
 import { cn } from '@/lib/utils'
+import { openDialog } from '@/stores/dialogStore'
+import { useGuildStore } from '@/stores/guildStore'
+import { DM_HOME, selectGuild, useSelectedGuildId } from '@/stores/navStore'
 
-interface ServerIconRailProps {
-  serverIds: string[]
-  selectedServerId: string | null
-  onSelectServer: (serverId: string) => void
-  onAddServer: () => void
-  onOpenServerSettings: (serverId: string) => void
-  onRemoveServer: (serverId: string) => void
-}
-
-/**
- * Thin Discord-style rail on the far left. One icon per server, plus an
- * "Add Server" button. User controls (mute / deafen / account) float over
- * the bottom of the rail — the icon scroll area carries enough bottom
- * padding that the last icon can scroll into view above the overlay.
- */
-export function ServerIconRail(props: ServerIconRailProps): React.JSX.Element {
-  const {
-    serverIds,
-    selectedServerId,
-    onSelectServer,
-    onAddServer,
-    onOpenServerSettings,
-    onRemoveServer
-  } = props
+/** Guild rail (72px): DM home, a rule, one square tile per guild, then "+" (create / join). */
+export function ServerIconRail(): React.JSX.Element {
+  const guilds = useGuildStore((s) => s.guilds)
+  const selectedGuildId = useSelectedGuildId()
 
   return (
     <nav
-      aria-label="Servers"
-      className="bg-sidebar text-sidebar-foreground relative flex h-screen w-16 shrink-0 flex-col items-center gap-2 border-r py-3"
+      aria-label="Guilds"
+      className="bg-rail flex h-full min-h-0 w-[72px] shrink-0 flex-col items-center gap-2 overflow-y-auto py-3 [scrollbar-width:none]"
     >
-      <div className="flex flex-1 flex-col items-center gap-2 overflow-y-auto pb-36">
-        {serverIds.map((id) => {
-          const initials = id.slice(0, 2).toUpperCase()
-          const active = selectedServerId === id
-          return (
-            <ContextMenu key={id}>
-              <Tooltip>
-                {/* Both triggers compose onto the same <button> via nested
-                    asChild → Slot. Wrapping Tooltip *itself* in
-                    ContextMenuTrigger asChild (the previous shape) was a
-                    no-op because the Tooltip Root has no DOM node for the
-                    onContextMenu handler to bind to. */}
-                <ContextMenuTrigger asChild>
-                  <TooltipTrigger asChild>
-                    <button
-                      type="button"
-                      onClick={() => onSelectServer(id)}
-                      aria-label={id}
-                      aria-current={active ? 'true' : undefined}
-                      className={cn(
-                        'group relative flex h-10 w-10 items-center justify-center rounded-2xl transition-all',
-                        'focus-visible:ring-ring hover:rounded-xl focus:outline-none focus-visible:ring-2',
-                        active && 'rounded-xl'
-                      )}
-                    >
-                      <span
-                        aria-hidden
-                        className={cn(
-                          'bg-primary absolute -left-3 h-6 w-1 rounded-r-full transition-all',
-                          active
-                            ? 'opacity-100'
-                            : 'opacity-0 group-hover:h-3 group-hover:opacity-60'
-                        )}
-                      />
-                      <Avatar className="h-10 w-10 rounded-[inherit]">
-                        <AvatarFallback className="bg-sidebar-accent text-sidebar-accent-foreground rounded-[inherit] text-xs font-semibold">
-                          {initials}
-                        </AvatarFallback>
-                      </Avatar>
-                    </button>
-                  </TooltipTrigger>
-                </ContextMenuTrigger>
-                <TooltipContent side="right">{id}</TooltipContent>
-              </Tooltip>
-              <ContextMenuContent>
-                <ContextMenuItem onSelect={() => onOpenServerSettings(id)}>
-                  <SettingsIcon /> Server Settings
-                </ContextMenuItem>
-                <ContextMenuSeparator />
-                <ContextMenuItem variant="destructive" onSelect={() => onRemoveServer(id)}>
-                  <Trash2Icon /> Remove server
-                </ContextMenuItem>
-              </ContextMenuContent>
-            </ContextMenu>
-          )
-        })}
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={onAddServer}
-              aria-label="Add server"
-              className="h-10 w-10 rounded-2xl hover:rounded-xl"
-            >
-              <PlusIcon className="h-5 w-5" />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent side="right">Add Server</TooltipContent>
-        </Tooltip>
-      </div>
-      {/* Floating user controls. Sits above the icon scroll area; the area's
-          `pb-36` ensures the last icon can scroll into view above this. */}
-      <div
-        aria-label="User controls"
-        className="bg-sidebar/85 absolute inset-x-0 bottom-0 flex flex-col items-center gap-1 border-t pb-3 pt-2 backdrop-blur"
+      <RailTile
+        label="Direct messages"
+        active={selectedGuildId === null}
+        onClick={() => selectGuild(DM_HOME)}
       >
-        <VoiceControls compact />
-        <NavUser compact />
-      </div>
+        <MessageSquare className="size-5" />
+      </RailTile>
+      <div aria-hidden className="bg-border h-px w-8 shrink-0" />
+      {[...guilds.values()].map((g) => (
+        <ContextMenu key={g.id}>
+          <ContextMenuTrigger asChild>
+            <RailTile
+              label={g.name}
+              active={selectedGuildId === g.id}
+              onClick={() => selectGuild(g.id)}
+            >
+              <GuildTile guild={g} className="size-full border-0 bg-transparent text-inherit" />
+            </RailTile>
+          </ContextMenuTrigger>
+          <ContextMenuContent>
+            <GuildMenuItems
+              guildId={g.id}
+              Item={ContextMenuItem}
+              Separator={ContextMenuSeparator}
+            />
+          </ContextMenuContent>
+        </ContextMenu>
+      ))}
+      <RailTile
+        label="Create or join a guild"
+        onClick={() => openDialog({ kind: 'addGuild' })}
+        className="hover:border-primary hover:text-primary border-dashed"
+      >
+        <PlusIcon className="size-5" />
+      </RailTile>
     </nav>
+  )
+}
+
+/**
+ * One rail slot: the selection pill plus a 40px square button with a tooltip. Extra props
+ * (e.g. from a wrapping `ContextMenuTrigger asChild`) land on the button.
+ */
+function RailTile({
+  label,
+  active = false,
+  className,
+  children,
+  ...props
+}: React.ComponentProps<'button'> & { label: string; active?: boolean }): React.JSX.Element {
+  return (
+    <div className="group relative flex w-full shrink-0 justify-center">
+      <span
+        aria-hidden
+        className={cn(
+          'absolute top-1/2 left-0 w-1 -translate-y-1/2 transition-all',
+          active ? 'bg-primary h-8' : 'bg-muted-foreground h-0 group-hover:h-3'
+        )}
+      />
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            aria-label={label}
+            aria-current={active ? 'page' : undefined}
+            className={cn(
+              'flex size-10 items-center justify-center overflow-hidden border transition-colors',
+              active
+                ? 'bg-accent text-foreground border-transparent'
+                : 'bg-sidebar text-muted-foreground hover:bg-accent hover:text-foreground',
+              className
+            )}
+            {...props}
+          >
+            {children}
+          </button>
+        </TooltipTrigger>
+        <TooltipContent side="right">{label}</TooltipContent>
+      </Tooltip>
+    </div>
   )
 }

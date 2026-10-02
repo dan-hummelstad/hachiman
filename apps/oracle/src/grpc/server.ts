@@ -7,12 +7,12 @@
  * Security posture (Phase 3a):
  *   - The gRPC surface implements RegisterMediaNode / MediaNodeHeartbeat /
  *     PlaceMediaSession — anyone who can reach the port can inject fake
- *     nodes, drain real ones, or stamp tenants. Application-layer auth is
+ *     nodes, drain real ones, or skew placement. Application-layer auth is
  *     intentionally a follow-up: it lands with mTLS in Phase 5 cert
  *     provisioning (paired with the Go-side follow-up #10 in
  *     pkg/oracleclient/client.go).
  *   - Until mTLS is in place, this server defaults to LOOPBACK ONLY. Operators
- *     who need an external bind (e.g. control plane on a different host)
+ *     who need an external bind (e.g. media / gateway on a different host)
  *     must set ORACLE_GRPC_BIND_ADDR explicitly AND own the network
  *     isolation (VPC, security group, private network) — the startup log
  *     emits a prominent warning so the operator is reminded.
@@ -29,7 +29,7 @@ import * as grpc from '@grpc/grpc-js'
 
 import { mediaNodeHeartbeat, registerMediaNode } from './media-nodes'
 import { placeMediaSession } from './placement'
-import { loadManagementService, type GrumbleManagementHandlers } from './proto'
+import { loadManagementService, type ManagementHandlers } from './proto'
 
 export interface OracleGrpcServerOptions {
   /** Bind address. Defaults to "127.0.0.1:<port>" using ORACLE_GRPC_PORT or
@@ -39,8 +39,7 @@ export interface OracleGrpcServerOptions {
    *  Tests pass "127.0.0.1:0" to let the kernel pick a free port. */
   bindAddr?: string
   /** Listener factory — defaults to grpc.ServerCredentials.createInsecure().
-   *  mTLS lands with the same dev-cert provisioning the sidechannel waits for
-   *  (follow-up #10 on the Go side). */
+   *  mTLS lands with Phase 5 cert provisioning (follow-up #10 on the Go side). */
   credentialsFactory?: () => grpc.ServerCredentials
   /** Logger — defaults to console.log. Useful so tests can capture without
    *  polluting stdout. */
@@ -85,7 +84,7 @@ export class OracleGrpcServer {
     this.logger = opts.logger ?? ((msg) => console.log(msg))
 
     const service = loadManagementService()
-    const handlers: Partial<GrumbleManagementHandlers> = {
+    const handlers: Partial<ManagementHandlers> = {
       RegisterMediaNode: (call, cb) => {
         void registerMediaNode(call, cb)
       },
@@ -96,10 +95,8 @@ export class OracleGrpcServer {
         void placeMediaSession(call, cb)
       },
     }
-    // The other RPCs (CreateVirtualServer / DeleteVirtualServer) are NOT
-    // implemented here — they're the existing inverse direction (Oracle
-    // calling control). grpc-js requires a handler for every RPC in the
-    // service definition, so we stub the others with UNIMPLEMENTED.
+    // grpc-js requires a handler for every RPC in the service definition;
+    // stub anything the proto adds before Oracle implements it.
     for (const rpcName of Object.keys(service)) {
       if (rpcName in handlers) continue
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -107,7 +104,7 @@ export class OracleGrpcServer {
         cb(
           {
             code: grpc.status.UNIMPLEMENTED,
-            message: `${rpcName} is not implemented on Oracle (control implements this RPC; Oracle is the caller)`,
+            message: `${rpcName} is not implemented on Oracle`,
           },
           null,
         )

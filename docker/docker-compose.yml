@@ -1,7 +1,13 @@
+# Local backing services for Hachiman dev.
+#   docker compose -f docker/docker-compose.yml up -d
+name: hachiman
 services:
+  # Postgres is the single durable store. Oracle (Drizzle) owns the whole schema:
+  # users, guilds, channels, roles, messages, invites, media_nodes, ...
+  # The gateway reads it; nothing else writes its own tables.
   postgres:
     image: postgres:17
-    container_name: postgres
+    container_name: hachiman-postgres
     restart: unless-stopped
     environment:
       POSTGRES_USER: oracle
@@ -11,25 +17,50 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      # Creates the `grumble` schema on first init so Grumble's GORM tables
-      # (`grumble.servers`, `grumble.users`, ...) don't collide with Oracle's
-      # public-schema tables of the same name. See init.sql for the rationale.
-      - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro
 
-  # Live per-island metrics bus. Each Grumble process (an "island") periodically
-  # PUBLISHES per-island metrics under `island:{islandId}:metrics` (HASH, TTL'd
-  # so a stopped publisher's key expires); the Oracle scheduler READS them at
-  # placement time. See apps/hachiman-server/ISLAND-METRICS.md and
-  # apps/oracle/ISLAND-PLATFORM.md §4 for the schema + staleness model.
+  # Redis is the gateway event bus and ephemeral state: Oracle PUBLISHes
+  # guild:{id} / user:{id} events after each Postgres commit, gateway nodes
+  # PSUBSCRIBE and dispatch them. It also holds gateway sessions + resume
+  # buffers, presence, voice state, voice_room stickiness, and the media:{nodeId}
+  # kick channel. See docs/gateway-protocol.md §5.
   #
-  # No volume — the data is transient liveness state, not durable; on restart
-  # publishers republish within one PublishInterval (default 5s).
+  # No volume — everything here is transient; clients re-IDENTIFY after a flush.
   redis:
     image: redis:7-alpine
-    container_name: redis
+    container_name: hachiman-redis
     restart: unless-stopped
     ports:
       - "6379:6379"
 
+  # S3-compatible blob storage for uploads (images, video, files). SeaweedFS
+  # serves the S3 API on :8333. The keys here must match S3_ACCESS_KEY_ID and
+  # S3_SECRET_ACCESS_KEY in the root .env. With the keys set, unsigned requests
+  # get 403, so dev catches presigned-URL bugs. CORS allows every origin.
+  seaweedfs:
+    image: chrislusf/seaweedfs:4.00
+    container_name: hachiman-seaweedfs
+    restart: unless-stopped
+    command: server -s3 -dir=/data -ip=seaweedfs -ip.bind=0.0.0.0
+    environment:
+      AWS_ACCESS_KEY_ID: hachiman
+      AWS_SECRET_ACCESS_KEY: hachiman-dev-secret
+    ports:
+      - "8333:8333"
+    volumes:
+      - seaweedfs_data:/data
+
+  # Creates the S3_BUCKET bucket, then exits. Safe to run again.
+  seaweedfs-init:
+    image: chrislusf/seaweedfs:4.00
+    container_name: hachiman-seaweedfs-init
+    depends_on: [seaweedfs]
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >-
+        until echo s3.bucket.list | weed shell -master=seaweedfs:9333 2>/dev/null | grep -q hachiman-uploads;
+        do echo s3.bucket.create -name hachiman-uploads | weed shell -master=seaweedfs:9333 >/dev/null 2>&1; sleep 1; done;
+        echo bucket hachiman-uploads ready
+
 volumes:
   postgres_data:
+  seaweedfs_data:

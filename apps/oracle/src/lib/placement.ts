@@ -3,9 +3,9 @@
  *
  * Given a set of candidate regions, each carrying a *measured* client→region
  * round-trip time (RTT) and optional load metrics, this ranks them and picks
- * the one a server should be homed in.
+ * the one a guild should be homed in.
  *
- * Design intent (see PLACEMENT-DESIGN.md and REGION-CONTRACT.md):
+ * Design intent (see PLACEMENT-DESIGN.md):
  *
  *  - Region affinity is the DOMINANT term: the region with the lowest measured
  *    RTT to the user(s) wins. Nearness-to-users is what actually moves voice
@@ -14,7 +14,7 @@
  *  - The bin-pack score is only a SECONDARY tiebreaker. When two regions are
  *    effectively the same distance away (their RTTs fall within a tolerance
  *    band of each other), we prefer the one that is less loaded so we spread
- *    placement instead of hot-spotting one island. A materially closer region
+ *    placement instead of hot-spotting one region. A materially closer region
  *    NEVER loses to a less-loaded-but-farther region.
  *
  *    bin-pack load = (activeUsers / maxUsers) * 0.5

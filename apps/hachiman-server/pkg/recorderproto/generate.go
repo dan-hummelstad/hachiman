@@ -13,10 +13,8 @@
 //    `apt install protobuf-compiler` on Debian/Ubuntu,
 //    `dnf install protobuf-compiler` on Fedora/RHEL.)
 //
-// This is SEPARATE from pkg/mediaproto/ (control↔media) — per the doc, the
-// recorder talks to media's primary SFU directly, never to control. The two
-// surfaces stay split so recorder credentials don't bleed into the control
-// plane.
+// The recorder talks to a media node's SFU directly, never to the gateway,
+// so recorder credentials stay out of the gateway.
 
 //go:generate protoc --go_out=. --go_opt=paths=source_relative --go-grpc_out=. --go-grpc_opt=paths=source_relative RecorderControl.proto
 

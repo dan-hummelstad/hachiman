@@ -1,184 +1,103 @@
-/**
- * JoinServerModal — shown when a takusen://join… deep link arrives.
- *
- * Renders the server preview (name, host:port, verified-at), surfaces the
- * HMAC verification outcome ("verified" vs "could not verify signature"), and
- * lets the user confirm a connect. On confirm, calls
- * `serversService.addAndConnect`, which now requires an active Oracle
- * session — anonymous fallback is gone, so when signed out we surface an
- * inline sign-in prompt instead of pretending we can join.
- */
-import { useState } from 'react'
-import { AlertTriangleIcon, ShieldCheck, ShieldCheckIcon, ShieldOffIcon } from 'lucide-react'
-
 import { Button } from '@/components/ui/button'
-import {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle
-} from '@/components/ui/dialog'
-import { OracleSignInDialog } from '@/components/oracle-signin-dialog'
-import { serversService } from '@/services/ServersService'
-import type { SignedJoinPayload } from '@/services/JoinUriService'
+import { ErrorText } from '@/components/ui/field'
+import { GuildTile } from '@/components/ui/guild-tile'
+import { ModalWindow } from '@/components/ui/modal-window'
+import { Skeleton } from '@/components/ui/skeleton'
+import { useAction } from '@/hooks/use-action'
+import { useKeyedAsync } from '@/hooks/use-keyed-async'
+import { useSignIn } from '@/hooks/use-sign-in'
+import { acceptInvite, previewInvite } from '@/services/InviteService'
+import { useDialog } from '@/stores/dialogStore'
 import { useOracleStore } from '@/stores/oracleStore'
 
-export interface JoinServerModalProps {
-  /** Parsed payload from a takusen:// URI or browser /join hash. */
-  payload: SignedJoinPayload | null
-  /** Whether the HMAC signature matched. False => warn the user. */
-  verified: boolean
-  /** True while the modal should be visible. Driven by App. */
-  open: boolean
-  onClose: () => void
-}
+/** Opened by an invite deep link: preview the guild, then accept. */
+export function JoinServerModal(): React.JSX.Element {
+  const {
+    dialog: { code },
+    open,
+    close
+  } = useDialog('joinInvite')
+  const session = useOracleStore((s) => s.session)
+  const result = useKeyedAsync(code, previewInvite)
+  const preview = result?.data ?? null
+  const loadError = result?.error ?? null
+  const { run, busy, error } = useAction()
 
-type Phase = { kind: 'idle' } | { kind: 'connecting' } | { kind: 'error'; message: string }
-
-function formatVerifiedDate(iso: string | null): string {
-  if (!iso) return 'not verified'
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return 'not verified'
-  return `verified ${d.toLocaleDateString(undefined, {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric'
-  })}`
-}
-
-export function JoinServerModal(props: JoinServerModalProps): React.JSX.Element {
-  const [phase, setPhase] = useState<Phase>({ kind: 'idle' })
-  const [signInOpen, setSignInOpen] = useState(false)
-  const oracleSession = useOracleStore((s) => s.session)
-  const oracleSignedIn = oracleSession !== null
-
-  const handleOpenChange = (next: boolean): void => {
-    if (!next) {
-      setPhase({ kind: 'idle' })
-      props.onClose()
-    }
+  const join = async (): Promise<void> => {
+    if ((await run('join', () => acceptInvite(code))).ok) close()
   }
-
-  const onJoin = async (): Promise<void> => {
-    if (!props.payload) return
-    // Defensive: shouldn't be reachable because the button is gated on
-    // `oracleSignedIn`, but ServersService.addAndConnect throws anyway.
-    if (!oracleSession) {
-      setPhase({
-        kind: 'error',
-        message: 'Sign in to Takusen first to join via an invite link.'
-      })
-      return
-    }
-    setPhase({ kind: 'connecting' })
-    try {
-      await serversService.addAndConnect({
-        host: props.payload.host,
-        port: props.payload.port,
-        name: props.payload.name,
-        username: oracleSession.user.handle
-      })
-      setPhase({ kind: 'idle' })
-      props.onClose()
-    } catch (err) {
-      setPhase({
-        kind: 'error',
-        message: err instanceof Error ? err.message : 'Failed to connect'
-      })
-    }
-  }
-
-  const payload = props.payload
-  // Render-time: we accept `payload === null` so the parent can mount the
-  // modal eagerly and only flip `open` when a deep link arrives.
-  const verifiedLabel = payload ? formatVerifiedDate(payload.verifiedAt) : ''
 
   return (
-    <>
-      <Dialog open={props.open && payload !== null} onOpenChange={handleOpenChange}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex flex-wrap items-center gap-2">
-              Join {payload?.name ?? 'server'}
-              {props.verified ? (
-                <span className="text-primary inline-flex items-center gap-1 text-xs font-medium">
-                  <ShieldCheckIcon className="size-3.5" /> Verified signature
-                </span>
-              ) : (
-                <span className="text-destructive inline-flex items-center gap-1 text-xs font-medium">
-                  <ShieldOffIcon className="size-3.5" /> Unverified
-                </span>
-              )}
-            </DialogTitle>
-            <DialogDescription>
-              {payload ? (
-                <>
-                  You&apos;re about to join <strong>{payload.name}</strong> at{' '}
-                  <code className="font-mono">
-                    {payload.host}:{payload.port}
-                  </code>{' '}
-                  — {verifiedLabel}.
-                </>
-              ) : (
-                <>No invite payload.</>
-              )}
-            </DialogDescription>
-          </DialogHeader>
-          {!props.verified ? (
-            <div className="border-destructive/40 bg-destructive/10 text-destructive flex items-start gap-2 rounded-md border px-3 py-2 text-sm">
-              <AlertTriangleIcon className="mt-0.5 size-4 shrink-0" />
-              <span>
-                We couldn&apos;t verify the invite signature. Only proceed if you trust the source
-                of this link.
-              </span>
-            </div>
-          ) : null}
-          {!oracleSignedIn ? (
-            <div className="bg-muted/40 flex flex-col gap-3 rounded-md border p-4">
-              <div className="flex items-start gap-2.5">
-                <ShieldCheck className="mt-0.5 size-4 shrink-0 text-blue-500" aria-hidden />
-                <div className="flex flex-col gap-1">
-                  <span className="text-sm font-medium">Sign in to Takusen first</span>
-                  <p className="text-muted-foreground text-xs">
-                    Joining by invite link requires a Takusen identity so the server can recognize
-                    you across devices. It&apos;s a one-time sign-in.
-                  </p>
-                </div>
-              </div>
-              <Button
-                size="sm"
-                type="button"
-                className="self-start"
-                onClick={() => setSignInOpen(true)}
-              >
-                Sign in to Takusen
-              </Button>
-            </div>
-          ) : null}
-          {phase.kind === 'error' ? (
-            <div className="border-destructive/40 bg-destructive/10 text-destructive rounded-md border px-3 py-2 text-sm">
-              {phase.message}
-            </div>
-          ) : null}
-          <DialogFooter>
-            <DialogClose asChild>
-              <Button variant="outline" disabled={phase.kind === 'connecting'}>
-                Cancel
-              </Button>
-            </DialogClose>
-            <Button
-              disabled={!payload || !oracleSignedIn || phase.kind === 'connecting'}
-              onClick={() => void onJoin()}
-            >
-              {phase.kind === 'connecting' ? 'Connecting…' : 'Join server'}
+    <ModalWindow
+      open={open}
+      onClose={close}
+      title="Guild invite"
+      description="You’ve been invited to join a guild."
+      actions={
+        <>
+          <Button variant="ghost" onClick={close}>
+            {loadError ? 'Close' : 'Not now'}
+          </Button>
+          {!loadError && (
+            <Button disabled={!session || !preview || busy} onClick={() => void join()}>
+              {busy ? 'Joining…' : 'Accept invite'}
             </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-      <OracleSignInDialog isOpen={signInOpen} onClose={() => setSignInOpen(false)} />
-    </>
+          )}
+        </>
+      }
+    >
+      <div className="bg-card flex items-center gap-4 border p-4">
+        {preview ? (
+          <>
+            <GuildTile guild={preview.guild} size="lg" />
+            <span className="grid min-w-0">
+              <span className="truncate text-[15px] leading-5 font-semibold">
+                {preview.guild.name}
+              </span>
+              <span className="text-muted-foreground flex items-center gap-1.5 text-xs tabular-nums">
+                <span aria-hidden className="bg-online size-2" />
+                {preview.memberCount} {preview.memberCount === 1 ? 'member' : 'members'}
+              </span>
+            </span>
+          </>
+        ) : loadError ? (
+          <span className="grid gap-1">
+            <span className="text-sm font-semibold">This invite doesn’t work</span>
+            <span className="text-muted-foreground text-xs leading-4">
+              It may have expired or been revoked ({loadError}). Ask whoever sent it for a new one.
+            </span>
+          </span>
+        ) : (
+          <>
+            <Skeleton className="size-14 shrink-0" />
+            <span className="grid flex-1 gap-2" aria-label="Loading invite">
+              <Skeleton className="h-4 w-2/3" />
+              <Skeleton className="h-3 w-1/3" />
+            </span>
+          </>
+        )}
+      </div>
+      <p className="text-muted-foreground -mt-2 text-xs">
+        Invite code <span className="text-foreground font-mono text-[13px]">{code}</span>
+      </p>
+      {!session && <SignInPrompt code={code} />}
+      <ErrorText>{error}</ErrorText>
+    </ModalWindow>
+  )
+}
+
+/** Shown when the invite opens while signed out: sign in first, then accept. */
+function SignInPrompt({ code }: { code: string }): React.JSX.Element {
+  const { signIn, busy, error } = useSignIn(code)
+  return (
+    <div className="grid gap-2">
+      <div className="bg-card flex items-center gap-3 border p-3">
+        <span className="flex-1 text-sm">Sign in with Takusen to accept this invite.</span>
+        <Button size="sm" disabled={busy} onClick={() => void signIn()}>
+          {busy ? 'Opening…' : 'Sign in'}
+        </Button>
+      </div>
+      <ErrorText>{error}</ErrorText>
+    </div>
   )
 }

@@ -1,0 +1,22 @@
+# arm/v6 variant of Dockerfile.gateway. golang:1.25-alpine is built multi-arch;
+# BuildKit handles QEMU emulation when building on a non-arm host. Pair:
+# Dockerfile.arm32v6.media and Dockerfile.arm32v6.recorder.
+
+FROM --platform=linux/arm/v6 golang:1.25-alpine AS builder
+
+COPY . /go/src/hachiman/server
+
+WORKDIR /go/src/hachiman/server
+
+RUN apk add --no-cache git
+
+RUN CGO_ENABLED=0 go build -o hachiman-gateway hachiman/server/cmd/hachiman-gateway
+
+FROM --platform=linux/arm/v6 alpine:edge
+
+COPY --from=builder /go/src/hachiman/server/hachiman-gateway /usr/bin/hachiman-gateway
+
+# 8080/tcp — WS /gateway.
+EXPOSE 8080/tcp
+
+ENTRYPOINT [ "/usr/bin/hachiman-gateway" ]

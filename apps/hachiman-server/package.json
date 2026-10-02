@@ -3,13 +3,12 @@
   "version": "1.0.0",
   "description": "",
   "scripts": {
-    "build": "pnpm build:control",
-    "build:control": "go build -o ./bin/hachiman-control mumble.info/grumble/cmd/hachiman-control",
-    "build:media": "go build -o ./bin/hachiman-media mumble.info/grumble/cmd/hachiman-media",
-    "start": "./bin/hachiman-control --datadir ./bin/data --log ./bin/data/hachiman-control.log",
-    "dev": "pnpm dev:control",
-    "dev:control": "nodemon --exec go run mumble.info/grumble/cmd/hachiman-control --datadir ./bin/data --signal SIGTERM --watch . --ext go --ignore bin/ --ignore node_modules/ --ignore ts-dist/",
-    "dev:media": "nodemon --exec go run mumble.info/grumble/cmd/hachiman-media --signal SIGTERM --watch . --ext go --ignore bin/ --ignore node_modules/ --ignore ts-dist/"
+    "build": "pnpm build:gateway && pnpm build:media",
+    "build:gateway": "go build -o ./bin/hachiman-gateway hachiman/server/cmd/hachiman-gateway",
+    "build:media": "go build -o ./bin/hachiman-media hachiman/server/cmd/hachiman-media",
+    "dev": "pnpm run \"/^dev:(gateway|media)$/\"",
+    "dev:gateway": "node --env-file-if-exists=../../.env node_modules/nodemon/bin/nodemon.js --exec 'go run hachiman/server/cmd/hachiman-gateway' --signal SIGTERM --watch . --ext go --ignore bin/ --ignore node_modules/",
+    "dev:media": "node --env-file-if-exists=../../.env node_modules/nodemon/bin/nodemon.js --exec 'go run hachiman/server/cmd/hachiman-media' --signal SIGTERM --watch . --ext go --ignore bin/ --ignore node_modules/"
   },
   "keywords": [],
   "author": "",

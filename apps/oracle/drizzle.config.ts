@@ -1,11 +1,12 @@
+import { existsSync } from 'node:fs'
+import { resolve } from 'node:path'
+
 import type { Config } from 'drizzle-kit'
 
-if (!process.env.DATABASE_URL) {
-  // drizzle-kit will load .env via its own mechanism in newer versions, but
-  // surface a clear error if nothing is set when running CLI tasks.
-  // eslint-disable-next-line no-console
-  console.warn('[drizzle.config] DATABASE_URL not set — generate will still work without it.')
-}
+// Local dev reads the repo-root .env (see /.env.example). drizzle-kit runs
+// from apps/oracle. Variables that are already set win.
+const rootEnv = resolve(process.cwd(), '../../.env')
+if (existsSync(rootEnv)) process.loadEnvFile(rootEnv)
 
 export default {
   schema: './src/db/schema.ts',

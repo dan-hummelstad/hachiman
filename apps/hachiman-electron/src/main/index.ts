@@ -1,37 +1,72 @@
-import { app, shell, BrowserWindow, ipcMain, systemPreferences } from "electron";
+import {
+  app,
+  shell,
+  BrowserWindow,
+  ipcMain,
+  systemPreferences,
+} from "electron";
 import { join } from "path";
-import { URL as NodeURL } from "url";
 import { electronApp, optimizer, is } from "@electron-toolkit/utils";
-import { probeRegionsRtt } from "@hachiman/hachiman-node";
 import icon from "../../resources/icon.png?asset";
+import { OPEN_EXTERNAL_CHANNEL, PROBE_REGIONS_CHANNEL } from "../shared/ipc";
+import { buildCsp } from "./csp";
 import { flushPendingUrls, registerProtocolHandlers } from "./protocol-handler";
 import { validateProbeTargets } from "./probe-target-guard";
+import { probeRegions } from "./region-probe";
+import {
+  devRenderer,
+  packagedRenderer,
+  registerRendererScheme,
+} from "./renderer-protocol";
 
-// Custom scheme for the Oracle/Takusen OAuth PKCE callback. Kept separate
-// from agent D's `takusen://` deep-link scheme so the two flows are
-// independently revokable.
-// Reverse-DNS scheme — required by RFC 8252 §7.1 for native OAuth callback
-// URIs (panva's oidc-provider rejects bare schemes like `hachiman://`).
-const HACHIMAN_PROTOCOL = "app.hachiman";
+// Pick the renderer source once: electron-vite's dev server, or the built
+// renderer served from hachiman://app (packaged and `electron-vite preview`).
+const devServerUrl = is.dev ? process.env["ELECTRON_RENDERER_URL"] : undefined;
+const renderer = devServerUrl
+  ? devRenderer(devServerUrl)
+  : packagedRenderer(join(__dirname, "../renderer"));
+const CSP = buildCsp({ ...import.meta.env }, { devServerUrl });
 
-// Module-scoped window ref so the protocol-handler can dispatch deep links
-// once a window exists. The single-instance lock guarantees at most one main
-// window across the whole app.
+/** Opens an http(s) URL in the system browser. Throws for any other scheme. */
+async function openExternalHttp(raw: unknown): Promise<void> {
+  const u = new URL(String(raw));
+  if (u.protocol !== "http:" && u.protocol !== "https:") {
+    throw new Error(`refused to open URL with protocol ${u.protocol}`);
+  }
+  await shell.openExternal(u.toString());
+}
+
+// Module-scoped so the protocol handler can dispatch deep links once a window
+// exists. The single-instance lock guarantees at most one main window.
 let mainWindowRef: BrowserWindow | null = null;
 
 function createWindow(): void {
   // Create the browser window.
   const mainWindow = new BrowserWindow({
-    width: 900,
-    height: 670,
+    width: 1280,
+    height: 800,
+    minWidth: 940,
+    minHeight: 600,
     show: false,
     autoHideMenuBar: true,
+    // Dark `--background` (docs/ui-redesign.md §2, matches the HTML pre-paint) so there is no flash or seam.
+    backgroundColor: "#22252c",
+    // macOS: content runs under the title bar; the renderer's 28px <WindowStrip />
+    // is the drag region and the traffic lights are centred in it. Win/Linux keep
+    // the native frame.
+    ...(process.platform === "darwin"
+      ? {
+          titleBarStyle: "hiddenInset" as const,
+          trafficLightPosition: { x: 12, y: 8 },
+        }
+      : {}),
     ...(process.platform === "linux" ? { icon } : {}),
     webPreferences: {
+      // Preload only uses contextBridge/ipcRenderer, so the renderer can be fully sandboxed.
       preload: join(__dirname, "../preload/index.js"),
-      sandbox: false,
-      nodeIntegration: true,
-      contextIsolation: false,
+      sandbox: true,
+      nodeIntegration: false,
+      contextIsolation: true,
     },
   });
   mainWindowRef = mainWindow;
@@ -42,101 +77,46 @@ function createWindow(): void {
 
   mainWindow.on("ready-to-show", () => {
     mainWindow.show();
-    // Replay any takusen://… URLs that arrived before the renderer existed.
+    // Replay deep links that arrived before the renderer existed.
     flushPendingUrls(mainWindow);
   });
 
+  // window.open / target=_blank → system browser, http(s) only.
   mainWindow.webContents.setWindowOpenHandler((details) => {
-    shell.openExternal(details.url);
+    openExternalHttp(details.url).catch((e: unknown) =>
+      console.warn("[hachiman] window.open rejected", e),
+    );
     return { action: "deny" };
   });
 
-  // HMR for renderer base on electron-vite cli.
-  // Load the remote URL for development or the local html file for production.
-  if (is.dev && process.env["ELECTRON_RENDERER_URL"]) {
-    mainWindow.loadURL(process.env["ELECTRON_RENDERER_URL"]);
-  } else {
-    mainWindow.loadFile(join(__dirname, "../renderer/index.html"));
-  }
+  // The renderer has no client-side routes, so any top-level navigation away
+  // from the app's own pages is unexpected (e.g. a dropped link): block it.
+  mainWindow.webContents.on("will-navigate", (event, url) => {
+    if (!renderer.isAppUrl(url)) event.preventDefault();
+  });
+
+  void mainWindow.loadURL(renderer.indexUrl);
 }
 
-/**
- * Parse `app.hachiman://oauth-callback?code=...&state=...` and forward to the
- * renderer via IPC. The renderer's main.tsx listens on the same channel.
- */
-function handleHachimanProtocolUrl(rawUrl: string): void {
-  try {
-    const url = new NodeURL(rawUrl);
-    if (url.protocol !== `${HACHIMAN_PROTOCOL}:`) return;
-    if (url.hostname !== "oauth-callback" && !url.pathname.includes("oauth-callback")) return;
-    const code = url.searchParams.get("code");
-    const state = url.searchParams.get("state");
-    if (!code || !state) return;
-    const target = mainWindowRef;
-    if (!target) {
-      console.warn("[hachiman] OAuth callback received before window was ready");
-      return;
-    }
-    if (target.isMinimized()) target.restore();
-    target.focus();
-    target.webContents.send("hachiman:oauth-callback", { code, state });
-  } catch (e) {
-    console.warn("[hachiman] Failed to parse protocol URL", e);
-  }
-}
+// Privileged-scheme registration must precede `app.whenReady`.
+registerRendererScheme();
 
-// Protocol handlers MUST be registered before `app.whenReady` resolves so
-// the single-instance lock takes effect and OS-level URL events get caught.
-// If we're the second instance, the existing instance will handle the URL —
-// quit immediately.
-const protocolReady = registerProtocolHandlers(app, {
-  getMainWindow: () => mainWindowRef,
-});
-if (!protocolReady) {
-  app.quit();
-}
+// Must run before `app.whenReady`: a second instance hands its URL to us and quits.
+if (!registerProtocolHandlers(app, () => mainWindowRef)) app.quit();
 
-// Register the app.hachiman:// scheme alongside takusen://. We can't use
-// `extraSchemeHandlers` because the OAuth callback needs URL parsing into
-// a typed payload before reaching the renderer (the takusen flow forwards
-// raw URLs). The single-instance lock from `registerProtocolHandlers` covers
-// both schemes; we only need to add the parse-and-dispatch hooks here.
-if (process.defaultApp && process.argv.length >= 2) {
-  app.setAsDefaultProtocolClient(HACHIMAN_PROTOCOL, process.execPath, [
-    join(process.argv[1] ?? ""),
-  ]);
-} else {
-  app.setAsDefaultProtocolClient(HACHIMAN_PROTOCOL);
-}
-
-app.on("second-instance", (_event, argv) => {
-  const url = argv.find((a) => a.startsWith(`${HACHIMAN_PROTOCOL}://`));
-  if (url) handleHachimanProtocolUrl(url);
-});
-
-app.on("open-url", (event, url) => {
-  if (url.startsWith(`${HACHIMAN_PROTOCOL}://`)) {
-    event.preventDefault();
-    handleHachimanProtocolUrl(url);
-  }
-});
-
-// IPC: renderer asks main to measure client→region RTTs. The prober uses raw
-// node `net` sockets (TCP connect-time RTT), which only exist in the main
-// process — the renderer relays targets here and gets back the results. The
+// IPC: TCP connect-time RTT probe (raw `net` sockets exist only in main). The
 // prober never throws (failures surface as `rttMs: null` per result).
 //
-// SECURITY: the payload is attacker-influenceable (renderer XSS reaches IPC
-// because contextIsolation is off; targets come from the public/unauthed Oracle
-// `GET /api/regions`). `validateProbeTargets` enforces host (no loopback /
-// private / link-local / metadata, DNS-resolved), port (allowlist), count
-// (≤ 64) and shape BEFORE any socket is opened, turning a would-be SSRF /
-// internal-port-scan primitive into a narrow region prober. It never throws;
-// bad input is filtered to `[]`. See ./probe-target-guard.ts.
-ipcMain.handle("hachiman:probe-regions", async (_e, targets: unknown) => {
+// SECURITY: the payload is attacker-influenceable (renderer XSS reaches the
+// preload bridge; targets come from the public/unauthed Oracle regions list).
+// `validateProbeTargets` enforces host (no loopback / private / link-local /
+// metadata, DNS-resolved), port (allowlist), count (≤ 64) and shape BEFORE any
+// socket is opened, turning a would-be SSRF / internal-port-scan primitive into
+// a narrow region prober. See ./probe-target-guard.ts.
+ipcMain.handle(PROBE_REGIONS_CHANNEL, async (_e, targets: unknown) => {
   try {
     const safe = await validateProbeTargets(targets);
-    return await probeRegionsRtt(safe);
+    return await probeRegions(safe);
   } catch (e) {
     console.warn("[hachiman] probe-regions rejected", e);
     return [];
@@ -144,15 +124,10 @@ ipcMain.handle("hachiman:probe-regions", async (_e, targets: unknown) => {
 });
 
 // IPC: renderer asks main to open the system browser for the OAuth authorize URL.
-ipcMain.handle("hachiman:open-external", async (_e, url: string) => {
-  // Guard: only http/https; reject anything else to avoid becoming a generic
-  // URL opener from the renderer process.
+ipcMain.handle(OPEN_EXTERNAL_CHANNEL, async (_e, url: unknown) => {
+  // Only http/https, so the renderer can't turn this into a generic URL/file opener.
   try {
-    const u = new NodeURL(url);
-    if (!["http:", "https:"].includes(u.protocol)) {
-      throw new Error(`refused to open URL with protocol ${u.protocol}`);
-    }
-    await shell.openExternal(url);
+    await openExternalHttp(url);
   } catch (e) {
     console.warn("[hachiman] open-external rejected", e);
     throw e;
@@ -173,19 +148,13 @@ app.whenReady().then(() => {
     optimizer.watchWindowShortcuts(window);
   });
 
-  // IPC test
-  ipcMain.on("ping", () => console.log("pong"));
-
   // macOS requires explicit microphone permission via TCC. Other platforms
   // handle this at the OS / browser layer and have no Electron-level prompt.
   void ensureMicrophoneAccess();
 
-  createWindow();
+  renderer.serve(CSP);
 
-  // If the app was launched cold by the OS routing an app.hachiman:// URL, argv
-  // carries it (Windows/Linux). macOS uses `open-url` separately above.
-  const launchUrl = process.argv.find((a) => a.startsWith(`${HACHIMAN_PROTOCOL}://`));
-  if (launchUrl) handleHachimanProtocolUrl(launchUrl);
+  createWindow();
 
   app.on("activate", function () {
     // On macOS it's common to re-create a window in the app when the

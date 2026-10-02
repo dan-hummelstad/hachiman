@@ -16,6 +16,7 @@ import { z } from 'zod'
 
 import { db } from '@/db/client'
 import { accounts, sessions, users, verificationTokens } from '@/db/schema'
+import { isSessionLive } from '@/lib/session-revocation'
 
 const credentialsSchema = z.object({
   email: z.string().email(),
@@ -78,10 +79,15 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   ],
   callbacks: {
     async jwt({ token, user }) {
+      const claims = token as { role?: 'user' | 'admin'; authTime?: number }
       if (user) {
         token.sub = user.id
-        ;(token as { role?: 'user' | 'admin' }).role = user.role ?? 'user'
+        claims.role = user.role ?? 'user'
+        claims.authTime = Date.now()
+        return token
       }
+      // Returning null clears the cookie (session-revocation.ts).
+      if (!token.sub || !(await isSessionLive(token.sub, claims.authTime ?? 0))) return null
       return token
     },
     async session({ session, token }) {

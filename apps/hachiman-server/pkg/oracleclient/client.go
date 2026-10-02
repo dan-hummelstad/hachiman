@@ -2,14 +2,9 @@
 // The use of this source code is goverened by a BSD-style
 // license that can be found in the LICENSE-file.
 
-// Package oracleclient wraps the generated GrumbleManagement gRPC client and
-// exposes the three media-plane RPCs hachiman-control needs: RegisterMediaNode,
-// MediaNodeHeartbeat, PlaceMediaSession.
-//
-// Phase 3a wires the client; production deploys mint the Oracle gRPC endpoint
-// via --oracle-addr on hachiman-control. When the flag is empty the package
-// isn't used at all (control falls back to its in-memory registry's local
-// pickNode()).
+// Package oracleclient wraps the generated Management gRPC client (contract
+// §9): hachiman-media calls RegisterMediaNode / MediaNodeHeartbeat,
+// hachiman-gateway calls PlaceMediaSession.
 //
 // Reconnect model: gRPC's client-side connection manager already does its own
 // re-dial on transient errors, so this wrapper just dials lazily and lets the
@@ -26,20 +21,20 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
-	"mumble.info/grumble/pkg/management"
+	"hachiman/server/pkg/management"
 )
 
 // ErrUnconfigured is returned by every Client method when the Client is nil
-// (the --oracle-addr-empty case). Callers compare with errors.Is to fall back
+// (Oracle address not configured). Callers compare with errors.Is to fall back
 // to local behaviour without logging an error.
 var ErrUnconfigured = errors.New("oracleclient: not configured")
 
-// Client is the public type. Holds the underlying gRPC client + connection
-// for the lifetime of the control process. Construct via New; close via
+// Client holds the underlying gRPC client + connection for the lifetime of
+// the process. Construct via New; close via
 // Close (rarely needed since lifetime equals process lifetime).
 type Client struct {
 	conn   *grpc.ClientConn
-	client management.GrumbleManagementClient
+	client management.ManagementClient
 }
 
 // New dials addr and returns a Client.
@@ -53,13 +48,10 @@ type Client struct {
 // keep the cross-VPC path inside a private subnet / security group.
 //
 // TODO(phase 5, follow-up #10): swap insecure.NewCredentials() for
-// credentials.NewTLS({...}) with a mutual-TLS cert chain. The same dev-cert
-// provisioning the sidechannel listener is waiting on covers this surface;
-// when the cert bundle is wired here it MUST be wired on the Oracle side
+// credentials.NewTLS({...}) with a mutual-TLS cert chain. When the cert bundle is wired here it MUST be wired on the Oracle side
 // (apps/oracle/src/grpc/server.ts) in the same change.
 //
-// addr must be non-empty — pass nil up the stack when --oracle-addr is
-// empty rather than calling New with "".
+// addr must be non-empty.
 func New(addr string) (*Client, error) {
 	if addr == "" {
 		return nil, fmt.Errorf("oracleclient: empty addr")
@@ -70,7 +62,7 @@ func New(addr string) (*Client, error) {
 	}
 	return &Client{
 		conn:   conn,
-		client: management.NewGrumbleManagementClient(conn),
+		client: management.NewManagementClient(conn),
 	}, nil
 }
 

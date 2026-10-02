@@ -21,22 +21,22 @@ const features = [
   {
     icon: KeyRoundIcon,
     title: 'Single sign-on',
-    body: 'One Takusen account works across every Mumble server in the Hachiman ecosystem via OIDC.',
+    body: 'One Takusen account signs you in to Hachiman on desktop and in the browser.',
   },
   {
     icon: GlobeIcon,
-    title: 'Server registry',
-    body: 'Discoverable directory of community-run Mumble servers with verified domain ownership.',
+    title: 'Regional voice',
+    body: 'Voice runs on media nodes in the region closest to your guild.',
   },
   {
     icon: ShieldCheckIcon,
-    title: 'DNS-verified ownership',
-    body: 'Operators prove they control a domain before their server is listed — no impersonation.',
+    title: 'Roles and permissions',
+    body: 'Guild owners control who can see, speak, and moderate with roles and channel overwrites.',
   },
   {
     icon: UsersRoundIcon,
     title: 'Frictionless invites',
-    body: 'Short invite codes redeem into signed takusen:// URIs your client opens instantly.',
+    body: 'Short invite codes open straight into the Hachiman app or the web client.',
   },
 ]
 
@@ -72,15 +72,14 @@ export default async function MarketingHomePage(): Promise<React.JSX.Element> {
       <main className="flex-1">
         <section className="mx-auto flex w-full max-w-6xl flex-col items-center gap-6 px-4 py-20 text-center sm:px-6 lg:px-8 lg:py-28">
           <span className="rounded-full border border-border bg-card px-3 py-1 text-xs font-medium text-muted-foreground">
-            Identity for the Hachiman Mumble ecosystem
+            Identity for Hachiman
           </span>
           <h1 className="max-w-3xl text-4xl font-semibold tracking-tight text-foreground sm:text-5xl lg:text-6xl">
-            One account. Every server.
+            One account. Every guild.
           </h1>
           <p className="max-w-2xl text-base text-muted-foreground sm:text-lg">
-            Takusen is the identity provider and server registry that ties the
-            Hachiman Mumble ecosystem together. Sign in once, hop between
-            community servers, and prove who you are without juggling
+            Takusen is the identity provider behind Hachiman. Sign in once,
+            hop between guilds, and prove who you are without juggling
             passwords.
           </p>
           <div className="flex flex-col gap-3 sm:flex-row">

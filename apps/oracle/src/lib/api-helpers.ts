@@ -1,31 +1,22 @@
 /**
- * Shared API route helpers — error -> NextResponse mapping.
+ * Shared API route helpers — error -> NextResponse mapping and the small
+ * request-parsing utilities every /api/v1 route uses.
  */
-import { NextResponse } from 'next/server'
-import { ZodError } from 'zod'
+import { NextResponse, type NextRequest } from 'next/server'
+import { ZodError, type ZodType, type ZodTypeDef } from 'zod'
 
 import { ForbiddenError, UnauthorizedError } from '@/lib/auth-helpers'
 import {
   InviteExhaustedError,
   InviteExpiredError,
-  InviteNotFoundError,
   InviteRevokedError,
-} from '@/lib/invite-signing'
-import { ServerTokenServerNotFoundError } from '@/lib/server-tokens'
-import {
-  GrumbleManagementError,
-  GrumbleManagementNotConfiguredError,
-} from '@/lib/grumble-management'
-import {
-  ManagedGatewayNotConfiguredError,
-  ServerNotFoundError,
-  SlugTakenError,
-} from '@/lib/servers'
-import { UserServerNotFoundError } from '@/lib/user-servers'
-import {
-  InvalidVServerTransitionError,
-  VirtualServerNotFoundError,
-} from '@/lib/virtual-servers'
+  InvalidImageError,
+  MissingPermissionsError,
+  NotFoundError,
+  UnknownUploadError,
+  UploadTooLargeError,
+  ValidationError,
+} from '@/lib/errors'
 
 export function errorResponse(err: unknown): NextResponse {
   if (err instanceof UnauthorizedError) {
@@ -34,53 +25,29 @@ export function errorResponse(err: unknown): NextResponse {
   if (err instanceof ForbiddenError) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
+  if (err instanceof MissingPermissionsError) {
+    return NextResponse.json({ error: 'MissingPermissions', message: err.message }, { status: 403 })
+  }
   if (err instanceof ZodError) {
     return NextResponse.json(
       { error: 'ValidationError', issues: err.flatten() },
       { status: 400 },
     )
   }
-  if (err instanceof SlugTakenError) {
-    return NextResponse.json({ error: 'SlugTaken' }, { status: 409 })
+  if (err instanceof ValidationError) {
+    return NextResponse.json({ error: 'ValidationError', message: err.message }, { status: 400 })
   }
-  if (err instanceof ManagedGatewayNotConfiguredError) {
-    // 503: the server is up but a hosting prerequisite (the managed gateway
-    // host env var) isn't configured. Surfacing the descriptive message
-    // means the form can show the operator exactly what to set.
-    return NextResponse.json(
-      { error: 'ManagedGatewayNotConfigured', message: err.message },
-      { status: 503 },
-    )
+  if (err instanceof UnknownUploadError) {
+    return NextResponse.json({ error: 'UnknownUpload', message: err.message }, { status: 400 })
   }
-  if (err instanceof GrumbleManagementNotConfiguredError) {
-    // Same 503 class as ManagedGatewayNotConfigured but a different env
-    // var (the gRPC endpoint, not the user-facing hostname). Pass the
-    // message through so the dashboard can name the env var verbatim.
-    return NextResponse.json(
-      { error: 'GrumbleManagementNotConfigured', message: err.message },
-      { status: 503 },
-    )
+  if (err instanceof InvalidImageError) {
+    return NextResponse.json({ error: 'InvalidImage', message: err.message }, { status: 400 })
   }
-  if (err instanceof GrumbleManagementError) {
-    // 502: we were able to reach the upstream but it failed (network down,
-    // gRPC error, transport-level issue). Distinct from 503-not-configured
-    // so the dashboard can show a different recovery hint.
-    return NextResponse.json(
-      { error: 'GrumbleManagementUnavailable', message: err.message },
-      { status: 502 },
-    )
+  if (err instanceof UploadTooLargeError) {
+    return NextResponse.json({ error: 'UploadTooLarge', message: err.message }, { status: 413 })
   }
-  if (err instanceof ServerNotFoundError) {
-    return NextResponse.json({ error: 'NotFound' }, { status: 404 })
-  }
-  if (err instanceof UserServerNotFoundError) {
-    return NextResponse.json({ error: 'NotFound' }, { status: 404 })
-  }
-  if (err instanceof ServerTokenServerNotFoundError) {
-    return NextResponse.json({ error: 'NotFound' }, { status: 404 })
-  }
-  if (err instanceof InviteNotFoundError) {
-    return NextResponse.json({ error: 'InviteNotFound' }, { status: 404 })
+  if (err instanceof NotFoundError) {
+    return NextResponse.json({ error: 'NotFound', message: err.message }, { status: 404 })
   }
   if (err instanceof InviteExpiredError) {
     return NextResponse.json({ error: 'InviteExpired' }, { status: 410 })
@@ -89,21 +56,35 @@ export function errorResponse(err: unknown): NextResponse {
     return NextResponse.json({ error: 'InviteRevoked' }, { status: 410 })
   }
   if (err instanceof InviteExhaustedError) {
-    return NextResponse.json({ error: 'InviteExhausted' }, { status: 429 })
+    return NextResponse.json({ error: 'InviteExhausted' }, { status: 410 })
   }
-  if (err instanceof VirtualServerNotFoundError) {
-    return NextResponse.json({ error: 'NotFound', message: err.message }, { status: 404 })
-  }
-  if (err instanceof InvalidVServerTransitionError) {
-    // 409: the row exists but its current status disallows the requested
-    // operation (typically place-now on a vServer that isn't `inactive`).
-    return NextResponse.json(
-      { error: 'InvalidVServerTransition', message: err.message },
-      { status: 409 },
-    )
-  }
-
 
   console.error('Unhandled API error:', err)
   return NextResponse.json({ error: 'InternalServerError' }, { status: 500 })
+}
+
+/**
+ * Parse a JSON body against `schema`. A malformed/empty body becomes `{}` so
+ * it fails validation with a clean 400 instead of a 500 from `req.json()`.
+ */
+export async function parseBody<T>(req: NextRequest, schema: ZodType<T, ZodTypeDef, unknown>): Promise<T> {
+  const body: unknown = await req.json().catch(() => ({}))
+  return schema.parse(body)
+}
+
+export function noContent(): NextResponse {
+  return new NextResponse(null, { status: 204 })
+}
+
+/**
+ * `/users/@me/...` lives under `users/[id]` because a literal `@me` folder
+ * would be read by Next as a parallel-route slot. Throws 404 for any other id
+ * on a self-only route.
+ */
+export function isMe(id: string): boolean {
+  return id === '@me' || id === '%40me'
+}
+
+export function requireMe(id: string): void {
+  if (!isMe(id)) throw new NotFoundError()
 }

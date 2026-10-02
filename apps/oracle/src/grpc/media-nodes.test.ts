@@ -6,8 +6,8 @@
  * code path under test is now production-shipping code rather than a
  * shadow fake. The DB substitution happens at the MediaNodesRepo seam (see
  * repo.ts), which keeps the test free of DATABASE_URL while still
- * exercising the validation surface, status transitions, and
- * partition-recovery tenant preservation that production cares about.
+ * exercising the validation surface and status transitions production
+ * cares about.
  *
  * Run via `pnpm -F @hachiman/oracle test:grpc`.
  */
@@ -127,7 +127,7 @@ async function invokePlace(
 // below stops compiling.
 const _registerResp: RegisterMediaNodeResponse = {}
 const _heartbeatResp: MediaNodeHeartbeatResponse = {}
-const _placeResp: PlaceMediaSessionResponse = { node_id: '', addr: '', assigned_ssrc: 0 }
+const _placeResp: PlaceMediaSessionResponse = { node_id: '', signaling_url: '' }
 void _registerResp
 void _heartbeatResp
 void _placeResp
@@ -141,21 +141,21 @@ async function main() {
     const r = await invokeRegister(repo, {
       node_id: 'node-1',
       region: 'us-east',
-      sidechannel_addr: '10.0.0.1:7881',
+      signaling_url: 'wss://10.0.0.1/voice',
       max_sessions: 200,
       version: 'test-1.0',
     })
     assert.equal(r.code, grpc.status.OK)
     assert.ok(repo.rows.has('node-1'))
     assert.equal(repo.rows.get('node-1')?.region, 'us-east')
-    assert.equal(repo.rows.get('node-1')?.sidechannelAddr, '10.0.0.1:7881')
+    assert.equal(repo.rows.get('node-1')?.signalingUrl, 'wss://10.0.0.1/voice')
   })
 
   await test('RegisterMediaNode rejects empty node_id', async () => {
     const r = await invokeRegister(repo, {
       node_id: '',
       region: 'us-east',
-      sidechannel_addr: '',
+      signaling_url: '',
       max_sessions: 0,
       version: '',
     })
@@ -166,40 +166,32 @@ async function main() {
     const r = await invokeRegister(repo, {
       node_id: 'node-x',
       region: '',
-      sidechannel_addr: '',
+      signaling_url: '',
       max_sessions: 0,
       version: '',
     })
     assert.equal(r.code, grpc.status.INVALID_ARGUMENT)
   })
 
-  await test('RegisterMediaNode preserves tenantId on re-register (partition recovery)', async () => {
-    // Seed a row that's already tenant-bound. A subsequent register from
-    // the same node_id (e.g. after a network partition + reconnect) must
-    // not clear that binding — otherwise a different tenant could land on
-    // the same node mid-session.
-    repo.seed({
-      nodeId: 'node-2',
-      region: 'us-east',
-      tenantId: 'tenant-x',
-      activeSessions: 5,
-    })
+  await test('RegisterMediaNode re-register keeps heartbeat counters', async () => {
+    repo.seed({ nodeId: 'node-2', region: 'us-east', activeSessions: 5 })
     const r = await invokeRegister(repo, {
       node_id: 'node-2',
       region: 'us-east',
-      sidechannel_addr: '10.0.0.2:7881',
+      signaling_url: 'wss://10.0.0.2/voice',
       max_sessions: 100,
       version: 'test-1.0',
     })
     assert.equal(r.code, grpc.status.OK)
-    assert.equal(repo.rows.get('node-2')?.tenantId, 'tenant-x')
+    assert.equal(repo.rows.get('node-2')?.activeSessions, 5)
+    assert.equal(repo.rows.get('node-2')?.signalingUrl, 'wss://10.0.0.2/voice')
   })
 
   await test('MediaNodeHeartbeat happy path updates the row', async () => {
     await invokeRegister(repo, {
       node_id: 'node-3',
       region: 'us-east',
-      sidechannel_addr: '',
+      signaling_url: '',
       max_sessions: 100,
       version: '',
     })
@@ -238,7 +230,7 @@ async function main() {
     await invokeRegister(repo, {
       node_id: 'node-4',
       region: 'us-east',
-      sidechannel_addr: '',
+      signaling_url: '',
       max_sessions: 100,
       version: '',
     })
@@ -251,17 +243,17 @@ async function main() {
     assert.equal(repo.rows.get('node-4')?.status, 'draining')
   })
 
-  await test('PlaceMediaSession rejects empty home_region', async () => {
-    const r = await invokePlace(repo, { channel_id: 1, home_region: '', tenant_id: '' })
-    assert.equal(r.code, grpc.status.INVALID_ARGUMENT)
+  await test('PlaceMediaSession with empty home_region is not rejected', async () => {
+    const r = await invokePlace(repo, { channel_id: 'chan-1', home_region: '', guild_id: 'guild-1' })
+    assert.notEqual(r.code, grpc.status.INVALID_ARGUMENT)
   })
 
   await test('PlaceMediaSession RESOURCE_EXHAUSTED on empty store', async () => {
     const emptyRepo = new InMemoryMediaNodesRepo()
     const r = await invokePlace(emptyRepo, {
-      channel_id: 1,
+      channel_id: 'chan-1',
       home_region: 'us-east',
-      tenant_id: '',
+      guild_id: 'guild-1',
     })
     assert.equal(r.code, grpc.status.RESOURCE_EXHAUSTED)
   })
@@ -270,16 +262,13 @@ async function main() {
     // node-3 was registered above + heartbeat applied; it's still in the
     // repo. Place against the same region.
     const r = await invokePlace(repo, {
-      channel_id: 1,
+      channel_id: 'chan-1',
       home_region: 'us-east',
-      tenant_id: '',
+      guild_id: 'guild-1',
     })
     assert.equal(r.code, grpc.status.OK)
     assert.ok(r.resp)
     assert.notEqual(r.resp?.node_id, '')
-    // Phase 3a: assigned_ssrc is 0; locked in here so a future change
-    // surfaces in code review.
-    assert.equal(r.resp?.assigned_ssrc, 0)
   })
 
   if (failures.length === 0) {

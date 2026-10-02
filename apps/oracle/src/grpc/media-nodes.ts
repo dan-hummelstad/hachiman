@@ -5,7 +5,7 @@
  * Both delegate storage to the MediaNodesRepo seam (see ./repo.ts).
  * RegisterMediaNode upserts on `node_id`; MediaNodeHeartbeat updates an
  * existing row's heartbeat counters and returns NOT_FOUND if no row exists
- * (control must have RegisterMediaNode'd first).
+ * (the node must have called RegisterMediaNode first).
  *
  * Errors are surfaced as gRPC status codes (`code` field on the callback err)
  * so the Go side's `errors.Is` / `status.Code` checks work. Per phase 3a
@@ -57,7 +57,7 @@ export async function registerMediaNode(
       capacity: buildCapacity(req),
       lastHeartbeatAt: new Date(),
       version: req.version ?? '',
-      sidechannelAddr: req.sidechannel_addr ?? '',
+      signalingUrl: req.signaling_url ?? '',
     })
     callback(null, {})
   } catch (err) {

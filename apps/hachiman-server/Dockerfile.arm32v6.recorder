@@ -1,18 +1,18 @@
-# arm/v6 variant of Dockerfile.recorder. Pair: Dockerfile.arm32v6.control and
+# arm/v6 variant of Dockerfile.recorder. Pair: Dockerfile.arm32v6.gateway and
 # Dockerfile.arm32v6.media. Stateless recorder; no VOLUME, no EXPOSE.
 
 FROM --platform=linux/arm/v6 golang:1.25-alpine AS builder
 
-COPY . /go/src/mumble.info/grumble
+COPY . /go/src/hachiman/server
 
-WORKDIR /go/src/mumble.info/grumble
+WORKDIR /go/src/hachiman/server
 
-RUN apk add --no-cache git build-base
+RUN apk add --no-cache git
 
-RUN go build -o hachiman-recorder mumble.info/grumble/cmd/hachiman-recorder
+RUN CGO_ENABLED=0 go build -o hachiman-recorder hachiman/server/cmd/hachiman-recorder
 
 FROM --platform=linux/arm/v6 alpine:edge
 
-COPY --from=builder /go/src/mumble.info/grumble/hachiman-recorder /usr/bin/hachiman-recorder
+COPY --from=builder /go/src/hachiman/server/hachiman-recorder /usr/bin/hachiman-recorder
 
 ENTRYPOINT [ "/usr/bin/hachiman-recorder" ]

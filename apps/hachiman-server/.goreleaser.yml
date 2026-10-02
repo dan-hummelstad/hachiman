@@ -1,7 +1,6 @@
-# project_name is the SHARED library identity — both binaries ship out of this
-# repo (rev 6 "embedded mode" / split deployment). Per-binary archives are
-# namespaced via the build id (see archives.name_template below) so the two
-# builds don't collide on the same os/arch tuple.
+# project_name is the SHARED identity — gateway, media and recorder all ship out
+# of this module. Per-binary archives are namespaced via the binary name (see
+# archives.name_template below) so the builds don't collide on the same os/arch.
 project_name: hachiman-server
 dist: build/
 env:
@@ -10,11 +9,11 @@ before:
   hooks:
     - go mod download
 builds:
-  - id: hachiman-control
+  - id: hachiman-gateway
     env:
       - CGO_ENABLED=0
-    main: ./cmd/hachiman-control/
-    binary: hachiman-control
+    main: ./cmd/hachiman-gateway/
+    binary: hachiman-gateway
     goos:
       - darwin
       - linux
@@ -71,7 +70,7 @@ builds:
       - goos: windows
         goarch: arm64
 archives:
-  # name_template embeds the binary name so hachiman-control_* /
+  # name_template embeds the binary name so hachiman-gateway_* /
   # hachiman-media_* / hachiman-recorder_* archives don't collide on the same
   # os/arch tuple. {{ .Binary }} resolves to the per-build `binary:` field,
   # which is unique per build id.

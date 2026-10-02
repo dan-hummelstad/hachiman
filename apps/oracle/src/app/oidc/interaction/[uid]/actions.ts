@@ -21,7 +21,7 @@ import { redirect } from 'next/navigation'
 
 import { auth } from '@/auth'
 import { db } from '@/db/client'
-import { oidcClients, virtualServers } from '@/db/schema'
+import { oidcClients } from '@/db/schema'
 import { eq } from 'drizzle-orm'
 import { getInteraction, resumeInteraction } from '@/lib/oidc-interaction'
 
@@ -127,18 +127,15 @@ export async function describeClient(clientId: string): Promise<{
   const row = await db
     .select({
       scopes: oidcClients.scopes,
-      // The consent screen wants the identity row's name now (post-refactor).
-      serverName: virtualServers.name,
     })
     .from(oidcClients)
-    .leftJoin(virtualServers, eq(oidcClients.virtualServerId, virtualServers.id))
     .where(eq(oidcClients.clientId, clientId))
     .limit(1)
     .then((rows) => rows[0])
 
   if (!row) return null
   return {
-    name: row.serverName ?? clientId,
+    name: clientId,
     knownScopes: row.scopes,
   }
 }

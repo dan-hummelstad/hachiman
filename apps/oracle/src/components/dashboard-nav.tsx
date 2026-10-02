@@ -20,11 +20,6 @@ const baseNav: NavItem[] = [
     match: (p) => p === '/dashboard',
   },
   {
-    href: '/servers',
-    label: 'Servers',
-    match: (p) => p === '/servers' || p.startsWith('/servers/'),
-  },
-  {
     href: '/account',
     label: 'Account',
     match: (p) => p === '/account' || p.startsWith('/account/'),

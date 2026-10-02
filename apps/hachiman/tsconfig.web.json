@@ -3,16 +3,14 @@
   "compilerOptions": {
     "lib": ["ESNext", "DOM", "DOM.Iterable"],
     "jsx": "react-jsx",
-    "rootDir": ".",
-    "composite": true,
-    "outDir": "../../ts-dist/hachiman",
+    // No project references: @hachiman/client is checked from its .ts source inside this
+    // program, never from emitted .d.ts that can go stale.
+    "noEmit": true,
     "tsBuildInfoFile": "../../ts-dist/hachiman/tsconfig.web.tsbuildinfo",
-    "declaration": true,
     "types": ["node"],
     "paths": {
       "@/*": ["./src/*"]
     }
   },
-  "references": [{ "path": "../../pkgs/hachiman-node" }],
   "include": ["src/env.d.ts", "src/**/*", "src/**/*.tsx"]
 }

@@ -1,0 +1,26 @@
+# Builds the hachiman-gateway binary — the stateless WebSocket gateway
+# (HELLO/IDENTIFY/RESUME, event dispatch, voice join). Sessions, presence and
+# resume buffers live in Redis; durable data lives in Postgres (via Oracle).
+# Run N identical replicas behind a load balancer. See docs/gateway-protocol.md §6.
+# Pair: Dockerfile.media (SFU) and Dockerfile.recorder (recording scaffold).
+
+FROM golang:1.25-alpine AS builder
+
+COPY . /go/src/hachiman/server
+
+WORKDIR /go/src/hachiman/server
+
+RUN apk add --no-cache git
+
+RUN CGO_ENABLED=0 go build -o hachiman-gateway hachiman/server/cmd/hachiman-gateway
+
+FROM alpine:edge
+
+COPY --from=builder /go/src/hachiman/server/hachiman-gateway /usr/bin/hachiman-gateway
+
+# Stateless — no /data, no VOLUME.
+
+# 8080/tcp — WS /gateway (clients connect here, usually behind a TLS-terminating LB).
+EXPOSE 8080/tcp
+
+ENTRYPOINT [ "/usr/bin/hachiman-gateway" ]

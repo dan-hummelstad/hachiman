@@ -3,7 +3,6 @@ packages:
   - pkgs/*
 
 ignoredBuiltDependencies:
-  - '@discordjs/opus'
   - protobufjs
 
 onlyBuiltDependencies:

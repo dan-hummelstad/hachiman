@@ -16,7 +16,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
-	"mumble.info/grumble/pkg/recorderproto"
+	"hachiman/server/pkg/recorderproto"
 )
 
 // Phase 3a recorder scaffold — SubscribeAsRecorder client loop.

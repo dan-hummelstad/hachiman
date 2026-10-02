@@ -1,35 +1,46 @@
 # CLAUDE.md
 
-Guidance for Claude Code when working in this repository.
+Guidance for Claude Code when it works in this repository.
 
 ## What this repo is
 
-Hachiman is a Mumble voice-chat ecosystem in a pnpm monorepo: a TypeScript client library, a shared React UI, two host apps (Electron + Browser), and a Go server (a Grumble fork) with WebRTC SFU support.
+Hachiman is guild-based voice and text chat with a Discord-style architecture, in a pnpm monorepo. The monorepo contains:
+
+- Oracle (Next.js identity + REST API + Postgres schema)
+- a Go gateway fleet (WebSocket events) and Go media nodes (WebRTC SFU)
+- a browser-safe TypeScript client library
+- a shared React UI
+- two host apps (Electron + Browser)
+
+Postgres holds durable data. Redis holds sessions, presence, voice state and the event bus.
+
+The wire contract for every process boundary is **`docs/gateway-protocol.md`**. It covers entity shapes, permissions, schema, REST routes, Redis keys, gateway ops, voice token, media voice WS, management proto, client API and platform seam. If code and the contract disagree, fix one of them in the same change. `docs/discord-refactor.md` records the design decisions.
 
 ## Monorepo layout
 
 ```
 apps/
+  oracle/              @hachiman/oracle             — Next.js: OIDC, REST /api/v1, Drizzle schema, Redis publisher; separate gRPC process for media registry + placement
   hachiman/            @hachiman/hachiman           — shared React UI library (components, stores, services, platform abstraction)
-  hachiman-electron/   @hachiman/hachiman-electron  — Electron host (native TLS + Opus via @discordjs/opus)
-  hachiman-browser/    @hachiman/hachiman-browser   — Browser host (WebSocket + WebRTC voice)
-  hachiman-server/     hachiman-server              — Go Mumble-compatible server (cmd/grumble + pkg/web SFU)
+  hachiman-electron/   @hachiman/hachiman-electron  — Electron host (preload bridge implements IPlatformService, region probe in main)
+  hachiman-browser/    @hachiman/hachiman-browser   — Browser host (Vite)
+  hachiman-server/     hachiman-server              — Go module hachiman/server: hachiman-gateway, hachiman-media, hachiman-recorder
 
 pkgs/
-  hachiman-node/       @hachiman/hachiman-node      — Mumble client library (transports, channel/user managers, WebRTC voice, generated protobuf)
+  hachiman-client/     @hachiman/client             — browser-safe client library (RestClient, GatewayClient, VoiceConnection, HachimanClient, permissions, types)
 ```
 
-Host apps (`hachiman-electron`, `hachiman-browser`) depend on the shared UI library (`@hachiman/hachiman`) AND the client library (`@hachiman/hachiman-node`). The shared UI talks to Mumble through the `IMumbleService` / `IPlatformService` interfaces in `apps/hachiman/src/shared/`; each host implements those under its own `platforms/<host>/` directory.
+Host apps (`hachiman-electron`, `hachiman-browser`) depend on the shared UI library (`@hachiman/hachiman`) AND the client library (`@hachiman/client`). The shared UI owns the one `HachimanClient` (`apps/hachiman/src/services/hachiman.ts`). Hosts only implement `IPlatformService` (`apps/hachiman/src/shared/IPlatformService.ts`) under their own `platforms/<host>/` or preload code.
 
 ## TypeScript: use tsgo, never tsc
 
-**This repo uses the TypeScript-native compiler (`@typescript/native-preview`, binary name `tsgo`) for all TypeScript work.** It is declared as a root devDependency in `package.json` and is the compiler invoked by every package's `typecheck` and `build` scripts.
+**This repo uses the TypeScript-native compiler (`@typescript/native-preview`, binary name `tsgo`) for all TypeScript work.** The root `package.json` declares it as a devDependency. The `typecheck` and `build` scripts of every package invoke it.
 
 - ✅ `pnpm -F @hachiman/hachiman typecheck` (runs `tsgo --noEmit -p tsconfig.web.json --composite false`)
-- ✅ `tsgo --noEmit` directly when iterating on one package
-- ❌ Do not run `tsc` directly, do not add `tsc` to any new script, do not add `typescript` as a devDependency to any workspace package.
+- ✅ `tsgo --noEmit` directly when you iterate on one package
+- ❌ Do not run `tsc` directly. Do not add `tsc` to any new script. Do not add `typescript` as a devDependency to any workspace package.
 
-If you add a new TypeScript package or a new `build`/`typecheck` script, mirror the existing pattern and invoke `tsgo`. The only place `tsc-alias` is used is in `pkgs/hachiman-node/package.json`'s `build` script to rewrite path aliases after `tsgo` emits — `tsc-alias` ≠ `tsc`, leave it alone.
+If you add a new TypeScript package or a new `build`/`typecheck` script, mirror the existing pattern and invoke `tsgo`. Consumers use `@hachiman/client` as TypeScript source (no emit step).
 
 ## Common commands
 
@@ -39,13 +50,28 @@ Run from the repo root unless noted.
 # Install everything
 pnpm install
 
+# One env file for all services: copy the template, then set the REQUIRED values
+cp .env.example .env
+
+# Backing services (Postgres, Redis, SeaweedFS S3 on :8333)
+docker compose -f docker/docker-compose.yml up -d
+
 # Dev (parallel across all workspaces that define a `dev` script)
 pnpm dev
 
 # Dev — individual targets
-pnpm dev:server          # Go server with nodemon hot-reload (apps/hachiman-server)
-pnpm dev:electron        # Electron app
-pnpm dev:browser         # Browser app on Vite
+pnpm dev:oracle                    # Oracle Next.js on :3000 + management gRPC on 127.0.0.1:50051
+pnpm -F @hachiman/oracle dev:grpc  # only the management gRPC
+pnpm dev:server                    # gateway (:8080) + media (:8090) with nodemon hot-reload; reads DATABASE_URL from the root .env
+pnpm dev:gateway                   # gateway only
+pnpm dev:media                     # media only
+pnpm dev:electron                  # Electron app
+pnpm dev:browser                   # Browser app on Vite
+
+# Oracle DB
+pnpm -F @hachiman/oracle db:migrate
+pnpm -F @hachiman/oracle db:seed
+pnpm -F @hachiman/oracle sessions:revoke   # sign every user out (dashboard cookies + OIDC sessions and tokens)
 
 # Build
 pnpm build:server
@@ -56,103 +82,123 @@ pnpm build:browser
 pnpm -F @hachiman/hachiman          typecheck
 pnpm -F @hachiman/hachiman-electron typecheck   # runs typecheck:node + typecheck:web
 pnpm -F @hachiman/hachiman-browser  typecheck
-pnpm -F @hachiman/hachiman-node     build       # no separate typecheck; build emits
+pnpm -F @hachiman/client            typecheck
+pnpm -F @hachiman/oracle            typecheck
 
 # Lint / format
 pnpm -F <package> lint
 pnpm -F <package> format
 
-# Tests (only hachiman-node has them)
-pnpm -F @hachiman/hachiman-node test
-pnpm -F @hachiman/hachiman-node test:e2e
-
-# Regenerate protobuf bindings after editing .proto files
-pnpm -F @hachiman/hachiman-node generate-proto
+# Tests
+pnpm -F @hachiman/client test              # vitest
+pnpm -F @hachiman/oracle test              # tsx scripts incl. gRPC handlers (no DB needed)
+pnpm -F @hachiman/hachiman-electron test   # main-process unit tests
+cd apps/hachiman-server && go test ./...   # gateway, media, permissions, voicetoken, ...
+# gateway integration test: build tag `integration`, needs DATABASE_URL / REDIS_URL / ORACLE_URL
 ```
 
-Server port is **64738** (TCP + UDP + WebSocket on the same port).
+**Environment:** local dev uses one file, the repo-root `.env`. The template is the repo-root `.env.example`. It has a `# MARK: -` section for each service (Shared, Object storage, Oracle, Gateway, Media, Desktop / Web). There are no per-project env files. Each runner loads the root file and keeps a variable that is already set in the real environment:
 
-**Dev DB schema churn:** during phase 1 of the media-plane split, schemas on both sides are still moving. Per `feedback_dev_migrations.md`, drop the dev DB and reseed instead of stacking ALTERs — for Postgres use `pnpm -F @hachiman/oracle db:migrate` after wiping the schema; for the SQLite control DB just delete `$DATADIR/murmur.sqlite` and restart so `Init()` reseeds (the `Hachiman-Standard` quality profile lands automatically).
+- Oracle Next.js and `drizzle.config.ts`: `process.loadEnvFile` in the config. Next.js also auto-loads `apps/oracle/.env*`. Do not keep env files there, because they shadow the root file.
+- Oracle tsx scripts (`dev:grpc`, `start:grpc`, `db:migrate`, `db:seed`): `--env-file-if-exists=../../.env`.
+- Gateway and media (`pnpm dev:server`): `node --env-file-if-exists=../../.env` runs nodemon, and `go run` gets the same environment. All runners use one parser (Node's), so a line in `.env` gives the same value everywhere.
+- Vite (browser, and the Electron main, preload and renderer): `envDir` is the repo root.
+
+One name has one meaning in the shared file. Give a new variable a service prefix (`GATEWAY_`, `MEDIA_`, `ORACLE_GRPC_`, `VITE_`) unless more than one service reads it. Add each new variable to `.env.example`.
+
+**Dev DB schema churn:** schemas still change. Per `feedback_dev_migrations.md`, drop the dev DB and reseed instead of stacking ALTERs. Postgres is the only database. Drop the schema, then run `pnpm -F @hachiman/oracle db:migrate && pnpm -F @hachiman/oracle db:seed` (this seeds the `hachiman-client` OIDC client and the regions).
 
 ## Working in the shared UI (`apps/hachiman/src/`)
 
-This is where most React work lands. Layout: `components/`, `stores/` (Zustand), `services/` (singleton services bridging stores ↔ `IMumbleService`), `shared/` (platform-abstraction interfaces).
+Most React work lands here. Layout:
+
+- `components/`
+- `stores/` (Zustand)
+- `services/`: `hachiman.ts` owns the `HachimanClient` singleton and mirrors its cache into the stores. `MessagesService` / `VoiceService` / `InviteService` / `OracleService` sit on top.
+- `shared/` (platform-abstraction interfaces)
 
 ### Zustand selector conventions
 
-The codebase had an infinite-render bug from sloppy selectors; follow these rules to avoid reintroducing it.
+The codebase had an infinite-render bug from sloppy selectors. Obey these rules so that the bug does not come back.
 
 - **Single-value selectors**: read one field, no fallback that allocates.
   ```ts
-  const selectedServerId = useServerStore((s) => s.selectedServerId)
+  const selectedGuildId = useGuildStore((s) => s.selectedGuildId)
   ```
 - **Object destructures**: wrap in `useShallow`, never destructure the whole store.
   ```ts
   import { useShallow } from 'zustand/react/shallow'
-  const { servers, selectedServerId } = useServerStore(
-    useShallow((s) => ({ servers: s.servers, selectedServerId: s.selectedServerId }))
+  const { guilds, selectedGuildId } = useGuildStore(
+    useShallow((s) => ({ guilds: s.guilds, selectedGuildId: s.selectedGuildId }))
   )
   ```
-- **Empty-collection fallbacks**: hoist a module-level constant; never return `[]`/`{}` literals from a selector.
+- **Empty-collection fallbacks**: hoist a module-level constant. Never return `[]`/`{}` literals from a selector.
   ```ts
-  const EMPTY_MESSAGES: Message[] = []
+  const EMPTY_MESSAGES: ChatMessage[] = []
   const messages = useMessageStore((s) =>
-    channelId !== null ? (s.history.get(channelId) ?? EMPTY_MESSAGES) : EMPTY_MESSAGES
+    channelId !== null ? (s.byChannel.get(channelId) ?? EMPTY_MESSAGES) : EMPTY_MESSAGES
   )
   ```
 
-A fresh array/object literal returned from a selector triggers React's "getSnapshot should be cached to avoid an infinite loop" warning and breaks the renderer.
+If a selector returns a fresh array/object literal, React shows the warning "getSnapshot should be cached to avoid an infinite loop", and the renderer breaks.
 
 ### Other UI conventions
 
-- Tooltips: there is **one** `TooltipProvider` at the App root (`App.tsx`). Don't nest more — Radix tolerates it but the delay gets shadowed and behaviour gets inconsistent.
-- `NavUser` uses plain markup + `useIsMobile()`; do **not** reach for `useSidebar()` / `SidebarMenu*` from `components/ui/sidebar.tsx` — those require a `SidebarProvider` that isn't mounted anywhere.
+- Tooltips: there is **one** `TooltipProvider` at the App root (`App.tsx`). Do not nest more. Radix tolerates it, but the delay gets shadowed and the behavior becomes inconsistent.
+- `NavUser` uses plain markup + `useIsMobile()`. Do **not** use `useSidebar()` / `SidebarMenu*` from `components/ui/sidebar.tsx`. Those require a `SidebarProvider`, and no code mounts one.
 - `userData` should come from `useUserStore`, not hardcoded.
 
-## Working in the client library (`pkgs/hachiman-node`)
+## Working in the client library (`pkgs/hachiman-client`)
 
-Editing `.proto` files (`Mumble.proto`, `MumbleUDP.proto`) requires regenerating bindings on **both** sides — the TypeScript bindings in this package AND the Go bindings in `apps/hachiman-server/pkg/mumbleproto/`. Use the `regen-proto` skill or run `pnpm -F @hachiman/hachiman-node generate-proto` and the server's equivalent. The protobuf source lives under the server's `pkg/mumbleproto/`; this package's script reaches across to it.
+Browser-safe only (`fetch`, `WebSocket`, `RTCPeerConnection`): no Node imports, no rxjs, no protobuf. The wire contract lives in `docs/gateway-protocol.md` (§10 is the API of this package). There are no generated bindings.
 
-When adding a new Mumble control-channel message type, use the `add-mumble-message` skill — there's a fixed multi-file checklist (proto, registry, Go server, TS client) and it's easy to miss a step.
+- **Permissions**: each language defines them once. TS: `pkgs/hachiman-client/src/permissions.ts`. Go: `apps/hachiman-server/pkg/permissions/permissions.go`. `pkg/permissions/sync_test.go` parses the TS file and fails on any name/value mismatch. Change both together.
+- **Adding a gateway event**: one change must include all of these:
+  - the contract (§6, plus §4/§5 if REST publishes it)
+  - `GatewayEvents` in `pkgs/hachiman-client/src/types.ts` (and the `HachimanClient` cache if the event mutates state)
+  - the Oracle publish call (`apps/oracle/src/lib/events.ts` callers)
+  - the gateway handling in `cmd/hachiman-gateway` (dispatch/visibility filtering)
+- The `regen-proto` skill and its sibling message-type skill in `.claude/skills` are obsolete (they target the deleted protobuf protocol). Their removal is pending. Do not use them.
 
 ## Working in the Go server (`apps/hachiman-server`)
 
-Run from the package directory or via `pnpm dev:server` / `pnpm build:server`. Key areas:
-- `cmd/hachiman-control/` — control plane: auth, channels, ACL, text messages, WebRTC signaling shim, placement, sidechannel listener
-- `cmd/hachiman-media/` — stateless WebRTC SFU (split per phase 1 of the media-plane migration)
-- `cmd/hachiman-recorder/` — recording subscriber scaffold (phase 3a; segment writes land in phase 4)
-- `pkg/media/` — SFU primitives (SSRC pool, peer connection wiring) — imported only by hachiman-media
-- `pkg/mediaproto/`, `pkg/recorderproto/` — control↔media and media↔recorder sidechannel protos
-- `pkg/mumbleproto/` — Mumble client protocol (authoritative for both server and client)
-- `pkg/database/` — GORM + SQLite/Postgres persistence
-- `pkg/oracleclient/` — wrapper around Oracle's GrumbleManagement gRPC (RegisterMediaNode / MediaNodeHeartbeat / PlaceMediaSession)
-- `pkg/coturn/` — per-region TURN credential minting (HMAC-SHA1, coturn REST API scheme)
-- `pkg/acl/` — permissions
+Go module `hachiman/server`. Run from the package directory or through `pnpm dev:server` / `pnpm build:server`. Key areas:
+- `cmd/hachiman-gateway/` — stateless WebSocket gateway: HELLO/IDENTIFY/RESUME, Redis event dispatch with VIEW_CHANNEL filtering, presence, voice join + voice-token minting
+- `cmd/hachiman-media/` — stateless WebRTC SFU: voice WS (`/voice`), token verification, Oracle registration/heartbeat, Redis `media:{nodeId}` kicks
+- `cmd/hachiman-recorder/` — recording subscriber scaffold (not wired to media)
+- `pkg/media/` — SFU primitives (SSRC pool, peer connection wiring). Only hachiman-media imports it.
+- `pkg/voicetoken/` — PASETO voice token: `Signer` (gateway), `Verifier` (media)
+- `pkg/permissions/` — Go half of the permission lib (+ `sync_test.go` against the TS file)
+- `pkg/coturn/` — per-region TURN credential minting (HMAC-SHA1, coturn REST API scheme) for `iceServers`
+- `pkg/management/` — Oracle management gRPC proto (`hachiman.management.v1`) + generated code. Regenerate with `go generate` in that directory. Never hand-edit `*.pb.go`.
+- `pkg/oracleclient/` — wrapper around the Oracle `Management` gRPC (RegisterMediaNode / MediaNodeHeartbeat / PlaceMediaSession)
+- `pkg/recorderproto/` — media↔recorder proto (scaffold)
 
-Containerization (phase 3a): three Dockerfiles per arch — `Dockerfile.control`, `Dockerfile.media`, `Dockerfile.recorder` (amd64); `Dockerfile.arm32v6.control`, `.media`, `.recorder`. Each builds exactly one binary; control is the only one with a `/data` VOLUME.
+Containerization: `Dockerfile.gateway`, `Dockerfile.media`, `Dockerfile.recorder` (amd64) and the `Dockerfile.arm32v6.*` variants. Each builds exactly one binary.
 
-For changes to the SFU stack or the UDP↔WebRTC bridge, use the `webrtc-reviewer` agent — there's a class of SSRC pool / renegotiation race bugs that a generic review will miss.
+For changes to the voice stack (`pkg/media`, `cmd/hachiman-media/voice.go`, `pkgs/hachiman-client/src/voice.ts`), use the `webrtc-reviewer` agent. There is a class of SSRC pool / renegotiation race bugs that a generic review will miss.
 
 ## Working in Oracle (`apps/oracle`)
 
 Two processes:
-- The Next.js app (`pnpm dev`) — OIDC, OAuth, dashboard UI, REST API.
-- A standalone gRPC server (`pnpm dev:grpc`) — implements the media-plane RPCs (`RegisterMediaNode`, `MediaNodeHeartbeat`, `PlaceMediaSession`) that hachiman-control consumes. Lives separately because Next has no clean "after listen" hook and a colocated gRPC port would flap on every dev file-watcher restart.
+- The Next.js app (`pnpm dev`) — OIDC, OAuth, dashboard UI, REST API (`src/app/api/v1`). Every REST mutation publishes its gateway event to Redis after the DB commit (`src/lib/events.ts`).
+- A standalone gRPC server (`pnpm dev:grpc`) — implements the media-plane RPCs (`RegisterMediaNode`, `MediaNodeHeartbeat`, `PlaceMediaSession`) that hachiman-media and hachiman-gateway consume. It is a separate process because Next has no clean "after listen" hook. A colocated gRPC port would flap on every dev file-watcher restart.
 
-Both processes share the same Postgres DB via Drizzle; the proto source of truth is `apps/hachiman-server/pkg/management/management.proto` and Oracle's gRPC server loads it dynamically via `@grpc/proto-loader` (no generated TS bindings).
+Both processes share the same Postgres DB through Drizzle. The proto source of truth is `apps/hachiman-server/pkg/management/management.proto`. The Oracle gRPC server loads it dynamically through `@grpc/proto-loader` (no generated TS bindings).
 
-Storage seam: `apps/oracle/src/grpc/repo.ts` defines `MediaNodesRepo`, the narrow interface every media-plane handler uses for DB access. Production wires Drizzle via `drizzleMediaNodesRepo`; tests inject `InMemoryMediaNodesRepo` (`repo.in-memory.ts`) so the same handler code paths exercise without `DATABASE_URL`. When adding a new RPC that touches `media_nodes`, add a method to `MediaNodesRepo` and update BOTH implementations in lockstep — duplicating the SQL outside the repo (the old `placement-rank.ts` antipattern) lets the test and production paths drift silently.
+Storage seam: `apps/oracle/src/grpc/repo.ts` defines `MediaNodesRepo`. This is the narrow interface that every media-plane handler uses for DB access. Production wires Drizzle through `drizzleMediaNodesRepo`. Tests inject `InMemoryMediaNodesRepo` (`repo.in-memory.ts`), so the same handler code paths run without `DATABASE_URL`. When you add a new RPC that touches `media_nodes`, add a method to `MediaNodesRepo` and update BOTH implementations in lockstep. If you copy the SQL outside the repo (the old `placement-rank.ts` antipattern), the test and production paths drift silently.
 
-Oracle gRPC security posture: the server binds **loopback by default** (`127.0.0.1`) because `RegisterMediaNode` / `MediaNodeHeartbeat` / `PlaceMediaSession` currently have NO application-layer auth. Operators who need an external bind set `ORACLE_GRPC_BIND_ADDR` explicitly; the server logs a prominent warning at startup. mTLS lands with Phase 5 cert provisioning (paired with the Go-side follow-up #10 in `pkg/oracleclient/client.go`).
+Oracle gRPC security posture: the server binds **loopback by default** (`127.0.0.1`). The reason is that `RegisterMediaNode` / `MediaNodeHeartbeat` / `PlaceMediaSession` currently have NO application-layer auth. Operators who need an external bind set `ORACLE_GRPC_BIND_ADDR` explicitly. The server then logs a prominent warning at startup. mTLS lands with Phase 5 cert provisioning (paired with the Go-side follow-up #10 in `pkg/oracleclient/client.go`).
 
 ## Architecture references
 
-The top-level `README.md` has mermaid diagrams for: connection flow, voice routing (native UDP ↔ WebRTC SFU bridge), and the Electron app's internal store/service/component layout. Skim those before larger changes — they capture the relationships text won't.
+The top-level `README.md` has mermaid diagrams for: component topology, connection + event flow, voice join, and the store/service/component layout of the shared UI. Skim those before larger changes. They capture relationships that text does not.
 
 ## Don'ts
 
-- Don't reintroduce `tsc` or a `typescript` devDependency anywhere — use `tsgo`.
-- Don't return fresh array/object literals from Zustand selectors.
-- Don't edit `Mumble.pb.go` or `pkgs/hachiman-node/src/mumbleproto/*.ts` by hand; regenerate.
-- Don't nest `TooltipProvider`s — there's already one at the App root.
-- Don't add features beyond what the task requires; the UI is in active flux toward a Discord-like layout and unrelated refactors create merge churn.
+- Do not reintroduce `tsc` or a `typescript` devDependency anywhere. Use `tsgo`.
+- Do not return fresh array/object literals from Zustand selectors.
+- Do not edit `*.pb.go` by hand. Regenerate with `go generate`.
+- Do not change a wire shape without an update to `docs/gateway-protocol.md` in the same change.
+- Do not nest `TooltipProvider`s. There is already one at the App root.
+- Do not add features beyond what the task requires. The UI is in active flux toward a Discord-like layout, and unrelated refactors create merge churn.

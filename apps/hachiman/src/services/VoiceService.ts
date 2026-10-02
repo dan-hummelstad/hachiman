@@ -1,192 +1,227 @@
-import { serversService } from './ServersService'
-import { useVoiceStore } from '@/stores/voiceStore'
+import {
+  Permissions,
+  has,
+  type Channel,
+  type SelfVoice,
+  type VoiceConnection
+} from '@hachiman/client'
+import { isGuildChannel } from '@/lib/model'
+import { hachiman } from '@/services/hachiman'
+import { usePrefsStore } from '@/stores/prefsStore'
 import { useUserStore } from '@/stores/userStore'
-import type { ConnectionQualitySample, SpeakingStateChange } from '@hachiman/hachiman-node'
+import { useVoiceStore } from '@/stores/voiceStore'
 
-export class VoiceService {
-  private _speakingListener: ((state: SpeakingStateChange) => void) | null = null
-  private _connectionQualityListener: ((sample: ConnectionQualitySample) => void) | null = null
-  private _connectionCleanup: (() => void) | null = null
-  private _activeUrl: string | null = null
+const STATS_MS = 2_000
+const VAD_MS = 50
+const VAD_THRESHOLD = 0.02 // RMS
+const VAD_HANGOVER_MS = 300
 
-  initVoice(url: string): void {
-    const server = serversService.getServer(url)
-    if (!server || !server.isConnected()) return
+/** A captured microphone plus its voice-activity detector. `stop()` releases both. */
+interface MicSession {
+  stop(): void
+}
 
-    this._activeUrl = url
-    const store = useVoiceStore.getState()
+/**
+ * Runs local voice-activity detection on `stream`. `onSpeaking` fires on changes only, and with
+ * `false` on stop. `live()` gates it, so a muted user never shows as speaking.
+ */
+function startMicSession(
+  stream: MediaStream,
+  live: () => boolean,
+  onSpeaking: (speaking: boolean) => void
+): MicSession {
+  const audioCtx = new AudioContext()
+  const analyser = audioCtx.createAnalyser()
+  analyser.fftSize = 512
+  audioCtx.createMediaStreamSource(stream).connect(analyser)
+  const buf = new Float32Array(analyser.fftSize)
+  let lastLoud = 0
+  let speaking = false
+  const report = (next: boolean): void => {
+    if (next === speaking) return
+    speaking = next
+    onSpeaking(next)
+  }
+  const vad = setInterval(() => {
+    analyser.getFloatTimeDomainData(buf)
+    let sum = 0
+    for (const v of buf) sum += v * v
+    const now = Date.now()
+    if (Math.sqrt(sum / buf.length) > VAD_THRESHOLD) lastLoud = now
+    report(live() && now - lastLoud < VAD_HANGOVER_MS)
+  }, VAD_MS)
+  return {
+    stop: () => {
+      clearInterval(vad)
+      void audioCtx.close()
+      stopTracks(stream)
+      report(false)
+    }
+  }
+}
 
-    this._speakingListener = (state: SpeakingStateChange) => {
-      if (state.speaking) {
-        store.addSpeaking(state.user.session)
-      } else {
-        store.removeSpeaking(state.user.session)
+function stopTracks(stream: MediaStream): void {
+  stream.getTracks().forEach((t) => t.stop())
+}
+
+function captureMic(): Promise<MediaStream> {
+  const deviceId = usePrefsStore.getState().inputDeviceId
+  return navigator.mediaDevices.getUserMedia({
+    audio: {
+      echoCancellation: true,
+      noiseSuppression: true,
+      autoGainControl: true,
+      ...(deviceId ? { deviceId: { ideal: deviceId } } : {})
+    }
+  })
+}
+
+/**
+ * Global single voice session over HachimanClient.joinVoice / VoiceConnection. Mute/deafen policy
+ * lives in the client (`setSelfVoice`); this service mirrors the result into `useVoiceStore`.
+ */
+class VoiceService {
+  private conn: VoiceConnection | null = null
+  private mic: MicSession | null = null
+  /** Bumped by every mic start/stop, so a late getUserMedia can tell it was superseded. */
+  private micAttempt = 0
+  private statsTimer: ReturnType<typeof setInterval> | null = null
+
+  /** Wires the client and prefs subscriptions. `startHachiman()` calls it once. */
+  start(): void {
+    // The persisted prefs seed the client, which owns mute/deafen state from here on.
+    const { ownMute, selfDeaf } = useVoiceStore.getState()
+    this.setSelfVoice({ selfMute: ownMute, selfDeaf })
+    // Dropped underneath us (kicked / replaced / media drop / gateway disconnect on sign-out).
+    // Our own leave/switch clears `this.conn` first, so those don't land here.
+    hachiman.on('voice', (vc) => {
+      if (vc || !this.conn) return
+      this.teardown()
+      useVoiceStore.getState().resetSession()
+    })
+    // Device changes from user settings apply to the live session.
+    usePrefsStore.subscribe((s, prev) => {
+      if (s.inputDeviceId !== prev.inputDeviceId && this.conn) void this.startMic()
+      if (s.outputDeviceId !== prev.outputDeviceId) this.applyOutputDevice()
+    })
+  }
+
+  /** Join a guild voice channel if I may CONNECT there; otherwise a no-op. */
+  join(channel: Channel): Promise<void> {
+    if (
+      channel.type !== 'voice' ||
+      !isGuildChannel(channel) ||
+      !has(hachiman.permissionsFor(channel.id), Permissions.CONNECT)
+    )
+      return Promise.resolve()
+    return this.joinVoice(channel.guildId, channel.id)
+  }
+
+  async joinVoice(guildId: string, channelId: string): Promise<void> {
+    if (useVoiceStore.getState().channelId === channelId) return
+    this.teardown()
+    useVoiceStore.setState({ guildId, channelId, connectionState: 'new' })
+    try {
+      const conn = await hachiman.joinVoice(guildId, channelId)
+      this.conn = conn
+      this.applyOutputDevice()
+      conn.on('state', (connectionState) => {
+        if (this.conn === conn) useVoiceStore.setState({ connectionState })
+      })
+      conn.on('speaking', ({ userId, speaking }) =>
+        useVoiceStore.getState().setSpeaking(userId, speaking)
+      )
+      conn.on('peers', (peers) =>
+        useVoiceStore.getState().setPeers(peers, useUserStore.getState().me?.id ?? null)
+      )
+      this.statsTimer = setInterval(() => void this.sampleStats(), STATS_MS)
+      // Captured even when muted: mute only gates the outgoing track, so unmute is instant.
+      await this.startMic()
+    } catch (err) {
+      if (useVoiceStore.getState().channelId !== channelId) return // superseded by another join
+      console.error('[voice] join failed', err)
+      this.leaveVoice()
+    }
+  }
+
+  leaveVoice(): void {
+    this.teardown()
+    hachiman.leaveVoice()
+    useVoiceStore.getState().resetSession()
+  }
+
+  toggleMute(): void {
+    this.setSelfVoice({ selfMute: !hachiman.selfVoice.selfMute })
+  }
+
+  toggleDeaf(): void {
+    this.setSelfVoice({ selfDeaf: !hachiman.selfVoice.selfDeaf })
+  }
+
+  private setSelfVoice(change: Partial<SelfVoice>): void {
+    useVoiceStore.setState(hachiman.setSelfVoice(change))
+  }
+
+  private applyOutputDevice(): void {
+    void this.conn?.setOutputDevice(usePrefsStore.getState().outputDeviceId)
+  }
+
+  /** (Re)starts the mic session on the current input device. Never throws. */
+  private async startMic(): Promise<void> {
+    this.stopMic()
+    const conn = this.conn
+    if (!conn) return
+    const attempt = this.micAttempt
+    try {
+      const stream = await captureMic()
+      // A stop, restart or teardown happened while the permission prompt was up.
+      if (attempt !== this.micAttempt) return stopTracks(stream)
+      this.mic = startMicSession(
+        stream,
+        () => !hachiman.selfVoice.selfMute,
+        (speaking) => this.setLocalSpeaking(speaking)
+      )
+      useVoiceStore.setState({ micActive: true })
+      await conn.setMicrophone(stream)
+    } catch (err) {
+      console.warn('[voice] microphone unavailable', err)
+      if (attempt === this.micAttempt) this.stopMic()
+    }
+  }
+
+  private stopMic(): void {
+    this.micAttempt++
+    if (!this.mic) return
+    this.mic.stop()
+    this.mic = null
+    void this.conn?.setMicrophone(null)
+    useVoiceStore.setState({ micActive: false })
+  }
+
+  /** Our VAD result → the `speaking` op + our own speaking indicator. */
+  private setLocalSpeaking(speaking: boolean): void {
+    this.conn?.setSpeaking(speaking)
+    const me = useUserStore.getState().me
+    if (me) useVoiceStore.getState().setSpeaking(me.id, speaking)
+  }
+
+  private async sampleStats(): Promise<void> {
+    const stats = await this.conn?.getStats().catch(() => null)
+    useVoiceStore.setState({
+      connectionQuality: {
+        rttMs: hachiman.gateway.latencyMs,
+        jitterMs: stats?.jitterMs ?? null,
+        packetLoss: stats?.packetLoss ?? null,
+        sampledAt: Date.now()
       }
-    }
-
-    server.on('speakingStateChange', this._speakingListener)
-
-    // Surface measured connection quality into the store: RTT from the client
-    // library's control-channel Ping round-trip, and packet-loss / jitter from
-    // the WebRTC voice path's RTCStats. The sample shape mirrors voiceStore's
-    // ConnectionQuality slot, so it flows straight in.
-    this._connectionQualityListener = (sample: ConnectionQualitySample) => {
-      store.setConnectionQuality(sample)
-    }
-
-    server.on('connectionQuality', this._connectionQualityListener)
-
-    // Track WebRTC connection state
-    const webrtcVoice = server.mumbleClient.webrtcVoice
-    if (webrtcVoice) {
-      const sub = webrtcVoice.connectionState.subscribe((state) => {
-        store.setVoiceConnected(state === 'connected')
-      })
-      this._connectionCleanup = () => sub.unsubscribe()
-    }
+    })
   }
 
-  /**
-   * Join voice on the given channel: start the microphone and record the
-   * voice-connected channel in the store. Assumes the caller has already
-   * moved the user into the channel (Mumble-side).
-   */
-  async joinVoice(url: string, channelId: number): Promise<void> {
-    const store = useVoiceStore.getState()
-    const userStore = useUserStore.getState()
-    store.setVoiceChannel(url, channelId)
-
-    const server = serversService.getServer(url)
-    if (!server || !server.isConnected()) return
-
-    if (!userStore.selfMute && !userStore.selfDeaf) {
-      await server.startMicrophone().catch((err) => {
-        console.warn('Failed to start microphone:', err)
-      })
-      store.setMicActive(true)
-    }
-  }
-
-  /**
-   * Leave voice on the given server: stop the microphone and clear the
-   * voice-connected channel for this server.
-   */
-  async leaveVoice(url: string): Promise<void> {
-    const store = useVoiceStore.getState()
-    const server = serversService.getServer(url)
-    if (server) {
-      server.stopMicrophone()
-    }
-    store.setMicActive(false)
-    store.setVoiceChannel(url, null)
-  }
-
-  async startMicrophone(url: string): Promise<void> {
-    const store = useVoiceStore.getState()
-    const userStore = useUserStore.getState()
-    if (userStore.selfMute || userStore.selfDeaf) return
-
-    const server = serversService.getServer(url)
-    if (!server || !server.isConnected()) return
-
-    await server.startMicrophone()
-    store.setMicActive(true)
-  }
-
-  stopMicrophone(url: string): void {
-    const store = useVoiceStore.getState()
-    const server = serversService.getServer(url)
-    if (!server) return
-
-    server.stopMicrophone()
-    store.setMicActive(false)
-  }
-
-  /**
-   * Toggle the user's self-mute preference. `url` is the server to push the
-   * state change to; pass null (or any disconnected url) to just flip the
-   * local pref. The pref is global — when the user later joins voice on a
-   * server, `joinVoice` honours it.
-   */
-  async toggleMute(url: string | null): Promise<void> {
-    const store = useVoiceStore.getState()
-    const userStore = useUserStore.getState()
-    const wasMuted = userStore.selfMute
-    userStore.setSelfMute(!wasMuted)
-
-    const server = url ? serversService.getServer(url) : null
-    if (!server || !server.isConnected()) return
-
-    if (wasMuted) {
-      await server.mumbleClient.self?.setSelfMute(false).catch((err) => {
-        console.warn('setSelfMute(false) failed:', err)
-      })
-      await server.startMicrophone()
-      store.setMicActive(true)
-    } else {
-      server.stopMicrophone()
-      store.setMicActive(false)
-      await server.mumbleClient.self?.setSelfMute(true).catch((err) => {
-        console.warn('setSelfMute(true) failed:', err)
-      })
-    }
-  }
-
-  /** Same shape as `toggleMute` — null/disconnected url just flips the pref. */
-  async toggleDeaf(url: string | null): Promise<void> {
-    const store = useVoiceStore.getState()
-    const userStore = useUserStore.getState()
-    const wasDeaf = userStore.selfDeaf
-
-    if (wasDeaf) {
-      userStore.setSelfDeaf(false)
-    } else {
-      // Deafen implies mute — same semantics as Mumble's native client.
-      userStore.setSelfDeaf(true)
-      userStore.setSelfMute(true)
-    }
-
-    const server = url ? serversService.getServer(url) : null
-    if (!server || !server.isConnected()) return
-
-    if (wasDeaf) {
-      await server.mumbleClient.self?.setSelfDeaf(false).catch((err) => {
-        console.warn('setSelfDeaf(false) failed:', err)
-      })
-      if (!useUserStore.getState().selfMute) {
-        await server.startMicrophone()
-        store.setMicActive(true)
-      }
-    } else {
-      server.stopMicrophone()
-      store.setMicActive(false)
-      await server.mumbleClient.self?.setSelfDeaf(true).catch((err) => {
-        console.warn('setSelfDeaf(true) failed:', err)
-      })
-      await server.mumbleClient.self?.setSelfMute(true).catch((err) => {
-        console.warn('setSelfMute(true) failed:', err)
-      })
-    }
-  }
-
-  cleanup(): void {
-    if (this._activeUrl) {
-      const server = serversService.getServer(this._activeUrl)
-      if (server) {
-        if (this._speakingListener) {
-          server.off('speakingStateChange', this._speakingListener)
-        }
-        if (this._connectionQualityListener) {
-          server.off('connectionQuality', this._connectionQualityListener)
-        }
-      }
-    }
-    this._connectionCleanup?.()
-    this._connectionCleanup = null
-    this._speakingListener = null
-    this._connectionQualityListener = null
-    this._activeUrl = null
-    useVoiceStore.getState().reset()
+  private teardown(): void {
+    this.stopMic()
+    if (this.statsTimer) clearInterval(this.statsTimer)
+    this.statsTimer = null
+    this.conn = null
   }
 }
 

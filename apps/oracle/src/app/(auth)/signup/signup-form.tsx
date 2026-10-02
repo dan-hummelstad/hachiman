@@ -37,7 +37,7 @@ export function SignupForm(): React.JSX.Element {
       <CardHeader>
         <CardTitle>Create your Takusen account</CardTitle>
         <CardDescription>
-          One account for every Hachiman Mumble server.
+          One account for every Hachiman guild.
         </CardDescription>
       </CardHeader>
       <CardContent>

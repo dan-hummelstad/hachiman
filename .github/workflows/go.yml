@@ -1,0 +1,27 @@
+# https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-go
+name: Go
+on:
+  push:
+    paths: ['apps/hachiman-server/**', '.github/workflows/go.yml']
+  pull_request:
+    paths: ['apps/hachiman-server/**', '.github/workflows/go.yml']
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/hachiman-server
+    env:
+      CGO_ENABLED: '0'
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-go@v5
+      with:
+        go-version-file: apps/hachiman-server/go.mod
+        cache-dependency-path: apps/hachiman-server/go.sum
+    - name: Vet
+      run: go vet ./...
+    - name: Build
+      run: go build -v ./...
+    - name: Test
+      run: go test ./...

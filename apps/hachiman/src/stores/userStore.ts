@@ -1,30 +1,29 @@
 import type {} from '@redux-devtools/extension'
 import { create } from 'zustand'
-import { devtools, persist } from 'zustand/middleware'
+import { devtools } from 'zustand/middleware'
+import type { GatewayState, PresenceStatus, User } from '@hachiman/client'
 
 interface UserState {
-  username: string | null
-  selfMute: boolean
-  selfDeaf: boolean
-  setUsername: (username: string) => void
-  setSelfMute: (value: boolean) => void
-  setSelfDeaf: (value: boolean) => void
+  /** The signed-in user as the gateway sees them (READY.user). */
+  me: User | null
+  /**
+   * My own presence, as last chosen or echoed. Kept apart from guildStore.presences because that
+   * mirror drops offline entries, which for me means "Invisible", not "unknown".
+   */
+  status: PresenceStatus
+  /** Gateway connection state. Driven by the client's 'state' event, so a reset leaves it alone. */
+  gatewayState: GatewayState
 }
 
+const initialUserState = (): Pick<UserState, 'me' | 'status'> => ({
+  me: null,
+  status: 'online'
+})
+
 export const useUserStore = create<UserState>()(
-  devtools(
-    persist(
-      (set) => ({
-        username: null,
-        selfMute: false,
-        selfDeaf: false,
-        setUsername: (username: string | null) => set({ username }),
-        setSelfMute: (value: boolean) => set({ selfMute: value }),
-        setSelfDeaf: (value: boolean) => set({ selfDeaf: value })
-      }),
-      {
-        name: 'hachiman-user-storage'
-      }
-    )
-  )
+  devtools(() => ({ ...initialUserState(), gatewayState: 'idle' }))
 )
+
+export function resetUserStore(): void {
+  useUserStore.setState(initialUserState())
+}

@@ -1,40 +1,22 @@
-// Public entry point for the `hachiman` shared renderer library.
-// Consumed by the platform-specific apps (hachiman-electron, hachiman-browser).
+// Public entry point for the shared renderer library, consumed by the hosts
+// (hachiman-electron, hachiman-browser).
 
 import './assets/main.css'
 
 export { default as App } from './App'
-export { ThemeProvider, useTheme } from './components/theme-provider'
+export { ThemeProvider } from './components/theme-provider'
 
-// Platform abstraction surface
+// Platform seam (contract §11)
 export { PlatformProvider, usePlatform } from './shared/PlatformContext'
-export type { PlatformContextValue } from './shared/PlatformContext'
 export type {
-  IMumbleService,
-  IMumbleServiceFactory,
-  MumbleConnectOptions,
-  MumbleEvents,
-  MumbleEventHandler
-} from './shared/IMumbleService'
-export type { IPlatformService } from './shared/IPlatformService'
-// Re-exported from the client lib so host PlatformService impls and region-aware
-// UI can type their probe surface against the shared package.
-export type { RegionProbeResult, RegionProbeTarget } from '@hachiman/hachiman-node'
+  IPlatformService,
+  RegionProbeTarget,
+  RegionProbeResult
+} from './shared/IPlatformService'
 
-// Relay voice-health types + the wire→UI mapper, so host MumbleService impls
-// can turn a RelayMetricsSnapshot into the RelayPathSnapshot the Health tab
-// renders without duplicating the mapping per platform.
-export { relayPathFromMetrics } from './lib/connection-quality'
-export type {
-  RelayPathSnapshot,
-  RelayPathHop,
-  RelayMetricsSnapshotLike
-} from './lib/connection-quality'
+// Oracle / Takusen SSO. The App completes sign-in itself via `platform.onOAuthCallback`;
+// the Electron host reads `oracleService.env` for its redirect URI.
+export { oracleService } from './services/OracleService'
 
-// Oracle / Takusen SSO surface — host apps need these for the OAuth callback
-// flow and for the deep-link handler (agent D).
-export { oracleService, OracleService } from './services/OracleService'
-export type { PKCEFlow } from './services/OracleService'
-export { useOracleStore } from './stores/oracleStore'
-export type { OracleSession, OracleUser } from './stores/oracleStore'
-export { serversService } from './services/ServersService'
+// Invite links: `takusen://invite/<code>`, `https://<host>/invite/<code>`, or a bare code → code.
+export { parseInviteCode } from './services/InviteService'

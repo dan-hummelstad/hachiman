@@ -1,75 +1,25 @@
-import { createContext, JSX, useContext, useEffect, useState } from 'react'
+import { useEffect } from 'react'
+import { usePrefsStore } from '@/stores/prefsStore'
 
-type Theme = 'dark' | 'light' | 'system'
+const DARK_QUERY = '(prefers-color-scheme: dark)'
 
-type ThemeProviderProps = {
-  children: React.ReactNode
-  defaultTheme?: Theme
-  storageKey?: string
-}
-
-type ThemeProviderState = {
-  theme: Theme
-  setTheme: (theme: Theme) => void
-}
-
-const initialState: ThemeProviderState = {
-  theme: 'system',
-  setTheme: () => null
-}
-
-const ThemeProviderContext = createContext<ThemeProviderState>(initialState)
-
-export function ThemeProvider({
-  children,
-  defaultTheme = 'system',
-  storageKey = 'vite-ui-theme',
-  ...props
-}: ThemeProviderProps): JSX.Element {
-  const [theme, setTheme] = useState<Theme>(
-    () => (localStorage.getItem(storageKey) as Theme) || defaultTheme
-  )
+/** Applies `prefsStore.theme` as the `light`/`dark` class on `<html>`; `system` tracks the OS. */
+export function ThemeProvider({ children }: { children: React.ReactNode }): React.JSX.Element {
+  const theme = usePrefsStore((s) => s.theme)
 
   useEffect(() => {
-    const root = window.document.documentElement
-
-    root.classList.remove('light', 'dark')
-
-    if (theme === 'system') {
-      const systemTheme = window.matchMedia('(prefers-color-scheme: dark)').matches
-        ? 'dark'
-        : 'light'
-
-      root.classList.add(systemTheme)
-      return
+    const root = document.documentElement
+    const mq = window.matchMedia(DARK_QUERY)
+    const apply = (): void => {
+      const resolved = theme === 'system' ? (mq.matches ? 'dark' : 'light') : theme
+      root.classList.remove('light', 'dark')
+      root.classList.add(resolved)
     }
-
-    root.classList.add(theme)
+    apply()
+    if (theme !== 'system') return
+    mq.addEventListener('change', apply)
+    return () => mq.removeEventListener('change', apply)
   }, [theme])
 
-  const value = {
-    theme,
-    setTheme: (theme: Theme) => {
-      localStorage.setItem(storageKey, theme)
-      setTheme(theme)
-    }
-  }
-
-  return (
-    <ThemeProviderContext.Provider {...props} value={value}>
-      {children}
-    </ThemeProviderContext.Provider>
-  )
-}
-
-// Co-located so the hook + provider stay legible in one file. The
-// react-refresh rule's split-everything-out preference doesn't really apply
-// — the hook IS a component-facing API for this provider.
-// eslint-disable-next-line react-refresh/only-export-components
-export const useTheme = (): ThemeProviderState => {
-  const context = useContext(ThemeProviderContext)
-
-  if (context === undefined) throw new Error('useTheme must be used within a ThemeProvider')
-
-  return context
+  return <>{children}</>
 }

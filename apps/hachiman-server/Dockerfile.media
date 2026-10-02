@@ -1,30 +1,29 @@
-# Builds the hachiman-media binary — the stateless WebRTC SFU. Outbound dials
-# control over the sidechannel; no inbound listener is exposed at the container
-# layer (RTP / DTLS-SRTP ports are allocated dynamically by pion and require
-# host networking in production deploys).
-# Pair: Dockerfile.control and Dockerfile.recorder.
+# Builds the hachiman-media binary — the stateless WebRTC SFU. Clients reach it
+# over the voice WebSocket (docs/gateway-protocol.md §8); it registers and
+# heartbeats with Oracle over gRPC and listens for kicks on Redis media:{nodeId}.
+# Pair: Dockerfile.gateway and Dockerfile.recorder.
 
 FROM golang:1.25-alpine AS builder
 
-COPY . /go/src/mumble.info/grumble
+COPY . /go/src/hachiman/server
 
-WORKDIR /go/src/mumble.info/grumble
+WORKDIR /go/src/hachiman/server
 
-RUN apk add --no-cache git build-base
+RUN apk add --no-cache git
 
-RUN go build -o hachiman-media mumble.info/grumble/cmd/hachiman-media
+RUN CGO_ENABLED=0 go build -o hachiman-media hachiman/server/cmd/hachiman-media
 
 FROM alpine:edge
 
-COPY --from=builder /go/src/mumble.info/grumble/hachiman-media /usr/bin/hachiman-media
+COPY --from=builder /go/src/hachiman/server/hachiman-media /usr/bin/hachiman-media
 
-# Media is stateless — no /data, no VOLUME. Per-session state lives in RAM and
-# is rebuilt from the control plane's RoomMembershipSnapshot on reconnect.
+# Media is stateless — no /data, no VOLUME. Per-session state lives in RAM.
 
-# No EXPOSE: media's only inbound channel is RTP/DTLS-SRTP which pion allocates
-# from the OS ephemeral port range and is normally served via host networking
-# in cloud deploys (see MEDIA-PLANE-MIGRATION.md "Service topology"). The
-# sidechannel gRPC connection is OUTBOUND to control — no inbound socket on the
-# media side at all.
+# 8090/tcp — WS /voice (SDP/ICE signaling, peers, speaking state).
+EXPOSE 8090/tcp
+
+# RTP / DTLS-SRTP runs over UDP. Pin the range with --udp-port-min/--udp-port-max
+# and publish it (e.g. `-p 50000-50100:50000-50100/udp`), or use host
+# networking. Set --public-ip when the node sits behind NAT (pion NAT 1:1).
 
 ENTRYPOINT [ "/usr/bin/hachiman-media" ]

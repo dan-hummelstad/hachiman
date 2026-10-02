@@ -3,15 +3,11 @@
   "compilerOptions": {
     "lib": ["ESNext", "DOM", "DOM.Iterable"],
     "jsx": "react-jsx",
-    "rootDir": ".",
-    "composite": true,
     "noEmit": true,
     "tsBuildInfoFile": "../../ts-dist/hachiman-browser/tsconfig.tsbuildinfo",
-    "types": ["vite/client"]
+    "types": ["vite/client"],
+    // The shared UI is checked from source; mirror the `@` alias vite.config.ts gives it.
+    "paths": { "@/*": ["../hachiman/src/*"] }
   },
-  "references": [
-    { "path": "../hachiman/tsconfig.web.json" },
-    { "path": "../../pkgs/hachiman-node" }
-  ],
   "include": ["src/**/*", "vite.config.ts"]
 }

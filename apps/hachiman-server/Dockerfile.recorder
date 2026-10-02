@@ -1,21 +1,21 @@
 # Builds the hachiman-recorder binary — subscribes to a media node's primary-SFU
 # stream and writes segments to S3 (phase 4+; phase 3a only logs received
 # frames). Outbound dials media; no inbound listener.
-# Pair: Dockerfile.control and Dockerfile.media.
+# Pair: Dockerfile.gateway and Dockerfile.media.
 
 FROM golang:1.25-alpine AS builder
 
-COPY . /go/src/mumble.info/grumble
+COPY . /go/src/hachiman/server
 
-WORKDIR /go/src/mumble.info/grumble
+WORKDIR /go/src/hachiman/server
 
-RUN apk add --no-cache git build-base
+RUN apk add --no-cache git
 
-RUN go build -o hachiman-recorder mumble.info/grumble/cmd/hachiman-recorder
+RUN CGO_ENABLED=0 go build -o hachiman-recorder hachiman/server/cmd/hachiman-recorder
 
 FROM alpine:edge
 
-COPY --from=builder /go/src/mumble.info/grumble/hachiman-recorder /usr/bin/hachiman-recorder
+COPY --from=builder /go/src/hachiman/server/hachiman-recorder /usr/bin/hachiman-recorder
 
 # Recorder is stateless on the container — segment writes go to S3 directly.
 # No /data, no VOLUME.

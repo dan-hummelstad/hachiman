@@ -5,10 +5,10 @@
  *   - the first-party `hachiman-client` public OIDC client used by the
  *     Hachiman desktop + browser apps for end-user PKCE sign-in.
  *   - the fixed set of voice `regions` (us-east, us-west, eu-west,
- *     ap-southeast) a server can be homed in.
+ *     ap-southeast) a guild can be homed in.
  *
- * Optional dev fixtures (managed islands, fixture vServers, fixture users)
- * are NOT seeded — create them through the dashboard when you need them.
+ * Users and guilds are NOT seeded — sign up through the dashboard and create
+ * guilds from the Hachiman app.
  *
  * Safe to re-run: each upsert is keyed on its natural key (client_id /
  * region code) so re-running refreshes mutable fields and leaves the rest
@@ -30,14 +30,10 @@ const HACHIMAN_CLIENT_ID = 'hachiman-client'
 //
 // `probeHost`/`probePort` are the endpoint a latency-capable client (the
 // Electron host) TCP-connect-probes to measure client→region RTT. THESE HOSTS
-// ARE DEV PLACEHOLDERS: the managed-infra islands they should point at do not
-// exist yet (see REGION-CONTRACT.md "Future"). They are intentionally
-// well-known anycast/cloud public IPs that respond to a TCP connect so the
-// probe path is exercisable end-to-end in dev; they are NOT Mumble servers and
-// the measured RTT is only a rough geographic proxy. Swap these for the real
-// per-region island hosts (on the Mumble port 64738) when that infra lands.
-// `probePort` 443 here because the placeholders are public HTTPS endpoints that
-// accept a TCP connect; real region hosts will use the Mumble default 64738.
+// ARE DEV PLACEHOLDERS: well-known cloud endpoints that accept a TCP connect
+// on 443 so the probe path is exercisable end-to-end in dev; the measured RTT
+// is only a rough geographic proxy. Swap them for the real per-region media
+// hosts (also 443) when that infra lands.
 const REGIONS: ReadonlyArray<{
   code: string
   displayName: string
@@ -89,7 +85,7 @@ async function main(): Promise<void> {
 
   // --- Regions ------------------------------------------------------------
   // Idempotent upsert keyed on the `code` primary key: re-running refreshes
-  // displayName/lat/lon and leaves any servers referencing the code intact.
+  // displayName/lat/lon and leaves any guilds referencing the code intact.
   for (const r of REGIONS) {
     await db
       .insert(regions)
@@ -126,7 +122,7 @@ async function main(): Promise<void> {
   if (existing) {
     await db
       .update(oidcClients)
-      .set({ redirectUris, isPublic: true, clientSecret: '', virtualServerId: null })
+      .set({ redirectUris, isPublic: true, clientSecret: '' })
       .where(eq(oidcClients.id, existing.id))
     console.log(
       `[seed] updated ${HACHIMAN_CLIENT_ID} (redirect_uris=${redirectUris.join(', ')})`,
@@ -136,7 +132,6 @@ async function main(): Promise<void> {
       clientId: HACHIMAN_CLIENT_ID,
       clientSecret: '', // ignored for public clients; the adapter omits it
       isPublic: true,
-      virtualServerId: null,
       redirectUris,
       scopes: ['openid', 'profile', 'email'],
     })

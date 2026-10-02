@@ -8,6 +8,8 @@ import { dirname } from "path";
 import { fileURLToPath } from "url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+const MAIN_IMPORT_MSG =
+  "Main may import only @hachiman/hachiman/oracle-env from the shared UI lib.";
 
 export default defineConfig(
   { ignores: ["**/node_modules", "**/dist", "**/out"] },
@@ -43,6 +45,25 @@ export default defineConfig(
       "@typescript-eslint/no-unused-vars": [
         "error",
         { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
+      ],
+    },
+  },
+  {
+    // Main is a Node bundle: the shared UI lib (React, DOM, stores) must not
+    // leak in. Its pure env resolver is the one allowed entry point.
+    files: ["src/main/**/*.{ts,mts}"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          paths: [{ name: "@hachiman/hachiman", message: MAIN_IMPORT_MSG }],
+          patterns: [
+            {
+              group: ["@hachiman/hachiman/*", "!@hachiman/hachiman/oracle-env"],
+              message: MAIN_IMPORT_MSG,
+            },
+          ],
+        },
       ],
     },
   },

@@ -365,8 +365,8 @@ type TrackAdded struct {
 	state              protoimpl.MessageState `protogen:"open.v1"`
 	TrackId            string                 `protobuf:"bytes,1,opt,name=track_id,json=trackId,proto3" json:"track_id,omitempty"`
 	PublisherSessionId string                 `protobuf:"bytes,2,opt,name=publisher_session_id,json=publisherSessionId,proto3" json:"publisher_session_id,omitempty"`
-	// Mirrors MediaKind in Mumble.proto. String to keep the proto independent
-	// of the Mumble proto enum.
+	// Media kind, e.g. "audio". A string so this proto does not depend on
+	// another proto's enum.
 	Kind            string `protobuf:"bytes,3,opt,name=kind,proto3" json:"kind,omitempty"`
 	Codec           string `protobuf:"bytes,4,opt,name=codec,proto3" json:"codec,omitempty"`
 	OriginatingSsrc uint32 `protobuf:"varint,5,opt,name=originating_ssrc,json=originatingSsrc,proto3" json:"originating_ssrc,omitempty"`
@@ -627,7 +627,7 @@ const file_RecorderControl_proto_rawDesc = "" +
 	"\x0fStreamHeartbeat\x12-\n" +
 	"\x13sent_at_unix_micros\x18\x01 \x01(\x03R\x10sentAtUnixMicros2\x81\x01\n" +
 	"\x0fRecorderControl\x12n\n" +
-	"\x13SubscribeAsRecorder\x120.hachiman.recorder.v1.SubscribeAsRecorderRequest\x1a#.hachiman.recorder.v1.RecorderEvent0\x01B5Z3mumble.info/grumble/pkg/recorderproto;recorderprotob\x06proto3"
+	"\x13SubscribeAsRecorder\x120.hachiman.recorder.v1.SubscribeAsRecorderRequest\x1a#.hachiman.recorder.v1.RecorderEvent0\x01B1Z/hachiman/server/pkg/recorderproto;recorderprotob\x06proto3"
 
 var (
 	file_RecorderControl_proto_rawDescOnce sync.Once

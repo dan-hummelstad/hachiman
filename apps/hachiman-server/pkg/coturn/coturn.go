@@ -4,17 +4,12 @@
 
 // Package coturn mints time-bounded TURN credentials per the coturn REST API
 // scheme — `username = <expiry-unix>:<user-id>`, `credential = base64(HMAC-SHA1(
-// secret, username))`. The output drops directly into
-// `mumbleproto.IceServer` slices on `VoiceTokenGrant`.
+// secret, username))`. ICEServer marshals straight into the browser
+// RTCIceServer shape the gateway sends in VOICE_SERVER_UPDATE.iceServers.
 //
-// Per MEDIA-PLANE-MIGRATION.md Phase 3 step 6, TURN is per-region co-located
-// with the media nodes. Each region has its own coturn cluster, its own HMAC
-// secret, and (usually) its own endpoint list. The mint path looks the
-// region up in CoturnConfig and builds one IceServer per endpoint.
-//
-// Phase 3a lands MintICEServers + tests; the actual VoiceTokenGrant emission
-// path that calls MintICEServers is wired by phase 2 step 1 (proto) + phase
-// 4 (client). See the TODO in cmd/hachiman-control/webrtc_handlers.go.
+// TURN is per-region, co-located with the media nodes: each region has its own
+// coturn cluster, HMAC secret and endpoint list. CoturnConfig looks the region
+// up; CoturnRegion.Mint builds one ICEServer per endpoint.
 package coturn
 
 import (
@@ -26,11 +21,14 @@ import (
 	"os"
 	"strings"
 	"time"
-
-	"google.golang.org/protobuf/proto"
-
-	"mumble.info/grumble/pkg/mumbleproto"
 )
+
+// ICEServer is the JSON shape of a browser RTCIceServer.
+type ICEServer struct {
+	URLs       []string `json:"urls"`
+	Username   string   `json:"username,omitempty"`
+	Credential string   `json:"credential,omitempty"`
+}
 
 // defaultCredentialTTL is the per-region credential TTL when CoturnRegion
 // leaves CredentialTTL zero. 5 minutes matches the recommended window in
@@ -50,7 +48,7 @@ type CoturnRegion struct {
 	Region string `json:"region"`
 
 	// Endpoints is the ordered list of TURN URLs published to the client in
-	// VoiceTokenGrant.ice_servers. Order is significant — the client tries
+	// VOICE_SERVER_UPDATE.iceServers. Order is significant — the client tries
 	// them in order during ICE gathering. Typical shape is one UDP and one
 	// TCP fallback per region.
 	Endpoints []string `json:"endpoints"`
@@ -66,8 +64,8 @@ type CoturnRegion struct {
 
 // CoturnConfig is the top-level config envelope loaded from disk via
 // --coturn-config. An empty Regions slice (or no file at all) leaves
-// MintICEServers returning the empty slice — control happily emits
-// `ice_servers: []` and the client falls back to host + srflx candidates
+// MintICEServers returning the empty slice — the caller emits
+// `iceServers: []` and the client falls back to host + srflx candidates
 // only. Useful for dev where no TURN is provisioned.
 type CoturnConfig struct {
 	Regions []CoturnRegion `json:"regions"`
@@ -107,13 +105,13 @@ func LoadConfigFile(path string) (*CoturnConfig, error) {
 // + user id at wall-clock time `now`. The username is `<expiry>:<userID>`
 // per the coturn REST API scheme; the credential is
 // `base64(HMAC-SHA1(secret, username))`. Unknown regions return an empty
-// slice — the caller emits `ice_servers: []` and the client falls back to
+// slice — the caller emits `iceServers: []` and the client falls back to
 // host / srflx candidates.
 //
 // Region lookup is case-insensitive (so "us-east" config matches "US-East"
 // at the call site); the response carries the matched region's username +
 // credential unchanged.
-func (c *CoturnConfig) MintICEServers(region string, userID string, now time.Time) []*mumbleproto.IceServer {
+func (c *CoturnConfig) MintICEServers(region string, userID string, now time.Time) []ICEServer {
 	if c == nil || region == "" {
 		return nil
 	}
@@ -127,20 +125,21 @@ func (c *CoturnConfig) MintICEServers(region string, userID string, now time.Tim
 	if match == nil {
 		return nil
 	}
-	ttl := match.CredentialTTL
+	return match.Mint(userID, now)
+}
+
+// Mint builds one ICEServer per endpoint, all sharing a credential that
+// expires CredentialTTL after now.
+func (r CoturnRegion) Mint(userID string, now time.Time) []ICEServer {
+	ttl := r.CredentialTTL
 	if ttl <= 0 {
 		ttl = defaultCredentialTTL
 	}
-	expiry := now.Add(ttl).Unix()
-	username := fmt.Sprintf("%d:%s", expiry, userID)
-	credential := signHMACSHA1Base64(match.HMACSecret, username)
-	out := make([]*mumbleproto.IceServer, 0, len(match.Endpoints))
-	for _, ep := range match.Endpoints {
-		out = append(out, &mumbleproto.IceServer{
-			Url:        proto.String(ep),
-			Username:   proto.String(username),
-			Credential: proto.String(credential),
-		})
+	username := fmt.Sprintf("%d:%s", now.Add(ttl).Unix(), userID)
+	credential := signHMACSHA1Base64(r.HMACSecret, username)
+	out := make([]ICEServer, 0, len(r.Endpoints))
+	for _, ep := range r.Endpoints {
+		out = append(out, ICEServer{URLs: []string{ep}, Username: username, Credential: credential})
 	}
 	return out
 }

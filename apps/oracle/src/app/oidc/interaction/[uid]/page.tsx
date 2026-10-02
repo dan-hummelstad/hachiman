@@ -1,6 +1,6 @@
 /**
  * OIDC interaction page — the consent / "continue as" screen the user sees
- * when a federated relying party (e.g. a Hachiman Mumble server) starts an
+ * when a relying party (e.g. the Hachiman app) starts an
  * authorization request and the OP needs explicit user action.
  *
  * Mounted at `/oidc/interaction/[uid]` — NOT under /api, because we want

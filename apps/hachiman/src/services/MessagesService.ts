@@ -1,90 +1,118 @@
-import type { PersistedMessage } from '@hachiman/hachiman-node'
-import { serversService } from './ServersService'
-import { useServerStore } from '@/stores/serverStore'
-import { type HistoricMessage, useMessageStore, type Message } from '@/stores/messagesStore'
-import type { IMumbleService } from '@/shared/IMumbleService'
+import type { Attachment } from '@hachiman/client'
+import { hachiman } from '@/services/hachiman'
+import { messagesEpoch, useMessageStore, type ChatMessage } from '@/stores/messagesStore'
+import { useUserStore } from '@/stores/userStore'
 
-/**
- * Resolve the IMumbleService for the currently selected server. We use the
- * selected server (rather than threading a server URL through the component
- * tree) because the chat view always operates against the active server.
- */
-function resolveActiveMumbleService(): IMumbleService {
-  const { selectedServerId } = useServerStore.getState()
-  if (!selectedServerId) {
-    throw new Error('No server is selected')
-  }
-  const mumble = serversService.getServer(selectedServerId)
-  if (!mumble || !mumble.isConnected()) {
-    throw new Error(`Server with url ${selectedServerId} is not connected`)
-  }
-  return mumble
-}
+const PAGE_SIZE = 50
+const TYPING_THROTTLE_MS = 8_000
 
-function toHistoricMessage(p: PersistedMessage): HistoricMessage | null {
-  if (p.id === undefined) {
-    // Server-issued ids are required for dedup; skip malformed rows.
-    return null
-  }
-  const createdAt = p.createdAtMs !== undefined ? new Date(Number(p.createdAtMs)) : new Date()
-  return {
-    id: p.id,
-    author: p.actorName ?? p.actorSession?.toString() ?? 'Unknown',
-    avatar: '',
-    content: p.message ?? '',
-    date: createdAt,
-    // Carry the session through so prependHistory can dedup live UUID
-    // entries against their canonical persisted form (see
-    // stores/messagesStore.ts prependHistory).
-    actorSession: p.actorSession
-  }
-}
+let lastTyping = { channelId: '', at: 0 }
+/** channelId → the history page request in flight, so overlapping triggers share one fetch. */
+const loading = new Map<string, Promise<void>>()
 
-function toRendererMessage(h: HistoricMessage): Message {
-  return {
-    id: h.id.toString(),
-    author: h.author,
-    avatar: h.avatar,
-    content: h.content,
-    date: h.date
-  }
+async function fetchOlder(channelId: string): Promise<void> {
+  const store = useMessageStore.getState()
+  const startedIn = messagesEpoch()
+  const oldest = store.byChannel.get(channelId)?.find((m) => !m.pending)
+  const page = await hachiman.rest.getMessages(channelId, {
+    before: store.hasMore.has(channelId) ? oldest?.id : undefined,
+    limit: PAGE_SIZE
+  })
+  if (messagesEpoch() !== startedIn) return // signed out meanwhile
+  store.upsert(channelId, page)
+  store.setHasMore(channelId, page.length === PAGE_SIZE)
 }
 
 export const messagesService = {
   /**
-   * Fetch a page of persisted history for a channel and merge it into the
-   * message store. Returns the page plus `hasMore` so the UI can decide
-   * whether to keep offering "load more".
-   *
-   * The server returns messages newest-first; we keep them in newest-first
-   * shape for the return value (so the caller's `oldest = messages[0]`
-   * cursor logic still works) and let the store re-sort ascending on merge.
+   * Load the page before the oldest loaded message (or the latest page on first load). No-op once
+   * history is exhausted; joins the in-flight request if one is running. Never rejects (logs).
    */
-  async loadHistory(
-    channelId: number,
-    opts?: { beforeId?: bigint; limit?: number }
-  ): Promise<{ messages: Message[]; hasMore: boolean }> {
-    const mumble = resolveActiveMumbleService()
+  loadOlder(channelId: string): Promise<void> {
+    const running = loading.get(channelId)
+    if (running) return running
+    if (useMessageStore.getState().hasMore.get(channelId) === false) return Promise.resolve()
+    const request = fetchOlder(channelId)
+      .catch((e) => console.warn('[messages] history failed', e))
+      .finally(() => loading.delete(channelId))
+    loading.set(channelId, request)
+    return request
+  },
 
-    const req: { channelId: number; beforeId?: bigint; limit?: number } = {
-      channelId
+  /** Load the latest page unless this channel's history was already loaded. */
+  ensureLoaded(channelId: string): void {
+    if (!useMessageStore.getState().hasMore.has(channelId))
+      void messagesService.loadOlder(channelId)
+  },
+
+  /**
+   * Optimistic send: a pending row keyed by nonce, replaced by the echo (REST response or
+   * MESSAGE_CREATE). `attachments` are finished uploads; the pending row renders them already.
+   */
+  async send(channelId: string, content: string, attachments: Attachment[] = []): Promise<void> {
+    const text = content.trim()
+    const me = useUserStore.getState().me
+    if ((!text && attachments.length === 0) || !me) return
+    const nonce = crypto.randomUUID()
+    const store = useMessageStore.getState()
+    store.addPending({
+      id: nonce,
+      nonce,
+      channelId,
+      guildId: hachiman.cache.channels.get(channelId)?.guildId ?? null,
+      author: me,
+      content: text,
+      attachments,
+      createdAt: new Date().toISOString(),
+      editedAt: null,
+      pending: true
+    })
+    lastTyping = { channelId: '', at: 0 }
+    try {
+      store.upsert(channelId, [
+        await hachiman.rest.sendMessage(channelId, {
+          content: text,
+          nonce,
+          attachments: attachments.length > 0 ? attachments.map((a) => a.id) : undefined
+        })
+      ])
+    } catch (err) {
+      console.error('[messages] send failed', err)
+      store.markFailed(channelId, nonce)
     }
-    if (opts?.beforeId !== undefined) req.beforeId = opts.beforeId
-    if (opts?.limit !== undefined) req.limit = opts.limit
+  },
 
-    const { messages: persisted, hasMore } = await mumble.fetchChannelMessages(req)
+  /**
+   * Re-send a failed optimistic message: drop its row, send it as a fresh pending one. Its uploads
+   * were never claimed, so their ids are still good.
+   */
+  async retry(message: ChatMessage): Promise<void> {
+    messagesService.discard(message)
+    await messagesService.send(message.channelId, message.content, message.attachments)
+  },
 
-    const historic = persisted
-      .map(toHistoricMessage)
-      .filter((m): m is HistoricMessage => m !== null)
+  /** Drop a failed optimistic message locally (it never reached the server). */
+  discard(message: ChatMessage): void {
+    useMessageStore.getState().remove(message.channelId, message.id)
+  },
 
-    if (historic.length > 0) {
-      useMessageStore.getState().prependHistory(channelId, historic)
-    }
+  /** Text only: attachments never change. '' is valid only for a message with attachments. */
+  async edit(channelId: string, messageId: string, content: string): Promise<void> {
+    const text = content.trim()
+    const updated = await hachiman.rest.editMessage(channelId, messageId, { content: text })
+    useMessageStore.getState().upsert(channelId, [updated])
+  },
 
-    return {
-      messages: historic.map(toRendererMessage),
-      hasMore
-    }
+  async delete(channelId: string, messageId: string): Promise<void> {
+    await hachiman.rest.deleteMessage(channelId, messageId)
+    useMessageStore.getState().remove(channelId, messageId)
+  },
+
+  /** Throttled TYPING_START trigger; call on every keystroke. */
+  typing(channelId: string): void {
+    const now = Date.now()
+    if (lastTyping.channelId === channelId && now - lastTyping.at < TYPING_THROTTLE_MS) return
+    lastTyping = { channelId, at: now }
+    void hachiman.rest.triggerTyping(channelId).catch(() => {})
   }
 }

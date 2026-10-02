@@ -15,10 +15,10 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"mumble.info/grumble/pkg/management"
+	"hachiman/server/pkg/management"
 )
 
-// TestClient_ProxiesAllThreeRPCs spins up a fake GrumbleManagement gRPC server
+// TestClient_ProxiesAllThreeRPCs spins up a fake Management gRPC server
 // and asserts that the wrapper forwards RegisterMediaNode / MediaNodeHeartbeat
 // / PlaceMediaSession verbatim. Covers the proto-binding plumbing as well as
 // the wrapper's parameter pass-through.
@@ -26,8 +26,7 @@ func TestClient_ProxiesAllThreeRPCs(t *testing.T) {
 	fake := &fakeOracle{
 		placeResponse: &management.PlaceMediaSessionResponse{
 			NodeId:       "node-fake",
-			Addr:         "fake.media.example.com:7881",
-			AssignedSsrc: 42,
+			SignalingUrl: "wss://fake.media.example.com/voice",
 		},
 	}
 	addr, stop := startFakeOracle(t, fake)
@@ -46,7 +45,7 @@ func TestClient_ProxiesAllThreeRPCs(t *testing.T) {
 	if _, err := c.RegisterMediaNode(ctx, &management.RegisterMediaNodeRequest{
 		NodeId:          "node-1",
 		Region:          "us-east",
-		SidechannelAddr: "10.0.0.1:7881",
+		SignalingUrl:    "wss://10.0.0.1/voice",
 		MaxSessions:     200,
 		Version:         "test-1.0",
 	}); err != nil {
@@ -71,17 +70,17 @@ func TestClient_ProxiesAllThreeRPCs(t *testing.T) {
 
 	// PlaceMediaSession
 	resp, err := c.PlaceMediaSession(ctx, &management.PlaceMediaSessionRequest{
-		ChannelId:  99,
+		ChannelId:  "chan-99",
 		HomeRegion: "us-east",
-		TenantId:   "tenant-x",
+		GuildId:    "guild-x",
 	})
 	if err != nil {
 		t.Fatalf("PlaceMediaSession: %v", err)
 	}
-	if resp.GetNodeId() != "node-fake" || resp.GetAssignedSsrc() != 42 {
-		t.Errorf("PlaceMediaSession response = %+v, want node-fake/ssrc=42", resp)
+	if resp.GetNodeId() != "node-fake" || resp.GetSignalingUrl() != "wss://fake.media.example.com/voice" {
+		t.Errorf("PlaceMediaSession response = %+v, want node-fake + signaling url", resp)
 	}
-	if fake.placeLast == nil || fake.placeLast.GetChannelId() != 99 {
+	if fake.placeLast == nil || fake.placeLast.GetChannelId() != "chan-99" || fake.placeLast.GetGuildId() != "guild-x" {
 		t.Errorf("fake never observed PlaceMediaSession; got %+v", fake.placeLast)
 	}
 }
@@ -148,7 +147,7 @@ func TestNew_RejectsEmptyAddr(t *testing.T) {
 // --- fake Oracle gRPC server ------------------------------------------------
 
 type fakeOracle struct {
-	management.UnimplementedGrumbleManagementServer
+	management.UnimplementedManagementServer
 
 	placeResponse *management.PlaceMediaSessionResponse
 	placeErr      error
@@ -183,7 +182,7 @@ func startFakeOracle(t *testing.T, fake *fakeOracle) (string, func()) {
 		t.Fatalf("listen: %v", err)
 	}
 	gs := grpc.NewServer()
-	management.RegisterGrumbleManagementServer(gs, fake)
+	management.RegisterManagementServer(gs, fake)
 	go func() {
 		_ = gs.Serve(lis)
 	}()

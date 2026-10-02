@@ -139,9 +139,14 @@ async function handle(req: Request): Promise<Response> {
     }
   })
 
-  // Convert captured Node headers to a Web `Headers` object.
+  // Convert captured Node headers to a Web `Headers` object. Drop panva's CORS
+  // headers: the /api/* middleware is the only CORS owner (src/middleware.ts),
+  // so there is no duplicate Access-Control-Allow-Origin, and panva's open
+  // CORS on discovery / jwks cannot echo `Origin: null`.
   const responseHeaders = new Headers()
   for (const [name, value] of Object.entries(captured.headers)) {
+    const lower = name.toLowerCase()
+    if (lower.startsWith('access-control-') || lower === 'vary') continue
     if (Array.isArray(value)) {
       for (const v of value) {
         responseHeaders.append(name, String(v))
@@ -168,5 +173,4 @@ export const POST = handle
 export const PUT = handle
 export const DELETE = handle
 export const PATCH = handle
-export const OPTIONS = handle
 export const HEAD = handle

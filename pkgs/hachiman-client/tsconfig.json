@@ -1,0 +1,14 @@
+{
+  "extends": ["../../tsconfig.base.json", "@tsconfig/strictest/tsconfig.json"],
+  "compilerOptions": {
+    // Consumers import and typecheck the .ts source directly (no project references), so
+    // nothing is emitted; the root tsconfig still lists it for `tsgo --build`.
+    "noEmit": true,
+    "tsBuildInfoFile": "../../ts-dist/hachiman-client/tsconfig.tsbuildinfo",
+    "rootDir": "./src",
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
+    // Browser-safe: no ambient Node types.
+    "types": []
+  },
+  "include": ["src/**/*"]
+}

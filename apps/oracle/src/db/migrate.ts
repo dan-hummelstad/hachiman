@@ -15,10 +15,6 @@ async function main(): Promise<void> {
   }
 
   const sql = postgres(databaseUrl, { max: 1 })
-  // citext is referenced by our schema; ensure the extension exists before
-  // running the generated migrations.
-  await sql`CREATE EXTENSION IF NOT EXISTS citext`
-
   const db = drizzle(sql)
   await migrate(db, { migrationsFolder: './drizzle' })
 

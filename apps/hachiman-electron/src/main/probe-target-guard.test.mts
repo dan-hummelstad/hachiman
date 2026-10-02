@@ -36,10 +36,11 @@ const unusedResolver: HostResolver = async (host) => {
 };
 
 const t = (
-  over: Partial<{ host: string; port: number; code: string }> = {},
+  over: Partial<{ host: string; port: number; region: string }> = {},
 ): unknown => ({
-  code: "r",
+  region: "r",
   host: "example.com",
+  port: 443,
   ...over,
 });
 
@@ -127,7 +128,7 @@ test("IP-literal loopback/private/link-local/metadata/0.0.0.0/::1/ULA rejected (
   ];
   for (const host of hostiles) {
     const out = await validateProbeTargets(
-      [t({ host, port: 64738 })],
+      [t({ host })],
       unusedResolver,
     );
     assert.equal(out.length, 0, `${host} must be rejected`);
@@ -169,25 +170,20 @@ test("host resolving to zero addresses is rejected", async () => {
 
 // --- validateProbeTargets: PORT rules ---------------------------------------
 
-test("port 64738 and 443 allowed; omitted port allowed (defaults to Mumble)", async () => {
+test("port 443 allowed; omitted port rejected", async () => {
   const resolver = mockResolver({ "ok.example.com": ["52.1.2.3"] });
-  for (const port of [64738, 443]) {
-    const out = await validateProbeTargets(
-      [t({ host: "ok.example.com", port })],
-      resolver,
-    );
-    assert.equal(out.length, 1, `port ${port} should be allowed`);
-  }
+  const out = await validateProbeTargets([t({ host: "ok.example.com" })], resolver);
+  assert.equal(out.length, 1, "port 443 should be allowed");
   const omitted = await validateProbeTargets(
-    [{ code: "r", host: "ok.example.com" }],
+    [{ region: "r", host: "ok.example.com" }],
     resolver,
   );
-  assert.equal(omitted.length, 1, "omitted port should be allowed");
+  assert.equal(omitted.length, 0, "omitted port should be rejected");
 });
 
 test("disallowed port rejected (port scan)", async () => {
   const resolver = mockResolver({ "ok.example.com": ["52.1.2.3"] });
-  for (const port of [22, 80, 3306, 6379, 8080, 0, 65535]) {
+  for (const port of [22, 80, 3306, 6379, 8080, 64738, 0, 65535]) {
     const out = await validateProbeTargets(
       [t({ host: "ok.example.com", port })],
       resolver,
@@ -201,7 +197,7 @@ test("disallowed port rejected (port scan)", async () => {
 test(`count cap enforced at ${MAX_PROBE_TARGETS}`, async () => {
   const resolver = mockResolver({ "ok.example.com": ["52.1.2.3"] });
   const many = Array.from({ length: MAX_PROBE_TARGETS + 50 }, (_, i) => ({
-    code: `r${i}`,
+    region: `r${i}`,
     host: "ok.example.com",
     port: 443,
   }));
@@ -216,7 +212,7 @@ test("count cap is applied BEFORE resolution (oversized payload can't force N lo
     return [{ address: "52.1.2.3", family: 4 }];
   };
   const many = Array.from({ length: MAX_PROBE_TARGETS + 100 }, () => ({
-    code: "r",
+    region: "r",
     host: "ok.example.com",
     port: 443,
   }));
@@ -244,30 +240,30 @@ test("malformed entries within an array are dropped, good ones kept", async () =
   const resolver = mockResolver({ "ok.example.com": ["52.1.2.3"] });
   const out = await validateProbeTargets(
     [
-      { code: "good", host: "ok.example.com", port: 443 },
+      { region: "good", host: "ok.example.com", port: 443 },
       null,
       42,
-      { host: "ok.example.com", port: 443 }, // missing code
-      { code: "c", port: 443 }, // missing host
-      { code: "c", host: "ok.example.com", port: "443" }, // non-numeric port
-      { code: "c", host: "", port: 443 }, // empty host
-      { code: "c", host: "ok.example.com", port: 1.5 }, // non-integer port
+      { host: "ok.example.com", port: 443 }, // missing region
+      { region: "c", port: 443 }, // missing host
+      { region: "c", host: "ok.example.com", port: "443" }, // non-numeric port
+      { region: "c", host: "", port: 443 }, // empty host
+      { region: "c", host: "ok.example.com", port: 1.5 }, // non-integer port
     ],
     resolver,
   );
   assert.equal(out.length, 1);
-  assert.equal(out[0]!.code, "good");
+  assert.equal(out[0]!.region, "good");
 });
 
 test("a valid target alongside a hostile one keeps only the valid one", async () => {
   const resolver = mockResolver({ "ok.example.com": ["52.1.2.3"] });
   const out = await validateProbeTargets(
     [
-      { code: "evil", host: "127.0.0.1", port: 64738 },
-      { code: "ok", host: "ok.example.com", port: 64738 },
+      { region: "evil", host: "127.0.0.1", port: 443 },
+      { region: "ok", host: "ok.example.com", port: 443 },
     ],
     resolver,
   );
   assert.equal(out.length, 1);
-  assert.equal(out[0]!.code, "ok");
+  assert.equal(out[0]!.region, "ok");
 });

@@ -1,22 +1,22 @@
 /**
- * Oracle / Takusen database schema.
+ * Oracle / Takusen database schema. Contract: docs/gateway-protocol.md §3.
  *
  * Tables:
  *  - users, accounts, sessions, verificationTokens  — Auth.js v5 Drizzle adapter shape
- *  - servers                                        — registered Mumble servers
- *  - serverDomainVerifications                      — DNS TXT verification history
- *  - oidcClients                                    — one OIDC client per server
- *  - inviteCodes                                    — short codes redeemable into takusen:// URIs
- *
- * Note: `citext` is enabled via a SQL migration in `drizzle/` (drizzle-kit
- * generate will pick up the `customType` and emit the extension on first
- * migration).
+ *  - regions, mediaNodes                            — voice placement registry
+ *  - guilds, guildMembers, channels, messages       — the chat model
+ *  - roles, memberRoles, permissionOverwrites       — Discord-style permissions
+ *  - dmParticipants, invites, uploads
+ *  - oidcClients, oidcAdapterPayloads, passwordResetTokens
  */
 import { sql } from 'drizzle-orm'
 import {
+  bigint,
   boolean,
-  customType,
+  check,
   doublePrecision,
+  foreignKey,
+  index,
   integer,
   jsonb,
   pgEnum,
@@ -24,53 +24,18 @@ import {
   primaryKey,
   text,
   timestamp,
-  uniqueIndex,
   uuid,
+  type AnyPgColumn,
 } from 'drizzle-orm/pg-core'
 import type { AdapterAccountType } from 'next-auth/adapters'
-
-// ---------------------------------------------------------------------------
-// citext (case-insensitive text) — Postgres extension. Requires
-//   CREATE EXTENSION IF NOT EXISTS citext;
-// to be present in the database (drizzle-kit's generated SQL will need a
-// manual edit on first migration, or run it once in db:migrate bootstrap).
-// ---------------------------------------------------------------------------
-const citext = customType<{ data: string; driverData: string }>({
-  dataType() {
-    return 'citext'
-  },
-})
 
 // ---------------------------------------------------------------------------
 // Enums
 // ---------------------------------------------------------------------------
 export const userRoleEnum = pgEnum('user_role', ['user', 'admin'])
-
-// Island lifecycle (the physical Murmur host process). See ISLAND-PLATFORM.md.
-//   provisioning — the k3s pod is being brought up; not yet placement-eligible
-//   active       — healthy and accepting vServer placements
-//   draining     — no NEW placements; existing vServers migrate off before down
-//   down         — unhealthy / terminated; the scheduler skips it
-export const islandStatusEnum = pgEnum('island_status', [
-  'provisioning',
-  'active',
-  'draining',
-  'down',
-])
-
-// Virtual-server lifecycle. The valid transitions form a single cycle, enforced
-// by `transitionVServer` in lib/virtual-servers.ts:
-//   inactive → starting → active → cooling → inactive
-//   inactive — provisioned but not running anywhere (islandId is typically null)
-//   starting — placed on an island; the in-process Murmur vServer is booting
-//   active   — running and accepting users
-//   cooling  — drained of users, kept warm briefly before returning to inactive
-export const virtualServerStatusEnum = pgEnum('virtual_server_status', [
-  'inactive',
-  'starting',
-  'active',
-  'cooling',
-])
+export const channelTypeEnum = pgEnum('channel_type', ['text', 'voice', 'category', 'dm', 'group_dm'])
+export const overwriteTypeEnum = pgEnum('overwrite_type', ['role', 'member'])
+export const uploadPurposeEnum = pgEnum('upload_purpose', ['attachment', 'image'])
 
 // ---------------------------------------------------------------------------
 // Auth.js core tables (users, accounts, sessions, verificationTokens)
@@ -141,19 +106,17 @@ export const verificationTokens = pgTable(
 )
 
 // ---------------------------------------------------------------------------
-// Regions — the logical voice-placement regions a server can be homed in.
+// Regions — the logical voice-placement regions a guild can be homed in.
 //
 // This is a small, fixed reference table (seeded by db:seed): "us-east",
-// "us-west", "eu-west", "ap-southeast", etc. A region is a *logical* location
-// the owner re-selects; the future managed-infra layer maps a region to a
-// physical island and, eventually, a placed vServer (see REGION-CONTRACT.md).
+// "us-west", "eu-west", "ap-southeast", etc. Media nodes register into a
+// region; `guilds.region` biases voice placement toward it.
 //
 // `lat`/`lon` are nullable and exist purely so a future geodesic scorer can
-// place/re-home a server near its users for low latency. Nothing in this layer
-// reads them today.
+// place a guild near its users for low latency. Nothing reads them today.
 // ---------------------------------------------------------------------------
 export const regions = pgTable('regions', {
-  // Stable machine code, e.g. "us-east". Primary key so `servers.region` can
+  // Stable machine code, e.g. "us-east". Primary key so `guilds.region` can
   // reference it directly and so seeds are idempotent on the code.
   code: text('code').primaryKey(),
   displayName: text('display_name').notNull(),
@@ -162,200 +125,27 @@ export const regions = pgTable('regions', {
   lat: doublePrecision('lat'),
   lon: doublePrecision('lon'),
   // Endpoint a latency-capable client probes to measure client→region RTT (see
-  // the RTT prober in `@hachiman/hachiman-node` and `/api/servers/recommend-region`).
-  // Nullable because the real managed-infra hosts don't exist yet — until then
-  // the seed fills dev placeholders. `probePort` defaults to the Mumble port
-  // (64738), the same port the server answers TLS/TCP and UDP browser-pings on.
+  // the Electron region probe and `/api/v1/regions/recommend`). Nullable
+  // because the real managed-infra hosts don't exist yet — until then the seed
+  // fills dev placeholders.
   probeHost: text('probe_host'),
-  probePort: integer('probe_port').notNull().default(64738),
+  probePort: integer('probe_port').notNull().default(443),
   createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
     .notNull()
     .defaultNow(),
 })
 
 // ---------------------------------------------------------------------------
-// Virtual servers — the IDENTITY row for a registered Mumble server. Owns
-// the cosmetic / addressable-by-name data (owner, slug, name, description,
-// region, OracleOnly). Persistent across re-homes — FKs from invites, OIDC
-// clients, and domain verifications all point here so they survive a change
-// of host / port / island.
-//
-// Companion 1:1 row in `servers` (below) carries the physical placement
-// (host / port / island / lifecycle / capacity).
-// ---------------------------------------------------------------------------
-export const virtualServers = pgTable(
-  'virtual_servers',
-  {
-    id: uuid('id').primaryKey().defaultRandom(),
-    ownerUserId: uuid('owner_user_id')
-      .notNull()
-      .references(() => users.id, { onDelete: 'cascade' }),
-    slug: citext('slug').notNull(),
-    name: text('name').notNull(),
-    description: text('description'),
-    // When true, this server only accepts Oracle-authenticated clients.
-    // Identity-layer concern: shapes auth-mode UX regardless of which
-    // physical island is currently hosting. Owner-toggleable.
-    oracleOnly: boolean('oracle_only').notNull().default(false),
-    // Owner-selected voice region. MUTABLE: changing it is the re-home
-    // trigger. Manual today via the admin "Place now" action; auto-on-
-    // region-change is a future follow-up. Nullable for freshly-created
-    // identity rows that haven't picked a region yet.
-    region: text('region').references(() => regions.code, { onDelete: 'set null' }),
-    createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
-      .notNull()
-      .defaultNow(),
-    updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' })
-      .notNull()
-      .defaultNow(),
-  },
-  (table) => [uniqueIndex('virtual_servers_slug_unique').on(table.slug)],
-)
-
-// ---------------------------------------------------------------------------
-// Islands — a managed-infra control-plane row: ONE Murmur process (one k3s pod)
-// that hosts MANY in-process virtual servers, living inside a region. This is
-// the PHYSICAL layer the REGION-CONTRACT.md region→island→vServer model has so
-// far left "Not modeled yet"; this slice realizes it.
-//
-// Only durable control-plane facts live here. LIVE metrics (active users, CPU,
-// bandwidth) are NOT columns — they live in Redis and are fed to the bin-packing
-// scheduler at scoring time (see ISLAND-PLATFORM.md). The scheduler keys
-// placement off `id` / `host` / `grpcPort` / `region` / `maxVservers` plus the
-// current vServer count (derived) and those Redis-supplied metrics.
-// ---------------------------------------------------------------------------
-export const islands = pgTable('islands', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  // Routable host of the island's Murmur pod (DNS name or IP). Future HAProxy
-  // L4 mapping + DNS SRV records resolve a vServer's advertised endpoint here.
-  host: text('host').notNull(),
-  // Port of the island's control gRPC endpoint (the always-on wake proxy /
-  // scheduler talks to this to start/stop in-process vServers). NOT the Mumble
-  // voice port — each vServer carries its own `port`.
-  grpcPort: integer('grpc_port').notNull(),
-  // The region this island physically sits in. ON DELETE RESTRICT: a region
-  // with live islands must not be deleted out from under them (unlike
-  // servers.region, which SET NULLs — an island without a region is nonsense).
-  region: text('region')
-    .notNull()
-    .references(() => regions.code, { onDelete: 'restrict' }),
-  status: islandStatusEnum('status').notNull().default('provisioning'),
-  // Hard cap on in-process vServers this island will host. The bin-packing
-  // scheduler refuses to place beyond this; LIVE load (Redis) may push the
-  // effective cap lower, but never higher.
-  maxVservers: integer('max_vservers').notNull().default(50),
-  createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
-    .notNull()
-    .defaultNow(),
-  updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' })
-    .notNull()
-    .defaultNow(),
-})
-
-// ---------------------------------------------------------------------------
-// Servers — the PHYSICAL placement / connection record for a virtual server.
-// One row per identity row in `virtual_servers` (1:1 via the unique
-// `virtualServerId` FK). Carries operational facts that change on a re-home
-// without invalidating identity (host, port, island, lifecycle, capacity).
-//
-// Self-hosted entries: `islandId = null`, `host`/`port` owner-supplied.
-// Managed entries:     `islandId` filled by the bin-packer, `host` from the
-//                      gateway env, `port` allocated per vServer.
-//
-// Region intentionally lives on `virtual_servers`, NOT here — region is an
-// owner-selected identity attribute, not a function of the current placement.
-// The scheduler reads region by joining up to the identity row.
-//
-// LIVE metrics (active users / CPU / bandwidth) are NOT stored here; they
-// live in Redis and are supplied to the bin-packing scheduler at scoring
-// time (see ISLAND-PLATFORM.md).
-// ---------------------------------------------------------------------------
-export const servers = pgTable('servers', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  // The identity row this placement backs. UNIQUE → strict 1:1.
-  // ON DELETE CASCADE: deleting the virtual server tears down its placement
-  // row too (runtime teardown is a separate, deferred concern).
-  virtualServerId: uuid('virtual_server_id')
-    .notNull()
-    .unique()
-    .references(() => virtualServers.id, { onDelete: 'cascade' }),
-  status: virtualServerStatusEnum('status').notNull().default('inactive'),
-  // Island placement. NULL = unplaced (awaiting/between scheduling, OR a
-  // self-hosted server living on the owner's hardware). ON DELETE SET NULL:
-  // removing an island row unplaces its vServers rather than deleting them.
-  islandId: uuid('island_id').references(() => islands.id, { onDelete: 'set null' }),
-  // The in-process vServer id WITHIN the island's Murmur process. NULL until
-  // placed/assigned on an island, or permanently NULL for self-hosted.
-  murmurId: integer('murmur_id'),
-  // Mumble voice host the client connects to. Managed: gateway env. Self-
-  // hosted: owner-supplied.
-  host: text('host').notNull(),
-  // Mumble voice port the client connects to. Managed: gateway-allocated.
-  // Self-hosted: owner-supplied. Default 64738.
-  port: integer('port').notNull().default(64738),
-  // Per-vServer capacity caps the scheduler/runtime enforce.
-  maxUsers: integer('max_users').notNull().default(100),
-  // Bandwidth ceiling in bits/sec (matches Murmur's `bandwidth` semantics).
-  maxBandwidth: integer('max_bandwidth').notNull().default(558000),
-  // Last time this vServer had activity; drives the cooling→inactive sweep.
-  lastActiveAt: timestamp('last_active_at', { withTimezone: true, mode: 'date' }),
-  createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
-    .notNull()
-    .defaultNow(),
-  updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' })
-    .notNull()
-    .defaultNow(),
-})
-
-// ---------------------------------------------------------------------------
-// Server domain verifications — DNS TXT challenges. A server is considered
-// "verified" iff there exists a row with verifiedAt IS NOT NULL for its
-// current host. History is preserved so we can show audit trail / re-verify.
-// ---------------------------------------------------------------------------
-export const serverDomainVerifications = pgTable('server_domain_verifications', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  // FK to the identity row — verification survives a re-home; changing
-  // the placement host doesn't invalidate proven domain control.
-  virtualServerId: uuid('virtual_server_id')
-    .notNull()
-    .references(() => virtualServers.id, { onDelete: 'cascade' }),
-  domain: text('domain').notNull(),
-  txtToken: text('txt_token').notNull(),
-  verifiedAt: timestamp('verified_at', { withTimezone: true, mode: 'date' }),
-  lastCheckedAt: timestamp('last_checked_at', { withTimezone: true, mode: 'date' }),
-  createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
-    .notNull()
-    .defaultNow(),
-})
-
-// ---------------------------------------------------------------------------
-// OIDC clients. Two flavours coexist in this table:
-//
-//  1. Per-server confidential clients (default). Federated Mumble servers
-//     redirect their users through Oracle for sign-in; the row holds the
-//     client_id + client_secret (plaintext high-entropy — oidc-provider
-//     compares the wire value directly with no hash hook), and the allowed
-//     redirect URIs.
-//
-//  2. Public first-party clients (isPublic = true, serverId IS NULL,
-//     clientSecret empty). Used by the Hachiman desktop/browser apps for
-//     end-user PKCE sign-in. PKCE is globally required in oidc-provider, so
-//     a public client with token_endpoint_auth_method='none' is safe — the
-//     code interception window is closed by the PKCE binding.
-//
-// serverId is unique-when-set so the per-server invariant still holds, while
-// any number of public clients may exist with serverId IS NULL (Postgres
-// treats NULLs as distinct under UNIQUE).
+// OIDC clients. Today only public first-party clients exist (isPublic = true,
+// clientSecret empty): the Hachiman desktop/browser apps use them for end-user
+// PKCE sign-in. PKCE is globally required in oidc-provider, so a public client
+// with token_endpoint_auth_method='none' is safe — the code interception
+// window is closed by the PKCE binding.
 // ---------------------------------------------------------------------------
 export const oidcClients = pgTable(
   'oidc_clients',
   {
     id: uuid('id').primaryKey().defaultRandom(),
-    // FK to the identity row. OIDC client survives re-homes (audience /
-    // clientId in already-issued tokens stays valid).
-    virtualServerId: uuid('virtual_server_id')
-      .unique()
-      .references(() => virtualServers.id, { onDelete: 'cascade' }),
     clientId: text('client_id').notNull().unique(),
     // Empty string for public clients. NEVER store an actual secret here for
     // a row where isPublic = true; the adapter omits the field entirely from
@@ -374,66 +164,204 @@ export const oidcClients = pgTable(
 )
 
 // ---------------------------------------------------------------------------
-// Invite codes — short alphanumeric codes a server owner can hand out;
-// redeeming one returns a signed `takusen://join#...` URI.
+// Guilds — a guild is just rows: creating one boots no process. The @everyone
+// role shares the guild's id (see `roles`).
 // ---------------------------------------------------------------------------
-export const inviteCodes = pgTable(
-  'invite_codes',
+export const guilds = pgTable('guilds', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  ownerId: uuid('owner_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  // icon and banner hold upload keys (contract §4 Files).
+  icon: text('icon'),
+  banner: text('banner'),
+  // Home voice region; placement prefers media nodes here.
+  region: text('region').references(() => regions.code, { onDelete: 'set null' }),
+  createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
+    .notNull()
+    .defaultNow(),
+})
+
+export const guildMembers = pgTable(
+  'guild_members',
   {
-    id: uuid('id').primaryKey().defaultRandom(),
-    // Invite is owned by IDENTITY: the redeemer's connection target comes
-    // from the current placement row at redeem time, but the invite itself
-    // survives a re-home.
-    virtualServerId: uuid('virtual_server_id')
+    guildId: uuid('guild_id')
       .notNull()
-      .references(() => virtualServers.id, { onDelete: 'cascade' }),
-    code: text('code').notNull().unique(),
-    createdByUserId: uuid('created_by_user_id')
+      .references(() => guilds.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
-    expiresAt: timestamp('expires_at', { withTimezone: true, mode: 'date' }),
-    maxUses: integer('max_uses'),
-    useCount: integer('use_count').notNull().default(0),
-    revoked: boolean('revoked').notNull().default(false),
+    nick: text('nick'),
+    joinedAt: timestamp('joined_at', { withTimezone: true, mode: 'date' })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [primaryKey({ columns: [table.guildId, table.userId] })],
+)
+
+// Guild channels (guildId set) and DMs (guildId null, participants in
+// `dm_participants`). `ownerId` is only meaningful for group_dm.
+export const channels = pgTable(
+  'channels',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    guildId: uuid('guild_id').references(() => guilds.id, { onDelete: 'cascade' }),
+    type: channelTypeEnum('type').notNull(),
+    name: text('name'),
+    topic: text('topic'),
+    parentId: uuid('parent_id').references((): AnyPgColumn => channels.id, {
+      onDelete: 'set null',
+    }),
+    position: integer('position').notNull().default(0),
+    ownerId: uuid('owner_id').references(() => users.id, { onDelete: 'set null' }),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
       .notNull()
       .defaultNow(),
   },
+  (table) => [index('channels_guild_id_idx').on(table.guildId)],
 )
 
-// ---------------------------------------------------------------------------
-// User servers — a user's personal list of "joined" servers, used by the
-// client UI as a sidebar/server list. May reference a registered Oracle
-// server (serverId set), or carry raw host/port for unregistered servers the
-// user joined manually.
-// ---------------------------------------------------------------------------
-export const userServers = pgTable(
-  'user_servers',
+export const messages = pgTable(
+  'messages',
   {
     id: uuid('id').primaryKey().defaultRandom(),
+    channelId: uuid('channel_id')
+      .notNull()
+      .references(() => channels.id, { onDelete: 'cascade' }),
+    authorId: uuid('author_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    content: text('content').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
+      .notNull()
+      .defaultNow(),
+    editedAt: timestamp('edited_at', { withTimezone: true, mode: 'date' }),
+  },
+  // Backs the `?before=` cursor: (created_at, id) < cursor ORDER BY both DESC.
+  (table) => [
+    index('messages_channel_created_idx').on(
+      table.channelId,
+      table.createdAt.desc(),
+      table.id.desc(),
+    ),
+  ],
+)
+
+export const roles = pgTable(
+  'roles',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    guildId: uuid('guild_id')
+      .notNull()
+      .references(() => guilds.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    color: integer('color').notNull().default(0),
+    position: integer('position').notNull().default(0),
+    permissions: bigint('permissions', { mode: 'number' }).notNull().default(0),
+  },
+  (table) => [index('roles_guild_id_idx').on(table.guildId)],
+)
+
+// Membership in a role. The composite FK to guild_members drops a member's
+// roles when they leave; @everyone is implicit and never stored here.
+export const memberRoles = pgTable(
+  'member_roles',
+  {
+    guildId: uuid('guild_id').notNull(),
+    userId: uuid('user_id').notNull(),
+    roleId: uuid('role_id')
+      .notNull()
+      .references(() => roles.id, { onDelete: 'cascade' }),
+  },
+  (table) => [
+    primaryKey({ columns: [table.userId, table.roleId] }),
+    foreignKey({
+      columns: [table.guildId, table.userId],
+      foreignColumns: [guildMembers.guildId, guildMembers.userId],
+    }).onDelete('cascade'),
+  ],
+)
+
+// `targetId` is a role id or a user id depending on `targetType`, so it has no FK.
+export const permissionOverwrites = pgTable(
+  'permission_overwrites',
+  {
+    channelId: uuid('channel_id')
+      .notNull()
+      .references(() => channels.id, { onDelete: 'cascade' }),
+    targetId: uuid('target_id').notNull(),
+    targetType: overwriteTypeEnum('target_type').notNull(),
+    allow: bigint('allow', { mode: 'number' }).notNull().default(0),
+    deny: bigint('deny', { mode: 'number' }).notNull().default(0),
+  },
+  (table) => [primaryKey({ columns: [table.channelId, table.targetId] })],
+)
+
+export const dmParticipants = pgTable(
+  'dm_participants',
+  {
+    channelId: uuid('channel_id')
+      .notNull()
+      .references(() => channels.id, { onDelete: 'cascade' }),
     userId: uuid('user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
-    // If this row refers to a registered Oracle server, set virtualServerId
-    // (the identity row — survives re-homes). For unregistered (raw
-    // host:port) servers the user joined manually, virtualServerId is null
-    // and host/port/name carry the info.
-    virtualServerId: uuid('virtual_server_id').references(() => virtualServers.id, {
-      onDelete: 'set null',
-    }),
-    name: text('name').notNull(),
-    host: text('host').notNull(),
-    port: integer('port').notNull().default(64738),
-    addedAt: timestamp('added_at', { withTimezone: true, mode: 'date' })
+  },
+  (table) => [
+    primaryKey({ columns: [table.channelId, table.userId] }),
+    index('dm_participants_user_id_idx').on(table.userId),
+  ],
+)
+
+export const invites = pgTable('invites', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  code: text('code').notNull().unique(),
+  guildId: uuid('guild_id')
+    .notNull()
+    .references(() => guilds.id, { onDelete: 'cascade' }),
+  createdBy: uuid('created_by')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  expiresAt: timestamp('expires_at', { withTimezone: true, mode: 'date' }),
+  maxUses: integer('max_uses'),
+  uses: integer('uses').notNull().default(0),
+  revoked: boolean('revoked').notNull().default(false),
+  createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
+    .notNull()
+    .defaultNow(),
+})
+
+// One row per stored object (contract §4 Files). `purpose` is set by the first
+// claim and never changes: deleting a message deletes its objects, so an
+// attachment must never also be an avatar, icon or banner.
+export const uploads = pgTable(
+  'uploads',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    uploaderId: uuid('uploader_id')
       .notNull()
-      .defaultNow(),
-    lastUsedAt: timestamp('last_used_at', { withTimezone: true, mode: 'date' }),
-    updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' })
+      .references(() => users.id, { onDelete: 'cascade' }),
+    key: text('key').notNull().unique(),
+    filename: text('filename').notNull(),
+    size: bigint('size', { mode: 'number' }).notNull(),
+    contentType: text('content_type').notNull(),
+    width: integer('width'),
+    height: integer('height'),
+    messageId: uuid('message_id').references(() => messages.id, { onDelete: 'cascade' }),
+    position: integer('position').notNull().default(0),
+    purpose: uploadPurposeEnum('purpose'),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
       .notNull()
       .defaultNow(),
   },
   (table) => [
-    uniqueIndex('user_servers_user_host_port_unique').on(table.userId, table.host, table.port),
+    index('uploads_message_id_idx').on(table.messageId),
+    // IS NOT DISTINCT FROM keeps an unclaimed row (purpose null) from having a message.
+    check(
+      'uploads_attachment_has_message',
+      sql`(${table.purpose} is not distinct from 'attachment') = (${table.messageId} is not null)`,
+    ),
   ],
 )
 
@@ -444,19 +372,18 @@ export type User = typeof users.$inferSelect
 export type NewUser = typeof users.$inferInsert
 export type Region = typeof regions.$inferSelect
 export type NewRegion = typeof regions.$inferInsert
-export type Server = typeof servers.$inferSelect
-export type NewServer = typeof servers.$inferInsert
-export type Island = typeof islands.$inferSelect
-export type NewIsland = typeof islands.$inferInsert
-export type IslandStatus = (typeof islandStatusEnum.enumValues)[number]
-export type VirtualServer = typeof virtualServers.$inferSelect
-export type NewVirtualServer = typeof virtualServers.$inferInsert
-export type VirtualServerStatus = (typeof virtualServerStatusEnum.enumValues)[number]
-export type ServerDomainVerification = typeof serverDomainVerifications.$inferSelect
 export type OidcClient = typeof oidcClients.$inferSelect
-export type InviteCode = typeof inviteCodes.$inferSelect
-export type UserServer = typeof userServers.$inferSelect
-export type NewUserServer = typeof userServers.$inferInsert
+export type GuildRow = typeof guilds.$inferSelect
+export type GuildMemberRow = typeof guildMembers.$inferSelect
+export type ChannelRow = typeof channels.$inferSelect
+export type ChannelTypeValue = (typeof channelTypeEnum.enumValues)[number]
+export type MessageRow = typeof messages.$inferSelect
+export type RoleRow = typeof roles.$inferSelect
+export type MemberRoleRow = typeof memberRoles.$inferSelect
+export type PermissionOverwriteRow = typeof permissionOverwrites.$inferSelect
+export type DmParticipantRow = typeof dmParticipants.$inferSelect
+export type InviteRow = typeof invites.$inferSelect
+export type UploadRow = typeof uploads.$inferSelect
 
 // ===== Auth UI agent additions =====
 // Password reset tokens — short-lived (e.g. 1h) one-time tokens. We store only
@@ -490,8 +417,6 @@ export type NewPasswordResetToken = typeof passwordResetTokens.$inferInsert
 // `Client` is intentionally NOT stored here — the adapter shims those reads
 // straight from `oidcClients`. Adapter writes for the Client model are no-ops.
 // ---------------------------------------------------------------------------
-import { index } from 'drizzle-orm/pg-core'
-
 export const oidcAdapterPayloads = pgTable(
   'oidc_adapter_payloads',
   {
@@ -519,20 +444,17 @@ export type NewOidcAdapterPayload = typeof oidcAdapterPayloads.$inferInsert
 // ---------------------------------------------------------------------------
 // Media nodes — placement registry for the WebRTC SFU plane.
 //
-// Per the MEDIA-PLANE-MIGRATION.md "Oracle owns placement and registry"
-// decision, hachiman-media instances self-register with Oracle on boot and
-// heartbeat liveness. The placement scorer reads this table when
-// hachiman-control calls `PlaceMediaSession` (extension on management.proto;
-// runtime wires in alongside phase 2 step 7).
+// hachiman-media instances self-register with Oracle on boot and heartbeat
+// liveness. The placement scorer reads this table when hachiman-gateway calls
+// `PlaceMediaSession` (management.proto).
 //
 // `capacity` is stored as jsonb so the descriptor can grow with the per-node
 // resource model without a schema change (phase 1 stores `{cpu_cores, max_sessions}`;
 // later passes add network egress caps, per-codec encode budgets, etc.).
 //
-// `status` is a free text column on the same enum-as-varchar pattern used in
-// `channel.cascade_mode` on the control side — keeps drizzle migrations simple
-// across SQLite dev shards while still letting placement scorers branch on a
-// stable set ("active" | "draining" | "dead").
+// `status` is a free text column (enum-as-varchar) — keeps drizzle migrations
+// simple while still letting placement scorers branch on a stable set
+// ("active" | "draining" | "dead").
 // ---------------------------------------------------------------------------
 export const mediaNodes = pgTable(
   'media_nodes',
@@ -555,18 +477,11 @@ export const mediaNodes = pgTable(
     lastHeartbeatAt: timestamp('last_heartbeat_at', { withTimezone: true, mode: 'date' }).notNull(),
     version: text('version').notNull(),
     status: text('status').notNull(),
-    // Single-tenant-per-node enforcement: stamped on the first PlaceMediaSession
-    // call that lands a tenant on this node; cleared by the recovery sweeper
-    // when activeSessions drops to 0. Phase 3a simplification — instead of a
-    // separate active_sessions table tracking (node, tenant) tuples, we treat
-    // a node as "owned" by the first tenant to land on it until it drains.
-    // Null = unassigned / drained; an existing non-null value that doesn't
-    // match the incoming tenant_id excludes the node from placement.
-    tenantId: text('tenant_id'),
-    // Sidechannel address control should dial to reach this node. Mirrored
-    // from RegisterMediaNode payload; returned in PlaceMediaSession so
-    // hachiman-control can stamp it into VoiceTokenGrant.media_node_addr.
-    sidechannelAddr: text('sidechannel_addr').notNull().default(''),
+    // The node's client-facing voice WebSocket URL (e.g.
+    // wss://media-1.example.com/voice). Mirrored from RegisterMediaNode;
+    // returned by PlaceMediaSession so the gateway can hand it to clients as
+    // VOICE_SERVER_UPDATE.endpoint.
+    signalingUrl: text('signaling_url').notNull().default(''),
   },
   (table) => [
     // Composite index covering the pickPlacement filter:

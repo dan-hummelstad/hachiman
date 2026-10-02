@@ -5,10 +5,6 @@ build/
 next-env.d.ts.bak
 *.tsbuildinfo
 
-# Env
-.env
-.env.local
-.env.*.local
 
 # Logs
 *.log

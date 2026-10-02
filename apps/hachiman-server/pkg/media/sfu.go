@@ -1,570 +1,330 @@
+// Copyright (c) 2026 The Hachiman Authors
+// The use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE-file.
+
+// Package media is the audio SFU behind hachiman-media: one PeerConnection per
+// voice session, rooms keyed by channel id, and each member's inbound audio
+// fanned out to the other members of its room only.
+//
+// Forwarding model: every client owns one TrackLocalStaticRTP (its mic as
+// heard by others). That single track is added to each room peer's
+// PeerConnection; pion fans a WriteRTP out to every binding, rewriting SSRC /
+// payload type per receiver. The track's stream id is the sender's userId so
+// receivers map remote tracks to users via msid.
+//
+// Negotiation is NOT done here: the SFU mutates senders and tells the caller
+// (Hooks.Renegotiate) which clients need a fresh offer. The caller serializes
+// offer/answer per client.
 package media
 
 import (
 	"fmt"
 	"log"
+	"sort"
 	"sync"
-	"time"
 
-	"github.com/pion/rtp"
+	"github.com/pion/interceptor"
 	"github.com/pion/webrtc/v3"
 )
 
-const (
-	opusPayloadType = 97
-	opusSampleRate  = 48000
-	opusFrameMs     = 20
-	// Number of samples per Opus frame at 48kHz: 48000 * 20ms / 1000
-	opusFrameSamples = (opusSampleRate * opusFrameMs) / 1000 // 960
+const opusPayloadType = 111 // browsers' conventional dynamic PT for Opus
 
-	// markerGapThreshold: gap between forwarded packets that should set the
-	// RTP marker bit on the next packet. RFC 3551 §4.1 — marker bit signals
-	// the first packet of a talkspurt after silence so receivers can reset
-	// jitter-buffer adaptation. 200ms = 10 missed 20ms frames, well beyond
-	// normal jitter.
-	markerGapThreshold = 200 * time.Millisecond
-)
-
-// rtpForwardState tracks per-source RTP sequence/timestamp offsets for
-// stitching Mumble voice transmissions into a persistent RTP stream.
-type rtpForwardState struct {
-	seqOffset       uint16
-	tsBase          uint32
-	lastMSeq        uint64    // last Mumble sequence number seen
-	frames          uint32    // total frames forwarded (for timestamp calculation)
-	marker          bool      // set marker bit on first packet of new transmission
-	lastForwardedAt time.Time // wall-clock of last forwarded packet (for gap detection)
+var opusCodec = webrtc.RTPCodecCapability{
+	MimeType:    webrtc.MimeTypeOpus,
+	ClockRate:   48000,
+	Channels:    2,
+	SDPFmtpLine: "minptime=10;useinbandfec=1",
 }
 
-// WebRTCClient holds per-client WebRTC state managed by the SFU.
-type WebRTCClient struct {
-	mu         sync.Mutex
-	Session    uint32
-	SSRC       uint32
-	PC         *webrtc.PeerConnection
-	outTracks  map[uint32]*webrtc.TrackLocalStaticRTP // sender SSRC -> output track
-	rtpState   map[uint32]*rtpForwardState            // sender SSRC -> forwarding state
-	talking    bool
-	talkTarget uint32
-
-	// Incoming RTP sequence-number tracking for converting the 16-bit RTP
-	// SequenceNumber into a monotonic 64-bit Mumble FrameNumber. seqInit is
-	// false until the first packet has been seen.
-	seqInit   bool
-	lastSeq   uint16
-	seqCycles uint64 // number of times the 16-bit seq has wrapped
-
-	// Callback invoked when this client sends RTP audio that should be
-	// broadcast to other clients via the Mumble voice path.
-	// Parameters: senderSession, opusPayload, target, frameNum.
-	OnVoice func(senderSession uint32, opusPayload []byte, target uint32, frameNum uint64)
-
-	// OnICECandidate fires for each candidate the SFU's PeerConnection
-	// gathers. When the pion gatherer finishes the candidate is nil; the
-	// hook MUST treat nil as end-of-candidates. Used by hachiman-media's
-	// sfu_runtime to forward server-side trickle candidates back to control
-	// for delivery to the client. Set once after AddClient; nil is fine and
-	// means "no trickle forwarding".
-	//
-	// NOTE: the current AddClient implementation blocks on
-	// GatheringCompletePromise before returning the offer, which means most
-	// (all, in practice) candidates are baked into the initial SDP and
-	// OnICECandidate only fires in renegotiation scenarios. The hook is
-	// wired in for future-proofing / renegotiation correctness.
-	OnICECandidate func(candidate *webrtc.ICECandidate)
+// Config carries the network knobs pion needs on a real host.
+type Config struct {
+	PublicIP   string // NAT 1:1 host-candidate rewrite; "" = advertise local IPs
+	UDPPortMin uint16 // 0/0 = OS-assigned ephemeral ports
+	UDPPortMax uint16
+	ICEServers []webrtc.ICEServer
+	// IncludeLoopback advertises 127.0.0.1 candidates (tests / single-host dev).
+	IncludeLoopback bool
 }
 
-// SFU manages WebRTC PeerConnections and forwards audio between WebRTC
-// clients and the native Mumble voice broadcast system.
+// Hooks are the per-client callbacks. All are invoked outside SFU locks, may
+// run on any goroutine, and must not block for long.
+type Hooks struct {
+	Renegotiate  func()                      // peer tracks on this PC changed
+	PeersChanged func()                      // room roster changed
+	ICECandidate func(*webrtc.ICECandidate) // nil = gathering complete
+	Failed       func()                      // PC failed or a peer track couldn't be linked; caller tears down
+	PeerLeft     func(userID string)         // a room peer left (e.g. clear its speaking state)
+}
+
+// Client is one voice session. Identity fields are immutable after Join.
+type Client struct {
+	SessionID, UserID, RoomID string
+	SSRC                      uint32
+	PC                        *webrtc.PeerConnection
+	Owner                     any // caller's handle (the voice conn); lets callers skip a session-id lookup
+
+	track   *webrtc.TrackLocalStaticRTP
+	senders map[string]*webrtc.RTPSender // peer session id -> sender of peer's track on PC; guarded by SFU.mu
+	hooks   Hooks
+}
+
+// SFU owns clients and rooms. Safe for concurrent use.
 type SFU struct {
-	mu       sync.RWMutex
-	clients  map[uint32]*WebRTCClient // session -> client
-	SSRCPool *SSRCPool
-	api      *webrtc.API
-	logger   *log.Logger
+	api    *webrtc.API
+	pcCfg  webrtc.Configuration
+	ssrcs  *SSRCPool
+	logger *log.Logger
 
-	// Metrics carries the relay's region and the thin/on-path counters.
-	// Shared with the native voice broadcaster so both forwarding paths
-	// report into one place. Never nil after NewSFU.
-	Metrics *RelayMetrics
-
-	// onClientRemovedMu protects OnClientRemoved (assigned at construction,
-	// read from pion's OnConnectionStateChange goroutine).
-	onClientRemovedMu sync.Mutex
-	// OnClientRemoved fires after RemoveClient finishes tearing down the
-	// PeerConnection. The hachiman-media runtime wires this so its
-	// session/room maps can drop their dangling sessionState and emit a
-	// SessionEnded back to control even when pion's connection-state-change
-	// initiated the removal directly. nil = no hook (embedded/dev).
-	OnClientRemoved func(session uint32)
+	mu      sync.Mutex
+	clients map[string]*Client            // session id -> client
+	rooms   map[string]map[string]*Client // room id -> session id -> client
 }
 
-// NewSFU creates a new SFU instance tagged with the relay's region. region
-// should be cfg.StringValue("ServerRegion") ("" = unplaced); it is used purely
-// for on-path instrumentation and does not change forwarding behaviour.
-func NewSFU(logger *log.Logger, region string) *SFU {
+func NewSFU(cfg Config, logger *log.Logger) (*SFU, error) {
 	m := &webrtc.MediaEngine{}
-	if err := m.RegisterCodec(webrtc.RTPCodecParameters{
-		RTPCodecCapability: webrtc.RTPCodecCapability{
-			MimeType:    webrtc.MimeTypeOpus,
-			ClockRate:   opusSampleRate,
-			Channels:    2,
-			SDPFmtpLine: "minptime=10;useinbandfec=1",
-		},
-		PayloadType: opusPayloadType,
-	}, webrtc.RTPCodecTypeAudio); err != nil {
-		logger.Printf("SFU: failed to register opus codec: %v", err)
+	if err := m.RegisterCodec(webrtc.RTPCodecParameters{RTPCodecCapability: opusCodec, PayloadType: opusPayloadType}, webrtc.RTPCodecTypeAudio); err != nil {
+		return nil, fmt.Errorf("media: register opus: %w", err)
+	}
+	// Default interceptors give us RTCP sender/receiver reports (client-side
+	// getStats RTT/jitter) and NACK.
+	ir := &interceptor.Registry{}
+	if err := webrtc.RegisterDefaultInterceptors(m, ir); err != nil {
+		return nil, fmt.Errorf("media: interceptors: %w", err)
 	}
 
-	api := webrtc.NewAPI(webrtc.WithMediaEngine(m))
+	se := webrtc.SettingEngine{}
+	if cfg.PublicIP != "" {
+		se.SetNAT1To1IPs([]string{cfg.PublicIP}, webrtc.ICECandidateTypeHost)
+	}
+	if cfg.UDPPortMin != 0 || cfg.UDPPortMax != 0 {
+		if err := se.SetEphemeralUDPPortRange(cfg.UDPPortMin, cfg.UDPPortMax); err != nil {
+			return nil, fmt.Errorf("media: udp port range: %w", err)
+		}
+	}
+	se.SetIncludeLoopbackCandidate(cfg.IncludeLoopback)
 
 	return &SFU{
-		clients:  make(map[uint32]*WebRTCClient),
-		SSRCPool: NewSSRCPool(),
-		api:      api,
-		logger:   logger,
-		Metrics:  NewRelayMetrics(region, logger),
-	}
+		api:     webrtc.NewAPI(webrtc.WithMediaEngine(m), webrtc.WithInterceptorRegistry(ir), webrtc.WithSettingEngine(se)),
+		pcCfg:   webrtc.Configuration{ICEServers: cfg.ICEServers},
+		ssrcs:   NewSSRCPool(),
+		logger:  logger,
+		clients: map[string]*Client{},
+		rooms:   map[string]map[string]*Client{},
+	}, nil
 }
 
-// AddClient creates a new WebRTC PeerConnection for the given session and
-// registers it with the SFU. nativeSessions lists non-WebRTC clients whose
-// audio should be receivable — output tracks are pre-created for them so
-// the initial SDP offer already includes them (avoids renegotiation).
-// Returns the WebRTCClient and an SDP offer that should be sent to the client.
-func (s *SFU) AddClient(session uint32, nativeSessions []uint32) (*WebRTCClient, *webrtc.SessionDescription, error) {
-	ssrc := s.SSRCPool.Get(session)
-
-	pc, err := s.api.NewPeerConnection(webrtc.Configuration{})
+// Join creates the session's PeerConnection, allocates its SSRC and wires its
+// audio into roomID. Existing room peers get Renegotiate + PeersChanged; the
+// joiner gets neither — the caller sends its initial offer and peers
+// snapshot itself.
+//
+// A live client with the same session id is atomically replaced and returned
+// as replaced (already torn down) so the caller can close its connection with
+// 4011. Doing it under one lock avoids the rejoin-vs-teardown race.
+func (s *SFU) Join(sessionID, userID, roomID string, owner any, h Hooks) (c *Client, replaced *Client, err error) {
+	pc, err := s.api.NewPeerConnection(s.pcCfg)
 	if err != nil {
-		s.SSRCPool.Release(session)
-		return nil, nil, fmt.Errorf("sfu: failed to create PeerConnection: %w", err)
+		return nil, nil, fmt.Errorf("media: new peer connection: %w", err)
 	}
-
-	// Add a recvonly transceiver so the initial offer includes an audio
-	// slot for receiving the client's microphone audio.
-	if _, err = pc.AddTransceiverFromKind(webrtc.RTPCodecTypeAudio, webrtc.RTPTransceiverInit{
-		Direction: webrtc.RTPTransceiverDirectionRecvonly,
-	}); err != nil {
-		pc.Close()
-		s.SSRCPool.Release(session)
-		return nil, nil, fmt.Errorf("sfu: failed to add recvonly transceiver: %w", err)
+	// Receive slot for the client's mic. Media is the offerer, so without it
+	// the first offer would have no m-line for the client to send on. Added
+	// first, so it is always m-line 0 (the client's upload slot).
+	if _, err := pc.AddTransceiverFromKind(webrtc.RTPCodecTypeAudio, webrtc.RTPTransceiverInit{Direction: webrtc.RTPTransceiverDirectionRecvonly}); err != nil {
+		_ = pc.Close()
+		return nil, nil, fmt.Errorf("media: add recv transceiver: %w", err)
 	}
-
-	wc := &WebRTCClient{
-		Session:   session,
-		SSRC:      ssrc,
-		PC:        pc,
-		outTracks: make(map[uint32]*webrtc.TrackLocalStaticRTP),
-		rtpState:  make(map[uint32]*rtpForwardState),
-	}
-
-	// Add output tracks for all currently connected WebRTC clients so the
-	// new client can hear them immediately.
-	s.mu.RLock()
-	for _, existing := range s.clients {
-		if existing.Session == session {
-			continue
-		}
-		if err := wc.ensureOutputTrack(existing.SSRC); err != nil {
-			s.logger.Printf("SFU: failed to add output track for ssrc %d to session %d: %v", existing.SSRC, session, err)
-		}
-	}
-	s.mu.RUnlock()
-
-	// Add output tracks for native (non-WebRTC) clients so the initial
-	// offer includes them. This avoids dynamic track creation + renegotiation.
-	for _, ns := range nativeSessions {
-		nativeSSRC := s.SSRCPool.Get(ns)
-		if err := wc.ensureOutputTrack(nativeSSRC); err != nil {
-			s.logger.Printf("SFU: failed to add native output track for session %d (ssrc %d): %v", ns, nativeSSRC, err)
-		}
-	}
-
-	// When the client sends audio, read it and call OnVoice.
-	pc.OnTrack(func(track *webrtc.TrackRemote, receiver *webrtc.RTPReceiver) {
-		s.logger.Printf("SFU: session %d started sending audio (ssrc=%d)", session, track.SSRC())
-		go s.readIncomingRTP(wc, track)
-	})
-
-	pc.OnConnectionStateChange(func(state webrtc.PeerConnectionState) {
-		s.logger.Printf("SFU: session %d connection state: %s", session, state.String())
-		if state == webrtc.PeerConnectionStateFailed || state == webrtc.PeerConnectionStateClosed {
-			s.RemoveClient(session)
-		}
-	})
-
-	// Forward any candidates the gatherer surfaces after SetLocalDescription
-	// to whoever wired wc.OnICECandidate (typically the media binary's
-	// sfu_runtime which fans them up the sidechannel to control). pion
-	// fires this synchronously from the gatherer; the callback is
-	// non-blocking by contract (it just shoves an envelope onto a queue).
-	pc.OnICECandidate(func(c *webrtc.ICECandidate) {
-		wc.mu.Lock()
-		cb := wc.OnICECandidate
-		wc.mu.Unlock()
-		if cb != nil {
-			cb(c)
-		}
-	})
-
-	// Create an offer
-	offer, err := pc.CreateOffer(nil)
+	track, err := webrtc.NewTrackLocalStaticRTP(opusCodec, "audio-"+userID, userID)
 	if err != nil {
-		pc.Close()
-		s.SSRCPool.Release(session)
-		return nil, nil, fmt.Errorf("sfu: failed to create offer: %w", err)
-	}
-	if err := pc.SetLocalDescription(offer); err != nil {
-		pc.Close()
-		s.SSRCPool.Release(session)
-		return nil, nil, fmt.Errorf("sfu: failed to set local description: %w", err)
+		_ = pc.Close()
+		return nil, nil, fmt.Errorf("media: new track: %w", err)
 	}
 
-	// Wait for ICE gathering to complete so we send a complete offer
-	gatherComplete := webrtc.GatheringCompletePromise(pc)
-	<-gatherComplete
+	c = &Client{SessionID: sessionID, UserID: userID, RoomID: roomID, PC: pc, Owner: owner, track: track, senders: map[string]*webrtc.RTPSender{}, hooks: h}
+
+	pc.OnTrack(func(remote *webrtc.TrackRemote, _ *webrtc.RTPReceiver) {
+		if remote.Kind() == webrtc.RTPCodecTypeAudio {
+			s.forward(c, remote)
+		}
+	})
+	pc.OnICECandidate(func(cand *webrtc.ICECandidate) {
+		if h.ICECandidate != nil {
+			h.ICECandidate(cand)
+		}
+	})
+	pc.OnConnectionStateChange(func(st webrtc.PeerConnectionState) {
+		if st == webrtc.PeerConnectionStateFailed && h.Failed != nil {
+			h.Failed()
+		}
+	})
 
 	s.mu.Lock()
-	s.clients[session] = wc
+	var oldPeers []*Client
+	if old := s.clients[sessionID]; old != nil {
+		replaced, oldPeers = old, s.removeLocked(old)
+	}
+	c.SSRC = s.ssrcs.Get(sessionID)
+	room := s.rooms[roomID]
+	if room == nil {
+		room = map[string]*Client{}
+		s.rooms[roomID] = room
+	}
+	peers := make([]*Client, 0, len(room))
+	var failed []*Client
+	for _, p := range room {
+		if !s.link(c, p) { // joiner hears p
+			failed = append(failed, c)
+		}
+		if !s.link(p, c) { // p hears joiner
+			failed = append(failed, p)
+		}
+		peers = append(peers, p)
+	}
+	room[sessionID] = c
+	s.clients[sessionID] = c
 	s.mu.Unlock()
 
-	// Add an output track for this new client on all existing clients so
-	// they can hear the new client.
-	s.mu.RLock()
-	for _, existing := range s.clients {
-		if existing.Session == session {
-			continue
-		}
-		existing.mu.Lock()
-		if err := existing.ensureOutputTrack(ssrc); err != nil {
-			s.logger.Printf("SFU: failed to add output track for new ssrc %d to session %d: %v", ssrc, existing.Session, err)
-		}
-		existing.mu.Unlock()
+	if replaced != nil {
+		_ = replaced.PC.Close()
+		notifyLeft(oldPeers, replaced.UserID)
 	}
-	s.mu.RUnlock()
-
-	return wc, pc.LocalDescription(), nil
+	notify(peers)
+	for _, f := range failed {
+		// Half-wired peer: a missing track would be listed in peers but never
+		// heard. Tear it down; the client rejoins via the gateway.
+		if f.hooks.Failed != nil {
+			f.hooks.Failed()
+		}
+	}
+	return c, replaced, nil
 }
 
-// RemoveClient tears down the WebRTC session for the given client.
-func (s *SFU) RemoveClient(session uint32) {
+// Remove tears c down and unlinks it from its room. It is a no-op unless c is
+// still the live client for its session id, so a replaced connection's late
+// cleanup can't remove its successor. Idempotent.
+func (s *SFU) Remove(c *Client) {
 	s.mu.Lock()
-	wc, ok := s.clients[session]
-	if !ok {
+	if s.clients[c.SessionID] != c {
 		s.mu.Unlock()
 		return
 	}
-	delete(s.clients, session)
+	peers := s.removeLocked(c)
 	s.mu.Unlock()
 
-	wc.mu.Lock()
-	wc.PC.Close()
-	wc.mu.Unlock()
-
-	s.SSRCPool.Release(session)
-
-	// Remove the output tracks for this client's SSRC from all remaining clients
-	s.mu.RLock()
-	for _, existing := range s.clients {
-		existing.mu.Lock()
-		delete(existing.outTracks, wc.SSRC)
-		delete(existing.rtpState, wc.SSRC)
-		existing.mu.Unlock()
-	}
-	s.mu.RUnlock()
-
-	// MEDIUM #2: clear OnVoice / OnICECandidate so the pion callbacks (which
-	// can fire briefly during close) don't keep the WebRTCClient closure
-	// references alive past teardown.
-	wc.SetCallbacks(nil, nil)
-
-	// MEDIUM #1: notify the runtime that this client is gone. Used by the
-	// pion-driven connection-state-change → RemoveClient path to let the
-	// sfuRuntime drop its sessionState and emit SessionEnded; without this
-	// the runtime keeps stale state until control re-issues CloseSession.
-	s.onClientRemovedMu.Lock()
-	cb := s.OnClientRemoved
-	s.onClientRemovedMu.Unlock()
-	if cb != nil {
-		cb(session)
-	}
+	_ = c.PC.Close() // stops the forward goroutine (ReadRTP errors out)
+	notifyLeft(peers, c.UserID)
 }
 
-// GetClient returns the WebRTCClient for the given session, if it exists.
-func (s *SFU) GetClient(session uint32) *WebRTCClient {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.clients[session]
-}
-
-// SetOnClientRemoved registers a callback that fires after RemoveClient
-// finishes tearing down a session. Race-safe via the dedicated mutex —
-// callers can set this from anywhere even though RemoveClient may fire from
-// pion's internal goroutines.
-func (s *SFU) SetOnClientRemoved(cb func(session uint32)) {
-	s.onClientRemovedMu.Lock()
-	defer s.onClientRemovedMu.Unlock()
-	s.OnClientRemoved = cb
-}
-
-// HandleAnswer processes an SDP answer from a WebRTC client.
-func (s *SFU) HandleAnswer(session uint32, answer webrtc.SessionDescription) error {
-	wc := s.GetClient(session)
-	if wc == nil {
-		return fmt.Errorf("sfu: no client for session %d", session)
+// removeLocked unlinks c from its room and frees its SSRC, returning the
+// remaining room peers. Caller holds s.mu, closes c.PC and notifies.
+func (s *SFU) removeLocked(c *Client) []*Client {
+	delete(s.clients, c.SessionID)
+	room := s.rooms[c.RoomID]
+	delete(room, c.SessionID)
+	if len(room) == 0 {
+		delete(s.rooms, c.RoomID)
 	}
-	wc.mu.Lock()
-	defer wc.mu.Unlock()
-	return wc.PC.SetRemoteDescription(answer)
-}
-
-// HandleOffer processes a renegotiation SDP offer from a WebRTC client
-// (e.g. after the client adds a microphone track). Returns the answer SDP.
-func (s *SFU) HandleOffer(session uint32, offer webrtc.SessionDescription) (*webrtc.SessionDescription, error) {
-	wc := s.GetClient(session)
-	if wc == nil {
-		return nil, fmt.Errorf("sfu: no client for session %d", session)
-	}
-	wc.mu.Lock()
-	defer wc.mu.Unlock()
-
-	if err := wc.PC.SetRemoteDescription(offer); err != nil {
-		return nil, fmt.Errorf("sfu: failed to set remote description: %w", err)
-	}
-
-	answer, err := wc.PC.CreateAnswer(nil)
-	if err != nil {
-		return nil, fmt.Errorf("sfu: failed to create answer: %w", err)
-	}
-
-	if err := wc.PC.SetLocalDescription(answer); err != nil {
-		return nil, fmt.Errorf("sfu: failed to set local description: %w", err)
-	}
-
-	localDesc := wc.PC.LocalDescription()
-	return localDesc, nil
-}
-
-// CreateOffer creates a new SDP offer for the given session's PeerConnection.
-// Used to trigger renegotiation after output tracks are added dynamically.
-func (s *SFU) CreateOffer(session uint32) (*webrtc.SessionDescription, error) {
-	wc := s.GetClient(session)
-	if wc == nil {
-		return nil, fmt.Errorf("sfu: no client for session %d", session)
-	}
-	wc.mu.Lock()
-	defer wc.mu.Unlock()
-
-	offer, err := wc.PC.CreateOffer(nil)
-	if err != nil {
-		return nil, fmt.Errorf("sfu: failed to create offer: %w", err)
-	}
-	if err := wc.PC.SetLocalDescription(offer); err != nil {
-		return nil, fmt.Errorf("sfu: failed to set local description: %w", err)
-	}
-	return wc.PC.LocalDescription(), nil
-}
-
-// AddICECandidate adds an ICE candidate from the client.
-func (s *SFU) AddICECandidate(session uint32, candidate webrtc.ICECandidateInit) error {
-	wc := s.GetClient(session)
-	if wc == nil {
-		return fmt.Errorf("sfu: no client for session %d", session)
-	}
-	wc.mu.Lock()
-	defer wc.mu.Unlock()
-	return wc.PC.AddICECandidate(candidate)
-}
-
-// ForwardToWebRTC sends an Opus frame from a Mumble sender to a specific
-// WebRTC receiver. The opus payload is the raw Opus-encoded audio data.
-// senderSSRC is the SSRC assigned to the sending user.
-// mumbleSeq is the Mumble voice packet sequence number.
-// receiverRegion is the region the receiver is homed in ("" if unknown); it is
-// used only for on-path instrumentation and never changes forwarding.
-//
-// The RTP marker bit is set automatically whenever the gap since the previous
-// forwarded packet exceeds markerGapThreshold (or this is the first packet
-// ever for this sender). This implements RFC 3551 §4.1 talkspurt-start
-// semantics so receivers can reset jitter-buffer adaptation on resume.
-//
-// HOT PATH: the instrumentation added here is allocation-free — a bounded
-// time.Since measurement around the existing WriteRTP plus atomic counter
-// updates in RelayMetrics. No logging or map work runs per packet (it is
-// sampled inside RelayMetrics).
-func (s *SFU) ForwardToWebRTC(receiver *WebRTCClient, senderSSRC uint32, opusPayload []byte, mumbleSeq uint64, receiverRegion string) {
-	receiver.mu.Lock()
-	defer receiver.mu.Unlock()
-
-	track, ok := receiver.outTracks[senderSSRC]
-	if !ok {
-		return
-	}
-
-	state, ok := receiver.rtpState[senderSSRC]
-	if !ok {
-		state = &rtpForwardState{}
-		receiver.rtpState[senderSSRC] = state
-	}
-
-	now := time.Now()
-	if state.lastForwardedAt.IsZero() || now.Sub(state.lastForwardedAt) > markerGapThreshold {
-		state.marker = true
-	}
-
-	pkt := &rtp.Packet{
-		Header: rtp.Header{
-			Version:        2,
-			PayloadType:    opusPayloadType,
-			SequenceNumber: state.seqOffset,
-			Timestamp:      state.tsBase + state.frames*opusFrameSamples,
-			SSRC:           senderSSRC,
-			Marker:         state.marker,
-		},
-		Payload: opusPayload,
-	}
-
-	// Measure the forwarding-hop work itself (the SFU's added latency) and
-	// record it. time.Since uses the monotonic clock captured in `now`; both
-	// it and the metrics calls are atomic-only / allocation-free.
-	if err := track.WriteRTP(pkt); err != nil {
-		// best-effort; count the drop and continue.
-		s.Metrics.RecordWebRTCDrop()
-		return
-	}
-	s.Metrics.ObserveHopLatency(time.Since(now))
-	s.Metrics.RecordWebRTCForward(len(opusPayload), receiverRegion)
-
-	state.seqOffset++
-	state.frames++
-	state.marker = false
-	state.lastMSeq = mumbleSeq
-	state.lastForwardedAt = now
-}
-
-// readIncomingRTP reads RTP packets from an incoming WebRTC track and
-// dispatches them to the Mumble voice broadcast system via OnVoice callback.
-func (s *SFU) readIncomingRTP(wc *WebRTCClient, track *webrtc.TrackRemote) {
-	for {
-		pkt, _, err := track.ReadRTP()
-		if err != nil {
-			s.logger.Printf("SFU: session %d track read error: %v", wc.Session, err)
-			return
-		}
-
-		wc.mu.Lock()
-		target := wc.talkTarget
-		cb := wc.OnVoice
-		frameNum := wc.nextFrameNumberLocked(pkt.SequenceNumber)
-		wc.mu.Unlock()
-
-		if cb != nil && len(pkt.Payload) > 0 {
-			cb(wc.Session, pkt.Payload, target, frameNum)
-		}
-	}
-}
-
-// nextFrameNumberLocked converts an incoming 16-bit RTP sequence number into a
-// monotonic 64-bit Mumble FrameNumber. It implements the RFC 3711 §3.3.1
-// rollover-counter (ROC) update algorithm: given the previous highest-seen
-// sequence s_l (lastSeq) and current ROC (seqCycles), it computes the index
-// (v, seq) of the incoming packet, treating a forward distance greater than
-// 2^15 as a reorder across the previous wrap rather than a giant forward
-// jump. State (lastSeq, seqCycles) is only advanced when (v, seq) is strictly
-// ahead of (seqCycles, lastSeq), so reordered packets never rewind the
-// monotonic counter exposed to native Mumble decoders. Must be called with
-// wc.mu held.
-func (wc *WebRTCClient) nextFrameNumberLocked(seq uint16) uint64 {
-	if !wc.seqInit {
-		wc.seqInit = true
-		wc.lastSeq = seq
-		wc.seqCycles = 0
-		return uint64(seq)
-	}
-
-	const half = uint32(1 << 15) // 32768
-	lastSeq := uint32(wc.lastSeq)
-	curSeq := uint32(seq)
-
-	var v uint64
-	if lastSeq < half {
-		// Forward distance from lastSeq to seq, mod 2^16.
-		if (curSeq-lastSeq)&0xFFFF > half {
-			// Treat as a reorder from the previous cycle.
-			if wc.seqCycles == 0 {
-				v = 0
-			} else {
-				v = wc.seqCycles - 1
+	peers := make([]*Client, 0, len(room))
+	for _, p := range room {
+		if snd := p.senders[c.SessionID]; snd != nil {
+			if err := p.PC.RemoveTrack(snd); err != nil {
+				s.logger.Printf("media: remove track %s from %s: %v", c.SessionID, p.SessionID, err)
 			}
-		} else {
-			v = wc.seqCycles
+			delete(p.senders, c.SessionID)
 		}
-	} else {
-		// Backward distance from seq to lastSeq, mod 2^16.
-		if (lastSeq-curSeq)&0xFFFF > half {
-			v = wc.seqCycles + 1
-		} else {
-			v = wc.seqCycles
-		}
+		peers = append(peers, p)
 	}
-
-	if v > wc.seqCycles || (v == wc.seqCycles && seq > wc.lastSeq) {
-		wc.lastSeq = seq
-		wc.seqCycles = v
-	}
-
-	return (v << 16) | uint64(seq)
+	c.senders = map[string]*webrtc.RTPSender{}
+	s.ssrcs.Release(c.SessionID)
+	return peers
 }
 
-// SetTalkingState updates the talking state for a WebRTC client.
-func (wc *WebRTCClient) SetTalkingState(talking bool, target uint32) {
-	wc.mu.Lock()
-	defer wc.mu.Unlock()
-	wc.talking = talking
-	wc.talkTarget = target
-}
-
-// SetCallbacks atomically wires the OnVoice + OnICECandidate hooks. Use this
-// instead of writing the fields directly — pion's gatherer can fire
-// OnICECandidate from a separate goroutine before SetCallbacks returns, and
-// the readers (the wrapped OnICECandidate in AddClient) take wc.mu while
-// loading the field. Without this synchronisation point the race detector
-// flags the bare-field assignment.
-//
-// Passing nil for either parameter clears that hook. Callers that want to
-// update only one hook MUST pass the current value of the other (no
-// per-field setter — keeps the contract single-shot from setup code).
-func (wc *WebRTCClient) SetCallbacks(
-	onVoice func(senderSession uint32, opusPayload []byte, target uint32, frameNum uint64),
-	onICE func(candidate *webrtc.ICECandidate),
-) {
-	wc.mu.Lock()
-	defer wc.mu.Unlock()
-	wc.OnVoice = onVoice
-	wc.OnICECandidate = onICE
-}
-
-// ensureOutputTrack creates an output track for the given SSRC if one doesn't
-// exist yet. Must be called with wc.mu held.
-func (wc *WebRTCClient) ensureOutputTrack(ssrc uint32) error {
-	if _, ok := wc.outTracks[ssrc]; ok {
+// RoomPeers returns the other live members of c's room, sorted by user id
+// for stable snapshots.
+func (s *SFU) RoomPeers(c *Client) []*Client {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.clients[c.SessionID] != c {
 		return nil
 	}
+	out := make([]*Client, 0, len(s.rooms[c.RoomID]))
+	for _, p := range s.rooms[c.RoomID] {
+		if p != c {
+			out = append(out, p)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].UserID < out[j].UserID })
+	return out
+}
 
-	track, err := webrtc.NewTrackLocalStaticRTP(
-		webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeOpus},
-		fmt.Sprintf("audio-%d", ssrc),
-		fmt.Sprintf("stream-%d", ssrc),
-	)
+// SessionCount is the number of live sessions on this node.
+func (s *SFU) SessionCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.clients)
+}
+
+// link adds src's audio track to dst's PeerConnection on a fresh sendonly
+// transceiver. Not AddTrack: pion would reuse the sender-less recvonly mic
+// transceiver (m-line 0), and the client relies on m-line 0 being its
+// exclusive upload slot. Caller holds s.mu.
+//
+// Returns false if the track couldn't be added.
+//
+// ponytail: removed peers leave a stopped (inactive) m-line behind, so SDP
+// grows with join/leave churn over a long session. Recycle stopped
+// transceivers via RTPSender.ReplaceTrack if rooms get large or long-lived.
+func (s *SFU) link(dst, src *Client) bool {
+	t, err := dst.PC.AddTransceiverFromTrack(src.track, webrtc.RTPTransceiverInit{Direction: webrtc.RTPTransceiverDirectionSendonly})
 	if err != nil {
-		return err
+		s.logger.Printf("media: add track %s -> %s: %v", src.SessionID, dst.SessionID, err)
+		return false
 	}
+	snd := t.Sender()
+	dst.senders[src.SessionID] = snd
+	// pion needs RTCP read off every sender for the interceptors (NACK,
+	// reports) to run; the loop ends when the sender is removed / PC closes.
+	go func() {
+		buf := make([]byte, 1500)
+		for {
+			if _, _, err := snd.Read(buf); err != nil {
+				return
+			}
+		}
+	}()
+	return true
+}
 
-	if _, err := wc.PC.AddTrack(track); err != nil {
-		return err
+// forward pumps c's inbound mic RTP into c's shared output track, which pion
+// fans out to every room peer's PeerConnection. Runs on pion's OnTrack
+// goroutine until the PC closes.
+func (s *SFU) forward(c *Client, remote *webrtc.TrackRemote) {
+	for {
+		pkt, _, err := remote.ReadRTP()
+		if err != nil {
+			return
+		}
+		// ErrClosedPipe just means no peer bindings yet; nothing to do.
+		_ = c.track.WriteRTP(pkt)
 	}
+}
 
-	wc.outTracks[ssrc] = track
-	return nil
+func notifyLeft(peers []*Client, userID string) {
+	for _, p := range peers {
+		if p.hooks.PeerLeft != nil {
+			p.hooks.PeerLeft(userID)
+		}
+	}
+	notify(peers)
+}
+
+func notify(peers []*Client) {
+	// Roster before offer, so the client knows who a new msid belongs to.
+	for _, p := range peers {
+		if p.hooks.PeersChanged != nil {
+			p.hooks.PeersChanged()
+		}
+		if p.hooks.Renegotiate != nil {
+			p.hooks.Renegotiate()
+		}
+	}
 }

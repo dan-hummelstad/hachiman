@@ -14,6 +14,7 @@ import { db } from '@/db/client'
 import { users } from '@/db/schema'
 import { eq } from 'drizzle-orm'
 
+import { isAllowedOrigin } from './allowed-origins'
 import { DrizzleAdapter } from './oidc-adapter'
 
 const ONE_HOUR = 60 * 60
@@ -57,6 +58,16 @@ function buildConfiguration(): Configuration {
     adapter: DrizzleAdapter,
     cookies: {
       keys: readCookieKeys(),
+      // The `_interaction` cookie defaults to path=/oidc/interaction/<uid>.
+      // Our login is a server action (POST to /login); when signIn() redirects
+      // back, Next re-renders the interaction page in that POST's request
+      // context, whose path doesn't match — so the cookie isn't sent and
+      // `interactionDetails` throws SessionNotFound. Widen short-lived cookies
+      // to path '/' so the interaction cookie is present regardless of the
+      // rendering request's path. panva spreads `cookies.short` AFTER its
+      // default `path`, so this overrides only the interaction cookie; the
+      // resume cookie sets its own path afterwards and stays scoped.
+      short: { path: '/' },
     },
     pkce: {
       required: () => true,
@@ -69,9 +80,8 @@ function buildConfiguration(): Configuration {
       revocation: { enabled: true },
       resourceIndicators: {
         enabled: true,
-        // v1: always issue opaque + introspectable tokens regardless of the
-        // requested audience. Federated Mumble servers will pull user info
-        // by introspecting against /api/oidc/token/introspection.
+        // v1: always issue opaque tokens regardless of the requested audience.
+        // The gateway resolves them via GET /api/v1/users/@me.
         getResourceServerInfo: (_ctx, resourceIndicator): ResourceServer => ({
           scope: 'openid profile email',
           audience: resourceIndicator,
@@ -120,25 +130,10 @@ function buildConfiguration(): Configuration {
     interactions: {
       url: (_ctx, interaction) => `/oidc/interaction/${interaction.uid}`,
     },
-    // panva defaults clientBasedCORS to `() => false`, so browser-based
-    // public clients (PKCE) get a 400 "origin not allowed" on the token
-    // endpoint. Allow any origin that matches a registered redirect URI's
-    // origin — the redirect_uris list is the per-client allowlist we already
-    // curate at registration time.
-    clientBasedCORS: (_ctx, origin, client) => {
-      const redirects =
-        (client.metadata() as { redirect_uris?: string[] }).redirect_uris ?? []
-      for (const uri of redirects) {
-        try {
-          if (new URL(uri).origin === origin) return true
-        } catch {
-          // Custom-scheme URIs (e.g. app.hachiman://...) don't have an
-          // origin in the HTTP sense — they're never the source of a CORS
-          // preflight, so skipping them is correct.
-        }
-      }
-      return false
-    },
+    // panva's default rejects every cross-origin call to token / userinfo /
+    // revocation. Use the same allowlist as the /api/* middleware, which
+    // answers the preflights (src/lib/allowed-origins.ts). Never `Origin: null`.
+    clientBasedCORS: (_ctx, origin) => isAllowedOrigin(origin),
     async findAccount(_ctx, id) {
       const row = await db.query.users.findFirst({
         where: eq(users.id, id),
@@ -192,6 +187,11 @@ async function constructProvider(): Promise<Provider> {
   // Trust the X-Forwarded-* headers set by Next's request proxy so the
   // issuer URL matching works behind reverse proxies in production.
   provider.proxy = true
+
+  // panva answers a thrown error with a generic `server_error` page and logs nothing.
+  provider.on('server_error', (ctx, err) => {
+    console.error(`[oidc] server_error on ${ctx.method} ${ctx.path}:`, err)
+  })
 
   return provider
 }

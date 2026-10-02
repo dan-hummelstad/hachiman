@@ -1,79 +1,85 @@
 import type {} from '@redux-devtools/extension'
 import { create } from 'zustand'
-import { devtools } from 'zustand/middleware'
+import { devtools, persist } from 'zustand/middleware'
+import type { VoicePeer, VoiceState } from '@hachiman/client'
 import { EMPTY_CONNECTION_QUALITY, type ConnectionQuality } from '@/lib/connection-quality'
 
-interface VoiceState {
+export type VoiceConnectionState = RTCPeerConnectionState | 'idle'
+
+interface VoiceStoreState {
+  /** The single global voice session (one per user). null = not in voice. */
+  guildId: string | null
+  channelId: string | null
+  connectionState: VoiceConnectionState
   micActive: boolean
-  voiceConnected: boolean
-  speakingUsers: Set<number>
-
-  // Per-server: which channel the user is voice-connected to.
-  // Independent of channelStore.selectedChannelByServer (the channel being viewed).
-  voiceChannelByServer: Map<string, number>
-
-  // Client-side connection quality (RTT / jitter / packet-loss) for the active
-  // session. Defaults to EMPTY_CONNECTION_QUALITY ("not yet measured"); the
-  // voice-controls indicator renders an "unavailable" state until a producer
-  // populates it (the Mumble client doesn't expose round-trip stats through
-  // IMumbleService yet — see connection-quality.ts). A single typed slot so
-  // the UI lights up with zero rework once stats flow.
+  /** Mirror of `HachimanClient.selfVoice`. `ownMute` and `selfDeaf` persist; `selfMute` derives from them. */
+  ownMute: boolean
+  selfMute: boolean
+  selfDeaf: boolean
+  /** userIds currently speaking (remote via media WS, self via local VAD). */
+  speaking: Set<string>
+  peers: VoicePeer[]
+  /** Everyone's voice states: guildId → userId → state. Mirror of HachimanClient.cache.voiceStates. */
+  voiceStates: Map<string, Map<string, VoiceState>>
   connectionQuality: ConnectionQuality
-
-  setMicActive: (active: boolean) => void
-  setVoiceConnected: (connected: boolean) => void
-  addSpeaking: (session: number) => void
-  removeSpeaking: (session: number) => void
-  setVoiceChannel: (server: string, channelId: number | null) => void
-  getVoiceChannel: (server: string | null) => number | null
-  setConnectionQuality: (quality: ConnectionQuality) => void
-  reset: () => void
+  setSpeaking: (userId: string, speaking: boolean) => void
+  /** Replace the roster and drop speakers no longer in it (except `keepUserId`, i.e. us). */
+  setPeers: (peers: VoicePeer[], keepUserId: string | null) => void
+  resetSession: () => void
 }
 
-export const useVoiceStore = create<VoiceState>()(
-  devtools((set, get) => ({
-    micActive: false,
-    voiceConnected: false,
-    speakingUsers: new Set<number>(),
-    voiceChannelByServer: new Map<string, number>(),
-    connectionQuality: EMPTY_CONNECTION_QUALITY,
+const SESSION_DEFAULTS = {
+  guildId: null,
+  channelId: null,
+  connectionState: 'idle' as VoiceConnectionState,
+  micActive: false,
+  speaking: new Set<string>(),
+  peers: [],
+  connectionQuality: EMPTY_CONNECTION_QUALITY
+}
 
-    setMicActive: (active: boolean) => set({ micActive: active }),
-    setVoiceConnected: (connected: boolean) => set({ voiceConnected: connected }),
-    addSpeaking: (session: number) =>
-      set((state) => {
-        const next = new Set(state.speakingUsers)
-        next.add(session)
-        return { speakingUsers: next }
+/** The mirrored slice (everyone's voice states). The local session resets via `resetSession`. */
+const initialVoiceMirrorState = (): Pick<VoiceStoreState, 'voiceStates'> => ({
+  voiceStates: new Map()
+})
+
+export const useVoiceStore = create<VoiceStoreState>()(
+  devtools(
+    persist(
+      (set) => ({
+        ...SESSION_DEFAULTS,
+        ownMute: false,
+        selfMute: false,
+        selfDeaf: false,
+        ...initialVoiceMirrorState(),
+        setSpeaking: (userId, speaking) =>
+          set((s) => {
+            if (s.speaking.has(userId) === speaking) return {}
+            const next = new Set(s.speaking)
+            if (speaking) next.add(userId)
+            else next.delete(userId)
+            return { speaking: next }
+          }),
+        // Media sends no speaking=false for someone who left, so the roster prunes them.
+        setPeers: (peers, keepUserId) =>
+          set((s) => {
+            const keep = new Set(peers.map((p) => p.userId))
+            if (keepUserId) keep.add(keepUserId)
+            const speaking = [...s.speaking].filter((id) => keep.has(id))
+            return speaking.length === s.speaking.size
+              ? { peers }
+              : { peers, speaking: new Set(speaking) }
+          }),
+        resetSession: () => set({ ...SESSION_DEFAULTS, speaking: new Set() })
       }),
-    removeSpeaking: (session: number) =>
-      set((state) => {
-        const next = new Set(state.speakingUsers)
-        next.delete(session)
-        return { speakingUsers: next }
-      }),
-    setVoiceChannel: (server: string, channelId: number | null) =>
-      set((state) => {
-        const next = new Map(state.voiceChannelByServer)
-        if (channelId === null) {
-          next.delete(server)
-        } else {
-          next.set(server, channelId)
-        }
-        return { voiceChannelByServer: next }
-      }),
-    getVoiceChannel: (server: string | null) => {
-      if (!server) return null
-      return get().voiceChannelByServer.get(server) ?? null
-    },
-    setConnectionQuality: (quality: ConnectionQuality) => set({ connectionQuality: quality }),
-    reset: () =>
-      set({
-        micActive: false,
-        voiceConnected: false,
-        speakingUsers: new Set<number>(),
-        voiceChannelByServer: new Map<string, number>(),
-        connectionQuality: EMPTY_CONNECTION_QUALITY
-      })
-  }))
+      {
+        name: 'hachiman-voice-storage',
+        partialize: (s) => ({ ownMute: s.ownMute, selfDeaf: s.selfDeaf })
+      }
+    )
+  )
 )
+
+export function resetVoiceMirror(): void {
+  useVoiceStore.setState(initialVoiceMirrorState())
+}

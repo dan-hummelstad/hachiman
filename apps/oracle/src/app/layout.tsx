@@ -8,7 +8,7 @@ import './globals.css'
 
 export const metadata: Metadata = {
   title: 'Takusen',
-  description: 'Hachiman identity and server registry',
+  description: 'Hachiman identity provider',
 }
 
 // Inline script that runs before first paint to avoid flash of wrong theme.

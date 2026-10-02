@@ -11,7 +11,9 @@
     "build:electron": "pnpm -F @hachiman/hachiman-electron build",
     "build:browser": "pnpm -F @hachiman/hachiman-browser build",
     "build:server": "pnpm -F hachiman-server build",
-    "dev:server": "pnpm -F hachiman-server dev"
+    "dev:server": "pnpm -F hachiman-server dev",
+    "dev:gateway": "pnpm -F hachiman-server dev:gateway",
+    "dev:media": "pnpm -F hachiman-server dev:media"
   },
   "keywords": [],
   "author": "",
@@ -19,5 +21,8 @@
   "packageManager": "pnpm@10.28.1",
   "devDependencies": {
     "@typescript/native-preview": "7.0.0-dev.20260421.2"
+  },
+  "engines": {
+    "node": ">=22.9"
   }
 }

@@ -6,11 +6,10 @@ syntax = "proto3";
 
 package hachiman.recorder.v1;
 
-option go_package = "mumble.info/grumble/pkg/recorderproto;recorderproto";
+option go_package = "hachiman/server/pkg/recorderproto;recorderproto";
 
-// RecorderControl is the media↔recorder sidechannel — separate from the
-// control↔media `MediaControl` service per
-// MEDIA-PLANE-MIGRATION.md Phase 2 step 4:
+// RecorderControl is the media↔recorder sidechannel. The design note it
+// was written against:
 //
 //   "Recorder subscribes via `SubscribeAsRecorder` against the room's
 //    primary SFU only (never a cascade peer). In cascaded rooms, cascade
@@ -101,8 +100,8 @@ message EncodedFrame {
 message TrackAdded {
   string track_id = 1;
   string publisher_session_id = 2;
-  // Mirrors MediaKind in Mumble.proto. String to keep the proto independent
-  // of the Mumble proto enum.
+  // Media kind, e.g. "audio". A string so this proto does not depend on
+  // another proto's enum.
   string kind = 3;
   string codec = 4;
   uint32 originating_ssrc = 5;

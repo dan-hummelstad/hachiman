@@ -1,171 +1,141 @@
-# Oracle/Takusen SSO — setup from scratch
+# Local setup: Oracle sign-in to voice
 
-End-to-end checklist to stand up Oracle (the identity provider + server registry), a Mumble server that trusts it, and a Hachiman host app signed into both.
+This guide starts the full stack on one machine: Postgres, Redis, Oracle, the gateway, a media node and a host app.
+The wire contract is [`gateway-protocol.md`](gateway-protocol.md).
 
-The wire model: a host app does PKCE against Oracle, drops the resulting access token into `Authenticate.oracle_token`, and the Mumble server validates it via RFC 7662 introspection. Three secrets need to line up.
+How sign-in works:
 
----
+1. The host app does OIDC Authorization Code + PKCE against Oracle with the public client `hachiman-client`.
+2. The app sends the access token as a bearer token on REST calls (`/api/v1/*`) and in the gateway `IDENTIFY`.
+3. The gateway checks the token with `GET {ORACLE_URL}/api/v1/users/@me`. Status 200 means the token is valid. Any other status closes the socket with code 4004.
+4. For voice, the gateway signs a short-lived voice token. The media node verifies it with the same Ed25519 key.
 
-## 0. Prerequisites
+The flow uses no token introspection, no per-server OIDC clients and no client secrets.
 
-- Node 20+, pnpm 10+
-- Go 1.22+ (server)
-- Postgres 14+ running locally (Oracle's data store)
-- `openssl` (for generating signing keys)
-- `sqlite3` CLI (for poking the Mumble server's config table)
+## 1. Prerequisites
+
+Node 22.9+, pnpm 10+, Go 1.25+, Docker, `openssl`.
 
 ```bash
 pnpm install
+docker compose -f docker/docker-compose.yml up -d   # Postgres :5432 (oracle/oracle), Redis :6379, S3 (SeaweedFS) :8333
 ```
 
----
+## 2. Environment
 
-## 1. Postgres database for Oracle
-
-Anything that can serve `postgres://oracle:oracle@localhost:5432/oracle` works. With a stock local install:
+All services read one env file: the repo-root `.env`. Copy the template:
 
 ```bash
-createuser -s oracle               # or: psql -c "CREATE ROLE oracle LOGIN SUPERUSER PASSWORD 'oracle';"
-createdb -O oracle oracle
+cp .env.example .env
 ```
 
-If you change the URL, mirror it in `apps/oracle/.env` (next step).
+`.env.example` has one `# MARK: -` section for each service. A variable that you set in your shell wins over the file. Next.js also reads `apps/oracle/.env` if it exists, and that file shadows the root file. Move its values to the root `.env`, then delete it.
 
----
+The Oracle values:
 
-## 2. Oracle environment
-
-```bash
-cp apps/oracle/.env.example apps/oracle/.env
-```
-
-Then fill the three secrets — each value is an independent `openssl rand -base64 32`:
-
-| Var | Purpose |
+| Var | Value |
 | --- | --- |
-| `AUTH_SECRET` | Signs Auth.js session JWTs/CSRF. |
-| `OIDC_COOKIES_KEY` | Signs panva oidc-provider's interaction cookies. Comma-separate to rotate. |
-| `TAKUSEN_INVITE_SIGNING_KEY` | HMACs `takusen://join#…` invite payloads so clients can verify offline. ≥ 32 chars. |
+| `DATABASE_URL` | `postgres://oracle:oracle@localhost:5432/oracle` (default matches the compose file) |
+| `REDIS_URL` | `redis://localhost:6379`. Required: the `/api/v1` routes fail without it. |
+| `AUTH_SECRET` | `openssl rand -base64 32` |
+| `OIDC_COOKIES_KEY` | `openssl rand -base64 32` (comma-separate to rotate) |
+| `OIDC_ISSUER_URL` | `http://localhost:3000/api/oidc`. It **must** end with `/api/oidc`, because the provider computes every endpoint from it. |
+| `TAKUSEN_ALLOWED_ORIGINS` | Optional CORS allowlist (comma-separated). Default: Vite ports 5173/5174 on `localhost` and `127.0.0.1`, and `hachiman://app` (the packaged desktop app). A value replaces the full default list. The list also controls the token and userinfo endpoints. Oracle never allows `Origin: null`. |
+| `HACHIMAN_WEB_URL` | Optional. The web app origin that the public `/invite/<code>` page links to. |
 
-Leave `OIDC_ISSUER_URL=http://localhost:3000/api/oidc` for local dev. **It must end with `/api/oidc`** — panva computes every endpoint URL relative to it, and the catch-all route is mounted at `/api/oidc/[...path]`.
-
-Production: also set `OIDC_JWKS_JSON` to a stable JWK set so ID tokens survive restarts. Optionally set `TAKUSEN_ALLOWED_ORIGINS` (comma-separated) to whitelist your host-app origins for the `/api/*` CORS middleware (defaults: `http://localhost:5173`, `http://localhost:5174`, plus their `127.0.0.1` variants).
-
----
-
-## 3. Schema + seed
+## 3. Schema and seed
 
 ```bash
-pnpm -F @hachiman/oracle db:migrate   # applies apps/oracle/drizzle/*.sql
-pnpm -F @hachiman/oracle db:seed      # idempotent — inserts the public `hachiman-client` OIDC client
+pnpm -F @hachiman/oracle db:migrate
+pnpm -F @hachiman/oracle db:seed
 ```
 
-The seed registers the desktop+browser PKCE client with redirect URIs `app.hachiman://oauth-callback`, `http://localhost:5173/oauth/callback`, and `http://localhost:5174/oauth/callback`. Override via `HACHIMAN_CLIENT_REDIRECT_URIS=...` if you run on different ports.
+The seed creates the regions and the public PKCE client `hachiman-client` with these redirect URIs:
 
-> Schema still in flux? Per repo convention, drop the DB and regen the seed migration (`pnpm -F @hachiman/oracle db:generate`) rather than stacking ALTERs.
+- `app.hachiman://oauth-callback` (Electron deep link)
+- `http://localhost:3000/oauth/electron-bridge` (Oracle page that hands the result to the Electron deep link)
+- `http://localhost:5173/oauth/callback`, `http://localhost:5174/oauth/callback` (browser host)
 
----
+To use other ports, set `HACHIMAN_CLIENT_REDIRECT_URIS` (comma-separated). Then run the seed again.
+When the schema changes, drop the dev schema. Then run both commands again.
 
 ## 4. Start Oracle
 
 ```bash
-pnpm -F @hachiman/oracle dev
+pnpm dev:oracle                     # Next.js on :3000 and management gRPC on 127.0.0.1:50051
 ```
 
-Smoke-check the issuer:
+Check the issuer:
 
 ```bash
-curl -s http://localhost:3000/api/oidc/.well-known/openid-configuration | jq '.issuer, .authorization_endpoint, .introspection_endpoint'
+curl -s http://localhost:3000/api/oidc/.well-known/openid-configuration | jq '.issuer, .authorization_endpoint'
+# "http://localhost:3000/api/oidc"
+# "http://localhost:3000/api/oidc/auth"
 ```
 
-You want to see:
+If `authorization_endpoint` has no `/api/oidc` prefix, Oracle did not read the issuer from the env. Stop the dev server fully and start it again.
 
-```
-"http://localhost:3000/api/oidc"
-"http://localhost:3000/api/oidc/auth"
-"http://localhost:3000/api/oidc/token/introspection"
-```
+Create an account at http://localhost:3000/signup.
 
-If `authorization_endpoint` is `http://localhost:3000/auth`, your issuer env wasn't picked up — fully stop the dev server (not just HMR) and restart.
+## 5. Start the gateway and media node
 
----
-
-## 5. Register your Mumble server in Oracle
-
-Sign into Oracle (`http://localhost:3000`) and create a server in the dashboard. Then mint its confidential introspection credentials — the secret is returned **once**, so copy it now:
+Set `MEDIA_REGION=us-east` in the root `.env`. This is a seeded region code, so guilds that pick a region can land on this node. The gateway and the media node read `DATABASE_URL` and the other values from the same file.
 
 ```bash
-# Get the server id from the dashboard URL, then:
-SID=<server-uuid>
-curl -X POST http://localhost:3000/api/servers/$SID/oidc \
-  -H "cookie: <your authjs.session-token cookie>" \
-  | jq
-# → { "client": { "clientId": "mumble-<short>", ... }, "secret": "<plaintext, save it now>" }
+pnpm dev:server    # gateway ws://localhost:8080/gateway, media ws://localhost:8090/voice
 ```
 
-The dashboard exposes the same action; the API form above is just easier to script. Anything other than the first response loses the plaintext secret — regenerate to mint a new one.
+Defaults that matter here:
 
----
+- Gateway `ORACLE_URL` is `http://localhost:3000`, and `ORACLE_GRPC_ADDR` is `127.0.0.1:50051`.
+- Voice key: both processes run in `apps/hachiman-server` and read the seed file from `VOICE_KEY` (default `.dev/keys/voice-signer.ed25519`). The gateway creates the file if it is missing. The media node then reads the same seed. In production, give the media node the public key with `VOICE_PUBKEY` (or `--voice-pubkey`) instead.
+- The media node registers with Oracle as `media-<hostname>` in region `MEDIA_REGION` (default `dev`) and sends a heartbeat every 10 s.
+- Voice placement: Oracle places a voice channel on the least-loaded live node in the region of the guild. If the guild has no region (the default), Oracle uses any region. Set a guild region only when you run media nodes in several regions.
 
-## 6. Tell the Mumble server about Oracle
+Other flags: [`apps/hachiman-server/README.md`](../apps/hachiman-server/README.md).
 
-Grumble persists per-virtual-server config in `apps/hachiman-server/bin/data/murmur.sqlite` (table `config`, `server_id=0` for the default virtual server). There's no admin CLI yet, so write directly:
+## 6. Start a host app
 
 ```bash
-sqlite3 apps/hachiman-server/bin/data/murmur.sqlite <<SQL
-INSERT OR REPLACE INTO config (server_id, key, value) VALUES
-  (0, 'OracleIntrospectionURL', 'http://localhost:3000/api/oidc/token/introspection'),
-  (0, 'OracleClientID',         '<clientId from step 5>'),
-  (0, 'OracleClientSecret',     '<secret from step 5>'),
-  (0, 'OracleOnly',             'false');
-SQL
+pnpm dev:browser    # http://localhost:5173
+pnpm dev:electron
 ```
 
-All three of URL / ClientID / ClientSecret must be set or the server treats Oracle as disabled and silently drops inbound tokens.
+The shared UI reads these Vite env vars (`apps/hachiman/src/shared/oracle-env.ts`). Vite reads them from the root `.env` (`envDir` is the repo root). The defaults work for local dev. The Electron main process reads the same vars at build time and puts the Oracle and gateway origins into the renderer CSP (`connect-src`):
 
-`OracleOnly=true` rejects any client that doesn't present a verifiable Oracle token. Match it to the `servers.oracle_only` flag in Oracle's dashboard — Oracle uses its copy to render the "Oracle-only server" badge; the Mumble server uses its copy to actually enforce.
-
-If the DB doesn't exist yet, run `pnpm dev:server` once first to let Grumble bootstrap it, then re-run the SQL.
-
----
-
-## 7. Start the Mumble server
-
-```bash
-pnpm dev:server
-```
-
-Restarts pick up the new config rows automatically (read on every authenticate, no caching).
-
----
-
-## 8. Start a host app
-
-```bash
-pnpm dev:electron     # OR
-pnpm dev:browser
-```
-
-In the app: open the user menu → "Sign in to Oracle" → complete the PKCE flow in your browser → control returns via `app.hachiman://oauth-callback` (Electron) or `/oauth/callback` (browser). Connect to the Mumble server — Grumble runs introspection during Authenticate, and remote users show the Oracle handle plus a verified badge in the member list.
-
----
-
-## 9. Verifying the round-trip
-
-| Symptom | Where to look |
+| Var | Default |
 | --- | --- |
-| `/.well-known/openid-configuration` returns 404 | Issuer URL missing `/api/oidc` — see step 2. |
-| `authorize` 404s on `http://localhost:3000/auth` (no `/api/oidc` prefix in `authorization_endpoint`) | `routes` not configured on the panva Provider — they default to `/auth`, `/token`, etc. and ignore the issuer's path. See `apps/oracle/src/lib/oidc-provider.ts` (`routes:` block) and the matching prefix-passthrough in `apps/oracle/src/app/api/oidc/[...path]/route.ts`. |
-| CORS error from host app to `:3000` | Origin not in `TAKUSEN_ALLOWED_ORIGINS`; CSP doesn't list `http://localhost:3000` in `connect-src`. |
-| Server logs `"sent oracle_token but server has no introspection configured"` | Step 6 incomplete on that virtual server. |
-| Server logs `"introspection audience mismatch"` | The Mumble server's `OracleClientID` doesn't match the `client_id` the token was issued to — re-check step 5/6. |
-| Connect rejected with `AuthenticatorFail` and Oracle-only is on | Sign in to Oracle first, then reconnect. |
+| `VITE_TAKUSEN_OIDC_ISSUER` | `http://localhost:3000/api/oidc` |
+| `VITE_TAKUSEN_OIDC_CLIENT_ID` | `hachiman-client` |
+| `VITE_TAKUSEN_API_BASE` | `<issuer origin>/api`. The REST base is `${apiBase}/v1`. |
+| `VITE_HACHIMAN_OIDC_REDIRECT` | Browser: `<page origin>/oauth/callback`. Electron: `<issuer origin>/oauth/electron-bridge`. |
+| `VITE_HACHIMAN_GATEWAY_URL` | `ws://localhost:8080/gateway` |
 
----
+To test audio:
 
-## 10. Production deltas
+1. Sign in.
+2. Create a guild.
+3. Set the guild region to the region of the media node.
+4. From a second browser profile, join the voice channel of the guild.
 
-- Replace `http://localhost:3000` with your real HTTPS issuer everywhere (`OIDC_ISSUER_URL`, host-app `VITE_TAKUSEN_OIDC_ISSUER`, the Mumble server's `OracleIntrospectionURL`).
-- Set `OIDC_JWKS_JSON` to a persisted JWK set.
-- Tighten `TAKUSEN_ALLOWED_ORIGINS` to just your host-app origins.
-- Keep `OracleClientSecret` out of source control — it lives in the Mumble server's SQLite, not in `.env`, so back that file up alongside the database.
+## 7. Troubleshooting
+
+| Symptom | Check |
+| --- | --- |
+| `/.well-known/openid-configuration` returns 404 | `OIDC_ISSUER_URL` does not end with `/api/oidc`. |
+| CORS error from the host app to `:3000` | The app origin is not in `TAKUSEN_ALLOWED_ORIGINS`. The packaged desktop app has the origin `hachiman://app`. |
+| CSP error in the desktop app console (`connect-src`) | The build of the app used different `VITE_TAKUSEN_*` or `VITE_HACHIMAN_GATEWAY_URL` values. Build the app again with the correct values. |
+| Redirect URI rejected on sign-in | The redirect is not in the seeded list. Set `HACHIMAN_CLIENT_REDIRECT_URIS` and run the seed again. |
+| Gateway closes with 4004 | `/api/v1/users/@me` rejected the token. Make sure that the gateway `ORACLE_URL` points at the Oracle that issued it. |
+| REST calls return 500 and mention Redis | `REDIS_URL` is not set, or Redis is not running. |
+| Voice join gets no `VOICE_SERVER_UPDATE` | The guild has no region, or no live media node is registered in its region. Examine the `dev:grpc` and gateway logs. |
+| Voice WS closes with 4004 | Gateway and media use different voice keys, or the client used the token twice. |
+
+## 8. Production differences
+
+- Use your HTTPS origin in `OIDC_ISSUER_URL`, `VITE_TAKUSEN_OIDC_ISSUER` and the gateway `ORACLE_URL`.
+- Set `OIDC_JWKS_JSON` to a stored JWK set, so tokens stay valid after a restart.
+- Limit `TAKUSEN_ALLOWED_ORIGINS` to your host-app origins. If you ship the desktop app, the list must include `hachiman://app`. Example: `TAKUSEN_ALLOWED_ORIGINS=https://hachiman.example.com,hachiman://app`.
+- Build the desktop app with the production `VITE_TAKUSEN_OIDC_ISSUER` and `VITE_HACHIMAN_GATEWAY_URL` (`wss://`). These values set the CSP of the app.
+- Give media nodes `VOICE_PUBKEY` or `--voice-pubkey` (the public key of the gateway), not the seed file.
+- The management gRPC has no auth yet. Keep it on loopback or a private network (`ORACLE_GRPC_BIND_ADDR`).

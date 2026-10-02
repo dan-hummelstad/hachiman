@@ -13,13 +13,8 @@ import (
 // ReplayCache is a bounded LRU of seen JTIs with per-entry expiry.
 //
 // Used by media to reject duplicate tokens (a token replayed within its TTL
-// window). Per the rev-6 architectural call, this is per-node in-memory
-// state: media is stateless and autoscaled, so LRU loss on node replacement
-// is accepted. The DTLS-fingerprint binding + token TTL bound the residual
-// risk to a few seconds against a specific peer.
-//
-// Capacity defaults to 10_000 entries — enough for ~1k sessions/s under the
-// 2-minute max TTL with comfortable headroom.
+// window). Per-node in-memory state: media is stateless, so LRU loss on node
+// replacement is accepted. The aud binding + short TTL bound the residual risk.
 type ReplayCache struct {
 	mu       sync.Mutex
 	capacity int

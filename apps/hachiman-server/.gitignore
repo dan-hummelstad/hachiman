@@ -1,4 +1,3 @@
-cmd/grumble/grumble
 .DS_Store
 *.[568ao]
 *.ao
@@ -22,10 +21,8 @@ _testmain.go
 build.out
 test.out
 goinstall.log
-*.sqlite
 build/
 .idea/
-/data
 /bin
 
 *.patch

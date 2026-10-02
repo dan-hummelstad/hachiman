@@ -1,116 +1,136 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Hash, Volume2 } from 'lucide-react'
+import type { CreateChannelBody } from '@hachiman/client'
+import { ModalWindow } from '@/components/ui/modal-window'
 import { Button } from '@/components/ui/button'
-import {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle
-} from '@/components/ui/dialog'
+import { ErrorText } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import type { ChannelType } from '@/stores/channelStore'
+import { useAction } from '@/hooks/use-action'
+import { cn } from '@/lib/utils'
+import { hachiman } from '@/services/hachiman'
+import { useChannelStore } from '@/stores/channelStore'
+import { useDialog } from '@/stores/dialogStore'
+import { selectChannel } from '@/stores/navStore'
 
-interface CreateChannelDialogProps {
-  /**
-   * Which type of channel to create. Set when the dialog opens (the trigger
-   * was one section's "+" button), so the dialog itself doesn't ask. Null
-   * keeps the dialog closed.
-   */
-  type: ChannelType | null
-  /**
-   * Optional name of the parent channel. When present, the dialog labels
-   * itself as creating a subchannel of that parent. The parent id itself
-   * is owned by the caller (App.tsx) and forwarded into `onCreate`, so
-   * the dialog stays a dumb input surface.
-   */
-  parentName?: string | null
-  onClose: () => void
-  onCreate: (name: string, type: ChannelType) => Promise<void>
-}
+type ChannelKind = CreateChannelBody['type']
 
-export function CreateChannelDialog(props: CreateChannelDialogProps): React.JSX.Element {
-  const { type, parentName, onClose, onCreate } = props
+const FORM_ID = 'create-channel-form'
+
+/**
+ * Create a channel or category in a guild; a new text channel becomes the selected one. Text and
+ * voice can be switched in the dialog.
+ */
+export function CreateChannelDialog(): React.JSX.Element {
+  const { dialog, open, close } = useDialog('createChannel')
+  const { guildId, parentId } = dialog
   const [name, setName] = useState('')
-  const [submitting, setSubmitting] = useState(false)
+  const [type, setType] = useState<ChannelKind>(dialog.type)
+  const { run, busy, error } = useAction()
+  const parentName = useChannelStore((s) =>
+    parentId ? (s.channels.get(parentId)?.name ?? null) : null
+  )
 
-  // Reset the name field each time the dialog reopens so it doesn't leak the
-  // previous attempt's text into the next session.
-  useEffect(() => {
-    if (type !== null) setName('')
-  }, [type])
-
-  const isOpen = type !== null
-  const Icon = type === 'voice' ? Volume2 : Hash
+  const isCategory = type === 'category'
 
   const handleSubmit = async (e: React.FormEvent): Promise<void> => {
     e.preventDefault()
-    if (type === null) return
     const trimmed = name.trim()
     if (!trimmed) return
-    setSubmitting(true)
-    try {
-      await onCreate(trimmed, type)
-      onClose()
-    } catch (err) {
-      console.error('Failed to create channel:', err)
-    } finally {
-      setSubmitting(false)
-    }
+    const created = await run(`create the ${type}`, () =>
+      hachiman.rest.createChannel(guildId, {
+        name: trimmed,
+        type,
+        parentId: isCategory ? undefined : (parentId ?? undefined)
+      })
+    )
+    if (!created.ok) return
+    if (created.value.type === 'text') selectChannel(created.value.id, guildId)
+    close()
   }
 
   return (
-    <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="sm:max-w-106.25">
-        <form onSubmit={(e) => void handleSubmit(e)}>
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Icon className="h-4 w-4" />
-              {parentName
-                ? `Create ${type === 'voice' ? 'Voice' : 'Text'} Subchannel`
-                : `Create ${type === 'voice' ? 'Voice' : 'Text'} Channel`}
-            </DialogTitle>
-            <DialogDescription>
-              {parentName ? (
-                <>
-                  Nested under <span className="text-foreground font-medium">{parentName}</span>
-                  .{' '}
-                </>
-              ) : null}
-              {type === 'voice'
-                ? 'Voice channels carry audio plus a live (non-persistent) chat.'
-                : 'Text channels keep persistent chat history. No voice.'}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-4 py-4">
-            <div className="grid gap-3">
-              <Label htmlFor="channel-name">Channel name</Label>
-              <Input
-                id="channel-name"
-                name="channel-name"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder={type === 'voice' ? 'General' : 'general'}
-                autoFocus
-                disabled={submitting}
-              />
-            </div>
+    <ModalWindow
+      open={open}
+      onClose={close}
+      title={isCategory ? 'Create category' : 'Create channel'}
+      description={
+        parentName
+          ? `In ${parentName}`
+          : isCategory
+            ? 'Categories group channels in the sidebar.'
+            : undefined
+      }
+      actions={
+        <>
+          <Button type="button" variant="ghost" disabled={busy} onClick={close}>
+            Cancel
+          </Button>
+          <Button type="submit" form={FORM_ID} disabled={busy || !name.trim()}>
+            {busy ? 'Creating…' : isCategory ? 'Create category' : 'Create channel'}
+          </Button>
+        </>
+      }
+    >
+      <form id={FORM_ID} onSubmit={(e) => void handleSubmit(e)} className="grid gap-4">
+        {!isCategory && (
+          <fieldset className="grid gap-2">
+            <legend className="text-muted-foreground mb-2 text-xs leading-4 font-semibold">
+              Type
+            </legend>
+            {(['text', 'voice'] as const).map((t) => {
+              const Icon = t === 'voice' ? Volume2 : Hash
+              const selected = type === t
+              return (
+                <label
+                  key={t}
+                  className={cn(
+                    'has-focus-visible:outline-ring flex cursor-pointer items-center gap-3 border px-3 py-2 has-focus-visible:outline-2 has-focus-visible:outline-offset-1',
+                    selected ? 'bg-accent border-primary' : 'hover:bg-accent/60'
+                  )}
+                >
+                  <input
+                    type="radio"
+                    name="channel-type"
+                    value={t}
+                    checked={selected}
+                    onChange={() => setType(t)}
+                    className="sr-only"
+                  />
+                  <Icon className="text-muted-foreground size-4 shrink-0" />
+                  <span className="grid">
+                    <span className="text-sm font-medium">{t === 'voice' ? 'Voice' : 'Text'}</span>
+                    <span className="text-muted-foreground text-xs">
+                      {t === 'voice' ? 'Talk together with voice' : 'Send messages, links and code'}
+                    </span>
+                  </span>
+                </label>
+              )
+            })}
+          </fieldset>
+        )}
+        <div className="grid gap-2">
+          <Label htmlFor="channel-name">{isCategory ? 'Category name' : 'Channel name'}</Label>
+          <div className="relative">
+            {!isCategory && (
+              <span className="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2">
+                {type === 'voice' ? <Volume2 className="size-4" /> : <Hash className="size-4" />}
+              </span>
+            )}
+            <Input
+              id="channel-name"
+              name="channel-name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder={type === 'voice' ? 'Lounge' : isCategory ? 'Text' : 'general'}
+              autoFocus
+              disabled={busy}
+              className={cn(!isCategory && 'pl-8')}
+            />
           </div>
-          <DialogFooter>
-            <DialogClose asChild>
-              <Button type="button" variant="ghost" disabled={submitting}>
-                Cancel
-              </Button>
-            </DialogClose>
-            <Button type="submit" disabled={submitting || !name.trim()}>
-              {submitting ? 'Creating…' : 'Create'}
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
+          <ErrorText>{error}</ErrorText>
+        </div>
+      </form>
+    </ModalWindow>
   )
 }

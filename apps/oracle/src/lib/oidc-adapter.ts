@@ -18,7 +18,7 @@ import { and, eq, lte, sql } from 'drizzle-orm'
 import type { Adapter, AdapterPayload, AllClientMetadata } from 'oidc-provider'
 
 import { db } from '@/db/client'
-import { oidcAdapterPayloads, oidcClients, virtualServers } from '@/db/schema'
+import { oidcAdapterPayloads, oidcClients } from '@/db/schema'
 
 const CLIENT_MODEL = 'Client'
 
@@ -34,12 +34,8 @@ export class DrizzleAdapter implements Adapter {
         isPublic: oidcClients.isPublic,
         redirectUris: oidcClients.redirectUris,
         scopes: oidcClients.scopes,
-        // Display name comes from the IDENTITY row now (virtual_servers.name).
-        // FK lives on oidcClients.virtualServerId.
-        serverName: virtualServers.name,
       })
       .from(oidcClients)
-      .leftJoin(virtualServers, eq(oidcClients.virtualServerId, virtualServers.id))
       .where(eq(oidcClients.clientId, clientId))
       .limit(1)
       .then((rows) => rows[0])
@@ -53,7 +49,7 @@ export class DrizzleAdapter implements Adapter {
       // loopback URLs like `http://localhost:5173/...` are both accepted.
       const metadata: AllClientMetadata = {
         client_id: row.clientId,
-        client_name: row.serverName ?? row.clientId,
+        client_name: row.clientId,
         redirect_uris: row.redirectUris,
         grant_types: ['authorization_code', 'refresh_token'],
         response_types: ['code'],
@@ -64,28 +60,21 @@ export class DrizzleAdapter implements Adapter {
       return metadata as AdapterPayload
     }
 
-    // Per-server confidential clients exist for two narrow jobs:
-    //   (a) being the *audience* for tokens we mint server-side via the
-    //       `AccessToken` constructor escape hatch (see lib/server-tokens.ts), and
-    //   (b) authenticating Grumble at /api/oidc/token/introspection via
-    //       client_secret_basic to validate those tokens.
-    // Neither path runs an actual `/authorize` → `/token` flow, so the
-    // redirect URI here is purely to satisfy panva's metadata validator —
-    // it demands non-empty `redirect_uris` whenever `authorization_code`
-    // (or `implicit`) appears in `grant_types`, and rejects unknown grant
+    // Confidential client. If it declares no redirect URIs, a placeholder
+    // satisfies panva's metadata validator — it demands non-empty
+    // `redirect_uris` whenever `authorization_code` (or `implicit`) appears in `grant_types`, and rejects unknown grant
     // types like `client_credentials` unless that whole feature is enabled.
     // A loopback HTTP placeholder is the lowest-friction option: valid for
     // `application_type: 'web'`, never resolved by any real client.
-    const SERVER_CLIENT_PLACEHOLDER_REDIRECT_URI =
-      'http://localhost/oracle-server-token-mint-unused'
+    const PLACEHOLDER_REDIRECT_URI = 'http://localhost/oracle-unused-redirect'
     const declaredRedirectUris =
       row.redirectUris.length > 0
         ? row.redirectUris
-        : [SERVER_CLIENT_PLACEHOLDER_REDIRECT_URI]
+        : [PLACEHOLDER_REDIRECT_URI]
     const metadata: AllClientMetadata = {
       client_id: row.clientId,
       client_secret: row.clientSecret,
-      client_name: row.serverName ?? row.clientId,
+      client_name: row.clientId,
       redirect_uris: declaredRedirectUris,
       grant_types: ['authorization_code', 'refresh_token'],
       response_types: ['code'],

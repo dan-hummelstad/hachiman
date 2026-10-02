@@ -1,208 +1,55 @@
-// Copyright (c) 2026 The Grumble Authors
+// Copyright (c) 2026 The Hachiman Authors
 // The use of this source code is goverened by a BSD-style
 // license that can be found in the LICENSE-file.
 
 syntax = "proto3";
 
-package grumble.management.v1;
+package hachiman.management.v1;
 
-option go_package = "mumble.info/grumble/pkg/management;management";
+option go_package = "hachiman/server/pkg/management;management";
 
-// GrumbleManagement is the INTERNAL gRPC control surface that lets a control
-// plane (the Oracle) create and delete virtual servers at runtime on a
-// running Grumble process.
-//
-// This is NOT the Mumble control channel — clients still speak the standard
-// Mumble protocol over TLS/WebSocket. This service is purely an out-of-band
-// admin API and MUST be bound to loopback (or fronted by mTLS / a shared
-// bearer token) before being exposed.
-//
-// MVP slice (this proto): CreateVirtualServer + DeleteVirtualServer.
-// Deferred to follow-up: GetStats (live user count, CPU, bandwidth),
-// SetConfig (push runtime config keys onto a running vServer).
-service GrumbleManagement {
-  // CreateVirtualServer allocates a new vServer in the database AND boots it
-  // in-process (listeners up, registry populated). Returns the freshly
-  // allocated server_id. The request body is currently empty — Grumble's
-  // ServerAdd() takes no parameters; per-server config is set out-of-band
-  // afterwards (deferred SetConfig RPC).
-  rpc CreateVirtualServer(CreateVirtualServerRequest) returns (CreateVirtualServerResponse);
-
-  // DeleteVirtualServer stops the vServer in-process (if running) and removes
-  // its database row. Returns NotFound if the server_id is unknown to BOTH
-  // the database and the in-process registry.
-  rpc DeleteVirtualServer(DeleteVirtualServerRequest) returns (DeleteVirtualServerResponse);
-
-  // ─── media-plane phase 2 — Oracle ↔ control surface ──────────────────────
-  //
-  // Per MEDIA-PLANE-MIGRATION.md "Decisions / Placement and registry":
-  // Oracle owns the media node registry and placement. Control queries via
-  // the three RPCs below at voice-token mint time. The registry persists in
-  // Oracle's `media_nodes` table; no parallel registry in control.
-  //
-  // Mumble UDP control protocol → control speaks this surface OVER its
-  // existing management gRPC channel to Oracle. Phase 2 ships the proto;
-  // wire-up lands in phase 3.
-
-  // RegisterMediaNode is invoked by a freshly-booted media node (via
-  // control, which is the only outbound-from-VPC actor) to announce itself
-  // to Oracle's placement service. Idempotent: re-registering with the
-  // same node_id replaces the existing row.
+// Management is the media-plane registry + placement surface. Oracle serves it
+// (loading this file dynamically via @grpc/proto-loader); hachiman-media
+// registers + heartbeats, hachiman-gateway asks for placement.
+// Contract: docs/gateway-protocol.md §9.
+service Management {
+  // Idempotent: re-registering the same node_id replaces the row.
   rpc RegisterMediaNode(RegisterMediaNodeRequest) returns (RegisterMediaNodeResponse);
-
-  // MediaNodeHeartbeat reports live capacity / load. Oracle excludes nodes
-  // that miss 3 consecutive heartbeats from placement. `accepting=false`
-  // signals graceful drain (existing sessions kept, no new placements).
+  // Oracle drops nodes that miss 3 consecutive heartbeats from placement.
+  // accepting=false = drain (existing sessions kept, no new placements).
   rpc MediaNodeHeartbeat(MediaNodeHeartbeatRequest) returns (MediaNodeHeartbeatResponse);
-
-  // PlaceMediaSession asks Oracle to pick a node for a new session. Inputs
-  // are the channel (drives quality profile + home region inheritance) and
-  // the tenant. Output is the node Oracle picked plus the SSRC it allocated
-  // for this session — control embeds both in the signed voice token.
+  // Picks a node for a voice channel. Channel→node stickiness lives in Redis
+  // voice_room:{channelId} on the gateway side, not here.
   rpc PlaceMediaSession(PlaceMediaSessionRequest) returns (PlaceMediaSessionResponse);
 }
 
-message CreateVirtualServerRequest {
-  // Oracle users.id (UUID string) of the user who created this managed
-  // vServer. When set, this user — on authenticating against the vServer
-  // with an Oracle OIDC access token that introspects to the same `sub`
-  // (see cmd/grumble/oracle_introspect.go) — is granted SuperUser-equivalent
-  // privileges on this vServer (Client.user.Id is mapped to 0; the existing
-  // acl.HasPermission SuperUser short-circuit then applies).
-  //
-  // Empty (the default) = no Oracle-user-mapped admin; self-host behaviour
-  // is unchanged and the only path to SuperUser is the local "SuperUser"
-  // password account.
-  //
-  // Defense in depth: the grant is gated on a SUCCESSFUL introspection of
-  // the client's token. A client sending a fake oracle_token claiming a
-  // matching `sub` will fail introspection and never reach the grant.
-  //
-  // Stored on the vServer side in the per-server config KV table under key
-  // "AdminOracleUserID", so a future SetConfig RPC can update it without
-  // a schema migration. See serverconf.DefaultCfg.
-  string admin_oracle_user_id = 1;
-
-  // RFC 7662 introspection endpoint of the Oracle / Takusen authorisation
-  // server (e.g. "https://oracle.example/api/oidc/token/introspection").
-  // When non-empty (typically alongside oracle_client_id + oracle_client_secret),
-  // Grumble stamps it onto the new vServer's `OracleIntrospectionURL` config
-  // and uses it to introspect Authenticate.oracle_token values. Empty leaves
-  // OracleIntrospectionURL at its DefaultCfg default (empty = introspection
-  // disabled). See pkg/serverconf/config.go.
-  string oracle_introspection_url = 2;
-
-  // OIDC client_id Grumble presents on the introspection call (RFC 7662
-  // §2.1 client_secret_basic). This is THIS vServer's per-server OIDC
-  // client — the same one that user access tokens are minted bound to
-  // (lib/server-tokens.ts on the Oracle side). Using the same client for
-  // both introspection-auth and audience-binding means oracle_introspect.go's
-  // `result.ClientID != cfg.ClientID` audience check naturally passes.
-  // Stored as the per-vServer `OracleClientID` config key.
-  string oracle_client_id = 3;
-
-  // OIDC client_secret paired with oracle_client_id. Sent over the
-  // (loopback-only) management gRPC channel and stored as the per-vServer
-  // `OracleClientSecret` config key. NEVER log or echo this value.
-  string oracle_client_secret = 4;
-
-  // 5..16 left reserved for follow-up fields (e.g. initial bundled config
-  // overrides, region pin, welcome text). Reserved range narrowed as
-  // fields are added to keep the wire layout stable.
-  reserved 5 to 16;
-}
-
-message CreateVirtualServerResponse {
-  // The numeric id allocated by the database — corresponds to Server.Id /
-  // database.Server.ServerID. Stable across restarts of this process.
-  int64 server_id = 1;
-
-  // The TCP/UDP port the freshly-booted vServer is listening on. Returned
-  // because Grumble auto-derives the port from the vServer id (default
-  // 64738 + id - 1) unless an explicit `Port` config key is set — Oracle
-  // needs to know which port to advertise to clients without having to
-  // hard-code that derivation. Always non-zero on a successful response.
-  int32 port = 2;
-
-  // The WebSocket port the vServer is listening on, or 0 when WebSocket
-  // listening is disabled for this vServer. Same rationale as `port`:
-  // derived from `WebPort` config + id, so Oracle should not guess.
-  int32 web_port = 3;
-}
-
-message DeleteVirtualServerRequest {
-  int64 server_id = 1;
-}
-
-message DeleteVirtualServerResponse {
-  // Empty for the MVP — gRPC status codes carry success/failure. Left as a
-  // message rather than google.protobuf.Empty so future fields (e.g. final
-  // session count for accounting) can be added without changing the
-  // signature.
-}
-
-// ─── media-plane phase 2 — Oracle ↔ control messages ────────────────────────
-
 message RegisterMediaNodeRequest {
-  // Node-generated UUID, stable for the node's lifetime.
   string node_id = 1;
-  // Region tag, e.g. "us-east", "eu-west". Set via the media node's -region
-  // flag.
   string region = 2;
-  // Inbound sidechannel address (`host:port`) for the control↔media gRPC
-  // stream. Oracle stores this so control can dial the node when placement
-  // returns it.
-  string sidechannel_addr = 3;
-  // Static capacity declaration: max concurrent sessions this node will
-  // serve. Placement weights by `1 - active_sessions/max_sessions`.
+  // Public voice WS URL clients dial, e.g. wss://media-1.example.com/voice.
+  string signaling_url = 3;
   uint32 max_sessions = 4;
-  // Build version for ops visibility. Surfaced in the island-metrics
-  // pump alongside the existing hachiman-control / hachiman-oracle
-  // entries.
   string version = 5;
 }
 
-message RegisterMediaNodeResponse {
-  // Empty for the MVP — gRPC status codes carry success/failure.
-}
+message RegisterMediaNodeResponse {}
 
 message MediaNodeHeartbeatRequest {
   string node_id = 1;
-  // Live counters at the moment of emission.
   uint32 active_sessions = 2;
-  // 0..1 fraction. Placement avoids nodes above 0.7 (matching the load-test
-  // gate in MEDIA-PLANE-MIGRATION.md phase 6).
   float cpu_fraction = 3;
-  // True = accepting new sessions, false = drain mode (placement excludes).
   bool accepting = 4;
 }
 
-message MediaNodeHeartbeatResponse {
-  // Empty for the MVP — gRPC status codes carry success/failure.
-}
+message MediaNodeHeartbeatResponse {}
 
 message PlaceMediaSessionRequest {
-  // Control's channel id — drives the home_region / quality_profile_id
-  // inheritance Oracle reads from the `media_nodes` registry alongside the
-  // control DB.
-  uint64 channel_id = 1;
-  // Region hint from the requesting client (geo-IP / latency probe). Oracle
-  // weights this when the channel has no explicit `home_region`.
+  string channel_id = 1;
   string home_region = 2;
-  // Tenant id — Oracle's placement scorer refuses to assign a room from
-  // tenant B to a node already serving tenant A (single-tenant-per-node
-  // rule).
-  string tenant_id = 3;
+  string guild_id = 3;
 }
 
 message PlaceMediaSessionResponse {
-  // Selected media node id.
   string node_id = 1;
-  // `host:port` for the WebRTC client to connect to (matches
-  // VoiceTokenGrant.media_node_addr on the Mumble control side).
-  string addr = 2;
-  // SSRC Oracle allocated for this session. Control embeds it in the signed
-  // voice token; media validates the token's `assigned_ssrc` claim against
-  // the SSRC the client actually publishes.
-  uint32 assigned_ssrc = 3;
+  string signaling_url = 2;
 }

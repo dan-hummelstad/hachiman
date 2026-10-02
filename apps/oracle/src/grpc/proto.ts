@@ -26,7 +26,7 @@ export const MANAGEMENT_PROTO_PATH = resolve(
 export interface RegisterMediaNodeRequest {
   node_id: string
   region: string
-  sidechannel_addr: string
+  signaling_url: string
   max_sessions: number
   version: string
 }
@@ -49,24 +49,19 @@ export type MediaNodeHeartbeatResponse = {
 }
 
 export interface PlaceMediaSessionRequest {
-  channel_id: number
+  channel_id: string
   home_region: string
-  tenant_id: string
+  guild_id: string
 }
 
 export interface PlaceMediaSessionResponse {
   node_id: string
-  addr: string
-  assigned_ssrc: number
+  signaling_url: string
 }
 
-/** Service handlers — match the GrumbleManagementService surface. The MVP
- *  pre-existing RPCs (CreateVirtualServer / DeleteVirtualServer) are left
- *  unimplemented on the Oracle side because Oracle isn't the implementor of
- *  THOSE — they're served by hachiman-control and consumed by Oracle. The
- *  three media-plane RPCs flip the direction: Oracle implements, control
- *  consumes. */
-export type GrumbleManagementHandlers = {
+/** Service handlers for `hachiman.management.v1.Management`. Oracle serves
+ *  all three RPCs; hachiman-media and hachiman-gateway call them. */
+export type ManagementHandlers = {
   RegisterMediaNode: grpc.handleUnaryCall<RegisterMediaNodeRequest, RegisterMediaNodeResponse>
   MediaNodeHeartbeat: grpc.handleUnaryCall<MediaNodeHeartbeatRequest, MediaNodeHeartbeatResponse>
   PlaceMediaSession: grpc.handleUnaryCall<PlaceMediaSessionRequest, PlaceMediaSessionResponse>
@@ -86,12 +81,12 @@ export function loadManagementService(): grpc.ServiceDefinition {
     oneofs: true,
   })
   const grpcObject = grpc.loadPackageDefinition(packageDefinition)
-  // Drill into grumble.management.v1.GrumbleManagement.service per the
-  // package directive in management.proto.
+  // Drill into hachiman.management.v1.Management.service per the package
+  // directive in management.proto.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const ns = (grpcObject as any).grumble?.management?.v1?.GrumbleManagement
+  const ns = (grpcObject as any).hachiman?.management?.v1?.Management
   if (!ns || !ns.service) {
-    throw new Error('loadManagementService: GrumbleManagement service not found in proto')
+    throw new Error('loadManagementService: Management service not found in proto')
   }
   serviceDescriptor = ns.service as grpc.ServiceDefinition
   return serviceDescriptor

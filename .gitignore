@@ -36,3 +36,10 @@ node_modules/*
 
 .agents
 skills-lock.json
+# Playwright MCP screenshots / scratch
+.playwright-mcp/
+
+# Env: one repo-root .env for local dev (template: .env.example)
+.env
+.env.*
+!.env.example

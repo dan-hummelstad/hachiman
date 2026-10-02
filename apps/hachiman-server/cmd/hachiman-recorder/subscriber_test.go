@@ -17,7 +17,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
-	"mumble.info/grumble/pkg/recorderproto"
+	"hachiman/server/pkg/recorderproto"
 )
 
 // TestSubscriber_ReceivesEnvelopesInOrder spins up a fake RecorderControl

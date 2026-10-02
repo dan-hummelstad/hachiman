@@ -45,7 +45,7 @@ func TestMintICEServers_Deterministic(t *testing.T) {
 	}
 
 	wantUsername := fmt.Sprintf("%d:%s", knownTime.Add(5*time.Minute).Unix(), "user42")
-	if got := servers[0].GetUsername(); got != wantUsername {
+	if got := servers[0].Username; got != wantUsername {
 		t.Errorf("username: got %q, want %q", got, wantUsername)
 	}
 
@@ -54,11 +54,11 @@ func TestMintICEServers_Deterministic(t *testing.T) {
 	mac := hmac.New(sha1.New, []byte("super-secret-shared-key"))
 	mac.Write([]byte(wantUsername))
 	wantCred := base64.StdEncoding.EncodeToString(mac.Sum(nil))
-	if got := servers[0].GetCredential(); got != wantCred {
+	if got := servers[0].Credential; got != wantCred {
 		t.Errorf("credential: got %q, want %q", got, wantCred)
 	}
 
-	if got := servers[0].GetUrl(); got != "turn:turn.us-east.example.com:3478?transport=udp" {
+	if got := servers[0].URLs[0]; got != "turn:turn.us-east.example.com:3478?transport=udp" {
 		t.Errorf("url: got %q, want endpoint as-configured", got)
 	}
 }
@@ -113,10 +113,10 @@ func TestMintICEServers_KnownGoodVector(t *testing.T) {
 	if len(servers) != 1 {
 		t.Fatalf("got %d ice servers, want 1", len(servers))
 	}
-	if got := servers[0].GetUsername(); got != wantUsername {
+	if got := servers[0].Username; got != wantUsername {
 		t.Errorf("username: got %q, want %q", got, wantUsername)
 	}
-	if got := servers[0].GetCredential(); got != wantCred {
+	if got := servers[0].Credential; got != wantCred {
 		t.Errorf("credential: got %q, want %q", got, wantCred)
 	}
 
@@ -129,8 +129,8 @@ func TestMintICEServers_KnownGoodVector(t *testing.T) {
 	}
 }
 
-// TestMintICEServers_UnknownRegionReturnsEmpty: the caller (control's voice
-// token mint path) should emit `ice_servers: []` when the channel's home
+// TestMintICEServers_UnknownRegionReturnsEmpty: the caller should
+// emit `iceServers: []` when the channel's home
 // region has no coturn config — fallback path is host + srflx ICE.
 func TestMintICEServers_UnknownRegionReturnsEmpty(t *testing.T) {
 	t.Parallel()
@@ -190,7 +190,7 @@ func TestMintICEServers_TTLEncodedInUsername(t *testing.T) {
 		},
 	}
 	servers := cfg.MintICEServers("us-east", "user42", knownTime)
-	username := servers[0].GetUsername()
+	username := servers[0].Username
 	idx := strings.IndexByte(username, ':')
 	if idx <= 0 {
 		t.Fatalf("username %q missing ':' separator", username)
@@ -219,7 +219,7 @@ func TestMintICEServers_ZeroTTLUsesDefault(t *testing.T) {
 		},
 	}
 	servers := cfg.MintICEServers("us-east", "user", knownTime)
-	username := servers[0].GetUsername()
+	username := servers[0].Username
 	idx := strings.IndexByte(username, ':')
 	expiryUnix, _ := strconv.ParseInt(username[:idx], 10, 64)
 	wantExpiry := knownTime.Add(defaultCredentialTTL).Unix()
@@ -251,14 +251,14 @@ func TestMintICEServers_EndpointFanout(t *testing.T) {
 		t.Fatalf("got %d ice servers, want 3", len(servers))
 	}
 	for i := 1; i < len(servers); i++ {
-		if servers[i].GetUsername() != servers[0].GetUsername() {
+		if servers[i].Username != servers[0].Username {
 			t.Errorf("endpoint %d username drifted from endpoint 0", i)
 		}
-		if servers[i].GetCredential() != servers[0].GetCredential() {
+		if servers[i].Credential != servers[0].Credential {
 			t.Errorf("endpoint %d credential drifted from endpoint 0", i)
 		}
 	}
-	if servers[0].GetUrl() == servers[1].GetUrl() {
+	if servers[0].URLs[0] == servers[1].URLs[0] {
 		t.Errorf("endpoint URLs collapsed; want each preserved in order")
 	}
 }
@@ -305,10 +305,10 @@ func TestLoadConfigFile_RoundTrip(t *testing.T) {
 func TestLoadConfigFile_RejectsMalformed(t *testing.T) {
 	t.Parallel()
 	cases := map[string]string{
-		"empty region":  `{"regions":[{"region":"","endpoints":["turn:a:3478"],"hmac_secret":"s"}]}`,
-		"no endpoints":  `{"regions":[{"region":"us-east","endpoints":[],"hmac_secret":"s"}]}`,
-		"empty secret":  `{"regions":[{"region":"us-east","endpoints":["turn:a:3478"],"hmac_secret":""}]}`,
-		"invalid json":  `{ this is not json `,
+		"empty region": `{"regions":[{"region":"","endpoints":["turn:a:3478"],"hmac_secret":"s"}]}`,
+		"no endpoints": `{"regions":[{"region":"us-east","endpoints":[],"hmac_secret":"s"}]}`,
+		"empty secret": `{"regions":[{"region":"us-east","endpoints":["turn:a:3478"],"hmac_secret":""}]}`,
+		"invalid json": `{ this is not json `,
 	}
 	for name, body := range cases {
 		t.Run(name, func(t *testing.T) {

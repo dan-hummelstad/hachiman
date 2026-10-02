@@ -22,22 +22,9 @@ export default async function DashboardPage(): Promise<React.JSX.Element> {
   return (
     <DashboardShell
       title={`Welcome back, ${displayName}`}
-      description="Your Takusen overview. Other panels (servers, invites) will appear here."
+      description="Your Takusen account. Guilds are managed in the Hachiman app."
     >
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
-        <Card>
-          <CardHeader>
-            <CardTitle>Servers</CardTitle>
-            <CardDescription>
-              Register a Mumble server or manage the ones you own.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Button asChild variant="outline">
-              <Link href="/servers">View servers</Link>
-            </Button>
-          </CardContent>
-        </Card>
         <Card>
           <CardHeader>
             <CardTitle>Account</CardTitle>
@@ -50,15 +37,6 @@ export default async function DashboardPage(): Promise<React.JSX.Element> {
               <Link href="/account">Open account</Link>
             </Button>
           </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle>Coming soon</CardTitle>
-            <CardDescription>
-              Invites, activity, and server stats will land here.
-            </CardDescription>
-          </CardHeader>
-          <CardContent />
         </Card>
       </div>
     </DashboardShell>

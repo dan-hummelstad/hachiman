@@ -13,24 +13,19 @@
     "typecheck": "pnpm run typecheck:node && pnpm run typecheck:web",
     "test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test \"src/**/*.test.mts\"",
     "start": "electron-vite preview",
-    "dev": "NODE_TLS_REJECT_UNAUTHORIZED=0 electron-vite dev",
+    "dev": "electron-vite dev",
     "build": "pnpm run typecheck && electron-vite build",
-    "postinstall": "electron-builder install-app-deps && node scripts/link-opus-prebuild.js",
+    "postinstall": "electron-builder install-app-deps",
     "build:unpack": "pnpm run build && electron-builder --dir",
     "build:win": "pnpm run build && electron-builder --win",
     "build:mac": "pnpm run build && electron-builder --mac",
     "build:linux": "pnpm run build && electron-builder --linux"
   },
   "dependencies": {
-    "@discordjs/opus": "^0.10.0",
-    "@electron-toolkit/preload": "^3.0.2",
     "@electron-toolkit/utils": "^4.0.0",
-    "@electron/remote": "^2.1.3",
     "@hachiman/hachiman": "workspace:*",
-    "@hachiman/hachiman-node": "file:../../pkgs/hachiman-node",
     "@tailwindcss/vite": "^4.3.3",
     "electron-updater": "^6.8.9",
-    "pem": "1.14.8",
     "tailwindcss": "^4.3.3"
   },
   "devDependencies": {
@@ -39,7 +34,6 @@
     "@electron-toolkit/tsconfig": "^2.0.0",
     "@electron/rebuild": "^4.2.0",
     "@types/node": "^22.20.1",
-    "@types/pem": "1.14.4",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
     "@vitejs/plugin-react": "^5.2.0",
@@ -53,7 +47,6 @@
     "prettier": "^3.9.6",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
-    "vite": "^7.3.6",
-    "vite-plugin-commonjs-externals": "^0.1.4"
+    "vite": "^7.3.6"
   }
 }

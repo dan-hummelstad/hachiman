@@ -1,7 +1,7 @@
 /**
  * In-memory MediaNodesRepo for tests. Mirrors the production Drizzle
  * implementation in repo.ts behaviour-for-behaviour: same filter rules,
- * same ordering, same "no stamp on lost race" semantics.
+ * same ordering, same status transitions.
  *
  * Why a shared in-memory impl: every test file that exercises the handlers
  * would otherwise reinvent this. Reviewed pattern: filter/rank lives in
@@ -14,7 +14,6 @@ import type {
   HeartbeatMediaNodeInput,
   MediaNodesRepo,
   PlacementCandidate,
-  StampTenantInput,
   UpsertMediaNodeInput,
 } from './repo'
 
@@ -27,8 +26,7 @@ export interface InMemoryNodeRow {
   lastHeartbeatAt: Date
   version: string
   status: 'active' | 'draining' | 'dead'
-  tenantId: string | null
-  sidechannelAddr: string
+  signalingUrl: string
 }
 
 export class InMemoryMediaNodesRepo implements MediaNodesRepo {
@@ -46,8 +44,7 @@ export class InMemoryMediaNodesRepo implements MediaNodesRepo {
       lastHeartbeatAt: node.lastHeartbeatAt ?? new Date(),
       version: node.version ?? 'test-1.0',
       status: node.status ?? 'active',
-      tenantId: node.tenantId ?? null,
-      sidechannelAddr: node.sidechannelAddr ?? '',
+      signalingUrl: node.signalingUrl ?? '',
     }
     this.rows.set(row.nodeId, row)
     return row
@@ -56,8 +53,7 @@ export class InMemoryMediaNodesRepo implements MediaNodesRepo {
   private toCandidate(r: InMemoryNodeRow): PlacementCandidate {
     return {
       nodeId: r.nodeId,
-      sidechannelAddr: r.sidechannelAddr,
-      tenantId: r.tenantId,
+      signalingUrl: r.signalingUrl,
       activeSessions: r.activeSessions,
       region: r.region,
       status: r.status,
@@ -69,13 +65,10 @@ export class InMemoryMediaNodesRepo implements MediaNodesRepo {
     input: FindEligibleCandidateInput,
   ): Promise<PlacementCandidate | undefined> {
     const eligible = [...this.rows.values()].filter((r) => {
-      if (r.region !== input.region) return false
+      if (input.region && r.region !== input.region) return false
       if (r.status !== 'active') return false
       // Strict gt — matches Drizzle's gt(), excludes the cutoff itself.
       if (r.lastHeartbeatAt.getTime() <= input.staleCutoff.getTime()) return false
-      if (input.tenantId !== '') {
-        if (r.tenantId !== null && r.tenantId !== input.tenantId) return false
-      }
       return true
     })
     eligible.sort((a, b) => {
@@ -86,19 +79,6 @@ export class InMemoryMediaNodesRepo implements MediaNodesRepo {
     })
     const r = eligible[0]
     if (!r) return undefined
-    return this.toCandidate(r)
-  }
-
-  async stampTenant(input: StampTenantInput): Promise<PlacementCandidate | undefined> {
-    const r = this.rows.get(input.nodeId)
-    if (!r) return undefined
-    // CRITICAL #2 contract: stamp only when tenant_id IS NULL OR
-    // tenant_id = newTenant. Concurrent stamps from a different tenant
-    // see this guard fail and the second caller gets undefined.
-    if (r.tenantId !== null && r.tenantId !== input.tenantId) {
-      return undefined
-    }
-    r.tenantId = input.tenantId
     return this.toCandidate(r)
   }
 
@@ -113,11 +93,7 @@ export class InMemoryMediaNodesRepo implements MediaNodesRepo {
       lastHeartbeatAt: input.lastHeartbeatAt,
       version: input.version,
       status: 'active',
-      // tenantId preserved across re-register — guards against a partition
-      // recovery clearing the tenant binding mid-session. Matches the
-      // production onConflictDoUpdate.set spec.
-      tenantId: existing?.tenantId ?? null,
-      sidechannelAddr: input.sidechannelAddr,
+      signalingUrl: input.signalingUrl,
     })
   }
 

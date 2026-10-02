@@ -4,45 +4,133 @@
 
 package voicetoken
 
-// Signer abstracts the keying material behind token minting and verification.
-//
-// The interface is HIGH-LEVEL (MintToken / VerifyToken) rather than low-level
-// (Sign / Verify raw bytes) for one pragmatic reason: PASETO v4.public does
-// the Ed25519 sign internally on a pre-auth-encoded payload it computes
-// itself, and the upstream go-paseto library does not expose a hook for a
-// custom signer. Wrapping at the token-mint level keeps the interface
-// composable without forking PASETO. A future AWS-KMS-backed Signer will have
-// to implement PASETO encode/decode itself, or the project will switch to a
-// format that does compose with KMS Sign — that is a phase-3 decision tracked
-// in the migration doc, not this file.
-//
-// Implementations of this interface:
-//   - FileSigner (signer_file.go): persists an Ed25519 keypair on disk; used
-//     by dev and by embedded-mode self-hosters. Generates a fresh key on
-//     first boot.
-//   - KMSSigner (deferred, phase 3): AWS KMS-backed.
-//
-// Rotation: ActiveKeyIDs returns the currently-trusted key set (>=1 entry).
-// During the two-key overlap window for a 90-day rotation, both keys are
-// trusted for verify; only one is active for mint.
-type Signer interface {
-	// MintToken signs the claims and returns the PASETO token string. The
-	// active signing key is selected by the Signer; callers don't pick.
-	MintToken(claims Claims) (string, error)
+import (
+	"crypto/ed25519"
+	"crypto/rand"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"time"
 
-	// VerifyToken parses and validates a token. It returns the claims on
-	// success. Validates: signature against ANY active key id, exp within
-	// the allowed TTL window, iat ≤ now + MaxClockSkew, exp > now, audience
-	// (`aud` / MediaNodeID) equals the Signer's bound node id, and presence
-	// of all required string claims (session_id, user_id, dtls_fingerprint,
-	// ice_ufrag). It does NOT validate the DTLS-fingerprint binding (that
-	// happens in media at DTLS handshake time against the OpenSession
-	// context) or the JTI replay (separate ReplayCache; verify is stateless).
-	VerifyToken(token string) (*Claims, error)
+	"aidanwoods.dev/go-paseto"
+)
 
-	// ActiveKeyIDs returns identifiers for every key the Signer will accept
-	// at Verify time. The list ALWAYS includes the current mint key; during
-	// rotation it ALSO includes the previous key for the overlap window.
-	// Order is stable; first entry is the current mint key.
-	ActiveKeyIDs() []string
+// DefaultKeyPath is the dev key file shared by gateway (Signer) and media
+// (NewVerifierFromSeed).
+const DefaultKeyPath = ".dev/keys/voice-signer.ed25519"
+
+// Signer mints voice tokens for any media node (aud). Used by the gateway.
+//
+// ponytail: single key, no key id / rotation overlap. Add a footer key id and
+// a trusted-key set on Verifier when rotation is needed.
+type Signer struct {
+	secret paseto.V4AsymmetricSecretKey
+}
+
+// NewSigner loads the raw 32-byte Ed25519 seed at seedPath, generating (and
+// writing, 0600) a fresh one if the file doesn't exist. A file of the wrong
+// size is an error rather than silently overwritten.
+func NewSigner(seedPath string) (*Signer, error) {
+	seed, err := loadOrGenerateSeed(seedPath)
+	if err != nil {
+		return nil, err
+	}
+	secret, err := paseto.NewV4AsymmetricSecretKeyFromEd25519(ed25519.NewKeyFromSeed(seed))
+	if err != nil {
+		return nil, fmt.Errorf("voicetoken: convert ed25519 key: %w", err)
+	}
+	return &Signer{secret: secret}, nil
+}
+
+// PublicKeyHex is the hex-encoded 32-byte Ed25519 public key, the value media
+// takes via --voice-pubkey.
+func (s *Signer) PublicKeyHex() string { return s.secret.Public().ExportHex() }
+
+// Mint signs c. Zero-valued JTI / IssuedAt / ExpiresAt are filled with a
+// random jti, now, and iat+DefaultTTL, so callers normally set only the ids.
+func (s *Signer) Mint(c Claims) (string, error) {
+	if c.JTI == "" {
+		var b [16]byte
+		if _, err := rand.Read(b[:]); err != nil {
+			return "", fmt.Errorf("voicetoken: jti: %w", err)
+		}
+		c.JTI = hex.EncodeToString(b[:])
+	}
+	if c.IssuedAt.IsZero() {
+		c.IssuedAt = time.Now()
+	}
+	if c.ExpiresAt.IsZero() {
+		c.ExpiresAt = c.IssuedAt.Add(DefaultTTL)
+	}
+	if err := c.validate(); err != nil {
+		return "", err
+	}
+
+	t := paseto.NewToken()
+	t.SetIssuedAt(c.IssuedAt)
+	t.SetExpiration(c.ExpiresAt)
+	t.SetJti(c.JTI)
+	t.SetAudience(c.MediaNodeID)
+	t.SetString("sessionId", c.SessionID)
+	t.SetString("userId", c.UserID)
+	t.SetString("guildId", c.GuildID)
+	t.SetString("channelId", c.ChannelID)
+	return t.V4Sign(s.secret, nil), nil
+}
+
+// validate checks required ids and the TTL window. Shared by Mint and Verify
+// so a token that mints always verifies (modulo time and replay).
+func (c *Claims) validate() error {
+	for _, f := range [][2]string{
+		{"sessionId", c.SessionID}, {"userId", c.UserID}, {"guildId", c.GuildID},
+		{"channelId", c.ChannelID}, {"aud", c.MediaNodeID}, {"jti", c.JTI},
+	} {
+		if f[1] == "" {
+			return fmt.Errorf("voicetoken: %s required", f[0])
+		}
+	}
+	if ttl := c.ExpiresAt.Sub(c.IssuedAt); ttl < MinTTL || ttl > MaxTTL {
+		return fmt.Errorf("voicetoken: ttl %s outside [%s, %s]", ttl, MinTTL, MaxTTL)
+	}
+	return nil
+}
+
+func loadOrGenerateSeed(path string) ([]byte, error) {
+	if path == "" {
+		return nil, errors.New("voicetoken: seed path required")
+	}
+	data, err := os.ReadFile(path)
+	switch {
+	case err == nil:
+		if len(data) != ed25519.SeedSize {
+			return nil, fmt.Errorf("voicetoken: keyfile %q is %d bytes, want %d", path, len(data), ed25519.SeedSize)
+		}
+		return data, nil
+	case errors.Is(err, os.ErrNotExist):
+		seed := make([]byte, ed25519.SeedSize)
+		if _, err := rand.Read(seed); err != nil {
+			return nil, fmt.Errorf("voicetoken: generate seed: %w", err)
+		}
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			return nil, fmt.Errorf("voicetoken: mkdir keyfile parent: %w", err)
+		}
+		// O_EXCL: if gateway and media race to create the dev key, the loser
+		// re-reads the winner's seed instead of clobbering it.
+		f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+		if errors.Is(err, os.ErrExist) {
+			return loadOrGenerateSeed(path)
+		}
+		if err != nil {
+			return nil, fmt.Errorf("voicetoken: create keyfile: %w", err)
+		}
+		defer f.Close()
+		if _, err := f.Write(seed); err != nil {
+			return nil, fmt.Errorf("voicetoken: write keyfile: %w", err)
+		}
+		return seed, nil
+	default:
+		return nil, fmt.Errorf("voicetoken: read keyfile %q: %w", path, err)
+	}
 }

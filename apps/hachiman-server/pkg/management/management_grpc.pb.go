@@ -1,4 +1,4 @@
-// Copyright (c) 2026 The Grumble Authors
+// Copyright (c) 2026 The Hachiman Authors
 // The use of this source code is goverened by a BSD-style
 // license that can be found in the LICENSE-file.
 
@@ -23,317 +23,197 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	GrumbleManagement_CreateVirtualServer_FullMethodName = "/grumble.management.v1.GrumbleManagement/CreateVirtualServer"
-	GrumbleManagement_DeleteVirtualServer_FullMethodName = "/grumble.management.v1.GrumbleManagement/DeleteVirtualServer"
-	GrumbleManagement_RegisterMediaNode_FullMethodName   = "/grumble.management.v1.GrumbleManagement/RegisterMediaNode"
-	GrumbleManagement_MediaNodeHeartbeat_FullMethodName  = "/grumble.management.v1.GrumbleManagement/MediaNodeHeartbeat"
-	GrumbleManagement_PlaceMediaSession_FullMethodName   = "/grumble.management.v1.GrumbleManagement/PlaceMediaSession"
+	Management_RegisterMediaNode_FullMethodName  = "/hachiman.management.v1.Management/RegisterMediaNode"
+	Management_MediaNodeHeartbeat_FullMethodName = "/hachiman.management.v1.Management/MediaNodeHeartbeat"
+	Management_PlaceMediaSession_FullMethodName  = "/hachiman.management.v1.Management/PlaceMediaSession"
 )
 
-// GrumbleManagementClient is the client API for GrumbleManagement service.
+// ManagementClient is the client API for Management service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 //
-// GrumbleManagement is the INTERNAL gRPC control surface that lets a control
-// plane (the Oracle) create and delete virtual servers at runtime on a
-// running Grumble process.
-//
-// This is NOT the Mumble control channel — clients still speak the standard
-// Mumble protocol over TLS/WebSocket. This service is purely an out-of-band
-// admin API and MUST be bound to loopback (or fronted by mTLS / a shared
-// bearer token) before being exposed.
-//
-// MVP slice (this proto): CreateVirtualServer + DeleteVirtualServer.
-// Deferred to follow-up: GetStats (live user count, CPU, bandwidth),
-// SetConfig (push runtime config keys onto a running vServer).
-type GrumbleManagementClient interface {
-	// CreateVirtualServer allocates a new vServer in the database AND boots it
-	// in-process (listeners up, registry populated). Returns the freshly
-	// allocated server_id. The request body is currently empty — Grumble's
-	// ServerAdd() takes no parameters; per-server config is set out-of-band
-	// afterwards (deferred SetConfig RPC).
-	CreateVirtualServer(ctx context.Context, in *CreateVirtualServerRequest, opts ...grpc.CallOption) (*CreateVirtualServerResponse, error)
-	// DeleteVirtualServer stops the vServer in-process (if running) and removes
-	// its database row. Returns NotFound if the server_id is unknown to BOTH
-	// the database and the in-process registry.
-	DeleteVirtualServer(ctx context.Context, in *DeleteVirtualServerRequest, opts ...grpc.CallOption) (*DeleteVirtualServerResponse, error)
-	// RegisterMediaNode is invoked by a freshly-booted media node (via
-	// control, which is the only outbound-from-VPC actor) to announce itself
-	// to Oracle's placement service. Idempotent: re-registering with the
-	// same node_id replaces the existing row.
+// Management is the media-plane registry + placement surface. Oracle serves it
+// (loading this file dynamically via @grpc/proto-loader); hachiman-media
+// registers + heartbeats, hachiman-gateway asks for placement.
+// Contract: docs/gateway-protocol.md §9.
+type ManagementClient interface {
+	// Idempotent: re-registering the same node_id replaces the row.
 	RegisterMediaNode(ctx context.Context, in *RegisterMediaNodeRequest, opts ...grpc.CallOption) (*RegisterMediaNodeResponse, error)
-	// MediaNodeHeartbeat reports live capacity / load. Oracle excludes nodes
-	// that miss 3 consecutive heartbeats from placement. `accepting=false`
-	// signals graceful drain (existing sessions kept, no new placements).
+	// Oracle drops nodes that miss 3 consecutive heartbeats from placement.
+	// accepting=false = drain (existing sessions kept, no new placements).
 	MediaNodeHeartbeat(ctx context.Context, in *MediaNodeHeartbeatRequest, opts ...grpc.CallOption) (*MediaNodeHeartbeatResponse, error)
-	// PlaceMediaSession asks Oracle to pick a node for a new session. Inputs
-	// are the channel (drives quality profile + home region inheritance) and
-	// the tenant. Output is the node Oracle picked plus the SSRC it allocated
-	// for this session — control embeds both in the signed voice token.
+	// Picks a node for a voice channel. Channel→node stickiness lives in Redis
+	// voice_room:{channelId} on the gateway side, not here.
 	PlaceMediaSession(ctx context.Context, in *PlaceMediaSessionRequest, opts ...grpc.CallOption) (*PlaceMediaSessionResponse, error)
 }
 
-type grumbleManagementClient struct {
+type managementClient struct {
 	cc grpc.ClientConnInterface
 }
 
-func NewGrumbleManagementClient(cc grpc.ClientConnInterface) GrumbleManagementClient {
-	return &grumbleManagementClient{cc}
+func NewManagementClient(cc grpc.ClientConnInterface) ManagementClient {
+	return &managementClient{cc}
 }
 
-func (c *grumbleManagementClient) CreateVirtualServer(ctx context.Context, in *CreateVirtualServerRequest, opts ...grpc.CallOption) (*CreateVirtualServerResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(CreateVirtualServerResponse)
-	err := c.cc.Invoke(ctx, GrumbleManagement_CreateVirtualServer_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *grumbleManagementClient) DeleteVirtualServer(ctx context.Context, in *DeleteVirtualServerRequest, opts ...grpc.CallOption) (*DeleteVirtualServerResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(DeleteVirtualServerResponse)
-	err := c.cc.Invoke(ctx, GrumbleManagement_DeleteVirtualServer_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *grumbleManagementClient) RegisterMediaNode(ctx context.Context, in *RegisterMediaNodeRequest, opts ...grpc.CallOption) (*RegisterMediaNodeResponse, error) {
+func (c *managementClient) RegisterMediaNode(ctx context.Context, in *RegisterMediaNodeRequest, opts ...grpc.CallOption) (*RegisterMediaNodeResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(RegisterMediaNodeResponse)
-	err := c.cc.Invoke(ctx, GrumbleManagement_RegisterMediaNode_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, Management_RegisterMediaNode_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *grumbleManagementClient) MediaNodeHeartbeat(ctx context.Context, in *MediaNodeHeartbeatRequest, opts ...grpc.CallOption) (*MediaNodeHeartbeatResponse, error) {
+func (c *managementClient) MediaNodeHeartbeat(ctx context.Context, in *MediaNodeHeartbeatRequest, opts ...grpc.CallOption) (*MediaNodeHeartbeatResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(MediaNodeHeartbeatResponse)
-	err := c.cc.Invoke(ctx, GrumbleManagement_MediaNodeHeartbeat_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, Management_MediaNodeHeartbeat_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *grumbleManagementClient) PlaceMediaSession(ctx context.Context, in *PlaceMediaSessionRequest, opts ...grpc.CallOption) (*PlaceMediaSessionResponse, error) {
+func (c *managementClient) PlaceMediaSession(ctx context.Context, in *PlaceMediaSessionRequest, opts ...grpc.CallOption) (*PlaceMediaSessionResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(PlaceMediaSessionResponse)
-	err := c.cc.Invoke(ctx, GrumbleManagement_PlaceMediaSession_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, Management_PlaceMediaSession_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-// GrumbleManagementServer is the server API for GrumbleManagement service.
-// All implementations must embed UnimplementedGrumbleManagementServer
+// ManagementServer is the server API for Management service.
+// All implementations must embed UnimplementedManagementServer
 // for forward compatibility.
 //
-// GrumbleManagement is the INTERNAL gRPC control surface that lets a control
-// plane (the Oracle) create and delete virtual servers at runtime on a
-// running Grumble process.
-//
-// This is NOT the Mumble control channel — clients still speak the standard
-// Mumble protocol over TLS/WebSocket. This service is purely an out-of-band
-// admin API and MUST be bound to loopback (or fronted by mTLS / a shared
-// bearer token) before being exposed.
-//
-// MVP slice (this proto): CreateVirtualServer + DeleteVirtualServer.
-// Deferred to follow-up: GetStats (live user count, CPU, bandwidth),
-// SetConfig (push runtime config keys onto a running vServer).
-type GrumbleManagementServer interface {
-	// CreateVirtualServer allocates a new vServer in the database AND boots it
-	// in-process (listeners up, registry populated). Returns the freshly
-	// allocated server_id. The request body is currently empty — Grumble's
-	// ServerAdd() takes no parameters; per-server config is set out-of-band
-	// afterwards (deferred SetConfig RPC).
-	CreateVirtualServer(context.Context, *CreateVirtualServerRequest) (*CreateVirtualServerResponse, error)
-	// DeleteVirtualServer stops the vServer in-process (if running) and removes
-	// its database row. Returns NotFound if the server_id is unknown to BOTH
-	// the database and the in-process registry.
-	DeleteVirtualServer(context.Context, *DeleteVirtualServerRequest) (*DeleteVirtualServerResponse, error)
-	// RegisterMediaNode is invoked by a freshly-booted media node (via
-	// control, which is the only outbound-from-VPC actor) to announce itself
-	// to Oracle's placement service. Idempotent: re-registering with the
-	// same node_id replaces the existing row.
+// Management is the media-plane registry + placement surface. Oracle serves it
+// (loading this file dynamically via @grpc/proto-loader); hachiman-media
+// registers + heartbeats, hachiman-gateway asks for placement.
+// Contract: docs/gateway-protocol.md §9.
+type ManagementServer interface {
+	// Idempotent: re-registering the same node_id replaces the row.
 	RegisterMediaNode(context.Context, *RegisterMediaNodeRequest) (*RegisterMediaNodeResponse, error)
-	// MediaNodeHeartbeat reports live capacity / load. Oracle excludes nodes
-	// that miss 3 consecutive heartbeats from placement. `accepting=false`
-	// signals graceful drain (existing sessions kept, no new placements).
+	// Oracle drops nodes that miss 3 consecutive heartbeats from placement.
+	// accepting=false = drain (existing sessions kept, no new placements).
 	MediaNodeHeartbeat(context.Context, *MediaNodeHeartbeatRequest) (*MediaNodeHeartbeatResponse, error)
-	// PlaceMediaSession asks Oracle to pick a node for a new session. Inputs
-	// are the channel (drives quality profile + home region inheritance) and
-	// the tenant. Output is the node Oracle picked plus the SSRC it allocated
-	// for this session — control embeds both in the signed voice token.
+	// Picks a node for a voice channel. Channel→node stickiness lives in Redis
+	// voice_room:{channelId} on the gateway side, not here.
 	PlaceMediaSession(context.Context, *PlaceMediaSessionRequest) (*PlaceMediaSessionResponse, error)
-	mustEmbedUnimplementedGrumbleManagementServer()
+	mustEmbedUnimplementedManagementServer()
 }
 
-// UnimplementedGrumbleManagementServer must be embedded to have
+// UnimplementedManagementServer must be embedded to have
 // forward compatible implementations.
 //
 // NOTE: this should be embedded by value instead of pointer to avoid a nil
 // pointer dereference when methods are called.
-type UnimplementedGrumbleManagementServer struct{}
+type UnimplementedManagementServer struct{}
 
-func (UnimplementedGrumbleManagementServer) CreateVirtualServer(context.Context, *CreateVirtualServerRequest) (*CreateVirtualServerResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method CreateVirtualServer not implemented")
-}
-func (UnimplementedGrumbleManagementServer) DeleteVirtualServer(context.Context, *DeleteVirtualServerRequest) (*DeleteVirtualServerResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method DeleteVirtualServer not implemented")
-}
-func (UnimplementedGrumbleManagementServer) RegisterMediaNode(context.Context, *RegisterMediaNodeRequest) (*RegisterMediaNodeResponse, error) {
+func (UnimplementedManagementServer) RegisterMediaNode(context.Context, *RegisterMediaNodeRequest) (*RegisterMediaNodeResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method RegisterMediaNode not implemented")
 }
-func (UnimplementedGrumbleManagementServer) MediaNodeHeartbeat(context.Context, *MediaNodeHeartbeatRequest) (*MediaNodeHeartbeatResponse, error) {
+func (UnimplementedManagementServer) MediaNodeHeartbeat(context.Context, *MediaNodeHeartbeatRequest) (*MediaNodeHeartbeatResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method MediaNodeHeartbeat not implemented")
 }
-func (UnimplementedGrumbleManagementServer) PlaceMediaSession(context.Context, *PlaceMediaSessionRequest) (*PlaceMediaSessionResponse, error) {
+func (UnimplementedManagementServer) PlaceMediaSession(context.Context, *PlaceMediaSessionRequest) (*PlaceMediaSessionResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method PlaceMediaSession not implemented")
 }
-func (UnimplementedGrumbleManagementServer) mustEmbedUnimplementedGrumbleManagementServer() {}
-func (UnimplementedGrumbleManagementServer) testEmbeddedByValue()                           {}
+func (UnimplementedManagementServer) mustEmbedUnimplementedManagementServer() {}
+func (UnimplementedManagementServer) testEmbeddedByValue()                    {}
 
-// UnsafeGrumbleManagementServer may be embedded to opt out of forward compatibility for this service.
-// Use of this interface is not recommended, as added methods to GrumbleManagementServer will
+// UnsafeManagementServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to ManagementServer will
 // result in compilation errors.
-type UnsafeGrumbleManagementServer interface {
-	mustEmbedUnimplementedGrumbleManagementServer()
+type UnsafeManagementServer interface {
+	mustEmbedUnimplementedManagementServer()
 }
 
-func RegisterGrumbleManagementServer(s grpc.ServiceRegistrar, srv GrumbleManagementServer) {
-	// If the following call panics, it indicates UnimplementedGrumbleManagementServer was
+func RegisterManagementServer(s grpc.ServiceRegistrar, srv ManagementServer) {
+	// If the following call panics, it indicates UnimplementedManagementServer was
 	// embedded by pointer and is nil.  This will cause panics if an
 	// unimplemented method is ever invoked, so we test this at initialization
 	// time to prevent it from happening at runtime later due to I/O.
 	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
 		t.testEmbeddedByValue()
 	}
-	s.RegisterService(&GrumbleManagement_ServiceDesc, srv)
+	s.RegisterService(&Management_ServiceDesc, srv)
 }
 
-func _GrumbleManagement_CreateVirtualServer_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(CreateVirtualServerRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(GrumbleManagementServer).CreateVirtualServer(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: GrumbleManagement_CreateVirtualServer_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(GrumbleManagementServer).CreateVirtualServer(ctx, req.(*CreateVirtualServerRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _GrumbleManagement_DeleteVirtualServer_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(DeleteVirtualServerRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(GrumbleManagementServer).DeleteVirtualServer(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: GrumbleManagement_DeleteVirtualServer_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(GrumbleManagementServer).DeleteVirtualServer(ctx, req.(*DeleteVirtualServerRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _GrumbleManagement_RegisterMediaNode_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _Management_RegisterMediaNode_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(RegisterMediaNodeRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(GrumbleManagementServer).RegisterMediaNode(ctx, in)
+		return srv.(ManagementServer).RegisterMediaNode(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: GrumbleManagement_RegisterMediaNode_FullMethodName,
+		FullMethod: Management_RegisterMediaNode_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(GrumbleManagementServer).RegisterMediaNode(ctx, req.(*RegisterMediaNodeRequest))
+		return srv.(ManagementServer).RegisterMediaNode(ctx, req.(*RegisterMediaNodeRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _GrumbleManagement_MediaNodeHeartbeat_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _Management_MediaNodeHeartbeat_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(MediaNodeHeartbeatRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(GrumbleManagementServer).MediaNodeHeartbeat(ctx, in)
+		return srv.(ManagementServer).MediaNodeHeartbeat(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: GrumbleManagement_MediaNodeHeartbeat_FullMethodName,
+		FullMethod: Management_MediaNodeHeartbeat_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(GrumbleManagementServer).MediaNodeHeartbeat(ctx, req.(*MediaNodeHeartbeatRequest))
+		return srv.(ManagementServer).MediaNodeHeartbeat(ctx, req.(*MediaNodeHeartbeatRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _GrumbleManagement_PlaceMediaSession_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _Management_PlaceMediaSession_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(PlaceMediaSessionRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(GrumbleManagementServer).PlaceMediaSession(ctx, in)
+		return srv.(ManagementServer).PlaceMediaSession(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: GrumbleManagement_PlaceMediaSession_FullMethodName,
+		FullMethod: Management_PlaceMediaSession_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(GrumbleManagementServer).PlaceMediaSession(ctx, req.(*PlaceMediaSessionRequest))
+		return srv.(ManagementServer).PlaceMediaSession(ctx, req.(*PlaceMediaSessionRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-// GrumbleManagement_ServiceDesc is the grpc.ServiceDesc for GrumbleManagement service.
+// Management_ServiceDesc is the grpc.ServiceDesc for Management service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
-var GrumbleManagement_ServiceDesc = grpc.ServiceDesc{
-	ServiceName: "grumble.management.v1.GrumbleManagement",
-	HandlerType: (*GrumbleManagementServer)(nil),
+var Management_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "hachiman.management.v1.Management",
+	HandlerType: (*ManagementServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
-			MethodName: "CreateVirtualServer",
-			Handler:    _GrumbleManagement_CreateVirtualServer_Handler,
-		},
-		{
-			MethodName: "DeleteVirtualServer",
-			Handler:    _GrumbleManagement_DeleteVirtualServer_Handler,
-		},
-		{
 			MethodName: "RegisterMediaNode",
-			Handler:    _GrumbleManagement_RegisterMediaNode_Handler,
+			Handler:    _Management_RegisterMediaNode_Handler,
 		},
 		{
 			MethodName: "MediaNodeHeartbeat",
-			Handler:    _GrumbleManagement_MediaNodeHeartbeat_Handler,
+			Handler:    _Management_MediaNodeHeartbeat_Handler,
 		},
 		{
 			MethodName: "PlaceMediaSession",
-			Handler:    _GrumbleManagement_PlaceMediaSession_Handler,
+			Handler:    _Management_PlaceMediaSession_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

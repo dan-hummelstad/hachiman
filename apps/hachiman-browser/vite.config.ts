@@ -1,4 +1,3 @@
-import { createRequire } from "module";
 import { resolve } from "path";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
@@ -9,22 +8,14 @@ import tailwindcss from "@tailwindcss/vite";
 // resolve into the lib's `src` directory.
 const hachimanSrc = resolve(__dirname, "../hachiman/src");
 
-// Resolve a concrete path to the `events` polyfill so Vite doesn't treat the
-// import specifier as a Node built-in and externalize it.
-const require = createRequire(import.meta.url);
-const eventsPolyfill = require.resolve("events/");
+// VITE_* come from the repo-root .env (see /.env.example), not from this app's
+// directory. Real process env still wins over the file.
+const envDir = resolve(__dirname, "../..");
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
-  resolve: {
-    alias: {
-      "@": hachimanSrc,
-      // Polyfill Node's `node:events` (used by @hachiman/hachiman-node) for the browser.
-      "node:events": eventsPolyfill,
-      events: eventsPolyfill,
-    },
-  },
-  server: {
-    port: 5173,
-  },
+  resolve: { alias: { "@": hachimanSrc } },
+  // Fixed port: Oracle's CORS allowlist and the seeded OAuth redirect name this origin.
+  server: { port: 5173, strictPort: true },
+  envDir,
 });

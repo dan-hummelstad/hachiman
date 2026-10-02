@@ -1,15 +1,14 @@
 import dns from "dns";
 import net from "net";
-import type { RegionProbeTarget } from "@hachiman/hachiman-node";
+import type { RegionProbeTarget } from "./region-probe.ts";
 
 /**
  * Security guard for the `hachiman:probe-regions` IPC handler.
  *
  * ## Why this exists
  *
- * The renderer runs with `nodeIntegration: true` / `contextIsolation: false`,
- * so any XSS in the renderer can call `ipcRenderer.invoke('hachiman:probe-regions', …)`
- * with attacker-chosen targets. The probe targets themselves originate from the
+ * Any renderer XSS can call the preload bridge's `probeRegions` (which invokes
+ * `hachiman:probe-regions`) with attacker-chosen targets. The probe targets themselves originate from the
  * PUBLIC, UNAUTHENTICATED `GET /api/regions` Oracle endpoint, so a hostile or
  * MITM'd Oracle can also pick what gets probed. Without validation the handler
  * is an SSRF / internal-port-scan primitive: arbitrary host + arbitrary port +
@@ -18,17 +17,16 @@ import type { RegionProbeTarget } from "@hachiman/hachiman-node";
  * total reach).
  *
  * This module validates the untrusted payload AT THE MAIN-PROCESS BOUNDARY
- * before it ever reaches `probeRegionsRtt`:
+ * before it ever reaches `probeRegions` (./region-probe.ts):
  *  1. SHAPE — the IPC payload is `unknown` at runtime (the `RegionProbeTarget[]`
  *     type is erased across the IPC boundary); reject anything that isn't an
- *     array of `{ host: string, port?: number, code: string }`.
+ *     array of `{ region: string, host: string, port: number }`.
  *  2. HOST  — DNS-resolve the host and reject if the host *or any resolved IP*
  *     is non-public (loopback / private / link-local / metadata / unspecified,
  *     IPv4 and IPv6, including IPv4-mapped-IPv6 forms). We check the RESOLVED
  *     IPs, not just the literal, to defeat DNS-rebinding: a public-looking name
  *     (`db.internal.example.com`) can resolve to `10.0.0.5`.
- *  3. PORT  — allowlist only the Mumble port (64738) and 443 (the public-HTTPS
- *     dev-placeholder endpoints the Oracle seed ships with). Anything else is a
+ *  3. PORT  — allowlist only 443 (regions' `probe_port`). Anything else is a
  *     port-scan attempt.
  *  4. COUNT — cap accepted targets at 64, mirroring the Oracle
  *     `recommend-region` endpoint's `z.array(...).max(64)`.
@@ -37,8 +35,8 @@ import type { RegionProbeTarget } from "@hachiman/hachiman-node";
  * real DNS (see `probe-target-guard.test.mts`).
  */
 
-/** Ports a probe target is allowed to hit. 64738 = Mumble; 443 = dev HTTPS placeholders. */
-export const ALLOWED_PROBE_PORTS: ReadonlySet<number> = new Set([64738, 443]);
+/** Ports a probe target is allowed to hit (Oracle `regions.probe_port` defaults to 443). */
+export const ALLOWED_PROBE_PORTS: ReadonlySet<number> = new Set([443]);
 
 /** Max number of targets accepted in one probe call (mirrors Oracle's `.max(64)`). */
 export const MAX_PROBE_TARGETS = 64;
@@ -158,11 +156,8 @@ function isWellShapedTarget(value: unknown): value is RegionProbeTarget {
   if (typeof value !== "object" || value === null) return false;
   const t = value as Record<string, unknown>;
   if (typeof t.host !== "string" || t.host.length === 0) return false;
-  if (typeof t.code !== "string" || t.code.length === 0) return false;
-  if (t.port !== undefined) {
-    if (typeof t.port !== "number" || !Number.isInteger(t.port)) return false;
-  }
-  return true;
+  if (typeof t.region !== "string" || t.region.length === 0) return false;
+  return typeof t.port === "number" && Number.isInteger(t.port);
 }
 
 /**
@@ -194,7 +189,7 @@ async function isHostSafe(
 
 /**
  * Validate and filter an untrusted IPC probe payload. Returns the subset of
- * targets that are safe to hand to `probeRegionsRtt`:
+ * targets that are safe to hand to `probeRegions`:
  *  - drops malformed entries,
  *  - drops disallowed ports,
  *  - drops hosts that are / resolve to non-public IPs,
@@ -215,11 +210,7 @@ export async function validateProbeTargets(
   const checks = await Promise.all(
     candidates.map(async (raw): Promise<RegionProbeTarget | null> => {
       if (!isWellShapedTarget(raw)) return null;
-      // Port allowlist. `undefined` → prober uses the Mumble default (64738),
-      // which is allow-listed, so an omitted port is fine.
-      if (raw.port !== undefined && !ALLOWED_PROBE_PORTS.has(raw.port)) {
-        return null;
-      }
+      if (!ALLOWED_PROBE_PORTS.has(raw.port)) return null;
       if (!(await isHostSafe(raw.host, resolver))) return null;
       return raw;
     }),
