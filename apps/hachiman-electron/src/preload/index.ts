@@ -4,6 +4,9 @@ import {
   OAUTH_CALLBACK_CHANNEL,
   OPEN_EXTERNAL_CHANNEL,
   PROBE_REGIONS_CHANNEL,
+  SCREEN_SOURCES_CHANNEL,
+  SELECT_SCREEN_SOURCE_CHANNEL,
+  type ScreenSourceInfo,
 } from "../shared/ipc";
 
 /**
@@ -42,6 +45,11 @@ const bridge = {
     targets: { region: string; host: string; port: number }[],
   ): Promise<{ region: string; rttMs: number | null }[]> =>
     ipcRenderer.invoke(PROBE_REGIONS_CHANNEL, targets),
+  getScreenSources: (): Promise<ScreenSourceInfo[]> =>
+    ipcRenderer.invoke(SCREEN_SOURCES_CHANNEL),
+  /** The listed source that the next getDisplayMedia captures. */
+  selectScreenSource: (id: string): Promise<void> =>
+    ipcRenderer.invoke(SELECT_SCREEN_SOURCE_CHANNEL, id),
 };
 
 export type HachimanBridge = typeof bridge;

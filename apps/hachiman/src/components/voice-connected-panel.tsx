@@ -1,5 +1,6 @@
 import { PhoneOff } from 'lucide-react'
 import { IconButton } from '@/components/ui/icon-button'
+import { ScreenShareControls } from '@/components/voice/screen-share-controls'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { cn } from '@/lib/utils'
 import { voiceService } from '@/services/VoiceService'
@@ -91,6 +92,7 @@ export function VoiceConnectedPanel(): React.JSX.Element | null {
           </div>
         </PopoverContent>
       </Popover>
+      <ScreenShareControls />
       <IconButton label="Disconnect" tone="danger" onClick={() => voiceService.leaveVoice()}>
         <PhoneOff />
       </IconButton>

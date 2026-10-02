@@ -16,6 +16,10 @@ interface VoiceStoreState {
   ownMute: boolean
   selfMute: boolean
   selfDeaf: boolean
+  /** My own captured screen, for the local preview. null = not sharing. */
+  localScreen: MediaStream | null
+  /** userId → that peer's screen track from media. Shown while their voice state has `selfStream`. */
+  screens: Map<string, MediaStream>
   /** userIds currently speaking (remote via media WS, self via local VAD). */
   speaking: Set<string>
   peers: VoicePeer[]
@@ -33,6 +37,8 @@ const SESSION_DEFAULTS = {
   channelId: null,
   connectionState: 'idle' as VoiceConnectionState,
   micActive: false,
+  localScreen: null,
+  screens: new Map<string, MediaStream>(),
   speaking: new Set<string>(),
   peers: [],
   connectionQuality: EMPTY_CONNECTION_QUALITY
@@ -70,7 +76,7 @@ export const useVoiceStore = create<VoiceStoreState>()(
               ? { peers }
               : { peers, speaking: new Set(speaking) }
           }),
-        resetSession: () => set({ ...SESSION_DEFAULTS, speaking: new Set() })
+        resetSession: () => set({ ...SESSION_DEFAULTS, speaking: new Set(), screens: new Map() })
       }),
       {
         name: 'hachiman-voice-storage',

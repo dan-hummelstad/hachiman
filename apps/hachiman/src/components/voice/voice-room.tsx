@@ -3,7 +3,9 @@ import { Permissions, has, type VoiceState } from '@hachiman/client'
 import { UserAvatar } from '@/components/shell/user-avatar'
 import { Button } from '@/components/ui/button'
 import { UserProfilePopover } from '@/components/user-profile-popover'
+import { ScreenShareControls } from '@/components/voice/screen-share-controls'
 import { SelfVoiceToggles } from '@/components/voice/self-voice-toggles'
+import { StreamGrid } from '@/components/voice/stream-grid'
 import { VoiceStateBadges } from '@/components/voice/voice-state-badges'
 import { useChannelOccupants, usePermissions } from '@/hooks/use-hachiman'
 import { useSpeakingMember } from '@/hooks/use-member'
@@ -11,11 +13,15 @@ import type { GuildChannel } from '@/lib/model'
 import { voiceService } from '@/services/VoiceService'
 import { useVoiceStore } from '@/stores/voiceStore'
 
-/** Body of a voice channel: who is in it, plus join / leave / mute / deafen. No messages. */
+/**
+ * Body of a voice channel: live screen shares, who is in it, plus join / leave / mute / deafen /
+ * share. No messages.
+ */
 export function VoiceRoom({ channel }: { channel: GuildChannel }): React.JSX.Element {
   const occupants = useChannelOccupants(channel.guildId, channel.id)
   return (
     <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-6 overflow-y-auto p-6">
+      <StreamGrid guildId={channel.guildId} occupants={occupants} />
       {occupants.length > 0 ? (
         <ul className="flex max-w-3xl flex-wrap justify-center gap-3">
           {occupants.map((vs) => (
@@ -72,6 +78,7 @@ function VoiceControls({ channel }: { channel: GuildChannel }): React.JSX.Elemen
     return (
       <div className="flex items-center gap-1">
         <SelfVoiceToggles />
+        <ScreenShareControls />
         <Button variant="destructive" className="ml-2" onClick={() => voiceService.leaveVoice()}>
           <PhoneOff />
           Leave

@@ -66,7 +66,15 @@ export function stubVoice(): void {
     const { selfMute, selfDeaf } = hachiman.selfVoice
     dispatch({
       t: 'VOICE_STATE_UPDATE',
-      d: { guildId, channelId, userId: ME.id, sessionId: 'preview-voice', selfMute, selfDeaf }
+      d: {
+        guildId,
+        channelId,
+        userId: ME.id,
+        sessionId: 'preview-voice',
+        selfMute,
+        selfDeaf,
+        selfStream: false
+      }
     })
   }
 

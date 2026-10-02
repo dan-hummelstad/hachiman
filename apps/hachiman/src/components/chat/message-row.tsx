@@ -10,14 +10,8 @@ import type { ChatMessage } from '@/stores/messagesStore'
 import type { MessageDisplay } from '@/stores/prefsStore'
 import { useUserStore } from '@/stores/userStore'
 import { MessageAttachments } from './attachments/message-attachments'
-import {
-  formatFull,
-  formatTime,
-  mentionsUser,
-  tokenize,
-  type MentionToken,
-  type Token
-} from './format'
+import { mentionsUser, tokenize, type MentionToken, type Token } from '@/lib/mentions'
+import { formatFull, formatTime } from './format'
 import { MessageToolbar } from './message-toolbar'
 import { submitOnEnter } from './submit-on-enter'
 

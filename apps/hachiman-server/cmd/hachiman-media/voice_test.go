@@ -18,6 +18,7 @@ import (
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/gorilla/websocket"
+	"github.com/pion/rtcp"
 	"github.com/pion/rtp"
 	"github.com/pion/webrtc/v3"
 	"github.com/redis/go-redis/v9"
@@ -186,11 +187,13 @@ func (c *wsClient) offer() string {
 }
 
 // pionPeer is the test's stand-in for the browser: answers every offer,
-// uploads its mic on m-line 0 and trickles candidates.
+// uploads its mic on m-line 0 and its screen on m-line 1.
 type pionPeer struct {
-	pc  *webrtc.PeerConnection
-	mic *webrtc.TrackLocalStaticRTP
-	ws  *wsClient
+	pc        *webrtc.PeerConnection
+	mic       *webrtc.TrackLocalStaticRTP
+	screen    *webrtc.TrackLocalStaticRTP
+	screenSnd *webrtc.RTPSender
+	ws        *wsClient
 }
 
 func newPionPeer(t *testing.T, ws *wsClient) *pionPeer {
@@ -207,13 +210,17 @@ func newPionPeer(t *testing.T, ws *wsClient) *pionPeer {
 	}
 	t.Cleanup(func() { pc.Close() })
 	mic, _ := webrtc.NewTrackLocalStaticRTP(webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeOpus, ClockRate: 48000, Channels: 2}, "mic", "mic")
-	// Added before the first remote offer so pion pairs it with media's
-	// recvonly m-line 0 (the browser does the same via transceivers[0]).
+	screen, _ := webrtc.NewTrackLocalStaticRTP(webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeVP8, ClockRate: 90000}, "screen", "screen")
+	// Added before the first remote offer so pion pairs them with media's
+	// recvonly m-lines 0 and 1 (the browser does the same via transceivers[0/1]).
 	if _, err := pc.AddTrack(mic); err != nil {
 		t.Fatal(err)
 	}
-	p := &pionPeer{pc: pc, mic: mic, ws: ws}
-	return p
+	screenSnd, err := pc.AddTrack(screen)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &pionPeer{pc: pc, mic: mic, screen: screen, screenSnd: screenSnd, ws: ws}
 }
 
 func (p *pionPeer) answer(t *testing.T, sdp string) {
@@ -251,6 +258,9 @@ func TestVoice_JoinPeersRenegotiateAndRoomScoping(t *testing.T) {
 	offerA := a.offer()
 	if m0 := strings.Split(offerA, "m=audio")[1]; !strings.Contains(m0, "a=mid:0") || !strings.Contains(m0, "a=recvonly") {
 		t.Fatalf("A offer lacks recvonly mic slot:\n%s", offerA)
+	}
+	if m1 := strings.Split(offerA, "m=video")[1]; !strings.Contains(m1, "a=mid:1") || !strings.Contains(m1, "a=recvonly") || !strings.Contains(m1, "VP8/90000") {
+		t.Fatalf("A offer lacks recvonly VP8 screen slot:\n%s", offerA)
 	}
 	pa.answer(t, offerA)
 
@@ -301,17 +311,36 @@ func TestVoice_JoinPeersRenegotiateAndRoomScoping(t *testing.T) {
 	c.quiet(200 * time.Millisecond)
 	a.quiet(200 * time.Millisecond) // the duplicate "true" was not relayed
 
-	// Media: B's mic RTP reaches A over real ICE/DTLS on loopback, on a
-	// track whose stream id is B's userId.
-	got := make(chan string, 1)
-	pa.pc.OnTrack(func(tr *webrtc.TrackRemote, _ *webrtc.RTPReceiver) {
-		if _, _, err := tr.ReadRTP(); err == nil {
-			select {
-			case got <- tr.StreamID():
-			default:
-			}
+	// Media: B's mic and screen RTP reach A over real ICE/DTLS on loopback,
+	// on tracks whose stream ids are userB and screen-userB.
+	got := make(chan string, 2)
+	pa.pc.OnTrack(func(tr *webrtc.TrackRemote, rcv *webrtc.RTPReceiver) {
+		if _, _, err := tr.ReadRTP(); err != nil {
+			return
+		}
+		got <- tr.StreamID()
+		if tr.Kind() == webrtc.RTPCodecTypeVideo {
+			// A viewer's keyframe request must reach the sharer.
+			_ = pa.pc.WriteRTCP([]rtcp.Packet{&rtcp.PictureLossIndication{MediaSSRC: uint32(tr.SSRC())}})
 		}
 	})
+	pli := make(chan struct{}, 1)
+	go func() {
+		for {
+			pkts, _, err := pb.screenSnd.ReadRTCP()
+			if err != nil {
+				return
+			}
+			for _, p := range pkts {
+				if _, ok := p.(*rtcp.PictureLossIndication); ok {
+					select {
+					case pli <- struct{}{}:
+					default:
+					}
+				}
+			}
+		}
+	}()
 	stop := make(chan struct{})
 	defer close(stop)
 	go func() {
@@ -324,15 +353,26 @@ func TestVoice_JoinPeersRenegotiateAndRoomScoping(t *testing.T) {
 			}
 			seq++
 			_ = pb.mic.WriteRTP(&rtp.Packet{Header: rtp.Header{Version: 2, SequenceNumber: seq, Timestamp: uint32(seq) * 960}, Payload: []byte{0xfc, 0xff, 0xfe}})
+			// A VP8 keyframe header (S=1, PID 0, P=0) is enough for pion to forward.
+			_ = pb.screen.WriteRTP(&rtp.Packet{Header: rtp.Header{Version: 2, Marker: true, SequenceNumber: seq, Timestamp: uint32(seq) * 1800}, Payload: []byte{0x10, 0x00, 0x9d, 0x01, 0x2a}})
 		}
 	}()
-	select {
-	case sid := <-got:
-		if sid != "userB" {
-			t.Fatalf("A got track with stream id %q, want userB", sid)
+	streams := map[string]bool{}
+	for len(streams) < 2 {
+		select {
+		case sid := <-got:
+			streams[sid] = true
+		case <-time.After(10 * time.Second):
+			t.Fatalf("A received only %v, want userB and screen-userB", streams)
 		}
-	case <-time.After(10 * time.Second):
-		t.Fatal("A never received B's audio")
+	}
+	if !streams["userB"] || !streams["screen-userB"] {
+		t.Fatalf("A received streams %v, want userB and screen-userB", streams)
+	}
+	select {
+	case <-pli:
+	case <-time.After(5 * time.Second):
+		t.Fatal("A's PLI never reached B's screen sender")
 	}
 
 	// A kick naming another channel is stale and ignored.

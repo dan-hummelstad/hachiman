@@ -13,6 +13,7 @@ import { buildCsp } from "./csp";
 import { flushPendingUrls, registerProtocolHandlers } from "./protocol-handler";
 import { validateProbeTargets } from "./probe-target-guard";
 import { probeRegions } from "./region-probe";
+import { registerScreenShare } from "./screen-share";
 import {
   devRenderer,
   packagedRenderer,
@@ -153,6 +154,8 @@ app.whenReady().then(() => {
   void ensureMicrophoneAccess();
 
   renderer.serve(CSP);
+
+  registerScreenShare((url) => renderer.isAppUrl(url));
 
   createWindow();
 

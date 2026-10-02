@@ -1,5 +1,6 @@
 import type { Attachment } from '@hachiman/client'
 import { hachiman } from '@/services/hachiman'
+import { playSound } from '@/services/SoundService'
 import { messagesEpoch, useMessageStore, type ChatMessage } from '@/stores/messagesStore'
 import { useUserStore } from '@/stores/userStore'
 
@@ -67,6 +68,7 @@ export const messagesService = {
       editedAt: null,
       pending: true
     })
+    playSound('messageSent')
     lastTyping = { channelId: '', at: 0 }
     try {
       store.upsert(channelId, [

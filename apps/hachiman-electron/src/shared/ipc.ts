@@ -10,3 +10,16 @@ export const OAUTH_CALLBACK_CHANNEL = "hachiman:oauth-callback";
 export const OPEN_EXTERNAL_CHANNEL = "hachiman:open-external";
 /** renderer → main (invoke): TCP-connect RTT probe of region endpoints. */
 export const PROBE_REGIONS_CHANNEL = "hachiman:probe-regions";
+/** renderer → main (invoke): list screens and windows for the share picker. */
+export const SCREEN_SOURCES_CHANNEL = "hachiman:screen-sources";
+/** renderer → main (invoke): the listed source that the next getDisplayMedia captures. */
+export const SELECT_SCREEN_SOURCE_CHANNEL = "hachiman:select-screen-source";
+
+/** One share target for the in-app picker (SCREEN_SOURCES_CHANNEL). */
+export interface ScreenSourceInfo {
+  id: string;
+  name: string;
+  kind: "screen" | "window";
+  /** JPEG data URL. */
+  thumbnail: string;
+}

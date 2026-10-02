@@ -78,6 +78,7 @@ interface VoiceState {
   guildId: string; channelId: string | null; userId: string
   sessionId: string                // gateway session id
   selfMute: boolean; selfDeaf: boolean
+  selfStream: boolean              // screen share is live (§8)
 }
 
 interface GuildFull extends Guild {  // READY + GUILD_CREATE
@@ -315,7 +316,7 @@ URL: `ws(s)://<host>/gateway` (dev `ws://localhost:8080/gateway`). Text frames, 
 | 1 | HEARTBEAT | C→S | last seq received or null |
 | 2 | IDENTIFY | C→S | `{ token }` (Oracle access token) |
 | 3 | PRESENCE_UPDATE | C→S | `{ status }` |
-| 4 | VOICE_STATE_UPDATE | C→S | `{ guildId, channelId: string \| null, selfMute, selfDeaf }` |
+| 4 | VOICE_STATE_UPDATE | C→S | `{ guildId, channelId: string \| null, selfMute, selfDeaf, selfStream }` |
 | 6 | RESUME | C→S | `{ token, sessionId, seq }` |
 | 7 | RECONNECT | S→C | null — client should reconnect + RESUME |
 | 9 | INVALID_SESSION | S→C | `resumable: boolean` |
@@ -378,7 +379,7 @@ On op 4 with a `channelId`:
 1. Require channel.type == voice and CONNECT + VIEW_CHANNEL.
 2. If `voice_user:{me}` names another guild, remove that voice state first (publish VOICE_STATE_UPDATE with channelId null + kick).
 3. HSET `voice:{guildId}`, SET `voice_user:{me}`, publish VOICE_STATE_UPDATE to guild.
-4. If the channel changed (not a mute/deaf toggle): resolve media node = GET `voice_room:{channelId}`, else
+4. If the channel changed (not a mute, deafen or stream toggle): resolve media node = GET `voice_room:{channelId}`, else
    `PlaceMediaSession{channelId, guildId, homeRegion: guild.region}` through Oracle gRPC, and SET NX.
    Kick the old media session if the user was elsewhere.
 5. Mint a voice token (§7). Send VOICE_SERVER_UPDATE with the `signalingUrl` of the node as `endpoint`.
@@ -391,7 +392,9 @@ publish kick to `media:{nodeId}`, and DEL `voice_room:{channelId}` if HLEN of oc
 ICE servers: if TURN is configured (`--turn-secret`, `--turn-urls`), mint coturn REST credentials (`pkg/coturn`), else
 `[{ "urls": ["stun:stun.l.google.com:19302"] }]`.
 
-Not in v1 (explicitly deferred): server mute/deafen (MUTE_MEMBERS / DEAFEN_MEMBERS), moving others (MOVE_MEMBERS), video.
+Not in v1 (explicitly deferred): server mute/deafen (MUTE_MEMBERS / DEAFEN_MEMBERS), moving others (MOVE_MEMBERS), camera video, a STREAM permission.
+
+The gateway does not examine `selfStream`. It stores and publishes the value only. Any member in a voice channel can share a screen.
 
 ## 7. Voice token (PASETO v4.public, `pkg/voicetoken`)
 
@@ -446,11 +449,25 @@ Close codes: 4004 bad token (incl. replayed jti — clients need a fresh VOICE_S
 4010 kicked (Redis `media:{nodeId}` kick), 4011 replaced (same sessionId connected again), 1011 ICE/negotiation failure, 1008 client send queue overflow, 1001 shutdown.
 
 `ssrc` in `ready`/`peers` is a node-unique id from `SSRCPool`, **not** the on-wire RTP SSRC (pion v3 picks those). Map tracks by msid (below).
-Opus payload type 111. Mic upload slot = the recvonly transceiver at m-line 0 of the initial offer (stable across renegotiations).
+Codecs: Opus (payload type 111) for audio, VP8 (payload type 96) for screen video.
+Upload slots: the recvonly transceivers at m-line 0 (mic, audio) and m-line 1 (screen, video) of the initial offer. They are stable across renegotiations.
 Peer tracks ride separate sendonly transceivers. Frame order on join: `ready` → `peers` → `offer`.
 
-Track labeling: each output track the media node creates for a peer has **stream id = peer userId** and track id
-`audio-<userId>`. Clients map remote tracks to users via `ontrack` → `event.streams[0].id`.
+Track labeling: for each peer, the media node creates two output tracks:
+
+| Track | Stream id | Track id |
+|---|---|---|
+| Mic | `<userId>` | `audio-<userId>` |
+| Screen | `screen-<userId>` | `screen-<userId>` |
+
+Clients map remote tracks to users through `ontrack` → `event.streams[0].id`.
+
+Screen share:
+- Every room member receives the screen track of every peer. The track is silent until the peer shares.
+- The voice state field `selfStream` (§1, op 4) tells clients when a share is live. No media frame carries it.
+- To start or stop a share, the client replaces the track on its m-line 1 sender. No renegotiation occurs.
+- The sharer sets the resolution, frame rate and bitrate. All viewers get the same quality (no simulcast).
+- Media relays a viewer's PLI (picture loss indication) or FIR (full intra request) to the sharer as a PLI. Both ask for a keyframe. Media sends at most one PLI to a sharer each 500 ms. A viewer that joins during a share gets its first keyframe this way.
 
 SFU keys: session = `Claims.SessionID` (string), room = `Claims.ChannelID`. Media allocates SSRCs per node from
 `SSRCPool` keyed by session string. A client receives output tracks **only** for peers in its own room.
@@ -536,8 +553,10 @@ export class VoiceConnection extends TypedEventEmitter<VoiceEvents> {
   setDeafened(deafened: boolean): void                       // mutes all remote playback locally
   setOutputDevice(deviceId: string | null): Promise<void>    // null = system default
   setOutputVolume(userId: string, volume: number): void
+  setScreen(track: MediaStreamTrack | null, encoding?: { maxBitrate: number; maxFramerate: number } | null): Promise<void>   // null = stop sending
   getStats(): Promise<{ rttMs: number | null; jitterMs: number | null; packetLoss: number | null }>
-  // events: 'state' (RTCPeerConnectionState), 'speaking' ({userId, speaking}), 'peers' ({userId, ssrc}[])
+  // events: 'state' (RTCPeerConnectionState), 'speaking' ({userId, speaking}), 'peers' ({userId, ssrc}[]),
+  //         'screen' ({userId, stream: MediaStream | null})
 }
 
 export class HachimanClient extends TypedEventEmitter<HachimanClientEvents> {
@@ -560,6 +579,7 @@ export class HachimanClient extends TypedEventEmitter<HachimanClientEvents> {
   leaveVoice(): void
   readonly selfVoice: SelfVoiceState             // { ownMute, selfMute, selfDeaf }
   setSelfVoice(change: Partial<SelfVoice>): SelfVoiceState   // SelfVoice = { selfMute, selfDeaf }
+  setScreen(track: MediaStreamTrack | null, encoding?: ScreenEncoding | null): Promise<void>   // null = stop; sets selfStream
   readonly voice: VoiceConnection | null
   // events: 'ready', 'state', 'update' (fired after any cache mutation with { t, d }), plus every gateway event re-emitted after the cache is updated
 }
@@ -574,6 +594,8 @@ export class HachimanClient extends TypedEventEmitter<HachimanClientEvents> {
 
 Each call sends exactly one op 4 when the client is in voice. Outside voice, it sends nothing, and the next `joinVoice` uses the new state.
 Mute does not release the microphone. It only stops the outgoing track (`VoiceConnection.setMuted`).
+
+`setScreen` is the only place that sets `selfStream`. A share needs a live voice connection. Outside voice, `setScreen` does nothing. A start or a stop sends one op 4, and a new `encoding` for the live track sends no op 4. Leaving voice, or joining another channel, ends the share. The caller owns the track and stops it.
 
 ## 11. Shared UI ↔ host seam (`apps/hachiman/src/shared/IPlatformService.ts`)
 
@@ -592,6 +614,10 @@ export interface IPlatformService {
   onOAuthCallback(cb: (url: string) => void): () => void
   /** Electron: TCP-connect RTT probe from main. Browser: resolves []. */
   probeRegions(targets: { region: string; host: string; port: number }[]): Promise<{ region: string; rttMs: number | null }[]>
+  /** Electron: screens and windows for the in-app share picker. Browser: null (it has its own picker). */
+  getScreenSources(): Promise<{ id: string; name: string; kind: 'screen' | 'window'; thumbnail: Blob }[] | null>
+  /** Electron: the listed source that the next screen share captures. Browser: no-op. */
+  selectScreenSource(id: string): Promise<void>
 }
 ```
 
@@ -607,6 +633,14 @@ Each host declares its title bar. The Electron main process hides the native tit
 `VITE_HACHIMAN_OIDC_REDIRECT` replaces the default URI on either host.
 
 When the user starts sign-in from an invite dialog, the pending PKCE flow also keeps the invite code. After the callback, the UI opens the invite dialog again. It does this also when sign-in fails. The browser host needs this step: the redirect loads the page again, and the host removed `/invite/<code>` from the URL at start-up. When the callback fails, the UI shows the cause and tells the user to sign in again. The sign-in screen and the invite dialog show this message.
+
+Screen share source selection:
+- Browser: `getScreenSources` gives null. `getDisplayMedia` then shows the picker of the browser.
+- Electron: the UI shows its own picker with the screens and windows from `getScreenSources`. When the user picks one, the UI calls `selectScreenSource`, then `getDisplayMedia`.
+- The main process captures only the selected source. It accepts only an id from the last list, and it uses each selection one time. A new list clears a selection that no capture used.
+- Without a selection, or when the request does not come from the top frame of the app page, `getDisplayMedia` fails.
+- Thumbnails are JPEG `data:` URLs. The CSP allows `data:` images.
+- Accepted risk: script in the app page (for example, after an XSS attack) can list and select a source itself. It can then capture a window, and the user sees no picker.
 
 The guild region pickers use `probeRegions`. They send the measured RTTs to `POST /api/v1/regions/recommend` and show the result as "Automatic (recommended: <region>)". The browser host measures nothing, so the picker shows only "Automatic".
 

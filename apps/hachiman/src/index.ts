@@ -11,7 +11,8 @@ export { PlatformProvider, usePlatform } from './shared/PlatformContext'
 export type {
   IPlatformService,
   RegionProbeTarget,
-  RegionProbeResult
+  RegionProbeResult,
+  ScreenSource
 } from './shared/IPlatformService'
 
 // Oracle / Takusen SSO. The App completes sign-in itself via `platform.onOAuthCallback`;

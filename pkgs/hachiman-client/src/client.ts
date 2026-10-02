@@ -4,6 +4,7 @@ import { effectivePermissions, type PermissionContext } from './permissions'
 import { RestClient, type TokenProvider } from './rest'
 import type {
   Channel,
+  VoiceStateUpdateRequest,
   Guild,
   GuildFull,
   Member,
@@ -15,7 +16,7 @@ import type {
   VoiceState,
 } from './types'
 import { TypedEventEmitter } from './typed-event-emitter'
-import { VoiceConnection } from './voice'
+import { VoiceConnection, type ScreenEncoding } from './voice'
 
 /** Self mute/deafen as sent in VOICE_STATE_UPDATE. */
 export interface SelfVoice {
@@ -92,6 +93,7 @@ export class HachimanClient extends TypedEventEmitter<HachimanClientEvents> {
   /** The user's choices. The wire and media state derive from these (see `selfVoice`). */
   private ownMute = false
   private deafened = false
+  private streaming = false
   private cancelPendingJoin: (() => void) | null = null
 
   constructor(opts: { apiUrl: string; gatewayUrl: string; getToken: TokenProvider }) {
@@ -135,6 +137,7 @@ export class HachimanClient extends TypedEventEmitter<HachimanClientEvents> {
     this.cancelPendingJoin?.()
     this.dropVoice()
     this.voiceTarget = { guildId, channelId }
+    this.streaming = false // a share never moves to another channel
     const target = this.voiceTarget
 
     const server = await new Promise<VoiceServerUpdate>((resolve, reject) => {
@@ -188,6 +191,7 @@ export class HachimanClient extends TypedEventEmitter<HachimanClientEvents> {
     this.cancelPendingJoin?.()
     const target = this.voiceTarget
     this.voiceTarget = null
+    this.streaming = false
     if (target)
       this.gateway.updateVoiceState({ ...this.wireVoice(), guildId: target.guildId, channelId: null })
     this.dropVoice()
@@ -195,7 +199,8 @@ export class HachimanClient extends TypedEventEmitter<HachimanClientEvents> {
 
   /** Deafen implies mute, so `selfMute` is true while deafened even if the user never muted. */
   get selfVoice(): SelfVoiceState {
-    return { ownMute: this.ownMute, ...this.wireVoice() }
+    const { selfMute, selfDeaf } = this.wireVoice()
+    return { ownMute: this.ownMute, selfMute, selfDeaf }
   }
 
   /**
@@ -217,6 +222,22 @@ export class HachimanClient extends TypedEventEmitter<HachimanClientEvents> {
     return this.selfVoice
   }
 
+  /**
+   * Sends `track` as my screen share (`null` stops it) and sets `selfStream` to match. Outside
+   * voice it does nothing; leaving voice or joining another channel ends the share. A new
+   * `encoding` for the live track sends no VOICE_STATE_UPDATE. The caller owns the track.
+   */
+  async setScreen(track: MediaStreamTrack | null, encoding: ScreenEncoding | null = null): Promise<void> {
+    const vc = this._voice
+    if (!vc) return
+    const streaming = track !== null
+    if (streaming !== this.streaming) {
+      this.streaming = streaming
+      this.sendVoiceState()
+    }
+    await vc.setScreen(track, encoding)
+  }
+
   private applySelfVoice(vc: VoiceConnection): void {
     const { selfMute, selfDeaf } = this.wireVoice()
     vc.setDeafened(selfDeaf)
@@ -227,8 +248,12 @@ export class HachimanClient extends TypedEventEmitter<HachimanClientEvents> {
     if (this.voiceTarget) this.gateway.updateVoiceState({ ...this.wireVoice(), ...this.voiceTarget })
   }
 
-  private wireVoice(): SelfVoice {
-    return { selfMute: this.ownMute || this.deafened, selfDeaf: this.deafened }
+  private wireVoice(): Omit<VoiceStateUpdateRequest, 'guildId' | 'channelId'> {
+    return {
+      selfMute: this.ownMute || this.deafened,
+      selfDeaf: this.deafened,
+      selfStream: this.streaming,
+    }
   }
 
   private dropVoice(): void {

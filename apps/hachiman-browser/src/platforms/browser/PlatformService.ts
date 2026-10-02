@@ -58,4 +58,6 @@ export const platformService: IPlatformService = {
   onOAuthCallback: oauthCallbacks.subscribe,
   // Browsers can't open raw sockets, so there's no honest RTT to measure.
   probeRegions: async () => [],
+  getScreenSources: async () => null,
+  selectScreenSource: async () => undefined,
 };

@@ -118,6 +118,7 @@ export interface VoiceState {
   sessionId: string
   selfMute: boolean
   selfDeaf: boolean
+  selfStream: boolean
 }
 
 export interface GuildFull extends Guild {
@@ -174,6 +175,7 @@ export interface VoiceStateUpdateRequest {
   channelId: string | null
   selfMute: boolean
   selfDeaf: boolean
+  selfStream: boolean
 }
 
 /** Dispatch event name → payload. */

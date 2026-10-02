@@ -20,4 +20,6 @@ export const platformService: IPlatformService = {
   onInviteCode: (cb) => window.hachiman.onInviteCode(cb),
   onOAuthCallback: (cb) => window.hachiman.onOAuthCallback(cb),
   probeRegions: (targets) => window.hachiman.probeRegions(targets),
+  getScreenSources: () => window.hachiman.getScreenSources(),
+  selectScreenSource: (id) => window.hachiman.selectScreenSource(id),
 };

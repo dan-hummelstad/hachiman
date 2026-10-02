@@ -70,12 +70,13 @@ type Presence struct {
 }
 
 type VoiceState struct {
-	GuildID   string  `json:"guildId"`
-	ChannelID *string `json:"channelId"`
-	UserID    string  `json:"userId"`
-	SessionID string  `json:"sessionId"`
-	SelfMute  bool    `json:"selfMute"`
-	SelfDeaf  bool    `json:"selfDeaf"`
+	GuildID    string  `json:"guildId"`
+	ChannelID  *string `json:"channelId"`
+	UserID     string  `json:"userId"`
+	SessionID  string  `json:"sessionId"`
+	SelfMute   bool    `json:"selfMute"`
+	SelfDeaf   bool    `json:"selfDeaf"`
+	SelfStream bool    `json:"selfStream"`
 }
 
 type GuildFull struct {

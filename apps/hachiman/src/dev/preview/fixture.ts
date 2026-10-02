@@ -119,6 +119,7 @@ function voice(
     sessionId: `vs-${u.id}`,
     selfMute: false,
     selfDeaf: false,
+    selfStream: false,
     ...flags
   }
 }
@@ -216,7 +217,7 @@ const guild1: GuildFull = {
     voice(G1, G1C.lounge, U.marlowe),
     voice(G1, G1C.lounge, U.juniper, { selfMute: true }),
     voice(G1, G1C.lounge, U.ozzy, { selfMute: true, selfDeaf: true }),
-    voice(G1, G1C.ranked, U.quill)
+    voice(G1, G1C.ranked, U.quill, { selfStream: true })
   ],
   presences: presencesFor(g1Members)
 }

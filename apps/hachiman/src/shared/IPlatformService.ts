@@ -11,6 +11,15 @@ export interface RegionProbeResult {
   rttMs: number | null
 }
 
+/** A screen or window that the in-app share picker offers. */
+export interface ScreenSource {
+  id: string
+  name: string
+  kind: 'screen' | 'window'
+  /** Image URL (Electron: a JPEG data URL). */
+  thumbnail: string
+}
+
 export interface IPlatformService {
   readonly platform: 'electron' | 'browser'
   /** The host hides the native title bar, so the UI draws a draggable strip (Electron on macOS). */
@@ -25,4 +34,8 @@ export interface IPlatformService {
   onOAuthCallback(cb: (url: string) => void): () => void
   /** Electron: TCP-connect RTT probe from main. Browser: resolves []. */
   probeRegions(targets: RegionProbeTarget[]): Promise<RegionProbeResult[]>
+  /** Electron: screens and windows for the in-app share picker. Browser: null (it has its own picker). */
+  getScreenSources(): Promise<ScreenSource[] | null>
+  /** Electron: the listed source that the next screen share captures. Browser: no-op. */
+  selectScreenSource(id: string): Promise<void>
 }

@@ -1,15 +1,22 @@
 // Media-node voice connection. Contract: docs/gateway-protocol.md §8.
 //
 // Media is always the SDP offerer; we only answer. Track labeling (agreed with media):
-// every output track's MediaStream id is the sending peer's userId (track id `audio-<userId>`),
-// so `ontrack` → `event.streams[0].id` is the userId. The `peers` frame is the roster.
-// The first transceiver (m-line 0) in media's initial offer is our upload slot for the mic.
+// a peer's mic track has MediaStream id = the peer's userId (track id `audio-<userId>`), and its
+// screen track has stream id `screen-<userId>`, so `ontrack` → `event.streams[0].id` names the user.
+// The `peers` frame is the roster. The first two transceivers (m-lines 0 and 1) in media's initial
+// offer are our upload slots for the mic and the screen.
 import { TypedEventEmitter } from './typed-event-emitter'
 import type { VoiceClientFrame, VoiceServerFrame } from './types'
 
 export interface VoicePeer {
   userId: string
   ssrc: number
+}
+
+/** Sender limits for the screen share (`RTCRtpEncodingParameters`). */
+export interface ScreenEncoding {
+  maxBitrate: number
+  maxFramerate: number
 }
 
 export interface VoiceStats {
@@ -27,6 +34,11 @@ export type VoiceEvents = {
   peers: (peers: VoicePeer[]) => void
   /** A remote user's audio stream arrived (e.g. for level meters). */
   track: (e: { userId: string; stream: MediaStream }) => void
+  /**
+   * A remote user's screen track arrived (`null` = gone). The track exists for every peer and is
+   * silent until they share; their voice state's `selfStream` says when it is live.
+   */
+  screen: (e: { userId: string; stream: MediaStream | null }) => void
   /** Unexpected teardown: voice WS closed without `close()` (4004 bad token, 4009 expired, 4010 kicked, 4011 replaced…) or renegotiation failed. */
   close: (e: { code: number; reason: string }) => void
 }
@@ -41,6 +53,12 @@ export class VoiceConnection extends TypedEventEmitter<VoiceEvents> {
   private pc: RTCPeerConnection | null = null
   private micTransceiver: RTCRtpTransceiver | null = null
   private micTrack: MediaStreamTrack | null = null
+  private screenTransceiver: RTCRtpTransceiver | null = null
+  private screenTrack: MediaStreamTrack | null = null
+  private screenEncoding: ScreenEncoding | null = null
+  /** Orders sender updates: a concurrent setParameters fails on a stale transactionId. */
+  private screenChain: Promise<void> = Promise.resolve()
+  private readonly screens = new Map<string, MediaStream>()
   private muted = false
   private deafened = false
   private lastSpeaking: boolean | null = null
@@ -115,6 +133,7 @@ export class VoiceConnection extends TypedEventEmitter<VoiceEvents> {
     }
     this.audio.clear()
     this.pendingTracks.clear()
+    this.screens.clear()
     this.pc?.close() // does not fire connectionstatechange, so emit by hand
     this.pc = null
     this.emit('state', 'closed')
@@ -124,6 +143,13 @@ export class VoiceConnection extends TypedEventEmitter<VoiceEvents> {
   async setMicrophone(stream: MediaStream | null): Promise<void> {
     this.micTrack = stream?.getAudioTracks()[0] ?? null
     await this.applyMic()
+  }
+
+  /** `null` stops sending. The caller owns the track (we never stop it). */
+  async setScreen(track: MediaStreamTrack | null, encoding: ScreenEncoding | null = null): Promise<void> {
+    this.screenTrack = track
+    this.screenEncoding = encoding
+    await this.applyScreen()
   }
 
   /** Self-mute: stop sending without releasing the mic stream. */
@@ -226,6 +252,7 @@ export class VoiceConnection extends TypedEventEmitter<VoiceEvents> {
       case 'peers': {
         this.peers = f.d.peers
         const present = new Set(this.peers.map(p => p.userId))
+        for (const userId of this.screens.keys()) if (!present.has(userId)) this.dropScreen(userId)
         for (const [userId, el] of this.audio) {
           if (present.has(userId)) continue
           el.pause()
@@ -254,14 +281,20 @@ export class VoiceConnection extends TypedEventEmitter<VoiceEvents> {
     for (const c of this.remoteCandidates.splice(0)) await this.addRemoteCandidate(c)
     // Media's first m-line is a recvonly slot reserved exclusively for our mic; peers' audio uses
     // separate sendonly transceivers. Answering sendrecv on it lets us upload.
-    const mic = pc.getTransceivers()[0]
+    const [mic, screen] = pc.getTransceivers()
     if (mic) {
       mic.direction = 'sendrecv'
       this.micTransceiver = mic
       await this.applyMic()
     }
+    if (screen) {
+      screen.direction = 'sendrecv'
+      this.screenTransceiver = screen
+    }
     const answer = await pc.createAnswer()
     await pc.setLocalDescription(answer)
+    // After setLocalDescription: before the first one, the sender has no encodings to limit.
+    await this.applyScreen()
     this.send({ op: 'answer', d: { sdp: answer.sdp ?? '' } })
     const buffered = this.localCandidates
     this.localCandidates = null
@@ -280,7 +313,30 @@ export class VoiceConnection extends TypedEventEmitter<VoiceEvents> {
     await this.micTransceiver?.sender.replaceTrack(this.muted ? null : this.micTrack)
   }
 
+  private applyScreen(): Promise<void> {
+    const next = this.screenChain.then(() => this.updateScreenSender())
+    this.screenChain = next.catch(() => undefined)
+    return next
+  }
+
+  private async updateScreenSender(): Promise<void> {
+    const sender = this.screenTransceiver?.sender
+    if (!sender) return
+    await sender.replaceTrack(this.screenTrack)
+    const params = sender.getParameters()
+    const enc = params.encodings[0]
+    if (!enc || !this.screenEncoding) return
+    Object.assign(enc, this.screenEncoding)
+    await sender.setParameters(params).catch((err: unknown) => {
+      console.warn('VoiceConnection: screen setParameters failed', err)
+    })
+  }
+
   private onTrack(ev: RTCTrackEvent): void {
+    if (ev.track.kind === 'video') {
+      this.onScreenTrack(ev)
+      return
+    }
     const stream = ev.streams[0] ?? new MediaStream([ev.track])
     const userId = ev.streams[0]?.id ?? ev.track.id.replace(/^audio-/, '')
     ev.track.onended = () => {
@@ -294,6 +350,23 @@ export class VoiceConnection extends TypedEventEmitter<VoiceEvents> {
     // `peers` snapshot is parked rather than dropped.
     if (this.peers.some(p => p.userId === userId)) this.play(userId, stream)
     else this.pendingTracks.set(userId, stream)
+  }
+
+  private onScreenTrack(ev: RTCTrackEvent): void {
+    const id = ev.streams[0]?.id
+    if (!id?.startsWith('screen-')) return
+    const userId = id.slice('screen-'.length)
+    const stream = new MediaStream([ev.track])
+    ev.track.onended = () => {
+      if (this.screens.get(userId) === stream) this.dropScreen(userId)
+    }
+    this.screens.set(userId, stream)
+    this.emit('screen', { userId, stream })
+  }
+
+  private dropScreen(userId: string): void {
+    this.screens.delete(userId)
+    this.emit('screen', { userId, stream: null })
   }
 
   private play(userId: string, stream: MediaStream): void {

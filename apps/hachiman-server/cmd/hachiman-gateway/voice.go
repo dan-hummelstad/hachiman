@@ -20,10 +20,11 @@ import (
 )
 
 type voiceRequest struct {
-	GuildID   string  `json:"guildId"`
-	ChannelID *string `json:"channelId"`
-	SelfMute  bool    `json:"selfMute"`
-	SelfDeaf  bool    `json:"selfDeaf"`
+	GuildID    string  `json:"guildId"`
+	ChannelID  *string `json:"channelId"`
+	SelfMute   bool    `json:"selfMute"`
+	SelfDeaf   bool    `json:"selfDeaf"`
+	SelfStream bool    `json:"selfStream"`
 }
 
 var stunOnly = []coturn.ICEServer{{URLs: []string{"stun:stun.l.google.com:19302"}}}
@@ -53,7 +54,7 @@ func (s *session) onVoice(ctx context.Context, req voiceRequest) error {
 		s.g.removeVoice(ctx, *prev)
 		prev = nil
 	}
-	st := VoiceState{GuildID: req.GuildID, ChannelID: &chID, UserID: me, SessionID: s.id, SelfMute: req.SelfMute, SelfDeaf: req.SelfDeaf}
+	st := VoiceState{GuildID: req.GuildID, ChannelID: &chID, UserID: me, SessionID: s.id, SelfMute: req.SelfMute, SelfDeaf: req.SelfDeaf, SelfStream: req.SelfStream}
 	if _, err := s.g.rdb.TxPipelined(ctx, func(p redis.Pipeliner) error {
 		p.HSet(ctx, kVoice(req.GuildID), me, string(mustJSON(st)))
 		p.Set(ctx, kVoiceUser(me), req.GuildID, 0)
@@ -66,7 +67,7 @@ func (s *session) onVoice(ctx context.Context, req voiceRequest) error {
 
 	moved := prev == nil || prev.SessionID != s.id || prev.ChannelID == nil || *prev.ChannelID != chID
 	if !moved {
-		return nil // mute/deaf toggle: media connection stays as is
+		return nil // mute/deaf/stream toggle: media connection stays as is
 	}
 	nodeID, endpoint, err := s.g.resolveNode(ctx, chID, req.GuildID, gs.region)
 	if err != nil {

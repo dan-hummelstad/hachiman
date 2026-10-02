@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { HachimanClient } from './client'
+import { VoiceConnection } from './voice'
 import { Permissions as P } from './permissions'
 import { FakeWebSocket, installFakeWebSocket } from './test/fake-ws'
 import type { Channel, GuildFull, Member, ReadyPayload, User } from './types'
@@ -48,7 +49,7 @@ const guild: GuildFull = {
   ],
   members: [member(me), member(bob)],
   voiceStates: [
-    { guildId: 'g', channelId: 'vc', userId: 'bob', sessionId: 'x', selfMute: false, selfDeaf: false },
+    { guildId: 'g', channelId: 'vc', userId: 'bob', sessionId: 'x', selfMute: false, selfDeaf: false, selfStream: false },
   ],
   presences: [{ userId: 'bob', status: 'online' }],
 }
@@ -178,6 +179,7 @@ describe('HachimanClient cache', () => {
       sessionId: 'x',
       selfMute: false,
       selfDeaf: false,
+      selfStream: false,
     })
     expect(client.cache.voiceStates.get('g')?.has('bob')).toBe(false)
     dispatch('GUILD_DELETE', { id: 'g' })
@@ -190,13 +192,13 @@ describe('HachimanClient cache', () => {
     const p = client.joinVoice('g', 'vc')
     expect(ws.sent.at(-1)).toEqual({
       op: 4,
-      d: { selfMute: true, selfDeaf: false, guildId: 'g', channelId: 'vc' },
+      d: { selfMute: true, selfDeaf: false, selfStream: false, guildId: 'g', channelId: 'vc' },
     })
     client.leaveVoice()
     await expect(p).rejects.toThrow('superseded')
     expect(ws.sent.at(-1)).toEqual({
       op: 4,
-      d: { selfMute: true, selfDeaf: false, guildId: 'g', channelId: null },
+      d: { selfMute: true, selfDeaf: false, selfStream: false, guildId: 'g', channelId: null },
     })
   })
 
@@ -216,7 +218,7 @@ describe('HachimanClient cache', () => {
       expect(voiceFrames()).toHaveLength(0)
       startJoin()
       expect(voiceFrames()).toEqual([
-        { op: 4, d: { selfMute: true, selfDeaf: true, guildId: 'g', channelId: 'vc' } },
+        { op: 4, d: { selfMute: true, selfDeaf: true, selfStream: false, guildId: 'g', channelId: 'vc' } },
       ])
     })
 
@@ -225,7 +227,7 @@ describe('HachimanClient cache', () => {
       const before = voiceFrames().length
       client.setSelfVoice({ selfDeaf: true })
       expect(voiceFrames().slice(before)).toEqual([
-        { op: 4, d: { selfMute: true, selfDeaf: true, guildId: 'g', channelId: 'vc' } },
+        { op: 4, d: { selfMute: true, selfDeaf: true, selfStream: false, guildId: 'g', channelId: 'vc' } },
       ])
     })
 
@@ -247,7 +249,44 @@ describe('HachimanClient cache', () => {
 
     it('deafen leaves the own mute choice untouched', () => {
       client.setSelfVoice({ selfDeaf: true })
-      expect(client.selfVoice).toEqual({ ownMute: false, selfMute: true, selfDeaf: true })
+      expect(client.selfVoice).toEqual({
+        ownMute: false,
+        selfMute: true,
+        selfDeaf: true,
+      })
+    })
+
+    it('setScreen streams only in voice, and leaving voice ends the stream', async () => {
+      const connect = vi.spyOn(VoiceConnection.prototype, 'connect').mockResolvedValue()
+      const setScreen = vi.spyOn(VoiceConnection.prototype, 'setScreen').mockResolvedValue()
+      const track = {} as MediaStreamTrack
+      await client.setScreen(track)
+      expect(voiceFrames()).toHaveLength(0)
+
+      void client.joinVoice('g', 'vc')
+      dispatch('VOICE_SERVER_UPDATE', {
+        guildId: 'g',
+        channelId: 'vc',
+        endpoint: 'ws://media',
+        token: 'vt',
+        iceServers: [],
+        expiresAt: '',
+      })
+      await vi.advanceTimersByTimeAsync(0)
+      const before = voiceFrames().length
+      await client.setScreen(track, { maxBitrate: 1, maxFramerate: 30 })
+      await client.setScreen(track, { maxBitrate: 2, maxFramerate: 60 }) // quality change: no frame
+      expect(voiceFrames().slice(before)).toEqual([
+        { op: 4, d: { selfMute: false, selfDeaf: false, selfStream: true, guildId: 'g', channelId: 'vc' } },
+      ])
+      expect(setScreen).toHaveBeenLastCalledWith(track, { maxBitrate: 2, maxFramerate: 60 })
+      client.leaveVoice()
+      expect(voiceFrames().at(-1)).toEqual({
+        op: 4,
+        d: { selfMute: false, selfDeaf: false, selfStream: false, guildId: 'g', channelId: null },
+      })
+      connect.mockRestore()
+      setScreen.mockRestore()
     })
 
     it('unmuting while deafened also undeafens', () => {

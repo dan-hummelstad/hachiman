@@ -6,7 +6,9 @@ import {
   type VoiceConnection
 } from '@hachiman/client'
 import { isGuildChannel } from '@/lib/model'
+import { captureConstraints, tuneTrack, type StreamQuality } from '@/lib/stream-quality'
 import { hachiman } from '@/services/hachiman'
+import { playSound, selfVoiceSound } from '@/services/SoundService'
 import { usePrefsStore } from '@/stores/prefsStore'
 import { useUserStore } from '@/stores/userStore'
 import { useVoiceStore } from '@/stores/voiceStore'
@@ -76,6 +78,12 @@ function captureMic(): Promise<MediaStream> {
   })
 }
 
+function captureScreen(q: StreamQuality): Promise<MediaStream> {
+  // ponytail: video only; system audio capture differs per OS and host. Add `audio: true` with a
+  // second upload slot when it matters.
+  return navigator.mediaDevices.getDisplayMedia({ video: captureConstraints(q), audio: false })
+}
+
 /**
  * Global single voice session over HachimanClient.joinVoice / VoiceConnection. Mute/deafen policy
  * lives in the client (`setSelfVoice`); this service mirrors the result into `useVoiceStore`.
@@ -85,6 +93,7 @@ class VoiceService {
   private mic: MicSession | null = null
   /** Bumped by every mic start/stop, so a late getUserMedia can tell it was superseded. */
   private micAttempt = 0
+  private screen: MediaStream | null = null
   private statsTimer: ReturnType<typeof setInterval> | null = null
 
   /** Wires the client and prefs subscriptions. `startHachiman()` calls it once. */
@@ -96,13 +105,14 @@ class VoiceService {
     // Our own leave/switch clears `this.conn` first, so those don't land here.
     hachiman.on('voice', (vc) => {
       if (vc || !this.conn) return
-      this.teardown()
-      useVoiceStore.getState().resetSession()
+      playSound('voiceDisconnect')
+      this.endSession()
     })
     // Device changes from user settings apply to the live session.
     usePrefsStore.subscribe((s, prev) => {
       if (s.inputDeviceId !== prev.inputDeviceId && this.conn) void this.startMic()
       if (s.outputDeviceId !== prev.outputDeviceId) this.applyOutputDevice()
+      if (s.streamQuality !== prev.streamQuality) void this.applyStreamQuality()
     })
   }
 
@@ -120,10 +130,11 @@ class VoiceService {
   async joinVoice(guildId: string, channelId: string): Promise<void> {
     if (useVoiceStore.getState().channelId === channelId) return
     this.teardown()
-    useVoiceStore.setState({ guildId, channelId, connectionState: 'new' })
+    useVoiceStore.setState({ guildId, channelId, connectionState: 'new', screens: new Map() })
     try {
       const conn = await hachiman.joinVoice(guildId, channelId)
       this.conn = conn
+      playSound('voiceJoin')
       this.applyOutputDevice()
       conn.on('state', (connectionState) => {
         if (this.conn === conn) useVoiceStore.setState({ connectionState })
@@ -134,28 +145,102 @@ class VoiceService {
       conn.on('peers', (peers) =>
         useVoiceStore.getState().setPeers(peers, useUserStore.getState().me?.id ?? null)
       )
+      conn.on('screen', ({ userId, stream }) => {
+        if (this.conn !== conn) return
+        const screens = new Map(useVoiceStore.getState().screens)
+        if (stream) screens.set(userId, stream)
+        else screens.delete(userId)
+        useVoiceStore.setState({ screens })
+      })
       this.statsTimer = setInterval(() => void this.sampleStats(), STATS_MS)
       // Captured even when muted: mute only gates the outgoing track, so unmute is instant.
       await this.startMic()
     } catch (err) {
       if (useVoiceStore.getState().channelId !== channelId) return // superseded by another join
       console.error('[voice] join failed', err)
-      this.leaveVoice()
+      playSound('voiceDisconnect')
+      this.endSession()
     }
   }
 
   leaveVoice(): void {
+    if (useVoiceStore.getState().channelId) playSound('voiceLeave')
+    this.endSession()
+  }
+
+  private endSession(): void {
     this.teardown()
     hachiman.leaveVoice()
     useVoiceStore.getState().resetSession()
   }
 
   toggleMute(): void {
-    this.setSelfVoice({ selfMute: !hachiman.selfVoice.selfMute })
+    this.toggleSelfVoice({ selfMute: !hachiman.selfVoice.selfMute })
   }
 
   toggleDeaf(): void {
-    this.setSelfVoice({ selfDeaf: !hachiman.selfVoice.selfDeaf })
+    this.toggleSelfVoice({ selfDeaf: !hachiman.selfVoice.selfDeaf })
+  }
+
+  /** A user toggle: applies `change` and plays the sound for what actually changed. */
+  private toggleSelfVoice(change: Partial<SelfVoice>): void {
+    const before = hachiman.selfVoice
+    this.setSelfVoice(change)
+    const sound = selfVoiceSound(before, hachiman.selfVoice)
+    if (sound) playSound(sound)
+  }
+
+  /** Opens the OS share picker, then sends the chosen screen or window. Never throws. */
+  async startScreenShare(): Promise<void> {
+    const conn = this.conn
+    if (!conn || this.screen) return
+    const quality = usePrefsStore.getState().streamQuality
+    let stream: MediaStream
+    try {
+      stream = await captureScreen(quality)
+    } catch (err) {
+      console.warn('[voice] screen share cancelled or unavailable', err)
+      return
+    }
+    // Left voice or switched channel while the picker was up.
+    if (this.conn !== conn || this.screen) return stopTracks(stream)
+    const [track] = stream.getVideoTracks()
+    if (!track) return stopTracks(stream)
+    // The browser's own "Stop sharing" bar ends the track.
+    track.onended = () => {
+      if (this.screen === stream) this.stopScreenShare()
+    }
+    this.screen = stream
+    useVoiceStore.setState({ localScreen: stream })
+    playSound('streamStart')
+    await hachiman.setScreen(track, tuneTrack(track, quality))
+  }
+
+  stopScreenShare(): void {
+    if (!this.screen) return
+    this.releaseScreen()
+    playSound('streamStop')
+    void hachiman.setScreen(null)
+  }
+
+  /** Stops the capture only. Leaving or switching voice ends the share on the wire by itself. */
+  private releaseScreen(): void {
+    if (this.screen) stopTracks(this.screen)
+    this.screen = null
+    useVoiceStore.setState({ localScreen: null })
+  }
+
+  /** A quality change while live: recapture at the new size and rate, then resend the limits. */
+  private async applyStreamQuality(): Promise<void> {
+    const track = this.screen?.getVideoTracks()[0]
+    if (!track) return
+    const quality = usePrefsStore.getState().streamQuality
+    try {
+      await track.applyConstraints(captureConstraints(quality))
+      await hachiman.setScreen(track, tuneTrack(track, quality))
+    } catch (err) {
+      console.warn('[voice] stream quality change failed', err)
+    }
   }
 
   private setSelfVoice(change: Partial<SelfVoice>): void {
@@ -218,6 +303,7 @@ class VoiceService {
   }
 
   private teardown(): void {
+    this.releaseScreen()
     this.stopMic()
     if (this.statsTimer) clearInterval(this.statsTimer)
     this.statsTimer = null

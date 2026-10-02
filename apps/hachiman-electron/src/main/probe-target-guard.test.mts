@@ -21,12 +21,10 @@ function mockResolver(map: Record<string, string[]>): HostResolver {
   return async (host) => {
     const addrs = map[host];
     if (!addrs) throw new Error(`ENOTFOUND ${host}`);
-    return addrs.map(
-      (address): ResolvedAddress => ({
-        address,
-        family: address.includes(":") ? 6 : 4,
-      }),
-    );
+    return addrs.map((address): ResolvedAddress => ({
+      address,
+      family: address.includes(":") ? 6 : 4,
+    }));
   };
 }
 
@@ -127,10 +125,7 @@ test("IP-literal loopback/private/link-local/metadata/0.0.0.0/::1/ULA rejected (
     "::ffff:127.0.0.1",
   ];
   for (const host of hostiles) {
-    const out = await validateProbeTargets(
-      [t({ host })],
-      unusedResolver,
-    );
+    const out = await validateProbeTargets([t({ host })], unusedResolver);
     assert.equal(out.length, 0, `${host} must be rejected`);
   }
 });
@@ -172,7 +167,10 @@ test("host resolving to zero addresses is rejected", async () => {
 
 test("port 443 allowed; omitted port rejected", async () => {
   const resolver = mockResolver({ "ok.example.com": ["52.1.2.3"] });
-  const out = await validateProbeTargets([t({ host: "ok.example.com" })], resolver);
+  const out = await validateProbeTargets(
+    [t({ host: "ok.example.com" })],
+    resolver,
+  );
   assert.equal(out.length, 1, "port 443 should be allowed");
   const omitted = await validateProbeTargets(
     [{ region: "r", host: "ok.example.com" }],

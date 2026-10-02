@@ -6,12 +6,13 @@ import {
   type PresenceStatus
 } from '@hachiman/client'
 import { oracleService } from '@/services/OracleService'
+import { messageSound, playSound, startSounds } from '@/services/SoundService'
 import { voiceService } from '@/services/VoiceService'
 import { resetChannelStore, useChannelStore } from '@/stores/channelStore'
 import { resetGuildStore, useGuildStore } from '@/stores/guildStore'
 import { resetMessagesStore, useMessageStore } from '@/stores/messagesStore'
 import { closeAllDialogs } from '@/stores/dialogStore'
-import { DM_HOME, forgetGuild, openChannel } from '@/stores/navStore'
+import { DM_HOME, forgetGuild, openChannel, useNavStore } from '@/stores/navStore'
 import { useOracleStore } from '@/stores/oracleStore'
 import { resetUserStore, useUserStore } from '@/stores/userStore'
 import { resetVoiceMirror, useVoiceStore } from '@/stores/voiceStore'
@@ -111,6 +112,16 @@ const onMessage = (m: Message): void => {
   useMessageStore.getState().setTyping(m.channelId, m.author.id, null)
 }
 
+const onMessageCreate = (m: Message): void => {
+  onMessage(m)
+  const me = hachiman.cache.user
+  if (!me) return
+  const nav = useNavStore.getState()
+  const viewing = nav.channelByGuild[nav.guildKey] === m.channelId && document.hasFocus()
+  const sound = messageSound(m, me, viewing)
+  if (sound) playSound(sound)
+}
+
 const onTyping = (d: GatewayEvents['TYPING_START']): void => {
   if (d.userId === hachiman.cache.user?.id) return
   const until = Date.now() + TYPING_MS
@@ -132,18 +143,21 @@ export function startHachiman(): void {
 
   hachiman.on('update', onUpdate)
   hachiman.on('state', (state) => useUserStore.setState({ gatewayState: state }))
-  hachiman.on('MESSAGE_CREATE', onMessage)
+  hachiman.on('MESSAGE_CREATE', onMessageCreate)
   hachiman.on('MESSAGE_UPDATE', onMessage)
   hachiman.on('MESSAGE_DELETE', (d) => useMessageStore.getState().remove(d.channelId, d.id))
   hachiman.on('TYPING_START', onTyping)
   voiceService.start()
+  startSounds()
 
   const apply = (signedIn: boolean): void => {
     if (signedIn) {
       hachiman.connect()
       return
     }
-    hachiman.disconnect() // voiceService tears voice down on its own session subscription
+    // Leave first: a voice session that the disconnect drops would play the "connection lost" sound.
+    voiceService.leaveVoice()
+    hachiman.disconnect()
     resetUserStore()
     resetGuildStore()
     resetChannelStore()

@@ -78,12 +78,19 @@ The repo vendors the fonts as woff2 in `apps/hachiman/src/assets/fonts/` (OFL), 
   - Title bar shows the guild name and a menu: settings, invite people, create channel, leave.
   - If the guild has a banner, the banner replaces the title bar. The banner is a 240×135 strip (`object-fit: cover`). The guild name and the menu are on the banner, in white text with a text shadow. If the banner does not load, the plain title bar shows.
   - Channel groups have sentence-case collapsible headers (they are categories).
-  - Rows are 32px. Text channels show a `#` glyph and voice channels a speaker glyph. Voice occupants sit indented under their channel. The avatar of a speaking occupant gets a 2px `--online` outline.
-  - Bottom stack: a **voice connected panel** (only while in voice: channel / guild, quality, disconnect). Below it is the **user panel** (avatar + presence, name, mic / deafen / settings buttons).
+  - Rows are 32px. Text channels show a `#` glyph and voice channels a speaker glyph. Voice occupants sit indented under their channel. The avatar of a speaking occupant gets a 2px `--online` outline. An occupant who shares a screen gets a red "LIVE" mark.
+  - Bottom stack: a **voice connected panel** (only while in voice: channel / guild, quality, share screen, stream quality, disconnect). Below it is the **user panel** (avatar + presence, name, mic / deafen / settings buttons).
 - **Main pane:**
   - Title bar: channel glyph + name, a 1px vertical rule, then topic (truncated). Tools on the right: member list toggle, pinned/search later (do not add placeholders), and channel settings when permitted.
   - Body: the transcript.
   - Footer: the composer plus a typing line.
+- **Voice room** (the main pane of a voice channel):
+  - Live screen shares show at the top, in a grid of black tiles. Each tile shows the video, the sharer's name with a "LIVE" mark, and a full-screen button.
+  - Click a tile to show only that stream. Click it again to show all streams.
+  - Only users in the same voice session see the video.
+  - Occupant tiles and the controls come below the shares. The controls are mute, deafen, share screen, stream quality and leave.
+  - On the desktop app, share screen opens a source picker window. It shows screens, then windows, as thumbnails with names, and the two stream quality selects. A click on a thumbnail starts the share. The browser shows its own picker.
+  - Stream quality is a popover with two selects. Resolution has 720p, 1080p, 1440p and Source. Frame rate has 15, 30 and 60 fps. The default is 1080p at 30 fps. A change applies to a live share immediately.
 - **Member list (240px):** grouped "Online — n" / "Offline — n". Rows show avatar + presence square + name in role color. A click on a row opens the profile card.
 - **DM home:** the sidebar becomes "Direct messages" (DM rows with presence). With no DM open, the main pane shows **People**. People lists everyone you share a guild with, grouped by online/offline, each with a "Message" button (a Slack-like directory).
 - **Settings (guild / channel / user):** full-window overlays, as in Discord. A left nav column (`--sidebar`) holds the section list, with a destructive action at the bottom. Content sits on the right with a max width of 720px. Esc or a square ✕ button at the top right closes it.
@@ -121,6 +128,13 @@ Cross-area contracts:
 - `App.tsx` mounts `<UserSettings open onClose />` from the overlays area. The gear in the user panel calls `onOpenUserSettings`.
 - The user settings Appearance tab writes `theme: 'dark' | 'light' | 'system'` and `messageDisplay: 'cozy' | 'compact'`. Both live in a new tiny persisted `usePrefsStore` (`stores/prefsStore.ts`, owned by the overlays area). `ThemeProvider` applies `theme` to `<html>`, and the transcript reads `messageDisplay`.
 - User settings Voice: input/output device pickers write `inputDeviceId` / `outputDeviceId` to `usePrefsStore`. `VoiceService` should honor them where it is cheap: `getUserMedia({audio:{deviceId}})` and `HTMLMediaElement.setSinkId`.
+- Sounds: `services/SoundService.ts` plays one sound for each Discord sound event. `lib/sounds.ts` lists them.
+  - Voice sounds are soft bell chimes (`lib/chime.ts`), as in Discord. An "on" sound rises, and its "off" sound plays the same notes falling.
+  - Message sounds are Cuelume cues. A received message plays a glass note, and a sent message plays a soft whoosh.
+  - Received messages: a DM or a mention of me. No sound when I look at that channel. Each message that I send plays the sent sound.
+  - My voice actions: join, leave, connection lost, mute, unmute, deafen, undeafen, share start, share stop.
+  - Other users in my voice channel: join, leave, share start, share stop.
+  - Settings: User settings → Voice and audio has a "Play sounds" switch and a volume slider. Each sound also has a switch and a play button. `prefsStore` keeps these choices in local storage.
 
 ## 7. Preview mode (for visual QA without a backend)
 

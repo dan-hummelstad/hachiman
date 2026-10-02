@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { ErrorText, Field, SectionHeading } from '@/components/ui/field'
 import { NativeSelect } from '@/components/ui/native-select'
+import { SoundSettings } from '@/components/settings/user/sounds'
 import { useMicLevel } from '@/hooks/use-mic-level'
 import { errMsg } from '@/lib/utils'
 import { usePrefsStore } from '@/stores/prefsStore'
@@ -9,7 +10,7 @@ import { usePrefsStore } from '@/stores/prefsStore'
 const canPickOutput =
   typeof HTMLMediaElement !== 'undefined' && 'setSinkId' in HTMLMediaElement.prototype
 
-/** User settings → Voice and audio: input/output device + an opt-in mic check. */
+/** User settings → Voice and audio: input/output device, an opt-in mic check, and sounds. */
 export function VoiceSection(): React.JSX.Element {
   const inputDeviceId = usePrefsStore((s) => s.inputDeviceId)
   const outputDeviceId = usePrefsStore((s) => s.outputDeviceId)
@@ -76,6 +77,7 @@ export function VoiceSection(): React.JSX.Element {
           : 'This app can’t list audio devices here, so the system default is used.'}
       </ErrorText>
       <MicCheck deviceId={inputDeviceId} onOpen={refresh} />
+      <SoundSettings />
     </div>
   )
 }
