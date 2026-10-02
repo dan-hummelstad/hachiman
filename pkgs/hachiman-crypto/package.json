@@ -16,6 +16,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@hachiman/client": "workspace:*",
     "@hpke/core": "1.9.0",
     "@hpke/hybridkem-x-wing": "0.7.0",
     "@hpke/ml-kem": "0.3.0",
