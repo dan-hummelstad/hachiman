@@ -59,6 +59,7 @@ export interface RequestProof {
 }
 
 export async function readRequestProof(req: Request): Promise<RequestProof> {
+  if (req.bodyUsed) throw new Error('readRequestProof: the request body was already read; call it before parsing the body')
   const url = new URL(req.url)
   const body = new Uint8Array(await req.clone().arrayBuffer())
   return {

@@ -55,6 +55,14 @@ describe('device proof', () => {
     await assert.rejects(checkDeviceProof(proof, '', k.pub, nonces, new Date()), proofInvalid)
   })
 
+  test('fails clearly when the handler read the body first', async () => {
+    // POST /devices used to parse the body before reading the proof; clone() then threw "unusable".
+    const k = keyPair()
+    const req = await signed(k.priv, '', { path: '/api/v1/devices' })
+    await req.json()
+    await assert.rejects(readRequestProof(req), /already read/)
+  })
+
   test('rejects another key, another body, a stale ts and missing headers', async () => {
     const k = keyPair()
     const other = keyPair()

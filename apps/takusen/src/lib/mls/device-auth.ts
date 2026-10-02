@@ -45,8 +45,8 @@ export async function requireDevice(req: Request, userId: string, opts?: { allow
  * POST /devices (§12.12): the request has no device id yet. It must carry a device proof by the
  * key that its body presents (device id "" in the signed message).
  */
-export async function requireRegistrationProof(req: Request, mlsSignatureKey: Uint8Array): Promise<void> {
-  await checkDeviceProof(await readRequestProof(req), '', mlsSignatureKey, redisNonceStore(redis()), new Date())
+export async function requireRegistrationProof(proof: RequestProof, mlsSignatureKey: Uint8Array): Promise<void> {
+  await checkDeviceProof(proof, '', mlsSignatureKey, redisNonceStore(redis()), new Date())
 }
 
 /**

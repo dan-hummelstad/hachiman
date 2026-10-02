@@ -8,6 +8,7 @@ import { z } from 'zod'
 import { ApiError } from '@/lib/errors'
 import { b64 } from '@/lib/mls/bytes'
 import { requireRegistrationProof } from '@/lib/mls/device-auth'
+import { readRequestProof } from '@/lib/mls/device-proof'
 import { listOwnDevices, registerDevice } from '@/lib/mls/identity'
 import { body, dsRoute, json } from '@/lib/mls/route'
 
@@ -19,9 +20,11 @@ const registerSchema = z.object({
 })
 
 export const POST = dsRoute('none', async ({ req, userId, repo }) => {
+  // The proof hashes the raw body, so read it before body() consumes the request.
+  const proof = await readRequestProof(req)
   const b = await body(req, registerSchema)
   if (b.mlsSignatureKey.length !== 32) throw new ApiError('ValidationError', 400, 'mlsSignatureKey must be 32 bytes')
-  await requireRegistrationProof(req, b.mlsSignatureKey)
+  await requireRegistrationProof(proof, b.mlsSignatureKey)
   return json(await registerDevice(repo, userId, b), 201)
 })
 
