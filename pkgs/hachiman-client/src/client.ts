@@ -466,7 +466,12 @@ export class HachimanClient extends TypedEventEmitter<HachimanClientEvents> {
       case 'USER_KEYS_UPDATE':
       case 'KEY_PACKAGES_LOW':
       case 'KT_TREE_HEAD':
-        break // not cached; consumers (the crypto Worker for the §12.13 events) handle the re-emitted event
+      case 'PAGE_CREATE':
+      case 'PAGE_UPDATE':
+      case 'PAGE_DELETE':
+      case 'DOC_UPDATE':
+      case 'DOC_AWARENESS':
+        break // not cached; consumers (the crypto Worker for the §12.13 events, the shared UI DocsService for pages) handle the re-emitted event
     }
   }
 }

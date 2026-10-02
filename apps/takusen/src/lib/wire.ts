@@ -30,6 +30,7 @@ import type {
   PermissionOverwriteRow,
   RoleRow,
 } from '@/db/schema'
+import { hasTextGroup } from '@/lib/channel-types'
 import type { AcceptedEnvelope } from '@/lib/mls/envelopes'
 import { fromB64, toB64 } from '@/lib/mls/bytes'
 
@@ -75,11 +76,11 @@ export type GroupVisibility = ReadonlyMap<string, HistoryVisibility>
 const NO_GROUPS: GroupVisibility = new Map()
 
 /**
- * text, dm and group_dm channels have a group (§12.6). Before the DS has
+ * text, pages, dm and group_dm channels have a group (§12.6). Before the DS has
  * allocated one, the value is the default of a channel or dm group.
  */
 function groupFields(c: ChannelRow, groups: GroupVisibility): Pick<Channel, 'mlsGroupId' | 'historyVisibility'> {
-  if (c.type === 'voice' || c.type === 'category') return { mlsGroupId: null, historyVisibility: null }
+  if (!hasTextGroup(c.type) && c.type !== 'dm' && c.type !== 'group_dm') return { mlsGroupId: null, historyVisibility: null }
   const mlsGroupId = c.mlsGroupId ? toB64(c.mlsGroupId) : null
   return { mlsGroupId, historyVisibility: (mlsGroupId && groups.get(mlsGroupId)) || 'joined' }
 }
@@ -260,7 +261,7 @@ export const MESSAGE_MAX_FILES = MAX_ATTACHMENTS_PER_MESSAGE
  * The envelope as base64url. The text cap only bounds the JSON body: the byte
  * limit (TAKUSEN_MAX_ENVELOPE_BYTES, 413 EnvelopeTooLarge) is in acceptEnvelope.
  */
-const envelopeField = z
+export const envelopeField = z
   .string()
   .min(1)
   .max(4 * 1024 * 1024)

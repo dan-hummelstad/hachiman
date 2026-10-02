@@ -174,6 +174,16 @@ Gateway close codes for E2EE. The client does not reconnect after them:
 
 If the device lookup itself fails, the gateway closes with 4000, and the client tries again.
 
+### Pages relay
+
+Pages (contract §6) add one client op and two ephemeral events:
+
+- Op 5 `DOC_AWARENESS {channelId, pageId, envelope}`: the gateway drops the frame unless the session is READY, the channel is a guild `pages` channel that the session can view, the envelope is at most 8 KiB, and the session is under 20 frames per second. It then publishes `DOC_AWARENESS` to `guild:{id}`.
+- `DOC_UPDATE` (published by Takusen) and `DOC_AWARENESS` go out without `s` and do not enter `events:{sessionId}`, so a burst of edits cannot push message events out of the resume buffer. Clients fill gaps from the per-page `seq`.
+- Every connection has a read limit of 64 KiB (close 1009).
+
+Code: `cmd/hachiman-gateway/conn.go` (op 5, read limit), `session.go` (the checks, the ephemeral dispatch), tests in `pages_test.go`.
+
 ### Media session lifecycle
 
 ```mermaid

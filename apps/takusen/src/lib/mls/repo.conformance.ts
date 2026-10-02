@@ -82,6 +82,7 @@ export function describeMlsRepo(name: string, open: () => Promise<RepoUnderTest>
       await fx.addGuildMember(guildId, member, [roleId])
       const channelId = await fx.addChannel({ guildId, type: 'text' })
       await fx.addChannel({ guildId, type: 'voice' })
+      const pagesId = await fx.addChannel({ guildId, type: 'pages' })
       await fx.setOverwrites(channelId, [{ id: member, type: 'member', allow: 0, deny: 0x400 }])
 
       const data = (await repo.getGuildPermissionData(guildId))!
@@ -91,7 +92,7 @@ export function describeMlsRepo(name: string, open: () => Promise<RepoUnderTest>
       assert.deepEqual(data.members.get(member), [roleId])
       assert.deepEqual(data.members.get(owner), [])
       assert.deepEqual(await repo.getChannelOverwrites(channelId), [{ id: member, type: 'member', allow: 0, deny: 0x400 }])
-      assert.deepEqual((await repo.listGuildTextChannels(guildId)).map((c) => c.id), [channelId])
+      assert.deepEqual((await repo.listGuildTextChannels(guildId)).map((c) => c.id).sort(), [channelId, pagesId].sort())
       assert.deepEqual(await repo.getChannel(channelId), { id: channelId, guildId, type: 'text', mlsGroupId: null })
       assert.equal(await repo.getChannel(crypto.randomUUID()), null)
       assert.deepEqual(await repo.guildIdsOfUser(member), [guildId])

@@ -61,6 +61,26 @@ describe('channel moves (§12.6)', () => {
     assert.equal((await w.repo.getGroup(own.groupId))!.status, 'retired')
   })
 
+  test('a pages channel is in public_set, or in its own channel group when the overwrites hide it', async () => {
+    const w = await newWorld()
+    const owner = w.repo.addUser()
+    const guildId = w.repo.addGuild(owner, undefined, Permissions.VIEW_CHANNEL)
+    const oDev = await activeDevice(w, owner)
+    const out = new Outbox()
+    await w.repo.transaction((r) => onMembershipChangeWith(r, w.deps, out, { kind: 'guild_created', guildId }, oDev.id))
+    const set = (await w.repo.listGroupsByGuild(guildId)).find((g) => g.kind === 'public_set')!
+
+    const open = w.repo.addChannel({ guildId, type: 'pages' })
+    await w.repo.transaction((r) => onMembershipChangeWith(r, w.deps, out, { kind: 'channel_created', channelId: open }, oDev.id))
+    assert.deepEqual((await w.repo.getChannel(open))!.mlsGroupId, set.groupId)
+
+    const hidden = w.repo.addChannel({ guildId, type: 'pages' })
+    w.repo.setOverwrites(hidden, [{ id: guildId, type: 'role', allow: 0, deny: Permissions.VIEW_CHANNEL }])
+    await w.repo.transaction((r) => onMembershipChangeWith(r, w.deps, out, { kind: 'channel_created', channelId: hidden }, oDev.id))
+    const own = (await w.repo.listGroupsByChannel(hidden)).find((g) => g.kind === 'channel')!
+    assert.deepEqual((await w.repo.getChannel(hidden))!.mlsGroupId, own.groupId)
+  })
+
   test('a new reader of a private channel gets an Add by value; losing the role queues a Remove', async () => {
     const w = await newWorld()
     const owner = w.repo.addUser()

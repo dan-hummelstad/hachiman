@@ -6,6 +6,7 @@ import { DEFAULT_LIMITS, embedKind } from '@hachiman/client/files'
 import type { Attachment, Limits } from '@hachiman/client/types'
 
 import type { UploadRow } from '@/db/schema'
+import { docsLimits } from '@/lib/docs/config'
 import { dsConfig } from '@/lib/mls/config'
 
 export const FILENAME_MAX_LENGTH = 255
@@ -29,20 +30,23 @@ export function getLimits(env: Readonly<Record<string, string | undefined>> = pr
     ...DEFAULT_LIMITS,
     maxUploadBytes: parseMaxUploadBytes(env.TAKUSEN_MAX_UPLOAD_BYTES),
     maxEnvelopeBytes: dsConfig(env as NodeJS.ProcessEnv).maxEnvelopeBytes,
+    maxPageSnapshotBytes: docsLimits(env).maxSnapshotBytes,
   }
 }
 
 /**
  * `POST /uploads?kind=blob`: an encrypted attachment or thumbnail.
+ * `POST /uploads?kind=page_snapshot`: a blob with its own cap and purpose
+ * page_snapshot from the upload on (§4 Pages).
  * `POST /uploads?filename=<name>`: a plaintext profile image. Exactly one of
  * the two parameters (§4 Files).
  */
-export type UploadKind = { kind: 'blob' } | { kind: 'image'; filename: string }
+export type UploadKind = { kind: 'blob' } | { kind: 'page_snapshot' } | { kind: 'image'; filename: string }
 
 export function parseUploadKind(params: URLSearchParams): UploadKind | null {
   const kind = params.get('kind')
   const filename = params.get('filename')
-  if (kind !== null) return kind === 'blob' && filename === null ? { kind: 'blob' } : null
+  if (kind !== null) return (kind === 'blob' || kind === 'page_snapshot') && filename === null ? { kind } : null
   const name = filename?.trim() ?? ''
   if (name.length < 1 || name.length > FILENAME_MAX_LENGTH) return null
   return { kind: 'image', filename: name }
@@ -52,6 +56,9 @@ export function parseUploadKind(params: URLSearchParams): UploadKind | null {
 export function uploadColumns(id: string, kind: UploadKind, contentTypeHeader: string | null) {
   if (kind.kind === 'blob') {
     return { key: blobKey(id), filename: null, contentType: BLOB_CONTENT_TYPE, encrypted: true }
+  }
+  if (kind.kind === 'page_snapshot') {
+    return { key: blobKey(id), filename: null, contentType: BLOB_CONTENT_TYPE, encrypted: true, purpose: 'page_snapshot' as const }
   }
   return { key: uploadKey(id, kind.filename), filename: kind.filename, contentType: normalizeContentType(contentTypeHeader), encrypted: false }
 }

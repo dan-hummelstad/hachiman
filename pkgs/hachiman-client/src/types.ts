@@ -2,7 +2,7 @@
 // The E2EE shapes mirror the Wire* and voice op types of @hachiman/crypto (src/api.ts)
 // structurally. This file imports nothing: permissions.ts and @hachiman/crypto depend on it.
 
-export type ChannelType = 'text' | 'voice' | 'category' | 'dm' | 'group_dm'
+export type ChannelType = 'text' | 'voice' | 'category' | 'dm' | 'group_dm' | 'pages'
 export type PresenceStatus = 'online' | 'idle' | 'dnd' | 'offline'
 
 /** base64url without padding (§12.2). */
@@ -44,6 +44,8 @@ export interface Limits {
   maxUploadBytes: number
   maxAttachmentsPerMessage: number
   maxEnvelopeBytes: number
+  /** TAKUSEN_MAX_PAGE_SNAPSHOT_BYTES: the blob cap of `POST /uploads?kind=page_snapshot` (§4 Pages). */
+  maxPageSnapshotBytes: number
 }
 
 /** The @everyone role has `id === guildId` and position 0. */
@@ -74,9 +76,9 @@ export interface Channel {
   permissionOverwrites: PermissionOverwrite[]
   recipients?: User[]
   ownerId?: string | null
-  /** text, dm, group_dm: the current MLS group (§12.6). null: no group yet, or voice/category. */
+  /** text, pages, dm, group_dm: the current MLS group (§12.6). null: no group yet, or voice/category. */
   mlsGroupId: B64url | null
-  /** text, dm, group_dm: the effective value. null for voice/category. */
+  /** text, pages, dm, group_dm: the effective value. null for voice/category. */
   historyVisibility: HistoryVisibility | null
 }
 
@@ -140,6 +142,75 @@ export interface VoiceState {
   selfMute: boolean
   selfDeaf: boolean
   selfStream: boolean
+}
+
+// ---- Pages (§1, §4 Pages, §12.20) ----
+
+/** One page of a pages channel. The server sees only the tree and the timestamps. */
+export interface Page {
+  /** Chosen by the client on create (the title envelope binds it). */
+  id: string
+  channelId: string
+  /** null for a root page. A page in the same channel. */
+  parentId: string | null
+  position: number
+  /** The doc_title envelope (§12.20). */
+  titleEnvelope: B64url
+  /** null after the user is gone. */
+  createdBy: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+/** One encrypted Yjs update (a doc_update envelope, §12.20). `seq` is per page, from 1, without gaps. */
+export interface DocUpdate {
+  pageId: string
+  seq: number
+  groupId: B64url
+  epoch: number
+  senderDevice: string | null
+  envelope: B64url
+  createdAt: string
+}
+
+/**
+ * A snapshot: the full Yjs state up to and including `baseSeq`. The state is an encrypted blob
+ * (`key`, §12.9). `envelope` is the doc_snapshot envelope with its pointer (§12.20).
+ */
+export interface DocSnapshot {
+  pageId: string
+  baseSeq: number
+  uploadId: string
+  /** `${uploadId}/blob`, for RestClient.fileUrl / fetchBlob. */
+  key: string
+  /** Blob bytes. */
+  size: number
+  groupId: B64url
+  epoch: number
+  senderDevice: string | null
+  envelope: B64url
+  /** The page_media uploads that the state references. */
+  mediaUploadIds: string[]
+  createdAt: string
+}
+
+/** GET /pages/:pageId/state. `updates` follow `snapshot.baseSeq` (or 0), at most 500: page the rest. */
+export interface PageState {
+  snapshot: DocSnapshot | null
+  updates: DocUpdate[]
+  latestSeq: number
+}
+
+export interface DocUpdatePage {
+  updates: DocUpdate[]
+  latestSeq: number
+}
+
+/** Op 5 DOC_AWARENESS, client → gateway (§6). `envelope` is a doc_awareness envelope, at most 8 KiB as base64url. */
+export interface DocAwarenessRequest {
+  channelId: string
+  pageId: string
+  envelope: B64url
 }
 
 export interface GuildFull extends Guild {
@@ -397,6 +468,7 @@ export const GatewayOp = {
   IDENTIFY: 2,
   PRESENCE_UPDATE: 3,
   VOICE_STATE_UPDATE: 4,
+  DOC_AWARENESS: 5,
   RESUME: 6,
   RECONNECT: 7,
   INVALID_SESSION: 9,
@@ -538,6 +610,14 @@ export interface GatewayEvents {
   USER_KEYS_UPDATE: UserKeysUpdate
   KEY_PACKAGES_LOW: { deviceId: string; cipherSuite: CipherSuiteId; remaining: number }
   KT_TREE_HEAD: KtTreeHead
+  PAGE_CREATE: Page & { guildId: string }
+  PAGE_UPDATE: Page & { guildId: string }
+  /** `ids`: the page and its whole subtree. */
+  PAGE_DELETE: { id: string; channelId: string; guildId: string; ids: string[] }
+  /** Ephemeral (no `s`, not in the resume buffer). Find a gap by `seq`, then GET /pages/:pageId/updates. */
+  DOC_UPDATE: DocUpdate & { channelId: string; guildId: string }
+  /** Ephemeral. `userId` and `deviceId` are the sending session's. Every viewing session gets it, the sender's included. */
+  DOC_AWARENESS: DocAwarenessRequest & { guildId: string; userId: string; deviceId: string }
 }
 export type GatewayEventName = keyof GatewayEvents
 

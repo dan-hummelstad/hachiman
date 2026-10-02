@@ -6,6 +6,8 @@
  */
 import { computeChannelPermissions, has, Permissions } from '@hachiman/client/permissions'
 
+import { hasTextGroup } from '@/lib/channel-types'
+
 import { drizzleMlsRepo, type Executor } from './repo.drizzle'
 import type { ChannelInfo, GroupRow, GuildPermissionData, MlsRepo, OverwriteInfo } from './repo'
 
@@ -64,7 +66,7 @@ export function isPublicFrom(guildId: string, everyonePermissions: number, overw
 
 export async function isPublicChannelWith(repo: MlsRepo, channelId: string): Promise<boolean> {
   const channel = await repo.getChannel(channelId)
-  if (!channel || channel.type !== 'text' || !channel.guildId) return false
+  if (!channel || !hasTextGroup(channel.type) || !channel.guildId) return false
   const data = await repo.getGuildPermissionData(channel.guildId)
   if (!data) return false
   const everyone = data.roles.get(channel.guildId)?.permissions ?? 0

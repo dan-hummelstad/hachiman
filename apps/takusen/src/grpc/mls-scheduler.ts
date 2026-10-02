@@ -6,8 +6,9 @@
  * - Every TAKUSEN_MLS_BATCH_INTERVAL_MS, and on each `takusen:mls_wakeup`, it
  *   runs one scheduler step for each group with work (lib/mls/batches.ts).
  * - Once a day it deletes handshakes and inbox items older than 30 days,
- *   expired link sessions, join requests older than 7 days and group epochs
- *   beyond the newest 8, and it starts suite upgrades.
+ *   expired link sessions, join requests older than 7 days, group epochs
+ *   beyond the newest 8 and unreferenced page media (lib/page-media-sweep.ts),
+ *   and it starts suite upgrades.
  */
 import { fromB64, toB64 } from '../lib/mls/bytes'
 import { JOIN_REQUEST_RETENTION_MS } from '../lib/mls/config'
@@ -17,6 +18,7 @@ import { flushOutbox, Outbox } from '../lib/mls/events'
 import { runSchedulerTick } from '../lib/mls/batches'
 import { upgradeSuite } from '../lib/mls/membership'
 import type { MlsRepo } from '../lib/mls/repo'
+import { sweepPageMedia, type PageMediaSweepRepo } from '../lib/page-media-sweep'
 
 const DAY_MS = 24 * 60 * 60_000
 
@@ -28,6 +30,8 @@ export interface MlsSchedulerOptions {
   /** Publishes an outbox. Default: Redis. */
   flush?: (out: Outbox) => Promise<void>
   logger?: (msg: string) => void
+  /** The page media sweep and the object delete. Unset: no page media sweep. */
+  pageMedia?: { repo: PageMediaSweepRepo; deleteObjects: (keys: string[]) => Promise<void> }
 }
 
 export interface SweepResult {
@@ -36,6 +40,7 @@ export interface SweepResult {
   linkSessions: number
   joinRequests: number
   epochs: number
+  pageMedia: number
   upgrades: number
 }
 
@@ -96,6 +101,7 @@ export class MlsScheduler {
       linkSessions: await repo.deleteExpiredLinkSessions(now),
       joinRequests: await repo.deleteJoinRequestsBefore(new Date(now.getTime() - JOIN_REQUEST_RETENTION_MS)),
       epochs: await repo.pruneAllGroupEpochs(GROUP_STATE_EPOCHS_KEPT),
+      pageMedia: this.opts.pageMedia ? await sweepPageMedia(this.opts.pageMedia.repo, now, this.opts.pageMedia.deleteObjects) : 0,
       upgrades: 0,
     }
     if (deps.config.suites.length > 1) {

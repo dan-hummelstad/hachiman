@@ -1,5 +1,5 @@
 CREATE TYPE "public"."backup_kind" AS ENUM('identity', 'history');--> statement-breakpoint
-CREATE TYPE "public"."channel_type" AS ENUM('text', 'voice', 'category', 'dm', 'group_dm');--> statement-breakpoint
+CREATE TYPE "public"."channel_type" AS ENUM('text', 'voice', 'category', 'dm', 'group_dm', 'pages');--> statement-breakpoint
 CREATE TYPE "public"."device_platform" AS ENUM('electron', 'browser');--> statement-breakpoint
 CREATE TYPE "public"."device_status" AS ENUM('pending', 'active', 'revoked');--> statement-breakpoint
 CREATE TYPE "public"."handshake_kind" AS ENUM('commit', 'external_commit', 'proposal');--> statement-breakpoint
@@ -12,7 +12,7 @@ CREATE TYPE "public"."overwrite_type" AS ENUM('role', 'member');--> statement-br
 CREATE TYPE "public"."pending_op" AS ENUM('add', 'remove');--> statement-breakpoint
 CREATE TYPE "public"."pending_status" AS ENUM('queued', 'assigned', 'rejected');--> statement-breakpoint
 CREATE TYPE "public"."revoke_reason" AS ENUM('user', 'lost', 'password_reset', 'compromised', 'signed_out');--> statement-breakpoint
-CREATE TYPE "public"."upload_purpose" AS ENUM('attachment', 'image');--> statement-breakpoint
+CREATE TYPE "public"."upload_purpose" AS ENUM('attachment', 'image', 'page_snapshot', 'page_media');--> statement-breakpoint
 CREATE TYPE "public"."user_role" AS ENUM('user', 'admin');--> statement-breakpoint
 CREATE TABLE "accounts" (
 	"user_id" uuid NOT NULL,
@@ -123,6 +123,43 @@ CREATE TABLE "dm_participants" (
 	CONSTRAINT "dm_participants_channel_id_user_id_pk" PRIMARY KEY("channel_id","user_id")
 );
 --> statement-breakpoint
+CREATE TABLE "doc_pages" (
+	"id" uuid PRIMARY KEY NOT NULL,
+	"channel_id" uuid NOT NULL,
+	"parent_id" uuid,
+	"position" integer DEFAULT 0 NOT NULL,
+	"title_envelope" "bytea" NOT NULL,
+	"created_by" uuid,
+	"latest_seq" bigint DEFAULT 0 NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "doc_snapshots" (
+	"page_id" uuid NOT NULL,
+	"base_seq" bigint NOT NULL,
+	"upload_id" uuid NOT NULL,
+	"group_id" "bytea" NOT NULL,
+	"epoch" bigint NOT NULL,
+	"sender_device" uuid,
+	"envelope" "bytea" NOT NULL,
+	"media_upload_ids" uuid[] DEFAULT '{}'::uuid[] NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "doc_snapshots_page_id_base_seq_pk" PRIMARY KEY("page_id","base_seq"),
+	CONSTRAINT "doc_snapshots_upload_id_unique" UNIQUE("upload_id")
+);
+--> statement-breakpoint
+CREATE TABLE "doc_updates" (
+	"page_id" uuid NOT NULL,
+	"seq" bigint NOT NULL,
+	"group_id" "bytea" NOT NULL,
+	"epoch" bigint NOT NULL,
+	"sender_device" uuid,
+	"envelope" "bytea" NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "doc_updates_page_id_seq_pk" PRIMARY KEY("page_id","seq")
+);
+--> statement-breakpoint
 CREATE TABLE "guild_members" (
 	"guild_id" uuid NOT NULL,
 	"user_id" uuid NOT NULL,
@@ -138,6 +175,7 @@ CREATE TABLE "guilds" (
 	"icon" text,
 	"banner" text,
 	"region" text,
+	"page_storage_bytes" bigint DEFAULT 0 NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
@@ -433,9 +471,13 @@ CREATE TABLE "uploads" (
 	"message_id" uuid,
 	"position" integer DEFAULT 0 NOT NULL,
 	"purpose" "upload_purpose",
+	"page_id" uuid,
+	"last_referenced_at" timestamp with time zone,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	CONSTRAINT "uploads_key_unique" UNIQUE("key"),
-	CONSTRAINT "uploads_attachment_has_message" CHECK (("uploads"."purpose" is not distinct from 'attachment') = ("uploads"."message_id" is not null))
+	CONSTRAINT "uploads_attachment_has_message" CHECK (("uploads"."purpose" is not distinct from 'attachment') = ("uploads"."message_id" is not null)),
+	CONSTRAINT "uploads_page_media_has_page" CHECK ("uploads"."purpose" is distinct from 'page_media' or "uploads"."page_id" is not null),
+	CONSTRAINT "uploads_page_id_is_page_purpose" CHECK ("uploads"."page_id" is null or "uploads"."purpose" in ('page_snapshot', 'page_media'))
 );
 --> statement-breakpoint
 CREATE TABLE "users" (
@@ -478,6 +520,16 @@ ALTER TABLE "device_signing_keys" ADD CONSTRAINT "device_signing_keys_user_id_us
 ALTER TABLE "devices" ADD CONSTRAINT "devices_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "dm_participants" ADD CONSTRAINT "dm_participants_channel_id_channels_id_fk" FOREIGN KEY ("channel_id") REFERENCES "public"."channels"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "dm_participants" ADD CONSTRAINT "dm_participants_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "doc_pages" ADD CONSTRAINT "doc_pages_channel_id_channels_id_fk" FOREIGN KEY ("channel_id") REFERENCES "public"."channels"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "doc_pages" ADD CONSTRAINT "doc_pages_parent_id_doc_pages_id_fk" FOREIGN KEY ("parent_id") REFERENCES "public"."doc_pages"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "doc_pages" ADD CONSTRAINT "doc_pages_created_by_users_id_fk" FOREIGN KEY ("created_by") REFERENCES "public"."users"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "doc_snapshots" ADD CONSTRAINT "doc_snapshots_page_id_doc_pages_id_fk" FOREIGN KEY ("page_id") REFERENCES "public"."doc_pages"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "doc_snapshots" ADD CONSTRAINT "doc_snapshots_upload_id_uploads_id_fk" FOREIGN KEY ("upload_id") REFERENCES "public"."uploads"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "doc_snapshots" ADD CONSTRAINT "doc_snapshots_group_id_mls_groups_group_id_fk" FOREIGN KEY ("group_id") REFERENCES "public"."mls_groups"("group_id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "doc_snapshots" ADD CONSTRAINT "doc_snapshots_sender_device_devices_id_fk" FOREIGN KEY ("sender_device") REFERENCES "public"."devices"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "doc_updates" ADD CONSTRAINT "doc_updates_page_id_doc_pages_id_fk" FOREIGN KEY ("page_id") REFERENCES "public"."doc_pages"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "doc_updates" ADD CONSTRAINT "doc_updates_group_id_mls_groups_group_id_fk" FOREIGN KEY ("group_id") REFERENCES "public"."mls_groups"("group_id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "doc_updates" ADD CONSTRAINT "doc_updates_sender_device_devices_id_fk" FOREIGN KEY ("sender_device") REFERENCES "public"."devices"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "guild_members" ADD CONSTRAINT "guild_members_guild_id_guilds_id_fk" FOREIGN KEY ("guild_id") REFERENCES "public"."guilds"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "guild_members" ADD CONSTRAINT "guild_members_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "guilds" ADD CONSTRAINT "guilds_owner_id_users_id_fk" FOREIGN KEY ("owner_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
@@ -521,10 +573,13 @@ ALTER TABLE "roles" ADD CONSTRAINT "roles_guild_id_guilds_id_fk" FOREIGN KEY ("g
 ALTER TABLE "sessions" ADD CONSTRAINT "sessions_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "uploads" ADD CONSTRAINT "uploads_uploader_id_users_id_fk" FOREIGN KEY ("uploader_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "uploads" ADD CONSTRAINT "uploads_message_id_messages_id_fk" FOREIGN KEY ("message_id") REFERENCES "public"."messages"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "uploads" ADD CONSTRAINT "uploads_page_id_doc_pages_id_fk" FOREIGN KEY ("page_id") REFERENCES "public"."doc_pages"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 CREATE INDEX "channels_guild_id_idx" ON "channels" USING btree ("guild_id");--> statement-breakpoint
 CREATE INDEX "device_inbox_device_seq_idx" ON "device_inbox" USING btree ("device_id","seq");--> statement-breakpoint
 CREATE INDEX "devices_user_id_idx" ON "devices" USING btree ("user_id");--> statement-breakpoint
 CREATE INDEX "dm_participants_user_id_idx" ON "dm_participants" USING btree ("user_id");--> statement-breakpoint
+CREATE INDEX "doc_pages_channel_id_idx" ON "doc_pages" USING btree ("channel_id");--> statement-breakpoint
+CREATE INDEX "doc_pages_parent_id_idx" ON "doc_pages" USING btree ("parent_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "history_bundles_group_epoch_sender_uq" ON "history_bundles" USING btree ("group_id","epoch","sender_device");--> statement-breakpoint
 CREATE INDEX "key_backups_user_id_idx" ON "key_backups" USING btree ("user_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "key_backups_identity_uq" ON "key_backups" USING btree ("user_id") WHERE "key_backups"."kind" = 'identity';--> statement-breakpoint
@@ -549,4 +604,5 @@ CREATE INDEX "oidc_adapter_payloads_model_user_code_idx" ON "oidc_adapter_payloa
 CREATE INDEX "oidc_adapter_payloads_grant_id_idx" ON "oidc_adapter_payloads" USING btree ("grant_id");--> statement-breakpoint
 CREATE INDEX "oidc_adapter_payloads_expires_at_idx" ON "oidc_adapter_payloads" USING btree ("expires_at");--> statement-breakpoint
 CREATE INDEX "roles_guild_id_idx" ON "roles" USING btree ("guild_id");--> statement-breakpoint
-CREATE INDEX "uploads_message_id_idx" ON "uploads" USING btree ("message_id");
+CREATE INDEX "uploads_message_id_idx" ON "uploads" USING btree ("message_id");--> statement-breakpoint
+CREATE INDEX "uploads_page_id_idx" ON "uploads" USING btree ("page_id");

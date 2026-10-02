@@ -30,7 +30,7 @@ Conventions:
 These are the TS types exported from `@hachiman/client` (`src/types.ts`). Go mirrors them with `json:"camelCase"` tags.
 
 ```ts
-type ChannelType = 'text' | 'voice' | 'category' | 'dm' | 'group_dm'
+type ChannelType = 'text' | 'voice' | 'category' | 'dm' | 'group_dm' | 'pages'
 type PresenceStatus = 'online' | 'idle' | 'dnd' | 'offline'
 
 // avatar, icon and banner are file keys (§4 Files), not URLs. The client builds the URL with RestClient.fileUrl(key).
@@ -45,7 +45,7 @@ interface Guild {
 // The file name, MIME type, dimensions and plaintext size are only in the envelope (AttachmentPointer, §12.8).
 interface Attachment { id: string; key: string /* `${id}/blob` */; size: number /* blob bytes */ }
 
-interface Limits { maxUploadBytes: number; maxAttachmentsPerMessage: number; maxEnvelopeBytes: number }
+interface Limits { maxUploadBytes: number; maxAttachmentsPerMessage: number; maxEnvelopeBytes: number; maxPageSnapshotBytes: number }
 
 interface Role { id: string; guildId: string; name: string; color: number; position: number; permissions: number }
 // The @everyone role has id === guildId and position 0. It always exists and cannot be deleted.
@@ -63,8 +63,8 @@ interface Channel {
   permissionOverwrites: PermissionOverwrite[]   // [] for DMs
   recipients?: User[]              // dm / group_dm only: every participant except the viewer
   ownerId?: string | null          // group_dm only
-  mlsGroupId: string | null        // text, dm, group_dm: the current MLS group (base64url, §12.6). null: no group yet, or voice/category
-  historyVisibility: 'joined' | 'shared' | null   // text, dm, group_dm: the effective value (§12.6). null for voice/category
+  mlsGroupId: string | null        // text, pages, dm, group_dm: the current MLS group (base64url, §12.6). null: no group yet, or voice/category
+  historyVisibility: 'joined' | 'shared' | null   // text, pages, dm, group_dm: the effective value (§12.6). null for voice/category
 }
 
 interface Member { guildId: string; user: User; nick: string | null; roles: string[] /* excludes @everyone */; joinedAt: string }
@@ -94,6 +94,26 @@ interface VoiceState {
   selfMute: boolean; selfDeaf: boolean
   selfStream: boolean              // screen share is live (§8)
 }
+
+// A page of a pages channel (§4 Pages). The server sees only the tree and the timestamps.
+interface Page {
+  id: string                       // chosen by the client on create: the title envelope binds it (§12.20)
+  channelId: string
+  parentId: string | null          // null for a root page. A page of the same channel
+  position: number
+  titleEnvelope: string            // base64url doc_title envelope (§12.20)
+  createdBy: string | null         // null after the user is gone
+  createdAt: string; updatedAt: string
+}
+interface DocUpdate { pageId: string; seq: number /* per page, from 1, no gaps */; groupId: string; epoch: number; senderDevice: string | null; envelope: string /* doc_update */; createdAt: string }
+interface DocSnapshot {
+  pageId: string; baseSeq: number  // the state covers every update with seq <= baseSeq
+  uploadId: string; key: string /* `${uploadId}/blob` */; size: number /* blob bytes */
+  groupId: string; epoch: number; senderDevice: string | null
+  envelope: string                 // doc_snapshot envelope: the pointer and the file key (§12.20)
+  mediaUploadIds: string[]; createdAt: string
+}
+interface PageState { snapshot: DocSnapshot | null; updates: DocUpdate[] /* after snapshot.baseSeq (or 0), at most 500 */; latestSeq: number }
 
 interface GuildFull extends Guild {  // READY + GUILD_CREATE
   channels: Channel[]              // only channels the user can VIEW
@@ -167,8 +187,8 @@ New/changed tables (all ids `uuid` defaultRandom, timestamps `timestamptz` defau
 
 | Table | Columns | Notes |
 |---|---|---|
-| `guilds` | id, owner_id → users (cascade), name, icon null, banner null, region → regions.code (set null), created_at | replaces virtual_servers. icon/banner hold file keys |
-| `uploads` | id, uploader_id → users (cascade), key unique, filename null (null for blobs), size bigint (mode number), content_type, encrypted bool default false, message_id null → messages (cascade), position int default 0, purpose `upload_purpose` enum ('attachment','image') null, created_at | index (message_id); CHECK `uploads_attachment_has_message`: `(purpose IS NOT DISTINCT FROM 'attachment') = (message_id IS NOT NULL)`. One row per stored object. The first claim sets purpose, and purpose never changes. message_id is set when a message claims it, together with purpose |
+| `guilds` | id, owner_id → users (cascade), name, icon null, banner null, region → regions.code (set null), page_storage_bytes bigint (mode number) default 0, created_at | replaces virtual_servers. icon/banner hold file keys. `page_storage_bytes`: the page quota count (§4 Pages) |
+| `uploads` | id, uploader_id → users (cascade), key unique, filename null (null for blobs), size bigint (mode number), content_type, encrypted bool default false, message_id null → messages (cascade), position int default 0, purpose `upload_purpose` enum ('attachment','image','page_snapshot','page_media') null, page_id null → doc_pages (cascade), last_referenced_at null, created_at | index (message_id); index (page_id); CHECK `uploads_attachment_has_message`: `(purpose IS NOT DISTINCT FROM 'attachment') = (message_id IS NOT NULL)`; CHECK `uploads_page_media_has_page`: `purpose IS DISTINCT FROM 'page_media' OR page_id IS NOT NULL`; CHECK `uploads_page_id_is_page_purpose`: `page_id IS NULL OR purpose IN ('page_snapshot','page_media')`. One row per stored object. The first claim sets purpose, and purpose never changes. message_id is set when a message claims it, together with purpose. A `page_snapshot` upload has its purpose from the upload on, and page_id from the snapshot claim (§4 Pages) |
 | `guild_members` | guild_id → guilds (cascade), user_id → users (cascade), nick null, joined_at | PK (guild_id, user_id) |
 | `channels` | id, guild_id null → guilds (cascade), type `channel_type` enum, name null, topic null, parent_id null → channels (set null), position int default 0, owner_id null → users (set null), mls_group_id bytea null → mls_groups (set null), created_at | index (guild_id) |
 | `messages` | id, channel_id → channels (cascade), author_id → users (cascade), group_id bytea → mls_groups (cascade), epoch bigint, sender_device uuid null → devices (set null), client_msg_id bytea, envelope bytea, franking_tag bytea, size int, created_at, edited_at null | index (channel_id, created_at desc, id desc); unique (channel_id, client_msg_id). No `content` column (§12.8) |
@@ -177,6 +197,14 @@ New/changed tables (all ids `uuid` defaultRandom, timestamps `timestamptz` defau
 | `permission_overwrites` | channel_id → channels (cascade), target_id uuid, target_type `overwrite_type` enum ('role','member'), allow bigint, deny bigint | PK (channel_id, target_id) |
 | `dm_participants` | channel_id → channels (cascade), user_id → users (cascade) | PK (channel_id, user_id); index (user_id) |
 | `invites` | id, code unique, guild_id → guilds (cascade), created_by → users (cascade), expires_at null, max_uses null, uses int default 0, revoked bool default false, created_at | replaces invite_codes |
+
+Pages tables (§4 Pages, §12.20). The server sees the tree and the timestamps. Titles, edits and snapshot pointers are envelopes:
+
+| Table | Columns | Notes |
+|---|---|---|
+| `doc_pages` | id uuid PK (no default: the client chooses it), channel_id → channels (cascade), parent_id null → doc_pages (cascade), position int default 0, title_envelope bytea, created_by null → users (set null), latest_seq bigint default 0, created_at, updated_at | index (channel_id); index (parent_id). `latest_seq` is the highest `doc_updates.seq` of the page |
+| `doc_updates` | page_id → doc_pages (cascade), seq bigint, group_id bytea → mls_groups (cascade), epoch bigint, sender_device null → devices (set null), envelope bytea, created_at | PK (page_id, seq). One doc_update envelope (one encrypted Yjs update) per row |
+| `doc_snapshots` | page_id → doc_pages (cascade), base_seq bigint, upload_id unique → uploads (cascade), group_id bytea → mls_groups (cascade), epoch bigint, sender_device null → devices (set null), envelope bytea, media_upload_ids uuid[] default '{}', created_at | PK (page_id, base_seq). The bytes are the S3 object of `upload_id`. `envelope` is the doc_snapshot pointer envelope |
 
 E2EE tables (§12). `bytea` columns hold the binary objects of §12 as they are. Enums: `device_status` ('pending','active','revoked'), `device_platform` ('electron','browser'), `revoke_reason` ('user','lost','password_reset','compromised','signed_out'), `mls_group_kind` ('public_set','channel','dm'), `mls_group_status` ('pending','active','retired'), `history_visibility` ('joined','shared'), `handshake_kind` ('commit','external_commit','proposal'), `pending_op` ('add','remove'), `pending_status` ('queued','assigned','rejected'), `join_status` ('queued','committed','rejected','external_commit','waiting'), `inbox_kind` ('welcome','dsk_transfer','history_keys'), `backup_kind` ('identity','history').
 
@@ -246,7 +274,7 @@ Implemented extras (Discord semantics):
 | GET `/guilds/:id` | member | `GuildFull` | — |
 | PATCH `/guilds/:id` `{name?, icon?: uploadId \| null, banner?: uploadId \| null, region?, publicHistoryVisibility?}` | MANAGE_GUILD | `Guild` | `GUILD_UPDATE` → guild |
 | DELETE `/guilds/:id` | owner | 204 | `GUILD_DELETE {id}` → guild |
-| POST `/guilds/:id/channels` `{name, type: text\|voice\|category, parentId?, topic?}` | MANAGE_CHANNELS | `Channel` | `CHANNEL_CREATE` → guild |
+| POST `/guilds/:id/channels` `{name, type: text\|voice\|category\|pages, parentId?, topic?}` | MANAGE_CHANNELS | `Channel` | `CHANNEL_CREATE` → guild |
 | PATCH `/guilds/:id/channels` `[{id, position, parentId?}]` | MANAGE_CHANNELS | 204 | `CHANNEL_UPDATE` per changed channel |
 | PATCH `/channels/:id` `{name?, topic?, parentId?, position?, historyVisibility?}` | MANAGE_CHANNELS. `historyVisibility` only for a channel with its own group | `Channel` | `CHANNEL_UPDATE` |
 | DELETE `/channels/:id` | MANAGE_CHANNELS | 204 | `CHANNEL_DELETE` |
@@ -275,6 +303,7 @@ Implemented extras (Discord semantics):
 | POST `/users/@me/channels` `{recipientIds: string[]}` | auth; recipients must share a guild with me | `Channel` (1 recipient → reuse existing `dm`; ≥2 → new `group_dm`, max 10) | `CHANNEL_CREATE` → user:{each participant} |
 | GET `/limits` | auth | `Limits` | — |
 | POST `/uploads?kind=blob` raw body | auth | `Attachment` (201): an encrypted attachment or thumbnail blob | — |
+| POST `/uploads?kind=page_snapshot` raw body | auth | `Attachment` (201): an encrypted page snapshot blob (§4 Pages) | — |
 | POST `/uploads?filename=<name>` raw body | auth | `{id, key, size}` (201): a plaintext profile image | — |
 | GET `/files/:uploadId/:filename` | **public** | file bytes (`/files/{uploadId}/blob` for blobs) | — |
 
@@ -328,6 +357,41 @@ Storage env (Takusen only): `S3_ENDPOINT`, `S3_REGION`, `S3_BUCKET`, `S3_ACCESS_
 Takusen sends plain signed requests (no aws-chunked checksum trailers), so S3-compatible stores such as SeaweedFS work.
 
 Kept outside `/api/v1`: `GET /api/regions`, `POST /api/servers/recommend-region` (renamed → `POST /api/v1/regions/recommend`), OIDC under `/api/oidc`.
+
+### Pages
+
+A `pages` channel holds a tree of pages (§1 `Page`). The content of a page is a Yjs document. The server stores and relays only envelopes (§12.20): it cannot merge edits, so the clients merge with the CRDT. A pages channel uses the MLS group of a text channel (§12.6): `public_set` when it is public, else its own `channel` group. Its chat uses the message routes as a text channel does.
+
+Every route needs VIEW_CHANNEL on the channel of the page (a page that the caller cannot view gives 404 `NotFound`). The routes marked **W** also need SEND_MESSAGES. There is no other edit permission: an overwrite that denies SEND_MESSAGES makes the pages read-only. The routes marked **D** need `X-Hachiman-Device` and its proof (§12.12).
+
+| Method + path | | Body | Returns | Publishes |
+|---|---|---|---|---|
+| GET `/channels/:id/pages` | | — | `Page[]` (all pages of the channel, any order) | — |
+| POST `/channels/:id/pages` | W D | `{id, parentId: string \| null, position, titleEnvelope}` | `Page` (201). 409 `PageExists` when `id` is taken | `PAGE_CREATE` |
+| PATCH `/pages/:pageId` | W D | `{parentId?, position?, titleEnvelope?}` | `Page` | `PAGE_UPDATE` |
+| DELETE `/pages/:pageId` | W | — | 204 | `PAGE_DELETE` |
+| GET `/pages/:pageId/state` | | — | `PageState` | — |
+| GET `/pages/:pageId/updates?after=&limit=` | | — | `{updates: DocUpdate[], latestSeq}`, `seq > after` ascending. `limit` ≤ 500 (default 200) | — |
+| POST `/pages/:pageId/updates` | W D | `{envelope}` | `{seq}` (201) | `DOC_UPDATE` |
+| POST `/pages/:pageId/snapshots` | W D | `{baseSeq, uploadId, envelope, mediaUploadIds: string[]}` | `DocSnapshot` (201). 409 `SnapshotConflict {baseSeq}` | — |
+| POST `/pages/:pageId/media` | W | `{uploadIds: string[]}` (1 to 20) | 204. 413 `StorageQuotaExceeded` | — |
+
+- **Channel type.** The page routes need a channel of type `pages`, else 400 `NotPagesChannel`. A new pages channel has no page. The client that creates the channel then creates one root page ("Untitled"), because only a client can encrypt the title.
+- **Create.** `id` is a new UUID that the client chooses, because the title envelope binds the page id (§12.20). `parentId` is null or a page of the same channel, else 400 `ValidationError`.
+- **Envelope checks.** Takusen decodes only the header (§12.20 "Server checks"). `titleEnvelope` needs kind `doc_title`, the updates route kind `doc_update`, the snapshots route kind `doc_snapshot`, else 400 `InvalidEnvelope`. The other checks and codes are those of §12.8.4: 413 `EnvelopeTooLarge`, 409 `GroupPending`, 409 `StaleEpoch {epoch}`, 403 `NotMember`, 400 `InvalidEnvelope`.
+- **Move.** A PATCH that sets `parentId` to the page itself or to a page of its subtree gives 400 `PageCycle`. A `parentId` of another channel gives 400 `ValidationError`. Takusen sets `updated_at` on every PATCH. Takusen does not renumber siblings: the client sends the positions it wants.
+- **Delete.** Deletes the page and its subtree in one transaction. It deletes the upload rows of these pages (`deletePageUploadRows`), then (best effort) their objects, and subtracts their bytes from `guilds.page_storage_bytes`. `PAGE_DELETE.ids` lists the page and every page of its subtree. A channel delete and a guild delete also delete the page uploads with `deleteAttachmentRows`.
+- **Updates.** `POST /pages/:pageId/updates` locks the page row, sets `latest_seq = latest_seq + 1` and inserts the row with that `seq` in one transaction. Thus `seq` has no gaps, also when two senders post at the same time. After the commit, Takusen publishes `DOC_UPDATE`.
+- **State.** `GET /pages/:pageId/state` gives the newest snapshot and the first 500 updates after its `baseSeq` (after 0 without a snapshot). The client reads the rest with `GET /pages/:pageId/updates`, downloads the snapshot blob from `/files/{uploadId}/blob` and decrypts it (§12.9).
+- **Snapshots.** The client uploads the encrypted state with `POST /uploads?kind=page_snapshot` and then posts the snapshot. `?kind=page_snapshot` is `?kind=blob` with two differences: the cap is `TAKUSEN_MAX_PAGE_SNAPSHOT_BYTES` (`Limits.maxPageSnapshotBytes`, default 104857600 = 100 MiB), and the row gets `purpose = 'page_snapshot'` at once, so no message can claim it. In one transaction, the snapshot route:
+  1. Locks the page row. It checks that `baseSeq` is above the `base_seq` of the newest snapshot (0 when there is none) and not above `latest_seq`. Else 409 `SnapshotConflict` with the current `baseSeq`. The upload of the loser stays unclaimed.
+  2. Claims the upload: it must be of the caller, `encrypted`, `purpose = 'page_snapshot'` and `page_id` null, else 400 `UnknownUpload`. The claim sets `page_id` and adds the size to `guilds.page_storage_bytes` (quota, below).
+  3. Inserts the row. `mediaUploadIds` (at most 1000, else 400 `ValidationError`) is stored as given: the server cannot read the page.
+  4. Keeps the previous snapshot and the updates after its `base_seq`. It deletes the older snapshot rows, the updates with `seq <=` the `base_seq` of the previous snapshot, and the upload rows of the deleted snapshots (`deletePageUploadRows`, objects after the commit). Thus a page has at most two snapshot objects.
+- **When a client posts a snapshot.** When more than 200 updates follow the newest snapshot, or when the newest snapshot has an epoch below the current epoch of the group. The second rule lets a member who joined in a later epoch read the page (§12.20 "Access by new members").
+- **Media.** A page image, video or file is a §12.9 blob from `POST /uploads?kind=blob`. `POST /pages/:pageId/media` claims each id: the upload must be of the caller and `encrypted`, with purpose null (a new claim: it sets `purpose = 'page_media'` and `page_id`, and adds the size to the quota) or `page_media` of this page (a refresh). Else 400 `UnknownUpload`. Every claim sets `last_referenced_at = now()`. The client claims again each time it inserts the media into the page.
+- **Quota.** `guilds.page_storage_bytes` counts the blob bytes of the `page_snapshot` and `page_media` uploads of the guild. A claim that takes it above `TAKUSEN_GUILD_PAGE_STORAGE_BYTES` (default 10737418240 = 10 GiB, 0 = no limit) gives 413 `StorageQuotaExceeded`, and nothing of the request is stored. Each claim and each delete changes the count in its transaction, with the guild row locked.
+- **Media sweep.** The daily sweep of the gRPC process deletes a `page_media` upload (in one transaction the row and its bytes from the quota, then the object) when all three are true: no snapshot of its page lists it in `media_upload_ids`, its `created_at` is more than 30 days ago, and its `last_referenced_at` is more than 30 days ago. The 30 days are the window for undo and restore.
 
 ### Admin API
 
@@ -394,7 +458,7 @@ Takusen `PUBLISH`es. Every gateway node `PSUBSCRIBE`s `guild:*`, `user:*` and `d
 Channels: `guild:{guildId}`, `user:{userId}`, `device:{deviceId}`. DM events go to `user:{id}` of every participant. `device:{id}` events go to every session of that device (§12.13).
 
 Envelope (JSON): `{ "t": "<EVENT_NAME>", "d": <payload>, "channelId"?: "<guild channel id>" }`.
-The publisher sets `channelId` for events scoped to one guild channel (MESSAGE_*, TYPING_START, CHANNEL_UPDATE/DELETE).
+The publisher sets `channelId` for events scoped to one guild channel (MESSAGE_*, TYPING_START, CHANNEL_UPDATE/DELETE, PAGE_*, DOC_UPDATE, DOC_AWARENESS).
 The gateway only forwards those to sessions with VIEW_CHANNEL on it (CHANNEL_CREATE carries it too). When a CHANNEL_UPDATE changes
 overwrites, the gateway re-evaluates visibility. It then sends CHANNEL_CREATE / CHANNEL_DELETE to sessions that gained / lost view.
 
@@ -430,11 +494,18 @@ URL: `ws(s)://<host>/gateway` (dev `ws://localhost:8080/gateway`). Text frames, 
 | 2 | IDENTIFY | C→S | `{ token, deviceId, capabilities: string[], clientVersion, deviceProof: { ts, nonce, sig } }` (Takusen access token, §12.13) |
 | 3 | PRESENCE_UPDATE | C→S | `{ status }` |
 | 4 | VOICE_STATE_UPDATE | C→S | `{ guildId, channelId: string \| null, selfMute, selfDeaf, selfStream }` |
+| 5 | DOC_AWARENESS | C→S | `{ channelId, pageId, envelope }`: a doc_awareness envelope (§12.20), base64url |
 | 6 | RESUME | C→S | `{ token, sessionId, seq, deviceId, deviceProof: { ts, nonce, sig } }` |
 | 7 | RECONNECT | S→C | null — client should reconnect + RESUME |
 | 9 | INVALID_SESSION | S→C | `resumable: boolean` |
 | 10 | HELLO | S→C | `{ heartbeatInterval }` (ms, 41250) |
 | 11 | HEARTBEAT_ACK | S→C | null |
+
+**Read limit.** The gateway reads at most 65536 bytes per frame (`SetReadLimit`). A larger frame closes the socket (1009).
+
+**Op 5 DOC_AWARENESS.** The presence of an open page: user, color, cursor and selection, as an encrypted y-protocols awareness update. The gateway stores nothing. It drops the frame (no close, no answer) when the session is not READY, when `envelope` is longer than 8192 characters, when the session sent more than 20 op 5 frames in the last second (a token bucket of 20, refilled at 20/s), when the channel is not a guild channel of type `pages`, or when the session cannot VIEW_CHANNEL it. It does not check that `pageId` exists. A `d` that does not decode gives close 4002. Else it publishes `DOC_AWARENESS { channelId, guildId, pageId, userId, deviceId, envelope }` to `guild:{guildId}` with `channelId`, with the user and device of the session. Every session that can view the channel gets it, the sending session included. The client ignores frames with its own `deviceId`. A client sends its state when it opens a page, when its cursor moves (at most every 100 ms), and every 15 s. It drops a peer after 30 s without a frame.
+
+**Ephemeral dispatches.** The gateway sends `DOC_UPDATE` and `DOC_AWARENESS` as op 0 without `s`. They do not take a sequence number and do not go in `events:{sessionId}`, so they cannot push message events out of the resume buffer. The gateway decides by the event name. After READY or RESUMED, a client reads `GET /pages/:pageId/updates?after=<its highest seq>` for each open page. It also reads the tail when a `DOC_UPDATE` skips a `seq`. Yjs ignores an update that it already has.
 
 Close codes: 4000 unknown error, 4001 unknown opcode, 4002 decode error, 4003 not authenticated,
 4004 authentication failed, 4005 already authenticated, 4007 invalid seq, 4009 session timed out,
@@ -470,6 +541,10 @@ Dispatch events:
 | PRESENCE_UPDATE | `{ userId, status }` (published to guild:{g} for every guild of the user, and user:{p} for DM partners) |
 | VOICE_STATE_UPDATE | `VoiceState` (`channelId: null` = left) |
 | VOICE_SERVER_UPDATE | `{ guildId, channelId, endpoint, token, iceServers: RTCIceServer[], expiresAt }` — to the requesting session only |
+| PAGE_CREATE / PAGE_UPDATE | `Page & { guildId }` |
+| PAGE_DELETE | `{ id, channelId, guildId, ids: string[] }` (`ids`: the page and its subtree) |
+| DOC_UPDATE | `DocUpdate & { channelId, guildId }` (ephemeral, above) |
+| DOC_AWARENESS | `{ channelId, guildId, pageId, userId, deviceId, envelope }` (ephemeral, above) |
 | MLS_HANDSHAKE, MLS_GROUP_UPDATE, MLS_BATCH_ASSIGN, MLS_JOIN_UPDATE, DEVICE_INBOX, DEVICE_LINK, USER_KEYS_UPDATE, KEY_PACKAGES_LOW, KT_TREE_HEAD | §12.13 |
 
 Detached sessions: when a socket closes with any code but 1000, the session stays resumable for 60 s. Events keep buffering,
@@ -666,9 +741,14 @@ export class RestClient {
   getInvites(guildId); createInvite(guildId, body); deleteInvite(code); previewInvite(code); acceptInvite(code)
   getDmChannels(); openDm(recipientIds); getUser(id)
   updateMe({ avatar? }); getLimits()
+  // §4 Pages
+  getPages(channelId); createPage(channelId, { id, parentId, position, titleEnvelope }); updatePage(pageId, { parentId?, position?, titleEnvelope? }); deletePage(pageId)
+  getPageState(pageId); getPageUpdates(pageId, { after, limit? }); postPageUpdate(pageId, { envelope })
+  postPageSnapshot(pageId, { baseSeq, uploadId, envelope, mediaUploadIds }); claimPageMedia(pageId, uploadIds)
   sendMessage(channelId, { envelope, nonce?, attachments?: string[] /* upload ids */ }); editMessage(channelId, messageId, { envelope })
   // XHR, because fetch has no upload progress. Rejects with RestError (413 UploadTooLarge, ...) or an AbortError.
   uploadBlob(blob: Blob, opts?: { signal?: AbortSignal; onProgress?(loaded: number, total: number): void }): Promise<Attachment>   // ?kind=blob
+  uploadSnapshot(blob: Blob, opts?: { signal?: AbortSignal; onProgress?(loaded: number, total: number): void }): Promise<Attachment>   // ?kind=page_snapshot
   uploadImage(file: Blob, opts: { filename: string; signal?: AbortSignal; onProgress?(loaded: number, total: number): void }): Promise<{ id: string; key: string; size: number }>
   fileUrl(key: string): string   // `${baseUrl}/files/${key}`, each path segment URI-encoded
   fetchBlob(key: string, opts?: { signal?: AbortSignal }): Promise<Blob>
@@ -706,6 +786,7 @@ export class GatewayClient extends TypedEventEmitter<GatewayClientEvents> {
   readonly latencyMs: number | null   // HEARTBEAT → ACK RTT
   updatePresence(status: PresenceStatus): void
   updateVoiceState(d: { guildId: string; channelId: string | null; selfMute: boolean; selfDeaf: boolean }): void
+  sendDocAwareness(d: { channelId: string; pageId: string; envelope: string }): void   // op 5. Dropped while not connected
   // events: 'state' (state), 'dispatch' ({t, d}), and each event name from §6 with its typed payload
 }
 
@@ -773,6 +854,7 @@ export class HachimanClient extends TypedEventEmitter<HachimanClientEvents> {
   //         'voiceResync' ({ guildId, channelId }: media closed the call 4013; the client left voice, call joinVoice with the same target),
   //         plus every gateway event re-emitted after the cache is updated
   // The cache keeps Message as ciphertext. The shared UI decrypts with @hachiman/crypto before messagesStore.upsert.
+  // PAGE_* and DOC_* are not cached. The shared UI (services/docs) keeps the page tree and the Yjs docs.
 }
 ```
 
@@ -1203,7 +1285,7 @@ The recipient checks that the sender device belongs to the same user and has a v
 | `dm` | 3 | channel id (dm and group_dm) | the participants | the creator first, then a member for new devices of participants |
 | `voice` | 4 | room session id (16 random bytes from the media node) | connected participants | the committer of the room (§12.10) |
 
-**Public channel.** A guild text channel is public when the guild `@everyone` role permissions, with the channel `@everyone` overwrite applied, include VIEW_CHANNEL, and no role or member overwrite on the channel denies VIEW_CHANNEL. All public channels of a guild share the `public_set` group. Each other guild text channel has its own `channel` group. Voice channels have no text group.
+**Public channel.** A guild text or pages channel is public when the guild `@everyone` role permissions, with the channel `@everyone` overwrite applied, include VIEW_CHANNEL, and no role or member overwrite on the channel denies VIEW_CHANNEL. All public channels of a guild share the `public_set` group. Each other guild text or pages channel has its own `channel` group. Voice channels have no text group. Takusen tests the two types with one helper, `hasTextGroup(type)`.
 
 `channelReaders(channelId)` is the set of guild members whose `computeChannelPermissions` (§2) includes VIEW_CHANNEL. For a DM it is the set of participants. Takusen implements it once in `apps/takusen/src/lib/mls/readers.ts`. Clients compute the same set from their cache with `computeChannelPermissions`.
 
@@ -1971,6 +2053,10 @@ export type EnvelopeInput =
   | (EnvelopeInputBase & { edit: true; rowClientMsgId: Uint8Array })    // an edit: the client_msg_id of the stored row
 export async function acceptEnvelope(tx: Tx, input: EnvelopeInput):
   Promise<{ groupId: Uint8Array; epoch: number; senderDeviceId: string; clientMsgId: Uint8Array; frankingTag: Uint8Array; size: number }>   // throws ApiError (§12.8.4)
+// The page envelope header checks (§12.20). doc_awareness never reaches Takusen
+export type DocEnvelopeInput = { channelId: string; pageId: string; userId: string; deviceId: string; kind: 'doc_update' | 'doc_snapshot' | 'doc_title'; envelope: Uint8Array }
+export async function acceptDocEnvelope(tx: Tx, input: DocEnvelopeInput):
+  Promise<{ groupId: Uint8Array; epoch: number; senderDeviceId: string; size: number }>   // throws ApiError (§4 Pages)
 
 // lib/errors.ts + lib/api-helpers.ts
 export class ApiError extends Error {
@@ -1990,7 +2076,7 @@ export class ApiError extends Error {
 - The scheduler, the KT tree-head timer and the daily sweeps run in `apps/takusen/src/grpc/main.ts`. The gRPC process subscribes to `takusen:mls_wakeup`. The payload on that channel is raw JSON `{ groupId }` (base64url), not a `{t, d}` event envelope.
 - Takusen imports `@hachiman/crypto/ds` as TypeScript source. Other code can import the pure entry points `@hachiman/crypto/admin` (§12.16, Takusen uses it), `@hachiman/crypto/franking`, `@hachiman/crypto/constants` and `@hachiman/crypto/codec`. They use no Worker-only or ts-mls code. `apps/takusen/next.config.ts` lists `@hachiman/crypto` in `transpilePackages`. The import graph of `src/mls/ds.ts` uses only `globalThis.crypto` and excludes `src/attachments`, `src/store`, `src/worker`, `src/bridge` and `src/media`.
 
-**Env (Takusen):** `TAKUSEN_DS_SIGNING_KEY`, `TAKUSEN_KT_SIGNING_KEY`, `TAKUSEN_MLS_SUITES` (default `1`), `TAKUSEN_MAX_ENVELOPE_BYTES` (default 32768), `TAKUSEN_PUBLIC_SET_MAX_MEMBERS` (default 500, `docs/e2ee-load-test.md`), `TAKUSEN_MLS_BATCH_INTERVAL_MS` (default 2000), `TAKUSEN_MLS_BATCH_TIMEOUT_MS` (default 5000). **Gateway:** `GATEWAY_MIN_CLIENT_VERSION` (default `0.1.0`). **Media:** `MEDIA_WS_READ_LIMIT` (default 1048576). Add each one to `.env.example`.
+**Env (Takusen):** `TAKUSEN_DS_SIGNING_KEY`, `TAKUSEN_KT_SIGNING_KEY`, `TAKUSEN_MLS_SUITES` (default `1`), `TAKUSEN_MAX_ENVELOPE_BYTES` (default 32768), `TAKUSEN_PUBLIC_SET_MAX_MEMBERS` (default 500, `docs/e2ee-load-test.md`), `TAKUSEN_MLS_BATCH_INTERVAL_MS` (default 2000), `TAKUSEN_MLS_BATCH_TIMEOUT_MS` (default 5000), `TAKUSEN_MAX_PAGE_SNAPSHOT_BYTES` (default 104857600), `TAKUSEN_GUILD_PAGE_STORAGE_BYTES` (default 10737418240, 0 = no limit). **Gateway:** `GATEWAY_MIN_CLIENT_VERSION` (default `0.1.0`). **Media:** `MEDIA_WS_READ_LIMIT` (default 1048576). Add each one to `.env.example`.
 
 ### 12.19 Error codes
 
@@ -2033,7 +2119,78 @@ export class ApiError extends Error {
 | `InvalidAdminAction` | 400 | the action does not decode, verify or match the request |
 | `AdminActionConflict` | 409 | `seq` or `prev_hash` does not continue the chain |
 | `RateLimited` | 429 | a §12.12 rate limit. Header `Retry-After` |
+| `NotPagesChannel` | 400 | a page route on a channel that is not of type `pages` (§4 Pages) |
+| `PageExists` | 409 | `POST /channels/:id/pages` with an `id` that is taken |
+| `PageCycle` | 400 | a page move into its own subtree |
+| `SnapshotConflict` | 409 | the snapshot `baseSeq` is not above the current one, or above `latest_seq`. Body: `{error, baseSeq}` (the current one) |
+| `StorageQuotaExceeded` | 413 | a page upload claim above `TAKUSEN_GUILD_PAGE_STORAGE_BYTES` |
 
 **Client error codes.** The `@hachiman/crypto` Worker rejects with `CryptoError` (`CryptoErrorCode` in `src/api.ts`). `dsCode` holds the REST code above when the cause was a DS response. Two codes have no REST cause:
 - `LockHeld`: the Web Lock refused the store, because it is open in another tab (§12.17).
 - `Internal`: an exception inside the Worker that carried no `CryptoErrorCode` (a bug).
+
+### 12.20 Page envelopes
+
+A pages channel (§4 Pages) sends its titles, edits, snapshot pointers and presence as page envelopes in the MLS group of the channel (§12.6). The format is that of §12.8.1, with its own magic, a kind byte and the page id in the header:
+
+```
+struct {
+  uint16 magic = 0x4802;           // DOC_ENVELOPE_MAGIC. A message envelope (0x4801) never decodes as one
+  uint8 kind;                      // 1 doc_update, 2 doc_snapshot, 3 doc_awareness, 4 doc_title
+  opaque group_id<V>;              // 22 bytes
+  opaque channel_id[16];
+  opaque page_id[16];
+  uint64 epoch;
+  uint32 sender_leaf;
+  opaque sender_device_id[16];
+  opaque salt[32];                 // random per envelope
+} DocEnvelopeHeader;
+
+struct {
+  DocEnvelopeHeader header;
+  opaque ciphertext<V>;            // AES-256-GCM(K_doc, nonce = 12 zero bytes, aad = encode(header), encode(DocPlaintext))
+} DocEnvelope;
+
+struct {
+  opaque body<V>;                  // by kind, below
+  uint64 sent_at_ms;               // sender clock, display only
+} DocContent;
+
+struct {
+  DocContent content;
+  opaque signature<V>;             // SignWithLabel(sender MLS signature key, "DocEnvelope",
+                                   //   SHA-256(encode(header)) ‖ SHA-256(encode(content)))
+} DocPlaintext;
+```
+
+**Bodies.**
+- `doc_update`: one Yjs update (`Y.encodeStateAsUpdate` form, often a `Y.mergeUpdates` of the edits of 100 ms).
+- `doc_snapshot`: UTF-8 JSON of `DocSnapshotPointer { uploadId, fileKey, sha256, size }`. `fileKey` (32 bytes) and `sha256` (of the whole blob) are base64url, and `size` is the plaintext bytes of the state. The blob is the Yjs state (`Y.encodeStateAsUpdate`) in the §12.9 format.
+- `doc_awareness`: one y-protocols awareness update. The state holds the user id, display name, color, cursor and selection.
+- `doc_title`: the UTF-8 title, 1 to 200 bytes (`MAX_PAGE_TITLE_BYTES`).
+
+**Key.** The derivation of §12.8.2 with another label:
+
+```
+PRK   = HKDF-Extract(salt = header.salt, IKM = S_e)
+K_doc = HKDF-Expand(PRK, info = "hachiman doc key v1" ‖ uint32(sender_leaf), L = 32)
+```
+
+The labels differ, so `K_doc` never equals a `K_msg`. Each envelope has its own salt and key, so the nonce is zero.
+
+**Send.** `CryptoApi.encryptDoc({ channelId, pageId, kind, bytes })` runs `GroupService.sendState(channelId)` first, as a message send does (pending Removes are committed, §12.7.4). It returns `{ envelope, groupId, epoch }`. An envelope above `Limits.maxEnvelopeBytes` (8192 base64url characters for `doc_awareness`) throws `CryptoError('TooLarge')`. A Yjs update that does not fit goes into a snapshot instead. On 409 `StaleEpoch`, the client catches up and encrypts again.
+
+**Server checks.** Takusen decodes only the header (`acceptDocEnvelope`, §12.18), as `acceptEnvelope` does for messages (§12.8.4): the size, `magic` 0x4802, the kind of the route (§4 Pages), the current and active group of the channel, `channel_id` = the route channel, `page_id` = the route page (the body `id` on create), the epoch rule of §12.8.4, and the sender device and leaf. It stores `group_id`, `epoch`, `sender_device` and the envelope. Takusen never sees `doc_awareness` envelopes: the gateway relays them (§6 op 5) and checks only their size.
+
+**Receive.** `CryptoApi.decryptDoc(items)` gives one `DocDecryptResult` per `EncryptedDocItem { id, channelId, pageId, kind, senderDevice, envelope }`, in order:
+1. **Header.** It does not decode, or the magic is wrong: `malformed`. `channel_id` differs from the item: `wrong_channel`. `page_id` differs: `wrong_page`. The kind differs from the item kind: `wrong_kind`. The item `senderDevice` is not null and differs from `sender_device_id`: `device_mismatch`.
+2. **Epoch secret.** As §12.8.5 step 2: `pending` with `epoch_ahead`, `group_unknown`, `no_history_key` or `transport`.
+3. **Decrypt.** A failed tag: `failed` `aead`, and the failure counts toward the fork alert (§12.8.7). A plaintext that does not decode, or a body that breaks the rules above: `malformed`.
+4. **Sender.** The verified certificate of `sender_device_id`, with the revoked-sender rule of §12.8.5 step 4: else `invalid_chain`.
+5. **Signature.** Else `bad_signature`.
+
+An `ok` result has `{ id, kind, bytes, sender }`: the body bytes and the `DecryptedSender`. The UI thread gets decrypted content only, never a key.
+
+**Access by new members.** A member that joined in epoch N has no `S_e` for older epochs when the group is `joined`. Thus a member posts a new snapshot when the newest snapshot has an epoch below the current epoch (§4 Pages). The new member then needs only that snapshot and the updates after it. Until a member posts it, the new member's client shows "Waiting for a member to share this page".
+
+**Residual risk.** The server can withhold updates, or serve an older title envelope (a rollback of a rename). It cannot forge, change or move an envelope to another page or channel, because the header is the AAD and the sender signs it. A replayed update does no harm, because Yjs ignores an update that it already has. A member who can edit can damage a page. The previous snapshot (§4 Pages) is the recovery path.

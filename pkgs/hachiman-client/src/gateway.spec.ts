@@ -64,6 +64,20 @@ describe('GatewayClient', () => {
     expect(gw.latencyMs).not.toBeNull()
   })
 
+  it('sendDocAwareness sends op 5; an ephemeral dispatch (no s) keeps the seq', async () => {
+    gw.connect()
+    const ws = FakeWebSocket.last
+    await ready(ws, 3)
+    gw.sendDocAwareness({ channelId: 'c', pageId: 'p', envelope: 'E' })
+    expect(ws.sent.at(-1)).toEqual({ op: 5, d: { channelId: 'c', pageId: 'p', envelope: 'E' } })
+    const aw = vi.fn()
+    gw.on('DOC_AWARENESS', aw)
+    ws.recv({ op: 0, t: 'DOC_AWARENESS', d: { channelId: 'c', pageId: 'p', envelope: 'E' } })
+    expect(aw).toHaveBeenCalledOnce()
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(ws.sent.at(-1)).toEqual({ op: 1, d: 3 })
+  })
+
   it('missed HEARTBEAT_ACK ⇒ reconnect + RESUME', async () => {
     gw.connect()
     const ws = FakeWebSocket.last

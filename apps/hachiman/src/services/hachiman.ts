@@ -11,6 +11,7 @@ import { clearDecryptedBlobs } from '@/hooks/use-decrypted-blob'
 import { CLIENT_CAPABILITIES, CLIENT_VERSION } from '@/lib/client-version'
 import { cryptoService } from '@/services/CryptoService'
 import { createDsTransport } from '@/services/ds-transport'
+import { docsService } from '@/services/docs/DocsService'
 import { messagesService } from '@/services/MessagesService'
 import { takusenService } from '@/services/TakusenService'
 import { messageSound, playSound, startSounds } from '@/services/SoundService'
@@ -104,10 +105,12 @@ const onUpdate = (e: GatewayDispatch): void => {
       forgetGuild(e.d.id)
       return syncAll()
     case 'READY':
+      docsService.onReady(true)
       useUserStore.setState({ status: hachiman.cache.presences.get(e.d.user.id) ?? 'online' })
       cryptoService.sync()
       return syncAll()
     case 'RESUMED':
+      docsService.onReady(false)
       cryptoService.sync()
       return syncAll()
     case 'GUILD_CREATE':
@@ -115,6 +118,7 @@ const onUpdate = (e: GatewayDispatch): void => {
     case 'CHANNEL_CREATE':
     case 'CHANNEL_UPDATE':
     case 'CHANNEL_DELETE':
+      if (e.t === 'CHANNEL_DELETE') docsService.onChannelDelete(e.d.id)
       return syncChannels()
     case 'VOICE_STATE_UPDATE':
       return syncVoiceStates()
@@ -227,7 +231,10 @@ export function startHachiman(host?: IPlatformService): void {
   started = true
 
   hachiman.on('update', onUpdate)
-  hachiman.on('state', (state) => useUserStore.setState({ gatewayState: state }))
+  hachiman.on('state', (state) => {
+    useUserStore.setState({ gatewayState: state })
+    if (state !== 'ready') docsService.onOffline()
+  })
   hachiman.on('MESSAGE_CREATE', (m) => void onMessageCreate(m))
   hachiman.on('MESSAGE_UPDATE', onMessageUpdate)
   hachiman.on('MESSAGE_DELETE', (d) => {
@@ -236,8 +243,16 @@ export function startHachiman(host?: IPlatformService): void {
   })
   hachiman.on('TYPING_START', onTyping)
   hachiman.on('fatal', onFatal)
+  hachiman.on('PAGE_CREATE', (d) => docsService.onPageEvent(d))
+  hachiman.on('PAGE_UPDATE', (d) => docsService.onPageEvent(d))
+  hachiman.on('PAGE_DELETE', (d) => docsService.onPageDelete(d))
+  hachiman.on('DOC_UPDATE', (d) => docsService.onDocUpdate(d))
+  hachiman.on('DOC_AWARENESS', (d) => docsService.onDocAwareness(d))
   forwardCryptoEvents()
-  cryptoService.on('epochKeysAvailable', ({ groupId }) => messagesService.retryGroup(groupId))
+  cryptoService.on('epochKeysAvailable', ({ groupId }) => {
+    void messagesService.retryGroup(groupId)
+    docsService.retry()
+  })
   cryptoService.on('status', (s) => {
     if (s.state !== 'ready') return
     // Setup or linking finished: catch up and decrypt what waited.
@@ -258,6 +273,7 @@ export function startHachiman(host?: IPlatformService): void {
     hachiman.disconnect()
     cryptoService.stop()
     messagesService.reset()
+    docsService.reset()
     clearDecryptedBlobs()
     resetUserStore()
     resetGuildStore()

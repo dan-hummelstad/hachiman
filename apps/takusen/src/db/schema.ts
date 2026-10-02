@@ -7,6 +7,7 @@
  *  - guilds, guildMembers, channels, messages       — the chat model
  *  - roles, memberRoles, permissionOverwrites       — Discord-style permissions
  *  - dmParticipants, invites, uploads
+ *  - docPages, docUpdates, docSnapshots             — pages channels (§3 "Pages tables")
  *  - oidcClients, oidcAdapterPayloads, passwordResetTokens
  *  - the E2EE tables (§3 "E2EE tables", §12): devices and keys, the MLS delivery
  *    service, the device inbox, backups, device linking, key transparency,
@@ -39,9 +40,9 @@ import type { AdapterAccountType } from 'next-auth/adapters'
 // Enums
 // ---------------------------------------------------------------------------
 export const userRoleEnum = pgEnum('user_role', ['user', 'admin'])
-export const channelTypeEnum = pgEnum('channel_type', ['text', 'voice', 'category', 'dm', 'group_dm'])
+export const channelTypeEnum = pgEnum('channel_type', ['text', 'voice', 'category', 'dm', 'group_dm', 'pages'])
 export const overwriteTypeEnum = pgEnum('overwrite_type', ['role', 'member'])
-export const uploadPurposeEnum = pgEnum('upload_purpose', ['attachment', 'image'])
+export const uploadPurposeEnum = pgEnum('upload_purpose', ['attachment', 'image', 'page_snapshot', 'page_media'])
 
 // E2EE enums (§3).
 export const deviceStatusEnum = pgEnum('device_status', ['pending', 'active', 'revoked'])
@@ -205,6 +206,8 @@ export const guilds = pgTable('guilds', {
   banner: text('banner'),
   // Home voice region; placement prefers media nodes here.
   region: text('region').references(() => regions.code, { onDelete: 'set null' }),
+  // Blob bytes of the page_snapshot and page_media uploads of the guild's pages (the page quota, §4 Pages).
+  pageStorageBytes: bigint('page_storage_bytes', { mode: 'number' }).notNull().default(0),
   createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
     .notNull()
     .defaultNow(),
@@ -242,7 +245,7 @@ export const channels = pgTable(
     }),
     position: integer('position').notNull().default(0),
     ownerId: uuid('owner_id').references(() => users.id, { onDelete: 'set null' }),
-    // The current MLS group of a text, dm or group_dm channel (§12.6).
+    // The current MLS group of a text, pages, dm or group_dm channel (§12.6).
     mlsGroupId: bytea('mls_group_id').references((): AnyPgColumn => mlsGroups.groupId, { onDelete: 'set null' }),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
       .notNull()
@@ -390,18 +393,111 @@ export const uploads = pgTable(
     messageId: uuid('message_id').references(() => messages.id, { onDelete: 'cascade' }),
     position: integer('position').notNull().default(0),
     purpose: uploadPurposeEnum('purpose'),
+    // page_snapshot and page_media: the page that claimed the upload (§4 Pages). A page_snapshot
+    // upload has the purpose from the upload on, and page_id only after the claim.
+    pageId: uuid('page_id').references((): AnyPgColumn => docPages.id, { onDelete: 'cascade' }),
+    // page_media: the last claim. The media sweep keeps an upload with a recent reference.
+    lastReferencedAt: timestamp('last_referenced_at', { withTimezone: true, mode: 'date' }),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
       .notNull()
       .defaultNow(),
   },
   (table) => [
     index('uploads_message_id_idx').on(table.messageId),
+    index('uploads_page_id_idx').on(table.pageId),
     // IS NOT DISTINCT FROM keeps an unclaimed row (purpose null) from having a message.
     check(
       'uploads_attachment_has_message',
       sql`(${table.purpose} is not distinct from 'attachment') = (${table.messageId} is not null)`,
     ),
+    check(
+      'uploads_page_media_has_page',
+      sql`${table.purpose} is distinct from 'page_media' or ${table.pageId} is not null`,
+    ),
+    check(
+      'uploads_page_id_is_page_purpose',
+      sql`${table.pageId} is null or ${table.purpose} in ('page_snapshot', 'page_media')`,
+    ),
   ],
+)
+
+// ---------------------------------------------------------------------------
+// Pages channels (contract §3 "Pages tables", §4 Pages, §12.20). The server sees
+// the tree and the timestamps. Titles, updates and snapshot pointers are envelopes.
+// ---------------------------------------------------------------------------
+export const docPages = pgTable(
+  'doc_pages',
+  {
+    // The client chooses the id: the title envelope binds it (§12.20).
+    id: uuid('id').primaryKey(),
+    channelId: uuid('channel_id')
+      .notNull()
+      .references(() => channels.id, { onDelete: 'cascade' }),
+    parentId: uuid('parent_id').references((): AnyPgColumn => docPages.id, { onDelete: 'cascade' }),
+    position: integer('position').notNull().default(0),
+    titleEnvelope: bytea('title_envelope').notNull(),
+    createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+    // The highest doc_updates.seq of the page. An update takes latest_seq + 1 (§4 Pages).
+    latestSeq: bigint('latest_seq', { mode: 'number' }).notNull().default(0),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index('doc_pages_channel_id_idx').on(table.channelId),
+    index('doc_pages_parent_id_idx').on(table.parentId),
+  ],
+)
+
+export const docUpdates = pgTable(
+  'doc_updates',
+  {
+    pageId: uuid('page_id')
+      .notNull()
+      .references(() => docPages.id, { onDelete: 'cascade' }),
+    seq: bigint('seq', { mode: 'number' }).notNull(),
+    groupId: bytea('group_id')
+      .notNull()
+      .references((): AnyPgColumn => mlsGroups.groupId, { onDelete: 'cascade' }),
+    epoch: bigint('epoch', { mode: 'number' }).notNull(),
+    senderDevice: uuid('sender_device').references((): AnyPgColumn => devices.id, { onDelete: 'set null' }),
+    envelope: bytea('envelope').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [primaryKey({ columns: [table.pageId, table.seq] })],
+)
+
+export const docSnapshots = pgTable(
+  'doc_snapshots',
+  {
+    pageId: uuid('page_id')
+      .notNull()
+      .references(() => docPages.id, { onDelete: 'cascade' }),
+    // The state covers every update with seq <= base_seq.
+    baseSeq: bigint('base_seq', { mode: 'number' }).notNull(),
+    uploadId: uuid('upload_id')
+      .notNull()
+      .unique()
+      .references(() => uploads.id, { onDelete: 'cascade' }),
+    groupId: bytea('group_id')
+      .notNull()
+      .references((): AnyPgColumn => mlsGroups.groupId, { onDelete: 'cascade' }),
+    epoch: bigint('epoch', { mode: 'number' }).notNull(),
+    senderDevice: uuid('sender_device').references((): AnyPgColumn => devices.id, { onDelete: 'set null' }),
+    // The doc_snapshot envelope: the pointer and the file key of the blob.
+    envelope: bytea('envelope').notNull(),
+    // The page_media uploads that this state references. The client gives the list.
+    mediaUploadIds: uuid('media_upload_ids').array().notNull().default(sql`'{}'::uuid[]`),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [primaryKey({ columns: [table.pageId, table.baseSeq] })],
 )
 
 // ---------------------------------------------------------------------------
@@ -423,6 +519,9 @@ export type PermissionOverwriteRow = typeof permissionOverwrites.$inferSelect
 export type DmParticipantRow = typeof dmParticipants.$inferSelect
 export type InviteRow = typeof invites.$inferSelect
 export type UploadRow = typeof uploads.$inferSelect
+export type DocPageRow = typeof docPages.$inferSelect
+export type DocUpdateRow = typeof docUpdates.$inferSelect
+export type DocSnapshotRow = typeof docSnapshots.$inferSelect
 
 // ===== Auth UI agent additions =====
 // Password reset tokens — short-lived (e.g. 1h) one-time tokens. We store only

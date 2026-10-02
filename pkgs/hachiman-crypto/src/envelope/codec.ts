@@ -5,11 +5,24 @@
  * This file imports no WebCrypto and no store code: Takusen (`@hachiman/crypto/ds`) can use the
  * header codec.
  */
-import type { AttachmentPointer, EnvelopeHeader, Mention, MentionKind, MessageContent, ThumbnailPointer } from '../api'
+import type {
+  AttachmentPointer,
+  DocEnvelopeHeader,
+  DocEnvelopeKindName,
+  DocSnapshotPointer,
+  EnvelopeHeader,
+  Mention,
+  MentionKind,
+  MessageContent,
+  ThumbnailPointer,
+} from '../api'
 import { CryptoError } from '../api'
 import { Reader, Writer, bytesToUuid, fromB64url, toB64url, uuidToBytes } from '../codec'
 import {
   CLIENT_MSG_ID_LENGTH,
+  DOC_ENVELOPE_MAGIC,
+  DOC_SALT_LENGTH,
+  DocEnvelopeKind,
   ENVELOPE_MAGIC,
   EnvelopeKind,
   FRANKING_KEY_LENGTH,
@@ -17,6 +30,7 @@ import {
   GROUP_ID_LENGTH,
   MAX_ATTACHMENTS_PER_MESSAGE,
   MAX_MESSAGE_UPLOAD_IDS,
+  MAX_PAGE_TITLE_BYTES,
   MAX_TEXT_BYTES,
   MESSAGE_SALT_LENGTH,
   MentionType,
@@ -437,4 +451,154 @@ export function envelopeLength(contentLength: number): number {
   const plaintext = contentLength + FRANKING_KEY_LENGTH + varintLength(SIGNATURE_LENGTH) + SIGNATURE_LENGTH
   const ciphertext = plaintext + 16
   return HEADER_LENGTH + varintLength(ciphertext) + ciphertext
+}
+
+// MARK: - Page envelopes (§12.20)
+
+const DOC_KIND: Record<DocEnvelopeKindName, number> = {
+  doc_update: DocEnvelopeKind.UPDATE,
+  doc_snapshot: DocEnvelopeKind.SNAPSHOT,
+  doc_awareness: DocEnvelopeKind.AWARENESS,
+  doc_title: DocEnvelopeKind.TITLE,
+}
+const DOC_KIND_NAME = new Map<number, DocEnvelopeKindName>(Object.entries(DOC_KIND).map(([k, v]) => [v, k as DocEnvelopeKindName]))
+
+/** The decoded `DocEnvelope` struct. */
+export interface DocEnvelope {
+  header: DocEnvelopeHeader
+  /** encode(header): the AEAD additional data and the signed header bytes. */
+  headerBytes: Uint8Array
+  ciphertext: Uint8Array
+}
+
+/** The decoded `DocPlaintext` struct. */
+export interface DocPlaintext {
+  body: Uint8Array
+  sentAtMs: number
+  /** The exact encode(DocContent) bytes (signed). */
+  contentBytes: Uint8Array
+  signature: Uint8Array
+}
+
+function writeDocHeader(w: Writer, h: DocEnvelopeHeader): void {
+  const kind = DOC_KIND[h.kind] as number | undefined
+  if (kind === undefined) malformed('unknown doc envelope kind')
+  checkLength(h.groupId, GROUP_ID_LENGTH, 'group_id')
+  checkLength(h.salt, DOC_SALT_LENGTH, 'salt')
+  checkSize(h.epoch, 'epoch')
+  checkU32(h.senderLeaf, 'sender_leaf')
+  w.u16(DOC_ENVELOPE_MAGIC)
+    .u8(kind)
+    .opaque(h.groupId)
+    .fixed(uuidToBytes(h.channelId), 16)
+    .fixed(uuidToBytes(h.pageId), 16)
+    .u64(h.epoch)
+    .u32(h.senderLeaf)
+    .fixed(uuidToBytes(h.senderDeviceId), 16)
+    .fixed(h.salt, DOC_SALT_LENGTH)
+}
+
+function readDocHeader(r: Reader): DocEnvelopeHeader {
+  if (r.u16() !== DOC_ENVELOPE_MAGIC) malformed('bad doc envelope magic')
+  const kindByte = r.u8()
+  const kind = DOC_KIND_NAME.get(kindByte)
+  if (kind === undefined) malformed(`unknown doc envelope kind ${kindByte}`)
+  const groupId = r.opaque(GROUP_ID_LENGTH)
+  checkLength(groupId, GROUP_ID_LENGTH, 'group_id')
+  const channelId = bytesToUuid(r.fixed(16))
+  const pageId = bytesToUuid(r.fixed(16))
+  const epoch = r.u64n()
+  const senderLeaf = r.u32()
+  const senderDeviceId = bytesToUuid(r.fixed(16))
+  const salt = r.fixed(DOC_SALT_LENGTH)
+  return { kind, groupId, channelId, pageId, epoch, senderLeaf, senderDeviceId, salt }
+}
+
+export function encodeDocHeader(h: DocEnvelopeHeader): Uint8Array {
+  return encoding('DocEnvelopeHeader', () => {
+    const w = new Writer()
+    writeDocHeader(w, h)
+    return w.finish()
+  })
+}
+
+/** Decodes a whole DocEnvelope (header and ciphertext, no trailing bytes). */
+export function decodeDocEnvelope(envelope: Uint8Array): DocEnvelope {
+  return decoding('DocEnvelope', () => {
+    const r = new Reader(envelope)
+    const header = readDocHeader(r)
+    const headerBytes = envelope.slice(0, envelope.length - r.remaining)
+    const ciphertext = r.opaque()
+    r.end()
+    return { header, headerBytes, ciphertext }
+  })
+}
+
+const SNAPSHOT_POINTER_KEYS = ['fileKey', 'sha256', 'size', 'uploadId']
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+
+/** The doc_snapshot body: strict UTF-8 JSON of exactly the four pointer fields. */
+export function decodeSnapshotPointer(body: Uint8Array): DocSnapshotPointer {
+  return decoding('DocSnapshotPointer', () => {
+    const v: unknown = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(body))
+    if (typeof v !== 'object' || v === null || Array.isArray(v)) malformed('snapshot pointer is not an object')
+    const o = v as Record<string, unknown>
+    if (Object.keys(o).sort().join() !== SNAPSHOT_POINTER_KEYS.join()) malformed('snapshot pointer needs exactly uploadId, fileKey, sha256 and size')
+    const { uploadId, fileKey, sha256, size } = o
+    if (typeof uploadId !== 'string' || !UUID_RE.test(uploadId)) malformed('uploadId is not a lowercase UUID')
+    if (typeof fileKey !== 'string' || typeof sha256 !== 'string' || typeof size !== 'number') malformed('snapshot pointer field types')
+    bytesOf(fileKey, FILE_KEY_LENGTH, 'fileKey')
+    bytesOf(sha256, SHA256_LENGTH, 'sha256')
+    checkSize(size, 'size')
+    return { uploadId, fileKey, sha256, size }
+  })
+}
+
+/** The body rules of §12.20 per kind. doc_update and doc_awareness bodies are opaque to the Worker. */
+export function checkDocBody(kind: DocEnvelopeKindName, body: Uint8Array): void {
+  if (kind === 'doc_title') {
+    if (body.length === 0) malformed('a page title is empty')
+    if (body.length > MAX_PAGE_TITLE_BYTES) tooLarge(`page title longer than ${MAX_PAGE_TITLE_BYTES} bytes`)
+    try {
+      new TextDecoder('utf-8', { fatal: true }).decode(body)
+    } catch {
+      malformed('page title is not UTF-8')
+    }
+  } else if (kind === 'doc_snapshot') {
+    decodeSnapshotPointer(body)
+  }
+}
+
+export function encodeDocContent(body: Uint8Array, sentAtMs: number): Uint8Array {
+  return encoding('DocContent', () => {
+    checkSize(sentAtMs, 'sent_at_ms')
+    return new Writer().opaque(body).u64(sentAtMs).finish()
+  })
+}
+
+export function encodeDocPlaintext(contentBytes: Uint8Array, signature: Uint8Array): Uint8Array {
+  return new Writer().fixed(contentBytes, contentBytes.length).opaque(signature).finish()
+}
+
+export function decodeDocPlaintext(b: Uint8Array): DocPlaintext {
+  return decoding('DocPlaintext', () => {
+    const r = new Reader(b)
+    const body = r.opaque()
+    const sentAtMs = r.u64n()
+    const contentBytes = b.slice(0, b.length - r.remaining)
+    const signature = r.opaque(SIGNATURE_LENGTH)
+    if (signature.length !== SIGNATURE_LENGTH) malformed(`signature must be ${SIGNATURE_LENGTH} bytes`)
+    r.end()
+    return { body, sentAtMs, contentBytes, signature }
+  })
+}
+
+/** Bytes of encode(DocEnvelopeHeader): every field is fixed width. */
+export const DOC_HEADER_LENGTH = 2 + 1 + varintLength(GROUP_ID_LENGTH) + GROUP_ID_LENGTH + 16 + 16 + 8 + 4 + 16 + DOC_SALT_LENGTH
+
+/** The exact DocEnvelope size for a body of `bodyLength` bytes. */
+export function docEnvelopeLength(bodyLength: number): number {
+  const content = varintLength(bodyLength) + bodyLength + 8
+  const ciphertext = content + varintLength(SIGNATURE_LENGTH) + SIGNATURE_LENGTH + 16
+  return DOC_HEADER_LENGTH + varintLength(ciphertext) + ciphertext
 }

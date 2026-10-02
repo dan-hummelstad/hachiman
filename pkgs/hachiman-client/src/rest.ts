@@ -12,6 +12,8 @@ import type {
   Device,
   DevicePlatform,
   DeviceProver,
+  DocSnapshot,
+  DocUpdatePage,
   DsInfo,
   GroupState,
   Guild,
@@ -34,6 +36,8 @@ import type {
   Member,
   Message,
   MlsGroup,
+  Page,
+  PageState,
   ProposalRejection,
   RevocationReason,
   Role,
@@ -113,7 +117,7 @@ export interface UpdateGuildBody {
 }
 export interface CreateChannelBody {
   name: string
-  type: 'text' | 'voice' | 'category'
+  type: 'text' | 'voice' | 'category' | 'pages'
   parentId?: Opt<string | null>
   topic?: Opt<string | null>
 }
@@ -173,6 +177,25 @@ export interface RolePosition {
 export interface CreateInviteBody {
   maxAgeSeconds?: Opt<number>
   maxUses?: Opt<number>
+}
+export interface CreatePageBody {
+  /** A new UUID that the client chooses: the title envelope binds it (§12.20). */
+  id: string
+  parentId: string | null
+  position: number
+  titleEnvelope: B64url
+}
+export interface UpdatePageBody {
+  parentId?: Opt<string | null>
+  position?: Opt<number>
+  titleEnvelope?: Opt<B64url>
+}
+export interface PostSnapshotBody {
+  baseSeq: number
+  /** From {@link RestClient.uploadSnapshot}. */
+  uploadId: string
+  envelope: B64url
+  mediaUploadIds: string[]
 }
 export type KtEntriesQuery =
   | { userId: string; after: number; limit?: Opt<number> }
@@ -296,6 +319,26 @@ export class RestClient {
 
   getLimits = () => this.req<Limits>('GET', '/limits')
 
+  // MARK: - Pages (§4 Pages)
+
+  getPages = (channelId: string) => this.req<Page[]>('GET', `/channels/${e(channelId)}/pages`)
+  createPage = (channelId: string, body: CreatePageBody) =>
+    this.req<Page>('POST', `/channels/${e(channelId)}/pages`, body)
+  updatePage = (pageId: string, body: UpdatePageBody) => this.req<Page>('PATCH', `/pages/${e(pageId)}`, body)
+  /** Deletes the page and its subtree. */
+  deletePage = (pageId: string) => this.req<undefined>('DELETE', `/pages/${e(pageId)}`)
+  getPageState = (pageId: string) => this.req<PageState>('GET', `/pages/${e(pageId)}/state`)
+  getPageUpdates = (pageId: string, q: { after: number; limit?: Opt<number> }) =>
+    this.req<DocUpdatePage>('GET', `/pages/${e(pageId)}/updates${query({ after: q.after, limit: q.limit })}`)
+  postPageUpdate = (pageId: string, body: { envelope: B64url }) =>
+    this.req<{ seq: number }>('POST', `/pages/${e(pageId)}/updates`, body)
+  /** 409 SnapshotConflict rejects (another snapshot won): the upload stays unclaimed. */
+  postPageSnapshot = (pageId: string, body: PostSnapshotBody) =>
+    this.req<DocSnapshot>('POST', `/pages/${e(pageId)}/snapshots`, body)
+  /** Claims page_media uploads, or refreshes their last_referenced_at. 413 StorageQuotaExceeded. */
+  claimPageMedia = (pageId: string, uploadIds: string[]) =>
+    this.req<undefined>('POST', `/pages/${e(pageId)}/media`, { uploadIds })
+
   // MARK: - Files (§4 Files)
 
   /** Public URL of a file key (avatar, icon, banner, Attachment.key). */
@@ -304,6 +347,10 @@ export class RestClient {
   /** Uploads an encrypted attachment or thumbnail blob (`?kind=blob`). */
   uploadBlob = (blob: Blob, opts: UploadProgressOptions = {}): Promise<Attachment> =>
     this.xhrUpload<Attachment>('?kind=blob', blob, 'application/octet-stream', opts)
+
+  /** Uploads an encrypted page snapshot blob (`?kind=page_snapshot`, cap Limits.maxPageSnapshotBytes). */
+  uploadSnapshot = (blob: Blob, opts: UploadProgressOptions = {}): Promise<Attachment> =>
+    this.xhrUpload<Attachment>('?kind=page_snapshot', blob, 'application/octet-stream', opts)
 
   /** Uploads a plaintext profile image (avatar, icon, banner). */
   uploadImage = (file: Blob, opts: UploadImageOptions): Promise<{ id: string; key: string; size: number }> =>

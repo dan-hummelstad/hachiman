@@ -6,6 +6,7 @@ import type { Channel, Member, PresenceStatus, Role, User } from '@hachiman/clie
 
 const TYPE_ORDER: Record<Channel['type'], number> = {
   text: 0,
+  pages: 0,
   voice: 1,
   category: 2,
   dm: 0,

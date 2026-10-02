@@ -7,9 +7,13 @@
  *      and set up their first device (identity, certificate, key packages).
  *   2. Alice makes a guild, Bob joins it with an invite. Alice makes a private channel that only
  *      she and Bob can view, and opens a DM with Bob. The guild's #general is the public channel.
- *   3. In each of the three channels Alice sends a message whose text holds a unique canary
- *      string, with an attachment whose name and bytes hold it too.
- *   4. Bob decrypts every message and every attachment, and checks the canary.
+ *   3. In each of the four channels (the fourth is a public pages channel) Alice sends a
+ *      message whose text holds a unique canary string, with an attachment whose name and bytes
+ *      hold it too.
+ *   4. Bob decrypts every message and every attachment, and checks the canary. In the pages
+ *      channel Alice also creates a page whose title holds the canary, posts a page update whose
+ *      bytes hold it, and claims a page image whose name and bytes hold it (§4 Pages, §12.20).
+ *      Bob decrypts all three.
  *   5. The scan: every text, JSON, array and bytea column of every table, every object in the
  *      bucket, every key of the Redis database, a Redis MONITOR capture of that database (all
  *      commands, PUBLISH frames included), and every HTTP body and WebSocket frame of both
@@ -34,6 +38,7 @@ import { pathToFileURL } from 'node:url'
 
 import { CreateBucketCommand, HeadBucketCommand, S3Client } from '@aws-sdk/client-s3'
 import { Permissions, type Message } from '@hachiman/client'
+import { blobKey } from '@hachiman/client/files'
 import type { AttachmentPointer } from '@hachiman/crypto'
 import { Redis } from 'ioredis'
 import postgres from 'postgres'
@@ -103,11 +108,11 @@ async function ensureBucket(s3: S3Client, bucket: string): Promise<void> {
 }
 
 /** Encrypt, upload and point to one file, as UploadService.uploadAttachment does (without XHR). */
-async function uploadAttachment(c: CanaryClient, base: string, token: string, name: string, bytes: Uint8Array<ArrayBuffer>): Promise<AttachmentPointer> {
+async function uploadAttachment(c: CanaryClient, base: string, token: string, name: string, bytes: Uint8Array<ArrayBuffer>, mime = 'text/plain'): Promise<AttachmentPointer> {
   const encrypted = await c.engine.api.encryptAttachment({
     file: new Blob([bytes]),
     name,
-    mime: 'text/plain',
+    mime,
     width: null,
     height: null,
     durationMs: null,
@@ -197,6 +202,9 @@ async function main(): Promise<number> {
       A.hachiman.cache.channels.get(priv.id)?.permissionOverwrites?.length === 2 && B.hachiman.cache.channels.has(priv.id) ? true : undefined,
     )
 
+    const pagesChannel = await A.hachiman.rest.createChannel(guild.id, { name: 'canary-pages', type: 'pages' })
+    await waitFor('Bob sees the pages channel', () => (B.hachiman.cache.channels.has(pagesChannel.id) ? true : undefined))
+
     const dm = await A.hachiman.rest.openDm([bob.id])
     await waitFor('Bob sees the DM', () => (B.hachiman.cache.channels.has(dm.id) ? true : undefined), 15_000).catch(() => undefined)
 
@@ -205,6 +213,7 @@ async function main(): Promise<number> {
       { label: 'dm', id: dm.id },
       { label: 'private', id: priv.id },
       { label: 'public', id: general.id },
+      { label: 'pages', id: pagesChannel.id },
     ]
     // Bob opens each channel (§12.7.8: the first open of a public channel joins the public_set
     // group). Alice sends only when both devices hold a leaf in the channel's current group:
@@ -255,6 +264,37 @@ async function main(): Promise<number> {
     }
     log('history pages decrypt')
 
+    // A page in the pages channel: title, update and image (§4 Pages, §12.20).
+    const utf8 = new TextEncoder()
+    const pageTitle = `${canary}:page-title`
+    const pageText = `${canary}:page-text`
+    const pageId = crypto.randomUUID()
+    const title = await A.engine.api.encryptDoc({ channelId: pagesChannel.id, pageId, kind: 'doc_title', bytes: utf8.encode(pageTitle) })
+    await A.hachiman.rest.createPage(pagesChannel.id, { id: pageId, parentId: null, position: 0, titleEnvelope: title.envelope })
+    const update = await A.engine.api.encryptDoc({ channelId: pagesChannel.id, pageId, kind: 'doc_update', bytes: utf8.encode(pageText) })
+    const { seq } = await A.hachiman.rest.postPageUpdate(pageId, { envelope: update.envelope })
+    const imageName = `${canary}-page.png`
+    const imageBytes = utf8.encode(`page image of ${canary}\n`.repeat(8))
+    const image = await uploadAttachment(A, base, alice.accessToken, imageName, imageBytes, 'image/png')
+    await A.hachiman.rest.claimPageMedia(pageId, [image.uploadId])
+    log(`pages: Alice made page ${pageId} (update seq ${seq}, image ${image.uploadId})`)
+
+    const page = (await B.hachiman.rest.getPages(pagesChannel.id)).find((p) => p.id === pageId)
+    if (!page) throw new Error('canary: Bob does not list the page')
+    const posted = (await B.hachiman.rest.getPageUpdates(pageId, { after: 0 })).updates.find((u) => u.seq === seq)
+    if (!posted) throw new Error('canary: Bob does not read the page update')
+    const docResults = await B.engine.api.decryptDoc([
+      { id: 'title', channelId: pagesChannel.id, pageId, kind: 'doc_title', senderDevice: null, envelope: page.titleEnvelope },
+      { id: 'update', channelId: pagesChannel.id, pageId, kind: 'doc_update', senderDevice: posted.senderDevice, envelope: posted.envelope },
+    ])
+    const decoded = docResults.map((r) => (r.status === 'ok' ? new TextDecoder().decode(r.bytes) : `${r.status}:${r.reason}`))
+    if (decoded[0] !== pageTitle) throw new Error(`canary: Bob decrypted the page title as "${decoded[0]}"`)
+    if (decoded[1] !== pageText) throw new Error(`canary: Bob decrypted the page update as "${decoded[1]}"`)
+    const imageBlob = await B.hachiman.rest.fetchBlob(blobKey(image.uploadId))
+    const imagePlain = new Uint8Array(await (await B.engine.api.decryptAttachment(image, imageBlob)).arrayBuffer())
+    if (Buffer.compare(Buffer.from(imagePlain), Buffer.from(imageBytes)) !== 0) throw new Error('canary: the page image bytes differ')
+    log('pages: Bob decrypted the page title, the page update and the page image')
+
     for (const c of clients) await c.stop()
     await new Promise((r) => setTimeout(r, 1500))
 
@@ -275,8 +315,9 @@ async function main(): Promise<number> {
     if ((await scanPostgres(sql, controlForms)).hits.length === 0) leaks.push('control: the guild name is not found in Postgres, so the scan is broken')
     if (!monitorLines.some((l) => l.includes(control))) leaks.push('control: MONITOR captured no frame with the guild name')
     if (!monitorLines.some((l) => /^publish /i.test(l) && l.includes('MESSAGE_CREATE'))) leaks.push('control: MONITOR captured no MESSAGE_CREATE publish')
+    if (!monitorLines.some((l) => /^publish /i.test(l) && l.includes('DOC_UPDATE'))) leaks.push('control: MONITOR captured no DOC_UPDATE publish')
     if (!traffic.some((t) => t.where.startsWith('ws in') && t.data.includes('MESSAGE_CREATE'))) leaks.push('control: no MESSAGE_CREATE frame was captured')
-    if (objects.objects < channels.length) leaks.push(`control: the bucket has ${objects.objects} objects, fewer than the uploads`)
+    if (objects.objects < channels.length + 1) leaks.push(`control: the bucket has ${objects.objects} objects, fewer than the uploads`)
     if (findForms(Buffer.from(`xx${canary}yy`).toString('base64'), forms).length === 0) leaks.push('control: the base64 form does not match')
 
     if (leaks.length > 0) {
@@ -284,7 +325,7 @@ async function main(): Promise<number> {
       for (const l of leaks) console.error(`  ${l}`)
       return 1
     }
-    log(`ok: ${canary} decrypted in ${channels.length} channels and is in no Postgres column, S3 object, Redis key, Redis command or client frame`)
+    log(`ok: ${canary} decrypted in ${channels.length} channels and one page, and is in no Postgres column, S3 object, Redis key, Redis command or client frame`)
     return 0
   } finally {
     for (const c of clients) await c.stop().catch(() => undefined)

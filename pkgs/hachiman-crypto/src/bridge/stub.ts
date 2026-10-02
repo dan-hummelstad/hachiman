@@ -12,6 +12,9 @@ import type {
   CryptoEvents,
   CryptoStatus,
   DecryptResult,
+  DocDecryptResult,
+  DocEnvelopeKindName,
+  EncryptedDocItem,
   EncryptedMessage,
   MessageContent,
   UserId,
@@ -29,6 +32,14 @@ interface StubEnvelope {
   kind: 'message' | 'edit'
   editOf: string | null
   content: MessageContent
+}
+
+interface StubDocEnvelope {
+  marker: typeof STUB_MARKER
+  channelId: string
+  pageId: string
+  kind: DocEnvelopeKindName
+  bytes: B64url
 }
 
 const utf8 = (s: string): Uint8Array => new TextEncoder().encode(s)
@@ -86,6 +97,26 @@ export const createCryptoStub: CreateCryptoStub = () => {
     }
   }
 
+  function decryptDocOne(item: EncryptedDocItem): DocDecryptResult {
+    let e: Partial<StubDocEnvelope>
+    try {
+      e = JSON.parse(new TextDecoder().decode(fromB64url(item.envelope))) as Partial<StubDocEnvelope>
+    } catch {
+      return { status: 'failed', id: item.id, reason: 'malformed' }
+    }
+    if (e.marker !== STUB_MARKER || typeof e.bytes !== 'string') return { status: 'failed', id: item.id, reason: 'malformed' }
+    if (e.channelId !== item.channelId) return { status: 'failed', id: item.id, reason: 'wrong_channel' }
+    if (e.pageId !== item.pageId) return { status: 'failed', id: item.id, reason: 'wrong_page' }
+    if (e.kind !== item.kind) return { status: 'failed', id: item.id, reason: 'wrong_kind' }
+    return {
+      status: 'ok',
+      id: item.id,
+      kind: e.kind,
+      bytes: fromB64url(e.bytes),
+      sender: { userId: userId ?? '', deviceId: item.senderDevice ?? deviceId, leafIndex: 0, trust: 'unknown', membershipVerified: false },
+    }
+  }
+
   const client: CryptoClient = {
     init(opts) {
       userId = opts.userId
@@ -132,6 +163,12 @@ export const createCryptoStub: CreateCryptoStub = () => {
     },
     decryptMessages: (ms) => Promise.resolve(ms.map(decryptOne)),
     buildReport: () => Promise.resolve({ content: '', frankingKey: '' }),
+
+    encryptDoc(input) {
+      const env: StubDocEnvelope = { marker: STUB_MARKER, channelId: input.channelId, pageId: input.pageId, kind: input.kind, bytes: toB64url(input.bytes) }
+      return Promise.resolve({ envelope: toB64url(utf8(JSON.stringify(env))), groupId, epoch: 0 })
+    },
+    decryptDoc: (items) => Promise.resolve(items.map(decryptDocOne)),
 
     encryptAttachment(input) {
       const t = input.thumbnail

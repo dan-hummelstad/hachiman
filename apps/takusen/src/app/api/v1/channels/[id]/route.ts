@@ -28,6 +28,7 @@ import {
   requirePermission,
   type ChannelAccess,
 } from '@/lib/guild-access'
+import { hasTextGroup } from '@/lib/channel-types'
 import { assertParent, historyVisibilitySchema, nameSchema } from '@/lib/guild-schemas'
 import { loadChannel, membershipChanged, membershipTransaction, MembershipTriggers } from '@/lib/guilds'
 import { deleteObjects } from '@/lib/storage'
@@ -61,14 +62,14 @@ export async function PATCH(req: NextRequest, ctx: RouteContext): Promise<NextRe
     const { historyVisibility, ...body } = await parseBody(req, updateChannelSchema)
     await assertParent(access.channel.guildId!, body.parentId, access.channel.type)
 
-    // §12.6: only a private text channel has its own group.
+    // §12.6: only a private text or pages channel has its own group.
     let ownGroup: Uint8Array | null = null
     if (historyVisibility !== undefined) {
       const groupId = access.channel.mlsGroupId
       const [group] = groupId
         ? await db.select({ kind: mlsGroups.kind, status: mlsGroups.status }).from(mlsGroups).where(eq(mlsGroups.groupId, groupId)).limit(1)
         : []
-      if (access.channel.type !== 'text' || (await channelIsPublic(id)) || group?.kind !== 'channel' || group.status === 'retired') {
+      if (!hasTextGroup(access.channel.type) || (await channelIsPublic(id)) || group?.kind !== 'channel' || group.status === 'retired') {
         throw new ValidationError('historyVisibility needs a channel with its own group')
       }
       ownGroup = groupId

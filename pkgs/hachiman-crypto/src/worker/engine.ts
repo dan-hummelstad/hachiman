@@ -6,7 +6,7 @@
  * - Gateway events: DEVICE_INBOX and MLS_* go to GroupService. USER_KEYS_UPDATE, KT_TREE_HEAD,
  *   KEY_PACKAGES_LOW and DEVICE_LINK go to IdentityService.
  * - Calls per group run one at a time, in arrival order: MLS_* events by group id, DEVICE_INBOX
- *   in one queue, and ensureChannelGroup / encryptMessage by channel. The services also lock
+ *   in one queue, and ensureChannelGroup / encryptMessage / encryptDoc by channel. The services also lock
  *   their own state per group.
  */
 import {
@@ -18,6 +18,7 @@ import {
   type CryptoGatewayEvent,
   type CryptoStatus,
   type CryptoStore,
+  type DocService,
   type DsTransport,
   type EngineContext,
   type IdentityService,
@@ -26,6 +27,7 @@ import {
   type VoiceService,
 } from '../api'
 import { createAdminService } from '../admin/service'
+import { createDocService } from '../envelope/doc-service'
 import { createMessageService } from '../envelope/service'
 import { createIdentityService } from '../identity/service'
 import { createVoiceService } from '../media/service'
@@ -56,6 +58,7 @@ interface Services {
   identity: IdentityService
   groups: GroupServiceExt
   messages: MessageService
+  docs: DocService
   voice: VoiceService
   admin: AdminService
 }
@@ -124,6 +127,7 @@ export function createEngine(env: EngineEnv): Engine {
       identity,
       groups,
       messages: createMessageService(ctx, identity, groups),
+      docs: createDocService(ctx, identity, groups),
       voice: createVoiceService(ctx, identity),
       admin: createAdminService(ctx, identity),
     }
@@ -209,6 +213,11 @@ export function createEngine(env: EngineEnv): Engine {
     },
     decryptMessages: (m) => s().messages.decryptMessages(m),
     buildReport: (m) => s().messages.buildReport(m),
+    encryptDoc: (input) => {
+      const svc = s()
+      return serial(`c:${input.channelId}`, () => svc.docs.encryptDoc(input))
+    },
+    decryptDoc: (items) => s().docs.decryptDoc(items),
 
     encryptAttachment: (i) => s().messages.encryptAttachment(i),
     decryptAttachment: (p, b) => s().messages.decryptAttachment(p, b),

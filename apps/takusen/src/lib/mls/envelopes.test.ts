@@ -13,11 +13,11 @@ import { uuidToBytes } from './bytes'
 import { uploadCommit } from './commits'
 import { INBOX_DEVICE_MAX_BYTES, INBOX_ITEM_MAX_BYTES } from './config'
 import { postInbox } from './device-data'
-import { acceptEnvelopeWith, type EnvelopeInput } from './envelopes'
+import { acceptDocEnvelopeWith, acceptEnvelopeWith, type DocEnvelopeInput, type EnvelopeInput } from './envelopes'
 import { Outbox } from './events'
 import { uploadKeyPackages } from './key-packages'
 import { onMembershipChangeWith } from './membership'
-import { activate, activeDevice, commitRequest, fakeKeyPackage, newWorld, runBatchAndCommit, testEnvelope, type World } from './testing'
+import { activate, activeDevice, commitRequest, fakeKeyPackage, newWorld, runBatchAndCommit, testDocEnvelope, testEnvelope, type World } from './testing'
 import { decodeWelcomeItem } from './wire-format'
 
 setBusPublisher(async () => undefined)
@@ -184,5 +184,47 @@ describe('envelope checks (§12.8.4)', () => {
     const edit = await accept(s.w, { ...input(s.w, s, { cmid }), edit: true, rowClientMsgId: cmid })
     assert.deepEqual(edit.clientMsgId, cmid)
     await rejects(accept(s.w, { ...input(s.w, s), edit: true, rowClientMsgId: cmid }), 'InvalidEnvelope', 400)
+  })
+})
+
+describe('page envelope checks (§12.20)', () => {
+  const acceptDoc = (w: World, i: DocEnvelopeInput) =>
+    acceptDocEnvelopeWith(w.repo, { ds: w.ds, maxEnvelopeBytes: w.config.maxEnvelopeBytes, now: new Date(w.clock.now) }, i)
+
+  async function docInput(over: Partial<{ kind: DocEnvelopeInput['kind'] | 'doc_awareness'; page: string; channel: string; leaf: number }> = {}) {
+    const s = await world()
+    const pageId = crypto.randomUUID()
+    const envelope = testDocEnvelope({
+      kind: over.kind ?? 'doc_update',
+      groupId: s.groupId,
+      channelId: over.channel ?? s.channelId,
+      pageId: over.page ?? pageId,
+      epoch: 1,
+      senderLeaf: over.leaf ?? 0,
+      senderDeviceId: s.a1.id,
+    })
+    const i: DocEnvelopeInput = { channelId: s.channelId, pageId, userId: s.alice, deviceId: s.a1.id, kind: 'doc_update', envelope }
+    return { s, i }
+  }
+
+  test('a valid page envelope gives the stored fields', async () => {
+    const { s, i } = await docInput()
+    const r = await acceptDoc(s.w, i)
+    assert.deepEqual(r.groupId, s.groupId)
+    assert.equal(r.epoch, 1)
+    assert.equal(r.senderDeviceId, s.a1.id)
+    assert.equal(r.size, i.envelope.length)
+  })
+
+  test('the kind, the page, the channel and the leaf must match; a message envelope is not a page envelope', async () => {
+    for (const over of [{ kind: 'doc_title' as const }, { kind: 'doc_awareness' as const }, { page: crypto.randomUUID() }, { channel: crypto.randomUUID() }]) {
+      const { s, i } = await docInput(over)
+      await rejects(acceptDoc(s.w, i), 'InvalidEnvelope', 400)
+    }
+    const { s, i } = await docInput({ leaf: 3 })
+    await rejects(acceptDoc(s.w, i), 'NotMember', 403)
+    const message = testEnvelope({ groupId: s.groupId, channelId: s.channelId, epoch: 1, senderLeaf: 0, senderDeviceId: s.a1.id })
+    await rejects(acceptDoc(s.w, { ...i, envelope: message }), 'InvalidEnvelope', 400)
+    await rejects(acceptDoc(s.w, { ...i, envelope: new Uint8Array(s.w.config.maxEnvelopeBytes + 1) }), 'EnvelopeTooLarge', 413)
   })
 })

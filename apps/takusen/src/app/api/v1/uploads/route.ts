@@ -1,6 +1,8 @@
 /**
  * POST /api/v1/uploads?kind=blob — an encrypted attachment or thumbnail blob
  *      (§12.9). Stored as application/octet-stream with no file name.
+ * POST /api/v1/uploads?kind=page_snapshot — a page snapshot blob: cap
+ *      TAKUSEN_MAX_PAGE_SNAPSHOT_BYTES, purpose page_snapshot at once (§4 Pages).
  * POST /api/v1/uploads?filename=<name> — a plaintext profile image (avatar,
  *      icon, banner). Content-Type is its MIME type.
  * The raw body is streamed to S3 (docs/gateway-protocol.md §4 Files). Both
@@ -46,8 +48,9 @@ function exactLength(length: number): Transform {
 async function handle(req: NextRequest): Promise<NextResponse> {
   const session = await requireUser()
   const kind = parseUploadKind(req.nextUrl.searchParams)
-  if (!kind) throw new ValidationError('Give either kind=blob or filename=<1 to 255 characters>')
-  const { maxUploadBytes } = getLimits()
+  if (!kind) throw new ValidationError('Give either kind=blob, kind=page_snapshot or filename=<1 to 255 characters>')
+  const limits = getLimits()
+  const maxUploadBytes = kind.kind === 'page_snapshot' ? limits.maxPageSnapshotBytes : limits.maxUploadBytes
   const length = parseContentLength(req.headers.get('content-length'), maxUploadBytes)
   if (length === null) {
     throw new UploadTooLargeError(`Content-Length is required and at most ${maxUploadBytes} bytes`)

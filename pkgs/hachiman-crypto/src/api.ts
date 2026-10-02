@@ -766,6 +766,69 @@ export type FrameStatsMessage = {
   dropped: { unknownKey: number; authFailed: number; replay: number; wrongSender: number }
 }
 
+// MARK: - 3c2. Page envelopes (§12.20)
+
+export type PageId = string
+export type DocEnvelopeKindName = 'doc_update' | 'doc_snapshot' | 'doc_awareness' | 'doc_title'
+
+/**
+ * `bytes` is the body: a Yjs update (doc_update), the encoded DocSnapshotPointer (doc_snapshot),
+ * a y-protocols awareness update (doc_awareness), or the UTF-8 title (doc_title, 1 to
+ * MAX_PAGE_TITLE_BYTES bytes).
+ */
+export interface EncryptDocInput {
+  channelId: ChannelId
+  pageId: PageId
+  kind: DocEnvelopeKindName
+  bytes: Uint8Array
+}
+
+export interface EncryptDocOutput {
+  envelope: B64url
+  groupId: GroupIdB64
+  epoch: number
+}
+
+/**
+ * The doc_snapshot body (§12.20): UTF-8 JSON of this object. `fileKey` and `sha256` are base64url,
+ * `size` is the plaintext bytes of the Yjs state. The blob is the §12.9 format.
+ */
+export interface DocSnapshotPointer {
+  uploadId: UploadId
+  fileKey: B64url
+  sha256: B64url
+  size: number
+}
+
+export interface EncryptedDocItem {
+  /** Chosen by the caller and echoed in the result (for example `${pageId}:${seq}`). */
+  id: string
+  channelId: ChannelId
+  pageId: PageId
+  /** The kind that the caller expects. Another kind in the header gives 'wrong_kind'. */
+  kind: DocEnvelopeKindName
+  /** The row or dispatch value. When not null, the header must name it ('device_mismatch'). */
+  senderDevice: DeviceId | null
+  envelope: B64url
+}
+
+/** One code per §12.20 receive step. */
+export type DocDecryptFailure =
+  | 'malformed'
+  | 'wrong_channel'
+  | 'wrong_page'
+  | 'wrong_kind'
+  | 'device_mismatch'
+  | 'aead'
+  | 'invalid_chain'
+  | 'bad_signature'
+
+export type DocDecryptResult =
+  | { status: 'ok'; id: string; kind: DocEnvelopeKindName; bytes: Uint8Array; sender: DecryptedSender }
+  /** The §12.8.5 step 2 reasons: decrypt again after `epochKeysAvailable`, or later for 'transport'. */
+  | { status: 'pending'; id: string; reason: 'epoch_ahead' | 'group_unknown' | 'no_history_key' | 'transport' }
+  | { status: 'failed'; id: string; reason: DocDecryptFailure }
+
 // MARK: - 3d. CryptoApi: the Worker RPC surface
 
 export interface CryptoApi {
@@ -842,6 +905,15 @@ export interface CryptoApi {
   decryptMessages(messages: EncryptedMessage[]): Promise<DecryptResult[]>
   /** Opening for POST /reports (§12.16 franking). */
   buildReport(message: EncryptedMessage): Promise<{ content: B64url; frankingKey: B64url }>
+
+  // pages (§12.20)
+  /**
+   * Seals one page envelope in the channel's current group (pending Removes are committed first).
+   * Throws CryptoError('TooLarge') above Limits.maxEnvelopeBytes (MAX_DOC_AWARENESS_B64_BYTES for doc_awareness).
+   */
+  encryptDoc(input: EncryptDocInput): Promise<EncryptDocOutput>
+  /** One result per item, in order. Returns decrypted content only, never a key. */
+  decryptDoc(items: EncryptedDocItem[]): Promise<DocDecryptResult[]>
 
   // attachments
   encryptAttachment(input: AttachmentInput): Promise<EncryptedAttachment>
@@ -1417,6 +1489,18 @@ export interface EnvelopeHeader {
   frankingTag: Uint8Array
 }
 
+/** The decoded DocEnvelopeHeader of a page envelope (§12.20). */
+export interface DocEnvelopeHeader {
+  kind: DocEnvelopeKindName
+  groupId: Uint8Array
+  channelId: ChannelId
+  pageId: PageId
+  epoch: number
+  senderLeaf: number
+  senderDeviceId: DeviceId
+  salt: Uint8Array
+}
+
 export interface DsModule {
   loadSigner(seed: Uint8Array): Promise<DsSigner>
   /** proposeExternal(Remove) for the current epoch. Returns MLSMessage bytes. */
@@ -1467,6 +1551,8 @@ export interface DsModule {
   /** SHA-256(encode(action)), for the next prev_hash. */
   adminActionHash(action: Uint8Array): Uint8Array
   parseEnvelopeHeader(envelope: Uint8Array): EnvelopeHeader
+  /** The header of a whole DocEnvelope (§12.20). Throws CryptoError('Malformed'). */
+  parseDocEnvelopeHeader(envelope: Uint8Array): DocEnvelopeHeader
   verifyFrankingOpening(input: { frankingTag: Uint8Array; frankingKey: Uint8Array; channelId: ChannelId; clientMsgId: Uint8Array; content: Uint8Array }): boolean
   kt: KtModule
 }
@@ -1802,6 +1888,10 @@ export interface GroupService extends Pick<CryptoApi, 'sync' | 'ensureChannelGro
 
 /** src/envelope/service.ts (crypto-envelope). Messages, attachments, franking reports. */
 export type MessageService = Pick<CryptoApi, 'encryptMessage' | 'decryptMessages' | 'buildReport' | 'encryptAttachment' | 'decryptAttachment'>
+
+/** src/envelope/doc-service.ts. Page envelopes (§12.20). */
+export type DocService = Pick<CryptoApi, 'encryptDoc' | 'decryptDoc'>
+export type CreateDocService = (ctx: EngineContext, identity: IdentityService, groups: GroupService) => DocService
 
 /** src/admin/service.ts (crypto-identity, Phase 4). */
 export type AdminService = Pick<CryptoApi, 'signAdminAction'>

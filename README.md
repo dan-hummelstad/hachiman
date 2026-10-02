@@ -217,6 +217,48 @@ The gateway signs the voice token (PASETO v4.public, `pkg/voicetoken`) for one m
 
 Each voice room session has its own MLS group. The media node has no MLS library. It relays key packages, Welcomes, commits and ratchet trees, and it accepts the first commit for each epoch. The committer is the member with the lowest leaf index. The SFU forwards the SFrame payloads unchanged. The UI shows the call participants from the MLS tree, not from the server roster.
 
+### Pages: edits and presence
+
+A `pages` channel shows chat in the center and a tree of collaborative markdown pages on the right. The clients merge edits with Yjs. The server stores and relays only page envelopes (contract §4 Pages, §12.20).
+
+```mermaid
+sequenceDiagram
+    participant A as Client A (editor)
+    participant W as Crypto Worker
+    participant T as Takusen
+    participant S3 as S3
+    participant R as Redis
+    participant G as Gateway
+    participant B as Client B
+
+    Note over A: open page: GET /pages/:id/state
+    A->>T: GET state
+    T-->>A: snapshot pointer + updates after baseSeq
+    A->>S3: (via Takusen /files) snapshot blob
+    A->>W: decryptDoc + decryptAttachment
+    Note over A: Y.applyUpdate
+
+    Note over A: typing (batched 100 ms)
+    A->>W: encryptDoc(doc_update)
+    A->>T: POST /pages/:id/updates {envelope}
+    T->>T: acceptDocEnvelope, seq = latest_seq + 1
+    T->>R: PUBLISH guild:{id} DOC_UPDATE
+    R->>G: DOC_UPDATE (ephemeral: no seq, no resume buffer)
+    G->>B: DOC_UPDATE (VIEW_CHANNEL filter)
+    B->>B: decryptDoc, Y.applyUpdate, seq gap -> GET updates?after=
+
+    Note over A: cursor moves
+    A->>G: op 5 DOC_AWARENESS {envelope}
+    G->>R: PUBLISH guild:{id} DOC_AWARENESS (view, type, 8 KiB, 20/s)
+    R->>G: DOC_AWARENESS
+    G->>B: DOC_AWARENESS
+
+    Note over A: > 200 updates, or a new epoch
+    A->>S3: (via POST /uploads?kind=page_snapshot) encrypted state
+    A->>T: POST /pages/:id/snapshots {baseSeq, uploadId, envelope}
+    T->>T: compare-and-set, keep previous, delete older + their objects
+```
+
 ### Shared UI
 
 ```mermaid

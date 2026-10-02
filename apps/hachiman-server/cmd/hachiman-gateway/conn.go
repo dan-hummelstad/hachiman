@@ -35,6 +35,7 @@ const (
 	opIdentify       = 2
 	opPresenceUpdate = 3
 	opVoiceState     = 4
+	opDocAwareness   = 5
 	opResume         = 6
 	opInvalidSession = 9
 	opHello          = 10
@@ -50,6 +51,13 @@ const (
 	closeSessionTimeout   = 4009
 	closeUnsupported      = 4012
 	closeDeviceRevoked    = 4013
+)
+
+// Frame limits, contract §6.
+const (
+	maxFrameBytes        = 65536 // larger frames close the socket with 1009
+	maxAwarenessEnvelope = 8192  // characters of an op 5 envelope (MAX_DOC_AWARENESS_B64_BYTES)
+	awarenessPerSecond   = 20    // op 5 token bucket: burst and refill rate
 )
 
 // capabilityE2EE is the IDENTIFY capability every client must send (§12.13).
@@ -194,6 +202,7 @@ func (g *Gateway) serveWS(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		return
 	}
+	ws.SetReadLimit(maxFrameBytes) // gorilla sends close 1009 on overflow
 	c := newConn(ws)
 	c.sendOp(opHello, map[string]int64{"heartbeatInterval": g.heartbeat.Milliseconds()})
 	s := g.handshake(c)
@@ -268,6 +277,7 @@ func (g *Gateway) readLoop(c *conn, s *session) {
 	defer func() { s.post(detach{c, bye}) }()
 	timeout := g.heartbeat * 3 / 2
 	_ = c.ws.SetReadDeadline(time.Now().Add(timeout))
+	awareness := tokenBucket{tokens: awarenessPerSecond, last: time.Now()}
 	for {
 		f, ok, clean := g.read(c, closeSessionTimeout)
 		if !ok {
@@ -281,6 +291,17 @@ func (g *Gateway) readLoop(c *conn, s *session) {
 			g.touch(s)
 		case opPresenceUpdate, opVoiceState:
 			s.post(f)
+		case opDocAwareness:
+			var p docAwareness
+			if err := decode(f.D, &p); err != nil {
+				c.close(closeDecodeError, "decode error")
+				return
+			}
+			// Dropped here, before post: a flood must not fill s.in and
+			// kill the session.
+			if len(p.Envelope) <= maxAwarenessEnvelope && awareness.take(time.Now()) {
+				s.post(p)
+			}
 		case opIdentify, opResume:
 			c.close(closeAlreadyAuthed, "already authenticated")
 			return
@@ -289,6 +310,30 @@ func (g *Gateway) readLoop(c *conn, s *session) {
 			return
 		}
 	}
+}
+
+// docAwareness is the op 5 payload (§6).
+type docAwareness struct {
+	ChannelID string `json:"channelId"`
+	PageID    string `json:"pageId"`
+	Envelope  string `json:"envelope"`
+}
+
+// tokenBucket holds awarenessPerSecond tokens and refills at that rate.
+// Only the read loop of one connection uses it.
+type tokenBucket struct {
+	tokens float64
+	last   time.Time
+}
+
+func (b *tokenBucket) take(now time.Time) bool {
+	b.tokens = min(awarenessPerSecond, b.tokens+now.Sub(b.last).Seconds()*awarenessPerSecond)
+	b.last = now
+	if b.tokens < 1 {
+		return false
+	}
+	b.tokens--
+	return true
 }
 
 // touch refreshes every per-session TTL; heartbeats are the liveness signal.

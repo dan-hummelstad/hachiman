@@ -129,7 +129,12 @@ func (g *Gateway) route(channel, payload string) {
 }
 
 func (g *Gateway) publish(ctx context.Context, channel, t string, d any) {
-	b, err := json.Marshal(envelope{T: t, D: mustJSON(d)})
+	g.publishEnvelope(ctx, channel, envelope{T: t, D: mustJSON(d)})
+}
+
+func (g *Gateway) publishEnvelope(ctx context.Context, channel string, env envelope) {
+	t := env.T
+	b, err := json.Marshal(env)
 	if err == nil {
 		err = g.rdb.Publish(ctx, channel, b).Err()
 	}

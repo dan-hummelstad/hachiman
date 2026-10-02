@@ -28,6 +28,7 @@ import { toLeafIndex } from 'ts-mls/treemath.js'
 
 import { CryptoError, type CommitCheck, type CommitInspection, type DeviceChain, type DsModule, type DsSigner, type GroupInfoInspection, type UserId } from '../api'
 import { admin } from '../admin/index'
+import { decodeDocEnvelope } from '../envelope/codec'
 import { envelope } from '../envelope/index'
 import { verifyFrankingSync } from '../franking/index'
 import { equalBytes } from '../identity/bytes'
@@ -499,6 +500,9 @@ export const ds: DsModule = {
 
   parseEnvelopeHeader(bytes) {
     return envelope.decodeHeader(bytes).header
+  },
+  parseDocEnvelopeHeader(bytes) {
+    return decodeDocEnvelope(bytes).header
   },
 
   verifyFrankingOpening(input) {

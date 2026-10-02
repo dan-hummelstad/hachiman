@@ -26,6 +26,8 @@ import { MLS_WAKEUP_CHANNEL } from '../lib/mls/events'
 import { loadOrCreateSeed } from '../lib/mls/keys'
 import { drizzleMlsRepo } from '../lib/mls/repo.drizzle'
 import { redis } from '../lib/events'
+import { drizzlePageMediaSweepRepo } from '../lib/page-media-sweep'
+import { deleteObjects } from '../lib/storage'
 import { KtHeadSigner } from './kt-heads'
 import { MlsScheduler } from './mls-scheduler'
 import { TakusenGrpcServer } from './server'
@@ -36,6 +38,7 @@ async function startDsJobs(): Promise<() => Promise<void>> {
   const scheduler = new MlsScheduler({
     repo,
     deps,
+    pageMedia: { repo: drizzlePageMediaSweepRepo(), deleteObjects },
     async subscribe(onGroup) {
       const sub = redis().duplicate()
       sub.on('message', (_channel: string, message: string) => {

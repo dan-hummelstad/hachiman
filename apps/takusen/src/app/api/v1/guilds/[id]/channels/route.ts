@@ -1,6 +1,6 @@
 /**
  * POST  /api/v1/guilds/:id/channels { name, type, parentId?, topic? } — MANAGE_CHANNELS.
- *       A text channel gets its group in the same transaction (`channel_created`,
+ *       A text or pages channel gets its group in the same transaction (`channel_created`,
  *       §12.18): the public_set group, or a new own group when it is private.
  * PATCH /api/v1/guilds/:id/channels [{ id, position, parentId? }] — MANAGE_CHANNELS; 204.
  *       Positions and parents do not change readers (categories do not inherit, §2).
@@ -26,7 +26,7 @@ interface RouteContext {
 
 const createChannelSchema = z.object({
   name: nameSchema,
-  type: z.enum(['text', 'voice', 'category']),
+  type: z.enum(['text', 'voice', 'category', 'pages']),
   parentId: z.string().uuid().nullable().optional(),
   topic: z.string().max(1024).nullable().optional(),
 })

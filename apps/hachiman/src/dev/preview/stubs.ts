@@ -8,10 +8,12 @@ import {
   VoiceConnection,
   blobKey,
   type Attachment,
+  type DocUpdate,
   type GatewayDispatch,
   type GuildFull,
   type Invite,
   type Message,
+  type Page,
   type PermissionOverwrite,
   type VoiceE2eeDelegate,
   type VoiceStats
@@ -36,6 +38,7 @@ import {
   user,
   READY
 } from './fixture'
+import { fixturePages } from './fixture-pages'
 import { previewFileUrl, uploaded } from './images'
 
 export const dispatch = (e: GatewayDispatch): void => {
@@ -316,7 +319,82 @@ export function stubRest(): void {
     envelope
   })
 
+  // Pages (§4 Pages): in memory, seeded with the fixture pages. An update comes back as DOC_UPDATE
+  // to this client too, so the panel works without a second tab.
+  const seed = fixturePages()
+  const pages = new Map<string, Page>(seed.pages.map((p) => [p.id, p]))
+  const docUpdates = seed.updates
+  const pageOf = (pageId: string): Page => {
+    const p = pages.get(pageId)
+    if (!p) throw new RestError(404, 'NotFound')
+    return p
+  }
+  const pageGuild = (p: Page): string =>
+    must(cache.channels.get(p.channelId)?.guildId ?? undefined, 'guild')
+
   const impl: RestStubs = {
+    getPages: (channelId) => [...pages.values()].filter((p) => p.channelId === channelId),
+    createPage: (channelId, body) => {
+      const now = new Date().toISOString()
+      const p: Page = { ...body, channelId, createdBy: ME.id, createdAt: now, updatedAt: now }
+      pages.set(p.id, p)
+      dispatch({ t: 'PAGE_CREATE', d: { ...p, guildId: pageGuild(p) } })
+      return p
+    },
+    updatePage: (pageId, body) => {
+      const p = pageOf(pageId)
+      const next: Page = {
+        ...p,
+        parentId: body.parentId === undefined ? p.parentId : body.parentId,
+        position: body.position ?? p.position,
+        titleEnvelope: body.titleEnvelope ?? p.titleEnvelope,
+        updatedAt: new Date().toISOString()
+      }
+      pages.set(pageId, next)
+      dispatch({ t: 'PAGE_UPDATE', d: { ...next, guildId: pageGuild(next) } })
+      return next
+    },
+    deletePage: (pageId) => {
+      const p = pageOf(pageId)
+      const ids = [pageId]
+      for (let i = 0; i < ids.length; i++)
+        for (const c of pages.values()) if (c.parentId === ids[i]) ids.push(c.id)
+      for (const id of ids) pages.delete(id)
+      dispatch({
+        t: 'PAGE_DELETE',
+        d: { id: pageId, channelId: p.channelId, guildId: pageGuild(p), ids }
+      })
+      return undefined
+    },
+    getPageState: (pageId) => {
+      const updates = docUpdates.get(pageOf(pageId).id) ?? []
+      return { snapshot: null, updates, latestSeq: updates.length }
+    },
+    getPageUpdates: (pageId, q) => {
+      const updates = docUpdates.get(pageOf(pageId).id) ?? []
+      return { updates: updates.filter((u) => u.seq > q.after), latestSeq: updates.length }
+    },
+    postPageUpdate: (pageId, body) => {
+      const p = pageOf(pageId)
+      const list = docUpdates.get(pageId) ?? []
+      const u: DocUpdate = {
+        pageId,
+        seq: list.length + 1,
+        groupId: groupOf(p.channelId),
+        epoch: 3,
+        senderDevice: PREVIEW_DEVICE,
+        envelope: body.envelope,
+        createdAt: new Date().toISOString()
+      }
+      docUpdates.set(pageId, [...list, u])
+      dispatch({ t: 'DOC_UPDATE', d: { ...u, channelId: p.channelId, guildId: pageGuild(p) } })
+      return { seq: u.seq }
+    },
+    postPageSnapshot: () => {
+      throw new RestError(501, 'PreviewUnsupported', '[preview] page snapshots are not stored')
+    },
+    claimPageMedia: () => undefined,
+    uploadSnapshot: (blob, opts) => impl.uploadBlob(blob, opts),
     getMe: () => ME,
     updateMe: (body) => {
       const me = must(cache.user ?? undefined, 'user')

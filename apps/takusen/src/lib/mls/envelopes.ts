@@ -8,6 +8,7 @@ import { ApiError } from '@/lib/errors'
 import { bytesEqual } from './bytes'
 import { dsConfig } from './config'
 import { ADD_ONLY_EPOCH_GRACE_MS, getDsModule, type DsModule, type EnvelopeHeader } from './crypto'
+import type { DocEnvelopeHeader } from '@hachiman/crypto'
 import { drizzleMlsRepo } from './repo.drizzle'
 import type { MlsRepo } from './repo'
 
@@ -54,6 +55,37 @@ export async function acceptEnvelopeWith(
     throw new ApiError('InvalidEnvelope', 400, 'the envelope header does not decode')
   }
 
+  const groupId = await checkGroupHeader(repo, deps.now, input, header)
+
+  if (input.edit) {
+    if (!bytesEqual(header.clientMsgId, input.rowClientMsgId)) {
+      throw new ApiError('InvalidEnvelope', 400, 'an edit keeps the client_msg_id of the original')
+    }
+  } else if (await repo.messageClientMsgIdExists(input.channelId, header.clientMsgId)) {
+    throw new ApiError('DuplicateMessage', 409, 'the client_msg_id exists in the channel')
+  }
+
+  return {
+    groupId,
+    epoch: header.epoch,
+    senderDeviceId: input.deviceId,
+    clientMsgId: header.clientMsgId,
+    frankingTag: header.frankingTag,
+    size: input.envelope.length,
+  }
+}
+
+/**
+ * The checks that a message envelope and a page envelope share (§12.8.4, §12.20): the current
+ * and active group of the channel, the channel, the epoch rule, and the sender device and leaf.
+ * Returns the group id.
+ */
+async function checkGroupHeader(
+  repo: MlsRepo,
+  now: Date,
+  input: EnvelopeInputBase,
+  header: Pick<EnvelopeHeader, 'groupId' | 'channelId' | 'epoch' | 'senderLeaf' | 'senderDeviceId'>,
+): Promise<Uint8Array> {
   const channel = await repo.getChannel(input.channelId)
   if (!channel) throw new ApiError('NotFound', 404, 'unknown channel')
   const group = channel.mlsGroupId ? await repo.getGroup(channel.mlsGroupId) : null
@@ -68,7 +100,7 @@ export async function acceptEnvelopeWith(
     header.epoch === group.epoch - 1 &&
     !group.lastCommitRemoved &&
     group.epochStartedAt !== null &&
-    deps.now.getTime() - group.epochStartedAt.getTime() < ADD_ONLY_EPOCH_GRACE_MS
+    now.getTime() - group.epochStartedAt.getTime() < ADD_ONLY_EPOCH_GRACE_MS
   if (header.epoch !== group.epoch && !graceOk) {
     throw new ApiError('StaleEpoch', 409, 'the envelope epoch is not accepted', { epoch: group.epoch })
   }
@@ -79,20 +111,42 @@ export async function acceptEnvelopeWith(
     throw new ApiError('NotMember', 403, 'the sender device has no such leaf in the group')
   }
 
-  if (input.edit) {
-    if (!bytesEqual(header.clientMsgId, input.rowClientMsgId)) {
-      throw new ApiError('InvalidEnvelope', 400, 'an edit keeps the client_msg_id of the original')
-    }
-  } else if (await repo.messageClientMsgIdExists(input.channelId, header.clientMsgId)) {
-    throw new ApiError('DuplicateMessage', 409, 'the client_msg_id exists in the channel')
-  }
+  return group.groupId
+}
 
-  return {
-    groupId: group.groupId,
-    epoch: header.epoch,
-    senderDeviceId: input.deviceId,
-    clientMsgId: header.clientMsgId,
-    frankingTag: header.frankingTag,
-    size: input.envelope.length,
+export interface DocEnvelopeInput extends EnvelopeInputBase {
+  pageId: string
+  kind: 'doc_update' | 'doc_snapshot' | 'doc_title'
+}
+
+export interface AcceptedDocEnvelope {
+  groupId: Uint8Array
+  epoch: number
+  senderDeviceId: string
+  size: number
+}
+
+/** Call inside the page route transaction. Throws ApiError (§4 Pages, §12.20). */
+export async function acceptDocEnvelope(tx: Tx, input: DocEnvelopeInput): Promise<AcceptedDocEnvelope> {
+  return acceptDocEnvelopeWith(drizzleMlsRepo(tx), { ds: await getDsModule(), maxEnvelopeBytes: dsConfig().maxEnvelopeBytes, now: new Date() }, input)
+}
+
+export async function acceptDocEnvelopeWith(
+  repo: MlsRepo,
+  deps: { ds: Pick<DsModule, 'parseDocEnvelopeHeader'>; maxEnvelopeBytes: number; now: Date },
+  input: DocEnvelopeInput,
+): Promise<AcceptedDocEnvelope> {
+  if (input.envelope.length > deps.maxEnvelopeBytes) {
+    throw new ApiError('EnvelopeTooLarge', 413, `the envelope is above ${deps.maxEnvelopeBytes} bytes`)
   }
+  let header: DocEnvelopeHeader
+  try {
+    header = deps.ds.parseDocEnvelopeHeader(input.envelope)
+  } catch {
+    throw new ApiError('InvalidEnvelope', 400, 'the envelope header does not decode')
+  }
+  if (header.kind !== input.kind) throw new ApiError('InvalidEnvelope', 400, `the route takes a ${input.kind} envelope`)
+  if (header.pageId !== input.pageId) throw new ApiError('InvalidEnvelope', 400, 'the envelope is for another page')
+  const groupId = await checkGroupHeader(repo, deps.now, input, header)
+  return { groupId, epoch: header.epoch, senderDeviceId: input.deviceId, size: input.envelope.length }
 }

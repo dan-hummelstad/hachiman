@@ -11,7 +11,7 @@
  */
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
 
-import { decodeEnvelope, encodeEnvelope, encodeHeader } from '../../../../../pkgs/hachiman-crypto/src/envelope/codec'
+import { decodeDocEnvelope, decodeEnvelope, encodeDocHeader, encodeEnvelope, encodeHeader } from '../../../../../pkgs/hachiman-crypto/src/envelope/codec'
 import { identity, verifyDeviceCert, verifyDskCert } from '../../../../../pkgs/hachiman-crypto/src/identity/index'
 import { kt } from '../../../../../pkgs/hachiman-crypto/src/kt/index'
 
@@ -384,6 +384,9 @@ export class FakeDs implements DsModule {
   parseEnvelopeHeader(envelope: Uint8Array) {
     return decodeEnvelope(envelope).header
   }
+  parseDocEnvelopeHeader(envelope: Uint8Array) {
+    return decodeDocEnvelope(envelope).header
+  }
   verifyFrankingOpening(): boolean {
     throw new Error('not used by the DS tests')
   }
@@ -401,6 +404,19 @@ export function testEnvelope(h: { groupId: Uint8Array; channelId: string; epoch:
     frankingTag: new Uint8Array(randomBytes(32)),
   })
   return encodeEnvelope(header, new Uint8Array(randomBytes(64)))
+}
+
+/** A page envelope (§12.20) with a random ciphertext: the DS reads only the header. */
+export function testDocEnvelope(h: {
+  kind: 'doc_update' | 'doc_snapshot' | 'doc_awareness' | 'doc_title'
+  groupId: Uint8Array
+  channelId: string
+  pageId: string
+  epoch: number
+  senderLeaf: number
+  senderDeviceId: string
+}): Uint8Array {
+  return encodeEnvelope(encodeDocHeader({ ...h, salt: new Uint8Array(randomBytes(32)) }), new Uint8Array(randomBytes(64)))
 }
 
 // MARK: - World

@@ -12,6 +12,8 @@
  */
 import type { Tx } from '@/db/client'
 
+import { hasTextGroup } from '@/lib/channel-types'
+
 import { fromB64 } from './bytes'
 import { CipherSuite } from './crypto'
 import { dsDeps, lightDeps, type LightDeps } from './context'
@@ -124,7 +126,7 @@ export async function onMembershipChangeWith(repo: MlsRepo, deps: LightDeps, out
     case 'overwrites_changed':
     case 'channel_created': {
       const channel = await repo.getChannel(change.channelId)
-      if (channel?.type === 'text' && channel.guildId) {
+      if (channel && hasTextGroup(channel.type) && channel.guildId) {
         await reclassifyChannel(repo, deps, out, channel, reason, actorDeviceId)
       }
       return

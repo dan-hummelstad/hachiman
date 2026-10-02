@@ -121,6 +121,8 @@ func (s *session) run(first func() bool) {
 				s.onEvent(it)
 			case inFrame:
 				s.onOp(it)
+			case docAwareness:
+				s.onDocAwareness(it)
 			case detach:
 				if it.c != s.conn {
 					break
@@ -224,6 +226,43 @@ func (s *session) dispatch(t string, d any) {
 	}
 	if s.conn != nil {
 		s.conn.send([]byte(f))
+	}
+}
+
+// ephemeral events skip the seq and the resume buffer (§6): they would push
+// message events out of events:{sessionId}, and clients refetch them.
+var ephemeral = map[string]bool{"DOC_UPDATE": true, "DOC_AWARENESS": true}
+
+// sendEphemeral sends an op 0 frame without `s`; a detached session drops it.
+func (s *session) sendEphemeral(t string, d json.RawMessage) {
+	if s.conn == nil {
+		return
+	}
+	b, _ := json.Marshal(struct {
+		Op int             `json:"op"`
+		T  string          `json:"t"`
+		D  json.RawMessage `json:"d"`
+	}{opDispatch, t, d})
+	s.conn.send(b)
+}
+
+// onDocAwareness relays op 5 to guild:{g} when the channel is a pages
+// channel this user can view, and drops it otherwise (§6). The sending
+// session gets the event too; clients skip their own deviceId.
+func (s *session) onDocAwareness(p docAwareness) {
+	for _, gs := range s.guilds {
+		ch := gs.channels[p.ChannelID]
+		if ch == nil {
+			continue
+		}
+		if ch.Type != "pages" || !gs.canView(s.user.ID, ch.ID) {
+			return
+		}
+		s.g.publishEnvelope(s.ctx, "guild:"+gs.id, envelope{T: "DOC_AWARENESS", ChannelID: ch.ID, D: mustJSON(map[string]string{
+			"channelId": ch.ID, "guildId": gs.id, "pageId": p.PageID,
+			"userId": s.user.ID, "deviceId": s.deviceID, "envelope": p.Envelope,
+		})})
+		return
 	}
 }
 
@@ -466,6 +505,10 @@ func (s *session) onEvent(ev busEvent) {
 		s.dropGuild(gs.id)
 	default:
 		if e.ChannelID != "" && !gs.canView(me, e.ChannelID) {
+			return
+		}
+		if ephemeral[e.T] {
+			s.sendEphemeral(e.T, e.D)
 			return
 		}
 		s.dispatch(e.T, e.D)

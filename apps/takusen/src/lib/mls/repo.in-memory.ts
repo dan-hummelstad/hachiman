@@ -8,6 +8,8 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { randomUUID } from 'node:crypto'
 
+import { hasTextGroup } from '@/lib/channel-types'
+
 import type {
   BackupMeta,
   BackupRow,
@@ -212,7 +214,7 @@ export class InMemoryMlsRepo implements MlsRepo {
     return c ? { ...c } : null
   }
   async listGuildTextChannels(guildId: string): Promise<ChannelInfo[]> {
-    return [...this.s.channels.values()].filter((c) => c.guildId === guildId && c.type === 'text').map((c) => ({ ...c }))
+    return [...this.s.channels.values()].filter((c) => c.guildId === guildId && hasTextGroup(c.type)).map((c) => ({ ...c }))
   }
   async getGuildPermissionData(guildId: string): Promise<GuildPermissionDataShape | null> {
     const guild = this.s.guilds.get(guildId)

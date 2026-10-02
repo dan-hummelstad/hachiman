@@ -239,7 +239,8 @@ export const G2C = {
   frontend: 'c-la-frontend',
   deploys: 'c-la-deploys',
   pairing: 'c-la-pairing',
-  sync: 'c-la-sync'
+  sync: 'c-la-sync',
+  designPages: 'c-la-design-pages'
 }
 const G2R = { lead: 'r-la-lead', eng: 'r-la-eng', design: 'r-la-design' }
 const g2Members = [
@@ -283,6 +284,10 @@ const guild2: GuildFull = {
       topic: 'Go services, Postgres, the media plane.'
     }),
     channel(G2, G2C.frontend, 'text', 'frontend', 2, { parentId: G2C.eng, topic: null }),
+    channel(G2, G2C.designPages, 'pages', 'design-pages', 3, {
+      parentId: G2C.eng,
+      topic: 'Specs and RFCs. Chat here, edit the page on the right.'
+    }),
     channel(G2, G2C.deploys, 'text', 'deploys', 3, { topic: 'CI posts every prod deploy here.' }),
     channel(G2, G2C.pairing, 'voice', 'Pairing', 0, { parentId: G2C.eng }),
     channel(G2, G2C.sync, 'voice', 'Weekly sync', 1)

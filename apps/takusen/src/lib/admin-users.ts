@@ -24,6 +24,7 @@ import { publishToGuild } from '@/lib/events'
 import { deleteGuildRows, membershipChanged, membershipTransaction, MembershipTriggers, publicHistoryVisibility, publishUserUpdate } from '@/lib/guilds'
 import { deleteUserOidcRows } from '@/lib/session-revocation'
 import { deleteObjects } from '@/lib/storage'
+import { releasePageStorage } from '@/lib/uploads'
 import { toGuild, toUser } from '@/lib/wire'
 
 const adminUserColumns = {
@@ -147,6 +148,7 @@ export async function deleteUser(actorId: string, id: string): Promise<void> {
       .select({ guildId: guildMembers.guildId })
       .from(guildMembers)
       .where(eq(guildMembers.userId, id))
+    await releasePageStorage(tx, eq(uploads.uploaderId, id))
     const own = await tx.delete(uploads).where(eq(uploads.uploaderId, id)).returning({ key: uploads.key })
     const ownKeys = own.map((u) => u.key)
     keys.push(...ownKeys)

@@ -1,5 +1,5 @@
 {
-  "id": "31d2a735-ca7b-40b1-938a-513948b5d034",
+  "id": "ffe3d128-a748-4a85-bac2-19ffc4d1f290",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -962,6 +962,390 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.doc_pages": {
+      "name": "doc_pages",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "channel_id": {
+          "name": "channel_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "parent_id": {
+          "name": "parent_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "position": {
+          "name": "position",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "title_envelope": {
+          "name": "title_envelope",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "latest_seq": {
+          "name": "latest_seq",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "doc_pages_channel_id_idx": {
+          "name": "doc_pages_channel_id_idx",
+          "columns": [
+            {
+              "expression": "channel_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "doc_pages_parent_id_idx": {
+          "name": "doc_pages_parent_id_idx",
+          "columns": [
+            {
+              "expression": "parent_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "doc_pages_channel_id_channels_id_fk": {
+          "name": "doc_pages_channel_id_channels_id_fk",
+          "tableFrom": "doc_pages",
+          "tableTo": "channels",
+          "columnsFrom": [
+            "channel_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "doc_pages_parent_id_doc_pages_id_fk": {
+          "name": "doc_pages_parent_id_doc_pages_id_fk",
+          "tableFrom": "doc_pages",
+          "tableTo": "doc_pages",
+          "columnsFrom": [
+            "parent_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "doc_pages_created_by_users_id_fk": {
+          "name": "doc_pages_created_by_users_id_fk",
+          "tableFrom": "doc_pages",
+          "tableTo": "users",
+          "columnsFrom": [
+            "created_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.doc_snapshots": {
+      "name": "doc_snapshots",
+      "schema": "",
+      "columns": {
+        "page_id": {
+          "name": "page_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "base_seq": {
+          "name": "base_seq",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "upload_id": {
+          "name": "upload_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "group_id": {
+          "name": "group_id",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "epoch": {
+          "name": "epoch",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "sender_device": {
+          "name": "sender_device",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "envelope": {
+          "name": "envelope",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "media_upload_ids": {
+          "name": "media_upload_ids",
+          "type": "uuid[]",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::uuid[]"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "doc_snapshots_page_id_doc_pages_id_fk": {
+          "name": "doc_snapshots_page_id_doc_pages_id_fk",
+          "tableFrom": "doc_snapshots",
+          "tableTo": "doc_pages",
+          "columnsFrom": [
+            "page_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "doc_snapshots_upload_id_uploads_id_fk": {
+          "name": "doc_snapshots_upload_id_uploads_id_fk",
+          "tableFrom": "doc_snapshots",
+          "tableTo": "uploads",
+          "columnsFrom": [
+            "upload_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "doc_snapshots_group_id_mls_groups_group_id_fk": {
+          "name": "doc_snapshots_group_id_mls_groups_group_id_fk",
+          "tableFrom": "doc_snapshots",
+          "tableTo": "mls_groups",
+          "columnsFrom": [
+            "group_id"
+          ],
+          "columnsTo": [
+            "group_id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "doc_snapshots_sender_device_devices_id_fk": {
+          "name": "doc_snapshots_sender_device_devices_id_fk",
+          "tableFrom": "doc_snapshots",
+          "tableTo": "devices",
+          "columnsFrom": [
+            "sender_device"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "doc_snapshots_page_id_base_seq_pk": {
+          "name": "doc_snapshots_page_id_base_seq_pk",
+          "columns": [
+            "page_id",
+            "base_seq"
+          ]
+        }
+      },
+      "uniqueConstraints": {
+        "doc_snapshots_upload_id_unique": {
+          "name": "doc_snapshots_upload_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "upload_id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.doc_updates": {
+      "name": "doc_updates",
+      "schema": "",
+      "columns": {
+        "page_id": {
+          "name": "page_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "seq": {
+          "name": "seq",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "group_id": {
+          "name": "group_id",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "epoch": {
+          "name": "epoch",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "sender_device": {
+          "name": "sender_device",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "envelope": {
+          "name": "envelope",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "doc_updates_page_id_doc_pages_id_fk": {
+          "name": "doc_updates_page_id_doc_pages_id_fk",
+          "tableFrom": "doc_updates",
+          "tableTo": "doc_pages",
+          "columnsFrom": [
+            "page_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "doc_updates_group_id_mls_groups_group_id_fk": {
+          "name": "doc_updates_group_id_mls_groups_group_id_fk",
+          "tableFrom": "doc_updates",
+          "tableTo": "mls_groups",
+          "columnsFrom": [
+            "group_id"
+          ],
+          "columnsTo": [
+            "group_id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "doc_updates_sender_device_devices_id_fk": {
+          "name": "doc_updates_sender_device_devices_id_fk",
+          "tableFrom": "doc_updates",
+          "tableTo": "devices",
+          "columnsFrom": [
+            "sender_device"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "doc_updates_page_id_seq_pk": {
+          "name": "doc_updates_page_id_seq_pk",
+          "columns": [
+            "page_id",
+            "seq"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.guild_members": {
       "name": "guild_members",
       "schema": "",
@@ -1075,6 +1459,13 @@
           "type": "text",
           "primaryKey": false,
           "notNull": false
+        },
+        "page_storage_bytes": {
+          "name": "page_storage_bytes",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
         },
         "created_at": {
           "name": "created_at",
@@ -3823,6 +4214,18 @@
           "primaryKey": false,
           "notNull": false
         },
+        "page_id": {
+          "name": "page_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_referenced_at": {
+          "name": "last_referenced_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -3837,6 +4240,21 @@
           "columns": [
             {
               "expression": "message_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "uploads_page_id_idx": {
+          "name": "uploads_page_id_idx",
+          "columns": [
+            {
+              "expression": "page_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -3874,6 +4292,19 @@
           ],
           "onDelete": "cascade",
           "onUpdate": "no action"
+        },
+        "uploads_page_id_doc_pages_id_fk": {
+          "name": "uploads_page_id_doc_pages_id_fk",
+          "tableFrom": "uploads",
+          "tableTo": "doc_pages",
+          "columnsFrom": [
+            "page_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -3891,6 +4322,14 @@
         "uploads_attachment_has_message": {
           "name": "uploads_attachment_has_message",
           "value": "(\"uploads\".\"purpose\" is not distinct from 'attachment') = (\"uploads\".\"message_id\" is not null)"
+        },
+        "uploads_page_media_has_page": {
+          "name": "uploads_page_media_has_page",
+          "value": "\"uploads\".\"purpose\" is distinct from 'page_media' or \"uploads\".\"page_id\" is not null"
+        },
+        "uploads_page_id_is_page_purpose": {
+          "name": "uploads_page_id_is_page_purpose",
+          "value": "\"uploads\".\"page_id\" is null or \"uploads\".\"purpose\" in ('page_snapshot', 'page_media')"
         }
       },
       "isRLSEnabled": false
@@ -4044,7 +4483,8 @@
         "voice",
         "category",
         "dm",
-        "group_dm"
+        "group_dm",
+        "pages"
       ]
     },
     "public.device_platform": {
@@ -4160,7 +4600,9 @@
       "schema": "public",
       "values": [
         "attachment",
-        "image"
+        "image",
+        "page_snapshot",
+        "page_media"
       ]
     },
     "public.user_role": {

@@ -6,6 +6,7 @@ export const DEFAULT_LIMITS: Limits = {
   maxUploadBytes: 26214400,
   maxAttachmentsPerMessage: 10,
   maxEnvelopeBytes: 32768,
+  maxPageSnapshotBytes: 104857600,
 }
 
 /** Avatar, guild icon and guild banner uploads must be one of these. */

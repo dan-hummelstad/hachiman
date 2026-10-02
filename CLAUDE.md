@@ -4,7 +4,7 @@ Guidance for Claude Code when it works in this repository.
 
 ## What this repo is
 
-Hachiman is guild-based voice and text chat with a Discord-style architecture, in a pnpm monorepo. The monorepo contains:
+Hachiman is guild-based voice and text chat, with collaborative markdown pages, in a Discord-style architecture, in a pnpm monorepo. The monorepo contains:
 
 - Takusen (Next.js identity + REST API + file storage + Postgres schema + the E2EE delivery service)
 - a Go gateway fleet (WebSocket events) and Go media nodes (WebRTC SFU for voice and screen share)
@@ -15,15 +15,15 @@ Hachiman is guild-based voice and text chat with a Discord-style architecture, i
 
 Postgres holds durable data. S3 (SeaweedFS in dev) holds file bytes, and only Takusen talks to it. Redis holds sessions, the resume buffer, presence, voice state and the event bus.
 
-Every channel type uses end-to-end encryption (E2EE): DMs, guild text, voice, video and screen share. There is no plaintext mode. Takusen, the gateway and the media nodes relay only ciphertext. Only member devices hold keys.
+Every channel type uses end-to-end encryption (E2EE): DMs, guild text, pages, voice, video and screen share. There is no plaintext mode. Takusen, the gateway and the media nodes relay only ciphertext. Only member devices hold keys.
 
-The wire contract for every process boundary is **`docs/gateway-protocol.md`**. It covers entity shapes, permissions, schema, REST routes, Redis keys, gateway ops, voice token, media voice WS, management proto, client API, platform seam and E2EE. If code and the contract disagree, fix one of them in the same change. `docs/discord-refactor.md` records the design decisions. `docs/e2ee-plan.md` gives the reasons for the E2EE design. `docs/ui-redesign.md` is the UI spec.
+The wire contract for every process boundary is **`docs/gateway-protocol.md`**. It covers entity shapes, permissions, schema, REST routes, Redis keys, gateway ops, voice token, media voice WS, management proto, client API, platform seam and E2EE. If code and the contract disagree, fix one of them in the same change. `docs/discord-refactor.md` records the design decisions. `docs/e2ee-plan.md` gives the reasons for the E2EE design. `docs/pages-channels-plan.md` gives the reasons for the pages channel design. `docs/ui-redesign.md` is the UI spec.
 
 ## Monorepo layout
 
 ```
 apps/
-  takusen/            @hachiman/takusen            — Next.js: OIDC, REST /api/v1, uploads/files (S3), E2EE delivery service (src/lib/mls), Drizzle schema, Redis publisher; separate gRPC process for media registry + placement, MLS batch scheduler, KT tree heads
+  takusen/            @hachiman/takusen            — Next.js: OIDC, REST /api/v1, uploads/files (S3), E2EE delivery service (src/lib/mls), pages storage (src/lib/docs), Drizzle schema, Redis publisher; separate gRPC process for media registry + placement, MLS batch scheduler, KT tree heads
   hachiman/            @hachiman/hachiman           — shared React UI library (components, stores, services, hooks, platform abstraction, ?preview mode)
   hachiman-electron/   @hachiman/hachiman-electron  — Electron host (main: CSP, deep links, region probe, screen picker; preload bridge; renderer PlatformService)
   hachiman-browser/    @hachiman/hachiman-browser   — Browser host (Vite)
@@ -127,7 +127,7 @@ One name has one meaning in the shared file. Give a new variable a service prefi
 E2EE variables (contract §12.18):
 
 - Takusen: `TAKUSEN_DS_SIGNING_KEY` and `TAKUSEN_KT_SIGNING_KEY` (Ed25519 seed files, relative to `apps/takusen`). The first process that finds no file creates it with mode 0600. All Takusen instances must share the files.
-- Takusen: `TAKUSEN_MLS_SUITES` (default `1`), `TAKUSEN_MAX_ENVELOPE_BYTES` (default 32768), `TAKUSEN_PUBLIC_SET_MAX_MEMBERS` (default 500, set by the load test in `docs/e2ee-load-test.md`), `TAKUSEN_MLS_BATCH_INTERVAL_MS` (default 2000), `TAKUSEN_MLS_BATCH_TIMEOUT_MS` (default 5000).
+- Takusen: `TAKUSEN_MLS_SUITES` (default `1`), `TAKUSEN_MAX_ENVELOPE_BYTES` (default 32768), `TAKUSEN_PUBLIC_SET_MAX_MEMBERS` (default 500, set by the load test in `docs/e2ee-load-test.md`), `TAKUSEN_MLS_BATCH_INTERVAL_MS` (default 2000), `TAKUSEN_MLS_BATCH_TIMEOUT_MS` (default 5000), `TAKUSEN_MAX_PAGE_SNAPSHOT_BYTES` (default 104857600), `TAKUSEN_GUILD_PAGE_STORAGE_BYTES` (default 10737418240, 0 = no limit).
 - Gateway: `GATEWAY_MIN_CLIENT_VERSION` (default `0.1.0`). IDENTIFY with an older `clientVersion` gets close 4012.
 - Media: `MEDIA_WS_READ_LIMIT` (default 1048576). The voice WebSocket rejects larger frames. Commits, Welcomes and ratchet trees use this socket.
 
@@ -137,10 +137,10 @@ E2EE variables (contract §12.18):
 
 Most React work lands here. Layout:
 
-- `components/`: `shell/`, `chat/`, `voice/` (incl. screen share and call security), `people/`, `settings/`, `security/` (`CryptoGate` onboarding in front of the shell, the QR encoder `qr.ts`, and the security dialogs: devices, verification, linking, key change, recovery, fatal screens), `ui/` (shadcn primitives)
-- `stores/` (Zustand): guild, channel, messages, voice, user, takusen, prefs, limits, nav, dialog, crypto
+- `components/`: `shell/`, `chat/`, `voice/` (incl. screen share and call security), `people/`, `settings/`, `docs/` (the pages panel, the Milkdown Crepe editor, page links, page media), `security/` (`CryptoGate` onboarding in front of the shell, the QR encoder `qr.ts`, and the security dialogs: devices, verification, linking, key change, recovery, fatal screens), `ui/` (shadcn primitives)
+- `stores/` (Zustand): guild, channel, messages, voice, user, takusen, prefs, limits, nav, dialog, crypto, docs
 - `services/`: `hachiman.ts` owns the `HachimanClient` singleton and mirrors its cache into the stores. `App.tsx` calls `startHachiman(platform)`: the crypto Worker does not start without the platform (it needs `secureStorage` for the wrap key). `MessagesService` / `VoiceService` / `InviteService` / `UploadService` / `TakusenService` sit on top. `SoundService` plays event chimes (`lib/sounds.ts` lists the events) as `prefsStore` permits.
-- `services/CryptoService.ts` owns the one `CryptoClient` (the crypto Worker) and mirrors its events into `cryptoStore`. `ds-transport.ts` serves the Worker's REST calls. `message-decrypt.ts` decrypts messages. `voice-e2ee.ts` is the voice delegate. `AdminActionService` signs admin changes.
+- `services/CryptoService.ts` owns the one `CryptoClient` (the crypto Worker) and mirrors its events into `cryptoStore`. `ds-transport.ts` serves the Worker's REST calls. `message-decrypt.ts` decrypts messages. `voice-e2ee.ts` is the voice delegate. `AdminActionService` signs admin changes. `services/docs/` holds the pages data layer: `DocsService` (the page tree and titles) and `DocProvider` (one Yjs `Y.Doc` and awareness per open page: load, batch, encrypt, send, gap fill, snapshots).
 - `hooks/`, `lib/` (helpers: mentions, stream quality, connection quality, sounds, ...)
 - `shared/`: `IPlatformService.ts` (the seam), `PlatformContext.tsx`, `takusen-env.ts`
 - `dev/preview/`: the `?preview` mode (Vite dev only). Stubbed REST and gateway data drive the UI with no backend. Use it for UI checks. See `dev/README.md`.
@@ -182,6 +182,7 @@ If a selector returns a fresh array/object literal, React shows the warning "get
 - Attachments show as object URLs of decrypted blobs (`hooks/use-decrypted-blob.ts`, `lib/blob-url-cache.ts`). Never set the `src` of an attachment to a file URL. Avatars, icons and banners stay plaintext.
 - `cryptoStore` holds status, alerts and metadata only. It never holds key material or a recovery key.
 - The voice UI shows call participants from the MLS tree (`components/voice/call-roster.ts`), not from the server roster.
+- Pages: every page title, Yjs update, snapshot pointer and awareness frame is a page envelope (§12.20) from `encryptDoc`. `docsStore` holds the page tree and presence, never a `Y.Doc`. The `Y.Doc` stays in `DocProvider`. A page media node holds its pointer (with the file key) inside the `Y.Doc`, and shows through `use-decrypted-blob`.
 
 ## Working in the client library (`pkgs/hachiman-client`)
 
@@ -212,7 +213,7 @@ Contract §12 of `docs/gateway-protocol.md` is normative for E2EE. `src/api.ts` 
 ## Working in the Go server (`apps/hachiman-server`)
 
 Go module `hachiman/server`. Run from the package directory or through `pnpm dev:server` / `pnpm build:server`. Key areas:
-- `cmd/hachiman-gateway/` — stateless WebSocket gateway: HELLO/IDENTIFY/RESUME (resume buffer `events:{sessionId}`), Redis event dispatch with VIEW_CHANNEL filtering, presence, voice join + placement + voice-token minting, TURN credentials. It calls Takusen REST only for `GET /users/@me` at IDENTIFY and Takusen gRPC only for `PlaceMediaSession`. It reads Postgres directly for READY, `media_nodes.signaling_url` and the `devices` row. E2EE (§12.13): IDENTIFY and RESUME carry a `deviceId`. The gateway closes with 4012 when IDENTIFY has no `e2ee/1` capability or `clientVersion` is too old. It closes with 4013 when the device is unknown or revoked. It delivers `device:{id}` events to the sessions of that device. The internal `DEVICE_REVOKED` event closes them with 4013.
+- `cmd/hachiman-gateway/` — stateless WebSocket gateway: HELLO/IDENTIFY/RESUME (resume buffer `events:{sessionId}`), Redis event dispatch with VIEW_CHANNEL filtering, presence, voice join + placement + voice-token minting, TURN credentials. It calls Takusen REST only for `GET /users/@me` at IDENTIFY and Takusen gRPC only for `PlaceMediaSession`. It reads Postgres directly for READY, `media_nodes.signaling_url` and the `devices` row. E2EE (§12.13): IDENTIFY and RESUME carry a `deviceId`. The gateway closes with 4012 when IDENTIFY has no `e2ee/1` capability or `clientVersion` is too old. It closes with 4013 when the device is unknown or revoked. It delivers `device:{id}` events to the sessions of that device. The internal `DEVICE_REVOKED` event closes them with 4013. Pages (§6): client op 5 `DOC_AWARENESS` is relayed to `guild:{id}` after a view, type, size (8 KiB) and rate (20/s) check. `DOC_UPDATE` and `DOC_AWARENESS` are ephemeral: no `s`, not in the resume buffer. The WebSocket read limit is 64 KiB.
 - `cmd/hachiman-media/` — stateless WebRTC SFU: voice WS (`/voice`), token verification + replay check, Takusen registration/heartbeat, Redis `media:{nodeId}` kicks. Each client has a mic track (Opus, stream id `<userId>`) and a screen track (VP8, stream id `screen-<userId>`). `e2ee.go` relays and orders the voice MLS group (§8, §12.10.1): roster, key packages, Welcomes, ratchet trees, first commit per epoch. It has no MLS library and signs nothing. The SFU forwards SFrame payloads unchanged.
 - `cmd/hachiman-recorder/` — recording subscriber scaffold. Not wired: media serves no `RecorderControl`, and `pnpm build:server` does not build it.
 - `pkg/media/` — SFU primitives (`sfu.go`, `ssrc_pool.go`). Only hachiman-media imports it.
@@ -245,6 +246,7 @@ For changes to the voice stack (`pkg/media/sfu.go`, `pkg/media/ssrc_pool.go`, `c
 Two processes:
 - The Next.js app (`pnpm dev`) — OIDC provider (`src/lib/oidc-provider.ts`, panva `oidc-provider`), next-auth dashboard sign-in, dashboard UI, REST API (`src/app/api/v1`), and the public `GET /api/regions` for the Electron region probe. Every REST mutation publishes its gateway event to Redis after the DB commit (`src/lib/events.ts`).
 - Files: `POST /api/v1/uploads` streams the raw body to S3 (`src/lib/storage.ts`), and `GET /api/v1/files/:uploadId/:filename` streams it back with Range support. A message, avatar, icon or banner then claims the upload ids (`src/lib/uploads.ts`). Deletes go through `deleteAttachmentRows` so that objects do not leak. Clients never talk to S3. With E2EE, the bytes are opaque ciphertext blobs.
+- Pages (contract §4 Pages, §12.20) live in `src/lib/docs/`: the page tree, the update log with a per-page `seq`, and the snapshot compare-and-set. The storage seam is `DocsRepo`, with a Drizzle and an in-memory implementation. Snapshot bytes and page media are encrypted S3 objects in `uploads` (purposes `page_snapshot` and `page_media`, column `page_id`). Postgres holds only the pointers. `guilds.page_storage_bytes` is the quota. `lib/page-media-sweep.ts` deletes unreferenced page media in the daily DS sweep. `lib/channel-types.ts` `TEXT_GROUP_TYPES` lists the types that use a text MLS group (`text`, `pages`).
 - The E2EE delivery service (DS, contract §12.7, §12.12, §12.18) lives in `src/lib/mls/`. It holds devices, key packages, MLS groups, handshakes, envelopes, the device inbox and key transparency (KT). The storage seam is `MlsRepo` (`lib/mls/repo.ts`), with a Drizzle and an in-memory implementation, as `MediaNodesRepo`. Other Takusen code calls only the exports that §12.18 lists. A route that changes membership calls `onMembershipChange` inside its transaction.
 - A standalone gRPC server (`pnpm dev:grpc`) — implements the media-plane RPCs (`RegisterMediaNode`, `MediaNodeHeartbeat`, `PlaceMediaSession`) that hachiman-media and hachiman-gateway consume. It also runs the MLS batch scheduler, the KT tree-head timer and the daily DS sweeps. It is a separate process because Next has no clean "after listen" hook. A colocated gRPC port would flap on every dev file-watcher restart.
 

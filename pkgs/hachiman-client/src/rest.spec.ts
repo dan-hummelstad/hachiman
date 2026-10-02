@@ -100,6 +100,15 @@ describe('RestClient files', () => {
     await expect(p).resolves.toEqual(att)
   })
 
+  it('uploadSnapshot posts ?kind=page_snapshot as octet-stream', async () => {
+    const p = rest.uploadSnapshot(new Blob(['x']))
+    const xhr = await sent()
+    expect(xhr.url).toBe('http://api/v1/uploads?kind=page_snapshot')
+    expect(xhr.headers['Content-Type']).toBe('application/octet-stream')
+    xhr.respond(201, JSON.stringify({ id: 'u1', key: 'u1/blob', size: 1 }))
+    await expect(p).resolves.toEqual({ id: 'u1', key: 'u1/blob', size: 1 })
+  })
+
   it('uploadImage posts ?filename= with the image type', async () => {
     const file = new Blob(['png'], { type: 'image/png' })
     const p = rest.uploadImage(file, { filename: 'a b.png' })
@@ -237,6 +246,42 @@ describe('RestClient fetch routes', () => {
     await rest.previewInvite('abc')
     expect(last().headers).not.toHaveProperty('Authorization')
     expect(last().headers).not.toHaveProperty('X-Hachiman-Device')
+  })
+
+  it('the page routes use the §4 Pages paths and bodies', async () => {
+    await rest.getPages('c1')
+    expect(last()).toMatchObject({ url: 'http://api/v1/channels/c1/pages', method: 'GET' })
+    await rest.createPage('c1', { id: 'p1', parentId: null, position: 0, titleEnvelope: 'T' })
+    expect(last()).toMatchObject({
+      url: 'http://api/v1/channels/c1/pages',
+      method: 'POST',
+      body: { id: 'p1', parentId: null, position: 0, titleEnvelope: 'T' },
+    })
+    await rest.updatePage('p1', { parentId: 'p0' })
+    expect(last()).toMatchObject({ url: 'http://api/v1/pages/p1', method: 'PATCH', body: { parentId: 'p0' } })
+    await rest.getPageState('p1')
+    expect(last()).toMatchObject({ url: 'http://api/v1/pages/p1/state', method: 'GET' })
+    await rest.getPageUpdates('p1', { after: 7, limit: 50 })
+    expect(last()).toMatchObject({ url: 'http://api/v1/pages/p1/updates?after=7&limit=50', method: 'GET' })
+    await rest.postPageUpdate('p1', { envelope: 'U' })
+    expect(last()).toMatchObject({ url: 'http://api/v1/pages/p1/updates', method: 'POST', body: { envelope: 'U' } })
+    await rest.postPageSnapshot('p1', { baseSeq: 9, uploadId: 'u1', envelope: 'S', mediaUploadIds: ['m1'] })
+    expect(last()).toMatchObject({
+      url: 'http://api/v1/pages/p1/snapshots',
+      method: 'POST',
+      body: { baseSeq: 9, uploadId: 'u1', envelope: 'S', mediaUploadIds: ['m1'] },
+    })
+    await rest.claimPageMedia('p1', ['m1'])
+    expect(last()).toMatchObject({ url: 'http://api/v1/pages/p1/media', method: 'POST', body: { uploadIds: ['m1'] } })
+    await rest.deletePage('p1')
+    expect(last()).toMatchObject({ url: 'http://api/v1/pages/p1', method: 'DELETE' })
+  })
+
+  it('a snapshot CAS loss rejects with SnapshotConflict and the current baseSeq', async () => {
+    reply = json(409, { error: 'SnapshotConflict', baseSeq: 12 })
+    await expect(
+      rest.postPageSnapshot('p1', { baseSeq: 9, uploadId: 'u1', envelope: 'S', mediaUploadIds: [] }),
+    ).rejects.toMatchObject({ status: 409, code: 'SnapshotConflict', details: { baseSeq: 12 } })
   })
 
   it('sendMessage and editMessage send the envelope', async () => {

@@ -222,6 +222,21 @@ Rules:
 - Every writer of a group's epoch or proposals locks the group row first (`MlsRepo.lockGroup`). The commit compare-and-set takes the same lock. Thus a proposal is never signed twice for one epoch.
 - The services take `(repo, deps, out, …)`. The tests run the same services on `InMemoryMlsRepo` with `FakeDs`, so they need no Postgres and no Redis.
 
+## Pages (`src/lib/docs/`)
+
+Contract §4 Pages and §12.20. A `pages` channel holds a tree of pages. The content of a page is a Yjs document that only members can decrypt, so Takusen cannot merge edits. It stores the page tree, an ordered log of encrypted updates, and pointers to encrypted snapshots.
+
+| File | What |
+|---|---|
+| `repo.ts`, `repo.drizzle.ts`, `repo.in-memory.ts` | `DocsRepo`, the storage seam. `repo.conformance.ts` is one suite for both implementations. Change the two implementations in the same commit. |
+| `service.ts` | Create, move (cycle check), delete; the update log (`seq` from `doc_pages.latest_seq` under a row lock); the snapshot compare-and-set; media claims; the guild quota (`guilds.page_storage_bytes`). |
+| `access.ts`, `wire.ts`, `config.ts` | The channel and permission checks of the routes, the zod bodies and wire shapes, and the limits. |
+| `../mls/envelopes.ts` | `acceptDocEnvelope`: the page envelope header checks. It shares the group, epoch and sender checks with `acceptEnvelope`. |
+| `../page-media-sweep.ts` | The daily sweep of page media that no kept snapshot lists. |
+| `../channel-types.ts` | `TEXT_GROUP_TYPES`: `text` and `pages` use a text MLS group. |
+
+Storage: Postgres holds rows of bounded size (the tree, update envelopes up to 32 KiB, pointer envelopes). The snapshot bytes and page media are encrypted S3 objects in `uploads` (purposes `page_snapshot` and `page_media`, column `page_id`). A page keeps at most two snapshots. `DOC_UPDATE` is published to `guild:{id}` after the commit, as other events are.
+
 ## Conventions
 
 ### Publish after commit
@@ -234,6 +249,7 @@ Call the `lib/events.ts` publishers after the DB transaction commits, never insi
 - `claimImage()` sets `image`. A later `claimImage()` can use the same image upload again.
 - `claimForMessage()` sets `attachment`. No later claim can use an attachment upload.
 - Run each claim in the transaction that stores the reference.
+- A page snapshot upload has purpose `page_snapshot` from the upload on, and gets its `page_id` from the snapshot claim. `claimPageMedia` sets `page_media` and refreshes `last_referenced_at`. Page claims count toward `guilds.page_storage_bytes`.
 - To delete a message, channel or guild, call `deleteAttachmentRows()` in the transaction. Then call `deleteObjects()` with the keys after the commit.
 
 ### MediaNodesRepo lockstep

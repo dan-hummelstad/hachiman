@@ -254,6 +254,32 @@ The browser shows its own share picker inside `getDisplayMedia`. In Electron, th
 
 A media close 4012 shows "update required" in the call UI. A media close 4013 sets `voiceResyncing`, and `VoiceService` joins the same channel again with a new leaf and new transforms.
 
+## Pages channel
+
+A `pages` channel shows the chat in the center and the pages panel on the right, in a `react-resizable-panels` group (`components/ui/resizable.tsx`). `prefsStore` keeps the panel width per channel.
+
+| Path | What |
+|---|---|
+| `components/docs/pages-panel.tsx` | The panel: breadcrumb, page tree popover, presence avatars, copy as markdown, the editor. |
+| `components/docs/page-editor.tsx` | Milkdown Crepe bound to the page `Y.Doc` and awareness through `@milkdown/plugin-collab`. Read-only without SEND_MESSAGES. |
+| `components/docs/page-links.ts`, `page-picker.tsx` | Links with the target `hachiman:page/<id>`, shown with the current title. Slash menu items "Link to page" and "New sub-page". |
+| `components/docs/page-media.tsx`, `services/docs/media.ts` | Drop or paste a file: encrypt, upload, claim, then insert an `hm_media` node that holds the pointer. Shown through `use-decrypted-blob`. |
+| `services/docs/DocsService.ts` | The page tree per channel, title encryption, the `PAGE_*` events, into `docsStore`. |
+| `services/docs/DocProvider.ts` | One `Y.Doc` and awareness per open page: load the snapshot and updates, batch local updates (100 ms), encrypt and post, apply remote updates, fill `seq` gaps, post snapshots, relay awareness through gateway op 5. |
+
+```mermaid
+flowchart LR
+  Editor[page-editor.tsx<br/>Crepe + collab] -- Y.Doc / Awareness --> Provider[DocProvider]
+  Panel[pages-panel.tsx] --> DocsService
+  DocsService --> docsStore[(docsStore)]
+  Provider --> Crypto[CryptoService<br/>encryptDoc / decryptDoc]
+  DocsService --> Crypto
+  Provider --> REST[RestClient<br/>page routes]
+  Provider --> GW[GatewayClient<br/>op 5]
+  hachiman.ts -- PAGE_* / DOC_* events --> DocsService
+  hachiman.ts -- DOC_UPDATE / DOC_AWARENESS --> Provider
+```
+
 ## Conventions
 
 Read [`CLAUDE.md`](../../CLAUDE.md#working-in-the-shared-ui-appshachimansrc) before you change this package. These rules are the most important:

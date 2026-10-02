@@ -101,6 +101,8 @@ class FakeMessageStore implements MessageStore {
       messageId: null,
       position: 0,
       purpose: null,
+      pageId: null,
+      lastReferencedAt: null,
       createdAt: new Date(),
     })
     return id

@@ -5,6 +5,7 @@ import {
   GatewayOp,
   type DeviceProof,
   type DeviceProver,
+  type DocAwarenessRequest,
   type GatewayDevice,
   type GatewayEventName,
   type GatewayEvents,
@@ -99,6 +100,11 @@ export class GatewayClient extends TypedEventEmitter<GatewayClientEvents> {
   // ponytail: frames sent while not connected are dropped; add an outbox if the UI needs queueing.
   updateVoiceState(d: VoiceStateUpdateRequest): void {
     this.send(GatewayOp.VOICE_STATE_UPDATE, d)
+  }
+
+  /** Op 5: an encrypted awareness update of an open page (§6). Dropped while not connected. */
+  sendDocAwareness(d: DocAwarenessRequest): void {
+    this.send(GatewayOp.DOC_AWARENESS, d)
   }
 
   private open(): void {

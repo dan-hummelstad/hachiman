@@ -15,6 +15,7 @@ import { postJoinRequest } from '../lib/mls/joins'
 import { uploadKeyPackages } from '../lib/mls/key-packages'
 import { flushWithProposals, onMembershipChangeWith } from '../lib/mls/membership'
 import { activate, activeDevice, fakeKeyPackage, newWorld } from '../lib/mls/testing'
+import { InMemoryPageMediaSweepRepo } from '../lib/page-media-sweep'
 import { MlsScheduler } from './mls-scheduler'
 
 setBusPublisher(async () => undefined)
@@ -94,6 +95,31 @@ describe('MlsScheduler', () => {
     assert.equal(swept.linkSessions, 1)
     assert.equal(swept.joinRequests, 1)
     assert.equal((await w.repo.listPending(group.groupId, ['queued'])).length, 0, 'the Add of a swept join request goes with it')
+  })
+
+  test('the daily sweep deletes page media that no recent snapshot or claim references, after 30 days', async () => {
+    const w = await newWorld()
+    const media = new InMemoryPageMediaSweepRepo()
+    const created = new Date(w.clock.now)
+    for (const id of ['current', 'previous', 'oldest', 'claimed', 'unlisted']) {
+      media.uploads.set(id, { id, pageId: 'p', key: `key-${id}`, createdAt: created, lastReferencedAt: created })
+    }
+    media.snapshots.set('p', [['oldest'], ['previous'], ['current']])
+    const deleted: string[] = []
+    const scheduler = new MlsScheduler({
+      repo: w.repo,
+      deps: w.deps,
+      flush: async () => undefined,
+      logger: () => undefined,
+      pageMedia: { repo: media, deleteObjects: async (keys) => void deleted.push(...keys) },
+    })
+    assert.equal((await scheduler.sweep()).pageMedia, 0, 'nothing is older than 30 days')
+
+    w.clock.now += 31 * 24 * 60 * 60_000
+    media.uploads.get('claimed')!.lastReferencedAt = new Date(w.clock.now - 60_000)
+    assert.equal((await scheduler.sweep()).pageMedia, 2)
+    assert.deepEqual(deleted.sort(), ['key-oldest', 'key-unlisted'])
+    assert.deepEqual([...media.uploads.keys()].sort(), ['claimed', 'current', 'previous'])
   })
 
   test('the sweep starts a suite upgrade when suite 83 is enabled and every reader device has a key package', async () => {

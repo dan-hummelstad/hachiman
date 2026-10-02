@@ -10,13 +10,14 @@ import { sha256 } from '@noble/hashes/sha2.js'
 import type { DecryptFailure, EnvelopeHeader, EnvelopeModule, EnvelopeOpenResult, EnvelopeSealInput } from '../api'
 import { CryptoError } from '../api'
 import { Writer } from '../codec'
-import { EXPORTER_LENGTH, FRANKING_KEY_LENGTH, HkdfInfo, MESSAGE_SALT_LENGTH, SignLabel } from '../constants'
+import { DOC_SALT_LENGTH, EXPORTER_LENGTH, FRANKING_KEY_LENGTH, HkdfInfo, MESSAGE_SALT_LENGTH, SignLabel } from '../constants'
 import { frankingTagSync, verifyFrankingSync } from '../franking'
 import { signWithLabel, verifyWithLabel } from '../sign'
 import type { EnvelopeContent } from './codec'
 import { decodeContent, decodeEnvelope, decodePlaintext, encodeContent, encodeEnvelope, encodeHeader, encodePlaintext } from './codec'
 
 const MESSAGE_KEY_INFO = new TextEncoder().encode(HkdfInfo.MESSAGE_KEY)
+const DOC_KEY_INFO = new TextEncoder().encode(HkdfInfo.DOC_KEY)
 const ZERO_NONCE = new Uint8Array(12)
 
 /** A copy backed by a plain ArrayBuffer, as WebCrypto's BufferSource type wants. */
@@ -33,15 +34,24 @@ function concat(a: Uint8Array, b: Uint8Array): Uint8Array {
   return out
 }
 
-function randomBytes(n: number): Uint8Array {
+export function randomBytes(n: number): Uint8Array {
   return globalThis.crypto.getRandomValues(new Uint8Array(n))
 }
 
-export function deriveMessageKeySync(epochSecret: Uint8Array, salt: Uint8Array, senderLeaf: number): Uint8Array {
+function deriveKey(label: Uint8Array, saltLength: number, epochSecret: Uint8Array, salt: Uint8Array, senderLeaf: number): Uint8Array {
   if (epochSecret.length !== EXPORTER_LENGTH) throw new CryptoError('Malformed', `S_e must be ${EXPORTER_LENGTH} bytes`)
-  if (salt.length !== MESSAGE_SALT_LENGTH) throw new CryptoError('Malformed', `salt must be ${MESSAGE_SALT_LENGTH} bytes`)
-  const info = new Writer().fixed(MESSAGE_KEY_INFO, MESSAGE_KEY_INFO.length).u32(senderLeaf).finish()
+  if (salt.length !== saltLength) throw new CryptoError('Malformed', `salt must be ${saltLength} bytes`)
+  const info = new Writer().fixed(label, label.length).u32(senderLeaf).finish()
   return hkdf(sha256, epochSecret, salt, info, 32)
+}
+
+export function deriveMessageKeySync(epochSecret: Uint8Array, salt: Uint8Array, senderLeaf: number): Uint8Array {
+  return deriveKey(MESSAGE_KEY_INFO, MESSAGE_SALT_LENGTH, epochSecret, salt, senderLeaf)
+}
+
+/** K_doc (§12.20): the K_msg derivation with another label, so K_doc never equals a K_msg. */
+export function deriveDocKeySync(epochSecret: Uint8Array, salt: Uint8Array, senderLeaf: number): Uint8Array {
+  return deriveKey(DOC_KEY_INFO, DOC_SALT_LENGTH, epochSecret, salt, senderLeaf)
 }
 
 /** The bytes that the Envelope signature covers: SHA-256(encode(header)) ‖ SHA-256(encode(content)). */
@@ -49,7 +59,7 @@ export function envelopeSignedContent(headerBytes: Uint8Array, contentBytes: Uin
   return concat(sha256(headerBytes), sha256(contentBytes))
 }
 
-async function aesGcm(mode: 'encrypt' | 'decrypt', key: Uint8Array, aad: Uint8Array, data: Uint8Array): Promise<Uint8Array> {
+export async function aesGcm(mode: 'encrypt' | 'decrypt', key: Uint8Array, aad: Uint8Array, data: Uint8Array): Promise<Uint8Array> {
   const k = await globalThis.crypto.subtle.importKey('raw', buf(key), 'AES-GCM', false, [mode])
   const params = { name: 'AES-GCM', iv: buf(ZERO_NONCE), additionalData: buf(aad), tagLength: 128 }
   const out = mode === 'encrypt' ? await globalThis.crypto.subtle.encrypt(params, k, buf(data)) : await globalThis.crypto.subtle.decrypt(params, k, buf(data))

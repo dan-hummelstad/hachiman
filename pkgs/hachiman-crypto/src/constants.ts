@@ -76,12 +76,15 @@ export const SignLabel = {
   ADMIN_ACTION: 'AdminAction',
   TREE_HEAD: 'TreeHead',
   DEVICE_MESSAGE: 'DeviceMessage',
+  DOC_ENVELOPE: 'DocEnvelope',
 } as const
 
 // MARK: - HKDF info strings (§12.3, §12.5, §12.8, §12.11)
 
 export const HkdfInfo = {
   MESSAGE_KEY: 'hachiman msg key v1',
+  /** K_doc of a page envelope (§12.20). A different label from MESSAGE_KEY, so K_doc never equals K_msg. */
+  DOC_KEY: 'hachiman doc key v1',
   FRANKING: 'hachiman franking v1',
   BACKUP_KEY: 'hachiman backup key v1',
   BACKUP_KEY_ID: 'hachiman backup id v1',
@@ -117,6 +120,18 @@ export const MAX_MESSAGE_UPLOAD_IDS = 20
 /** UTF-8 bytes of EnvelopeContent.text. */
 export const MAX_TEXT_BYTES = 8_000
 export const MentionType = { USER: 1, ROLE: 2, EVERYONE: 3 } as const
+
+// MARK: - Page envelopes (§12.20)
+
+/** First two bytes of a DocEnvelope. A message envelope (ENVELOPE_MAGIC) never decodes as one. */
+export const DOC_ENVELOPE_MAGIC = 0x4802
+export const DocEnvelopeKind = { UPDATE: 1, SNAPSHOT: 2, AWARENESS: 3, TITLE: 4 } as const
+export const PAGE_ID_LENGTH = 16
+export const DOC_SALT_LENGTH = 32
+/** UTF-8 bytes of a page title (doc_title body), 1 to this. */
+export const MAX_PAGE_TITLE_BYTES = 200
+/** A doc_awareness envelope as base64url on op 5 (§6). The gateway drops a larger frame. */
+export const MAX_DOC_AWARENESS_B64_BYTES = 8_192
 
 /**
  * Fork alert: this many AEAD failures in the window (§12.8.7). The count is per group and does not

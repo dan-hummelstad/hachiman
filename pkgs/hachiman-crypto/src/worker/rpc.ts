@@ -62,6 +62,8 @@ const CRYPTO_API_METHOD_SET = {
   encryptMessage: true,
   decryptMessages: true,
   buildReport: true,
+  encryptDoc: true,
+  decryptDoc: true,
   encryptAttachment: true,
   decryptAttachment: true,
   backupNow: true,

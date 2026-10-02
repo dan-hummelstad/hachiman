@@ -5,6 +5,7 @@
 import { and, asc, desc, eq, gt, gte, inArray, isNull, lt, lte, ne, or, sql } from 'drizzle-orm'
 
 import { db, type Database, type Tx } from '@/db/client'
+import { TEXT_GROUP_TYPES } from '@/lib/channel-types'
 import {
   channels,
   deviceInbox,
@@ -71,7 +72,7 @@ export function drizzleMlsRepo(x: Executor = db): MlsRepo {
       return x
         .select({ id: channels.id, guildId: channels.guildId, type: channels.type, mlsGroupId: channels.mlsGroupId })
         .from(channels)
-        .where(and(eq(channels.guildId, guildId), eq(channels.type, 'text')))
+        .where(and(eq(channels.guildId, guildId), inArray(channels.type, [...TEXT_GROUP_TYPES])))
     },
     async getGuildPermissionData(guildId): Promise<GuildPermissionData | null> {
       const [guild] = await x.select({ id: guilds.id, ownerId: guilds.ownerId }).from(guilds).where(eq(guilds.id, guildId)).limit(1)
