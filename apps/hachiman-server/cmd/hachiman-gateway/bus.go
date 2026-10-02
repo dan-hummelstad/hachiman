@@ -16,7 +16,7 @@ import (
 
 // Redis keys, contract §5.
 const (
-	sessionTTL  = 90 * time.Second // also the resume buffer's LTRIM bound of 500 lives in appendScript
+	sessionTTL  = 90 * time.Second // TTL of the per-session keys (see touch); the 500-frame resume bound is in appendScript
 	voiceRoomEX = 24 * time.Hour
 )
 
@@ -26,7 +26,7 @@ func kPresence(uid string) string     { return "presence:" + uid }
 func kVoice(gid string) string        { return "voice:" + gid }
 func kVoiceUser(uid string) string    { return "voice_user:" + uid }
 func kVoiceRoom(cid string) string    { return "voice_room:" + cid }
-func kUserSessions(uid string) string { return "user_sessions:" + uid } // not in contract §5; see session.end
+func kUserSessions(uid string) string { return "user_sessions:" + uid } // see session.end
 
 // appendScript assigns the next seq and records the frame atomically, but
 // only while this process still owns the session. `owner` flips when another

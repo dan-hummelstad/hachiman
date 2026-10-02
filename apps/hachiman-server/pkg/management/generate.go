@@ -1,5 +1,5 @@
 // Copyright (c) 2026 The Hachiman Authors
-// The use of this source code is goverened by a BSD-style
+// The use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE-file.
 
 // Code generation for the media-plane management gRPC API (contract §9).

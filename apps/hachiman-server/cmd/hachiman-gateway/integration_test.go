@@ -8,7 +8,7 @@
 // + `pnpm -F @hachiman/takusen dev`). Needs:
 //
 //	DATABASE_URL, REDIS_URL, TAKUSEN_URL   same values Takusen runs with
-//	HACHIMAN_TEST_TOKEN                   an Takusen access token for any user
+//	HACHIMAN_TEST_TOKEN                   a Takusen access token for any user
 //
 //	go test -tags integration -run Integration ./cmd/hachiman-gateway/
 package main

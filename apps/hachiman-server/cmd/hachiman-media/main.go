@@ -2,7 +2,8 @@
 // The use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE-file.
 
-// hachiman-media is the stateless WebRTC audio SFU (contract §8).
+// hachiman-media is the stateless WebRTC SFU for voice (Opus) and screen
+// share (VP8) (contract §8).
 //
 //   - voice.go:  /voice WS — token identify, SDP/ICE, peers, speaking
 //   - takusen.go: RegisterMediaNode + MediaNodeHeartbeat to Takusen gRPC

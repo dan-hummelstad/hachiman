@@ -1,5 +1,5 @@
 // Copyright (c) 2026 The Hachiman Authors
-// The use of this source code is goverened by a BSD-style
+// The use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE-file.
 
 package coturn
@@ -18,8 +18,8 @@ import (
 )
 
 // knownTime is the fixed reference time tests use so the minted username's
-// expiry component is deterministic. 2026-06-07T12:00:00Z — within the time
-// window when phase 3a landed, easy to spot in test failure output.
+// expiry component is deterministic. 2026-06-07T12:00:00Z is easy to spot in
+// test failure output.
 var knownTime = time.Date(2026, time.June, 7, 12, 0, 0, 0, time.UTC)
 
 // TestMintICEServers_Deterministic locks in that the minted username +

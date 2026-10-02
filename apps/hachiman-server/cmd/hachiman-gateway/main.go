@@ -3,7 +3,7 @@
 // license that can be found in the LICENSE-file.
 
 // Command hachiman-gateway is the stateless realtime WebSocket gateway.
-// Contract: docs/gateway-protocol.md §5–§7. Sessions, resume buffers,
+// Contract: docs/gateway-protocol.md §5–§7 and §9 (PlaceMediaSession). Sessions, resume buffers,
 // presence and voice state live in Redis so any node can serve any session.
 package main
 

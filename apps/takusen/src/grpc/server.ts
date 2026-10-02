@@ -4,7 +4,7 @@
  * default (configurable via env TAKUSEN_GRPC_PORT for the port half and
  * TAKUSEN_GRPC_BIND_ADDR for the full host:port override).
  *
- * Security posture (Phase 3a):
+ * Security posture:
  *   - The gRPC surface implements RegisterMediaNode / MediaNodeHeartbeat /
  *     PlaceMediaSession — anyone who can reach the port can inject fake
  *     nodes, drain real ones, or skew placement. Application-layer auth is
@@ -17,9 +17,9 @@
  *     isolation (VPC, security group, private network) — the startup log
  *     emits a prominent warning so the operator is reminded.
  *
- * Decision (per Phase 3a spec, section D): Next.js doesn't have a natural
- * "after listen" hook, so this lives behind a standalone `bin/grpc-server.ts`
- * entry point invoked via `pnpm dev:takusen-grpc`. Sharing a process with
+ * Decision: Next.js doesn't have a natural "after listen" hook, so this lives
+ * behind a standalone `src/grpc/main.ts` entry point invoked via
+ * `pnpm dev:grpc` / `pnpm start:grpc`. Sharing a process with
  * Next.js would also bind the gRPC port inside the Next dev server's
  * file-watcher subprocess, which restarts on every file edit — gRPC
  * connections would flap. The separate process pattern is documented in

@@ -1,5 +1,5 @@
 // Copyright (c) 2026 The Hachiman Authors
-// The use of this source code is goverened by a BSD-style
+// The use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE-file.
 
 // Package coturn mints time-bounded TURN credentials per the coturn REST API
@@ -54,7 +54,7 @@ type CoturnRegion struct {
 	Endpoints []string `json:"endpoints"`
 
 	// HMACSecret is the shared secret with the regional coturn cluster.
-	// Rotated independently per region per Phase 3 step 6.
+	// Rotate it independently per region.
 	HMACSecret string `json:"hmac_secret"`
 
 	// CredentialTTL is the TTL the minted username encodes. Zero (the

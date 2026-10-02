@@ -8,9 +8,10 @@
  * (the node must have called RegisterMediaNode first).
  *
  * Errors are surfaced as gRPC status codes (`code` field on the callback err)
- * so the Go side's `errors.Is` / `status.Code` checks work. Per phase 3a
- * scope, lifecycle status starts at `active` on first sight and stays there
- * until an explicit drain path lands (phase 3b / 4).
+ * so the Go side's `errors.Is` / `status.Code` checks work. Lifecycle status
+ * starts at `active` on first sight. A heartbeat with `accepting=false` moves
+ * the node to `draining` and `accepting=true` moves it back. `dead` stays dead
+ * (see MediaNodesRepo.applyHeartbeat).
  */
 import * as grpc from '@grpc/grpc-js'
 

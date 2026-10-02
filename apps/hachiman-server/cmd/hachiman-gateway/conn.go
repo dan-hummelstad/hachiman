@@ -302,7 +302,8 @@ func (e closeErr) Error() string { return fmt.Sprintf("close %d: %s", e.code, e.
 
 var errAuthFailed = closeErr{closeAuthFailed, "authentication failed"}
 
-// auth resolves a bearer token to a user via Takusen (fixup #1: no introspection).
+// auth resolves a bearer token to a user via Takusen GET /api/v1/users/@me
+// (no token introspection endpoint).
 func (g *Gateway) auth(ctx context.Context, token string) (User, error) {
 	var u User
 	if token == "" {
