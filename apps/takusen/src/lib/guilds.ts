@@ -2,11 +2,16 @@
  * Guild read models for /api/v1: loads rows and shapes them into the wire
  * types via `wire.ts`. Voice states and presences are gateway-owned Redis
  * keys (contract §5); Takusen only reads them to fill GuildFull.
+ *
+ * It also holds the one call site of the DS membership seam for the content
+ * routes (`membershipChanged`, `wakeAfterCommit`, §12.18), and the change
+ * that each route trigger gives (`MembershipTriggers`).
  */
-import { and, asc, eq, inArray } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, ne } from 'drizzle-orm'
 import type {
   Channel,
   GuildFull,
+  HistoryVisibility,
   Member,
   Presence,
   PresenceStatus,
@@ -20,15 +25,131 @@ import {
   guildMembers,
   guilds,
   memberRoles,
+  mlsGroups,
   permissionOverwrites,
   roles,
   users,
 } from '@/db/schema'
 import { NotFoundError } from '@/lib/errors'
 import { publishToGuild, publishToUser, redis } from '@/lib/events'
+import { toB64 } from '@/lib/mls/bytes'
+import { onMembershipChange, wakeScheduler, type MembershipChange } from '@/lib/mls/membership'
 import { deleteObjects } from '@/lib/storage'
 import { deleteAttachmentRows } from '@/lib/uploads'
-import { assembleGuildFull, toChannel, toMember, toUser, type UserLike } from '@/lib/wire'
+import {
+  assembleGuildFull,
+  DEFAULT_PUBLIC_HISTORY_VISIBILITY,
+  toChannel,
+  toMember,
+  toUser,
+  type GroupVisibility,
+  type UserLike,
+} from '@/lib/wire'
+
+// MARK: - DS membership seam (§12.18)
+
+export type { MembershipChange }
+
+/** The two DS calls of a content route. Tests replace them with `setMembershipSeam`. */
+export interface MembershipSeam {
+  change(tx: Tx, change: MembershipChange, actorDeviceId: string | null): Promise<void>
+  wake(tx: Tx): Promise<void>
+}
+
+const dsSeam: MembershipSeam = { change: onMembershipChange, wake: wakeScheduler }
+let seam: MembershipSeam = dsSeam
+
+/** Tests only: record the calls instead of running the DS (null restores it). */
+export function setMembershipSeam(s: MembershipSeam | null): void {
+  seam = s ?? dsSeam
+}
+
+/** Call inside the route transaction: after the write, or before the row delete for deletes. */
+export async function membershipChanged(
+  tx: Tx,
+  changes: MembershipChange | readonly MembershipChange[],
+  actorDeviceId: string | null,
+): Promise<void> {
+  const list: readonly MembershipChange[] = Array.isArray(changes) ? changes : [changes as MembershipChange]
+  for (const c of list) await seam.change(tx, c, actorDeviceId)
+}
+
+/**
+ * Call after the transaction commits: signs the proposals, publishes the DS
+ * events of the transaction and wakes the scheduler. A failure is logged: the
+ * write committed, and the scheduler picks up the queued items on its tick.
+ */
+export async function wakeAfterCommit(tx: Tx | undefined): Promise<void> {
+  if (!tx) return
+  try {
+    await seam.wake(tx)
+  } catch (err) {
+    console.error('[guilds] wakeScheduler failed', err)
+  }
+}
+
+/**
+ * `db.transaction` for a route that calls `membershipChanged`. It wakes the
+ * scheduler for this transaction after the commit, and not after a rollback.
+ */
+export async function membershipTransaction<T>(fn: (tx: Tx) => Promise<T>): Promise<T> {
+  let handle: Tx | undefined
+  const result = await db.transaction(async (tx) => {
+    handle = tx
+    return fn(tx)
+  })
+  await wakeAfterCommit(handle)
+  return result
+}
+
+/** The DS change of each content route trigger (§12.18). One place, so the routes and the tests agree. */
+export const MembershipTriggers = {
+  guildCreated: (guildId: string): MembershipChange => ({ kind: 'guild_created', guildId }),
+  guildDeleted: (guildId: string): MembershipChange => ({ kind: 'guild_deleted', guildId }),
+  /** Invite accept. */
+  memberJoined: (guildId: string, userId: string): MembershipChange => ({ kind: 'guild_member_added', guildId, userId }),
+  /** Kick and leave. */
+  memberLeft: (guildId: string, userId: string): MembershipChange => ({ kind: 'guild_member_removed', guildId, userId }),
+  memberRolesEdited: (guildId: string, userId: string): MembershipChange => ({ kind: 'member_roles_changed', guildId, userId }),
+  /** Role create, edit and reorder. */
+  roleChanged: (guildId: string, roleId: string): MembershipChange => ({ kind: 'role_changed', guildId, roleId }),
+  roleDeleted: (guildId: string, roleId: string): MembershipChange => ({ kind: 'role_deleted', guildId, roleId }),
+  /** Overwrite PUT and DELETE. */
+  overwritesChanged: (channelId: string): MembershipChange => ({ kind: 'overwrites_changed', channelId }),
+  channelCreated: (channelId: string): MembershipChange => ({ kind: 'channel_created', channelId }),
+  channelDeleted: (guildId: string, channelId: string): MembershipChange => ({ kind: 'channel_deleted', guildId, channelId }),
+  dmCreated: (channelId: string): MembershipChange => ({ kind: 'dm_created', channelId }),
+  /** Admin user delete, before the user row is deleted. */
+  userDeleted: (userId: string): MembershipChange => ({ kind: 'user_deleted', userId }),
+  /** Password reset: every device of the user, reason password_reset. */
+  passwordReset: (userId: string): MembershipChange => ({ kind: 'devices_revoked', userId, deviceIds: 'all', reason: 'password_reset' }),
+} as const
+
+// MARK: - MLS group fields of the wire shapes
+
+type Executor = typeof db | Tx
+
+/** History visibility by base64url group id, for `Channel.historyVisibility`. */
+export async function groupVisibility(groupIds: (Uint8Array | null)[], executor: Executor = db): Promise<GroupVisibility> {
+  const ids = groupIds.filter((g): g is Uint8Array => g !== null)
+  if (ids.length === 0) return new Map()
+  const rows = await executor
+    .select({ groupId: mlsGroups.groupId, historyVisibility: mlsGroups.historyVisibility })
+    .from(mlsGroups)
+    .where(inArray(mlsGroups.groupId, ids))
+  return new Map(rows.map((r) => [toB64(r.groupId), r.historyVisibility]))
+}
+
+/** The visibility of the guild's current (newest non-retired) public_set group. */
+export async function publicHistoryVisibility(guildId: string, executor: Executor = db): Promise<HistoryVisibility> {
+  const [row] = await executor
+    .select({ historyVisibility: mlsGroups.historyVisibility })
+    .from(mlsGroups)
+    .where(and(eq(mlsGroups.guildId, guildId), eq(mlsGroups.kind, 'public_set'), ne(mlsGroups.status, 'retired')))
+    .orderBy(desc(mlsGroups.generation))
+    .limit(1)
+  return row?.historyVisibility ?? DEFAULT_PUBLIC_HISTORY_VISIBILITY
+}
 
 /** The `users` columns `toUser` needs. */
 export const userColumns = {
@@ -77,9 +198,11 @@ export async function loadGuildFull(guildId: string, viewerId: string): Promise<
       .from(memberRoles)
       .where(eq(memberRoles.guildId, guildId)),
   ])
-  const [voiceStates, presences] = await Promise.all([
+  const [voiceStates, presences, groups, publicVisibility] = await Promise.all([
     readVoiceStates(guildId),
     readPresences(members.map((m) => m.member.userId)),
+    groupVisibility(channelRows.map((c) => c.mlsGroupId)),
+    publicHistoryVisibility(guildId),
   ])
   return assembleGuildFull({
     guild,
@@ -91,6 +214,8 @@ export async function loadGuildFull(guildId: string, viewerId: string): Promise<
     viewerId,
     voiceStates,
     presences,
+    groups,
+    publicHistoryVisibility: publicVisibility,
   })
 }
 
@@ -184,7 +309,8 @@ export async function loadChannels(ids: string[]): Promise<Channel[]> {
     db.select().from(channels).where(inArray(channels.id, ids)),
     db.select().from(permissionOverwrites).where(inArray(permissionOverwrites.channelId, ids)),
   ])
-  const byId = new Map(rows.map((c) => [c.id, toChannel(c, overwrites)]))
+  const groups = await groupVisibility(rows.map((c) => c.mlsGroupId))
+  const byId = new Map(rows.map((c) => [c.id, toChannel(c, overwrites, groups)]))
   return ids.flatMap((id) => byId.get(id) ?? [])
 }
 
@@ -195,34 +321,41 @@ export async function loadChannel(id: string): Promise<Channel> {
 }
 
 /**
- * Kick / leave: drop the membership (member_roles cascade) and tell the guild
- * and the removed user. The caller has already checked permissions.
+ * Kick / leave: drop the membership (member_roles cascade), queue the DS
+ * Removes in the same transaction, and tell the guild and the removed user.
+ * The caller has already checked permissions.
  */
-export async function removeMember(guildId: string, userId: string): Promise<void> {
+export async function removeMember(guildId: string, userId: string, actorDeviceId: string | null): Promise<void> {
   const user = await getUserById(userId)
-  const deleted = await db
-    .delete(guildMembers)
-    .where(and(eq(guildMembers.guildId, guildId), eq(guildMembers.userId, userId)))
-    .returning({ userId: guildMembers.userId })
-  if (deleted.length === 0 || !user) throw new NotFoundError('Unknown member')
+  if (!user) throw new NotFoundError('Unknown member')
+  await membershipTransaction(async (tx) => {
+    const deleted = await tx
+      .delete(guildMembers)
+      .where(and(eq(guildMembers.guildId, guildId), eq(guildMembers.userId, userId)))
+      .returning({ userId: guildMembers.userId })
+    if (deleted.length === 0) throw new NotFoundError('Unknown member')
+    await membershipChanged(tx, MembershipTriggers.memberLeft(guildId, userId), actorDeviceId)
+  })
   await publishToGuild(guildId, 'GUILD_MEMBER_REMOVE', { guildId, user: toUser(user) })
   await publishToUser(userId, 'GUILD_DELETE', { id: guildId })
 }
 
 /**
  * Deletes a guild in `tx` (rows cascade) and returns its attachment keys for
- * deleteObjects after commit. Throws NotFound for an unknown guild.
+ * deleteObjects after commit. The DS retires the guild's groups first, in the
+ * same transaction (§12.18 `guild_deleted`). Throws NotFound for an unknown guild.
  */
-export async function deleteGuildRows(tx: Tx, guildId: string): Promise<string[]> {
+export async function deleteGuildRows(tx: Tx, guildId: string, actorDeviceId: string | null): Promise<string[]> {
   const keys = await deleteAttachmentRows(tx, { guildId })
+  await membershipChanged(tx, MembershipTriggers.guildDeleted(guildId), actorDeviceId)
   const deleted = await tx.delete(guilds).where(eq(guilds.id, guildId)).returning({ id: guilds.id })
   if (deleted.length === 0) throw new NotFoundError('Unknown guild')
   return keys
 }
 
 /** Owner or admin delete: rows, then GUILD_DELETE, then (best effort) objects. */
-export async function deleteGuild(guildId: string): Promise<void> {
-  const keys = await db.transaction((tx) => deleteGuildRows(tx, guildId))
+export async function deleteGuild(guildId: string, actorDeviceId: string | null): Promise<void> {
+  const keys = await membershipTransaction((tx) => deleteGuildRows(tx, guildId, actorDeviceId))
   await publishToGuild(guildId, 'GUILD_DELETE', { id: guildId })
   await deleteObjects(keys)
 }

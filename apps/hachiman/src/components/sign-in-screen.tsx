@@ -6,6 +6,7 @@ import { usePlatform } from '@/shared/PlatformContext'
 /**
  * Signed-out screen (spec §1): a small "Sign in to Hachiman" window centred on the app
  * background — the old-messenger login window. Mounted by the shell when there's no session.
+ * After sign-in, the encryption onboarding (security/onboarding.tsx) sets up this device.
  */
 export function SignInScreen(): React.JSX.Element {
   const { signIn, busy, error } = useSignIn()
@@ -44,6 +45,10 @@ export function SignInScreen(): React.JSX.Element {
             {platform === 'browser'
               ? 'You’ll go to the Takusen sign-in page and come straight back here.'
               : 'Your browser opens to finish signing in. Come back here when it says you’re done.'}
+          </p>
+          <p className="text-muted-foreground border-t pt-3 text-xs leading-4">
+            Messages and calls are end-to-end encrypted. After you sign in, you set up this device:
+            link it from another device, restore it with your recovery key, or start new.
           </p>
         </div>
       </section>

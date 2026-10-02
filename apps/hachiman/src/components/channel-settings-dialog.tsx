@@ -1,6 +1,12 @@
 import { useState } from 'react'
 import { Check, Plus, Slash, Trash2, User, X } from 'lucide-react'
-import { Permissions, has, type Channel, type PermissionOverwrite } from '@hachiman/client'
+import {
+  Permissions,
+  has,
+  type Channel,
+  type HistoryVisibility,
+  type PermissionOverwrite
+} from '@hachiman/client'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -12,6 +18,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { ErrorText, Field, SectionHeading } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
+import { NativeSelect } from '@/components/ui/native-select'
 import { PermissionRow } from '@/components/ui/permission-row'
 import { SelectableRow } from '@/components/ui/selectable-row'
 import { Textarea } from '@/components/ui/textarea'
@@ -22,9 +29,11 @@ import { useAction } from '@/hooks/use-action'
 import { trimName, useDraft } from '@/hooks/use-draft'
 import { usePermissions } from '@/hooks/use-hachiman'
 import { useDialogSubject } from '@/hooks/use-dialog-subject'
+import { useKeyedAsync } from '@/hooks/use-keyed-async'
 import { useSettingsSection } from '@/hooks/use-settings-section'
 import { displayName, rolesByPositionDesc } from '@/lib/model'
 import { cn } from '@/lib/utils'
+import { adminActionService } from '@/services/AdminActionService'
 import { hachiman } from '@/services/hachiman'
 import { useChannelStore } from '@/stores/channelStore'
 import { openDialog, type DialogOf } from '@/stores/dialogStore'
@@ -155,7 +164,67 @@ function OverviewTab({
           </Button>
         </div>
       )}
+      {channel.type === 'text' && channel.guildId && (
+        <HistoryVisibilityField channel={channel} editable={editable} />
+      )}
     </form>
+  )
+}
+
+/** The MLS group kind of a channel: 'channel' when it has its own group (§12.6). */
+const groupKindOf = (channelId: string): Promise<string | null> =>
+  hachiman.rest.getChannelMlsGroup(channelId).then((g) => g?.kind ?? null)
+
+/**
+ * History visibility of a channel with its own group (§12.6): `joined` (new members see only
+ * new messages) or `shared` (members send the earlier message keys to new members). Public
+ * channels share the guild's group and its setting (guild settings → Overview).
+ */
+function HistoryVisibilityField({
+  channel,
+  editable
+}: {
+  channel: Channel
+  editable: boolean
+}): React.JSX.Element | null {
+  const kind = useKeyedAsync(channel.id, groupKindOf)
+  const { run, busy, error } = useAction()
+  const [saved, setSaved] = useState(false)
+  if (kind?.data !== 'channel') return null
+  const value = channel.historyVisibility ?? 'joined'
+
+  const change = async (next: HistoryVisibility): Promise<void> => {
+    setSaved(false)
+    const r = await run('change who can read earlier messages', () =>
+      adminActionService.updateChannel(channel.id, { historyVisibility: next })
+    )
+    if (r.ok) setSaved(true)
+  }
+
+  return (
+    <div className="grid gap-2 border-t pt-5">
+      <Field
+        id="channel-history"
+        label="Earlier messages for new members"
+        hint={
+          value === 'shared'
+            ? 'New members can read the messages from before they joined. A member device sends them the keys.'
+            : 'New members see only the messages that come after they join.'
+        }
+      >
+        <NativeSelect
+          id="channel-history"
+          value={value}
+          disabled={!editable || busy}
+          onChange={(e) => void change(e.target.value as HistoryVisibility)}
+        >
+          <option value="joined">Hide earlier messages</option>
+          <option value="shared">Show earlier messages</option>
+        </NativeSelect>
+      </Field>
+      {saved && <span className="text-muted-foreground text-xs">Changes saved.</span>}
+      <ErrorText>{error}</ErrorText>
+    </div>
   )
 }
 
@@ -188,9 +257,14 @@ function OverwritesTab({
         : displayName(members?.get(o.id))
 
   const update = (fn: () => Promise<unknown>): void => void run('update permissions', fn)
+  // Signed admin actions (§12.16): the overwrites decide who reads the channel.
   const put = (o: PermissionOverwrite): void =>
     update(() =>
-      hachiman.rest.putOverwrite(channel.id, o.id, { type: o.type, allow: o.allow, deny: o.deny })
+      adminActionService.putOverwrite(channel.id, o.id, {
+        type: o.type,
+        allow: o.allow,
+        deny: o.deny
+      })
     )
   const add = (id: string, type: 'role' | 'member'): void => {
     put({ id, type, allow: 0, deny: 0 })
@@ -266,7 +340,7 @@ function OverwritesTab({
                 size="sm"
                 className="text-muted-foreground hover:text-destructive"
                 onClick={() => {
-                  update(() => hachiman.rest.deleteOverwrite(channel.id, selected.id))
+                  update(() => adminActionService.deleteOverwrite(channel.id, selected.id))
                   setSelectedId(guildId)
                 }}
               >

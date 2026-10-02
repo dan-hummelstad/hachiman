@@ -9,6 +9,7 @@ import { isGuildChannel } from '@/lib/model'
 import { captureConstraints, tuneTrack, type StreamQuality } from '@/lib/stream-quality'
 import { hachiman } from '@/services/hachiman'
 import { playSound, selfVoiceSound } from '@/services/SoundService'
+import { setCryptoFatal, useCryptoStore } from '@/stores/cryptoStore'
 import { usePrefsStore } from '@/stores/prefsStore'
 import { useUserStore } from '@/stores/userStore'
 import { useVoiceStore } from '@/stores/voiceStore'
@@ -17,6 +18,8 @@ const STATS_MS = 2_000
 const VAD_MS = 50
 const VAD_THRESHOLD = 0.02 // RMS
 const VAD_HANGOVER_MS = 300
+/** Media close codes (§8). */
+const MEDIA_UNSUPPORTED = 4012
 
 /** A captured microphone plus its voice-activity detector. `stop()` releases both. */
 interface MicSession {
@@ -95,6 +98,8 @@ class VoiceService {
   private micAttempt = 0
   private screen: MediaStream | null = null
   private statsTimer: ReturnType<typeof setInterval> | null = null
+  /** Set by media close 4013: the drop that follows rejoins this target instead of ending. */
+  private resync: { guildId: string; channelId: string } | null = null
 
   /** Wires the client and prefs subscriptions. `startHachiman()` calls it once. */
   start(): void {
@@ -104,9 +109,24 @@ class VoiceService {
     // Dropped underneath us (kicked / replaced / media drop / gateway disconnect on sign-out).
     // Our own leave/switch clears `this.conn` first, so those don't land here.
     hachiman.on('voice', (vc) => {
-      if (vc || !this.conn) return
+      if (vc) {
+        vc.on('close', ({ code }) => {
+          if (code === MEDIA_UNSUPPORTED) setCryptoFatal('update_required')
+        })
+        return
+      }
+      const resync = this.resync
+      this.resync = null
+      if (resync) return void this.rejoin(resync)
+      if (!this.conn) return
       playSound('voiceDisconnect')
       this.endSession()
+    })
+    // Media close 4013 (§8): the E2EE state must start again. The client leaves voice next; the
+    // 'voice' handler above then joins again, which gives a new leaf and new transforms.
+    hachiman.on('voiceResync', (target) => {
+      this.resync = target
+      useCryptoStore.setState({ voiceResyncing: true })
     })
     // Device changes from user settings apply to the live session.
     usePrefsStore.subscribe((s, prev) => {
@@ -163,8 +183,20 @@ class VoiceService {
     }
   }
 
+  /** The automatic rejoin after 4013. The banner flag stays up until the new call connects. */
+  private async rejoin(target: { guildId: string; channelId: string }): Promise<void> {
+    this.endSession()
+    try {
+      await this.joinVoice(target.guildId, target.channelId)
+    } finally {
+      useCryptoStore.setState({ voiceResyncing: false })
+    }
+  }
+
   leaveVoice(): void {
     if (useVoiceStore.getState().channelId) playSound('voiceLeave')
+    this.resync = null
+    useCryptoStore.setState({ voiceResyncing: false })
     this.endSession()
   }
 

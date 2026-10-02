@@ -2,9 +2,43 @@ import type {} from '@redux-devtools/extension'
 import { create } from 'zustand'
 import { devtools } from 'zustand/middleware'
 import type { Message } from '@hachiman/client'
+import type {
+  AttachmentPointer,
+  DecryptedSender,
+  DecryptFailure,
+  DecryptResult,
+  Mention
+} from '@hachiman/crypto'
 
-/** A message as rendered. Optimistic sends carry `pending` until the server echo (matched by nonce). */
-export type ChatMessage = Message & { pending?: boolean; failed?: boolean }
+/** The decrypt result of a stored row (§12.8.5). */
+export type DecryptState =
+  | { status: 'ok' }
+  /** The keys are not here yet. The row shows a placeholder and decrypts again on epochKeysAvailable. */
+  | { status: 'pending'; reason: Extract<DecryptResult, { status: 'pending' }>['reason'] }
+  /** The row shows "unable to decrypt" with the reason. */
+  | { status: 'failed'; reason: DecryptFailure }
+
+/**
+ * A message as rendered: the decrypted content, never the envelope. The ciphertext fields that
+ * the UI needs (group, epoch, client message id) stay; `envelope` does not.
+ * Optimistic sends carry `pending` until the server echo (matched by nonce), and `failed` with
+ * `sendError` when the send failed.
+ */
+export interface ChatMessage extends Omit<Message, 'envelope' | 'attachments' | 'senderDevice'> {
+  /** Decrypted text. '' while the row does not decrypt. */
+  content: string
+  mentions: Mention[]
+  /** Decrypted attachment pointers (name, MIME type, size, key), in envelope order. */
+  attachments: AttachmentPointer[]
+  replyTo: string | null
+  /** The verified sender device, or null for an optimistic row or a row that did not decrypt. */
+  sender: DecryptedSender | null
+  decrypt: DecryptState
+  pending?: boolean
+  failed?: boolean
+  /** Why the send failed, in words for the user. */
+  sendError?: string
+}
 
 interface MessagesState {
   /** channelId → messages, oldest first. */
@@ -14,9 +48,9 @@ interface MessagesState {
   /** channelId → userId → typing-expiry (ms epoch). */
   typing: Map<string, Map<string, number>>
   /** Merge server messages by id; a message whose nonce matches a pending row replaces it. */
-  upsert: (channelId: string, messages: Message[]) => void
+  upsert: (channelId: string, messages: ChatMessage[]) => void
   addPending: (message: ChatMessage) => void
-  markFailed: (channelId: string, nonce: string) => void
+  markFailed: (channelId: string, nonce: string, sendError?: string) => void
   remove: (channelId: string, messageId: string) => void
   setHasMore: (channelId: string, hasMore: boolean) => void
   setTyping: (channelId: string, userId: string, until: number | null) => void
@@ -53,11 +87,13 @@ export const useMessageStore = create<MessagesState>()(
         const list = [...(s.byChannel.get(message.channelId) ?? []), message]
         return { byChannel: new Map(s.byChannel).set(message.channelId, list) }
       }),
-    markFailed: (channelId, nonce) =>
+    markFailed: (channelId, nonce, sendError) =>
       set((s) => {
         const list = s.byChannel.get(channelId)
         if (!list) return {}
-        const next = list.map((m) => (m.nonce === nonce && m.pending ? { ...m, failed: true } : m))
+        const next = list.map((m) =>
+          m.nonce === nonce && m.pending ? { ...m, failed: true, sendError } : m
+        )
         return { byChannel: new Map(s.byChannel).set(channelId, next) }
       }),
     remove: (channelId, messageId) =>

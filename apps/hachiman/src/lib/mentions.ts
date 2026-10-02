@@ -1,3 +1,5 @@
+import type { Mention } from '@hachiman/crypto'
+
 /** An `@username` or `<@userId>` reference. */
 export type MentionToken = { kind: 'mention'; value: string } & (
   { userId: string } | { username: string }
@@ -38,4 +40,53 @@ export function mentionsUser(token: Token, me: { id: string; username: string })
 /** Whether `content` mentions `me`. */
 export function mentionsMe(content: string, me: { id: string; username: string }): boolean {
   return tokenize(content).some((t) => mentionsUser(t, me))
+}
+
+/** At most this many mentions go into one envelope (§12.8.1). */
+export const MAX_MENTIONS = 100
+
+/**
+ * The structured mentions of a message text, for the envelope. `<@id>` mentions that user,
+ * `@everyone` everyone, and `@username` the user that `resolve` finds (else nothing).
+ */
+export function mentionsOf(
+  content: string,
+  resolve: (username: string) => string | null
+): Mention[] {
+  const out: Mention[] = []
+  const seen = new Set<string>()
+  const add = (m: Mention): void => {
+    const key = `${m.type}:${m.id ?? ''}`
+    if (seen.has(key) || out.length >= MAX_MENTIONS) return
+    seen.add(key)
+    out.push(m)
+  }
+  for (const t of tokenize(content)) {
+    if (t.kind !== 'mention') continue
+    if ('userId' in t) add({ type: 'user', id: t.userId })
+    else if (t.username.toLowerCase() === 'everyone') add({ type: 'everyone', id: null })
+    else {
+      const id = resolve(t.username)
+      if (id) add({ type: 'user', id })
+    }
+  }
+  return out
+}
+
+/**
+ * Whether a decrypted message mentions `me`: by the structured mentions of the envelope (me,
+ * everyone, or one of `myRoleIds`), or by the text.
+ */
+export function messageMentionsMe(
+  message: { content: string; mentions: readonly Mention[] },
+  me: { id: string; username: string },
+  myRoleIds: readonly string[] = []
+): boolean {
+  const byList = message.mentions.some(
+    (m) =>
+      m.type === 'everyone' ||
+      (m.type === 'user' && m.id === me.id) ||
+      (m.type === 'role' && m.id !== null && myRoleIds.includes(m.id))
+  )
+  return byList || mentionsMe(message.content, me)
 }

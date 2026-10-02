@@ -2,6 +2,9 @@
  * Upload claims and attachment loading (docs/gateway-protocol.md §4 Files).
  * The first claim sets `uploads.purpose`; each claim is one conditional UPDATE,
  * so of two concurrent claims with different purposes only one wins.
+ *
+ * A message claims only encrypted blobs (`?kind=blob`). An avatar, icon or
+ * banner claims only plaintext profile images (`?filename=`).
  */
 import { and, asc, eq, inArray, isNull, or, sql } from 'drizzle-orm'
 import { PROFILE_IMAGE_TYPES } from '@hachiman/client/files'
@@ -9,8 +12,26 @@ import type { Attachment } from '@hachiman/client/types'
 
 import { db, type Tx } from '@/db/client'
 import { channels, guilds, messages, uploads, type UploadRow } from '@/db/schema'
-import { InvalidImageError, UnknownUploadError } from '@/lib/errors'
+import { InvalidImageError, UnknownUploadError, ValidationError } from '@/lib/errors'
 import { toAttachment } from '@/lib/files'
+import { MESSAGE_MAX_UPLOAD_IDS } from '@/lib/wire'
+
+type ClaimView = Pick<UploadRow, 'uploaderId' | 'purpose' | 'encrypted' | 'contentType'>
+
+/** The rule of the message claim: an unclaimed encrypted blob of the caller. */
+export function messageClaimable(row: ClaimView, userId: string): boolean {
+  return row.uploaderId === userId && row.purpose === null && row.encrypted
+}
+
+/**
+ * The rule of the image claim: an unclaimed or image upload of the caller,
+ * not encrypted, with a profile image type. Returns the error to throw, or null.
+ */
+export function imageClaimError(row: ClaimView | null, userId: string): UnknownUploadError | InvalidImageError | null {
+  if (!row || row.uploaderId !== userId || row.purpose === 'attachment' || row.encrypted) return new UnknownUploadError()
+  if (!(PROFILE_IMAGE_TYPES as readonly string[]).includes(row.contentType)) return new InvalidImageError()
+  return null
+}
 
 /**
  * Avatar / icon / banner: claims the caller's upload as an image and returns
@@ -19,6 +40,7 @@ import { toAttachment } from '@/lib/files'
  */
 export async function claimImage(tx: Tx, uploadId: string, userId: string): Promise<string> {
   const mine = and(eq(uploads.id, uploadId), eq(uploads.uploaderId, userId))
+  // The SQL form of imageClaimError: keep the two in step.
   const [claimed] = await tx
     .update(uploads)
     .set({ purpose: 'image' })
@@ -26,21 +48,27 @@ export async function claimImage(tx: Tx, uploadId: string, userId: string): Prom
       and(
         mine,
         or(isNull(uploads.purpose), eq(uploads.purpose, 'image')),
+        eq(uploads.encrypted, false),
         inArray(uploads.contentType, [...PROFILE_IMAGE_TYPES]),
       ),
     )
     .returning({ key: uploads.key })
   if (claimed) return claimed.key
 
-  const [row] = await tx.select({ purpose: uploads.purpose }).from(uploads).where(mine).limit(1)
-  if (!row || row.purpose === 'attachment') throw new UnknownUploadError()
-  throw new InvalidImageError()
+  const [row] = await tx
+    .select({ uploaderId: uploads.uploaderId, purpose: uploads.purpose, encrypted: uploads.encrypted, contentType: uploads.contentType })
+    .from(uploads)
+    .where(mine)
+    .limit(1)
+  throw imageClaimError(row ?? null, userId) ?? new UnknownUploadError()
 }
 
 /**
  * Attaches `uploadIds` (in order) to a new message inside its transaction.
- * Throws UnknownUpload, which rolls the message back, when any id is not the
- * caller's or already has a purpose.
+ * The list holds, per attachment pointer, the file id and then its thumbnail
+ * id, so a message delete also removes the thumbnails. Throws UnknownUpload,
+ * which rolls the message back, when any id is not the caller's, is not a
+ * blob, or already has a purpose.
  */
 export async function claimForMessage(
   tx: Tx,
@@ -49,6 +77,8 @@ export async function claimForMessage(
   userId: string,
 ): Promise<UploadRow[]> {
   if (uploadIds.length === 0) return []
+  if (uploadIds.length > MESSAGE_MAX_UPLOAD_IDS) throw new ValidationError(`A message has at most ${MESSAGE_MAX_UPLOAD_IDS} upload ids`)
+  if (new Set(uploadIds).size !== uploadIds.length) throw new ValidationError('Duplicate upload id')
   const ids = sql`array[${sql.join(
     uploadIds.map((id) => sql`${id}`),
     sql`, `,
@@ -60,8 +90,14 @@ export async function claimForMessage(
       purpose: 'attachment',
       position: sql`array_position(${ids}, ${uploads.id}) - 1`,
     })
+    // The SQL form of messageClaimable: keep the two in step.
     .where(
-      and(inArray(uploads.id, uploadIds), eq(uploads.uploaderId, userId), isNull(uploads.purpose)),
+      and(
+        inArray(uploads.id, uploadIds),
+        eq(uploads.uploaderId, userId),
+        isNull(uploads.purpose),
+        eq(uploads.encrypted, true),
+      ),
     )
     .returning()
   if (rows.length !== uploadIds.length) {

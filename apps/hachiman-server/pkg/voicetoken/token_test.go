@@ -35,6 +35,7 @@ func validClaims() voicetoken.Claims {
 	return voicetoken.Claims{
 		SessionID:   "sess-abc",
 		UserID:      "user-1",
+		DeviceID:    "device-1",
 		GuildID:     "guild-1",
 		ChannelID:   "chan-1",
 		MediaNodeID: testNodeID,
@@ -55,10 +56,25 @@ func TestMintVerifyRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Verify: %v", err)
 	}
-	if got.SessionID != want.SessionID || got.UserID != want.UserID || got.GuildID != want.GuildID ||
+	if got.SessionID != want.SessionID || got.UserID != want.UserID || got.DeviceID != want.DeviceID || got.GuildID != want.GuildID ||
 		got.ChannelID != want.ChannelID || got.MediaNodeID != want.MediaNodeID || got.JTI != want.JTI ||
 		!got.IssuedAt.Equal(want.IssuedAt) || !got.ExpiresAt.Equal(want.ExpiresAt) {
 		t.Errorf("claims mismatch:\n got %+v\nwant %+v", *got, want)
+	}
+}
+
+// A token without a device id still verifies here; hachiman-media rejects it.
+func TestDeviceIDOptional(t *testing.T) {
+	s, v := newPair(t)
+	c := validClaims()
+	c.DeviceID = ""
+	tok, err := s.Mint(c)
+	if err != nil {
+		t.Fatalf("Mint: %v", err)
+	}
+	got, err := v.Verify(tok)
+	if err != nil || got.DeviceID != "" {
+		t.Fatalf("Verify = %+v, %v; want empty deviceId", got, err)
 	}
 }
 

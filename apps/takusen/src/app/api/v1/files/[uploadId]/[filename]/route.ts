@@ -1,6 +1,8 @@
 /**
  * GET /api/v1/files/:uploadId/:filename — public. Streams the object from S3,
  * with single-range support for media seeking (docs/gateway-protocol.md §4 Files).
+ * A blob (`/files/{uploadId}/blob`) is application/octet-stream with
+ * `attachment; filename="blob"`. The client decrypts it (§12.9).
  */
 import { eq } from 'drizzle-orm'
 import type { NextRequest } from 'next/server'
@@ -9,7 +11,7 @@ import { db } from '@/db/client'
 import { uploads } from '@/db/schema'
 import { errorResponse } from '@/lib/api-helpers'
 import { NotFoundError } from '@/lib/errors'
-import { contentDisposition, parseRange } from '@/lib/files'
+import { downloadHeaders, parseRange } from '@/lib/files'
 import { assertId } from '@/lib/ids'
 import { getObjectStream } from '@/lib/storage'
 
@@ -27,9 +29,10 @@ export async function GET(req: NextRequest, ctx: RouteContext): Promise<Response
     // Only the canonical URL (the key) resolves.
     if (!row || row.key !== `${uploadId}/${filename}`) throw new NotFoundError('Unknown file')
 
+    const { contentType, disposition } = downloadHeaders(row)
     const headers = new Headers({
-      'Content-Type': row.contentType,
-      'Content-Disposition': contentDisposition(row.contentType, row.filename),
+      'Content-Type': contentType,
+      'Content-Disposition': disposition,
       'Cache-Control': 'public, max-age=31536000, immutable',
       'X-Content-Type-Options': 'nosniff',
       'Content-Security-Policy': "default-src 'none'; sandbox",

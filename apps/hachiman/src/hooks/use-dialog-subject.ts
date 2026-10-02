@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { useLatched } from '@/hooks/use-latched'
-import { useDialog, type DialogKind, type DialogOf } from '@/stores/dialogStore'
+import { useDialog, type AnyDialogKind, type DialogOf } from '@/stores/dialogStore'
 
 /**
  * `useDialog` for a dialog about one store entity (a guild, a channel…). `useEntity` is a hook
@@ -8,7 +8,7 @@ import { useDialog, type DialogKind, type DialogOf } from '@/stores/dialogStore'
  * animate closed after the entity is gone; the dialog closes itself when the entity disappears
  * while open, and `open` is false while there is nothing to show.
  */
-export function useDialogSubject<K extends DialogKind, T>(
+export function useDialogSubject<K extends AnyDialogKind, T>(
   kind: K,
   useEntity: (dialog: DialogOf<K>) => T | undefined
 ): { dialog: DialogOf<K>; subject: T | null; open: boolean; close: () => void } {

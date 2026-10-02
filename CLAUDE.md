@@ -6,21 +6,24 @@ Guidance for Claude Code when it works in this repository.
 
 Hachiman is guild-based voice and text chat with a Discord-style architecture, in a pnpm monorepo. The monorepo contains:
 
-- Takusen (Next.js identity + REST API + file storage + Postgres schema)
+- Takusen (Next.js identity + REST API + file storage + Postgres schema + the E2EE delivery service)
 - a Go gateway fleet (WebSocket events) and Go media nodes (WebRTC SFU for voice and screen share)
 - a browser-safe TypeScript client library
+- a browser-safe E2EE library (MLS through ts-mls, message envelopes, attachments, SFrame)
 - a shared React UI
 - two host apps (Electron + Browser)
 
 Postgres holds durable data. S3 (SeaweedFS in dev) holds file bytes, and only Takusen talks to it. Redis holds sessions, the resume buffer, presence, voice state and the event bus.
 
-The wire contract for every process boundary is **`docs/gateway-protocol.md`**. It covers entity shapes, permissions, schema, REST routes, Redis keys, gateway ops, voice token, media voice WS, management proto, client API and platform seam. If code and the contract disagree, fix one of them in the same change. `docs/discord-refactor.md` records the design decisions. `docs/ui-redesign.md` is the UI spec.
+Every channel type uses end-to-end encryption (E2EE): DMs, guild text, voice, video and screen share. There is no plaintext mode. Takusen, the gateway and the media nodes relay only ciphertext. Only member devices hold keys.
+
+The wire contract for every process boundary is **`docs/gateway-protocol.md`**. It covers entity shapes, permissions, schema, REST routes, Redis keys, gateway ops, voice token, media voice WS, management proto, client API, platform seam and E2EE. If code and the contract disagree, fix one of them in the same change. `docs/discord-refactor.md` records the design decisions. `docs/e2ee-plan.md` gives the reasons for the E2EE design. `docs/ui-redesign.md` is the UI spec.
 
 ## Monorepo layout
 
 ```
 apps/
-  takusen/            @hachiman/takusen            — Next.js: OIDC, REST /api/v1, uploads/files (S3), Drizzle schema, Redis publisher; separate gRPC process for media registry + placement
+  takusen/            @hachiman/takusen            — Next.js: OIDC, REST /api/v1, uploads/files (S3), E2EE delivery service (src/lib/mls), Drizzle schema, Redis publisher; separate gRPC process for media registry + placement, MLS batch scheduler, KT tree heads
   hachiman/            @hachiman/hachiman           — shared React UI library (components, stores, services, hooks, platform abstraction, ?preview mode)
   hachiman-electron/   @hachiman/hachiman-electron  — Electron host (main: CSP, deep links, region probe, screen picker; preload bridge; renderer PlatformService)
   hachiman-browser/    @hachiman/hachiman-browser   — Browser host (Vite)
@@ -28,9 +31,12 @@ apps/
 
 pkgs/
   hachiman-client/     @hachiman/client             — browser-safe client library (RestClient, GatewayClient, VoiceConnection, HachimanClient, permissions, files, types)
+  hachiman-crypto/     @hachiman/crypto             — E2EE (ts-mls): crypto Worker, identity, MLS groups, envelopes, attachments, SFrame transform Worker, encrypted store; `./ds` entry for Takusen
 ```
 
-Host apps (`hachiman-electron`, `hachiman-browser`) depend only on the shared UI library (`@hachiman/hachiman`), which depends on the client library (`@hachiman/client`). Hosts do not import `@hachiman/client`. The shared UI owns the one `HachimanClient` (`apps/hachiman/src/services/hachiman.ts`). Hosts only implement `IPlatformService` (`apps/hachiman/src/shared/IPlatformService.ts`): Electron in `src/renderer/src/PlatformService.ts` (a thin adapter over the preload bridge `window.hachiman`), the browser in `src/platforms/browser/PlatformService.ts`. A new seam method needs both implementations, the preload bridge, and an IPC channel in `apps/hachiman-electron/src/shared/ipc.ts`.
+Host apps (`hachiman-electron`, `hachiman-browser`) depend only on the shared UI library (`@hachiman/hachiman`), which depends on the client library (`@hachiman/client`) and the crypto library (`@hachiman/crypto`). Hosts do not import `@hachiman/client` or `@hachiman/crypto`. The shared UI owns the one `HachimanClient` (`apps/hachiman/src/services/hachiman.ts`). Hosts only implement `IPlatformService` (`apps/hachiman/src/shared/IPlatformService.ts`): Electron in `src/renderer/src/PlatformService.ts` (a thin adapter over the preload bridge `window.hachiman`), the browser in `src/platforms/browser/PlatformService.ts`. A new seam method needs both implementations, the preload bridge, and an IPC channel in `apps/hachiman-electron/src/shared/ipc.ts`.
+
+Workspace dependency direction: `@hachiman/crypto` depends on `@hachiman/client` (only for `@hachiman/client/permissions`, in `src/worker/`). `@hachiman/client` never imports `@hachiman/crypto`. Its E2EE types mirror the crypto types structurally. Takusen loads `@hachiman/crypto/ds` through one file, `apps/takusen/src/lib/mls/crypto.ts`.
 
 ## TypeScript: use tsgo, never tsc
 
@@ -40,7 +46,7 @@ Host apps (`hachiman-electron`, `hachiman-browser`) depend only on the shared UI
 - ✅ `tsgo --noEmit` directly when you iterate on one package
 - ❌ Do not run `tsc` directly. Do not add `tsc` to any new script. Do not add `typescript` as a devDependency to any workspace package.
 
-If you add a new TypeScript package or a new `build`/`typecheck` script, mirror the existing pattern and invoke `tsgo`. Consumers use `@hachiman/client` as TypeScript source (no emit step).
+If you add a new TypeScript package or a new `build`/`typecheck` script, mirror the existing pattern and invoke `tsgo`. Consumers use `@hachiman/client` and `@hachiman/crypto` as TypeScript source (no emit step).
 
 ## Common commands
 
@@ -85,6 +91,7 @@ pnpm -F @hachiman/hachiman          typecheck
 pnpm -F @hachiman/hachiman-electron typecheck   # runs typecheck:node + typecheck:web
 pnpm -F @hachiman/hachiman-browser  typecheck
 pnpm -F @hachiman/client            typecheck
+pnpm -F @hachiman/crypto            typecheck   # tsgo --noEmit -p tsconfig.json
 pnpm -F @hachiman/takusen            typecheck
 
 # Lint / format
@@ -93,10 +100,17 @@ pnpm -F <package> format
 
 # Tests
 pnpm -F @hachiman/client test              # vitest
-pnpm -F @hachiman/takusen test              # tsx scripts incl. gRPC handlers (no DB needed)
-pnpm -F @hachiman/hachiman-electron test   # main-process unit tests
-cd apps/hachiman-server && go test ./...   # gateway, media, permissions, voicetoken, ...
+pnpm -F @hachiman/crypto test              # vitest (node environment, fake-indexeddb), incl. the ts-mls smoke spec
+pnpm -F @hachiman/takusen test              # tsx scripts incl. gRPC handlers and the DS (no DB needed)
+pnpm -F @hachiman/hachiman-electron test   # main-process unit tests (CSP, secure storage, ...)
+pnpm -F @hachiman/hachiman-browser test    # CSP and secure storage (node --test)
+cd apps/hachiman-server && go test ./...   # gateway, media (incl. the E2EE relay), permissions, voicetoken, ...
 # gateway integration test: build tag `integration`, needs DATABASE_URL / REDIS_URL / TAKUSEN_URL
+
+# Inside the Claude sandbox (pnpm does not run there)
+cd pkgs/hachiman-crypto && node_modules/.bin/vitest run
+cd pkgs/hachiman-crypto && ../../node_modules/.bin/tsgo --noEmit -p tsconfig.json
+cd apps/hachiman && ../../pkgs/hachiman-client/node_modules/.bin/vitest run --config src/dev/vitest.config.ts   # shared UI unit tests
 ```
 
 **Environment:** local dev uses one file, the repo-root `.env`. The template is the repo-root `.env.example`. It has a `# MARK: -` section for each service (Shared, Object storage, Takusen, Gateway, Media, Desktop / Web, Production only). There are no per-project env files. Each runner loads the root file and keeps a variable that is already set in the real environment:
@@ -108,15 +122,23 @@ cd apps/hachiman-server && go test ./...   # gateway, media, permissions, voicet
 
 One name has one meaning in the shared file. Give a new variable a service prefix (`GATEWAY_`, `MEDIA_`, `TAKUSEN_GRPC_`, `VITE_`) unless more than one service reads it. Add each new variable to `.env.example`.
 
+E2EE variables (contract §12.18):
+
+- Takusen: `TAKUSEN_DS_SIGNING_KEY` and `TAKUSEN_KT_SIGNING_KEY` (Ed25519 seed files, relative to `apps/takusen`). The first process that finds no file creates it with mode 0600. All Takusen instances must share the files.
+- Takusen: `TAKUSEN_MLS_SUITES` (default `1`), `TAKUSEN_MAX_ENVELOPE_BYTES` (default 32768), `TAKUSEN_PUBLIC_SET_MAX_MEMBERS` (default 10000), `TAKUSEN_MLS_BATCH_INTERVAL_MS` (default 2000), `TAKUSEN_MLS_BATCH_TIMEOUT_MS` (default 5000).
+- Gateway: `GATEWAY_MIN_CLIENT_VERSION` (default `0.1.0`). IDENTIFY with an older `clientVersion` gets close 4012.
+- Media: `MEDIA_WS_READ_LIMIT` (default 1048576). The voice WebSocket rejects larger frames. Commits, Welcomes and ratchet trees use this socket.
+
 **Dev DB schema churn:** schemas still change. Per `feedback_dev_migrations.md`, drop the dev DB and reseed instead of stacking ALTERs. Postgres is the only database. Run `pnpm db:reset`: it drops the schemas, migrates, and seeds the `hachiman-client` OIDC client and the regions.
 
 ## Working in the shared UI (`apps/hachiman/src/`)
 
 Most React work lands here. Layout:
 
-- `components/`: `shell/`, `chat/`, `voice/` (incl. screen share), `people/`, `settings/`, `ui/` (shadcn primitives)
-- `stores/` (Zustand): guild, channel, messages, voice, user, takusen, prefs, limits, nav, dialog
+- `components/`: `shell/`, `chat/`, `voice/` (incl. screen share and call security), `people/`, `settings/`, `security/` (onboarding, devices, verification, linking, recovery, fatal screens), `ui/` (shadcn primitives)
+- `stores/` (Zustand): guild, channel, messages, voice, user, takusen, prefs, limits, nav, dialog, crypto
 - `services/`: `hachiman.ts` owns the `HachimanClient` singleton and mirrors its cache into the stores. `MessagesService` / `VoiceService` / `InviteService` / `UploadService` / `TakusenService` sit on top. `SoundService` plays event chimes (`lib/sounds.ts` lists the events) as `prefsStore` permits.
+- `services/CryptoService.ts` owns the one `CryptoClient` (the crypto Worker) and mirrors its events into `cryptoStore`. `ds-transport.ts` serves the Worker's REST calls. `message-decrypt.ts` decrypts messages. `voice-e2ee.ts` is the voice delegate. `AdminActionService` signs admin changes.
 - `hooks/`, `lib/` (helpers: mentions, stream quality, connection quality, sounds, ...)
 - `shared/`: `IPlatformService.ts` (the seam), `PlatformContext.tsx`, `takusen-env.ts`
 - `dev/preview/`: the `?preview` mode (Vite dev only). Stubbed REST and gateway data drive the UI with no backend. Use it for UI checks. See `dev/README.md`.
@@ -152,6 +174,13 @@ If a selector returns a fresh array/object literal, React shows the warning "get
 - `NavUser` uses plain markup + `useIsMobile()`. There is no shadcn sidebar component, and no code mounts a `SidebarProvider`. Do not add one.
 - `userData` should come from `useUserStore`, not hardcoded.
 
+### E2EE rules in the UI
+
+- Decrypt before store. Every ciphertext `Message` goes through the crypto Worker (`services/message-decrypt.ts`). Only the result goes into `messagesStore`. Never store or show an envelope as text.
+- Attachments show as object URLs of decrypted blobs (`hooks/use-decrypted-blob.ts`, `lib/blob-url-cache.ts`). Never set the `src` of an attachment to a file URL. Avatars, icons and banners stay plaintext.
+- `cryptoStore` holds status, alerts and metadata only. It never holds key material or a recovery key.
+- The voice UI shows call participants from the MLS tree (`components/voice/call-roster.ts`), not from the server roster.
+
 ## Working in the client library (`pkgs/hachiman-client`)
 
 Browser-safe only (`fetch`, `WebSocket`, `RTCPeerConnection`): no Node imports, no rxjs, no protobuf. The wire contract lives in `docs/gateway-protocol.md` (§10 is the API of this package). There are no generated bindings.
@@ -162,13 +191,27 @@ Browser-safe only (`fetch`, `WebSocket`, `RTCPeerConnection`): no Node imports, 
   - `GatewayEvents` in `pkgs/hachiman-client/src/types.ts` (and the `HachimanClient` cache if the event mutates state)
   - the Takusen publish call (`apps/takusen/src/lib/events.ts` callers)
   - the gateway handling in `cmd/hachiman-gateway` (dispatch/visibility filtering)
+  - for a device-scoped E2EE event (§12.13): `publishToDevice` in `apps/takusen/src/lib/events.ts`, and the `device:*` routing in the gateway
 - Screen share: `VoiceConnection.setScreen(track, encoding)` swaps the track on the screen sender (m-line 1) with no renegotiation, and sets `selfStream` through op 4. No media frame carries the share state.
+- E2EE: this package holds no crypto. `HachimanClient` takes a `device` callback (IDENTIFY facts) and a `voiceE2ee` delegate from the shared UI. Its cache holds ciphertext.
+
+## Working in the crypto library (`pkgs/hachiman-crypto`)
+
+Contract §12 of `docs/gateway-protocol.md` is normative for E2EE. `src/api.ts` (types and module interfaces) and `src/constants.ts` change together with §12, in the same change. `docs/e2ee-plan.md` gives the reasons. The package README has the module map.
+
+- **No private key outside the crypto Worker.** All key material lives in the Worker (`src/worker/`). The UI thread gets only status, decrypted content and attachment pointers. Do not add a `CryptoApi` method that returns a key, and do not export engine modules from `src/index.ts`. The one exception is the SFrame exporter secret of a call. The crypto Worker sends it to the transform Worker on a `MessagePort` that the UI thread does not read.
+- The Worker never calls `fetch`. It calls `DsTransport`, and the main thread does the REST call (`apps/hachiman/src/services/ds-transport.ts`).
+- Only `src/worker/` imports `@hachiman/client` (`@hachiman/client/permissions`). `src/admin/` gets the permission rules through `AdminPermissionModel`.
+- `src/mls/ds.ts` is the Node entry for Takusen. Its import graph uses only `globalThis.crypto`. It must not import `src/attachments`, `src/store`, `src/worker`, `src/bridge` or `src/media`.
+- One device has one Worker. The bridge takes a Web Lock, so a second tab cannot open the same store.
+- `src/smoke.spec.ts` pins the ts-mls behavior that the design needs. When you upgrade ts-mls, run it first.
+- Security code fails closed: verify every signature, never reuse a nonce, and drop a frame or message that has no key.
 
 ## Working in the Go server (`apps/hachiman-server`)
 
 Go module `hachiman/server`. Run from the package directory or through `pnpm dev:server` / `pnpm build:server`. Key areas:
-- `cmd/hachiman-gateway/` — stateless WebSocket gateway: HELLO/IDENTIFY/RESUME (resume buffer `events:{sessionId}`), Redis event dispatch with VIEW_CHANNEL filtering, presence, voice join + placement + voice-token minting, TURN credentials. It calls Takusen REST only for `GET /users/@me` at IDENTIFY and Takusen gRPC only for `PlaceMediaSession`. It reads Postgres directly for READY and `media_nodes.signaling_url`.
-- `cmd/hachiman-media/` — stateless WebRTC SFU: voice WS (`/voice`), token verification + replay check, Takusen registration/heartbeat, Redis `media:{nodeId}` kicks. Each client has a mic track (Opus, stream id `<userId>`) and a screen track (VP8, stream id `screen-<userId>`).
+- `cmd/hachiman-gateway/` — stateless WebSocket gateway: HELLO/IDENTIFY/RESUME (resume buffer `events:{sessionId}`), Redis event dispatch with VIEW_CHANNEL filtering, presence, voice join + placement + voice-token minting, TURN credentials. It calls Takusen REST only for `GET /users/@me` at IDENTIFY and Takusen gRPC only for `PlaceMediaSession`. It reads Postgres directly for READY, `media_nodes.signaling_url` and the `devices` row. E2EE (§12.13): IDENTIFY and RESUME carry a `deviceId`. The gateway closes with 4012 when IDENTIFY has no `e2ee/1` capability or `clientVersion` is too old. It closes with 4013 when the device is unknown or revoked. It delivers `device:{id}` events to the sessions of that device. The internal `DEVICE_REVOKED` event closes them with 4013.
+- `cmd/hachiman-media/` — stateless WebRTC SFU: voice WS (`/voice`), token verification + replay check, Takusen registration/heartbeat, Redis `media:{nodeId}` kicks. Each client has a mic track (Opus, stream id `<userId>`) and a screen track (VP8, stream id `screen-<userId>`). `e2ee.go` relays and orders the voice MLS group (§8, §12.10.1): roster, key packages, Welcomes, ratchet trees, first commit per epoch. It has no MLS library and signs nothing. The SFU forwards SFrame payloads unchanged.
 - `cmd/hachiman-recorder/` — recording subscriber scaffold. Not wired: media serves no `RecorderControl`, and `pnpm build:server` does not build it.
 - `pkg/media/` — SFU primitives (`sfu.go`, `ssrc_pool.go`). Only hachiman-media imports it.
 - `pkg/voicetoken/` — PASETO voice token: `Signer` (gateway), `Verifier` (media)
@@ -180,13 +223,14 @@ Go module `hachiman/server`. Run from the package directory or through `pnpm dev
 
 Containerization: `Dockerfile.gateway`, `Dockerfile.media`, `Dockerfile.recorder` (amd64) and the `Dockerfile.arm32v6.*` variants. Each builds exactly one binary.
 
-For changes to the voice stack (`pkg/media/sfu.go`, `pkg/media/ssrc_pool.go`, `cmd/hachiman-media/voice.go`, `pkgs/hachiman-client/src/voice.ts`), use the `webrtc-reviewer` agent. There is a class of SSRC pool / renegotiation race bugs that a generic review will miss. The file list in the agent definition predates the refactor (`pkg/web`, `cmd/grumble`, `hachiman-node`), so give the agent the paths above.
+For changes to the voice stack (`pkg/media/sfu.go`, `pkg/media/ssrc_pool.go`, `cmd/hachiman-media/voice.go`, `pkgs/hachiman-client/src/voice.ts`), use the `webrtc-reviewer` agent. There is a class of SSRC pool / renegotiation race bugs that a generic review will miss. Also use it for SFrame and voice E2EE changes: `cmd/hachiman-media/e2ee.go`, `pkgs/hachiman-crypto/src/media/`, `apps/hachiman/src/services/voice-e2ee.ts`. Tell the agent to look for (key, CTR) reuse, a sender transform that the client makes again, and the order of roster and renegotiation. The file list in the agent definition predates the refactor (`pkg/web`, `cmd/grumble`, `hachiman-node`), so give the agent the paths above.
 
 ## Working in the Electron host (`apps/hachiman-electron`)
 
 `src/main/`:
 
-- `csp.ts` — CSP built from the `VITE_` URLs
+- `csp.ts` + `csp-policy.ts` — CSP built from the `VITE_` URLs. The browser host sends the same policy (`apps/hachiman-browser/csp.ts`).
+- `secure-storage.ts` — the per-user wrap key for `IPlatformService.secureStorage`, sealed with Electron `safeStorage`. It fails closed without an OS keystore.
 - `protocol-handler.ts` — deep links `takusen://invite/<code>` and `app.hachiman://oauth-callback`, single-instance lock
 - `renderer-protocol.ts` + `renderer-path.ts` — packaged renderer on `hachiman://app/`
 - `region-probe.ts` + `probe-target-guard.ts` — TCP RTT probe to each region's `probeHost`, with an SSRF guard
@@ -198,8 +242,9 @@ For changes to the voice stack (`pkg/media/sfu.go`, `pkg/media/ssrc_pool.go`, `c
 
 Two processes:
 - The Next.js app (`pnpm dev`) — OIDC provider (`src/lib/oidc-provider.ts`, panva `oidc-provider`), next-auth dashboard sign-in, dashboard UI, REST API (`src/app/api/v1`), and the public `GET /api/regions` for the Electron region probe. Every REST mutation publishes its gateway event to Redis after the DB commit (`src/lib/events.ts`).
-- Files: `POST /api/v1/uploads` streams the raw body to S3 (`src/lib/storage.ts`), and `GET /api/v1/files/:uploadId/:filename` streams it back with Range support. A message, avatar, icon or banner then claims the upload ids (`src/lib/uploads.ts`). Deletes go through `deleteAttachmentRows` so that objects do not leak. Clients never talk to S3.
-- A standalone gRPC server (`pnpm dev:grpc`) — implements the media-plane RPCs (`RegisterMediaNode`, `MediaNodeHeartbeat`, `PlaceMediaSession`) that hachiman-media and hachiman-gateway consume. It is a separate process because Next has no clean "after listen" hook. A colocated gRPC port would flap on every dev file-watcher restart.
+- Files: `POST /api/v1/uploads` streams the raw body to S3 (`src/lib/storage.ts`), and `GET /api/v1/files/:uploadId/:filename` streams it back with Range support. A message, avatar, icon or banner then claims the upload ids (`src/lib/uploads.ts`). Deletes go through `deleteAttachmentRows` so that objects do not leak. Clients never talk to S3. With E2EE, the bytes are opaque ciphertext blobs.
+- The E2EE delivery service (DS, contract §12.7, §12.12, §12.18) lives in `src/lib/mls/`. It holds devices, key packages, MLS groups, handshakes, envelopes, the device inbox and key transparency (KT). The storage seam is `MlsRepo` (`lib/mls/repo.ts`), with a Drizzle and an in-memory implementation, as `MediaNodesRepo`. Other Takusen code calls only the exports that §12.18 lists. A route that changes membership calls `onMembershipChange` inside its transaction.
+- A standalone gRPC server (`pnpm dev:grpc`) — implements the media-plane RPCs (`RegisterMediaNode`, `MediaNodeHeartbeat`, `PlaceMediaSession`) that hachiman-media and hachiman-gateway consume. It also runs the MLS batch scheduler, the KT tree-head timer and the daily DS sweeps. It is a separate process because Next has no clean "after listen" hook. A colocated gRPC port would flap on every dev file-watcher restart.
 
 Both processes share the same Postgres DB through Drizzle. The proto source of truth is `apps/hachiman-server/pkg/management/management.proto`. The Takusen gRPC server loads it dynamically through `@grpc/proto-loader` (no generated TS bindings).
 
@@ -209,7 +254,14 @@ Takusen gRPC security posture: the server binds **loopback by default** (`127.0.
 
 ## Architecture references
 
-The top-level `README.md` has mermaid diagrams for: component topology, connection + event flow (incl. uploads and RESUME), voice join + screen share, and the store/service/component layout of the shared UI. Each package README (`apps/*/README.md`, `pkgs/hachiman-client/README.md`) has diagrams of where it fits, its code architecture and its key flows. Skim those before larger changes, and update them when a change moves a module or an interaction. They capture relationships that text does not.
+The top-level `README.md` has mermaid diagrams for:
+
+- component topology (incl. the crypto Worker and the transform Worker)
+- connection + event flow (incl. encrypted uploads, device events, MLS events and RESUME)
+- voice join with the E2EE ops + screen share
+- the store/service/component layout of the shared UI
+
+Each package README (`apps/*/README.md`, `pkgs/*/README.md`) has diagrams of where it fits, its code architecture and its key flows. Skim those before larger changes, and update them when a change moves a module or an interaction. They capture relationships that text does not.
 
 ## Stale tooling in `.claude/`
 
@@ -225,5 +277,8 @@ These files predate the Discord-style refactor and target the deleted Mumble/pro
 - Do not return fresh array/object literals from Zustand selectors.
 - Do not edit `*.pb.go` by hand. Regenerate with `go generate`.
 - Do not change a wire shape without an update to `docs/gateway-protocol.md` in the same change.
+- Do not change `pkgs/hachiman-crypto/src/api.ts` or `constants.ts` without the matching update to contract §12.
+- Do not let a private key or an MLS secret reach the UI thread. The crypto Worker sends only the SFrame exporter secret, and only to the transform Worker.
+- Do not import `@hachiman/crypto` from `@hachiman/client`.
 - Do not nest `TooltipProvider`s. There is already one at the App root.
 - Do not add features beyond what the task requires. The UI is in active flux toward a Discord-like layout, and unrelated refactors create merge churn.

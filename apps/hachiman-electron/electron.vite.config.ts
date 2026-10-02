@@ -30,6 +30,10 @@ export default defineConfig(({ mode }) => ({
     server: { port: 5174, strictPort: true },
     plugins: [react(), tailwindcss()],
     resolve: { alias: { "@": hachimanSrc } },
+    // The crypto Worker and the voice transform Worker of @hachiman/crypto are
+    // `new Worker(new URL(…, import.meta.url), { type: 'module' })`. ES format
+    // keeps them module Workers (CSP worker-src 'self') and lets them split chunks.
+    worker: { format: "es" },
     define: { "process.env.NODE_ENV": JSON.stringify(mode) },
   },
 }));

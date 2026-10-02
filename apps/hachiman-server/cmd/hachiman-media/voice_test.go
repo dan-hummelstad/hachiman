@@ -5,6 +5,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -63,7 +64,7 @@ func newHarness(t *testing.T) *harness {
 
 func (h *harness) token(session, user, channel string) string {
 	h.t.Helper()
-	tok, err := h.signer.Mint(voicetoken.Claims{SessionID: session, UserID: user, GuildID: "g1", ChannelID: channel, MediaNodeID: testNode})
+	tok, err := h.signer.Mint(voicetoken.Claims{SessionID: session, UserID: user, DeviceID: "dev-" + session, GuildID: "g1", ChannelID: channel, MediaNodeID: testNode})
 	if err != nil {
 		h.t.Fatal(err)
 	}
@@ -98,10 +99,19 @@ func (h *harness) dial(token string) *wsClient {
 		}
 	}()
 	if token != "" {
-		c.send("identify", map[string]string{"token": token})
+		c.send("identify", identifyD(token))
 	}
 	return c
 }
+
+// testKeyPackage stands in for an MLS key package: media relays it unread.
+const testKeyPackage = "a2V5LXBhY2thZ2U"
+
+func identifyD(token string) map[string]any {
+	return map[string]any{"token": token, "e2ee": map[string]any{"version": 1, "keyPackage": testKeyPackage}}
+}
+
+func isE2EE(op string) bool { return strings.HasPrefix(op, "e2ee_") }
 
 func (c *wsClient) send(op string, d any) {
 	c.t.Helper()
@@ -111,6 +121,8 @@ func (c *wsClient) send(op string, d any) {
 }
 
 // next returns the next frame with the given op, skipping candidate frames.
+// A non-E2EE op also skips e2ee_* frames; an e2ee_* op skips the non-E2EE
+// frames and e2ee_roster (use expectRoster for rosters).
 func (c *wsClient) next(op string) json.RawMessage {
 	c.t.Helper()
 	timeout := time.After(5 * time.Second)
@@ -120,7 +132,8 @@ func (c *wsClient) next(op string) json.RawMessage {
 			if f.Op == op {
 				return f.D
 			}
-			if f.Op != "candidate" {
+			skip := f.Op == "candidate" || isE2EE(f.Op) != isE2EE(op) || (isE2EE(op) && f.Op == "e2ee_roster")
+			if !skip {
 				c.t.Fatalf("waiting for %q, got %q: %s", op, f.Op, f.D)
 			}
 		case err := <-c.closed:
@@ -131,14 +144,14 @@ func (c *wsClient) next(op string) json.RawMessage {
 	}
 }
 
-// quiet asserts nothing but candidates arrives within d.
+// quiet asserts nothing but candidates (and E2EE frames) arrives within d.
 func (c *wsClient) quiet(d time.Duration) {
 	c.t.Helper()
 	timeout := time.After(d)
 	for {
 		select {
 		case f := <-c.frames:
-			if f.Op != "candidate" {
+			if f.Op != "candidate" && !isE2EE(f.Op) {
 				c.t.Fatalf("expected silence, got %q: %s", f.Op, f.D)
 			}
 		case err := <-c.closed:
@@ -313,9 +326,22 @@ func TestVoice_JoinPeersRenegotiateAndRoomScoping(t *testing.T) {
 
 	// Media: B's mic and screen RTP reach A over real ICE/DTLS on loopback,
 	// on tracks whose stream ids are userB and screen-userB.
+	// The SFU forwards payload bytes unchanged (SFrame ciphertext stays
+	// opaque, §12.10.2). The bytes are arbitrary, not a valid Opus frame.
+	micPayload := []byte("sframe-ciphertext\x00\xff\x10opaque-to-the-sfu")
+	screenPayload := []byte{0x10, 0x00, 0x9d, 0x01, 0x2a, 0xde, 0xad, 0xbe, 0xef}
 	got := make(chan string, 2)
 	pa.pc.OnTrack(func(tr *webrtc.TrackRemote, rcv *webrtc.RTPReceiver) {
-		if _, _, err := tr.ReadRTP(); err != nil {
+		pkt, _, err := tr.ReadRTP()
+		if err != nil {
+			return
+		}
+		want := micPayload
+		if tr.Kind() == webrtc.RTPCodecTypeVideo {
+			want = screenPayload
+		}
+		if !bytes.Equal(pkt.Payload, want) {
+			got <- "changed payload " + tr.StreamID()
 			return
 		}
 		got <- tr.StreamID()
@@ -352,9 +378,9 @@ func TestVoice_JoinPeersRenegotiateAndRoomScoping(t *testing.T) {
 			case <-time.After(20 * time.Millisecond):
 			}
 			seq++
-			_ = pb.mic.WriteRTP(&rtp.Packet{Header: rtp.Header{Version: 2, SequenceNumber: seq, Timestamp: uint32(seq) * 960}, Payload: []byte{0xfc, 0xff, 0xfe}})
+			_ = pb.mic.WriteRTP(&rtp.Packet{Header: rtp.Header{Version: 2, SequenceNumber: seq, Timestamp: uint32(seq) * 960}, Payload: micPayload})
 			// A VP8 keyframe header (S=1, PID 0, P=0) is enough for pion to forward.
-			_ = pb.screen.WriteRTP(&rtp.Packet{Header: rtp.Header{Version: 2, Marker: true, SequenceNumber: seq, Timestamp: uint32(seq) * 1800}, Payload: []byte{0x10, 0x00, 0x9d, 0x01, 0x2a}})
+			_ = pb.screen.WriteRTP(&rtp.Packet{Header: rtp.Header{Version: 2, Marker: true, SequenceNumber: seq, Timestamp: uint32(seq) * 1800}, Payload: screenPayload})
 		}
 	}()
 	streams := map[string]bool{}
@@ -398,7 +424,7 @@ func TestVoice_CloseCodes(t *testing.T) {
 	h := newHarness(t)
 
 	bad := h.dial("")
-	bad.send("identify", map[string]string{"token": "v4.public.nope"})
+	bad.send("identify", identifyD("v4.public.nope"))
 	if code := bad.closeCode(); code != closeBadToken {
 		t.Errorf("bad token close = %d, want %d", code, closeBadToken)
 	}

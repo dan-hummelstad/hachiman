@@ -1,6 +1,9 @@
 /**
  * POST  /api/v1/guilds/:id/channels { name, type, parentId?, topic? } — MANAGE_CHANNELS.
+ *       A text channel gets its group in the same transaction (`channel_created`,
+ *       §12.18): the public_set group, or a new own group when it is private.
  * PATCH /api/v1/guilds/:id/channels [{ id, position, parentId? }] — MANAGE_CHANNELS; 204.
+ *       Positions and parents do not change readers (categories do not inherit, §2).
  */
 import { eq, max } from 'drizzle-orm'
 import { Permissions } from '@hachiman/client/permissions'
@@ -13,10 +16,9 @@ import { errorResponse, noContent, parseBody } from '@/lib/api-helpers'
 import { requireUser } from '@/lib/auth-helpers'
 import { ValidationError } from '@/lib/errors'
 import { publishToGuild } from '@/lib/events'
-import { loadGuildAccess, requirePermission } from '@/lib/guild-access'
+import { actorDeviceId, loadGuildAccess, requirePermission } from '@/lib/guild-access'
 import { assertParent, nameSchema } from '@/lib/guild-schemas'
-import { loadChannels } from '@/lib/guilds'
-import { toChannel } from '@/lib/wire'
+import { loadChannel, loadChannels, membershipChanged, membershipTransaction, MembershipTriggers } from '@/lib/guilds'
 
 interface RouteContext {
   params: Promise<{ id: string }>
@@ -47,23 +49,28 @@ export async function POST(req: NextRequest, ctx: RouteContext): Promise<NextRes
     requirePermission(access.permissions, Permissions.MANAGE_CHANNELS)
     const body = await parseBody(req, createChannelSchema)
     await assertParent(id, body.parentId, body.type)
+    const actor = await actorDeviceId(req, session.user.id)
 
-    const [{ top }] = await db
-      .select({ top: max(channels.position) })
-      .from(channels)
-      .where(eq(channels.guildId, id))
-    const [row] = await db
-      .insert(channels)
-      .values({
-        guildId: id,
-        type: body.type,
-        name: body.name,
-        topic: body.topic ?? null,
-        parentId: body.parentId ?? null,
-        position: (top ?? -1) + 1,
-      })
-      .returning()
-    const channel = toChannel(row, [])
+    const channelId = await membershipTransaction(async (tx) => {
+      const [{ top }] = await tx
+        .select({ top: max(channels.position) })
+        .from(channels)
+        .where(eq(channels.guildId, id))
+      const [row] = await tx
+        .insert(channels)
+        .values({
+          guildId: id,
+          type: body.type,
+          name: body.name,
+          topic: body.topic ?? null,
+          parentId: body.parentId ?? null,
+          position: (top ?? -1) + 1,
+        })
+        .returning({ id: channels.id })
+      await membershipChanged(tx, MembershipTriggers.channelCreated(row!.id), actor)
+      return row!.id
+    })
+    const channel = await loadChannel(channelId)
     await publishToGuild(id, 'CHANNEL_CREATE', channel, channel.id)
     return NextResponse.json(channel)
   } catch (err) {

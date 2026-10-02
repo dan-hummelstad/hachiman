@@ -1,19 +1,24 @@
 // Preview stubs: replace every network seam of the one HachimanClient with local fakes that echo
-// writes back as gateway dispatches, so the UI updates exactly as it would live.
+// writes back as gateway dispatches, so the UI updates exactly as it would live. Messages go
+// through the stub crypto client (createCryptoStub): envelopes are marked JSON, NOT ENCRYPTED.
 import {
   DEFAULT_EVERYONE,
   DEFAULT_LIMITS,
-  type Attachment,
+  RestError,
   VoiceConnection,
+  blobKey,
+  type Attachment,
   type GatewayDispatch,
   type GuildFull,
   type Invite,
   type Message,
   type PermissionOverwrite,
+  type VoiceE2eeDelegate,
   type VoiceStats
 } from '@hachiman/client'
+import { fromB64url } from '@hachiman/crypto'
 import { hachiman } from '@/services/hachiman'
-import { useMessageStore, type ChatMessage } from '@/stores/messagesStore'
+import { useMessageStore } from '@/stores/messagesStore'
 import {
   DAY,
   G1,
@@ -23,6 +28,7 @@ import {
   U,
   channel,
   dms,
+  groupOf,
   member,
   nextId,
   now,
@@ -41,10 +47,23 @@ function must<T>(value: T | undefined, what: string): T {
   return value
 }
 
+/** No media, so no keys: the preview call never starts a crypto session. */
+const NO_E2EE: VoiceE2eeDelegate = {
+  start: () => Promise.reject(new Error('[preview] no media')),
+  handle: () => Promise.resolve([]),
+  senderTransform: () => {
+    throw new Error('[preview] no media')
+  },
+  receiverTransform: () => {
+    throw new Error('[preview] no media')
+  },
+  close: () => {}
+}
+
 /** A real, never-connected VoiceConnection (inert: no socket, no peer connection) with fake stats. */
 class PreviewVoiceConnection extends VoiceConnection {
   constructor() {
-    super({ endpoint: '', token: '', iceServers: [] })
+    super({ endpoint: '', token: '', iceServers: [], e2ee: NO_E2EE })
   }
   override async getStats(): Promise<VoiceStats> {
     const { rttMs, jitterMs, packetLoss } = QUALITY()
@@ -98,14 +117,73 @@ export function stubVoice(): void {
 }
 
 type Rest = typeof hachiman.rest
-/** One local implementation per REST method. Keyed by the real client, so a renamed or new method fails to compile here. */
+type AsyncKey = {
+  [K in keyof Rest]: Rest[K] extends (...args: never[]) => Promise<unknown> ? K : never
+}[keyof Rest]
+
+/**
+ * The §12.12 routes. Only the crypto Worker calls them, and the preview runs the stub crypto
+ * client, which calls none. Each one rejects.
+ */
+const DS_ROUTES = [
+  'registerDevice',
+  'listDevices',
+  'renameDevice',
+  'putDeviceCertificate',
+  'revokeDevice',
+  'getUserKeys',
+  'putMasterKey',
+  'putDeviceSigningKey',
+  'getDsInfo',
+  'uploadKeyPackages',
+  'countKeyPackages',
+  'listMlsGroups',
+  'getMlsGroup',
+  'getChannelMlsGroup',
+  'getMlsGroupState',
+  'createMlsGroup',
+  'postCommit',
+  'getHandshakes',
+  'postJoinRequest',
+  'getJoinRequest',
+  'declineBatch',
+  'postHistoryBundle',
+  'getHistoryBundles',
+  'getInbox',
+  'ackInbox',
+  'postInbox',
+  'getBackups',
+  'putIdentityBackup',
+  'postHistoryBackup',
+  'getBackup',
+  'deleteBackups',
+  'createLinkSession',
+  'listLinkSessions',
+  'postLinkMessage',
+  'getLinkMessages',
+  'deleteLinkSession',
+  'ktTreeHead',
+  'ktInclusion',
+  'ktConsistency',
+  'ktEntries',
+  'getAdminActions',
+  'report'
+] as const satisfies readonly AsyncKey[]
+
+/**
+ * One local implementation per other REST method. Keyed by the real client, so a renamed or new
+ * method fails to compile here until it has a stub (or joins DS_ROUTES).
+ */
 type RestStubs = {
-  [
-    K in keyof Rest as Rest[K] extends (...args: never[]) => Promise<unknown> ? K : never
-  ]: Rest[K] extends (...args: infer A) => Promise<infer R> ? (...args: A) => R | Promise<R> : never
+  [K in Exclude<AsyncKey, (typeof DS_ROUTES)[number]>]: Rest[K] extends (
+    ...args: infer A
+  ) => Promise<infer R>
+    ? (...args: A) => R | Promise<R>
+    : never
 }
 
 const INVITE_CODE = 'nt0wl5x'
+const PREVIEW_DEVICE = READY.deviceId
 
 /** About 2 s of upload progress in ticks, so the composer tray's progress bar shows. */
 function fakeTransfer(
@@ -130,11 +208,49 @@ function fakeTransfer(
   })
 }
 
+/** A `data:` URL as a Blob, without fetch (the CSP connect-src has no data:). */
+function dataUrlBlob(url: string): Blob | null {
+  const m = /^data:([^;,]*)(;base64)?,(.*)$/s.exec(url)
+  if (!m) return null
+  const [, type, base64, body] = m
+  if (!base64) return new Blob([decodeURIComponent(body ?? '')], { type })
+  const bin = atob(body ?? '')
+  return new Blob([Uint8Array.from(bin, (c) => c.charCodeAt(0))], { type })
+}
+
+/** Renders an SVG data URL to a PNG Blob of its own size. */
+async function svgToPng(url: string): Promise<Blob> {
+  const img = new Image()
+  img.src = url
+  await img.decode()
+  const canvas = document.createElement('canvas')
+  canvas.width = img.naturalWidth || 300
+  canvas.height = img.naturalHeight || 150
+  canvas.getContext('2d')?.drawImage(img, 0, 0, canvas.width, canvas.height)
+  const png = await new Promise<Blob | null>((r) => canvas.toBlob(r, 'image/png'))
+  if (!png) throw new RestError(404, 'UnknownFile')
+  return png
+}
+
+/** The client_msg_id inside a stub envelope (base64url JSON, see createCryptoStub). */
+function stubClientMsgId(envelope: string): string {
+  try {
+    const v = JSON.parse(new TextDecoder().decode(fromB64url(envelope))) as {
+      clientMsgId?: unknown
+    }
+    return typeof v.clientMsgId === 'string' ? v.clientMsgId : nextId('cmid')
+  } catch {
+    return nextId('cmid')
+  }
+}
+
 /** Stub every REST call: resolve with a plausible value and mirror writes into the cache. */
-export function stubRest(history: Map<string, ChatMessage[]>): void {
+export function stubRest(): void {
   const { cache } = hachiman
   /** Upload id → the Attachment it returned, so a sent message carries them. */
   const attachments = new Map<string, Attachment>()
+  /** Blob key → the "encrypted" (stub: plain) blob that the preview uploaded. */
+  const blobs = new Map<string, Blob>()
   const invite = (guildId: string): Invite => ({
     code: INVITE_CODE,
     guildId,
@@ -154,6 +270,7 @@ export function stubRest(history: Map<string, ChatMessage[]>): void {
       ownerId: ME.id,
       region: null,
       createdAt: new Date().toISOString(),
+      publicHistoryVisibility: 'shared',
       channels: [
         channel(id, nextId('c'), 'text', 'general', 0),
         channel(id, nextId('c'), 'voice', 'General', 0)
@@ -176,6 +293,27 @@ export function stubRest(history: Map<string, ChatMessage[]>): void {
     const others = c.permissionOverwrites.filter((o) => o.id !== targetId)
     dispatch({ t: 'CHANNEL_UPDATE', d: { ...c, permissionOverwrites: next(others) } })
   }
+  /** A ciphertext row as Takusen stores it. The stub envelope stands in for the ciphertext. */
+  const wire = (
+    channelId: string,
+    envelope: string,
+    rows: Attachment[],
+    base: Partial<Message> = {}
+  ): Message => ({
+    id: nextId('m'),
+    channelId,
+    guildId: cache.channels.get(channelId)?.guildId ?? null,
+    author: ME,
+    senderDevice: PREVIEW_DEVICE,
+    groupId: groupOf(channelId),
+    epoch: 3,
+    clientMsgId: stubClientMsgId(envelope),
+    attachments: rows,
+    createdAt: new Date().toISOString(),
+    editedAt: null,
+    ...base,
+    envelope
+  })
 
   const impl: RestStubs = {
     getMe: () => ME,
@@ -192,20 +330,31 @@ export function stubRest(history: Map<string, ChatMessage[]>): void {
     },
     getLimits: () => DEFAULT_LIMITS,
     // The upload id doubles as its file key, so updateMe/updateGuild can store it as is.
-    upload: (file, opts) => {
+    uploadImage: (file, opts) => {
       const id = `${nextId('up')}/${opts.filename}`
       uploaded.set(id, URL.createObjectURL(file))
-      const a: Attachment = {
+      return fakeTransfer(file.size, opts.signal, opts.onProgress).then(() => ({
         id,
         key: id,
-        filename: opts.filename,
-        size: file.size,
-        contentType: file.type,
-        width: opts.width ?? null,
-        height: opts.height ?? null
-      }
+        size: file.size
+      }))
+    },
+    uploadBlob: (blob, opts) => {
+      const id = nextId('up')
+      const a: Attachment = { id, key: blobKey(id), size: blob.size }
       attachments.set(id, a)
-      return fakeTransfer(file.size, opts.signal, opts.onProgress).then(() => a)
+      blobs.set(a.key, blob)
+      return fakeTransfer(blob.size, opts?.signal, opts?.onProgress).then(() => a)
+    },
+    fetchBlob: (key) => {
+      const uploadedBlob = blobs.get(key)
+      if (uploadedBlob) return uploadedBlob
+      const url = previewFileUrl(key)
+      // The fixture images are SVG, but their pointers say PNG (the stub keeps the pointer type).
+      if (url.startsWith('data:image/svg+xml')) return svgToPng(url)
+      const blob = dataUrlBlob(url)
+      if (!blob) throw new RestError(404, 'UnknownFile')
+      return blob
     },
     getUser: (id) => Object.values(U).find((u) => u.id === id) ?? ME,
     createGuild: (body) => createGuild(body.name),
@@ -246,31 +395,40 @@ export function stubRest(history: Map<string, ChatMessage[]>): void {
     deleteOverwrite: (channelId, targetId) => {
       updateOverwrites(channelId, targetId, (others) => others)
     },
-    getMessages: (channelId) => (history.get(channelId) ?? []).filter((m) => !m.pending),
+    // The fixture history is seeded into the store as decrypted rows; new channels start empty.
+    getMessages: () => [],
     sendMessage: (channelId, body) => {
-      const m: Message = {
-        id: nextId('m'),
-        channelId,
-        guildId: cache.channels.get(channelId)?.guildId ?? null,
-        author: ME,
-        content: body.content,
-        createdAt: new Date().toISOString(),
-        editedAt: null,
-        attachments: (body.attachments ?? []).flatMap((id) => attachments.get(id) ?? []),
-        nonce: body.nonce
-      }
+      const rows = (body.attachments ?? []).flatMap((id) => attachments.get(id) ?? [])
+      const m = wire(channelId, body.envelope, rows, { nonce: body.nonce })
       return new Promise((r) => setTimeout(() => r(m), 400))
     },
     editMessage: (channelId, messageId, body) => {
-      const old = useMessageStore
-        .getState()
-        .byChannel.get(channelId)
-        ?.find((m) => m.id === messageId)
-      const m: Message = {
-        ...must(old, 'message'),
-        content: body.content,
+      const old = must(
+        useMessageStore
+          .getState()
+          .byChannel.get(channelId)
+          ?.find((m) => m.id === messageId),
+        'message'
+      )
+      // The upload rows stay (§12.8.4): per pointer, the file and then its thumbnail.
+      const rows = old.attachments.flatMap((p) => [
+        { id: p.uploadId, key: blobKey(p.uploadId), size: p.blobSize },
+        ...(p.thumbnail
+          ? [
+              {
+                id: p.thumbnail.uploadId,
+                key: blobKey(p.thumbnail.uploadId),
+                size: p.thumbnail.blobSize
+              }
+            ]
+          : [])
+      ])
+      const m = wire(channelId, body.envelope, rows, {
+        id: old.id,
+        author: old.author,
+        createdAt: old.createdAt,
         editedAt: new Date().toISOString()
-      }
+      })
       dispatch({ t: 'MESSAGE_UPDATE', d: m })
       return m
     },
@@ -351,6 +509,13 @@ export function stubRest(history: Map<string, ChatMessage[]>): void {
       value: async (...args: unknown[]) => {
         console.debug('[preview] rest.%s', key, args)
         return fn(...args)
+      }
+    })
+  }
+  for (const key of DS_ROUTES) {
+    Object.defineProperty(hachiman.rest, key, {
+      value: async () => {
+        throw new RestError(501, 'PreviewUnsupported', `[preview] rest.${key} needs a real Takusen`)
       }
     })
   }

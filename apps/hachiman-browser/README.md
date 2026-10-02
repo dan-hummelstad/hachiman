@@ -25,6 +25,7 @@ flowchart LR
 - The host has no app logic. The shared UI owns the `HachimanClient` and every store.
 - The host supplies the OAuth redirect URI, the sign-in redirect, invite deep links and the OAuth callback.
 - After sign-in, the UI calls Takusen REST, the gateway and media through `@hachiman/client`.
+- `secureStorage` keeps the crypto store wrap key in IndexedDB (see [Crypto store wrap key](#crypto-store-wrap-key)).
 - The browser cannot open raw sockets, so `probeRegions` returns `[]`. The browser has its own screen picker, so `getScreenSources` returns `null` and `selectScreenSource` does nothing.
 
 ## Code architecture
@@ -34,6 +35,7 @@ flowchart TD
   HTML["index.html<br/>root div"]
   MAIN["src/main.tsx<br/>boot + render"]
   PS["src/platforms/browser/PlatformService.ts<br/>platformService, consumeLaunchUrl"]
+  KS["src/platforms/browser/secure-storage.ts<br/>createBrowserSecureStorage"]
   IPS["IPlatformService<br/>(@hachiman/hachiman)"]
   APP["App, ThemeProvider, PlatformProvider<br/>(@hachiman/hachiman)"]
   PRE["startPreview<br/>(@hachiman/hachiman/dev/preview)"]
@@ -41,6 +43,7 @@ flowchart TD
   HTML --> MAIN
   MAIN --> PS
   PS -- "implements" --> IPS
+  PS --> KS
   MAIN --> APP
   MAIN -.->|"dev + ?preview"| PRE
 ```
@@ -50,7 +53,10 @@ flowchart TD
 | `index.html` | Page shell. It sets the dark background before the CSS loads and loads `src/main.tsx`. |
 | `src/main.tsx` | Reads the launch query and calls `consumeLaunchUrl`. In dev with `?preview`, it starts preview mode. Then it renders `App` in `PlatformProvider` and `ThemeProvider`. |
 | `src/platforms/browser/PlatformService.ts` | `platformService` (the `IPlatformService` implementation) and `consumeLaunchUrl`. |
-| `vite.config.ts` | React and Tailwind plugins. The `@` alias points to `../hachiman/src`. The dev server uses port 5173 with `strictPort`. `envDir` is the repo root. |
+| `src/platforms/browser/secure-storage.ts` | `createBrowserSecureStorage`: the IndexedDB wrap key store. |
+| `csp.ts` | `browserCsp`: the Electron CSP rules (`../hachiman-electron/src/main/csp-policy.ts`) as a header and as a meta tag. |
+| `vite.config.ts` | React and Tailwind plugins. The `@` alias points to `../hachiman/src`. The dev server uses port 5173 with `strictPort`. `envDir` is the repo root. It sends the CSP and builds module Workers (`worker.format: 'es'`). |
+| `*.test.mts`, `src/**/*.test.mts` | CSP and secure storage tests (`node --test`). |
 | `tsconfig.json` | Extends `tsconfig.base.json`. It mirrors the `@` alias for the shared UI source. |
 
 ### Launch URL routes
@@ -94,6 +100,31 @@ The redirect reloads the page. `pendingFlow` survives the reload because the Tak
 
 The redirect URI is `VITE_HACHIMAN_OIDC_REDIRECT` if it is set. Otherwise it is `${window.location.origin}/oauth/callback`. The value must be a redirect URI of the `hachiman-client` OIDC client in `apps/takusen/src/db/seed.ts`.
 
+## Crypto store wrap key
+
+`secureStorage` (contract §11, §12.17) gives the crypto Worker the key that encrypts its IndexedDB store.
+
+- `getWrapKey(userId)` reads the key from the IndexedDB database `hachiman-wrap` (object store `keys`, key `userId`).
+- When there is no key, it makes one with `crypto.subtle.generateKey`: AES-GCM 256, not extractable, usages `encrypt` and `decrypt`. It stores the `CryptoKey` object, so the raw bytes never exist in JavaScript.
+- The write transaction reads the key again and uses `add`. When two tabs make a key at the same time, both get the stored key.
+- A stored value that is not such a key gives `StoreCorrupt`. The host never replaces it.
+- Without IndexedDB or WebCrypto (for example, a page that is not a secure context), the call gives `SecureStorageUnavailable`. A user id that is not a lowercase UUID gives `Malformed`.
+- `clear(userId)` deletes the key.
+
+Script on the page can use the key. Thus the browser host "trusts the server's code" (§12.17).
+
+## Content-Security-Policy
+
+The browser host sends the same policy as the Electron host (`csp.ts`):
+
+- `worker-src 'self'` for the crypto Worker and the transform Worker.
+- `blob:` in `img-src` and `media-src` for decrypted attachments. There is no `blob:` in `script-src` or `worker-src`, and there is no `'wasm-unsafe-eval'`.
+- The dev server sends the dev policy as a header. It adds `'unsafe-inline'` scripts for the React Fast Refresh preamble.
+- `vite preview` sends the production policy as a header.
+- `vite build` puts the production policy in a `<meta http-equiv>` tag in `index.html`. The tag does not have `frame-ancestors`, because browsers ignore it in a meta tag.
+
+Production: the meta tag is not sufficient. A Worker does not get the policy of the page, and the meta tag cannot set `frame-ancestors`. Configure the web server to send `browserCsp(env, { dev: false }).header` as the `Content-Security-Policy` header on all responses, Worker scripts included. Use the same `VITE_*` values as the build.
+
 ## Preview mode
 
 In the dev server, `?preview` seeds the stores with a fixture. The UI then renders without Takusen or a gateway. Production builds do not include it. See [`apps/hachiman/src/dev/README.md`](../hachiman/src/dev/README.md) for the URLs and the fixture.
@@ -105,9 +136,12 @@ pnpm dev:browser                              # from the repo root: http://local
 pnpm build:browser                            # tsgo --noEmit, then vite build
 pnpm -F @hachiman/hachiman-browser preview    # serve the build
 pnpm -F @hachiman/hachiman-browser typecheck  # tsgo --noEmit
+pnpm -F @hachiman/hachiman-browser test       # node --test: CSP and secure storage
 pnpm -F @hachiman/hachiman-browser lint
 pnpm -F @hachiman/hachiman-browser format
 ```
+
+The secure storage test needs `fake-indexeddb`. When this package does not have it, the test is skipped.
 
 Keep port 5173. The Takusen CORS allowlist and the seeded OAuth redirect URI use this origin.
 

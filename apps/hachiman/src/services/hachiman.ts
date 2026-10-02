@@ -1,14 +1,24 @@
 import {
   HachimanClient,
+  type GatewayDevice,
   type GatewayDispatch,
   type GatewayEvents,
   type Message,
   type PresenceStatus
 } from '@hachiman/client'
+import { createTransformWorker } from '@hachiman/crypto'
+import { clearDecryptedBlobs } from '@/hooks/use-decrypted-blob'
+import { CLIENT_CAPABILITIES, CLIENT_VERSION } from '@/lib/client-version'
+import { cryptoService } from '@/services/CryptoService'
+import { createDsTransport } from '@/services/ds-transport'
+import { messagesService } from '@/services/MessagesService'
 import { takusenService } from '@/services/TakusenService'
 import { messageSound, playSound, startSounds } from '@/services/SoundService'
+import { createVoiceE2ee } from '@/services/voice-e2ee'
 import { voiceService } from '@/services/VoiceService'
+import type { IPlatformService } from '@/shared/IPlatformService'
 import { resetChannelStore, useChannelStore } from '@/stores/channelStore'
+import { currentDeviceId, setCryptoFatal, useCryptoStore } from '@/stores/cryptoStore'
 import { resetGuildStore, useGuildStore } from '@/stores/guildStore'
 import { resetMessagesStore, useMessageStore } from '@/stores/messagesStore'
 import { closeAllDialogs } from '@/stores/dialogStore'
@@ -17,11 +27,37 @@ import { useTakusenStore } from '@/stores/takusenStore'
 import { resetUserStore, useUserStore } from '@/stores/userStore'
 import { resetVoiceMirror, useVoiceStore } from '@/stores/voiceStore'
 
+/** IDENTIFY facts (§12.13). Null until the crypto Worker has a device row: connect() waits. */
+function device(): GatewayDevice | null {
+  const deviceId = currentDeviceId()
+  return deviceId
+    ? { deviceId, capabilities: [...CLIENT_CAPABILITIES], clientVersion: CLIENT_VERSION }
+    : null
+}
+
+/** One delegate and one transform Worker per call, for the channel that VoiceService joins. */
+function voiceE2ee(): ReturnType<typeof createVoiceE2ee> {
+  const { guildId, channelId } = useVoiceStore.getState()
+  if (!guildId || !channelId) throw new Error('voice e2ee: no voice target')
+  return createVoiceE2ee({
+    crypto: cryptoService.client(),
+    target: { guildId, channelId },
+    createWorker: createTransformWorker,
+    createTransform: (worker, options, transfer) =>
+      new RTCRtpScriptTransform(worker, options, transfer),
+    createChannel: () => new MessageChannel(),
+    onHandle: (handle) =>
+      useCryptoStore.setState({ voice: handle ? { handle, epoch: null, roster: [] } : null })
+  })
+}
+
 /** The one HachimanClient. Tokens come from the Takusen session. */
 export const hachiman = new HachimanClient({
   apiUrl: `${takusenService.env.apiBase.replace(/\/$/, '')}/v1`,
   gatewayUrl: takusenService.env.gatewayUrl,
-  getToken: takusenService.getAccessToken
+  getToken: takusenService.getAccessToken,
+  device,
+  voiceE2ee
 })
 
 const TYPING_MS = 10_000
@@ -68,8 +104,11 @@ const onUpdate = (e: GatewayDispatch): void => {
       return syncAll()
     case 'READY':
       useUserStore.setState({ status: hachiman.cache.presences.get(e.d.user.id) ?? 'online' })
+      cryptoService.sync()
       return syncAll()
     case 'RESUMED':
+      cryptoService.sync()
+      return syncAll()
     case 'GUILD_CREATE':
       return syncAll()
     case 'CHANNEL_CREATE':
@@ -107,18 +146,21 @@ export async function openDmWith(userId: string): Promise<void> {
   openChannel(DM_HOME, dm.id)
 }
 
-const onMessage = (m: Message): void => {
-  useMessageStore.getState().upsert(m.channelId, [m])
-  useMessageStore.getState().setTyping(m.channelId, m.author.id, null)
+/** MESSAGE_UPDATE: decrypt, then store. */
+const onMessageUpdate = (m: Message): void => {
+  void messagesService.ingest([m])
 }
 
-const onMessageCreate = (m: Message): void => {
-  onMessage(m)
+/** MESSAGE_CREATE: decrypt, store, then the typing line and the sound (mentions are in the content). */
+const onMessageCreate = async (m: Message): Promise<void> => {
+  const [row] = await messagesService.ingest([m])
+  useMessageStore.getState().setTyping(m.channelId, m.author.id, null)
   const me = hachiman.cache.user
-  if (!me) return
+  if (!me || row?.decrypt.status !== 'ok') return
   const nav = useNavStore.getState()
   const viewing = nav.channelByGuild[nav.guildKey] === m.channelId && document.hasFocus()
-  const sound = messageSound(m, me, viewing)
+  const myRoles = m.guildId ? (hachiman.cache.members.get(m.guildId)?.get(me.id)?.roles ?? []) : []
+  const sound = messageSound(row, me, viewing, myRoles)
   if (sound) playSound(sound)
 }
 
@@ -134,30 +176,88 @@ const onTyping = (d: GatewayEvents['TYPING_START']): void => {
   }, TYPING_MS)
 }
 
-let started = false
+/** The §12.13 events go to the crypto Worker. Written out so TypeScript checks each payload. */
+function forwardCryptoEvents(): void {
+  const fwd = cryptoService.onGatewayEvent.bind(cryptoService)
+  hachiman.on('MLS_HANDSHAKE', (d) => fwd({ t: 'MLS_HANDSHAKE', d }))
+  hachiman.on('MLS_BATCH_ASSIGN', (d) => fwd({ t: 'MLS_BATCH_ASSIGN', d }))
+  hachiman.on('MLS_JOIN_UPDATE', (d) => fwd({ t: 'MLS_JOIN_UPDATE', d }))
+  hachiman.on('MLS_GROUP_UPDATE', (d) => fwd({ t: 'MLS_GROUP_UPDATE', d }))
+  hachiman.on('DEVICE_INBOX', (d) => fwd({ t: 'DEVICE_INBOX', d }))
+  hachiman.on('DEVICE_LINK', (d) => fwd({ t: 'DEVICE_LINK', d }))
+  hachiman.on('USER_KEYS_UPDATE', (d) => fwd({ t: 'USER_KEYS_UPDATE', d }))
+  hachiman.on('KEY_PACKAGES_LOW', (d) => fwd({ t: 'KEY_PACKAGES_LOW', d }))
+  hachiman.on('KT_TREE_HEAD', (d) => fwd({ t: 'KT_TREE_HEAD', d }))
+}
 
-/** Idempotent: wires client events → stores and connects/disconnects with the Takusen session. */
-export function startHachiman(): void {
+/** Gateway close 4012 or 4013 (§12.13): the client does not reconnect. 4013 also signs out. */
+const onFatal = ({ code }: { code: number }): void => {
+  if (code === 4012) setCryptoFatal('update_required')
+  if (code === 4013) {
+    setCryptoFatal('device_revoked')
+    takusenService.signOut()
+  }
+}
+
+let started = false
+let platform: IPlatformService | null = null
+
+/** The crypto Worker of the signed-in user. The gateway connects when it has a device id. */
+function startCrypto(): void {
+  const session = useTakusenStore.getState().session
+  if (!session) return
+  void cryptoService.start({
+    userId: session.user.id,
+    platform,
+    transport: createDsTransport(hachiman.rest, hachiman.cache)
+  })
+}
+
+/**
+ * Idempotent: wires client events → stores and connects/disconnects with the Takusen session.
+ * `host` gives the crypto Worker its wrap key (§11). Without it the Worker does not start.
+ */
+export function startHachiman(host?: IPlatformService): void {
+  const late = host !== undefined && platform === null && started
+  if (host) platform = host
+  if (late && useTakusenStore.getState().session && useCryptoStore.getState().phase !== 'ready')
+    startCrypto()
   if (started) return
   started = true
 
   hachiman.on('update', onUpdate)
   hachiman.on('state', (state) => useUserStore.setState({ gatewayState: state }))
-  hachiman.on('MESSAGE_CREATE', onMessageCreate)
-  hachiman.on('MESSAGE_UPDATE', onMessage)
-  hachiman.on('MESSAGE_DELETE', (d) => useMessageStore.getState().remove(d.channelId, d.id))
+  hachiman.on('MESSAGE_CREATE', (m) => void onMessageCreate(m))
+  hachiman.on('MESSAGE_UPDATE', onMessageUpdate)
+  hachiman.on('MESSAGE_DELETE', (d) => {
+    messagesService.forget(d.id)
+    useMessageStore.getState().remove(d.channelId, d.id)
+  })
   hachiman.on('TYPING_START', onTyping)
+  hachiman.on('fatal', onFatal)
+  forwardCryptoEvents()
+  cryptoService.on('epochKeysAvailable', ({ groupId }) => messagesService.retryGroup(groupId))
+  cryptoService.on('status', (s) => {
+    if (s.state !== 'ready') return
+    // Setup or linking finished: catch up and decrypt what waited.
+    if (hachiman.gateway.state === 'ready') cryptoService.sync()
+    messagesService.retryAll()
+  })
   voiceService.start()
   startSounds()
 
   const apply = (signedIn: boolean): void => {
     if (signedIn) {
+      startCrypto()
       hachiman.connect()
       return
     }
     // Leave first: a voice session that the disconnect drops would play the "connection lost" sound.
     voiceService.leaveVoice()
     hachiman.disconnect()
+    cryptoService.stop()
+    messagesService.reset()
+    clearDecryptedBlobs()
     resetUserStore()
     resetGuildStore()
     resetChannelStore()

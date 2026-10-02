@@ -6,16 +6,23 @@ import { GuildSettingsDialog } from '@/components/guild-settings-dialog'
 import { InviteDialog } from '@/components/invite-dialog'
 import { JoinServerModal } from '@/components/join-server-modal'
 import { RemoveServerDialog } from '@/components/remove-server-dialog'
+import { DeviceLinkDialog } from '@/components/security/device-link-dialog'
+import { DevicesDialog } from '@/components/security/devices-panel'
+import { KeyChangeDialog } from '@/components/security/key-change-dialog'
+import { RecoveryKeyDialog } from '@/components/security/recovery-panel'
+import { SecuritySetupDialog } from '@/components/security/security-setup-dialog'
+import { VerificationDialog } from '@/components/security/verification-dialog'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { UserSettings } from '@/components/user-settings'
+import { VerifyCallDialog } from '@/components/voice/verify-call-dialog'
 import { useDialogSubject } from '@/hooks/use-dialog-subject'
 import { useLatched } from '@/hooks/use-latched'
 import { hachiman } from '@/services/hachiman'
 import { useChannelStore } from '@/stores/channelStore'
-import { useDialogStore, type DialogKind, type DialogOf } from '@/stores/dialogStore'
+import { useDialogStore, type AnyDialogKind, type DialogOf } from '@/stores/dialogStore'
 
 /** The component for each dialog kind; each reads its own request via `useDialog(kind)`. */
-const DIALOGS: Record<DialogKind, () => React.JSX.Element> = {
+const DIALOGS: Record<AnyDialogKind, () => React.JSX.Element> = {
   addGuild: AddServerDialog,
   joinInvite: JoinServerModal,
   guildSettings: GuildSettingsDialog,
@@ -24,10 +31,18 @@ const DIALOGS: Record<DialogKind, () => React.JSX.Element> = {
   channelSettings: ChannelSettingsDialog,
   createChannel: CreateChannelDialog,
   deleteChannel: DeleteChannelDialog,
-  userSettings: UserSettings
+  userSettings: UserSettings,
+  // E2EE (§12.4, §12.5, §12.10, §12.11)
+  securitySetup: SecuritySetupDialog,
+  recoveryKey: RecoveryKeyDialog,
+  deviceLink: DeviceLinkDialog,
+  verification: VerificationDialog,
+  keyChange: KeyChangeDialog,
+  devices: DevicesDialog,
+  verifyCall: VerifyCallDialog
 }
 
-const KINDS = Object.keys(DIALOGS) as DialogKind[]
+const KINDS = Object.keys(DIALOGS) as AnyDialogKind[]
 
 /** Every app-level dialog, driven by `useDialogStore`. */
 export function Dialogs(): React.JSX.Element {
@@ -45,7 +60,7 @@ export function Dialogs(): React.JSX.Element {
  * later one, so each open starts from fresh state. Between opens the last instance stays mounted,
  * which lets it animate closed.
  */
-function DialogSlot({ kind }: { kind: DialogKind }): React.JSX.Element | null {
+function DialogSlot({ kind }: { kind: AnyDialogKind }): React.JSX.Element | null {
   const id = useLatched(useDialogStore((s) => (s.dialog?.kind === kind ? s.dialog.id : null)))
   const Component = DIALOGS[kind]
   return id === null ? null : <Component key={id} />

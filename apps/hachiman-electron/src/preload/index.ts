@@ -5,8 +5,11 @@ import {
   OPEN_EXTERNAL_CHANNEL,
   PROBE_REGIONS_CHANNEL,
   SCREEN_SOURCES_CHANNEL,
+  SECURE_STORAGE_CLEAR_CHANNEL,
+  SECURE_STORAGE_GET_CHANNEL,
   SELECT_SCREEN_SOURCE_CHANNEL,
   type ScreenSourceInfo,
+  type SecureStorageResult,
 } from "../shared/ipc";
 
 /**
@@ -50,6 +53,15 @@ const bridge = {
   /** The listed source that the next getDisplayMedia captures. */
   selectScreenSource: (id: string): Promise<void> =>
     ipcRenderer.invoke(SELECT_SCREEN_SOURCE_CHANNEL, id),
+  /** Wrap key of the crypto store (main validates the userId). The caller zeroes `value`. */
+  secureStorage: {
+    getWrapKeyBytes: (
+      userId: string,
+    ): Promise<SecureStorageResult<Uint8Array<ArrayBuffer>>> =>
+      ipcRenderer.invoke(SECURE_STORAGE_GET_CHANNEL, userId),
+    clear: (userId: string): Promise<SecureStorageResult<void>> =>
+      ipcRenderer.invoke(SECURE_STORAGE_CLEAR_CHANNEL, userId),
+  },
 };
 
 export type HachimanBridge = typeof bridge;

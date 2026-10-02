@@ -7,6 +7,7 @@ References:
 
 - Client API (`@hachiman/client`): [`docs/gateway-protocol.md`](../../docs/gateway-protocol.md) §10.
 - Host seam (`IPlatformService`): [`docs/gateway-protocol.md`](../../docs/gateway-protocol.md) §11.
+- E2EE (normative): [`docs/gateway-protocol.md`](../../docs/gateway-protocol.md) §12. The crypto package: [`pkgs/hachiman-crypto`](../../pkgs/hachiman-crypto/README.md).
 - Visual spec (tokens, layout, transcript): [`docs/ui-redesign.md`](../../docs/ui-redesign.md).
 - Repo conventions: [`CLAUDE.md`](../../CLAUDE.md).
 
@@ -23,9 +24,11 @@ flowchart LR
     APP["App.tsx"]
     TS["TakusenService<br/>PKCE, token refresh"]
     H["services/hachiman.ts<br/>one HachimanClient"]
+    CS["services/CryptoService.ts<br/>one CryptoClient"]
   end
 
   CL["@hachiman/client<br/>RestClient, GatewayClient,<br/>VoiceConnection"]
+  CW["@hachiman/crypto<br/>crypto Worker + transform Worker"]
   OIDC["Takusen OIDC<br/>/api/oidc"]
   REST["Takusen REST<br/>/api/v1, uploads, files"]
   GW["hachiman-gateway<br/>WS /gateway"]
@@ -35,6 +38,9 @@ flowchart LR
   PS -- "usePlatform()" --> APP
   APP --> TS
   APP --> H
+  H --> CS
+  PS -- "secureStorage (wrap key)" --> CS
+  CS -- "RPC" --> CW
   TS -- "authorize, token, userinfo" --> OIDC
   TS -- "GET /api/regions" --> REST
   H --> CL
@@ -45,7 +51,8 @@ flowchart LR
 
 - The host renders `<PlatformProvider value={platformService}><ThemeProvider><App /></ThemeProvider></PlatformProvider>`.
 - The host supplies only the platform seam. It does not create a client or a store.
-- `services/hachiman.ts` creates the one `HachimanClient`. The access token comes from `takusenService.getAccessToken`.
+- `services/hachiman.ts` creates the one `HachimanClient`. The access token comes from `takusenService.getAccessToken`. `App.tsx` calls `startHachiman(platform)`, so the crypto Worker gets the host's `secureStorage`.
+- `CryptoService` starts the crypto Worker of the signed-in user. The gateway connects only when the Worker has a device id, because IDENTIFY needs it.
 - `TakusenService` runs the OIDC PKCE flow and refreshes the token. The host only opens the authorization page and delivers the callback URL.
 - `TakusenService` also reads the public region list and posts region RTTs to `/api/v1/regions/recommend`.
 - `src/shared/takusen-env.ts` resolves the endpoints from `VITE_*` variables. It has no imports, so the Electron main process can use it for its CSP.
@@ -72,9 +79,13 @@ flowchart LR
   C["components/<br/>shell, chat, voice,<br/>people, settings, ui"]
   HK["hooks/"]
   ST["stores/ (Zustand)<br/>guild, channel, messages, voice,<br/>user, takusen, prefs, limits,<br/>nav, dialog"]
-  SV["services/<br/>MessagesService, VoiceService,<br/>InviteService, UploadService,<br/>TakusenService"]
+  CST["stores/cryptoStore.ts<br/>phase, status, fatal, alerts,<br/>membership, voice roster"]
+  SV["services/<br/>MessagesService, VoiceService,<br/>InviteService, UploadService,<br/>TakusenService, AdminActionService"]
   H["services/hachiman.ts<br/>singleton + event mirror"]
   HC["HachimanClient<br/>(@hachiman/client)"]
+  CS["services/CryptoService.ts<br/>+ ds-transport, voice-e2ee"]
+  MD["services/message-decrypt.ts<br/>decrypt before store"]
+  CW["crypto Worker<br/>(@hachiman/crypto)"]
   SND["services/SoundService.ts<br/>cuelume + lib/chime.ts"]
 
   PC --> C
@@ -82,10 +93,19 @@ flowchart LR
   C -- selectors --> ST
   HK -- selectors --> ST
   C -- actions --> SV
+  C -- selectors --> CST
   SV -- calls --> HC
-  SV -- setState --> ST
+  SV -- "encrypt, sign" --> CS
+  SV --> MD
   HC -- "update, MESSAGE_*, voice" --> H
   H -- setState --> ST
+  H -- "MESSAGE_*" --> MD
+  H -- "MLS_*, DEVICE_*, USER_KEYS_UPDATE,<br/>KEY_PACKAGES_LOW, KT_TREE_HEAD" --> CS
+  MD -- decryptMessages --> CS
+  MD -- upsert --> ST
+  CS <-- RPC --> CW
+  CW -- "DsTransport (REST)" --> HC
+  CS -- events --> CST
   H -- message events --> SND
   SV -- own actions --> SND
   ST -- "prefs, voice states" --> SND
@@ -96,31 +116,43 @@ Data flows in one direction:
 1. A component calls a service, or `hachiman.rest` for a simple mutation.
 2. Takusen commits the change and publishes the gateway event.
 3. `HachimanClient` updates its cache and emits the event.
-4. `services/hachiman.ts` copies the changed cache slice into a store.
+4. `services/hachiman.ts` copies the changed cache slice into a store. A message goes through the crypto Worker first.
 5. Components re-render from their selectors.
 
-Only `services/hachiman.ts` writes the mirror stores (`guildStore`, `channelStore`, and the voice states in `voiceStore`). `MessagesService` writes optimistic rows into `messagesStore`. The server echo replaces each row by nonce.
+Only `services/hachiman.ts` writes the mirror stores (`guildStore`, `channelStore`, and the voice states in `voiceStore`). `MessagesService` writes optimistic rows into `messagesStore`. The decrypted server echo replaces each row by nonce.
+
+### E2EE in the UI
+
+- **CryptoService** owns the one `CryptoClient`. `start` gets the store wrap key from `IPlatformService.secureStorage` and calls `init`. `stop` disposes the Worker on sign-out. The Worker store stays on disk for the next sign-in. Every Worker event goes into `cryptoStore` and to the listeners of `on`.
+- **ds-transport.ts** implements `DsTransport`. Each method calls one `RestClient` route, because the Worker never calls `fetch`. `channelReaders` comes from the client cache. Unknown data gives no readers, so the Worker fails closed.
+- **Decrypt before store.** `message-decrypt.ts` sends every ciphertext `Message` to the Worker and upserts only the result. A `pending` result shows a placeholder, and `epochKeysAvailable` decrypts it again. A `failed` result shows an "unable to decrypt" row with the reason. No envelope goes into a store as text.
+- **Send.** `MessagesService` calls `ensureChannelGroup` and `encryptMessage`, then posts the envelope. `UploadService` encrypts each attachment in the Worker and uploads only the blobs. The name, MIME type and dimensions go into the envelope.
+- **Attachments** show as object URLs of decrypted blobs (`hooks/use-decrypted-blob.ts`, `lib/blob-url-cache.ts`). The cache loads each blob one time and releases a URL when no component holds it.
+- **Voice.** `voice-e2ee.ts` is the `VoiceE2eeDelegate` of `@hachiman/client`. It makes one transform Worker per call and one sender transform per track. A media close 4013 makes `VoiceService` join again. The call UI shows the participants from the MLS tree (`components/voice/call-roster.ts`).
+- **Admin actions.** `AdminActionService` signs role, overwrite, member-role and history-visibility changes (§12.16) and sends them in `X-Hachiman-Signed-Action`.
+- **cryptoStore** holds the Worker phase, `CryptoStatus`, the fatal state (4012 `update_required`, 4013 `device_revoked`), key-change, fork and KT alerts, membership events and the voice roster. It never holds key material or a recovery key.
 
 `SoundService.playSound` checks `prefsStore` (`soundsEnabled`, `disabledSounds`, `soundVolume`) before each sound. Message sounds come from `cuelume`. Voice sounds come from `lib/chime.ts` (Web Audio).
 
 | Path | Contents |
 |---|---|
-| `src/App.tsx` | App root. It holds the one `TooltipProvider`, calls `startHachiman()`, and subscribes to `onOAuthCallback` and `onInviteCode`. It shows `Shell` or `SignInScreen`, plus `Dialogs`. |
+| `src/App.tsx` | App root. It holds the one `TooltipProvider`, calls `startHachiman(platform)`, and subscribes to `onOAuthCallback` and `onInviteCode`. It shows `FatalScreen`, `Shell` inside `CryptoGate`, or `SignInScreen`, plus `Dialogs` and `SecurityNotices`. |
 | `src/index.ts` | Public exports of the package |
 | `src/components/shell/` | `Shell`, channel pane, guild header and menus, the dialog host (`dialogs.tsx`) |
-| `src/components/chat/` | Transcript, message row and toolbar, composer, typing line |
+| `src/components/chat/` | Transcript, message row and toolbar, composer, typing line, the "unable to decrypt" text (`decrypt-text.ts`), MLS membership lines |
 | `src/components/chat/attachments/` | `useUploads`, upload tray, drop zone, attachment grid, lightbox |
-| `src/components/voice/` | Voice room, `stream-grid`, `screen-share-controls`, `screen-source-picker`, stream quality fields, self mute and deafen toggles |
+| `src/components/voice/` | Voice room, `stream-grid`, `screen-share-controls`, `screen-source-picker`, stream quality fields, self mute and deafen toggles, call security (`call-roster`, `call-security`, `verify-call-dialog`) |
+| `src/components/security/` | `CryptoGate` and the onboarding (set up, link, restore, reset). Devices panel, device linking (QR and SAS emoji), verification, key-change dialog. Recovery key view and panel, security log and notices, the host trust label, fatal screens. `qr.ts` is a small QR encoder (no dependency) |
 | `src/components/people/` | Member list sections by presence |
 | `src/components/settings/` | Settings layout. `user/` holds account, appearance, voice and sounds. The guild settings dialogs are in `src/components/`. |
 | `src/components/ui/` | shadcn and local primitives (dialog, tooltip, avatar, window strip, title bar) |
 | `src/components/*.tsx` | Server icon rail, channel sidebar, member list, voice panel, guild and channel dialogs, sign-in screen |
-| `src/stores/` | Zustand stores. `prefsStore`, `navStore`, `takusenStore` (session) and part of `voiceStore` (mute, deafen) persist to `localStorage`. |
-| `src/services/` | `hachiman.ts`, `MessagesService`, `VoiceService`, `InviteService`, `UploadService`, `TakusenService`, `SoundService` |
-| `src/hooks/` | `use-hachiman` (derived channel and voice lists), `use-member`, `use-sign-in`, `use-recommended-region`, `use-mic-level`, `use-action`, `use-draft` and others |
-| `src/lib/` | Pure helpers: `sounds`, `chime`, `stream-quality`, `connection-quality`, `mentions`, `model`, `role-ink`, `format-bytes`, `utils` |
+| `src/stores/` | Zustand stores. `prefsStore`, `navStore`, `takusenStore` (session) and part of `voiceStore` (mute, deafen) persist to `localStorage`. `cryptoStore` is memory only. |
+| `src/services/` | `hachiman.ts`, `CryptoService`, `ds-transport`, `message-decrypt`, `voice-e2ee`, `MessagesService`, `VoiceService`, `InviteService`, `UploadService`, `AdminActionService`, `TakusenService`, `SoundService` |
+| `src/hooks/` | `use-hachiman` (derived channel and voice lists), `use-member`, `use-sign-in`, `use-recommended-region`, `use-mic-level`, `use-action`, `use-draft`, `use-decrypted-blob`, `use-membership-timeline` and others |
+| `src/lib/` | Pure helpers: `sounds`, `chime`, `stream-quality`, `connection-quality`, `mentions`, `model`, `role-ink`, `format-bytes`, `attachments` (upload id order), `blob-url-cache`, `admin-payload`, `client-version`, `utils` |
 | `src/shared/` | `IPlatformService.ts`, `PlatformContext.tsx`, `takusen-env.ts` |
-| `src/dev/preview/` | Preview mode: fixture, REST and voice stubs |
+| `src/dev/preview/` | Preview mode: fixture, REST and voice stubs, the crypto stub |
 | `src/assets/` | `main.css` and the bundled fonts |
 
 ## Send a message with an attachment
@@ -131,7 +163,9 @@ sequenceDiagram
   participant UP as useUploads
   participant US as UploadService
   participant MS as messagesService
+  participant MD as message-decrypt
   participant ST as messagesStore
+  participant CW as Crypto Worker
   participant HC as HachimanClient
   participant TK as Takusen
   participant GW as Gateway
@@ -139,32 +173,37 @@ sequenceDiagram
   participant TR as Transcript
 
   CB->>UP: add(files)
-  UP->>US: uploadFile(file, {signal, onProgress})
-  US->>US: tooLarge(file), measure(file)
-  US->>HC: rest.upload(file, {filename, width, height})
-  HC->>TK: POST /api/v1/uploads
+  UP->>US: uploadAttachment(file, {signal, onProgress})
+  US->>US: tooLarge(file), inspect(file)
+  US->>CW: encryptAttachment(file, name, mime, thumbnail)
+  CW-->>US: blob, thumbnailBlob, pointer draft
+  US->>HC: rest.uploadBlob(blob), rest.uploadBlob(thumbnailBlob)
+  HC->>TK: POST /api/v1/uploads?kind=blob
   TK-->>HC: Attachment {id}
-  HC-->>US: Attachment
-  US-->>UP: Attachment (tray shows done)
+  US-->>UP: AttachmentPointer (tray shows done)
   CB->>UP: take()
-  UP-->>CB: Attachment[]
-  CB->>MS: send(channelId, text, attachments)
+  UP-->>CB: AttachmentPointer[]
+  CB->>MS: send(channelId, text, pointers)
   MS->>ST: addPending({nonce, pending: true})
   MS->>MS: playSound("messageSent")
   ST-->>TR: pending row renders
-  MS->>HC: rest.sendMessage(channelId, {content, nonce, attachments: ids})
+  MS->>CW: ensureChannelGroup, encryptMessage
+  CW-->>MS: envelope
+  MS->>HC: rest.sendMessage(channelId, {envelope, nonce, attachments: ids})
   HC->>TK: POST /api/v1/channels/:id/messages
-  TK-->>HC: Message
-  MS->>ST: upsert(channelId, [message]) (replaces the row by nonce)
+  TK-->>HC: Message (ciphertext)
+  MS->>MD: ingest([message])
+  MD->>CW: decryptMessages
+  MD->>ST: upsert(channelId, [row]) (replaces the row by nonce)
   TK->>GW: Redis PUBLISH MESSAGE_CREATE
   GW-->>HC: DISPATCH MESSAGE_CREATE
   HC-->>H: MESSAGE_CREATE
-  H->>ST: upsert (no change, same id)
+  H->>MD: ingest (decrypt, then upsert: no change, same id)
   H->>H: messageSound() (mine: no sound)
   ST-->>TR: selector returns the new array, re-render
 ```
 
-The composer refuses to send while an upload runs or after an upload fails. If `rest.sendMessage` fails, `markFailed` flags the row. The user can then retry or discard it. A retry sends the same attachment ids again, because Takusen did not claim them.
+The composer refuses to send while an upload runs or after an upload fails. If the send fails, `markFailed` flags the row. The user can then retry or discard it. A retry encrypts again and sends the same attachment ids, because Takusen did not claim them. A `StaleEpoch`, `GroupPending`, `EpochConflict` or `PendingRemoves` error makes `MessagesService` catch up and encrypt again, with at most 4 attempts in total.
 
 ## Voice join and screen share
 
@@ -173,15 +212,28 @@ sequenceDiagram
   participant VR as Voice UI
   participant VS as voiceService
   participant HC as HachimanClient
+  participant VE as voice-e2ee delegate
+  participant CW as Crypto Worker
+  participant TW as Transform Worker
   participant PL as IPlatformService
-  participant VST as voiceStore
+  participant VST as voiceStore + cryptoStore
 
   VR->>VS: join(channel) (checks CONNECT)
   VS->>VST: setState({guildId, channelId, connectionState: "new"})
   VS->>HC: joinVoice(guildId, channelId)
+  HC->>VE: start()
+  VE->>CW: voiceStart({channelId, guildId})
+  CW-->>VE: handle, keyPackage
+  HC->>HC: media identify {token, e2ee: {version 1, keyPackage}}
+  HC->>VE: handle(e2ee_* op) for each media E2EE frame
+  VE->>CW: voiceHandle(handle, op)
+  HC->>VE: senderTransform(track), receiverTransform(...)
+  VE->>TW: RTCRtpScriptTransform (one MessagePort each)
+  CW-->>TW: frame keys
   HC-->>VS: VoiceConnection
   VS->>VS: playSound("voiceJoin"), startMic()
   HC-->>VS: state, speaking, peers, screen events
+  CW-->>VST: voiceRoster (participants from the MLS tree)
   VS->>VST: setState (mirror)
 
   VR->>PL: getScreenSources()
@@ -195,10 +247,12 @@ sequenceDiagram
   VR->>VS: startScreenShare()
   VS->>VS: getDisplayMedia(captureConstraints(quality))
   VS->>VST: setState({localScreen})
-  VS->>HC: setScreen(track, limits)
+  VS->>HC: setScreen(track, limits) (same sender transform)
 ```
 
 The browser shows its own share picker inside `getDisplayMedia`. In Electron, the main process answers `getDisplayMedia` with the selected source. See [`hachiman-electron`](../hachiman-electron/README.md#screen-share-source-pick).
+
+A media close 4012 shows "update required" in the call UI. A media close 4013 sets `voiceResyncing`, and `VoiceService` joins the same channel again with a new leaf and new transforms.
 
 ## Conventions
 
@@ -208,10 +262,14 @@ Read [`CLAUDE.md`](../../CLAUDE.md#working-in-the-shared-ui-appshachimansrc) bef
 - There is one `TooltipProvider`, in `App.tsx`. Do not add another.
 - Components get host features only through `usePlatform()`. Do not import Electron or browser code.
 - Read `me` from `useUserStore`. Do not hardcode user data.
+- Decrypt before store. Only `message-decrypt.ts` puts message rows from the server into `messagesStore`.
+- Show an attachment only through `useDecryptedBlob`. Do not set its `src` to a file URL. Avatars, icons and banners stay plaintext.
+- Do not put key material, a recovery key or an envelope into a store. The recovery key stays in the component state of the dialog that shows it.
+- Show other users' device names from the device certificates (`components/security/device-names.ts`), not from the REST `Device.name`.
 
 ## Preview mode
 
-Open the browser host dev server with `?preview`. The browser host then calls `startPreview()` from `./dev/preview/index` before it renders. Stubbed REST and gateway data seed the stores, so the UI runs without Takusen or a gateway. Production builds do not include it.
+Open the browser host dev server with `?preview`. The browser host then calls `startPreview()` from `./dev/preview/index` before it renders. Stubbed REST and gateway data seed the stores, so the UI runs without Takusen or a gateway. The crypto client is `createCryptoStub`. It has no Worker and no keys, and it marks its envelopes "NOT ENCRYPTED". Production builds do not include it.
 
 Options: `?preview=signedout`, `&theme=light`, `&display=compact`. The fixture and stub details are in [`src/dev/README.md`](src/dev/README.md).
 
@@ -224,4 +282,10 @@ pnpm -F @hachiman/hachiman format      # prettier --write .
 pnpm -F @hachiman/hachiman shadcn:add <component>   # adds to src/components/ui (components.json)
 ```
 
-This package has no `dev` script and no tests. Run it through a host: `pnpm dev:browser` or `pnpm dev:electron`.
+This package has no `dev` script. Run it through a host: `pnpm dev:browser` or `pnpm dev:electron`.
+
+The unit tests (`src/**/*.test.ts`) cover the services, hooks and helpers. Examples are the decrypt order, the DS transport, the voice delegate, the QR encoder and the recovery key input. This package has no vitest dependency yet, so run the binary of a sibling package from `apps/hachiman`:
+
+```bash
+../../pkgs/hachiman-client/node_modules/.bin/vitest run --config src/dev/vitest.config.ts
+```

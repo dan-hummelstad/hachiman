@@ -14,6 +14,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"slices"
 	"strconv"
 	"sync"
 	"time"
@@ -47,7 +48,12 @@ const (
 	closeAlreadyAuthed    = 4005
 	closeInvalidSeq       = 4007
 	closeSessionTimeout   = 4009
+	closeUnsupported      = 4012
+	closeDeviceRevoked    = 4013
 )
+
+// capabilityE2EE is the IDENTIFY capability every client must send (§12.13).
+const capabilityE2EE = "e2ee/1"
 
 type Gateway struct {
 	rdb        *redis.Client
@@ -60,6 +66,9 @@ type Gateway struct {
 	// Postgres reads; function fields so tests can run without a database.
 	load    func(ctx context.Context, userID, onlyGuild string) (*readyData, error)
 	nodeURL func(ctx context.Context, nodeID string) (string, error)
+	device  func(ctx context.Context, deviceID string) (deviceRow, error)
+
+	minClientVersion semver
 
 	heartbeat       time.Duration
 	identifyTimeout time.Duration
@@ -70,19 +79,22 @@ type Gateway struct {
 	sessions map[string]*session
 	byGuild  map[string]map[*session]struct{}
 	byUser   map[string]map[*session]struct{}
+	byDevice map[string]map[*session]struct{}
 }
 
 func newGateway(rdb *redis.Client, takusenURL string, placer *takusenclient.Client, signer *voicetoken.Signer) *Gateway {
 	return &Gateway{
 		rdb: rdb, takusenURL: takusenURL, placer: placer, signer: signer,
-		http:            &http.Client{Timeout: 5 * time.Second},
-		heartbeat:       41250 * time.Millisecond,
-		identifyTimeout: 10 * time.Second,
-		offlineGrace:    60 * time.Second,
-		busReady:        make(chan struct{}),
-		sessions:        map[string]*session{},
-		byGuild:         map[string]map[*session]struct{}{},
-		byUser:          map[string]map[*session]struct{}{},
+		http:             &http.Client{Timeout: 5 * time.Second},
+		heartbeat:        41250 * time.Millisecond,
+		identifyTimeout:  10 * time.Second,
+		offlineGrace:     60 * time.Second,
+		minClientVersion: semver{0, 1, 0, nil},
+		busReady:         make(chan struct{}),
+		sessions:         map[string]*session{},
+		byGuild:          map[string]map[*session]struct{}{},
+		byUser:           map[string]map[*session]struct{}{},
+		byDevice:         map[string]map[*session]struct{}{},
 	}
 }
 
@@ -286,6 +298,9 @@ func (g *Gateway) touch(s *session) {
 		for _, k := range []string{kSession(s.id), kEvents(s.id), kPresence(s.user.ID), kUserSessions(s.user.ID)} {
 			p.Expire(ctx, k, sessionTTL)
 		}
+		// SET, not EXPIRE: when another session of this device ends, it
+		// deletes the key, and this session must claim it again.
+		claimDeviceScript.Eval(ctx, p, []string{kSession(s.id), kDeviceOnline(s.deviceID)}, s.id, sessionTTL.Milliseconds())
 		return nil
 	})
 	if err != nil {
@@ -300,7 +315,40 @@ type closeErr struct {
 
 func (e closeErr) Error() string { return fmt.Sprintf("close %d: %s", e.code, e.msg) }
 
-var errAuthFailed = closeErr{closeAuthFailed, "authentication failed"}
+var (
+	errAuthFailed    = closeErr{closeAuthFailed, "authentication failed"}
+	errUnsupported   = closeErr{closeUnsupported, "client unsupported"}
+	errDeviceRevoked = closeErr{closeDeviceRevoked, "device unknown or revoked"}
+)
+
+// checkClient is IDENTIFY check 2 (§12.13): the e2ee/1 capability and a
+// clientVersion at or above minClientVersion.
+func (g *Gateway) checkClient(capabilities []string, clientVersion string) error {
+	v, ok := parseSemver(clientVersion)
+	if !slices.Contains(capabilities, capabilityE2EE) || !ok || v.less(g.minClientVersion) {
+		return errUnsupported
+	}
+	return nil
+}
+
+// checkDevice is IDENTIFY check 3 (§12.13): the devices row exists, belongs
+// to the user and is not revoked. A pending device (linking) is allowed.
+func (g *Gateway) checkDevice(ctx context.Context, userID, deviceID string) error {
+	if _, err := uuid.Parse(deviceID); err != nil {
+		return errDeviceRevoked
+	}
+	d, err := g.device(ctx, deviceID)
+	if errors.Is(err, errNoDevice) {
+		return errDeviceRevoked
+	}
+	if err != nil {
+		return fmt.Errorf("device lookup: %w", err)
+	}
+	if d.UserID != userID || d.Status == "revoked" {
+		return errDeviceRevoked
+	}
+	return nil
+}
 
 // auth resolves a bearer token to a user via Takusen GET /api/v1/users/@me
 // (no token introspection endpoint).
@@ -339,7 +387,12 @@ func randomToken() string {
 }
 
 func (g *Gateway) identify(c *conn, raw json.RawMessage) (*session, error) {
-	var p struct{ Token string }
+	var p struct {
+		Token         string
+		DeviceID      string
+		Capabilities  []string
+		ClientVersion string
+	}
 	if err := decode(raw, &p); err != nil {
 		return nil, err
 	}
@@ -348,16 +401,23 @@ func (g *Gateway) identify(c *conn, raw json.RawMessage) (*session, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := g.checkClient(p.Capabilities, p.ClientVersion); err != nil {
+		return nil, err
+	}
+	if err := g.checkDevice(ctx, user.ID, p.DeviceID); err != nil {
+		return nil, err
+	}
 	data, err := g.load(ctx, user.ID, "")
 	if err != nil {
 		return nil, fmt.Errorf("load ready: %w", err)
 	}
-	s := g.newSession(uuid.NewString(), user, c)
+	s := g.newSession(uuid.NewString(), user, p.DeviceID, c)
 	if _, err := g.rdb.TxPipelined(ctx, func(p redis.Pipeliner) error {
-		p.HSet(ctx, kSession(s.id), "userId", user.ID, "seq", 0, "owner", s.owner)
+		p.HSet(ctx, kSession(s.id), "userId", user.ID, "deviceId", s.deviceID, "seq", 0, "owner", s.owner)
 		p.Expire(ctx, kSession(s.id), sessionTTL)
 		p.SAdd(ctx, kUserSessions(user.ID), s.id)
 		p.Expire(ctx, kUserSessions(user.ID), sessionTTL)
+		p.Set(ctx, kDeviceOnline(s.deviceID), s.id, sessionTTL)
 		return nil
 	}); err != nil {
 		return nil, err
@@ -365,17 +425,21 @@ func (g *Gateway) identify(c *conn, raw json.RawMessage) (*session, error) {
 	s.seed(data)
 	announce := s.restorePresence(ctx)
 	ready := map[string]any{
-		"v": 1, "sessionId": s.id, "user": user,
+		"v": 1, "sessionId": s.id, "deviceId": s.deviceID, "user": user,
 		"guilds":          s.clientGuilds(ctx, data.Guilds),
 		"privateChannels": nonNil(data.DMs),
 		"presences":       g.presences(ctx, keys(s.dmPartners)),
 	}
 	g.addSession(s)
-	go s.run(func() {
+	go s.run(func() bool {
+		if !s.recheckDevice() {
+			return false
+		}
 		s.dispatch("READY", ready)
 		if announce {
 			s.publishPresence()
 		}
+		return true
 	})
 	return s, nil
 }
@@ -385,6 +449,7 @@ func (g *Gateway) resume(c *conn, raw json.RawMessage) (*session, error) {
 		Token     string
 		SessionID string
 		Seq       int64
+		DeviceID  string
 	}
 	if err := decode(raw, &p); err != nil {
 		return nil, err
@@ -394,8 +459,13 @@ func (g *Gateway) resume(c *conn, raw json.RawMessage) (*session, error) {
 	if err != nil {
 		return nil, err
 	}
+	// RESUME has no capabilities; the session passed check 2 at IDENTIFY.
+	// The device check runs again: a revoked device must not RESUME.
+	if err := g.checkDevice(ctx, user.ID, p.DeviceID); err != nil {
+		return nil, err
+	}
 	owner := randomToken()
-	res, err := takeoverScript.Run(ctx, g.rdb, []string{kSession(p.SessionID), kEvents(p.SessionID)}, user.ID, owner).Slice()
+	res, err := takeoverScript.Run(ctx, g.rdb, []string{kSession(p.SessionID), kEvents(p.SessionID)}, user.ID, p.DeviceID, owner).Slice()
 	if errors.Is(err, redis.Nil) {
 		c.sendOp(opInvalidSession, false)
 		return nil, nil
@@ -418,10 +488,11 @@ func (g *Gateway) resume(c *conn, raw json.RawMessage) (*session, error) {
 	if err != nil {
 		return nil, fmt.Errorf("load resume state: %w", err)
 	}
-	s := g.newSession(p.SessionID, user, c)
+	s := g.newSession(p.SessionID, user, p.DeviceID, c)
 	s.owner = owner
 	s.seed(data)
 	g.rdb.SAdd(ctx, kUserSessions(user.ID), s.id)
+	g.rdb.Set(ctx, kDeviceOnline(s.deviceID), s.id, sessionTTL)
 	announce := s.restorePresence(ctx)
 	s.restoreVoice(ctx)
 	for _, f := range replay {
@@ -430,11 +501,15 @@ func (g *Gateway) resume(c *conn, raw json.RawMessage) (*session, error) {
 	// ponytail: an event that reaches the old owner after the takeover and
 	// this node before addSession is dropped for this session.
 	g.addSession(s)
-	go s.run(func() {
+	go s.run(func() bool {
+		if !s.recheckDevice() {
+			return false
+		}
 		s.dispatch("RESUMED", struct{}{})
 		if announce {
 			s.publishPresence()
 		}
+		return true
 	})
 	return s, nil
 }

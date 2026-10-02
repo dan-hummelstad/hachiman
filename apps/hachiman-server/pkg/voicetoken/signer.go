@@ -75,6 +75,7 @@ func (s *Signer) Mint(c Claims) (string, error) {
 	t.SetAudience(c.MediaNodeID)
 	t.SetString("sessionId", c.SessionID)
 	t.SetString("userId", c.UserID)
+	t.SetString("deviceId", c.DeviceID)
 	t.SetString("guildId", c.GuildID)
 	t.SetString("channelId", c.ChannelID)
 	return t.V4Sign(s.secret, nil), nil

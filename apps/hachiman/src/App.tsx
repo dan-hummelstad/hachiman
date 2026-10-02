@@ -1,5 +1,8 @@
 import { useEffect } from 'react'
 
+import { FatalScreen } from '@/components/security/fatal-screen'
+import { CryptoGate } from '@/components/security/onboarding'
+import { SecurityNotices } from '@/components/security/security-notices'
 import { SignInScreen } from '@/components/sign-in-screen'
 import { Dialogs } from '@/components/shell/dialogs'
 import { Shell } from '@/components/shell/shell'
@@ -10,18 +13,24 @@ import { errMsg } from '@/lib/utils'
 import { startHachiman } from '@/services/hachiman'
 import { takusenService } from '@/services/TakusenService'
 import { usePlatform } from '@/shared/PlatformContext'
+import { useCryptoStore } from '@/stores/cryptoStore'
 import { openDialog } from '@/stores/dialogStore'
 import { useTakusenStore } from '@/stores/takusenStore'
 
 /**
- * App root: optional Electron window strip above either the signed-in shell or the sign-in
- * window, plus every app-level dialog (driven by dialogStore).
+ * App root: optional Electron window strip above one of
+ * - a fatal screen (update required, device signed out: §12.13),
+ * - the signed-in shell behind the encryption gate (start-up, onboarding: §12.4, §12.5),
+ * - the sign-in window,
+ * plus every app-level dialog (driven by dialogStore) and the security notices.
  */
 function App(): React.JSX.Element {
   const platform = usePlatform()
   const signedIn = useTakusenStore((s) => s.session !== null)
+  const fatal = useCryptoStore((s) => s.fatal)
 
-  useEffect(() => startHachiman(), [])
+  // The host gives the crypto Worker its store wrap key (§11).
+  useEffect(() => startHachiman(platform), [platform])
   useEffect(
     () =>
       platform.onOAuthCallback((url) => {
@@ -65,8 +74,12 @@ function App(): React.JSX.Element {
     <TooltipProvider delayDuration={200}>
       <div className="bg-background text-foreground flex h-screen w-screen flex-col overflow-hidden">
         <WindowStrip />
-        {signedIn ? (
-          <Shell />
+        {fatal ? (
+          <FatalScreen fatal={fatal} />
+        ) : signedIn ? (
+          <CryptoGate>
+            <Shell />
+          </CryptoGate>
         ) : (
           <div className="min-h-0 flex-1">
             <SignInScreen />
@@ -74,6 +87,7 @@ function App(): React.JSX.Element {
         )}
       </div>
       <Dialogs />
+      {signedIn && !fatal && <SecurityNotices />}
     </TooltipProvider>
   )
 }

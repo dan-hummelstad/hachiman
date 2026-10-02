@@ -6,7 +6,10 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./ds": "./src/mls/ds.ts",
+    "./constants": "./src/constants.ts",
+    "./codec": "./src/codec.ts"
   },
   "scripts": {
     "lint": "eslint \"src/**/*.ts\"",

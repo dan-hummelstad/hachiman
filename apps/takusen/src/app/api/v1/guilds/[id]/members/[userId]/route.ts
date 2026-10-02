@@ -2,28 +2,31 @@
  * PATCH  /api/v1/guilds/:id/members/:userId { nick?, roles? }
  *        nick: self → CHANGE_NICKNAME, other → MANAGE_NICKNAMES;
  *        roles: MANAGE_ROLES + hierarchy for every role added or removed.
+ *        A roles change takes X-Hachiman-Signed-Action (member_roles, §12.16).
  * DELETE /api/v1/guilds/:id/members/:userId — kick: KICK_MEMBERS, not the
  *        owner, and (unless owner/admin) the target's top role must be below ours.
+ * Both tell the DS in the same transaction (§12.18).
  */
 import { and, eq, inArray } from 'drizzle-orm'
 import { highestRolePosition, Permissions } from '@hachiman/client/permissions'
 import { NextResponse, type NextRequest } from 'next/server'
 import { z } from 'zod'
 
-import { db } from '@/db/client'
 import { guildMembers, memberRoles } from '@/db/schema'
+import { enforceAdminAction } from '@/lib/admin-actions'
 import { errorResponse, noContent, parseBody } from '@/lib/api-helpers'
 import { requireUser } from '@/lib/auth-helpers'
 import { MissingPermissionsError, ValidationError } from '@/lib/errors'
 import { publishToGuild } from '@/lib/events'
 import {
+  actorDeviceId,
   isPrivileged,
   loadGuildAccess,
   requireAbovePosition,
   requirePermission,
 } from '@/lib/guild-access'
 import { assertId } from '@/lib/ids'
-import { loadMember, removeMember } from '@/lib/guilds'
+import { loadMember, membershipChanged, membershipTransaction, MembershipTriggers, removeMember } from '@/lib/guilds'
 
 interface RouteContext {
   params: Promise<{ id: string; userId: string }>
@@ -70,7 +73,15 @@ export async function PATCH(req: NextRequest, ctx: RouteContext): Promise<NextRe
       }
     }
 
-    await db.transaction(async (tx) => {
+    const actor = await actorDeviceId(req, session.user.id)
+    await membershipTransaction(async (tx) => {
+      if (body.roles !== undefined) {
+        await enforceAdminAction(tx, req, { guildId: id, ownerId: access.guild.ownerId, userId: session.user.id }, {
+          type: 7,
+          userId,
+          roleIds: [...new Set(body.roles)],
+        })
+      }
       if (body.nick !== undefined) {
         await tx
           .update(guildMembers)
@@ -85,6 +96,9 @@ export async function PATCH(req: NextRequest, ctx: RouteContext): Promise<NextRe
       if (toAdd.length > 0) {
         await tx.insert(memberRoles).values(toAdd.map((roleId) => ({ guildId: id, userId, roleId })))
       }
+      if (toAdd.length > 0 || toRemove.length > 0) {
+        await membershipChanged(tx, MembershipTriggers.memberRolesEdited(id, userId), actor)
+      }
     })
 
     const member = await loadMember(id, userId)
@@ -95,7 +109,7 @@ export async function PATCH(req: NextRequest, ctx: RouteContext): Promise<NextRe
   }
 }
 
-export async function DELETE(_req: NextRequest, ctx: RouteContext): Promise<NextResponse> {
+export async function DELETE(req: NextRequest, ctx: RouteContext): Promise<NextResponse> {
   try {
     const session = await requireUser()
     const { id, userId: rawUserId } = await ctx.params
@@ -108,7 +122,7 @@ export async function DELETE(_req: NextRequest, ctx: RouteContext): Promise<Next
     }
     const target = await loadMember(id, userId)
     requireAbovePosition(access, highestRolePosition(target, access.roles))
-    await removeMember(id, userId)
+    await removeMember(id, userId, await actorDeviceId(req, session.user.id))
     return noContent()
   } catch (err) {
     return errorResponse(err)

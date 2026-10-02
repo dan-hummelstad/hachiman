@@ -1,6 +1,6 @@
 # @hachiman/hachiman-electron
 
-The Electron host of Hachiman, built with electron-vite. The renderer mounts the shared UI ([`@hachiman/hachiman`](../hachiman/README.md)). The main process adds the desktop features: CSP, deep links, the region probe, the screen source picker and the `hachiman://app` renderer scheme.
+The Electron host of Hachiman, built with electron-vite. The renderer mounts the shared UI ([`@hachiman/hachiman`](../hachiman/README.md)). The main process adds the desktop features: CSP, deep links, the region probe, the screen source picker, the crypto store wrap key and the `hachiman://app` renderer scheme.
 
 References:
 
@@ -49,7 +49,8 @@ flowchart LR
 flowchart TB
   subgraph Main["main process"]
     IDX["index.ts<br/>window, IPC handlers"]
-    CSP["csp.ts<br/>buildCsp"]
+    CSP["csp.ts + csp-policy.ts<br/>buildCsp"]
+    KS["secure-storage.ts<br/>wrap key store"]
     PROT["protocol-handler.ts<br/>deep links, single-instance lock"]
     RP["renderer-protocol.ts<br/>+ renderer-path.ts<br/>hachiman://app"]
     GUARD["probe-target-guard.ts<br/>validateProbeTargets"]
@@ -69,6 +70,7 @@ flowchart TB
   IPC["shared/ipc.ts<br/>channel names"]
 
   IDX --> CSP
+  IDX --> KS
   IDX --> PROT
   IDX --> RP
   IDX --> GUARD --> PROBE
@@ -79,7 +81,7 @@ flowchart TB
   IPC -.-> BR
 
   PROT -- "hachiman:invite-code<br/>hachiman:oauth-callback" --> BR
-  BR -- "hachiman:open-external<br/>hachiman:probe-regions" --> IDX
+  BR -- "hachiman:open-external<br/>hachiman:probe-regions<br/>hachiman:secure-storage-*" --> IDX
   BR -- "hachiman:screen-sources<br/>hachiman:select-screen-source" --> SS
   BR --> PSV --> UI
 ```
@@ -94,6 +96,8 @@ IPC channels (`src/shared/ipc.ts`):
 | `hachiman:probe-regions` | renderer → main (invoke) | `{region, host, port}[]` → `{region, rttMs}[]` |
 | `hachiman:screen-sources` | renderer → main (invoke) | → `{id, name, kind, thumbnail}[]` |
 | `hachiman:select-screen-source` | renderer → main (invoke) | Source id for the next `getDisplayMedia` |
+| `hachiman:secure-storage-get` | renderer → main (invoke) | User id → `{ok, value: 32 bytes}` or `{ok: false, code, message}` |
+| `hachiman:secure-storage-clear` | renderer → main (invoke) | User id → `{ok}` or `{ok: false, code, message}` |
 
 The preload buffers the two main → renderer channels until the UI subscribes. Thus a deep link that arrives at cold start is not lost.
 
@@ -101,6 +105,8 @@ The preload buffers the two main → renderer channels until the UI subscribes. 
 |---|---|
 | `src/main/index.ts` | Creates the window (`sandbox`, `contextIsolation`, no `nodeIntegration`). Registers the IPC handlers, the navigation guard and the `window.open` handler. Asks for microphone access on macOS. |
 | `src/main/csp.ts` | `buildCsp` makes the renderer CSP from the `VITE_*` env through `resolveTakusenEnv` |
+| `src/main/csp-policy.ts` | The CSP rules. It has no imports, because the browser host also uses it. |
+| `src/main/secure-storage.ts` | The wrap key store for `secureStorage`. It has no Electron imports, so `node --test` can load it. |
 | `src/main/protocol-handler.ts` | `takusen://invite/<code>` and `app.hachiman://oauth-callback` from `argv`, `second-instance` and `open-url`. Holds the single-instance lock. |
 | `src/main/renderer-protocol.ts` | Serves the built renderer from `hachiman://app/` with the CSP header. In dev, adds the CSP to the dev server responses. |
 | `src/main/renderer-path.ts` | Maps `hachiman://app/…` to a file and refuses path traversal and symlink escapes. It has no Electron imports, so `node --test` can load it. |
@@ -108,10 +114,10 @@ The preload buffers the two main → renderer channels until the UI subscribes. 
 | `src/main/probe-target-guard.ts` | SSRF guard for `hachiman:probe-regions` |
 | `src/main/screen-share.ts` | Lists sources with `desktopCapturer`, keeps the selected source, and answers `setDisplayMediaRequestHandler` |
 | `src/preload/index.ts` | `window.hachiman` (the only renderer surface). `window.d.ts` types it for the renderer. |
-| `src/shared/ipc.ts` | IPC channel names and `ScreenSourceInfo`. Constants only. |
+| `src/shared/ipc.ts` | IPC channel names, `ScreenSourceInfo` and `SecureStorageResult`. Constants and types only. |
 | `src/renderer/src/PlatformService.ts` | `IPlatformService` adapter over `window.hachiman` |
 | `src/renderer/src/main.tsx` | Renders `PlatformProvider` + `ThemeProvider` + `App` |
-| `src/main/*.test.mts` | `csp`, `probe-target-guard` and `renderer-path` unit tests (`node --test`) |
+| `src/main/*.test.mts` | `csp`, `secure-storage`, `probe-target-guard` and `renderer-path` unit tests (`node --test`) |
 
 ## OAuth sign-in
 
@@ -178,11 +184,25 @@ sequenceDiagram
 
 If `getSources` fails, the picker shows a hint about the macOS Screen Recording permission.
 
+## Crypto store wrap key
+
+`secureStorage` (contract §11, §12.17) gives the crypto Worker the key that encrypts its IndexedDB store.
+
+1. The renderer calls `getWrapKey(userId)`. The preload sends `hachiman:secure-storage-get`.
+2. Main accepts the call only from the top frame of the app page. It accepts only a lowercase UUID as the user id.
+3. Main refuses the call when `safeStorage.isEncryptionAvailable()` is false. On Linux, it also refuses the `basic_text` and `unknown` backends. The result is `SecureStorageUnavailable`.
+4. Main reads `userData/keys/<userId>.bin` and decrypts it with `safeStorage`. When there is no file, main makes 32 random bytes and encrypts them. It writes a temporary file (mode 0600, directory mode 0700), syncs it and hard-links it to the final name. The link fails when the file exists, so main never replaces a key.
+5. The renderer imports the bytes as a non-extractable AES-GCM 256 `CryptoKey` and writes zeros over its copy.
+
+A key file that does not decrypt gives `SecureStorageUnavailable`. A file with a bad payload gives `StoreCorrupt`. Main never replaces these files, because a new key makes the store unreadable. `clear(userId)` deletes the file.
+
+Main cannot write zeros over all copies of the bytes: `safeStorage` takes a string, and the IPC result is a copy. The bytes stay in memory only for the call.
+
 ## Security notes
 
 - The window runs with `sandbox: true`, `contextIsolation: true` and `nodeIntegration: false`. The preload uses only `contextBridge` and `ipcRenderer`.
 - `will-navigate` blocks all navigation away from the app URL. `window.open` opens only `http:` and `https:` URLs in the system browser.
-- The CSP comes from `csp.ts`. `connect-src` allows the Takusen and gateway origins plus `wss:`, because media node hosts are not known at build time. It allows `ws:` only when an endpoint is plain text. Images and media load only from `'self'`, `blob:` and the Takusen API origin. `script-src` is `'self'`. In dev, it also has `'unsafe-inline'` for the React Fast Refresh preamble.
+- The CSP comes from `csp-policy.ts`. `worker-src` is `'self'` (in dev, also the dev server origin), for the crypto Worker and the transform Worker. `blob:` is in `img-src` and `media-src` for decrypted attachments, never in `script-src` or `worker-src`. There is no `'wasm-unsafe-eval'`. `connect-src` allows the Takusen and gateway origins plus `wss:`, because media node hosts are not known at build time. It allows `ws:` only when an endpoint is plain text. Images and media load only from `'self'`, `blob:` and the Takusen API origin. `script-src` is `'self'`. In dev, it also has `'unsafe-inline'` for the React Fast Refresh preamble.
 - `probe-target-guard.ts` validates each probe payload before main opens a socket. It checks the shape and allows a maximum of 64 targets on port 443 only. It resolves the host through DNS and refuses loopback, private, link-local, metadata and unspecified addresses.
 - `screen-share.ts` accepts only a source id from the last listing and only a request from the top app frame. Script in the app page can still list and select a source without the picker. The code comment records this as an accepted risk.
 - The packaged renderer has the origin `hachiman://app`. A `file://` page sends `Origin: null`, which Takusen CORS refuses. `TAKUSEN_ALLOWED_ORIGINS` includes `hachiman://app` and the dev origin `http://localhost:5174`.
@@ -200,6 +220,8 @@ pnpm -F @hachiman/hachiman-electron build:mac       # or build:win, build:linux,
 ```
 
 Takusen, the gateway and media must run for sign-in and voice. See the [root README](../../README.md#local-development).
+
+Workers: `electron.vite.config.ts` sets `worker.format` to `es` for the renderer. Thus Vite builds `new Worker(new URL(…, import.meta.url), { type: 'module' })` from `@hachiman/crypto` as module Workers with their own chunks.
 
 Environment: `electron.vite.config.ts` sets `envDir` to the repo root for the main, preload and renderer bundles. The renderer reads `VITE_TAKUSEN_OIDC_ISSUER`, `VITE_TAKUSEN_OIDC_CLIENT_ID`, `VITE_TAKUSEN_API_BASE` and `VITE_HACHIMAN_GATEWAY_URL`. Main reads the same values to build the CSP. Build the app again after a change. Keep `VITE_HACHIMAN_OIDC_REDIRECT` unset, because the browser host reads it too.
 

@@ -14,10 +14,13 @@ package voicetoken
 import "time"
 
 // Claims is the token payload. Wire keys are camelCase (sessionId, userId,
-// guildId, channelId) plus the standard PASETO aud/jti/iat/exp.
+// deviceId, guildId, channelId) plus the standard PASETO aud/jti/iat/exp.
 type Claims struct {
-	SessionID   string    `json:"sessionId"` // gateway session id
-	UserID      string    `json:"userId"`
+	SessionID string `json:"sessionId"` // gateway session id
+	UserID    string `json:"userId"`
+	// DeviceID is the gateway session's device (§12.13). The token library
+	// accepts it empty; hachiman-media requires it (E2EE roster identity).
+	DeviceID    string    `json:"deviceId"`
 	GuildID     string    `json:"guildId"`
 	ChannelID   string    `json:"channelId"` // = media room id
 	MediaNodeID string    `json:"aud"`       // must equal the verifying node's id

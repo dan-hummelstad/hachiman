@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -26,6 +27,13 @@ import (
 const (
 	gid = "g1"
 	me  = "u1"
+
+	// Device ids are UUIDs, as in the devices table.
+	devA       = "0a000000-0000-4000-8000-00000000000a"
+	devB       = "0b000000-0000-4000-8000-00000000000b"
+	devPending = "0c000000-0000-4000-8000-00000000000c"
+	devRevoked = "0d000000-0000-4000-8000-00000000000d"
+	devOther   = "0e000000-0000-4000-8000-00000000000e" // belongs to u2
 )
 
 func ptr(s string) *string { return &s }
@@ -55,6 +63,15 @@ type harness struct {
 	rdb *redis.Client
 	g   *Gateway
 	url string
+
+	devMu   sync.Mutex
+	devices map[string]deviceRow
+}
+
+func (h *harness) setDevice(id string, row deviceRow) {
+	h.devMu.Lock()
+	h.devices[id] = row
+	h.devMu.Unlock()
 }
 
 func newHarness(t *testing.T) *harness {
@@ -78,6 +95,22 @@ func newHarness(t *testing.T) *harness {
 	g.heartbeat = time.Second
 	g.offlineGrace = 300 * time.Millisecond
 	g.load = func(ctx context.Context, userID, onlyGuild string) (*readyData, error) { return fixture(), nil }
+	h := &harness{t: t, mr: mr, rdb: rdb, g: g, devices: map[string]deviceRow{
+		devA:       {UserID: me, Status: "active"},
+		devB:       {UserID: me, Status: "active"},
+		devPending: {UserID: me, Status: "pending"},
+		devRevoked: {UserID: me, Status: "revoked"},
+		devOther:   {UserID: "u2", Status: "active"},
+	}}
+	g.device = func(ctx context.Context, id string) (deviceRow, error) {
+		h.devMu.Lock()
+		defer h.devMu.Unlock()
+		d, ok := h.devices[id]
+		if !ok {
+			return d, errNoDevice
+		}
+		return d, nil
+	}
 	g.nodeURL = func(ctx context.Context, nodeID string) (string, error) {
 		if nodeID == "node-a" {
 			return "ws://media-a/voice", nil
@@ -90,7 +123,8 @@ func newHarness(t *testing.T) *harness {
 	<-g.busReady
 	srv := httptest.NewServer(g.routes())
 	t.Cleanup(srv.Close)
-	return &harness{t: t, mr: mr, rdb: rdb, g: g, url: "ws" + strings.TrimPrefix(srv.URL, "http") + "/gateway"}
+	h.url = "ws" + strings.TrimPrefix(srv.URL, "http") + "/gateway"
+	return h
 }
 
 type outFrame struct {
@@ -165,12 +199,22 @@ func (c *client) expectClose(code int) {
 	}
 }
 
-func (c *client) identify() string {
+// identifyAs is a valid IDENTIFY payload for deviceID (§12.13).
+func identifyAs(deviceID string) map[string]any {
+	return map[string]any{"token": "good", "deviceId": deviceID, "capabilities": []string{"e2ee/1"}, "clientVersion": "1.0.0"}
+}
+
+func (c *client) identify() string { return c.identifyDevice(devA) }
+
+func (c *client) identifyDevice(deviceID string) string {
 	c.t.Helper()
-	c.send(opIdentify, map[string]string{"token": "good"})
+	c.send(opIdentify, identifyAs(deviceID))
 	f := c.expect("READY")
-	var r struct{ SessionID string }
+	var r struct{ SessionID, DeviceID string }
 	_ = json.Unmarshal(f.D, &r)
+	if r.DeviceID != deviceID {
+		c.t.Fatalf("READY deviceId %q, want %q", r.DeviceID, deviceID)
+	}
 	return r.SessionID
 }
 
@@ -185,7 +229,7 @@ func (h *harness) pub(channel, t string, d any, channelID string) {
 func TestIdentifyReadyHidesInvisibleChannels(t *testing.T) {
 	h := newHarness(t)
 	c := h.dial()
-	c.send(opIdentify, map[string]string{"token": "good"})
+	c.send(opIdentify, identifyAs(devA))
 	f := c.expect("READY")
 	if f.S != 1 {
 		t.Errorf("READY seq %d, want 1", f.S)
@@ -210,6 +254,9 @@ func TestIdentifyReadyHidesInvisibleChannels(t *testing.T) {
 	}
 	if got := h.mr.HGet(kSession(r.SessionID), "userId"); got != me {
 		t.Errorf("session hash userId %q", got)
+	}
+	if got := h.mr.HGet(kSession(r.SessionID), "deviceId"); got != devA {
+		t.Errorf("session hash deviceId %q", got)
 	}
 	if st, _ := h.mr.Get(kPresence(me)); st != "online" {
 		t.Errorf("presence %q, want online", st)
@@ -239,7 +286,7 @@ func TestHandshakeCloseCodes(t *testing.T) {
 
 	c = h.dial()
 	c.identify()
-	c.send(opIdentify, map[string]string{"token": "good"})
+	c.send(opIdentify, identifyAs(devA))
 	c.expectClose(closeAlreadyAuthed)
 
 	c = h.dial()
@@ -320,7 +367,7 @@ func TestResumeReplaysBufferedEvents(t *testing.T) {
 	}
 
 	c2 := h.dial()
-	c2.send(opResume, map[string]any{"token": "good", "sessionId": sid, "seq": 1})
+	c2.send(opResume, map[string]any{"token": "good", "sessionId": sid, "seq": 1, "deviceId": devA})
 	var last int64 = 1
 	sawMsg := false
 	for {
@@ -350,7 +397,7 @@ func TestResumeReplaysBufferedEvents(t *testing.T) {
 func TestResumeInvalidSession(t *testing.T) {
 	h := newHarness(t)
 	c := h.dial()
-	c.send(opResume, map[string]any{"token": "good", "sessionId": "nope", "seq": 3})
+	c.send(opResume, map[string]any{"token": "good", "sessionId": "nope", "seq": 3, "deviceId": devA})
 	if f := c.next(); f.Op != opInvalidSession || string(f.D) != "false" {
 		t.Fatalf("got op=%d d=%s, want INVALID_SESSION(false)", f.Op, f.D)
 	}
@@ -361,7 +408,7 @@ func TestResumeInvalidSession(t *testing.T) {
 	s3 := c3.identify()
 	c3.ws.Close()
 	c4 := h.dial()
-	c4.send(opResume, map[string]any{"token": "good", "sessionId": s3, "seq": 999})
+	c4.send(opResume, map[string]any{"token": "good", "sessionId": s3, "seq": 999, "deviceId": devA})
 	c4.expectClose(closeInvalidSeq)
 }
 
@@ -433,7 +480,7 @@ func TestVoiceJoinToggleLeave(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cl, err := v.Verify(vsu.Token); err != nil || cl.SessionID != sid || cl.ChannelID != "voice" {
+	if cl, err := v.Verify(vsu.Token); err != nil || cl.SessionID != sid || cl.ChannelID != "voice" || cl.DeviceID != devA {
 		t.Fatalf("token verify: %v %+v", err, cl)
 	}
 	if got, _ := h.mr.Get(kVoiceUser(me)); got != gid {

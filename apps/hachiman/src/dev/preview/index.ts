@@ -1,8 +1,10 @@
 // Dev-only preview mode: seeds the mirror stores with a fixture so the UI can be screenshotted
 // without Takusen or a gateway. Loaded by the browser host on `?preview` (DEV builds only).
 // See ../README.md.
+import { cryptoService } from '@/services/CryptoService'
 import { hachiman, startHachiman } from '@/services/hachiman'
 import { takusenService } from '@/services/TakusenService'
+import { addMembership } from '@/stores/cryptoStore'
 import { useMessageStore } from '@/stores/messagesStore'
 import { useNavStore } from '@/stores/navStore'
 import { useTakusenStore } from '@/stores/takusenStore'
@@ -24,6 +26,7 @@ import {
   READY,
   U,
   fixtureHistory,
+  fixtureMembership,
   now
 } from './fixture'
 import { dispatch, stubRest, stubVoice } from './stubs'
@@ -60,6 +63,8 @@ export function startPreview(opts: PreviewOptions = {}): void {
   // No gateway, no token refresh: the app never leaves this tab.
   hachiman.connect = () => {}
   hachiman.gateway.connect = () => {}
+  // No Worker and no keys: envelopes are marked JSON (NOT ENCRYPTED, see createCryptoStub).
+  cryptoService.useStub()
 
   usePrefsStore.getState().setTheme(opts.theme ?? 'dark')
   if (opts.messageDisplay) usePrefsStore.getState().setMessageDisplay(opts.messageDisplay)
@@ -71,7 +76,7 @@ export function startPreview(opts: PreviewOptions = {}): void {
   }
 
   const history = fixtureHistory()
-  stubRest(history)
+  stubRest()
   stubVoice()
   takusenService.listRegions = async () => [
     { code: 'eu-west', displayName: 'Europe (West)', probeHost: null, probePort: 0 },
@@ -91,6 +96,7 @@ export function startPreview(opts: PreviewOptions = {}): void {
   })
 
   startHachiman() // registers the gateway → store listeners; connect() is a no-op now
+  for (const [channelId, events] of fixtureMembership()) addMembership(channelId, events)
   hachiman.gateway.emit('state', 'ready')
   dispatch({ t: 'READY', d: READY })
   // READY carries the fixture's voice state for me; re-echo the client's (persisted) mute/deafen.

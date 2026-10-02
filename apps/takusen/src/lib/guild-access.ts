@@ -2,7 +2,8 @@
  * Permission checks for /api/v1 routes. Loads the caller's guild membership,
  * roles and channel overwrites from Postgres and computes permissions with the
  * shared `@hachiman/client/permissions` algorithm (contract §2), so Takusen,
- * the gateway and the UI all agree on who may do what.
+ * the gateway and the UI all agree on who may do what. Reader sets come from
+ * `lib/mls/readers.ts` (§12.6).
  */
 import { and, eq } from 'drizzle-orm'
 import {
@@ -32,7 +33,32 @@ import {
 import { MissingPermissionsError, NotFoundError } from '@/lib/errors'
 import { publishToGuild, publishToUser } from '@/lib/events'
 import { assertId } from '@/lib/ids'
+import { DEVICE_HEADER, requireDevice } from '@/lib/mls/device-auth'
+import { channelReaders, isPublicChannel } from '@/lib/mls/readers'
 import { toOverwrite } from '@/lib/wire'
+
+// MARK: - Readers (§12.6). The one implementation is lib/mls/readers.ts.
+
+/** User ids with VIEW_CHANNEL on a guild text channel, or the participants of a DM. */
+export async function readersOfChannel(channelId: string): Promise<Set<string>> {
+  return channelReaders(db, channelId)
+}
+
+/** True when the guild text channel uses the guild's public_set group (§12.6 rule). */
+export async function channelIsPublic(channelId: string): Promise<boolean> {
+  return isPublicChannel(db, channelId)
+}
+
+/**
+ * The `X-Hachiman-Device` of a content route, as the actor device of its
+ * membership change (the preferred assignee of a group create, §12.7.7).
+ * Optional on these routes. When it is present, it must be an active device
+ * of the caller.
+ */
+export async function actorDeviceId(req: Request, userId: string): Promise<string | null> {
+  if (!req.headers.get(DEVICE_HEADER)) return null
+  return (await requireDevice(req, userId)).id
+}
 
 export interface GuildAccess {
   guild: GuildRow

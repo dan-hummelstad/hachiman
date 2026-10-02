@@ -3,13 +3,14 @@
 // license that can be found in the LICENSE-file.
 
 // Command hachiman-gateway is the stateless realtime WebSocket gateway.
-// Contract: docs/gateway-protocol.md §5–§7 and §9 (PlaceMediaSession). Sessions, resume buffers,
+// Contract: docs/gateway-protocol.md §5–§7, §9 (PlaceMediaSession) and §12.13 (device scope). Sessions, resume buffers,
 // presence and voice state live in Redis so any node can serve any session.
 package main
 
 import (
 	"context"
 	"flag"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -44,7 +45,12 @@ func main() {
 	turnSecret := flag.String("turn-secret", os.Getenv("TURN_SECRET"), "coturn static-auth-secret; empty = STUN only")
 	turnURLs := flag.String("turn-urls", os.Getenv("TURN_URLS"), "comma-separated TURN URLs")
 	turnTTL := flag.Duration("turn-ttl", 5*time.Minute, "TURN credential lifetime")
+	minVersion := flag.String("min-client-version", envOr("GATEWAY_MIN_CLIENT_VERSION", "0.1.0"), "lowest IDENTIFY clientVersion accepted, else close 4012 (env GATEWAY_MIN_CLIENT_VERSION)")
 	flag.Parse()
+	minClientVersion, ok := parseSemver(*minVersion)
+	if !ok {
+		must("min client version", fmt.Errorf("%q is not a semver", *minVersion))
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -63,6 +69,8 @@ func main() {
 	g := newGateway(rdb, *takusenURL, placer, signer)
 	g.load = pgLoader(db)
 	g.nodeURL = pgNodeURL(db)
+	g.device = pgDevice(db)
+	g.minClientVersion = minClientVersion
 	if *turnSecret != "" && *turnURLs != "" {
 		g.turn = &coturn.CoturnRegion{Endpoints: strings.Split(*turnURLs, ","), HMACSecret: *turnSecret, CredentialTTL: *turnTTL}
 	}

@@ -1,8 +1,9 @@
-// Gateway WebSocket client. Contract: docs/gateway-protocol.md §6.
+// Gateway WebSocket client. Contract: docs/gateway-protocol.md §6 and §12.13.
 import type { TokenProvider } from './rest'
 import { TypedEventEmitter } from './typed-event-emitter'
 import {
   GatewayOp,
+  type GatewayDevice,
   type GatewayEventName,
   type GatewayEvents,
   type GatewayFrame,
@@ -22,12 +23,16 @@ export type GatewayClientEvents = GatewayEventHandlers & {
   dispatch: (e: GatewayDispatch) => void
   /** Socket closed (before any reconnect is scheduled). */
   close: (e: { code: number; reason: string }) => void
+  /** 4012 (client unsupported) or 4013 (device unknown or revoked). The client stays closed. */
+  fatal: (e: { code: number }) => void
 }
 
 const WS_OPEN = 1
 const MAX_BACKOFF_MS = 30_000
 // Close codes after which the server has discarded the session: resuming is pointless.
 const SESSION_GONE = new Set([4004, 4007, 4009])
+// Close codes after which no reconnect can succeed (§12.13).
+const FATAL = new Set([4012, 4013])
 
 export class GatewayClient extends TypedEventEmitter<GatewayClientEvents> {
   private _state: GatewayState = 'idle'
@@ -43,7 +48,14 @@ export class GatewayClient extends TypedEventEmitter<GatewayClientEvents> {
   private beatInterval: ReturnType<typeof setInterval> | undefined
   private reconnectTimer: ReturnType<typeof setTimeout> | undefined
 
-  constructor(private readonly opts: { url: string; getToken: TokenProvider }) {
+  constructor(
+    private readonly opts: {
+      url: string
+      getToken: TokenProvider
+      /** Sent in IDENTIFY and RESUME. A throw counts as a failed attempt (backoff, then retry). */
+      device: () => GatewayDevice
+    },
+  ) {
     super()
   }
 
@@ -148,16 +160,19 @@ export class GatewayClient extends TypedEventEmitter<GatewayClientEvents> {
   private async identify(): Promise<void> {
     const ws = this.ws
     let token: string
+    let device: GatewayDevice
     try {
       token = await this.opts.getToken() // fresh every time: the gateway only checks it here
+      device = this.opts.device()
     } catch {
       if (this.ws === ws) this.reconnect()
       return
     }
     if (this.ws !== ws) return
+    const { deviceId, capabilities, clientVersion } = device
     if (this._sessionId)
-      this.send(GatewayOp.RESUME, { token, sessionId: this._sessionId, seq: this.seq ?? 0 })
-    else this.send(GatewayOp.IDENTIFY, { token })
+      this.send(GatewayOp.RESUME, { token, sessionId: this._sessionId, seq: this.seq ?? 0, deviceId })
+    else this.send(GatewayOp.IDENTIFY, { token, deviceId, capabilities, clientVersion })
   }
 
   private startHeartbeat(interval: number): void {
@@ -194,6 +209,15 @@ export class GatewayClient extends TypedEventEmitter<GatewayClientEvents> {
   private onClose(code: number, reason: string): void {
     this.detach()
     this.emit('close', { code, reason })
+    if (FATAL.has(code)) {
+      this.wanted = false
+      clearTimeout(this.reconnectTimer)
+      this._sessionId = null
+      this.seq = null
+      this.setState('closed')
+      this.emit('fatal', { code })
+      return
+    }
     if (SESSION_GONE.has(code)) {
       this._sessionId = null
       this.seq = null

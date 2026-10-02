@@ -9,6 +9,8 @@
 //
 //	DATABASE_URL, REDIS_URL, TAKUSEN_URL   same values Takusen runs with
 //	HACHIMAN_TEST_TOKEN                   a Takusen access token for any user
+//	HACHIMAN_TEST_DEVICE_ID               optional: a device of that user; else the
+//	                                      test registers a pending one (POST /devices)
 //
 //	go test -tags integration -run Integration ./cmd/hachiman-gateway/
 package main
@@ -48,7 +50,7 @@ func startGateway(t *testing.T, db *pgxpool.Pool, rdb *redis.Client, takusenURL 
 		t.Fatal(err)
 	}
 	g := newGateway(rdb, takusenURL, nil, signer)
-	g.load, g.nodeURL = pgLoader(db), pgNodeURL(db)
+	g.load, g.nodeURL, g.device = pgLoader(db), pgNodeURL(db), pgDevice(db)
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	go g.runBus(ctx)
@@ -104,10 +106,30 @@ func TestIntegrationMessageFlowAndCrossNodeResume(t *testing.T) {
 	nodeB := startGateway(t, db, rdb, takusenURL)
 
 	c := nodeA.dial()
-	c.send(opIdentify, map[string]string{"token": token})
+	deviceID := os.Getenv("HACHIMAN_TEST_DEVICE_ID")
+	if deviceID == "" {
+		// A pending device passes the IDENTIFY device check (§12.13).
+		var dev struct{ ID string }
+		rest("POST", "/devices", map[string]string{"name": "gateway-it", "platform": "browser", "clientVersion": "1.0.0"}, &dev)
+		deviceID = dev.ID
+	}
+	ident := map[string]any{"token": token, "deviceId": deviceID, "capabilities": []string{"e2ee/1"}, "clientVersion": "1.0.0"}
+
+	// The checks run against the real devices table.
+	bad := nodeA.dial()
+	bad.send(opIdentify, map[string]any{"token": token, "deviceId": deviceID, "capabilities": []string{}, "clientVersion": "1.0.0"})
+	bad.expectClose(closeUnsupported)
+	bad = nodeA.dial()
+	bad.send(opIdentify, map[string]any{"token": token, "deviceId": "00000000-0000-4000-8000-000000000000", "capabilities": []string{"e2ee/1"}, "clientVersion": "1.0.0"})
+	bad.expectClose(closeDeviceRevoked)
+
+	c.send(opIdentify, ident)
 	ready := c.expect("READY")
-	var r struct{ SessionID string }
+	var r struct{ SessionID, DeviceID string }
 	_ = json.Unmarshal(ready.D, &r)
+	if r.DeviceID != deviceID {
+		t.Fatalf("READY deviceId %q, want %q", r.DeviceID, deviceID)
+	}
 
 	// A fresh guild keeps the test independent of existing data.
 	var guild GuildFull
@@ -139,7 +161,7 @@ func TestIntegrationMessageFlowAndCrossNodeResume(t *testing.T) {
 	rest("POST", "/channels/"+channelID+"/messages", map[string]string{"content": "while-away", "nonce": "n-2"}, nil)
 	time.Sleep(200 * time.Millisecond) // let node A buffer it
 	c2 := nodeB.dial()
-	c2.send(opResume, map[string]any{"token": token, "sessionId": r.SessionID, "seq": msg.S})
+	c2.send(opResume, map[string]any{"token": token, "sessionId": r.SessionID, "seq": msg.S, "deviceId": deviceID})
 	if f := c2.expect("MESSAGE_CREATE"); !strings.Contains(string(f.D), "n-2") {
 		t.Fatalf("replayed %s, want the n-2 message", f.D)
 	}

@@ -1,7 +1,7 @@
 /**
- * Row → wire-shape converters (docs/gateway-protocol.md §1) and the pure
- * GuildFull assembly. No DB access here so it is unit-testable; the loaders
- * live in `guilds.ts`.
+ * Row → wire-shape converters (docs/gateway-protocol.md §1), the pure
+ * GuildFull assembly and the message body rules (§4, §12.8.4). No DB access
+ * here so it is unit-testable; the loaders live in `guilds.ts`.
  */
 import { z } from 'zod'
 import { computeChannelPermissions, Permissions } from '@hachiman/client/permissions'
@@ -10,6 +10,7 @@ import type {
   Channel,
   Guild,
   GuildFull,
+  HistoryVisibility,
   Invite,
   Member,
   Message,
@@ -29,6 +30,10 @@ import type {
   PermissionOverwriteRow,
   RoleRow,
 } from '@/db/schema'
+import type { AcceptedEnvelope } from '@/lib/mls/envelopes'
+import { fromB64, toB64 } from '@/lib/mls/bytes'
+
+import { MAX_ATTACHMENTS_PER_MESSAGE, MAX_MESSAGE_UPLOAD_IDS } from '../../../../pkgs/hachiman-crypto/src/constants'
 
 /** The `users` columns every wire `User` is built from. */
 export interface UserLike {
@@ -47,7 +52,11 @@ export function toUser(u: UserLike): User {
   }
 }
 
-export function toGuild(g: GuildRow): Guild {
+/** The public_set default (§12.6), used until the guild's group row says otherwise. */
+export const DEFAULT_PUBLIC_HISTORY_VISIBILITY: HistoryVisibility = 'shared'
+
+/** `publicHistoryVisibility` mirrors the guild's current public_set group (§12.6). */
+export function toGuild(g: GuildRow, publicHistoryVisibility: HistoryVisibility = DEFAULT_PUBLIC_HISTORY_VISIBILITY): Guild {
   return {
     id: g.id,
     name: g.name,
@@ -56,7 +65,23 @@ export function toGuild(g: GuildRow): Guild {
     ownerId: g.ownerId,
     region: g.region,
     createdAt: g.createdAt.toISOString(),
+    publicHistoryVisibility,
   }
+}
+
+/** The MLS group fields of a channel: base64url group id → its history visibility. */
+export type GroupVisibility = ReadonlyMap<string, HistoryVisibility>
+
+const NO_GROUPS: GroupVisibility = new Map()
+
+/**
+ * text, dm and group_dm channels have a group (§12.6). Before the DS has
+ * allocated one, the value is the default of a channel or dm group.
+ */
+function groupFields(c: ChannelRow, groups: GroupVisibility): Pick<Channel, 'mlsGroupId' | 'historyVisibility'> {
+  if (c.type === 'voice' || c.type === 'category') return { mlsGroupId: null, historyVisibility: null }
+  const mlsGroupId = c.mlsGroupId ? toB64(c.mlsGroupId) : null
+  return { mlsGroupId, historyVisibility: (mlsGroupId && groups.get(mlsGroupId)) || 'joined' }
 }
 
 export function toRole(r: RoleRow): Role {
@@ -75,7 +100,7 @@ export function toOverwrite(o: PermissionOverwriteRow): PermissionOverwrite {
 }
 
 /** Guild channel. DMs go through `toDmChannel`. */
-export function toChannel(c: ChannelRow, overwrites: PermissionOverwriteRow[]): Channel {
+export function toChannel(c: ChannelRow, overwrites: PermissionOverwriteRow[], groups: GroupVisibility = NO_GROUPS): Channel {
   return {
     id: c.id,
     guildId: c.guildId,
@@ -85,11 +110,12 @@ export function toChannel(c: ChannelRow, overwrites: PermissionOverwriteRow[]): 
     parentId: c.parentId,
     position: c.position,
     permissionOverwrites: overwrites.filter((o) => o.channelId === c.id).map(toOverwrite),
+    ...groupFields(c, groups),
   }
 }
 
 /** DM / group DM as seen by one viewer: `recipients` excludes the viewer. */
-export function toDmChannel(c: ChannelRow, participants: UserLike[], viewerId: string): Channel {
+export function toDmChannel(c: ChannelRow, participants: UserLike[], viewerId: string, groups: GroupVisibility = NO_GROUPS): Channel {
   const channel: Channel = {
     id: c.id,
     guildId: null,
@@ -100,6 +126,7 @@ export function toDmChannel(c: ChannelRow, participants: UserLike[], viewerId: s
     position: 0,
     permissionOverwrites: [],
     recipients: participants.filter((p) => p.id !== viewerId).map(toUser),
+    ...groupFields(c, groups),
   }
   if (c.type === 'group_dm') channel.ownerId = c.ownerId
   return channel
@@ -115,6 +142,7 @@ export function toMember(m: GuildMemberRow, user: UserLike, roleIds: string[]): 
   }
 }
 
+/** The ciphertext Message (§1). The server never sees the content. */
 export function toMessage(
   m: MessageRow,
   author: UserLike,
@@ -127,7 +155,11 @@ export function toMessage(
     channelId: m.channelId,
     guildId,
     author: toUser(author),
-    content: m.content,
+    senderDevice: m.senderDevice,
+    groupId: toB64(m.groupId),
+    epoch: m.epoch,
+    clientMsgId: toB64(m.clientMsgId),
+    envelope: toB64(m.envelope),
     attachments,
     createdAt: m.createdAt.toISOString(),
     editedAt: m.editedAt ? m.editedAt.toISOString() : null,
@@ -158,6 +190,9 @@ export interface GuildFullInput {
   viewerId: string
   voiceStates: VoiceState[]
   presences: Presence[]
+  /** The history visibility of the guild's groups, by base64url group id. */
+  groups?: GroupVisibility
+  publicHistoryVisibility?: HistoryVisibility
 }
 
 /** Build the viewer's GuildFull: channels are filtered to those it can VIEW. */
@@ -173,10 +208,10 @@ export function assembleGuildFull(input: GuildFullInput): GuildFull {
   )
   const roles = input.roles.map(toRole)
   const roleMap = new Map(roles.map((r) => [r.id, r]))
-  const guild = toGuild(input.guild)
+  const guild = toGuild(input.guild, input.publicHistoryVisibility)
   const viewer = members.find((m) => m.user.id === input.viewerId)
   const channels = input.channels
-    .map((c) => toChannel(c, input.overwrites))
+    .map((c) => toChannel(c, input.overwrites, input.groups))
     .filter(
       (c) =>
         viewer !== undefined &&
@@ -195,7 +230,6 @@ export function assembleGuildFull(input: GuildFullInput): GuildFull {
 // ---------------------------------------------------------------------------
 // GET /channels/:id/messages query
 // ---------------------------------------------------------------------------
-export const MESSAGE_MAX_LENGTH = 2000
 export const MESSAGE_PAGE_DEFAULT = 50
 export const MESSAGE_PAGE_MAX = 100
 
@@ -209,4 +243,78 @@ export function parseMessageQuery(params: URLSearchParams): { before?: string; l
     before: params.get('before') ?? undefined,
     limit: params.get('limit') ?? undefined,
   })
+}
+
+// ---------------------------------------------------------------------------
+// POST / PATCH /channels/:id/messages bodies (§4, §12.8.4)
+// ---------------------------------------------------------------------------
+
+/**
+ * For each attachment pointer: the file id, then the thumbnail id when it has
+ * one. At most 20 ids (10 files with a thumbnail each).
+ */
+export const MESSAGE_MAX_UPLOAD_IDS = MAX_MESSAGE_UPLOAD_IDS
+export const MESSAGE_MAX_FILES = MAX_ATTACHMENTS_PER_MESSAGE
+
+/**
+ * The envelope as base64url. The text cap only bounds the JSON body: the byte
+ * limit (TAKUSEN_MAX_ENVELOPE_BYTES, 413 EnvelopeTooLarge) is in acceptEnvelope.
+ */
+const envelopeField = z
+  .string()
+  .min(1)
+  .max(4 * 1024 * 1024)
+  .transform((s, ctx) => {
+    const bytes = fromB64(s)
+    if (!bytes) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'envelope is not base64url' })
+      return z.NEVER
+    }
+    return bytes
+  })
+
+export const createMessageSchema = z.object({
+  envelope: envelopeField,
+  nonce: z.union([z.string().max(64), z.number().int()]).transform(String).optional(),
+  attachments: z
+    .array(z.string().uuid())
+    .max(MESSAGE_MAX_UPLOAD_IDS)
+    .refine((ids) => new Set(ids).size === ids.length, 'Duplicate upload id')
+    .default([]),
+})
+export type CreateMessageBody = z.infer<typeof createMessageSchema>
+
+/** An edit replaces only the envelope. The attachments stay (§12.8.6). */
+export const editMessageSchema = z.object({ envelope: envelopeField }).strict()
+
+/** The columns that a new message stores (§12.8.4 "On send"). */
+export function messageInsertValues(input: { channelId: string; authorId: string; envelope: Uint8Array; accepted: AcceptedEnvelope }) {
+  const { accepted } = input
+  return {
+    channelId: input.channelId,
+    authorId: input.authorId,
+    groupId: accepted.groupId,
+    epoch: accepted.epoch,
+    senderDevice: accepted.senderDeviceId,
+    clientMsgId: accepted.clientMsgId,
+    envelope: input.envelope,
+    frankingTag: accepted.frankingTag,
+    size: accepted.size,
+  }
+}
+
+/**
+ * The columns that an edit replaces (§12.8.4 "On edit"). `client_msg_id`,
+ * `author_id` and the attachment rows stay.
+ */
+export function messageEditPatch(envelope: Uint8Array, accepted: AcceptedEnvelope, now: Date) {
+  return {
+    envelope,
+    groupId: accepted.groupId,
+    epoch: accepted.epoch,
+    senderDevice: accepted.senderDeviceId,
+    frankingTag: accepted.frankingTag,
+    size: accepted.size,
+    editedAt: now,
+  }
 }

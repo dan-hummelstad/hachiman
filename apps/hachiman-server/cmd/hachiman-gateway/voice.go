@@ -84,7 +84,7 @@ func (s *session) onVoice(ctx context.Context, req voiceRequest) error {
 
 	now := time.Now()
 	claims := voicetoken.Claims{
-		SessionID: s.id, UserID: me, GuildID: req.GuildID, ChannelID: chID, MediaNodeID: nodeID,
+		SessionID: s.id, UserID: me, DeviceID: s.deviceID, GuildID: req.GuildID, ChannelID: chID, MediaNodeID: nodeID,
 		IssuedAt: now, ExpiresAt: now.Add(voicetoken.DefaultTTL),
 	}
 	token, err := s.g.signer.Mint(claims)

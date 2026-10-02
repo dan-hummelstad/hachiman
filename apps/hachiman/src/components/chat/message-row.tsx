@@ -10,7 +10,14 @@ import type { ChatMessage } from '@/stores/messagesStore'
 import type { MessageDisplay } from '@/stores/prefsStore'
 import { useUserStore } from '@/stores/userStore'
 import { MessageAttachments } from './attachments/message-attachments'
-import { mentionsUser, tokenize, type MentionToken, type Token } from '@/lib/mentions'
+import {
+  mentionsUser,
+  messageMentionsMe,
+  tokenize,
+  type MentionToken,
+  type Token
+} from '@/lib/mentions'
+import { decryptText } from './decrypt-text'
 import { formatFull, formatTime } from './format'
 import { MessageToolbar } from './message-toolbar'
 import { submitOnEnter } from './submit-on-enter'
@@ -32,14 +39,19 @@ export const MessageRow = memo(function MessageRow(props: MessageRowProps): Reac
   const { name, avatar, ink } = useMemberView(guildId, message.author.id, message.author)
   const me = useUserStore((s) => s.me)
   const tokens = useMemo(() => tokenize(message.content), [message.content])
-  const mentioned = !!me && message.author.id !== me.id && tokens.some((t) => mentionsUser(t, me))
+  const mentioned = !!me && message.author.id !== me.id && messageMentionsMe(message, me)
+  const readable = message.decrypt.status === 'ok'
   const settled = !message.pending && !message.failed
 
   const toolbar = settled && !editing && (
     <MessageToolbar
       className="absolute -top-4 right-4 z-10"
-      onCopy={() => void navigator.clipboard?.writeText(message.content).catch(() => {})}
-      onEdit={props.canEdit ? () => props.onEditingChange(message.id) : undefined}
+      onCopy={
+        readable
+          ? () => void navigator.clipboard?.writeText(message.content).catch(() => {})
+          : undefined
+      }
+      onEdit={props.canEdit && readable ? () => props.onEditingChange(message.id) : undefined}
       onDelete={
         props.canDelete
           ? () =>
@@ -58,7 +70,9 @@ export const MessageRow = memo(function MessageRow(props: MessageRowProps): Reac
       ) : (
         <MessageBody message={message} tokens={tokens} />
       )}
-      {message.attachments.length > 0 && <MessageAttachments attachments={message.attachments} />}
+      {readable && message.attachments.length > 0 && (
+        <MessageAttachments attachments={message.attachments} />
+      )}
     </>
   )
 
@@ -165,6 +179,19 @@ function MessageBody({
   message: ChatMessage
   tokens: Token[]
 }): React.JSX.Element {
+  const unreadable = decryptText(message.decrypt)
+  if (unreadable) {
+    return (
+      <p
+        className={cn(
+          'font-sans text-[13px] leading-[22px] italic',
+          message.decrypt.status === 'failed' ? 'text-destructive' : 'text-muted-foreground'
+        )}
+      >
+        {unreadable}
+      </p>
+    )
+  }
   // An attachment-only message has no text line, unless "(edited)" needs one.
   const showText = message.content !== '' || message.editedAt !== null
   return (
@@ -200,9 +227,17 @@ function MessageBody({
           )}
         </p>
       )}
+      {message.sender && !message.sender.membershipVerified && (
+        <p
+          className="text-muted-foreground font-sans text-[11px] leading-4 select-none"
+          title="This message came from a history key backup or bundle. This device did not see the sender in the channel at that time."
+        >
+          Membership at that time not verified
+        </p>
+      )}
       {message.failed && (
         <div className="text-muted-foreground flex items-center gap-1 pb-0.5 font-sans text-xs">
-          <span className="text-destructive">Not sent.</span>
+          <span className="text-destructive">{message.sendError ?? 'Not sent.'}</span>
           <LinkButton onClick={() => void messagesService.retry(message)}>Retry</LinkButton>
           <span aria-hidden>/</span>
           <LinkButton onClick={() => messagesService.discard(message)}>Delete</LinkButton>

@@ -8,6 +8,7 @@ import { ZodError, type ZodType, type ZodTypeDef } from 'zod'
 
 import { ForbiddenError, requireAdmin, UnauthorizedError } from '@/lib/auth-helpers'
 import {
+  ApiError,
   ConflictError,
   InviteExhaustedError,
   InviteExpiredError,
@@ -21,6 +22,13 @@ import {
 } from '@/lib/errors'
 
 export function errorResponse(err: unknown): NextResponse {
+  if (err instanceof ApiError) {
+    const body: Record<string, unknown> = { ...err.extra, error: err.code }
+    if (err.hasMessage) body.message = err.message
+    const res = NextResponse.json(body, { status: err.status })
+    if (err.retryAfterSec !== undefined) res.headers.set('Retry-After', String(Math.max(1, Math.ceil(err.retryAfterSec))))
+    return res
+  }
   if (err instanceof UnauthorizedError) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }

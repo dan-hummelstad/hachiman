@@ -1,6 +1,10 @@
 /**
- * POST /api/v1/uploads?filename=<name>&width=<n>&height=<n> — raw file body,
- * streamed to S3 (docs/gateway-protocol.md §4 Files). Returns the Attachment.
+ * POST /api/v1/uploads?kind=blob — an encrypted attachment or thumbnail blob
+ *      (§12.9). Stored as application/octet-stream with no file name.
+ * POST /api/v1/uploads?filename=<name> — a plaintext profile image (avatar,
+ *      icon, banner). Content-Type is its MIME type.
+ * The raw body is streamed to S3 (docs/gateway-protocol.md §4 Files). Both
+ * return `{ id, key, size }` (201).
  *
  * Middleware skips this path (see src/middleware.ts), so CORS is applied here.
  */
@@ -9,7 +13,6 @@ import { pipeline, Readable, Transform } from 'node:stream'
 import type { ReadableStream as NodeWebStream } from 'node:stream/web'
 
 import { NextResponse, type NextRequest } from 'next/server'
-import { z } from 'zod'
 
 import { db } from '@/db/client'
 import { uploads } from '@/db/schema'
@@ -17,24 +20,10 @@ import { errorResponse } from '@/lib/api-helpers'
 import { requireUser } from '@/lib/auth-helpers'
 import { applyCors, preflight } from '@/lib/cors'
 import { UploadTooLargeError, ValidationError } from '@/lib/errors'
-import {
-  FILENAME_MAX_LENGTH,
-  getLimits,
-  normalizeContentType,
-  parseContentLength,
-  toAttachment,
-  uploadKey,
-} from '@/lib/files'
+import { getLimits, parseContentLength, parseUploadKind, toAttachment, uploadColumns } from '@/lib/files'
 import { deleteObjects, putObject } from '@/lib/storage'
 
 export const runtime = 'nodejs'
-
-const dimension = z.coerce.number().int().positive().max(65535).optional()
-const uploadQuerySchema = z.object({
-  filename: z.string().trim().min(1).max(FILENAME_MAX_LENGTH),
-  width: dimension,
-  height: dimension,
-})
 
 /**
  * Passes exactly `length` bytes or fails the stream. S3 is told the length up
@@ -56,21 +45,17 @@ function exactLength(length: number): Transform {
 
 async function handle(req: NextRequest): Promise<NextResponse> {
   const session = await requireUser()
-  const params = req.nextUrl.searchParams
-  const query = uploadQuerySchema.parse({
-    filename: params.get('filename') ?? undefined,
-    width: params.get('width') ?? undefined,
-    height: params.get('height') ?? undefined,
-  })
+  const kind = parseUploadKind(req.nextUrl.searchParams)
+  if (!kind) throw new ValidationError('Give either kind=blob or filename=<1 to 255 characters>')
   const { maxUploadBytes } = getLimits()
   const length = parseContentLength(req.headers.get('content-length'), maxUploadBytes)
   if (length === null) {
     throw new UploadTooLargeError(`Content-Length is required and at most ${maxUploadBytes} bytes`)
   }
-  const contentType = normalizeContentType(req.headers.get('content-type'))
-
   const id = randomUUID()
-  const key = uploadKey(id, query.filename)
+  // A blob ignores the request Content-Type: the MIME type is only in the envelope.
+  const columns = uploadColumns(id, kind, req.headers.get('content-type'))
+  const { key, contentType } = columns
   const source = req.body ? Readable.fromWeb(req.body as NodeWebStream) : Readable.from([])
   // A dropped client or a wrong length must cancel the PUT: S3 was promised
   // `length` bytes and would otherwise wait for the rest.
@@ -89,23 +74,14 @@ async function handle(req: NextRequest): Promise<NextResponse> {
 
   const [row] = await db
     .insert(uploads)
-    .values({
-      id,
-      uploaderId: session.user.id,
-      key,
-      filename: query.filename,
-      size: length,
-      contentType,
-      width: query.width ?? null,
-      height: query.height ?? null,
-    })
+    .values({ id, uploaderId: session.user.id, size: length, ...columns })
     .returning()
     .catch(async (err: unknown) => {
       // Only a row lets anything delete the object later.
       await deleteObjects([key])
       throw err
     })
-  return NextResponse.json(toAttachment(row), { status: 201 })
+  return NextResponse.json(toAttachment(row!), { status: 201 })
 }
 
 export async function POST(req: NextRequest): Promise<NextResponse> {

@@ -83,6 +83,9 @@ func (v *Verifier) Verify(token string) (*Claims, error) {
 			return nil, fmt.Errorf("voicetoken: %s: %w", f.key, err)
 		}
 	}
+	// Optional at this layer: a token from a gateway without device scope
+	// reads as "". hachiman-media rejects that at identify.
+	c.DeviceID, _ = t.GetString("deviceId")
 	if err := c.validate(); err != nil {
 		return nil, err
 	}

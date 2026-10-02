@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import { Plus } from 'lucide-react'
-import type { Attachment } from '@hachiman/client'
+import type { AttachmentPointer } from '@hachiman/crypto'
 import { IconButton } from '@/components/ui/icon-button'
 import { cn } from '@/lib/utils'
 import { UploadTray } from './attachments/upload-tray'
@@ -15,7 +15,7 @@ interface ComposerProps {
   uploads: Uploads
   /** ATTACH_FILES: shows the attach button and accepts pasted files. */
   canAttach: boolean
-  onSend: (text: string, attachments: Attachment[]) => void
+  onSend: (text: string, attachments: AttachmentPointer[]) => void
   onTyping: () => void
 }
 

@@ -8,12 +8,16 @@
  *  - roles, memberRoles, permissionOverwrites       — Discord-style permissions
  *  - dmParticipants, invites, uploads
  *  - oidcClients, oidcAdapterPayloads, passwordResetTokens
+ *  - the E2EE tables (§3 "E2EE tables", §12): devices and keys, the MLS delivery
+ *    service, the device inbox, backups, device linking, key transparency,
+ *    signed admin actions and message reports
  */
 import { sql } from 'drizzle-orm'
 import {
   bigint,
   boolean,
   check,
+  customType,
   doublePrecision,
   foreignKey,
   index,
@@ -22,8 +26,10 @@ import {
   pgEnum,
   pgTable,
   primaryKey,
+  smallint,
   text,
   timestamp,
+  uniqueIndex,
   uuid,
   type AnyPgColumn,
 } from 'drizzle-orm/pg-core'
@@ -36,6 +42,27 @@ export const userRoleEnum = pgEnum('user_role', ['user', 'admin'])
 export const channelTypeEnum = pgEnum('channel_type', ['text', 'voice', 'category', 'dm', 'group_dm'])
 export const overwriteTypeEnum = pgEnum('overwrite_type', ['role', 'member'])
 export const uploadPurposeEnum = pgEnum('upload_purpose', ['attachment', 'image'])
+
+// E2EE enums (§3).
+export const deviceStatusEnum = pgEnum('device_status', ['pending', 'active', 'revoked'])
+export const devicePlatformEnum = pgEnum('device_platform', ['electron', 'browser'])
+export const revokeReasonEnum = pgEnum('revoke_reason', ['user', 'lost', 'password_reset', 'compromised', 'signed_out'])
+export const mlsGroupKindEnum = pgEnum('mls_group_kind', ['public_set', 'channel', 'dm'])
+export const mlsGroupStatusEnum = pgEnum('mls_group_status', ['pending', 'active', 'retired'])
+export const historyVisibilityEnum = pgEnum('history_visibility', ['joined', 'shared'])
+export const handshakeKindEnum = pgEnum('handshake_kind', ['commit', 'external_commit', 'proposal'])
+export const pendingOpEnum = pgEnum('pending_op', ['add', 'remove'])
+export const pendingStatusEnum = pgEnum('pending_status', ['queued', 'assigned', 'rejected'])
+export const joinStatusEnum = pgEnum('join_status', ['queued', 'committed', 'rejected', 'external_commit', 'waiting'])
+export const inboxKindEnum = pgEnum('inbox_kind', ['welcome', 'dsk_transfer', 'history_keys'])
+export const backupKindEnum = pgEnum('backup_kind', ['identity', 'history'])
+
+/** Postgres bytea as Uint8Array. The §12 binary objects are stored as they are. */
+export const bytea = customType<{ data: Uint8Array; driverData: Buffer }>({
+  dataType: () => 'bytea',
+  toDriver: (v) => Buffer.from(v.buffer, v.byteOffset, v.byteLength),
+  fromDriver: (v) => new Uint8Array(v),
+})
 
 // ---------------------------------------------------------------------------
 // Auth.js core tables (users, accounts, sessions, verificationTokens)
@@ -215,6 +242,8 @@ export const channels = pgTable(
     }),
     position: integer('position').notNull().default(0),
     ownerId: uuid('owner_id').references(() => users.id, { onDelete: 'set null' }),
+    // The current MLS group of a text, dm or group_dm channel (§12.6).
+    mlsGroupId: bytea('mls_group_id').references((): AnyPgColumn => mlsGroups.groupId, { onDelete: 'set null' }),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
       .notNull()
       .defaultNow(),
@@ -232,7 +261,16 @@ export const messages = pgTable(
     authorId: uuid('author_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
-    content: text('content').notNull(),
+    // Ciphertext only (§12.8). Takusen reads the envelope header, never the content.
+    groupId: bytea('group_id')
+      .notNull()
+      .references((): AnyPgColumn => mlsGroups.groupId, { onDelete: 'cascade' }),
+    epoch: bigint('epoch', { mode: 'number' }).notNull(),
+    senderDevice: uuid('sender_device').references((): AnyPgColumn => devices.id, { onDelete: 'set null' }),
+    clientMsgId: bytea('client_msg_id').notNull(),
+    envelope: bytea('envelope').notNull(),
+    frankingTag: bytea('franking_tag').notNull(),
+    size: integer('size').notNull(),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
       .notNull()
       .defaultNow(),
@@ -245,6 +283,7 @@ export const messages = pgTable(
       table.createdAt.desc(),
       table.id.desc(),
     ),
+    uniqueIndex('messages_channel_client_msg_id_uq').on(table.channelId, table.clientMsgId),
   ],
 )
 
@@ -343,11 +382,11 @@ export const uploads = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
     key: text('key').notNull().unique(),
-    filename: text('filename').notNull(),
+    // Null for encrypted blobs: the name is only in the envelope (§12.9).
+    filename: text('filename'),
     size: bigint('size', { mode: 'number' }).notNull(),
     contentType: text('content_type').notNull(),
-    width: integer('width'),
-    height: integer('height'),
+    encrypted: boolean('encrypted').notNull().default(false),
     messageId: uuid('message_id').references(() => messages.id, { onDelete: 'cascade' }),
     position: integer('position').notNull().default(0),
     purpose: uploadPurposeEnum('purpose'),
@@ -504,3 +543,403 @@ export const mediaNodes = pgTable(
 
 export type MediaNode = typeof mediaNodes.$inferSelect
 export type NewMediaNode = typeof mediaNodes.$inferInsert
+
+// ---------------------------------------------------------------------------
+// End-to-end encryption (docs/gateway-protocol.md §3 "E2EE tables", §12).
+// The DS code in src/lib/mls/ reaches these tables only through MlsRepo
+// (repo.drizzle.ts). Keep repo.in-memory.ts in step with every change here.
+// ---------------------------------------------------------------------------
+
+const createdAt = () =>
+  timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow()
+
+export const devices = pgTable(
+  'devices',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    status: deviceStatusEnum('status').notNull().default('pending'),
+    name: text('name').notNull(),
+    platform: devicePlatformEnum('platform').notNull(),
+    clientVersion: text('client_version').notNull(),
+    certificate: bytea('certificate'),
+    mlsSignatureKey: bytea('mls_signature_key'),
+    hpkeKey: bytea('hpke_key'),
+    dskGeneration: integer('dsk_generation'),
+    createdAt: createdAt(),
+    lastSeenAt: timestamp('last_seen_at', { withTimezone: true, mode: 'date' }),
+    revokedAt: timestamp('revoked_at', { withTimezone: true, mode: 'date' }),
+  },
+  (table) => [index('devices_user_id_idx').on(table.userId)],
+)
+
+export const deviceRevocations = pgTable('device_revocations', {
+  deviceId: uuid('device_id')
+    .primaryKey()
+    .references(() => devices.id, { onDelete: 'cascade' }),
+  userId: uuid('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  reason: revokeReasonEnum('reason').notNull(),
+  // Null for a server revocation (password reset, or a pending device that signs out).
+  revocation: bytea('revocation'),
+  createdAt: createdAt(),
+})
+
+export const masterKeys = pgTable(
+  'master_keys',
+  {
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    generation: integer('generation').notNull(),
+    publicKey: bytea('public_key').notNull(),
+    record: bytea('record').notNull(),
+    createdAt: createdAt(),
+    supersededAt: timestamp('superseded_at', { withTimezone: true, mode: 'date' }),
+  },
+  (table) => [primaryKey({ columns: [table.userId, table.generation] })],
+)
+
+export const deviceSigningKeys = pgTable(
+  'device_signing_keys',
+  {
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    generation: integer('generation').notNull(),
+    masterGeneration: integer('master_generation').notNull(),
+    publicKey: bytea('public_key').notNull(),
+    cert: bytea('cert').notNull(),
+    createdAt: createdAt(),
+    supersededAt: timestamp('superseded_at', { withTimezone: true, mode: 'date' }),
+  },
+  (table) => [primaryKey({ columns: [table.userId, table.generation] })],
+)
+
+export const keyPackages = pgTable(
+  'key_packages',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    deviceId: uuid('device_id')
+      .notNull()
+      .references(() => devices.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    cipherSuite: integer('cipher_suite').notNull(),
+    ref: bytea('ref').notNull().unique(),
+    data: bytea('data').notNull(),
+    lastResort: boolean('last_resort').notNull().default(false),
+    createdAt: createdAt(),
+    expiresAt: timestamp('expires_at', { withTimezone: true, mode: 'date' }).notNull(),
+  },
+  (table) => [
+    index('key_packages_claim_idx').on(table.deviceId, table.cipherSuite, table.lastResort, table.createdAt),
+    uniqueIndex('key_packages_last_resort_uq')
+      .on(table.deviceId, table.cipherSuite)
+      .where(sql`${table.lastResort}`),
+  ],
+)
+
+export const mlsGroups = pgTable(
+  'mls_groups',
+  {
+    groupId: bytea('group_id').primaryKey(),
+    kind: mlsGroupKindEnum('kind').notNull(),
+    scopeId: uuid('scope_id').notNull(),
+    guildId: uuid('guild_id').references(() => guilds.id, { onDelete: 'cascade' }),
+    channelId: uuid('channel_id').references((): AnyPgColumn => channels.id, { onDelete: 'cascade' }),
+    generation: integer('generation').notNull(),
+    cipherSuite: integer('cipher_suite').notNull(),
+    status: mlsGroupStatusEnum('status').notNull(),
+    epoch: bigint('epoch', { mode: 'number' }),
+    groupInfo: bytea('group_info'),
+    ratchetTree: bytea('ratchet_tree'),
+    historyVisibility: historyVisibilityEnum('history_visibility').notNull(),
+    epochStartedAt: timestamp('epoch_started_at', { withTimezone: true, mode: 'date' }),
+    lastCommitRemoved: boolean('last_commit_removed').notNull().default(false),
+    latestSeq: bigint('latest_seq', { mode: 'number' }).notNull().default(0),
+    createdAt: createdAt(),
+  },
+  (table) => [
+    uniqueIndex('mls_groups_kind_scope_generation_uq').on(table.kind, table.scopeId, table.generation),
+    index('mls_groups_guild_id_idx').on(table.guildId),
+    index('mls_groups_channel_id_idx').on(table.channelId),
+  ],
+)
+
+export const mlsGroupEpochs = pgTable(
+  'mls_group_epochs',
+  {
+    groupId: bytea('group_id')
+      .notNull()
+      .references(() => mlsGroups.groupId, { onDelete: 'cascade' }),
+    epoch: bigint('epoch', { mode: 'number' }).notNull(),
+    groupInfo: bytea('group_info').notNull(),
+    ratchetTree: bytea('ratchet_tree').notNull(),
+    treeHash: bytea('tree_hash').notNull(),
+    confirmedTranscriptHash: bytea('confirmed_transcript_hash').notNull(),
+    createdAt: createdAt(),
+  },
+  (table) => [primaryKey({ columns: [table.groupId, table.epoch] })],
+)
+
+// The DS roster. A row with a null device_id is the leaf of a deleted device;
+// it stays until a commit removes the leaf (§12.7.3 check 8).
+export const mlsGroupMembers = pgTable(
+  'mls_group_members',
+  {
+    groupId: bytea('group_id')
+      .notNull()
+      .references(() => mlsGroups.groupId, { onDelete: 'cascade' }),
+    leafIndex: integer('leaf_index').notNull(),
+    deviceId: uuid('device_id').references(() => devices.id, { onDelete: 'set null' }),
+    userId: uuid('user_id').references(() => users.id, { onDelete: 'set null' }),
+    credentialIdentity: text('credential_identity').notNull(),
+    signatureKey: bytea('signature_key').notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.groupId, table.leafIndex] }),
+    uniqueIndex('mls_group_members_group_device_uq').on(table.groupId, table.deviceId),
+    index('mls_group_members_device_id_idx').on(table.deviceId),
+  ],
+)
+
+export const mlsHandshakes = pgTable(
+  'mls_handshakes',
+  {
+    groupId: bytea('group_id')
+      .notNull()
+      .references(() => mlsGroups.groupId, { onDelete: 'cascade' }),
+    seq: bigint('seq', { mode: 'number' }).notNull(),
+    epoch: bigint('epoch', { mode: 'number' }).notNull(),
+    kind: handshakeKindEnum('kind').notNull(),
+    senderDevice: uuid('sender_device').references(() => devices.id, { onDelete: 'set null' }),
+    message: bytea('message').notNull(),
+    treeHash: bytea('tree_hash'),
+    confirmedTranscriptHash: bytea('confirmed_transcript_hash'),
+    createdAt: createdAt(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.groupId, table.seq] }),
+    index('mls_handshakes_created_at_idx').on(table.createdAt),
+  ],
+)
+
+export const mlsJoinRequests = pgTable(
+  'mls_join_requests',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    groupId: bytea('group_id')
+      .notNull()
+      .references(() => mlsGroups.groupId, { onDelete: 'cascade' }),
+    deviceId: uuid('device_id')
+      .notNull()
+      .references(() => devices.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    keyPackage: bytea('key_package').notNull(),
+    status: joinStatusEnum('status').notNull(),
+    reason: text('reason'),
+    createdAt: createdAt(),
+    updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+  },
+  (table) => [index('mls_join_requests_device_id_idx').on(table.deviceId)],
+)
+
+// A Remove is keyed by leaf_index, so it survives the delete of its user or
+// device (the FKs set them to null). `proposal` is the one signed external
+// proposal for `proposal_epoch` (§12.7.4).
+export const mlsPending = pgTable(
+  'mls_pending',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    groupId: bytea('group_id')
+      .notNull()
+      .references(() => mlsGroups.groupId, { onDelete: 'cascade' }),
+    op: pendingOpEnum('op').notNull(),
+    userId: uuid('user_id').references(() => users.id, { onDelete: 'set null' }),
+    deviceId: uuid('device_id').references(() => devices.id, { onDelete: 'set null' }),
+    leafIndex: integer('leaf_index'),
+    keyPackage: bytea('key_package'),
+    joinRequestId: uuid('join_request_id').references(() => mlsJoinRequests.id, { onDelete: 'cascade' }),
+    reason: text('reason').notNull(),
+    status: pendingStatusEnum('status').notNull().default('queued'),
+    proposal: bytea('proposal'),
+    proposalEpoch: bigint('proposal_epoch', { mode: 'number' }),
+    proposalRef: bytea('proposal_ref'),
+    createdAt: createdAt(),
+  },
+  (table) => [
+    index('mls_pending_group_status_idx').on(table.groupId, table.status),
+    uniqueIndex('mls_pending_open_remove_uq')
+      .on(table.groupId, table.leafIndex)
+      .where(sql`${table.op} = 'remove' and ${table.status} <> 'rejected'`),
+  ],
+)
+
+export const mlsBatches = pgTable(
+  'mls_batches',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    groupId: bytea('group_id')
+      .notNull()
+      .references(() => mlsGroups.groupId, { onDelete: 'cascade' }),
+    epoch: bigint('epoch', { mode: 'number' }).notNull(),
+    deviceId: uuid('device_id')
+      .notNull()
+      .references(() => devices.id, { onDelete: 'cascade' }),
+    pendingIds: uuid('pending_ids').array().notNull(),
+    timedOutDevices: uuid('timed_out_devices').array().notNull().default(sql`'{}'::uuid[]`),
+    deadlineAt: timestamp('deadline_at', { withTimezone: true, mode: 'date' }).notNull(),
+    createdAt: createdAt(),
+  },
+  (table) => [index('mls_batches_group_id_idx').on(table.groupId)],
+)
+
+export const deviceInbox = pgTable(
+  'device_inbox',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    seq: bigint('seq', { mode: 'number' }).notNull().generatedAlwaysAsIdentity(),
+    deviceId: uuid('device_id')
+      .notNull()
+      .references(() => devices.id, { onDelete: 'cascade' }),
+    kind: inboxKindEnum('kind').notNull(),
+    senderDevice: uuid('sender_device').references(() => devices.id, { onDelete: 'set null' }),
+    body: bytea('body').notNull(),
+    size: integer('size').notNull(),
+    createdAt: createdAt(),
+    expiresAt: timestamp('expires_at', { withTimezone: true, mode: 'date' }).notNull(),
+  },
+  (table) => [index('device_inbox_device_seq_idx').on(table.deviceId, table.seq)],
+)
+
+export const keyBackups = pgTable(
+  'key_backups',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    keyId: bytea('key_id').notNull(),
+    kind: backupKindEnum('kind').notNull(),
+    groupId: bytea('group_id'),
+    epochFrom: bigint('epoch_from', { mode: 'number' }),
+    epochTo: bigint('epoch_to', { mode: 'number' }),
+    blob: bytea('blob').notNull(),
+    size: integer('size').notNull(),
+    createdAt: createdAt(),
+  },
+  (table) => [
+    index('key_backups_user_id_idx').on(table.userId),
+    uniqueIndex('key_backups_identity_uq').on(table.userId).where(sql`${table.kind} = 'identity'`),
+  ],
+)
+
+export const historyBundles = pgTable(
+  'history_bundles',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    groupId: bytea('group_id')
+      .notNull()
+      .references(() => mlsGroups.groupId, { onDelete: 'cascade' }),
+    epoch: bigint('epoch', { mode: 'number' }).notNull(),
+    senderDevice: uuid('sender_device')
+      .notNull()
+      .references(() => devices.id, { onDelete: 'cascade' }),
+    blob: bytea('blob').notNull(),
+    createdAt: createdAt(),
+  },
+  (table) => [uniqueIndex('history_bundles_group_epoch_sender_uq').on(table.groupId, table.epoch, table.senderDevice)],
+)
+
+export const deviceLinkSessions = pgTable('device_link_sessions', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  newDeviceId: uuid('new_device_id')
+    .notNull()
+    .references(() => devices.id, { onDelete: 'cascade' }),
+  offer: bytea('offer').notNull(),
+  createdAt: createdAt(),
+  expiresAt: timestamp('expires_at', { withTimezone: true, mode: 'date' }).notNull(),
+})
+
+export const deviceLinkMessages = pgTable(
+  'device_link_messages',
+  {
+    sessionId: uuid('session_id')
+      .notNull()
+      .references(() => deviceLinkSessions.id, { onDelete: 'cascade' }),
+    seq: integer('seq').notNull(),
+    fromDevice: uuid('from_device')
+      .notNull()
+      .references(() => devices.id, { onDelete: 'cascade' }),
+    body: bytea('body').notNull(),
+    createdAt: createdAt(),
+  },
+  (table) => [primaryKey({ columns: [table.sessionId, table.seq] })],
+)
+
+// Append-only: no FK to users, so a user delete keeps the log intact (§12.14).
+export const ktEntries = pgTable(
+  'kt_entries',
+  {
+    idx: bigint('idx', { mode: 'number' }).primaryKey(),
+    userId: uuid('user_id').notNull(),
+    type: smallint('type').notNull(),
+    entry: bytea('entry').notNull(),
+    leafHash: bytea('leaf_hash').notNull(),
+    createdAt: createdAt(),
+  },
+  (table) => [index('kt_entries_user_idx').on(table.userId, table.idx)],
+)
+
+// Only the gRPC process signs heads (§12.14).
+export const ktTreeHeads = pgTable('kt_tree_heads', {
+  treeSize: bigint('tree_size', { mode: 'number' }).primaryKey(),
+  rootHash: bytea('root_hash').notNull(),
+  signed: bytea('signed').notNull(),
+  createdAt: createdAt(),
+  publishedAt: timestamp('published_at', { withTimezone: true, mode: 'date' }),
+})
+
+export const adminActions = pgTable(
+  'admin_actions',
+  {
+    guildId: uuid('guild_id')
+      .notNull()
+      .references(() => guilds.id, { onDelete: 'cascade' }),
+    seq: bigint('seq', { mode: 'number' }).notNull(),
+    action: bytea('action').notNull(),
+    hash: bytea('hash').notNull(),
+    actorUserId: uuid('actor_user_id').notNull(),
+    createdAt: createdAt(),
+  },
+  (table) => [primaryKey({ columns: [table.guildId, table.seq] })],
+)
+
+export const messageReports = pgTable('message_reports', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  messageId: uuid('message_id').references(() => messages.id, { onDelete: 'set null' }),
+  channelId: uuid('channel_id').notNull(),
+  reporterId: uuid('reporter_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  reason: text('reason').notNull(),
+  content: bytea('content').notNull(),
+  frankingKey: bytea('franking_key').notNull(),
+  verified: boolean('verified').notNull(),
+  createdAt: createdAt(),
+})
+
+export type DeviceDbRow = typeof devices.$inferSelect
+export type MlsGroupDbRow = typeof mlsGroups.$inferSelect
+export type AdminActionRow = typeof adminActions.$inferSelect
+export type MessageReportRow = typeof messageReports.$inferSelect

@@ -9,13 +9,18 @@ import assert from 'node:assert/strict'
 import { DEFAULT_LIMITS } from '@hachiman/client/files'
 
 import {
+  BLOB_CONTENT_TYPE,
   contentDisposition,
+  downloadHeaders,
   getLimits,
   normalizeContentType,
   parseContentLength,
   parseMaxUploadBytes,
   parseRange,
+  parseUploadKind,
   safeName,
+  toAttachment,
+  uploadColumns,
   uploadKey,
 } from './files'
 
@@ -38,7 +43,49 @@ test('limits: default, override, invalid', () => {
   assert.throws(() => parseMaxUploadBytes('-5'))
   assert.throws(() => parseMaxUploadBytes('10MB'))
   assert.throws(() => parseMaxUploadBytes('1.5'))
-  assert.deepEqual(getLimits('100'), { maxUploadBytes: 100, maxAttachmentsPerMessage: 10 })
+  assert.deepEqual(getLimits({ TAKUSEN_MAX_UPLOAD_BYTES: '100' }), { maxUploadBytes: 100, maxAttachmentsPerMessage: 10, maxEnvelopeBytes: 32768 })
+  assert.equal(getLimits({ TAKUSEN_MAX_ENVELOPE_BYTES: '65536' }).maxEnvelopeBytes, 65536)
+  assert.equal(getLimits({}).maxEnvelopeBytes, DEFAULT_LIMITS.maxEnvelopeBytes)
+})
+
+test('upload kind: kind=blob or filename=, never both', () => {
+  assert.deepEqual(parseUploadKind(new URLSearchParams('kind=blob')), { kind: 'blob' })
+  assert.deepEqual(parseUploadKind(new URLSearchParams('filename=%20me.png%20')), { kind: 'image', filename: 'me.png' })
+  assert.equal(parseUploadKind(new URLSearchParams('kind=blob&filename=a.png')), null)
+  assert.equal(parseUploadKind(new URLSearchParams('kind=file')), null)
+  assert.equal(parseUploadKind(new URLSearchParams('')), null)
+  assert.equal(parseUploadKind(new URLSearchParams('filename=')), null)
+  assert.equal(parseUploadKind(new URLSearchParams({ filename: 'a'.repeat(256) })), null)
+})
+
+test('upload columns: a blob has no name, a fixed type and encrypted = true', () => {
+  assert.deepEqual(uploadColumns('u1', { kind: 'blob' }, 'image/png'), {
+    key: 'u1/blob',
+    filename: null,
+    contentType: BLOB_CONTENT_TYPE,
+    encrypted: true,
+  })
+  assert.deepEqual(uploadColumns('u1', { kind: 'image', filename: 'my cat.PNG' }, 'Image/PNG; q=1'), {
+    key: 'u1/my_cat.PNG',
+    filename: 'my cat.PNG',
+    contentType: 'image/png',
+    encrypted: false,
+  })
+})
+
+test('download headers: a blob is octet-stream with filename "blob"', () => {
+  assert.deepEqual(downloadHeaders({ encrypted: true, contentType: 'image/png', filename: 'secret.png' }), {
+    contentType: 'application/octet-stream',
+    disposition: 'attachment; filename="blob"',
+  })
+  assert.deepEqual(downloadHeaders({ encrypted: false, contentType: 'image/png', filename: 'me.png' }), {
+    contentType: 'image/png',
+    disposition: 'inline',
+  })
+})
+
+test('toAttachment: id, key and blob size only', () => {
+  assert.deepEqual(toAttachment({ id: 'u1', key: 'u1/blob', size: 42 }), { id: 'u1', key: 'u1/blob', size: 42 })
 })
 
 test('safeName: replaces unsafe characters, caps length, never empty', () => {

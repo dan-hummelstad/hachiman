@@ -5,9 +5,12 @@ import { eq } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
 
+import { signIn } from '@/auth'
 import { db } from '@/db/client'
 import { users } from '@/db/schema'
 import { requireUser } from '@/lib/auth-helpers'
+import { completePasswordChange } from '@/lib/password-reset'
+import { revokeUserSessions } from '@/lib/session-revocation'
 
 const BCRYPT_COST = 12
 
@@ -77,7 +80,7 @@ export async function changePasswordAction(
 
   const row = await db.query.users.findFirst({
     where: eq(users.id, session.user.id),
-    columns: { passwordHash: true },
+    columns: { passwordHash: true, email: true },
   })
   if (!row?.passwordHash) {
     return {
@@ -91,11 +94,24 @@ export async function changePasswordAction(
     return { ok: false, error: 'Current password is incorrect' }
   }
 
+  // Other sessions are revoked. The devices stay (§12.18): a password change
+  // is not a reset. This browser gets a new cookie after the cut-off.
   const newHash = await bcrypt.hash(parsed.data.newPassword, BCRYPT_COST)
-  await db
-    .update(users)
-    .set({ passwordHash: newHash, updatedAt: new Date() })
-    .where(eq(users.id, session.user.id))
+  const newPassword = parsed.data.newPassword
+  await completePasswordChange(
+    {
+      async setPassword(userId, passwordHash) {
+        await db.update(users).set({ passwordHash, updatedAt: new Date() }).where(eq(users.id, userId))
+      },
+      async revokeSessions(userId) {
+        await revokeUserSessions(userId)
+      },
+      async keepCurrentSession() {
+        await signIn('credentials', { email: row.email, password: newPassword, redirect: false })
+      },
+    },
+    { userId: session.user.id, passwordHash: newHash },
+  )
 
-  return { ok: true, message: 'Password updated' }
+  return { ok: true, message: 'Password updated. Other sessions are signed out.' }
 }

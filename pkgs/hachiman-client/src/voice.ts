@@ -1,12 +1,37 @@
-// Media-node voice connection. Contract: docs/gateway-protocol.md §8.
+// Media-node voice connection. Contract: docs/gateway-protocol.md §8 and §12.10.
 //
 // Media is always the SDP offerer; we only answer. Track labeling (agreed with media):
 // a peer's mic track has MediaStream id = the peer's userId (track id `audio-<userId>`), and its
 // screen track has stream id `screen-<userId>`, so `ontrack` → `event.streams[0].id` names the user.
 // The `peers` frame is the roster. The first two transceivers (m-lines 0 and 1) in media's initial
 // offer are our upload slots for the mic and the screen.
+//
+// E2EE: this file holds no crypto. The VoiceE2eeDelegate (the @hachiman/crypto Worker in the
+// shared UI) makes the key package, handles the e2ee_* ops and makes the SFrame transforms.
+// This file moves the ops and installs the transforms.
 import { TypedEventEmitter } from './typed-event-emitter'
-import type { VoiceClientFrame, VoiceServerFrame } from './types'
+import type {
+  B64url,
+  VoiceClientFrame,
+  VoiceE2eeClientOp,
+  VoiceE2eeServerOp,
+  VoiceServerFrame,
+} from './types'
+
+export type VoiceTrackKind = 'audio' | 'video'
+
+/** The crypto side of one call (§10). Make one per call. VoiceConnection calls `close` when the call ends. */
+export interface VoiceE2eeDelegate {
+  /** The key package for identify. */
+  start(): Promise<{ keyPackage: B64url }>
+  /** One §8 e2ee_* op from media. VoiceConnection sends the result in order. */
+  handle(op: VoiceE2eeServerOp): Promise<VoiceE2eeClientOp[]>
+  /** Called once per call and track. The transform stays on its sender for the whole call (§12.10.2). */
+  senderTransform(track: VoiceTrackKind): RTCRtpScriptTransform
+  /** Called on each `ontrack`. `userId` comes from the msid. */
+  receiverTransform(userId: string, track: VoiceTrackKind): RTCRtpScriptTransform
+  close(): void
+}
 
 export interface VoicePeer {
   userId: string
@@ -39,9 +64,21 @@ export type VoiceEvents = {
    * silent until they share; their voice state's `selfStream` says when it is live.
    */
   screen: (e: { userId: string; stream: MediaStream | null }) => void
-  /** Unexpected teardown: voice WS closed without `close()` (4004 bad token, 4009 expired, 4010 kicked, 4011 replaced…) or renegotiation failed. */
+  /**
+   * Media closed with 4013 (E2EE resync). Fires just before `close`. The owner joins again,
+   * which gives a new group leaf and new sender transforms.
+   */
+  resync: (e: { code: number; reason: string }) => void
+  /**
+   * Unexpected teardown: voice WS closed without `close()` (4004 bad token, 4009 expired, 4010 kicked,
+   * 4011 replaced, 4012 E2EE required, 4013 resync, 4014 E2EE violation…), renegotiation failed, or E2EE failed.
+   */
   close: (e: { code: number; reason: string }) => void
 }
+
+/** Local failure codes. They never come from media. */
+const LOCAL_FAILURE = 4000
+const RESYNC = 4013
 
 export class VoiceConnection extends TypedEventEmitter<VoiceEvents> {
   /** Media session id + our SSRC, from the `ready` frame. */
@@ -56,8 +93,14 @@ export class VoiceConnection extends TypedEventEmitter<VoiceEvents> {
   private screenTransceiver: RTCRtpTransceiver | null = null
   private screenTrack: MediaStreamTrack | null = null
   private screenEncoding: ScreenEncoding | null = null
+  /** Made once per call (§12.10.2): a new transform would start CTR at 0 again under the same key. */
+  private readonly senderTransforms: Partial<Record<VoiceTrackKind, RTCRtpScriptTransform>> = {}
   /** Orders sender updates: a concurrent setParameters fails on a stale transactionId. */
   private screenChain: Promise<void> = Promise.resolve()
+  /** Orders e2ee ops: the delegate handles one op at a time, in arrival order. */
+  private e2eeChain: Promise<void> = Promise.resolve()
+  /** True after an e2ee_commit with a welcome: the next e2ee_* frame must be e2ee_ratchet_tree (§8). */
+  private treeDue = false
   private readonly screens = new Map<string, MediaStream>()
   private muted = false
   private deafened = false
@@ -72,12 +115,30 @@ export class VoiceConnection extends TypedEventEmitter<VoiceEvents> {
   private offerChain: Promise<void> = Promise.resolve()
   private closed = false
 
-  constructor(private readonly opts: { endpoint: string; token: string; iceServers: RTCIceServer[] }) {
+  constructor(
+    private readonly opts: {
+      endpoint: string
+      token: string
+      iceServers: RTCIceServer[]
+      /** Required: media closes 4012 without E2EE. */
+      e2ee: VoiceE2eeDelegate
+    },
+  ) {
     super()
   }
 
   /** Resolves on the media node's `ready` (token accepted). Audio flows once `state` reaches `connected`. */
-  connect(): Promise<void> {
+  async connect(): Promise<void> {
+    // Before the socket opens: media wants identify within 10 s of the connect.
+    let keyPackage: B64url
+    try {
+      ;({ keyPackage } = await this.opts.e2ee.start())
+    } catch (err) {
+      this.close()
+      throw err
+    }
+    if (this.closed) throw new Error('voice connect: closed')
+
     const pc = new RTCPeerConnection({ iceServers: this.opts.iceServers })
     this.pc = pc
     pc.onconnectionstatechange = () => this.emit('state', pc.connectionState)
@@ -96,7 +157,7 @@ export class VoiceConnection extends TypedEventEmitter<VoiceEvents> {
       this.ws = ws
       let settled = false
       ws.onopen = () => {
-        this.send({ op: 'identify', d: { token: this.opts.token } })
+        this.send({ op: 'identify', d: { token: this.opts.token, e2ee: { version: 1, keyPackage } } })
       }
       ws.onmessage = ev => {
         const f = JSON.parse(ev.data as string) as VoiceServerFrame
@@ -118,6 +179,7 @@ export class VoiceConnection extends TypedEventEmitter<VoiceEvents> {
   private fail(code: number, reason: string): void {
     if (this.closed) return
     this.close()
+    if (code === RESYNC) this.emit('resync', { code, reason })
     this.emit('close', { code, reason })
   }
 
@@ -136,6 +198,11 @@ export class VoiceConnection extends TypedEventEmitter<VoiceEvents> {
     this.screens.clear()
     this.pc?.close() // does not fire connectionstatechange, so emit by hand
     this.pc = null
+    try {
+      this.opts.e2ee.close()
+    } catch (err) {
+      console.warn('VoiceConnection: e2ee close failed', err)
+    }
     this.emit('state', 'closed')
   }
 
@@ -241,7 +308,7 @@ export class VoiceConnection extends TypedEventEmitter<VoiceEvents> {
             // A failed renegotiation leaves the PC unusable; surface it as a close so the owner
             // (HachimanClient) clears the gateway voice state and the UI can rejoin.
             console.warn('VoiceConnection: renegotiation failed', err)
-            this.fail(4000, 'renegotiation failed')
+            this.fail(LOCAL_FAILURE, 'renegotiation failed')
           })
         break
       }
@@ -271,7 +338,45 @@ export class VoiceConnection extends TypedEventEmitter<VoiceEvents> {
       case 'speaking':
         this.emit('speaking', f.d)
         break
+      case 'e2ee_roster':
+      case 'e2ee_key_package':
+      case 'e2ee_commit_rejected':
+      case 'e2ee_prepare_transition':
+      case 'e2ee_welcome':
+      case 'e2ee_ratchet_tree':
+      case 'e2ee_execute_transition':
+        this.onE2ee(f)
+        break
     }
+  }
+
+  private onE2ee(op: VoiceE2eeServerOp): void {
+    this.e2eeChain = this.e2eeChain
+      .then(async () => {
+        if (this.closed) return
+        const out = await this.opts.e2ee.handle(op)
+        // close() can run during the await.
+        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+        if (this.closed) return
+        this.checkE2eeOrder(out)
+        for (const o of out) this.send(o)
+      })
+      .catch((err: unknown) => {
+        // Fail closed: a call with an unknown key state must not go on.
+        console.warn('VoiceConnection: e2ee op failed', err)
+        this.fail(LOCAL_FAILURE, 'e2ee failure')
+      })
+  }
+
+  /** Throws before anything is sent when the ops break the commit → ratchet tree order of §8. */
+  private checkE2eeOrder(ops: VoiceE2eeClientOp[]): void {
+    let due = this.treeDue
+    for (const o of ops) {
+      if (due !== (o.op === 'e2ee_ratchet_tree'))
+        throw new Error(`e2ee: unexpected ${o.op} (ratchet tree due: ${due})`)
+      due = o.op === 'e2ee_commit' && o.d.welcome !== null
+    }
+    this.treeDue = due
   }
 
   private async answer(sdp: string): Promise<void> {
@@ -282,12 +387,15 @@ export class VoiceConnection extends TypedEventEmitter<VoiceEvents> {
     // Media's first m-line is a recvonly slot reserved exclusively for our mic; peers' audio uses
     // separate sendonly transceivers. Answering sendrecv on it lets us upload.
     const [mic, screen] = pc.getTransceivers()
+    // The transforms go on before any track, so no frame leaves without SFrame.
     if (mic) {
+      this.installSenderTransform(mic, 'audio')
       mic.direction = 'sendrecv'
       this.micTransceiver = mic
       await this.applyMic()
     }
     if (screen) {
+      this.installSenderTransform(screen, 'video')
       screen.direction = 'sendrecv'
       this.screenTransceiver = screen
     }
@@ -301,6 +409,20 @@ export class VoiceConnection extends TypedEventEmitter<VoiceEvents> {
     for (const c of buffered ?? []) this.send({ op: 'candidate', d: { candidate: c } })
   }
 
+  /**
+   * One transform per (call, track), never made again. The m-line 0 and 1 senders are stable across
+   * renegotiations, so the assignment is a no-op after the first offer. A different sender makes
+   * the browser throw (a transform belongs to one sender), and the renegotiation fails closed.
+   */
+  private installSenderTransform(t: RTCRtpTransceiver, track: VoiceTrackKind): void {
+    let transform = this.senderTransforms[track]
+    if (!transform) {
+      transform = this.opts.e2ee.senderTransform(track)
+      this.senderTransforms[track] = transform
+    }
+    if (t.sender.transform !== transform) t.sender.transform = transform
+  }
+
   private async addRemoteCandidate(c: RTCIceCandidateInit | null): Promise<void> {
     try {
       await (c ? this.pc?.addIceCandidate(c) : this.pc?.addIceCandidate())
@@ -309,6 +431,7 @@ export class VoiceConnection extends TypedEventEmitter<VoiceEvents> {
     }
   }
 
+  // replaceTrack keeps sender.transform: mute, mic changes and screen start/stop reuse the transform.
   private async applyMic(): Promise<void> {
     await this.micTransceiver?.sender.replaceTrack(this.muted ? null : this.micTrack)
   }
@@ -332,13 +455,25 @@ export class VoiceConnection extends TypedEventEmitter<VoiceEvents> {
     })
   }
 
+  /**
+   * msid rule (§8): stream id `screen-<userId>` is the video track of that user, every other stream
+   * id is the user id with the audio track. A track without a stream id, or whose kind does not
+   * match its stream id, gets no transform and is not played: its key would bind to no user.
+   */
   private onTrack(ev: RTCTrackEvent): void {
-    if (ev.track.kind === 'video') {
-      this.onScreenTrack(ev)
-      return
-    }
+    const streamId = ev.streams[0]?.id
+    if (!streamId) return
+    const isScreen = streamId.startsWith('screen-')
+    const userId = isScreen ? streamId.slice('screen-'.length) : streamId
+    const kind: VoiceTrackKind = isScreen ? 'video' : 'audio'
+    if (userId === '' || ev.track.kind !== kind) return
+    ev.receiver.transform = this.opts.e2ee.receiverTransform(userId, kind)
+    if (isScreen) this.onScreenTrack(userId, ev)
+    else this.onAudioTrack(userId, ev)
+  }
+
+  private onAudioTrack(userId: string, ev: RTCTrackEvent): void {
     const stream = ev.streams[0] ?? new MediaStream([ev.track])
-    const userId = ev.streams[0]?.id ?? ev.track.id.replace(/^audio-/, '')
     ev.track.onended = () => {
       if (this.pendingTracks.get(userId) === stream) this.pendingTracks.delete(userId)
       const el = this.audio.get(userId)
@@ -352,10 +487,7 @@ export class VoiceConnection extends TypedEventEmitter<VoiceEvents> {
     else this.pendingTracks.set(userId, stream)
   }
 
-  private onScreenTrack(ev: RTCTrackEvent): void {
-    const id = ev.streams[0]?.id
-    if (!id?.startsWith('screen-')) return
-    const userId = id.slice('screen-'.length)
+  private onScreenTrack(userId: string, ev: RTCTrackEvent): void {
     const stream = new MediaStream([ev.track])
     ev.track.onended = () => {
       if (this.screens.get(userId) === stream) this.dropScreen(userId)

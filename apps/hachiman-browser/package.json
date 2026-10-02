@@ -8,6 +8,7 @@
     "build": "tsgo --noEmit && vite build",
     "preview": "vite preview",
     "typecheck": "tsgo --noEmit",
+    "test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test \"*.test.mts\" \"src/**/*.test.mts\"",
     "lint": "eslint --cache .",
     "format": "prettier --write ."
   },

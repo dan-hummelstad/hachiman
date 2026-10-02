@@ -21,7 +21,7 @@ import {
 import { ForbiddenError } from '@/lib/auth-helpers'
 import { NotFoundError } from '@/lib/errors'
 import { publishToGuild } from '@/lib/events'
-import { deleteGuildRows, publishUserUpdate } from '@/lib/guilds'
+import { deleteGuildRows, membershipChanged, membershipTransaction, MembershipTriggers, publicHistoryVisibility, publishUserUpdate } from '@/lib/guilds'
 import { deleteUserOidcRows } from '@/lib/session-revocation'
 import { deleteObjects } from '@/lib/storage'
 import { toGuild, toUser } from '@/lib/wire'
@@ -125,21 +125,23 @@ export async function updateUser(actorId: string, id: string, input: UpdateUserI
 /**
  * Deletes the account. In one transaction: the guilds it owns (as an owner
  * delete), all of its uploads, guild icons/banners that used them, and its
- * OIDC rows; the FK cascades take its memberships, messages, DM participation
- * and invites. After commit: GUILD_DELETE per owned guild, GUILD_MEMBER_REMOVE
+ * OIDC rows; the FK cascades take its memberships, messages, DM participation,
+ * invites and devices. Before the user row goes, the DS queues a Remove for
+ * every leaf of the user (`user_deleted`, §12.18). After commit: the DS
+ * events, GUILD_DELETE per owned guild, GUILD_MEMBER_REMOVE
  * per other guild, GUILD_UPDATE per guild that lost its icon or banner, then
  * the objects (best effort). Its messages in other guilds and its DM channels
  * go without events (contract §4 Admin API, user delete).
  */
 export async function deleteUser(actorId: string, id: string): Promise<void> {
-  const result = await db.transaction(async (tx) => {
+  const result = await membershipTransaction(async (tx) => {
     await lockAdmins(tx, actorId)
     const target = await lockTarget(tx, id)
     assertAdminChange(actorId, target.id, 'delete')
 
     const owned = await tx.select({ id: guilds.id }).from(guilds).where(eq(guilds.ownerId, id))
     const keys: string[] = []
-    for (const g of owned) keys.push(...(await deleteGuildRows(tx, g.id)))
+    for (const g of owned) keys.push(...(await deleteGuildRows(tx, g.id, null)))
 
     const memberOf = await tx
       .select({ guildId: guildMembers.guildId })
@@ -159,6 +161,7 @@ export async function deleteUser(actorId: string, id: string): Promise<void> {
             })
             .where(or(inArray(guilds.icon, ownKeys), inArray(guilds.banner, ownKeys)))
             .returning()
+    await membershipChanged(tx, MembershipTriggers.userDeleted(id), null)
     await tx.delete(users).where(eq(users.id, id))
     await deleteUserOidcRows(tx, id)
     return { target, keys, owned, memberOf, touched }
@@ -170,7 +173,7 @@ export async function deleteUser(actorId: string, id: string): Promise<void> {
     ...result.memberOf.map((m) =>
       publishToGuild(m.guildId, 'GUILD_MEMBER_REMOVE', { guildId: m.guildId, user }),
     ),
-    ...result.touched.map((g) => publishToGuild(g.id, 'GUILD_UPDATE', toGuild(g))),
+    ...result.touched.map(async (g) => publishToGuild(g.id, 'GUILD_UPDATE', toGuild(g, await publicHistoryVisibility(g.id)))),
   ])
   await deleteObjects(result.keys)
 }

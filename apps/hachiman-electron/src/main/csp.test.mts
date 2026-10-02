@@ -82,3 +82,34 @@ test("dev server: inline scripts (Fast Refresh preamble) and ws: (HMR) allowed",
   assert.deepEqual(directive(csp, "script-src"), ["'self'", "'unsafe-inline'"]);
   assert.ok(directive(csp, "connect-src").includes("ws:"));
 });
+
+test("worker-src allows only the app's own module Workers (§12.17)", () => {
+  assert.deepEqual(directive(buildCsp(PROD_ENV), "worker-src"), ["'self'"]);
+  assert.deepEqual(directive(buildCsp({}), "worker-src"), ["'self'"]);
+  const dev = buildCsp(PROD_ENV, { devServerUrl: "http://localhost:5174/" });
+  assert.deepEqual(directive(dev, "worker-src"), [
+    "'self'",
+    "http://localhost:5174",
+  ]);
+});
+
+test("E2EE: blob: only for images and media, never for scripts or Workers; no wasm or eval", () => {
+  const dev = { devServerUrl: "http://localhost:5174/" };
+  for (const csp of [
+    buildCsp(PROD_ENV),
+    buildCsp({}),
+    buildCsp(PROD_ENV, dev),
+  ]) {
+    assert.ok(directive(csp, "img-src").includes("blob:"));
+    assert.ok(directive(csp, "media-src").includes("blob:"));
+    for (const name of ["script-src", "worker-src", "default-src"]) {
+      const values = directive(csp, name);
+      assert.ok(values.length > 0, `${name} is present`);
+      assert.ok(!values.includes("blob:"), `${name} has no blob:`);
+      assert.ok(!values.includes("data:"), `${name} has no data:`);
+      assert.ok(!values.includes("*"), `${name} has no wildcard`);
+    }
+    assert.ok(!csp.includes("wasm-unsafe-eval"));
+    assert.ok(!csp.includes("unsafe-eval"));
+  }
+});
