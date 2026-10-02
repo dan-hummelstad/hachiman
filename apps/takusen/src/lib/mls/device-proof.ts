@@ -11,6 +11,7 @@ import { createHash, createPublicKey, verify } from 'node:crypto'
 import type { Redis } from 'ioredis'
 
 import { ApiError } from '@/lib/errors'
+import { readRawBody } from '@/lib/request-body'
 
 import { DEVICE_PROOF_MAX_SKEW_MS, DEVICE_PROOF_NONCE_RE, deviceProofMessage } from './crypto'
 
@@ -59,9 +60,8 @@ export interface RequestProof {
 }
 
 export async function readRequestProof(req: Request): Promise<RequestProof> {
-  if (req.bodyUsed) throw new Error('readRequestProof: the request body was already read; call it before parsing the body')
   const url = new URL(req.url)
-  const body = new Uint8Array(await req.clone().arrayBuffer())
+  const body = await readRawBody(req)
   return {
     method: req.method,
     pathAndQuery: url.pathname + url.search,

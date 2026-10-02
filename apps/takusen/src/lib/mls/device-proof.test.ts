@@ -7,6 +7,7 @@ import { generateKeyPairSync, randomBytes, sign, type KeyObject } from 'node:cry
 import { describe, test } from 'node:test'
 
 import { ApiError } from '@/lib/errors'
+import { readRawBody } from '@/lib/request-body'
 
 import { deviceProofMessage } from './crypto'
 import { requireDeviceWith } from './device-auth'
@@ -51,16 +52,24 @@ describe('device proof', () => {
     const proof = await readRequestProof(req)
     await checkDeviceProof(proof, '', k.pub, nonces, new Date())
     // The handler can still read the body.
-    assert.equal(await req.text(), '{"a":1}')
+    assert.equal(new TextDecoder().decode(await readRawBody(req)), '{"a":1}')
     await assert.rejects(checkDeviceProof(proof, '', k.pub, nonces, new Date()), proofInvalid)
   })
 
-  test('fails clearly when the handler read the body first', async () => {
-    // POST /devices used to parse the body before reading the proof; clone() then threw "unusable".
+  test('verifies whether the handler reads the body before or after the proof', async () => {
+    // POST /devices and actorDeviceId() read the proof after parseBody; req.clone() then threw "unusable".
     const k = keyPair()
-    const req = await signed(k.priv, '', { path: '/api/v1/devices' })
-    await req.json()
-    await assert.rejects(readRequestProof(req), /already read/)
+    const nonces = new InMemoryNonceStore()
+    const bodyFirst = await signed(k.priv, '', { path: '/api/v1/devices' })
+    assert.equal(new TextDecoder().decode(await readRawBody(bodyFirst)), '{"a":1}')
+    await checkDeviceProof(await readRequestProof(bodyFirst), '', k.pub, nonces, new Date())
+    const proofFirst = await signed(k.priv, '', { path: '/api/v1/devices' })
+    await checkDeviceProof(await readRequestProof(proofFirst), '', k.pub, nonces, new Date())
+    assert.equal(new TextDecoder().decode(await readRawBody(proofFirst)), '{"a":1}')
+    // A body consumed outside readRawBody cannot be hashed; that fails loudly, not silently.
+    const consumed = await signed(k.priv, '', { path: '/api/v1/devices' })
+    await consumed.text()
+    await assert.rejects(readRequestProof(consumed), /consumed outside readRawBody/)
   })
 
   test('rejects another key, another body, a stale ts and missing headers', async () => {
