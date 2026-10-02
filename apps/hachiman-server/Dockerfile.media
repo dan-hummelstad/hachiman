@@ -1,6 +1,6 @@
 # Builds the hachiman-media binary — the stateless WebRTC SFU. Clients reach it
 # over the voice WebSocket (docs/gateway-protocol.md §8); it registers and
-# heartbeats with Oracle over gRPC and listens for kicks on Redis media:{nodeId}.
+# heartbeats with Takusen over gRPC and listens for kicks on Redis media:{nodeId}.
 # Pair: Dockerfile.gateway and Dockerfile.recorder.
 
 FROM golang:1.25-alpine AS builder

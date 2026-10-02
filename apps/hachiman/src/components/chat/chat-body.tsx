@@ -10,7 +10,7 @@ import { messagesService } from '@/services/MessagesService'
 
 /**
  * Body of a text channel or DM: transcript, composer + typing line. Shell never renders it for a
- * voice channel (Oracle rejects messages there), so no history fetch, typing or send happens.
+ * voice channel (Takusen rejects messages there), so no history fetch, typing or send happens.
  */
 export function ChatBody({ channel }: { channel: Channel }): React.JSX.Element {
   // Keyed: scroll, editing and pending uploads are per channel; leaving aborts the uploads.

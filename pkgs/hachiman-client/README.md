@@ -1,6 +1,6 @@
 # @hachiman/client
 
-Browser-safe client for Hachiman: Oracle REST, the gateway WebSocket and media-node voice (WebRTC).
+Browser-safe client for Hachiman: Takusen REST, the gateway WebSocket and media-node voice (WebRTC).
 It uses only `fetch`, `WebSocket` and `RTCPeerConnection`. Consumers import it as TypeScript source.
 The wire contract is [`docs/gateway-protocol.md`](../../docs/gateway-protocol.md) (§10 is the API of this package).
 
@@ -19,7 +19,7 @@ import { HachimanClient, Permissions, has } from '@hachiman/client'
 const client = new HachimanClient({
   apiUrl: 'http://localhost:3000/api/v1',
   gatewayUrl: 'ws://localhost:8080/gateway',
-  getToken: () => oracle.getAccessToken(), // must return a fresh token each call
+  getToken: () => takusen.getAccessToken(), // must return a fresh token each call
 })
 client.on('ready', ({ user }) => console.log('hello', user.username))
 client.on('MESSAGE_CREATE', msg => console.log(msg.author.username, msg.content))

@@ -9,8 +9,8 @@ import type { RegionProbeTarget } from "./region-probe.ts";
  *
  * Any renderer XSS can call the preload bridge's `probeRegions` (which invokes
  * `hachiman:probe-regions`) with attacker-chosen targets. The probe targets themselves originate from the
- * PUBLIC, UNAUTHENTICATED `GET /api/regions` Oracle endpoint, so a hostile or
- * MITM'd Oracle can also pick what gets probed. Without validation the handler
+ * PUBLIC, UNAUTHENTICATED `GET /api/regions` Takusen endpoint, so a hostile or
+ * MITM'd Takusen can also pick what gets probed. Without validation the handler
  * is an SSRF / internal-port-scan primitive: arbitrary host + arbitrary port +
  * unbounded count, executed from the main process via raw `net` sockets (the
  * prober's `concurrency` only caps *simultaneous* sockets per chunk, never the
@@ -28,17 +28,17 @@ import type { RegionProbeTarget } from "./region-probe.ts";
  *     (`db.internal.example.com`) can resolve to `10.0.0.5`.
  *  3. PORT  — allowlist only 443 (regions' `probe_port`). Anything else is a
  *     port-scan attempt.
- *  4. COUNT — cap accepted targets at 64, mirroring the Oracle
+ *  4. COUNT — cap accepted targets at 64, mirroring the Takusen
  *     `recommend-region` endpoint's `z.array(...).max(64)`.
  *
  * The resolver is INJECTABLE so the host classification is unit-testable without
  * real DNS (see `probe-target-guard.test.mts`).
  */
 
-/** Ports a probe target is allowed to hit (Oracle `regions.probe_port` defaults to 443). */
+/** Ports a probe target is allowed to hit (Takusen `regions.probe_port` defaults to 443). */
 export const ALLOWED_PROBE_PORTS: ReadonlySet<number> = new Set([443]);
 
-/** Max number of targets accepted in one probe call (mirrors Oracle's `.max(64)`). */
+/** Max number of targets accepted in one probe call (mirrors Takusen's `.max(64)`). */
 export const MAX_PROBE_TARGETS = 64;
 
 /**

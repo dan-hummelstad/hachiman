@@ -13,7 +13,7 @@ export interface PendingUpload {
   controller: AbortController
   /** 0..1 */
   progress: number
-  /** Set once Oracle stored the file. */
+  /** Set once Takusen stored the file. */
   attachment: Attachment | null
   error: string | null
 }
@@ -26,7 +26,7 @@ export interface Uploads {
   busy: boolean
   /** Some upload failed and is still in the tray. */
   failed: boolean
-  /** Validates against Oracle's limits and starts uploading every accepted file right away. */
+  /** Validates against Takusen's limits and starts uploading every accepted file right away. */
   add: (files: File[]) => void
   /** Abort (if running) and drop one upload. */
   remove: (id: string) => void

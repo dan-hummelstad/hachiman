@@ -121,7 +121,7 @@ The `components/ui/*` primitives (shadcn) keep their APIs and change only their 
 | Foundation + primitives + host chrome | `assets/main.css`, `assets/fonts/*`, `components/ui/**`, `components/theme-*`, both host apps' HTML/window chrome |
 | Shell + left column | `App.tsx`, `server-icon-rail.tsx`, `channel-sidebar.tsx`, `nav-user.tsx` (user panel), `voice-controls.tsx` (voice connected panel), `create-channel-dialog.tsx`, new `components/shell/*` |
 | Main pane + right column | `chat-area.tsx` (may split into `components/chat/*`), `message-toolbar.tsx`, `member-list.tsx`, `user-profile-popover.tsx`, new `home-pane.tsx` (People) |
-| Overlays + auth | `guild-settings-*.tsx`, `channel-settings-dialog.tsx`, new `user-settings.tsx`, `add-server-dialog.tsx`, `join-server-modal.tsx`, `remove-server-dialog.tsx`, `oracle-signin-*.tsx`, `settings-helpers.ts`, new `components/settings/*` |
+| Overlays + auth | `guild-settings-*.tsx`, `channel-settings-dialog.tsx`, new `user-settings.tsx`, `add-server-dialog.tsx`, `join-server-modal.tsx`, `remove-server-dialog.tsx`, `takusen-signin-*.tsx`, `settings-helpers.ts`, new `components/settings/*` |
 | Preview fixtures + visual QA | new `apps/hachiman/src/dev/*`, and the preview hook in `apps/hachiman-browser/src/main.tsx` |
 
 Cross-area contracts:
@@ -144,7 +144,7 @@ In the browser dev server only (`import.meta.env.DEV`), `?preview` seeds the mir
 - Voice occupants, with one speaking.
 - About 40 messages, including a mention, a pending one and a failed one.
 - 2 DMs.
-- A fake signed-in Oracle session.
+- A fake signed-in Takusen session.
 - A stub for `hachiman.rest.*`, so clicks do not throw.
 
 It never ships in production builds. Use it with the `run` skill or Playwright to take a screenshot: `http://localhost:5173/?preview`.

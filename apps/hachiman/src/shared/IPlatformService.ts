@@ -24,11 +24,11 @@ export interface IPlatformService {
   readonly platform: 'electron' | 'browser'
   /** The host hides the native title bar, so the UI draws a draggable strip (Electron on macOS). */
   readonly insetTitleBar: boolean
-  /** OAuth `redirect_uri` for this host; Oracle's client registration must allow it. */
+  /** OAuth `redirect_uri` for this host; Takusen's client registration must allow it. */
   readonly oauthRedirectUri: string
   /** Send the user to the OAuth authorization page. Browser: same-tab redirect. Electron: system browser. */
   beginOAuth(url: string): void
-  /** Invite links (`takusen://invite/<code>` or `https://<oracle>/invite/<code>`) → code. Returns unsubscribe. */
+  /** Invite links (`takusen://invite/<code>` or `https://<takusen>/invite/<code>`) → code. Returns unsubscribe. */
   onInviteCode(cb: (code: string) => void): () => void
   /** OAuth redirect URLs delivered by the host (Electron custom scheme / browser callback route). */
   onOAuthCallback(cb: (url: string) => void): () => void

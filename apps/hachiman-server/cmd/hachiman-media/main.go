@@ -5,7 +5,7 @@
 // hachiman-media is the stateless WebRTC audio SFU (contract §8).
 //
 //   - voice.go:  /voice WS — token identify, SDP/ICE, peers, speaking
-//   - oracle.go: RegisterMediaNode + MediaNodeHeartbeat to Oracle gRPC
+//   - takusen.go: RegisterMediaNode + MediaNodeHeartbeat to Takusen gRPC
 //   - kick.go:   Redis SUBSCRIBE media:{nodeId} → close session with 4010
 //   - pkg/media: the SFU itself (room-scoped forwarding)
 //
@@ -28,7 +28,7 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	"hachiman/server/pkg/media"
-	"hachiman/server/pkg/oracleclient"
+	"hachiman/server/pkg/takusenclient"
 	"hachiman/server/pkg/voicetoken"
 )
 
@@ -96,14 +96,14 @@ func run(ctx context.Context, logger *log.Logger, a args) error {
 	rdb := redis.NewClient(opts)
 	defer rdb.Close()
 
-	var oc *oracleclient.Client
-	if a.OracleGRPCAddr != "" {
-		if oc, err = oracleclient.New(a.OracleGRPCAddr); err != nil {
+	var oc *takusenclient.Client
+	if a.TakusenGRPCAddr != "" {
+		if oc, err = takusenclient.New(a.TakusenGRPCAddr); err != nil {
 			return err
 		}
 		defer oc.Close()
 	} else {
-		logger.Printf("WARNING: --oracle-grpc-addr empty; node will not be placeable")
+		logger.Printf("WARNING: --takusen-grpc-addr empty; node will not be placeable")
 	}
 
 	mux := http.NewServeMux()
@@ -114,7 +114,7 @@ func run(ctx context.Context, logger *log.Logger, a args) error {
 	var wg sync.WaitGroup
 	wg.Add(2)
 	go func() { defer wg.Done(); runKickSubscriber(ctx, rdb, a.NodeID, srv, logger) }()
-	go func() { defer wg.Done(); runOracleRegistration(ctx, oc, a, sfu.SessionCount, logger) }()
+	go func() { defer wg.Done(); runTakusenRegistration(ctx, oc, a, sfu.SessionCount, logger) }()
 
 	errC := make(chan error, 1)
 	go func() { errC <- httpSrv.ListenAndServe() }()

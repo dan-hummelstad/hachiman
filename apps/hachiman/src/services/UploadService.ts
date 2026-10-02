@@ -25,7 +25,7 @@ export const PROFILE_IMAGE_FORMATS = PROFILE_IMAGE_TYPES.map((t) => FORMAT_NAMES
 
 let loadingLimits: Promise<void> | null = null
 
-/** Fetch Oracle's upload limits once. A failure is logged and the next call tries again. */
+/** Fetch Takusen's upload limits once. A failure is logged and the next call tries again. */
 export function ensureLimits(): void {
   if (loadingLimits || useLimitsStore.getState().limits) return
   loadingLimits = hachiman.rest
@@ -38,7 +38,7 @@ export function ensureLimits(): void {
 }
 
 /**
- * Oracle's upload limits, or the contract defaults until they load. Mount `ensureLimits` where an
+ * Takusen's upload limits, or the contract defaults until they load. Mount `ensureLimits` where an
  * upload can start, so they are usually loaded by the first check.
  */
 export function currentLimits(): Limits {
@@ -73,7 +73,7 @@ export interface UploadFileOptions {
 }
 
 /**
- * Upload one file to Oracle with its pixel size. Rejects with an Error whose message is
+ * Upload one file to Takusen with its pixel size. Rejects with an Error whose message is
  * user-facing (see `uploadErrorText`), or with the AbortError when `signal` aborts.
  */
 export async function uploadFile(file: File, opts: UploadFileOptions = {}): Promise<Attachment> {

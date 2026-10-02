@@ -1,5 +1,5 @@
 // Preview attachments: one fixture of each embed kind, with generated files behind their keys so
-// the transcript renders them without Oracle. Video has no generated file (the player stays empty).
+// the transcript renders them without Takusen. Video has no generated file (the player stays empty).
 import type { Attachment } from '@hachiman/client'
 
 const svg = (w: number, h: number, body: string): string =>

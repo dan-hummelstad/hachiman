@@ -15,9 +15,9 @@ export type {
   ScreenSource
 } from './shared/IPlatformService'
 
-// Oracle / Takusen SSO. The App completes sign-in itself via `platform.onOAuthCallback`;
-// the Electron host reads `oracleService.env` for its redirect URI.
-export { oracleService } from './services/OracleService'
+// Takusen SSO. The App completes sign-in itself via `platform.onOAuthCallback`;
+// the Electron host reads `takusenService.env` for its redirect URI.
+export { takusenService } from './services/TakusenService'
 
 // Invite links: `takusen://invite/<code>`, `https://<host>/invite/<code>`, or a bare code → code.
 export { parseInviteCode } from './services/InviteService'

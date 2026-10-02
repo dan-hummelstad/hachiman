@@ -429,7 +429,7 @@ func (s *session) onUserEvent(e envelope) {
 		if json.Unmarshal(e.D, &gf) != nil || gf.ID == "" {
 			return
 		}
-		// Reload from Postgres: Oracle's payload holds only the channels
+		// Reload from Postgres: Takusen's payload holds only the channels
 		// visible right now, and we need hidden ones to track permission
 		// changes. Fall back to the payload if the read fails.
 		full := &gf

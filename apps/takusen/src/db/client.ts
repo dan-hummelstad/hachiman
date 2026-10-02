@@ -1,0 +1,50 @@
+/**
+ * Drizzle + postgres-js singleton.
+ *
+ * Reuses one `postgres` connection pool across hot reloads in dev. The pool
+ * lives on `globalThis` so Next.js's per-request module evaluation doesn't
+ * leak connections.
+ */
+import { drizzle } from 'drizzle-orm/postgres-js'
+import postgres from 'postgres'
+
+import * as schema from './schema'
+
+const databaseUrl = process.env.DATABASE_URL
+
+if (!databaseUrl) {
+  // Typecheck-friendly: only throws at runtime. Build-time `next build` will
+  // also fail if this is hit, which is intentional — we don't want a deploy
+  // without a database to silently succeed.
+  //
+  // Test harnesses that don't actually query (e.g. the grpc tests that
+  // inject an InMemoryMediaNodesRepo) set DATABASE_URL to a placeholder
+  // (test:grpc / test scripts in package.json) so the import succeeds.
+  // postgres-js is itself lazy — no TCP dial happens before the first
+  // query — so a placeholder url is safe at the module-load level.
+  throw new Error('DATABASE_URL is not set')
+}
+
+declare global {
+
+  var __takusenPostgresClient: ReturnType<typeof postgres> | undefined
+}
+
+const client =
+  globalThis.__takusenPostgresClient ??
+  postgres(databaseUrl, {
+    max: 10,
+    idle_timeout: 20,
+  })
+
+if (process.env.NODE_ENV !== 'production') {
+  globalThis.__takusenPostgresClient = client
+}
+
+export const db = drizzle(client, { schema })
+
+export type Database = typeof db
+
+/** The handle a `db.transaction` callback receives. */
+export type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0]
+export { schema }

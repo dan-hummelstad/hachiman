@@ -2,10 +2,10 @@
  * Where the renderer comes from, chosen once at start-up.
  *
  * Packaged / preview: the built renderer, served from `hachiman://app/…`
- * instead of `file://`. A `file://` page sends `Origin: null`, which Oracle's
+ * instead of `file://`. A `file://` page sends `Origin: null`, which Takusen's
  * CORS rejects (and must reject: sandboxed iframes send it too). A privileged
- * standard scheme gives the page the real origin `hachiman://app`, which Oracle
- * allows by default (apps/oracle/src/lib/allowed-origins.ts). This scheme is NOT
+ * standard scheme gives the page the real origin `hachiman://app`, which Takusen
+ * allows by default (apps/takusen/src/lib/allowed-origins.ts). This scheme is NOT
  * an OS deep-link scheme; deep links stay `takusen://` and `app.hachiman://`
  * (./protocol-handler.ts).
  *

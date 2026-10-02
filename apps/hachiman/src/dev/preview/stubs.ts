@@ -183,7 +183,7 @@ export function stubRest(history: Map<string, ChatMessage[]>): void {
       const me = must(cache.user ?? undefined, 'user')
       const u = { ...me, avatar: body.avatar === undefined ? me.avatar : body.avatar }
       dispatch({ t: 'USER_UPDATE', d: u })
-      // As Oracle does: every guild of mine sees the change through my member.
+      // As Takusen does: every guild of mine sees the change through my member.
       for (const members of cache.members.values()) {
         const m = members.get(u.id)
         if (m) dispatch({ t: 'GUILD_MEMBER_UPDATE', d: { ...m, user: u } })

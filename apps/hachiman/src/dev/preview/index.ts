@@ -1,11 +1,11 @@
 // Dev-only preview mode: seeds the mirror stores with a fixture so the UI can be screenshotted
-// without Oracle or a gateway. Loaded by the browser host on `?preview` (DEV builds only).
+// without Takusen or a gateway. Loaded by the browser host on `?preview` (DEV builds only).
 // See ../README.md.
 import { hachiman, startHachiman } from '@/services/hachiman'
-import { oracleService } from '@/services/OracleService'
+import { takusenService } from '@/services/TakusenService'
 import { useMessageStore } from '@/stores/messagesStore'
 import { useNavStore } from '@/stores/navStore'
-import { useOracleStore } from '@/stores/oracleStore'
+import { useTakusenStore } from '@/stores/takusenStore'
 import { usePrefsStore, type Theme } from '@/stores/prefsStore'
 import { useUserStore } from '@/stores/userStore'
 import { useVoiceStore } from '@/stores/voiceStore'
@@ -42,7 +42,7 @@ export interface PreviewOptions {
  * The stores hydrated from the real keys at import, so rehydrate from the preview keys.
  */
 function isolatePersistence(): void {
-  const stores = [useOracleStore, useNavStore, useVoiceStore, usePrefsStore] as const
+  const stores = [useTakusenStore, useNavStore, useVoiceStore, usePrefsStore] as const
   for (const s of stores) {
     const name = s.persist.getOptions().name
     if (!name || name.startsWith('preview:')) continue
@@ -65,7 +65,7 @@ export function startPreview(opts: PreviewOptions = {}): void {
   if (opts.messageDisplay) usePrefsStore.getState().setMessageDisplay(opts.messageDisplay)
 
   if (opts.signedOut) {
-    useOracleStore.setState({ session: null, pendingFlow: null })
+    useTakusenStore.setState({ session: null, pendingFlow: null })
     console.info('[preview] signed-out mode')
     return
   }
@@ -73,14 +73,14 @@ export function startPreview(opts: PreviewOptions = {}): void {
   const history = fixtureHistory()
   stubRest(history)
   stubVoice()
-  oracleService.listRegions = async () => [
+  takusenService.listRegions = async () => [
     { code: 'eu-west', displayName: 'Europe (West)', probeHost: null, probePort: 0 },
     { code: 'us-east', displayName: 'US East', probeHost: null, probePort: 0 },
     { code: 'ap-northeast', displayName: 'Asia Pacific (Tokyo)', probeHost: null, probePort: 0 }
   ]
-  oracleService.recommendRegion = async () => undefined
+  takusenService.recommendRegion = async () => undefined
 
-  useOracleStore.setState({
+  useTakusenStore.setState({
     session: {
       accessToken: 'preview',
       refreshToken: null,

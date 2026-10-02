@@ -109,7 +109,7 @@ if (!registerProtocolHandlers(app, () => mainWindowRef)) app.quit();
 // prober never throws (failures surface as `rttMs: null` per result).
 //
 // SECURITY: the payload is attacker-influenceable (renderer XSS reaches the
-// preload bridge; targets come from the public/unauthed Oracle regions list).
+// preload bridge; targets come from the public/unauthed Takusen regions list).
 // `validateProbeTargets` enforces host (no loopback / private / link-local /
 // metadata, DNS-resolved), port (allowlist), count (≤ 64) and shape BEFORE any
 // socket is opened, turning a would-be SSRF / internal-port-scan primitive into

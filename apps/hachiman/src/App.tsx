@@ -8,10 +8,10 @@ import { WindowStrip } from '@/components/ui/window-strip'
 
 import { errMsg } from '@/lib/utils'
 import { startHachiman } from '@/services/hachiman'
-import { oracleService } from '@/services/OracleService'
+import { takusenService } from '@/services/TakusenService'
 import { usePlatform } from '@/shared/PlatformContext'
 import { openDialog } from '@/stores/dialogStore'
-import { useOracleStore } from '@/stores/oracleStore'
+import { useTakusenStore } from '@/stores/takusenStore'
 
 /**
  * App root: optional Electron window strip above either the signed-in shell or the sign-in
@@ -19,19 +19,19 @@ import { useOracleStore } from '@/stores/oracleStore'
  */
 function App(): React.JSX.Element {
   const platform = usePlatform()
-  const signedIn = useOracleStore((s) => s.session !== null)
+  const signedIn = useTakusenStore((s) => s.session !== null)
 
   useEffect(() => startHachiman(), [])
   useEffect(
     () =>
       platform.onOAuthCallback((url) => {
         // Read before completeSignIn clears the pending flow; reopen the invite either way.
-        const inviteCode = useOracleStore.getState().pendingFlow?.inviteCode
-        void oracleService
+        const inviteCode = useTakusenStore.getState().pendingFlow?.inviteCode
+        void takusenService
           .completeSignIn(url)
           .catch((e) => {
             console.error('[oauth] callback failed', e)
-            useOracleStore
+            useTakusenStore
               .getState()
               .setAuthError(`Sign-in did not finish: ${errMsg(e)}. Sign in again.`)
           })

@@ -4,7 +4,7 @@
  * exposes `VITE_*` to main too). Main sends it as a response header
  * (./renderer-protocol.ts).
  */
-import { resolveOracleEnv } from "@hachiman/hachiman/oracle-env";
+import { resolveTakusenEnv } from "@hachiman/hachiman/takusen-env";
 
 export interface CspOptions {
   /** electron-vite dev server URL, when the renderer comes from it. */
@@ -15,14 +15,14 @@ export function buildCsp(
   env: Readonly<Record<string, unknown>>,
   { devServerUrl }: CspOptions = {},
 ): string {
-  const oracle = resolveOracleEnv(env);
-  const endpoints = [oracle.issuer, oracle.apiBase, oracle.gatewayUrl].map(
+  const takusen = resolveTakusenEnv(env);
+  const endpoints = [takusen.issuer, takusen.apiBase, takusen.gatewayUrl].map(
     (u) => new URL(u),
   );
   const connect = new Set(["'self'", ...endpoints.map((u) => u.origin)]);
-  // Avatars, icons, banners and attachments come from Oracle (`/files`, §4 Files), so no other
+  // Avatars, icons, banners and attachments come from Takusen (`/files`, §4 Files), so no other
   // remote image origin is allowed; blob: is the local preview of a picked file before upload.
-  const files = `'self' blob: ${new URL(oracle.apiBase).origin}`;
+  const files = `'self' blob: ${new URL(takusen.apiBase).origin}`;
   // Media nodes are placed per region, so their voice WS host is not known at build time.
   connect.add("wss:");
   // A local (plain-text) stack places local media nodes on ws:, and Vite's HMR

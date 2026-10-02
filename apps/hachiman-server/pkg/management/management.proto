@@ -8,14 +8,14 @@ package hachiman.management.v1;
 
 option go_package = "hachiman/server/pkg/management;management";
 
-// Management is the media-plane registry + placement surface. Oracle serves it
+// Management is the media-plane registry + placement surface. Takusen serves it
 // (loading this file dynamically via @grpc/proto-loader); hachiman-media
 // registers + heartbeats, hachiman-gateway asks for placement.
 // Contract: docs/gateway-protocol.md §9.
 service Management {
   // Idempotent: re-registering the same node_id replaces the row.
   rpc RegisterMediaNode(RegisterMediaNodeRequest) returns (RegisterMediaNodeResponse);
-  // Oracle drops nodes that miss 3 consecutive heartbeats from placement.
+  // Takusen drops nodes that miss 3 consecutive heartbeats from placement.
   // accepting=false = drain (existing sessions kept, no new placements).
   rpc MediaNodeHeartbeat(MediaNodeHeartbeatRequest) returns (MediaNodeHeartbeatResponse);
   // Picks a node for a voice channel. Channel→node stickiness lives in Redis

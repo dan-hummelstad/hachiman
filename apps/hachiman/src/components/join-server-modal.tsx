@@ -8,7 +8,7 @@ import { useKeyedAsync } from '@/hooks/use-keyed-async'
 import { useSignIn } from '@/hooks/use-sign-in'
 import { acceptInvite, previewInvite } from '@/services/InviteService'
 import { useDialog } from '@/stores/dialogStore'
-import { useOracleStore } from '@/stores/oracleStore'
+import { useTakusenStore } from '@/stores/takusenStore'
 
 /** Opened by an invite deep link: preview the guild, then accept. */
 export function JoinServerModal(): React.JSX.Element {
@@ -17,7 +17,7 @@ export function JoinServerModal(): React.JSX.Element {
     open,
     close
   } = useDialog('joinInvite')
-  const session = useOracleStore((s) => s.session)
+  const session = useTakusenStore((s) => s.session)
   const result = useKeyedAsync(code, previewInvite)
   const preview = result?.data ?? null
   const loadError = result?.error ?? null

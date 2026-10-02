@@ -23,7 +23,7 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	"hachiman/server/pkg/coturn"
-	"hachiman/server/pkg/oracleclient"
+	"hachiman/server/pkg/takusenclient"
 	"hachiman/server/pkg/voicetoken"
 )
 
@@ -50,12 +50,12 @@ const (
 )
 
 type Gateway struct {
-	rdb       *redis.Client
-	oracleURL string
-	http      *http.Client
-	placer    *oracleclient.Client
-	signer    *voicetoken.Signer
-	turn      *coturn.CoturnRegion // nil = STUN only
+	rdb        *redis.Client
+	takusenURL string
+	http       *http.Client
+	placer     *takusenclient.Client
+	signer     *voicetoken.Signer
+	turn       *coturn.CoturnRegion // nil = STUN only
 
 	// Postgres reads; function fields so tests can run without a database.
 	load    func(ctx context.Context, userID, onlyGuild string) (*readyData, error)
@@ -72,9 +72,9 @@ type Gateway struct {
 	byUser   map[string]map[*session]struct{}
 }
 
-func newGateway(rdb *redis.Client, oracleURL string, placer *oracleclient.Client, signer *voicetoken.Signer) *Gateway {
+func newGateway(rdb *redis.Client, takusenURL string, placer *takusenclient.Client, signer *voicetoken.Signer) *Gateway {
 	return &Gateway{
-		rdb: rdb, oracleURL: oracleURL, placer: placer, signer: signer,
+		rdb: rdb, takusenURL: takusenURL, placer: placer, signer: signer,
 		http:            &http.Client{Timeout: 5 * time.Second},
 		heartbeat:       41250 * time.Millisecond,
 		identifyTimeout: 10 * time.Second,
@@ -302,24 +302,24 @@ func (e closeErr) Error() string { return fmt.Sprintf("close %d: %s", e.code, e.
 
 var errAuthFailed = closeErr{closeAuthFailed, "authentication failed"}
 
-// auth resolves a bearer token to a user via Oracle (fixup #1: no introspection).
+// auth resolves a bearer token to a user via Takusen (fixup #1: no introspection).
 func (g *Gateway) auth(ctx context.Context, token string) (User, error) {
 	var u User
 	if token == "" {
 		return u, errAuthFailed
 	}
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, g.oracleURL+"/api/v1/users/@me", nil)
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, g.takusenURL+"/api/v1/users/@me", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 	res, err := g.http.Do(req)
 	if err != nil {
-		return u, fmt.Errorf("oracle /users/@me: %w", err)
+		return u, fmt.Errorf("takusen /users/@me: %w", err)
 	}
 	defer res.Body.Close()
 	if res.StatusCode != http.StatusOK {
 		return u, errAuthFailed
 	}
 	if err := json.NewDecoder(res.Body).Decode(&u); err != nil || u.ID == "" {
-		return u, fmt.Errorf("oracle /users/@me: bad body: %v", err)
+		return u, fmt.Errorf("takusen /users/@me: bad body: %v", err)
 	}
 	return u, nil
 }

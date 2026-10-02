@@ -11,7 +11,7 @@ Repo conventions are in [`CLAUDE.md`](CLAUDE.md).
 
 | Path | Package | What |
 |---|---|---|
-| `apps/oracle` | `@hachiman/oracle` | Next.js app: identity (OIDC), REST API `/api/v1`, Postgres schema (Drizzle), Redis event publisher. A separate process serves the management gRPC (media registry + placement). |
+| `apps/takusen` | `@hachiman/takusen` | Next.js app: identity (OIDC), REST API `/api/v1`, Postgres schema (Drizzle), Redis event publisher. A separate process serves the management gRPC (media registry + placement). |
 | `apps/hachiman-server` | `hachiman-server` | Go: `hachiman-gateway` (WebSocket gateway), `hachiman-media` (WebRTC SFU), `hachiman-recorder` (scaffold). |
 | `pkgs/hachiman-client` | `@hachiman/client` | Browser-safe client library: `RestClient`, `GatewayClient`, `VoiceConnection`, `HachimanClient`. |
 | `apps/hachiman` | `@hachiman/hachiman` | Shared React UI (components, Zustand stores, services). |
@@ -28,7 +28,7 @@ flowchart LR
     E[Electron host]
     B[Browser host]
   end
-  subgraph Oracle
+  subgraph Takusen
     O[Next.js<br/>OIDC + REST /api/v1]
     OG[gRPC Management<br/>127.0.0.1:50051]
   end
@@ -59,7 +59,7 @@ Gateway and media nodes are stateless. Durable data lives in Postgres. Sessions,
 ```mermaid
 sequenceDiagram
   participant C as Client
-  participant O as Oracle
+  participant O as Takusen
   participant PG as Postgres
   participant R as Redis
   participant G as Gateway
@@ -89,7 +89,7 @@ sequenceDiagram
   participant C as Client
   participant G as Gateway
   participant R as Redis
-  participant OG as Oracle gRPC
+  participant OG as Takusen gRPC
   participant M as Media node
 
   C->>G: op 4 VOICE_STATE_UPDATE {guildId, channelId}
@@ -116,10 +116,10 @@ The gateway signs the voice token (PASETO, `pkg/voicetoken`) for one media node.
 ```mermaid
 flowchart LR
   HC["HachimanClient<br/>(@hachiman/client)<br/>rest + gateway + cache"]
-  OS[OracleService<br/>PKCE, token refresh]
+  OS[TakusenService<br/>PKCE, token refresh]
   H[services/hachiman.ts<br/>singleton + event mirror]
   S[MessagesService<br/>VoiceService<br/>InviteService]
-  ST[Zustand stores<br/>guild, channel, messages,<br/>voice, user, oracle]
+  ST[Zustand stores<br/>guild, channel, messages,<br/>voice, user, takusen]
   UI[components]
 
   OS -- getAccessToken --> HC
@@ -152,13 +152,13 @@ docker compose -f docker/docker-compose.yml up -d
 cp .env.example .env
 
 # 3. Schema + seed (OIDC client hachiman-client, regions)
-pnpm -F @hachiman/oracle db:migrate && pnpm -F @hachiman/oracle db:seed
+pnpm -F @hachiman/takusen db:migrate && pnpm -F @hachiman/takusen db:seed
 
-# 4. Oracle: Next.js on :3000 and the management gRPC on 127.0.0.1:50051 (one command starts both)
-pnpm dev:oracle
+# 4. Takusen: Next.js on :3000 and the management gRPC on 127.0.0.1:50051 (one command starts both)
+pnpm dev:takusen
 
 # 5. Gateway (:8080) + media (:8090). Both read the root .env.
-#    Oracle places voice by guild region. Run media in a seeded region and give the guild that region.
+#    Takusen places voice by guild region. Run media in a seeded region and give the guild that region.
 pnpm dev:server          # or pnpm dev:gateway / pnpm dev:media
 
 # 6. A host app
@@ -173,9 +173,9 @@ When the stack runs, do these steps:
 3. Create a guild.
 4. Set the guild region to `us-east`.
 
-Environment: every runner reads the repo-root `.env` (Oracle, gateway, media and the Vite builds). `.env.example` lists all variables, in one section for each service. A variable that you set in your shell wins over the file. If the file does not exist, each runner uses its defaults.
+Environment: every runner reads the repo-root `.env` (Takusen, gateway, media and the Vite builds). `.env.example` lists all variables, in one section for each service. A variable that you set in your shell wins over the file. If the file does not exist, each runner uses its defaults.
 
-Full setup notes: [`docs/oracle-sso-setup.md`](docs/oracle-sso-setup.md). Server flags: [`apps/hachiman-server/README.md`](apps/hachiman-server/README.md).
+Full setup notes: [`docs/takusen-sso-setup.md`](docs/takusen-sso-setup.md). Server flags: [`apps/hachiman-server/README.md`](apps/hachiman-server/README.md).
 
 Schema changes during development: drop the dev DB schema. Then run `db:migrate` + `db:seed` again. Do not stack ALTERs.
 
@@ -186,10 +186,10 @@ pnpm -F @hachiman/hachiman typecheck
 pnpm -F @hachiman/hachiman-electron typecheck
 pnpm -F @hachiman/hachiman-browser typecheck
 pnpm -F @hachiman/client typecheck
-pnpm -F @hachiman/oracle typecheck
+pnpm -F @hachiman/takusen typecheck
 
 pnpm -F @hachiman/client test
-pnpm -F @hachiman/oracle test
+pnpm -F @hachiman/takusen test
 pnpm -F @hachiman/hachiman-electron test
 cd apps/hachiman-server && CGO_ENABLED=0 go test ./...
 ```

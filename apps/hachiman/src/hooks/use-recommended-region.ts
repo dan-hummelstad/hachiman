@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react'
-import { oracleService, type RegionInfo } from '@/services/OracleService'
+import { takusenService, type RegionInfo } from '@/services/TakusenService'
 import { usePlatform } from '@/shared/PlatformContext'
 
 /**
- * Oracle's voice regions, plus the one it recommends from the host's RTT probes. Hosts that
+ * Takusen's voice regions, plus the one it recommends from the host's RTT probes. Hosts that
  * cannot probe (browser) measure nothing, so `recommended` stays null there.
  */
 export function useRecommendedRegion(): { regions: RegionInfo[]; recommended: RegionInfo | null } {
@@ -14,7 +14,7 @@ export function useRecommendedRegion(): { regions: RegionInfo[]; recommended: Re
   useEffect(() => {
     let cancelled = false
     const load = async (): Promise<void> => {
-      const list = await oracleService.listRegions()
+      const list = await takusenService.listRegions()
       if (cancelled) return
       setRegions(list)
       const targets = list.flatMap((r) =>
@@ -22,7 +22,7 @@ export function useRecommendedRegion(): { regions: RegionInfo[]; recommended: Re
       )
       const measured = targets.length > 0 ? await platform.probeRegions(targets) : []
       if (cancelled || measured.length === 0) return
-      const rec = await oracleService.recommendRegion(measured)
+      const rec = await takusenService.recommendRegion(measured)
       if (!cancelled) setRecommendedCode(rec?.recommended ?? null)
     }
     load().catch((e) => console.warn('[regions] could not load or rank regions', e))

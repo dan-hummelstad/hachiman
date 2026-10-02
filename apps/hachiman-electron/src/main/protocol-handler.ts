@@ -3,7 +3,7 @@
  *
  *  - `takusen://invite/<code>`         → INVITE_CODE_CHANNEL (payload: the code)
  *  - `app.hachiman://oauth-callback?…` → OAUTH_CALLBACK_CHANNEL (payload: the raw URL;
- *    the shared UI's oracleService parses code/state). Reverse-DNS scheme because
+ *    the shared UI's takusenService parses code/state). Reverse-DNS scheme because
  *    RFC 8252 §7.1 requires it for native OAuth redirects (panva rejects bare schemes).
  *
  * Entry points: cold-start argv (Win/Linux), `second-instance` argv (Win/Linux,

@@ -3,14 +3,14 @@ import { UserAvatar } from '@/components/shell/user-avatar'
 import { cn } from '@/lib/utils'
 import { hachiman } from '@/services/hachiman'
 import { PROFILE_IMAGE_FORMATS } from '@/services/UploadService'
-import { useOracleStore } from '@/stores/oracleStore'
+import { useTakusenStore } from '@/stores/takusenStore'
 import { useUserStore } from '@/stores/userStore'
 
 /** User settings → My account: profile card, avatar picker and read-only account details. */
 export function AccountSection(): React.JSX.Element {
   const me = useUserStore((s) => s.me)
-  const oracleUser = useOracleStore((s) => s.session?.user ?? null)
-  const name = me?.username ?? oracleUser?.handle ?? 'Unknown'
+  const takusenUser = useTakusenStore((s) => s.session?.user ?? null)
+  const name = me?.username ?? takusenUser?.handle ?? 'Unknown'
 
   return (
     <div className="grid gap-8">
@@ -31,7 +31,7 @@ export function AccountSection(): React.JSX.Element {
           <AccountRow label="Username" value={name} mono />
           <AccountRow
             label="Email"
-            value={oracleUser?.email || 'Not shared by your Takusen account'}
+            value={takusenUser?.email || 'Not shared by your Takusen account'}
           />
           {me && <AccountRow label="User ID" value={me.id} mono />}
         </dl>

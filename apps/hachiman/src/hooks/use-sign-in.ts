@@ -1,7 +1,7 @@
 import { useAction } from '@/hooks/use-action'
-import { oracleService } from '@/services/OracleService'
+import { takusenService } from '@/services/TakusenService'
 import { usePlatform } from '@/shared/PlatformContext'
-import { useOracleStore } from '@/stores/oracleStore'
+import { useTakusenStore } from '@/stores/takusenStore'
 
 /**
  * Starts the Takusen PKCE sign-in; the host decides how the authorization page opens.
@@ -14,11 +14,11 @@ export function useSignIn(inviteCode: string | null = null): {
   error: string | null
 } {
   const platform = usePlatform()
-  const authError = useOracleStore((s) => s.authError)
+  const authError = useTakusenStore((s) => s.authError)
   const { run, busy, error } = useAction()
   const signIn = async (): Promise<void> => {
     await run('start sign-in', async () => {
-      platform.beginOAuth(await oracleService.beginSignIn(platform.oauthRedirectUri, inviteCode))
+      platform.beginOAuth(await takusenService.beginSignIn(platform.oauthRedirectUri, inviteCode))
     })
   }
   return { signIn, busy, error: error ?? authError }

@@ -8,11 +8,11 @@ Components:
 
 | Process | Lang | Talks to |
 |---|---|---|
-| Oracle (Next.js, `apps/oracle`) | TS | Postgres (rw), Redis (PUBLISH) |
-| Oracle gRPC (`apps/oracle/src/grpc`) | TS | Postgres (media_nodes) |
-| `hachiman-gateway` (`apps/hachiman-server/cmd/hachiman-gateway`) | Go | Postgres (read), Redis (rw + SUBSCRIBE), Oracle REST (auth), Oracle gRPC (placement) |
-| `hachiman-media` (`apps/hachiman-server/cmd/hachiman-media`) | Go | Oracle gRPC (register/heartbeat), Redis (SUBSCRIBE `media:{nodeId}`), clients (voice WS + WebRTC) |
-| `@hachiman/client` (`pkgs/hachiman-client`) | TS | Oracle REST, gateway WS, media voice WS |
+| Takusen (Next.js, `apps/takusen`) | TS | Postgres (rw), Redis (PUBLISH) |
+| Takusen gRPC (`apps/takusen/src/grpc`) | TS | Postgres (media_nodes) |
+| `hachiman-gateway` (`apps/hachiman-server/cmd/hachiman-gateway`) | Go | Postgres (read), Redis (rw + SUBSCRIBE), Takusen REST (auth), Takusen gRPC (placement) |
+| `hachiman-media` (`apps/hachiman-server/cmd/hachiman-media`) | Go | Takusen gRPC (register/heartbeat), Redis (SUBSCRIBE `media:{nodeId}`), clients (voice WS + WebRTC) |
+| `@hachiman/client` (`pkgs/hachiman-client`) | TS | Takusen REST, gateway WS, media voice WS |
 
 Conventions:
 - **IDs** are UUID strings (Postgres `uuid`, `defaultRandom()`). No numeric ids anywhere on the wire.
@@ -145,7 +145,7 @@ Categories: overwrites are **not** inherited (Discord "synced" categories are a 
 DM channels: participants get `VIEW_CHANNEL | SEND_MESSAGES | ATTACH_FILES | READ_MESSAGE_HISTORY`, non-participants 0.
 Role hierarchy: a member may only edit/assign roles whose `position` is strictly below the highest role of that member (owner/admin exempt).
 
-## 3. Postgres schema (Oracle Drizzle, `apps/oracle/src/db/schema.ts`)
+## 3. Postgres schema (Takusen Drizzle, `apps/takusen/src/db/schema.ts`)
 
 New/changed tables (all ids `uuid` defaultRandom, timestamps `timestamptz` default now):
 
@@ -163,6 +163,7 @@ New/changed tables (all ids `uuid` defaultRandom, timestamps `timestamptz` defau
 | `invites` | id, code unique, guild_id → guilds (cascade), created_by → users (cascade), expires_at null, max_uses null, uses int default 0, revoked bool default false, created_at | replaces invite_codes |
 
 Changed: `regions.probe_port` default **443**. `media_nodes.sidechannel_addr` → `signaling_url`.
+Added: `media_nodes.admin_drain` boolean default false (set by the admin API, see §4 Admin API).
 Dropped column: `oidc_clients.virtual_server_id`. Dropped tables: `virtual_servers`, `islands`, `servers`,
 `server_domain_verifications`, `user_servers`, `invite_codes`. Dropped enums: `island_status`, `virtual_server_status`.
 `users.image` holds the avatar file key (Credentials is the only Auth.js provider, so nothing else writes it).
@@ -174,14 +175,14 @@ Migration:
 2. Regenerate a single `0000_initial.sql`. Keep the hand-added `idx_media_nodes_placement` index: declare it in schema.ts.
 3. Drop + reseed the dev DB.
 
-## 4. REST API (Oracle, base `/api/v1`)
+## 4. REST API (Takusen, base `/api/v1`)
 
-Auth: `Authorization: Bearer <Oracle access token>` (or the dashboard cookie).
-`requireUser()` in `apps/oracle/src/lib/auth-helpers.ts` resolves it. Errors: `{ error: string, message?: string }`
+Auth: `Authorization: Bearer <Takusen access token>` (or the dashboard cookie).
+`requireUser()` in `apps/takusen/src/lib/auth-helpers.ts` resolves it. Errors: `{ error: string, message?: string }`
 with status 400 (ValidationError), 401, 403 (MissingPermissions), 404 (NotFound), 409, 410 (InviteExpired/Revoked/Exhausted).
 Success: JSON body of the listed type, or 204.
 
-Every mutation publishes its gateway event **after** the DB commit (see §5 for channels/envelope). Oracle logs publish failures and does not surface them.
+Every mutation publishes its gateway event **after** the DB commit (see §5 for channels/envelope). Takusen logs publish failures and does not surface them.
 
 Implemented extras (Discord semantics):
 - Kick enforces role hierarchy.
@@ -235,17 +236,17 @@ Implemented extras (Discord semantics):
 
 ### Files
 
-Oracle owns blob storage. Clients never talk to S3: uploads and downloads go through Oracle, so the host CSP
-only needs the Oracle origin, and the bucket can stay private.
-`// ponytail:` this sends every byte through Oracle. Move to presigned S3 URLs + a CDN when bandwidth matters.
+Takusen owns blob storage. Clients never talk to S3: uploads and downloads go through Takusen, so the host CSP
+only needs the Takusen origin, and the bucket can stay private.
+`// ponytail:` this sends every byte through Takusen. Move to presigned S3 URLs + a CDN when bandwidth matters.
 
-- **Limits.** `ORACLE_MAX_UPLOAD_BYTES` (default 26214400 = 25 MiB) applies to every upload. `maxAttachmentsPerMessage` is 10. The defaults are `DEFAULT_LIMITS` in `@hachiman/client`.
+- **Limits.** `TAKUSEN_MAX_UPLOAD_BYTES` (default 26214400 = 25 MiB) applies to every upload. `maxAttachmentsPerMessage` is 10. The defaults are `DEFAULT_LIMITS` in `@hachiman/client`.
 - **Upload.** `POST /uploads`. The body is the raw file. `Content-Type` is the file MIME type (default `application/octet-stream`).
-  `Content-Length` is required. A missing length or a length above the limit gives 413 `UploadTooLarge` before Oracle reads the body.
-  Oracle stores the lowercased `type/subtype` without parameters, and `application/octet-stream` for a malformed value.
-  Oracle stops the stream and gives 413 if the body is longer than `Content-Length`. A shorter body fails the upload and stores nothing.
+  `Content-Length` is required. A missing length or a length above the limit gives 413 `UploadTooLarge` before Takusen reads the body.
+  Takusen stores the lowercased `type/subtype` without parameters, and `application/octet-stream` for a malformed value.
+  Takusen stops the stream and gives 413 if the body is longer than `Content-Length`. A shorter body fails the upload and stores nothing.
   `filename` is required (at most 255 characters). `width`/`height` are optional positive integers.
-  The Oracle middleware does not run for this path, because Next.js buffers every body that middleware sees and truncates it at 10 MB.
+  The Takusen middleware does not run for this path, because Next.js buffers every body that middleware sees and truncates it at 10 MB.
   The route applies the same CORS policy itself.
 - **Key.** `{uploadId}/{safeName}`. `safeName` is the filename with every character outside `[A-Za-z0-9._-]` replaced by `_`, cut to 100 characters (`file` if empty). Keys never change, so a key is also a cache key.
 - **Claim.** A message, avatar, icon or banner takes upload ids. Each id must belong to the caller, else 400 `UnknownUpload`.
@@ -268,22 +269,80 @@ only needs the Oracle origin, and the bucket can stay private.
 - **Embeddable types.** Images: `image/png`, `image/jpeg`, `image/gif`, `image/webp`, `image/avif`.
   Video: `video/mp4`, `video/webm`, `video/ogg`. Audio: `audio/mpeg`, `audio/ogg`, `audio/wav`, `audio/webm`, `audio/flac`, `audio/mp4`, `audio/aac`.
   The client embeds the same list (`EMBEDDABLE` in `@hachiman/client`) and shows every other type as a file card.
-  Matching ignores MIME parameters (`; codecs=...`) and case. Oracle decides `inline` with the same `embedKind` function.
+  Matching ignores MIME parameters (`; codecs=...`) and case. Takusen decides `inline` with the same `embedKind` function.
 - **Delete.** A message, channel or guild delete removes the upload rows of the deleted messages in its transaction and then, best effort, their objects.
-  The FK cascade alone would remove the rows but not the objects, so each of these routes uses the same helper (`deleteAttachmentRows` in `apps/oracle/src/lib/uploads.ts`).
+  The FK cascade alone would remove the rows but not the objects, so each of these routes uses the same helper (`deleteAttachmentRows` in `apps/takusen/src/lib/uploads.ts`).
   A channel or guild delete locks its channel rows (and the guild row) first, so a message sent at the same time cannot lose its rows without its objects.
-  If Oracle cannot insert the row after the object PUT, it deletes the object, so every object has a row.
+  If Takusen cannot insert the row after the object PUT, it deletes the object, so every object has a row.
   A new avatar, icon or banner leaves the old object in the bucket.
   `// ponytail:` unclaimed uploads and replaced images stay in the bucket. Add a sweeper (unclaimed + older than 1 day) when storage cost matters.
 
-Storage env (Oracle only): `S3_ENDPOINT`, `S3_REGION`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_FORCE_PATH_STYLE`.
-Oracle sends plain signed requests (no aws-chunked checksum trailers), so S3-compatible stores such as SeaweedFS work.
+Storage env (Takusen only): `S3_ENDPOINT`, `S3_REGION`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_FORCE_PATH_STYLE`.
+Takusen sends plain signed requests (no aws-chunked checksum trailers), so S3-compatible stores such as SeaweedFS work.
 
 Kept outside `/api/v1`: `GET /api/regions`, `POST /api/servers/recommend-region` (renamed → `POST /api/v1/regions/recommend`), OIDC under `/api/oidc`.
 
+### Admin API
+
+Base `/api/admin`. Only deployment admins (`users.role = 'admin'`) can use it. The Takusen dashboard calls it. The Hachiman clients do not.
+
+- **Auth.** `requireAdmin()` in `auth-helpers.ts` accepts only the dashboard cookie. It does not accept a Bearer token, because the Hachiman app holds that token. No session gives 401. A user who is not an admin gets 403. The Auth.js `jwt` callback reads the role from the DB on each request. Thus, a role change applies to a live cookie at once.
+- **Origin.** The middleware sends no CORS headers for `/api/admin`. It gives 403 when `Sec-Fetch-Site` is `same-site` or `cross-site`, preflights included. The Hachiman app origins are often same-site with Takusen, so the SameSite=Lax cookie alone does not stop a simple POST from them. Without `Sec-Fetch-Site`, a request that is not GET or HEAD gets 403 if its `Origin` is not the Takusen origin. A request with neither header comes from a client that is not a browser. The middleware accepts it.
+- **Errors.** The envelope is the same as in `/api/v1`. 409 `Conflict` has a `message`.
+- **Lists.** `GET` lists take `?query=&cursor=&limit=` and return `Page<T> = { items: T[], nextCursor: string | null }`. The newest row comes first (`created_at DESC, id DESC`). `limit` is 1 to 100 (default 50). `query` is at most 100 characters and is a case-insensitive substring match. To get the next page, send `nextCursor` back as `cursor`. A bad cursor gives 400.
+- **Admin guard.** An admin cannot demote or delete their own account (409). The caller must be an admin, so this rule alone keeps at least one admin. Each change locks the admin rows in its transaction. Thus, two admins cannot remove each other at the same time.
+- **Bootstrap.** `pnpm -F @hachiman/takusen admin:grant <email>` makes an existing user an admin.
+
+| Method + path | Body | Returns | Publishes |
+|---|---|---|---|
+| GET `/overview` | — | `AdminOverview` | — |
+| GET `/users?query=&role=user\|admin&cursor=&limit=` | — | `Page<AdminUser>`. `query` matches the email or the display name | — |
+| PATCH `/users/:id` | `{role?: 'user'\|'admin', displayName?}` (1–64 characters) | `AdminUser` | a new `displayName` publishes `USER_UPDATE` → user:{id} and `GUILD_MEMBER_UPDATE` → guild:{g} for each guild of the user |
+| DELETE `/users/:id` | — | 204 | `GUILD_DELETE` → each owned guild; `GUILD_MEMBER_REMOVE` → each other guild; `GUILD_UPDATE` → each guild that lost its icon or banner |
+| POST `/users/:id/sign-out` | — | 204 | — |
+| GET `/guilds?query=&cursor=&limit=` | — | `Page<AdminGuild>`. `query` matches the guild name | — |
+| DELETE `/guilds/:id` | — | 204 | `GUILD_DELETE {id}` → guild (the same delete as the owner delete) |
+| GET `/media-nodes` | — | `AdminMediaNode[]`, sorted by region, then by node id | — |
+| PATCH `/media-nodes/:nodeId` | `{status: 'active'\|'draining'}` | `AdminMediaNode` | — |
+| DELETE `/media-nodes/:nodeId` | — | 204 | — |
+| GET `/regions` | — | `AdminRegion[]` | — |
+| POST `/regions` | `{code, displayName, lat?, lon?, probeHost?, probePort?}` | `AdminRegion` (201). 409 if the code exists | — |
+| PATCH `/regions/:code` | `{displayName?, lat?, lon?, probeHost?, probePort?}` | `AdminRegion` | — |
+| DELETE `/regions/:code` | — | 204 | `GUILD_UPDATE` → each guild that had this region |
+| GET `/oidc-clients` | — | `AdminOidcClient[]` (read-only, no secret) | — |
+| POST `/sessions/revoke-all` | — | `{oidcRowsDeleted: number}` | — |
+
+The shapes are in `apps/takusen/src/lib/admin.ts`:
+
+```ts
+type AdminUser = { id; email; displayName; role: 'user' | 'admin'; avatar: string | null; emailVerified: boolean; createdAt }
+type AdminGuild = { id; name; icon: string | null; region: string | null; owner: { id; email; displayName }; memberCount: number; createdAt }
+type AdminMediaNode = { nodeId; region; status: string; adminDrain: boolean; stale: boolean; signalingUrl; version;
+  activeSessions: number; maxSessions: number; cpuFraction: number; lastHeartbeatAt }
+type AdminRegion = { code; displayName; lat: number | null; lon: number | null; probeHost: string | null; probePort: number; createdAt }
+type AdminOidcClient = { id; clientId; isPublic: boolean; redirectUris: string[]; scopes: string[]; createdAt }
+type AdminOverview = {
+  counts: { users; admins; guilds; channels; messages; uploads; uploadBytes }   // numbers
+  mediaNodes: { total; active; draining; stale; sessions; capacity }            // numbers
+  onlineUsers: number
+  server: { version: string; nodeVersion: string; uptimeSeconds: number; maxUploadBytes: number }
+}
+```
+
+Behavior:
+
+- **User delete.** One transaction deletes the guilds that the user owns, with the same steps as an owner delete. It also deletes all uploads of the user and the OIDC rows of the user. A guild icon or banner that used one of these uploads becomes null. The FK cascades delete the memberships, messages, DM participants and invites of the user. After the commit, Takusen publishes the events and then deletes the objects (best effort). No event goes out for the cascaded messages in guilds that the user did not own, or for the DM channels of the user. Thus, clients get no `MESSAGE_DELETE`, and the other DM participant gets no event.
+- **Sign-out.** Takusen sets the Redis key `takusen:sessions_revoked_at:{userId}` to the current Unix ms, without a TTL. A dashboard cookie that the user got before that time stops working. Takusen also deletes the OIDC rows of the user: rows where `payload.accountId` is the user, and all rows of their grants. Thus, the Bearer tokens of the user stop working.
+- **Revoke-all.** Takusen sets `takusen:sessions_revoked_at` and deletes all `oidc_adapter_payloads` rows. This signs out every user, the caller included. `pnpm sessions:revoke` does the same.
+- **Media nodes.** `stale` is true when the last heartbeat is 30 s old or older (`HEARTBEAT_STALE_AFTER_MS`). `draining` sets `media_nodes.admin_drain`. Then the status stays `draining` through heartbeats and new registrations, and placement skips the node. Sessions on the node continue. `active` clears the flag. DELETE removes the registry row and its `admin_drain` flag. A node that still runs registers again after its next heartbeat fails, and its status is then `active`. To keep a node out of placement, stop the node first.
+- **Regions.** The regions table is admin data. A region delete sets `region` to null on its guilds. Media nodes keep their region string. `db:seed` writes the four seed regions again.
+- **Overview.** `onlineUsers` counts the `presence:*` keys that are not `offline`. `mediaNodes.sessions` is the sum of `activeSessions` on fresh nodes, which is the number of live voice connections. `mediaNodes.capacity` is the sum of `maxSessions` on fresh `active` nodes.
+
+`// ponytail:` a sign-out or user delete does not close open gateway connections. The user stays connected until the next reconnect fails. Add a gateway kick event if that matters.
+
 ## 5. Event bus (Redis pub/sub)
 
-Oracle `PUBLISH`es. Every gateway node `PSUBSCRIBE`s `guild:*` and `user:*`.
+Takusen `PUBLISH`es. Every gateway node `PSUBSCRIBE`s `guild:*` and `user:*`.
 
 Channels: `guild:{guildId}`, `user:{userId}`. DM events go to `user:{id}` of every participant.
 
@@ -303,6 +362,8 @@ Other Redis keys (owned by the gateway unless noted):
 | `voice:{guildId}` | hash | userId → `VoiceState` JSON. Readers drop entries whose `session:{sessionId}` is gone |
 | `voice_user:{userId}` | string | guildId the user is in voice for (one voice session per user globally) |
 | `voice_room:{channelId}` | string | mediaNodeId hosting that channel (sticky; SET NX, EX 24 h, deleted when the last user leaves). The endpoint comes from `media_nodes.signaling_url`. A missing node row drops the key and re-places |
+| `takusen:sessions_revoked_at` | string | Takusen-owned. Unix ms: every dashboard cookie from before it is dead (§4 Admin API, `sessions:revoke`). No TTL |
+| `takusen:sessions_revoked_at:{userId}` | string | Takusen-owned. The same cut-off for one user (admin sign-out). No TTL |
 | `media:{nodeId}` | pub/sub | gateway → media: `{ "op": "kick", "sessionId": "...", "channelId": "..." }` — media only closes a conn whose token channelId matches (a late kick must not kill a newer connection of the same session) |
 
 ## 6. Gateway WebSocket (`hachiman-gateway`)
@@ -314,7 +375,7 @@ URL: `ws(s)://<host>/gateway` (dev `ws://localhost:8080/gateway`). Text frames, 
 |---|---|---|---|
 | 0 | DISPATCH | S→C | event payload; `s` = seq, `t` = event name |
 | 1 | HEARTBEAT | C→S | last seq received or null |
-| 2 | IDENTIFY | C→S | `{ token }` (Oracle access token) |
+| 2 | IDENTIFY | C→S | `{ token }` (Takusen access token) |
 | 3 | PRESENCE_UPDATE | C→S | `{ status }` |
 | 4 | VOICE_STATE_UPDATE | C→S | `{ guildId, channelId: string \| null, selfMute, selfDeaf, selfStream }` |
 | 6 | RESUME | C→S | `{ token, sessionId, seq }` |
@@ -327,7 +388,7 @@ Close codes: 4000 unknown error, 4001 unknown opcode, 4002 decode error, 4003 no
 4004 authentication failed, 4005 already authenticated, 4007 invalid seq, 4009 session timed out.
 
 Flow: connect → HELLO → client IDENTIFY within 10 s (else 4003) → gateway calls
-`GET {ORACLE_URL}/api/v1/users/@me` with the bearer token (non-200 ⇒ 4004) → READY.
+`GET {TAKUSEN_URL}/api/v1/users/@me` with the bearer token (non-200 ⇒ 4004) → READY.
 Client heartbeats every `heartbeatInterval`. No heartbeat for 1.5× interval ⇒ close 4009.
 
 Token lifetime: the gateway checks the token only at IDENTIFY/RESUME. A live socket outlives token expiry
@@ -380,7 +441,7 @@ On op 4 with a `channelId`:
 2. If `voice_user:{me}` names another guild, remove that voice state first (publish VOICE_STATE_UPDATE with channelId null + kick).
 3. HSET `voice:{guildId}`, SET `voice_user:{me}`, publish VOICE_STATE_UPDATE to guild.
 4. If the channel changed (not a mute, deafen or stream toggle): resolve media node = GET `voice_room:{channelId}`, else
-   `PlaceMediaSession{channelId, guildId, homeRegion: guild.region}` through Oracle gRPC, and SET NX.
+   `PlaceMediaSession{channelId, guildId, homeRegion: guild.region}` through Takusen gRPC, and SET NX.
    Kick the old media session if the user was elsewhere.
 5. Mint a voice token (§7). Send VOICE_SERVER_UPDATE with the `signalingUrl` of the node as `endpoint`.
 
@@ -473,13 +534,13 @@ SFU keys: session = `Claims.SessionID` (string), room = `Claims.ChannelID`. Medi
 `SSRCPool` keyed by session string. A client receives output tracks **only** for peers in its own room.
 
 Media flags/env: `--node-id` (`MEDIA_NODE_ID`), `--region` (`MEDIA_REGION`), `--listen :8090`, `--signaling-url ws://localhost:8090/voice`,
-`--oracle-grpc-addr` (`ORACLE_GRPC_ADDR`), `--redis-url` (`REDIS_URL`), `--voice-pubkey` (`VOICE_PUBKEY`) or `--voice-key` (`VOICE_KEY`, seed path shared with the gateway),
-`--public-ip` (pion NAT 1:1), `--udp-port-min/max`. Media calls Oracle `RegisterMediaNode` at start and
-`MediaNodeHeartbeat` every 10 s (via `pkg/oracleclient`). No gateway↔media gRPC sidechannel exists anymore.
+`--takusen-grpc-addr` (`TAKUSEN_GRPC_ADDR`), `--redis-url` (`REDIS_URL`), `--voice-pubkey` (`VOICE_PUBKEY`) or `--voice-key` (`VOICE_KEY`, seed path shared with the gateway),
+`--public-ip` (pion NAT 1:1), `--udp-port-min/max`. Media calls Takusen `RegisterMediaNode` at start and
+`MediaNodeHeartbeat` every 10 s (via `pkg/takusenclient`). No gateway↔media gRPC sidechannel exists anymore.
 
-## 9. Oracle management gRPC (`apps/hachiman-server/pkg/management/management.proto`)
+## 9. Takusen management gRPC (`apps/hachiman-server/pkg/management/management.proto`)
 
-Package `hachiman.management.v1`, service `Management` (Oracle serves it, and media + gateway call it):
+Package `hachiman.management.v1`, service `Management` (Takusen serves it, and media + gateway call it):
 
 ```proto
 rpc RegisterMediaNode(RegisterMediaNodeRequest) returns (RegisterMediaNodeResponse);
@@ -493,9 +554,11 @@ message PlaceMediaSessionResponse { string node_id = 1; string signaling_url = 2
 // RegisterMediaNodeResponse / MediaNodeHeartbeatResponse are empty.
 ```
 
-Oracle placement ignores `channel_id`/`guild_id`. It returns the least-loaded fresh node in `home_region`, or in any region when `home_region` is empty (guilds default to no region). Channel stickiness comes from the gateway key `voice_room:{channelId}`.
+Heartbeat status: `dead` stays `dead`. A node with `admin_drain` stays `draining`. Else `accepting` gives `active` or `draining`. Register sets `active`, or `draining` when `admin_drain` is set.
 
-Create/DeleteVirtualServer: deleted. Oracle loads the proto dynamically (`@grpc/proto-loader`), so the
+Takusen placement ignores `channel_id`/`guild_id`. It returns the least-loaded fresh node in `home_region`, or in any region when `home_region` is empty (guilds default to no region). Channel stickiness comes from the gateway key `voice_room:{channelId}`.
+
+Create/DeleteVirtualServer: deleted. Takusen loads the proto dynamically (`@grpc/proto-loader`), so the
 TS handler names follow the proto (`Management`, `hachiman.management.v1`).
 
 ## 10. Client library surface (`@hachiman/client`)
@@ -508,7 +571,7 @@ export * from './types'          // §1 + gateway frame/event types (GatewayEven
 export * from './permissions'    // Permissions, DEFAULT_EVERYONE, ALL, computeBasePermissions, computeChannelPermissions, has(perms, bit)
 export { TypedEventEmitter } from './typed-event-emitter'
 
-type TokenProvider = () => Promise<string>   // must return a fresh, valid Oracle access token
+type TokenProvider = () => Promise<string>   // must return a fresh, valid Takusen access token
 
 export class RestClient {
   constructor(opts: { baseUrl: string /* e.g. http://localhost:3000/api/v1 */; getToken: TokenProvider })
@@ -604,11 +667,11 @@ export interface IPlatformService {
   readonly platform: 'electron' | 'browser'
   /** The host hides the native title bar, so the UI draws a draggable strip (Electron on macOS). */
   readonly insetTitleBar: boolean
-  /** OAuth `redirect_uri` for this host. Oracle's client registration must allow it. */
+  /** OAuth `redirect_uri` for this host. Takusen's client registration must allow it. */
   readonly oauthRedirectUri: string
   /** Opens the OAuth authorization page. Browser: same-tab redirect. Electron: system browser. */
   beginOAuth(url: string): void
-  /** Invite links (`takusen://invite/<code>` or `https://<oracle>/invite/<code>`) → code. Returns unsubscribe. */
+  /** Invite links (`takusen://invite/<code>` or `https://<takusen>/invite/<code>`) → code. Returns unsubscribe. */
   onInviteCode(cb: (code: string) => void): () => void
   /** OAuth redirect URLs delivered by the host (Electron custom scheme / browser callback route). */
   onOAuthCallback(cb: (url: string) => void): () => void
@@ -625,10 +688,10 @@ The shared UI must not examine `window`, `navigator.userAgent`, or `window.locat
 
 Each host declares its title bar. The Electron main process hides the native title bar on macOS only. The preload script gives this fact to the renderer as `window.hachiman.insetTitleBar`. The browser host sets `insetTitleBar` to `false`.
 
-`beginOAuth` is the only way to start sign-in. The UI gives `oauthRedirectUri` to `oracleService.beginSignIn`. The pending PKCE flow keeps the URI, and `completeSignIn` sends the same URI in the token exchange. The two hosts use different redirect URIs:
+`beginOAuth` is the only way to start sign-in. The UI gives `oauthRedirectUri` to `takusenService.beginSignIn`. The pending PKCE flow keeps the URI, and `completeSignIn` sends the same URI in the token exchange. The two hosts use different redirect URIs:
 
 - Browser: `${location.origin}/oauth/callback`. The host replaces the current page, so the callback comes back to the same app instance.
-- Electron: `${issuerOrigin}/oauth/electron-bridge`. A system browser cannot show an `app.hachiman://` URL. Thus the Oracle bridge page receives the code and opens `app.hachiman://oauth-callback?…`. The main process then sends that URL to the renderer.
+- Electron: `${issuerOrigin}/oauth/electron-bridge`. A system browser cannot show an `app.hachiman://` URL. Thus the Takusen bridge page receives the code and opens `app.hachiman://oauth-callback?…`. The main process then sends that URL to the renderer.
 
 `VITE_HACHIMAN_OIDC_REDIRECT` replaces the default URI on either host.
 
@@ -645,30 +708,30 @@ Screen share source selection:
 The guild region pickers use `probeRegions`. They send the measured RTTs to `POST /api/v1/regions/recommend` and show the result as "Automatic (recommended: <region>)". The browser host measures nothing, so the picker shows only "Automatic".
 
 Hosts render `<PlatformProvider value={platformService}><ThemeProvider><App /></ThemeProvider></PlatformProvider>`. `ThemeProvider` applies the theme from `prefsStore` to `<html>`. The config comes from
-the existing Vite env read in `OracleService.ts` (`VITE_TAKUSEN_OIDC_ISSUER`, `VITE_TAKUSEN_OIDC_CLIENT_ID`,
+the existing Vite env read in `TakusenService.ts` (`VITE_TAKUSEN_OIDC_ISSUER`, `VITE_TAKUSEN_OIDC_CLIENT_ID`,
 `VITE_TAKUSEN_API_BASE` default `<issuer-origin>/api`) plus the new
 `VITE_HACHIMAN_GATEWAY_URL` (default `ws://localhost:8080/gateway`). REST base = `${apiBase}/v1`.
 
 ### Packaged renderer origin
 
-The packaged Electron app does not load the renderer from `file://`. A `file://` page sends `Origin: null`, and Oracle rejects that origin. The main process serves the built renderer from the privileged scheme `hachiman` (`apps/hachiman-electron/src/main/renderer-protocol.ts`). The window loads `hachiman://app/index.html`, so the page origin is `hachiman://app`. The dev build loads the electron-vite dev server URL.
+The packaged Electron app does not load the renderer from `file://`. A `file://` page sends `Origin: null`, and Takusen rejects that origin. The main process serves the built renderer from the privileged scheme `hachiman` (`apps/hachiman-electron/src/main/renderer-protocol.ts`). The window loads `hachiman://app/index.html`, so the page origin is `hachiman://app`. The dev build loads the electron-vite dev server URL.
 
 - The handler serves only files in the built renderer directory. Other paths get a 404 response. The renderer has no client-side routes, thus there is no `index.html` fallback.
 - `hachiman` is not an OS deep-link scheme. The deep-link schemes stay `takusen://` and `app.hachiman://`.
 - The main process blocks navigation to all URLs outside the app origin. `window.open` gives `http(s)` URLs to the system browser and opens no window.
 - The main process sends the Content-Security-Policy (CSP) as a response header (`apps/hachiman-electron/src/main/csp.ts`). The `index.html` file has no CSP meta tag. In the packaged app, the `hachiman` handler sends the header. In dev, the header goes on the responses from the dev server.
-- `connect-src` gets the origins of `VITE_TAKUSEN_OIDC_ISSUER`, `VITE_TAKUSEN_API_BASE` and `VITE_HACHIMAN_GATEWAY_URL`, plus `wss:` for the media nodes. The main process and the renderer use the same resolver (`@hachiman/hachiman/oracle-env`) and the same defaults.
+- `connect-src` gets the origins of `VITE_TAKUSEN_OIDC_ISSUER`, `VITE_TAKUSEN_API_BASE` and `VITE_HACHIMAN_GATEWAY_URL`, plus `wss:` for the media nodes. The main process and the renderer use the same resolver (`@hachiman/hachiman/takusen-env`) and the same defaults.
 - `connect-src` also allows `ws:` when one of these endpoints, or the dev server, uses `ws:` or `http:`. Thus a local stack keeps voice in `electron-vite preview` too.
 - `script-src` is `'self'`. With the dev server only, it also allows `'unsafe-inline'`, because the React Fast Refresh preamble is an inline script.
 - The policy also sets `object-src 'none'`, `form-action 'none'` and `frame-ancestors 'none'`.
 
-### Oracle allowed origins
+### Takusen allowed origins
 
-`apps/oracle/src/lib/allowed-origins.ts` holds one CORS allowlist. The `/api/*` middleware and the per-client CORS of the OIDC provider both use it.
+`apps/takusen/src/lib/allowed-origins.ts` holds one CORS allowlist. The `/api/*` middleware and the per-client CORS of the OIDC provider both use it.
 
 - `TAKUSEN_ALLOWED_ORIGINS` (comma-separated) replaces the default list.
 - The default list has the Vite dev origins and `hachiman://app`.
-- Oracle never allows the origin `null`.
+- Takusen never allows the origin `null`.
 - The middleware is the only source of CORS headers under `/api/*`, `/api/oidc` included. It answers all preflights. The OIDC route removes the CORS headers and the `Vary` header that the OIDC provider sets.
 - On the token, userinfo and revocation endpoints, the OIDC provider also examines the origin with the same allowlist. It rejects a different origin with a 400 response.
 

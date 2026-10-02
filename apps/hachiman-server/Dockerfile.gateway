@@ -1,6 +1,6 @@
 # Builds the hachiman-gateway binary — the stateless WebSocket gateway
 # (HELLO/IDENTIFY/RESUME, event dispatch, voice join). Sessions, presence and
-# resume buffers live in Redis; durable data lives in Postgres (via Oracle).
+# resume buffers live in Redis; durable data lives in Postgres (via Takusen).
 # Run N identical replicas behind a load balancer. See docs/gateway-protocol.md §6.
 # Pair: Dockerfile.media (SFU) and Dockerfile.recorder (recording scaffold).
 

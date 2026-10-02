@@ -4,11 +4,11 @@
 
 //go:build integration
 
-// End-to-end against real Postgres + Redis + Oracle (docker/docker-compose.yml
-// + `pnpm -F @hachiman/oracle dev`). Needs:
+// End-to-end against real Postgres + Redis + Takusen (docker/docker-compose.yml
+// + `pnpm -F @hachiman/takusen dev`). Needs:
 //
-//	DATABASE_URL, REDIS_URL, ORACLE_URL   same values Oracle runs with
-//	HACHIMAN_TEST_TOKEN                   an Oracle access token for any user
+//	DATABASE_URL, REDIS_URL, TAKUSEN_URL   same values Takusen runs with
+//	HACHIMAN_TEST_TOKEN                   an Takusen access token for any user
 //
 //	go test -tags integration -run Integration ./cmd/hachiman-gateway/
 package main
@@ -42,12 +42,12 @@ func envOrSkip(t *testing.T, k string) string {
 }
 
 // startGateway runs one gateway node on its own port, sharing Postgres/Redis.
-func startGateway(t *testing.T, db *pgxpool.Pool, rdb *redis.Client, oracleURL string) *harness {
+func startGateway(t *testing.T, db *pgxpool.Pool, rdb *redis.Client, takusenURL string) *harness {
 	signer, err := voicetoken.NewSigner(filepath.Join(t.TempDir(), "voice.key"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	g := newGateway(rdb, oracleURL, nil, signer)
+	g := newGateway(rdb, takusenURL, nil, signer)
 	g.load, g.nodeURL = pgLoader(db), pgNodeURL(db)
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
@@ -59,7 +59,7 @@ func startGateway(t *testing.T, db *pgxpool.Pool, rdb *redis.Client, oracleURL s
 }
 
 func TestIntegrationMessageFlowAndCrossNodeResume(t *testing.T) {
-	dbURL, redisURL, oracleURL := envOrSkip(t, "DATABASE_URL"), envOrSkip(t, "REDIS_URL"), envOrSkip(t, "ORACLE_URL")
+	dbURL, redisURL, takusenURL := envOrSkip(t, "DATABASE_URL"), envOrSkip(t, "REDIS_URL"), envOrSkip(t, "TAKUSEN_URL")
 	token := envOrSkip(t, "HACHIMAN_TEST_TOKEN")
 	ctx := context.Background()
 	db, err := pgxpool.New(ctx, dbURL)
@@ -81,7 +81,7 @@ func TestIntegrationMessageFlowAndCrossNodeResume(t *testing.T) {
 			b, _ := json.Marshal(body)
 			rd = bytes.NewReader(b)
 		}
-		req, _ := http.NewRequest(method, oracleURL+"/api/v1"+path, rd)
+		req, _ := http.NewRequest(method, takusenURL+"/api/v1"+path, rd)
 		req.Header.Set("Authorization", "Bearer "+token)
 		req.Header.Set("Content-Type", "application/json")
 		res, err := http.DefaultClient.Do(req)
@@ -100,8 +100,8 @@ func TestIntegrationMessageFlowAndCrossNodeResume(t *testing.T) {
 		}
 	}
 
-	nodeA := startGateway(t, db, rdb, oracleURL)
-	nodeB := startGateway(t, db, rdb, oracleURL)
+	nodeA := startGateway(t, db, rdb, takusenURL)
+	nodeB := startGateway(t, db, rdb, takusenURL)
 
 	c := nodeA.dial()
 	c.send(opIdentify, map[string]string{"token": token})

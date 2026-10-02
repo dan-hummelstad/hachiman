@@ -32,14 +32,14 @@ const (
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 //
-// Management is the media-plane registry + placement surface. Oracle serves it
+// Management is the media-plane registry + placement surface. Takusen serves it
 // (loading this file dynamically via @grpc/proto-loader); hachiman-media
 // registers + heartbeats, hachiman-gateway asks for placement.
 // Contract: docs/gateway-protocol.md §9.
 type ManagementClient interface {
 	// Idempotent: re-registering the same node_id replaces the row.
 	RegisterMediaNode(ctx context.Context, in *RegisterMediaNodeRequest, opts ...grpc.CallOption) (*RegisterMediaNodeResponse, error)
-	// Oracle drops nodes that miss 3 consecutive heartbeats from placement.
+	// Takusen drops nodes that miss 3 consecutive heartbeats from placement.
 	// accepting=false = drain (existing sessions kept, no new placements).
 	MediaNodeHeartbeat(ctx context.Context, in *MediaNodeHeartbeatRequest, opts ...grpc.CallOption) (*MediaNodeHeartbeatResponse, error)
 	// Picks a node for a voice channel. Channel→node stickiness lives in Redis
@@ -89,14 +89,14 @@ func (c *managementClient) PlaceMediaSession(ctx context.Context, in *PlaceMedia
 // All implementations must embed UnimplementedManagementServer
 // for forward compatibility.
 //
-// Management is the media-plane registry + placement surface. Oracle serves it
+// Management is the media-plane registry + placement surface. Takusen serves it
 // (loading this file dynamically via @grpc/proto-loader); hachiman-media
 // registers + heartbeats, hachiman-gateway asks for placement.
 // Contract: docs/gateway-protocol.md §9.
 type ManagementServer interface {
 	// Idempotent: re-registering the same node_id replaces the row.
 	RegisterMediaNode(context.Context, *RegisterMediaNodeRequest) (*RegisterMediaNodeResponse, error)
-	// Oracle drops nodes that miss 3 consecutive heartbeats from placement.
+	// Takusen drops nodes that miss 3 consecutive heartbeats from placement.
 	// accepting=false = drain (existing sessions kept, no new placements).
 	MediaNodeHeartbeat(context.Context, *MediaNodeHeartbeatRequest) (*MediaNodeHeartbeatResponse, error)
 	// Picks a node for a voice channel. Channel→node stickiness lives in Redis

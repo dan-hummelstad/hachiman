@@ -37,7 +37,7 @@ test("packaged: script-src has no 'unsafe-inline'", () => {
   assert.deepEqual(directive(buildCsp({}), "script-src"), ["'self'"]);
 });
 
-test("img-src and media-src allow only the Oracle API origin and blob: previews", () => {
+test("img-src and media-src allow only the Takusen API origin and blob: previews", () => {
   const csp = buildCsp(PROD_ENV);
   assert.deepEqual(directive(csp, "img-src"), [
     "'self'",
@@ -50,7 +50,7 @@ test("img-src and media-src allow only the Oracle API origin and blob: previews"
     "blob:",
     "https://api.example.com",
   ]);
-  // A local stack serves files over plain http from the Oracle API origin.
+  // A local stack serves files over plain http from the Takusen API origin.
   assert.ok(
     directive(buildCsp({}), "img-src").includes("http://localhost:3000"),
   );

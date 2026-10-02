@@ -5,7 +5,7 @@ import {
   type Message,
   type PresenceStatus
 } from '@hachiman/client'
-import { oracleService } from '@/services/OracleService'
+import { takusenService } from '@/services/TakusenService'
 import { messageSound, playSound, startSounds } from '@/services/SoundService'
 import { voiceService } from '@/services/VoiceService'
 import { resetChannelStore, useChannelStore } from '@/stores/channelStore'
@@ -13,15 +13,15 @@ import { resetGuildStore, useGuildStore } from '@/stores/guildStore'
 import { resetMessagesStore, useMessageStore } from '@/stores/messagesStore'
 import { closeAllDialogs } from '@/stores/dialogStore'
 import { DM_HOME, forgetGuild, openChannel, useNavStore } from '@/stores/navStore'
-import { useOracleStore } from '@/stores/oracleStore'
+import { useTakusenStore } from '@/stores/takusenStore'
 import { resetUserStore, useUserStore } from '@/stores/userStore'
 import { resetVoiceMirror, useVoiceStore } from '@/stores/voiceStore'
 
-/** The one HachimanClient. Tokens come from the Oracle session. */
+/** The one HachimanClient. Tokens come from the Takusen session. */
 export const hachiman = new HachimanClient({
-  apiUrl: `${oracleService.env.apiBase.replace(/\/$/, '')}/v1`,
-  gatewayUrl: oracleService.env.gatewayUrl,
-  getToken: oracleService.getAccessToken
+  apiUrl: `${takusenService.env.apiBase.replace(/\/$/, '')}/v1`,
+  gatewayUrl: takusenService.env.gatewayUrl,
+  getToken: takusenService.getAccessToken
 })
 
 const TYPING_MS = 10_000
@@ -136,7 +136,7 @@ const onTyping = (d: GatewayEvents['TYPING_START']): void => {
 
 let started = false
 
-/** Idempotent: wires client events → stores and connects/disconnects with the Oracle session. */
+/** Idempotent: wires client events → stores and connects/disconnects with the Takusen session. */
 export function startHachiman(): void {
   if (started) return
   started = true
@@ -165,9 +165,9 @@ export function startHachiman(): void {
     resetMessagesStore()
     closeAllDialogs() // open dialogs belong to the session that just ended
   }
-  let signedIn = useOracleStore.getState().session !== null
+  let signedIn = useTakusenStore.getState().session !== null
   if (signedIn) apply(true)
-  useOracleStore.subscribe((s) => {
+  useTakusenStore.subscribe((s) => {
     const next = s.session !== null
     if (next !== signedIn) apply((signedIn = next))
   })

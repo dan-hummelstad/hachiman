@@ -16,9 +16,9 @@ import { SelfVoiceToggles } from '@/components/voice/self-voice-toggles'
 import { useIsMobile } from '@/hooks/use-mobile'
 import { cn } from '@/lib/utils'
 import { setMyStatus } from '@/services/hachiman'
-import { oracleService } from '@/services/OracleService'
+import { takusenService } from '@/services/TakusenService'
 import { openDialog } from '@/stores/dialogStore'
-import { useOracleStore } from '@/stores/oracleStore'
+import { useTakusenStore } from '@/stores/takusenStore'
 import { useUserStore } from '@/stores/userStore'
 
 /** For my own status, offline is a choice: "Invisible". */
@@ -34,9 +34,9 @@ export function NavUser(): React.JSX.Element {
   const isMobile = useIsMobile()
   const me = useUserStore((s) => s.me)
   const status = useUserStore((s) => s.status)
-  const oracleHandle = useOracleStore((s) => s.session?.user.handle)
+  const takusenHandle = useTakusenStore((s) => s.session?.user.handle)
 
-  const name = me?.username ?? oracleHandle ?? 'Guest'
+  const name = me?.username ?? takusenHandle ?? 'Guest'
 
   return (
     <div className="flex h-[52px] shrink-0 items-center gap-1 border-t px-2">
@@ -72,7 +72,7 @@ export function NavUser(): React.JSX.Element {
             </DropdownMenuItem>
           ))}
           <DropdownMenuSeparator />
-          <DropdownMenuItem onSelect={() => oracleService.signOut()}>
+          <DropdownMenuItem onSelect={() => takusenService.signOut()}>
             <LogOut />
             Sign out
           </DropdownMenuItem>

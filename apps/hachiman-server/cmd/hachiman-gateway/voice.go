@@ -178,7 +178,7 @@ func (g *Gateway) releaseRoomIfEmpty(ctx context.Context, guildID, channelID str
 }
 
 // resolveNode returns the media node hosting channelID, placing it via
-// Oracle on first use. voice_room is the only stickiness: Oracle's placement
+// Takusen on first use. voice_room is the only stickiness: Takusen's placement
 // just picks the least-loaded node, so SET NX decides races between gateways.
 func (g *Gateway) resolveNode(ctx context.Context, channelID, guildID, region string) (nodeID, endpoint string, err error) {
 	for attempt := 0; attempt < 2; attempt++ {

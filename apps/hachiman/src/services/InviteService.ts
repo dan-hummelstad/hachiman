@@ -1,10 +1,10 @@
 import type { CreateGuildBody, GuildFull, Invite, InvitePreview } from '@hachiman/client'
 import { hachiman } from '@/services/hachiman'
-import { oracleService } from '@/services/OracleService'
+import { takusenService } from '@/services/TakusenService'
 import { selectGuild } from '@/stores/navStore'
 
-// Invite-code shape the clients accept. Oracle issues 8-char codes (apps/oracle/src/lib/invites.ts)
-// and is the authority; this stays looser so a bad code gets Oracle's "Unknown invite" answer.
+// Invite-code shape the clients accept. Takusen issues 8-char codes (apps/takusen/src/lib/invites.ts)
+// and is the authority; this stays looser so a bad code gets Takusen's "Unknown invite" answer.
 // Electron main can't import this package and keeps a copy of the same bounds in
 // apps/hachiman-electron/src/main/protocol-handler.ts.
 const CODE = '[A-Za-z0-9_-]{2,64}'
@@ -38,9 +38,9 @@ export async function createGuild(body: CreateGuildBody): Promise<GuildFull> {
   return guild
 }
 
-/** Shareable link: Oracle's public `/invite/<code>` landing page, on the issuer origin (same origin apiBase defaults to). */
+/** Shareable link: Takusen's public `/invite/<code>` landing page, on the issuer origin (same origin apiBase defaults to). */
 export function inviteUrl(code: string): string {
-  return `${oracleService.env.issuerOrigin}/invite/${encodeURIComponent(code)}`
+  return `${takusenService.env.issuerOrigin}/invite/${encodeURIComponent(code)}`
 }
 
 /** Copy the invite's link; rejects with a user-facing message. */

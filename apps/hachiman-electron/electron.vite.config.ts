@@ -19,14 +19,14 @@ export default defineConfig(({ mode }) => ({
   main: {
     envDir,
     // Bundle (do not externalize) the shared lib: main imports its pure
-    // oracle-env resolver as TS source for the CSP (src/main/csp.ts).
+    // takusen-env resolver as TS source for the CSP (src/main/csp.ts).
     build: { externalizeDeps: { exclude: ["@hachiman/hachiman"] } },
   },
   preload: { envDir },
   renderer: {
     envDir,
-    // Fixed port: Oracle's CORS allowlist (TAKUSEN_ALLOWED_ORIGINS) names this origin.
-    // strictPort fails loudly instead of drifting to an origin Oracle rejects.
+    // Fixed port: Takusen's CORS allowlist (TAKUSEN_ALLOWED_ORIGINS) names this origin.
+    // strictPort fails loudly instead of drifting to an origin Takusen rejects.
     server: { port: 5174, strictPort: true },
     plugins: [react(), tailwindcss()],
     resolve: { alias: { "@": hachimanSrc } },

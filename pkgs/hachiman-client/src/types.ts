@@ -206,7 +206,7 @@ export interface GatewayEvents {
 }
 export type GatewayEventName = keyof GatewayEvents
 
-/** Redis pub/sub envelope Oracle publishes on `guild:{id}` / `user:{id}` (§5). */
+/** Redis pub/sub envelope Takusen publishes on `guild:{id}` / `user:{id}` (§5). */
 export interface BusEnvelope<T extends GatewayEventName = GatewayEventName> {
   t: T
   d: GatewayEvents[T]

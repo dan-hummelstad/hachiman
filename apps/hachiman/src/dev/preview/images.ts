@@ -1,5 +1,5 @@
 // Preview images: fixture file keys resolve to generated SVG data URLs, and files "uploaded" in
-// preview resolve to object URLs, so avatars, icons and banners render without Oracle.
+// preview resolve to object URLs, so avatars, icons and banners render without Takusen.
 import { attachmentUrl } from './attachments'
 
 /** File keys the fixture uses; the `preview/` prefix never collides with a real `{uploadId}/…` key. */

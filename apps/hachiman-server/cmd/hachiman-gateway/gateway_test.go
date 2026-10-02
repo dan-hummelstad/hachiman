@@ -62,19 +62,19 @@ func newHarness(t *testing.T) *harness {
 	mr := miniredis.RunT(t)
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
 	t.Cleanup(func() { _ = rdb.Close() }) // runs before miniredis stops: late session timers fail fast
-	oracle := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	takusen := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/v1/users/@me" || r.Header.Get("Authorization") != "Bearer good" {
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
 		_ = json.NewEncoder(w).Encode(User{ID: me, Username: "me"})
 	}))
-	t.Cleanup(oracle.Close)
+	t.Cleanup(takusen.Close)
 	signer, err := voicetoken.NewSigner(filepath.Join(t.TempDir(), "voice.key"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	g := newGateway(rdb, oracle.URL, nil, signer)
+	g := newGateway(rdb, takusen.URL, nil, signer)
 	g.heartbeat = time.Second
 	g.offlineGrace = 300 * time.Millisecond
 	g.load = func(ctx context.Context, userID, onlyGuild string) (*readyData, error) { return fixture(), nil }
@@ -409,7 +409,7 @@ func TestCleanCloseEndsImmediately(t *testing.T) {
 func TestVoiceJoinToggleLeave(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
-	h.mr.Set(kVoiceRoom("voice"), "node-a") // pre-placed: no Oracle gRPC needed
+	h.mr.Set(kVoiceRoom("voice"), "node-a") // pre-placed: no Takusen gRPC needed
 	kicks := h.rdb.Subscribe(ctx, "media:node-a")
 	defer kicks.Close()
 	if _, err := kicks.Receive(ctx); err != nil {

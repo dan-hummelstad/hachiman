@@ -1,4 +1,4 @@
-// Oracle REST client. Contract: docs/gateway-protocol.md §4.
+// Takusen REST client. Contract: docs/gateway-protocol.md §4.
 import type {
   Attachment,
   Channel,
@@ -13,7 +13,7 @@ import type {
   User,
 } from './types'
 
-/** Must resolve to a fresh, valid Oracle access token. */
+/** Must resolve to a fresh, valid Takusen access token. */
 export type TokenProvider = () => Promise<string>
 
 /** Non-2xx response. `code` is the body's `error` field (e.g. `MissingPermissions`) or `HTTP_<status>`. */

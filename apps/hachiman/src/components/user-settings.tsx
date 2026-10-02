@@ -4,7 +4,7 @@ import { SettingsLayout, type SettingsGroup } from '@/components/settings/settin
 import { AccountSection } from '@/components/settings/user/account'
 import { AppearanceSection } from '@/components/settings/user/appearance'
 import { VoiceSection } from '@/components/settings/user/voice'
-import { oracleService } from '@/services/OracleService'
+import { takusenService } from '@/services/TakusenService'
 import { useDialog } from '@/stores/dialogStore'
 
 type Section = 'account' | 'appearance' | 'voice'
@@ -33,7 +33,7 @@ export function UserSettings(): React.JSX.Element {
       groups={GROUPS}
       selected={section}
       onSelect={setSection}
-      destructive={{ label: 'Sign out', icon: <LogOut />, onClick: () => oracleService.signOut() }}
+      destructive={{ label: 'Sign out', icon: <LogOut />, onClick: () => takusenService.signOut() }}
     >
       {section === 'account' && <AccountSection />}
       {section === 'appearance' && <AppearanceSection />}

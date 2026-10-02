@@ -248,7 +248,7 @@ func pgLoader(db *pgxpool.Pool) func(ctx context.Context, userID, onlyGuild stri
 }
 
 // pgNodeURL resolves a media node id (from sticky voice_room) to its
-// signaling URL. The media_nodes table is Oracle's; we only read it.
+// signaling URL. The media_nodes table is Takusen's; we only read it.
 func pgNodeURL(db *pgxpool.Pool) func(ctx context.Context, nodeID string) (string, error) {
 	return func(ctx context.Context, nodeID string) (string, error) {
 		var url string

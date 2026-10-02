@@ -1,7 +1,7 @@
-// Upload policy shared by Oracle and the UI. Contract: docs/gateway-protocol.md §4 Files.
+// Upload policy shared by Takusen and the UI. Contract: docs/gateway-protocol.md §4 Files.
 import type { Limits } from './types'
 
-/** Oracle serves `maxUploadBytes` from ORACLE_MAX_UPLOAD_BYTES; these are the defaults. */
+/** Takusen serves `maxUploadBytes` from TAKUSEN_MAX_UPLOAD_BYTES; these are the defaults. */
 export const DEFAULT_LIMITS: Limits = { maxUploadBytes: 26214400, maxAttachmentsPerMessage: 10 }
 
 /** Avatar, guild icon and guild banner uploads must be one of these. */

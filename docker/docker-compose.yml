@@ -2,7 +2,7 @@
 #   docker compose -f docker/docker-compose.yml up -d
 name: hachiman
 services:
-  # Postgres is the single durable store. Oracle (Drizzle) owns the whole schema:
+  # Postgres is the single durable store. Takusen (Drizzle) owns the whole schema:
   # users, guilds, channels, roles, messages, invites, media_nodes, ...
   # The gateway reads it; nothing else writes its own tables.
   postgres:
@@ -10,15 +10,15 @@ services:
     container_name: hachiman-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_USER: oracle
-      POSTGRES_PASSWORD: oracle
-      POSTGRES_DB: oracle
+      POSTGRES_USER: takusen
+      POSTGRES_PASSWORD: takusen
+      POSTGRES_DB: takusen
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
-  # Redis is the gateway event bus and ephemeral state: Oracle PUBLISHes
+  # Redis is the gateway event bus and ephemeral state: Takusen PUBLISHes
   # guild:{id} / user:{id} events after each Postgres commit, gateway nodes
   # PSUBSCRIBE and dispatch them. It also holds gateway sessions + resume
   # buffers, presence, voice state, voice_room stickiness, and the media:{nodeId}

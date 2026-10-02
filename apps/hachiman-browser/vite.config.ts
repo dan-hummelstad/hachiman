@@ -15,7 +15,7 @@ const envDir = resolve(__dirname, "../..");
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   resolve: { alias: { "@": hachimanSrc } },
-  // Fixed port: Oracle's CORS allowlist and the seeded OAuth redirect name this origin.
+  // Fixed port: Takusen's CORS allowlist and the seeded OAuth redirect name this origin.
   server: { port: 5173, strictPort: true },
   envDir,
 });

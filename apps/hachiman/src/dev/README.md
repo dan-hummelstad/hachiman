@@ -1,6 +1,6 @@
 # Preview mode (dev only)
 
-Seeds the stores with a fixture so the UI renders without Oracle or a gateway. Browser host, `vite` dev server only (`import.meta.env.DEV`). It is not in production builds.
+Seeds the stores with a fixture so the UI renders without Takusen or a gateway. Browser host, `vite` dev server only (`import.meta.env.DEV`). It is not in production builds.
 
 ## Open it
 

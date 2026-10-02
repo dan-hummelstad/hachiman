@@ -22,7 +22,7 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	"hachiman/server/pkg/coturn"
-	"hachiman/server/pkg/oracleclient"
+	"hachiman/server/pkg/takusenclient"
 	"hachiman/server/pkg/voicetoken"
 )
 
@@ -36,10 +36,10 @@ func envOr(key, def string) string {
 func main() {
 	listen := flag.String("listen", envOr("GATEWAY_LISTEN_ADDR", ":8080"), "HTTP listen address (/gateway, /healthz) (env GATEWAY_LISTEN_ADDR)")
 	// Dev default = docker/docker-compose.yml; production sets DATABASE_URL.
-	dbURL := flag.String("database-url", envOr("DATABASE_URL", "postgres://oracle:oracle@localhost:5432/oracle"), "Postgres URL (env DATABASE_URL)")
+	dbURL := flag.String("database-url", envOr("DATABASE_URL", "postgres://takusen:takusen@localhost:5432/takusen"), "Postgres URL (env DATABASE_URL)")
 	redisURL := flag.String("redis-url", envOr("REDIS_URL", "redis://localhost:6379"), "Redis URL (env REDIS_URL)")
-	oracleURL := flag.String("oracle-url", envOr("ORACLE_URL", "http://localhost:3000"), "Oracle base URL (env ORACLE_URL)")
-	oracleGRPC := flag.String("oracle-grpc-addr", envOr("ORACLE_GRPC_ADDR", "127.0.0.1:50051"), "Oracle management gRPC address (env ORACLE_GRPC_ADDR)")
+	takusenURL := flag.String("takusen-url", envOr("TAKUSEN_URL", "http://localhost:3000"), "Takusen base URL (env TAKUSEN_URL)")
+	takusenGRPC := flag.String("takusen-grpc-addr", envOr("TAKUSEN_GRPC_ADDR", "127.0.0.1:50051"), "Takusen management gRPC address (env TAKUSEN_GRPC_ADDR)")
 	voiceKey := flag.String("voice-key", envOr("VOICE_KEY", voicetoken.DefaultKeyPath), "Ed25519 seed file for voice tokens, created if missing (env VOICE_KEY)")
 	turnSecret := flag.String("turn-secret", os.Getenv("TURN_SECRET"), "coturn static-auth-secret; empty = STUN only")
 	turnURLs := flag.String("turn-urls", os.Getenv("TURN_URLS"), "comma-separated TURN URLs")
@@ -55,12 +55,12 @@ func main() {
 	must("redis url", err)
 	rdb := redis.NewClient(ropts)
 	must("redis ping", rdb.Ping(ctx).Err())
-	placer, err := oracleclient.New(*oracleGRPC)
-	must("oracle grpc", err)
+	placer, err := takusenclient.New(*takusenGRPC)
+	must("takusen grpc", err)
 	signer, err := voicetoken.NewSigner(*voiceKey)
 	must("voice signer", err)
 
-	g := newGateway(rdb, *oracleURL, placer, signer)
+	g := newGateway(rdb, *takusenURL, placer, signer)
 	g.load = pgLoader(db)
 	g.nodeURL = pgNodeURL(db)
 	if *turnSecret != "" && *turnURLs != "" {
@@ -75,7 +75,7 @@ func main() {
 		defer cancel()
 		_ = srv.Shutdown(shutdown)
 	}()
-	slog.Info("hachiman-gateway listening", "addr", *listen, "oracle", *oracleURL, "oracleGrpc", *oracleGRPC, "turn", g.turn != nil)
+	slog.Info("hachiman-gateway listening", "addr", *listen, "takusen", *takusenURL, "takusenGrpc", *takusenGRPC, "turn", g.turn != nil)
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		must("listen", err)
 	}
