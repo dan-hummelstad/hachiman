@@ -31,6 +31,7 @@
     "@grpc/grpc-js": "^1.14.4",
     "@grpc/proto-loader": "^0.8.1",
     "@hachiman/client": "workspace:*",
+    "@hachiman/crypto": "workspace:*",
     "@hookform/resolvers": "^5.7.1",
     "@radix-ui/react-alert-dialog": "^1.1.23",
     "@radix-ui/react-avatar": "^1.2.6",

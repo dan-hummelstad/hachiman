@@ -2,6 +2,7 @@
   "files": [],
   "references": [
     { "path": "./pkgs/hachiman-client" },
+    { "path": "./pkgs/hachiman-crypto" },
     { "path": "./apps/hachiman" },
     { "path": "./apps/hachiman-electron" },
     { "path": "./apps/hachiman-browser" }

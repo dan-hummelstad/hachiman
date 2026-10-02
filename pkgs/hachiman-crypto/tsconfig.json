@@ -1,0 +1,13 @@
+{
+  "extends": ["../../tsconfig.base.json", "@tsconfig/strictest/tsconfig.json"],
+  "compilerOptions": {
+    // Consumed as TypeScript source (no emit), like @hachiman/client.
+    "noEmit": true,
+    "tsBuildInfoFile": "../../ts-dist/hachiman-crypto/tsconfig.tsbuildinfo",
+    "rootDir": "./src",
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
+    // Browser- and worker-safe: no ambient Node types.
+    "types": []
+  },
+  "include": ["src/**/*"]
+}
