@@ -6,14 +6,15 @@
  * A disallowed origin gets no Allow-Origin header, so the browser fails the
  * request closed. Every response varies by Origin so no cache mixes them.
  *
- * The E2EE routes read `X-Hachiman-Device` and `X-Hachiman-Signed-Action`, and
+ * The E2EE routes read `X-Hachiman-Device`, its proof headers and
+ * `X-Hachiman-Signed-Action`, and
  * rate limits send `Retry-After` (docs/gateway-protocol.md §4, §12.12).
  */
 import { NextResponse } from 'next/server'
 
 import { isAllowedOrigin } from '@/lib/allowed-origins'
 
-export const CORS_ALLOW_HEADERS = 'Authorization, Content-Type, X-Requested-With, X-Hachiman-Device, X-Hachiman-Signed-Action'
+export const CORS_ALLOW_HEADERS = 'Authorization, Content-Type, X-Requested-With, X-Hachiman-Device, X-Hachiman-Device-Ts, X-Hachiman-Device-Nonce, X-Hachiman-Device-Sig, X-Hachiman-Signed-Action'
 export const CORS_EXPOSE_HEADERS = 'Retry-After'
 
 export function applyCors(res: Response, requestOrigin: string | null): void {

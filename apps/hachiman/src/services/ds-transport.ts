@@ -1,6 +1,7 @@
 /**
  * The main-thread DsTransport (§12.17): each method calls one RestClient route. The crypto Worker
- * never calls fetch itself. RestClient sends X-Hachiman-Device on every call.
+ * never calls fetch itself. RestClient sends X-Hachiman-Device on every call, with the device proof
+ * headers that the Worker signs (HachimanClient `proveDevice` → CryptoService.proveDevice, §12.12).
  *
  * Errors: a RestError rejects as CryptoError('Transport') with `dsCode` = the REST error code, and
  * a network error as CryptoError('Transport') without one. Two answers are values, not errors:

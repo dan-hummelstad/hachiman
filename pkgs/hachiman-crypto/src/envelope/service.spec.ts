@@ -139,6 +139,10 @@ interface View {
   leafOverride: Map<string, number | null>
   aeadReports: { groupId: string; epoch: number; device: DeviceId }[]
   forkedSecret: boolean
+  /** groupId:deviceId → the first epoch without the leaf, after an observed Remove. */
+  removedAt: Map<string, number>
+  /** Devices that this view knows as revoked. */
+  revoked: Set<DeviceId>
 }
 
 function makeGroups(world: World, self: Device, view: View): GroupService {
@@ -178,6 +182,9 @@ function makeGroups(world: World, self: Device, view: View): GroupService {
       if (view.leafOverride.has(k)) return Promise.resolve(view.leafOverride.get(k)!)
       return Promise.resolve(world.devices.get(deviceId)?.leaf ?? null)
     },
+    removedAt(groupId, deviceId) {
+      return Promise.resolve(view.removedAt.get(`${toB64url(groupId)}:${deviceId}`) ?? null)
+    },
     reportAeadFailure(groupId, epoch, senderDevice) {
       view.aeadReports.push({ groupId: toB64url(groupId), epoch, device: senderDevice })
       return Promise.resolve()
@@ -185,7 +192,7 @@ function makeGroups(world: World, self: Device, view: View): GroupService {
   }
 }
 
-function makeIdentity(world: World, self: Device, gossip: { out: Uint8Array | null; seen: { head: Uint8Array; from: UserId }[] }): IdentityService {
+function makeIdentity(world: World, self: Device, gossip: { out: Uint8Array | null; seen: { head: Uint8Array; from: UserId }[] }, view: View): IdentityService {
   const unimplemented = (): never => {
     throw new Error('not used')
   }
@@ -218,9 +225,11 @@ function makeIdentity(world: World, self: Device, gossip: { out: Uint8Array | nu
     acknowledgeKeyChange: unimplemented,
     ktSelfCheck: unimplemented,
     signOutDevice: unimplemented,
+    proveDevice: unimplemented,
     load: unimplemented,
     status: unimplemented,
-    chainContextFor: unimplemented,
+    chainContextFor: (_userId, entering) =>
+      Promise.resolve({ pinnedMaster: null, currentDsk: null, highestSeenDskGeneration: null, revokedDeviceIds: view.revoked, leaf: null, entering, nowMs: 0 }),
     onGatewayEvent: unimplemented,
     handleInboxItem: unimplemented,
     onDskRotated: unimplemented,
@@ -260,7 +269,7 @@ interface Peer {
 
 function peer(world: World, dev: Device, maxEnvelopeBytes = MAX_ENVELOPE_BYTES, realIdentity: IdentityService | null = null): Peer {
   const store = new MemoryStore()
-  const view: View = { limits: new Map(), unknown: new Set(), leafOverride: new Map(), aeadReports: [], forkedSecret: false }
+  const view: View = { limits: new Map(), unknown: new Set(), leafOverride: new Map(), aeadReports: [], forkedSecret: false, removedAt: new Map(), revoked: new Set() }
   const gossip = { out: null as Uint8Array | null, seen: [] as { head: Uint8Array; from: UserId }[] }
   const clock = { now: 1_700_000_000_000 }
   const events: Peer['events'] = []
@@ -270,6 +279,7 @@ function peer(world: World, dev: Device, maxEnvelopeBytes = MAX_ENVELOPE_BYTES, 
         externalSender: '',
         cipherSuites: [1],
         ktPublicKey: '',
+        ktRequired: false,
         limits: { maxEnvelopeBytes, maxInboxItemBytes: 0, maxHistoryBundleBytes: 0, maxBackupBlobBytes: 0, keyPackageTarget: 100, keyPackageLowWater: 10 },
       }),
   } as Partial<DsTransport> as DsTransport
@@ -283,7 +293,7 @@ function peer(world: World, dev: Device, maxEnvelopeBytes = MAX_ENVELOPE_BYTES, 
     platform: 'browser',
     clientVersion: '1.0.0',
   }
-  const svc = createMessageService(ctx, realIdentity ?? makeIdentity(world, dev, gossip), makeGroups(world, dev, view))
+  const svc = createMessageService(ctx, realIdentity ?? makeIdentity(world, dev, gossip, view), makeGroups(world, dev, view))
   return { dev, svc, store, view, gossip, clock, events }
 }
 
@@ -366,6 +376,24 @@ describe('MessageService', () => {
     carol.view.leafOverride.set(`${toB64url(g1)}:${ALICE_DEV}:5`, null)
     const r = await one(carol, row(out, alice.dev))
     expect(r.status === 'ok' && r.sender.membershipVerified).toBe(false)
+  })
+
+  it('step 4: rejects a revoked device at or after the observed Remove, accepts older epochs', async () => {
+    const { alice, carol, g1 } = setup()
+    const out = await alice.svc.encryptMessage(msg())
+    carol.view.revoked.add(ALICE_DEV)
+    carol.view.removedAt.set(`${toB64url(g1)}:${ALICE_DEV}`, 5)
+    expect(reason(await one(carol, row(out, alice.dev)))).toBe('failed:invalid_chain')
+    // The Remove was processed at epoch 6: epoch 5 is before it, so the envelope stays valid.
+    carol.view.removedAt.set(`${toB64url(g1)}:${ALICE_DEV}`, 6)
+    expect(reason(await one(carol, row(out, alice.dev)))).toBe('ok')
+  })
+
+  it('step 4: a removed device that is not revoked is not bounded', async () => {
+    const { alice, carol, g1 } = setup()
+    const out = await alice.svc.encryptMessage(msg())
+    carol.view.removedAt.set(`${toB64url(g1)}:${ALICE_DEV}`, 5)
+    expect(reason(await one(carol, row(out, alice.dev)))).toBe('ok')
   })
 
   it('step 1: maps each header/row difference to its code', async () => {

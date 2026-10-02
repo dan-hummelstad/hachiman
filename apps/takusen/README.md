@@ -258,6 +258,7 @@ pnpm -F @hachiman/takusen start:grpc   # gRPC process (production)
 pnpm -F @hachiman/takusen typecheck    # tsgo
 pnpm -F @hachiman/takusen test         # every src/**/*.test.ts on node --test with the tsx loader, no DB, no Redis
 pnpm -F @hachiman/takusen test:canary  # the E2EE canary against a running test deployment (below)
+pnpm -F @hachiman/takusen test:pg      # the MlsRepo conformance suite on Postgres; needs TAKUSEN_PG_TEST_URL (below)
 pnpm -F @hachiman/takusen lint
 pnpm -F @hachiman/takusen format
 
@@ -267,6 +268,17 @@ pnpm -F @hachiman/takusen db:seed          # regions and the hachiman-client OID
 pnpm -F @hachiman/takusen db:studio
 pnpm -F @hachiman/takusen sessions:revoke  # sign out all users
 ```
+
+The MlsRepo conformance suite (`src/lib/mls/repo.conformance.ts`) is one test suite for both MlsRepo implementations. `pnpm test` runs it on `InMemoryMlsRepo` (`repo.in-memory.test.ts`). `repo.drizzle.pg.test.ts` runs it on `drizzleMlsRepo` and a real Postgres, but only when `TAKUSEN_PG_TEST_URL` is set. Otherwise it skips, so `pnpm test` needs no database. Use a separate test database. The suite refuses the database `takusen`, because it writes rows that it does not delete. To run it against the Docker Postgres (use the user of your container):
+
+```bash
+docker exec hachiman-postgres psql -U takusen -d postgres -c 'CREATE DATABASE hachiman_e2ee_test'   # once
+cd apps/takusen
+DATABASE_URL=postgres://takusen:takusen@localhost:5432/hachiman_e2ee_test pnpm db:migrate
+TAKUSEN_PG_TEST_URL=postgres://takusen:takusen@localhost:5432/hachiman_e2ee_test pnpm test:pg
+```
+
+When the schema changes, drop and create the test database again, then migrate it.
 
 The E2EE canary (`src/e2ee/canary.integration.ts`) needs a running test deployment: Takusen, its gRPC process and the gateway. Two headless clients sign in, send a unique string in a DM, a private channel and a public channel, and decrypt it. Then the script searches every Postgres column, S3 object, Redis key and Redis command, and every client frame for that string. Run it only against a test database, because it creates users and guilds:
 

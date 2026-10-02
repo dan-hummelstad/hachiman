@@ -17,6 +17,11 @@ export interface KtClientDeps {
   transport: Pick<DsTransport, 'ktTreeHead' | 'ktInclusion' | 'ktConsistency'>
   /** The pinned KT public key (GET /mls/ds), or null when unknown. */
   ktPublicKey(): Uint8Array | null
+  /**
+   * The pinned `DsInfo.ktRequired`. When true, KT fails closed: a key object without a KT entry,
+   * or with no signed tree head that covers it, is rejected ('kt_missing').
+   */
+  ktRequired(): boolean
   loadState(): Promise<StoreSchema['kt'] | undefined>
   /** Read-modify-write of the kt row. The caller serializes it with other writers of the row. */
   patchState(patch: Partial<StoreSchema['kt']>): Promise<void>
@@ -27,7 +32,7 @@ export interface KtClientDeps {
 }
 
 export interface KtClient {
-  /** True once this client holds a verified tree head: KT proofs are then required. */
+  /** True when the DS requires KT, or once this client holds a verified tree head: KT proofs are then required. */
   active(): Promise<boolean>
   storedHead(): Promise<SignedTreeHead | null>
   /** A KT_TREE_HEAD event. */
@@ -134,7 +139,11 @@ export function createKtClient(deps: KtClientDeps): KtClient {
       head = await storedHead()
       if (head === null || index >= head.treeSize) head = (await fetchHead()) ?? (await storedHead())
     }
-    if (head === null || index >= head.treeSize) {
+    if (head === null) {
+      deps.alert({ kind: 'kt_missing', detail: `no signed tree head covers KT entry ${index}` })
+      throw new CryptoError('InvalidChain', `no signed tree head for KT entry ${index}`)
+    }
+    if (index >= head.treeSize) {
       deps.alert({ kind: 'bad_proof', detail: `KT entry ${index} is in no signed tree head` })
       throw new CryptoError('InvalidChain', `KT entry ${index} is not covered by a tree head`)
     }
@@ -143,7 +152,7 @@ export function createKtClient(deps: KtClientDeps): KtClient {
 
   return {
     async active() {
-      return (await state()).treeHead !== null
+      return deps.ktRequired() || (await state()).treeHead !== null
     },
     storedHead,
 

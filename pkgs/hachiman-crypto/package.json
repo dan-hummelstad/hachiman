@@ -11,7 +11,8 @@
     "./admin": "./src/admin/index.ts",
     "./franking": "./src/franking/index.ts",
     "./constants": "./src/constants.ts",
-    "./codec": "./src/codec.ts"
+    "./codec": "./src/codec.ts",
+    "./device-proof": "./src/device-proof.ts"
   },
   "scripts": {
     "lint": "eslint \"src/**/*.ts\"",

@@ -235,7 +235,7 @@ Implemented extras (Discord semantics):
 - Revoke = soft (`revoked`).
 - `GET /guilds/:id` reads voice states/presences from Redis.
 - Next route folders for `/users/@me` live under `users/[id]`, and `/devices/@me/...` lives under `devices/[id]/...` (`@x` is a parallel-route slot in Next). The `[id]` handlers accept `@me`.
-- CORS (`apps/takusen/src/lib/cors.ts`): `Access-Control-Allow-Headers` is `Authorization, Content-Type, X-Requested-With, X-Hachiman-Device, X-Hachiman-Signed-Action`. `Access-Control-Expose-Headers` is `Retry-After`.
+- CORS (`apps/takusen/src/lib/cors.ts`): `Access-Control-Allow-Headers` is `Authorization, Content-Type, X-Requested-With, X-Hachiman-Device, X-Hachiman-Device-Ts, X-Hachiman-Device-Nonce, X-Hachiman-Device-Sig, X-Hachiman-Signed-Action`. `Access-Control-Expose-Headers` is `Retry-After`.
 
 | Method + path | Permission | Returns | Publishes |
 |---|---|---|---|
@@ -404,6 +404,7 @@ Other Redis keys (owned by the gateway unless noted):
 |---|---|---|
 | `session:{sessionId}` | hash | `userId`, `deviceId`, `seq`, `owner` (gateway process id — seq/buffer appends are Lua-guarded on ownership; RESUME takes ownership atomically); TTL 90 s, refreshed on each heartbeat |
 | `device_online:{deviceId}` | string | the live session id. TTL 90 s, refreshed on each heartbeat, deleted when the session ends. The Takusen batch scheduler reads it (§12.7.5) |
+| `device_nonce:{deviceId}:{nonce}` | string | gateway-owned. A `deviceProof` nonce of IDENTIFY or RESUME that the gateway accepted (§12.13). `SET NX`, TTL 10 min |
 | `user_sessions:{userId}` | set | live session ids (TTL 90 s) — a user goes offline only when the last session ends |
 | `events:{sessionId}` | list | last 500 dispatched frames (JSON, newest first) for RESUME. Same TTL |
 | `presence:{userId}` | string | status. TTL 90 s, refreshed on heartbeat. Absent ⇒ offline |
@@ -412,7 +413,9 @@ Other Redis keys (owned by the gateway unless noted):
 | `voice_room:{channelId}` | string | mediaNodeId hosting that channel (sticky; SET NX, EX 24 h, deleted when the last user leaves). The endpoint comes from `media_nodes.signaling_url`. A missing node row drops the key and re-places |
 | `takusen:sessions_revoked_at` | string | Takusen-owned. Unix ms: every dashboard cookie from before it is dead (§4 Admin API, `sessions:revoke`). No TTL |
 | `takusen:sessions_revoked_at:{userId}` | string | Takusen-owned. The same cut-off for one user (admin sign-out). No TTL |
+| `takusen:device_nonce:{key}:{nonce}` | string | Takusen-owned. A device proof nonce that Takusen accepted (§12.12 "Device proof"). `{key}` is the base64url device MLS public key. `SET NX`, TTL 10 min |
 | `takusen:mls_wakeup` | pub/sub | Takusen-owned. Takusen → its gRPC process: `{ "groupId": "<base64url>" }` when a Remove is queued (§12.7.5) |
+| `takusen:mls_false_reject:{deviceId}` | string (counter) | Takusen-owned. The number of false `not_reader` rejection reports of a committer device (§12.12 "Batch rejections"). At 3, the batch scheduler skips the device. TTL 30 days, set again on each report |
 | `media:{nodeId}` | pub/sub | gateway → media: `{ "op": "kick", "sessionId": "...", "channelId": "..." }` — media only closes a conn whose token channelId matches (a late kick must not kill a newer connection of the same session) |
 
 ## 6. Gateway WebSocket (`hachiman-gateway`)
@@ -424,10 +427,10 @@ URL: `ws(s)://<host>/gateway` (dev `ws://localhost:8080/gateway`). Text frames, 
 |---|---|---|---|
 | 0 | DISPATCH | S→C | event payload; `s` = seq, `t` = event name |
 | 1 | HEARTBEAT | C→S | last seq received or null |
-| 2 | IDENTIFY | C→S | `{ token, deviceId, capabilities: string[], clientVersion }` (Takusen access token, §12.13) |
+| 2 | IDENTIFY | C→S | `{ token, deviceId, capabilities: string[], clientVersion, deviceProof: { ts, nonce, sig } }` (Takusen access token, §12.13) |
 | 3 | PRESENCE_UPDATE | C→S | `{ status }` |
 | 4 | VOICE_STATE_UPDATE | C→S | `{ guildId, channelId: string \| null, selfMute, selfDeaf, selfStream }` |
-| 6 | RESUME | C→S | `{ token, sessionId, seq, deviceId }` |
+| 6 | RESUME | C→S | `{ token, sessionId, seq, deviceId, deviceProof: { ts, nonce, sig } }` |
 | 7 | RECONNECT | S→C | null — client should reconnect + RESUME |
 | 9 | INVALID_SESSION | S→C | `resumable: boolean` |
 | 10 | HELLO | S→C | `{ heartbeatInterval }` (ms, 41250) |
@@ -440,7 +443,7 @@ Clients do not reconnect after 4012 or 4013.
 
 Flow: connect → HELLO → client IDENTIFY within 10 s (else 4003) → gateway calls
 `GET {TAKUSEN_URL}/api/v1/users/@me` with the bearer token (non-200 ⇒ 4004) → capability and version check (⇒ 4012) →
-device check in Postgres (⇒ 4013) → READY.
+device check in Postgres (⇒ 4013) → device proof check (⇒ 4004) → READY.
 Client heartbeats every `heartbeatInterval`. No heartbeat for 1.5× interval ⇒ close 4009.
 
 Token lifetime: the gateway checks the token only at IDENTIFY/RESUME. A live socket outlives token expiry
@@ -479,7 +482,7 @@ After INVALID_SESSION, the socket stays open for a fresh IDENTIFY.
 The gateway re-materializes GUILD_CREATE on `user:{me}` from Postgres (it needs hidden channels for later visibility diffs).
 Visibility diffs (synthetic CHANNEL_CREATE/DELETE) also follow GUILD_ROLE_*, GUILD_MEMBER_UPDATE for the viewer, and GUILD_UPDATE.
 
-Resume: on RESUME, the gateway first runs check 1 (token, else 4004) and check 3 (device, else 4013) of §12.13. It does not run check 2: the session passed it at IDENTIFY.
+Resume: on RESUME, the gateway first runs check 1 (token, else 4004), check 3 (device, else 4013) and check 4 (device proof, else 4004) of §12.13. It does not run check 2: the session passed it at IDENTIFY.
 A RESUME without `deviceId` fails check 3 and gives 4013. Then the gateway loads `session:{id}`. A missing session, a user mismatch, or a valid `deviceId` that differs from the stored session ⇒ INVALID_SESSION(false).
 Otherwise, the gateway replays frames from `events:{id}` with `s > seq` (gap ⇒ INVALID_SESSION(false)), then sends RESUMED.
 Sessions are not pinned to a node.
@@ -650,7 +653,8 @@ type TokenProvider = () => Promise<string>   // must return a fresh, valid Takus
 
 export class RestClient {
   // getDeviceId: the current device id, sent as X-Hachiman-Device on every request when not null (§12.12)
-  constructor(opts: { baseUrl: string /* e.g. http://localhost:3000/api/v1 */; getToken: TokenProvider; getDeviceId?: () => string | null })
+  // proveDevice: signs each request that sends X-Hachiman-Device, and POST /devices: X-Hachiman-Device-Ts/-Nonce/-Sig (§12.12 "Device proof")
+  constructor(opts: { baseUrl: string /* e.g. http://localhost:3000/api/v1 */; getToken: TokenProvider; getDeviceId?: () => string | null; proveDevice?: DeviceProver })
   // one method per §4 row, e.g.:
   // opts?: SignedActionOptions = { signedAction?: string } — the encoded AdminAction(s) for X-Hachiman-Signed-Action (§12.16, Phase 4)
   getMe(); createGuild(body); getGuild(id); updateGuild(id, body, opts?); deleteGuild(id)
@@ -693,7 +697,8 @@ export function parseRetryAfter(value: string | null, now?: number): number | nu
 
 export class GatewayClient extends TypedEventEmitter<GatewayClientEvents> {
   // device: sent in IDENTIFY and RESUME (§12.13). Close 4012 or 4013 → state 'closed', no reconnect, event 'fatal' ({ code })
-  constructor(opts: { url: string; getToken: TokenProvider; device: () => { deviceId: string; capabilities: string[]; clientVersion: string } })
+  // proveDevice: signs `deviceProof` of IDENTIFY and RESUME (§12.13). A rejection counts as a failed attempt
+  constructor(opts: { url: string; getToken: TokenProvider; device: () => { deviceId: string; capabilities: string[]; clientVersion: string }; proveDevice?: DeviceProver })
   connect(): void          // auto-reconnect with backoff; RESUME when possible, else fresh IDENTIFY
   disconnect(): void
   readonly state: 'idle' | 'connecting' | 'ready' | 'resuming' | 'closed'
@@ -711,7 +716,10 @@ export interface VoiceE2eeDelegate {
   handle(op: VoiceE2eeServerOp): Promise<VoiceE2eeClientOp[]>   // §8 e2ee_* ops. Send the result in order
   senderTransform(track: 'audio' | 'video'): RTCRtpScriptTransform
   receiverTransform(userId: string, track: 'audio' | 'video'): RTCRtpScriptTransform
-  close(): void
+  // The receiver of a receiverTransform result ended: its track ended, its peer left the roster, or
+  // ontrack gave the receiver a new transform. The UI detaches its frame key port (voiceDetachTransform)
+  releaseTransform(transform: RTCRtpScriptTransform): void
+  close(): void                                                 // releases the rest
 }
 
 export class VoiceConnection extends TypedEventEmitter<VoiceEvents> {
@@ -737,6 +745,7 @@ export class HachimanClient extends TypedEventEmitter<HachimanClientEvents> {
     apiUrl: string; gatewayUrl: string; getToken: TokenProvider
     device: () => { deviceId: string; capabilities: string[]; clientVersion: string } | null   // null: no device yet (onboarding). connect() waits:
                                                                                                 // it polls device() every 250 ms. There is no 'device ready' signal
+    proveDevice?: DeviceProver                                                                  // to RestClient and GatewayClient. The shared UI passes CryptoApi.proveDevice
     voiceE2ee: () => VoiceE2eeDelegate                                                          // one per joinVoice
   })
   readonly rest: RestClient
@@ -1308,7 +1317,7 @@ The scheduler runs in the Takusen gRPC process (`apps/takusen/src/grpc/main.ts`)
 
 1. Takusen queues Add and Remove items per group in `mls_pending`. A Remove queues immediately and publishes `takusen:mls_wakeup` (Redis pub/sub).
 2. Every `TAKUSEN_MLS_BATCH_INTERVAL_MS` (default 2000), and on each wakeup, the scheduler takes each group that has queued items and no live batch.
-3. It selects the committer: the online member device with the lowest leaf index. A device is online when the gateway key `device_online:{deviceId}` exists. The scheduler skips devices that are in the batch as Removes and devices that timed out on this group in the last 60 s. The timeout cooldown uses the expired batch rows: a batch row stays 60 s after its deadline, and the scheduler skips its device while the row exists. Then the scheduler deletes the row.
+3. It selects the committer: the online member device with the lowest leaf index. A device is online when the gateway key `device_online:{deviceId}` exists. The scheduler skips devices that are in the batch as Removes and devices that timed out on this group in the last 60 s. The timeout cooldown uses the expired batch rows: a batch row stays 60 s after its deadline, and the scheduler skips its device while the row exists. Then the scheduler deletes the row. The scheduler also skips a device that has 3 or more false rejection reports (§12.12 "Batch rejections").
 4. It makes a batch with at most 100 Adds and all queued Removes. `proposals` holds the stored proposals of §12.7.4 for the current epoch (Removes, and `public_set` Adds). `joins` holds the Adds by value (`channel` and `dm`). It publishes `MLS_BATCH_ASSIGN` to `device:{committer}` with a deadline of `TAKUSEN_MLS_BATCH_TIMEOUT_MS` (default 5000).
 5. The device checks each item, makes one commit for the batch, sends the Welcome in the commit upload, and lists the items that it rejected: joins in `rejected`, DS proposals in `rejectedProposals` (§12.12 "Batch rejections"). It does this automatically. The user takes no action.
 6. If the deadline passes without an accepted commit, the scheduler marks the device as timed out and sends the batch to the next online device. A device that cannot commit (for example, it is not caught up) calls `POST /mls/batches/:id/decline` to skip the wait. A decline sets the deadline of the batch to now, so the declining device is in the cooldown too. A second decline of the same batch gives 410 `BatchExpired`.
@@ -1349,7 +1358,7 @@ The scheduler runs in the Takusen gRPC process (`apps/takusen/src/grpc/main.ts`)
 - Takusen checks that the user reads the group. It queues an Add (`public_set`: as a DS proposal, other kinds: by value). Statuses: `queued`, `committed`, `rejected`, `external_commit`, `waiting`. Takusen publishes `MLS_JOIN_UPDATE` to `device:{id}` on each change.
 - In `channel` and `dm` groups, when the user already has a leaf in the group, Takusen sets the status `external_commit` at once, and the new device joins by external commit. A join request of a user without a leaf stays queued for a member to commit.
 - `GroupService.sync()` posts a join request for each group of `GET /mls/groups` with `member = false`, except `public_set` groups. A `public_set` join waits for the first open of a public channel (`ensureChannelGroup`).
-- A `public_set` group has at most `TAKUSEN_PUBLIC_SET_MAX_MEMBERS` leaves (default `PUBLIC_SET_MAX_MEMBERS`, 250). Above the cap, a join request gets 403 `GroupFull`. There is no plaintext fallback. The Phase 3 load test (`docs/e2ee-load-test.md`) set this value: at 400 leaves, a full batch of 100 Adds misses the 5 s batch deadline. Fewer Adds per `public_set` batch and an empty commit with a path after each join would allow a higher cap. Both are contract changes that are not made yet (`docs/e2ee-load-test.md`, "How to increase the cap").
+- A `public_set` group has at most `TAKUSEN_PUBLIC_SET_MAX_MEMBERS` leaves (default `PUBLIC_SET_MAX_MEMBERS`, 500). Above the cap, a join request gets 403 `GroupFull`. There is no plaintext fallback. The Phase 3 load test (`docs/e2ee-load-test.md`) set this value: at 500 leaves, a full batch of Adds takes the committer 0.43 s (deadline 5 s), and a join by Welcome takes 2.2 s (budget 10 s). The Welcome join time grows about with the square of the leaves. Fewer Adds per `public_set` batch and an empty commit with a path after each join would allow a higher cap. Both are contract changes that are not made yet (`docs/e2ee-load-test.md`, "How to increase the cap").
 
 #### 12.7.9 Retention and catch-up
 
@@ -1472,7 +1481,7 @@ For each message, in history order (`MessageService.decryptMessages`). Each step
 1. **Header.** Decode the header. It does not decode: `malformed`. `channel_id` differs from the row: `wrong_channel`. `group_id` or `epoch` differs from the row: `wrong_group`. `client_msg_id` differs from the row: `replay`. `sender_device_id` differs from the row `senderDevice`: `device_mismatch`.
 2. **Epoch secret.** Get `S_e`. The epoch is ahead of the local state: buffer the message, `pending` `epoch_ahead`. The client never held the group and has no bundle or backup key for it: `pending` `group_unknown` (a Welcome can still come). The client knows the group but has no key for that old epoch: `pending` `no_history_key`. A DS call for this message failed (`CryptoError` `Transport`): `pending` `transport`. This is not a verdict on the message. The UI decrypts it again later.
 3. **Decrypt.** A failed tag: `failed` `aead`, and the failure counts toward the fork alert. A plaintext that does not decode, or that breaks a §12.8.1 limit: `malformed`.
-4. **Sender.** Get the verified `DeviceCertificate` of `sender_device_id`, revoked devices included (`IdentityService.deviceOwnerCertificate`). The lookup tries the keys of the row author first, then the keys of each user that the Worker already fetched and verified, and then fetches the keys of the author again. It fetches the keys of one user again at most once per `KEY_REFRESH_MIN_MS` (10 s). Thus a device of another user is found, and gives `device_mismatch` or `edit_not_author`, not `invalid_chain`. No certificate, or the chain check fails: `invalid_chain`. The certificate user is not the row author: `device_mismatch` (kind 1) or `edit_not_author` (kind 2).
+4. **Sender.** Get the verified `DeviceCertificate` of `sender_device_id`, revoked devices included (`IdentityService.deviceOwnerCertificate`). The lookup tries the keys of the row author first, then the keys of each user that the Worker already fetched and verified, and then fetches the keys of the author again. It fetches the keys of one user again at most once per `KEY_REFRESH_MIN_MS` (10 s). Thus a device of another user is found, and gives `device_mismatch` or `edit_not_author`, not `invalid_chain`. No certificate, or the chain check fails: `invalid_chain`. The certificate user is not the row author: `device_mismatch` (kind 1) or `edit_not_author` (kind 2). **Revoked sender.** When this client processed the Remove of the device in this group, it stores the first epoch without the leaf (`membership.removedAtEpoch`, `GroupService.removedAt`). An Add of the device clears it. An envelope from a revoked device at that epoch or later: `invalid_chain`. **Residual risk:** a revoked device can still sign envelopes for older epochs, in which it was a member. The server sets the order and `created_at`, so such a forged message can show anywhere in the history of those epochs. A client that never processed the Remove (history from a bundle or a backup) has no bound.
 5. **Signature.** Check the signature with the certificate `mls_signature_key`. Else `bad_signature`.
 6. **Franking.** Compute the HMAC of §12.16 from the decrypted `franking_key`, the header `channel_id` and `client_msg_id`, and the received `encode(EnvelopeContent)`. It must equal the header `franking_tag`. Else `bad_franking`. Thus a report can always prove the content that the recipients saw.
 7. **Kind.** Kind 1 has no `edit_of`. Kind 2 has `edit_of` = the header `client_msg_id` = the row `clientMsgId`. Else `malformed`.
@@ -1491,7 +1500,8 @@ For each message, in history order (`MessageService.decryptMessages`). Each step
 #### 12.8.7 Fork alert
 
 - After each commit, the client compares its new `tree_hash` and `confirmed_transcript_hash` with `next` of the `MLS_HANDSHAKE` event or the handshake row. A difference raises `forkAlert` (`group_info_mismatch`).
-- A client that has `S_e` for an epoch counts AEAD failures. Three failures from at least two sender devices in 10 minutes raise `forkAlert` (`aead_failures`).
+- A client that has `S_e` for an epoch counts AEAD failures per group. Three failures in 10 minutes raise `forkAlert` (`aead_failures`) and start an automatic resync. The header is not authenticated before decryption, so the count does not use the sender device: a server can insert rows that fail.
+- **Rate limit.** At most one automatic `aead_failures` resync runs per group in 10 minutes (`FORK_RESYNC_MIN_INTERVAL_MS`). Each further resync doubles the wait, up to 24 h (`FORK_RESYNC_MAX_INTERVAL_MS`). After 24 h without a resync, the wait is 10 minutes again. When the wait has not ended, failures raise no alert and start no resync. Thus inserted rows cannot cause a loop of resyncs and alerts.
 - The DS accepted a commit that this client rejects (the policy or the chain check fails): the group stops on this device (fail closed) and the client raises `forkAlert` (`commit_rejected`). A rejected proposal does not stop the group.
 - The `forkAlert` event carries `groupId`, `channelId`, `epoch` (the epoch of the local state when the alert fired, or null) and `reason`.
 - After a fork alert, the client resyncs by external commit (`resync = true`). For `commit_rejected`, the resync is automatic: the Worker tries it after waits of 1, 2, 4, 8 and 16 s (`COMMIT_REJECTED_RESYNC_DELAYS_MS`). A successful resync enters the DS epoch and asks the own devices for the keys of the skipped epochs (`history_keys`). When all five attempts fail, the group stays stopped, and the next `GroupService.sync()` (READY, RESUMED) starts the attempts again.
@@ -1532,6 +1542,7 @@ blob        = header ‖ ciphertext_0 ‖ … ‖ ciphertext_n
 - The committer adds a key package only when the chain is valid and the credential `{userId}:{deviceId}` equals the roster entry (from the voice token claims). It does not check the gateway voice states (`DsTransport` has no voice-state query). It trusts the media roster, as Implementation note 2 of `docs/e2ee-plan.md` accepts. It removes the leaves whose credential device id is in `departed`.
 - The UI shows the participants from the MLS tree, not from the server roster.
 - **Ordering.** The media node accepts the first `e2ee_commit` whose epoch is the room epoch. It reads the group id and the epoch from the commit bytes (below). It answers other commits with `e2ee_commit_rejected`. It also sends `e2ee_commit_rejected` while an earlier transition is not executed yet (`currentEpoch` is then the new epoch), and when `added` names a session that is no longer pending or `removed` names a session that is not departed. A rejection is not a violation. The losers process the winning commit and try again from the latest roster.
+- **One key package, one use.** A joiner uses its identify key package for one Welcome only (RFC 9420). When a roster reverts the Welcome transition of the joiner, the joiner sends `e2ee_invalid` with `transitionId` null (a resync, 4013). It does not wait for a second Welcome, because the media node would relay the same key package to the next committer. The rejoin calls `voiceStart`, which makes a new key package. The UI rejoins after 1, 2, 4, 8 and 16 s, and after five rejoins without an active epoch it stops and shows an error.
 - **No ratchet tree.** When the `e2ee_ratchet_tree` of the committer did not arrive 10 s after a commit with a Welcome, the media node closes the committer with 4014. The room stays in the previous epoch.
 - **New group.** When no live participant holds the group state but participants remain, the room starts a new group: a new room session id and group id, epoch null, and an empty `departed` list.
 
@@ -1560,7 +1571,7 @@ nonce               = sframe_salt XOR uint96(CTR)
 - Receivers find the key by KID. The KID leaf must belong to the user of the receiver (from the msid, §8), and the KID track bit must equal the receiver track (`FrameTransformOptions.track`). Else the frame is dropped (`wrongSender`). Receivers drop a CTR that they saw in the last 1024 frames of the KID.
 - Keys of the previous epoch stay valid for 10 s after `e2ee_execute_transition`. There is no plaintext passthrough.
 - The SFU forwards RTP unchanged and never parses payloads. The SSRC does not identify the sender. The KID and the leaf credential do.
-- **Client.** One transform Worker per call (`pkgs/hachiman-crypto/src/media/transform-worker.ts`), with `RTCRtpScriptTransform` on the senders of m-line 0 and 1 and on each receiver in `ontrack`. The crypto Worker sends frame keys to it over a `MessagePort` (`FrameKeyMessage` in `src/api.ts`). There is no fallback to the legacy encoded-streams API.
+- **Client.** One transform Worker per call (`pkgs/hachiman-crypto/src/media/transform-worker.ts`), with `RTCRtpScriptTransform` on the senders of m-line 0 and 1 and on each receiver in `ontrack`. The crypto Worker sends frame keys to it over a `MessagePort` (`FrameKeyMessage` in `src/api.ts`). Each transform has its own port. `voiceAttachTransform` returns the port id. When a receiver ends (its track ends, its peer leaves, or the receiver gets a new transform), the UI calls `voiceDetachTransform(portId)`: the crypto Worker sends `close` on the port and forgets it, and the transform Worker closes the key ring and its end of the port. `voiceStop` closes every port of the call. Sender transforms stay for the whole call. There is no fallback to the legacy encoded-streams API.
 - Speaking state stays a client op (§8). It is metadata.
 - Server-side recording is out of scope. A recorder would have to be a member.
 
@@ -1599,6 +1610,7 @@ struct {
 - `K_hist` is the history exporter of the bundle epoch (§12.3).
 - Cap: 4096 keys and 512 KiB (`HISTORY_BUNDLE_MAX_BYTES`). The bundle covers the most recent epochs.
 - Receivers check the signature, the sender chain and the sender leaf. Messages that decrypt with bundle keys have `membershipVerified` false.
+- **`public_set` bundles go to DS members.** In a `public_set` group the readers are the guild members that the DS gives (`guildMembers`). Signed admin actions do not cover guild membership. Thus, when the descriptor says `shared`, a committer sends a bundle to each new user that the DS adds. A malicious server can add an account that it controls and get the history of the public channels. The UI timeline shows the Add. This agrees with the threat model: public channels accept membership that the server controls. Private history belongs in `channel` groups, where the signed admin chain checks each Add (§12.16).
 
 #### 12.11.3 Recovery key and backups
 
@@ -1628,11 +1640,11 @@ struct {
 
 struct {
   opaque group_id<V>;
-  HistoryKey keys<V>;              // at least 1 key. The encoder writes ascending epochs
+  HistoryKey keys<V>;              // at least 1 key, strictly ascending epochs
 } HistoryBatch;                    // kind 2. One blob per batch of epochs of one group
 ```
 
-- A `HistoryBatch` has at least one key, and its `group_id` is not empty. The encoder sorts the keys by epoch. The decoder does not require ascending epochs and does not reject a duplicate epoch (`docs/e2ee-audit-scope.md`, FZ-4, open). Only devices of the user can write the blob, because it is under `K_backup`.
+- A `HistoryBatch` has at least one key, and its `group_id` is not empty. The epochs are strictly ascending. The decoder rejects a batch with epochs out of order or a duplicate epoch. The encoder sorts the keys by epoch and keeps only the last key for each epoch, so it always writes a batch that decodes. In `LinkTransfer`, two `HistoryBatch` items must not have the same `group_id`.
 
 - A client uploads a history blob per group when it has 64 epochs without a backup, and at most every 24 h.
 - Limits: 64 KiB for the identity blob, 1 MiB per history blob, 256 MiB per user.
@@ -1640,11 +1652,24 @@ struct {
 
 ### 12.12 REST routes (Takusen, base `/api/v1`)
 
-Every route here needs `Authorization`. The routes marked **D** also need the header `X-Hachiman-Device: <deviceId>`. Takusen checks that the device belongs to the user and is not revoked (400 `DeviceRequired`, 403 `DeviceNotActive`). A `pending` device may call only these **D** routes (every other **D** route gives 403 `DeviceNotActive`):
+Every route here needs `Authorization`. The routes marked **D** also need the header `X-Hachiman-Device: <deviceId>` and its device proof (below). Takusen checks that the device belongs to the user and is not revoked (400 `DeviceRequired`, 403 `DeviceNotActive`), then the proof (401 `DeviceProofInvalid`), then the device binding of the bearer token. A `pending` device may call only these **D** routes (every other **D** route gives 403 `DeviceNotActive`):
 - the device routes: `PATCH /devices/:id`, `PUT /devices/:id/certificate`, `POST /devices/:id/revoke`
 - the link routes: `/devices/link-sessions` and its sub-routes
 - `PUT /users/@me/master-key` (first device, and a new identity or a restore after a password reset)
 - `GET /backups`, `GET /backups/:id` and `PUT /users/@me/device-signing-key`: a restore from the recovery key runs before the device has its certificate
+
+**Device proof.** `X-Hachiman-Device` is only an id. Thus a stolen bearer token could name any device of the user. To prevent this, the device signs each request with its MLS signature key: the key of its device certificate, stored in `devices.mls_signature_key`. The client sends three headers:
+- `X-Hachiman-Device-Ts`: the Unix time in milliseconds.
+- `X-Hachiman-Device-Nonce`: 16 random bytes, base64url (22 characters).
+- `X-Hachiman-Device-Sig`: the Ed25519 signature (base64url) of the message below.
+
+The message is UTF-8 text. Its lines are joined by `\n`: `hachiman-device-proof/1`, `ds`, the device id, the HTTP method (upper case), the path and query as the server receives them (for example `/api/v1/devices/@me/inbox?after=3`), the ts, the nonce, and base64url(SHA-256(body bytes)). A request without a body hashes zero bytes. `deviceProofMessage` in `@hachiman/crypto` (`src/device-proof.ts`) builds it.
+
+Takusen gives 401 `DeviceProofInvalid` when a header is missing or malformed, when the ts is more than 5 minutes from its clock, when the signature does not verify under `devices.mls_signature_key` (or the device has no key), or when the nonce was used before. Takusen remembers a nonce only after the signature verifies (Redis `takusen:device_nonce:{key}:{nonce}`, `SET NX`, TTL 10 min).
+
+`POST /devices` is the only route that has a proof but no device id. Its body presents `mlsSignatureKey`, and the request must carry a proof by that key with the device id `""` in the message. Takusen stores the key in the new row. The certificate of the device must certify the same key later (`PUT /devices/:id/certificate` gives 400 `InvalidCertificate` for another key).
+
+The client signs in the crypto Worker (`CryptoApi.proveDevice`). The UI thread never holds the key. RestClient sends the proof on every request that sends `X-Hachiman-Device`, and on `POST /devices`.
 
 Bytes are base64url. Errors use the §4 envelope with the codes of §12.19. Rate limits give 429 `RateLimited` with `Retry-After`.
 
@@ -1654,7 +1679,7 @@ CORS (§4) allows the request headers `X-Hachiman-Device` and `X-Hachiman-Signed
 
 | Method + path | D | Body | Returns | Publishes |
 |---|---|---|---|---|
-| POST `/devices` | | `{name, platform: 'electron'\|'browser', clientVersion}` | `Device` (201, status `pending`). At most 20 non-revoked devices (409 `TooManyDevices`) | — |
+| POST `/devices` | | `{name, platform: 'electron'\|'browser', clientVersion, mlsSignatureKey}` (32 bytes) + a device proof by `mlsSignatureKey` | `Device` (201, status `pending`). At most 20 non-revoked devices (409 `TooManyDevices`) | — |
 | GET `/devices` | | — | `Device[]` (own, revoked included) | — |
 | PATCH `/devices/:id` | D | `{name}` | `Device` | — |
 | PUT `/devices/:id/certificate` | D | `{certificate}` | `Device` (status `active`) | `USER_KEYS_UPDATE device_added` |
@@ -1674,6 +1699,7 @@ CORS (§4) allows the request headers `X-Hachiman-Device` and `X-Hachiman-Signed
 - `rejected` names the joins of `MLS_BATCH_ASSIGN.joins` that the committer left out, by `pendingId`. Only the commit body has it.
 - `rejectedProposals` names the DS proposals of `MLS_BATCH_ASSIGN.proposals` that the committer refused (a bad chain or a malformed key package), by `proposalRef`: base64url of the RFC 9420 ProposalRef of the proposal MLSMessage (`mls_pending.proposal_ref`). The proposals carry no `pendingId`, so the ref is the name. Both bodies can have it. `DsTransport.declineBatch` of `@hachiman/crypto` does not send it yet.
 - Takusen accepts a report only from the assigned committer of the batch, and only for items of that batch that the commit did not apply. It ignores other entries. It marks only Adds as rejected: a DS Remove is a Takusen decision, so it ignores the ref of a Remove proposal. A rejected Add of a join request gets `MLS_JOIN_UPDATE` status `rejected` with the reason. The next batch leaves the rejected items out.
+- Takusen checks each `not_reader` rejection of an Add. It computes the readers of the group itself (`channelReaders`, or the guild members for `public_set`, §12.6). When the user of the Add is a reader, the rejection is false. Takusen does not reject the Add: the Add goes back to `queued`, and its join request stays open. The report gets one strike for the committer device in `takusen:mls_false_reject:{deviceId}` (§5). The next batch goes to the next committer: on a decline, the decline puts the device in the cooldown (§12.7.5 step 6). On a commit, Takusen keeps an expired batch row for the device, so the device is in the cooldown for 60 s. The scheduler gives no more batches to a device with 3 strikes (`FALSE_REJECTION_LIMIT`) and logs it. Takusen accepts the other reasons as the committer gives them.
 - On a commit, Takusen marks the rejections in the transaction of the commit. On a decline, it marks them before it expires the batch.
 - `@hachiman/crypto` (`WireCommitRequest.rejected: BatchRejection[]`) and `@hachiman/client` (`CommitRequest.rejected`) accept both forms in one list: `{pendingId, reason}` or `{proposalRef, reason}`. `RestClient.postCommit` sends the `proposalRef` entries as `rejectedProposals` on the wire.
 - **Body size.** The Takusen middleware does not run for `POST /mls/groups/:groupId/commits`, because Next.js truncates every body that middleware sees at 10 MB, and the ratchet tree can be 8 MiB (about 10.7 MB as base64url). The route applies the same CORS policy itself, as `POST /uploads` does (§4).
@@ -1738,7 +1764,7 @@ interface UserKeys { userId; masterKey: { generation; record; ktIndex: number | 
   deviceSigningKey: { generation; cert; ktIndex: number | null; ktEntry: string | null } | null;
   devices: { id; status; certificate: string | null; revocation: string | null;
     ktIndex: number | null; ktEntry: string | null; revocationKtIndex: number | null; revocationKtEntry: string | null }[] }
-interface DsInfo { externalSender; cipherSuites: number[]; ktPublicKey;
+interface DsInfo { externalSender; cipherSuites: number[]; ktPublicKey; ktRequired: boolean;
   limits: { maxEnvelopeBytes; maxInboxItemBytes; maxHistoryBundleBytes; maxBackupBlobBytes; keyPackageTarget; keyPackageLowWater } }
 interface MlsGroup { groupId; kind: 'public_set' | 'channel' | 'dm'; guildId: string | null; channelId: string | null; generation: number;
   cipherSuite: number; status: 'pending' | 'active' | 'retired'; epoch: number | null; historyVisibility: 'joined' | 'shared';
@@ -1764,18 +1790,19 @@ interface KtEntry { index; userId; type: 1 | 2 | 3 | 4; entry; createdAt }
 interface AdminAction { guildId; seq; action; createdAt }
 ```
 
-**Rate limits** (per device unless noted): key package upload 10/min, commits 30/min, join requests 30/min, inbox posts 60/min, link messages 30/min, link sessions 5/hour per user, reports 10/hour per user, backups 60/hour.
+**Rate limits** (per device unless noted): key package upload 10/min, commits 30/min, join requests 30/min, inbox posts 60/min, link messages 30/min, link sessions 5/hour per user, reports 10/hour per user, backups 60/hour. Each per-device limit also has a per-user limit for all devices of the user together: key package upload 30/min, commits 90/min, join requests 90/min, inbox posts 180/min, link messages 90/min, backups 120/hour. Thus a user cannot get more requests with more devices. A request must be in both limits.
 
 ### 12.13 Gateway
 
-**IDENTIFY** `d`: `{ token, deviceId, capabilities: string[], clientVersion: string }`. **RESUME** `d`: `{ token, sessionId, seq, deviceId }`.
+**IDENTIFY** `d`: `{ token, deviceId, capabilities: string[], clientVersion: string, deviceProof: { ts, nonce, sig } }`. **RESUME** `d`: `{ token, sessionId, seq, deviceId, deviceProof: { ts, nonce, sig } }`.
 
 The gateway checks, in this order:
 1. The token (non-200 from Takusen gives 4004).
 2. `capabilities` includes `e2ee/1`, and `clientVersion` is a semver at or above `GATEWAY_MIN_CLIENT_VERSION` (default `0.1.0`). Else close 4012. The shared UI sends the `version` of `apps/hachiman/package.json` (now `1.0.0`).
 3. The `devices` row exists, belongs to the user and is not `revoked`. Else close 4013. `pending` devices are allowed (linking). A missing or malformed `deviceId` fails this check.
+4. `deviceProof` verifies under `devices.mls_signature_key` (the key of the §12.12 device proof). Else close 4004. The message is UTF-8 text. Its lines are joined by `\n`: `hachiman-device-proof/1`, `identify`, the device id, the session id (RESUME) or `""` (IDENTIFY), the ts, the nonce, and base64url(SHA-256(token)). `ts` is Unix milliseconds, and the gateway rejects a ts more than 5 minutes from its clock. `nonce` is 16 random bytes, base64url. The gateway rejects a nonce that it saw before (Redis `device_nonce:{deviceId}:{nonce}`, `SET NX`, TTL 10 min, set only after the signature verifies). A device without a key fails this check. Close 4004 makes the client connect again with a new token and a new proof.
 
-RESUME runs check 1 and check 3 only (the session passed check 2 at IDENTIFY). A RESUME without `deviceId` gives 4013. A `deviceId` that passes check 3 but differs from the `deviceId` of the stored session gives INVALID_SESSION(false). A missing session also gives INVALID_SESSION(false). READY adds `deviceId`.
+RESUME runs checks 1, 3 and 4 only (the session passed check 2 at IDENTIFY). A RESUME without `deviceId` gives 4013. A `deviceId` that passes check 3 but differs from the `deviceId` of the stored session gives INVALID_SESSION(false). A missing session also gives INVALID_SESSION(false). READY adds `deviceId`.
 
 **Revocation race.** Check 3 can pass just before Takusen commits a revocation. Thus, on IDENTIFY and on RESUME, the gateway does check 3 again after it subscribes the session (it then receives `DEVICE_REVOKED`) and before it sends READY or RESUMED. Either this lookup sees the revocation (close 4013), or the session gets the `DEVICE_REVOKED` event. If the lookup fails (a database error), the gateway closes with 4000, so the client tries again.
 
@@ -1832,6 +1859,12 @@ struct {
 - Takusen appends an entry in the same transaction as each `PUT /users/@me/master-key`, `PUT /users/@me/device-signing-key`, `PUT /devices/:id/certificate` and `POST /devices/:id/revoke`. `ktIndex` in `UserKeys` points to the entry, and `ktEntry` holds its encoding (the leaf hash covers `timestamp_ms`, which only the entry gives).
 - The append takes the transaction advisory lock `pg_advisory_xact_lock(<KT lock id>)` and then allocates `idx = max(idx) + 1`. Thus two appends never get the same index, and the log has no gaps.
 - The KT key is `TAKUSEN_KT_SIGNING_KEY` (seed path, default `.dev/keys/takusen-kt.ed25519`, the seed rules of §12.7.1). `GET /mls/ds` returns its public key. Clients pin it.
+- **KT is required.** `GET /mls/ds` also returns `ktRequired`. It is true when the DS has a KT signing key. Takusen always has one (it makes a seed when none exists), so Takusen always sends true. The client pins `ktRequired` per origin with the KT key. The pin is sticky: a later `false` does not turn KT off. When the pin is true, KT fails closed:
+  - The client pins the first signed tree head that it gets (TOFU). Each later head must be consistent with it.
+  - Each master key record, DSK cert and active device certificate that the client accepts needs a `ktEntry` and an inclusion proof. A key object without a KT entry is rejected (`InvalidChain`) and raises `ktAlert` (`kt_missing`).
+  - When the client has no stored head and the DS sends none (404 or no `KT_TREE_HEAD`) after two waits, the key object is rejected and the client raises `ktAlert` (`kt_missing`).
+  - A client that pinned `ktRequired: false` (a DS without KT) skips the proofs until it stores its first head. From then on, the proofs are required.
+- **Residual risk.** An inclusion proof shows that an object is in the log. It does not show that the object is the newest entry of the user. A DS can serve an old DSK cert or hide a revocation entry. Self-monitoring finds this for the own user only.
 - Only the gRPC process signs tree heads. A timer runs every 10 s. When entries were appended after the newest head, it signs a head that covers all of them, stores it in `kt_tree_heads`, and publishes `KT_TREE_HEAD` to the owners of the new entries (§12.13). The Next process never signs heads.
 - A new entry is in no signed head for up to 10 s. A client that gets no inclusion proof for an entry (the index is not below the newest `tree_size`) waits for the next `KT_TREE_HEAD` and tries again. It does not trust the key object until the proof passes. In Phase 4, a failed proof after two heads raises `ktAlert` (`bad_proof`).
 - Inclusion and consistency proofs are RFC 6962 §2.1.1 and §2.1.2 audit paths.
@@ -1879,7 +1912,8 @@ Payloads: genesis `{opaque owner_id[16]}`. Role: `{opaque role_id[16]; uint64 pe
 - **No permission replay on Takusen.** Takusen does not replay the permissions of signed actions. The REST permission checks on the unsigned state stay authoritative. Takusen checks only the signature, the chain continuity and the match with the request.
 - The guild owner's client writes the genesis action when it creates the guild: it calls `CryptoApi.signAdminAction` after `POST /guilds` and posts the action with the first signed request, or with `PATCH /guilds/:id` and no other change.
 - `@hachiman/crypto` holds the codecs, `sign`, `verify`, `hash` and `replay` (`AdminActionModule`, `src/admin/`). Takusen verifies with `DsModule.verifyAdminAction`. The client signs with `CryptoApi.signAdminAction(guildId, type, payload)`, which fetches the chain head and fills `seq` and `prev_hash`.
-- **Client check.** A client replays the chain from genesis. Each action needs a valid signature, a valid actor chain, and an actor that had the permission in the state before the action (§2 rules, owner from genesis). Before a client commits an Add in a `channel` group, it checks that the replayed state gives the joiner VIEW_CHANNEL (`ProposalPolicy.adminReaders`). A guild without a genesis action uses the unsigned REST state, and the UI timeline still shows "A added B". The replay applies the §2 rules through `@hachiman/client/permissions`, so each language keeps one permission implementation. The replay accepts actions from an actor device that was revoked later: it does not check revocations. `// ponytail:` the Phase 4 audit must decide if an action of a device that is now revoked stays valid.
+- **Client check.** A client replays the chain from genesis. Each action needs a valid signature, a valid actor chain, and an actor that had the permission in the state before the action (§2 rules, owner from genesis). Before a client commits an Add in a `channel` group, it checks that the replayed state gives the joiner VIEW_CHANNEL (`ProposalPolicy.adminReaders`). The replay applies the §2 rules through `@hachiman/client/permissions`, so each language keeps one permission implementation. The replay accepts actions from an actor device that was revoked later: it does not check revocations. `// ponytail:` the Phase 4 audit must decide if an action of a device that is now revoked stays valid.
+- **No genesis: fail closed.** Every guild is created with E2EE, so the owner genesis action must be present. A device that has no cached admin state can get an empty chain from the DS. The device does not fall back to the unsigned REST readers for its own commits. When the device has no verified genesis for the guild, it does not commit an Add in a `channel` group. It rejects each Add of the batch (`policy`) and reports `admin_chain_missing` (`error` event). The device still processes commits of other devices with the unsigned REST state, and the UI timeline shows "A added B". `public_set` groups do not use the admin chain (§12.11.2).
 
 **Message franking.**
 
@@ -1956,7 +1990,7 @@ export class ApiError extends Error {
 - The scheduler, the KT tree-head timer and the daily sweeps run in `apps/takusen/src/grpc/main.ts`. The gRPC process subscribes to `takusen:mls_wakeup`. The payload on that channel is raw JSON `{ groupId }` (base64url), not a `{t, d}` event envelope.
 - Takusen imports `@hachiman/crypto/ds` as TypeScript source. Other code can import the pure entry points `@hachiman/crypto/admin` (§12.16, Takusen uses it), `@hachiman/crypto/franking`, `@hachiman/crypto/constants` and `@hachiman/crypto/codec`. They use no Worker-only or ts-mls code. `apps/takusen/next.config.ts` lists `@hachiman/crypto` in `transpilePackages`. The import graph of `src/mls/ds.ts` uses only `globalThis.crypto` and excludes `src/attachments`, `src/store`, `src/worker`, `src/bridge` and `src/media`.
 
-**Env (Takusen):** `TAKUSEN_DS_SIGNING_KEY`, `TAKUSEN_KT_SIGNING_KEY`, `TAKUSEN_MLS_SUITES` (default `1`), `TAKUSEN_MAX_ENVELOPE_BYTES` (default 32768), `TAKUSEN_PUBLIC_SET_MAX_MEMBERS` (default 250, `docs/e2ee-load-test.md`), `TAKUSEN_MLS_BATCH_INTERVAL_MS` (default 2000), `TAKUSEN_MLS_BATCH_TIMEOUT_MS` (default 5000). **Gateway:** `GATEWAY_MIN_CLIENT_VERSION` (default `0.1.0`). **Media:** `MEDIA_WS_READ_LIMIT` (default 1048576). Add each one to `.env.example`.
+**Env (Takusen):** `TAKUSEN_DS_SIGNING_KEY`, `TAKUSEN_KT_SIGNING_KEY`, `TAKUSEN_MLS_SUITES` (default `1`), `TAKUSEN_MAX_ENVELOPE_BYTES` (default 32768), `TAKUSEN_PUBLIC_SET_MAX_MEMBERS` (default 500, `docs/e2ee-load-test.md`), `TAKUSEN_MLS_BATCH_INTERVAL_MS` (default 2000), `TAKUSEN_MLS_BATCH_TIMEOUT_MS` (default 5000). **Gateway:** `GATEWAY_MIN_CLIENT_VERSION` (default `0.1.0`). **Media:** `MEDIA_WS_READ_LIMIT` (default 1048576). Add each one to `.env.example`.
 
 ### 12.19 Error codes
 
@@ -1964,6 +1998,7 @@ export class ApiError extends Error {
 |---|---|---|
 | `DeviceRequired` | 400 | the route needs `X-Hachiman-Device` and the header is missing |
 | `DeviceNotActive` | 403 | the device is pending (for a route that needs active), revoked, or of another user |
+| `DeviceProofInvalid` | 401 | the device proof (§12.12) is missing or malformed, its ts is more than 5 minutes off, its signature does not verify under the device MLS key, or its nonce was used before |
 | `UnknownDevice` | 404 | no such device |
 | `TooManyDevices` | 409 | 20 non-revoked devices |
 | `InvalidCertificate` | 400 | a certificate, DSK cert or master record does not decode or verify |

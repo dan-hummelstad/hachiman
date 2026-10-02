@@ -1,6 +1,6 @@
 /**
  * GET /api/v1/mls/ds — DsInfo: the DS ExternalSender, the enabled suites, the
- * KT public key and the limits (§12.7.1, §12.12, §12.14).
+ * KT public key, ktRequired and the limits (§12.7.1, §12.12, §12.14).
  */
 import { toB64 } from '@/lib/mls/bytes'
 import { BACKUP_BLOB_MAX_BYTES, INBOX_ITEM_MAX_BYTES } from '@/lib/mls/config'
@@ -17,6 +17,8 @@ export const GET = dsRoute('none', async (ctx) => {
     externalSender: toB64(deps.signer.externalSender),
     cipherSuites: deps.config.suites,
     ktPublicKey: toB64(ktPublicKey),
+    // The KT signing key is always configured (a seed is created when none exists), so KT is required.
+    ktRequired: true,
     limits: {
       maxEnvelopeBytes: deps.config.maxEnvelopeBytes,
       maxInboxItemBytes: INBOX_ITEM_MAX_BYTES,

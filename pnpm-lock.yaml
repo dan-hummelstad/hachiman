@@ -4,6 +4,11 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+patchedDependencies:
+  ts-mls@1.6.4:
+    hash: da4dcc70c2e27dc690fcf0e5507c9f650d7da6c94366570181009ca2b8e9d6b0
+    path: patches/ts-mls@1.6.4.patch
+
 importers:
 
   .:
@@ -488,7 +493,7 @@ importers:
         version: 0.5.2
       ts-mls:
         specifier: 1.6.4
-        version: 1.6.4(@hpke/hybridkem-x-wing@0.7.0)(@hpke/ml-kem@0.3.0)(@noble/ciphers@2.1.1)(@noble/curves@2.0.1)(@noble/post-quantum@0.5.2)
+        version: 1.6.4(patch_hash=da4dcc70c2e27dc690fcf0e5507c9f650d7da6c94366570181009ca2b8e9d6b0)(@hpke/hybridkem-x-wing@0.7.0)(@hpke/ml-kem@0.3.0)(@noble/ciphers@2.1.1)(@noble/curves@2.0.1)(@noble/post-quantum@0.5.2)
     devDependencies:
       '@eslint/js':
         specifier: ^9.39.5
@@ -12718,7 +12723,7 @@ snapshots:
     dependencies:
       typescript: 5.9.3
 
-  ts-mls@1.6.4(@hpke/hybridkem-x-wing@0.7.0)(@hpke/ml-kem@0.3.0)(@noble/ciphers@2.1.1)(@noble/curves@2.0.1)(@noble/post-quantum@0.5.2):
+  ts-mls@1.6.4(patch_hash=da4dcc70c2e27dc690fcf0e5507c9f650d7da6c94366570181009ca2b8e9d6b0)(@hpke/hybridkem-x-wing@0.7.0)(@hpke/ml-kem@0.3.0)(@noble/ciphers@2.1.1)(@noble/curves@2.0.1)(@noble/post-quantum@0.5.2):
     dependencies:
       '@hpke/core': 1.9.0
       '@noble/ciphers': 2.1.1

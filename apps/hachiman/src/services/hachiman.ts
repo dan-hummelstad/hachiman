@@ -57,6 +57,7 @@ export const hachiman = new HachimanClient({
   gatewayUrl: takusenService.env.gatewayUrl,
   getToken: takusenService.getAccessToken,
   device,
+  proveDevice: (req) => cryptoService.proveDevice(req),
   voiceE2ee
 })
 

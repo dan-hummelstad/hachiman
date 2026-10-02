@@ -112,7 +112,8 @@ export class FakeMlsDs {
 
   // MARK: - clients
 
-  async client(userId: string, opts: { recoveryKey?: string; store?: MemoryStore } = {}): Promise<Client & { recoveryKey: string | null }> {
+  /** `adminPermissions`: the GroupService also replays signed admin actions (§12.16), as in the Worker. */
+  async client(userId: string, opts: { recoveryKey?: string; store?: MemoryStore; adminPermissions?: boolean } = {}): Promise<Client & { recoveryKey: string | null }> {
     const store = opts.store ?? new MemoryStore()
     const restart = opts.store !== undefined
     const transport = this.transport(userId)
@@ -128,7 +129,7 @@ export class FakeMlsDs {
       clientVersion: '1.0.0',
     }
     const identity = createIdentityService(ctx, { mls, adminPermissions: testPermissions })
-    const groups = createGroupService(ctx, identity, { sleep: (ms) => this.sleep(ms) })
+    const groups = createGroupService(ctx, identity, { sleep: (ms) => this.sleep(ms), ...(opts.adminPermissions === true ? { adminPermissions: testPermissions } : {}) })
     const messages = createMessageService(ctx, identity, groups)
     const loaded = await identity.load({ userId, wrapKey: {} as CryptoKey, platform: 'electron', clientVersion: '1.0.0', deviceName: 'test', origin: ctx.origin })
     let recoveryKey: string | null = null

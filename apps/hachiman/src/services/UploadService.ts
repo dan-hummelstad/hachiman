@@ -75,6 +75,15 @@ export function uploadErrorText(e: unknown): string {
   return errMsg(e)
 }
 
+/**
+ * The log form of an attachment upload error: its kind and code only. A message can name the
+ * file, and the file name is plaintext metadata that §12.9 keeps inside the envelope.
+ */
+function logShape(e: unknown): string {
+  if (e instanceof RestError || e instanceof CryptoError) return `${e.name} ${e.code}`
+  return e instanceof Error ? e.name : typeof e
+}
+
 export interface UploadFileOptions {
   signal?: AbortSignal | undefined
   /** 0..1 */
@@ -101,7 +110,7 @@ export async function uploadFile(
     })
   } catch (e) {
     if (signal?.aborted) throw e
-    console.warn('[uploads] %s failed', file.name, e)
+    console.warn('[uploads] profile image upload failed', e)
     throw new Error(uploadErrorText(e), { cause: e })
   }
 }
@@ -151,7 +160,7 @@ export async function uploadAttachment(
     return pointerOf(encrypted.draft, fileUpload, thumbUpload)
   } catch (e) {
     if (signal?.aborted) throw e
-    console.warn('[uploads] %s failed', file.name, e)
+    console.warn('[uploads] attachment upload failed', logShape(e))
     throw new Error(uploadErrorText(e), { cause: e })
   }
 }

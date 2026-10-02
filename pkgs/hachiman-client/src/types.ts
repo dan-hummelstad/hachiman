@@ -204,6 +204,8 @@ export interface DsInfo {
   externalSender: B64url
   cipherSuites: CipherSuiteId[]
   ktPublicKey: B64url
+  /** True when the DS signs KT tree heads. The crypto Worker pins it and then fails closed (§12.14). */
+  ktRequired: boolean
   limits: {
     maxEnvelopeBytes: number
     maxInboxItemBytes: number
@@ -416,6 +418,25 @@ export interface GatewayDevice {
   capabilities: string[]
   clientVersion: string
 }
+
+/**
+ * What the device signs (§12.12 "Device proof"): a DS request, or an IDENTIFY/RESUME. The prover
+ * (the crypto Worker) adds the device id, ts and nonce and signs with the device MLS key.
+ */
+export type DeviceProofRequest =
+  | { kind: 'ds'; method: string; pathAndQuery: string; bodySha256: Uint8Array }
+  | { kind: 'identify'; sessionId: string | null; tokenSha256: Uint8Array }
+
+/** X-Hachiman-Device-Ts / -Nonce / -Sig, and `deviceProof` of IDENTIFY and RESUME. */
+export interface DeviceProof {
+  /** Unix milliseconds. */
+  ts: number
+  nonce: string
+  /** Ed25519, base64url. */
+  sig: string
+}
+
+export type DeviceProver = (req: DeviceProofRequest) => Promise<DeviceProof>
 
 export interface ReadyPayload {
   v: 1

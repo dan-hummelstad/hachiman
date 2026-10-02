@@ -106,7 +106,7 @@ describe('entries and tree heads', () => {
 
 describe('KT client', () => {
   /** `missingHeads`: the first GET /kt/tree-head calls answer 404 NotFound (no head signed yet). */
-  function setup(missingHeads = 0) {
+  function setup(missingHeads = 0, required = false) {
     const key = generateEd25519()
     const log: Uint8Array[] = []
     let row: StoreSchema['kt'] | undefined
@@ -133,6 +133,7 @@ describe('KT client', () => {
         ktConsistency: async (from, to) => ({ from, to, proof: kt.consistencyProof(log, from, to).map(toB64url) }),
       },
       ktPublicKey: () => key.publicKey,
+      ktRequired: () => required,
       loadState: async () => row,
       patchState: async (p) => {
         row = { ...(row ?? { treeHead: null, lastSelfCheckMs: 0, lastSelfIndex: -1 }), ...p }
@@ -178,6 +179,19 @@ describe('KT client', () => {
     expect(t.heads()).toBe(2)
     expect((await t.client.storedHead())?.treeSize).toBe(1)
     expect(t.alerts).toEqual([])
+  })
+
+  it('is active before any head when KT is required', async () => {
+    expect(await setup().client.active()).toBe(false)
+    expect(await setup(0, true).client.active()).toBe(true)
+  })
+
+  it('fails closed with kt_missing when KT is required and the DS never sends a head', async () => {
+    const t = setup(Number.MAX_SAFE_INTEGER, true)
+    const e = t.append(new Uint8Array([1]))
+    await expect(t.client.prove(e.index, e.entry, { type: 3, userId: '0f8fad5b-d9cb-469f-a165-70867728950e', object: new Uint8Array([1]) })).rejects.toMatchObject({ code: 'InvalidChain' })
+    expect(t.alerts.map((a) => a.kind)).toEqual(['kt_missing'])
+    expect(await t.client.storedHead()).toBeNull()
   })
 
   it('raises split_view for two roots of one size and for an inconsistent head', async () => {

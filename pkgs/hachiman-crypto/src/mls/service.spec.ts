@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 
 import type { CryptoEvents, EncryptedMessage } from '../api'
+import { admin } from '../admin/index'
+import { createAdminService } from '../admin/service'
 import { fromB64url, toB64url } from '../codec'
 import { DsError } from '../identity/test-helpers'
 import { FakeMlsDs, leafGeneration, type Client } from './fake-ds'
@@ -224,6 +226,9 @@ describe('GroupService', () => {
     expect(await epochOf(restarted, gid)).toBe(2)
     expect(await secretOf(restarted, gid)).toBe(await secretOf(bob, gid))
     expect(await restarted.store.get('pendingCommits', gid)).toBeUndefined()
+    // bob processed the Remove of carol: epoch 2 is the first epoch without her leaf.
+    expect(await bob.groups.removedAt(fromB64url(gid), carol.deviceId)).toBe(2)
+    expect(await bob.groups.removedAt(fromB64url(gid), alice.deviceId)).toBeNull()
   }, 120_000)
 
   it('rejects batch joins with a bad chain or of a non-reader', async () => {
@@ -240,6 +245,27 @@ describe('GroupService', () => {
     expect(ds.log.filter((l) => l.startsWith('rejected')).sort()).toEqual(['rejected invalid_chain', 'rejected not_reader'])
     expect(await epochOf(dave, gid)).toBeNull()
     expect(await epochOf(bob, gid)).toBe(2)
+  }, 120_000)
+
+  it('fails closed without a verified genesis action: no Adds into a channel group (admin_chain_missing)', async () => {
+    const ds = await new FakeMlsDs().init()
+    const alice = await ds.client(ds.uuid(), { adminPermissions: true })
+    const bob = await ds.client(ds.uuid())
+    await ds.flush()
+    // The DS returns an empty admin chain: alice has no cached admin state and no genesis.
+    const { guildId, gid } = await channelGroup(ds, [alice, bob])
+    expect(ds.log.filter((l) => l.startsWith('rejected'))).toEqual(['rejected policy'])
+    expect(alice.of<CryptoEvents['error']>('error').map((e) => e.message).join()).toContain('admin_chain_missing')
+    expect(await epochOf(bob, gid)).toBeNull()
+    // With the owner genesis, the replayed chain decides (testPermissions: only the owner reads).
+    const g = await createAdminService(alice.ctx, alice.identity).signAdminAction(guildId, 0, admin.encodePayload({ type: 0, ownerId: alice.userId }))
+    ds.id.storeAdminAction(guildId, g.header)
+    await ds.queueAdd(gid, bob.deviceId)
+    ds.batch(gid, alice.deviceId)
+    await ds.flush()
+    const later = ds.log.filter((l) => l.startsWith('rejected')).slice(1)
+    expect(later).toContain('rejected not_reader')
+    expect(later).not.toContain('rejected policy')
   }, 120_000)
 
   it('shares history in a shared group: the joiner reads old epochs with membershipVerified false', async () => {
@@ -287,6 +313,29 @@ describe('GroupService', () => {
     await ds.flush()
     expect(alice.of<CryptoEvents['forkAlert']>('forkAlert')).toEqual([{ groupId: gid, channelId, epoch: e, reason: 'aead_failures' }])
     expect(await epochOf(alice, gid)).toBe(e + 1)
+  }, 120_000)
+
+  it('rate-limits the aead_failures resync per group with exponential backoff', async () => {
+    const { ds, c } = await world(['alice', 'bob'])
+    const { alice, bob } = c as Record<'alice' | 'bob', Client>
+    const { gid } = await channelGroup(ds, [alice, bob])
+    const MIN = 10 * 60_000
+    const burst = async () => {
+      // One sender is enough: the header is not authenticated, so the count does not use it.
+      for (let i = 0; i < 3; i++) await alice.groups.reportAeadFailure(fromB64url(gid), (await epochOf(alice, gid))!, bob.deviceId)
+      await ds.flush()
+      await alice.groups.idle()
+      return alice.of('forkAlert').length
+    }
+    expect(await burst()).toBe(1)
+    expect(await burst()).toBe(1)
+    ds.id.now += MIN
+    expect(await burst()).toBe(2)
+    ds.id.now += MIN
+    // The second wait is 20 minutes.
+    expect(await burst()).toBe(2)
+    ds.id.now += MIN
+    expect(await burst()).toBe(3)
   }, 120_000)
 
   it('a device that rejects a DS-accepted commit raises a fork alert, resyncs with backoff and drains its buffer', async () => {

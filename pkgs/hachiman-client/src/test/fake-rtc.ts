@@ -14,6 +14,7 @@ export interface FakeDelegate extends VoiceE2eeDelegate {
   handled: VoiceE2eeServerOp[]
   sendTransforms: FakeTransform[]
   recvTransforms: FakeTransform[]
+  released: FakeTransform[]
   closeCount: number
   /** The reply of `handle`. Replace it per test. */
   respond: (op: VoiceE2eeServerOp) => Promise<VoiceE2eeClientOp[]>
@@ -24,6 +25,7 @@ export function fakeDelegate(): FakeDelegate {
     handled: [],
     sendTransforms: [],
     recvTransforms: [],
+    released: [],
     closeCount: 0,
     respond: () => Promise.resolve([]),
     start: () => Promise.resolve({ keyPackage: 'KP' }),
@@ -40,6 +42,9 @@ export function fakeDelegate(): FakeDelegate {
       const t = new FakeTransform('recv', track, userId)
       d.recvTransforms.push(t)
       return t
+    },
+    releaseTransform: t => {
+      d.released.push(t as unknown as FakeTransform)
     },
     close: () => {
       d.closeCount++
@@ -167,9 +172,12 @@ export class FakeRTCPeerConnection {
     this.closed = true
   }
   /** A remote track arrives. `streamId` null = a track without msid. */
-  fireTrack(streamId: string | null, kind: 'audio' | 'video'): { receiver: FakeReceiver; track: FakeTrack } {
+  fireTrack(
+    streamId: string | null,
+    kind: 'audio' | 'video',
+    receiver = new FakeReceiver(),
+  ): { receiver: FakeReceiver; track: FakeTrack } {
     const track = new FakeTrack(kind)
-    const receiver = new FakeReceiver()
     const streams = streamId === null ? [] : [new FakeMediaStream([track], streamId)]
     this.ontrack?.({ track, streams, receiver })
     return { receiver, track }

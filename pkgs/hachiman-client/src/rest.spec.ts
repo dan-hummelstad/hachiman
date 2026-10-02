@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { parseRetryAfter, RestClient, RestError } from './rest'
-import type { CommitRequest } from './types'
+import type { CommitRequest, DeviceProofRequest } from './types'
 
 // Hand-rolled XMLHttpRequest fake for the node test env (no jsdom).
 class FakeXHR {
@@ -200,6 +200,39 @@ describe('RestClient fetch routes', () => {
     expect(last().headers).not.toHaveProperty('X-Hachiman-Device')
   })
 
+  it('signs each device request and POST /devices with the prover (§12.12 device proof)', async () => {
+    const seen: DeviceProofRequest[] = []
+    const proved = new RestClient({
+      baseUrl: 'http://api/v1/',
+      getToken: () => Promise.resolve('tok'),
+      getDeviceId: () => deviceId,
+      proveDevice: (r) => {
+        seen.push(r)
+        return Promise.resolve({ ts: 42, nonce: 'n'.repeat(22), sig: 'sig' })
+      },
+    })
+    await proved.getInbox({ after: 3 })
+    expect(last().headers).toMatchObject({
+      'X-Hachiman-Device': 'dev1',
+      'X-Hachiman-Device-Ts': '42',
+      'X-Hachiman-Device-Nonce': 'n'.repeat(22),
+      'X-Hachiman-Device-Sig': 'sig',
+    })
+    const sha = async (s: string) => new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s)))
+    expect(seen[0]).toEqual({ kind: 'ds', method: 'GET', pathAndQuery: '/v1/devices/@me/inbox?after=3', bodySha256: await sha('') })
+
+    deviceId = null
+    const body = { name: 'n', platform: 'browser' as const, clientVersion: '1.0.0', mlsSignatureKey: 'k' }
+    await proved.registerDevice(body)
+    expect(last().headers).not.toHaveProperty('X-Hachiman-Device')
+    expect(last().headers['X-Hachiman-Device-Sig']).toBe('sig')
+    expect(seen[1]).toEqual({ kind: 'ds', method: 'POST', pathAndQuery: '/v1/devices', bodySha256: await sha(JSON.stringify(body)) })
+    // No device, not POST /devices: no proof.
+    await proved.getMe()
+    expect(seen).toHaveLength(2)
+    expect(last().headers).not.toHaveProperty('X-Hachiman-Device-Sig')
+  })
+
   it('a public route sends neither token nor device', async () => {
     await rest.previewInvite('abc')
     expect(last().headers).not.toHaveProperty('Authorization')
@@ -224,7 +257,7 @@ describe('RestClient fetch routes', () => {
   it.each([
     [
       'registerDevice',
-      () => rest.registerDevice({ name: 'n', platform: 'browser', clientVersion: '1.0.0' }),
+      () => rest.registerDevice({ name: 'n', platform: 'browser', clientVersion: '1.0.0', mlsSignatureKey: 'k' }),
       'POST',
       '/devices',
     ],

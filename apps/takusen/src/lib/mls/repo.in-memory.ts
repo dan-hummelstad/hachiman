@@ -262,7 +262,7 @@ export class InMemoryMlsRepo implements MlsRepo {
       ...d,
       status: 'pending',
       certificate: null,
-      mlsSignatureKey: null,
+      mlsSignatureKey: d.mlsSignatureKey ?? null,
       hpkeKey: null,
       dskGeneration: null,
       createdAt: this.clock(),

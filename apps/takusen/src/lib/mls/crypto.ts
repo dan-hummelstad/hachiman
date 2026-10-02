@@ -63,6 +63,7 @@ export {
   PUBLIC_SET_MAX_MEMBERS,
   WIRE_VERSION,
 } from '@hachiman/crypto/constants'
+export { DEVICE_PROOF_MAX_SKEW_MS, DEVICE_PROOF_NONCE_RE, deviceProofMessage } from '@hachiman/crypto/device-proof'
 
 let override: DsModule | null = null
 let loading: Promise<DsModule> | null = null

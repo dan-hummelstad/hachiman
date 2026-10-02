@@ -15,6 +15,8 @@ import {
   type CryptoEvents,
   type CryptoGatewayEvent,
   type CryptoStatus,
+  type DeviceProof,
+  type DeviceProofInput,
   type DsTransport
 } from '@hachiman/crypto'
 import { CLIENT_VERSION } from '@/lib/client-version'
@@ -139,6 +141,15 @@ class CryptoService {
     if (!this.current || useCryptoStore.getState().phase !== 'ready')
       throw new CryptoError('NotInitialized', 'encryption is not ready on this device')
     return this.current
+  }
+
+  /**
+   * The device proof of a request (§12.12, §12.13). The Worker signs: the key never leaves it. Works
+   * while init runs too (a request of the init itself).
+   */
+  proveDevice(req: DeviceProofInput): Promise<DeviceProof> {
+    if (!this.current) return Promise.reject(new CryptoError('NotInitialized', 'no crypto Worker'))
+    return this.current.proveDevice(req)
   }
 
   /** True when the Worker is up and the identity of this device is set up. */

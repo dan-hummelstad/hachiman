@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import type { FrameKeyMessage, VoiceE2eeClientOp, VoiceService } from '../api'
+import type { FrameKeyMessage, VoiceE2eeClientOp, VoiceE2eeServerOp, VoiceService } from '../api'
 import { fromB64url, toB64url } from '../codec'
 import { FakeMlsDs, type Client } from '../mls/fake-ds'
 import { keyPackageIdentity } from '../mls/index'
@@ -169,7 +169,7 @@ describe('VoiceService', () => {
       expect(commitSenderLeaf(garbage)).toBe(0)
       return { op: 'e2ee_commit', d: { ...op.d, commit: toB64url(garbage) } }
     }
-    const dave = await join('dave')
+    const firstDave = await join('dave')
     media.interceptClient = null
     await media.flush()
     for (const name of ['bob', 'carol']) {
@@ -178,10 +178,17 @@ describe('VoiceService', () => {
       expect(inv[0]).toMatchObject({ op: 'e2ee_invalid', d: { transitionId: 3, committerLeaf: 0 } })
     }
     // alice itself rejects the commit that is not its own: the media node closes it either way.
-    expect(media.closes).toHaveLength(1)
-    expect(media.closes[0]!.sid).toBe(aliceSid)
-    // bob becomes the committer: Remove alice (the roster comes first), then Add dave (its key
-    // package comes next). Everyone ends in one epoch.
+    // dave joined by the real Welcome of that commit. The revert makes its key package used, so
+    // dave asks for a resync (4013) and does not wait for a second Welcome.
+    expect(media.closes.map((c) => [c.sid, c.code])).toEqual([
+      [aliceSid, 4013],
+      [expect.any(String), 4013],
+    ])
+    expect(media.closes[1]!.reason).toContain('key package is used')
+    await expect(firstDave.voice.voiceRoster(firstDave.call.handle)).resolves.toEqual([])
+    const dave = await join('dave')
+    // bob becomes the committer: Remove alice (the roster comes first), then Add the new session
+    // of dave with its new key package. Everyone ends in one epoch.
     const bobCommits = ops(media, 'bob', 'e2ee_commit').map((o) => o.d as { epoch: number; added: string[]; removed: string[] })
     expect(bobCommits.map((d) => [d.epoch, d.added, d.removed])).toEqual([
       [2, [], [aliceSid]],
@@ -228,5 +235,51 @@ describe('VoiceService', () => {
     expect(bob.port.messages.at(-1)).toEqual({ type: 'close' })
     await expect(bob.voice.voiceRoster(bob.call.handle)).rejects.toThrow()
     expect(media.epoch).toBe(1)
+  }, 120_000)
+
+  it('detaches a port: close on it, then no more keys; an unknown id is a no-op', async () => {
+    const { join } = await room(['alice', 'bob'])
+    const alice = await join('alice')
+    const extra = fakePort()
+    let closed = 0
+    extra.close = () => void closed++
+    const id = await alice.voice.voiceAttachTransform(alice.call.handle, extra)
+    expect(typeof id).toBe('string')
+    expect(extra.messages.map((m) => m.type)).toEqual(['epoch', 'activate'])
+    await alice.voice.voiceDetachTransform(id)
+    expect(extra.messages.at(-1)).toEqual({ type: 'close' })
+    expect(closed).toBe(1)
+    await alice.voice.voiceDetachTransform(id)
+    await alice.voice.voiceDetachTransform('unknown')
+    expect(closed).toBe(1)
+    const seen = extra.messages.length
+    await join('bob')
+    expect(extra.messages).toHaveLength(seen)
+    expect(alice.port.messages.filter((m) => m.type === 'epoch').map((m) => (m as { epoch: number }).epoch)).toEqual([0, 1])
+  }, 120_000)
+
+  it('asks for a resync, not a second Welcome, when the Welcome join of this device is reverted', async () => {
+    const { media, join, clients } = await room(['alice', 'bob'])
+    await join('alice')
+    let bobRoster: Extract<VoiceE2eeServerOp, { op: 'e2ee_roster' }>['d'] | null = null
+    media.interceptServer = (to, op) => {
+      if (to.client.name !== 'bob') return op
+      if (op.op === 'e2ee_roster') bobRoster = structuredClone(op.d)
+      // bob never executes: its Welcome transition stays prepared.
+      if (op.op === 'e2ee_execute_transition') return { op: 'e2ee_execute_transition', d: { transitionId: -1, epoch: -1 } }
+      return op
+    }
+    const bob = createVoiceService(clients['bob']!.ctx, clients['bob']!.identity)
+    const call = await media.join('bob', clients['bob']!.userId, clients['bob']!.deviceId, bob)
+    media.interceptServer = null
+    expect(ops(media, 'bob', 'e2ee_ready')).toHaveLength(1)
+    expect(bobRoster).not.toBeNull()
+    // The media node evicted the committer: the room is back at epoch 0.
+    const out = await bob.voiceHandle(call.handle, { op: 'e2ee_roster', d: { ...bobRoster!, epoch: 0 } })
+    expect(out).toEqual([{ op: 'e2ee_invalid', d: { transitionId: null, reason: expect.stringContaining('key package is used') as string, committerLeaf: null } }])
+    // The rejoin starts a new call with a new key package (a new HPKE init key).
+    const first = media.parts.get(media.sidOf(call))!.keyPackage
+    const again = await bob.voiceStart({ channelId: media.channelId, guildId: media.guildId })
+    expect(again.keyPackage).not.toBe(first)
   }, 120_000)
 })

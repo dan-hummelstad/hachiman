@@ -57,6 +57,7 @@ const NO_E2EE: VoiceE2eeDelegate = {
   receiverTransform: () => {
     throw new Error('[preview] no media')
   },
+  releaseTransform: () => {},
   close: () => {}
 }
 

@@ -55,6 +55,8 @@ interface Call {
   channelId: ChannelId
   guildId: GuildId | null
   keyPackage: { publicPackage: Uint8Array; privatePackage: Uint8Array }
+  /** True once a Welcome join used keyPackage. RFC 9420 §16.8: one KeyPackage, one use. */
+  keyPackageUsed: boolean
   groupId: Uint8Array | null
   /** The newest local state: the prepared one while a transition waits for execute. */
   group: MlsGroupHandle | null
@@ -68,7 +70,8 @@ interface Call {
   keyPackages: Map<string, { userId: UserId; deviceId: DeviceId; keyPackage: Uint8Array }>
   ownCommit: OwnCommit | null
   rejections: number
-  ports: Set<MessagePort>
+  /** Port id → port. The id goes back to the caller of voiceAttachTransform. */
+  ports: Map<string, MessagePort>
   /** Epochs whose keys the transform Workers hold. */
   installed: Set<number>
   lock: Promise<unknown>
@@ -150,13 +153,21 @@ export const createVoiceService = ((ctx: EngineContext, identity: IdentityServic
   // MARK: - frame keys
 
   function post(c: Call, msg: FrameKeyMessage): void {
-    for (const p of c.ports) {
+    for (const [id, p] of c.ports) {
       try {
         p.postMessage(msg)
       } catch {
-        c.ports.delete(p)
+        forgetPort(c, id)
       }
     }
+  }
+
+  /** Port id → handle of its call, for voiceDetachTransform. */
+  const portCalls = new Map<string, string>()
+
+  function forgetPort(c: Call, id: string): void {
+    c.ports.delete(id)
+    portCalls.delete(id)
   }
 
   /** sframe_epoch_secret = MLS-Exporter("SFrame 1.0 Base Key", "", 32), with the leaf → user map. */
@@ -205,15 +216,20 @@ export const createVoiceService = ((ctx: EngineContext, identity: IdentityServic
     c.rejections = 0
   }
 
-  /** The media node evicted the committer of the prepared transition: back to the previous epoch. */
-  function revert(c: Call): void {
+  /**
+   * The media node evicted the committer of the prepared transition: back to the previous epoch.
+   * Returns true when the transition was this device's Welcome join: its key package is used, and
+   * the media node would relay the same one to the next committer.
+   */
+  function revert(c: Call): boolean {
     const t = c.transition
-    if (t === null) return
+    if (t === null) return false
     post(c, { type: 'retire', epoch: t.epoch })
     c.installed.delete(t.epoch)
     c.group = t.prev
     c.transition = null
     c.ownCommit = null
+    return t.prev === null
   }
 
   function ownSession(c: Call, d: RosterData): string | null {
@@ -238,7 +254,10 @@ export const createVoiceService = ((ctx: EngineContext, identity: IdentityServic
     c.ownSessionId = ownSession(c, d)
     const pendingSessions = new Set(d.pending.map((p) => p.sessionId))
     for (const sid of [...c.keyPackages.keys()]) if (!pendingSessions.has(sid)) c.keyPackages.delete(sid)
-    if (c.transition !== null && (d.epoch === null || d.epoch < c.transition.epoch)) revert(c)
+    if (c.transition !== null && (d.epoch === null || d.epoch < c.transition.epoch) && revert(c)) {
+      // A resync (4013): the rejoin calls voiceStart, which makes a new key package.
+      return [invalid(null, 'welcome join reverted: the key package is used', null)]
+    }
     if (c.welcome !== null && (d.epoch === null || d.epoch < c.welcome.epoch)) c.welcome = null
 
     if (d.create && d.epoch === null && c.group === null && c.ownSessionId !== null && d.committer === c.ownSessionId) return create(c, gid, handle)
@@ -386,6 +405,8 @@ export const createVoiceService = ((ctx: EngineContext, identity: IdentityServic
     const w = c.welcome
     if (w?.transitionId !== d.transitionId || w.epoch !== d.epoch || c.group !== null || c.groupId === null) return []
     c.welcome = null
+    if (c.keyPackageUsed) return [invalid(d.transitionId, 'welcome: the key package is used', null)]
+    c.keyPackageUsed = true
     let h: MlsGroupHandle
     try {
       const tree = fromB64url(d.ratchetTree)
@@ -468,6 +489,7 @@ export const createVoiceService = ((ctx: EngineContext, identity: IdentityServic
         channelId: opts.channelId,
         guildId: opts.guildId ?? null,
         keyPackage: { publicPackage: kp.publicPackage, privatePackage: kp.privatePackage },
+        keyPackageUsed: false,
         groupId: null,
         group: null,
         active: null,
@@ -479,7 +501,7 @@ export const createVoiceService = ((ctx: EngineContext, identity: IdentityServic
         keyPackages: new Map(),
         ownCommit: null,
         rejections: 0,
-        ports: new Set(),
+        ports: new Map(),
         installed: new Set(),
         lock: Promise.resolve(),
       })
@@ -494,7 +516,9 @@ export const createVoiceService = ((ctx: EngineContext, identity: IdentityServic
     async voiceAttachTransform(handle: string, port: MessagePort) {
       const c = callOf(handle)
       return serial(c, async () => {
-        c.ports.add(port)
+        const id = toB64url(ctx.random(16))
+        c.ports.set(id, port)
+        portCalls.set(id, handle)
         const send = async (h: MlsGroupHandle): Promise<void> => {
           const m = await keyMessage(h)
           port.postMessage(m)
@@ -505,6 +529,30 @@ export const createVoiceService = ((ctx: EngineContext, identity: IdentityServic
           port.postMessage({ type: 'activate', epoch: c.active.epoch } satisfies FrameKeyMessage)
         }
         if (c.group !== null && c.group !== c.active) await send(c.group)
+        return id
+      })
+    },
+
+    async voiceDetachTransform(portId: string) {
+      const handle = portCalls.get(portId)
+      const c = handle === undefined ? undefined : calls.get(handle)
+      if (c === undefined) {
+        portCalls.delete(portId)
+        return Promise.resolve()
+      }
+      return serial(c, () => {
+        const port = c.ports.get(portId)
+        forgetPort(c, portId)
+        if (port !== undefined) {
+          // The transform Worker closes its ring and its end of the port on `close`.
+          try {
+            port.postMessage({ type: 'close' } satisfies FrameKeyMessage)
+          } catch {
+            // The other end is gone.
+          }
+          port.close()
+        }
+        return Promise.resolve()
       })
     },
 
@@ -527,7 +575,10 @@ export const createVoiceService = ((ctx: EngineContext, identity: IdentityServic
       calls.delete(handle)
       return serial(c, () => {
         post(c, { type: 'close' })
-        for (const p of c.ports) p.close()
+        for (const [id, p] of c.ports) {
+          p.close()
+          portCalls.delete(id)
+        }
         c.ports.clear()
         c.installed.clear()
         c.group = null

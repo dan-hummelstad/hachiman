@@ -40,6 +40,12 @@ export const LINK_MESSAGE_MAX_BYTES = 256 * 1024
 export const JOIN_REQUEST_RETENTION_MS = 7 * 24 * 60 * 60_000
 /** A device that timed out on a group is skipped for this long (§12.7.5 step 3). */
 export const BATCH_TIMEOUT_COOLDOWN_MS = 60_000
+/**
+ * A committer that reports this many false `not_reader` rejections gets no
+ * more batches (§12.7.5). The count expires after FALSE_REJECTION_TTL_SEC.
+ */
+export const FALSE_REJECTION_LIMIT = 3
+export const FALSE_REJECTION_TTL_SEC = 30 * 24 * 60 * 60
 
 const KNOWN_SUITES = new Set<number>(Object.values(CipherSuite))
 

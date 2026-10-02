@@ -12,20 +12,28 @@ const EMPTY_ROSTER: VoiceRosterEntry[] = []
  * The E2EE state of the own call. There is no plaintext state: media without keys is dropped.
  * - 'update_required': media or the gateway closed 4012 (§8, §12.13).
  * - 'resyncing': media closed 4013 and VoiceService joins again (new leaf, new transforms).
+ * - 'resync_failed': the rejoins after 4013 used every attempt. The client is not in the call.
  * - 'securing': in the call, the voice group has no active epoch yet.
  * - 'secure': the epoch of `epoch` is active.
  * - 'none': not in a call.
  */
-export type CallSecurityKind = 'update_required' | 'resyncing' | 'securing' | 'secure' | 'none'
+export type CallSecurityKind =
+  | 'update_required'
+  | 'resyncing'
+  | 'resync_failed'
+  | 'securing'
+  | 'secure'
+  | 'none'
 
 export function useCallSecurity(): { kind: CallSecurityKind; epoch: number | null } {
   const fatal = useCryptoStore((s) => s.fatal)
   const resyncing = useCryptoStore((s) => s.voiceResyncing)
+  const resyncFailed = useCryptoStore((s) => s.voiceResyncFailed)
   const epoch = useCryptoStore((s) => s.voice?.epoch ?? null)
   const inCall = useVoiceStore((s) => s.channelId !== null)
   if (fatal === 'update_required') return { kind: 'update_required', epoch: null }
   if (resyncing) return { kind: 'resyncing', epoch: null }
-  if (!inCall) return { kind: 'none', epoch: null }
+  if (!inCall) return { kind: resyncFailed ? 'resync_failed' : 'none', epoch: null }
   return epoch === null ? { kind: 'securing', epoch } : { kind: 'secure', epoch }
 }
 

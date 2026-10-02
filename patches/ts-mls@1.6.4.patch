@@ -1,0 +1,55 @@
+diff --git a/dist/src/clientState.js b/dist/src/clientState.js
+index 45af97faf0d8094090fe5fdca57ef40bb90480b2..bf2ef94b857fa72674f35f446039f6ba482fd225 100644
+--- a/dist/src/clientState.js
++++ b/dist/src/clientState.js
+@@ -278,14 +278,16 @@ export async function validateRatchetTree(tree, groupContext, config, authServic
+                 const leafIndex = toLeafIndex(unmergedLeaf);
+                 const dp = directPath(leafToNodeIndex(leafIndex), leafWidth(tree.length));
+                 const nodeIndex = leafToNodeIndex(leafIndex);
+-                if (tree[nodeIndex]?.nodeType !== "leaf" && !dp.includes(toNodeIndex(i)))
++                const parentPos = dp.indexOf(toNodeIndex(i));
++                if (tree[nodeIndex]?.nodeType !== "leaf" || parentPos < 0)
+                     return new ValidationError("Unmerged leaf did not represent a non-blank descendant leaf node");
+-                for (const parentIdx of dp) {
++                // RFC 9420 §7.9.1: only the non-blank nodes strictly between the leaf and this parent must list it.
++                for (const parentIdx of dp.slice(0, parentPos)) {
+                     const dpNode = tree[parentIdx];
+                     if (dpNode !== undefined) {
+                         if (dpNode.nodeType !== "parent")
+                             return new InternalError("Expected parent node");
+-                        if (!arraysEqual(dpNode.parent.unmergedLeaves, n.parent.unmergedLeaves))
++                        if (!dpNode.parent.unmergedLeaves.includes(unmergedLeaf))
+                             return new ValidationError("non-blank intermediate node must list leaf node in its unmerged_leaves");
+                     }
+                 }
+diff --git a/dist/src/codec/variableLength.js b/dist/src/codec/variableLength.js
+index e995242a4796ce9de8fa15bb2bcebfc410a8dca6..87fd9e531a799342547ef0d502ebc2316e26c280 100644
+--- a/dist/src/codec/variableLength.js
++++ b/dist/src/codec/variableLength.js
+@@ -97,17 +97,19 @@ export const decodeVarLenData = (buf, offset) => {
+ export function varLenTypeEncoder(enc) {
+     return (data) => {
+         let totalLength = 0;
+-        let writeTotal = (_offset, _buffer) => { };
++        const writes = new Array(data.length);
++        const offsets = new Array(data.length);
+         for (let i = 0; i < data.length; i++) {
+             const [len, write] = enc(data[i]);
+-            const oldFunc = writeTotal;
+-            const currentLen = totalLength;
+-            writeTotal = (offset, buffer) => {
+-                oldFunc(offset, buffer);
+-                write(offset + currentLen, buffer);
+-            };
++            writes[i] = write;
++            offsets[i] = totalLength;
+             totalLength += len;
+         }
++        // Write the elements in a loop, not in a closure chain: the chain recursed once per element.
++        const writeTotal = (offset, buffer) => {
++            for (let i = 0; i < writes.length; i++)
++                writes[i](offset + offsets[i], buffer);
++        };
+         const [headerLength, writeLength] = lengthEncoder(totalLength);
+         return [
+             headerLength + totalLength,

@@ -85,6 +85,8 @@ export class CanaryClient {
       gatewayUrl: opts.gatewayUrl,
       getToken: () => Promise.resolve(opts.accessToken),
       device: () => (this.deviceId ? { deviceId: this.deviceId, capabilities: ['e2ee/1'], clientVersion: CLIENT_VERSION } : null),
+      // The engine signs the device proofs (§12.12, §12.13), as the Worker does in the app.
+      proveDevice: (req) => this.engine.api.proveDevice(req),
       voiceE2ee: () => {
         throw new Error('canary: no voice')
       },

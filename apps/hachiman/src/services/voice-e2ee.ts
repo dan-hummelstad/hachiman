@@ -7,6 +7,8 @@
  * - Each transform gets its own MessageChannel: one end goes to the transform Worker in the
  *   RTCRtpScriptTransform options, the other to the crypto Worker (voiceAttachTransform), which
  *   sends the frame keys on it.
+ * - releaseTransform detaches the crypto end (voiceDetachTransform): the crypto Worker sends
+ *   `close` on it, and the transform Worker closes its key ring and its end. close releases the rest.
  */
 import type {
   VoiceE2eeClientOp as ClientVoiceClientOp,
@@ -34,7 +36,7 @@ void sameShapes
 
 export type VoiceCrypto = Pick<
   CryptoApi,
-  'voiceStart' | 'voiceHandle' | 'voiceAttachTransform' | 'voiceStop'
+  'voiceStart' | 'voiceHandle' | 'voiceAttachTransform' | 'voiceDetachTransform' | 'voiceStop'
 >
 
 export interface VoiceE2eeDeps {
@@ -63,26 +65,28 @@ export function createVoiceE2ee(deps: VoiceE2eeDeps): VoiceE2eeDelegate {
   const senders = new Map<VoiceTrackKind, RTCRtpScriptTransform>()
   /** Crypto-side ports that wait for the handle. */
   let unattached: MessagePort[] = []
+  /** Receiver transform → its crypto-side port, and the port id once attached. */
+  const receivers = new Map<RTCRtpScriptTransform, { port: MessagePort; id: Promise<string | null> | null }>()
   let handle: string | null = null
   let closed = false
 
-  const attach = (port: MessagePort): void => {
+  const attach = (port: MessagePort): Promise<string | null> | null => {
     if (handle === null) {
       unattached.push(port)
-      return
+      return null
     }
     // A port without keys drops every frame: a failure here fails closed.
-    void deps.crypto
-      .voiceAttachTransform(handle, port)
-      .catch((e: unknown) => console.warn('[voice] frame key port failed', e))
+    return deps.crypto.voiceAttachTransform(handle, port).catch((e: unknown) => {
+      console.warn('[voice] frame key port failed', e)
+      return null
+    })
   }
 
-  const transform = (options: Omit<FrameTransformOptions, 'port'>): RTCRtpScriptTransform => {
+  const transform = (options: Omit<FrameTransformOptions, 'port'>): { t: RTCRtpScriptTransform; port: MessagePort; id: Promise<string | null> | null } => {
     if (closed) throw new Error('voice e2ee: the call ended')
     const channel = deps.createChannel()
     const t = deps.createTransform(worker, { ...options, port: channel.port2 }, [channel.port2])
-    attach(channel.port1)
-    return t
+    return { t, port: channel.port1, id: attach(channel.port1) }
   }
 
   return {
@@ -99,7 +103,10 @@ export function createVoiceE2ee(deps: VoiceE2eeDeps): VoiceE2eeDelegate {
       deps.onHandle(handle)
       const waiting = unattached
       unattached = []
-      waiting.forEach(attach)
+      for (const port of waiting) {
+        const id = attach(port)
+        for (const r of receivers.values()) if (r.port === port) r.id = id
+      }
       return { keyPackage: s.keyPackage }
     },
     handle(op) {
@@ -109,17 +116,35 @@ export function createVoiceE2ee(deps: VoiceE2eeDeps): VoiceE2eeDelegate {
     senderTransform(track) {
       let t = senders.get(track)
       if (!t) {
-        t = transform({ role: 'send', track, codec: CODEC[track], userId: null })
+        t = transform({ role: 'send', track, codec: CODEC[track], userId: null }).t
         senders.set(track, t)
       }
       return t
     },
     receiverTransform(userId, track) {
-      return transform({ role: 'recv', track, codec: CODEC[track], userId })
+      const r = transform({ role: 'recv', track, codec: CODEC[track], userId })
+      receivers.set(r.t, { port: r.port, id: r.id })
+      return r.t
+    },
+    releaseTransform(t) {
+      const r = receivers.get(t)
+      if (!r) return
+      receivers.delete(t)
+      if (r.id === null) {
+        // Not attached yet: the crypto Worker never saw the port.
+        unattached = unattached.filter((p) => p !== r.port)
+        r.port.close()
+        return
+      }
+      // After close, voiceStop has closed every port of the call.
+      void r.id
+        .then((id) => (id === null || closed ? undefined : deps.crypto.voiceDetachTransform(id)))
+        .catch((e: unknown) => console.warn('[voice] frame key port detach failed', e))
     },
     close() {
       if (closed) return
       closed = true
+      receivers.clear() // voiceStop closes every attached port
       for (const p of unattached) p.close()
       unattached = []
       if (handle !== null) void deps.crypto.voiceStop(handle).catch(() => {})

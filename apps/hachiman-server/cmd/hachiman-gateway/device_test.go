@@ -91,11 +91,83 @@ func TestIdentifyRecheckCatchesLateRevocation(t *testing.T) {
 	c.send(opIdentify, identifyAs(devA))
 	c.expectClose(closeDeviceRevoked)
 	waitFor(t, "session keys removed", func() bool {
-		return len(h.mr.Keys()) == 0 || (len(h.mr.Keys()) == 1 && h.mr.Exists(kUserSessions(me)))
+		// The device_nonce key of the accepted proof stays until its TTL.
+		var left []string
+		for _, k := range h.mr.Keys() {
+			if !strings.HasPrefix(k, "device_nonce:") {
+				left = append(left, k)
+			}
+		}
+		return len(left) == 0 || (len(left) == 1 && h.mr.Exists(kUserSessions(me)))
 	})
 	if h.mr.Exists(kDeviceOnline(devA)) {
 		t.Error("device_online survived the failed recheck")
 	}
+}
+
+// §12.13: IDENTIFY and RESUME carry a deviceProof by the device MLS key. A
+// bearer token alone cannot claim a device.
+func TestDeviceProof(t *testing.T) {
+	h := newHarness(t)
+	h.setDevice(devB, deviceRow{UserID: me, Status: "pending"}) // no key registered
+	now := time.Now().UnixMilli()
+	thief := testDeviceKey("thief")
+	cases := []struct {
+		name  string
+		proof any
+		dev   string
+	}{
+		{"no proof", nil, devA},
+		{"another key", proofAt(thief, devA, "", "good", now), devA},
+		{"proof of another device", proofFor(devPending, "", "good"), devA},
+		{"proof for a resume", proofFor(devA, "s-1", "good"), devA},
+		{"proof of another token", proofFor(devA, "", "other"), devA},
+		{"stale ts", proofAt(testDeviceKey(devA), devA, "", "good", now-6*60_000), devA},
+		{"future ts", proofAt(testDeviceKey(devA), devA, "", "good", now+6*60_000), devA},
+		{"device without a key", proofFor(devB, "", "good"), devB},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c := h.dial()
+			c.t = t
+			p := identifyAs(tc.dev)
+			if tc.proof == nil {
+				delete(p, "deviceProof")
+			} else {
+				p["deviceProof"] = tc.proof
+			}
+			c.send(opIdentify, p)
+			c.expectClose(closeAuthFailed)
+		})
+	}
+	if keys := h.mr.Keys(); len(keys) != 0 {
+		t.Errorf("rejected proofs left Redis keys: %v", keys)
+	}
+
+	// A replayed proof fails, on IDENTIFY and on RESUME.
+	p := identifyAs(devA)
+	c := h.dial()
+	c.send(opIdentify, p)
+	f := c.expect("READY")
+	var r struct{ SessionID string }
+	_ = json.Unmarshal(f.D, &r)
+	c2 := h.dial()
+	c2.send(opIdentify, p)
+	c2.expectClose(closeAuthFailed)
+	c.ws.Close()
+
+	rp := resumeAs(map[string]any{"token": "good", "sessionId": r.SessionID, "seq": 1, "deviceId": devA})
+	wrong := resumeAs(map[string]any{"token": "good", "sessionId": "other", "seq": 1, "deviceId": devA})
+	c3 := h.dial()
+	c3.send(opResume, map[string]any{"token": "good", "sessionId": r.SessionID, "seq": 1, "deviceId": devA, "deviceProof": wrong["deviceProof"]})
+	c3.expectClose(closeAuthFailed)
+	c4 := h.dial()
+	c4.send(opResume, rp)
+	c4.expect("RESUMED")
+	c4.ws.Close()
+	c5 := h.dial()
+	c5.send(opResume, rp)
+	c5.expectClose(closeAuthFailed)
 }
 
 func TestResumeDeviceChecks(t *testing.T) {
@@ -106,25 +178,25 @@ func TestResumeDeviceChecks(t *testing.T) {
 
 	// Another (valid) device of the same user: INVALID_SESSION(false).
 	c2 := h.dial()
-	c2.send(opResume, map[string]any{"token": "good", "sessionId": sid, "seq": 1, "deviceId": devB})
+	c2.send(opResume, resumeAs(map[string]any{"token": "good", "sessionId": sid, "seq": 1, "deviceId": devB}))
 	if f := c2.next(); f.Op != opInvalidSession || string(f.D) != "false" {
 		t.Fatalf("got op=%d d=%s, want INVALID_SESSION(false)", f.Op, f.D)
 	}
 	// No deviceId at all is a device failure, not a mismatch.
 	c3 := h.dial()
-	c3.send(opResume, map[string]any{"token": "good", "sessionId": sid, "seq": 1})
+	c3.send(opResume, resumeAs(map[string]any{"token": "good", "sessionId": sid, "seq": 1}))
 	c3.expectClose(closeDeviceRevoked)
 
 	// The mismatch did not take the session over: the right device resumes.
 	c4 := h.dial()
-	c4.send(opResume, map[string]any{"token": "good", "sessionId": sid, "seq": 1, "deviceId": devA})
+	c4.send(opResume, resumeAs(map[string]any{"token": "good", "sessionId": sid, "seq": 1, "deviceId": devA}))
 	c4.expect("RESUMED")
 	c4.ws.Close()
 
 	// The device is revoked while detached and no event arrived: RESUME gives 4013.
 	h.setDevice(devA, deviceRow{UserID: me, Status: "revoked"})
 	c5 := h.dial()
-	c5.send(opResume, map[string]any{"token": "good", "sessionId": sid, "seq": 2, "deviceId": devA})
+	c5.send(opResume, resumeAs(map[string]any{"token": "good", "sessionId": sid, "seq": 2, "deviceId": devA}))
 	c5.expectClose(closeDeviceRevoked)
 }
 
@@ -201,7 +273,7 @@ func TestDeviceEventBufferedForResume(t *testing.T) {
 		return strings.Contains(strings.Join(lrange(h, kEvents(sid)), ""), "DEVICE_INBOX")
 	})
 	c2 := h.dial()
-	c2.send(opResume, map[string]any{"token": "good", "sessionId": sid, "seq": 1, "deviceId": devA})
+	c2.send(opResume, resumeAs(map[string]any{"token": "good", "sessionId": sid, "seq": 1, "deviceId": devA}))
 	if f := c2.expect("DEVICE_INBOX"); !strings.Contains(string(f.D), `"seq":4`) {
 		t.Fatalf("replayed %s", f.D)
 	}
@@ -226,7 +298,7 @@ func TestDeviceRevokedClosesSessions(t *testing.T) {
 	// The detached session is gone, so it cannot RESUME (the device check
 	// passes here because the fake row is still active).
 	c := h.dial()
-	c.send(opResume, map[string]any{"token": "good", "sessionId": sDetached, "seq": 1, "deviceId": devA})
+	c.send(opResume, resumeAs(map[string]any{"token": "good", "sessionId": sDetached, "seq": 1, "deviceId": devA}))
 	if f := c.next(); f.Op != opInvalidSession {
 		t.Fatalf("got op=%d, want INVALID_SESSION", f.Op)
 	}

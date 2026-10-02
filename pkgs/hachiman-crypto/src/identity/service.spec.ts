@@ -501,6 +501,30 @@ describe('key transparency', () => {
   })
 })
 
+describe('key transparency required', () => {
+  it('pins ktRequired and rejects a key object without a KT entry (kt_missing)', async () => {
+    ds.ktEnabled = true
+    const { dev: a } = await primary(ALICE)
+    await primary(BOB, 'Bob')
+    ds.signHead()
+    await ds.flush()
+    expect((await a.store.get('identity', 'self'))?.ktRequired).toBe(true)
+    ds.tamperKeys = (k) => (k.userId === BOB && k.masterKey ? { ...k, masterKey: { ...k.masterKey, ktIndex: null, ktEntry: null } } : k)
+    await expect(a.svc.chainContextFor(BOB, true)).rejects.toMatchObject({ code: 'InvalidChain' })
+    expect(a.of('ktAlert').map((x) => x.kind)).toContain('kt_missing')
+  })
+
+  it('rejects a DSK cert without a KT entry before any head is stored', async () => {
+    ds.ktEnabled = true
+    const { dev: a } = await primary(ALICE)
+    await primary(BOB, 'Bob')
+    ds.tamperKeys = (k) =>
+      k.userId === BOB ? { ...k, masterKey: k.masterKey && { ...k.masterKey, ktIndex: null, ktEntry: null }, deviceSigningKey: k.deviceSigningKey && { ...k.deviceSigningKey, ktIndex: null, ktEntry: null } } : k
+    await expect(a.svc.chainContextFor(BOB, true)).rejects.toMatchObject({ code: 'InvalidChain' })
+    expect(a.of('ktAlert').map((x) => x.kind)).toContain('kt_missing')
+  })
+})
+
 describe('signed admin actions', () => {
   it('signs the genesis and the next action against the replayed head', async () => {
     const { dev: a } = await primary()

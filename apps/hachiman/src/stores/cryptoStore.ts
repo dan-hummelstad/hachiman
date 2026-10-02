@@ -52,6 +52,8 @@ interface CryptoState {
   voice: VoiceCryptoState | null
   /** Set while VoiceService rejoins after media close 4013 (E2EE resync). */
   voiceResyncing: boolean
+  /** The automatic rejoins after 4013 used every attempt. Cleared by the next join or leave. */
+  voiceResyncFailed: boolean
   /** The last error event of the Worker. */
   lastError: CryptoErrorShape | null
 }
@@ -70,6 +72,7 @@ const initialCryptoState = (): CryptoData => ({
   linkDone: null,
   voice: null,
   voiceResyncing: false,
+  voiceResyncFailed: false,
   lastError: null
 })
 

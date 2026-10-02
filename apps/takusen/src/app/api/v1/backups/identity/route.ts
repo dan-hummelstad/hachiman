@@ -5,7 +5,7 @@
 import { z } from 'zod'
 
 import { b64 } from '@/lib/mls/bytes'
-import { rateLimit } from '@/lib/mls/context'
+import { rateLimitDevice } from '@/lib/mls/context'
 import { putIdentityBackup } from '@/lib/mls/device-data'
 import { body, dsRoute, noContent, requireRouteDevice } from '@/lib/mls/route'
 
@@ -17,7 +17,7 @@ const schema = z.object({
 export const PUT = dsRoute('active', async (ctx) => {
   const device = requireRouteDevice(ctx)
   const deps = await ctx.deps()
-  await rateLimit(deps, 'backups', device.id)
+  await rateLimitDevice(deps, 'backups', device)
   const b = await body(ctx.req, schema)
   await putIdentityBackup(ctx.repo, ctx.userId, b.keyId, b.blob)
   return noContent()

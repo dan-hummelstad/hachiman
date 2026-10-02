@@ -11,7 +11,7 @@
  */
 import { corsPreflight, withCors } from '@/lib/cors'
 import { uploadCommit } from '@/lib/mls/commits'
-import { rateLimit } from '@/lib/mls/context'
+import { rateLimitDevice } from '@/lib/mls/context'
 import { parseGroupIdParam } from '@/lib/mls/groups'
 import { body, dsRoute, json, requireRouteDevice } from '@/lib/mls/route'
 import { commitRequestSchema, splitRejections } from '@/lib/mls/schemas'
@@ -21,7 +21,7 @@ export const POST = withCors(
     const device = requireRouteDevice(ctx)
     const groupId = parseGroupIdParam(ctx.params.groupId)
     const deps = await ctx.deps()
-    await rateLimit(deps, 'commits', device.id)
+    await rateLimitDevice(deps, 'commits', device)
     const b = await body(ctx.req, commitRequestSchema)
     return json(await uploadCommit(ctx.repo, deps, ctx.out, { userId: ctx.userId, device }, groupId, { ...b, ...splitRejections(b) }), 201)
   }),

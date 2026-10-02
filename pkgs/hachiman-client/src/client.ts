@@ -5,6 +5,7 @@ import { effectivePermissions, type PermissionContext } from './permissions'
 import { RestClient, type TokenProvider } from './rest'
 import type {
   Channel,
+  DeviceProver,
   GatewayDevice,
   VoiceStateUpdateRequest,
   Guild,
@@ -26,6 +27,11 @@ export interface HachimanClientOptions {
   getToken: TokenProvider
   /** The current device. null: no device yet (onboarding), and `connect()` waits until it is not null. */
   device: () => GatewayDevice | null
+  /**
+   * Signs DS requests and IDENTIFY/RESUME with the device key (§12.12 "Device proof", §12.13).
+   * The shared UI passes the crypto Worker's proveDevice. Without it, no proof goes out.
+   */
+  proveDevice?: DeviceProver
   /** Called once per `joinVoice`, after VOICE_SERVER_UPDATE. */
   voiceE2ee: () => VoiceE2eeDelegate
 }
@@ -135,6 +141,7 @@ export class HachimanClient extends TypedEventEmitter<HachimanClientEvents> {
       baseUrl: opts.apiUrl,
       getToken: opts.getToken,
       getDeviceId: () => opts.device()?.deviceId ?? null,
+      proveDevice: opts.proveDevice,
     })
     this.gateway = new GatewayClient({
       url: opts.gatewayUrl,
@@ -144,6 +151,7 @@ export class HachimanClient extends TypedEventEmitter<HachimanClientEvents> {
         if (!device) throw new Error('HachimanClient: no device')
         return device
       },
+      proveDevice: opts.proveDevice,
     })
     this.gateway.on('state', s => this.emit('state', s))
     this.gateway.on('fatal', e => {

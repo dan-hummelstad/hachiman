@@ -3,7 +3,7 @@
  * identity, device linking and revocation, TOFU pins and chain contexts, key packages, backups,
  * key transparency and the signed admin chain.
  */
-import { x25519 } from '@noble/curves/ed25519.js'
+import { ed25519, x25519 } from '@noble/curves/ed25519.js'
 
 import {
   CryptoError,
@@ -48,6 +48,7 @@ import {
 import { admin as adminModule } from '../admin/index'
 import { createKtClient } from '../kt/client'
 import { kt as ktModule } from '../kt/index'
+import { DEVICE_PROOF_NONCE_BYTES, deviceProofMessage, type DeviceProof, type DeviceProofInput } from '../device-proof'
 import { generateEd25519 } from '../sign'
 import { equalBytes } from './bytes'
 import { decodeDskTransfer, encodeDskTransfer, groupHistory } from './codec'
@@ -121,6 +122,8 @@ export const createIdentityService: CreateIdentityService = (ctx, deps) => {
   const dskListeners: (() => void)[] = []
   const lastHistoryBackup = new Map<string, number>()
   let replenishing: Promise<void> | null = null
+  /** The MLS key of a POST /devices in flight: proveDevice signs with it before the row exists. */
+  let registering: Ed25519KeyPair | null = null
   let ktRowLock: Promise<unknown> = Promise.resolve()
 
   // MARK: - status and rows
@@ -200,11 +203,19 @@ export const createIdentityService: CreateIdentityService = (ctx, deps) => {
     emitStatus()
   }
 
-  /** TOFU pin of the DS external sender and the KT key, per origin (§12.7.1, §12.14). */
+  /**
+   * TOFU pin of the DS external sender, the KT key and ktRequired, per origin (§12.7.1, §12.14).
+   * ktRequired is sticky: a later DsInfo with false does not turn KT off.
+   */
   async function pinDs(r: IdentityRow): Promise<IdentityRow> {
-    if (r.dsExternalSender !== null && r.ktPublicKey !== null) return r
+    if (r.dsExternalSender !== null && r.ktPublicKey !== null && r.ktRequired != null) return r
     const info = await transport.getDsInfo()
-    return { ...r, dsExternalSender: r.dsExternalSender ?? fromB64url(info.externalSender), ktPublicKey: r.ktPublicKey ?? fromB64url(info.ktPublicKey) }
+    return {
+      ...r,
+      dsExternalSender: r.dsExternalSender ?? fromB64url(info.externalSender),
+      ktPublicKey: r.ktPublicKey ?? fromB64url(info.ktPublicKey),
+      ktRequired: r.ktRequired === true || info.ktRequired,
+    }
   }
 
   /** The registered device without a certificate (first device, restore, reset or link). */
@@ -213,8 +224,20 @@ export const createIdentityService: CreateIdentityService = (ctx, deps) => {
     if (state === 'ready') throw new CryptoError('Unsupported', 'this device already has an identity')
     if (state === 'revoked') throw new CryptoError('DeviceRevoked', 'this device was revoked')
     if (row !== null) return row
-    const device = await transport.registerDevice({ name: opts.deviceName, platform: opts.platform, clientVersion: opts.clientVersion })
+    // The key comes first: POST /devices presents it and carries a device proof by it (§12.12).
     const mlsSignatureKey = generateEd25519()
+    registering = mlsSignatureKey
+    let device
+    try {
+      device = await transport.registerDevice({
+        name: opts.deviceName,
+        platform: opts.platform,
+        clientVersion: opts.clientVersion,
+        mlsSignatureKey: toB64url(mlsSignatureKey.publicKey),
+      })
+    } finally {
+      registering = null
+    }
     const hpkePrivate = x25519.utils.randomSecretKey()
     const pending: IdentityRow = {
       userId: opts.userId,
@@ -462,6 +485,7 @@ export const createIdentityService: CreateIdentityService = (ctx, deps) => {
   const ktClient = createKtClient({
     transport,
     ktPublicKey: () => row?.ktPublicKey ?? null,
+    ktRequired: () => row?.ktRequired === true,
     loadState: () => store.get('kt', SELF),
     patchState: (patch) => patchKtRow(patch),
     alert: (a) => {
@@ -479,11 +503,14 @@ export const createIdentityService: CreateIdentityService = (ctx, deps) => {
     return next
   }
 
-  /** Phase 4: the inclusion proof of one key object. Without KT on the DS (no head yet), no proof. */
+  /**
+   * Phase 4: the inclusion proof of one key object. Fails closed when the pinned DsInfo requires
+   * KT or a head is stored. Only a DS that never advertised KT (and sent no head) skips the proof.
+   */
   async function proveKt(userId: UserId, type: KtEntry['type'], object: Uint8Array, ktIndex: number | null, ktEntry: string | null): Promise<void> {
     if (ktIndex === null || ktEntry === null) {
       if (await ktClient.active()) {
-        ctx.emit('ktAlert', { kind: 'bad_proof', detail: `a key object of ${userId} has no KT entry` })
+        ctx.emit('ktAlert', { kind: 'kt_missing', detail: `a key object of ${userId} has no KT entry` })
         throw new CryptoError('InvalidChain', 'key object without a KT entry')
       }
       return
@@ -921,6 +948,26 @@ export const createIdentityService: CreateIdentityService = (ctx, deps) => {
     await forget()
   }
 
+  // MARK: - device proof (§12.12, §12.13)
+
+  function proveDevice(input: DeviceProofInput): Promise<DeviceProof> {
+    if (typeof input !== 'object' || input === null || (input.kind !== 'ds' && input.kind !== 'identify')) {
+      return Promise.reject(new CryptoError('Malformed', 'device proof input'))
+    }
+    const key = row?.mlsSignatureKey ?? registering
+    if (!key) return Promise.reject(new CryptoError('NoIdentity', 'this device has no MLS key'))
+    const deviceId = row?.deviceId ?? ''
+    const ts = ctx.now()
+    const nonce = toB64url(ctx.random(DEVICE_PROOF_NONCE_BYTES))
+    let message: Uint8Array
+    try {
+      message = deviceProofMessage(input, deviceId, ts, nonce)
+    } catch (e) {
+      return Promise.reject(new CryptoError('Malformed', (e as Error).message))
+    }
+    return Promise.resolve({ ts, nonce, sig: toB64url(ed25519.sign(message, key.privateKey)) })
+  }
+
   async function forget(): Promise<void> {
     await store.destroy()
     row = null
@@ -1174,6 +1221,7 @@ export const createIdentityService: CreateIdentityService = (ctx, deps) => {
       await transport.renameDevice(deviceId, name)
     },
     signOutDevice,
+    proveDevice,
 
     async getTrust(userId) {
       if (self?.userId !== userId) await userKeys(userId)

@@ -47,6 +47,7 @@ export function checkAddKeyPackage(kp: KeyPackage, policy: ProposalPolicy): stri
     return null
   }
   if (!policy.readers?.has(id.userId)) return 'not_reader'
+  if (policy.adminChainMissing === true && policy.kind === 'channel') return 'admin_chain_missing'
   if (policy.adminReaders !== null && !policy.adminReaders.has(id.userId)) return 'not_admin_reader'
   return null
 }

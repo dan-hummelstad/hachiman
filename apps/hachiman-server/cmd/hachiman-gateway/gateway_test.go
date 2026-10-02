@@ -6,6 +6,10 @@ package main
 
 import (
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -96,11 +100,11 @@ func newHarness(t *testing.T) *harness {
 	g.offlineGrace = 300 * time.Millisecond
 	g.load = func(ctx context.Context, userID, onlyGuild string) (*readyData, error) { return fixture(), nil }
 	h := &harness{t: t, mr: mr, rdb: rdb, g: g, devices: map[string]deviceRow{
-		devA:       {UserID: me, Status: "active"},
-		devB:       {UserID: me, Status: "active"},
-		devPending: {UserID: me, Status: "pending"},
-		devRevoked: {UserID: me, Status: "revoked"},
-		devOther:   {UserID: "u2", Status: "active"},
+		devA:       {UserID: me, Status: "active", SignatureKey: testDevicePub(devA)},
+		devB:       {UserID: me, Status: "active", SignatureKey: testDevicePub(devB)},
+		devPending: {UserID: me, Status: "pending", SignatureKey: testDevicePub(devPending)},
+		devRevoked: {UserID: me, Status: "revoked", SignatureKey: testDevicePub(devRevoked)},
+		devOther:   {UserID: "u2", Status: "active", SignatureKey: testDevicePub(devOther)},
 	}}
 	g.device = func(ctx context.Context, id string) (deviceRow, error) {
 		h.devMu.Lock()
@@ -199,9 +203,41 @@ func (c *client) expectClose(code int) {
 	}
 }
 
+// testDeviceKey is the MLS signature key of a test device: fixed per id.
+func testDeviceKey(deviceID string) ed25519.PrivateKey {
+	seed := sha256.Sum256([]byte("test-device:" + deviceID))
+	return ed25519.NewKeyFromSeed(seed[:])
+}
+
+func testDevicePub(deviceID string) []byte {
+	return testDeviceKey(deviceID).Public().(ed25519.PublicKey)
+}
+
+// proofFor is a fresh deviceProof of deviceID (§12.13), signed now.
+func proofFor(deviceID, sessionID, token string) map[string]any {
+	return proofAt(testDeviceKey(deviceID), deviceID, sessionID, token, time.Now().UnixMilli())
+}
+
+func proofAt(key ed25519.PrivateKey, deviceID, sessionID, token string, ts int64) map[string]any {
+	var n [16]byte
+	_, _ = rand.Read(n[:])
+	nonce := base64.RawURLEncoding.EncodeToString(n[:])
+	sig := ed25519.Sign(key, identifyProofMessage(deviceID, sessionID, ts, nonce, token))
+	return map[string]any{"ts": ts, "nonce": nonce, "sig": base64.RawURLEncoding.EncodeToString(sig)}
+}
+
 // identifyAs is a valid IDENTIFY payload for deviceID (§12.13).
 func identifyAs(deviceID string) map[string]any {
-	return map[string]any{"token": "good", "deviceId": deviceID, "capabilities": []string{"e2ee/1"}, "clientVersion": "1.0.0"}
+	return map[string]any{"token": "good", "deviceId": deviceID, "capabilities": []string{"e2ee/1"}, "clientVersion": "1.0.0", "deviceProof": proofFor(deviceID, "", "good")}
+}
+
+// resumeAs adds the deviceProof of the payload's token, sessionId and deviceId.
+func resumeAs(p map[string]any) map[string]any {
+	device, _ := p["deviceId"].(string)
+	sid, _ := p["sessionId"].(string)
+	token, _ := p["token"].(string)
+	p["deviceProof"] = proofFor(device, sid, token)
+	return p
 }
 
 func (c *client) identify() string { return c.identifyDevice(devA) }
@@ -367,7 +403,7 @@ func TestResumeReplaysBufferedEvents(t *testing.T) {
 	}
 
 	c2 := h.dial()
-	c2.send(opResume, map[string]any{"token": "good", "sessionId": sid, "seq": 1, "deviceId": devA})
+	c2.send(opResume, resumeAs(map[string]any{"token": "good", "sessionId": sid, "seq": 1, "deviceId": devA}))
 	var last int64 = 1
 	sawMsg := false
 	for {
@@ -397,7 +433,7 @@ func TestResumeReplaysBufferedEvents(t *testing.T) {
 func TestResumeInvalidSession(t *testing.T) {
 	h := newHarness(t)
 	c := h.dial()
-	c.send(opResume, map[string]any{"token": "good", "sessionId": "nope", "seq": 3, "deviceId": devA})
+	c.send(opResume, resumeAs(map[string]any{"token": "good", "sessionId": "nope", "seq": 3, "deviceId": devA}))
 	if f := c.next(); f.Op != opInvalidSession || string(f.D) != "false" {
 		t.Fatalf("got op=%d d=%s, want INVALID_SESSION(false)", f.Op, f.D)
 	}
@@ -408,7 +444,7 @@ func TestResumeInvalidSession(t *testing.T) {
 	s3 := c3.identify()
 	c3.ws.Close()
 	c4 := h.dial()
-	c4.send(opResume, map[string]any{"token": "good", "sessionId": s3, "seq": 999, "deviceId": devA})
+	c4.send(opResume, resumeAs(map[string]any{"token": "good", "sessionId": s3, "seq": 999, "deviceId": devA}))
 	c4.expectClose(closeInvalidSeq)
 }
 

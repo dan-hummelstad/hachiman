@@ -318,20 +318,27 @@ function readHistoryBatch(r: Reader): HistoryKeyEntry[] {
   const keys = r.vector(readHistoryKey)
   // The encoder never writes an empty batch (its group id would be lost in the entry list).
   if (keys.length === 0) throw new CodecError('empty history batch')
+  // FZ-4: the encoder sorts and dedupes, so only strictly ascending epochs are canonical.
+  for (let i = 1; i < keys.length; i++) if (keys[i]!.epoch <= keys[i - 1]!.epoch) throw new CodecError('history epochs not strictly ascending')
   return keys.map((k) => ({ groupId, epoch: k.epoch, secret: k.secret }))
 }
 
-/** Groups entries by group id (in first-seen order) and sorts each group by epoch. */
+/**
+ * Groups entries by group id (in first-seen order) and sorts each group by epoch. When two
+ * entries have the same group and epoch, the later entry wins, so the output always decodes.
+ */
 export function groupHistory(entries: readonly HistoryKeyEntry[]): { groupId: Uint8Array; keys: HistoryKey[] }[] {
-  const byGroup = new Map<string, { groupId: Uint8Array; keys: HistoryKey[] }>()
+  const byGroup = new Map<string, { groupId: Uint8Array; byEpoch: Map<number, Uint8Array> }>()
   for (const e of entries) {
     const id = Array.from(e.groupId).join(',')
     let g = byGroup.get(id)
-    if (!g) byGroup.set(id, (g = { groupId: e.groupId, keys: [] }))
-    g.keys.push({ epoch: e.epoch, secret: e.secret })
+    if (!g) byGroup.set(id, (g = { groupId: e.groupId, byEpoch: new Map() }))
+    g.byEpoch.set(e.epoch, e.secret)
   }
-  for (const g of byGroup.values()) g.keys.sort((a, b) => a.epoch - b.epoch)
-  return [...byGroup.values()]
+  return [...byGroup.values()].map((g) => ({
+    groupId: g.groupId,
+    keys: [...g.byEpoch].map(([epoch, secret]) => ({ epoch, secret })).sort((a, b) => a.epoch - b.epoch),
+  }))
 }
 
 /** One group's batch (kind 2 backup blob). All entries must have the same group id. */
@@ -367,7 +374,11 @@ export const decodeLinkTransfer = (b: Uint8Array): LinkTransfer =>
     const dskCert = readDskCert(r)
     const dskPrivateKey = r.fixed(KEY)
     const deviceCertificate = readDeviceCert(r)
-    const historyKeys = r.vector(readHistoryBatch).flat()
+    const batches = r.vector(readHistoryBatch)
+    // The encoder writes one batch per group, so a repeated group id is not canonical.
+    const ids = new Set(batches.map((b) => Array.from(b[0]!.groupId).join(',')))
+    if (ids.size !== batches.length) throw new CodecError('duplicate group id in history')
+    const historyKeys = batches.flat()
     return { master, dskCert, dskPrivateKey, deviceCertificate, historyKeys }
   })
 

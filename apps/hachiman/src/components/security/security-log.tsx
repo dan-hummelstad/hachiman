@@ -20,7 +20,8 @@ const ALERT_TEXT: Record<string, string> = {
   self_unknown_entry:
     'The key log has a key change for your account that none of your devices made.',
   split_view: 'The server showed two different versions of the key log.',
-  bad_proof: 'The server could not prove that a key is in the key log.'
+  bad_proof: 'The server could not prove that a key is in the key log.',
+  kt_missing: 'The server sent a key that is not in the key log. The key was rejected.'
 }
 
 /**

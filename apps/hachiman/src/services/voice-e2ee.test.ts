@@ -29,6 +29,10 @@ function harness(): Harness {
     voiceAttachTransform: async (handle, port) => {
       attached.push(port)
       log.push(`attach ${handle}`)
+      return `port-${(port as unknown as { side: string }).side}`
+    },
+    voiceDetachTransform: async (portId) => {
+      log.push(`detach ${portId}`)
     },
     voiceStop: async (handle) => {
       log.push(`stop ${handle}`)
@@ -128,5 +132,53 @@ describe('createVoiceE2ee', () => {
     expect(h.log.filter((l) => l === 'terminate')).toHaveLength(1)
     expect(h.log).toContain('handle-state null')
     expect(() => e2ee.receiverTransform('u-2', 'audio')).toThrow('ended')
+  })
+
+  it('detaches the port of a released receiver transform, once, and leaves the senders alone', async () => {
+    const h = harness()
+    const e2ee = createVoiceE2ee(h.deps)
+    await e2ee.start()
+    const sender = e2ee.senderTransform('audio')
+    const recv = e2ee.receiverTransform('u-2', 'audio')
+    await Promise.resolve()
+    e2ee.releaseTransform(recv)
+    e2ee.releaseTransform(recv)
+    e2ee.releaseTransform(sender)
+    await new Promise((r) => setTimeout(r, 0))
+    expect(h.log.filter((l) => l.startsWith('detach'))).toEqual(['detach port-crypto2'])
+  })
+
+  it('closes a released port that never reached the crypto Worker', async () => {
+    const h = harness()
+    const e2ee = createVoiceE2ee(h.deps)
+    const recv = e2ee.receiverTransform('u-2', 'video')
+    e2ee.releaseTransform(recv)
+    expect(h.log).toContain('close crypto1')
+    await e2ee.start()
+    await new Promise((r) => setTimeout(r, 0))
+    expect(h.attached).toHaveLength(0)
+    expect(h.log.filter((l) => l.startsWith('detach'))).toEqual([])
+  })
+
+  it('detaches a receiver whose port waited for the handle', async () => {
+    const h = harness()
+    const e2ee = createVoiceE2ee(h.deps)
+    const recv = e2ee.receiverTransform('u-2', 'audio')
+    await e2ee.start()
+    e2ee.releaseTransform(recv)
+    await new Promise((r) => setTimeout(r, 0))
+    expect(h.log.filter((l) => l.startsWith('detach'))).toEqual(['detach port-crypto1'])
+  })
+
+  it('leaves the ports to voiceStop after close', async () => {
+    const h = harness()
+    const e2ee = createVoiceE2ee(h.deps)
+    await e2ee.start()
+    const recv = e2ee.receiverTransform('u-2', 'audio')
+    e2ee.close()
+    e2ee.releaseTransform(recv)
+    await new Promise((r) => setTimeout(r, 0))
+    expect(h.log.filter((l) => l.startsWith('detach'))).toEqual([])
+    expect(h.log).toContain('stop h-1')
   })
 })

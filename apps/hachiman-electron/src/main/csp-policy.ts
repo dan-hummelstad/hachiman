@@ -36,7 +36,9 @@ export function cspFromEndpoints(
   const workers = devServerUrl
     ? `'self' ${new URL(devServerUrl).origin}`
     : "'self'";
-  // Media nodes are placed per region, so their voice WS host is not known at build time.
+  // Media nodes are placed per region, and the gateway gives the media signaling URL of each
+  // voice join at run time (§8), so their voice WS host is not known at build time. Thus any
+  // wss: host is allowed. An injected script can open a WS to any wss: host (audit scope L-12).
   connect.add("wss:");
   // A local (plain-text) stack places local media nodes on ws:, and Vite's HMR
   // socket is ws: too. Allow ws: only when some endpoint is already plain text.
@@ -46,6 +48,9 @@ export function cspFromEndpoints(
   }
   // Dev only: @vitejs/plugin-react injects an inline Fast Refresh preamble.
   const scripts = devServerUrl ? "'self' 'unsafe-inline'" : "'self'";
+  // 'unsafe-inline' styles stay: Radix (popover, tooltip, dialog positions) and the UI set
+  // inline style attributes, which a nonce or hash cannot allow. Inline styles run no script
+  // (audit scope L-12).
 
   return [
     "default-src 'self'",

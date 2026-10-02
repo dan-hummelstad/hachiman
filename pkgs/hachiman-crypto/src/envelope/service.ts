@@ -128,6 +128,10 @@ export const createMessageService: CreateMessageService = (ctx, identity, groups
       if (cert === null) return { failure: 'invalid_chain' }
       if (cert.deviceId !== h.senderDeviceId) return { failure: 'invalid_chain' }
       if (cert.userId !== m.authorId) return { failure: kind === 'message' ? 'device_mismatch' : 'edit_not_author' }
+      // A revoked device: no envelope of an epoch at or after the Remove that this client processed.
+      // Older epochs stay valid (the residual risk of §12.8.5 step 4).
+      const removedAt = await groups.removedAt(h.groupId, h.senderDeviceId)
+      if (removedAt !== null && h.epoch >= removedAt && (await identity.chainContextFor(cert.userId, false)).revokedDeviceIds.has(h.senderDeviceId)) return { failure: 'invalid_chain' }
       return { signatureKey: cert.mlsSignatureKey }
     })
     if ('failure' in opened) {

@@ -10,7 +10,7 @@
 import { ApiError } from '@/lib/errors'
 
 import { bytesEqual, toB64 } from './bytes'
-import { BATCH_TIMEOUT_COOLDOWN_MS } from './config'
+import { BATCH_TIMEOUT_COOLDOWN_MS, FALSE_REJECTION_LIMIT } from './config'
 import type { DsDeps, LightDeps } from './context'
 import { BATCH_MAX_ADDS, type CipherSuiteId, type WireBatchAssign } from './crypto'
 import type { Outbox } from './events'
@@ -37,7 +37,9 @@ function cooldownDevices(batches: BatchRow[], now: Date): string[] {
  */
 export async function assignCreate(repo: MlsRepo, deps: LightDeps, out: Outbox, group: GroupRow, preferredDevice: string | null, skip: string[]): Promise<BatchRow | null> {
   const readers = await readersOfGroup(repo, group)
-  const devices = (await activeDevicesOf(repo, readers)).filter((d) => !skip.includes(d.id)).sort((a, b) => a.id.localeCompare(b.id))
+  const all = (await activeDevicesOf(repo, readers)).filter((d) => !skip.includes(d.id))
+  const barred = await deps.strikes.barred(all.map((d) => d.id))
+  const devices = all.filter((d) => !barred.has(d.id)).sort((a, b) => a.id.localeCompare(b.id))
   const online = await deps.presence.onlineDevices(devices.map((d) => d.id))
   const preferred = preferredDevice ? devices.find((d) => d.id === preferredDevice && online.has(d.id)) : undefined
   const assignee = preferred ?? devices.find((d) => online.has(d.id))
@@ -111,8 +113,9 @@ async function assignBatch(r: MlsRepo, deps: DsDeps, out: Outbox, group: GroupRo
     const d = await r.getDevice(m.deviceId)
     if (d?.status === 'active') candidates.push(d)
   }
+  const barred = await deps.strikes.barred(candidates.map((d) => d.id))
   const online = await deps.presence.onlineDevices(candidates.map((d) => d.id))
-  const committer = candidates.find((d) => online.has(d.id))
+  const committer = candidates.find((d) => online.has(d.id) && !barred.has(d.id))
 
   if (!committer) {
     // §12.7.5 step 7: public_set joiners join by external commit; others wait. Removes stay queued.
@@ -214,47 +217,108 @@ export async function runSchedulerTick(repo: MlsRepo, deps: DsDeps, out: Outbox,
   }
 }
 
-/** POST /mls/batches/:id/decline: the batch goes to the next device at once (§12.7.5 step 6). */
 /** A DS proposal of the batch that the committer refused, by its RFC 9420 ProposalRef. */
 export interface RejectedProposal {
   proposalRef: Uint8Array
   reason: string
 }
 
+/** One item of a batch that its committer rejected, with the reason it gave. */
+export interface CommitterRejection {
+  pending: PendingRow
+  reason: string
+}
+
 /**
- * Marks the DS Add proposals of `batch` that its committer refused (bad chain,
- * malformed key package, ...) as 'rejected', so the next batch of the group
- * leaves them out. MLS_BATCH_ASSIGN.proposals carry no pendingId, so the
- * committer names each one by its ProposalRef. A join request of a rejected
- * Add gets MLS_JOIN_UPDATE rejected.
+ * Applies the rejections that the committer `committerId` reported for its
+ * batch (§12.7.5). A `not_reader` rejection of an Add is checked against
+ * `readersOfGroup` (channelReaders, or the guild members of a public_set).
+ * When the user is a reader, the rejection is false: the item goes back to
+ * 'queued', and the device gets one strike for the report. A device with
+ * FALSE_REJECTION_LIMIT strikes gets no more batches. Other reasons are
+ * accepted. Returns the number of false rejections.
+ */
+export async function settleRejections(
+  repo: MlsRepo,
+  deps: Pick<DsDeps, 'strikes'>,
+  out: Outbox,
+  group: GroupRow,
+  committerId: string,
+  items: readonly CommitterRejection[],
+  now: Date,
+): Promise<number> {
+  let readers: Set<string> | null = null
+  let falseCount = 0
+  for (const { pending: p, reason } of items) {
+    if (p.op === 'add' && reason === 'not_reader') {
+      readers ??= await readersOfGroup(repo, group)
+      if (p.userId && readers.has(p.userId)) {
+        await repo.updatePending(p.id, { status: 'queued' })
+        falseCount++
+        continue
+      }
+    }
+    if (p.op === 'add') await rejectPendingAdd(repo, out, group, p, reason, now)
+    else await repo.updatePending(p.id, { status: 'rejected', reason })
+  }
+  if (falseCount > 0) {
+    const strikes = await deps.strikes.add(committerId)
+    console.warn(`[mls-scheduler] device ${committerId} reported ${falseCount} false not_reader rejection(s) for group ${toB64(group.groupId)} (strike ${strikes})`)
+    if (strikes === FALSE_REJECTION_LIMIT) console.warn(`[mls-scheduler] device ${committerId} gets no more batches: ${strikes} false rejection reports`)
+  }
+  return falseCount
+}
+
+/**
+ * Settles the DS Add proposals of `batch` that its committer refused (bad
+ * chain, malformed key package, ...) through `settleRejections`, so the next
+ * batch of the group leaves them out. MLS_BATCH_ASSIGN.proposals carry no
+ * pendingId, so the committer names each one by its ProposalRef. A join
+ * request of a rejected Add gets MLS_JOIN_UPDATE rejected.
  *
  * Only Adds: a DS Remove is Takusen's own decision, and a committer cannot
  * keep a member in the group by refusing it. Refs that are not a queued or
  * assigned Add of the batch, or that are in `skip` (applied), are ignored.
+ * Returns the number of false rejections.
  */
 export async function rejectBatchProposals(
   repo: MlsRepo,
+  deps: Pick<DsDeps, 'strikes'>,
   out: Outbox,
   group: GroupRow,
   batch: BatchRow,
   rejected: readonly RejectedProposal[],
   now: Date,
   skip: ReadonlySet<string> = new Set(),
-): Promise<void> {
-  if (rejected.length === 0) return
+): Promise<number> {
+  if (rejected.length === 0) return 0
+  return settleRejections(repo, deps, out, group, batch.deviceId, await proposalRejections(repo, batch, rejected, skip), now)
+}
+
+/** The open DS Adds of `batch` that `rejected` names by ProposalRef, minus `skip`. */
+export async function proposalRejections(
+  repo: MlsRepo,
+  batch: BatchRow,
+  rejected: readonly RejectedProposal[],
+  skip: ReadonlySet<string> = new Set(),
+): Promise<CommitterRejection[]> {
+  if (rejected.length === 0) return []
   const rows = (await repo.getPendingByIds(batch.pendingIds)).filter(
     (p) => p.op === 'add' && p.proposalRef !== null && (p.status === 'queued' || p.status === 'assigned') && !skip.has(p.id),
   )
+  const items: CommitterRejection[] = []
   for (const x of rejected) {
     const p = rows.find((r) => bytesEqual(r.proposalRef!, x.proposalRef))
     if (!p) continue
-    await rejectPendingAdd(repo, out, group, p, x.reason, now)
+    items.push({ pending: p, reason: x.reason })
     rows.splice(rows.indexOf(p), 1)
   }
+  return items
 }
 
 /**
- * POST /mls/batches/:id/decline. Only the assigned device may decline. With
+ * POST /mls/batches/:id/decline (§12.7.5 step 6): the batch goes to the next
+ * device at once. Only the assigned device may decline. With
  * `rejectedProposals`, the committer also reports the DS proposals that it refused
  * (`rejectBatchProposals`); the next batch leaves them out.
  */
@@ -273,7 +337,7 @@ export async function declineBatch(
   await repo.transaction(async (r) => {
     const group = await r.lockGroup(batch.groupId)
     if (!group || (group.status === 'active' && group.epoch !== batch.epoch)) throw new ApiError('BatchExpired', 410, 'the epoch changed')
-    await rejectBatchProposals(r, out, group, batch, rejected, now)
+    await rejectBatchProposals(r, deps, out, group, batch, rejected, now)
     await r.expireBatch(batch.id, now)
   })
   await scheduleGroup(repo, deps, out, batch.groupId)

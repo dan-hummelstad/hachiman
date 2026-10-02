@@ -8,7 +8,7 @@ import { z } from 'zod'
 import { ApiError } from '@/lib/errors'
 import { b64 } from '@/lib/mls/bytes'
 import { INBOX_ITEM_MAX_BYTES } from '@/lib/mls/config'
-import { rateLimit } from '@/lib/mls/context'
+import { rateLimitDevice } from '@/lib/mls/context'
 import { resolveDeviceParam } from '@/lib/mls/device-auth'
 import { listInbox, postInbox } from '@/lib/mls/device-data'
 import { body, dsRoute, intQuery, json, noContent, requireRouteDevice, uuidParam } from '@/lib/mls/route'
@@ -33,7 +33,7 @@ export const POST = dsRoute<{ id: string }>('active', async (ctx) => {
   if (!bytes.success) throw new ApiError('ValidationError', 400, 'body must be base64url')
   if (bytes.data.length > INBOX_ITEM_MAX_BYTES) throw new ApiError('InboxFull', 413, 'the item is above 1 MiB')
   const deps = await ctx.deps()
-  await rateLimit(deps, 'inboxPosts', device.id)
+  await rateLimitDevice(deps, 'inboxPosts', device)
   await postInbox(ctx.repo, ctx.out, { userId: ctx.userId, device }, target, { kind: raw.kind, body: bytes.data }, deps.now())
   return noContent()
 })

@@ -125,6 +125,32 @@ describe('VoiceConnection', () => {
     expect(again.receiver.transform).toBe(d.recvTransforms[2])
   })
 
+  it('releases a receiver transform when its track ends, its peer leaves, the receiver gets a new one, or the call ends', async () => {
+    await offer()
+    ws.recv({ op: 'peers', d: { peers: [{ userId: 'bob', ssrc: 2 }, { userId: 'carol', ssrc: 3 }] } })
+    const audio = pc().fireTrack('bob', 'audio')
+    const screen = pc().fireTrack('screen-bob', 'video')
+    const carol = pc().fireTrack('carol', 'audio')
+    const [bobAudio, bobScreen, carolAudio] = d.recvTransforms
+    // The remote screen share stops: its track ends.
+    screen.track.onended?.()
+    expect(d.released).toEqual([bobScreen])
+    // The transceiver is used again: the old transform goes first, and its late `ended` is a no-op.
+    pc().fireTrack('dave', 'audio', audio.receiver)
+    expect(d.released).toEqual([bobScreen, bobAudio])
+    audio.track.onended?.()
+    expect(d.released).toHaveLength(2)
+    // carol leaves the roster.
+    ws.recv({ op: 'peers', d: { peers: [{ userId: 'bob', ssrc: 2 }, { userId: 'dave', ssrc: 4 }] } })
+    expect(d.released).toEqual([bobScreen, bobAudio, carolAudio])
+    carol.track.onended?.()
+    expect(d.released).toHaveLength(3)
+    // The call ends: close releases the rest (dave) through the delegate.
+    vc.close()
+    expect(d.released).toHaveLength(3)
+    expect(d.closeCount).toBe(1)
+  })
+
   it('drops tracks without msid or with a kind that does not match the msid', async () => {
     await offer()
     const screens = vi.fn()

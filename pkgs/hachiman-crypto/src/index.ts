@@ -5,6 +5,7 @@
  */
 export * from './api'
 export * from './constants'
+export * from './device-proof'
 export { fromB64url, toB64url } from './codec'
 export { decodeAdminPayload, encodeAdminPayload } from './admin/index'
 export { createCryptoClient, createTransformWorker, cryptoLockName, LOCK_HELD_MESSAGE } from './bridge/index'

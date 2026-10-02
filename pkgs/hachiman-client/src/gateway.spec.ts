@@ -78,6 +78,44 @@ describe('GatewayClient', () => {
     expect(ws2.sent[0]).toEqual(resume('tok2', 3))
   })
 
+  it('IDENTIFY and RESUME carry deviceProof over the session id and SHA-256(token) (§12.13)', async () => {
+    gw.disconnect()
+    const seen: unknown[] = []
+    gw = new GatewayClient({
+      url: 'ws://gw',
+      getToken: () => Promise.resolve(`tok${++tokens}`),
+      device: () => device,
+      proveDevice: r => {
+        seen.push(r)
+        return Promise.resolve({ ts: 1, nonce: 'n', sig: 's' })
+      },
+    })
+    const sha = async (s: string) =>
+      new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s)))
+    gw.connect()
+    const ws = FakeWebSocket.last
+    ws.recv({ op: 10, d: { heartbeatInterval: 1000 } })
+    await vi.waitFor(() => expect(ws.sent.length).toBeGreaterThan(0))
+    expect(ws.sent[0]).toEqual({ op: 2, d: { token: 'tok1', ...device, deviceProof: { ts: 1, nonce: 'n', sig: 's' } } })
+    expect(seen[0]).toEqual({ kind: 'identify', sessionId: null, tokenSha256: await sha('tok1') })
+    ws.recv({
+      op: 0,
+      s: 1,
+      t: 'READY',
+      d: { v: 1, sessionId: 'S', user: { id: 'me' }, guilds: [], privateChannels: [], presences: [] },
+    })
+    ws.drop(1006)
+    await vi.advanceTimersByTimeAsync(1000)
+    const ws2 = FakeWebSocket.last
+    ws2.recv({ op: 10, d: { heartbeatInterval: 1000 } })
+    await vi.waitFor(() => expect(ws2.sent.length).toBeGreaterThan(0))
+    expect(ws2.sent[0]).toEqual({
+      op: 6,
+      d: { token: 'tok2', sessionId: 'S', seq: 1, deviceId: 'dev1', deviceProof: { ts: 1, nonce: 'n', sig: 's' } },
+    })
+    expect(seen[1]).toEqual({ kind: 'identify', sessionId: 'S', tokenSha256: await sha('tok2') })
+  })
+
   it('close → RESUME with last seq; RESUMED → ready', async () => {
     gw.connect()
     const ws = FakeWebSocket.last

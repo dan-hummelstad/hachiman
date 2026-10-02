@@ -80,7 +80,8 @@ export interface GuildPermissionData {
   members: Map<string, string[]>
 }
 
-export type NewDevice = Pick<DeviceRow, 'userId' | 'name' | 'platform' | 'clientVersion'>
+/** `mlsSignatureKey`: the key that POST /devices presents (null when left out). */
+export type NewDevice = Pick<DeviceRow, 'userId' | 'name' | 'platform' | 'clientVersion'> & { mlsSignatureKey?: Uint8Array | null }
 export type DevicePatch = Partial<Pick<DeviceRow, 'status' | 'name' | 'certificate' | 'mlsSignatureKey' | 'hpkeKey' | 'dskGeneration' | 'lastSeenAt' | 'revokedAt'>>
 export type NewKeyPackage = Omit<KeyPackageRow, 'id' | 'createdAt'>
 export type NewGroup = Omit<GroupRow, 'createdAt' | 'latestSeq' | 'lastCommitRemoved' | 'epochStartedAt'>

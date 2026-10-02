@@ -154,7 +154,7 @@ func (s *session) run(first func() bool) {
 // indexed and receives the event. A lookup failure closes with 4000 (the
 // client retries), not 4013 (the client stops).
 func (s *session) recheckDevice() bool {
-	err := s.g.checkDevice(s.ctx, s.user.ID, s.deviceID)
+	_, err := s.g.checkDevice(s.ctx, s.user.ID, s.deviceID)
 	var ce closeErr
 	switch {
 	case err == nil:

@@ -29,10 +29,19 @@ export function currentDsk(rows: DskRow[]): DskRow | null {
 
 // MARK: - Devices
 
-export async function registerDevice(repo: MlsRepo, userId: string, body: { name: string; platform: DeviceRow['platform']; clientVersion: string }) {
+/**
+ * `mlsSignatureKey`: the key of the device proof (§12.12). The route requires it. The certificate
+ * must certify the same key later (checkCertificateFields).
+ */
+export async function registerDevice(
+  repo: MlsRepo,
+  userId: string,
+  body: { name: string; platform: DeviceRow['platform']; clientVersion: string; mlsSignatureKey?: Uint8Array | null },
+) {
   return repo.transaction(async (r) => {
     if ((await r.countLiveDevices(userId)) >= MAX_DEVICES) throw new ApiError('TooManyDevices', 409, `at most ${MAX_DEVICES} devices`)
-    const d = await r.insertDevice({ userId, ...body })
+    const { mlsSignatureKey = null, ...rest } = body
+    const d = await r.insertDevice({ userId, ...rest, mlsSignatureKey })
     return toWireDevice(d, null)
   })
 }

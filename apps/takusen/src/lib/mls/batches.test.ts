@@ -338,6 +338,90 @@ describe('batch scheduler (§12.7.5)', () => {
   })
 })
 
+describe('committer rejections are checked (§12.7.5)', () => {
+  /** A public_set group where the owner and `members[2]` have leaves, and members[0..1] have open Adds. */
+  async function setup() {
+    const w = await newWorld()
+    const g = await publicGuild(w, 3)
+    await join(w, g.group.groupId, g.members[2]!)
+    await runBatchAndCommit(w, g.group.groupId)
+    const jr0 = await join(w, g.group.groupId, g.members[0]!)
+    await join(w, g.group.groupId, g.members[1]!)
+    const pending = await w.repo.listPending(g.group.groupId, ['queued'])
+    const row0 = pending.find((p) => p.deviceId === g.members[0]!.device.id)!
+    const row1 = pending.find((p) => p.deviceId === g.members[1]!.device.id)!
+    const out = new Outbox()
+    await runSchedulerTick(w.repo, w.deps, out)
+    const assign = out.events.find((e) => e.t === 'MLS_BATCH_ASSIGN')!
+    assert.equal(assign.channel, `device:${g.oDev.id}`)
+    return { w, ...g, jr0, row0, row1, batchId: (assign.d as { batchId: string }).batchId }
+  }
+
+  test('a false not_reader in a commit keeps the Add, gives a strike, and the next batch goes to the next committer', async () => {
+    const { w, group, members, oDev, jr0, row0, row1, batchId } = await setup()
+    const body = await commitRequest(w, group.groupId, oDev, { refs: [toB64(row1.proposalRef!)], adds: [], removes: [] }, { welcome: true })
+    body.batchId = batchId
+    const out = new Outbox()
+    await uploadCommit(w.repo, w.deps, out, { userId: oDev.userId, device: oDev }, group.groupId, {
+      ...body,
+      rejectedProposals: [{ proposalRef: row0.proposalRef!, reason: 'not_reader' }],
+    })
+    assert.equal((await w.repo.getPendingByIds([row0.id]))[0]!.status, 'queued')
+    assert.notEqual((await w.repo.getJoinRequest(jr0.id))!.status, 'rejected')
+    assert.equal(out.events.some((e) => e.t === 'MLS_JOIN_UPDATE' && e.channel === `device:${members[0]!.device.id}` && (e.d as { status: string }).status === 'rejected'), false)
+    assert.equal(w.strikes.counts.get(oDev.id), 1)
+
+    const next = new Outbox()
+    await runSchedulerTick(w.repo, w.deps, next)
+    const assign = next.events.find((e) => e.t === 'MLS_BATCH_ASSIGN')!
+    assert.notEqual(assign.channel, `device:${oDev.id}`, 'the false reporter is in cooldown')
+    await commitLiveBatch(w, next, group.groupId)
+    assert.ok(await w.repo.memberByDevice(group.groupId, members[0]!.device.id))
+  })
+
+  test('a true not_reader is applied and gives no strike', async () => {
+    const { w, group, members, oDev, jr0, row0, row1, batchId } = await setup()
+    // Takusen sees the user leave the guild before it reconciles the group.
+    w.repo.removeGuildMember(group.guildId!, members[0]!.userId)
+    const body = await commitRequest(w, group.groupId, oDev, { refs: [toB64(row1.proposalRef!)], adds: [], removes: [] }, { welcome: true })
+    body.batchId = batchId
+    await uploadCommit(w.repo, w.deps, new Outbox(), { userId: oDev.userId, device: oDev }, group.groupId, {
+      ...body,
+      rejectedProposals: [{ proposalRef: row0.proposalRef!, reason: 'not_reader' }],
+    })
+    const [row] = await w.repo.getPendingByIds([row0.id])
+    assert.equal(row!.status, 'rejected')
+    assert.equal(row!.reason, 'not_reader')
+    assert.equal((await w.repo.getJoinRequest(jr0.id))!.status, 'rejected')
+    assert.equal(w.strikes.counts.get(oDev.id), undefined)
+  })
+
+  test('a false not_reader in a decline keeps the Add and the batch goes to the next device', async () => {
+    const { w, members, oDev, row0, batchId } = await setup()
+    const out = new Outbox()
+    await declineBatch(w.repo, w.deps, out, oDev.id, batchId, [{ proposalRef: row0.proposalRef!, reason: 'not_reader' }])
+    assert.notEqual((await w.repo.getPendingByIds([row0.id]))[0]!.status, 'rejected')
+    assert.equal(w.strikes.counts.get(oDev.id), 1)
+    const next = out.events.find((e) => e.t === 'MLS_BATCH_ASSIGN')!
+    assert.equal(next.channel, `device:${members[2]!.device.id}`)
+    const [kept] = await w.repo.getPendingByIds([row0.id])
+    assert.ok((next.d as { proposals: string[] }).proposals.includes(toB64(kept!.proposal!)), 'the next batch has the kept Add')
+  })
+
+  test('a device with FALSE_REJECTION_LIMIT strikes gets no batch, also after its cooldown', async () => {
+    const { w, members, oDev, row0, batchId } = await setup()
+    w.strikes.counts.set(oDev.id, 2)
+    await declineBatch(w.repo, w.deps, new Outbox(), oDev.id, batchId, [{ proposalRef: row0.proposalRef!, reason: 'not_reader' }])
+    assert.equal(w.strikes.counts.get(oDev.id), 3)
+    // The cooldown and the batch deadline pass: the scheduler still skips the device.
+    w.clock.now += 120_000
+    const out = new Outbox()
+    await runSchedulerTick(w.repo, w.deps, out)
+    const assign = out.events.find((e) => e.t === 'MLS_BATCH_ASSIGN')!
+    assert.equal(assign.channel, `device:${members[2]!.device.id}`)
+  })
+})
+
 describe('join requests (§12.7.8)', () => {
   test('channel and dm: a user with a leaf adds a new device by external commit at once', async () => {
     const w = await newWorld()

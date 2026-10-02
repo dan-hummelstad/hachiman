@@ -7,7 +7,7 @@ import { z } from 'zod'
 import { ApiError } from '@/lib/errors'
 import { b64 } from '@/lib/mls/bytes'
 import { LINK_MESSAGE_MAX_BYTES } from '@/lib/mls/config'
-import { rateLimit } from '@/lib/mls/context'
+import { rateLimitDevice } from '@/lib/mls/context'
 import { listLinkMessages, postLinkMessage } from '@/lib/mls/device-data'
 import { body, dsRoute, intQuery, json, requireRouteDevice, UUID_RE } from '@/lib/mls/route'
 
@@ -22,7 +22,7 @@ export const POST = dsRoute<{ id: string }>('pending', async (ctx) => {
   const device = requireRouteDevice(ctx)
   const b = await body(ctx.req, schema)
   const deps = await ctx.deps()
-  await rateLimit(deps, 'linkMessages', device.id)
+  await rateLimitDevice(deps, 'linkMessages', device)
   return json(await postLinkMessage(ctx.repo, ctx.out, { userId: ctx.userId, device }, sessionId(ctx.params.id), b.body, deps.now()))
 })
 

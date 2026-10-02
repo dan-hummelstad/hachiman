@@ -3,6 +3,8 @@ import type { TokenProvider } from './rest'
 import { TypedEventEmitter } from './typed-event-emitter'
 import {
   GatewayOp,
+  type DeviceProof,
+  type DeviceProver,
   type GatewayDevice,
   type GatewayEventName,
   type GatewayEvents,
@@ -54,6 +56,8 @@ export class GatewayClient extends TypedEventEmitter<GatewayClientEvents> {
       getToken: TokenProvider
       /** Sent in IDENTIFY and RESUME. A throw counts as a failed attempt (backoff, then retry). */
       device: () => GatewayDevice
+      /** Signs `deviceProof` of IDENTIFY and RESUME (§12.13). A rejection counts as a failed attempt. */
+      proveDevice?: DeviceProver | undefined
     },
   ) {
     super()
@@ -161,18 +165,24 @@ export class GatewayClient extends TypedEventEmitter<GatewayClientEvents> {
     const ws = this.ws
     let token: string
     let device: GatewayDevice
+    let deviceProof: DeviceProof | undefined
+    const sessionId = this._sessionId
     try {
       token = await this.opts.getToken() // fresh every time: the gateway only checks it here
       device = this.opts.device()
+      if (this.opts.proveDevice) {
+        const tokenSha256 = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(token)))
+        deviceProof = await this.opts.proveDevice({ kind: 'identify', sessionId, tokenSha256 })
+      }
     } catch {
       if (this.ws === ws) this.reconnect()
       return
     }
     if (this.ws !== ws) return
     const { deviceId, capabilities, clientVersion } = device
-    if (this._sessionId)
-      this.send(GatewayOp.RESUME, { token, sessionId: this._sessionId, seq: this.seq ?? 0, deviceId })
-    else this.send(GatewayOp.IDENTIFY, { token, deviceId, capabilities, clientVersion })
+    if (sessionId)
+      this.send(GatewayOp.RESUME, { token, sessionId, seq: this.seq ?? 0, deviceId, deviceProof })
+    else this.send(GatewayOp.IDENTIFY, { token, deviceId, capabilities, clientVersion, deviceProof })
   }
 
   private startHeartbeat(interval: number): void {

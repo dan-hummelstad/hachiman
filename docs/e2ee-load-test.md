@@ -6,12 +6,12 @@ Date: 2026-10-02. Library: ts-mls 1.6.4. Machine: Apple M4 (10 cores, 24 GiB), N
 
 ## Result
 
-- **Cap: `PUBLIC_SET_MAX_MEMBERS = 250`.** This value is in `pkgs/hachiman-crypto/src/constants.ts`. It was 10,000.
+- **Cap: `PUBLIC_SET_MAX_MEMBERS = 500`.** This value is in `pkgs/hachiman-crypto/src/constants.ts`. It was 10,000. The first run set 250. After three optimizations in `src/mls/index.ts` (lazy state encoding, a chain signature memo, `retainKeysForEpochs` 1), a full batch takes 0.43 s at 500 leaves and a join by Welcome takes 2.2 s. The ts-mls patch (`patches/ts-mls@1.6.4.patch`) removes the 2,048-leaf limit and the join failure that the first run found.
 - A group of 10,000 leaves does not work with the current code. Each budget that the test examines fails at 10,000.
 - ts-mls 1.6.4 has two defects that block large groups. Both are fixed in ts-mls 2.0.0-rc.16. See "ts-mls defects".
   - Joins fail in a valid tree after some normal commit sequences. This also affects `channel` and `dm` groups.
   - The library cannot encode a group of more than 2,048 leaves with the default V8 stack.
-- The cost that sets the cap is the full batch. When 100 DS Add proposals arrive in one batch (§12.7.5), the committer needs 3.4 s at 250 leaves and 5.1 s at 400 leaves. The batch deadline (`TAKUSEN_MLS_BATCH_TIMEOUT_MS`) is 5 s.
+- First run, before the optimizations: when 100 DS Add proposals arrive in one batch (§12.7.5), the committer needs 3.4 s at 250 leaves and 5.1 s at 400 leaves. The batch deadline (`TAKUSEN_MLS_BATCH_TIMEOUT_MS`) is 5 s. After the optimizations, the cost that sets the cap is a join by Welcome (see the cap above).
 
 ## Method
 

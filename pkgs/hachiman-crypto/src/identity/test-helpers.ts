@@ -295,6 +295,7 @@ export class FakeDs {
           externalSender: toB64url(ds.dsKey.publicKey),
           cipherSuites: [1],
           ktPublicKey: toB64url(ds.ktKey.publicKey),
+          ktRequired: ds.ktEnabled,
           limits: { maxEnvelopeBytes: 32768, maxInboxItemBytes: 1 << 20, maxHistoryBundleBytes: 524288, maxBackupBlobBytes: 1 << 20, keyPackageTarget: 100, keyPackageLowWater: 10 },
         }
       },

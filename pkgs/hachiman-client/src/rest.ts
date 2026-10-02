@@ -11,6 +11,7 @@ import type {
   CreateGroupRequest,
   Device,
   DevicePlatform,
+  DeviceProver,
   DsInfo,
   GroupState,
   Guild,
@@ -206,6 +207,12 @@ function query(params: Record<string, string | number | undefined>): string {
 interface ReqOptions {
   auth?: boolean
   signedAction?: Opt<B64url>
+  /** POST /devices: a device proof without X-Hachiman-Device (the key of the body signs). */
+  proveWithoutDevice?: boolean
+}
+
+async function sha256(text: string): Promise<Uint8Array> {
+  return new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)))
 }
 
 export class RestClient {
@@ -215,6 +222,11 @@ export class RestClient {
       getToken: TokenProvider
       /** The current device id, sent as X-Hachiman-Device on every request when not null (§12.12). */
       getDeviceId?: () => string | null
+      /**
+       * Signs each request that sends X-Hachiman-Device (and POST /devices) with the device key:
+       * the headers X-Hachiman-Device-Ts, -Nonce and -Sig (§12.12 "Device proof").
+       */
+      proveDevice?: DeviceProver | undefined
     },
   ) {}
 
@@ -307,8 +319,8 @@ export class RestClient {
 
   // MARK: - Devices and keys (§12.12)
 
-  registerDevice = (body: { name: string; platform: DevicePlatform; clientVersion: string }) =>
-    this.req<Device>('POST', '/devices', body)
+  registerDevice = (body: { name: string; platform: DevicePlatform; clientVersion: string; mlsSignatureKey: B64url }) =>
+    this.req<Device>('POST', '/devices', body, { proveWithoutDevice: true })
   listDevices = () => this.req<Device[]>('GET', '/devices')
   renameDevice = (id: string, name: string) => this.req<Device>('PATCH', `/devices/${e(id)}`, { name })
   putDeviceCertificate = (id: string, body: { certificate: B64url }) =>
@@ -456,19 +468,34 @@ export class RestClient {
     return this.opts.getDeviceId?.() ?? null
   }
 
+  /** Adds the device proof headers. The signed path is the one the server sees (pathname + search). */
+  private async prove(headers: Record<string, string>, method: string, url: string, json: string | undefined): Promise<void> {
+    const prover = this.opts.proveDevice
+    if (!prover) return
+    const u = new URL(url, globalThis.location?.href)
+    const bodySha256 = await sha256(json ?? '')
+    const p = await prover({ kind: 'ds', method, pathAndQuery: u.pathname + u.search, bodySha256 })
+    headers['X-Hachiman-Device-Ts'] = String(p.ts)
+    headers['X-Hachiman-Device-Nonce'] = p.nonce
+    headers['X-Hachiman-Device-Sig'] = p.sig
+  }
+
   private async req<T>(method: string, path: string, body?: unknown, ro: ReqOptions = {}): Promise<T> {
     const headers: Record<string, string> = { Accept: 'application/json' }
+    const url = this.base + path
+    const json = body !== undefined ? JSON.stringify(body) : undefined
     if (ro.auth !== false) {
       headers['Authorization'] = `Bearer ${await this.opts.getToken()}`
       const device = this.deviceId()
       if (device !== null) headers['X-Hachiman-Device'] = device
+      if (device !== null || ro.proveWithoutDevice) await this.prove(headers, method, url, json)
     }
     if (ro.signedAction !== undefined) headers['X-Hachiman-Signed-Action'] = ro.signedAction
-    if (body !== undefined) headers['Content-Type'] = 'application/json'
-    const res = await fetch(this.base + path, {
+    if (json !== undefined) headers['Content-Type'] = 'application/json'
+    const res = await fetch(url, {
       method,
       headers,
-      ...(body !== undefined && { body: JSON.stringify(body) }),
+      ...(json !== undefined && { body: json }),
     })
     if (!res.ok)
       throw restError(res.status, await res.json().catch(() => null), res.headers.get('Retry-After'))

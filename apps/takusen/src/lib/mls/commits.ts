@@ -10,7 +10,7 @@ import { computeBasePermissions, has, Permissions } from '@hachiman/client/permi
 
 import { ApiError } from '@/lib/errors'
 
-import { rejectBatchProposals, type RejectedProposal } from './batches'
+import { proposalRejections, settleRejections, type CommitterRejection, type RejectedProposal } from './batches'
 import { bytesEqual, toB64 } from './bytes'
 import { INBOX_ITEM_MAX_BYTES, INBOX_RETENTION_MS } from './config'
 import type { DsDeps } from './context'
@@ -18,7 +18,6 @@ import { GROUP_STATE_EPOCHS_KEPT, type CommitInspection, type LeafEntry } from '
 import { emitToGroup, handshakeEvent, type Outbox } from './events'
 import { signProposalsLocked } from './proposals'
 import { channelPermissionsOf, readersOfGroup } from './readers'
-import { rejectPendingAdd } from './reconcile'
 import type { DeviceRow, GroupRow, MemberRow, MlsRepo, NewMember, PendingRow } from './repo'
 import { toWireGroup } from './shapes'
 import { encodeWelcomeItem, parseGroupInfoContext, parsePublicMessagePrefix, type GroupContextSummary } from './wire-format'
@@ -35,7 +34,7 @@ export interface CommitBody {
   rejectedProposals?: RejectedProposal[]
 }
 
-type Deps = Pick<DsDeps, 'ds' | 'signer' | 'config' | 'now'>
+type Deps = Pick<DsDeps, 'ds' | 'signer' | 'config' | 'strikes' | 'now'>
 
 /** Maps a `DsModule.checkCommit` failure to its §12.19 code. */
 export function commitCheckError(reason: string): ApiError {
@@ -195,8 +194,13 @@ export async function uploadCommit(
         out.toDevice(leaf.deviceId, 'DEVICE_INBOX', { id: row.id, seq: row.seq, kind: 'welcome' })
       }
     }
-    await settlePending(r, out, nextGroup, caller, body, pending, removed, new Set(insp.next.roster.filter((l) => changed.has(l.leafIndex)).map((l) => l.deviceId)), now)
+    const falseRejections = await settlePending(r, deps, out, nextGroup, caller, body, pending, removed, new Set(insp.next.roster.filter((l) => changed.has(l.leafIndex)).map((l) => l.deviceId)), now)
     await r.deleteBatchesOfGroup(groupId)
+    // §12.7.5: after a false rejection, the next batch goes to the next committer.
+    // An expired batch row of the caller is the cooldown marker of step 3.
+    if (falseRejections > 0) {
+      await r.insertBatch({ groupId, epoch: epoch + 1, deviceId: caller.device.id, pendingIds: [], timedOutDevices: [], deadlineAt: now })
+    }
     if (descriptor) await emitToGroup(r, out, nextGroup, 'MLS_GROUP_UPDATE', toWireGroup(nextGroup, false))
 
     // §12.7.4: the items that are still pending get one proposal for the new epoch.
@@ -285,11 +289,13 @@ async function guildHas(r: MlsRepo, guildId: string, userId: string, bit: number
 }
 
 /**
- * Deletes the items that the commit applied (§12.7.5 step 8), marks the items
- * that the committer rejected in its batch, and updates the join requests.
+ * Deletes the items that the commit applied (§12.7.5 step 8), settles the
+ * items that the committer rejected in its batch (`settleRejections`), and
+ * updates the join requests. Returns the number of false rejections.
  */
 async function settlePending(
   r: MlsRepo,
+  deps: Pick<DsDeps, 'strikes'>,
   out: Outbox,
   group: GroupRow,
   caller: { device: DeviceRow },
@@ -298,7 +304,7 @@ async function settlePending(
   removedLeaves: Set<number>,
   addedDevices: Set<string>,
   now: Date,
-): Promise<void> {
+): Promise<number> {
   const applied: string[] = []
   for (const p of pending) {
     if (p.op === 'remove' && p.leafIndex !== null && removedLeaves.has(p.leafIndex)) applied.push(p.id)
@@ -312,17 +318,14 @@ async function settlePending(
   }
 
   const rejectedProposals = body.rejectedProposals ?? []
-  if (!body.batchId || (body.rejected.length === 0 && rejectedProposals.length === 0)) return
+  if (!body.batchId || (body.rejected.length === 0 && rejectedProposals.length === 0)) return 0
   const batch = await r.getBatch(body.batchId)
   // Only the assigned committer of the batch reports rejections.
-  if (!batch || batch.deviceId !== caller.device.id || !bytesEqual(batch.groupId, group.groupId)) return
+  if (!batch || batch.deviceId !== caller.device.id || !bytesEqual(batch.groupId, group.groupId)) return 0
   const inBatch = new Set(batch.pendingIds)
   const appliedSet = new Set(applied)
-  await rejectBatchProposals(r, out, group, batch, rejectedProposals, now, appliedSet)
+  const items: CommitterRejection[] = await proposalRejections(r, batch, rejectedProposals, appliedSet)
   const rows = await r.getPendingByIds(body.rejected.map((x) => x.pendingId).filter((id) => inBatch.has(id) && !appliedSet.has(id)))
-  for (const p of rows) {
-    const reason = body.rejected.find((x) => x.pendingId === p.id)!.reason
-    if (p.op === 'add') await rejectPendingAdd(r, out, group, p, reason, now)
-    else await r.updatePending(p.id, { status: 'rejected', reason })
-  }
+  for (const p of rows) items.push({ pending: p, reason: body.rejected.find((x) => x.pendingId === p.id)!.reason })
+  return settleRejections(r, deps, out, group, caller.device.id, items, now)
 }

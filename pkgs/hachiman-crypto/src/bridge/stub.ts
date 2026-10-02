@@ -158,10 +158,13 @@ export const createCryptoStub: CreateCryptoStub = () => {
     backupNow: () => Promise.resolve({ uploaded: 0 }),
     ktSelfCheck: () => Promise.resolve({ ok: true, treeSize: 0, unknownEntries: [] }),
     signAdminAction: () => Promise.resolve({ header: toB64url(utf8('hachiman-stub-admin-action')), seq: 0 }),
+    // The preview has no DS: an unsigned placeholder.
+    proveDevice: () => Promise.resolve({ ts: Date.now(), nonce: stubId(), sig: '' }),
 
     voiceStart: () => Promise.resolve({ handle: stubId(), keyPackage: '' }),
     voiceHandle: () => Promise.resolve([]),
-    voiceAttachTransform: ok,
+    voiceAttachTransform: () => Promise.resolve(stubId()),
+    voiceDetachTransform: ok,
     voiceRoster: () => Promise.resolve([]),
     voiceEpochCode: () => Promise.resolve(null),
     voiceStop: ok,

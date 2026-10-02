@@ -2,7 +2,7 @@ import fc from 'fast-check'
 import { describe, expect, it } from 'vitest'
 
 import type { DeviceCertificate, DeviceRevocation, DeviceSigningKeyCert, HistoryKeyEntry, LinkMessage, LinkOffer, MasterKeyRecord } from '../api'
-import { CodecError, bytesToUuid } from '../codec'
+import { CodecError, bytesToUuid, encode } from '../codec'
 import * as c from './codec'
 import { identity } from './index'
 
@@ -149,6 +149,36 @@ describe('identity codecs', () => {
       { numRuns: 30 },
     )
     expect(() => identity.encodeHistoryBatch([{ groupId: new Uint8Array(22), epoch: 1, secret: new Uint8Array(32) }, { groupId: new Uint8Array(22).fill(1), epoch: 1, secret: new Uint8Array(32) }])).toThrow(CodecError)
+  })
+  it('HistoryBatch encoder sorts and keeps the latest key per epoch (FZ-4)', () => {
+    const smallEpoch = fc.record({ epoch: fc.integer({ min: 0, max: 6 }), secret: bytes(32) })
+    fc.assert(
+      fc.property(groupId, fc.array(smallEpoch, { minLength: 1, maxLength: 12 }), (g, keys) => {
+        const entries = keys.map((k) => ({ groupId: g, ...k }))
+        const latest = new Map<number, Uint8Array>()
+        for (const k of keys) latest.set(k.epoch, k.secret)
+        const want = [...latest].map(([epoch, secret]) => ({ groupId: g, epoch, secret })).sort((a, b) => a.epoch - b.epoch)
+        const b = identity.encodeHistoryBatch(entries)
+        expect(identity.decodeHistoryBatch(b)).toEqual(want)
+        expect(identity.encodeHistoryBatch(identity.decodeHistoryBatch(b))).toEqual(b)
+      }),
+      { numRuns: 100 },
+    )
+  })
+  it('HistoryBatch decoder rejects epochs that are not strictly ascending (FZ-4)', () => {
+    const raw = (g: Uint8Array, keys: { epoch: number; secret: Uint8Array }[]) =>
+      encode((w) => {
+        w.opaque(g).vector(keys, (x, k) => void x.u64(k.epoch).fixed(k.secret, 32))
+      })
+    fc.assert(
+      fc.property(groupId, fc.array(fc.record({ epoch: fc.integer({ min: 0, max: 6 }), secret: bytes(32) }), { minLength: 1, maxLength: 8 }), (g, keys) => {
+        const ascending = keys.every((k, i) => i === 0 || k.epoch > keys[i - 1]!.epoch)
+        const b = raw(g, keys)
+        if (ascending) expect(identity.decodeHistoryBatch(b)).toHaveLength(keys.length)
+        else expect(() => identity.decodeHistoryBatch(b)).toThrow(CodecError)
+      }),
+      { numRuns: 200 },
+    )
   })
   it('rejects bad enum values and names', () => {
     const d = fc.sample(device, 1)[0]!

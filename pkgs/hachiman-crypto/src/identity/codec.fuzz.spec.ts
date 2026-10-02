@@ -42,12 +42,10 @@ interface Codec {
   seeds: Uint8Array[]
   decode: (b: Uint8Array) => unknown
   encode: (v: never) => Uint8Array
-  /** False for codecs whose encoder normalizes (groups or sorts) what it writes. */
-  canonical?: boolean
 }
 
-function codec<T>(name: string, arb: fc.Arbitrary<T>, encode: (v: T) => Uint8Array, decode: (b: Uint8Array) => T, canonical = true): Codec {
-  return { name, seeds: fc.sample(arb, { numRuns: 6, seed: 7 }).map(encode), decode, encode, canonical }
+function codec<T>(name: string, arb: fc.Arbitrary<T>, encode: (v: T) => Uint8Array, decode: (b: Uint8Array) => T): Codec {
+  return { name, seeds: fc.sample(arb, { numRuns: 6, seed: 7 }).map(encode), decode, encode }
 }
 
 const codecs: Codec[] = [
@@ -71,16 +69,12 @@ const codecs: Codec[] = [
     fc.uniqueArray(historyKey, { selector: (k) => k.epoch, minLength: 1, maxLength: 4 }).map((keys) => keys.map((k) => ({ groupId: new Uint8Array(22).fill(3), ...k }))),
     identity.encodeHistoryBatch,
     identity.decodeHistoryBatch,
-    // Known (docs/e2ee-audit-scope.md, FZ-4): the decoder accepts keys in any epoch order and
-    // duplicate epochs; the encoder sorts. So the bytes are not canonical, only stable.
-    false,
   ),
   codec(
     'LinkTransfer',
     fc.record({ master, dskCert: dsk, dskPrivateKey: bytes(32), deviceCertificate: device, historyKeys: fc.array(fc.record({ groupId, epoch: fc.integer({ min: 0, max: 1000 }), secret: bytes(32) }), { maxLength: 3 }) }),
     c.encodeLinkTransfer,
     c.decodeLinkTransfer,
-    false, // the history batches inside it, as above
   ),
 ]
 
@@ -94,8 +88,7 @@ describe('identity decoders (fuzz)', () => {
           if (v === undefined) return
           // The encoder must accept every value the decoder returns.
           const again = k.encode(v as never)
-          if (k.canonical !== false) expect(again).toEqual(b)
-          else expect(k.encode(k.decode(again) as never)).toEqual(again)
+          expect(again).toEqual(b)
         }),
         runs(800),
       )

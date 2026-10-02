@@ -333,21 +333,21 @@ func (g *Gateway) checkClient(capabilities []string, clientVersion string) error
 
 // checkDevice is IDENTIFY check 3 (§12.13): the devices row exists, belongs
 // to the user and is not revoked. A pending device (linking) is allowed.
-func (g *Gateway) checkDevice(ctx context.Context, userID, deviceID string) error {
+func (g *Gateway) checkDevice(ctx context.Context, userID, deviceID string) (deviceRow, error) {
 	if _, err := uuid.Parse(deviceID); err != nil {
-		return errDeviceRevoked
+		return deviceRow{}, errDeviceRevoked
 	}
 	d, err := g.device(ctx, deviceID)
 	if errors.Is(err, errNoDevice) {
-		return errDeviceRevoked
+		return d, errDeviceRevoked
 	}
 	if err != nil {
-		return fmt.Errorf("device lookup: %w", err)
+		return d, fmt.Errorf("device lookup: %w", err)
 	}
 	if d.UserID != userID || d.Status == "revoked" {
-		return errDeviceRevoked
+		return d, errDeviceRevoked
 	}
-	return nil
+	return d, nil
 }
 
 // auth resolves a bearer token to a user via Takusen GET /api/v1/users/@me
@@ -392,6 +392,7 @@ func (g *Gateway) identify(c *conn, raw json.RawMessage) (*session, error) {
 		DeviceID      string
 		Capabilities  []string
 		ClientVersion string
+		DeviceProof   *deviceProof
 	}
 	if err := decode(raw, &p); err != nil {
 		return nil, err
@@ -404,7 +405,11 @@ func (g *Gateway) identify(c *conn, raw json.RawMessage) (*session, error) {
 	if err := g.checkClient(p.Capabilities, p.ClientVersion); err != nil {
 		return nil, err
 	}
-	if err := g.checkDevice(ctx, user.ID, p.DeviceID); err != nil {
+	d, err := g.checkDevice(ctx, user.ID, p.DeviceID)
+	if err != nil {
+		return nil, err
+	}
+	if err := g.checkDeviceProof(ctx, d, p.DeviceID, "", p.Token, p.DeviceProof); err != nil {
 		return nil, err
 	}
 	data, err := g.load(ctx, user.ID, "")
@@ -446,10 +451,11 @@ func (g *Gateway) identify(c *conn, raw json.RawMessage) (*session, error) {
 
 func (g *Gateway) resume(c *conn, raw json.RawMessage) (*session, error) {
 	var p struct {
-		Token     string
-		SessionID string
-		Seq       int64
-		DeviceID  string
+		Token       string
+		SessionID   string
+		Seq         int64
+		DeviceID    string
+		DeviceProof *deviceProof
 	}
 	if err := decode(raw, &p); err != nil {
 		return nil, err
@@ -461,7 +467,11 @@ func (g *Gateway) resume(c *conn, raw json.RawMessage) (*session, error) {
 	}
 	// RESUME has no capabilities; the session passed check 2 at IDENTIFY.
 	// The device check runs again: a revoked device must not RESUME.
-	if err := g.checkDevice(ctx, user.ID, p.DeviceID); err != nil {
+	d, err := g.checkDevice(ctx, user.ID, p.DeviceID)
+	if err != nil {
+		return nil, err
+	}
+	if err := g.checkDeviceProof(ctx, d, p.DeviceID, p.SessionID, p.Token, p.DeviceProof); err != nil {
 		return nil, err
 	}
 	owner := randomToken()

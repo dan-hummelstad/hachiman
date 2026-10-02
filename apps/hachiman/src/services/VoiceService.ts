@@ -6,6 +6,7 @@ import {
   type VoiceConnection
 } from '@hachiman/client'
 import { isGuildChannel } from '@/lib/model'
+import { ResyncBackoff } from '@/lib/resync-backoff'
 import { captureConstraints, tuneTrack, type StreamQuality } from '@/lib/stream-quality'
 import { hachiman } from '@/services/hachiman'
 import { playSound, selfVoiceSound } from '@/services/SoundService'
@@ -100,6 +101,9 @@ class VoiceService {
   private statsTimer: ReturnType<typeof setInterval> | null = null
   /** Set by media close 4013: the drop that follows rejoins this target instead of ending. */
   private resync: { guildId: string; channelId: string } | null = null
+  /** Consecutive 4013 rejoins without keys, and the timer of the next one. */
+  private readonly resyncBackoff = new ResyncBackoff()
+  private resyncTimer: ReturnType<typeof setTimeout> | null = null
 
   /** Wires the client and prefs subscriptions. `startHachiman()` calls it once. */
   start(): void {
@@ -128,6 +132,10 @@ class VoiceService {
       this.resync = target
       useCryptoStore.setState({ voiceResyncing: true })
     })
+    // A call with an active epoch worked: a later 4013 is not part of the same failure.
+    useCryptoStore.subscribe((s, prev) => {
+      if (s.voice?.epoch != null && prev.voice?.epoch == null) this.resyncBackoff.reset()
+    })
     // Device changes from user settings apply to the live session.
     usePrefsStore.subscribe((s, prev) => {
       if (s.inputDeviceId !== prev.inputDeviceId && this.conn) void this.startMic()
@@ -147,7 +155,13 @@ class VoiceService {
     return this.joinVoice(channel.guildId, channel.id)
   }
 
-  async joinVoice(guildId: string, channelId: string): Promise<void> {
+  /** A join by the user. It cancels a waiting automatic rejoin. */
+  joinVoice(guildId: string, channelId: string): Promise<void> {
+    this.cancelResync()
+    return this.connect(guildId, channelId)
+  }
+
+  private async connect(guildId: string, channelId: string): Promise<void> {
     if (useVoiceStore.getState().channelId === channelId) return
     this.teardown()
     useVoiceStore.setState({ guildId, channelId, connectionState: 'new', screens: new Map() })
@@ -183,20 +197,41 @@ class VoiceService {
     }
   }
 
-  /** The automatic rejoin after 4013. The banner flag stays up until the new call connects. */
-  private async rejoin(target: { guildId: string; channelId: string }): Promise<void> {
+  /**
+   * The automatic rejoin after 4013, with backoff (ResyncBackoff). The banner flag stays up until
+   * the new call connects. When no attempt is left, the client stays out and shows the failure.
+   */
+  private rejoin(target: { guildId: string; channelId: string }): void {
     this.endSession()
-    try {
-      await this.joinVoice(target.guildId, target.channelId)
-    } finally {
-      useCryptoStore.setState({ voiceResyncing: false })
+    const delay = this.resyncBackoff.next()
+    if (delay === null) {
+      this.resyncBackoff.reset()
+      console.warn('[voice] secure rejoin failed: no attempt left')
+      playSound('voiceDisconnect')
+      useCryptoStore.setState({ voiceResyncing: false, voiceResyncFailed: true })
+      return
     }
+    if (this.resyncTimer) clearTimeout(this.resyncTimer)
+    this.resyncTimer = setTimeout(() => {
+      this.resyncTimer = null
+      void this.connect(target.guildId, target.channelId).finally(() => {
+        if (!this.resyncTimer) useCryptoStore.setState({ voiceResyncing: false })
+      })
+    }, delay)
+  }
+
+  /** The user joins or leaves: no automatic rejoin waits, and the count starts again. */
+  private cancelResync(): void {
+    if (this.resyncTimer) clearTimeout(this.resyncTimer)
+    this.resyncTimer = null
+    this.resync = null
+    this.resyncBackoff.reset()
+    useCryptoStore.setState({ voiceResyncing: false, voiceResyncFailed: false })
   }
 
   leaveVoice(): void {
     if (useVoiceStore.getState().channelId) playSound('voiceLeave')
-    this.resync = null
-    useCryptoStore.setState({ voiceResyncing: false })
+    this.cancelResync()
     this.endSession()
   }
 

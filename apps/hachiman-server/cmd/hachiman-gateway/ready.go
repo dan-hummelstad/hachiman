@@ -266,6 +266,9 @@ var errNodeGone = errors.New("media node not registered")
 type deviceRow struct {
 	UserID string
 	Status string // pending | active | revoked
+	// SignatureKey is mls_signature_key: the key of the device proof. Null
+	// (nil) fails the proof.
+	SignatureKey []byte
 }
 
 var errNoDevice = errors.New("device not found")
@@ -275,7 +278,7 @@ var errNoDevice = errors.New("device not found")
 func pgDevice(db *pgxpool.Pool) func(ctx context.Context, deviceID string) (deviceRow, error) {
 	return func(ctx context.Context, deviceID string) (deviceRow, error) {
 		var d deviceRow
-		err := db.QueryRow(ctx, `SELECT user_id::text, status::text FROM devices WHERE id = $1::uuid`, deviceID).Scan(&d.UserID, &d.Status)
+		err := db.QueryRow(ctx, `SELECT user_id::text, status::text, mls_signature_key FROM devices WHERE id = $1::uuid`, deviceID).Scan(&d.UserID, &d.Status, &d.SignatureKey)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return d, errNoDevice
 		}

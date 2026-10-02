@@ -35,7 +35,7 @@ import {
   type WireMlsGroup,
 } from '../api'
 import { CodecError, decode, fromB64url, toB64url } from '../codec'
-import { COMMIT_REJECTED_RESYNC_DELAYS_MS, DSK_ROTATION_GRACE_MS, FORK_ALERT_FAILURES, FORK_ALERT_WINDOW_MS, GROUP_STATE_EPOCHS_KEPT, HISTORY_BUNDLE_MAX_EPOCHS, WIRE_VERSION, type CipherSuiteId } from '../constants'
+import { COMMIT_REJECTED_RESYNC_DELAYS_MS, DSK_ROTATION_GRACE_MS, FORK_ALERT_FAILURES, FORK_ALERT_WINDOW_MS, FORK_RESYNC_MAX_INTERVAL_MS, FORK_RESYNC_MIN_INTERVAL_MS, GROUP_STATE_EPOCHS_KEPT, HISTORY_BUNDLE_MAX_EPOCHS, WIRE_VERSION, type CipherSuiteId } from '../constants'
 import { equalBytes } from '../identity/bytes'
 import { decodeHistoryKeysPayload, encodeHistoryKeysPayload } from '../identity/codec'
 import { openDeviceMessage, sealDeviceMessage } from '../identity/device-message'
@@ -205,14 +205,20 @@ export const createGroupService = ((ctx: EngineContext, identity: IdentityServic
     return null
   }
 
-  /** The ProposalPolicy with prefetched chain contexts for `userIds` (the ts-mls callback is synchronous). */
-  async function buildPolicy(d: Pick<GroupDescriptor, 'kind' | 'guildId' | 'channelId'>, userIds: Iterable<UserId>): Promise<ProposalPolicy> {
+  /**
+   * The ProposalPolicy with prefetched chain contexts for `userIds` (the ts-mls callback is synchronous).
+   * `ownCommit`: the policy is for an own batch commit. Then a 'channel' group of a guild without a
+   * verified genesis action fails closed (adminChainMissing, §12.16): the DS can return an empty
+   * admin chain to a device without a cached admin state.
+   */
+  async function buildPolicy(d: Pick<GroupDescriptor, 'kind' | 'guildId' | 'channelId'>, userIds: Iterable<UserId>, ownCommit = false): Promise<ProposalPolicy> {
     const users = new Set(userIds)
     users.add(identity.self().userId)
     const contexts = new Map<UserId, ChainContext>()
     for (const u of users) contexts.set(u, await identity.chainContextFor(u, false))
     const readers = await readersOf(d)
     let adminReaders: Set<UserId> | null = null
+    let adminChainMissing = false
     const canChange = new Set<UserId>()
     const perms = deps.adminPermissions
     if (perms !== undefined && d.guildId !== null && (d.kind === 'channel' || d.kind === 'public_set')) {
@@ -229,6 +235,8 @@ export const createGroupService = ((ctx: EngineContext, identity: IdentityServic
           }
         }
         if (d.kind === 'channel') adminReaders ??= new Set()
+      } else if (ownCommit && d.kind === 'channel') {
+        adminChainMissing = true
       }
     }
     const nowMs = ctx.now()
@@ -237,6 +245,7 @@ export const createGroupService = ((ctx: EngineContext, identity: IdentityServic
       dsExternalSenderKey: d.kind === 'voice' ? null : await dsExternalSenderKey(),
       readers,
       adminReaders,
+      adminChainMissing,
       chainContextFor: (u) => contexts.get(u) ?? failingContext(nowMs),
       canChangeDescriptor: (u) => canChange.has(u),
       voice: null,
@@ -271,10 +280,10 @@ export const createGroupService = ((ctx: EngineContext, identity: IdentityServic
   async function recordMembership(gid: string, epoch: number, added: readonly LeafEntry[], removed: readonly LeafEntry[]): Promise<void> {
     for (const r of removed) {
       const key = `${gid}:${r.deviceId}`
-      const row = await store.get('membership', key)
-      if (!row) continue
+      const row = (await store.get('membership', key)) ?? { intervals: [] }
       const open = row.intervals.find((i) => i.toEpoch === null && i.leafIndex === r.leafIndex)
       if (open) open.toEpoch = epoch - 1
+      row.removedAtEpoch = epoch
       await store.put('membership', key, row)
     }
     for (const a of added) {
@@ -282,6 +291,7 @@ export const createGroupService = ((ctx: EngineContext, identity: IdentityServic
       const row = (await store.get('membership', key)) ?? { intervals: [] }
       for (const i of row.intervals) i.toEpoch ??= epoch - 1
       row.intervals.push({ leafIndex: a.leafIndex, fromEpoch: epoch, toEpoch: null })
+      row.removedAtEpoch = null
       await store.put('membership', key, row)
     }
   }
@@ -806,7 +816,7 @@ export const createGroupService = ((ctx: EngineContext, identity: IdentityServic
           return []
         }
       })
-      const policy = await buildPolicy(desc, [...joinUsers, ...dsProposals.flatMap((x) => x.users)])
+      const policy = await buildPolicy(desc, [...joinUsers, ...dsProposals.flatMap((x) => x.users)], true)
       // A stored DS Add that no longer passes (a chain revoked or a reader gone since it was stored).
       const drop: Uint8Array[] = []
       for (const { ref } of dsProposals) {
@@ -837,6 +847,7 @@ export const createGroupService = ((ctx: EngineContext, identity: IdentityServic
           inTree.add(id.deviceId)
         } else rejected.push({ pendingId: j.pendingId, reason: rejectReason(why) })
       }
+      if (policy.adminChainMissing === true && rejected.length > 0) report(new CryptoError('InvalidChain', `admin_chain_missing: guild ${desc.guildId} has no verified genesis action; Adds to ${g.gid} rejected`))
       const before = mls.roster(g.handle)
       const pc = await mls.commit(g.handle, { adds, removes: [], descriptor: null, policy })
       const res = await postOwnCommit(g, pc, { batchId: d.batchId, rejected }, 'added')
@@ -1157,18 +1168,35 @@ export const createGroupService = ((ctx: EngineContext, identity: IdentityServic
       return i?.leafIndex ?? null
     },
 
+    async removedAt(groupId, deviceId) {
+      return (await store.get('membership', `${toB64url(groupId)}:${deviceId}`))?.removedAtEpoch ?? null
+    },
+
+    /**
+     * §12.8.7. The header (and thus `senderDevice`) is not authenticated before decryption, so a
+     * server can insert rows that fail. The trigger is therefore a count over time only, and the
+     * automatic resync is rate-limited per group with exponential backoff. A failure while the
+     * resync waits for its backoff raises no alert.
+     */
     async reportAeadFailure(groupId, _epoch, senderDevice) {
       const gid = toB64url(groupId)
       const now = ctx.now()
-      const failures = await store.transaction(['aeadFailures'], async (tx) => {
+      const fire = await store.transaction(['aeadFailures'], async (tx) => {
         const row = await tx.get('aeadFailures', gid)
         const list = (row?.failures ?? []).filter((f) => now - f.atMs < FORK_ALERT_WINDOW_MS)
         list.push({ atMs: now, senderDevice })
-        await tx.put('aeadFailures', gid, { failures: list })
-        return list
+        const last = row?.lastResyncMs
+        const streak = last === undefined || now - last >= FORK_RESYNC_MAX_INTERVAL_MS ? 0 : (row?.resyncStreak ?? 0)
+        const wait = Math.min(FORK_RESYNC_MIN_INTERVAL_MS * 2 ** Math.max(0, streak - 1), FORK_RESYNC_MAX_INTERVAL_MS)
+        const allowed = streak === 0 || now - last! >= wait
+        if (list.length >= FORK_ALERT_FAILURES && allowed) {
+          await tx.put('aeadFailures', gid, { failures: [], lastResyncMs: now, resyncStreak: streak + 1 })
+          return true
+        }
+        await tx.put('aeadFailures', gid, { ...row, failures: list })
+        return false
       })
-      if (failures.length >= FORK_ALERT_FAILURES && new Set(failures.map((f) => f.senderDevice)).size >= 2) {
-        await store.delete('aeadFailures', gid)
+      if (fire) {
         const g = await load(gid)
         ctx.emit('forkAlert', { groupId: gid, channelId: g?.row.channelId ?? null, epoch: g?.handle?.epoch ?? null, reason: 'aead_failures' })
         spawnResync(gid, 'fork')

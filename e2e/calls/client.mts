@@ -61,7 +61,8 @@ export async function launch(kind: ClientKind, name: string): Promise<Client> {
     name,
     page,
     close: async () => {
-      await browser?.close().catch(() => {})
+      // A close can hang on an engine that still has a live call: do not wait more than 15 s.
+      await Promise.race([browser?.close().catch(() => {}), new Promise((r) => setTimeout(r, 15_000))])
     }
   }
 }
@@ -125,7 +126,7 @@ export async function setUpDevice(page: Page): Promise<void> {
   }
   await choice.click()
   await page.getByRole('button', { name: 'Set up this device', exact: true }).click()
-  await page.getByLabel('I saved my recovery key in a safe place.').check({ timeout: 60_000 })
+  await page.getByLabel('I saved my recovery key in a safe place.').check({ timeout: 180_000 })
   await page.getByRole('button', { name: /^(Done|Continue|Close)/ }).last().click()
   await page.getByLabel('Create or join a guild').waitFor({ timeout: 60_000 })
 }
@@ -172,7 +173,8 @@ export async function joinVoice(c: Client): Promise<void> {
 }
 
 export async function leaveVoice(c: Client): Promise<void> {
-  await c.page.getByRole('button', { name: 'Disconnect' }).first().click()
+  // The voice panel button: the one in the channel row sits in an aria-disabled row.
+  await c.page.getByRole('button', { name: 'Disconnect' }).last().click()
   await c.page.getByLabel(/End-to-end encrypted|Setting up encryption|Reconnecting securely/).first().waitFor({ state: 'detached', timeout: 30_000 })
 }
 

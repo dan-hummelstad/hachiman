@@ -30,6 +30,12 @@ export interface VoiceE2eeDelegate {
   senderTransform(track: VoiceTrackKind): RTCRtpScriptTransform
   /** Called on each `ontrack`. `userId` comes from the msid. */
   receiverTransform(userId: string, track: VoiceTrackKind): RTCRtpScriptTransform
+  /**
+   * The receiver of a transform from `receiverTransform` ended: its track ended, its peer left, or
+   * `ontrack` gave the receiver a new transform. The delegate releases the frame key port of it.
+   * `close` releases the rest.
+   */
+  releaseTransform(transform: RTCRtpScriptTransform): void
   close(): void
 }
 
@@ -110,6 +116,8 @@ export class VoiceConnection extends TypedEventEmitter<VoiceEvents> {
   /** '' = system default (the `setSinkId` convention). */
   private sinkId = ''
   private readonly pendingTracks = new Map<string, MediaStream>()
+  /** The receiver transforms that this call holds, for releaseTransform. */
+  private readonly recvTransforms = new Map<RTCRtpReceiver, { userId: string; transform: RTCRtpScriptTransform }>()
   private remoteCandidates: (RTCIceCandidateInit | null)[] = []
   private localCandidates: (RTCIceCandidateInit | null)[] | null = [] // null once the first answer is sent
   private offerChain: Promise<void> = Promise.resolve()
@@ -196,6 +204,7 @@ export class VoiceConnection extends TypedEventEmitter<VoiceEvents> {
     this.audio.clear()
     this.pendingTracks.clear()
     this.screens.clear()
+    this.recvTransforms.clear() // e2ee.close releases them
     this.pc?.close() // does not fire connectionstatechange, so emit by hand
     this.pc = null
     try {
@@ -320,6 +329,7 @@ export class VoiceConnection extends TypedEventEmitter<VoiceEvents> {
         this.peers = f.d.peers
         const present = new Set(this.peers.map(p => p.userId))
         for (const userId of this.screens.keys()) if (!present.has(userId)) this.dropScreen(userId)
+        for (const [receiver, r] of this.recvTransforms) if (!present.has(r.userId)) this.releaseReceiver(receiver)
         for (const [userId, el] of this.audio) {
           if (present.has(userId)) continue
           el.pause()
@@ -471,14 +481,32 @@ export class VoiceConnection extends TypedEventEmitter<VoiceEvents> {
     const userId = isScreen ? streamId.slice('screen-'.length) : streamId
     const kind: VoiceTrackKind = isScreen ? 'video' : 'audio'
     if (userId === '' || ev.track.kind !== kind) return
-    ev.receiver.transform = this.opts.e2ee.receiverTransform(userId, kind)
-    if (isScreen) this.onScreenTrack(userId, ev)
-    else this.onAudioTrack(userId, ev)
+    const receiver = ev.receiver
+    this.releaseReceiver(receiver)
+    const transform = this.opts.e2ee.receiverTransform(userId, kind)
+    receiver.transform = transform
+    this.recvTransforms.set(receiver, { userId, transform })
+    const release = (): void => this.releaseReceiver(receiver, transform)
+    if (isScreen) this.onScreenTrack(userId, ev, release)
+    else this.onAudioTrack(userId, ev, release)
   }
 
-  private onAudioTrack(userId: string, ev: RTCTrackEvent): void {
+  /** Gives the receiver transform back to the delegate. With `only`, only when it is still that transform. */
+  private releaseReceiver(receiver: RTCRtpReceiver, only?: RTCRtpScriptTransform): void {
+    const r = this.recvTransforms.get(receiver)
+    if (!r || (only !== undefined && r.transform !== only)) return
+    this.recvTransforms.delete(receiver)
+    try {
+      this.opts.e2ee.releaseTransform(r.transform)
+    } catch (err) {
+      console.warn('VoiceConnection: e2ee release failed', err)
+    }
+  }
+
+  private onAudioTrack(userId: string, ev: RTCTrackEvent, release: () => void): void {
     const stream = ev.streams[0] ?? new MediaStream([ev.track])
     ev.track.onended = () => {
+      release()
       if (this.pendingTracks.get(userId) === stream) this.pendingTracks.delete(userId)
       const el = this.audio.get(userId)
       if (el?.srcObject !== stream) return
@@ -491,9 +519,10 @@ export class VoiceConnection extends TypedEventEmitter<VoiceEvents> {
     else this.pendingTracks.set(userId, stream)
   }
 
-  private onScreenTrack(userId: string, ev: RTCTrackEvent): void {
+  private onScreenTrack(userId: string, ev: RTCTrackEvent, release: () => void): void {
     const stream = new MediaStream([ev.track])
     ev.track.onended = () => {
+      release()
       if (this.screens.get(userId) === stream) this.dropScreen(userId)
     }
     this.screens.set(userId, stream)

@@ -311,7 +311,7 @@ cd apps/hachiman-server && CGO_ENABLED=0 go test ./...
 
 This runs the gateway, media, SFU, voice token, coturn, takusenclient and permission tests. The gateway tests include the device checks. The media tests include the E2EE relay and the commit header parse. `pkg/permissions/sync_test.go` reads the TS permission file and fails on a name or value mismatch.
 
-The gateway integration test has the build tag `integration`. It needs a running Postgres, Redis and Takusen, and these variables: `DATABASE_URL`, `REDIS_URL`, `TAKUSEN_URL` and `HACHIMAN_TEST_TOKEN` (a Takusen access token). `HACHIMAN_TEST_DEVICE_ID` is optional. Without it, the test registers a pending device with `POST /api/v1/devices`.
+The gateway integration test has the build tag `integration`. It needs a running Postgres, Redis and Takusen, and these variables: `DATABASE_URL`, `REDIS_URL`, `TAKUSEN_URL` and `HACHIMAN_TEST_TOKEN` (a Takusen access token). The test registers a pending device with a fresh MLS key (`POST /api/v1/devices` with its device proof) and signs IDENTIFY and RESUME with that key.
 
 ```bash
 go test -tags integration -run Integration ./cmd/hachiman-gateway/

@@ -22,6 +22,7 @@ import type {
   HistoryVisibilityName,
   KtEntryType,
 } from './constants'
+import type { DeviceProof, DeviceProofInput } from './device-proof'
 
 // MARK: - 0. Primitives
 
@@ -143,6 +144,12 @@ export interface WireDsInfo {
   externalSender: B64url
   cipherSuites: CipherSuiteId[]
   ktPublicKey: B64url
+  /**
+   * True when the DS signs KT tree heads (§12.14). The client pins it per origin with the KT key.
+   * Once pinned true, KT fails closed: every master key and DSK cert the client accepts needs an
+   * inclusion proof.
+   */
+  ktRequired: boolean
   limits: {
     maxEnvelopeBytes: number
     maxInboxItemBytes: number
@@ -389,7 +396,8 @@ export type CryptoGatewayEvent =
  */
 export interface DsTransport {
   // devices
-  registerDevice(body: { name: string; platform: DevicePlatform; clientVersion: string }): Promise<WireDevice>
+  /** `mlsSignatureKey`: the device MLS public key. The request carries a device proof by this key (§12.12). */
+  registerDevice(body: { name: string; platform: DevicePlatform; clientVersion: string; mlsSignatureKey: B64url }): Promise<WireDevice>
   putDeviceCertificate(deviceId: DeviceId, body: { certificate: B64url }): Promise<WireDevice>
   listOwnDevices(): Promise<WireDevice[]>
   revokeDevice(deviceId: DeviceId, body: { revocation: B64url | null; reason: RevocationReasonName }): Promise<void>
@@ -854,6 +862,14 @@ export interface CryptoApi {
    */
   signAdminAction(guildId: GuildId, type: AdminActionTypeId, payload: Uint8Array): Promise<{ header: B64url; seq: number }>
 
+  // device proof of possession (§12.12, §12.13)
+  /**
+   * Signs a DS request or an IDENTIFY/RESUME with the device MLS signature key. The Worker adds the
+   * device id, the timestamp and the nonce. During POST /devices (no device id yet) it signs with
+   * the key that the registration presents, and device id "". NoIdentity when there is no key.
+   */
+  proveDevice(input: DeviceProofInput): Promise<DeviceProof>
+
   // voice (§8, §12.10)
   /**
    * guildId: the guild of the voice channel. The creator writes it into the group descriptor and a
@@ -863,8 +879,13 @@ export interface CryptoApi {
   voiceStart(opts: { channelId: ChannelId; guildId?: GuildId | null }): Promise<VoiceSessionStart>
   /** One media op in, zero or more client ops out (send in order). */
   voiceHandle(handle: string, op: VoiceE2eeServerOp): Promise<VoiceE2eeClientOp[]>
-  /** Gives the transform Worker a port that receives FrameKeyMessage. */
-  voiceAttachTransform(handle: string, port: MessagePort): Promise<void>
+  /** Gives the transform Worker a port that receives FrameKeyMessage. Returns the port id for voiceDetachTransform. */
+  voiceAttachTransform(handle: string, port: MessagePort): Promise<string>
+  /**
+   * Sends `close` on the port and forgets it: the transform Worker closes its ring and its end of
+   * the port. Call it when the receiver of the transform ends. An unknown id is a no-op.
+   */
+  voiceDetachTransform(portId: string): Promise<void>
   /** Participants from the MLS tree, not from the server roster. */
   voiceRoster(handle: string): Promise<VoiceRosterEntry[]>
   voiceEpochCode(handle: string): Promise<string | null>
@@ -891,7 +912,8 @@ export interface CryptoEvents {
   linkDone: { sessionId: string; role: LinkRole; ok: boolean; error: CryptoErrorCode | null }
   /** Messages that were 'pending' can now decrypt: the UI calls decryptMessages again. */
   epochKeysAvailable: { groupId: GroupIdB64; epochs: number[] }
-  ktAlert: { kind: 'self_unknown_entry' | 'split_view' | 'bad_proof'; detail: string }
+  /** 'kt_missing': KT is required (§12.14) but a key object had no KT entry, or no signed tree head covered it. */
+  ktAlert: { kind: 'self_unknown_entry' | 'split_view' | 'bad_proof' | 'kt_missing'; detail: string }
   voiceRoster: { handle: string; roster: VoiceRosterEntry[]; epoch: number }
   error: CryptoErrorShape
 }
@@ -1275,6 +1297,12 @@ export interface ProposalPolicy {
    * without a genesis action. When set, an Add in a 'channel' group also needs the joiner here.
    */
   adminReaders: ReadonlySet<UserId> | null
+  /**
+   * Set only for this device's own batch commits (§12.16): the guild of a 'channel' group has no
+   * verified genesis action. The committer then rejects every Add ('admin_chain_missing'): it does
+   * not fall back to the unsigned DS readers.
+   */
+  adminChainMissing?: boolean
   /** Synchronous (the ts-mls callback is synchronous): prefetch with IdentityService.chainContextFor. */
   chainContextFor(userId: UserId): ChainContext
   /**
@@ -1554,6 +1582,8 @@ export interface StoreSchema {
     backupKey: { key: Uint8Array; keyId: Uint8Array } | null
     dsExternalSender: Uint8Array | null
     ktPublicKey: Uint8Array | null
+    /** The pinned `DsInfo.ktRequired` (§12.14). Sticky: once true, it stays true. Absent on rows from before the field. */
+    ktRequired?: boolean | null
     /** A rotateRecoveryKey that has not finished: the new key, stored before the first upload. */
     pendingRecoveryKey?: string | null
     /** Set when an unsigned server revocation locked this device (state 'revoked', store kept). */
@@ -1596,10 +1626,17 @@ export interface StoreSchema {
   adminState: AdminReplayState
   /** Key: groupId base64url. Membership timeline. */
   timeline: { events: MembershipEvent[] }
-  /** Key: groupId base64url + ':' + deviceId. When the device held which leaf (§12.8.5). */
-  membership: { intervals: { leafIndex: number; fromEpoch: number; toEpoch: number | null }[] }
-  /** Key: groupId base64url. Fork-alert counter (§12.8.7). */
-  aeadFailures: { failures: { atMs: number; senderDevice: DeviceId }[] }
+  /**
+   * Key: groupId base64url + ':' + deviceId. When the device held which leaf (§12.8.5).
+   * `removedAtEpoch`: the first epoch without the leaf, after this client processed the Remove of
+   * the device. An Add of the device clears it.
+   */
+  membership: { intervals: { leafIndex: number; fromEpoch: number; toEpoch: number | null }[]; removedAtEpoch?: number | null }
+  /**
+   * Key: groupId base64url. Fork-alert counter (§12.8.7), and the rate limit of the automatic
+   * resync: the time of the last one and the number in the current streak.
+   */
+  aeadFailures: { failures: { atMs: number; senderDevice: DeviceId }[]; lastResyncMs?: number; resyncStreak?: number }
 }
 
 export interface CryptoStore {
@@ -1684,6 +1721,7 @@ export interface IdentityService
     | 'acknowledgeKeyChange'
     | 'ktSelfCheck'
     | 'signOutDevice'
+    | 'proveDevice'
   > {
   /** Loads the identity row. Null before setup. */
   load(init: InitOptions): Promise<SelfIdentity | null>
@@ -1748,6 +1786,11 @@ export interface GroupService extends Pick<CryptoApi, 'sync' | 'ensureChannelGro
   epochSecret(groupId: Uint8Array, epoch: number): Promise<Uint8Array | null>
   /** The leaf that a device held at an epoch, from observed commits. Null when not observed. */
   leafAt(groupId: Uint8Array, deviceId: DeviceId, epoch: number): Promise<number | null>
+  /**
+   * The first epoch without the device's leaf, when this client processed the Remove of the device
+   * in this group and saw no later Add of it. Null otherwise (§12.8.5 step 4).
+   */
+  removedAt(groupId: Uint8Array, deviceId: DeviceId): Promise<number | null>
   /** Counts an AEAD failure for the fork alert (§12.8.7). */
   reportAeadFailure(groupId: Uint8Array, epoch: number, senderDevice: DeviceId): Promise<void>
   /** The current epoch per the local state, or null when not a member. */
@@ -1765,7 +1808,7 @@ export type AdminService = Pick<CryptoApi, 'signAdminAction'>
 export type CreateAdminService = (ctx: EngineContext, identity: IdentityService) => AdminService
 
 /** src/media/service.ts (crypto-media). Voice groups and frame keys. */
-export type VoiceService = Pick<CryptoApi, 'voiceStart' | 'voiceHandle' | 'voiceAttachTransform' | 'voiceRoster' | 'voiceEpochCode' | 'voiceStop'>
+export type VoiceService = Pick<CryptoApi, 'voiceStart' | 'voiceHandle' | 'voiceAttachTransform' | 'voiceDetachTransform' | 'voiceRoster' | 'voiceEpochCode' | 'voiceStop'>
 
 /**
  * The deps break the identity → mls import cycle: worker/engine.ts passes `mls`, and the admin

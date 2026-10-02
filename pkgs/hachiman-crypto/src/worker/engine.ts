@@ -216,10 +216,12 @@ export function createEngine(env: EngineEnv): Engine {
     backupNow: () => s().identity.backupNow(),
     ktSelfCheck: () => s().identity.ktSelfCheck(),
     signAdminAction: (g, t, p) => s().admin.signAdminAction(g, t, p),
+    proveDevice: (input) => s().identity.proveDevice(input),
 
     voiceStart: (o) => s().voice.voiceStart(o),
     voiceHandle: (h, op) => s().voice.voiceHandle(h, op),
     voiceAttachTransform: (h, port) => s().voice.voiceAttachTransform(h, port),
+    voiceDetachTransform: (id) => s().voice.voiceDetachTransform(id),
     voiceRoster: (h) => s().voice.voiceRoster(h),
     voiceEpochCode: (h) => s().voice.voiceEpochCode(h),
     voiceStop: (h) => s().voice.voiceStop(h),

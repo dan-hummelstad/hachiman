@@ -16,8 +16,8 @@ import { identity, verifyDeviceCert, verifyDskCert } from '../../../../../pkgs/h
 import { kt } from '../../../../../pkgs/hachiman-crypto/src/kt/index'
 
 import { bytesEqual, fromB64, Reader, toB64 } from './bytes'
-import { dsConfig, type DsConfig } from './config'
-import type { DsDeps, Presence, RateLimiter } from './context'
+import { dsConfig, FALSE_REJECTION_LIMIT, type DsConfig } from './config'
+import type { CommitterStrikes, DsDeps, Presence, RateLimiter } from './context'
 import type { CommitInspection, DeviceChain, DsModule, DsSigner, GroupDescriptor, LeafEntry } from './crypto'
 import { GROUP_CONTEXT_EXTENSIONS, REQUIRED_CAPABILITIES } from './groups'
 import { ed25519PublicKey } from './keys'
@@ -414,11 +414,24 @@ export class FakePresence implements Presence {
 
 export const noRateLimit: RateLimiter = { async hit() {} }
 
+export class FakeStrikes implements CommitterStrikes {
+  readonly counts = new Map<string, number>()
+  async add(deviceId: string): Promise<number> {
+    const n = (this.counts.get(deviceId) ?? 0) + 1
+    this.counts.set(deviceId, n)
+    return n
+  }
+  async barred(ids: readonly string[]): Promise<Set<string>> {
+    return new Set(ids.filter((id) => (this.counts.get(id) ?? 0) >= FALSE_REJECTION_LIMIT))
+  }
+}
+
 export interface World {
   repo: InMemoryMlsRepo
   ds: FakeDs
   deps: DsDeps
   presence: FakePresence
+  strikes: FakeStrikes
   config: DsConfig
   clock: { now: number }
 }
@@ -431,8 +444,9 @@ export async function newWorld(env: Record<string, string> = {}): Promise<World>
   const clock = { now: Date.UTC(2026, 9, 1, 12) }
   repo.clock = () => new Date(clock.now)
   const signer = await ds.loadSigner(new Uint8Array(randomBytes(32)))
-  const deps: DsDeps = { ds, signer, config, presence, rate: noRateLimit, now: () => new Date(clock.now) }
-  return { repo, ds, deps, presence, config, clock }
+  const strikes = new FakeStrikes()
+  const deps: DsDeps = { ds, signer, config, presence, rate: noRateLimit, strikes, now: () => new Date(clock.now) }
+  return { repo, ds, deps, presence, strikes, config, clock }
 }
 
 /** An active, certified device. The master and DSK rows are fakes unless the test makes real ones. */

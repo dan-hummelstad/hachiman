@@ -222,12 +222,17 @@ Each invariant has an ID, so that an auditor can refer to it. "Tested by" names 
 - **L-3 Electron key copies.** Electron main cannot zero every copy of the wrap key. `safeStorage` takes a string, and the IPC structured clone is a copy.
 - **L-4 Unverifiable MAC tags.** The DS accepts a commit with a changed `confirmation_tag` or `membership_tag`. Members then reject it, and the epoch stalls on their devices until a resync. A member can always break a group, so this is a denial of service only.
 - **L-5 Fail closed, then auto-resync.** When a client rejects a commit that the DS accepted, the group stops on that device and the client raises `forkAlert` (`commit_rejected`). The Worker resyncs by external commit after waits of 1, 2, 4, 8 and 16 s, and the next `sync()` tries again (§12.8.7). A member that can make the DS accept a bad commit can thus make the other devices resync.
-- **L-6 Group size.** The default cap is 250 leaves (`docs/e2ee-load-test.md`). At 400 leaves a full batch of 100 Adds misses the 5 s deadline, and at 1,000 leaves a join takes about 11.3 s. ts-mls 1.6.4 rejects some valid trees on join, and it cannot encode a group above 2,048 leaves.
+- **L-6 Group size.** The default cap is 500 leaves (`docs/e2ee-load-test.md`). At 500 leaves a full batch takes 0.43 s (deadline 5 s) and a join by Welcome takes 2.2 s (budget 10 s). At 1,000 leaves a join takes 8.3 s. The repo patches two ts-mls 1.6.4 defects (`patches/ts-mls@1.6.4.patch`): an unmerged-leaves check that rejected valid trees, and an encoder that overflowed the stack above 2,048 leaves. Upstream fixed both on `main` (PR #505 and the encoder rewrite). Auditors must review the patch.
 - **L-7 History.** A leaked device store or recovery key exposes history (§12.11).
 - **L-8 Voice roster.** The committer trusts the media roster for Adds. It cannot query gateway voice states.
 - **L-9 No runtime test of WebRTC transforms.** `transform-worker.ts` has a typecheck only. No real browser ran the voice E2EE path, and the `webrtc-reviewer` review of `voice.ts` is still open.
 - **L-10 Route handlers.** No test runs the Next route handlers, because they use Drizzle directly. The route-level zod schemas are module-private, so the fuzz tests cover their shared parts (`b64`, `fromB64`, `lib/wire.ts`, `reportSchema`) only.
 - **L-11 Request size.** `src/middleware.ts` buffers bodies up to 10 MB. A very large `public_set` ratchet tree can hit this limit.
+- **L-12 Renderer CSP.** `connect-src` allows every `wss:` host. The gateway gives the media signaling URL of each voice join at run time, and media nodes are placed per region, so the host list is not known at build time. Thus an injected script that can use the crypto Worker can send data to any `wss:` host. A fix needs one media domain with a wildcard subdomain, or a host list from the region config. `style-src` keeps `'unsafe-inline'`, because Radix and the UI set inline style attributes. Inline styles run no script, but they let injected markup change the page (`apps/hachiman-electron/src/main/csp-policy.ts`).
+- **L-13 Store rollback.** The device store (`src/store`) has no rollback protection. An attacker with access to the local disk can put back an old copy of the store: an older KT head, admin state, `seen` rows or membership rows. This is accepted. A local disk attacker is out of scope in the threat model.
+- **L-14 Revoked-device signatures.** A revoked device can still sign envelopes for epochs before the Remove that the client processed (§12.8.5 step 4). The server sets the order and `created_at` of such rows.
+- **L-15 KT freshness.** An inclusion proof shows that a key object is in the log, not that it is the newest entry of the user. The DS can serve an old DSK cert or hide a revocation entry from contacts (§12.14). A client that pinned `ktRequired: false` checks no proofs until it stores its first head.
+- **L-16 Fork alert.** The AEAD failure count uses unauthenticated headers. A server can trigger a resync, but the rate limit allows at most one per group in 10 minutes, with exponential backoff (§12.8.7).
 
 ## 6. Fuzz and property tests
 
@@ -304,9 +309,9 @@ Go writes a failing input to `testdata/fuzz/<Target>/` in the package. Commit it
 | ID | Status | Finding |
 |---|---|---|
 | FZ-1 | Fixed | `Reader.utf8` let the `TypeError` of `TextDecoder` escape on bad UTF-8. Callers expect only `CodecError`. `codec.ts` now maps it to `CodecError('invalid UTF-8')`. |
-| FZ-2 | Open | ts-mls reads an `optional` presence octet other than 0 or 1 as "absent" (`ts-mls/dist/src/codec/optional.js`). RFC 9420 and §12.2 allow only 0 and 1. Thus the DS accepts commits, GroupInfos and ratchet trees whose bytes differ from the canonical encoding. The decoded content and the signatures stay the same. A fix: make `mls/wire.ts` `decodeMessage` and `decodeTree` reject input that does not re-encode to the same bytes. Then run the full suite. |
+| FZ-2 | Fixed | ts-mls reads an `optional` presence octet other than 0 or 1 as "absent" (`ts-mls/dist/src/codec/optional.js`). RFC 9420 and §12.2 allow only 0 and 1. `mls/wire.ts` `decodeMessage` and `decodeTree` now encode the decoded value again. They reject the input (`CryptoError` `Malformed`) when the two byte strings are different. Thus the DS accepts only the canonical encoding of commits, GroupInfos and ratchet trees. `mls/ds.fuzz.spec.ts` examines this. |
 | FZ-3 | Fixed | `decodeHistoryBatch` accepted an empty key list, which the encoder cannot write. The decoder now rejects it. |
-| FZ-4 | Open, low | `decodeHistoryBatch` accepts keys in any epoch order and duplicate epochs. The encoder sorts. The bytes are thus not canonical. The blob is under `K_backup`, so only the user's own devices can write it. |
+| FZ-4 | Fixed | `decodeHistoryBatch` accepted keys in any epoch order and duplicate epochs. The decoder now rejects epochs that are not strictly ascending. The encoder sorts the keys and removes duplicate epochs (the last key for an epoch stays), so a device cannot write a batch that it then rejects. `decodeLinkTransfer` also rejects two history batches with the same group id. Property tests are in `identity/codec.spec.ts`. The fuzz targets for `HistoryBatch` and `LinkTransfer` now require canonical bytes. |
 | FZ-5 | Note | K-2: `verifyInclusion` alone does not bind the tree size (RFC 9162 behavior). |
 | FZ-6 | Note | Go `decodeB64url("")` fails. TypeScript `fromB64("")` and `fromB64url("")` give zero bytes. No voice field may be empty, so the difference has no effect today. |
 
@@ -317,7 +322,7 @@ Go writes a failing input to `testdata/fuzz/<Target>/` in the package. Commit it
 3. Examine every invariant of section 4. Record "holds", "broken" or "not checked" for each ID.
 4. Examine each HKDF info string and each signature label in `constants.ts` against §12.2 and §12.3.
 5. Examine that every random value (salts, keys, nonce prefixes, `client_msg_id`, recovery key) comes from `crypto.getRandomValues` or `@noble` randomness.
-6. Examine every decoder for strictness: minimal varints, no trailing bytes, `optional` flags 0 or 1, fixed lengths. Include FZ-2.
+6. Examine every decoder for strictness: minimal varints, no trailing bytes, `optional` flags 0 or 1, fixed lengths. Include the FZ-2 fix.
 7. Examine the ts-mls calls in `mls/index.ts` and `mls/ds.ts`, and the library paths that they reach (L-1).
 8. Examine the §12.7.3 checks in `lib/mls/commits.ts` in order, and the inference of D-2.
 9. Examine the compare-and-set and the transaction scope in `repo.drizzle.ts`.

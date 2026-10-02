@@ -5,7 +5,7 @@ import { z } from 'zod'
 
 import { b64 } from '@/lib/mls/bytes'
 import { KEY_PACKAGE_UPLOAD_MAX } from '@/lib/mls/config'
-import { rateLimit } from '@/lib/mls/context'
+import { rateLimitDevice } from '@/lib/mls/context'
 import { uploadKeyPackages } from '@/lib/mls/key-packages'
 import { body, dsRoute, json, requireRouteDevice } from '@/lib/mls/route'
 
@@ -20,7 +20,7 @@ const schema = z.object({
 export const POST = dsRoute('active', async (ctx) => {
   const device = requireRouteDevice(ctx)
   const deps = await ctx.deps()
-  await rateLimit(deps, 'keyPackages', device.id)
+  await rateLimitDevice(deps, 'keyPackages', device)
   const b = await body(ctx.req, schema)
   return json(await uploadKeyPackages(ctx.repo, deps, device, b))
 })
