@@ -1,6 +1,6 @@
 import { PhoneOff } from 'lucide-react'
 import { IconButton } from '@/components/ui/icon-button'
-import { CallLockButton, CallSecurityBanner } from '@/components/voice/call-security'
+import { CallSecurityBanner, CallSecuritySection } from '@/components/voice/call-security'
 import { ScreenShareControls } from '@/components/voice/screen-share-controls'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { cn } from '@/lib/utils'
@@ -39,8 +39,9 @@ function phaseOf(state: VoiceConnectionState): Phase {
 
 /**
  * "Voice connected" panel at the bottom of the channel sidebar (spec §4).
- * Renders only while in voice. Mute / deafen live in the user panel below it. The lock opens
- * "Verify call" (§12.5 epoch code). The banner line shows the 4013 rejoin and 4012.
+ * Renders only while in voice. Mute / deafen live in the user panel below it. The details popover
+ * holds the connection stats and the call encryption, with "Verify call" (§12.5 epoch code). The
+ * banner line shows the 4013 rejoin and 4012.
  */
 export function VoiceConnectedPanel(): React.JSX.Element | null {
   const channelId = useVoiceStore((s) => s.channelId)
@@ -94,9 +95,9 @@ export function VoiceConnectedPanel(): React.JSX.Element | null {
               <QualityRow label="Jitter" value={fmtMs(quality.jitterMs)} />
               <QualityRow label="Packet loss" value={fmtLoss(quality.packetLoss)} />
             </div>
+            <CallSecuritySection />
           </PopoverContent>
         </Popover>
-        <CallLockButton />
         <ScreenShareControls />
         <IconButton label="Disconnect" tone="danger" onClick={() => voiceService.leaveVoice()}>
           <PhoneOff />

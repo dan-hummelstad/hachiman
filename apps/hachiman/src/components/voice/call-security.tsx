@@ -4,14 +4,27 @@ import { useCallSecurity, type CallSecurityKind } from '@/components/voice/use-c
 import { cn } from '@/lib/utils'
 import { openDialog } from '@/stores/dialogStore'
 
-const LOCK: Record<
-  Exclude<CallSecurityKind, 'none' | 'resync_failed'>,
-  { label: string; className: string }
-> = {
-  secure: { label: 'End-to-end encrypted. Verify the call', className: 'text-online' },
-  securing: { label: 'Setting up encryption…', className: 'text-idle' },
-  resyncing: { label: 'Reconnecting securely…', className: 'text-idle' },
-  update_required: { label: 'Update required for encrypted calls', className: 'text-dnd' }
+type LockKind = Exclude<CallSecurityKind, 'none' | 'resync_failed'>
+
+const LOCK: Record<LockKind, { label: string; status: string; className: string }> = {
+  secure: {
+    label: 'End-to-end encrypted. Verify the call',
+    status: 'End-to-end encrypted',
+    className: 'text-online'
+  },
+  securing: { label: 'Setting up encryption…', status: 'Setting up…', className: 'text-idle' },
+  resyncing: { label: 'Reconnecting securely…', status: 'Reconnecting…', className: 'text-idle' },
+  update_required: {
+    label: 'Update required for encrypted calls',
+    status: 'Update required',
+    className: 'text-dnd'
+  }
+}
+
+function LockIcon({ kind, className }: { kind: LockKind; className?: string }): React.JSX.Element {
+  if (kind === 'secure') return <Lock className={className} />
+  if (kind === 'update_required') return <TriangleAlert className={className} />
+  return <LoaderCircle className={cn('animate-spin', className)} />
 }
 
 /**
@@ -29,14 +42,38 @@ export function CallLockButton({ size }: { size?: 'sm' | 'md' }): React.JSX.Elem
       className={cn(className, 'hover:text-current')}
       onClick={() => openDialog({ kind: 'verifyCall' })}
     >
-      {kind === 'secure' ? (
-        <Lock />
-      ) : kind === 'update_required' ? (
-        <TriangleAlert />
-      ) : (
-        <LoaderCircle className="animate-spin" />
-      )}
+      <LockIcon kind={kind} />
     </IconButton>
+  )
+}
+
+/**
+ * The encryption state of the own call as a popover section, with "Verify call" once the call is
+ * secure. Renders nothing outside a call.
+ */
+export function CallSecuritySection(): React.JSX.Element | null {
+  const { kind } = useCallSecurity()
+  if (kind === 'none' || kind === 'resync_failed') return null
+  const { status, className } = LOCK[kind]
+  return (
+    <div className="mt-3 border-t pt-3">
+      <div className="flex items-center justify-between text-sm">
+        <span className="font-semibold">Encryption</span>
+        <span className={cn('flex items-center gap-1 text-xs', className)}>
+          <LockIcon kind={kind} className="size-3.5" />
+          {status}
+        </span>
+      </div>
+      {kind === 'secure' && (
+        <button
+          type="button"
+          className="hover:bg-accent mt-2 w-full rounded-md border px-2 py-1 text-xs font-medium"
+          onClick={() => openDialog({ kind: 'verifyCall' })}
+        >
+          Verify call
+        </button>
+      )}
+    </div>
   )
 }
 
