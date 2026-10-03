@@ -25,6 +25,9 @@ Preview state persists under `preview:*` localStorage keys, so it never touches 
   - a mention of me (`@kestrel`, in the 10:52 message from marlowe)
   - a code-ish line (quill)
   - a long paragraph (petra_v)
+  - one message that does not decrypt (sable, 11:20, "the signature is not valid")
+  - one message from a history bundle (marlowe, 18:02 yesterday, "Membership at that time not verified")
+  - a membership line before the first message of today ("kestrel added yuki.h")
   - one **pending** message and one **failed** message (the last two)
 
   Juni is typing.
@@ -34,11 +37,24 @@ Preview state persists under `preview:*` localStorage keys, so it never touches 
 
 ## Stubs (`preview/stubs.ts`)
 
+- The crypto client is `createCryptoStub` from `@hachiman/crypto` (`cryptoService.useStub()`). It has no Worker and no keys. Its envelopes are marked JSON, NOT ENCRYPTED, and it gives attachment blobs back unchanged. The send, edit, upload and decrypted-blob code paths are the real ones.
 - `hachiman.connect` and the gateway are no-ops.
 - Every `hachiman.rest.*` method resolves locally and logs `[preview] rest.<name>` at debug level. The stubs dispatch writes as gateway events, so the UI updates as it would live:
-  - Sending a message echoes it after 400ms.
+  - Sending a message echoes it after 400ms. The echo goes through the stub decrypt.
+  - `fetchBlob` gives the fixture files and the files uploaded in this session. It renders the SVG fixture images to PNG, because their pointers say PNG.
+  - The §12.12 routes reject with `PreviewUnsupported`. Only the crypto Worker calls them.
   - You can create, edit or delete channels, roles and guilds.
   - Invites return code `nt0wl5x`.
   - `previewInvite` returns "Pixel Pushers".
 - `joinVoice`, `leaveVoice` and `setSelfVoice` update my voice state. `setSelfVoice` keeps the client's own mute and deafen rules. There is no media.
-- The stub table is typed against `hachiman.rest`. If a REST method is added or renamed, `stubs.ts` does not compile until it has a stub.
+- The stub table is typed against `hachiman.rest`. If a REST method is added or renamed, `stubs.ts` does not compile until it has a stub or is in `DS_ROUTES`.
+
+## Unit tests
+
+Run the tests from the repo root:
+
+```bash
+pnpm -F @hachiman/hachiman test
+```
+
+The config is `src/dev/vitest.config.ts`. It runs every `src/**/*.test.ts` in a Node environment.

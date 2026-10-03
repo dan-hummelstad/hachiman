@@ -1,5 +1,6 @@
 import { PhoneOff } from 'lucide-react'
 import { IconButton } from '@/components/ui/icon-button'
+import { CallSecurityBanner, CallSecuritySection } from '@/components/voice/call-security'
 import { ScreenShareControls } from '@/components/voice/screen-share-controls'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { cn } from '@/lib/utils'
@@ -38,7 +39,9 @@ function phaseOf(state: VoiceConnectionState): Phase {
 
 /**
  * "Voice connected" panel at the bottom of the channel sidebar (spec §4).
- * Renders only while in voice. Mute / deafen live in the user panel below it.
+ * Renders only while in voice. Mute / deafen live in the user panel below it. The details popover
+ * holds the connection stats and the call encryption, with "Verify call" (§12.5 epoch code). The
+ * banner line shows the 4013 rejoin and 4012.
  */
 export function VoiceConnectedPanel(): React.JSX.Element | null {
   const channelId = useVoiceStore((s) => s.channelId)
@@ -55,47 +58,51 @@ export function VoiceConnectedPanel(): React.JSX.Element | null {
   const tier = phase === 'connected' ? classifyQuality(quality) : 'unknown'
 
   return (
-    <div className="flex shrink-0 items-center gap-2 border-t px-3 py-2">
-      <Popover>
-        <PopoverTrigger asChild>
-          <button
-            type="button"
-            aria-label="Voice connection details"
-            className="hover:bg-accent/60 -mx-1 flex min-w-0 flex-1 flex-col px-1 py-0.5 text-left"
-          >
-            <span
-              className={cn(
-                'flex items-center gap-1.5 text-[13px] leading-5 font-semibold',
-                PHASE[phase].className
-              )}
+    <div className="shrink-0 border-t px-3 py-2">
+      <CallSecurityBanner className="pb-1.5" />
+      <div className="flex items-center gap-2">
+        <Popover>
+          <PopoverTrigger asChild>
+            <button
+              type="button"
+              aria-label="Voice connection details"
+              className="hover:bg-accent/60 -mx-1 flex min-w-0 flex-1 flex-col px-1 py-0.5 text-left"
             >
-              <SignalBars tier={tier} />
-              {PHASE[phase].label}
-            </span>
-            <span className="text-muted-foreground truncate text-xs leading-4">
-              {channelName ?? 'Voice'}
-              {guildName ? ` / ${guildName}` : ''}
-            </span>
-          </button>
-        </PopoverTrigger>
-        <PopoverContent align="start" side="top" className="w-60 p-3">
-          <div className="flex items-center justify-between text-sm">
-            <span className="font-semibold">Connection</span>
-            <span className="text-muted-foreground text-xs">
-              {phase === 'connected' ? QUALITY_TIER_LABEL[tier] : state}
-            </span>
-          </div>
-          <div className="mt-2 space-y-1.5 text-xs">
-            <QualityRow label="Ping" value={fmtMs(quality.rttMs)} />
-            <QualityRow label="Jitter" value={fmtMs(quality.jitterMs)} />
-            <QualityRow label="Packet loss" value={fmtLoss(quality.packetLoss)} />
-          </div>
-        </PopoverContent>
-      </Popover>
-      <ScreenShareControls />
-      <IconButton label="Disconnect" tone="danger" onClick={() => voiceService.leaveVoice()}>
-        <PhoneOff />
-      </IconButton>
+              <span
+                className={cn(
+                  'flex items-center gap-1.5 text-[13px] leading-5 font-semibold',
+                  PHASE[phase].className
+                )}
+              >
+                <SignalBars tier={tier} />
+                {PHASE[phase].label}
+              </span>
+              <span className="text-muted-foreground truncate text-xs leading-4">
+                {channelName ?? 'Voice'}
+                {guildName ? ` / ${guildName}` : ''}
+              </span>
+            </button>
+          </PopoverTrigger>
+          <PopoverContent align="start" side="top" className="w-60 p-3">
+            <div className="flex items-center justify-between text-sm">
+              <span className="font-semibold">Connection</span>
+              <span className="text-muted-foreground text-xs">
+                {phase === 'connected' ? QUALITY_TIER_LABEL[tier] : state}
+              </span>
+            </div>
+            <div className="mt-2 space-y-1.5 text-xs">
+              <QualityRow label="Ping" value={fmtMs(quality.rttMs)} />
+              <QualityRow label="Jitter" value={fmtMs(quality.jitterMs)} />
+              <QualityRow label="Packet loss" value={fmtLoss(quality.packetLoss)} />
+            </div>
+            <CallSecuritySection />
+          </PopoverContent>
+        </Popover>
+        <ScreenShareControls />
+        <IconButton label="Disconnect" tone="danger" onClick={() => voiceService.leaveVoice()}>
+          <PhoneOff />
+        </IconButton>
+      </div>
     </div>
   )
 }

@@ -27,6 +27,7 @@ func kVoice(gid string) string        { return "voice:" + gid }
 func kVoiceUser(uid string) string    { return "voice_user:" + uid }
 func kVoiceRoom(cid string) string    { return "voice_room:" + cid }
 func kUserSessions(uid string) string { return "user_sessions:" + uid } // see session.end
+func kDeviceOnline(did string) string { return "device_online:" + did } // read by the Takusen batch scheduler (§12.7.5)
 
 // appendScript assigns the next seq and records the frame atomically, but
 // only while this process still owns the session. `owner` flips when another
@@ -45,11 +46,29 @@ return f
 
 // takeoverScript claims a session for a RESUMEing connection and returns
 // {seq, frames newest-first} in the same atomic step, so no frame can be
-// appended by the previous owner after we read the buffer.
+// appended by the previous owner after we read the buffer. A user or
+// device mismatch returns nil (INVALID_SESSION).
 var takeoverScript = redis.NewScript(`
 if redis.call('HGET', KEYS[1], 'userId') ~= ARGV[1] then return false end
-redis.call('HSET', KEYS[1], 'owner', ARGV[2])
+if redis.call('HGET', KEYS[1], 'deviceId') ~= ARGV[2] then return false end
+redis.call('HSET', KEYS[1], 'owner', ARGV[3])
 return {redis.call('HGET', KEYS[1], 'seq'), redis.call('LRANGE', KEYS[2], 0, -1)}
+`)
+
+// claimDeviceScript sets device_online (KEYS[2]) to the session id only while
+// session:{id} (KEYS[1]) exists, so a heartbeat that races session.end does
+// not bring the key back for an ended session.
+var claimDeviceScript = redis.NewScript(`
+if redis.call('EXISTS', KEYS[1]) == 0 then return 0 end
+redis.call('SET', KEYS[2], ARGV[1], 'PX', ARGV[2])
+return 1
+`)
+
+// delIfEqualScript deletes KEYS[1] only while it still holds ARGV[1]. A
+// session that ends must not delete device_online of a newer session.
+var delIfEqualScript = redis.NewScript(`
+if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) end
+return 0
 `)
 
 type envelope struct {
@@ -59,16 +78,16 @@ type envelope struct {
 }
 
 type busEvent struct {
-	scope, id string // "guild"|"user", id
+	scope, id string // "guild"|"user"|"device", id
 	env       envelope
 }
 
 // runBus holds the one PSUBSCRIBE per process and fans envelopes out to the
-// local sessions indexed under that guild / user.
+// local sessions indexed under that guild / user / device.
 // ponytail: events published while go-redis is reconnecting are lost; clients
 // only notice on their next RESUME/READY.
 func (g *Gateway) runBus(ctx context.Context) {
-	ps := g.rdb.PSubscribe(ctx, "guild:*", "user:*")
+	ps := g.rdb.PSubscribe(ctx, "guild:*", "user:*", "device:*")
 	defer ps.Close()
 	if _, err := ps.Receive(ctx); err != nil {
 		slog.Error("psubscribe failed", "err", err)
@@ -90,9 +109,14 @@ func (g *Gateway) route(channel, payload string) {
 		return
 	}
 	g.mu.RLock()
-	idx := g.byGuild
-	if scope == "user" {
+	var idx map[string]map[*session]struct{}
+	switch scope {
+	case "guild":
+		idx = g.byGuild
+	case "user":
 		idx = g.byUser
+	case "device":
+		idx = g.byDevice
 	}
 	targets := make([]*session, 0, len(idx[id]))
 	for s := range idx[id] {
@@ -105,23 +129,28 @@ func (g *Gateway) route(channel, payload string) {
 }
 
 func (g *Gateway) publish(ctx context.Context, channel, t string, d any) {
-	b, err := json.Marshal(envelope{T: t, D: mustJSON(d)})
+	g.publishEnvelope(ctx, channel, envelope{T: t, D: mustJSON(d)})
+}
+
+func (g *Gateway) publishEnvelope(ctx context.Context, channel string, env envelope) {
+	b, err := json.Marshal(env)
 	if err == nil {
 		err = g.rdb.Publish(ctx, channel, b).Err()
 	}
 	if err != nil {
-		slog.Warn("publish failed", "channel", channel, "t", t, "err", err)
+		slog.Warn("publish failed", "channel", channel, "t", env.T, "err", err)
 	}
 }
 
-// Session index. A session is subscribed to user:{its user} and guild:{g}
-// for every guild it is a member of.
+// Session index. A session is subscribed to user:{its user},
+// device:{its device} and guild:{g} for every guild it is a member of.
 
 func (g *Gateway) addSession(s *session) {
 	g.mu.Lock()
 	old := g.sessions[s.id]
 	g.sessions[s.id] = s
 	add(g.byUser, s.user.ID, s)
+	add(g.byDevice, s.deviceID, s)
 	for gid := range s.guilds {
 		add(g.byGuild, gid, s)
 	}
@@ -138,6 +167,7 @@ func (g *Gateway) removeSession(s *session) {
 		delete(g.sessions, s.id)
 	}
 	del(g.byUser, s.user.ID, s)
+	del(g.byDevice, s.deviceID, s)
 	for gid := range s.guilds {
 		del(g.byGuild, gid, s)
 	}

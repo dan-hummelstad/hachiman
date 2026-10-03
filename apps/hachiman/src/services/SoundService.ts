@@ -1,6 +1,7 @@
 import { play } from 'cuelume'
-import type { Message, SelfVoiceState, User, VoiceState } from '@hachiman/client'
-import { mentionsMe } from '@/lib/mentions'
+import type { SelfVoiceState, User, VoiceState } from '@hachiman/client'
+import { messageMentionsMe } from '@/lib/mentions'
+import type { ChatMessage } from '@/stores/messagesStore'
 import { playChime } from '@/lib/chime'
 import { SOUNDS, type SoundEvent } from '@/lib/sounds'
 import { usePrefsStore } from '@/stores/prefsStore'
@@ -47,12 +48,13 @@ export function startSounds(): void {
  * My own messages never ping.
  */
 export function messageSound(
-  m: Message,
+  m: Pick<ChatMessage, 'author' | 'guildId' | 'content' | 'mentions'>,
   me: Pick<User, 'id' | 'username'>,
-  viewing: boolean
+  viewing: boolean,
+  myRoleIds: readonly string[] = []
 ): SoundEvent | null {
   if (m.author.id === me.id || viewing) return null
-  return m.guildId === null || mentionsMe(m.content, me) ? 'message' : null
+  return m.guildId === null || messageMentionsMe(m, me, myRoleIds) ? 'message' : null
 }
 
 /** Another user's change, heard from inside `myChannelId`: join, leave, share start or stop. */

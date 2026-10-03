@@ -8,7 +8,7 @@
  * POST /api/admin/sessions/revoke-all; one user with
  * POST /api/admin/users/:id/sign-out.
  */
-import { eq, or, sql } from 'drizzle-orm'
+import { and, eq, inArray, or, sql } from 'drizzle-orm'
 
 import { db, type Tx } from '@/db/client'
 import { oidcAdapterPayloads, users } from '@/db/schema'
@@ -65,5 +65,20 @@ export async function revokeAllSessions(): Promise<number> {
   await redis().set(SESSIONS_REVOKED_AT_KEY, String(Date.now()))
   // OIDC sessions, grants, codes and access/refresh tokens. Clients live in oidc_clients.
   const rows = await db.delete(oidcAdapterPayloads).returning({ id: oidcAdapterPayloads.id })
+  return rows.length
+}
+
+/** The Grant rows of the grants and every token, code and session row that names them. */
+export async function deleteGrantOidcRows(grantIds: string[]): Promise<number> {
+  if (grantIds.length === 0) return 0
+  const rows = await db
+    .delete(oidcAdapterPayloads)
+    .where(
+      or(
+        inArray(oidcAdapterPayloads.grantId, grantIds),
+        and(eq(oidcAdapterPayloads.model, 'Grant'), inArray(oidcAdapterPayloads.id, grantIds)),
+      ),
+    )
+    .returning({ id: oidcAdapterPayloads.id })
   return rows.length
 }

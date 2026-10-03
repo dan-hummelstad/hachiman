@@ -15,7 +15,7 @@ import { useAction } from '@/hooks/use-action'
 import { trimName, useDraft } from '@/hooks/use-draft'
 import { useRoleCeiling } from '@/hooks/use-hachiman'
 import { hexColor, rolesByPositionDesc } from '@/lib/model'
-import { hachiman } from '@/services/hachiman'
+import { adminActionService } from '@/services/AdminActionService'
 import { useGuildStore } from '@/stores/guildStore'
 
 /** Discord-style two panes: role list (highest first, @everyone last) | editor. Gated MANAGE_ROLES. */
@@ -32,7 +32,7 @@ export function GuildRolesTab({ guildId }: { guildId: string }): React.JSX.Eleme
 
   const create = async (): Promise<void> => {
     const created = await run('create the role', () =>
-      hachiman.rest.createRole(guildId, { name: 'new role' })
+      adminActionService.createRole(guildId, { name: 'new role' })
     )
     if (created.ok) setSelectedId(created.value.id)
   }
@@ -56,7 +56,7 @@ export function GuildRolesTab({ guildId }: { guildId: string }): React.JSX.Eleme
         .map((r, k) => ({ id: r.id, position: order.length - k }))
         .filter((r, k) => r.position !== order[k].position)
     }
-    void run('reorder roles', () => hachiman.rest.reorderRoles(guildId, body))
+    void run('reorder roles', () => adminActionService.reorderRoles(guildId, body))
   }
 
   return (
@@ -161,10 +161,11 @@ function RoleEditor(props: {
 
   const save = (): Promise<unknown> =>
     run('save the role', () =>
-      hachiman.rest.updateRole(role.guildId, role.id, {
+      adminActionService.updateRole(role.guildId, role.id, {
         name: isEveryone ? undefined : name.trim(),
         color,
-        permissions
+        // A permissions change is a signed admin action (§12.16); send it only when it changed.
+        permissions: permissions !== role.permissions ? permissions : undefined
       })
     )
 
@@ -266,7 +267,7 @@ function RoleEditor(props: {
         what="delete the role"
         tone="danger"
         onConfirm={async () => {
-          await hachiman.rest.deleteRole(role.guildId, role.id)
+          await adminActionService.deleteRole(role.guildId, role.id)
           props.onDeleted()
         }}
       />

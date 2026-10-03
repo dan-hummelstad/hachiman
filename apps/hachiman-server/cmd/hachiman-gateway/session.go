@@ -57,7 +57,9 @@ type session struct {
 	id    string
 	owner string // this process's claim on session:{id}; see appendScript
 	user  User
-	ctx   context.Context
+	// deviceID is fixed for the life of the session; RESUME must repeat it.
+	deviceID string
+	ctx      context.Context
 
 	in       chan any
 	dead     chan struct{}
@@ -71,9 +73,9 @@ type session struct {
 	voice      *VoiceState
 }
 
-func (g *Gateway) newSession(id string, user User, c *conn) *session {
+func (g *Gateway) newSession(id string, user User, deviceID string, c *conn) *session {
 	return &session{
-		g: g, id: id, owner: randomToken(), user: user, ctx: context.Background(),
+		g: g, id: id, owner: randomToken(), user: user, deviceID: deviceID, ctx: context.Background(),
 		in: make(chan any, 256), dead: make(chan struct{}), conn: c,
 		guilds: map[string]*guildState{}, dmPartners: map[string]bool{},
 	}
@@ -97,18 +99,30 @@ func (s *session) stop(kill bool) {
 	})
 }
 
-func (s *session) run(first func()) {
+// run starts with first, which returns false when the session must not
+// start (see recheckDevice); first has then closed the socket.
+func (s *session) run(first func() bool) {
 	defer s.g.removeSession(s)
-	first()
+	if !first() {
+		s.stop(true)
+		s.end()
+		return
+	}
 	var grace <-chan time.Time
 	for {
 		select {
 		case it := <-s.in:
 			switch it := it.(type) {
 			case busEvent:
+				if it.scope == "device" && it.env.T == "DEVICE_REVOKED" {
+					s.revoke()
+					return
+				}
 				s.onEvent(it)
 			case inFrame:
 				s.onOp(it)
+			case docAwareness:
+				s.onDocAwareness(it)
 			case detach:
 				if it.c != s.conn {
 					break
@@ -135,6 +149,37 @@ func (s *session) run(first func()) {
 	}
 }
 
+// recheckDevice repeats the device check after addSession and reports
+// whether the session may start. The check in identify/resume can pass just
+// before Takusen commits a revocation; DEVICE_REVOKED is published after the
+// commit, so either this read sees the revocation or the session is already
+// indexed and receives the event. A lookup failure closes with 4000 (the
+// client retries), not 4013 (the client stops).
+func (s *session) recheckDevice() bool {
+	_, err := s.g.checkDevice(s.ctx, s.user.ID, s.deviceID)
+	var ce closeErr
+	switch {
+	case err == nil:
+		return true
+	case errors.As(err, &ce):
+		s.conn.close(ce.code, ce.msg)
+	default:
+		slog.Warn("device recheck failed", "session", s.id, "err", err)
+		s.conn.close(closeUnknownError, "internal error")
+	}
+	return false
+}
+
+// revoke handles the internal DEVICE_REVOKED (§12.13): close with 4013 and
+// end the session so that it cannot RESUME. The event is not forwarded.
+func (s *session) revoke() {
+	if s.conn != nil {
+		s.conn.close(closeDeviceRevoked, "device revoked")
+	}
+	s.stop(true)
+	s.end()
+}
+
 // end tears down a session nobody resumed (or that was killed): voice,
 // presence, and the resume keys so a late RESUME gets INVALID_SESSION.
 func (s *session) end() {
@@ -144,6 +189,9 @@ func (s *session) end() {
 	}
 	s.leaveVoice(ctx)
 	s.g.rdb.Del(ctx, kSession(s.id), kEvents(s.id))
+	if err := delIfEqualScript.Run(ctx, s.g.rdb, []string{kDeviceOnline(s.deviceID)}, s.id).Err(); err != nil {
+		slog.Warn("device_online delete failed", "session", s.id, "err", err)
+	}
 	// user_sessions lets a second device keep the user online; members whose
 	// session key expired (crashed node) are pruned here.
 	uk := kUserSessions(s.user.ID)
@@ -178,6 +226,42 @@ func (s *session) dispatch(t string, d any) {
 	}
 	if s.conn != nil {
 		s.conn.send([]byte(f))
+	}
+}
+
+// ephemeral events skip the seq and the resume buffer (§6): they would push
+// message events out of events:{sessionId}, and clients refetch them.
+var ephemeral = map[string]bool{"DOC_UPDATE": true, "DOC_AWARENESS": true}
+
+// sendEphemeral sends an op 0 frame without `s`; a detached session drops it.
+func (s *session) sendEphemeral(t string, d json.RawMessage) {
+	if s.conn == nil {
+		return
+	}
+	b, _ := json.Marshal(struct {
+		Op int             `json:"op"`
+		T  string          `json:"t"`
+		D  json.RawMessage `json:"d"`
+	}{opDispatch, t, d})
+	s.conn.send(b)
+}
+
+// onDocAwareness relays op 5 to guild:{g} when the channel is a pages
+// channel this user can view, and drops it otherwise (§6). The sending
+// session gets the event too; clients skip their own deviceId.
+func (s *session) onDocAwareness(p docAwareness) {
+	for _, gs := range s.guilds {
+		ch := gs.channels[p.ChannelID]
+		if ch == nil {
+			continue
+		}
+		if ch.Type == "pages" && gs.canView(s.user.ID, ch.ID) {
+			s.g.publishEnvelope(s.ctx, "guild:"+gs.id, envelope{T: "DOC_AWARENESS", ChannelID: ch.ID, D: mustJSON(map[string]string{
+				"channelId": ch.ID, "guildId": gs.id, "pageId": p.PageID,
+				"userId": s.user.ID, "deviceId": s.deviceID, "envelope": p.Envelope,
+			})})
+		}
+		return
 	}
 }
 
@@ -327,8 +411,12 @@ func (s *session) onOp(f inFrame) {
 // forwards what this user may see. Contract §5 VIEW_CHANNEL filtering.
 func (s *session) onEvent(ev busEvent) {
 	e, me := ev.env, s.user.ID
-	if ev.scope == "user" {
+	switch ev.scope {
+	case "user":
 		s.onUserEvent(e)
+		return
+	case "device":
+		s.dispatch(e.T, e.D) // DEVICE_REVOKED never gets here, see run
 		return
 	}
 	gs := s.guilds[ev.id]
@@ -416,6 +504,10 @@ func (s *session) onEvent(ev busEvent) {
 		s.dropGuild(gs.id)
 	default:
 		if e.ChannelID != "" && !gs.canView(me, e.ChannelID) {
+			return
+		}
+		if ephemeral[e.T] {
+			s.sendEphemeral(e.T, e.D)
 			return
 		}
 		s.dispatch(e.T, e.D)

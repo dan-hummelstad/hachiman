@@ -49,9 +49,11 @@ export function middleware(req: NextRequest): NextResponse {
 }
 
 export const config = {
-  // Only the API surface needs CORS. `/api/v1/uploads` is excluded: when
-  // middleware runs, Next buffers the whole request body for it and silently
-  // truncates it at `middlewareClientMaxBodySize` (10 MB), which would break
-  // streaming uploads. That route applies the same CORS itself.
-  matcher: ['/api/((?!v1/uploads$).*)'],
+  // Only the API surface needs CORS. Two routes are excluded: when middleware
+  // runs, Next buffers the whole request body for it and silently truncates it
+  // at `middlewareClientMaxBodySize` (10 MB). `/api/v1/uploads` streams large
+  // bodies, and a commit upload carries a ratchet tree of up to 8 MiB (about
+  // 10.7 MB as base64url JSON, §12.7.3). Both routes apply the same CORS
+  // themselves (`MIDDLEWARE_SKIPPED_ROUTES` in src/lib/cors.ts).
+  matcher: ['/api/((?!v1/uploads$|v1/mls/groups/[^/]+/commits$).*)'],
 }

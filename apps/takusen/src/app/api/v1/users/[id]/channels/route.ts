@@ -3,6 +3,7 @@
  * POST /api/v1/users/@me/channels { recipientIds } — open a DM (1 recipient,
  *      reuses an existing one) or create a group DM (2–9 recipients, ≤ 10
  *      participants). Every recipient must share a guild with the caller.
+ *      A new DM gets its dm group in the same transaction (`dm_created`, §12.18).
  */
 import { and, count, eq, inArray, sql } from 'drizzle-orm'
 import { alias } from 'drizzle-orm/pg-core'
@@ -15,7 +16,8 @@ import { errorResponse, parseBody, requireMe } from '@/lib/api-helpers'
 import { requireUser } from '@/lib/auth-helpers'
 import { MissingPermissionsError, ValidationError } from '@/lib/errors'
 import { publishToUser } from '@/lib/events'
-import { userColumns } from '@/lib/guilds'
+import { actorDeviceId } from '@/lib/guild-access'
+import { groupVisibility, membershipChanged, membershipTransaction, MembershipTriggers, userColumns } from '@/lib/guilds'
 import { toDmChannel, type UserLike } from '@/lib/wire'
 
 interface RouteContext {
@@ -51,9 +53,12 @@ export async function GET(_req: NextRequest, ctx: RouteContext): Promise<NextRes
       .from(dmParticipants)
       .innerJoin(channels, eq(channels.id, dmParticipants.channelId))
       .where(eq(dmParticipants.userId, me))
-    const participants = await participantsOf(rows.map((r) => r.channel.id))
+    const [participants, groups] = await Promise.all([
+      participantsOf(rows.map((r) => r.channel.id)),
+      groupVisibility(rows.map((r) => r.channel.mlsGroupId)),
+    ])
     return NextResponse.json(
-      rows.map(({ channel }) => toDmChannel(channel, participants.get(channel.id) ?? [], me)),
+      rows.map(({ channel }) => toDmChannel(channel, participants.get(channel.id) ?? [], me, groups)),
     )
   } catch (err) {
     return errorResponse(err)
@@ -81,7 +86,8 @@ export async function POST(req: NextRequest, ctx: RouteContext): Promise<NextRes
     }
 
     const participantIds = [me, ...recipientIds]
-    const { channel, created } = await db.transaction(async (tx) => {
+    const actor = await actorDeviceId(req, me)
+    const { channel, created } = await membershipTransaction(async (tx) => {
       if (recipientIds.length === 1) {
         // Serialise concurrent opens of the same pair so only one DM is created.
         const pairKey = [...participantIds].sort().join(':')
@@ -105,19 +111,23 @@ export async function POST(req: NextRequest, ctx: RouteContext): Promise<NextRes
         .returning()
       await tx
         .insert(dmParticipants)
-        .values(participantIds.map((userId) => ({ channelId: row.id, userId })))
-      return { channel: row, created: true }
+        .values(participantIds.map((userId) => ({ channelId: row!.id, userId })))
+      await membershipChanged(tx, MembershipTriggers.dmCreated(row!.id), actor)
+      // The DS sets mls_group_id in this transaction.
+      const [withGroup] = await tx.select().from(channels).where(eq(channels.id, row!.id))
+      return { channel: withGroup!, created: true }
     })
 
     const participants = (await participantsOf([channel.id])).get(channel.id) ?? []
+    const groups = await groupVisibility([channel.mlsGroupId])
     if (created) {
       await Promise.all(
         participantIds.map((id) =>
-          publishToUser(id, 'CHANNEL_CREATE', toDmChannel(channel, participants, id)),
+          publishToUser(id, 'CHANNEL_CREATE', toDmChannel(channel, participants, id, groups)),
         ),
       )
     }
-    return NextResponse.json(toDmChannel(channel, participants, me))
+    return NextResponse.json(toDmChannel(channel, participants, me, groups))
   } catch (err) {
     return errorResponse(err)
   }

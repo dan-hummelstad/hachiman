@@ -6,6 +6,7 @@
 // share (VP8) (contract §8).
 //
 //   - voice.go:  /voice WS — token identify, SDP/ICE, peers, speaking
+//   - e2ee.go:   voice E2EE roster, relay and commit ordering (no MLS library)
 //   - takusen.go: RegisterMediaNode + MediaNodeHeartbeat to Takusen gRPC
 //   - kick.go:   Redis SUBSCRIBE media:{nodeId} → close session with 4010
 //   - pkg/media: the SFU itself (room-scoped forwarding)
@@ -89,6 +90,7 @@ func run(ctx context.Context, logger *log.Logger, a args) error {
 		return err
 	}
 	srv := newVoiceServer(sfu, verifier, logger)
+	srv.readLimit = a.WSReadLimit
 
 	opts, err := redis.ParseURL(a.RedisURL)
 	if err != nil {

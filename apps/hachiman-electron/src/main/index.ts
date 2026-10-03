@@ -3,13 +3,26 @@ import {
   shell,
   BrowserWindow,
   ipcMain,
+  safeStorage,
   systemPreferences,
+  type IpcMainInvokeEvent,
 } from "electron";
 import { join } from "path";
 import { electronApp, optimizer, is } from "@electron-toolkit/utils";
 import icon from "../../resources/icon.png?asset";
-import { OPEN_EXTERNAL_CHANNEL, PROBE_REGIONS_CHANNEL } from "../shared/ipc";
+import {
+  OPEN_EXTERNAL_CHANNEL,
+  PROBE_REGIONS_CHANNEL,
+  SECURE_STORAGE_CLEAR_CHANNEL,
+  SECURE_STORAGE_GET_CHANNEL,
+} from "../shared/ipc";
 import { buildCsp } from "./csp";
+import {
+  createWrapKeyStore,
+  SecureStorageError,
+  toIpcResult,
+  type WrapKeyStore,
+} from "./secure-storage";
 import { flushPendingUrls, registerProtocolHandlers } from "./protocol-handler";
 import { validateProbeTargets } from "./probe-target-guard";
 import { probeRegions } from "./region-probe";
@@ -135,6 +148,36 @@ ipcMain.handle(OPEN_EXTERNAL_CHANNEL, async (_e, url: unknown) => {
   }
 });
 
+// IPC: the crypto store wrap key (§11 secureStorage). Only the top frame of the
+// app page may ask. The handlers return data, never throw (see toIpcResult).
+let wrapKeys: WrapKeyStore | null = null;
+function wrapKeyStore(): WrapKeyStore {
+  wrapKeys ??= createWrapKeyStore({
+    dir: join(app.getPath("userData"), "keys"),
+    safeStorage,
+    platform: process.platform,
+  });
+  return wrapKeys;
+}
+function checkAppFrame(e: IpcMainInvokeEvent): void {
+  const frame = e.senderFrame;
+  if (!frame || frame.parent !== null || !renderer.isAppUrl(frame.url)) {
+    throw new SecureStorageError("Malformed", "caller is not the app page");
+  }
+}
+ipcMain.handle(SECURE_STORAGE_GET_CHANNEL, (e, userId: unknown) =>
+  toIpcResult(async () => {
+    checkAppFrame(e);
+    return wrapKeyStore().getWrapKeyBytes(userId);
+  }),
+);
+ipcMain.handle(SECURE_STORAGE_CLEAR_CHANNEL, (e, userId: unknown) =>
+  toIpcResult(async () => {
+    checkAppFrame(e);
+    await wrapKeyStore().clear(userId);
+  }),
+);
+
 // This method will be called when Electron has finished
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
@@ -152,6 +195,8 @@ app.whenReady().then(() => {
   // macOS requires explicit microphone permission via TCC. Other platforms
   // handle this at the OS / browser layer and have no Electron-level prompt.
   void ensureMicrophoneAccess();
+  // The camera is not requested here: only the QR scan uses it, and its getUserMedia call
+  // shows the OS prompt on first use. A denial shows the paste field (qr-view.tsx ScanOrPaste).
 
   renderer.serve(CSP);
 

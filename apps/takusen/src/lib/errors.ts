@@ -79,3 +79,25 @@ export class InvalidImageError extends Error {
     this.name = 'InvalidImageError'
   }
 }
+
+/**
+ * A coded API error (docs/gateway-protocol.md §12.18, §12.19). `errorResponse`
+ * maps it to `{ error: code, message?, ...extra }` with `status`, and sets
+ * `Retry-After` when `retryAfterSec` is given.
+ */
+export class ApiError extends Error {
+  /** False when the caller gave no message: the body then has no `message`. */
+  readonly hasMessage: boolean
+
+  constructor(
+    readonly code: string,
+    readonly status: number,
+    message?: string,
+    readonly extra?: Record<string, unknown>,
+    readonly retryAfterSec?: number,
+  ) {
+    super(message ?? code)
+    this.name = 'ApiError'
+    this.hasMessage = message !== undefined
+  }
+}

@@ -296,7 +296,7 @@ Each phase ships by itself and keeps `docs/gateway-protocol.md` in step.
   - When the chosen device does not answer, the batch goes to the next device.
   - When no member is online, the joiner falls back to an external commit.
   - Clients reject an Add from the server in any group except the public set group.
-- **Load test (Phase 3):** 10,000 members with churn. Measure the commit rate, ratchet tree size and catch-up time.
+- **Load test (Phase 3):** 10,000 members with churn. Measure the commit rate, ratchet tree size and catch-up time. Result: `docs/e2ee-load-test.md`. The default cap is 250 members.
 - **Canary test:**
   1. Send a message whose text is a unique string.
   2. Check that the string is in no Postgres column, no S3 object and no Redis frame.
@@ -321,8 +321,86 @@ Each phase ships by itself and keeps `docs/gateway-protocol.md` in step.
    - Batched commits that Takusen starts.
    - Light clients later.
 
-   The Phase 3 load test measures commit rate, tree size and catch-up time at 10,000 members. Note that E2EE in a public channel protects little, because anyone can join.
+   The Phase 3 load test measures commit rate, tree size and catch-up time at 10,000 members. It set the default cap to 250 members (`docs/e2ee-load-test.md`). Note that E2EE in a public channel protects little, because anyone can join.
 2. **History for new members.** Default: `shared` in public channels, `joined` in DMs and private channels.
 3. **The browser host.** Default: supported, with the "trusts the server's code" label.
 4. **Recovery.** Default: a recovery key only, no passphrase.
-5. **The MLS library.** Default: OpenMLS WebAssembly, with ts-mls as the fallback.
+5. **The MLS library.** Decided: ts-mls 1.6.4 (Implementation note 1).
+
+## Implementation notes
+
+These notes record the decisions made at implementation time. `docs/gateway-protocol.md` §12 is the normative contract. Where a note changes the plan above, the note applies.
+
+### 1. Library: ts-mls
+
+- The library is ts-mls 1.6.4. It is the fallback that decision 2 names.
+- No Rust toolchain exists here for an OpenMLS WebAssembly build. The OpenMLS builds on npm are GPL-licensed or stubs.
+- This note decides open decision 5.
+- ts-mls is pure TypeScript under the MIT license. It runs in the browser, in a Worker and in Node.
+- No one has audited ts-mls. The Phase 4 audit covers it, together with `pkgs/hachiman-crypto` and the DS rules.
+- No WebAssembly is necessary. Thus the hosts do not add `'wasm-unsafe-eval'` to the CSP. They add only `worker-src 'self'`.
+- `pkgs/hachiman-crypto/src/smoke.spec.ts` pins the library behavior that the design uses. Keep it as a permanent test. If an upgrade breaks it, review the design.
+
+What the smoke test shows:
+- Cipher suite 1 supports these operations: create, Add with Welcome, a Remove from an external sender that a member commits, an external commit from GroupInfo with the ratchet tree, `mlsExporter`, the epoch authenticator, and a state round trip through `encodeGroupState`.
+- The ratchet tree can travel apart from the Welcome. The DS can read a PublicMessage commit without group state. It can check a GroupInfo signature and the tree hash.
+- Leaf node extensions survive Adds, external commits and update paths. The authentication service sees each credential.
+- ts-mls can make a group with a custom credential type, but it cannot decode the state again. Thus Hachiman uses BasicCredential `userId:deviceId` and puts the certificate chain in a leaf extension (0xF1A0).
+- ts-mls encodes `external_senders` as one ExternalSender without the RFC vector prefix, and indexes senders by extension position. Hachiman uses exactly one external sender in the first extension. Thus index 0 is the same in both readings.
+- The commit callback of ts-mls is synchronous. Clients therefore check certificate chains before `processMessage`, with synchronous Ed25519 from `@noble/curves`.
+- The X-Wing suite (83) works for create, Add, Welcome and the exporter.
+- ts-mls has no light-client or partial-tree mode. A join without the full ratchet tree fails. Light clients are deferred until the library supports them (§12.17 gives the condition).
+- An update path copies the old leaf extensions, and a commit cannot set new ones. Thus a device changes its certificate chain only by a resync external commit with a new key package. After a DSK rotation, each device resyncs its leaf in every group (§12.4).
+
+### 2. Voice groups: members commit, the media node orders
+
+- The Go media node has no MLS library. Thus it does not sign proposals, and it is not an external sender.
+- The media node relays key packages, Welcomes, commits and roster changes. It orders commits: the first valid commit per epoch wins. It reads the group id and the epoch from the first bytes of the commit.
+- The online member device with the lowest leaf index commits. It commits Adds only for key packages with a valid certificate chain. It commits Removes for participants who left. When it does not commit in 5 s, the next member takes the role.
+- This is stronger than decision 7 of the plan, because the server signs nothing in a voice group.
+- The cost: a hostile media node can say that a participant left, or hide that a participant left. The first case is a denial of service. In the second case, the participant keeps the keys only while the server keeps the session open.
+- When two members report a bad commit, the media node closes the committer with 4014. Thus one member cannot disconnect the whole room.
+- The committer does not check that a joiner is in the voice channel (gateway voice states). `DsTransport` has no voice-state query. The committer checks the chain and that the credential equals the roster entry from the voice token claims. Thus it trusts the media roster for Adds. This is the accepted cost above: a hostile media node can already decide who is in the room.
+- The final voice op set is in contract §8. It replaces the op list of Phase 1. There are no `e2ee_external_sender` and `e2ee_proposals` ops.
+  - Media to client: `e2ee_roster`, `e2ee_key_package`, `e2ee_commit_rejected`, `e2ee_prepare_transition`, `e2ee_welcome`, `e2ee_ratchet_tree`, `e2ee_execute_transition`.
+  - Client to media: `e2ee_commit`, `e2ee_ratchet_tree`, `e2ee_ready`, `e2ee_invalid`.
+
+### 3. Takusen uses ts-mls in Node
+
+- Takusen signs Remove proposals with `proposeExternal`. It signs Add proposals only in the public set group.
+- All handshakes use PublicMessage framing. Thus Takusen can decode each commit, check the GroupInfo and the tree that the committer uploads, and enforce VIEW_CHANNEL on the next member list.
+- Messages never use MLS application messages. They use the envelope of section 5 (contract §12.8).
+- Takusen signs one proposal per pending item and epoch. It appends each proposal to the handshake stream before a batch uses it. Thus every member holds each proposal that a commit references.
+- Takusen gets the stored state of the previous epoch for each commit check. It applies the proposals to the previous leaves and compares the result with the uploaded tree. Thus a commit cannot hide an Add.
+
+### 4. Other decisions
+
+- **One binary format.** Every Hachiman object uses the RFC 9420 presentation language (`src/codec.ts`). JSON wires carry the bytes as base64url without padding.
+- **Device keys.** Each device has one MLS signature key for all groups, and an X25519 key for device messages. The device certificate holds both.
+- **Signatures on messages.** The receiver checks the signature with the sender's device certificate, not with the leaf of that epoch. Thus history from a bundle or a backup can be checked without old trees.
+- **Server epoch check.** Takusen rejects an envelope of an older epoch. The one exception is the epoch just before the current one, when the newest commit removed no leaf and is less than 10 s old.
+- **History visibility.** The group descriptor extension holds it, so MLS authenticates it. REST only mirrors it. DMs stay `joined` in v1.
+- **Password reset.** A reset revokes all sessions and all devices on the server. A password change revokes the other sessions and keeps the devices.
+- **Franking.** Every envelope carries the franking tag from the first day. The report route that checks it is Phase 4.
+- **Key packages.** Takusen claims key packages for the Adds that it queues. Clients never claim the key packages of other devices.
+- **One tab per device.** A Web Lock stops two Workers from using one device store.
+- **channelReaders.** It lives in `apps/takusen/src/lib/mls/readers.ts`, next to the DS that uses it most. `lib/guild-access.ts` calls it.
+- **Schema names.** The contract names are final. `messages` has `envelope`, not `ciphertext` (Critical files).
+- **Joiner check (decision 4).** A joiner has no timeline. It compares the leaves of the tree with its own `channelReaders` result. It shows each extra user as a timeline entry in the channel.
+- **Envelope limit.** The default is 32 KiB. The largest valid message is about 18.3 KB.
+- **Edits.** An edit keeps the `client_msg_id` of the original. The receiver keeps the highest `sent_at_ms` per message. Thus the server cannot roll back an edit.
+- **Revocation by sign-out.** A device signs its own `signed_out` revocation with its MLS key. Thus a stolen bearer token cannot sign out other devices.
+- **Password reset.** A reset also marks the master key as superseded. The user then restores the old master key or makes a new one. A bearer token alone cannot replace a current master key.
+- **Deleted users.** A Remove is keyed by its leaf index. Thus a user delete does not lose the queued Removes, and the orphan leaves do not block later commits.
+- **Signed admin actions.** The replay uses the permission rules of `@hachiman/client/permissions`. Thus `@hachiman/crypto` needs the workspace dependency `@hachiman/client`. Each language keeps one permission implementation.
+- **Group size cap.** A public set group has at most 500 leaves by default (`PUBLIC_SET_MAX_MEMBERS`, `TAKUSEN_PUBLIC_SET_MAX_MEMBERS`). A join above the cap gets `GroupFull`.
+- **Group size cap, measured.** The Phase 3 load test (`docs/e2ee-load-test.md`, bench `pkgs/hachiman-crypto/src/mls/load.bench.ts`) set the cap to 500. It was 10,000. After three optimizations, a full batch takes 0.43 s at 500 leaves (deadline 5 s) and a join by Welcome takes 2.2 s (budget 10 s). A group of 10,000 leaves fails the time budgets of the test. The repo patches two ts-mls 1.6.4 defects that blocked large groups (`patches/ts-mls@1.6.4.patch`, fixed upstream on `main`). "How to increase the cap" in the load test document lists the changes that allow a higher cap.
+- **Public history and DS membership.** A `public_set` group takes its readers from the DS guild member list. Signed admin actions do not cover guild membership. When the descriptor says `shared`, the committer sends a history bundle to each new user that the DS adds (contract §12.11.2). A malicious server can add an account that it controls and get the public channel history. This agrees with the threat model: public channels accept membership that the server controls. The behavior does not change. Private history belongs in `channel` groups.
+- **QR codes.** The UI has a small QR encoder. It reads QR codes with `BarcodeDetector` where the browser has it. Every host also accepts a pasted code, and SAS mode needs no camera.
+
+### 5. Deviations found in the code
+
+- **No SFU roster hook.** `pkg/media/sfu.go` needed no change and has no roster hook (Critical files item). The add and remove order of voice members is in `cmd/hachiman-media/e2ee.go`. The check that the SFU forwards RTP payloads byte-identical is the pion loopback test in `cmd/hachiman-media/voice_test.go`, not a test in `pkg/media`.
+- **Fuzzing.** The fuzzing of the envelope and frame parsers (Phase 4) is done as fast-check property tests in the crypto specs (`*.spec.ts` and `*.fuzz.spec.ts`), as Go native fuzz targets in `apps/hachiman-server`, and as seeded fuzz tests of the Takusen parsers (`apps/takusen/src/lib/mls/__fuzz__`). `docs/e2ee-audit-scope.md` lists every target, the commands and the findings.
+- **Group size cap.** See "Group size cap, measured" in note 4.
+- **Tests that need devDependencies.** The browser secure-storage test (`apps/hachiman-browser/src/platforms/browser/secure-storage.test.mts`) needs `fake-indexeddb`, and the shared-UI tests need `vitest`. Both need a `pnpm install` outside the sandbox. Until then, the secure-storage test is skipped.

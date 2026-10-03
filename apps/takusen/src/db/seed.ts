@@ -111,6 +111,9 @@ async function main(): Promise<void> {
   console.log(`[seed] upserted ${REGIONS.length} regions (${REGIONS.map((r) => r.code).join(', ')})`)
 
   const redirectUris = readRedirectUris()
+  // offline_access: the app asks for a refresh token (TakusenService). Without
+  // it in the client's scopes, a request with prompt=consent is invalid_scope.
+  const scopes = ['openid', 'profile', 'email', 'offline_access']
 
   const existing = await db
     .select({ id: oidcClients.id, redirectUris: oidcClients.redirectUris })
@@ -122,7 +125,7 @@ async function main(): Promise<void> {
   if (existing) {
     await db
       .update(oidcClients)
-      .set({ redirectUris, isPublic: true, clientSecret: '' })
+      .set({ redirectUris, scopes, isPublic: true, clientSecret: '' })
       .where(eq(oidcClients.id, existing.id))
     console.log(
       `[seed] updated ${HACHIMAN_CLIENT_ID} (redirect_uris=${redirectUris.join(', ')})`,
@@ -133,7 +136,7 @@ async function main(): Promise<void> {
       clientSecret: '', // ignored for public clients; the adapter omits it
       isPublic: true,
       redirectUris,
-      scopes: ['openid', 'profile', 'email'],
+      scopes,
     })
     console.log(
       `[seed] created ${HACHIMAN_CLIENT_ID} (redirect_uris=${redirectUris.join(', ')})`,

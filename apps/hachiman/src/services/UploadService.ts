@@ -3,11 +3,18 @@ import {
   PROFILE_IMAGE_TYPES,
   RestError,
   embedKind,
-  type Attachment,
   type Limits
 } from '@hachiman/client'
+import {
+  CryptoError,
+  THUMBNAIL_MAX_EDGE,
+  type AttachmentInput,
+  type AttachmentPointer
+} from '@hachiman/crypto'
+import { pointerOf } from '@/lib/attachments'
 import { formatBytes } from '@/lib/format-bytes'
 import { errMsg } from '@/lib/utils'
+import { cryptoService } from '@/services/CryptoService'
 import { hachiman } from '@/services/hachiman'
 import { useLimitsStore } from '@/stores/limitsStore'
 
@@ -63,7 +70,18 @@ export function uploadErrorText(e: unknown): string {
     return `The file is larger than ${formatBytes(currentLimits().maxUploadBytes)}.`
   if (e instanceof RestError && e.code === 'InvalidImage')
     return `Use a ${PROFILE_IMAGE_FORMATS} image.`
+  if (e instanceof CryptoError && e.code === 'NotInitialized')
+    return 'Encryption is not ready on this device yet.'
   return errMsg(e)
+}
+
+/**
+ * The log form of an attachment upload error: its kind and code only. A message can name the
+ * file, and the file name is plaintext metadata that §12.9 keeps inside the envelope.
+ */
+function logShape(e: unknown): string {
+  if (e instanceof RestError || e instanceof CryptoError) return `${e.name} ${e.code}`
+  return e instanceof Error ? e.name : typeof e
 }
 
 export interface UploadFileOptions {
@@ -73,82 +91,187 @@ export interface UploadFileOptions {
 }
 
 /**
- * Upload one file to Takusen with its pixel size. Rejects with an Error whose message is
- * user-facing (see `uploadErrorText`), or with the AbortError when `signal` aborts.
+ * Upload one profile image (avatar, guild icon or banner). These stay plaintext (§12.1). Rejects
+ * with an Error whose message is user-facing (see `uploadErrorText`), or with the AbortError when
+ * `signal` aborts.
  */
-export async function uploadFile(file: File, opts: UploadFileOptions = {}): Promise<Attachment> {
+export async function uploadFile(
+  file: File,
+  opts: UploadFileOptions = {}
+): Promise<{ id: string; key: string; size: number }> {
   const { signal, onProgress } = opts
   const large = tooLarge(file)
   if (large) throw new Error(large)
   try {
-    const size = await measure(file, signal)
-    return await hachiman.rest.upload(file, {
-      filename: file.name || 'file',
-      ...size,
+    return await hachiman.rest.uploadImage(file, {
+      filename: file.name || 'image',
       signal,
-      onProgress: onProgress && ((loaded, total) => onProgress(total > 0 ? loaded / total : 0))
+      onProgress: progress(onProgress)
     })
   } catch (e) {
     if (signal?.aborted) throw e
-    console.warn('[uploads] %s failed', file.name, e)
+    console.warn('[uploads] profile image upload failed', e)
     throw new Error(uploadErrorText(e), { cause: e })
   }
 }
 
-type Size = { width?: number; height?: number }
-
-/** Longest reading a file's pixel size may take before it uploads without one. */
-const MEASURE_TIMEOUT_MS = 3000
-
 /**
- * Pixel size for layout, read locally. Undecodable here (e.g. HEVC), too slow, or aborted just
- * uploads without it.
+ * Encrypt one message attachment in the crypto Worker, then upload the file blob and the
+ * thumbnail blob (§12.9). The server sees only the blob sizes: the name, MIME type and dimensions
+ * are in the returned pointer, which goes into the envelope. Rejects like `uploadFile`.
  */
-async function measure(file: File, signal: AbortSignal | undefined): Promise<Size> {
-  const kind = embedKind(file.type)
-  if (kind !== 'image' && kind !== 'video') return {}
-  const timeout = AbortSignal.timeout(MEASURE_TIMEOUT_MS)
-  const stop = signal ? AbortSignal.any([signal, timeout]) : timeout
+export async function uploadAttachment(
+  file: File,
+  opts: UploadFileOptions = {}
+): Promise<AttachmentPointer> {
+  const { signal, onProgress } = opts
+  const large = tooLarge(file)
+  if (large) throw new Error(large)
   try {
-    return await (kind === 'image' ? imageSize(file, stop) : videoSize(file, stop))
-  } catch {
-    return {}
+    const facts = await inspect(file, signal)
+    if (signal?.aborted) throw abortError()
+    const encrypted = await cryptoService.client().encryptAttachment({
+      file,
+      name: file.name || 'file',
+      mime: file.type || 'application/octet-stream',
+      width: facts.width,
+      height: facts.height,
+      durationMs: facts.durationMs,
+      blurhash: null,
+      thumbnail: facts.thumbnail
+    })
+    if (signal?.aborted) throw abortError()
+    // TAKUSEN_MAX_UPLOAD_BYTES applies to the blob, which padding makes larger than the file.
+    const max = currentLimits().maxUploadBytes
+    if (encrypted.blob.size > max)
+      throw new Error(`${file.name} is larger than ${formatBytes(max)} after encryption.`)
+    const fileBytes = encrypted.blob.size
+    const total = fileBytes + (encrypted.thumbnailBlob?.size ?? 0)
+    const fileUpload = await hachiman.rest.uploadBlob(encrypted.blob, {
+      signal,
+      onProgress: (loaded) => onProgress?.(loaded / total)
+    })
+    const thumbUpload = encrypted.thumbnailBlob
+      ? await hachiman.rest.uploadBlob(encrypted.thumbnailBlob, {
+          signal,
+          onProgress: (loaded) => onProgress?.((fileBytes + loaded) / total)
+        })
+      : null
+    return pointerOf(encrypted.draft, fileUpload, thumbUpload)
+  } catch (e) {
+    if (signal?.aborted) throw e
+    console.warn('[uploads] attachment upload failed', logShape(e))
+    throw new Error(uploadErrorText(e), { cause: e })
   }
 }
 
-function imageSize(file: File, stop: AbortSignal): Promise<Size> {
-  const read = createImageBitmap(file).then((bitmap) => {
-    const size = { width: bitmap.width, height: bitmap.height }
-    bitmap.close()
-    return size
+const progress =
+  (onProgress: ((fraction: number) => void) | undefined) =>
+  (loaded: number, total: number): void =>
+    onProgress?.(total > 0 ? loaded / total : 0)
+
+const abortError = (): DOMException => new DOMException('Upload aborted', 'AbortError')
+
+interface FileFacts {
+  width: number | null
+  height: number | null
+  durationMs: number | null
+  thumbnail: AttachmentInput['thumbnail']
+}
+
+const NO_FACTS: FileFacts = { width: null, height: null, durationMs: null, thumbnail: null }
+
+/** Longest reading a file's pixel size, duration and thumbnail may take. */
+const INSPECT_TIMEOUT_MS = 3000
+
+/**
+ * Pixel size, duration and a thumbnail of at most THUMBNAIL_MAX_EDGE px, read locally. A file
+ * that does not decode here (for example HEVC), takes too long, or an abort gives no facts: the
+ * upload goes on without them.
+ */
+async function inspect(file: File, signal: AbortSignal | undefined): Promise<FileFacts> {
+  const kind = embedKind(file.type)
+  if (kind === 'file') return NO_FACTS
+  const timeout = AbortSignal.timeout(INSPECT_TIMEOUT_MS)
+  const stop = signal ? AbortSignal.any([signal, timeout]) : timeout
+  const stopped = new Promise<FileFacts>((resolve) => {
+    if (stop.aborted) resolve(NO_FACTS)
+    stop.addEventListener('abort', () => resolve(NO_FACTS), { once: true })
   })
-  const stopped = new Promise<Size>((resolve) => {
-    if (stop.aborted) resolve({})
-    stop.addEventListener('abort', () => resolve({}), { once: true })
-  })
+  const read = (kind === 'image' ? imageFacts(file) : mediaFacts(file, kind, stop)).catch(
+    () => NO_FACTS
+  )
   return Promise.race([read, stopped])
 }
 
-function videoSize(file: File, stop: AbortSignal): Promise<Size> {
+/** The size that fits `width` × `height` into THUMBNAIL_MAX_EDGE, never larger than the source. */
+export function thumbnailSize(width: number, height: number): { width: number; height: number } {
+  const scale = Math.min(1, THUMBNAIL_MAX_EDGE / Math.max(width, height))
+  return {
+    width: Math.max(1, Math.round(width * scale)),
+    height: Math.max(1, Math.round(height * scale))
+  }
+}
+
+async function drawThumbnail(
+  source: CanvasImageSource,
+  width: number,
+  height: number
+): Promise<AttachmentInput['thumbnail']> {
+  const size = thumbnailSize(width, height)
+  const canvas = document.createElement('canvas')
+  canvas.width = size.width
+  canvas.height = size.height
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return null
+  ctx.drawImage(source, 0, 0, size.width, size.height)
+  const blob = await new Promise<Blob | null>((resolve) =>
+    canvas.toBlob(resolve, 'image/webp', 0.8)
+  )
+  return blob ? { blob, mime: blob.type || 'image/webp', ...size } : null
+}
+
+async function imageFacts(file: File): Promise<FileFacts> {
+  const bitmap = await createImageBitmap(file)
+  try {
+    const { width, height } = bitmap
+    const thumbnail = await drawThumbnail(bitmap, width, height).catch(() => null)
+    return { width, height, durationMs: null, thumbnail }
+  } finally {
+    bitmap.close()
+  }
+}
+
+function mediaFacts(file: File, kind: 'video' | 'audio', stop: AbortSignal): Promise<FileFacts> {
   return new Promise((resolve) => {
     const url = URL.createObjectURL(file)
-    const video = document.createElement('video')
-    const done = (size: Size): void => {
-      video.onloadedmetadata = video.onerror = null
+    const el = document.createElement(kind)
+    const done = (facts: FileFacts): void => {
+      el.onloadedmetadata = el.onseeked = el.onerror = null
       stop.removeEventListener('abort', giveUp)
-      video.removeAttribute('src')
-      video.load()
+      el.removeAttribute('src')
+      el.load()
       URL.revokeObjectURL(url)
-      resolve(size)
+      resolve(facts)
     }
-    const giveUp = (): void => done({})
+    const giveUp = (): void => done(NO_FACTS)
     if (stop.aborted) return giveUp()
     stop.addEventListener('abort', giveUp, { once: true })
-    video.preload = 'metadata'
-    video.muted = true
-    video.onloadedmetadata = () =>
-      done(video.videoWidth ? { width: video.videoWidth, height: video.videoHeight } : {})
-    video.onerror = giveUp
-    video.src = url
+    el.preload = 'metadata'
+    el.muted = true
+    el.onerror = giveUp
+    el.onloadedmetadata = () => {
+      const durationMs = Number.isFinite(el.duration) ? Math.round(el.duration * 1000) : null
+      if (!(el instanceof HTMLVideoElement) || !el.videoWidth)
+        return done({ ...NO_FACTS, durationMs })
+      const { videoWidth: width, videoHeight: height } = el
+      el.onseeked = () =>
+        void drawThumbnail(el, width, height)
+          .catch(() => null)
+          .then((thumbnail) => done({ width, height, durationMs, thumbnail }))
+      // A frame past 0: some encoders leave the first one black.
+      el.currentTime = Math.min(0.1, el.duration || 0)
+    }
+    el.src = url
   })
 }

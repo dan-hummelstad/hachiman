@@ -15,7 +15,7 @@ import { errorResponse, noContent } from '@/lib/api-helpers'
 import { requireUser } from '@/lib/auth-helpers'
 import { NotFoundError } from '@/lib/errors'
 import { publishToGuild, publishToUser } from '@/lib/events'
-import { loadGuildAccess, requirePermission } from '@/lib/guild-access'
+import { actorDeviceId, loadGuildAccess, requirePermission } from '@/lib/guild-access'
 import { loadGuildFull, loadMember } from '@/lib/guilds'
 import { acceptInvite, getInviteByCode, previewInvite } from '@/lib/invites'
 
@@ -32,12 +32,12 @@ export async function GET(_req: NextRequest, ctx: RouteContext): Promise<NextRes
   }
 }
 
-export async function POST(_req: NextRequest, ctx: RouteContext): Promise<NextResponse> {
+export async function POST(req: NextRequest, ctx: RouteContext): Promise<NextResponse> {
   try {
     const session = await requireUser()
     const me = session.user.id
     const { code } = await ctx.params
-    const { guildId, joined } = await acceptInvite(code, me)
+    const { guildId, joined } = await acceptInvite(code, me, await actorDeviceId(req, me))
     const full = await loadGuildFull(guildId, me)
     if (joined) {
       await publishToGuild(guildId, 'GUILD_MEMBER_ADD', await loadMember(guildId, me))

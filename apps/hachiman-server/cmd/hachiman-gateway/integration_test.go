@@ -10,12 +10,19 @@
 //	DATABASE_URL, REDIS_URL, TAKUSEN_URL   same values Takusen runs with
 //	HACHIMAN_TEST_TOKEN                   a Takusen access token for any user
 //
+// The test registers a pending device with a fresh MLS key (POST /devices
+// with its device proof) and signs IDENTIFY and RESUME with it (§12.13).
+//
 //	go test -tags integration -run Integration ./cmd/hachiman-gateway/
 package main
 
 import (
 	"bytes"
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -23,6 +30,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -48,7 +56,7 @@ func startGateway(t *testing.T, db *pgxpool.Pool, rdb *redis.Client, takusenURL 
 		t.Fatal(err)
 	}
 	g := newGateway(rdb, takusenURL, nil, signer)
-	g.load, g.nodeURL = pgLoader(db), pgNodeURL(db)
+	g.load, g.nodeURL, g.device = pgLoader(db), pgNodeURL(db), pgDevice(db)
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	go g.runBus(ctx)
@@ -104,10 +112,26 @@ func TestIntegrationMessageFlowAndCrossNodeResume(t *testing.T) {
 	nodeB := startGateway(t, db, rdb, takusenURL)
 
 	c := nodeA.dial()
-	c.send(opIdentify, map[string]string{"token": token})
+	// A pending device passes the IDENTIFY device check (§12.13).
+	pub, key, _ := ed25519.GenerateKey(rand.Reader)
+	deviceID := registerDevice(t, takusenURL, token, pub, key)
+	ident := map[string]any{"token": token, "deviceId": deviceID, "capabilities": []string{"e2ee/1"}, "clientVersion": "1.0.0", "deviceProof": proofAt(key, deviceID, "", token, time.Now().UnixMilli())}
+
+	// The checks run against the real devices table.
+	bad := nodeA.dial()
+	bad.send(opIdentify, map[string]any{"token": token, "deviceId": deviceID, "capabilities": []string{}, "clientVersion": "1.0.0"})
+	bad.expectClose(closeUnsupported)
+	bad = nodeA.dial()
+	bad.send(opIdentify, map[string]any{"token": token, "deviceId": "00000000-0000-4000-8000-000000000000", "capabilities": []string{"e2ee/1"}, "clientVersion": "1.0.0"})
+	bad.expectClose(closeDeviceRevoked)
+
+	c.send(opIdentify, ident)
 	ready := c.expect("READY")
-	var r struct{ SessionID string }
+	var r struct{ SessionID, DeviceID string }
 	_ = json.Unmarshal(ready.D, &r)
+	if r.DeviceID != deviceID {
+		t.Fatalf("READY deviceId %q, want %q", r.DeviceID, deviceID)
+	}
 
 	// A fresh guild keeps the test independent of existing data.
 	var guild GuildFull
@@ -128,24 +152,59 @@ func TestIntegrationMessageFlowAndCrossNodeResume(t *testing.T) {
 		c.expect("CHANNEL_CREATE")
 	}
 
-	rest("POST", "/channels/"+channelID+"/messages", map[string]string{"content": "hello", "nonce": "n-1"}, nil)
-	msg := c.expect("MESSAGE_CREATE")
-	if !strings.Contains(string(msg.D), `"nonce":"n-1"`) {
-		t.Fatalf("MESSAGE_CREATE %s lacks the nonce", msg.D)
+	// Messages need an MLS envelope (§12.8), so a channel topic change is the
+	// dispatched event: CHANNEL_UPDATE goes to every member, the author too.
+	setTopic := func(topic string) {
+		rest("PATCH", "/channels/"+channelID, map[string]string{"topic": topic}, nil)
+	}
+	setTopic("n-1")
+	msg := c.expect("CHANNEL_UPDATE")
+	if !strings.Contains(string(msg.D), `"topic":"n-1"`) {
+		t.Fatalf("CHANNEL_UPDATE %s lacks the topic", msg.D)
 	}
 
 	// Drop the socket without a clean close, send while detached, RESUME on node B.
 	c.ws.Close()
-	rest("POST", "/channels/"+channelID+"/messages", map[string]string{"content": "while-away", "nonce": "n-2"}, nil)
+	setTopic("n-2")
 	time.Sleep(200 * time.Millisecond) // let node A buffer it
 	c2 := nodeB.dial()
-	c2.send(opResume, map[string]any{"token": token, "sessionId": r.SessionID, "seq": msg.S})
-	if f := c2.expect("MESSAGE_CREATE"); !strings.Contains(string(f.D), "n-2") {
+	c2.send(opResume, map[string]any{"token": token, "sessionId": r.SessionID, "seq": msg.S, "deviceId": deviceID, "deviceProof": proofAt(key, deviceID, r.SessionID, token, time.Now().UnixMilli())})
+	if f := c2.expect("CHANNEL_UPDATE"); !strings.Contains(string(f.D), "n-2") {
 		t.Fatalf("replayed %s, want the n-2 message", f.D)
 	}
 	c2.expect("RESUMED")
-	rest("POST", "/channels/"+channelID+"/messages", map[string]string{"content": "after-resume", "nonce": "n-3"}, nil)
-	if f := c2.expect("MESSAGE_CREATE"); !strings.Contains(string(f.D), "n-3") {
+	setTopic("n-3")
+	if f := c2.expect("CHANNEL_UPDATE"); !strings.Contains(string(f.D), "n-3") {
 		t.Fatalf("live on node B: %s", f.D)
 	}
+}
+
+// registerDevice is POST /devices with the device proof of the presented key
+// (§12.12: kind "ds", device id "").
+func registerDevice(t *testing.T, takusenURL, token string, pub ed25519.PublicKey, key ed25519.PrivateKey) string {
+	t.Helper()
+	body, _ := json.Marshal(map[string]string{"name": "gateway-it", "platform": "browser", "clientVersion": "1.0.0", "mlsSignatureKey": base64.RawURLEncoding.EncodeToString(pub)})
+	req, _ := http.NewRequest(http.MethodPost, takusenURL+"/api/v1/devices", bytes.NewReader(body))
+	var n [16]byte
+	_, _ = rand.Read(n[:])
+	nonce := base64.RawURLEncoding.EncodeToString(n[:])
+	ts := strconv.FormatInt(time.Now().UnixMilli(), 10)
+	h := sha256.Sum256(body)
+	msg := strings.Join([]string{deviceProofVersion, "ds", "", "POST", req.URL.Path, ts, nonce, base64.RawURLEncoding.EncodeToString(h[:])}, "\n")
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Hachiman-Device-Ts", ts)
+	req.Header.Set("X-Hachiman-Device-Nonce", nonce)
+	req.Header.Set("X-Hachiman-Device-Sig", base64.RawURLEncoding.EncodeToString(ed25519.Sign(key, []byte(msg))))
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	var dev struct{ ID string }
+	if res.StatusCode != http.StatusCreated || json.NewDecoder(res.Body).Decode(&dev) != nil {
+		b, _ := io.ReadAll(res.Body)
+		t.Fatalf("POST /devices: %d %s", res.StatusCode, b)
+	}
+	return dev.ID
 }

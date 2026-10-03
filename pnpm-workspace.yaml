@@ -12,3 +12,6 @@ onlyBuiltDependencies:
   - esbuild
   - sharp
   - unrs-resolver
+
+patchedDependencies:
+  ts-mls@1.6.4: patches/ts-mls@1.6.4.patch

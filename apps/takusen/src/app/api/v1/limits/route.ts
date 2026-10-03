@@ -1,4 +1,4 @@
-/** GET /api/v1/limits — upload limits the client checks before it uploads. */
+/** GET /api/v1/limits — the upload and envelope limits the client checks before it posts (§4, §12.8.4). */
 import { NextResponse } from 'next/server'
 
 import { errorResponse } from '@/lib/api-helpers'

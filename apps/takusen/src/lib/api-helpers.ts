@@ -7,7 +7,9 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { ZodError, type ZodType, type ZodTypeDef } from 'zod'
 
 import { ForbiddenError, requireAdmin, UnauthorizedError } from '@/lib/auth-helpers'
+import { readRawBody } from '@/lib/request-body'
 import {
+  ApiError,
   ConflictError,
   InviteExhaustedError,
   InviteExpiredError,
@@ -21,6 +23,13 @@ import {
 } from '@/lib/errors'
 
 export function errorResponse(err: unknown): NextResponse {
+  if (err instanceof ApiError) {
+    const body: Record<string, unknown> = { ...err.extra, error: err.code }
+    if (err.hasMessage) body.message = err.message
+    const res = NextResponse.json(body, { status: err.status })
+    if (err.retryAfterSec !== undefined) res.headers.set('Retry-After', String(Math.max(1, Math.ceil(err.retryAfterSec))))
+    return res
+  }
   if (err instanceof UnauthorizedError) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
@@ -93,7 +102,12 @@ export function adminRoute<P = Record<string, never>>(
  * it fails validation with a clean 400 instead of a 500 from `req.json()`.
  */
 export async function parseBody<T>(req: NextRequest, schema: ZodType<T, ZodTypeDef, unknown>): Promise<T> {
-  const body: unknown = await req.json().catch(() => ({}))
+  let body: unknown = {}
+  try {
+    body = JSON.parse(new TextDecoder().decode(await readRawBody(req)))
+  } catch {
+    // keep {}
+  }
   return schema.parse(body)
 }
 

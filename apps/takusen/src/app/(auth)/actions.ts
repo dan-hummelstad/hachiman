@@ -11,6 +11,8 @@ import { passwordResetTokens, users } from '@/db/schema'
 import {
   RESET_TOKEN_TTL_MS,
   buildResetUrl,
+  completePasswordReset,
+  drizzlePasswordResetPorts,
   generateResetToken,
   hashResetToken,
 } from '@/lib/password-reset'
@@ -229,7 +231,8 @@ export async function requestPasswordResetAction(
 }
 
 // ---------------------------------------------------------------------------
-// resetPasswordAction — verify a token, set a new password, consume the row.
+// resetPasswordAction — consume the token, set a new password, and revoke
+// every session and every device of the user (§12.4 "Password reset").
 // ---------------------------------------------------------------------------
 export async function resetPasswordAction(
   _prev: FormActionResult | undefined,
@@ -245,23 +248,18 @@ export async function resetPasswordAction(
   }
 
   const { token, password } = parsed.data
-  const tokenHash = hashResetToken(token)
-
-  const row = await db.query.passwordResetTokens.findFirst({
-    where: eq(passwordResetTokens.tokenHash, tokenHash),
+  const passwordHash = await bcrypt.hash(password, BCRYPT_COST)
+  const userId = await completePasswordReset(drizzlePasswordResetPorts, {
+    tokenHash: hashResetToken(token),
+    passwordHash,
+    now: new Date(),
   })
-  if (!row || row.expiresAt.getTime() < Date.now()) {
+  if (!userId) {
     return { ok: false, error: 'This reset link has expired or is invalid' }
   }
 
-  const passwordHash = await bcrypt.hash(password, BCRYPT_COST)
-  await db
-    .update(users)
-    .set({ passwordHash, updatedAt: new Date() })
-    .where(eq(users.id, row.userId))
-  await db
-    .delete(passwordResetTokens)
-    .where(eq(passwordResetTokens.id, row.id))
-
-  return { ok: true, message: 'Password updated. You can now sign in.' }
+  return {
+    ok: true,
+    message: 'Password updated. All devices are signed out. You can now sign in.',
+  }
 }

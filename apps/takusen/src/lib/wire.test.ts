@@ -1,7 +1,8 @@
 /**
  * Unit tests for the pure wire helpers: GuildFull assembly (per-viewer
- * channel visibility via the shared permission algorithm) and the messages
- * query parser. No DB / Redis.
+ * channel visibility via the shared permission algorithm), the MLS group
+ * fields of channels and guilds (§1, §12.6), the ciphertext Message, and the
+ * messages query and body parsers. No DB / Redis.
  *
  * Run with `tsx src/lib/wire.test.ts` (part of `pnpm -F @hachiman/takusen test`).
  */
@@ -9,8 +10,21 @@ import assert from 'node:assert/strict'
 
 import { DEFAULT_EVERYONE, Permissions } from '@hachiman/client/permissions'
 
-import type { ChannelRow, GuildMemberRow, PermissionOverwriteRow, RoleRow } from '@/db/schema'
-import { assembleGuildFull, parseMessageQuery, toUser, type GuildFullInput } from './wire'
+import type { ChannelRow, GuildMemberRow, MessageRow, PermissionOverwriteRow, RoleRow } from '@/db/schema'
+import {
+  assembleGuildFull,
+  createMessageSchema,
+  DEFAULT_PUBLIC_HISTORY_VISIBILITY,
+  editMessageSchema,
+  MESSAGE_MAX_UPLOAD_IDS,
+  parseMessageQuery,
+  toChannel,
+  toDmChannel,
+  toGuild,
+  toMessage,
+  toUser,
+  type GuildFullInput,
+} from './wire'
 
 // --- tiny test harness ------------------------------------------------------
 let passed = 0
@@ -49,6 +63,7 @@ function channel(id: string, name: string): ChannelRow {
     parentId: null,
     position: 0,
     ownerId: null,
+    mlsGroupId: null,
     createdAt: T,
   }
 }
@@ -68,7 +83,7 @@ function overwrite(
 // #staff: hidden from @everyone, visible to the mod role.
 function input(viewerId: string, aliceRoles: string[]): GuildFullInput {
   return {
-    guild: { id: GUILD, ownerId: OWNER, name: 'G', icon: null, banner: null, region: null, createdAt: T },
+    guild: { id: GUILD, ownerId: OWNER, name: 'G', icon: null, banner: null, region: null, pageStorageBytes: 0, createdAt: T },
     roles: [role(GUILD, 0, DEFAULT_EVERYONE), role(MOD_ROLE, 1, 0)],
     channels: [channel(GENERAL, 'general'), channel(STAFF, 'staff')],
     overwrites: [
@@ -123,6 +138,112 @@ test('member roles exclude @everyone and overwrites attach to their channel', ()
 test('toUser falls back from displayName to name to the email local part', () => {
   assert.equal(toUser({ ...user(ALICE, ''), name: 'Al' }).username, 'Al')
   assert.equal(toUser({ ...user(ALICE, ''), email: 'al@x.io' }).username, 'al')
+})
+
+// --- MLS group fields (§1, §12.6) -------------------------------------------
+const GROUP = new Uint8Array(22).fill(7)
+const GROUP_B64 = Buffer.from(GROUP).toString('base64url')
+
+test('guild publicHistoryVisibility: the given value, shared by default', () => {
+  const g = input(OWNER, []).guild
+  assert.equal(toGuild(g, DEFAULT_PUBLIC_HISTORY_VISIBILITY).publicHistoryVisibility, 'shared')
+  assert.equal(toGuild(g, 'joined').publicHistoryVisibility, 'joined')
+  const i = input(OWNER, [])
+  i.publicHistoryVisibility = 'joined'
+  assert.equal(assembleGuildFull(i).publicHistoryVisibility, 'joined')
+})
+
+test('channel mlsGroupId is base64url and historyVisibility mirrors the group', () => {
+  const c = { ...channel(GENERAL, 'general'), mlsGroupId: GROUP }
+  const wire = toChannel(c, [], new Map([[GROUP_B64, 'shared' as const]]))
+  assert.equal(wire.mlsGroupId, GROUP_B64)
+  assert.equal(wire.historyVisibility, 'shared')
+  // No group row yet: the default of a channel group.
+  assert.equal(toChannel(c, []).historyVisibility, 'joined')
+  assert.deepEqual(toChannel(channel(GENERAL, 'general'), []).mlsGroupId, null)
+})
+
+test('voice and category channels have no group fields', () => {
+  for (const type of ['voice', 'category'] as const) {
+    const wire = toChannel({ ...channel(GENERAL, 'x'), type, mlsGroupId: GROUP }, [], new Map([[GROUP_B64, 'shared' as const]]))
+    assert.equal(wire.mlsGroupId, null)
+    assert.equal(wire.historyVisibility, null)
+  }
+})
+
+test('dm channels carry the group fields too', () => {
+  const dm: ChannelRow = { ...channel(GENERAL, 'x'), guildId: null, type: 'dm', name: null, mlsGroupId: GROUP }
+  const wire = toDmChannel(dm, [user(OWNER, 'owner'), user(ALICE, 'alice')], OWNER, new Map([[GROUP_B64, 'joined' as const]]))
+  assert.equal(wire.mlsGroupId, GROUP_B64)
+  assert.equal(wire.historyVisibility, 'joined')
+  assert.deepEqual(wire.recipients?.map((r) => r.id), [ALICE])
+})
+
+// --- ciphertext Message (§1) ------------------------------------------------
+test('toMessage: the ciphertext shape, base64url bytes, no content', () => {
+  const row: MessageRow = {
+    id: '00000000-0000-4000-8000-0000000000d1',
+    channelId: GENERAL,
+    authorId: ALICE,
+    groupId: GROUP,
+    epoch: 4,
+    senderDevice: '00000000-0000-4000-8000-0000000000e1',
+    clientMsgId: new Uint8Array(16).fill(1),
+    envelope: new Uint8Array([0x48, 0x01, 2, 3]),
+    frankingTag: new Uint8Array(32).fill(9),
+    size: 4,
+    createdAt: T,
+    editedAt: null,
+  }
+  const att = [{ id: 'f', key: 'f/blob', size: 100 }, { id: 't', key: 't/blob', size: 20 }]
+  const m = toMessage(row, user(ALICE, 'alice'), GUILD, att, 'n1')
+  assert.deepEqual(m, {
+    id: row.id,
+    channelId: GENERAL,
+    guildId: GUILD,
+    author: { id: ALICE, username: 'alice', avatar: null },
+    senderDevice: row.senderDevice,
+    groupId: GROUP_B64,
+    epoch: 4,
+    clientMsgId: Buffer.from(row.clientMsgId).toString('base64url'),
+    envelope: Buffer.from(row.envelope).toString('base64url'),
+    attachments: att,
+    createdAt: T.toISOString(),
+    editedAt: null,
+    nonce: 'n1',
+  })
+  assert.ok(!('content' in m))
+  assert.ok(!('frankingTag' in m))
+  assert.equal('nonce' in toMessage(row, user(ALICE, 'alice'), GUILD, []), false)
+})
+
+// --- message bodies (§4, §12.8.4) --------------------------------------------
+const ID = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`
+
+test('message body: the envelope is strict base64url', () => {
+  const b = createMessageSchema.parse({ envelope: 'SAE', nonce: 7 })
+  assert.deepEqual([...b.envelope], [0x48, 0x01])
+  assert.equal(b.nonce, '7')
+  assert.deepEqual(b.attachments, [])
+  assert.throws(() => createMessageSchema.parse({ envelope: 'SAE=' }))
+  assert.throws(() => createMessageSchema.parse({ envelope: 'SA+/' }))
+  assert.throws(() => createMessageSchema.parse({ envelope: '' }))
+  assert.throws(() => createMessageSchema.parse({ content: 'plaintext' }))
+})
+
+test('message body: at most 20 unique upload ids (file, then thumbnail)', () => {
+  const ids = Array.from({ length: MESSAGE_MAX_UPLOAD_IDS }, (_, i) => ID(i + 1))
+  assert.equal(MESSAGE_MAX_UPLOAD_IDS, 20)
+  assert.equal(createMessageSchema.parse({ envelope: 'SAE', attachments: ids }).attachments.length, 20)
+  assert.throws(() => createMessageSchema.parse({ envelope: 'SAE', attachments: [...ids, ID(99)] }))
+  assert.throws(() => createMessageSchema.parse({ envelope: 'SAE', attachments: [ID(1), ID(1)] }))
+  assert.throws(() => createMessageSchema.parse({ envelope: 'SAE', attachments: ['not-a-uuid'] }))
+})
+
+test('edit body: only the envelope; attachments cannot change', () => {
+  assert.deepEqual([...editMessageSchema.parse({ envelope: 'SAE' }).envelope], [0x48, 0x01])
+  assert.throws(() => editMessageSchema.parse({ envelope: 'SAE', attachments: [ID(1)] }))
+  assert.throws(() => editMessageSchema.parse({ content: 'x' }))
 })
 
 // --- messages query ---------------------------------------------------------

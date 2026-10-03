@@ -1,10 +1,11 @@
-import { Hash, Settings, Users, Volume2 } from 'lucide-react'
+import { FileText, Settings, Users } from 'lucide-react'
 import { Permissions, has, type Channel } from '@hachiman/client'
 import { IconButton } from '@/components/ui/icon-button'
 import { PresenceDot } from '@/components/ui/presence'
 import { TitleBar } from '@/components/ui/title-bar'
 import { usePermissions } from '@/hooks/use-hachiman'
 import { usePresence } from '@/hooks/use-member'
+import { ChannelIcon } from '@/lib/channel-icon'
 import { channelLabel } from '@/lib/model'
 import { ROLE_INK_SCOPE } from '@/lib/role-ink'
 import { cn } from '@/lib/utils'
@@ -14,18 +15,21 @@ const PANE = 'bg-background flex min-h-0 min-w-0 flex-1 flex-col'
 
 export interface ChannelPaneProps {
   channel: Channel
-  membersOpen: boolean
+  /** The right column that the title bar toggle shows and hides. */
+  side?: 'members' | 'pages'
+  sideOpen: boolean
   /** Omitted in DMs (no member list). */
-  onToggleMembers?: () => void
-  /** The body: `ChatBody` for text channels and DMs, `VoiceRoom` for voice channels. */
+  onToggleSide?: () => void
+  /** The body: `ChatBody` for text and pages channels and DMs, `VoiceRoom` for voice channels. */
   children: React.ReactNode
 }
 
 /** Main pane frame for a channel: 48px title bar (title, member toggle, settings) over a body. */
 export function ChannelPane({
   channel,
-  membersOpen,
-  onToggleMembers,
+  side = 'members',
+  sideOpen,
+  onToggleSide,
   children
 }: ChannelPaneProps): React.JSX.Element {
   const perms = usePermissions(channel.guildId, channel.id)
@@ -38,14 +42,14 @@ export function ChannelPane({
         left={isDm ? <DmTitle channel={channel} /> : <ChannelTitle channel={channel} />}
         right={
           <>
-            {onToggleMembers && (
+            {onToggleSide && (
               <IconButton
-                label={membersOpen ? 'Hide members' : 'Show members'}
+                label={sideOpen ? `Hide ${side}` : `Show ${side}`}
                 tooltipSide="bottom"
-                pressed={membersOpen}
-                onClick={onToggleMembers}
+                pressed={sideOpen}
+                onClick={onToggleSide}
               >
-                <Users />
+                {side === 'pages' ? <FileText /> : <Users />}
               </IconButton>
             )}
             {canManage && (
@@ -78,10 +82,13 @@ export function NoChannelPane(): React.JSX.Element {
 }
 
 function ChannelTitle({ channel }: { channel: Channel }): React.JSX.Element {
-  const Glyph = channel.type === 'voice' ? Volume2 : Hash
   return (
     <>
-      <Glyph className="text-muted-foreground size-4 shrink-0" aria-hidden />
+      <ChannelIcon
+        type={channel.type}
+        className="text-muted-foreground size-4 shrink-0"
+        aria-hidden
+      />
       <h1 className="shrink-0 truncate">{channelLabel(channel).name}</h1>
       {channel.topic && (
         <>

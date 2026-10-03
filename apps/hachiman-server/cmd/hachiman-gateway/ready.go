@@ -262,6 +262,30 @@ func pgNodeURL(db *pgxpool.Pool) func(ctx context.Context, nodeID string) (strin
 
 var errNodeGone = errors.New("media node not registered")
 
+// deviceRow is the part of a devices row that the IDENTIFY check needs (§12.13).
+type deviceRow struct {
+	UserID string
+	Status string // pending | active | revoked
+	// SignatureKey is mls_signature_key: the key of the device proof. Null
+	// (nil) fails the proof.
+	SignatureKey []byte
+}
+
+var errNoDevice = errors.New("device not found")
+
+// pgDevice reads one devices row. The table is Takusen's; we only read it.
+// Callers pass a parsed UUID, so the cast cannot fail.
+func pgDevice(db *pgxpool.Pool) func(ctx context.Context, deviceID string) (deviceRow, error) {
+	return func(ctx context.Context, deviceID string) (deviceRow, error) {
+		var d deviceRow
+		err := db.QueryRow(ctx, `SELECT user_id::text, status::text, mls_signature_key FROM devices WHERE id = $1::uuid`, deviceID).Scan(&d.UserID, &d.Status, &d.SignatureKey)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return d, errNoDevice
+		}
+		return d, err
+	}
+}
+
 // forEach drains rows, surfacing both query and scan errors. Query errors
 // are deferred into rows.Err(), so callers can ignore Query's error return.
 func forEach(rows pgx.Rows, fn func() error) error {

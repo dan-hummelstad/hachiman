@@ -2,8 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { HachimanClient } from './client'
 import { VoiceConnection } from './voice'
 import { Permissions as P } from './permissions'
+import { fakeDelegate, type FakeDelegate } from './test/fake-rtc'
 import { FakeWebSocket, installFakeWebSocket } from './test/fake-ws'
-import type { Channel, GuildFull, Member, ReadyPayload, User } from './types'
+import type { Channel, GuildFull, Member, Message, ReadyPayload, User } from './types'
 
 const me: User = { id: 'me', username: 'me', avatar: null }
 const bob: User = { id: 'bob', username: 'bob', avatar: null }
@@ -23,6 +24,8 @@ const channel = (id: string, over: Partial<Channel> = {}): Channel => ({
   parentId: null,
   position: 0,
   permissionOverwrites: [],
+  mlsGroupId: null,
+  historyVisibility: 'shared',
   ...over,
 })
 const guild: GuildFull = {
@@ -33,6 +36,7 @@ const guild: GuildFull = {
   ownerId: 'bob',
   region: null,
   createdAt: '',
+  publicHistoryVisibility: 'shared',
   channels: [
     channel('general'),
     channel('secret', { permissionOverwrites: [{ id: 'g', type: 'role', allow: 0, deny: P.VIEW_CHANNEL }] }),
@@ -49,23 +53,35 @@ const guild: GuildFull = {
   ],
   members: [member(me), member(bob)],
   voiceStates: [
-    { guildId: 'g', channelId: 'vc', userId: 'bob', sessionId: 'x', selfMute: false, selfDeaf: false, selfStream: false },
+    {
+      guildId: 'g',
+      channelId: 'vc',
+      userId: 'bob',
+      sessionId: 'x',
+      selfMute: false,
+      selfDeaf: false,
+      selfStream: false,
+    },
   ],
   presences: [{ userId: 'bob', status: 'online' }],
 }
 const readyPayload: ReadyPayload = {
   v: 1,
   sessionId: 'S',
+  deviceId: 'dev1',
   user: me,
   guilds: [guild],
   privateChannels: [channel('dm', { guildId: null, type: 'dm', name: null })],
   presences: [],
 }
 
+const device = { deviceId: 'dev1', capabilities: ['e2ee/1'], clientVersion: '1.0.0' }
+
 describe('HachimanClient cache', () => {
   let client: HachimanClient
   let ws: FakeWebSocket
   let seq = 0
+  let delegates: FakeDelegate[] = []
   const dispatch = (t: string, d: unknown) => {
     ws.recv({ op: 0, s: ++seq, t, d })
   }
@@ -73,10 +89,17 @@ describe('HachimanClient cache', () => {
   beforeEach(async () => {
     vi.useFakeTimers()
     installFakeWebSocket()
+    delegates = []
     client = new HachimanClient({
       apiUrl: 'http://api',
       gatewayUrl: 'ws://gw',
       getToken: () => Promise.resolve('t'),
+      device: () => device,
+      voiceE2ee: () => {
+        const d = fakeDelegate()
+        delegates.push(d)
+        return d
+      },
     })
     client.connect()
     ws = FakeWebSocket.last
@@ -100,6 +123,7 @@ describe('HachimanClient cache', () => {
       ownerId: 'bob',
       region: null,
       createdAt: '',
+      publicHistoryVisibility: 'shared',
     })
     expect([...c.channels.keys()].sort()).toEqual(['dm', 'general', 'secret'])
     expect(c.members.get('g')?.size).toBe(2)
@@ -139,26 +163,58 @@ describe('HachimanClient cache', () => {
     dispatch('GUILD_MEMBER_UPDATE', member({ ...bob, avatar: 'u2/b.png' }))
     expect(client.cache.members.get('g')?.get('bob')?.user.avatar).toBe('u2/b.png')
     const { id, name, icon, ownerId, region, createdAt } = guild
-    dispatch('GUILD_UPDATE', { id, name, icon, banner: 'u3/banner.webp', ownerId, region, createdAt })
+    dispatch('GUILD_UPDATE', {
+      id,
+      name,
+      icon,
+      banner: 'u3/banner.webp',
+      ownerId,
+      region,
+      createdAt,
+      publicHistoryVisibility: 'joined',
+    })
     expect(client.cache.guilds.get('g')?.banner).toBe('u3/banner.webp')
+    expect(client.cache.guilds.get('g')?.publicHistoryVisibility).toBe('joined')
   })
 
-  it('MESSAGE_CREATE is re-emitted (messages are not cached)', () => {
+  it('MESSAGE_CREATE is re-emitted as ciphertext (messages are not cached or decrypted)', () => {
     const msg = vi.fn()
     client.on('MESSAGE_CREATE', msg)
-    const m = {
+    const m: Message = {
       id: 'm1',
       channelId: 'general',
       guildId: 'g',
       author: bob,
-      content: 'hi',
-      attachments: [],
+      senderDevice: 'devB',
+      groupId: 'Z3JvdXA',
+      epoch: 3,
+      clientMsgId: 'AAAAAAAAAAAAAAAAAAAAAA',
+      envelope: 'SAE',
+      attachments: [{ id: 'u1', key: 'u1/blob', size: 70000 }],
       createdAt: '',
       editedAt: null,
       nonce: 'n',
     }
     dispatch('MESSAGE_CREATE', m)
     expect(msg).toHaveBeenCalledWith(m)
+  })
+
+  it('re-emits the §12.13 events without touching the cache', () => {
+    const batch = vi.fn()
+    client.on('MLS_BATCH_ASSIGN', batch)
+    const d = {
+      batchId: 'b',
+      groupId: 'g1',
+      epoch: 2,
+      proposals: [],
+      joins: [],
+      create: null,
+      historyBundleEpochs: [],
+      deadline: '',
+    }
+    dispatch('MLS_BATCH_ASSIGN', d)
+    expect(batch).toHaveBeenCalledWith(d)
+    expect(client.cache.guilds.size).toBe(1)
   })
 
   it('roles, presence, voice state and guild delete', () => {
@@ -297,5 +353,138 @@ describe('HachimanClient cache', () => {
         selfDeaf: false,
       })
     })
+  })
+})
+
+describe('HachimanClient E2EE wiring', () => {
+  const server = {
+    guildId: 'g',
+    channelId: 'vc',
+    endpoint: 'ws://media',
+    token: 'vt',
+    iceServers: [],
+    expiresAt: '',
+  }
+  let current: typeof device | null
+  let delegates: FakeDelegate[]
+  let client: HachimanClient
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+    installFakeWebSocket()
+    current = null
+    delegates = []
+    client = new HachimanClient({
+      apiUrl: 'http://api',
+      gatewayUrl: 'ws://gw',
+      getToken: () => Promise.resolve('t'),
+      device: () => current,
+      voiceE2ee: () => {
+        const d = fakeDelegate()
+        delegates.push(d)
+        return d
+      },
+    })
+  })
+  afterEach(() => {
+    client.disconnect()
+    vi.restoreAllMocks()
+    vi.unstubAllGlobals()
+    vi.useRealTimers()
+  })
+
+  async function ready(): Promise<FakeWebSocket> {
+    const ws = FakeWebSocket.last
+    ws.recv({ op: 10, d: { heartbeatInterval: 1000 } })
+    await vi.advanceTimersByTimeAsync(0)
+    ws.recv({ op: 0, s: 1, t: 'READY', d: readyPayload })
+    return ws
+  }
+
+  it('connect() waits while device() returns null, then IDENTIFYs with the device', async () => {
+    client.connect()
+    await vi.advanceTimersByTimeAsync(2000)
+    expect(FakeWebSocket.instances).toHaveLength(0)
+    current = device
+    await vi.advanceTimersByTimeAsync(250)
+    expect(FakeWebSocket.instances).toHaveLength(1)
+    const ws = FakeWebSocket.last
+    ws.recv({ op: 10, d: { heartbeatInterval: 1000 } })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(ws.sent[0]).toEqual({
+      op: 2,
+      d: { token: 't', deviceId: 'dev1', capabilities: ['e2ee/1'], clientVersion: '1.0.0' },
+    })
+  })
+
+  it('disconnect() stops the device wait', async () => {
+    client.connect()
+    client.disconnect()
+    current = device
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(FakeWebSocket.instances).toHaveLength(0)
+  })
+
+  it('REST requests send X-Hachiman-Device from device()', async () => {
+    current = device
+    let headers: Record<string, string> = {}
+    vi.stubGlobal('fetch', (_url: string, init: RequestInit) => {
+      headers = init.headers as Record<string, string>
+      return Promise.resolve(new Response('[]', { status: 200 }))
+    })
+    await client.rest.listDevices()
+    expect(headers['X-Hachiman-Device']).toBe('dev1')
+  })
+
+  it('joinVoice makes one delegate per call, passes it to the connection, and the connection closes it', async () => {
+    current = device
+    vi.spyOn(VoiceConnection.prototype, 'connect').mockResolvedValue()
+    client.connect()
+    const ws = await ready()
+    const first = client.joinVoice('g', 'vc')
+    expect(delegates).toHaveLength(0) // made only after VOICE_SERVER_UPDATE
+    ws.recv({ op: 0, s: 2, t: 'VOICE_SERVER_UPDATE', d: server })
+    await first
+    expect(delegates).toHaveLength(1)
+
+    const second = client.joinVoice('g', 'vc')
+    expect(delegates[0]?.closeCount).toBe(1)
+    ws.recv({ op: 0, s: 3, t: 'VOICE_SERVER_UPDATE', d: server })
+    await second
+    expect(delegates).toHaveLength(2)
+    expect(delegates[1]?.closeCount).toBe(0)
+    client.leaveVoice()
+    expect(delegates[1]?.closeCount).toBe(1)
+  })
+
+  it('a 4013 resync from media emits voiceResync with the target and leaves voice', async () => {
+    current = device
+    vi.spyOn(VoiceConnection.prototype, 'connect').mockResolvedValue()
+    client.connect()
+    const ws = await ready()
+    const join = client.joinVoice('g', 'vc')
+    ws.recv({ op: 0, s: 2, t: 'VOICE_SERVER_UPDATE', d: server })
+    const vc = await join
+    const resync = vi.fn(() => client.voice)
+    client.on('voiceResync', resync)
+    vc.emit('resync', { code: 4013, reason: '' })
+    vc.emit('close', { code: 4013, reason: '' })
+    expect(resync).toHaveBeenCalledWith({ guildId: 'g', channelId: 'vc' })
+    expect(resync).toHaveReturnedWith(vc) // the event fires before the client leaves voice
+    expect(client.voice).toBeNull()
+    expect(ws.sent.at(-1)).toMatchObject({ op: 4, d: { guildId: 'g', channelId: null } })
+  })
+
+  it.each([4012, 4013])('gateway close %i emits fatal and does not reconnect', async code => {
+    current = device
+    client.connect()
+    const ws = await ready()
+    const fatal = vi.fn()
+    client.on('fatal', fatal)
+    ws.drop(code)
+    expect(fatal).toHaveBeenCalledWith({ code })
+    expect(client.gateway.state).toBe('closed')
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(FakeWebSocket.instances).toHaveLength(1)
   })
 })

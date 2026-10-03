@@ -8,6 +8,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strconv"
 
 	"hachiman/server/pkg/voicetoken"
 )
@@ -27,6 +28,7 @@ type args struct {
 	UDPPortMax      uint
 	MaxSessions     uint
 	LogPath         string
+	WSReadLimit     int64 // MEDIA_WS_READ_LIMIT: largest client frame in bytes
 }
 
 func envOr(key, def string) string {
@@ -65,6 +67,14 @@ func parseArgs(argv []string) (args, error) {
 	}
 	if a.UDPPortMin > 65535 || a.UDPPortMax > 65535 || a.UDPPortMin > a.UDPPortMax {
 		return a, fmt.Errorf("invalid --udp-port-min/max %d-%d", a.UDPPortMin, a.UDPPortMax)
+	}
+	a.WSReadLimit = defaultReadLimit
+	if v := os.Getenv("MEDIA_WS_READ_LIMIT"); v != "" {
+		n, err := strconv.ParseInt(v, 10, 64)
+		if err != nil || n <= 0 {
+			return a, fmt.Errorf("invalid MEDIA_WS_READ_LIMIT %q", v)
+		}
+		a.WSReadLimit = n
 	}
 	if a.NodeID == "" || a.RedisURL == "" {
 		return a, fmt.Errorf("--node-id and --redis-url are required")

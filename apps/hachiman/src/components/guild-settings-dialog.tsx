@@ -1,7 +1,8 @@
 import { LogOut, Trash2 } from 'lucide-react'
-import { Permissions, has, type Guild } from '@hachiman/client'
+import { Permissions, has, type Guild, type HistoryVisibility } from '@hachiman/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { NativeSelect } from '@/components/ui/native-select'
 import { GuildInvitesTab } from '@/components/guild-settings-invites'
 import { GuildMembersTab } from '@/components/guild-settings-members'
 import { GuildRolesTab } from '@/components/guild-settings-roles'
@@ -83,14 +84,29 @@ export function GuildSettingsDialog(): React.JSX.Element {
 }
 
 function OverviewSection({ guild }: { guild: Guild }): React.JSX.Element {
-  const draft = useDraft({ name: guild.name, region: guild.region ?? '' }, trimName)
-  const { name, region } = draft.value
+  const draft = useDraft(
+    {
+      name: guild.name,
+      region: guild.region ?? '',
+      publicHistoryVisibility: guild.publicHistoryVisibility
+    },
+    trimName
+  )
+  const { name, region, publicHistoryVisibility } = draft.value
   const { run, busy, error, clearError } = useAction()
 
   const save = async (e: React.FormEvent): Promise<void> => {
     e.preventDefault()
     const saved = await run('save changes', () =>
-      hachiman.rest.updateGuild(guild.id, { name: name.trim(), region: region || null })
+      hachiman.rest.updateGuild(guild.id, {
+        name: name.trim(),
+        region: region || null,
+        // Only a change goes in the request: it changes the public channels' group (§12.6).
+        publicHistoryVisibility:
+          publicHistoryVisibility !== guild.publicHistoryVisibility
+            ? publicHistoryVisibility
+            : undefined
+      })
     )
     if (saved.ok) draft.markSaved()
   }
@@ -135,6 +151,26 @@ function OverviewSection({ guild }: { guild: Guild }): React.JSX.Element {
           value={region}
           onChange={(next) => draft.set({ region: next })}
         />
+      </Field>
+      <Field
+        id="guild-public-history"
+        label="Earlier messages in public channels"
+        hint={
+          publicHistoryVisibility === 'shared'
+            ? 'New members can read the messages of public channels from before they joined. A member device sends them the keys.'
+            : 'New members see only the messages that come after they join. Channels with their own permissions have their own setting.'
+        }
+      >
+        <NativeSelect
+          id="guild-public-history"
+          value={publicHistoryVisibility}
+          onChange={(e) =>
+            draft.set({ publicHistoryVisibility: e.target.value as HistoryVisibility })
+          }
+        >
+          <option value="shared">Show earlier messages</option>
+          <option value="joined">Hide earlier messages</option>
+        </NativeSelect>
       </Field>
       <ErrorText>{error}</ErrorText>
       <div className="flex items-center justify-end gap-2">

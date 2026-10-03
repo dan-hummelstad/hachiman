@@ -13,6 +13,8 @@ export const nameSchema = z.string().trim().min(1).max(100)
 export const colorSchema = z.number().int().min(0).max(0xffffff)
 /** Permission bitfields: JS-safe, all bits < 2^31 (contract conventions). */
 export const permissionsSchema = z.number().int().min(0).max(0x7fffffff)
+/** `joined` or `shared` (§12.6). */
+export const historyVisibilitySchema = z.enum(['joined', 'shared'])
 export { regionCodeSchema }
 
 /** FK-safe region check: unknown codes are a 400, not a 500 from Postgres. */

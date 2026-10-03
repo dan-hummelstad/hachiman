@@ -1,4 +1,5 @@
 import { Permissions, type ChannelType, type PermissionName } from '@hachiman/client'
+import { hasChat } from '@/lib/model'
 
 export interface PermissionLabel {
   name: PermissionName
@@ -50,7 +51,10 @@ const VOICE_BITS: PermissionName[] = ['VIEW_CHANNEL', 'CONNECT', 'SPEAK', 'CREAT
 
 /** The bits that mean something on a channel of this type (categories: the union). */
 export function channelPermissionLabels(type: ChannelType): PermissionLabel[] {
-  const names =
-    type === 'text' ? TEXT_BITS : type === 'voice' ? VOICE_BITS : [...TEXT_BITS, ...VOICE_BITS]
+  const names = hasChat(type)
+    ? TEXT_BITS
+    : type === 'voice'
+      ? VOICE_BITS
+      : [...TEXT_BITS, ...VOICE_BITS]
   return PERMISSION_LABELS.filter((l) => names.includes(l.name))
 }

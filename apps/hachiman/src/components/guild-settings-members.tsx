@@ -20,6 +20,7 @@ import { useMemberView } from '@/hooks/use-member'
 import { displayName, memberRoles, rolesByPositionDesc, sortMembersByName } from '@/lib/model'
 import { ROLE_INK_SCOPE } from '@/lib/role-ink'
 import { cn } from '@/lib/utils'
+import { adminActionService } from '@/services/AdminActionService'
 import { hachiman } from '@/services/hachiman'
 import { useGuildStore } from '@/stores/guildStore'
 import { useUserStore } from '@/stores/userStore'
@@ -148,12 +149,12 @@ function MemberRow(props: {
 
   const setRoles = (next: string[]): void =>
     void run(`update roles for ${name}`, () =>
-      hachiman.rest.updateMember(guildId, id, { roles: next })
+      adminActionService.updateMember(guildId, id, { roles: next })
     )
   const saveNick = (e: React.FormEvent): void => {
     e.preventDefault()
     void run(`change the nickname for ${name}`, () =>
-      hachiman.rest.updateMember(guildId, id, { nick: nick?.trim() || null })
+      adminActionService.updateMember(guildId, id, { nick: nick?.trim() || null })
     )
     setNick(null)
   }

@@ -15,6 +15,7 @@ import {
   InviteRevokedError,
   NotFoundError,
 } from '@/lib/errors'
+import { membershipChanged, membershipTransaction, MembershipTriggers } from '@/lib/guilds'
 
 // RFC 4648 base32 minus the ambiguous {0, O, I, 1}. 8 chars ≈ 1.1e12 codes;
 // the unique index on `code` catches the rare collision (createInvite retries).
@@ -91,15 +92,17 @@ export async function getInvitePreview(code: string): Promise<InvitePreview | nu
 /**
  * Join the invite's guild. Existing members get `joined: false` and consume
  * no use (even if the invite has since expired). The row lock serialises
- * concurrent accepts so `maxUses` can't be overshot.
+ * concurrent accepts so `maxUses` can't be overshot. A join tells the DS in
+ * the same transaction (`guild_member_added`, §12.18).
  */
 export async function acceptInvite(
   code: string,
   userId: string,
+  actorDeviceId: string | null,
 ): Promise<{ guildId: string; joined: boolean }> {
   const normalized = normalizeCode(code)
   if (!normalized) throw new NotFoundError('Unknown invite')
-  return await db.transaction(async (tx) => {
+  return await membershipTransaction(async (tx) => {
     const [invite] = await tx
       .select()
       .from(invites)
@@ -117,6 +120,7 @@ export async function acceptInvite(
       .update(invites)
       .set({ uses: invite.uses + 1 })
       .where(eq(invites.id, invite.id))
+    await membershipChanged(tx, MembershipTriggers.memberJoined(invite.guildId, userId), actorDeviceId)
     return { guildId: invite.guildId, joined: true }
   })
 }

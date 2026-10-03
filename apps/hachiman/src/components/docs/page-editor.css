@@ -1,0 +1,75 @@
+/* The pages editor: Crepe's common styles (imported in page-editor.tsx) with the app tokens,
+   so the editor follows the light and dark theme. Crepe's menus and tooltips are .milkdown too. */
+.milkdown {
+  --crepe-color-background: var(--background);
+  --crepe-color-on-background: var(--foreground);
+  --crepe-color-surface: var(--popover);
+  --crepe-color-surface-low: var(--muted);
+  --crepe-color-on-surface: var(--popover-foreground);
+  --crepe-color-on-surface-variant: var(--muted-foreground);
+  --crepe-color-outline: var(--border);
+  --crepe-color-primary: var(--primary);
+  --crepe-color-secondary: var(--secondary);
+  --crepe-color-on-secondary: var(--secondary-foreground);
+  --crepe-color-inverse: var(--foreground);
+  --crepe-color-on-inverse: var(--background);
+  --crepe-color-inline-code: var(--destructive);
+  --crepe-color-error: var(--destructive);
+  --crepe-color-hover: var(--accent);
+  --crepe-color-selected: var(--accent);
+  --crepe-color-inline-area: var(--muted);
+
+  --crepe-base-font-size: 15px;
+  --crepe-font-title: var(--font-sans);
+  --crepe-font-default: var(--font-sans);
+  --crepe-font-code: var(--font-mono);
+
+  --crepe-shadow-1: var(--hard-shadow);
+  --crepe-shadow-2: var(--hard-shadow);
+}
+
+.hm-page-editor .milkdown .ProseMirror {
+  padding: 8px 56px 120px;
+}
+
+/* Page links (page-links.ts). The title widget shows in place of the hidden link text. */
+.hm-page-editor .hm-page-link {
+  color: var(--primary);
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--primary) 40%, transparent);
+  text-underline-offset: 3px;
+}
+.hm-page-editor span.hm-page-link::before {
+  content: '📄 ';
+}
+.hm-page-editor .hm-page-link-raw {
+  cursor: text;
+}
+.hm-page-editor .hm-page-link-hidden {
+  display: none;
+}
+
+/* Remote cursors and selections (y-prosemirror cursor plugin). The color is the peer's. */
+.hm-page-editor .ProseMirror-yjs-cursor {
+  position: relative;
+  margin-left: -1px;
+  margin-right: -1px;
+  border-left: 1px solid black;
+  border-right: 1px solid black;
+  word-break: normal;
+  pointer-events: none;
+}
+.hm-page-editor .ProseMirror-yjs-cursor > div {
+  position: absolute;
+  top: -1.15em;
+  left: -1px;
+  padding: 0 3px;
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.3;
+  color: #fff;
+  white-space: nowrap;
+  user-select: none;
+}

@@ -1,9 +1,12 @@
 // High-level client: REST + gateway + a state cache kept current from dispatches. Contract §10.
+// The cache holds ciphertext: the shared UI decrypts Message.envelope with @hachiman/crypto.
 import { GatewayClient, type GatewayDispatch, type GatewayEventHandlers, type GatewayState } from './gateway'
 import { effectivePermissions, type PermissionContext } from './permissions'
 import { RestClient, type TokenProvider } from './rest'
 import type {
   Channel,
+  DeviceProver,
+  GatewayDevice,
   VoiceStateUpdateRequest,
   Guild,
   GuildFull,
@@ -16,7 +19,22 @@ import type {
   VoiceState,
 } from './types'
 import { TypedEventEmitter } from './typed-event-emitter'
-import { VoiceConnection, type ScreenEncoding } from './voice'
+import { VoiceConnection, type ScreenEncoding, type VoiceE2eeDelegate } from './voice'
+
+export interface HachimanClientOptions {
+  apiUrl: string
+  gatewayUrl: string
+  getToken: TokenProvider
+  /** The current device. null: no device yet (onboarding), and `connect()` waits until it is not null. */
+  device: () => GatewayDevice | null
+  /**
+   * Signs DS requests and IDENTIFY/RESUME with the device key (§12.12 "Device proof", §12.13).
+   * The shared UI passes the crypto Worker's proveDevice. Without it, no proof goes out.
+   */
+  proveDevice?: DeviceProver
+  /** Called once per `joinVoice`, after VOICE_SERVER_UPDATE. */
+  voiceE2ee: () => VoiceE2eeDelegate
+}
 
 /** Self mute/deafen as sent in VOICE_STATE_UPDATE. */
 export interface SelfVoice {
@@ -40,6 +58,13 @@ export type HachimanClientEvents = GatewayEventHandlers & {
   update: (e: GatewayDispatch) => void
   /** The active voice connection changed (`null` = left / dropped). */
   voice: (vc: VoiceConnection | null) => void
+  /** The gateway closed with 4012 or 4013 and does not reconnect (§12.13). */
+  fatal: (e: { code: number }) => void
+  /**
+   * Media closed the call with 4013 (E2EE resync). The client has left voice. Call `joinVoice`
+   * with the same target to rejoin.
+   */
+  voiceResync: (target: { guildId: string; channelId: string }) => void
 }
 
 export interface HachimanCache {
@@ -58,8 +83,10 @@ export interface HachimanCache {
 }
 
 const VOICE_SERVER_TIMEOUT_MS = 15_000
+/** How often `connect()` checks for a device while `device()` returns null. */
+const DEVICE_POLL_MS = 250
 
-const toGuild = ({ id, name, icon, banner, ownerId, region, createdAt }: Guild): Guild => ({
+const toGuild = ({
   id,
   name,
   icon,
@@ -67,6 +94,16 @@ const toGuild = ({ id, name, icon, banner, ownerId, region, createdAt }: Guild):
   ownerId,
   region,
   createdAt,
+  publicHistoryVisibility,
+}: Guild): Guild => ({
+  id,
+  name,
+  icon,
+  banner,
+  ownerId,
+  region,
+  createdAt,
+  publicHistoryVisibility,
 })
 
 function sub<V>(m: Map<string, Map<string, V>>, key: string): Map<string, V> {
@@ -95,12 +132,33 @@ export class HachimanClient extends TypedEventEmitter<HachimanClientEvents> {
   private deafened = false
   private streaming = false
   private cancelPendingJoin: (() => void) | null = null
+  private wantConnect = false
+  private deviceWait: ReturnType<typeof setTimeout> | undefined
 
-  constructor(opts: { apiUrl: string; gatewayUrl: string; getToken: TokenProvider }) {
+  constructor(private readonly opts: HachimanClientOptions) {
     super()
-    this.rest = new RestClient({ baseUrl: opts.apiUrl, getToken: opts.getToken })
-    this.gateway = new GatewayClient({ url: opts.gatewayUrl, getToken: opts.getToken })
+    this.rest = new RestClient({
+      baseUrl: opts.apiUrl,
+      getToken: opts.getToken,
+      getDeviceId: () => opts.device()?.deviceId ?? null,
+      proveDevice: opts.proveDevice,
+    })
+    this.gateway = new GatewayClient({
+      url: opts.gatewayUrl,
+      getToken: opts.getToken,
+      device: () => {
+        const device = opts.device()
+        if (!device) throw new Error('HachimanClient: no device')
+        return device
+      },
+      proveDevice: opts.proveDevice,
+    })
     this.gateway.on('state', s => this.emit('state', s))
+    this.gateway.on('fatal', e => {
+      this.wantConnect = false
+      this.leaveVoice()
+      this.emit('fatal', e)
+    })
     this.gateway.on('dispatch', e => {
       this.apply(e)
       this.emit('update', e)
@@ -113,13 +171,29 @@ export class HachimanClient extends TypedEventEmitter<HachimanClientEvents> {
     return this._voice
   }
 
+  /** Connects the gateway. While `device()` returns null, it waits and checks again. */
   connect(): void {
-    this.gateway.connect()
+    this.wantConnect = true
+    this.connectWhenDevice()
   }
 
   disconnect(): void {
+    this.wantConnect = false
+    clearTimeout(this.deviceWait)
     this.leaveVoice()
     this.gateway.disconnect()
+  }
+
+  private connectWhenDevice(): void {
+    clearTimeout(this.deviceWait)
+    if (!this.wantConnect) return
+    if (this.opts.device() === null) {
+      this.deviceWait = setTimeout(() => {
+        this.connectWhenDevice()
+      }, DEVICE_POLL_MS)
+      return
+    }
+    this.gateway.connect()
   }
 
   /** Current user's effective permissions in a channel (0 if unknown / not visible). */
@@ -163,12 +237,23 @@ export class HachimanClient extends TypedEventEmitter<HachimanClientEvents> {
       this.sendVoiceState()
     })
 
+    let e2ee: VoiceE2eeDelegate
+    try {
+      e2ee = this.opts.voiceE2ee() // one delegate per call; the connection closes it
+    } catch (err) {
+      if (this.voiceTarget === target) this.leaveVoice()
+      throw err
+    }
     const vc = new VoiceConnection({
       endpoint: server.endpoint,
       token: server.token,
       iceServers: server.iceServers,
+      e2ee,
     })
     this.applySelfVoice(vc)
+    vc.on('resync', () => {
+      if (this._voice === vc) this.emit('voiceResync', { guildId, channelId })
+    })
     vc.on('close', () => {
       // Unexpected media drop: leave on the gateway too, else it keeps a stale voice state and a
       // rejoin of the same channel looks like a no-op (no VOICE_SERVER_UPDATE).
@@ -372,7 +457,21 @@ export class HachimanClient extends TypedEventEmitter<HachimanClientEvents> {
       case 'MESSAGE_DELETE':
       case 'TYPING_START':
       case 'VOICE_SERVER_UPDATE':
-        break // not cached; consumers handle the re-emitted event
+      case 'MLS_HANDSHAKE':
+      case 'MLS_GROUP_UPDATE':
+      case 'MLS_BATCH_ASSIGN':
+      case 'MLS_JOIN_UPDATE':
+      case 'DEVICE_INBOX':
+      case 'DEVICE_LINK':
+      case 'USER_KEYS_UPDATE':
+      case 'KEY_PACKAGES_LOW':
+      case 'KT_TREE_HEAD':
+      case 'PAGE_CREATE':
+      case 'PAGE_UPDATE':
+      case 'PAGE_DELETE':
+      case 'DOC_UPDATE':
+      case 'DOC_AWARENESS':
+        break // not cached; consumers (the crypto Worker for the §12.13 events, the shared UI DocsService for pages) handle the re-emitted event
     }
   }
 }

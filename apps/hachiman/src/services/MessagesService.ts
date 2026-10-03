@@ -1,15 +1,60 @@
-import type { Attachment } from '@hachiman/client'
+import { RestError, type Message } from '@hachiman/client'
+import {
+  CryptoError,
+  type AttachmentPointer,
+  type EncryptMessageInput,
+  type MessageContent
+} from '@hachiman/crypto'
+import { uploadIdsOf } from '@/lib/attachments'
+import { mentionsOf } from '@/lib/mentions'
+import { errMsg } from '@/lib/utils'
+import { cryptoService } from '@/services/CryptoService'
 import { hachiman } from '@/services/hachiman'
+import { createMessageDecryptor } from '@/services/message-decrypt'
 import { playSound } from '@/services/SoundService'
 import { messagesEpoch, useMessageStore, type ChatMessage } from '@/stores/messagesStore'
 import { useUserStore } from '@/stores/userStore'
 
 const PAGE_SIZE = 50
 const TYPING_THROTTLE_MS = 8_000
+/** Tries of one send or edit when the group moved on (§12.8.3). */
+const SEND_ATTEMPTS = 4
+const RETRY_BASE_MS = 300
 
 let lastTyping = { channelId: '', at: 0 }
 /** channelId → the history page request in flight, so overlapping triggers share one fetch. */
 const loading = new Map<string, Promise<void>>()
+/** Channels whose group this device joined, or is joining, in this session (§12.7.8). */
+const joined = new Set<string>()
+
+/**
+ * A device joins the group of a channel on its first open, not only on its first send (§12.7.8):
+ * a member who only reads gets the keys too. Best effort: a failure tries again on the next open.
+ */
+function joinGroup(channelId: string): void {
+  if (joined.has(channelId)) return
+  let crypto
+  try {
+    crypto = cryptoService.client()
+  } catch {
+    return // not ready: the next open tries again
+  }
+  joined.add(channelId)
+  void crypto.ensureChannelGroup(channelId).catch((e: unknown) => {
+    joined.delete(channelId)
+    console.warn('[messages] channel group join failed', e)
+  })
+}
+
+const decryptor = createMessageDecryptor({
+  decrypt: (messages) => cryptoService.client().decryptMessages(messages),
+  existing: (channelId, messageId) =>
+    useMessageStore
+      .getState()
+      .byChannel.get(channelId)
+      ?.find((m) => m.id === messageId),
+  upsert: (channelId, rows) => useMessageStore.getState().upsert(channelId, rows)
+})
 
 async function fetchOlder(channelId: string): Promise<void> {
   const store = useMessageStore.getState()
@@ -20,8 +65,74 @@ async function fetchOlder(channelId: string): Promise<void> {
     limit: PAGE_SIZE
   })
   if (messagesEpoch() !== startedIn) return // signed out meanwhile
-  store.upsert(channelId, page)
+  await decryptor.ingest(page)
+  if (messagesEpoch() !== startedIn) return
   store.setHasMore(channelId, page.length === PAGE_SIZE)
+}
+
+/** The group moved on or is not active yet: catch up, then encrypt again (§12.8.3). */
+function retryable(e: unknown): boolean {
+  const code =
+    e instanceof RestError ? e.code : e instanceof CryptoError ? (e.dsCode ?? e.code) : null
+  return (
+    code === 'StaleEpoch' ||
+    code === 'GroupPending' ||
+    code === 'EpochConflict' ||
+    code === 'PendingRemoves'
+  )
+}
+
+const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
+
+/**
+ * Encrypt for the current group of the channel and post. A retry encrypts again: a new message
+ * gets a new client_msg_id, an edit keeps the one of the original (§12.8.6).
+ */
+async function sealAndPost(
+  channelId: string,
+  input: EncryptMessageInput,
+  post: (envelope: string) => Promise<Message>
+): Promise<Message> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      const crypto = cryptoService.client()
+      await crypto.ensureChannelGroup(channelId)
+      const sealed = await crypto.encryptMessage(input)
+      return await post(sealed.envelope)
+    } catch (e) {
+      if (attempt >= SEND_ATTEMPTS || !retryable(e)) throw e
+      await sleep(RETRY_BASE_MS * 2 ** (attempt - 1))
+    }
+  }
+}
+
+/** A failed send or edit, in words for the user. */
+export function sendErrorText(e: unknown): string {
+  if (e instanceof CryptoError && e.code === 'TooLarge')
+    return 'This message is too long. Make it shorter.'
+  if (e instanceof RestError && e.code === 'EnvelopeTooLarge')
+    return 'This message is too long. Make it shorter.'
+  if (e instanceof CryptoError && e.code === 'NotInitialized')
+    return 'Encryption is not ready on this device yet.'
+  if (retryable(e)) return 'The channel keys changed while sending. Try again.'
+  return errMsg(e)
+}
+
+/** The user id for an `@username` in this channel: a guild member or a DM participant. */
+function resolveUsername(channelId: string, username: string): string | null {
+  const name = username.toLowerCase()
+  const { cache } = hachiman
+  const channel = cache.channels.get(channelId)
+  if (!channel) return null
+  if (channel.guildId === null) {
+    const users = [...(channel.recipients ?? []), ...(cache.user ? [cache.user] : [])]
+    return users.find((u) => u.username.toLowerCase() === name)?.id ?? null
+  }
+  const members = [...(cache.members.get(channel.guildId)?.values() ?? [])]
+  const member = members.find(
+    (m) => m.user.username.toLowerCase() === name || m.nick?.toLowerCase() === name
+  )
+  return member?.user.id ?? null
 }
 
 export const messagesService = {
@@ -40,21 +151,54 @@ export const messagesService = {
     return request
   },
 
-  /** Load the latest page unless this channel's history was already loaded. */
+  /** Channel open: join its group, and load the latest page unless the history is loaded. */
   ensureLoaded(channelId: string): void {
+    joinGroup(channelId)
     if (!useMessageStore.getState().hasMore.has(channelId))
       void messagesService.loadOlder(channelId)
   },
 
+  /** Decrypts server messages (history, MESSAGE_CREATE, MESSAGE_UPDATE) into the store. */
+  ingest(messages: Message[]): Promise<ChatMessage[]> {
+    return decryptor.ingest(messages)
+  },
+
+  /** epochKeysAvailable: the pending messages of the group decrypt again. */
+  retryGroup(groupId: string): void {
+    void decryptor.retryGroup(groupId)
+  },
+
+  /** The Worker became ready: every pending message decrypts again. */
+  retryAll(): void {
+    void decryptor.retryAll()
+  },
+
+  /** A deleted message no longer waits for keys. */
+  forget(messageId: string): void {
+    decryptor.forget(messageId)
+  },
+
+  /** Sign-out. */
+  reset(): void {
+    joined.clear()
+    decryptor.reset()
+  },
+
   /**
-   * Optimistic send: a pending row keyed by nonce, replaced by the echo (REST response or
-   * MESSAGE_CREATE). `attachments` are finished uploads; the pending row renders them already.
+   * Optimistic send: a pending row keyed by nonce, replaced by the decrypted echo (REST response
+   * or MESSAGE_CREATE). `attachments` are finished encrypted uploads; the pending row renders
+   * them already.
    */
-  async send(channelId: string, content: string, attachments: Attachment[] = []): Promise<void> {
+  async send(
+    channelId: string,
+    content: string,
+    attachments: AttachmentPointer[] = []
+  ): Promise<void> {
     const text = content.trim()
     const me = useUserStore.getState().me
     if ((!text && attachments.length === 0) || !me) return
     const nonce = crypto.randomUUID()
+    const mentions = mentionsOf(text, (u) => resolveUsername(channelId, u))
     const store = useMessageStore.getState()
     store.addPending({
       id: nonce,
@@ -62,25 +206,38 @@ export const messagesService = {
       channelId,
       guildId: hachiman.cache.channels.get(channelId)?.guildId ?? null,
       author: me,
+      groupId: '',
+      epoch: -1,
+      clientMsgId: '',
       content: text,
+      mentions,
       attachments,
+      replyTo: null,
+      sender: null,
+      decrypt: { status: 'ok' },
       createdAt: new Date().toISOString(),
       editedAt: null,
       pending: true
     })
     playSound('messageSent')
     lastTyping = { channelId: '', at: 0 }
+    const body: Omit<MessageContent, 'sentAtMs'> = { text, mentions, attachments, replyTo: null }
     try {
-      store.upsert(channelId, [
-        await hachiman.rest.sendMessage(channelId, {
-          content: text,
-          nonce,
-          attachments: attachments.length > 0 ? attachments.map((a) => a.id) : undefined
-        })
-      ])
+      const ids = uploadIdsOf(attachments)
+      const sent = await sealAndPost(
+        channelId,
+        { channelId, kind: 'message', editOf: null, content: body },
+        (envelope) =>
+          hachiman.rest.sendMessage(channelId, {
+            envelope,
+            nonce,
+            attachments: ids.length > 0 ? ids : undefined
+          })
+      )
+      await decryptor.ingest([sent])
     } catch (err) {
       console.error('[messages] send failed', err)
-      store.markFailed(channelId, nonce)
+      useMessageStore.getState().markFailed(channelId, nonce, sendErrorText(err))
     }
   },
 
@@ -98,15 +255,40 @@ export const messagesService = {
     useMessageStore.getState().remove(message.channelId, message.id)
   },
 
-  /** Text only: attachments never change. '' is valid only for a message with attachments. */
+  /**
+   * A new envelope (kind 2) with the new text and the original attachments. It keeps the
+   * client_msg_id of the original. '' is valid only for a message with attachments. Rejects with
+   * an Error whose message is for the user.
+   */
   async edit(channelId: string, messageId: string, content: string): Promise<void> {
+    const row = useMessageStore
+      .getState()
+      .byChannel.get(channelId)
+      ?.find((m) => m.id === messageId)
+    if (!row || row.pending || row.decrypt.status !== 'ok' || !row.clientMsgId)
+      throw new Error('This message cannot be edited.')
     const text = content.trim()
-    const updated = await hachiman.rest.editMessage(channelId, messageId, { content: text })
-    useMessageStore.getState().upsert(channelId, [updated])
+    const mentions = mentionsOf(text, (u) => resolveUsername(channelId, u))
+    try {
+      const updated = await sealAndPost(
+        channelId,
+        {
+          channelId,
+          kind: 'edit',
+          editOf: row.clientMsgId,
+          content: { text, mentions, attachments: row.attachments, replyTo: row.replyTo }
+        },
+        (envelope) => hachiman.rest.editMessage(channelId, messageId, { envelope })
+      )
+      await decryptor.ingest([updated])
+    } catch (err) {
+      throw new Error(sendErrorText(err), { cause: err })
+    }
   },
 
   async delete(channelId: string, messageId: string): Promise<void> {
     await hachiman.rest.deleteMessage(channelId, messageId)
+    decryptor.forget(messageId)
     useMessageStore.getState().remove(channelId, messageId)
   },
 

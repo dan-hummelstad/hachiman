@@ -1,19 +1,22 @@
 /**
  * PATCH  /api/v1/guilds/:id/roles/:roleId { name?, color?, permissions? } — MANAGE_ROLES + hierarchy.
  * DELETE /api/v1/guilds/:id/roles/:roleId — MANAGE_ROLES + hierarchy; never @everyone.
+ * A permissions change and a delete take X-Hachiman-Signed-Action (role_update /
+ * role_delete, §12.16). Both tell the DS in the same transaction (§12.18).
  */
 import { and, eq } from 'drizzle-orm'
 import { Permissions } from '@hachiman/client/permissions'
 import { NextResponse, type NextRequest } from 'next/server'
 import { z } from 'zod'
 
-import { db } from '@/db/client'
 import { permissionOverwrites, roles } from '@/db/schema'
+import { enforceAdminAction } from '@/lib/admin-actions'
 import { errorResponse, noContent, parseBody } from '@/lib/api-helpers'
 import { requireUser } from '@/lib/auth-helpers'
 import { NotFoundError, ValidationError } from '@/lib/errors'
 import { publishToGuild } from '@/lib/events'
 import {
+  actorDeviceId,
   loadGuildAccess,
   requireAbovePosition,
   requireGrantable,
@@ -21,7 +24,7 @@ import {
   type GuildAccess,
 } from '@/lib/guild-access'
 import { colorSchema, nameSchema, permissionsSchema } from '@/lib/guild-schemas'
-import { loadChannels } from '@/lib/guilds'
+import { loadChannels, membershipChanged, membershipTransaction, MembershipTriggers } from '@/lib/guilds'
 import { toRole } from '@/lib/wire'
 
 interface RouteContext {
@@ -55,15 +58,28 @@ export async function PATCH(req: NextRequest, ctx: RouteContext): Promise<NextRe
     // Only the bits being changed must be grantable, so a manager can still
     // edit a role that already holds permissions they lack.
     if (body.permissions !== undefined) requireGrantable(access, body.permissions ^ current.permissions)
+    const actor = await actorDeviceId(req, session.user.id)
 
-    const [row] =
-      Object.keys(body).length > 0
-        ? await db
-            .update(roles)
-            .set(body)
-            .where(and(eq(roles.id, roleId), eq(roles.guildId, id)))
-            .returning()
-        : [current]
+    const row = await membershipTransaction(async (tx) => {
+      if (body.permissions !== undefined) {
+        await enforceAdminAction(tx, req, { guildId: id, ownerId: access.guild.ownerId, userId: session.user.id }, {
+          type: 2,
+          roleId,
+          permissions: body.permissions,
+          position: current.position,
+        })
+      }
+      if (Object.keys(body).length === 0) return current
+      const [updated] = await tx
+        .update(roles)
+        .set(body)
+        .where(and(eq(roles.id, roleId), eq(roles.guildId, id)))
+        .returning()
+      if (body.permissions !== undefined && body.permissions !== current.permissions) {
+        await membershipChanged(tx, MembershipTriggers.roleChanged(id, roleId), actor)
+      }
+      return updated!
+    })
     const role = toRole(row)
     await publishToGuild(id, 'GUILD_ROLE_UPDATE', { guildId: id, role })
     return NextResponse.json(role)
@@ -72,21 +88,24 @@ export async function PATCH(req: NextRequest, ctx: RouteContext): Promise<NextRe
   }
 }
 
-export async function DELETE(_req: NextRequest, ctx: RouteContext): Promise<NextResponse> {
+export async function DELETE(req: NextRequest, ctx: RouteContext): Promise<NextResponse> {
   try {
     const session = await requireUser()
     const { id, roleId } = await ctx.params
     const access = await loadGuildAccess(id, session.user.id)
     manageableRole(access, roleId)
     if (roleId === id) throw new ValidationError('@everyone cannot be deleted')
+    const actor = await actorDeviceId(req, session.user.id)
 
     // Overwrites target roles polymorphically (no FK), so clear them here.
-    const touched = await db.transaction(async (tx) => {
+    const touched = await membershipTransaction(async (tx) => {
+      await enforceAdminAction(tx, req, { guildId: id, ownerId: access.guild.ownerId, userId: session.user.id }, { type: 3, roleId })
       const rows = await tx
         .delete(permissionOverwrites)
         .where(eq(permissionOverwrites.targetId, roleId))
         .returning({ channelId: permissionOverwrites.channelId })
       await tx.delete(roles).where(and(eq(roles.id, roleId), eq(roles.guildId, id)))
+      await membershipChanged(tx, MembershipTriggers.roleDeleted(id, roleId), actor)
       return rows.map((r) => r.channelId)
     })
 

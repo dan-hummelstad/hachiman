@@ -1,4 +1,5 @@
 import { takusenService, type IPlatformService } from "@hachiman/hachiman";
+import type { SecureStorageFailureCode } from "../../shared/ipc";
 
 // Thin adapter over the preload bridge (src/preload/index.ts). All privileged
 // work (URL opening, deep links, raw-socket probing) happens in main.
@@ -22,4 +23,42 @@ export const platformService: IPlatformService = {
   probeRegions: (targets) => window.hachiman.probeRegions(targets),
   getScreenSources: () => window.hachiman.getScreenSources(),
   selectScreenSource: (id) => window.hachiman.selectScreenSource(id),
+  secureStorage: {
+    backend: "os-keychain",
+    // Main keeps the bytes under safeStorage (main/secure-storage.ts). The
+    // renderer makes a non-extractable key from them and overwrites its copy.
+    getWrapKey: async (userId) => {
+      const r = await window.hachiman.secureStorage.getWrapKeyBytes(userId);
+      if (!r.ok) throw secureStorageError(r.code, r.message);
+      const raw = r.value;
+      try {
+        if (!(raw instanceof Uint8Array) || raw.length !== 32) {
+          throw secureStorageError("StoreCorrupt", "wrap key has a bad length");
+        }
+        return await crypto.subtle.importKey(
+          "raw",
+          raw,
+          { name: "AES-GCM", length: 256 },
+          false,
+          ["encrypt", "decrypt"],
+        );
+      } finally {
+        if (raw instanceof Uint8Array) raw.fill(0);
+      }
+    },
+    clear: async (userId) => {
+      const r = await window.hachiman.secureStorage.clear(userId);
+      if (!r.ok) throw secureStorageError(r.code, r.message);
+    },
+  },
 };
+
+/** The rejection shape of ISecureStorage: `name` and `code` are the error code. */
+function secureStorageError(
+  code: SecureStorageFailureCode,
+  message: string,
+): Error & { code: SecureStorageFailureCode } {
+  const e = Object.assign(new Error(message), { code });
+  e.name = code;
+  return e;
+}

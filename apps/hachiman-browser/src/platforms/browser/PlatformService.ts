@@ -1,4 +1,5 @@
 import { parseInviteCode, type IPlatformService } from "@hachiman/hachiman";
+import { createBrowserSecureStorage } from "./secure-storage";
 
 /**
  * Listener set that buffers values emitted before anyone subscribes: the page's
@@ -60,4 +61,5 @@ export const platformService: IPlatformService = {
   probeRegions: async () => [],
   getScreenSources: async () => null,
   selectScreenSource: async () => undefined,
+  secureStorage: createBrowserSecureStorage(),
 };

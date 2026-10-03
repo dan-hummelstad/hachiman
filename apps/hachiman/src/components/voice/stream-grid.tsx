@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Maximize } from 'lucide-react'
+import { LoaderCircle, Maximize } from 'lucide-react'
 import type { VoiceState } from '@hachiman/client'
 import { IconButton } from '@/components/ui/icon-button'
 import { LiveBadge } from '@/components/voice/voice-state-badges'
@@ -11,13 +11,18 @@ import { useVoiceStore } from '@/stores/voiceStore'
 /**
  * Live screen shares in a voice channel. Only someone in the same voice session receives the
  * video, so other viewers see the LIVE badge and no tiles.
+ *
+ * `secure` holds the users with a leaf in the MLS tree of the own call (§12.10.1). The video of
+ * any other user shows as a placeholder, never as a trusted stream. Null outside the call.
  */
 export function StreamGrid({
   guildId,
-  occupants
+  occupants,
+  secure
 }: {
   guildId: string
   occupants: VoiceState[]
+  secure: ReadonlySet<string> | null
 }): React.JSX.Element | null {
   const meId = useUserStore((s) => s.me?.id)
   const localScreen = useVoiceStore((s) => s.localScreen)
@@ -25,8 +30,10 @@ export function StreamGrid({
   const [focused, setFocused] = useState<string | null>(null)
 
   const live = occupants.flatMap((vs) => {
-    const stream = vs.userId === meId ? localScreen : vs.selfStream ? screens.get(vs.userId) : null
-    return stream ? [{ userId: vs.userId, stream }] : []
+    if (vs.userId === meId) return localScreen ? [{ userId: vs.userId, stream: localScreen }] : []
+    const stream = vs.selfStream ? screens.get(vs.userId) : undefined
+    if (!stream) return []
+    return [{ userId: vs.userId, stream: secure?.has(vs.userId) ? stream : null }]
   })
   if (live.length === 0) return null
   const shown = live.some((l) => l.userId === focused)
@@ -65,7 +72,8 @@ function StreamTile({
 }: {
   guildId: string
   userId: string
-  stream: MediaStream
+  /** Null: the user has no leaf in the call group yet. */
+  stream: MediaStream | null
   self: boolean
   focused: boolean
   onToggleFocus: () => void
@@ -76,6 +84,14 @@ function StreamTile({
   useEffect(() => {
     if (video.current) video.current.srcObject = stream
   }, [stream])
+
+  if (!stream)
+    return (
+      <div className="relative flex min-h-0 flex-col items-center justify-center gap-2 border bg-black text-xs text-white/70">
+        <LoaderCircle className="size-5 animate-spin" aria-hidden />
+        {name} is joining the encrypted call
+      </div>
+    )
 
   return (
     <div ref={frame} className="group relative min-h-0 overflow-hidden border bg-black">

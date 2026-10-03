@@ -9,6 +9,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -30,11 +31,14 @@ const (
 
 const (
 	writeTimeout = 10 * time.Second
-	sendQueueLen = 64
+	sendQueueLen = 256
 	pingInterval = 20 * time.Second
 	readTimeout  = 60 * time.Second // extended by every pong
-	readLimit    = 64 << 10
-	speakingRate = 10 // max speaking relays per second per conn; excess dropped
+	speakingRate = 10               // max speaking relays per second per conn; excess dropped
+
+	// defaultReadLimit fits a Welcome or a ratchet tree of a large call
+	// (MEDIA_WS_READ_LIMIT overrides it).
+	defaultReadLimit = 1 << 20
 )
 
 // vars so tests can shorten them
@@ -60,6 +64,10 @@ type voiceServer struct {
 	verifier *voicetoken.Verifier
 	logger   *log.Logger
 	upgrader websocket.Upgrader
+	e2ee     *e2eeState
+
+	// readLimit is the largest client frame; set before serving.
+	readLimit int64
 
 	mu    sync.Mutex
 	conns map[string]*voiceConn // session id -> live conn
@@ -70,11 +78,14 @@ type voiceServer struct {
 }
 
 func newVoiceServer(sfu *media.SFU, v *voicetoken.Verifier, logger *log.Logger) *voiceServer {
-	return &voiceServer{
+	s := &voiceServer{
 		sfu: sfu, verifier: v, logger: logger,
-		upgrader: websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }},
-		conns:    map[string]*voiceConn{},
+		upgrader:  websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }},
+		readLimit: defaultReadLimit,
+		conns:     map[string]*voiceConn{},
 	}
+	s.e2ee = newE2EEState(s)
+	return s
 }
 
 func (s *voiceServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -82,7 +93,7 @@ func (s *voiceServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		return // Upgrade already wrote the HTTP error
 	}
-	ws.SetReadLimit(readLimit)
+	ws.SetReadLimit(s.readLimit)
 	c := &voiceConn{srv: s, ws: ws, out: make(chan []byte, sendQueueLen), done: make(chan struct{})}
 	go c.writeLoop()
 	c.readLoop()
@@ -166,7 +177,7 @@ func (c *voiceConn) send(op string, d any) {
 	case c.out <- b:
 	case <-c.done:
 	default:
-		// A client that can't drain 64 frames is wedged; drop it rather than
+		// A client that can't drain sendQueueLen frames is wedged; drop it rather than
 		// block SFU hooks running on other sessions' goroutines.
 		go c.close(websocket.ClosePolicyViolation, "send queue full")
 	}
@@ -207,6 +218,7 @@ func (c *voiceConn) close(code int, reason string) {
 		c.negMu.Unlock()
 		_ = c.ws.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(code, reason), time.Now().Add(time.Second))
 		_ = c.ws.Close()
+		c.srv.e2ee.leave(c) // before SFU.Remove: peers get the roster before the offer
 		if c.claims != nil {
 			c.srv.mu.Lock()
 			if c.srv.conns[c.claims.SessionID] == c {
@@ -238,6 +250,10 @@ func (c *voiceConn) readLoop() {
 		if err := json.Unmarshal(data, &f); err != nil {
 			continue
 		}
+		if strings.HasPrefix(f.Op, "e2ee_") {
+			c.srv.e2ee.handle(c, f.Op, f.D)
+			continue
+		}
 		switch f.Op {
 		case "answer":
 			var d struct {
@@ -267,8 +283,9 @@ func (c *voiceConn) readLoop() {
 	}
 }
 
-// identify runs the §8 handshake: identify within 10 s → verify → replace any
-// live conn with the same session → join the SFU → ready + peers + offer.
+// identify runs the §8 handshake: identify within 10 s → E2EE check → verify
+// → replace any live conn with the same session → join the SFU → ready +
+// peers + e2ee_roster + offer.
 func (c *voiceConn) identify() bool {
 	_ = c.ws.SetReadDeadline(time.Now().Add(identifyTimeout))
 	var f frame
@@ -285,9 +302,22 @@ func (c *voiceConn) identify() bool {
 	c.ws.SetPongHandler(func(string) error { return c.ws.SetReadDeadline(time.Now().Add(readTimeout)) })
 	var d struct {
 		Token string `json:"token"`
+		E2EE  *struct {
+			Version    int    `json:"version"`
+			KeyPackage string `json:"keyPackage"`
+		} `json:"e2ee"`
 	}
 	if f.Op != "identify" || json.Unmarshal(f.D, &d) != nil {
 		c.close(closeBadToken, "expected identify")
+		return false
+	}
+	// Checked before the token, so a refused client does not burn its jti.
+	if d.E2EE == nil || d.E2EE.Version != 1 {
+		c.close(closeE2EERequired, "e2ee required")
+		return false
+	}
+	if _, err := decodeB64url(d.E2EE.KeyPackage); err != nil {
+		c.close(closeE2EEProtocol, "bad key package")
 		return false
 	}
 	claims, err := c.srv.verifier.Verify(d.Token)
@@ -298,6 +328,11 @@ func (c *voiceConn) identify() bool {
 	if err != nil {
 		c.srv.logger.Printf("identify: %v", err)
 		c.close(closeBadToken, "authentication failed")
+		return false
+	}
+	if claims.DeviceID == "" {
+		// The roster identity of an E2EE participant is its device (§7).
+		c.close(closeBadToken, "token has no device")
 		return false
 	}
 
@@ -363,6 +398,7 @@ func (c *voiceConn) identify() bool {
 	c.srv.logger.Printf("session %s joined room %s (user %s, ssrc %d)", claims.SessionID, claims.ChannelID, claims.UserID, cl.SSRC)
 	c.send("ready", map[string]any{"sessionId": claims.SessionID, "ssrc": cl.SSRC})
 	c.sendPeers()
+	c.srv.e2ee.join(c, d.E2EE.KeyPackage)
 	c.sendOffer()
 	return true
 }

@@ -1,3 +1,4 @@
+import type { MembershipEvent } from '@hachiman/crypto'
 import type { ChatMessage } from '@/stores/messagesStore'
 
 /** Messages from one author within this window merge into one cozy group. */
@@ -43,4 +44,24 @@ export function buildItems(messages: ChatMessage[]): TranscriptItem[] {
     prev = message
     return { message, newDay, groupStart }
   })
+}
+
+/**
+ * Where each membership event goes in the transcript: before the first loaded message of its
+ * group at or after its epoch. The key is that message's index; `messages.length` means after
+ * the last message. Events keep their order within one slot.
+ */
+export function membershipSlots(
+  messages: readonly Pick<ChatMessage, 'groupId' | 'epoch'>[],
+  events: readonly MembershipEvent[]
+): Map<number, MembershipEvent[]> {
+  const slots = new Map<number, MembershipEvent[]>()
+  for (const e of events) {
+    const i = messages.findIndex((m) => m.groupId === e.groupId && m.epoch >= e.epoch)
+    const at = i === -1 ? messages.length : i
+    const list = slots.get(at)
+    if (list) list.push(e)
+    else slots.set(at, [e])
+  }
+  return slots
 }

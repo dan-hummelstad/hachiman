@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { MessageCircle, MicOff, VolumeX } from 'lucide-react'
+import { MessageCircle, MicOff, ShieldCheck, VolumeX } from 'lucide-react'
 import type { User } from '@hachiman/client'
 import { UserAvatar } from '@/components/shell/user-avatar'
 import { Button } from '@/components/ui/button'
@@ -10,6 +10,8 @@ import { useMemberView, useOpenDm, usePresence } from '@/hooks/use-member'
 import { memberRoles } from '@/lib/model'
 import { ROLE_INK_SCOPE } from '@/lib/role-ink'
 import { cn } from '@/lib/utils'
+import { useCryptoStore } from '@/stores/cryptoStore'
+import { openDialog } from '@/stores/dialogStore'
 import { useGuildStore } from '@/stores/guildStore'
 import { useUserStore } from '@/stores/userStore'
 import { useVoiceStore } from '@/stores/voiceStore'
@@ -26,7 +28,10 @@ interface UserProfilePopoverProps {
   side?: 'left' | 'right' | 'top' | 'bottom'
 }
 
-/** Member card: identity, presence, voice status, roles, and a "Message" (open DM) action. */
+/**
+ * Member card: identity, presence, voice status, roles, a "Message" (open DM) action and "Verify"
+ * (the safety number, §12.5).
+ */
 export function UserProfilePopover({
   children,
   userId,
@@ -73,6 +78,8 @@ function ProfileCard(props: {
   )
   const isMe = useUserStore((s) => s.me?.id === userId)
   const dm = useOpenDm(userId)
+  // The safety number needs the crypto Worker (§12.5).
+  const encryption = useCryptoStore((s) => s.phase === 'ready' && s.status?.state === 'ready')
   const chips = memberRoles(member, roles)
   const identity = member?.user ?? props.user
 
@@ -125,13 +132,26 @@ function ProfileCard(props: {
         )}
 
         {!isMe && (
-          <Button
-            size="sm"
-            disabled={dm.busy}
-            onClick={() => void dm.open().then((ok) => ok && props.onDone())}
-          >
-            <MessageCircle className="size-3.5" /> Message
-          </Button>
+          <div className="grid grid-cols-2 gap-2">
+            <Button
+              size="sm"
+              disabled={dm.busy}
+              onClick={() => void dm.open().then((ok) => ok && props.onDone())}
+            >
+              <MessageCircle className="size-3.5" /> Message
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={!encryption}
+              onClick={() => {
+                props.onDone()
+                openDialog({ kind: 'verification', userId })
+              }}
+            >
+              <ShieldCheck className="size-3.5" /> Verify
+            </Button>
+          </div>
         )}
       </div>
     </div>

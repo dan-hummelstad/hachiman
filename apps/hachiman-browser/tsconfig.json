@@ -4,10 +4,13 @@
     "lib": ["ESNext", "DOM", "DOM.Iterable"],
     "jsx": "react-jsx",
     "noEmit": true,
+    // csp.ts imports the Electron policy as `.ts` source, which node's type-stripping
+    // test runner needs. Safe because this project only typechecks; Vite bundles.
+    "allowImportingTsExtensions": true,
     "tsBuildInfoFile": "../../ts-dist/hachiman-browser/tsconfig.tsbuildinfo",
     "types": ["vite/client"],
     // The shared UI is checked from source; mirror the `@` alias vite.config.ts gives it.
     "paths": { "@/*": ["../hachiman/src/*"] }
   },
-  "include": ["src/**/*", "vite.config.ts"]
+  "include": ["src/**/*", "vite.config.ts", "csp.ts", "csp.test.mts"]
 }

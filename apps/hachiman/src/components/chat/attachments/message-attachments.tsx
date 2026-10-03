@@ -1,25 +1,31 @@
 import { useState } from 'react'
-import { Download, FileIcon, Music } from 'lucide-react'
-import { embedKind, type Attachment } from '@hachiman/client'
+import { Download, FileIcon, LoaderCircle, Music, Play } from 'lucide-react'
+import { embedKind } from '@hachiman/client'
+import type { AttachmentPointer } from '@hachiman/crypto'
+import { useAction } from '@/hooks/use-action'
+import { downloadAttachment, useDecryptedBlob } from '@/hooks/use-decrypted-blob'
 import { cn } from '@/lib/utils'
-import { hachiman } from '@/services/hachiman'
 import { formatBytes } from '@/lib/format-bytes'
 import { EMBED_MAX, embedBox } from './format'
 import { Lightbox } from './lightbox'
 
 /**
  * A message's attachments under its text, Discord-style: images as one inline embed or a mosaic,
- * video and audio as players, everything else as a download card. Upload order is kept within
+ * video and audio as players, everything else as a download card. Envelope order is kept within
  * each group; images come first.
+ *
+ * Every file is decrypted (§12.9): the name, MIME type and dimensions come from the pointer in
+ * the envelope, and the bytes from `/files/{uploadId}/blob` through the crypto Worker. Images
+ * show their thumbnail inline. Video, audio and other files decrypt only when the user asks.
  */
 export function MessageAttachments({
   attachments
 }: {
-  attachments: Attachment[]
+  attachments: AttachmentPointer[]
 }): React.JSX.Element {
-  const [open, setOpen] = useState<Attachment | null>(null)
-  const images = attachments.filter((a) => embedKind(a.contentType) === 'image')
-  const rest = attachments.filter((a) => embedKind(a.contentType) !== 'image')
+  const [open, setOpen] = useState<AttachmentPointer | null>(null)
+  const images = attachments.filter((a) => embedKind(a.mime) === 'image')
+  const rest = attachments.filter((a) => embedKind(a.mime) !== 'image')
   return (
     <div className="flex flex-col items-start gap-1 py-1">
       {images.length === 1 ? (
@@ -28,13 +34,13 @@ export function MessageAttachments({
         images.length > 1 && <Mosaic images={images} onOpen={setOpen} />
       )}
       {rest.map((a) => {
-        const kind = embedKind(a.contentType)
+        const kind = embedKind(a.mime)
         return kind === 'video' ? (
-          <VideoEmbed key={a.id} video={a} />
+          <VideoEmbed key={a.uploadId} video={a} />
         ) : kind === 'audio' ? (
-          <AudioCard key={a.id} audio={a} />
+          <AudioCard key={a.uploadId} audio={a} />
         ) : (
-          <FileCard key={a.id} file={a} />
+          <FileCard key={a.uploadId} file={a} />
         )
       })}
       <Lightbox image={open} onClose={() => setOpen(null)} />
@@ -42,32 +48,70 @@ export function MessageAttachments({
   )
 }
 
-const url = (a: Attachment): string => hachiman.rest.fileUrl(a.key)
-
 const MEDIA_FRAME = 'bg-muted block max-w-full border'
 const FOCUS =
   'focus-visible:outline-ring outline-none focus-visible:outline-2 focus-visible:outline-offset-1'
+
+/** The thumbnail when the sender made one, else the full image. */
+const preview = (a: AttachmentPointer): Parameters<typeof useDecryptedBlob>[0] => a.thumbnail ?? a
+
+/** Shown in place of media that did not decrypt. */
+function Unreadable({
+  error,
+  className
+}: {
+  error: string
+  className?: string
+}): React.JSX.Element {
+  return (
+    <span
+      title={error}
+      className={cn(
+        'text-muted-foreground flex size-full items-center justify-center p-2 text-xs',
+        className
+      )}
+    >
+      Unable to decrypt
+    </span>
+  )
+}
+
+function DecryptedImg({
+  image,
+  className,
+  style
+}: {
+  image: AttachmentPointer
+  className: string
+  style?: React.CSSProperties
+}): React.JSX.Element {
+  const { url, error } = useDecryptedBlob(preview(image))
+  if (error) return <Unreadable error={error} />
+  return url ? (
+    <img src={url} alt={image.name} className={className} style={style} />
+  ) : (
+    <span className="block size-full min-h-24 min-w-24 animate-pulse" aria-label="Decrypting" />
+  )
+}
 
 function InlineImage({
   image,
   onOpen
 }: {
-  image: Attachment
-  onOpen: (a: Attachment) => void
+  image: AttachmentPointer
+  onOpen: (a: AttachmentPointer) => void
 }): React.JSX.Element {
   const box = embedBox(image.width, image.height)
   return (
     <button
       type="button"
-      aria-label={`Open ${image.filename}`}
+      aria-label={`Open ${image.name}`}
       onClick={() => onOpen(image)}
       className={cn(MEDIA_FRAME, FOCUS, 'cursor-zoom-in overflow-hidden')}
       style={box}
     >
-      <img
-        src={url(image)}
-        alt={image.filename}
-        loading="lazy"
+      <DecryptedImg
+        image={image}
         className={cn(
           'block',
           box ? 'size-full object-cover' : 'max-h-[300px] max-w-full object-contain'
@@ -83,8 +127,8 @@ function Mosaic({
   images,
   onOpen
 }: {
-  images: Attachment[]
-  onOpen: (a: Attachment) => void
+  images: AttachmentPointer[]
+  onOpen: (a: AttachmentPointer) => void
 }): React.JSX.Element {
   const cols = images.length === 2 || images.length === 4 ? 2 : 3
   return (
@@ -94,53 +138,96 @@ function Mosaic({
     >
       {images.map((image) => (
         <button
-          key={image.id}
+          key={image.uploadId}
           type="button"
-          aria-label={`Open ${image.filename}`}
+          aria-label={`Open ${image.name}`}
           onClick={() => onOpen(image)}
           className={cn(MEDIA_FRAME, FOCUS, 'aspect-square cursor-zoom-in overflow-hidden')}
         >
-          <img
-            src={url(image)}
-            alt={image.filename}
-            loading="lazy"
-            className="size-full object-cover"
-          />
+          <DecryptedImg image={image} className="size-full object-cover" />
         </button>
       ))}
     </div>
   )
 }
 
-function VideoEmbed({ video }: { video: Attachment }): React.JSX.Element {
+function VideoEmbed({ video }: { video: AttachmentPointer }): React.JSX.Element {
+  const [started, setStarted] = useState(false)
+  const poster = useDecryptedBlob(video.thumbnail)
+  const full = useDecryptedBlob(started ? video : null)
   const box = embedBox(video.width, video.height) ?? {
     width: EMBED_MAX.width,
     aspectRatio: '16 / 9'
   }
+  if (full.url) {
+    return (
+      <video
+        src={full.url}
+        poster={poster.url ?? undefined}
+        controls
+        autoPlay
+        aria-label={video.name}
+        className={cn(MEDIA_FRAME, 'bg-black')}
+        style={box}
+      />
+    )
+  }
   return (
-    <video
-      src={url(video)}
-      controls
-      preload="metadata"
-      aria-label={video.filename}
-      className={cn(MEDIA_FRAME, 'bg-black')}
+    <button
+      type="button"
+      aria-label={`Play ${video.name}`}
+      onClick={() => setStarted(true)}
+      disabled={started && !full.error}
+      className={cn(MEDIA_FRAME, FOCUS, 'relative overflow-hidden bg-black')}
       style={box}
-    />
+    >
+      {poster.url && <img src={poster.url} alt="" className="size-full object-cover" />}
+      <span className="absolute inset-0 flex items-center justify-center">
+        {full.error ? (
+          <Unreadable error={full.error} className="bg-background/80 size-auto" />
+        ) : started ? (
+          <LoaderCircle className="size-8 animate-spin text-white" />
+        ) : (
+          <Play className="size-10 fill-white text-white drop-shadow" />
+        )}
+      </span>
+    </button>
   )
 }
 
 const CARD = 'bg-card flex max-w-full flex-col border'
 
-function AudioCard({ audio }: { audio: Attachment }): React.JSX.Element {
+function AudioCard({ audio }: { audio: AttachmentPointer }): React.JSX.Element {
+  const [started, setStarted] = useState(false)
+  const { url, error } = useDecryptedBlob(started ? audio : null)
   return (
     <div className={cn(CARD, 'gap-2 p-2.5')} style={{ width: EMBED_MAX.width }}>
       <FileHeader file={audio} icon={Music} />
-      <audio src={url(audio)} controls preload="metadata" className="h-9 w-full" />
+      {url ? (
+        <audio src={url} controls autoPlay className="h-9 w-full" />
+      ) : error ? (
+        <p className="text-destructive text-xs" title={error}>
+          Unable to decrypt this file.
+        </p>
+      ) : (
+        <button
+          type="button"
+          disabled={started}
+          onClick={() => setStarted(true)}
+          className={cn(
+            'hover:bg-accent flex h-9 items-center gap-2 border px-3 text-xs font-medium',
+            FOCUS
+          )}
+        >
+          {started ? <LoaderCircle className="size-4 animate-spin" /> : <Play className="size-4" />}
+          Play
+        </button>
+      )}
     </div>
   )
 }
 
-function FileCard({ file }: { file: Attachment }): React.JSX.Element {
+function FileCard({ file }: { file: AttachmentPointer }): React.JSX.Element {
   return (
     <div className={cn(CARD, 'p-2.5')} style={{ width: EMBED_MAX.width }}>
       <FileHeader file={file} icon={FileIcon} />
@@ -152,45 +239,50 @@ function FileHeader({
   file,
   icon: Icon
 }: {
-  file: Attachment
+  file: AttachmentPointer
   icon: React.ComponentType<{ className?: string; strokeWidth?: number }>
 }): React.JSX.Element {
-  const href = url(file)
+  const { run, busy, error } = useAction()
+  const save = (): void => void run('download the file', () => downloadAttachment(file))
   return (
     <div className="flex min-w-0 items-center gap-2.5">
       <Icon className="text-muted-foreground size-8 shrink-0" strokeWidth={1.25} />
       <div className="min-w-0 flex-1">
-        <a
-          href={href}
-          target="_blank"
-          rel="noreferrer noopener"
-          download={file.filename}
-          title={file.filename}
+        <button
+          type="button"
+          onClick={save}
+          disabled={busy}
+          title={file.name}
           className={cn(
-            'text-foreground block truncate font-mono text-[13px] leading-5 underline-offset-2 hover:underline',
+            'text-foreground block max-w-full truncate text-left font-mono text-[13px] leading-5 underline-offset-2 hover:underline',
             FOCUS
           )}
         >
-          {file.filename}
-        </a>
-        <p className="text-muted-foreground text-xs leading-4 tabular-nums">
-          {formatBytes(file.size)}
+          {file.name}
+        </button>
+        <p
+          className={cn(
+            'text-xs leading-4 tabular-nums',
+            error ? 'text-destructive' : 'text-muted-foreground'
+          )}
+          title={error ?? undefined}
+        >
+          {error ? 'Unable to decrypt this file.' : formatBytes(file.size)}
         </p>
       </div>
-      <a
-        href={href}
-        target="_blank"
-        rel="noreferrer noopener"
-        download={file.filename}
-        aria-label={`Download ${file.filename}`}
+      <button
+        type="button"
+        onClick={save}
+        disabled={busy}
+        aria-label={`Download ${file.name}`}
         title="Download"
         className={cn(
           'text-muted-foreground hover:bg-accent hover:text-foreground flex size-8 shrink-0 items-center justify-center',
           FOCUS
         )}
       >
-        <Download className="size-4" />
-      </a>
+        {busy ? <LoaderCircle className="size-4 animate-spin" /> : <Download className="size-4" />}
+      </button>
     </div>
   )
 }

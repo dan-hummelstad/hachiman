@@ -1,6 +1,8 @@
-// Preview attachments: one fixture of each embed kind, with generated files behind their keys so
-// the transcript renders them without Takusen. Video has no generated file (the player stays empty).
-import type { Attachment } from '@hachiman/client'
+// Preview attachments: one fixture of each embed kind, with generated files behind their blob keys
+// so the transcript renders them without Takusen. The stub crypto client "decrypts" a blob by
+// passing it through. Video has no generated file (it does not play).
+import { blobKey } from '@hachiman/client'
+import type { AttachmentPointer } from '@hachiman/crypto'
 
 const svg = (w: number, h: number, body: string): string =>
   `data:image/svg+xml,${encodeURIComponent(
@@ -61,19 +63,26 @@ function tone(): string {
 
 const file = (
   name: string,
-  contentType: string,
+  mime: string,
   size: number,
   width: number | null = null,
   height: number | null = null
-): Attachment => ({
-  id: `att-${name}`,
-  key: `preview/att/${name}`,
-  filename: name,
+): AttachmentPointer => ({
+  uploadId: `att-${name}`,
+  key: '',
+  sha256: '',
   size,
-  contentType,
+  blobSize: size,
+  mime,
+  name,
   width,
-  height
+  height,
+  durationMs: null,
+  blurhash: null,
+  thumbnail: null
 })
+
+const keyOf = (a: AttachmentPointer): string => blobKey(a.uploadId)
 
 export const ATT = {
   crosshair: file('crosshair-test.png', 'image/png', 1_284_310, 1600, 900),
@@ -86,14 +95,14 @@ export const ATT = {
 }
 
 const URLS: Record<string, string> = {
-  [ATT.crosshair.key]: screenshot(1600, 900, '#5b7fa6', '#3d4a3a', '#00ff88'),
-  [ATT.compA.key]: sheet(1200, 900, '#c98a0b'),
-  [ATT.compB.key]: sheet(1200, 900, '#2f9e8f'),
-  [ATT.compC.key]: sheet(1200, 900, '#c9303a')
+  [keyOf(ATT.crosshair)]: screenshot(1600, 900, '#5b7fa6', '#3d4a3a', '#00ff88'),
+  [keyOf(ATT.compA)]: sheet(1200, 900, '#c98a0b'),
+  [keyOf(ATT.compB)]: sheet(1200, 900, '#2f9e8f'),
+  [keyOf(ATT.compC)]: sheet(1200, 900, '#c9303a')
 }
 
-/** Generated file behind a fixture attachment key, if there is one. */
+/** Generated file behind a fixture attachment blob key, if there is one. */
 export function attachmentUrl(key: string): string | undefined {
-  if (key === ATT.callouts.key) return (URLS[key] ??= tone())
+  if (key === keyOf(ATT.callouts)) return (URLS[key] ??= tone())
   return URLS[key]
 }

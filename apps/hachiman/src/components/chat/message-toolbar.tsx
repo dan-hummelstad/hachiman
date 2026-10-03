@@ -4,7 +4,8 @@ import { IconButton } from '@/components/ui/icon-button'
 import { cn } from '@/lib/utils'
 
 interface MessageToolbarProps {
-  onCopy: () => void
+  /** Omitted when the message did not decrypt. */
+  onCopy?: () => void
   /** Omitted when the message isn't mine. */
   onEdit?: () => void
   /** Omitted when I can't delete it (not mine and no MANAGE_MESSAGES). */
@@ -49,16 +50,18 @@ export function MessageToolbar({
         className
       )}
     >
-      <IconButton
-        size="sm"
-        label={copied ? 'Copied' : 'Copy text'}
-        onClick={() => {
-          onCopy()
-          setCopied(true)
-        }}
-      >
-        {copied ? <Check /> : <Copy />}
-      </IconButton>
+      {onCopy && (
+        <IconButton
+          size="sm"
+          label={copied ? 'Copied' : 'Copy text'}
+          onClick={() => {
+            onCopy()
+            setCopied(true)
+          }}
+        >
+          {copied ? <Check /> : <Copy />}
+        </IconButton>
+      )}
       {onEdit && (
         <IconButton size="sm" label="Edit" onClick={onEdit}>
           <Pencil />

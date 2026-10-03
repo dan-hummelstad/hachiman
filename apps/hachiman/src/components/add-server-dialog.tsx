@@ -6,8 +6,18 @@ import { ErrorText, Field } from '@/components/ui/field'
 import { ModalWindow } from '@/components/ui/modal-window'
 import { RegionSelect } from '@/components/region-select'
 import { useAction } from '@/hooks/use-action'
-import { acceptInvite, createGuild, parseInviteCode } from '@/services/InviteService'
+import type { CreateGuildBody, GuildFull } from '@hachiman/client'
+import { adminActionService } from '@/services/AdminActionService'
+import { acceptInvite, parseInviteCode } from '@/services/InviteService'
 import { useDialog } from '@/stores/dialogStore'
+import { selectGuild } from '@/stores/navStore'
+
+/** POST /guilds, then the owner's genesis admin action (§12.16), then select the guild. */
+async function createSignedGuild(body: CreateGuildBody): Promise<GuildFull> {
+  const guild = await adminActionService.createGuild(body)
+  selectGuild(guild.id)
+  return guild
+}
 
 type Step = 'choose' | 'create' | 'join'
 
@@ -36,7 +46,7 @@ export function AddServerDialog(): React.JSX.Element {
     e.preventDefault()
     if (step === 'create') {
       const created = await run('create the guild', () =>
-        createGuild({ name: value.trim(), region: region || undefined })
+        createSignedGuild({ name: value.trim(), region: region || undefined })
       )
       if (!created.ok) return
     } else {

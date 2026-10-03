@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
-import { embedKind, type Attachment, type EmbedKind } from '@hachiman/client'
+import { embedKind, type EmbedKind } from '@hachiman/client'
+import type { AttachmentPointer } from '@hachiman/crypto'
 import { errMsg } from '@/lib/utils'
-import { currentLimits, ensureLimits, tooLarge, uploadFile } from '@/services/UploadService'
+import { currentLimits, ensureLimits, tooLarge, uploadAttachment } from '@/services/UploadService'
 
 export interface PendingUpload {
   /** Local id (the tray key), not the upload id. */
@@ -13,8 +14,8 @@ export interface PendingUpload {
   controller: AbortController
   /** 0..1 */
   progress: number
-  /** Set once Takusen stored the file. */
-  attachment: Attachment | null
+  /** Set once the file is encrypted and Takusen stored its blobs. */
+  attachment: AttachmentPointer | null
   error: string | null
 }
 
@@ -31,7 +32,7 @@ export interface Uploads {
   /** Abort (if running) and drop one upload. */
   remove: (id: string) => void
   /** The finished uploads, emptying the tray. Their ids now belong to the message being sent. */
-  take: () => Attachment[]
+  take: () => AttachmentPointer[]
   setNotices: (notices: string[]) => void
 }
 
@@ -98,7 +99,7 @@ export function useUploads(): Uploads {
     commit([...current.current, ...accepted])
     for (const u of accepted) {
       const { signal } = u.controller
-      uploadFile(u.file, { signal, onProgress: (progress) => patch(u.id, { progress }) })
+      uploadAttachment(u.file, { signal, onProgress: (progress) => patch(u.id, { progress }) })
         .then((attachment) => patch(u.id, { attachment, progress: 1 }))
         .catch((e) => {
           if (!signal.aborted) patch(u.id, { error: errMsg(e) })
@@ -112,7 +113,7 @@ export function useUploads(): Uploads {
     setNotices([])
   }
 
-  const take = (): Attachment[] => {
+  const take = (): AttachmentPointer[] => {
     const done = current.current.flatMap((u) => (u.attachment ? [u.attachment] : []))
     current.current.forEach(release)
     commit([])

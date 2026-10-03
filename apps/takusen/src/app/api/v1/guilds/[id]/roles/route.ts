@@ -4,6 +4,9 @@
  *       New roles go in at position 1 (just above @everyone), Discord-style,
  *       shifting the others up so the creator can still manage it.
  * PATCH /api/v1/guilds/:id/roles [{ id, position }] — MANAGE_ROLES + hierarchy.
+ * Both take X-Hachiman-Signed-Action (role_create / role_reorder, §12.16). A
+ * signed role_create names the role id, and the role gets that id. Both tell
+ * the DS in the same transaction (`role_changed`, §12.18).
  */
 import { and, asc, eq, gte, ne, sql } from 'drizzle-orm'
 import { Permissions } from '@hachiman/client/permissions'
@@ -12,17 +15,21 @@ import { z } from 'zod'
 
 import { db } from '@/db/client'
 import { roles } from '@/db/schema'
+import { enforceAdminAction, signedRoleCreateId, SIGNED_ACTION_HEADER } from '@/lib/admin-actions'
 import { errorResponse, parseBody } from '@/lib/api-helpers'
 import { requireUser } from '@/lib/auth-helpers'
 import { ValidationError } from '@/lib/errors'
 import { publishToGuild } from '@/lib/events'
 import {
+  actorDeviceId,
   loadGuildAccess,
   requireAbovePosition,
   requireGrantable,
   requirePermission,
 } from '@/lib/guild-access'
 import { colorSchema, nameSchema, permissionsSchema } from '@/lib/guild-schemas'
+import { membershipChanged, membershipTransaction, MembershipTriggers } from '@/lib/guilds'
+import { UUID_RE } from '@/lib/ids'
 import { toRole } from '@/lib/wire'
 
 interface RouteContext {
@@ -63,8 +70,20 @@ export async function POST(req: NextRequest, ctx: RouteContext): Promise<NextRes
     const body = await parseBody(req, createRoleSchema)
     const permissions = body.permissions ?? 0
     requireGrantable(access, permissions)
+    const actor = await actorDeviceId(req, session.user.id)
+    const signedId = signedRoleCreateId(req.headers.get(SIGNED_ACTION_HEADER))
+    if (signedId !== null && (!UUID_RE.test(signedId) || access.roles.has(signedId))) {
+      throw new ValidationError('The signed role id is not a new role id')
+    }
+    const roleId = signedId ?? crypto.randomUUID()
 
-    const { created, shifted } = await db.transaction(async (tx) => {
+    const { created, shifted } = await membershipTransaction(async (tx) => {
+      await enforceAdminAction(tx, req, { guildId: id, ownerId: access.guild.ownerId, userId: session.user.id }, {
+        type: 1,
+        roleId,
+        permissions,
+        position: 1,
+      })
       const shifted = await tx
         .update(roles)
         .set({ position: sql`${roles.position} + 1` })
@@ -72,9 +91,10 @@ export async function POST(req: NextRequest, ctx: RouteContext): Promise<NextRes
         .returning()
       const [created] = await tx
         .insert(roles)
-        .values({ guildId: id, name: body.name, color: body.color ?? 0, position: 1, permissions })
+        .values({ id: roleId, guildId: id, name: body.name, color: body.color ?? 0, position: 1, permissions })
         .returning()
-      return { created, shifted }
+      await membershipChanged(tx, MembershipTriggers.roleChanged(id, roleId), actor)
+      return { created: created!, shifted }
     })
 
     for (const r of shifted) await publishToGuild(id, 'GUILD_ROLE_UPDATE', { guildId: id, role: toRole(r) })
@@ -103,7 +123,12 @@ export async function PATCH(req: NextRequest, ctx: RouteContext): Promise<NextRe
       return true
     })
 
-    const updated = await db.transaction(async (tx) => {
+    const actor = await actorDeviceId(req, session.user.id)
+    const updated = await membershipTransaction(async (tx) => {
+      await enforceAdminAction(tx, req, { guildId: id, ownerId: access.guild.ownerId, userId: session.user.id }, {
+        type: 4,
+        positions: updates.map((u) => ({ roleId: u.id, position: u.position })),
+      })
       const out = []
       for (const u of changed) {
         const [row] = await tx
@@ -111,8 +136,9 @@ export async function PATCH(req: NextRequest, ctx: RouteContext): Promise<NextRe
           .set({ position: u.position })
           .where(and(eq(roles.id, u.id), eq(roles.guildId, id)))
           .returning()
-        out.push(row)
+        out.push(row!)
       }
+      if (changed.length > 0) await membershipChanged(tx, MembershipTriggers.roleChanged(id, changed[0]!.id), actor)
       return out
     })
 

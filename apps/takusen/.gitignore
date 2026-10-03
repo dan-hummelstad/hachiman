@@ -1,5 +1,6 @@
 # Next.js
 .next/
+.next-*/
 out/
 build/
 next-env.d.ts.bak
@@ -17,3 +18,5 @@ node_modules/
 
 # Drizzle migration artifacts go in drizzle/ — keep that, but ignore meta journals
 drizzle/meta/_journal_local.json
+
+.dev

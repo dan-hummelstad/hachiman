@@ -1,5 +1,4 @@
 import { useState } from 'react'
-import { Hash, Volume2 } from 'lucide-react'
 import type { CreateChannelBody } from '@hachiman/client'
 import { ModalWindow } from '@/components/ui/modal-window'
 import { Button } from '@/components/ui/button'
@@ -7,7 +6,10 @@ import { ErrorText } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useAction } from '@/hooks/use-action'
+import { ChannelIcon } from '@/lib/channel-icon'
+import { CHANNEL_KINDS, CREATE_CHANNEL_TYPES, hasChat } from '@/lib/model'
 import { cn } from '@/lib/utils'
+import { docsService } from '@/services/docs/DocsService'
 import { hachiman } from '@/services/hachiman'
 import { useChannelStore } from '@/stores/channelStore'
 import { useDialog } from '@/stores/dialogStore'
@@ -18,8 +20,9 @@ type ChannelKind = CreateChannelBody['type']
 const FORM_ID = 'create-channel-form'
 
 /**
- * Create a channel or category in a guild; a new text channel becomes the selected one. Text and
- * voice can be switched in the dialog.
+ * Create a channel or category in a guild; a new text or pages channel becomes the selected one.
+ * Text, voice and pages can be switched in the dialog. A new pages channel gets its root page,
+ * "Untitled", from this client: only a client can encrypt the title.
  */
 export function CreateChannelDialog(): React.JSX.Element {
   const { dialog, open, close } = useDialog('createChannel')
@@ -37,15 +40,23 @@ export function CreateChannelDialog(): React.JSX.Element {
     e.preventDefault()
     const trimmed = name.trim()
     if (!trimmed) return
-    const created = await run(`create the ${type}`, () =>
-      hachiman.rest.createChannel(guildId, {
+    const created = await run(`create the ${type}`, async () => {
+      const channel = await hachiman.rest.createChannel(guildId, {
         name: trimmed,
         type,
         parentId: isCategory ? undefined : (parentId ?? undefined)
       })
-    )
+      if (channel.type === 'pages') {
+        // The channel exists already: a failed root page must not fail the action (a retry
+        // would make a second channel). The pages panel offers to make a page when it has none.
+        await docsService
+          .createPage(channel.id, 'Untitled', null)
+          .catch((err: unknown) => console.warn('[pages] root page failed', err))
+      }
+      return channel
+    })
     if (!created.ok) return
-    if (created.value.type === 'text') selectChannel(created.value.id, guildId)
+    if (hasChat(created.value.type)) selectChannel(created.value.id, guildId)
     close()
   }
 
@@ -78,8 +89,8 @@ export function CreateChannelDialog(): React.JSX.Element {
             <legend className="text-muted-foreground mb-2 text-xs leading-4 font-semibold">
               Type
             </legend>
-            {(['text', 'voice'] as const).map((t) => {
-              const Icon = t === 'voice' ? Volume2 : Hash
+            {CREATE_CHANNEL_TYPES.map((t) => {
+              const { label, hint } = CHANNEL_KINDS[t]
               const selected = type === t
               return (
                 <label
@@ -97,12 +108,10 @@ export function CreateChannelDialog(): React.JSX.Element {
                     onChange={() => setType(t)}
                     className="sr-only"
                   />
-                  <Icon className="text-muted-foreground size-4 shrink-0" />
+                  <ChannelIcon type={t} className="text-muted-foreground size-4 shrink-0" />
                   <span className="grid">
-                    <span className="text-sm font-medium">{t === 'voice' ? 'Voice' : 'Text'}</span>
-                    <span className="text-muted-foreground text-xs">
-                      {t === 'voice' ? 'Talk together with voice' : 'Send messages, links and code'}
-                    </span>
+                    <span className="text-sm font-medium">{label}</span>
+                    <span className="text-muted-foreground text-xs">{hint}</span>
                   </span>
                 </label>
               )
@@ -114,7 +123,7 @@ export function CreateChannelDialog(): React.JSX.Element {
           <div className="relative">
             {!isCategory && (
               <span className="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2">
-                {type === 'voice' ? <Volume2 className="size-4" /> : <Hash className="size-4" />}
+                <ChannelIcon type={type} className="size-4" />
               </span>
             )}
             <Input
@@ -122,7 +131,7 @@ export function CreateChannelDialog(): React.JSX.Element {
               name="channel-name"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder={type === 'voice' ? 'Lounge' : isCategory ? 'Text' : 'general'}
+              placeholder={CHANNEL_KINDS[type].placeholder}
               autoFocus
               disabled={busy}
               className={cn(!isCategory && 'pl-8')}

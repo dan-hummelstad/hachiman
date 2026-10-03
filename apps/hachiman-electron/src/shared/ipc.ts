@@ -23,3 +23,20 @@ export interface ScreenSourceInfo {
   /** JPEG data URL. */
   thumbnail: string;
 }
+
+/** renderer → main (invoke): the 32 wrap key bytes of a user, made on the first call (§11). */
+export const SECURE_STORAGE_GET_CHANNEL = "hachiman:secure-storage-get";
+/** renderer → main (invoke): delete the wrap key of a user. */
+export const SECURE_STORAGE_CLEAR_CHANNEL = "hachiman:secure-storage-clear";
+
+/** Same values as `SecureStorageErrorCode` in `@hachiman/hachiman` (IPlatformService.ts). */
+export type SecureStorageFailureCode =
+  "SecureStorageUnavailable" | "StoreCorrupt" | "Malformed";
+
+/**
+ * IPC result of the secure storage channels. An Error thrown in an ipcMain
+ * handler reaches the renderer as a message only, so main sends the code as data.
+ */
+export type SecureStorageResult<T> =
+  | { ok: true; value: T }
+  | { ok: false; code: SecureStorageFailureCode; message: string };

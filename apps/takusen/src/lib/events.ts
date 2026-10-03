@@ -2,9 +2,9 @@
  * Gateway event bus publisher (docs/gateway-protocol.md §5).
  *
  * REST mutations call these AFTER their DB commit; every gateway node
- * PSUBSCRIBEs `guild:*` / `user:*` and dispatches to its sessions. The
- * envelope is `{ t, d, channelId? }` — `channelId` marks events scoped to one
- * guild channel so the gateway can VIEW_CHANNEL-filter them.
+ * PSUBSCRIBEs `guild:*` / `user:*` / `device:*` and dispatches to its sessions.
+ * The envelope is `{ t, d, channelId? }` — `channelId` marks events scoped to
+ * one guild channel so the gateway can VIEW_CHANNEL-filter them.
  *
  * Publish failures are logged, not thrown: the mutation already committed, so
  * failing the request would invite a client retry that duplicates it. A
@@ -12,6 +12,8 @@
  */
 import { Redis } from 'ioredis'
 import type { BusEnvelope, GatewayEventName, GatewayEvents } from '@hachiman/client/types'
+
+import type { E2eeEventName, E2eeEvents } from '@/lib/mls/events'
 
 declare global {
   var __takusenRedis: Redis | undefined
@@ -30,13 +32,43 @@ export function redis(): Redis {
   return client
 }
 
-async function publish(channel: string, envelope: BusEnvelope): Promise<void> {
-  const client = redis()
-  try {
-    await client.publish(channel, JSON.stringify(envelope))
-  } catch (err) {
-    console.error(`[events] publish ${envelope.t} → ${channel} failed`, err)
+/** One event on one bus channel. The E2EE code collects these and publishes them after the commit. */
+export interface BusEvent {
+  channel: string
+  t: string
+  d: unknown
+  channelId?: string
+}
+
+/** The publish function. Tests replace it with `setBusPublisher`. */
+type Publisher = (channel: string, payload: string) => Promise<unknown>
+let publisher: Publisher | null = null
+
+/** Tests only: capture publishes instead of sending them to Redis (null restores Redis). */
+export function setBusPublisher(p: Publisher | null): void {
+  publisher = p
+}
+
+async function publishRaw(channel: string, envelope: { t: string; d: unknown; channelId?: string }): Promise<void> {
+  await publishJson(channel, envelope, envelope.t)
+}
+
+/** Publishes any JSON value (for Takusen-internal channels such as `takusen:mls_wakeup`). */
+export async function publishJson(channel: string, value: unknown, label = channel): Promise<void> {
+  let send = publisher
+  if (!send) {
+    const client = redis() // throws on a missing REDIS_URL
+    send = (c, p) => client.publish(c, p)
   }
+  try {
+    await send(channel, JSON.stringify(value))
+  } catch (err) {
+    console.error(`[events] publish ${label} → ${channel} failed`, err)
+  }
+}
+
+async function publish(channel: string, envelope: BusEnvelope): Promise<void> {
+  await publishRaw(channel, envelope)
 }
 
 export async function publishToGuild<T extends GatewayEventName>(
@@ -55,4 +87,20 @@ export async function publishToUser<T extends GatewayEventName>(
   d: GatewayEvents[T],
 ): Promise<void> {
   await publish(`user:${userId}`, { t, d } as BusEnvelope)
+}
+
+/**
+ * `device:{id}` delivery (§5, §12.13). The gateway sends the event to every
+ * session of that device. `DEVICE_REVOKED` is internal: the gateway closes the
+ * sessions of the device with 4013 and does not forward it.
+ */
+export async function publishToDevice<T extends E2eeEventName>(deviceId: string, t: T, d: E2eeEvents[T]): Promise<void> {
+  await publishRaw(`device:${deviceId}`, { t, d })
+}
+
+/** Publishes collected events in order. Call after the transaction commits. */
+export async function publishEvents(events: readonly BusEvent[]): Promise<void> {
+  for (const e of events) {
+    await publishRaw(e.channel, e.channelId ? { t: e.t, d: e.d, channelId: e.channelId } : { t: e.t, d: e.d })
+  }
 }

@@ -1,15 +1,5 @@
 import { useMemo, useState } from 'react'
-import {
-  ChevronDown,
-  Hash,
-  LogOut,
-  PhoneCall,
-  Plus,
-  Settings,
-  Trash2,
-  Users,
-  Volume2
-} from 'lucide-react'
+import { ChevronDown, LogOut, PhoneCall, Plus, Settings, Trash2, Users } from 'lucide-react'
 import {
   DndContext,
   PointerSensor,
@@ -42,7 +32,8 @@ import { UserAvatar } from '@/components/shell/user-avatar'
 import { UserProfilePopover } from '@/components/user-profile-popover'
 import { VoiceStateBadges } from '@/components/voice/voice-state-badges'
 import { VoiceConnectedPanel } from '@/components/voice-connected-panel'
-import { dmName, groupChannels } from '@/lib/model'
+import { ChannelIcon } from '@/lib/channel-icon'
+import { CHANNEL_KINDS, CREATE_CHANNEL_TYPES, dmName, groupChannels } from '@/lib/model'
 import { ROLE_INK_SCOPE } from '@/lib/role-ink'
 import {
   useDmChannels,
@@ -148,7 +139,7 @@ function GuildChannels({ guildId }: { guildId: string }): React.JSX.Element {
       return next
     })
 
-  const createIn = (type: 'text' | 'voice', parentId: string): void =>
+  const createIn = (type: (typeof CREATE_CHANNEL_TYPES)[number], parentId: string): void =>
     openDialog({ kind: 'createChannel', guildId, type, parentId })
 
   const group = (list: Channel[]): React.JSX.Element => (
@@ -204,12 +195,11 @@ function GuildChannels({ guildId }: { guildId: string }): React.JSX.Element {
               </ContextMenuTrigger>
               {canManage && (
                 <ContextMenuContent>
-                  <ContextMenuItem onSelect={() => createIn('text', cat.id)}>
-                    <Hash /> Create text channel
-                  </ContextMenuItem>
-                  <ContextMenuItem onSelect={() => createIn('voice', cat.id)}>
-                    <Volume2 /> Create voice channel
-                  </ContextMenuItem>
+                  {CREATE_CHANNEL_TYPES.map((t) => (
+                    <ContextMenuItem key={t} onSelect={() => createIn(t, cat.id)}>
+                      <ChannelIcon type={t} /> Create {CHANNEL_KINDS[t].label.toLowerCase()} channel
+                    </ContextMenuItem>
+                  ))}
                   <ChannelManageItems channelId={cat.id} noun="category" />
                 </ContextMenuContent>
               )}
@@ -305,7 +295,6 @@ function ChannelRow({
   canManage: boolean
 }): React.JSX.Element {
   const isVoice = channel.type === 'voice'
-  const Icon = isVoice ? Volume2 : Hash
   const occupants = useChannelOccupants(guildId, channel.id)
   const isVoiceHere = useVoiceStore((s) => isVoice && s.channelId === channel.id)
   const canConnect = has(usePermissions(guildId, channel.id), Permissions.CONNECT)
@@ -341,9 +330,13 @@ function ChannelRow({
               onDoubleClick={isVoice ? join : undefined}
               className="flex h-full min-w-0 flex-1 items-center gap-2 pl-2 text-left"
               aria-current={selected ? 'page' : undefined}
-              aria-label={isVoice ? `${channel.name} (voice)` : undefined}
+              aria-label={channel.type === 'text' ? undefined : `${channel.name} (${channel.type})`}
             >
-              <Icon className="text-muted-foreground size-4 shrink-0" aria-hidden />
+              <ChannelIcon
+                type={channel.type}
+                className="text-muted-foreground size-4 shrink-0"
+                aria-hidden
+              />
               <span className="truncate">{channel.name}</span>
             </button>
             {isVoiceHere ? (

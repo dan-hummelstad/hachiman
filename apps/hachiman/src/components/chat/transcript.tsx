@@ -6,7 +6,9 @@ import { messagesService } from '@/services/MessagesService'
 import { useMessageStore, type ChatMessage } from '@/stores/messagesStore'
 import { usePrefsStore } from '@/stores/prefsStore'
 import { useUserStore } from '@/stores/userStore'
-import { buildItems, formatDay } from './format'
+import { useMembershipTimeline } from '@/hooks/use-membership-timeline'
+import { buildItems, formatDay, membershipSlots } from './format'
+import { MembershipLine } from './membership-line'
 import { MessageRow } from './message-row'
 
 const EMPTY_MESSAGES: ChatMessage[] = []
@@ -39,6 +41,8 @@ export function Transcript({
   const [editingId, setEditingId] = useState<string | null>(null)
 
   const items = useMemo(() => buildItems(messages), [messages])
+  const membership = useMembershipTimeline(channelId)
+  const slots = useMemo(() => membershipSlots(messages, membership), [messages, membership])
 
   useEffect(() => {
     messagesService.ensureLoaded(channelId)
@@ -87,11 +91,14 @@ export function Transcript({
               {hasMore === undefined ? 'Loading messages…' : 'Loading older messages…'}
             </div>
           )}
-          {items.map(({ message, newDay, groupStart }) => {
+          {items.map(({ message, newDay, groupStart }, i) => {
             const mine = message.author.id === myId
             return (
               <Fragment key={message.nonce ?? message.id}>
                 {newDay && <DayDivider iso={message.createdAt} />}
+                {slots.get(i)?.map((e, j) => (
+                  <MembershipLine key={`m${j}`} event={e} channel={channel} />
+                ))}
                 <MessageRow
                   message={message}
                   groupStart={groupStart}
@@ -105,6 +112,9 @@ export function Transcript({
               </Fragment>
             )
           })}
+          {slots.get(items.length)?.map((e, j) => (
+            <MembershipLine key={`m${j}`} event={e} channel={channel} />
+          ))}
         </div>
       </div>
       {away && (

@@ -23,6 +23,8 @@ interface PrefsState {
   soundVolume: number
   /** Sounds the user switched off one by one. Ignored while `soundsEnabled` is false. */
   disabledSounds: SoundEvent[]
+  /** Width of the pages panel per pages channel, in percent of the split; 0 = collapsed. */
+  pagesPanelSize: Record<string, number>
   setTheme: (theme: Theme) => void
   setMessageDisplay: (messageDisplay: MessageDisplay) => void
   setInputDeviceId: (inputDeviceId: string | null) => void
@@ -31,6 +33,7 @@ interface PrefsState {
   setSoundsEnabled: (soundsEnabled: boolean) => void
   setSoundVolume: (soundVolume: number) => void
   setSoundEnabled: (event: SoundEvent, enabled: boolean) => void
+  setPagesPanelSize: (channelId: string, size: number) => void
 }
 
 export const usePrefsStore = create<PrefsState>()(
@@ -45,6 +48,7 @@ export const usePrefsStore = create<PrefsState>()(
         soundsEnabled: true,
         soundVolume: 0.7,
         disabledSounds: [],
+        pagesPanelSize: {},
         setTheme: (theme) => set({ theme }),
         setMessageDisplay: (messageDisplay) => set({ messageDisplay }),
         setInputDeviceId: (inputDeviceId) => set({ inputDeviceId }),
@@ -57,7 +61,13 @@ export const usePrefsStore = create<PrefsState>()(
             disabledSounds: enabled
               ? s.disabledSounds.filter((e) => e !== event)
               : [...new Set([...s.disabledSounds, event])]
-          }))
+          })),
+        setPagesPanelSize: (channelId, size) =>
+          set((s) =>
+            s.pagesPanelSize[channelId] === size
+              ? s
+              : { pagesPanelSize: { ...s.pagesPanelSize, [channelId]: size } }
+          )
       }),
       { name: 'hachiman-prefs-storage' }
     )

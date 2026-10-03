@@ -12,6 +12,7 @@ import {
   type User,
   type VoiceState
 } from '@hachiman/client'
+import type { MembershipEvent } from '@hachiman/crypto'
 import type { ChatMessage } from '@/stores/messagesStore'
 import { IMG, avatarKey } from './images'
 import { ATT } from './attachments'
@@ -92,9 +93,15 @@ export function channel(
     parentId: null,
     position,
     permissionOverwrites: [],
+    mlsGroupId: type === 'voice' || type === 'category' ? null : groupOf(id),
+    historyVisibility:
+      type === 'voice' || type === 'category' ? null : guildId ? 'shared' : 'joined',
     ...extra
   }
 }
+
+/** The fake MLS group id of a fixture channel (the stub crypto client never checks it). */
+export const groupOf = (channelId: string): string => `preview-group-${channelId}`
 
 export function member(
   guildId: string,
@@ -169,6 +176,7 @@ const guild1: GuildFull = {
   ownerId: ME.id,
   region: 'eu-west',
   createdAt: joined(400),
+  publicHistoryVisibility: 'shared',
   roles: [
     role(G1, G1, '@everyone', 0, 0, DEFAULT_EVERYONE),
     role(G1, G1R.captain, 'Captain', 0xe5534b, 5, Permissions.ADMINISTRATOR),
@@ -231,7 +239,8 @@ export const G2C = {
   frontend: 'c-la-frontend',
   deploys: 'c-la-deploys',
   pairing: 'c-la-pairing',
-  sync: 'c-la-sync'
+  sync: 'c-la-sync',
+  designPages: 'c-la-design-pages'
 }
 const G2R = { lead: 'r-la-lead', eng: 'r-la-eng', design: 'r-la-design' }
 const g2Members = [
@@ -250,6 +259,7 @@ const guild2: GuildFull = {
   ownerId: U.petra.id,
   region: 'us-east',
   createdAt: joined(500),
+  publicHistoryVisibility: 'shared',
   roles: [
     role(G2, G2, '@everyone', 0, 0, DEFAULT_EVERYONE),
     role(
@@ -274,6 +284,10 @@ const guild2: GuildFull = {
       topic: 'Go services, Postgres, the media plane.'
     }),
     channel(G2, G2C.frontend, 'text', 'frontend', 2, { parentId: G2C.eng, topic: null }),
+    channel(G2, G2C.designPages, 'pages', 'design-pages', 3, {
+      parentId: G2C.eng,
+      topic: 'Specs and RFCs. Chat here, edit the page on the right.'
+    }),
     channel(G2, G2C.deploys, 'text', 'deploys', 3, { topic: 'CI posts every prod deploy here.' }),
     channel(G2, G2C.pairing, 'voice', 'Pairing', 0, { parentId: G2C.eng }),
     channel(G2, G2C.sync, 'voice', 'Weekly sync', 1)
@@ -310,6 +324,7 @@ const guild3: GuildFull = {
   ownerId: ME.id,
   region: null,
   createdAt: joined(100),
+  publicHistoryVisibility: 'shared',
   roles: [
     role(G3, G3, '@everyone', 0, 0, DEFAULT_EVERYONE),
     role(G3, G3R.host, 'Host', 0x2f9e8f, 1, Permissions.MANAGE_CHANNELS)
@@ -344,17 +359,62 @@ function msg(
   content: string,
   extra: Partial<ChatMessage> = {}
 ): ChatMessage {
+  const id = nextId('m')
   return {
-    id: nextId('m'),
+    id,
     channelId,
     guildId,
     author,
+    // Yesterday is epoch 2, today epoch 3: the membership line of epoch 3 sits between them.
+    groupId: groupOf(channelId),
+    epoch: createdAt < new Date(startOfToday).toISOString() ? 2 : 3,
+    clientMsgId: `cmid-${id}`,
     content,
+    mentions: [],
+    attachments: [],
+    replyTo: null,
+    sender: {
+      userId: author.id,
+      deviceId: `d-${author.id}`,
+      leafIndex: 0,
+      trust: 'tofu',
+      membershipVerified: true
+    },
+    decrypt: { status: 'ok' },
     createdAt,
     editedAt: null,
-    attachments: [],
     ...extra
   }
+}
+
+/** The sender of a message that came from a history bundle (§12.8.5 step 9). */
+const fromBundle = (author: User): Partial<ChatMessage> => ({
+  sender: {
+    userId: author.id,
+    deviceId: `d-${author.id}`,
+    leafIndex: 0,
+    trust: 'tofu',
+    membershipVerified: false
+  }
+})
+
+/** The membership timeline of #general (§12.16): I added yuki today. */
+export function fixtureMembership(): Map<string, MembershipEvent[]> {
+  return new Map([
+    [
+      G1C.general,
+      [
+        {
+          groupId: groupOf(G1C.general),
+          channelId: G1C.general,
+          epoch: 3,
+          actorUserId: ME.id,
+          kind: 'added',
+          subjects: [{ userId: U.yuki.id, deviceId: `d-${U.yuki.id}` }]
+        }
+      ]
+    ]
+  ])
 }
 
 function generalHistory(): ChatMessage[] {
@@ -364,7 +424,7 @@ function generalHistory(): ChatMessage[] {
   const m = (a: User, when: string, text: string, extra?: Partial<ChatMessage>): ChatMessage =>
     msg(c, G1, a, when, text, extra)
   const list: ChatMessage[] = [
-    m(U.marlowe, at(y, 18, 2), 'evening all'),
+    m(U.marlowe, at(y, 18, 2), 'evening all', fromBundle(U.marlowe)),
     m(U.marlowe, at(y, 18, 2, 40), 'scrim moved to thursday, the other team had a no-show'),
     m(U.juniper, at(y, 18, 5), 'works for me'),
     m(U.ozzy, at(y, 18, 11), 'does anyone still have the strat doc? the link in the pins 404s'),
@@ -423,6 +483,10 @@ function generalHistory(): ChatMessage[] {
     m(U.yuki, at(t, 11, 3), 'what time is it in JST'),
     m(U.yuki, at(t, 11, 3, 30), 'never mind, 5am. I will watch the VOD'),
     m(U.renata, at(t, 11, 14), 'brutal'),
+    m(U.sable, at(t, 11, 20), '', {
+      sender: null,
+      decrypt: { status: 'failed', reason: 'bad_signature' }
+    }),
     m(
       U.vex,
       at(t, 11, 30),
@@ -436,7 +500,12 @@ function generalHistory(): ChatMessage[] {
       pending: true,
       nonce: 'n-pending'
     }),
-    m(ME, at(t, 11, 46), 'did that send?', { pending: true, failed: true, nonce: 'n-failed' })
+    m(ME, at(t, 11, 46), 'did that send?', {
+      pending: true,
+      failed: true,
+      nonce: 'n-failed',
+      sendError: 'The channel keys changed while sending. Try again.'
+    })
   ]
   return list
 }
@@ -518,6 +587,7 @@ export const READY: ReadyPayload = {
   v: 1,
   sessionId: 'preview-session',
   user: ME,
+  deviceId: 'preview-device',
   guilds: [guild1, guild2, guild3],
   privateChannels: dms,
   presences: Object.entries(PRESENCE).map(([userId, status]) => ({ userId, status }))

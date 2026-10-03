@@ -6,8 +6,14 @@ import { DEFAULT_LIMITS, embedKind } from '@hachiman/client/files'
 import type { Attachment, Limits } from '@hachiman/client/types'
 
 import type { UploadRow } from '@/db/schema'
+import { docsLimits } from '@/lib/docs/config'
+import { dsConfig } from '@/lib/mls/config'
 
 export const FILENAME_MAX_LENGTH = 255
+
+/** Blobs carry no metadata on the server (§12.9): one type and one file name for all of them. */
+export const BLOB_CONTENT_TYPE = 'application/octet-stream'
+export const BLOB_DISPOSITION = 'attachment; filename="blob"'
 
 export function parseMaxUploadBytes(raw: string | undefined): number {
   if (raw === undefined || raw.trim() === '') return DEFAULT_LIMITS.maxUploadBytes
@@ -18,8 +24,47 @@ export function parseMaxUploadBytes(raw: string | undefined): number {
   return n
 }
 
-export function getLimits(env: string | undefined = process.env.TAKUSEN_MAX_UPLOAD_BYTES): Limits {
-  return { ...DEFAULT_LIMITS, maxUploadBytes: parseMaxUploadBytes(env) }
+/** `maxEnvelopeBytes` is TAKUSEN_MAX_ENVELOPE_BYTES, the limit that acceptEnvelope applies (§12.8.4). */
+export function getLimits(env: Readonly<Record<string, string | undefined>> = process.env): Limits {
+  return {
+    ...DEFAULT_LIMITS,
+    maxUploadBytes: parseMaxUploadBytes(env.TAKUSEN_MAX_UPLOAD_BYTES),
+    maxEnvelopeBytes: dsConfig(env as NodeJS.ProcessEnv).maxEnvelopeBytes,
+    maxPageSnapshotBytes: docsLimits(env).maxSnapshotBytes,
+  }
+}
+
+/**
+ * `POST /uploads?kind=blob`: an encrypted attachment or thumbnail.
+ * `POST /uploads?kind=page_snapshot`: a blob with its own cap and purpose
+ * page_snapshot from the upload on (§4 Pages).
+ * `POST /uploads?filename=<name>`: a plaintext profile image. Exactly one of
+ * the two parameters (§4 Files).
+ */
+export type UploadKind = { kind: 'blob' } | { kind: 'page_snapshot' } | { kind: 'image'; filename: string }
+
+export function parseUploadKind(params: URLSearchParams): UploadKind | null {
+  const kind = params.get('kind')
+  const filename = params.get('filename')
+  if (kind !== null) return (kind === 'blob' || kind === 'page_snapshot') && filename === null ? { kind } : null
+  const name = filename?.trim() ?? ''
+  if (name.length < 1 || name.length > FILENAME_MAX_LENGTH) return null
+  return { kind: 'image', filename: name }
+}
+
+/** The stored columns of a new upload row. A blob has no file name and a fixed type. */
+export function uploadColumns(id: string, kind: UploadKind, contentTypeHeader: string | null) {
+  if (kind.kind === 'blob') {
+    return { key: blobKey(id), filename: null, contentType: BLOB_CONTENT_TYPE, encrypted: true }
+  }
+  if (kind.kind === 'page_snapshot') {
+    return { key: blobKey(id), filename: null, contentType: BLOB_CONTENT_TYPE, encrypted: true, purpose: 'page_snapshot' as const }
+  }
+  return { key: uploadKey(id, kind.filename), filename: kind.filename, contentType: normalizeContentType(contentTypeHeader), encrypted: false }
+}
+
+export function blobKey(uploadId: string): string {
+  return `${uploadId}/blob`
 }
 
 /** The key's last segment: `[A-Za-z0-9._-]` only, at most 100 characters. */
@@ -95,14 +140,13 @@ export function parseRange(header: string | null, size: number): ByteRange | 'un
   return { start, end }
 }
 
-export function toAttachment(u: UploadRow): Attachment {
-  return {
-    id: u.id,
-    key: u.key,
-    filename: u.filename,
-    size: u.size,
-    contentType: u.contentType,
-    width: u.width,
-    height: u.height,
-  }
+/** The Content-Type and Content-Disposition of a download (§4 Files "Download"). */
+export function downloadHeaders(u: Pick<UploadRow, 'encrypted' | 'contentType' | 'filename'>): { contentType: string; disposition: string } {
+  if (u.encrypted) return { contentType: BLOB_CONTENT_TYPE, disposition: BLOB_DISPOSITION }
+  return { contentType: u.contentType, disposition: contentDisposition(u.contentType, u.filename ?? 'file') }
+}
+
+/** An upload as the wire Attachment: blob size only (§1). */
+export function toAttachment(u: Pick<UploadRow, 'id' | 'key' | 'size'>): Attachment {
+  return { id: u.id, key: u.key, size: u.size }
 }

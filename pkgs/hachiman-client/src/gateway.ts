@@ -1,8 +1,12 @@
-// Gateway WebSocket client. Contract: docs/gateway-protocol.md §6.
+// Gateway WebSocket client. Contract: docs/gateway-protocol.md §6 and §12.13.
 import type { TokenProvider } from './rest'
 import { TypedEventEmitter } from './typed-event-emitter'
 import {
   GatewayOp,
+  type DeviceProof,
+  type DeviceProver,
+  type DocAwarenessRequest,
+  type GatewayDevice,
   type GatewayEventName,
   type GatewayEvents,
   type GatewayFrame,
@@ -22,12 +26,16 @@ export type GatewayClientEvents = GatewayEventHandlers & {
   dispatch: (e: GatewayDispatch) => void
   /** Socket closed (before any reconnect is scheduled). */
   close: (e: { code: number; reason: string }) => void
+  /** 4012 (client unsupported) or 4013 (device unknown or revoked). The client stays closed. */
+  fatal: (e: { code: number }) => void
 }
 
 const WS_OPEN = 1
 const MAX_BACKOFF_MS = 30_000
 // Close codes after which the server has discarded the session: resuming is pointless.
 const SESSION_GONE = new Set([4004, 4007, 4009])
+// Close codes after which no reconnect can succeed (§12.13).
+const FATAL = new Set([4012, 4013])
 
 export class GatewayClient extends TypedEventEmitter<GatewayClientEvents> {
   private _state: GatewayState = 'idle'
@@ -43,7 +51,16 @@ export class GatewayClient extends TypedEventEmitter<GatewayClientEvents> {
   private beatInterval: ReturnType<typeof setInterval> | undefined
   private reconnectTimer: ReturnType<typeof setTimeout> | undefined
 
-  constructor(private readonly opts: { url: string; getToken: TokenProvider }) {
+  constructor(
+    private readonly opts: {
+      url: string
+      getToken: TokenProvider
+      /** Sent in IDENTIFY and RESUME. A throw counts as a failed attempt (backoff, then retry). */
+      device: () => GatewayDevice
+      /** Signs `deviceProof` of IDENTIFY and RESUME (§12.13). A rejection counts as a failed attempt. */
+      proveDevice?: DeviceProver | undefined
+    },
+  ) {
     super()
   }
 
@@ -83,6 +100,11 @@ export class GatewayClient extends TypedEventEmitter<GatewayClientEvents> {
   // ponytail: frames sent while not connected are dropped; add an outbox if the UI needs queueing.
   updateVoiceState(d: VoiceStateUpdateRequest): void {
     this.send(GatewayOp.VOICE_STATE_UPDATE, d)
+  }
+
+  /** Op 5: an encrypted awareness update of an open page (§6). Dropped while not connected. */
+  sendDocAwareness(d: DocAwarenessRequest): void {
+    this.send(GatewayOp.DOC_AWARENESS, d)
   }
 
   private open(): void {
@@ -148,16 +170,25 @@ export class GatewayClient extends TypedEventEmitter<GatewayClientEvents> {
   private async identify(): Promise<void> {
     const ws = this.ws
     let token: string
+    let device: GatewayDevice
+    let deviceProof: DeviceProof | undefined
+    const sessionId = this._sessionId
     try {
       token = await this.opts.getToken() // fresh every time: the gateway only checks it here
+      device = this.opts.device()
+      if (this.opts.proveDevice) {
+        const tokenSha256 = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(token)))
+        deviceProof = await this.opts.proveDevice({ kind: 'identify', sessionId, tokenSha256 })
+      }
     } catch {
       if (this.ws === ws) this.reconnect()
       return
     }
     if (this.ws !== ws) return
-    if (this._sessionId)
-      this.send(GatewayOp.RESUME, { token, sessionId: this._sessionId, seq: this.seq ?? 0 })
-    else this.send(GatewayOp.IDENTIFY, { token })
+    const { deviceId, capabilities, clientVersion } = device
+    if (sessionId)
+      this.send(GatewayOp.RESUME, { token, sessionId, seq: this.seq ?? 0, deviceId, deviceProof })
+    else this.send(GatewayOp.IDENTIFY, { token, deviceId, capabilities, clientVersion, deviceProof })
   }
 
   private startHeartbeat(interval: number): void {
@@ -194,6 +225,15 @@ export class GatewayClient extends TypedEventEmitter<GatewayClientEvents> {
   private onClose(code: number, reason: string): void {
     this.detach()
     this.emit('close', { code, reason })
+    if (FATAL.has(code)) {
+      this.wanted = false
+      clearTimeout(this.reconnectTimer)
+      this._sessionId = null
+      this.seq = null
+      this.setState('closed')
+      this.emit('fatal', { code })
+      return
+    }
     if (SESSION_GONE.has(code)) {
       this._sessionId = null
       this.seq = null
