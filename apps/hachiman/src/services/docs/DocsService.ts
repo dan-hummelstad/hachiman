@@ -4,15 +4,15 @@
  * store: a title envelope never reaches the store, only its text or a pending/failed state.
  */
 import type { GatewayEvents, Page } from '@hachiman/client'
-import type * as Y from 'yjs'
 import { cryptoService } from '@/services/CryptoService'
 import { hachiman } from '@/services/hachiman'
 import { currentDeviceId } from '@/stores/cryptoStore'
-import { resetDocsStore, useDocsStore, type PageNode } from '@/stores/docsStore'
+import { findPage, resetDocsStore, useDocsStore, type PageNode } from '@/stores/docsStore'
 import { useUserStore } from '@/stores/userStore'
 import { createDocProvider, type DocProviderDeps } from './DocProvider'
-import { collectMediaUploadIds } from './media'
-import type { DocHandle, DocProvider, DocsService, PagePlacement } from './types'
+import { collectMediaUploadIds, forgetCopiedMedia } from './media'
+import { endPosition } from './page-tree'
+import type { DocHandle, DocProvider, DocsService } from './types'
 
 const utf8 = new TextEncoder()
 const fromUtf8 = new TextDecoder('utf-8', { fatal: true })
@@ -32,13 +32,6 @@ export function userColor(userId: string): string {
   return `#${f(0)}${f(8)}${f(4)}`
 }
 
-let mediaCollector: (doc: Y.Doc) => string[] = collectMediaUploadIds
-
-/** The media worker of pages registers how to find the page_media upload ids in a doc. */
-export function setMediaCollector(fn: (doc: Y.Doc) => string[]): void {
-  mediaCollector = fn
-}
-
 const providerDeps: DocProviderDeps = {
   get rest() {
     return hachiman.rest
@@ -50,9 +43,9 @@ const providerDeps: DocProviderDeps = {
     const me = useUserStore.getState().me
     return me ? { userId: me.id, name: me.username, color: userColor(me.id) } : null
   },
-  online: () => hachiman.gateway.state === 'ready',
+  online: () => useUserStore.getState().gatewayState === 'ready',
   setPresence: (pageId, peers) => useDocsStore.getState().setPresence(pageId, peers),
-  collectMediaUploadIds: (doc) => mediaCollector(doc)
+  collectMediaUploadIds
 }
 
 interface Open {
@@ -119,21 +112,6 @@ async function nodesOf(pages: Page[]): Promise<PageNode[]> {
     for (const p of pages) pendingTitles.set(p.id, p)
     return pages.map((p) => nodeOf(p, '', 'pending'))
   }
-}
-
-const findPage = (pageId: string): PageNode | undefined => {
-  for (const pages of useDocsStore.getState().pagesByChannel.values()) {
-    const p = pages.find((x) => x.id === pageId)
-    if (p) return p
-  }
-  return undefined
-}
-
-const endPosition = (channelId: string, parentId: string | null): number => {
-  const siblings = (useDocsStore.getState().pagesByChannel.get(channelId) ?? []).filter(
-    (p) => p.parentId === parentId
-  )
-  return siblings.reduce((max, p) => Math.max(max, p.position + 1), 0)
 }
 
 async function encryptTitle(channelId: string, pageId: string, title: string): Promise<string> {
@@ -213,14 +191,14 @@ export const docsService: DocsService & {
     return Promise.resolve(handle)
   },
 
-  async createPage(channelId, title, at) {
+  async createPage(channelId, title, parentId) {
     const id = crypto.randomUUID()
-    const position = at.position ?? endPosition(channelId, at.parentId)
+    const pages = useDocsStore.getState().pagesByChannel.get(channelId) ?? []
     const titleEnvelope = await encryptTitle(channelId, id, title)
     const page = await hachiman.rest.createPage(channelId, {
       id,
-      parentId: at.parentId,
-      position,
+      parentId,
+      position: endPosition(pages, parentId),
       titleEnvelope
     })
     await upsertFromEvent(page)
@@ -234,9 +212,13 @@ export const docsService: DocsService & {
     await upsertFromEvent(await hachiman.rest.updatePage(pageId, { titleEnvelope }))
   },
 
-  async movePage(pageId, to: Required<PagePlacement>) {
-    await upsertFromEvent(
-      await hachiman.rest.updatePage(pageId, { parentId: to.parentId, position: to.position })
+  async movePages(moves) {
+    // Independent PATCHes: each one upserts the row that Takusen returns, so on a failure the
+    // store shows what the server has.
+    await Promise.all(
+      moves.map(async ({ pageId, parentId, position }) =>
+        upsertFromEvent(await hachiman.rest.updatePage(pageId, { parentId, position }))
+      )
     )
   },
 
@@ -312,6 +294,7 @@ export const docsService: DocsService & {
     for (const id of [...open.keys()]) closePage(id)
     pendingTitles.clear()
     markdown.clear()
+    forgetCopiedMedia()
     resetDocsStore()
   }
 }

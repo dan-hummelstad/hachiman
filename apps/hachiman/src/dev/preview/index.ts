@@ -97,8 +97,6 @@ export function startPreview(opts: PreviewOptions = {}): void {
 
   startHachiman() // registers the gateway → store listeners; connect() is a no-op now
   for (const [channelId, events] of fixtureMembership()) addMembership(channelId, events)
-  // The getter reads _state (DocsService checks gateway.state, not only the event).
-  ;(hachiman.gateway as unknown as { _state: string })._state = 'ready'
   hachiman.gateway.emit('state', 'ready')
   dispatch({ t: 'READY', d: READY })
   // READY carries the fixture's voice state for me; re-echo the client's (persisted) mute/deafen.

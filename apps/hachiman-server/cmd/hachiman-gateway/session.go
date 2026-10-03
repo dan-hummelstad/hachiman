@@ -255,13 +255,12 @@ func (s *session) onDocAwareness(p docAwareness) {
 		if ch == nil {
 			continue
 		}
-		if ch.Type != "pages" || !gs.canView(s.user.ID, ch.ID) {
-			return
+		if ch.Type == "pages" && gs.canView(s.user.ID, ch.ID) {
+			s.g.publishEnvelope(s.ctx, "guild:"+gs.id, envelope{T: "DOC_AWARENESS", ChannelID: ch.ID, D: mustJSON(map[string]string{
+				"channelId": ch.ID, "guildId": gs.id, "pageId": p.PageID,
+				"userId": s.user.ID, "deviceId": s.deviceID, "envelope": p.Envelope,
+			})})
 		}
-		s.g.publishEnvelope(s.ctx, "guild:"+gs.id, envelope{T: "DOC_AWARENESS", ChannelID: ch.ID, D: mustJSON(map[string]string{
-			"channelId": ch.ID, "guildId": gs.id, "pageId": p.PageID,
-			"userId": s.user.ID, "deviceId": s.deviceID, "envelope": p.Envelope,
-		})})
 		return
 	}
 }

@@ -22,13 +22,12 @@ import type { PageNode } from '@/stores/docsStore'
 import {
   MAX_PAGE_TITLE_BYTES,
   clampTitle,
-  endPosition,
   flattenPages,
   pageTitle,
   projectDrop,
   subtreeIds,
   type FlatPage
-} from './page-tree'
+} from '@/services/docs/page-tree'
 
 /** Pixels of one nesting level, in the rows and in the drag projection. */
 const INDENT = 16
@@ -80,10 +79,7 @@ function PageTree({
 
   const create = async (parentId: string | null): Promise<void> => {
     const r = await run('create the page', () =>
-      docsService.createPage(channelId, 'Untitled', {
-        parentId,
-        position: endPosition(pages, parentId)
-      })
+      docsService.createPage(channelId, 'Untitled', parentId)
     )
     if (r.ok) setRenaming(r.value)
   }
@@ -97,9 +93,7 @@ function PageTree({
       Math.round(delta.x / INDENT)
     )
     if (moves.length === 0) return
-    void run('move the page', async () => {
-      for (const m of moves) await docsService.movePage(m.pageId, m)
-    })
+    void run('move the page', () => docsService.movePages(moves))
   }
 
   const deleteCount = deleting ? subtreeIds(pages, deleting.id).size : 0

@@ -7,14 +7,13 @@ import { linkSchema } from '@milkdown/kit/preset/commonmark'
 import { Plugin, PluginKey, type EditorState } from '@milkdown/kit/prose/state'
 import { Decoration, DecorationSet, type EditorView } from '@milkdown/kit/prose/view'
 import { $prose, type $Prose } from '@milkdown/kit/utils'
-import { findPage, pageTitle } from './page-tree'
-import { useDocsStore } from '@/stores/docsStore'
+import { pageTitle } from '@/services/docs/page-tree'
+import { findPage, useDocsStore } from '@/stores/docsStore'
 
 export const PAGE_HREF_PREFIX = 'hachiman:page/'
 
 export const pageHref = (pageId: string): string => PAGE_HREF_PREFIX + pageId
 
-/** The page id of a page link target, or null for any other href. */
 export function pageIdOfHref(href: unknown): string | null {
   if (typeof href !== 'string' || !href.startsWith(PAGE_HREF_PREFIX)) return null
   const id = href.slice(PAGE_HREF_PREFIX.length)
@@ -80,7 +79,6 @@ function decorations(state: EditorState, onOpen: (pageId: string) => void): Deco
   return DecorationSet.create(state.doc, decos)
 }
 
-/** The page id of the page link at `pos`, if any. */
 function pageAt(view: EditorView, pos: number): string | null {
   const node = view.state.doc.nodeAt(pos)
   const mark = node?.marks.find((m) => m.type.name === 'link')
@@ -139,7 +137,6 @@ export function pageLinks(onOpen: (pageId: string) => void): $Prose {
   )
 }
 
-/** Inserts a page link with the page title as its text at the selection. */
 export function insertPageLink(
   view: EditorView,
   ctx: Parameters<typeof linkSchema.type>[0],

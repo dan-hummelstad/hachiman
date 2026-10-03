@@ -13,7 +13,7 @@ import { Writer } from '../codec'
 import { DOC_SALT_LENGTH, EXPORTER_LENGTH, FRANKING_KEY_LENGTH, HkdfInfo, MESSAGE_SALT_LENGTH, SignLabel } from '../constants'
 import { frankingTagSync, verifyFrankingSync } from '../franking'
 import { signWithLabel, verifyWithLabel } from '../sign'
-import type { EnvelopeContent } from './codec'
+import type { Envelope, EnvelopeContent, EnvelopePlaintext } from './codec'
 import { decodeContent, decodeEnvelope, decodePlaintext, encodeContent, encodeEnvelope, encodeHeader, encodePlaintext } from './codec'
 
 const MESSAGE_KEY_INFO = new TextEncoder().encode(HkdfInfo.MESSAGE_KEY)
@@ -59,11 +59,95 @@ export function envelopeSignedContent(headerBytes: Uint8Array, contentBytes: Uin
   return concat(sha256(headerBytes), sha256(contentBytes))
 }
 
-export async function aesGcm(mode: 'encrypt' | 'decrypt', key: Uint8Array, aad: Uint8Array, data: Uint8Array): Promise<Uint8Array> {
+async function aesGcm(mode: 'encrypt' | 'decrypt', key: Uint8Array, aad: Uint8Array, data: Uint8Array): Promise<Uint8Array> {
   const k = await globalThis.crypto.subtle.importKey('raw', buf(key), 'AES-GCM', false, [mode])
   const params = { name: 'AES-GCM', iv: buf(ZERO_NONCE), additionalData: buf(aad), tagLength: 128 }
   const out = mode === 'encrypt' ? await globalThis.crypto.subtle.encrypt(params, k, buf(data)) : await globalThis.crypto.subtle.decrypt(params, k, buf(data))
   return new Uint8Array(out)
+}
+
+// MARK: - The sign-then-encrypt core
+
+type KeyedHeader = { salt: Uint8Array; senderLeaf: number }
+type SignedPlaintext = { contentBytes: Uint8Array; signature: Uint8Array }
+
+/**
+ * What message envelopes (§12.8) and page envelopes (§12.20) do not share: the signature label,
+ * the key derivation (salt length and HKDF label) and the codecs. The rest is sealWith / openWith.
+ */
+export interface EnvelopeScheme<H extends KeyedHeader, P extends SignedPlaintext> {
+  signLabel: string
+  deriveKey(epochSecret: Uint8Array, salt: Uint8Array, senderLeaf: number): Uint8Array
+  decodeEnvelope(bytes: Uint8Array): Envelope<H>
+  /** Throws on a plaintext that does not decode, or on a body that breaks a rule of the header. */
+  decodePlaintext(plaintext: Uint8Array, header: H): P
+}
+
+/** Signs encode(header) and the content bytes, then encrypts `plaintextOf(signature)` with encode(header) as the AAD. */
+export async function sealWith<H extends KeyedHeader>(
+  scheme: Pick<EnvelopeScheme<H, SignedPlaintext>, 'signLabel' | 'deriveKey'>,
+  keys: { epochSecret: Uint8Array; signatureKey: Uint8Array },
+  header: H,
+  headerBytes: Uint8Array,
+  contentBytes: Uint8Array,
+  plaintextOf: (signature: Uint8Array) => Uint8Array,
+): Promise<Uint8Array> {
+  const signature = signWithLabel(keys.signatureKey, scheme.signLabel, envelopeSignedContent(headerBytes, contentBytes))
+  const key = scheme.deriveKey(keys.epochSecret, header.salt, header.senderLeaf)
+  const ciphertext = await aesGcm('encrypt', key, headerBytes, plaintextOf(signature))
+  return encodeEnvelope(headerBytes, ciphertext)
+}
+
+/**
+ * Receive steps 3 to 5 (§12.8.5, §12.20). Never throws on bad input. `senderKey` is step 4: it
+ * runs after the decrypt and returns the MLS signature key of the header's sender, or a failure.
+ */
+export async function openWith<H extends KeyedHeader, P extends SignedPlaintext, S extends { signatureKey: Uint8Array }, F>(
+  scheme: EnvelopeScheme<H, P>,
+  bytes: Uint8Array,
+  epochSecret: Uint8Array,
+  senderKey: (header: H, opened: P) => Promise<S | { failure: F }>,
+): Promise<{ header: H; opened: P; sender: S } | { failure: F | 'malformed' | 'aead' | 'bad_signature' }> {
+  let decoded: Envelope<H>
+  try {
+    decoded = scheme.decodeEnvelope(bytes)
+  } catch {
+    return { failure: 'malformed' }
+  }
+  const { header, headerBytes, ciphertext } = decoded
+
+  // Step 3: decrypt, then decode the plaintext.
+  let plaintext: Uint8Array
+  try {
+    plaintext = await aesGcm('decrypt', scheme.deriveKey(epochSecret, header.salt, header.senderLeaf), headerBytes, ciphertext)
+  } catch {
+    return { failure: 'aead' }
+  }
+  let opened: P
+  try {
+    opened = scheme.decodePlaintext(plaintext, header)
+  } catch {
+    return { failure: 'malformed' }
+  }
+
+  // Step 4: the sender certificate (the caller checks the chain and the author).
+  const sender = await senderKey(header, opened)
+  if ('failure' in sender) return { failure: sender.failure }
+
+  // Step 5: the signature.
+  if (!verifyWithLabel(sender.signatureKey, scheme.signLabel, envelopeSignedContent(headerBytes, opened.contentBytes), opened.signature)) {
+    return { failure: 'bad_signature' }
+  }
+  return { header, opened, sender }
+}
+
+// MARK: - Message envelopes
+
+const MESSAGE_SCHEME: EnvelopeScheme<EnvelopeHeader, EnvelopePlaintext> = {
+  signLabel: SignLabel.ENVELOPE,
+  deriveKey: deriveMessageKeySync,
+  decodeEnvelope,
+  decodePlaintext: (plaintext) => decodePlaintext(plaintext),
 }
 
 /**
@@ -75,12 +159,7 @@ export async function sealContentBytes(input: Omit<EnvelopeSealInput, 'kind' | '
   const frankingKey = randomBytes(FRANKING_KEY_LENGTH)
   const frankingTag = frankingTagSync({ frankingKey, channelId: input.header.channelId, clientMsgId: input.header.clientMsgId, content: contentBytes })
   const header: EnvelopeHeader = { ...input.header, salt, frankingTag }
-  const headerBytes = encodeHeader(header)
-  const signature = signWithLabel(input.signatureKey, SignLabel.ENVELOPE, envelopeSignedContent(headerBytes, contentBytes))
-  const plaintext = encodePlaintext(contentBytes, frankingKey, signature)
-  const key = deriveMessageKeySync(input.epochSecret, salt, header.senderLeaf)
-  const ciphertext = await aesGcm('encrypt', key, headerBytes, plaintext)
-  return encodeEnvelope(headerBytes, ciphertext)
+  return sealWith(MESSAGE_SCHEME, input, header, encodeHeader(header), contentBytes, (signature) => encodePlaintext(contentBytes, frankingKey, signature))
 }
 
 function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
@@ -116,37 +195,9 @@ export const envelope: EnvelopeModule = {
   },
 
   async open(bytes, epochSecret, senderKey): Promise<EnvelopeOpenResult | { failure: DecryptFailure }> {
-    let decoded: ReturnType<typeof decodeEnvelope>
-    try {
-      decoded = decodeEnvelope(bytes)
-    } catch {
-      return { failure: 'malformed' }
-    }
-    const { header, headerBytes, ciphertext } = decoded
-
-    // Step 3: decrypt, then decode the plaintext.
-    let plaintext: Uint8Array
-    try {
-      const key = deriveMessageKeySync(epochSecret, header.salt, header.senderLeaf)
-      plaintext = await aesGcm('decrypt', key, headerBytes, ciphertext)
-    } catch {
-      return { failure: 'aead' }
-    }
-    let opened: ReturnType<typeof decodePlaintext>
-    try {
-      opened = decodePlaintext(plaintext)
-    } catch {
-      return { failure: 'malformed' }
-    }
-
-    // Step 4: the sender certificate (the caller checks the chain and the author).
-    const sender = await senderKey(header, opened.kind)
-    if ('failure' in sender) return { failure: sender.failure }
-
-    // Step 5: the signature.
-    if (!verifyWithLabel(sender.signatureKey, SignLabel.ENVELOPE, envelopeSignedContent(headerBytes, opened.contentBytes), opened.signature)) {
-      return { failure: 'bad_signature' }
-    }
+    const result = await openWith(MESSAGE_SCHEME, bytes, epochSecret, (h, p) => senderKey(h, p.kind))
+    if ('failure' in result) return result
+    const { header, opened } = result
 
     // Step 6: franking.
     const frankingOk = verifyFrankingSync({

@@ -1,11 +1,33 @@
 // Pure helpers over the flat page list of a channel (docsStore.pagesByChannel).
-import { useDocsStore, type PageNode } from '@/stores/docsStore'
+import type { PageNode } from '@/stores/docsStore'
+
+/**
+ * The gap between the positions that this client gives. A move to a place between two siblings
+ * takes the midpoint, so it is one PATCH. Takusen does not renumber siblings (§4 Pages "Move"):
+ * only when the neighbours leave no gap does a move renumber them.
+ */
+export const POSITION_STEP = 1024
+/** doc_pages.position is an int (§3, the PATCH schema caps it). */
+const MAX_POSITION = 2 ** 31 - 1
 
 /** One row of the page tree as the popover renders it: depth-first order. */
 export interface FlatPage {
   page: PageNode
   depth: number
 }
+
+/** One PATCH of a drop: the page and the parent and position it gets. */
+export interface PageMove {
+  pageId: string
+  parentId: string | null
+  position: number
+}
+
+const siblingOrder = (a: PageNode, b: PageNode): number =>
+  a.position - b.position || a.createdAt.localeCompare(b.createdAt)
+
+const siblingsOf = (pages: readonly PageNode[], parentId: string | null): PageNode[] =>
+  pages.filter((p) => p.parentId === parentId).sort(siblingOrder)
 
 /** The children of each parent id ('' = the root pages), in position order. */
 function childrenByParent(pages: readonly PageNode[]): Map<string, PageNode[]> {
@@ -16,9 +38,7 @@ function childrenByParent(pages: readonly PageNode[]): Map<string, PageNode[]> {
     if (list) list.push(p)
     else out.set(key, [p])
   }
-  for (const list of out.values()) {
-    list.sort((a, b) => a.position - b.position || a.createdAt.localeCompare(b.createdAt))
-  }
+  for (const list of out.values()) list.sort(siblingOrder)
   return out
 }
 
@@ -26,9 +46,7 @@ function childrenByParent(pages: readonly PageNode[]): Map<string, PageNode[]> {
 export function flattenPages(pages: readonly PageNode[]): FlatPage[] {
   const ids = new Set(pages.map((p) => p.id))
   const kids = childrenByParent(pages)
-  const roots = pages
-    .filter((p) => p.parentId === null || !ids.has(p.parentId))
-    .sort((a, b) => a.position - b.position || a.createdAt.localeCompare(b.createdAt))
+  const roots = pages.filter((p) => p.parentId === null || !ids.has(p.parentId)).sort(siblingOrder)
   const out: FlatPage[] = []
   const seen = new Set<string>()
   const walk = (p: PageNode, depth: number): void => {
@@ -39,15 +57,6 @@ export function flattenPages(pages: readonly PageNode[]): FlatPage[] {
   }
   for (const r of roots) walk(r, 0)
   return out
-}
-
-/** A page of any loaded pages channel. */
-export function findPage(pageId: string): PageNode | undefined {
-  for (const list of useDocsStore.getState().pagesByChannel.values()) {
-    const page = list.find((p) => p.id === pageId)
-    if (page) return page
-  }
-  return undefined
 }
 
 /** The pages from the root to `pageId` (inclusive). Empty when the page is not in the list. */
@@ -75,11 +84,20 @@ export function subtreeIds(pages: readonly PageNode[], pageId: string): Set<stri
   return out
 }
 
-/** The next free position under `parentId`. */
+/** A free position after `lo` and before `hi` (undefined: no sibling there), or null for none. */
+function between(lo: number | undefined, hi: number | undefined): number | null {
+  if (hi === undefined) {
+    const p = lo === undefined ? 0 : lo + POSITION_STEP
+    return p <= MAX_POSITION ? p : null
+  }
+  const low = lo ?? -1
+  const mid = Math.floor((low + hi) / 2)
+  return mid > low && mid < hi ? mid : null
+}
+
 export function endPosition(pages: readonly PageNode[], parentId: string | null): number {
-  let max = -1
-  for (const p of pages) if (p.parentId === parentId && p.position > max) max = p.position
-  return max + 1
+  const last = siblingsOf(pages, parentId).at(-1)
+  return between(last?.position, undefined) ?? MAX_POSITION
 }
 
 /** The title to show; an empty or undecrypted title gets a placeholder. */
@@ -103,19 +121,12 @@ export function clampTitle(title: string): string {
   return out.trim() || 'Untitled'
 }
 
-/** One PATCH of a drop: the page and the parent and position it gets. */
-export interface PageMove {
-  pageId: string
-  parentId: string | null
-  position: number
-}
-
 /**
  * The PATCHes of a drag in the tree. The row of `activeId` goes to the place of the row of
  * `overId`, and `depthDelta` (the horizontal drag in indent steps) nests or un-nests it, in the
  * range that the rows above and below allow (the sortable-tree projection of dnd-kit).
- * Takusen does not renumber siblings, so the result renumbers the new siblings too. Only
- * the pages whose parent or position changes get a PATCH.
+ * Usually one PATCH, of the dragged page (POSITION_STEP). When its new neighbours leave no gap,
+ * the new siblings are renumbered, and only the pages whose position changes get a PATCH.
  */
 export function projectDrop(
   pages: readonly PageNode[],
@@ -152,24 +163,20 @@ export function projectDrop(
   }
 
   // The new sibling order: the rows above `to` under the same parent, the page, then the rest.
-  const siblings = pages
-    .filter((p) => p.parentId === parentId && p.id !== activeId)
-    .sort((a, b) => a.position - b.position || a.createdAt.localeCompare(b.createdAt))
-  const order = moved.map((r) => r.page.id)
-  const idx = order.indexOf(activeId)
-  const insertAt = siblings.filter((s) => order.indexOf(s.id) < idx).length
-  const ordered = [...siblings]
-  ordered.splice(insertAt, 0, active.page)
+  const before = new Set(moved.slice(0, to).map((r) => r.page.id))
+  const siblings = siblingsOf(pages, parentId).filter((p) => p.id !== activeId)
+  const insertAt = siblings.filter((s) => before.has(s.id)).length
+  const page = active.page
+  if (page.parentId === parentId && siblingsOf(pages, parentId).indexOf(page) === insertAt)
+    return []
 
-  const out: PageMove[] = []
-  ordered.forEach((p, position) => {
-    if (p.id === activeId) {
-      if (p.parentId !== parentId || p.position !== position) {
-        out.push({ pageId: p.id, parentId, position })
-      }
-    } else if (p.position !== position) {
-      out.push({ pageId: p.id, parentId, position })
-    }
-  })
-  return out
+  const position = between(siblings[insertAt - 1]?.position, siblings[insertAt]?.position)
+  if (position !== null) return [{ pageId: activeId, parentId, position }]
+  const ordered = [...siblings]
+  ordered.splice(insertAt, 0, page)
+  return ordered.flatMap((p, i) =>
+    p.position === i * POSITION_STEP && p.parentId === parentId
+      ? []
+      : [{ pageId: p.id, parentId, position: i * POSITION_STEP }]
+  )
 }

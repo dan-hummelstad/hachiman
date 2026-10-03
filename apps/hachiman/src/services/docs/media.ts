@@ -74,6 +74,31 @@ export function parsePointer(json: unknown): AttachmentPointer | null {
   } as AttachmentPointer
 }
 
+/**
+ * The pointers of the media blocks that this app copied, by upload id. A copy puts only the upload
+ * id on the clipboard (the pointer holds the file key), and a paste in this app gets the pointer
+ * back from here. A paste from outside, or after a reload, finds none and drops the block.
+ */
+const copied = new Map<string, string>()
+
+/** A media node goes to the clipboard: returns the upload id that stands for it, or ''. */
+export function copyMediaPointer(json: unknown): string {
+  const p = parsePointer(json)
+  if (!p) return ''
+  copied.set(p.uploadId, json as string)
+  return p.uploadId
+}
+
+/** The pointer JSON of a pasted media block, or null when this app did not copy it. */
+export function pastedMediaPointer(uploadId: string | null): string | null {
+  return (uploadId !== null && copied.get(uploadId)) || null
+}
+
+/** Sign-out: the next user cannot paste the pointers of this one. */
+export function forgetCopiedMedia(): void {
+  copied.clear()
+}
+
 /** The page_media upload ids (files and thumbnails) that the media nodes of `doc` reference. */
 export function collectMediaUploadIds(doc: Y.Doc): string[] {
   const ids = new Set<string>()

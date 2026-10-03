@@ -93,25 +93,33 @@ func TestDocAwarenessDrops(t *testing.T) {
 
 func TestDocAwarenessRateLimit(t *testing.T) {
 	h := pagesHarness(t)
+	// The clock stands still for the first 40 frames, then moves 1 s: the
+	// burst is exactly 20, and the 41st frame gets a refilled bucket. Only
+	// the read loop of c calls it.
+	t0, calls := time.Unix(1_000_000, 0), 0
+	h.g.now = func() time.Time {
+		calls++
+		if calls > 40 {
+			return t0.Add(time.Second)
+		}
+		return t0
+	}
 	c := h.dial()
 	c.identify()
 	for range 40 {
 		c.send(opDocAwareness, awareness("pages", "p", "e"))
 	}
+	c.send(opDocAwareness, awareness("pages", "end", "e"))
 	n := 0
 	for {
-		_ = c.ws.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
-		var f outFrame
-		if err := c.ws.ReadJSON(&f); err != nil {
+		f := c.expect("DOC_AWARENESS")
+		if strings.Contains(string(f.D), `"pageId":"end"`) {
 			break
 		}
-		if f.T == "DOC_AWARENESS" {
-			n++
-		}
+		n++
 	}
-	// 20 burst tokens, plus the refill during the few ms the sends take.
-	if n < 20 || n > 23 {
-		t.Errorf("relayed %d of 40 frames, want about 20", n)
+	if n != awarenessPerSecond {
+		t.Errorf("relayed %d of 40 frames, want %d", n, awarenessPerSecond)
 	}
 }
 

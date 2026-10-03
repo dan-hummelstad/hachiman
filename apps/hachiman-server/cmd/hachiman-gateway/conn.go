@@ -81,6 +81,7 @@ type Gateway struct {
 	heartbeat       time.Duration
 	identifyTimeout time.Duration
 	offlineGrace    time.Duration
+	now             func() time.Time // the op 5 rate-limit clock; tests replace it
 
 	busReady chan struct{}
 	mu       sync.RWMutex
@@ -97,6 +98,7 @@ func newGateway(rdb *redis.Client, takusenURL string, placer *takusenclient.Clie
 		heartbeat:        41250 * time.Millisecond,
 		identifyTimeout:  10 * time.Second,
 		offlineGrace:     60 * time.Second,
+		now:              time.Now,
 		minClientVersion: semver{0, 1, 0, nil},
 		busReady:         make(chan struct{}),
 		sessions:         map[string]*session{},
@@ -277,7 +279,7 @@ func (g *Gateway) readLoop(c *conn, s *session) {
 	defer func() { s.post(detach{c, bye}) }()
 	timeout := g.heartbeat * 3 / 2
 	_ = c.ws.SetReadDeadline(time.Now().Add(timeout))
-	awareness := tokenBucket{tokens: awarenessPerSecond, last: time.Now()}
+	var awareness tokenBucket
 	for {
 		f, ok, clean := g.read(c, closeSessionTimeout)
 		if !ok {
@@ -299,7 +301,7 @@ func (g *Gateway) readLoop(c *conn, s *session) {
 			}
 			// Dropped here, before post: a flood must not fill s.in and
 			// kill the session.
-			if len(p.Envelope) <= maxAwarenessEnvelope && awareness.take(time.Now()) {
+			if len(p.Envelope) <= maxAwarenessEnvelope && awareness.take(g.now()) {
 				s.post(p)
 			}
 		case opIdentify, opResume:
@@ -320,7 +322,8 @@ type docAwareness struct {
 }
 
 // tokenBucket holds awarenessPerSecond tokens and refills at that rate.
-// Only the read loop of one connection uses it.
+// Only the read loop of one connection uses it. The zero value is full:
+// the elapsed time since the zero time.Time saturates the refill.
 type tokenBucket struct {
 	tokens float64
 	last   time.Time

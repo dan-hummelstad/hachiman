@@ -7,7 +7,7 @@
  *  - guilds, guildMembers, channels, messages       — the chat model
  *  - roles, memberRoles, permissionOverwrites       — Discord-style permissions
  *  - dmParticipants, invites, uploads
- *  - docPages, docUpdates, docSnapshots             — pages channels (§3 "Pages tables")
+ *  - docPages, docUpdates, docSnapshots             — pages channels (§3 "Pages tables", schema-pages.ts)
  *  - oidcClients, oidcAdapterPayloads, passwordResetTokens
  *  - the E2EE tables (§3 "E2EE tables", §12): devices and keys, the MLS delivery
  *    service, the device inbox, backups, device linking, key transparency,
@@ -18,7 +18,6 @@ import {
   bigint,
   boolean,
   check,
-  customType,
   doublePrecision,
   foreignKey,
   index,
@@ -35,6 +34,12 @@ import {
   type AnyPgColumn,
 } from 'drizzle-orm/pg-core'
 import type { AdapterAccountType } from 'next-auth/adapters'
+
+import { bytea } from './columns'
+import { docPages } from './schema-pages'
+
+export { bytea } from './columns'
+export * from './schema-pages'
 
 // ---------------------------------------------------------------------------
 // Enums
@@ -58,12 +63,6 @@ export const joinStatusEnum = pgEnum('join_status', ['queued', 'committed', 'rej
 export const inboxKindEnum = pgEnum('inbox_kind', ['welcome', 'dsk_transfer', 'history_keys'])
 export const backupKindEnum = pgEnum('backup_kind', ['identity', 'history'])
 
-/** Postgres bytea as Uint8Array. The §12 binary objects are stored as they are. */
-export const bytea = customType<{ data: Uint8Array; driverData: Buffer }>({
-  dataType: () => 'bytea',
-  toDriver: (v) => Buffer.from(v.buffer, v.byteOffset, v.byteLength),
-  fromDriver: (v) => new Uint8Array(v),
-})
 
 // ---------------------------------------------------------------------------
 // Auth.js core tables (users, accounts, sessions, verificationTokens)
@@ -422,85 +421,6 @@ export const uploads = pgTable(
 )
 
 // ---------------------------------------------------------------------------
-// Pages channels (contract §3 "Pages tables", §4 Pages, §12.20). The server sees
-// the tree and the timestamps. Titles, updates and snapshot pointers are envelopes.
-// ---------------------------------------------------------------------------
-export const docPages = pgTable(
-  'doc_pages',
-  {
-    // The client chooses the id: the title envelope binds it (§12.20).
-    id: uuid('id').primaryKey(),
-    channelId: uuid('channel_id')
-      .notNull()
-      .references(() => channels.id, { onDelete: 'cascade' }),
-    parentId: uuid('parent_id').references((): AnyPgColumn => docPages.id, { onDelete: 'cascade' }),
-    position: integer('position').notNull().default(0),
-    titleEnvelope: bytea('title_envelope').notNull(),
-    createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
-    // The highest doc_updates.seq of the page. An update takes latest_seq + 1 (§4 Pages).
-    latestSeq: bigint('latest_seq', { mode: 'number' }).notNull().default(0),
-    createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
-      .notNull()
-      .defaultNow(),
-    updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' })
-      .notNull()
-      .defaultNow(),
-  },
-  (table) => [
-    index('doc_pages_channel_id_idx').on(table.channelId),
-    index('doc_pages_parent_id_idx').on(table.parentId),
-  ],
-)
-
-export const docUpdates = pgTable(
-  'doc_updates',
-  {
-    pageId: uuid('page_id')
-      .notNull()
-      .references(() => docPages.id, { onDelete: 'cascade' }),
-    seq: bigint('seq', { mode: 'number' }).notNull(),
-    groupId: bytea('group_id')
-      .notNull()
-      .references((): AnyPgColumn => mlsGroups.groupId, { onDelete: 'cascade' }),
-    epoch: bigint('epoch', { mode: 'number' }).notNull(),
-    senderDevice: uuid('sender_device').references((): AnyPgColumn => devices.id, { onDelete: 'set null' }),
-    envelope: bytea('envelope').notNull(),
-    createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
-      .notNull()
-      .defaultNow(),
-  },
-  (table) => [primaryKey({ columns: [table.pageId, table.seq] })],
-)
-
-export const docSnapshots = pgTable(
-  'doc_snapshots',
-  {
-    pageId: uuid('page_id')
-      .notNull()
-      .references(() => docPages.id, { onDelete: 'cascade' }),
-    // The state covers every update with seq <= base_seq.
-    baseSeq: bigint('base_seq', { mode: 'number' }).notNull(),
-    uploadId: uuid('upload_id')
-      .notNull()
-      .unique()
-      .references(() => uploads.id, { onDelete: 'cascade' }),
-    groupId: bytea('group_id')
-      .notNull()
-      .references((): AnyPgColumn => mlsGroups.groupId, { onDelete: 'cascade' }),
-    epoch: bigint('epoch', { mode: 'number' }).notNull(),
-    senderDevice: uuid('sender_device').references((): AnyPgColumn => devices.id, { onDelete: 'set null' }),
-    // The doc_snapshot envelope: the pointer and the file key of the blob.
-    envelope: bytea('envelope').notNull(),
-    // The page_media uploads that this state references. The client gives the list.
-    mediaUploadIds: uuid('media_upload_ids').array().notNull().default(sql`'{}'::uuid[]`),
-    createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
-      .notNull()
-      .defaultNow(),
-  },
-  (table) => [primaryKey({ columns: [table.pageId, table.baseSeq] })],
-)
-
-// ---------------------------------------------------------------------------
 // Inferred row types — re-export for downstream consumers.
 // ---------------------------------------------------------------------------
 export type User = typeof users.$inferSelect
@@ -519,9 +439,6 @@ export type PermissionOverwriteRow = typeof permissionOverwrites.$inferSelect
 export type DmParticipantRow = typeof dmParticipants.$inferSelect
 export type InviteRow = typeof invites.$inferSelect
 export type UploadRow = typeof uploads.$inferSelect
-export type DocPageRow = typeof docPages.$inferSelect
-export type DocUpdateRow = typeof docUpdates.$inferSelect
-export type DocSnapshotRow = typeof docSnapshots.$inferSelect
 
 // ===== Auth UI agent additions =====
 // Password reset tokens — short-lived (e.g. 1h) one-time tokens. We store only

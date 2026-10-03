@@ -9,10 +9,14 @@ import type {
   DecryptFailure,
   DecryptResult,
   EncryptedMessage,
+  EngineContext,
   EnvelopeHeader,
   EnvelopeOpenResult,
+  GroupService,
+  IdentityService,
   MessageContent,
   ThumbnailPointer,
+  UserId,
 } from '../api'
 import { CryptoError } from '../api'
 import { fromB64url, toB64url } from '../codec'
@@ -53,20 +57,47 @@ interface Verified {
 
 type Step = { ok: true; value: Verified } | { ok: false; result: DecryptResult }
 
+// MARK: - Shared with DocService (doc-service.ts)
+
 function dsCodeOf(e: unknown): string | undefined {
   if (typeof e === 'object' && e !== null && 'dsCode' in e && typeof e.dsCode === 'string') return e.dsCode
   return undefined
 }
 
-/** A DS or transport failure: the message is retried later, never given a failure code. */
+/** A DS or transport failure: the item is retried later, never given a failure code. */
 function isTransient(e: unknown): boolean {
   return dsCodeOf(e) !== undefined || (e instanceof CryptoError && e.code === 'Transport')
 }
 
-export const createMessageService: CreateMessageService = (ctx, identity, groups) => {
-  let maxEnvelopeBytes: Promise<number> | null = null
+/**
+ * Decrypts items one by one. One failed DS call marks only its own item with `pending(item)`,
+ * not 'failed': the UI decrypts it again later (a transient error is never a verdict on the item).
+ * One 'error' event sums up the transient failures of the batch.
+ */
+export async function decryptEach<I, R>(ctx: EngineContext, what: string, items: readonly I[], one: (item: I) => Promise<R>, pending: (item: I) => R): Promise<R[]> {
+  const out: R[] = []
+  let transient: { first: CryptoErrorShape; count: number } | null = null
+  for (const item of items) {
+    try {
+      out.push(await one(item))
+    } catch (e) {
+      if (!isTransient(e)) throw e
+      out.push(pending(item))
+      transient ??= { first: { code: 'Transport', message: e instanceof Error ? e.message : String(e), dsCode: dsCodeOf(e) }, count: 0 }
+      transient.count++
+    }
+  }
+  if (transient !== null) {
+    const { first, count } = transient
+    ctx.emit('error', { ...first, message: `${what}: ${count} of ${items.length} pending after a DS error: ${first.message}` })
+  }
+  return out
+}
 
-  function envelopeLimit(): Promise<number> {
+/** Limits.maxEnvelopeBytes from the DS, fetched once (again after a failed fetch). */
+export function envelopeLimitOf(ctx: EngineContext): () => Promise<number> {
+  let maxEnvelopeBytes: Promise<number> | null = null
+  return () => {
     if (maxEnvelopeBytes === null) {
       maxEnvelopeBytes = ctx.transport.getDsInfo().then((info) => info.limits.maxEnvelopeBytes)
       maxEnvelopeBytes.catch(() => {
@@ -75,11 +106,31 @@ export const createMessageService: CreateMessageService = (ctx, identity, groups
     }
     return maxEnvelopeBytes
   }
+}
 
-  async function isKnownGroup(groupIdB64: string): Promise<boolean> {
-    if ((await ctx.store.get('groups', groupIdB64)) !== undefined) return true
-    return (await ctx.store.list('epochSecrets', `${groupIdB64}:`)).length > 0
-  }
+/** §12.8.5 step 2 when this client holds no S_e for the epoch: why the item stays pending. */
+export async function missingEpochReason(ctx: EngineContext, groups: GroupService, groupId: Uint8Array, epoch: number): Promise<'epoch_ahead' | 'group_unknown' | 'no_history_key'> {
+  const current = await groups.currentEpoch(groupId)
+  if (current !== null && epoch > current) return 'epoch_ahead'
+  if (current !== null) return 'no_history_key'
+  const groupIdB64 = toB64url(groupId)
+  if ((await ctx.store.get('groups', groupIdB64)) !== undefined) return 'no_history_key'
+  return (await ctx.store.list('epochSecrets', `${groupIdB64}:`)).length > 0 ? 'no_history_key' : 'group_unknown'
+}
+
+/**
+ * The revoked-sender rule of §12.8.5 step 4: no envelope of an epoch at or after the Remove that
+ * this client processed. Older epochs stay valid (the residual risk of step 4).
+ */
+export async function isRevokedSender(identity: IdentityService, groups: GroupService, h: { groupId: Uint8Array; epoch: number; senderDeviceId: string }, userId: UserId): Promise<boolean> {
+  const removedAt = await groups.removedAt(h.groupId, h.senderDeviceId)
+  return removedAt !== null && h.epoch >= removedAt && (await identity.chainContextFor(userId, false)).revokedDeviceIds.has(h.senderDeviceId)
+}
+
+// MARK: - MessageService
+
+export const createMessageService: CreateMessageService = (ctx, identity, groups) => {
+  const envelopeLimit = envelopeLimitOf(ctx)
 
   async function buffer(groupIdB64: string, m: EncryptedMessage): Promise<void> {
     await ctx.store.transaction(['buffered'], async (tx) => {
@@ -112,12 +163,8 @@ export const createMessageService: CreateMessageService = (ctx, identity, groups
     // Step 2: the epoch secret.
     const epochSecret = await groups.epochSecret(header.groupId, header.epoch)
     if (epochSecret === null) {
-      const current = await groups.currentEpoch(header.groupId)
-      if (current !== null && header.epoch > current) {
-        await buffer(groupIdB64, m)
-        return { ok: false, result: { status: 'pending', messageId: m.id, reason: 'epoch_ahead' } }
-      }
-      const reason = current === null && !(await isKnownGroup(groupIdB64)) ? 'group_unknown' : 'no_history_key'
+      const reason = await missingEpochReason(ctx, groups, header.groupId, header.epoch)
+      if (reason === 'epoch_ahead') await buffer(groupIdB64, m)
       return { ok: false, result: { status: 'pending', messageId: m.id, reason } }
     }
 
@@ -128,10 +175,7 @@ export const createMessageService: CreateMessageService = (ctx, identity, groups
       if (cert === null) return { failure: 'invalid_chain' }
       if (cert.deviceId !== h.senderDeviceId) return { failure: 'invalid_chain' }
       if (cert.userId !== m.authorId) return { failure: kind === 'message' ? 'device_mismatch' : 'edit_not_author' }
-      // A revoked device: no envelope of an epoch at or after the Remove that this client processed.
-      // Older epochs stay valid (the residual risk of §12.8.5 step 4).
-      const removedAt = await groups.removedAt(h.groupId, h.senderDeviceId)
-      if (removedAt !== null && h.epoch >= removedAt && (await identity.chainContextFor(cert.userId, false)).revokedDeviceIds.has(h.senderDeviceId)) return { failure: 'invalid_chain' }
+      if (await isRevokedSender(identity, groups, h, cert.userId)) return { failure: 'invalid_chain' }
       return { signatureKey: cert.mlsSignatureKey }
     })
     if ('failure' in opened) {
@@ -255,27 +299,8 @@ export const createMessageService: CreateMessageService = (ctx, identity, groups
       return { envelope: toB64url(sealed), clientMsgId: toB64url(clientMsgId), groupId: toB64url(state.groupId), epoch: state.epoch }
     },
 
-    async decryptMessages(messages) {
-      const out: DecryptResult[] = []
-      let transient: { first: CryptoErrorShape; count: number } | null = null
-      for (const m of messages) {
-        try {
-          out.push(await decryptOne(m))
-        } catch (e) {
-          // One failed DS call marks only its own message. 'pending' and not 'failed': the UI
-          // decrypts it again later (a transient error is never a verdict on the message).
-          if (!isTransient(e)) throw e
-          out.push({ status: 'pending', messageId: m.id, reason: 'transport' })
-          transient ??= { first: { code: 'Transport', message: e instanceof Error ? e.message : String(e), dsCode: dsCodeOf(e) }, count: 0 }
-          transient.count++
-        }
-      }
-      if (transient !== null) {
-        const { first, count } = transient
-        ctx.emit('error', { ...first, message: `decryptMessages: ${count} of ${messages.length} messages pending after a DS error: ${first.message}` })
-      }
-      return out
-    },
+    decryptMessages: (messages) =>
+      decryptEach<EncryptedMessage, DecryptResult>(ctx, 'decryptMessages', messages, decryptOne, (m) => ({ status: 'pending', messageId: m.id, reason: 'transport' })),
 
     async buildReport(message) {
       const step = await verify(message)

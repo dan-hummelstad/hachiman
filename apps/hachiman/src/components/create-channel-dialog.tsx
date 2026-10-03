@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useAction } from '@/hooks/use-action'
 import { ChannelIcon } from '@/lib/channel-icon'
+import { CHANNEL_KINDS, CREATE_CHANNEL_TYPES, hasChat } from '@/lib/model'
 import { cn } from '@/lib/utils'
 import { docsService } from '@/services/docs/DocsService'
 import { hachiman } from '@/services/hachiman'
@@ -17,12 +18,6 @@ import { selectChannel } from '@/stores/navStore'
 type ChannelKind = CreateChannelBody['type']
 
 const FORM_ID = 'create-channel-form'
-
-const TYPES = [
-  { type: 'text', label: 'Text', hint: 'Send messages, links and code' },
-  { type: 'voice', label: 'Voice', hint: 'Talk together with voice' },
-  { type: 'pages', label: 'Pages', hint: 'Write documents together, next to the chat' }
-] as const
 
 /**
  * Create a channel or category in a guild; a new text or pages channel becomes the selected one.
@@ -55,14 +50,13 @@ export function CreateChannelDialog(): React.JSX.Element {
         // The channel exists already: a failed root page must not fail the action (a retry
         // would make a second channel). The pages panel offers to make a page when it has none.
         await docsService
-          .createPage(channel.id, 'Untitled', { parentId: null })
+          .createPage(channel.id, 'Untitled', null)
           .catch((err: unknown) => console.warn('[pages] root page failed', err))
       }
       return channel
     })
     if (!created.ok) return
-    const channel = created.value
-    if (channel.type === 'text' || channel.type === 'pages') selectChannel(channel.id, guildId)
+    if (hasChat(created.value.type)) selectChannel(created.value.id, guildId)
     close()
   }
 
@@ -95,7 +89,8 @@ export function CreateChannelDialog(): React.JSX.Element {
             <legend className="text-muted-foreground mb-2 text-xs leading-4 font-semibold">
               Type
             </legend>
-            {TYPES.map(({ type: t, label, hint }) => {
+            {CREATE_CHANNEL_TYPES.map((t) => {
+              const { label, hint } = CHANNEL_KINDS[t]
               const selected = type === t
               return (
                 <label
@@ -136,15 +131,7 @@ export function CreateChannelDialog(): React.JSX.Element {
               name="channel-name"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder={
-                type === 'voice'
-                  ? 'Lounge'
-                  : type === 'pages'
-                    ? 'design-pages'
-                    : isCategory
-                      ? 'Text'
-                      : 'general'
-              }
+              placeholder={CHANNEL_KINDS[type].placeholder}
               autoFocus
               disabled={busy}
               className={cn(!isCategory && 'pl-8')}

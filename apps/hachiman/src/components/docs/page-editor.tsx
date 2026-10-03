@@ -24,7 +24,6 @@ export interface PageEditorProps {
   handle: DocHandle
   /** False: read-only (no SEND_MESSAGES, or the doc is not live yet). */
   editable: boolean
-  /** A click on a page link. */
   onOpenPage: (pageId: string) => void
   /** "New sub-page" in the slash menu: creates a child of this page. Resolves the new id and title. */
   onNewSubPage: () => Promise<{ id: string; title: string } | null>

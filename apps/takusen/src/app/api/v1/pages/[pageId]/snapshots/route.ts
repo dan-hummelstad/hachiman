@@ -7,16 +7,13 @@
  */
 import { NextResponse, type NextRequest } from 'next/server'
 
-import { db } from '@/db/client'
 import { errorResponse, parseBody } from '@/lib/api-helpers'
 import { requireUser } from '@/lib/auth-helpers'
-import { loadPage } from '@/lib/docs/access'
+import { docsTransaction, loadPage } from '@/lib/docs/access'
 import { docsLimits } from '@/lib/docs/config'
-import { drizzleDocsRepo } from '@/lib/docs/repo.drizzle'
 import { postSnapshot } from '@/lib/docs/service'
 import { postSnapshotSchema, toDocSnapshot } from '@/lib/docs/wire'
 import { requireDevice } from '@/lib/mls/device-auth'
-import { acceptDocEnvelope } from '@/lib/mls/envelopes'
 import { deleteObjects } from '@/lib/storage'
 
 interface RouteContext {
@@ -32,15 +29,8 @@ export async function POST(req: NextRequest, ctx: RouteContext): Promise<NextRes
     const device = await requireDevice(req, userId)
     const body = await parseBody(req, postSnapshotSchema)
     const limits = docsLimits()
-    const { snapshot, keys } = await db.transaction((tx) =>
-      postSnapshot(drizzleDocsRepo(tx), (input) => acceptDocEnvelope(tx, input), {
-        page,
-        guildId: access.guildId,
-        userId,
-        deviceId: device.id,
-        body,
-        limits,
-      }),
+    const { snapshot, keys } = await docsTransaction((repo, accept) =>
+      postSnapshot(repo, accept, { page, guildId: access.guildId, userId, deviceId: device.id, body, limits }),
     )
     await deleteObjects(keys)
     return NextResponse.json(toDocSnapshot(snapshot), { status: 201 })

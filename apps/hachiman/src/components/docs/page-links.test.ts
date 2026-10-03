@@ -1,0 +1,11 @@
+import { describe, expect, it } from 'vitest'
+import { pageIdOfHref, pageHref } from './page-links'
+
+describe('page links', () => {
+  it('round-trips a page href', () => {
+    const id = '0190a6f2-7f3c-7a51-9e0b-2b9f6c3d4e5f'
+    expect(pageIdOfHref(pageHref(id))).toBe(id)
+    expect(pageIdOfHref('https://example.com')).toBeNull()
+    expect(pageIdOfHref('hachiman:page/../x')).toBeNull()
+  })
+})

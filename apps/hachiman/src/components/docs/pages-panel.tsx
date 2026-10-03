@@ -11,10 +11,10 @@ import { errMsg } from '@/lib/utils'
 import { docsService } from '@/services/docs/DocsService'
 import type { DocHandle, DocStatus } from '@/services/docs/types'
 import { useChannelStore } from '@/stores/channelStore'
-import { useDocsStore, type DocPeer, type PageNode } from '@/stores/docsStore'
+import { flattenPages, pagePath, pageTitle } from '@/services/docs/page-tree'
+import { findPage, useDocsStore, type DocPeer, type PageNode } from '@/stores/docsStore'
 import { openChannel } from '@/stores/navStore'
 import { PageTreePopover } from './page-tree-popover'
-import { findPage, flattenPages, pagePath, pageTitle } from './page-tree'
 
 // Crepe, CodeMirror and KaTeX are large: they load with the first open page.
 const PageEditor = lazy(() => import('./page-editor').then((m) => ({ default: m.PageEditor })))
@@ -200,7 +200,6 @@ function CopyMarkdown({ pageId }: { pageId: string }): React.JSX.Element {
   )
 }
 
-/** The open page: the handle of its doc provider, the status and the editor. */
 function OpenPage({
   channelId,
   pageId,
@@ -243,7 +242,7 @@ function OpenPage({
   }, [channelId, pageId])
 
   const onNewSubPage = useCallback(async () => {
-    const id = await docsService.createPage(channelId, 'Untitled', { parentId: pageId })
+    const id = await docsService.createPage(channelId, 'Untitled', pageId)
     return { id, title: 'Untitled' }
   }, [channelId, pageId])
 
@@ -293,7 +292,7 @@ function EmptyChannel({
     setBusy(true)
     setError(null)
     docsService
-      .createPage(channelId, 'Untitled', { parentId: null, position: 0 })
+      .createPage(channelId, 'Untitled', null)
       .then(onCreated, (e) => setError(errMsg(e)))
       .finally(() => setBusy(false))
   }

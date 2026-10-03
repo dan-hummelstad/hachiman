@@ -6,16 +6,14 @@
  */
 import { NextResponse, type NextRequest } from 'next/server'
 
-import { db } from '@/db/client'
 import { errorResponse, parseBody } from '@/lib/api-helpers'
 import { requireUser } from '@/lib/auth-helpers'
-import { loadPagesChannel } from '@/lib/docs/access'
+import { docsTransaction, loadPagesChannel } from '@/lib/docs/access'
 import { drizzleDocsRepo } from '@/lib/docs/repo.drizzle'
 import { createPage } from '@/lib/docs/service'
 import { createPageSchema, toPage } from '@/lib/docs/wire'
 import { publishToChannel } from '@/lib/guild-access'
 import { requireDevice } from '@/lib/mls/device-auth'
-import { acceptDocEnvelope } from '@/lib/mls/envelopes'
 
 interface RouteContext {
   params: Promise<{ id: string }>
@@ -41,9 +39,7 @@ export async function POST(req: NextRequest, ctx: RouteContext): Promise<NextRes
     const access = await loadPagesChannel(id, userId, 'write')
     const device = await requireDevice(req, userId)
     const body = await parseBody(req, createPageSchema)
-    const row = await db.transaction((tx) =>
-      createPage(drizzleDocsRepo(tx), (input) => acceptDocEnvelope(tx, input), { channelId: id, userId, deviceId: device.id, body }),
-    )
+    const row = await docsTransaction((repo, accept) => createPage(repo, accept, { channelId: id, userId, deviceId: device.id, body }))
     const page = toPage(row)
     await publishToChannel(access, 'PAGE_CREATE', { ...page, guildId: access.guildId })
     return NextResponse.json(page, { status: 201 })

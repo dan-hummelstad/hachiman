@@ -263,9 +263,10 @@ A `pages` channel shows the chat in the center and the pages panel on the right,
 | `components/docs/pages-panel.tsx` | The panel: breadcrumb, page tree popover, presence avatars, copy as markdown, the editor. |
 | `components/docs/page-editor.tsx` | Milkdown Crepe bound to the page `Y.Doc` and awareness through `@milkdown/plugin-collab`. Read-only without SEND_MESSAGES. |
 | `components/docs/page-links.ts`, `page-picker.tsx` | Links with the target `hachiman:page/<id>`, shown with the current title. Slash menu items "Link to page" and "New sub-page". |
-| `components/docs/page-media.tsx`, `services/docs/media.ts` | Drop or paste a file: encrypt, upload, claim, then insert an `hm_media` node that holds the pointer. Shown through `use-decrypted-blob`. |
+| `components/docs/page-media.tsx`, `services/docs/media.ts` | Drop or paste a file: encrypt, upload, claim, then insert an `hm_media` node that holds the pointer. Shown through `use-decrypted-blob`. A copy puts only the upload id on the clipboard, never the file key. |
 | `services/docs/DocsService.ts` | The page tree per channel, title encryption, the `PAGE_*` events, into `docsStore`. |
-| `services/docs/DocProvider.ts` | One `Y.Doc` and awareness per open page: load the snapshot and updates, batch local updates (100 ms), encrypt and post, apply remote updates, fill `seq` gaps, post snapshots, relay awareness through gateway op 5. |
+| `services/docs/page-tree.ts` | Pure tree helpers: depth-first rows, path, subtree, positions. A drop is usually one PATCH (the midpoint between the new neighbours). |
+| `services/docs/DocProvider.ts` | One `Y.Doc` and awareness per open page: load the snapshot and updates, batch local updates (100 ms), encrypt and post, apply remote updates, fill `seq` gaps, post snapshots. `DocAwareness.ts` relays awareness through gateway op 5. |
 
 ```mermaid
 flowchart LR

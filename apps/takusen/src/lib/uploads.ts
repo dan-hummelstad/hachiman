@@ -10,7 +10,7 @@ import { and, asc, eq, inArray, isNotNull, isNull, or, sql, type SQL } from 'dri
 import { PROFILE_IMAGE_TYPES } from '@hachiman/client/files'
 import type { Attachment } from '@hachiman/client/types'
 
-import { db, type Tx } from '@/db/client'
+import { db, type Database, type Tx } from '@/db/client'
 import { channels, docPages, guilds, messages, uploads, type UploadRow } from '@/db/schema'
 import { InvalidImageError, UnknownUploadError, ValidationError } from '@/lib/errors'
 import { toAttachment } from '@/lib/files'
@@ -114,11 +114,13 @@ export type AttachmentScope = { messageId: string } | { channelId: string } | { 
  * their keys. Run it in the transaction that deletes the scope, then pass the
  * keys to deleteObjects after commit: the FK cascade would drop the rows but
  * leave the objects in the bucket. A channel or guild scope also takes the
- * page uploads (page_snapshot, page_media) of its pages; a channel scope gives
- * their bytes back to guilds.page_storage_bytes (§4 Pages).
+ * page uploads (page_snapshot, page_media) of its pages through
+ * deleteUploadsOfPages, which gives their bytes back to
+ * guilds.page_storage_bytes (§4 Pages).
  */
 export async function deleteAttachmentRows(tx: Tx, scope: AttachmentScope): Promise<string[]> {
   let inScope
+  let pageKeys: string[] = []
   if ('messageId' in scope) {
     inScope = eq(uploads.messageId, scope.messageId)
   } else {
@@ -144,25 +146,17 @@ export async function deleteAttachmentRows(tx: Tx, scope: AttachmentScope): Prom
       .for('update')
     if (locked.length === 0) return []
     const channelIds = locked.map((c) => c.id)
-    // The same for page claims: they key-share-lock the page row.
-    const pages = await tx
-      .select({ id: docPages.id })
-      .from(docPages)
-      .where(inArray(docPages.channelId, channelIds))
-      .for('update')
-    const ofPages = pages.length > 0 ? inArray(uploads.pageId, pages.map((p) => p.id)) : null
-    if (ofPages && 'channelId' in scope) await releasePageStorage(tx, ofPages)
-    const ofMessages = inArray(
+    pageKeys = (await deleteUploadsOfPages(tx, inArray(docPages.channelId, channelIds))).map((r) => r.key)
+    inScope = inArray(
       uploads.messageId,
       tx
         .select({ id: messages.id })
         .from(messages)
         .where(inArray(messages.channelId, channelIds)),
     )
-    inScope = ofPages ? or(ofMessages, ofPages)! : ofMessages
   }
   const rows = await tx.delete(uploads).where(inScope).returning({ key: uploads.key })
-  return rows.map((r) => r.key)
+  return [...pageKeys, ...rows.map((r) => r.key)]
 }
 
 /**
@@ -170,13 +164,13 @@ export async function deleteAttachmentRows(tx: Tx, scope: AttachmentScope): Prom
  * guilds.page_storage_bytes of their guilds (§4 Pages quota). Call it in the
  * transaction that deletes those rows, before the delete.
  */
-export async function releasePageStorage(tx: Tx, where: SQL): Promise<void> {
+export async function releasePageStorage(tx: Database | Tx, where: SQL): Promise<void> {
   const freed = await tx
     .select({ guildId: channels.guildId, bytes: sql<string>`sum(${uploads.size})` })
     .from(uploads)
     .innerJoin(docPages, eq(docPages.id, uploads.pageId))
     .innerJoin(channels, eq(channels.id, docPages.channelId))
-    .where(and(isNotNull(uploads.pageId), where))
+    .where(where)
     .groupBy(channels.guildId)
   for (const f of freed) {
     if (!f.guildId) continue
@@ -225,7 +219,7 @@ export function pageMediaClaimable(row: PageClaimView, userId: string, pageId: s
 }
 
 /** Claims a snapshot blob for `pageId`. Throws UnknownUpload. */
-export async function claimPageSnapshot(tx: Tx, pageId: string, uploadId: string, userId: string): Promise<{ key: string; size: number }> {
+export async function claimPageSnapshot(tx: Database | Tx, pageId: string, uploadId: string, userId: string): Promise<{ key: string; size: number }> {
   // The SQL form of pageSnapshotClaimable: keep the two in step.
   const [row] = await tx
     .update(uploads)
@@ -249,7 +243,7 @@ export async function claimPageSnapshot(tx: Tx, pageId: string, uploadId: string
  * the bytes of the new claims (a refresh adds none). Throws UnknownUpload when
  * any id is not claimable.
  */
-export async function claimPageMedia(tx: Tx, pageId: string, uploadIds: string[], userId: string, now: Date): Promise<number> {
+export async function claimPageMedia(tx: Database | Tx, pageId: string, uploadIds: string[], userId: string, now: Date): Promise<number> {
   const mine = and(inArray(uploads.id, uploadIds), eq(uploads.uploaderId, userId), eq(uploads.encrypted, true))
   // The SQL form of pageMediaClaimable: keep the two in step. The new claims
   // go first, so a concurrent claim of the same id finds it as a refresh.
@@ -269,18 +263,26 @@ export async function claimPageMedia(tx: Tx, pageId: string, uploadIds: string[]
   return claimed.reduce((n, r) => n + r.size, 0)
 }
 
-function pageUploadsWhere(scope: { pageIds: string[] } | { uploadIds: string[] }): SQL {
-  return 'pageIds' in scope ? inArray(uploads.pageId, scope.pageIds) : and(inArray(uploads.id, scope.uploadIds), isNotNull(uploads.pageId))!
+/**
+ * The one delete path of page uploads (page delete, snapshot pruning, the media
+ * sweep, channel and guild deletes): deletes the claimed page uploads that
+ * match `where` (their snapshot rows cascade), gives their bytes back to the
+ * guild quota and returns their keys and sizes. Pass the keys to deleteObjects
+ * after commit.
+ */
+export async function deletePageUploadRows(tx: Database | Tx, where: SQL): Promise<{ key: string; size: number }[]> {
+  const claimed = and(isNotNull(uploads.pageId), where)!
+  await releasePageStorage(tx, claimed)
+  return tx.delete(uploads).where(claimed).returning({ key: uploads.key, size: uploads.size })
 }
 
 /**
- * Deletes the claimed page uploads of some pages, or some of them by id, gives
- * their bytes back to the guild quota and returns their keys and sizes. Pass
- * the keys to deleteObjects after commit.
+ * deletePageUploadRows for every upload of the pages that match `pages`. A page
+ * claim key-share-locks its page row: without the page lock, an upload claimed
+ * after the delete would go with the cascade and keep its object.
  */
-export async function deletePageUploadRows(tx: Tx, scope: { pageIds: string[] } | { uploadIds: string[] }): Promise<{ key: string; size: number }[]> {
-  if (('pageIds' in scope ? scope.pageIds : scope.uploadIds).length === 0) return []
-  const where = pageUploadsWhere(scope)
-  await releasePageStorage(tx, where)
-  return tx.delete(uploads).where(where).returning({ key: uploads.key, size: uploads.size })
+export async function deleteUploadsOfPages(tx: Database | Tx, pages: SQL): Promise<{ key: string; size: number }[]> {
+  const locked = await tx.select({ id: docPages.id }).from(docPages).where(pages).for('update')
+  if (locked.length === 0) return []
+  return deletePageUploadRows(tx, inArray(uploads.pageId, locked.map((p) => p.id)))
 }

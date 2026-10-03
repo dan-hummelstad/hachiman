@@ -34,7 +34,7 @@ export function Shell(): React.JSX.Element {
   const wide = useMediaQuery('(min-width: 1200px)')
   const [membersPref, setMembersPref] = useState<boolean | null>(null)
   const membersOpen = membersPref ?? wide
-  const isPages = selectedChannel?.type === 'pages' && isGuildChannel(selectedChannel)
+  const isPages = selectedChannel?.type === 'pages'
   const showMembers = membersOpen && selectedGuildId !== null && !isPages
   const toggleMembers = selectedGuildId ? () => setMembersPref(!membersOpen) : undefined
 
@@ -64,8 +64,8 @@ export function Shell(): React.JSX.Element {
         ) : selectedChannel ? (
           <ChannelPane
             channel={selectedChannel}
-            membersOpen={showMembers}
-            onToggleMembers={toggleMembers}
+            sideOpen={showMembers}
+            onToggleSide={toggleMembers}
           >
             {/* The single gate: voice channels carry no messages (no history, typing, composer). */}
             {selectedChannel.type === 'voice' && isGuildChannel(selectedChannel) ? (
@@ -93,8 +93,8 @@ const DEFAULT_PAGES_SIZE = 50
 
 /**
  * Pages channel: chat on the left, the pages panel on the right. The split is resizable, the
- * panel collapses, and prefsStore keeps its width per channel. The members toggle of the title
- * bar shows and hides the panel.
+ * panel collapses, and prefsStore keeps its width per channel. The side toggle of the title bar
+ * shows and hides the panel.
  */
 function PagesSplit({ channel }: { channel: Channel }): React.JSX.Element {
   // Read once: a changed defaultSize would reset the layout.
@@ -119,7 +119,7 @@ function PagesSplit({ channel }: { channel: Channel }): React.JSX.Element {
   return (
     <ResizablePanelGroup orientation="horizontal" className="min-h-0 flex-1" onLayoutChanged={save}>
       <ResizablePanel id={MAIN_PANEL} minSize={320} className="flex h-full min-h-0 flex-col">
-        <ChannelPane channel={channel} membersOpen={open} onToggleMembers={toggle}>
+        <ChannelPane channel={channel} side="pages" sideOpen={open} onToggleSide={toggle}>
           <ChatBody channel={channel} />
         </ChannelPane>
       </ResizablePanel>

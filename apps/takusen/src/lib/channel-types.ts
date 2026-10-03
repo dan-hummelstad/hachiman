@@ -9,5 +9,5 @@ export const TEXT_GROUP_TYPES = ['text', 'pages'] as const
 export type TextGroupType = (typeof TEXT_GROUP_TYPES)[number]
 
 export function hasTextGroup(type: string): type is TextGroupType {
-  return type === 'text' || type === 'pages'
+  return TEXT_GROUP_TYPES.some((t) => t === type)
 }

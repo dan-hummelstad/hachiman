@@ -1,16 +1,5 @@
 import { useMemo, useState } from 'react'
-import {
-  ChevronDown,
-  FileText,
-  Hash,
-  LogOut,
-  PhoneCall,
-  Plus,
-  Settings,
-  Trash2,
-  Users,
-  Volume2
-} from 'lucide-react'
+import { ChevronDown, LogOut, PhoneCall, Plus, Settings, Trash2, Users } from 'lucide-react'
 import {
   DndContext,
   PointerSensor,
@@ -44,7 +33,7 @@ import { UserProfilePopover } from '@/components/user-profile-popover'
 import { VoiceStateBadges } from '@/components/voice/voice-state-badges'
 import { VoiceConnectedPanel } from '@/components/voice-connected-panel'
 import { ChannelIcon } from '@/lib/channel-icon'
-import { dmName, groupChannels } from '@/lib/model'
+import { CHANNEL_KINDS, CREATE_CHANNEL_TYPES, dmName, groupChannels } from '@/lib/model'
 import { ROLE_INK_SCOPE } from '@/lib/role-ink'
 import {
   useDmChannels,
@@ -150,7 +139,7 @@ function GuildChannels({ guildId }: { guildId: string }): React.JSX.Element {
       return next
     })
 
-  const createIn = (type: 'text' | 'voice' | 'pages', parentId: string): void =>
+  const createIn = (type: (typeof CREATE_CHANNEL_TYPES)[number], parentId: string): void =>
     openDialog({ kind: 'createChannel', guildId, type, parentId })
 
   const group = (list: Channel[]): React.JSX.Element => (
@@ -206,15 +195,11 @@ function GuildChannels({ guildId }: { guildId: string }): React.JSX.Element {
               </ContextMenuTrigger>
               {canManage && (
                 <ContextMenuContent>
-                  <ContextMenuItem onSelect={() => createIn('text', cat.id)}>
-                    <Hash /> Create text channel
-                  </ContextMenuItem>
-                  <ContextMenuItem onSelect={() => createIn('voice', cat.id)}>
-                    <Volume2 /> Create voice channel
-                  </ContextMenuItem>
-                  <ContextMenuItem onSelect={() => createIn('pages', cat.id)}>
-                    <FileText /> Create pages channel
-                  </ContextMenuItem>
+                  {CREATE_CHANNEL_TYPES.map((t) => (
+                    <ContextMenuItem key={t} onSelect={() => createIn(t, cat.id)}>
+                      <ChannelIcon type={t} /> Create {CHANNEL_KINDS[t].label.toLowerCase()} channel
+                    </ContextMenuItem>
+                  ))}
                   <ChannelManageItems channelId={cat.id} noun="category" />
                 </ContextMenuContent>
               )}

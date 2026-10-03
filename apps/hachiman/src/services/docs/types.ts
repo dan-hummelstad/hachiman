@@ -3,6 +3,7 @@
 import type { Awareness } from 'y-protocols/awareness'
 import type * as Y from 'yjs'
 import type { DocUpdate } from '@hachiman/client'
+import type { PageMove } from './page-tree'
 
 /**
  * - loading: reading the snapshot and the updates.
@@ -20,16 +21,9 @@ export interface DocHandle {
   readonly doc: Y.Doc
   readonly awareness: Awareness
   readonly status: DocStatus
-  /** Calls `cb` on each status change. Returns the unsubscribe. */
   onStatus(cb: (status: DocStatus) => void): () => void
   /** Releases this handle. The provider closes when the last handle of the page closes. */
   close(): void
-}
-
-/** The page that a new page or a move goes to. `position` defaults to the end of the siblings. */
-export interface PagePlacement {
-  parentId: string | null
-  position?: number
 }
 
 export interface DocsService {
@@ -37,11 +31,14 @@ export interface DocsService {
   loadPages(channelId: string): Promise<void>
   /** Opens (or shares) the provider of the page and sets it as the open page of the channel. */
   openPage(channelId: string, pageId: string): Promise<DocHandle>
-  /** Encrypts the title, POST /channels/:id/pages. Resolves the new page id. */
-  createPage(channelId: string, title: string, at: PagePlacement): Promise<string>
+  /**
+   * Encrypts the title, POST /channels/:id/pages as the last child of `parentId`. Resolves the
+   * new page id.
+   */
+  createPage(channelId: string, title: string, parentId: string | null): Promise<string>
   renamePage(pageId: string, title: string): Promise<void>
-  /** 400 PageCycle rejects. */
-  movePage(pageId: string, to: Required<PagePlacement>): Promise<void>
+  /** The PATCHes of a drop (projectDrop). 400 PageCycle rejects. */
+  movePages(moves: PageMove[]): Promise<void>
   /** Deletes the page and its subtree. */
   deletePage(pageId: string): Promise<void>
   /** The editor of an open page registers its markdown export (Crepe getMarkdown). null unregisters. */

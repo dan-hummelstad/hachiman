@@ -1,14 +1,16 @@
 // Media in pages (plan "Media in pages"): a drop or paste of files encrypts each one like a
 // message attachment (§12.9), uploads the blob, claims it for the page (POST /pages/:id/media),
 // then inserts an `hm_media` node that holds the attachment pointer as JSON. The pointer, with
-// its file key, lives only in the Y.Doc, so it is encrypted with the page. The node renders the
-// decrypted blob through the message attachment views (object URLs, never a file URL).
+// its file key, lives only in the Y.Doc, so it is encrypted with the page: the clipboard HTML
+// carries only the upload id (copyMediaPointer). The node renders the decrypted blob through the
+// message attachment views (object URLs, never a file URL).
 import { createRoot, type Root } from 'react-dom/client'
 import { RestError } from '@hachiman/client'
 import type { AttachmentPointer } from '@hachiman/crypto'
 import type { MilkdownPlugin } from '@milkdown/kit/ctx'
 import type { Node } from '@milkdown/kit/prose/model'
 import { Plugin, PluginKey } from '@milkdown/kit/prose/state'
+import { ReplaceAroundStep, ReplaceStep } from '@milkdown/kit/prose/transform'
 import { Decoration, type NodeViewConstructor } from '@milkdown/kit/prose/view'
 import type { UploadOptions } from '@milkdown/kit/plugin/upload'
 import { $node, $prose, $view } from '@milkdown/kit/utils'
@@ -16,7 +18,12 @@ import { ySyncPluginKey } from 'y-prosemirror'
 import { MessageAttachments } from '@/components/chat/attachments/message-attachments'
 import { uploadIdsOf } from '@/lib/attachments'
 import { uploadAttachment, uploadErrorText } from '@/services/UploadService'
-import { MEDIA_NODE, parsePointer } from '@/services/docs/media'
+import {
+  MEDIA_NODE,
+  copyMediaPointer,
+  parsePointer,
+  pastedMediaPointer
+} from '@/services/docs/media'
 import { hachiman } from '@/services/hachiman'
 
 export const UPLOAD_HREF_PREFIX = 'hachiman:upload/'
@@ -33,10 +40,14 @@ const mediaSchema = $node(MEDIA_NODE, () => ({
   parseDOM: [
     {
       tag: 'div[data-hm-media]',
-      getAttrs: (dom) => ({ pointer: (dom as HTMLElement).getAttribute('data-hm-media') ?? '' })
+      getAttrs: (dom) => {
+        const pointer = pastedMediaPointer((dom as HTMLElement).getAttribute('data-hm-media'))
+        return pointer === null ? false : { pointer }
+      }
     }
   ],
-  toDOM: (node) => ['div', { 'data-hm-media': node.attrs.pointer as string }],
+  // Only serialization (copy, drag) uses toDOM: the node view renders the block.
+  toDOM: (node) => ['div', { 'data-hm-media': copyMediaPointer(node.attrs.pointer) }],
   // Markdown never makes a media node: a pointer comes only from an upload.
   parseMarkdown: { match: () => false, runner: () => {} },
   // A normal image or link with the target hachiman:upload/<id>. The file key stays in the page.
@@ -168,9 +179,8 @@ export function pageMedia(pageId: string, onError: (text: string) => void): Page
           for (const tr of trs) {
             if (!tr.docChanged || tr.getMeta(ySyncPluginKey)) continue
             for (const step of tr.steps) {
-              const slice = (step as { slice?: { content: { descendants: Node['descendants'] } } })
-                .slice
-              slice?.content.descendants((n) => {
+              if (!(step instanceof ReplaceStep || step instanceof ReplaceAroundStep)) continue
+              step.slice.content.descendants((n) => {
                 if (n.type.name !== MEDIA_NODE) return true
                 const p = parsePointer(n.attrs.pointer)
                 if (p) for (const id of uploadIdsOf([p])) ids.add(id)

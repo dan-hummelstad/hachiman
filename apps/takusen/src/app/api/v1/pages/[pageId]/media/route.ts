@@ -5,12 +5,10 @@
  */
 import { type NextRequest, type NextResponse } from 'next/server'
 
-import { db } from '@/db/client'
 import { errorResponse, noContent, parseBody } from '@/lib/api-helpers'
 import { requireUser } from '@/lib/auth-helpers'
-import { loadPage } from '@/lib/docs/access'
+import { docsTransaction, loadPage } from '@/lib/docs/access'
 import { docsLimits } from '@/lib/docs/config'
-import { drizzleDocsRepo } from '@/lib/docs/repo.drizzle'
 import { claimMedia } from '@/lib/docs/service'
 import { claimMediaSchema } from '@/lib/docs/wire'
 
@@ -26,7 +24,7 @@ export async function POST(req: NextRequest, ctx: RouteContext): Promise<NextRes
     const { page, access } = await loadPage(pageId, userId, 'write')
     const { uploadIds } = await parseBody(req, claimMediaSchema)
     const limits = docsLimits()
-    await db.transaction((tx) => claimMedia(drizzleDocsRepo(tx), { page, guildId: access.guildId, userId, uploadIds, now: new Date(), limits }))
+    await docsTransaction((repo) => claimMedia(repo, { page, guildId: access.guildId, userId, uploadIds, now: new Date(), limits }))
     return noContent()
   } catch (err) {
     return errorResponse(err)

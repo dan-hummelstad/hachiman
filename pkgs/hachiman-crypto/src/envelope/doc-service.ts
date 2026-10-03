@@ -2,39 +2,16 @@
  * DocService (docs/gateway-protocol.md §12.20): page envelopes in the MLS group of a pages channel.
  * GroupService and IdentityService are injected, as for MessageService.
  */
-import type { CreateDocService, CryptoErrorShape, DocDecryptFailure, DocDecryptResult, EncryptedDocItem, UserId } from '../api'
+import type { CreateDocService, DocDecryptFailure, DocDecryptResult, DocEnvelopeHeader, EncryptedDocItem, UserId } from '../api'
 import { CryptoError } from '../api'
 import { fromB64url, toB64url } from '../codec'
 import { MAX_DOC_AWARENESS_B64_BYTES } from '../constants'
 import { decodeDocEnvelope } from './codec'
 import { openDoc, sealDoc } from './doc'
-
-function dsCodeOf(e: unknown): string | undefined {
-  if (typeof e === 'object' && e !== null && 'dsCode' in e && typeof e.dsCode === 'string') return e.dsCode
-  return undefined
-}
-
-function isTransient(e: unknown): boolean {
-  return dsCodeOf(e) !== undefined || (e instanceof CryptoError && e.code === 'Transport')
-}
+import { decryptEach, envelopeLimitOf, isRevokedSender, missingEpochReason } from './service'
 
 export const createDocService: CreateDocService = (ctx, identity, groups) => {
-  let maxEnvelopeBytes: Promise<number> | null = null
-
-  function envelopeLimit(): Promise<number> {
-    if (maxEnvelopeBytes === null) {
-      maxEnvelopeBytes = ctx.transport.getDsInfo().then((info) => info.limits.maxEnvelopeBytes)
-      maxEnvelopeBytes.catch(() => {
-        maxEnvelopeBytes = null
-      })
-    }
-    return maxEnvelopeBytes
-  }
-
-  async function isKnownGroup(groupIdB64: string): Promise<boolean> {
-    if ((await ctx.store.get('groups', groupIdB64)) !== undefined) return true
-    return (await ctx.store.list('epochSecrets', `${groupIdB64}:`)).length > 0
-  }
+  const envelopeLimit = envelopeLimitOf(ctx)
 
   /**
    * A doc item names no author, so the lookup starts at the user that the membership timeline
@@ -55,7 +32,7 @@ export const createDocService: CreateDocService = (ctx, identity, groups) => {
 
     // Step 1: the header against the item.
     let bytes: Uint8Array
-    let header: ReturnType<typeof decodeDocEnvelope>['header']
+    let header: DocEnvelopeHeader
     try {
       bytes = fromB64url(item.envelope)
       header = decodeDocEnvelope(bytes).header
@@ -68,29 +45,20 @@ export const createDocService: CreateDocService = (ctx, identity, groups) => {
     if (item.senderDevice !== null && header.senderDeviceId !== item.senderDevice) return fail('device_mismatch')
 
     // Step 2: the epoch secret (a retained one for an old epoch).
-    const groupIdB64 = toB64url(header.groupId)
     const epochSecret = await groups.epochSecret(header.groupId, header.epoch)
-    if (epochSecret === null) {
-      const current = await groups.currentEpoch(header.groupId)
-      if (current !== null && header.epoch > current) return { status: 'pending', id: item.id, reason: 'epoch_ahead' }
-      const reason = current === null && !(await isKnownGroup(groupIdB64)) ? 'group_unknown' : 'no_history_key'
-      return { status: 'pending', id: item.id, reason }
-    }
+    if (epochSecret === null) return { status: 'pending', id: item.id, reason: await missingEpochReason(ctx, groups, header.groupId, header.epoch) }
 
-    // Steps 3 to 5.
     const opened = await openDoc<{ signatureKey: Uint8Array; userId: UserId }>(bytes, epochSecret, async (h) => {
-      const cert = await identity.deviceOwnerCertificate(h.senderDeviceId, await ownerHint(groupIdB64, h.senderDeviceId))
+      const cert = await identity.deviceOwnerCertificate(h.senderDeviceId, await ownerHint(toB64url(h.groupId), h.senderDeviceId))
       if (cert?.deviceId !== h.senderDeviceId) return { failure: 'invalid_chain' }
-      // The revoked-sender rule of §12.8.5 step 4.
-      const removedAt = await groups.removedAt(h.groupId, h.senderDeviceId)
-      if (removedAt !== null && h.epoch >= removedAt && (await identity.chainContextFor(cert.userId, false)).revokedDeviceIds.has(h.senderDeviceId)) return { failure: 'invalid_chain' }
+      if (await isRevokedSender(identity, groups, h, cert.userId)) return { failure: 'invalid_chain' }
       return { signatureKey: cert.mlsSignatureKey, userId: cert.userId }
     })
     if ('failure' in opened) {
       if (opened.failure === 'aead') await groups.reportAeadFailure(header.groupId, header.epoch, header.senderDeviceId)
       return fail(opened.failure)
     }
-    const sender = opened.sender.userId
+    const { userId } = opened.sender
     const leaf = await groups.leafAt(header.groupId, header.senderDeviceId, header.epoch)
     return {
       status: 'ok',
@@ -98,10 +66,10 @@ export const createDocService: CreateDocService = (ctx, identity, groups) => {
       kind: header.kind,
       bytes: opened.body,
       sender: {
-        userId: sender,
+        userId,
         deviceId: header.senderDeviceId,
         leafIndex: header.senderLeaf,
-        trust: await identity.trustOf(sender),
+        trust: await identity.trustOf(userId),
         membershipVerified: leaf !== null && leaf === header.senderLeaf,
       },
     }
@@ -137,24 +105,6 @@ export const createDocService: CreateDocService = (ctx, identity, groups) => {
       return { envelope, groupId: toB64url(state.groupId), epoch: state.epoch }
     },
 
-    async decryptDoc(items) {
-      const out: DocDecryptResult[] = []
-      let transient: { first: CryptoErrorShape; count: number } | null = null
-      for (const item of items) {
-        try {
-          out.push(await decryptOne(item))
-        } catch (e) {
-          if (!isTransient(e)) throw e
-          out.push({ status: 'pending', id: item.id, reason: 'transport' })
-          transient ??= { first: { code: 'Transport', message: e instanceof Error ? e.message : String(e), dsCode: dsCodeOf(e) }, count: 0 }
-          transient.count++
-        }
-      }
-      if (transient !== null) {
-        const { first, count } = transient
-        ctx.emit('error', { ...first, message: `decryptDoc: ${count} of ${items.length} items pending after a DS error: ${first.message}` })
-      }
-      return out
-    },
+    decryptDoc: (items) => decryptEach<EncryptedDocItem, DocDecryptResult>(ctx, 'decryptDoc', items, decryptOne, (item) => ({ status: 'pending', id: item.id, reason: 'transport' })),
   }
 }

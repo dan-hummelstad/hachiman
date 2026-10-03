@@ -54,9 +54,9 @@ const BLURHASH_RE = /^[\x20-\x7e]+$/
 
 export type EnvelopeKindName = 'message' | 'edit'
 
-/** The decoded `Envelope` struct. */
-export interface Envelope {
-  header: EnvelopeHeader
+/** The decoded `Envelope` struct, or a `DocEnvelope` with H = DocEnvelopeHeader. */
+export interface Envelope<H = EnvelopeHeader> {
+  header: H
   /** encode(header): the AEAD additional data and the signed header bytes. */
   headerBytes: Uint8Array
   ciphertext: Uint8Array
@@ -192,16 +192,20 @@ export function encodeEnvelope(headerBytes: Uint8Array, ciphertext: Uint8Array):
   return new Writer().fixed(headerBytes, headerBytes.length).opaque(ciphertext).finish()
 }
 
-/** Decodes a whole Envelope (header and ciphertext, no trailing bytes). */
-export function decodeEnvelope(envelope: Uint8Array): Envelope {
-  return decoding('Envelope', () => {
+function decodeWhole<H>(what: string, envelope: Uint8Array, read: (r: Reader) => H): Envelope<H> {
+  return decoding(what, () => {
     const r = new Reader(envelope)
-    const header = readHeader(r)
+    const header = read(r)
     const headerBytes = envelope.slice(0, envelope.length - r.remaining)
     const ciphertext = r.opaque()
     r.end()
     return { header, headerBytes, ciphertext }
   })
+}
+
+/** Decodes a whole Envelope (header and ciphertext, no trailing bytes). */
+export function decodeEnvelope(envelope: Uint8Array): Envelope {
+  return decodeWhole('Envelope', envelope, readHeader)
 }
 
 // MARK: - Mention
@@ -423,16 +427,21 @@ export function encodePlaintext(contentBytes: Uint8Array, frankingKey: Uint8Arra
   })
 }
 
+/** The trailing `opaque signature<V>` of a plaintext: exactly SIGNATURE_LENGTH bytes, then the end. */
+function readFinalSignature(r: Reader): Uint8Array {
+  const signature = r.opaque(SIGNATURE_LENGTH)
+  if (signature.length !== SIGNATURE_LENGTH) malformed(`signature must be ${SIGNATURE_LENGTH} bytes`)
+  r.end()
+  return signature
+}
+
 export function decodePlaintext(b: Uint8Array): EnvelopePlaintext {
   return decoding('EnvelopePlaintext', () => {
     const r = new Reader(b)
     const content = readContent(r)
     const contentBytes = b.slice(0, b.length - r.remaining)
     const frankingKey = r.fixed(FRANKING_KEY_LENGTH)
-    const signature = r.opaque(SIGNATURE_LENGTH)
-    if (signature.length !== SIGNATURE_LENGTH) malformed(`signature must be ${SIGNATURE_LENGTH} bytes`)
-    r.end()
-    return { ...content, contentBytes, frankingKey, signature }
+    return { ...content, contentBytes, frankingKey, signature: readFinalSignature(r) }
   })
 }
 
@@ -462,14 +471,6 @@ const DOC_KIND: Record<DocEnvelopeKindName, number> = {
   doc_title: DocEnvelopeKind.TITLE,
 }
 const DOC_KIND_NAME = new Map<number, DocEnvelopeKindName>(Object.entries(DOC_KIND).map(([k, v]) => [v, k as DocEnvelopeKindName]))
-
-/** The decoded `DocEnvelope` struct. */
-export interface DocEnvelope {
-  header: DocEnvelopeHeader
-  /** encode(header): the AEAD additional data and the signed header bytes. */
-  headerBytes: Uint8Array
-  ciphertext: Uint8Array
-}
 
 /** The decoded `DocPlaintext` struct. */
 export interface DocPlaintext {
@@ -523,24 +524,18 @@ export function encodeDocHeader(h: DocEnvelopeHeader): Uint8Array {
 }
 
 /** Decodes a whole DocEnvelope (header and ciphertext, no trailing bytes). */
-export function decodeDocEnvelope(envelope: Uint8Array): DocEnvelope {
-  return decoding('DocEnvelope', () => {
-    const r = new Reader(envelope)
-    const header = readDocHeader(r)
-    const headerBytes = envelope.slice(0, envelope.length - r.remaining)
-    const ciphertext = r.opaque()
-    r.end()
-    return { header, headerBytes, ciphertext }
-  })
+export function decodeDocEnvelope(envelope: Uint8Array): Envelope<DocEnvelopeHeader> {
+  return decodeWhole('DocEnvelope', envelope, readDocHeader)
 }
 
+const STRICT_UTF8 = new TextDecoder('utf-8', { fatal: true })
 const SNAPSHOT_POINTER_KEYS = ['fileKey', 'sha256', 'size', 'uploadId']
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 /** The doc_snapshot body: strict UTF-8 JSON of exactly the four pointer fields. */
 export function decodeSnapshotPointer(body: Uint8Array): DocSnapshotPointer {
   return decoding('DocSnapshotPointer', () => {
-    const v: unknown = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(body))
+    const v: unknown = JSON.parse(STRICT_UTF8.decode(body))
     if (typeof v !== 'object' || v === null || Array.isArray(v)) malformed('snapshot pointer is not an object')
     const o = v as Record<string, unknown>
     if (Object.keys(o).sort().join() !== SNAPSHOT_POINTER_KEYS.join()) malformed('snapshot pointer needs exactly uploadId, fileKey, sha256 and size')
@@ -559,11 +554,7 @@ export function checkDocBody(kind: DocEnvelopeKindName, body: Uint8Array): void 
   if (kind === 'doc_title') {
     if (body.length === 0) malformed('a page title is empty')
     if (body.length > MAX_PAGE_TITLE_BYTES) tooLarge(`page title longer than ${MAX_PAGE_TITLE_BYTES} bytes`)
-    try {
-      new TextDecoder('utf-8', { fatal: true }).decode(body)
-    } catch {
-      malformed('page title is not UTF-8')
-    }
+    decoding('page title', () => STRICT_UTF8.decode(body))
   } else if (kind === 'doc_snapshot') {
     decodeSnapshotPointer(body)
   }
@@ -586,10 +577,7 @@ export function decodeDocPlaintext(b: Uint8Array): DocPlaintext {
     const body = r.opaque()
     const sentAtMs = r.u64n()
     const contentBytes = b.slice(0, b.length - r.remaining)
-    const signature = r.opaque(SIGNATURE_LENGTH)
-    if (signature.length !== SIGNATURE_LENGTH) malformed(`signature must be ${SIGNATURE_LENGTH} bytes`)
-    r.end()
-    return { body, sentAtMs, contentBytes, signature }
+    return { body, sentAtMs, contentBytes, signature: readFinalSignature(r) }
   })
 }
 

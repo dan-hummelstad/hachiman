@@ -5,7 +5,7 @@ import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover'
 import { cn } from '@/lib/utils'
 import { useChannelStore } from '@/stores/channelStore'
 import { useDocsStore, type PageNode } from '@/stores/docsStore'
-import { pageTitle } from './page-tree'
+import { pageTitle } from '@/services/docs/page-tree'
 
 const MAX_ROWS = 50
 

@@ -6,7 +6,7 @@ import { and, asc, desc, eq, gt, inArray, lte, sql } from 'drizzle-orm'
 
 import { db, type Database, type Tx } from '@/db/client'
 import { channels, docPages, docSnapshots, docUpdates, guilds, uploads } from '@/db/schema'
-import { claimPageMedia, claimPageSnapshot, deletePageUploadRows } from '@/lib/uploads'
+import { claimPageMedia, claimPageSnapshot, deletePageUploadRows, deleteUploadsOfPages } from '@/lib/uploads'
 
 import type { DocsRepo } from './repo'
 
@@ -73,29 +73,22 @@ export function drizzleDocsRepo(x: Database | Tx = db): DocsRepo {
     },
 
     async listSnapshots(pageId) {
-      const rows = await x
+      return x
         .select({ row: docSnapshots, key: uploads.key, size: uploads.size })
         .from(docSnapshots)
         .innerJoin(uploads, eq(uploads.id, docSnapshots.uploadId))
         .where(eq(docSnapshots.pageId, pageId))
         .orderBy(desc(docSnapshots.baseSeq))
-      return rows
     },
     async insertSnapshot(values) {
       const [row] = await x.insert(docSnapshots).values(values).returning()
       return row!
     },
 
-    claimSnapshotUpload: (pageId, uploadId, userId) => claimPageSnapshot(x as Tx, pageId, uploadId, userId),
-    claimMediaUploads: (pageId, uploadIds, userId, now) => claimPageMedia(x as Tx, pageId, uploadIds, userId, now),
-    async deletePageUploads(scope) {
-      if ('pageIds' in scope && scope.pageIds.length > 0) {
-        // A page claim key-share-locks its page row. Without this lock, an
-        // upload claimed after the DELETE would go with the cascade and keep its object.
-        await x.select({ id: docPages.id }).from(docPages).where(inArray(docPages.id, scope.pageIds)).for('update')
-      }
-      return deletePageUploadRows(x as Tx, scope)
-    },
+    claimSnapshotUpload: (pageId, uploadId, userId) => claimPageSnapshot(x, pageId, uploadId, userId),
+    claimMediaUploads: (pageId, uploadIds, userId, now) => claimPageMedia(x, pageId, uploadIds, userId, now),
+    deletePageUploads: (scope) =>
+      'pageIds' in scope ? deleteUploadsOfPages(x, inArray(docPages.id, scope.pageIds)) : deletePageUploadRows(x, inArray(uploads.id, scope.uploadIds)),
     async addPageStorage(guildId, bytes, limit) {
       const fits = bytes > 0 && limit > 0 ? sql`${guilds.pageStorageBytes} + ${bytes} <= ${limit}` : undefined
       const [row] = await x

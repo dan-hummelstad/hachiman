@@ -11,11 +11,12 @@ import { Permissions } from '@hachiman/client/permissions'
 
 import type { DocPageRow } from '@/db/schema'
 import { ApiError, MissingPermissionsError, NotFoundError, UnknownUploadError, UploadTooLargeError, ValidationError } from '@/lib/errors'
+import type { DocEnvelopeInput } from '@/lib/mls/envelopes'
 
 import { checkPageAccess, type PageMode } from './access'
 import { docsLimits, type DocsLimits } from './config'
 import { InMemoryDocsStore } from './repo.in-memory'
-import { claimMedia, createPage, deletePage, getPageState, postSnapshot, postUpdate, updatePage, type AcceptDocEnvelope, type DocEnvelopeCheck } from './service'
+import { claimMedia, createPage, deletePage, getPageState, postSnapshot, postUpdate, updatePage, type AcceptDocEnvelope } from './service'
 import { createPageSchema, postSnapshotSchema } from './wire'
 
 const GROUP = new Uint8Array(16).fill(7)
@@ -29,7 +30,7 @@ describe('pages service', () => {
   let store: InMemoryDocsStore
   let guildId: string
   let channelId: string
-  let checks: DocEnvelopeCheck[]
+  let checks: DocEnvelopeInput[]
   let accept: AcceptDocEnvelope
   let limits: DocsLimits
   const userId = randomUUID()

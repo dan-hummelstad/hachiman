@@ -15,10 +15,11 @@ const PANE = 'bg-background flex min-h-0 min-w-0 flex-1 flex-col'
 
 export interface ChannelPaneProps {
   channel: Channel
-  /** In a pages channel: the pages panel is open (the toggle shows and hides it). */
-  membersOpen: boolean
+  /** The right column that the title bar toggle shows and hides. */
+  side?: 'members' | 'pages'
+  sideOpen: boolean
   /** Omitted in DMs (no member list). */
-  onToggleMembers?: () => void
+  onToggleSide?: () => void
   /** The body: `ChatBody` for text and pages channels and DMs, `VoiceRoom` for voice channels. */
   children: React.ReactNode
 }
@@ -26,14 +27,14 @@ export interface ChannelPaneProps {
 /** Main pane frame for a channel: 48px title bar (title, member toggle, settings) over a body. */
 export function ChannelPane({
   channel,
-  membersOpen,
-  onToggleMembers,
+  side = 'members',
+  sideOpen,
+  onToggleSide,
   children
 }: ChannelPaneProps): React.JSX.Element {
   const perms = usePermissions(channel.guildId, channel.id)
   const isDm = channel.guildId === null
   const canManage = !isDm && has(perms, Permissions.MANAGE_CHANNELS)
-  const side = channel.type === 'pages' ? 'pages' : 'members'
 
   return (
     <section className={cn(PANE, ROLE_INK_SCOPE)}>
@@ -41,12 +42,12 @@ export function ChannelPane({
         left={isDm ? <DmTitle channel={channel} /> : <ChannelTitle channel={channel} />}
         right={
           <>
-            {onToggleMembers && (
+            {onToggleSide && (
               <IconButton
-                label={membersOpen ? `Hide ${side}` : `Show ${side}`}
+                label={sideOpen ? `Hide ${side}` : `Show ${side}`}
                 tooltipSide="bottom"
-                pressed={membersOpen}
-                onClick={onToggleMembers}
+                pressed={sideOpen}
+                onClick={onToggleSide}
               >
                 {side === 'pages' ? <FileText /> : <Users />}
               </IconButton>

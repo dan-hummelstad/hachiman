@@ -14,7 +14,7 @@ import { and, eq, inArray, isNull, lt, or, sql } from 'drizzle-orm'
 
 import { db } from '@/db/client'
 import { docSnapshots, uploads } from '@/db/schema'
-import { releasePageStorage } from '@/lib/uploads'
+import { deletePageUploadRows } from '@/lib/uploads'
 
 export const PAGE_MEDIA_RETENTION_MS = 30 * 24 * 60 * 60_000
 
@@ -58,9 +58,7 @@ export function drizzlePageMediaSweepRepo(): PageMediaSweepRepo {
             .limit(SWEEP_BATCH)
             .for('update', { skipLocked: true })
           if (stale.length === 0) return []
-          const ids = inArray(uploads.id, stale.map((s) => s.id))
-          await releasePageStorage(tx, ids)
-          const rows = await tx.delete(uploads).where(ids).returning({ key: uploads.key })
+          const rows = await deletePageUploadRows(tx, inArray(uploads.id, stale.map((s) => s.id)))
           return rows.map((r) => r.key)
         })
         keys.push(...batch)

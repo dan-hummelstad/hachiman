@@ -8,16 +8,14 @@
 import type { DocUpdatePage } from '@hachiman/client/types'
 import { NextResponse, type NextRequest } from 'next/server'
 
-import { db } from '@/db/client'
 import { errorResponse, parseBody } from '@/lib/api-helpers'
 import { requireUser } from '@/lib/auth-helpers'
-import { loadPage } from '@/lib/docs/access'
+import { docsTransaction, loadPage } from '@/lib/docs/access'
 import { drizzleDocsRepo } from '@/lib/docs/repo.drizzle'
 import { listUpdates, postUpdate } from '@/lib/docs/service'
 import { parseUpdatesQuery, postUpdateSchema, toDocUpdate } from '@/lib/docs/wire'
 import { publishToChannel } from '@/lib/guild-access'
 import { requireDevice } from '@/lib/mls/device-auth'
-import { acceptDocEnvelope } from '@/lib/mls/envelopes'
 
 interface RouteContext {
   params: Promise<{ pageId: string }>
@@ -44,9 +42,7 @@ export async function POST(req: NextRequest, ctx: RouteContext): Promise<NextRes
     const { page, access } = await loadPage(pageId, userId, 'write')
     const device = await requireDevice(req, userId)
     const { envelope } = await parseBody(req, postUpdateSchema)
-    const row = await db.transaction((tx) =>
-      postUpdate(drizzleDocsRepo(tx), (input) => acceptDocEnvelope(tx, input), { page, userId, deviceId: device.id, envelope }),
-    )
+    const row = await docsTransaction((repo, accept) => postUpdate(repo, accept, { page, userId, deviceId: device.id, envelope }))
     await publishToChannel(access, 'DOC_UPDATE', { ...toDocUpdate(row), channelId: page.channelId, guildId: access.guildId })
     return NextResponse.json({ seq: row.seq }, { status: 201 })
   } catch (err) {

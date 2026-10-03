@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import type { PageNode } from '@/stores/docsStore'
-import { clampTitle, flattenPages, pagePath, projectDrop, subtreeIds } from './page-tree'
-import { pageIdOfHref, pageHref } from './page-links'
+import {
+  POSITION_STEP,
+  clampTitle,
+  endPosition,
+  flattenPages,
+  pagePath,
+  projectDrop,
+  subtreeIds
+} from './page-tree'
 
 const page = (id: string, parentId: string | null, position: number): PageNode => ({
   id,
@@ -40,23 +47,37 @@ describe('page tree', () => {
     expect([...subtreeIds(PAGES, 'a')].sort()).toEqual(['a', 'a1', 'a2'])
   })
 
-  it('reorders siblings and renumbers them', () => {
+  it('moves a page between two spaced siblings with one PATCH', () => {
+    const spaced = [page('x', null, 0), page('y', null, POSITION_STEP), page('z', null, 2048)]
+    expect(projectDrop(spaced, 'z', 'y', 0)).toEqual([
+      { pageId: 'z', parentId: null, position: 512 }
+    ])
+  })
+
+  it('renumbers the siblings when the neighbours leave no gap', () => {
     expect(projectDrop(PAGES, 'a2', 'a1', 0)).toEqual([
       { pageId: 'a2', parentId: 'a', position: 0 },
-      { pageId: 'a1', parentId: 'a', position: 1 }
+      { pageId: 'a1', parentId: 'a', position: POSITION_STEP }
     ])
   })
 
   it('nests a page with a drag to the right, one level per indent step', () => {
-    expect(projectDrop(PAGES, 'b', 'b', 1)).toEqual([{ pageId: 'b', parentId: 'a', position: 2 }])
+    expect(projectDrop(PAGES, 'b', 'b', 1)).toEqual([
+      { pageId: 'b', parentId: 'a', position: 1 + POSITION_STEP }
+    ])
     expect(projectDrop(PAGES, 'b', 'b', 2)).toEqual([{ pageId: 'b', parentId: 'a2', position: 0 }])
   })
 
   it('un-nests the last child with a drag to the left', () => {
     expect(projectDrop(PAGES, 'a2', 'a2', -1)).toEqual([
-      { pageId: 'a2', parentId: null, position: 1 },
-      { pageId: 'b', parentId: null, position: 2 }
+      { pageId: 'a2', parentId: null, position: POSITION_STEP },
+      { pageId: 'b', parentId: null, position: 2 * POSITION_STEP }
     ])
+  })
+
+  it('gives a new page the end position', () => {
+    expect(endPosition(PAGES, 'a')).toBe(1 + POSITION_STEP)
+    expect(endPosition(PAGES, 'b')).toBe(0)
   })
 
   it('cannot nest a page into its own subtree', () => {
@@ -72,14 +93,5 @@ describe('page tree', () => {
   it('clamps a title to 200 UTF-8 bytes', () => {
     expect(clampTitle('  ')).toBe('Untitled')
     expect(new TextEncoder().encode(clampTitle('文'.repeat(100))).length).toBeLessThanOrEqual(200)
-  })
-})
-
-describe('page links', () => {
-  it('round-trips a page href', () => {
-    const id = '0190a6f2-7f3c-7a51-9e0b-2b9f6c3d4e5f'
-    expect(pageIdOfHref(pageHref(id))).toBe(id)
-    expect(pageIdOfHref('https://example.com')).toBeNull()
-    expect(pageIdOfHref('hachiman:page/../x')).toBeNull()
   })
 })

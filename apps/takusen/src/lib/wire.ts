@@ -30,7 +30,6 @@ import type {
   PermissionOverwriteRow,
   RoleRow,
 } from '@/db/schema'
-import { hasTextGroup } from '@/lib/channel-types'
 import type { AcceptedEnvelope } from '@/lib/mls/envelopes'
 import { fromB64, toB64 } from '@/lib/mls/bytes'
 
@@ -80,7 +79,7 @@ const NO_GROUPS: GroupVisibility = new Map()
  * allocated one, the value is the default of a channel or dm group.
  */
 function groupFields(c: ChannelRow, groups: GroupVisibility): Pick<Channel, 'mlsGroupId' | 'historyVisibility'> {
-  if (!hasTextGroup(c.type) && c.type !== 'dm' && c.type !== 'group_dm') return { mlsGroupId: null, historyVisibility: null }
+  if (c.type === 'voice' || c.type === 'category') return { mlsGroupId: null, historyVisibility: null }
   const mlsGroupId = c.mlsGroupId ? toB64(c.mlsGroupId) : null
   return { mlsGroupId, historyVisibility: (mlsGroupId && groups.get(mlsGroupId)) || 'joined' }
 }

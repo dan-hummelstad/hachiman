@@ -30,7 +30,6 @@ interface DocsState {
   /** pageId → the remote viewers. */
   presence: Map<string, DocPeer[]>
   setPages: (channelId: string, pages: PageNode[]) => void
-  /** Inserts or replaces one page by id. */
   upsertPage: (page: PageNode) => void
   /** Removes pages by id (a delete and its subtree). Clears the open page when it is one of them. */
   removePages: (channelId: string, ids: string[]) => void
@@ -109,6 +108,15 @@ export const useDocsStore = create<DocsState>()(
       })
   }))
 )
+
+/** A page of any loaded pages channel. */
+export function findPage(pageId: string): PageNode | undefined {
+  for (const list of useDocsStore.getState().pagesByChannel.values()) {
+    const page = list.find((p) => p.id === pageId)
+    if (page) return page
+  }
+  return undefined
+}
 
 export function resetDocsStore(): void {
   useDocsStore.setState(initialDocsState())

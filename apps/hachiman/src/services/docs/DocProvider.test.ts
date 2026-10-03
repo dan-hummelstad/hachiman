@@ -2,14 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as Y from 'yjs'
 import type { DocSnapshot, DocUpdate } from '@hachiman/client'
 import type { DocDecryptResult, EncryptDocInput } from '@hachiman/crypto'
-import {
-  AWARENESS_MS,
-  BATCH_MS,
-  SNAPSHOT_EVERY,
-  awarenessClientIds,
-  createDocProvider,
-  type DocProviderDeps
-} from './DocProvider'
+import { AWARENESS_MS, awarenessClientIds } from './DocAwareness'
+import { BATCH_MS, SNAPSHOT_EVERY, createDocProvider, type DocProviderDeps } from './DocProvider'
 import type { DocProvider } from './types'
 
 const CHANNEL = 'c-1'
@@ -159,6 +153,7 @@ function harness(): Harness {
     me: () => ({ userId: 'u-1', name: 'alice', color: '#112233' }),
     online: () => true,
     setPresence: (_p, peers) => presence.push(peers),
+    collectMediaUploadIds: () => [],
     random: () => 0
   }
   return {

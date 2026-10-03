@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import * as Y from 'yjs'
 import type { AttachmentPointer } from '@hachiman/crypto'
-import { MEDIA_NODE, collectMediaUploadIds, parsePointer } from './media'
+import {
+  MEDIA_NODE,
+  collectMediaUploadIds,
+  copyMediaPointer,
+  forgetCopiedMedia,
+  parsePointer,
+  pastedMediaPointer
+} from './media'
 
 const B64 = 'A'.repeat(43)
 const uuid = (n: number): string => `00000000-0000-4000-8000-${n.toString(16).padStart(12, '0')}`
@@ -54,5 +61,19 @@ describe('collectMediaUploadIds', () => {
     quote.insert(0, [media(pointer(2, { thumbnail })), media('not json')])
     frag.insert(0, [media(pointer(1)), quote, media(pointer(1))])
     expect(collectMediaUploadIds(doc).sort()).toEqual([uuid(1), uuid(2), uuid(3)])
+  })
+})
+
+describe('media on the clipboard', () => {
+  it('copies only the upload id, and pastes the pointer back only in this app', () => {
+    const json = JSON.stringify(pointer(1))
+    const id = copyMediaPointer(json)
+    expect(id).toBe(uuid(1))
+    expect(id).not.toContain(B64)
+    expect(pastedMediaPointer(id)).toBe(json)
+    expect(pastedMediaPointer(uuid(9))).toBeNull()
+    expect(copyMediaPointer('{')).toBe('')
+    forgetCopiedMedia()
+    expect(pastedMediaPointer(id)).toBeNull()
   })
 })

@@ -133,13 +133,12 @@ func (g *Gateway) publish(ctx context.Context, channel, t string, d any) {
 }
 
 func (g *Gateway) publishEnvelope(ctx context.Context, channel string, env envelope) {
-	t := env.T
 	b, err := json.Marshal(env)
 	if err == nil {
 		err = g.rdb.Publish(ctx, channel, b).Err()
 	}
 	if err != nil {
-		slog.Warn("publish failed", "channel", channel, "t", t, "err", err)
+		slog.Warn("publish failed", "channel", channel, "t", env.T, "err", err)
 	}
 }
 

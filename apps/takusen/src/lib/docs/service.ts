@@ -2,41 +2,22 @@
  * The pages delivery service (docs/gateway-protocol.md §4 Pages, §12.20).
  * Takusen stores the page tree, the update log and the snapshot pointers as
  * envelopes. It never decrypts. The routes run each write in one transaction
- * over `drizzleDocsRepo(tx)`, with `acceptDocEnvelope` bound to the same `tx`.
- * Tests run them over InMemoryDocsStore and a fake accept.
+ * (access.ts docsTransaction): `drizzleDocsRepo(tx)` with `acceptDocEnvelope`
+ * bound to the same `tx`. Tests run them over InMemoryDocsStore and a fake accept.
  */
 import type { DocPageRow, DocUpdateRow } from '@/db/schema'
 import { ApiError, NotFoundError, UploadTooLargeError, ValidationError } from '@/lib/errors'
+import type { AcceptedDocEnvelope, DocEnvelopeInput } from '@/lib/mls/envelopes'
 
 import { STATE_UPDATES_MAX, type DocsLimits } from './config'
 import type { DocsRepo, StoredSnapshot } from './repo'
 import type { CreatePageBody, PostSnapshotBody, UpdatePageBody } from './wire'
 
-/** The input of `acceptDocEnvelope` (lib/mls/envelopes.ts, §12.18). */
-export interface DocEnvelopeCheck {
-  channelId: string
-  pageId: string
-  userId: string
-  deviceId: string
-  kind: 'doc_update' | 'doc_snapshot' | 'doc_title'
-  envelope: Uint8Array
-}
-
-export interface AcceptedDocEnvelope {
-  groupId: Uint8Array
-  epoch: number
-  senderDeviceId: string
-  size: number
-}
-
 /** `acceptDocEnvelope` bound to the route transaction. Throws ApiError (§4 Pages). */
-export type AcceptDocEnvelope = (input: DocEnvelopeCheck) => Promise<AcceptedDocEnvelope>
+export type AcceptDocEnvelope = (input: DocEnvelopeInput) => Promise<AcceptedDocEnvelope>
 
-export interface Actor {
-  userId: string
-  /** The X-Hachiman-Device of the request. */
-  deviceId: string
-}
+/** The caller and its X-Hachiman-Device. */
+export type Actor = Pick<DocEnvelopeInput, 'userId' | 'deviceId'>
 
 function quotaExceeded(): ApiError {
   return new ApiError('StorageQuotaExceeded', 413, 'the page storage of the guild is full')
@@ -96,17 +77,21 @@ export async function deletePage(repo: DocsRepo, page: DocPageRow): Promise<{ id
   return { ids, keys: deleted.map((d) => d.key) }
 }
 
+function latestSeqOf(page: DocPageRow, updates: DocUpdateRow[]): number {
+  return Math.max(page.latestSeq, updates.at(-1)?.seq ?? 0)
+}
+
 /** GET /pages/:pageId/state. */
 export async function getPageState(repo: DocsRepo, page: DocPageRow): Promise<{ snapshot: StoredSnapshot | null; updates: DocUpdateRow[]; latestSeq: number }> {
   const [snapshot] = await repo.listSnapshots(page.id)
   const updates = await repo.listUpdates(page.id, snapshot?.row.baseSeq ?? 0, STATE_UPDATES_MAX)
-  return { snapshot: snapshot ?? null, updates, latestSeq: Math.max(page.latestSeq, updates.at(-1)?.seq ?? 0) }
+  return { snapshot: snapshot ?? null, updates, latestSeq: latestSeqOf(page, updates) }
 }
 
 /** GET /pages/:pageId/updates. */
 export async function listUpdates(repo: DocsRepo, page: DocPageRow, query: { after: number; limit: number }): Promise<{ updates: DocUpdateRow[]; latestSeq: number }> {
   const updates = await repo.listUpdates(page.id, query.after, query.limit)
-  return { updates, latestSeq: Math.max(page.latestSeq, updates.at(-1)?.seq ?? 0) }
+  return { updates, latestSeq: latestSeqOf(page, updates) }
 }
 
 /** POST /pages/:pageId/updates. The row lock of nextSeq makes seq gapless under concurrent senders. */
