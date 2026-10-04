@@ -38,12 +38,10 @@ jobs:
         shell: bash
         run: echo "::error::Set the repository variable HACHIMAN_DOMAIN" && exit 1
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
+      - run: corepack enable && pnpm install --frozen-lockfile
       - run: pnpm -F @hachiman/hachiman-electron build:${{ matrix.target }} --publish never
       - uses: actions/upload-artifact@v4
         with:
@@ -59,11 +57,13 @@ jobs:
       actions: write
     steps:
       - name: Delete the artifacts of older runs
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          for name in hachiman-macos hachiman-windows; do
-            gh api --paginate "repos/${{ github.repository }}/actions/artifacts?name=$name" \
-              --jq '.artifacts[] | select(.workflow_run.id != ${{ github.run_id }}) | .id' |
-              xargs -r -I{} gh api -X DELETE "repos/${{ github.repository }}/actions/artifacts/{}"
-          done
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo
+            for (const name of ['hachiman-macos', 'hachiman-windows']) {
+              const artifacts = await github.paginate(github.rest.actions.listArtifactsForRepo, { owner, repo, name })
+              for (const a of artifacts) {
+                if (a.workflow_run?.id !== context.runId) await github.rest.actions.deleteArtifact({ owner, repo, artifact_id: a.id })
+              }
+            }

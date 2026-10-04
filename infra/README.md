@@ -26,7 +26,7 @@ flowchart LR
 | `compose.yml` | The stack. App services use host networking and listen on loopback, except Caddy, media UDP and coturn |
 | `Caddyfile` | `<domain>`: Takusen, `/gateway`, `/voice`. `app.<domain>`: the web app with its CSP header |
 | `bootstrap-env.sh` | Runs on the VM. Writes `.env` with new secrets on the first deploy only |
-| `deploy.sh` | Copies the files, writes `.env`, pulls the images, starts the stack |
+| `deploy.sh` | Copies the files, writes `.env`, pulls the images, runs the migrations, starts the stack. CI runs it on each push to `main` |
 
 ## First deploy
 
@@ -41,18 +41,40 @@ flowchart LR
    ```
    If the apply fails with "Out of host capacity", run it again later. Free A1 capacity in Australia is often full.
 5. Add two DNS A records that point at the `public_ip` output: `<domain>` and `app.<domain>`.
-6. In GitHub, set the repository variable `HACHIMAN_DOMAIN` (Settings > Secrets and variables > Actions > Variables). Then run the **Images** workflow.
-7. Make a classic personal access token with `read:packages`. The images of a private repository are private.
-8. Deploy:
+6. Make a deploy key for GitHub Actions and allow it on the VM:
    ```bash
-   DOMAIN=chat.example.com GHCR_TOKEN=<token> infra/deploy.sh
+   ssh-keygen -t ed25519 -N '' -f deploy_key
+   ssh-copy-id -i deploy_key.pub ubuntu@<ip>
+   ssh-keyscan <ip> > known_hosts
    ```
+7. In GitHub (Settings > Secrets and variables > Actions), set:
+   - Variables: `HACHIMAN_DOMAIN` (for example `chat.example.com`) and `DEPLOY_HOST` (the `public_ip` output).
+   - Secrets: `DEPLOY_SSH_KEY` (the contents of `deploy_key`) and `DEPLOY_KNOWN_HOSTS` (the contents of `known_hosts`).
+
+   Then delete the local `deploy_key` file. If you set `ssh_source_cidr` to your own IP, GitHub's runners cannot connect: keep `0.0.0.0/0`.
+8. Run the **Images** workflow (Actions > Images > Run workflow).
 9. Sign up in the web app at `https://app.<domain>`. Then make yourself an admin:
    ```bash
    ssh ubuntu@<ip> 'cd /opt/hachiman && docker compose run --rm migrate pnpm admin:grant you@example.com'
    ```
 
-To deploy again after a push to `main`, wait for the **Images** workflow, then run `deploy.sh` again. Set `IMAGE_TAG=<sha>` to deploy or roll back to one commit.
+## Deploys
+
+Each push to `main` that changes a server app, a package, `infra/compose.yml`, `infra/Caddyfile` or `infra/*.sh` runs the **Images** workflow:
+
+1. It builds the four images and pushes them to GHCR as `:latest` and `:<sha>`.
+2. It runs `deploy.sh` with that sha. The deploy pulls the images, runs the migrations (`db:migrate`, then `db:seed`), and then starts the new containers. If a migration fails, the deploy stops and the old containers keep running.
+3. It deletes all image versions except the newest 10 of each image.
+
+The `production` environment and a concurrency group serialize the deploys. To add a manual approval, add a required reviewer to the `production` environment in the repository settings.
+
+To deploy from your machine, for example to roll back to one commit:
+
+```bash
+DOMAIN=chat.example.com GHCR_TOKEN=<PAT with read:packages> IMAGE_TAG=<sha> infra/deploy.sh
+```
+
+GHCR storage and bandwidth for container images are free at this time. GitHub gives at least one month of notice before it starts to charge.
 
 ## Desktop builds
 
