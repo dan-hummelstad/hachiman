@@ -6,7 +6,7 @@ Status: draft for review. No code exists yet.
 
 Add a native desktop client written in Rust:
 
-- `pkgs/hachiman-native`: the Rust client library. It replaces `@hachiman/client` and `@hachiman/crypto` for the native app: REST, gateway, voice, E2EE and pages.
+- `pkgs/hachiman-core`: the Rust client library. It replaces `@hachiman/client` and `@hachiman/crypto` for the native app: REST, gateway, voice, E2EE and pages.
 - `apps/hachiman-native`: the Rust desktop app. It uses GPUI for the UI and GPUI-Kit (https://gpui-kit.com) for the components.
 
 The native client uses the same servers and the same wire contract (`docs/gateway-protocol.md`) as the Electron and browser hosts, without exceptions. A native user and an Electron user can be in the same encrypted channel, call and page.
@@ -31,11 +31,11 @@ The native client uses the same servers and the same wire contract (`docs/gatewa
 One Cargo workspace at the repo root. pnpm ignores directories that have no `package.json`. The app gets a `package.json` only so that `pnpm -F` and the root scripts work, the same way as `hachiman-server`.
 
 ```
-Cargo.toml                      [workspace] members = apps/hachiman-native, pkgs/hachiman-native
+Cargo.toml                      [workspace] members = apps/hachiman-native, pkgs/hachiman-core
 rust-toolchain.toml             stable, ≥ 1.91 (openmls MSRV), components rustfmt + clippy
 .gitignore                      + /target
 
-pkgs/hachiman-native/           crate `hachiman-native-core` (lib `hachiman_native_core`), no GPUI
+pkgs/hachiman-core/             crate `hachiman-core` (lib `hachiman_core`), no GPUI
   Cargo.toml
   README.md                     module map + mermaid diagrams, like the other package READMEs
   src/
@@ -89,9 +89,9 @@ apps/hachiman-native/           crate `hachiman-native` (binary), package.json `
       security.rs               onboarding gate (CryptoGate role): new device, link, recovery, fatal screens
 ```
 
-Root `package.json` gets `dev:native` and `build:native`. Crate names must differ inside one Cargo workspace, so the library is `hachiman-native-core` and the app is `hachiman-native`. Both directories are named `hachiman-native`, as requested.
+Root `package.json` gets `dev:native` and `build:native`. The library crate is `hachiman-core` (lib `hachiman_core`) and the app crate is `hachiman-native`.
 
-Dependency direction: the app → `hachiman-native-core` → (tokio, reqwest, tokio-tungstenite, openmls or mls-rs, yrs, webrtc, cpal, opus, keyring, rusqlite). The library never depends on GPUI.
+Dependency direction: the app → `hachiman-core` → (tokio, reqwest, tokio-tungstenite, openmls or mls-rs, yrs, webrtc, cpal, opus, keyring, rusqlite). The library never depends on GPUI.
 
 ## 4. Crates
 
@@ -125,7 +125,7 @@ Dependency direction: the app → `hachiman-native-core` → (tokio, reqwest, to
 The native code must produce and accept the same bytes as `@hachiman/crypto`. Plan:
 
 1. A script `pkgs/hachiman-crypto/scripts/native-vectors.ts` (tsx) uses the TS lib to make JSON vectors: TLS encodings, SignWithLabel, device certificates and chains, device proofs, envelopes (encrypt with fixed keys), page envelopes, HAT1 attachments, recovery keys, sealed device messages, SFrame keys and frames, and MLS groups (a Hachiman group with the DS external sender, a Welcome, a commit, an exporter output).
-2. The vectors are committed in `pkgs/hachiman-native/tests/vectors/`. `cargo test` reads them in both directions: Rust decrypts or verifies TS output, and Rust output matches TS output where it is deterministic.
+2. The vectors are committed in `pkgs/hachiman-core/tests/vectors/`. `cargo test` reads them in both directions: Rust decrypts or verifies TS output, and Rust output matches TS output where it is deterministic.
 3. `permissions.rs` gets a sync test that parses `pkgs/hachiman-client/src/permissions.ts`, like `pkg/permissions/sync_test.go`.
 4. The final phase runs a live check: a native client and the browser host in the same text channel, voice call and page against `pnpm dev:server` + `pnpm dev:takusen`.
 
@@ -153,7 +153,7 @@ Ten Opus workers, at most. Each worker has a tight scope and exact paths, and ru
 
 | # | Worker | Scope | Done when |
 |---|---|---|---|
-| W1 | MLS interop spike | `pkgs/hachiman-crypto/scripts/native-vectors.ts` (MLS part), `pkgs/hachiman-native/src/e2ee/mls.rs` (first cut), `pkgs/hachiman-native/tests/mls_interop.rs` | A Rust member joins a ts-mls group with the Hachiman extensions (0xF1A0, 0xF1A1, external_senders), processes a ts-mls commit, makes a commit that ts-mls accepts, and gets the same exporter output. Report: which library, and the D1 result. If D1 (a) is chosen, it includes the ts-mls patch + §12.6 change + a passing `pnpm -F @hachiman/crypto test`. |
+| W1 | MLS interop spike | `pkgs/hachiman-crypto/scripts/native-vectors.ts` (MLS part), `pkgs/hachiman-core/src/e2ee/mls.rs` (first cut), `pkgs/hachiman-core/tests/mls_interop.rs` | A Rust member joins a ts-mls group with the Hachiman extensions (0xF1A0, 0xF1A1, external_senders), processes a ts-mls commit, makes a commit that ts-mls accepts, and gets the same exporter output. Report: which library, and the D1 result. If D1 (a) is chosen, it includes the ts-mls patch + §12.6 change + a passing `pnpm -F @hachiman/crypto test`. |
 | W2 | Scaffold | root `Cargo.toml`, `rust-toolchain.toml`, `.gitignore`, both crates' `Cargo.toml`, `main.rs`, `tokio_bridge.rs`, `apps/hachiman-native/package.json`, root scripts, both READMEs (first cut) | `cargo build` and `cargo test --workspace` pass. `pnpm dev:native` opens a GPUI-Kit window with the theme and an empty shell. |
 
 Gate: W1 says that a Rust MLS library can join, commit and export with ts-mls. If not, I stop and report before Phase 1.
