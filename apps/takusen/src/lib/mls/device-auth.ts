@@ -33,7 +33,24 @@ export interface ProofContext {
   nonces: NonceStore
 }
 
+/**
+ * One check per request: a route can reach requireDevice twice (actorDeviceId, then
+ * enforceAdminAction), and a second proof check would claim the same nonce and fail as a replay.
+ */
+const checked = new WeakMap<Request, Promise<DeviceRow>>()
+
 export async function requireDevice(req: Request, userId: string, opts?: { allowPending?: boolean }): Promise<DeviceRow> {
+  let device = checked.get(req)
+  if (!device) {
+    device = checkRequestDevice(req, userId, opts)
+    checked.set(req, device)
+  }
+  const row = await device
+  if (row.status === 'pending' && !opts?.allowPending) throw new ApiError('DeviceNotActive', 403, 'device not active')
+  return row
+}
+
+async function checkRequestDevice(req: Request, userId: string, opts?: { allowPending?: boolean }): Promise<DeviceRow> {
   // Lazy: keeps next-auth out of the import graph of the unit tests.
   const { bearerGrantId } = await import('@/lib/auth-helpers')
   const credential: DeviceCredential = { bindings: redisDeviceBindings(redis()), grantId: await bearerGrantId(req) }
