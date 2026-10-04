@@ -356,7 +356,22 @@ only needs the Takusen origin, and the bucket can stay private.
 Storage env (Takusen only): `S3_ENDPOINT`, `S3_REGION`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_FORCE_PATH_STYLE`.
 Takusen sends plain signed requests (no aws-chunked checksum trailers), so S3-compatible stores such as SeaweedFS work.
 
-Kept outside `/api/v1`: `GET /api/regions`, `POST /api/servers/recommend-region` (renamed → `POST /api/v1/regions/recommend`), OIDC under `/api/oidc`.
+Kept outside `/api/v1`: `GET /api/regions`, `GET /api/desktop-update/*` (below), `POST /api/servers/recommend-region` (renamed → `POST /api/v1/regions/recommend`), OIDC under `/api/oidc`.
+
+### Desktop updates
+
+The Electron app updates itself from the GitHub Actions artifacts `hachiman-macos` and `hachiman-windows` of `.github/workflows/desktop.yml`.
+An artifact download always needs a GitHub token, so Takusen holds it (`TAKUSEN_UPDATE_GITHUB_REPO`, `TAKUSEN_UPDATE_GITHUB_TOKEN`: a fine-grained token with read-only "Actions" on that repo) and the app holds none.
+Both routes are public, with no auth. `:platform` is `macos` or `windows`. Takusen uses the newest unexpired artifact of a `main` run that has a `sha256:` digest, and caches the list for 60 s.
+
+| Method + path | Returns |
+|---|---|
+| GET `/api/desktop-update/:platform` | `{sha, sha256}`: the commit of the build and the hex SHA-256 of its zip. 404 `NotFound` when updates are not configured or there is no build. 502 `UpstreamUnavailable` when GitHub fails |
+| GET `/api/desktop-update/:platform/download` | 302 to GitHub's signed zip URL (valid for about a minute). 404 and 502 as above |
+
+The app (`apps/hachiman-electron/src/main/updater.ts`) checks at start and every 4 h when it was built with `MAIN_VITE_BUILD_SHA` (CI sets the commit).
+When `sha` differs from its own, it downloads the zip, drops it unless its SHA-256 is `sha256`, unpacks it and asks to restart.
+Windows runs the NSIS installer with `/S --force-run`. macOS (unsigned builds, so no Squirrel.Mac) copies the `.app` from the dmg over its own bundle after it quits. When the install folder is not writable, it opens the dmg instead.
 
 ### Pages
 

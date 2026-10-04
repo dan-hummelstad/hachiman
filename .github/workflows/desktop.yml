@@ -3,6 +3,7 @@
 # only the newest hachiman-macos and hachiman-windows artifacts exist.
 # The builds are unsigned (macOS: right-click > Open on first start; Windows: SmartScreen "Run anyway").
 # Repository variable HACHIMAN_DOMAIN: Vite bakes the endpoints in at build time.
+# The installed apps update themselves from these artifacts through Takusen (contract §4 Desktop updates).
 name: Desktop
 on:
   push:
@@ -31,6 +32,8 @@ jobs:
     env:
       VITE_TAKUSEN_OIDC_ISSUER: https://${{ vars.HACHIMAN_DOMAIN }}/api/oidc
       VITE_HACHIMAN_GATEWAY_URL: wss://${{ vars.HACHIMAN_DOMAIN }}/gateway
+      # The updater compares this with Takusen's newest build (src/main/updater.ts).
+      MAIN_VITE_BUILD_SHA: ${{ github.sha }}
       CSC_IDENTITY_AUTO_DISCOVERY: 'false'
     steps:
       - name: Check the domain variable

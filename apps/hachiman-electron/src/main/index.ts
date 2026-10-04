@@ -27,6 +27,7 @@ import { flushPendingUrls, registerProtocolHandlers } from "./protocol-handler";
 import { validateProbeTargets } from "./probe-target-guard";
 import { probeRegions } from "./region-probe";
 import { registerScreenShare } from "./screen-share";
+import { startUpdater } from "./updater";
 import {
   devRenderer,
   packagedRenderer,
@@ -203,6 +204,8 @@ app.whenReady().then(() => {
   registerScreenShare((url) => renderer.isAppUrl(url));
 
   createWindow();
+
+  startUpdater();
 
   app.on("activate", function () {
     // On macOS it's common to re-create a window in the app when the
