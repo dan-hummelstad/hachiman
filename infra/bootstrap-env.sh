@@ -5,6 +5,8 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 mkdir -p data/keys data/postgres data/seaweedfs data/caddy backups
+# The seaweedfs image runs as uid 1000. Oracle's Ubuntu user is uid 1001, so the folder is not writable without this.
+sudo chown 1000:1000 data/seaweedfs
 
 if [ -f .env ]; then
   echo ".env exists, keeping it"

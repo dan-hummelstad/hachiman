@@ -47,10 +47,12 @@ services:
     image: chrislusf/seaweedfs:4.00
     depends_on: [seaweedfs]
     entrypoint: ["/bin/sh", "-c"]
+    # Gives up after 120 tries, so a broken seaweedfs fails the deploy instead of hanging `compose up`.
     command:
       - >-
-        until echo s3.bucket.list | weed shell -master=seaweedfs:9333 2>/dev/null | grep -q ${S3_BUCKET};
-        do echo s3.bucket.create -name ${S3_BUCKET} | weed shell -master=seaweedfs:9333 >/dev/null 2>&1; sleep 1; done
+        i=0; until echo s3.bucket.list | weed shell -master=seaweedfs:9333 2>/dev/null | grep -q ${S3_BUCKET};
+        do i=$$((i+1)); [ $$i -le 120 ] || { echo "bucket ${S3_BUCKET} not ready" >&2; exit 1; };
+        echo s3.bucket.create -name ${S3_BUCKET} | weed shell -master=seaweedfs:9333 >/dev/null 2>&1; sleep 1; done
 
   migrate:
     <<: *app
@@ -110,7 +112,6 @@ services:
       - --realm=${DOMAIN}
       - --use-auth-secret
       - --static-auth-secret=${TURN_SECRET}
-      - --no-cli
       - --no-tls
       - --no-dtls
       - --denied-peer-ip=0.0.0.0-0.255.255.255
