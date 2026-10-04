@@ -1,0 +1,12 @@
+**/node_modules
+**/.next
+**/dist
+**/out
+**/.dev
+**/bin
+.git
+.claude
+.env
+.env.*
+infra
+!.env.example
