@@ -113,6 +113,7 @@ The preload buffers the two main → renderer channels until the UI subscribes. 
 | `src/main/region-probe.ts` | TCP connect RTT: 3 samples per target, minimum wins, 2 s timeout, 8 sockets at a time |
 | `src/main/probe-target-guard.ts` | SSRF guard for `hachiman:probe-regions` |
 | `src/main/screen-share.ts` | Lists sources with `desktopCapturer`, keeps the selected source, and answers `setDisplayMediaRequestHandler` |
+| `src/main/updater.ts` | At start and every 4 h, asks Takusen for the newest desktop build (contract §4 Desktop updates). When its commit differs from `MAIN_VITE_BUILD_SHA`, downloads the artifact zip, checks its SHA-256, and installs it on restart: NSIS `/S` on Windows, a bundle swap from the dmg on macOS |
 | `src/preload/index.ts` | `window.hachiman` (the only renderer surface). `window.d.ts` types it for the renderer. |
 | `src/shared/ipc.ts` | IPC channel names, `ScreenSourceInfo` and `SecureStorageResult`. Constants and types only. |
 | `src/renderer/src/PlatformService.ts` | `IPlatformService` adapter over `window.hachiman` |
