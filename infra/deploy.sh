@@ -22,4 +22,6 @@ if [ -n "${GHCR_TOKEN:-}" ]; then
 fi
 
 # A failed migration stops the deploy, and the old containers keep running.
-$SSH "$REMOTE" "cd /opt/hachiman && export IMAGE_TAG='${IMAGE_TAG:-latest}' && docker compose pull --quiet && docker compose run --rm migrate && docker compose up -d --remove-orphans && docker compose ps"
+# After a good deploy, .env records the tag: commands run by hand on the server then use the
+# images it already has. They cannot pull, because the CI registry token expires with the job.
+$SSH "$REMOTE" "cd /opt/hachiman && export IMAGE_TAG='${IMAGE_TAG:-latest}' && docker compose pull --quiet && docker compose run --rm migrate && docker compose up -d --remove-orphans && docker compose ps && sed -i '/^IMAGE_TAG=/d' .env && echo \"IMAGE_TAG=\$IMAGE_TAG\" >> .env"

@@ -57,6 +57,7 @@ flowchart LR
    ```bash
    ssh ubuntu@<ip> 'cd /opt/hachiman && docker compose run --rm migrate pnpm admin:grant you@example.com'
    ```
+   It uses the image tag of the last good deploy (`IMAGE_TAG` in `/opt/hachiman/.env`). If it fails with `error from registry: denied`, the deploy did not finish: set `IMAGE_TAG=<sha>` in front of `docker compose`.
 
 ## Deploys
 
