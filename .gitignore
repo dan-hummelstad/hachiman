@@ -43,3 +43,8 @@ skills-lock.json
 .env
 .env.*
 !.env.example
+
+# OpenTofu
+infra/oci/.terraform/
+infra/oci/*.tfstate*
+infra/oci/terraform.tfvars

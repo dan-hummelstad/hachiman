@@ -1,0 +1,133 @@
+# The production stack on one host. deploy.sh copies this file, the Caddyfile and bootstrap-env.sh
+# to /opt/hachiman on the server. bootstrap-env.sh writes /opt/hachiman/.env.
+#
+# The app services use host networking: the WebRTC SFU and coturn need real UDP ports, and the
+# Takusen gRPC server binds loopback only (CLAUDE.md, "Takusen gRPC security posture").
+# Everything except Caddy (80/443), media (UDP) and coturn listens on 127.0.0.1.
+# The UDP ranges below must match the security list in infra/oci/main.tf.
+name: hachiman
+
+x-app: &app
+  restart: unless-stopped
+  network_mode: host
+  env_file: .env
+
+services:
+  postgres:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: takusen
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: takusen
+    ports: ["127.0.0.1:5432:5432"]
+    volumes: ["./data/postgres:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "takusen"]
+      interval: 5s
+      retries: 20
+
+  # No volume: everything in Redis is transient (docs/gateway-protocol.md §5).
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports: ["127.0.0.1:6379:6379"]
+
+  seaweedfs:
+    image: chrislusf/seaweedfs:4.00
+    restart: unless-stopped
+    command: server -s3 -dir=/data -ip=seaweedfs -ip.bind=0.0.0.0
+    environment:
+      AWS_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY}
+    ports: ["127.0.0.1:8333:8333"]
+    volumes: ["./data/seaweedfs:/data"]
+
+  seaweedfs-init:
+    image: chrislusf/seaweedfs:4.00
+    depends_on: [seaweedfs]
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >-
+        until echo s3.bucket.list | weed shell -master=seaweedfs:9333 2>/dev/null | grep -q ${S3_BUCKET};
+        do echo s3.bucket.create -name ${S3_BUCKET} | weed shell -master=seaweedfs:9333 >/dev/null 2>&1; sleep 1; done
+
+  migrate:
+    <<: *app
+    image: ${IMAGE_PREFIX}-takusen:${IMAGE_TAG:-latest}
+    restart: "no"
+    command: ["sh", "-c", "pnpm db:migrate && pnpm db:seed"]
+    depends_on:
+      postgres: { condition: service_healthy }
+
+  takusen:
+    <<: *app
+    image: ${IMAGE_PREFIX}-takusen:${IMAGE_TAG:-latest}
+    volumes: ["./data/keys:/keys"]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      redis: { condition: service_started }
+      seaweedfs-init: { condition: service_completed_successfully }
+
+  takusen-grpc:
+    <<: *app
+    image: ${IMAGE_PREFIX}-takusen:${IMAGE_TAG:-latest}
+    command: ["pnpm", "start:grpc"]
+    volumes: ["./data/keys:/keys"]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+
+  gateway:
+    <<: *app
+    image: ${IMAGE_PREFIX}-gateway:${IMAGE_TAG:-latest}
+    volumes: ["./data/keys:/keys"]
+    depends_on: [takusen-grpc]
+
+  # Media reads the voice-token seed that the gateway creates on its first start. Until the file
+  # exists, media exits and restarts.
+  media:
+    <<: *app
+    image: ${IMAGE_PREFIX}-media:${IMAGE_TAG:-latest}
+    command:
+      - --listen=127.0.0.1:8090
+      - --signaling-url=wss://${DOMAIN}/voice
+      - --public-ip=${PUBLIC_IP}
+      - --udp-port-min=50000
+      - --udp-port-max=50100
+    volumes: ["./data/keys:/keys"]
+    depends_on: [gateway]
+
+  # The relay range must not reach the private network or loopback (Redis, Postgres, gRPC).
+  coturn:
+    image: coturn/coturn:4
+    restart: unless-stopped
+    network_mode: host
+    command:
+      - --listening-port=3478
+      - --min-port=49160
+      - --max-port=49200
+      - --external-ip=${PUBLIC_IP}/${PRIVATE_IP}
+      - --realm=${DOMAIN}
+      - --use-auth-secret
+      - --static-auth-secret=${TURN_SECRET}
+      - --no-cli
+      - --no-tls
+      - --no-dtls
+      - --denied-peer-ip=0.0.0.0-0.255.255.255
+      - --denied-peer-ip=10.0.0.0-10.255.255.255
+      - --denied-peer-ip=127.0.0.0-127.255.255.255
+      - --denied-peer-ip=169.254.0.0-169.254.255.255
+      - --denied-peer-ip=172.16.0.0-172.31.255.255
+      - --denied-peer-ip=192.168.0.0-192.168.255.255
+
+  # TLS for {DOMAIN} (Takusen, /gateway, /voice) and app.{DOMAIN} (the web app). Caddy gets
+  # Let's Encrypt certificates as soon as both DNS names point at the server.
+  caddy:
+    image: ${IMAGE_PREFIX}-web:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      DOMAIN: ${DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./data/caddy:/data

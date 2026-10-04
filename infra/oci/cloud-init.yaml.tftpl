@@ -1,0 +1,26 @@
+#cloud-config
+# First boot only. Installs Docker and opens the host firewall. deploy.sh does the rest.
+package_update: true
+packages:
+  - docker.io
+  - docker-compose-v2
+  - docker-buildx
+
+write_files:
+  # Nightly database dump, one file per weekday (7 kept). Copy backups/ and data/keys/ off the box too.
+  - path: /etc/cron.d/hachiman-backup
+    content: |
+      0 3 * * * ubuntu cd /opt/hachiman && docker compose exec -T postgres pg_dump -U takusen takusen | gzip > backups/takusen-$(date +\%u).sql.gz
+      # Keep the A1 VM above the idle threshold (95th percentile CPU < 20 % for 7 days) so Oracle does not reclaim it.
+      # ponytail: remove it after you upgrade the account to Pay As You Go.
+      */10 * * * * nobody timeout 120 sh -c 'while :; do :; done'
+
+runcmd:
+  # Rendered by main.tf: the ports are the ones of the security list.
+  # Oracle's Ubuntu images REJECT all inbound traffic except SSH in iptables, in addition to the security list.
+  # Insert the rules at runtime and in the saved rule file. Do not run netfilter-persistent save: it would also save Docker's chains.
+  - iptables -I INPUT -p tcp -m multiport --dports ${tcp_ports} -j ACCEPT
+  - iptables -I INPUT -p udp -m multiport --dports ${udp_ports} -j ACCEPT
+  - sed -i '/^-A INPUT -j REJECT/i -A INPUT -p tcp -m multiport --dports ${tcp_ports} -j ACCEPT\n-A INPUT -p udp -m multiport --dports ${udp_ports} -j ACCEPT' /etc/iptables/rules.v4
+  - usermod -aG docker ubuntu
+  - install -d -o ubuntu -g ubuntu /opt/hachiman

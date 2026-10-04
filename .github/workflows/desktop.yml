@@ -1,0 +1,69 @@
+# Builds the Electron app: a .dmg on macOS (Apple Silicon) and an NSIS .exe installer on Windows.
+# Each upload replaces the previous one: the last job deletes the artifacts of older runs, so
+# only the newest hachiman-macos and hachiman-windows artifacts exist.
+# The builds are unsigned (macOS: right-click > Open on first start; Windows: SmartScreen "Run anyway").
+# Repository variable HACHIMAN_DOMAIN: Vite bakes the endpoints in at build time.
+name: Desktop
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/hachiman/**'
+      - 'apps/hachiman-electron/**'
+      - 'pkgs/**'
+      - 'patches/**'
+      - 'pnpm-lock.yaml'
+      - '.github/workflows/desktop.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: macos-latest, target: mac, artifact: hachiman-macos, glob: '*.dmg' }
+          - { os: windows-latest, target: win, artifact: hachiman-windows, glob: '*.exe' }
+    runs-on: ${{ matrix.os }}
+    env:
+      VITE_TAKUSEN_OIDC_ISSUER: https://${{ vars.HACHIMAN_DOMAIN }}/api/oidc
+      VITE_HACHIMAN_GATEWAY_URL: wss://${{ vars.HACHIMAN_DOMAIN }}/gateway
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+    steps:
+      - name: Check the domain variable
+        if: vars.HACHIMAN_DOMAIN == ''
+        shell: bash
+        run: echo "::error::Set the repository variable HACHIMAN_DOMAIN" && exit 1
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: corepack enable && pnpm install --frozen-lockfile
+      - run: pnpm -F @hachiman/hachiman-electron build:${{ matrix.target }} --publish never
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: apps/hachiman-electron/dist/${{ matrix.glob }}
+          if-no-files-found: error
+          overwrite: true
+
+  prune:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Delete the artifacts of older runs
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo
+            for (const name of ['hachiman-macos', 'hachiman-windows']) {
+              const artifacts = await github.paginate(github.rest.actions.listArtifactsForRepo, { owner, repo, name })
+              for (const a of artifacts) {
+                if (a.workflow_run?.id !== context.runId) await github.rest.actions.deleteArtifact({ owner, repo, artifact_id: a.id })
+              }
+            }
