@@ -31,7 +31,6 @@ export interface DesktopBuild {
   archiveUrl: string
 }
 
-/** The newest unexpired main-branch artifact called `name` that has a commit and a digest. */
 export function newestBuild(artifacts: Artifact[], name: string): DesktopBuild | null {
   const a = artifacts
     .filter((a) => a.name === name && !a.expired && a.workflow_run?.head_branch === 'main')
@@ -78,7 +77,7 @@ export async function latestDesktopBuild(platform: DesktopPlatform): Promise<Des
 /** A signed URL of the newest build's zip (valid for about a minute), or null. */
 export async function desktopBuildZipUrl(platform: DesktopPlatform): Promise<string | null> {
   const cfg = config()
-  const build = await latestDesktopBuild(platform)
+  const build = cfg && (await latestDesktopBuild(platform))
   if (!cfg || !build) return null
   const res = await github(build.archiveUrl, cfg.token)
   const location = res.headers.get('location')
