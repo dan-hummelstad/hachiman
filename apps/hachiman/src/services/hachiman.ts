@@ -244,6 +244,10 @@ export function startHachiman(host?: IPlatformService): void {
   })
   hachiman.on('TYPING_START', onTyping)
   hachiman.on('fatal', onFatal)
+  // 4004: the gateway rejected the token before its expiry. A refresh that fails signs out.
+  hachiman.gateway.on('close', ({ code }) => {
+    if (code === 4004) takusenService.refreshNow()
+  })
   hachiman.on('PAGE_CREATE', (d) => docsService.onPageEvent(d))
   hachiman.on('PAGE_UPDATE', (d) => docsService.onPageEvent(d))
   hachiman.on('PAGE_DELETE', (d) => docsService.onPageDelete(d))
