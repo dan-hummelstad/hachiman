@@ -1817,7 +1817,7 @@ CORS (§4) allows the request headers `X-Hachiman-Device` and `X-Hachiman-Signed
 - `PUT /users/@me/master-key`: allowed in three cases. (1) The user has no master key row (first device). (2) The user has no current master key (after a password reset), and the record is either the most recent superseded record, byte-equal (restore), or generation + 1 with `prev_signature` null (new identity). (3) `record.prev_signature` verifies under the current master key (rotation). Else 409 `MasterKeyExists`. The DSK cert in the body must verify under the record.
 - `PUT /users/@me/device-signing-key`: the cert must verify under the current master key and have generation + 1. Takusen deletes the stale key packages of the user and publishes `KEY_PACKAGES_LOW` (§12.7.2).
 - `PATCH /devices/:id`: changes only the REST name (§12.5 "Device names").
-- `GET /users/:id/keys`: the caller must share a guild or a DM with the user, or be the user. Each `ktIndex` has the encoded `KtEntry` beside it (`ktEntry`), so the client can compute the leaf hash (§12.14).
+- `GET /users/:id/keys`: the caller must share a guild or a DM with the user, or be the user. Else 404 `NotFound`. A client treats the 404 as a user without keys: a group can still hold a leaf of a former member until its Remove is committed (§12.7.5). Each `ktIndex` has the encoded `KtEntry` beside it (`ktEntry`), so the client can compute the leaf hash (§12.14).
 
 **Batch rejections** (`POST /mls/groups/:groupId/commits` and `POST /mls/batches/:id/decline`):
 - `rejected` names the joins of `MLS_BATCH_ASSIGN.joins` that the committer left out, by `pendingId`. Only the commit body has it.

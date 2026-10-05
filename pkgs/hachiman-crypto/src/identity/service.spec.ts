@@ -9,7 +9,7 @@ import { kt } from '../kt/index'
 import { decodeHistoryKeysPayload, encodeDskTransfer } from './codec'
 import { openDeviceMessage } from './device-message'
 import { identity } from './index'
-import { FakeDs, makeDevice, type TestDevice } from './test-helpers'
+import { DsError, FakeDs, makeDevice, type TestDevice } from './test-helpers'
 
 const ALICE = '0f8fad5b-d9cb-469f-a165-70867728950e'
 const BOB = '7c9e6679-7425-40de-944b-e07fc1f90ae7'
@@ -98,6 +98,17 @@ describe('first device', () => {
     await primary()
     const other = await makeDevice(ds, ALICE, 'Laptop')
     await expect(other.svc.setupFirstDevice()).rejects.toMatchObject({ code: 'Unsupported' })
+  })
+})
+
+describe('user keys', () => {
+  it('gives an empty chain context for a user who shares no guild any more (404)', async () => {
+    const { dev } = await primary()
+    dev.transport.getUserKeys = async () => {
+      throw new DsError('NotFound')
+    }
+    const c = await dev.svc.chainContextFor(BOB, false)
+    expect(c).toMatchObject({ pinnedMaster: null, currentDsk: null, revokedDeviceIds: new Set() })
   })
 })
 
