@@ -129,3 +129,19 @@ export function resetMessagesStore(): void {
   epoch++
   useMessageStore.setState(initialMessagesState())
 }
+
+/**
+ * A new gateway session (READY) has a gap: events between the sessions are lost. Drops the
+ * loaded history, so the next load fetches the latest page. Unsent rows stay.
+ */
+export function dropHistory(): void {
+  epoch++
+  useMessageStore.setState((s) => {
+    const byChannel = new Map<string, ChatMessage[]>()
+    for (const [id, list] of s.byChannel) {
+      const unsent = list.filter((m) => m.pending)
+      if (unsent.length > 0) byChannel.set(id, unsent)
+    }
+    return { byChannel, hasMore: new Map(), typing: new Map() }
+  })
+}

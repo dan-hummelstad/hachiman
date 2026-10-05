@@ -71,6 +71,7 @@ type session struct {
 	guilds     map[string]*guildState
 	dmPartners map[string]bool
 	voice      *VoiceState
+	voiceJTI   string // jti of the voice token of `voice` (VOICE_DISCONNECTED names it)
 }
 
 func (g *Gateway) newSession(id string, user User, deviceID string, c *conn) *session {
@@ -117,6 +118,10 @@ func (s *session) run(first func() bool) {
 				if it.scope == "device" && it.env.T == "DEVICE_REVOKED" {
 					s.revoke()
 					return
+				}
+				if it.scope == "device" && it.env.T == "VOICE_DISCONNECTED" {
+					s.onVoiceDisconnected(it.env.D) // internal: not forwarded
+					break
 				}
 				s.onEvent(it)
 			case inFrame:

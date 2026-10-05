@@ -149,7 +149,11 @@ export class VoiceConnection extends TypedEventEmitter<VoiceEvents> {
 
     const pc = new RTCPeerConnection({ iceServers: this.opts.iceServers })
     this.pc = pc
-    pc.onconnectionstatechange = () => this.emit('state', pc.connectionState)
+    pc.onconnectionstatechange = () => {
+      this.emit('state', pc.connectionState)
+      // A dead network can leave the socket open for minutes; ICE notices first.
+      if (pc.connectionState === 'failed') this.fail(1006, 'ice failed')
+    }
     pc.onicecandidate = ev => {
       const c = ev.candidate?.toJSON() ?? null
       // Media expects candidates after our answer; buffer anything gathered before it's sent.

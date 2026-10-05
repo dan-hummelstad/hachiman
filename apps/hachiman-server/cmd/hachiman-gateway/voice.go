@@ -85,8 +85,11 @@ func (s *session) onVoice(ctx context.Context, req voiceRequest) error {
 	now := time.Now()
 	claims := voicetoken.Claims{
 		SessionID: s.id, UserID: me, DeviceID: s.deviceID, GuildID: req.GuildID, ChannelID: chID, MediaNodeID: nodeID,
-		IssuedAt: now, ExpiresAt: now.Add(voicetoken.DefaultTTL),
+		JTI: randomToken(), IssuedAt: now, ExpiresAt: now.Add(voicetoken.DefaultTTL),
 	}
+	// In the session hash too: a RESUME restores it with the voice state.
+	s.voiceJTI = claims.JTI
+	s.g.rdb.HSet(ctx, kSession(s.id), "voiceJti", claims.JTI)
 	token, err := s.g.signer.Mint(claims)
 	if err != nil {
 		return err
@@ -106,6 +109,7 @@ func (s *session) onVoice(ctx context.Context, req voiceRequest) error {
 // session for the same user is left alone.
 func (s *session) leaveVoice(ctx context.Context) {
 	s.voice = nil
+	s.voiceJTI = ""
 	cur := s.g.currentVoice(ctx, s.user.ID)
 	if cur == nil || cur.SessionID != s.id {
 		return
@@ -118,7 +122,33 @@ func (s *session) leaveVoice(ctx context.Context) {
 func (s *session) restoreVoice(ctx context.Context) {
 	if cur := s.g.currentVoice(ctx, s.user.ID); cur != nil && cur.SessionID == s.id {
 		s.voice = cur
+		s.voiceJTI, _ = s.g.rdb.HGet(ctx, kSession(s.id), "voiceJti").Result()
 	}
+}
+
+// onVoiceDisconnected handles the internal VOICE_DISCONNECTED of hachiman-media
+// (§8): the call of that voice token ended without a kick (the client left,
+// dropped or timed out). If it is still this session's call, the voice state
+// goes now, not after the offline grace. The jti check keeps a late event of
+// an earlier call from ending a rejoin of the same channel.
+func (s *session) onVoiceDisconnected(raw json.RawMessage) {
+	var d struct {
+		SessionID string `json:"sessionId"`
+		ChannelID string `json:"channelId"`
+		JTI       string `json:"jti"`
+	}
+	if json.Unmarshal(raw, &d) != nil || d.SessionID != s.id || d.JTI == "" || d.JTI != s.voiceJTI {
+		return
+	}
+	if s.voice == nil || s.voice.ChannelID == nil || *s.voice.ChannelID != d.ChannelID {
+		return
+	}
+	// After a RESUME on another node, this object lives on until its grace
+	// ends, with the same id and the old jti: only the owner may act.
+	if owner, _ := s.g.rdb.HGet(s.ctx, kSession(s.id), "owner").Result(); owner != s.owner {
+		return
+	}
+	s.leaveVoice(s.ctx)
 }
 
 func (g *Gateway) currentVoice(ctx context.Context, userID string) *VoiceState {

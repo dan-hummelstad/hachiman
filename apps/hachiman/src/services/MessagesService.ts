@@ -12,7 +12,12 @@ import { cryptoService } from '@/services/CryptoService'
 import { hachiman } from '@/services/hachiman'
 import { createMessageDecryptor } from '@/services/message-decrypt'
 import { playSound } from '@/services/SoundService'
-import { messagesEpoch, useMessageStore, type ChatMessage } from '@/stores/messagesStore'
+import {
+  dropHistory,
+  messagesEpoch,
+  useMessageStore,
+  type ChatMessage
+} from '@/stores/messagesStore'
 import { useUserStore } from '@/stores/userStore'
 
 const PAGE_SIZE = 50
@@ -64,7 +69,7 @@ async function fetchOlder(channelId: string): Promise<void> {
     before: store.hasMore.has(channelId) ? oldest?.id : undefined,
     limit: PAGE_SIZE
   })
-  if (messagesEpoch() !== startedIn) return // signed out meanwhile
+  if (messagesEpoch() !== startedIn) return // signed out or history dropped meanwhile
   await decryptor.ingest(page)
   if (messagesEpoch() !== startedIn) return
   store.setHasMore(channelId, page.length === PAGE_SIZE)
@@ -176,6 +181,13 @@ export const messagesService = {
   /** A deleted message no longer waits for keys. */
   forget(messageId: string): void {
     decryptor.forget(messageId)
+  },
+
+  /** READY of a new gateway session: the history has a gap. The open channel loads again. */
+  onNewSession(openChannelId: string | null): void {
+    loading.clear() // their results belong to the dropped history
+    dropHistory()
+    if (openChannelId) messagesService.ensureLoaded(openChannelId)
   },
 
   /** Sign-out. */

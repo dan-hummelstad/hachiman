@@ -551,6 +551,46 @@ func TestVoiceJoinToggleLeave(t *testing.T) {
 	}
 }
 
+// VOICE_DISCONNECTED from media (§8) ends the call of that token only: a stale
+// jti is ignored, the current one leaves voice, and clients never see the event.
+func TestVoiceDisconnectedFromMedia(t *testing.T) {
+	h := newHarness(t)
+	h.mr.Set(kVoiceRoom("voice"), "node-a")
+	c := h.dial()
+	sid := c.identify()
+	c.send(opVoiceState, map[string]any{"guildId": gid, "channelId": "voice"})
+	var vsu struct{ Token string }
+	_ = json.Unmarshal(c.expect("VOICE_SERVER_UPDATE").D, &vsu)
+	v, err := voicetoken.NewVerifier(h.g.signer.PublicKeyHex(), "node-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cl, err := v.Verify(vsu.Token)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	h.pub("device:"+devA, "VOICE_DISCONNECTED", map[string]string{"sessionId": sid, "channelId": "voice", "jti": "stale"}, "")
+	time.Sleep(100 * time.Millisecond)
+	if h.mr.HGet(kVoice(gid), me) == "" {
+		t.Fatal("a stale jti ended the call")
+	}
+
+	h.pub("device:"+devA, "VOICE_DISCONNECTED", map[string]string{"sessionId": sid, "channelId": "voice", "jti": cl.JTI}, "")
+	for {
+		f := c.next()
+		if f.T == "VOICE_DISCONNECTED" {
+			t.Fatal("internal event reached the client")
+		}
+		if f.T == "VOICE_STATE_UPDATE" && strings.Contains(string(f.D), `"channelId":null`) {
+			break
+		}
+	}
+	if h.mr.Exists(kVoiceUser(me)) || h.mr.HGet(kVoice(gid), me) != "" {
+		t.Error("voice keys survived VOICE_DISCONNECTED")
+	}
+}
+
 func TestVoiceRejectsHiddenAndNonVoiceChannels(t *testing.T) {
 	h := newHarness(t)
 	c := h.dial()

@@ -136,6 +136,25 @@ describe('HachimanClient cache', () => {
     )
   })
 
+  it('after a RESUME it leaves a call of this session that the client dropped, before state ready', async () => {
+    const state = { guildId: 'g', channelId: 'vc', userId: 'me', sessionId: 'S', selfMute: false, selfDeaf: false, selfStream: false }
+    dispatch('VOICE_STATE_UPDATE', state) // the server still has the call; the client left while offline
+    ws.drop(1006)
+    await vi.advanceTimersByTimeAsync(1000)
+    const ws2 = FakeWebSocket.last
+    expect(ws2).not.toBe(ws)
+    ws2.recv({ op: 10, d: { heartbeatInterval: 1000 } })
+    await vi.advanceTimersByTimeAsync(0)
+    let sentAtReady = 0
+    client.on('state', s => {
+      if (s === 'ready') sentAtReady = ws2.sent.length
+    })
+    ws2.recv({ op: 0, s: ++seq, t: 'RESUMED', d: {} })
+    const leave = ws2.sent.findIndex(f => f.op === 4)
+    expect(ws2.sent[leave]).toMatchObject({ op: 4, d: { guildId: 'g', channelId: null } })
+    expect(leave).toBeLessThan(sentAtReady)
+  })
+
   it('CHANNEL_UPDATE replaces the channel before re-emitting', () => {
     const seen = vi.fn(() => client.permissionsFor('secret'))
     client.on('CHANNEL_UPDATE', seen)

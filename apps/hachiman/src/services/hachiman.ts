@@ -104,11 +104,14 @@ const onUpdate = (e: GatewayDispatch): void => {
       // Left / kicked / deleted: drop the selection and its remembered channel.
       forgetGuild(e.d.id)
       return syncAll()
-    case 'READY':
+    case 'READY': {
       docsService.onReady(true)
+      const nav = useNavStore.getState()
+      messagesService.onNewSession(nav.channelByGuild[nav.guildKey] ?? null)
       useUserStore.setState({ status: hachiman.cache.presences.get(e.d.user.id) ?? 'online' })
       cryptoService.sync()
       return syncAll()
+    }
     case 'RESUMED':
       docsService.onReady(false)
       cryptoService.sync()
@@ -261,6 +264,8 @@ export function startHachiman(host?: IPlatformService): void {
   })
   voiceService.start()
   startSounds()
+  // Back online: reconnect now instead of after the remaining backoff (up to 30 s).
+  if (typeof window !== 'undefined') window.addEventListener('online', () => hachiman.gateway.retryNow())
 
   const apply = (signedIn: boolean): void => {
     if (signedIn) {

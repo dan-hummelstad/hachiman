@@ -11,7 +11,22 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
+
+	"hachiman/server/pkg/voicetoken"
 )
+
+// publishVoiceDisconnected sends the internal VOICE_DISCONNECTED (§8) to
+// device:{deviceId}: the call of this token ended without a kick. The gateway
+// session that minted the token clears its voice state; clients never see it.
+func publishVoiceDisconnected(rdb *redis.Client, c *voicetoken.Claims, logger *log.Logger) {
+	d, _ := json.Marshal(map[string]string{"sessionId": c.SessionID, "channelId": c.ChannelID, "jti": c.JTI})
+	env, _ := json.Marshal(map[string]any{"t": "VOICE_DISCONNECTED", "d": json.RawMessage(d)})
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := rdb.Publish(ctx, "device:"+c.DeviceID, env).Err(); err != nil {
+		logger.Printf("redis: publish VOICE_DISCONNECTED for session %s: %v", c.SessionID, err)
+	}
+}
 
 // runKickSubscriber listens on media:{nodeId} for gateway kicks
 // (`{"op":"kick","sessionId":...,"channelId":...}`) until ctx ends. The first subscribe is

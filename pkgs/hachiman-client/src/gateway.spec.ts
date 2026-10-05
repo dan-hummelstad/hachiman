@@ -173,6 +173,17 @@ describe('GatewayClient', () => {
     expect(ws2.ops()[0]).toBe(6)
   })
 
+  it('retryNow() skips the backoff wait of a pending reconnect', async () => {
+    gw.connect()
+    await ready(FakeWebSocket.last)
+    FakeWebSocket.last.drop(1006)
+    expect(FakeWebSocket.instances).toHaveLength(1)
+    gw.retryNow()
+    expect(FakeWebSocket.instances).toHaveLength(2)
+    gw.retryNow() // a socket is open: no-op
+    expect(FakeWebSocket.instances).toHaveLength(2)
+  })
+
   it('disconnect() closes with 1000 and does not reconnect', async () => {
     gw.connect()
     const ws = FakeWebSocket.last

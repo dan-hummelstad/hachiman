@@ -21,6 +21,13 @@ const VAD_THRESHOLD = 0.02 // RMS
 const VAD_HANGOVER_MS = 300
 /** Media close codes (§8). */
 const MEDIA_UNSUPPORTED = 4012
+/**
+ * Drops that a rejoin can fix: the network (1006, also ICE failed) and a media node shutdown
+ * (1001). Not a kick, a replace by another device or an E2EE failure: a rejoin would undo it or
+ * fail again, for the whole room.
+ */
+const REJOIN_CODES = new Set([1001, 1006])
+const REJOIN_DELAY_MS = 1_000
 
 /** A captured microphone plus its voice-activity detector. `stop()` releases both. */
 interface MicSession {
@@ -99,6 +106,11 @@ class VoiceService {
   private micAttempt = 0
   private screen: MediaStream | null = null
   private statsTimer: ReturnType<typeof setInterval> | null = null
+  /**
+   * The call that dropped without the user leaving (network, media node, new gateway session). It
+   * joins again once, when the gateway is ready.
+   */
+  private lost: { guildId: string; channelId: string } | null = null
   /** Set by media close 4013: the drop that follows rejoins this target instead of ending. */
   private resync: { guildId: string; channelId: string } | null = null
   /** Consecutive 4013 rejoins without keys, and the timer of the next one. */
@@ -114,8 +126,11 @@ class VoiceService {
     // Our own leave/switch clears `this.conn` first, so those don't land here.
     hachiman.on('voice', (vc) => {
       if (vc) {
+        // Runs after the 'voice' null below: the client leaves on close before this listener. A
+        // drop without a close code (a new gateway session) keeps `lost`.
         vc.on('close', ({ code }) => {
           if (code === MEDIA_UNSUPPORTED) setCryptoFatal('update_required')
+          if (!REJOIN_CODES.has(code)) this.lost = null
         })
         return
       }
@@ -123,8 +138,14 @@ class VoiceService {
       this.resync = null
       if (resync) return void this.rejoin(resync)
       if (!this.conn) return
+      const { guildId, channelId } = useVoiceStore.getState()
       playSound('voiceDisconnect')
       this.endSession()
+      this.lost = guildId && channelId ? { guildId, channelId } : null
+      setTimeout(() => this.rejoinLost(), REJOIN_DELAY_MS)
+    })
+    hachiman.on('state', (state) => {
+      if (state === 'ready') this.rejoinLost()
     })
     // Media close 4013 (§8): the E2EE state must start again. The client leaves voice next; the
     // 'voice' handler above then joins again, which gives a new leaf and new transforms.
@@ -158,6 +179,7 @@ class VoiceService {
   /** A join by the user. It cancels a waiting automatic rejoin. */
   joinVoice(guildId: string, channelId: string): Promise<void> {
     this.cancelResync()
+    this.lost = null
     return this.connect(guildId, channelId)
   }
 
@@ -220,6 +242,18 @@ class VoiceService {
     }, delay)
   }
 
+  /**
+   * One rejoin of the dropped call, if the channel is still there and I may still CONNECT.
+   * ponytail: one try per drop; ICE needs ~30 s to fail, which bounds a network rejoin loop.
+   */
+  private rejoinLost(): void {
+    const lost = this.lost
+    if (!lost || hachiman.gateway.state !== 'ready' || useVoiceStore.getState().channelId) return
+    this.lost = null
+    const channel = hachiman.cache.channels.get(lost.channelId)
+    if (channel?.guildId === lost.guildId) void this.join(channel)
+  }
+
   /** The user joins or leaves: no automatic rejoin waits, and the count starts again. */
   private cancelResync(): void {
     if (this.resyncTimer) clearTimeout(this.resyncTimer)
@@ -232,6 +266,7 @@ class VoiceService {
   leaveVoice(): void {
     if (useVoiceStore.getState().channelId) playSound('voiceLeave')
     this.cancelResync()
+    this.lost = null
     this.endSession()
   }
 

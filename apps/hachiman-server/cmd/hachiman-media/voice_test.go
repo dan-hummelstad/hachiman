@@ -255,6 +255,8 @@ func (p *pionPeer) answer(t *testing.T, sdp string) {
 
 func TestVoice_JoinPeersRenegotiateAndRoomScoping(t *testing.T) {
 	h := newHarness(t)
+	ended := make(chan string, 4)
+	h.srv.onEnd = func(c *voicetoken.Claims) { ended <- c.SessionID }
 
 	a := h.dial(h.token("sA", "userA", "room1"))
 	var ready struct {
@@ -418,6 +420,22 @@ func TestVoice_JoinPeersRenegotiateAndRoomScoping(t *testing.T) {
 		t.Fatalf("A peers after kick = %+v", ps)
 	}
 	a.offer()
+
+	// The gateway caused the kick: no VOICE_DISCONNECTED. A's own close does send one.
+	select {
+	case sid := <-ended:
+		t.Fatalf("onEnd(%s) after a kick", sid)
+	default:
+	}
+	_ = a.ws.Close()
+	select {
+	case sid := <-ended:
+		if sid != "sA" {
+			t.Fatalf("onEnd(%s), want sA", sid)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("no onEnd after the client closed")
+	}
 }
 
 func TestVoice_CloseCodes(t *testing.T) {
