@@ -93,6 +93,14 @@ export class GatewayClient extends TypedEventEmitter<GatewayClientEvents> {
     this.setState('closed')
   }
 
+  /** Skips the backoff wait of a pending reconnect, e.g. when the network comes back. */
+  retryNow(): void {
+    if (!this.wanted || this.ws) return
+    clearTimeout(this.reconnectTimer)
+    this.attempts = 0
+    this.open()
+  }
+
   updatePresence(status: PresenceStatus): void {
     this.send(GatewayOp.PRESENCE_UPDATE, { status })
   }

@@ -114,11 +114,16 @@ func (s *session) run(first func() bool) {
 		case it := <-s.in:
 			switch it := it.(type) {
 			case busEvent:
-				if it.scope == "device" && it.env.T == "DEVICE_REVOKED" {
+				// Internal device events are not forwarded.
+				switch {
+				case it.scope == "device" && it.env.T == "DEVICE_REVOKED":
 					s.revoke()
 					return
+				case it.scope == "device" && it.env.T == "VOICE_DISCONNECTED":
+					s.onVoiceDisconnected(it.env.D)
+				default:
+					s.onEvent(it)
 				}
-				s.onEvent(it)
 			case inFrame:
 				s.onOp(it)
 			case docAwareness:

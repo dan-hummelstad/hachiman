@@ -1,5 +1,5 @@
 appId: com.electron.app
-productName: my-app
+productName: hachiman
 directories:
   buildResources: build
 files:
@@ -19,7 +19,7 @@ protocols:
 asarUnpack:
   - resources/**
 win:
-  executableName: my-app
+  executableName: hachiman
 nsis:
   artifactName: hachiman-${version}-setup.${ext}
   shortcutName: ${productName}

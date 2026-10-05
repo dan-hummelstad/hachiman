@@ -122,6 +122,7 @@ export class VoiceConnection extends TypedEventEmitter<VoiceEvents> {
   private localCandidates: (RTCIceCandidateInit | null)[] | null = [] // null once the first answer is sent
   private offerChain: Promise<void> = Promise.resolve()
   private closed = false
+  private _closeCode: number | null = null
 
   constructor(
     private readonly opts: {
@@ -133,6 +134,11 @@ export class VoiceConnection extends TypedEventEmitter<VoiceEvents> {
     },
   ) {
     super()
+  }
+
+  /** The code of an unexpected close (media close code, or 1006 'ice failed'). Null while open or after `close()`. */
+  get closeCode(): number | null {
+    return this._closeCode
   }
 
   /** Resolves on the media node's `ready` (token accepted). Audio flows once `state` reaches `connected`. */
@@ -149,7 +155,11 @@ export class VoiceConnection extends TypedEventEmitter<VoiceEvents> {
 
     const pc = new RTCPeerConnection({ iceServers: this.opts.iceServers })
     this.pc = pc
-    pc.onconnectionstatechange = () => this.emit('state', pc.connectionState)
+    pc.onconnectionstatechange = () => {
+      this.emit('state', pc.connectionState)
+      // A dead network can leave the socket open for minutes; ICE notices first.
+      if (pc.connectionState === 'failed') this.fail(1006, 'ice failed')
+    }
     pc.onicecandidate = ev => {
       const c = ev.candidate?.toJSON() ?? null
       // Media expects candidates after our answer; buffer anything gathered before it's sent.
@@ -186,6 +196,7 @@ export class VoiceConnection extends TypedEventEmitter<VoiceEvents> {
   /** Unexpected teardown: close and tell the owner (unlike `close()`, which is owner-initiated). */
   private fail(code: number, reason: string): void {
     if (this.closed) return
+    this._closeCode = code
     this.close()
     if (code === RESYNC) this.emit('resync', { code, reason })
     this.emit('close', { code, reason })

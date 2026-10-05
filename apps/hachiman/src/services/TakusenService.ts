@@ -62,6 +62,9 @@ async function sha256(input: string): Promise<Uint8Array> {
   return new Uint8Array(hash)
 }
 
+/** Discovery and token refresh: a request on a dead network gives up after this. */
+const FETCH_TIMEOUT_MS = 15_000
+
 /**
  * Singleton that owns the Takusen OIDC session. Framework-agnostic so the
  * HachimanClient token provider can call it without React.
@@ -86,15 +89,19 @@ export class TakusenService {
   private async discover(): Promise<DiscoveryDoc> {
     if (!this.discoveryPromise) {
       const url = `${this.env.issuer.replace(/\/$/, '')}/.well-known/openid-configuration`
-      this.discoveryPromise = fetch(url, { headers: { accept: 'application/json' } }).then(
-        async (r) => {
-          if (!r.ok) {
-            this.discoveryPromise = null
-            throw new Error(`OIDC discovery failed: ${r.status} ${r.statusText}`)
-          }
+      // Any failure (offline included) clears the cache, else every later refresh fails too.
+      this.discoveryPromise = fetch(url, {
+        headers: { accept: 'application/json' },
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS)
+      })
+        .then(async (r) => {
+          if (!r.ok) throw new Error(`OIDC discovery failed: ${r.status} ${r.statusText}`)
           return (await r.json()) as DiscoveryDoc
-        }
-      )
+        })
+        .catch((e: unknown) => {
+          this.discoveryPromise = null
+          throw e
+        })
     }
     return this.discoveryPromise
   }
@@ -247,10 +254,12 @@ export class TakusenService {
       refresh_token: session.refreshToken,
       client_id: this.env.clientId
     })
+    // The timeout: one hung refresh would hold every getAccessToken (single-flight).
     const r = await fetch(discovery.token_endpoint, {
       method: 'POST',
       headers: { 'content-type': 'application/x-www-form-urlencoded' },
-      body
+      body,
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS)
     })
     if (!r.ok) {
       // 4xx → invalid refresh, sign out. 5xx → keep the session, retry later.

@@ -98,6 +98,8 @@ func run(ctx context.Context, logger *log.Logger, a args) error {
 	}
 	rdb := redis.NewClient(opts)
 	defer rdb.Close()
+	// close runs on SFU and pion goroutines: publish off them.
+	srv.onEnd = func(c *voicetoken.Claims) { go publishVoiceDisconnected(rdb, c, logger) }
 
 	var oc *takusenclient.Client
 	if a.TakusenGRPCAddr != "" {

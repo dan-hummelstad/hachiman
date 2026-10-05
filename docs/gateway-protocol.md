@@ -481,7 +481,7 @@ Other Redis keys (owned by the gateway unless noted):
 
 | Key | Type | Contents / TTL |
 |---|---|---|
-| `session:{sessionId}` | hash | `userId`, `deviceId`, `seq`, `owner` (gateway process id — seq/buffer appends are Lua-guarded on ownership; RESUME takes ownership atomically); TTL 90 s, refreshed on each heartbeat |
+| `session:{sessionId}` | hash | `userId`, `deviceId`, `seq`, `owner` (gateway process id — seq/buffer appends are Lua-guarded on ownership; RESUME takes ownership atomically), `voiceJti` (the `jti` of the voice token of the current call; RESUME restores it with the voice state); TTL 90 s, refreshed on each heartbeat |
 | `device_online:{deviceId}` | string | the live session id. TTL 90 s, refreshed on each heartbeat, deleted when the session ends. The Takusen batch scheduler reads it (§12.7.5) |
 | `device_nonce:{deviceId}:{nonce}` | string | gateway-owned. A `deviceProof` nonce of IDENTIFY or RESUME that the gateway accepted (§12.13). `SET NX`, TTL 10 min |
 | `user_sessions:{userId}` | set | live session ids (TTL 90 s) — a user goes offline only when the last session ends |
@@ -496,6 +496,7 @@ Other Redis keys (owned by the gateway unless noted):
 | `takusen:mls_wakeup` | pub/sub | Takusen-owned. Takusen → its gRPC process: `{ "groupId": "<base64url>" }` when a Remove is queued (§12.7.5) |
 | `takusen:mls_false_reject:{deviceId}` | string (counter) | Takusen-owned. The number of false `not_reader` rejection reports of a committer device (§12.12 "Batch rejections"). At 3, the batch scheduler skips the device. TTL 30 days, set again on each report |
 | `media:{nodeId}` | pub/sub | gateway → media: `{ "op": "kick", "sessionId": "...", "channelId": "..." }` — media only closes a conn whose token channelId matches (a late kick must not kill a newer connection of the same session) |
+| `device:{deviceId}` | pub/sub | media → gateway, internal: the envelope `{ "t": "VOICE_DISCONNECTED", "d": { "sessionId", "channelId", "jti" } }` when a call ends without a kick (§8 "Call end"). Not forwarded to clients |
 
 ## 6. Gateway WebSocket (`hachiman-gateway`)
 
@@ -591,9 +592,11 @@ On op 4 with a `channelId`:
 4. If the channel changed (not a mute, deafen or stream toggle): resolve media node = GET `voice_room:{channelId}`, else
    `PlaceMediaSession{channelId, guildId, homeRegion: guild.region}` through Takusen gRPC, and SET NX.
    Kick the old media session if the user was elsewhere.
-5. Mint a voice token (§7) with the session's `deviceId`. Send VOICE_SERVER_UPDATE with the `signalingUrl` of the node as `endpoint`.
+5. Mint a voice token (§7) with the session's `deviceId` and a `jti` that the gateway picks. Keep the `jti` on the session and in `session:{sessionId}` `voiceJti`. Send VOICE_SERVER_UPDATE with the `signalingUrl` of the node as `endpoint`.
 
 Clients send op 4 with `channelId: null` when their media connection drops unexpectedly. Thus, a re-join is a fresh join.
+
+On the internal `VOICE_DISCONNECTED {sessionId, channelId, jti}` on `device:{id}` (§8 "Call end"): the session with that id leaves voice as for op 4 with `channelId: null`, but only when `channelId` and `jti` are those of its current call, and only on the gateway node that owns the session (`owner`; after a RESUME on another node the old session object lives on until its grace ends). Thus, a late event of an earlier call does not end a re-join. The gateway does not forward the event. A client whose op 4 leave was dropped (the gateway connection was down too) thus does not stay in the channel until the session ends.
 
 On op 4 with `channelId: null`, or session end: HDEL, DEL `voice_user`, publish VOICE_STATE_UPDATE(null),
 publish kick to `media:{nodeId}`, and DEL `voice_room:{channelId}` if HLEN of occupants in that channel hits 0.
@@ -669,6 +672,8 @@ E2EE (§12.10): the media node relays and orders. It never signs, proposes or co
 `e2ee_invalid` closes the sender with 4013 (a resync) when `transitionId` is null, when it names an unknown or resolved transition, a transition that does not include the sender, or a transition that the sender committed. When no live participant holds the group state but participants remain, the room starts a new group: a new room session id and group id, epoch null, and an empty `departed` list.
 
 **Bad commits.** For one `transitionId`, when at least two members send `e2ee_invalid`, or every other member when fewer than two other members exist, the media node closes the committer of that transition with 4014. It keeps the other members, selects a new committer and sends the roster again. The members drop the pending transition and stay in the previous epoch. A single `e2ee_invalid` while the other members send `e2ee_ready` closes only that member with 4013. Frames on m-line 0 and 1 and on every peer track are SFrame (§12.10.2).
+
+**Call end.** When a joined session closes for any reason except 4010 (kick), 4011 (replaced) or a node shutdown (1001), the media node publishes `VOICE_DISCONNECTED {sessionId, channelId, jti}` (the claims of its voice token) to `device:{deviceId}` (§5). The gateway then removes the voice state at once (§6 "Voice join"), and does not wait for the end of the gateway session. The gateway caused a kick or a replace, so those send nothing. On a shutdown the clients get 1001 and leave themselves.
 
 Keepalive: media pings every ~20 s and drops sockets silent for 60 s. Media closes 1011 if an offer goes unanswered ~15 s or the PC is not `connected` ~30 s after join. Media rejects frames above `MEDIA_WS_READ_LIMIT` (default 1 MiB). The send queue holds 256 frames.
 
@@ -796,6 +801,7 @@ export class GatewayClient extends TypedEventEmitter<GatewayClientEvents> {
   constructor(opts: { url: string; getToken: TokenProvider; device: () => { deviceId: string; capabilities: string[]; clientVersion: string }; proveDevice?: DeviceProver })
   connect(): void          // auto-reconnect with backoff; RESUME when possible, else fresh IDENTIFY
   disconnect(): void
+  retryNow(): void         // a reconnect waits for its backoff: connect now (the shared UI calls it on the window 'online' event)
   readonly state: 'idle' | 'connecting' | 'ready' | 'resuming' | 'closed'
   readonly sessionId: string | null
   readonly latencyMs: number | null   // HEARTBEAT → ACK RTT
@@ -823,6 +829,7 @@ export class VoiceConnection extends TypedEventEmitter<VoiceEvents> {
   constructor(opts: { endpoint: string; token: string; iceServers: RTCIceServer[]; e2ee: VoiceE2eeDelegate })
   connect(): Promise<void>
   close(): void
+  readonly closeCode: number | null   // the code of an unexpected close ('close' event); null while open or after close()
   setMicrophone(stream: MediaStream | null): Promise<void>   // null = stop sending
   setMuted(muted: boolean): Promise<void>                    // gates the outgoing track; the mic stream stays open
   setSpeaking(speaking: boolean): void                       // sends op speaking
@@ -833,7 +840,7 @@ export class VoiceConnection extends TypedEventEmitter<VoiceEvents> {
   getStats(): Promise<{ rttMs: number | null; jitterMs: number | null; packetLoss: number | null }>
   // events: 'state' (RTCPeerConnectionState), 'speaking' ({userId, speaking}), 'peers' ({userId, ssrc}[]),
   //         'screen' ({userId, stream: MediaStream | null}), 'resync' ({code, reason}: media closed 4013, fires just before 'close'),
-  //         'close' ({code, reason})
+  //         'close' ({code, reason}: the media close code, or 1006 'ice failed' when the RTCPeerConnection state becomes 'failed')
 }
 
 export class HachimanClient extends TypedEventEmitter<HachimanClientEvents> {
@@ -864,6 +871,8 @@ export class HachimanClient extends TypedEventEmitter<HachimanClientEvents> {
   setSelfVoice(change: Partial<SelfVoice>): SelfVoiceState   // SelfVoice = { selfMute, selfDeaf }
   setScreen(track: MediaStreamTrack | null, encoding?: ScreenEncoding | null): Promise<void>   // null = stop; sets selfStream
   readonly voice: VoiceConnection | null
+  // When the gateway becomes 'ready' (before the 'state' event), a voice state of this session that the client is not in
+  // (a leave dropped while the socket was down, then RESUME) is left with op 4 channelId null.
   // events: 'ready', 'state', 'update' (fired after any cache mutation with { t, d }), 'voice' (VoiceConnection | null),
   //         'fatal' ({ code }: the gateway closed 4012 or 4013 and does not reconnect),
   //         'voiceResync' ({ guildId, channelId }: media closed the call 4013; the client left voice, call joinVoice with the same target),
@@ -1909,6 +1918,7 @@ RESUME runs checks 1, 3 and 4 only (the session passed check 2 at IDENTIFY). A R
 - The gateway stores `deviceId` in `session:{sessionId}`. It sets `device_online:{deviceId}` (string, the session id, TTL 90 s, refreshed on each heartbeat) and deletes it when the session ends.
 - It `PSUBSCRIBE`s `device:*` and delivers each event to every session of that device.
 - The internal event `DEVICE_REVOKED {deviceId}` on `device:{id}` is not forwarded. The gateway closes the sessions of the device with 4013.
+- The internal event `VOICE_DISCONNECTED {sessionId, channelId, jti}` on `device:{id}` comes from a media node (§8 "Call end"). It is not forwarded.
 
 **Dispatch events.**
 

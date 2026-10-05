@@ -63,6 +63,11 @@ export const useSelectedGuildId = (): string | null =>
 export const useSelectedChannelId = (): string | null =>
   useNavStore((s) => s.channelByGuild[s.guildKey] ?? null)
 
+/** The open channel, outside React. */
+export const selectedChannelId = (): string | null => {
+  const s = useNavStore.getState()
+  return s.channelByGuild[s.guildKey] ?? null
+}
 export const selectGuild = (guildKey: string): void => useNavStore.getState().selectGuild(guildKey)
 export const selectChannel = (channelId: string | null, guildKey?: string): void =>
   useNavStore.getState().selectChannel(channelId, guildKey)

@@ -75,6 +75,11 @@ type voiceServer struct {
 	// shuttingDown skips roster/renegotiation work while closeAll tears every
 	// session down (no point offering to conns that are about to close).
 	shuttingDown atomic.Bool
+
+	// onEnd runs when a joined call closes for any reason but a kick, a
+	// replace (the gateway caused those) or shutdown. main.go publishes
+	// VOICE_DISCONNECTED.
+	onEnd func(*voicetoken.Claims)
 }
 
 func newVoiceServer(sfu *media.SFU, v *voicetoken.Verifier, logger *log.Logger) *voiceServer {
@@ -231,6 +236,10 @@ func (c *voiceConn) close(code int, reason string) {
 		c.peersMu.Unlock()
 		if cl != nil {
 			c.srv.sfu.Remove(cl)
+			// Shutdown: clients get 1001 and leave themselves.
+			if c.srv.onEnd != nil && code != closeKicked && code != closeReplaced && !c.srv.shuttingDown.Load() {
+				c.srv.onEnd(c.claims)
+			}
 		}
 	})
 }

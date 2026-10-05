@@ -153,7 +153,10 @@ export class HachimanClient extends TypedEventEmitter<HachimanClientEvents> {
       },
       proveDevice: opts.proveDevice,
     })
-    this.gateway.on('state', s => this.emit('state', s))
+    this.gateway.on('state', s => {
+      if (s === 'ready') this.leaveStaleVoice() // before 'state': a rejoin on 'ready' comes after it
+      this.emit('state', s)
+    })
     this.gateway.on('fatal', e => {
       this.wantConnect = false
       this.leaveVoice()
@@ -280,6 +283,20 @@ export class HachimanClient extends TypedEventEmitter<HachimanClientEvents> {
     if (target)
       this.gateway.updateVoiceState({ ...this.wireVoice(), guildId: target.guildId, channelId: null })
     this.dropVoice()
+  }
+
+  /**
+   * After a RESUME, the gateway may still hold a call of this session that the client dropped
+   * (its leave went out while the socket was down). Leave it, else a rejoin of that channel looks
+   * like a mute toggle and gets no VOICE_SERVER_UPDATE.
+   */
+  private leaveStaleVoice(): void {
+    const me = this.cache.user?.id
+    const session = this.gateway.sessionId
+    if (this.voiceTarget || !me || !session) return
+    for (const [guildId, states] of this.cache.voiceStates)
+      if (states.get(me)?.sessionId === session)
+        this.gateway.updateVoiceState({ ...this.wireVoice(), guildId, channelId: null })
   }
 
   /** Deafen implies mute, so `selfMute` is true while deafened even if the user never muted. */
