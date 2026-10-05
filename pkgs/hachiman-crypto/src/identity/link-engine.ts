@@ -22,9 +22,9 @@ import {
   type X25519KeyPair,
 } from '../api'
 import { fromB64url, toB64url } from '../codec'
-import { HISTORY_BUNDLE_MAX_EPOCHS, LINK_MESSAGE_MAX_BYTES, LINK_SESSION_TTL_MS } from '../constants'
+import { LINK_MESSAGE_MAX_BYTES, LINK_SESSION_TTL_MS } from '../constants'
 import { equalBytes } from './bytes'
-import { encodeLinkOffer } from './codec'
+import { encodeLinkOffer, groupHistory } from './codec'
 import { sealHistoryKeys } from './device-message'
 import { identity, keyPairMatches, verifyDeviceCert, verifyDskCert, verifyMasterSelfSignature } from './index'
 
@@ -198,37 +198,28 @@ export function createLinkEngine(host: LinkHost): LinkEngine {
   }
 
   /**
-   * The keys that did not fit in the transfer, one history_keys response per group (§12.5). The
-   * new device opens them once it is ready (they wait in its inbox). A rate limit waits and tries
-   * again.
+   * The keys that did not fit in the transfer, one history_keys response per group (§12.5): at
+   * most HISTORY_BUNDLE_MAX_EPOCHS each, as exportHistory caps. The new device opens them once it
+   * is ready (they wait in its inbox). A rate limit waits and tries again.
    */
   async function sendHistoryRest(offer: LinkOffer, keys: HistoryKeyEntry[]): Promise<void> {
     const self = host.self()
-    const groups = new Map<string, HistoryKeyEntry[]>()
-    for (const k of keys) {
-      const g = toB64url(k.groupId)
-      groups.set(g, [...(groups.get(g) ?? []), k])
-    }
-    for (const list of groups.values()) {
-      list.sort((a, b) => a.epoch - b.epoch)
-      for (let i = 0; i < list.length; i += HISTORY_BUNDLE_MAX_EPOCHS) {
-        const chunk = list.slice(i, i + HISTORY_BUNDLE_MAX_EPOCHS)
-        const sealed = await sealHistoryKeys({ deviceId: self.deviceId, signatureKey: self.mlsSignatureKey.privateKey }, offer, {
-          type: 'response',
-          groupId: chunk[0]!.groupId,
-          epochFrom: chunk[0]!.epoch,
-          epochTo: chunk[chunk.length - 1]!.epoch,
-          keys: chunk.map((k) => ({ epoch: k.epoch, secret: k.secret })),
-        })
-        for (;;) {
-          try {
-            await ctx.transport.postInbox(offer.deviceId, { kind: 'history_keys', body: toB64url(sealed) })
-            break
-          } catch (e) {
-            if ((e as { dsCode?: string } | null)?.dsCode !== 'RateLimited') throw e
-            // ponytail: a fixed wait; the inbox limit is per minute (§12.18 rate limits).
-            await new Promise((resolve) => setTimeout(resolve, 60_000))
-          }
+    for (const g of groupHistory(keys)) {
+      const sealed = await sealHistoryKeys({ deviceId: self.deviceId, signatureKey: self.mlsSignatureKey.privateKey }, offer, {
+        type: 'response',
+        groupId: g.groupId,
+        epochFrom: g.keys[0]!.epoch,
+        epochTo: g.keys[g.keys.length - 1]!.epoch,
+        keys: g.keys,
+      })
+      for (;;) {
+        try {
+          await ctx.transport.postInbox(offer.deviceId, { kind: 'history_keys', body: toB64url(sealed) })
+          break
+        } catch (e) {
+          if ((e as { dsCode?: string } | null)?.dsCode !== 'RateLimited') throw e
+          // ponytail: a fixed wait; the inbox limit is per minute (§12.18 rate limits).
+          await new Promise((resolve) => setTimeout(resolve, 60_000))
         }
       }
     }
