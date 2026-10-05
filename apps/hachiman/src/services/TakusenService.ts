@@ -126,6 +126,9 @@ export class TakusenService {
       client_id: this.env.clientId,
       redirect_uri: redirectUri,
       scope: 'openid profile email offline_access',
+      // Without prompt=consent the provider drops offline_access (OIDC Core §11), so no refresh
+      // token comes back and the session dies with its first access token (1 h).
+      prompt: 'consent',
       state,
       code_challenge: codeChallenge,
       code_challenge_method: 'S256'
@@ -219,11 +222,11 @@ export class TakusenService {
     if (session) this.scheduleRefresh(session)
   }
 
+  /** Without a refresh token the timer fires at expiry, and the refresh signs out. */
   private scheduleRefresh(session: TakusenSession): void {
     if (this.refreshTimer) clearTimeout(this.refreshTimer)
-    if (!session.refreshToken) return
-    const fiveMinutes = 5 * 60 * 1000
-    const delay = Math.max(0, session.expiresAt - Date.now() - fiveMinutes)
+    const lead = session.refreshToken ? 5 * 60 * 1000 : 0
+    const delay = Math.max(0, session.expiresAt - Date.now() - lead)
     this.refreshTimer = setTimeout(() => {
       void this.refresh().catch((e) => console.error('[takusen] refresh failed', e))
     }, delay)
@@ -237,6 +240,14 @@ export class TakusenService {
     return this.refreshInFlight
   }
 
+  /**
+   * The server rejected the access token before its expiry (revoked, or a clock skew): refresh
+   * now. A refresh the server rejects signs out.
+   */
+  refreshNow(): void {
+    void this.refresh().catch((e) => console.error('[takusen] refresh failed', e))
+  }
+
   /** Fresh Takusen access token (refreshes when < 30 s left). Throws when signed out. */
   getAccessToken = async (): Promise<string> => {
     let session = useTakusenStore.getState().session
@@ -247,7 +258,11 @@ export class TakusenService {
 
   private async doRefresh(): Promise<TakusenSession | null> {
     const session = useTakusenStore.getState().session
-    if (!session?.refreshToken) return null
+    if (!session) return null
+    if (!session.refreshToken) {
+      this.expire()
+      return null
+    }
     const discovery = await this.discover()
     const body = new URLSearchParams({
       grant_type: 'refresh_token',
@@ -263,9 +278,7 @@ export class TakusenService {
     })
     if (!r.ok) {
       // 4xx → invalid refresh, sign out. 5xx → keep the session, retry later.
-      if (r.status >= 400 && r.status < 500) {
-        this.signOut()
-      }
+      if (r.status >= 400 && r.status < 500) this.expire()
       return null
     }
     const j = (await r.json()) as {
@@ -282,6 +295,12 @@ export class TakusenService {
     useTakusenStore.getState().setSession(refreshed)
     this.scheduleRefresh(refreshed)
     return refreshed
+  }
+
+  /** The session cannot be renewed: sign out, and say why on the sign-in screen. */
+  private expire(): void {
+    this.signOut()
+    useTakusenStore.getState().setAuthError('Your sign-in expired. Sign in again.')
   }
 
   signOut(): void {
