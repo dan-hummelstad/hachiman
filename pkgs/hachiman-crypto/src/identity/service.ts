@@ -75,6 +75,8 @@ const BACKUP_INTERVAL_MS = 24 * 60 * 60_000
 const BACKUP_BATCH_KEYS = 4096
 /** History keys per group in a LinkTransfer. */
 const LINK_HISTORY_PER_GROUP = 4096
+/** The start-up revocation check waits at most this long, so an offline start is not held up. */
+const START_CHECK_MS = 5_000
 const MAX_UPLOAD_PER_CALL = 100
 /** Master generations that a reset tries after a password reset (see createIdentity). */
 const RESET_GENERATION_PROBES = 64
@@ -1115,6 +1117,40 @@ export const createIdentityService: CreateIdentityService = (ctx, deps) => {
     ctx.emit('error', { code, message: e instanceof Error ? e.message : String(e), dsCode })
   }
 
+  /**
+   * Start-up check: the DS revoked this device while the app was closed, so no USER_KEYS_UPDATE
+   * came. Without it, the stored device id goes to the gateway, which closes 4013, the app signs
+   * out, and the next sign-in does the same. A device that never finished its link holds nothing
+   * to keep: its row goes, the state is needs_identity, and the next link registers a new device.
+   * A set-up device locks without a status event, as a locked store loads: the start reports
+   * 'revoked', and the UI wipes it with signOutDevice. (onSelfRevoked could destroy the store
+   * mid-start.)
+   * Network failures and a slow DS skip the check: the next start checks again.
+   */
+  async function dropIfRevoked(): Promise<void> {
+    const r = row
+    if (r === null) return
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const keys = await Promise.race([
+      transport.getUserKeys(r.userId).catch(() => null),
+      new Promise<null>((resolve) => (timer = setTimeout(() => resolve(null), START_CHECK_MS))),
+    ])
+    clearTimeout(timer)
+    const me = keys?.devices.find((d) => d.id === r.deviceId)
+    if (me?.status !== 'revoked' || row !== r) return
+    if (self !== null) {
+      row = { ...r, lockedAtMs: ctx.now() }
+      await saveRow(row)
+      self = null
+      keyCache.clear()
+      state = 'revoked'
+      return
+    }
+    await store.delete('identity', SELF)
+    row = null
+    state = 'needs_identity'
+  }
+
   async function bestEffort(p: Promise<unknown>): Promise<void> {
     try {
       await p
@@ -1204,10 +1240,12 @@ export const createIdentityService: CreateIdentityService = (ctx, deps) => {
       if (stored.deviceCertificate.length === 0 || stored.master === null || stored.dsk === null) {
         self = null
         state = 'linking'
+        await dropIfRevoked()
         return null
       }
       self = buildSelf(stored)
       state = 'ready'
+      await dropIfRevoked()
       return self
     },
     self: requireSelf,

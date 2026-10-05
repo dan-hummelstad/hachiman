@@ -622,6 +622,33 @@ describe('key changes, revocation of this device, recovery key rotation', () => 
     expect((await bob.svc.listContactDevices(ALICE)).map((d) => d.displayName)).toEqual(['After reset'])
   })
 
+  it('a pending device that another device removed starts over at the next start', async () => {
+    await primary(ALICE)
+    const b = await makeDevice(ds, ALICE, 'Phone')
+    await b.svc.linkAsNewDevice('sas')
+    const oldId = b.svc.status().deviceId!
+    ds.devices.get(oldId)!.status = 'revoked' // removed in the devices panel while the app was closed
+    const again = await makeDevice(ds, ALICE, 'Phone', b.store)
+    // No status event at start: the UI must not take it for a revocation while running (sign-out).
+    expect(again.of('status')).toEqual([])
+    expect(again.svc.status()).toMatchObject({ state: 'needs_identity', deviceId: null })
+    await again.svc.linkAsNewDevice('sas')
+    expect(again.svc.status().state).toBe('linking')
+    expect(again.svc.status().deviceId).not.toBe(oldId)
+  })
+
+  it('a set-up device revoked while the app was closed starts locked, quietly, until the wipe', async () => {
+    const { dev: a } = await primary(ALICE)
+    const id = a.svc.status().deviceId!
+    ds.devices.get(id)!.status = 'revoked'
+    const again = await makeDevice(ds, ALICE, 'Desktop', a.store)
+    expect(again.of('status')).toEqual([])
+    expect(again.svc.status().state).toBe('revoked')
+    expect((await a.store.get('identity', 'self'))?.lockedAtMs).toBe(ds.now)
+    await again.svc.signOutDevice()
+    expect(await a.store.get('identity', 'self')).toBeUndefined()
+  })
+
   it('locks the device on an unsigned server revocation and keeps the store until an explicit wipe', async () => {
     const { dev: a } = await primary(ALICE)
     ds.passwordReset(ALICE)

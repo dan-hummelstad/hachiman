@@ -85,8 +85,11 @@ class CryptoService {
     this.stub = true
   }
 
-  /** Signed in: make the client and init it. Idempotent for one user; another user stops first. */
-  async start(opts: CryptoStartOptions): Promise<void> {
+  /**
+   * Signed in: make the client and init it. Idempotent for one user; another user stops first.
+   * A device that the DS removed starts over: `wiped` is the second start, after the wipe.
+   */
+  async start(opts: CryptoStartOptions, wiped = false): Promise<void> {
     if (this.current && this.userId === opts.userId && useCryptoStore.getState().phase !== 'error')
       return
     this.stop()
@@ -116,6 +119,14 @@ class CryptoService {
         origin: new URL(takusenService.env.apiBase).origin
       })
       if (this.current !== client) return
+      if (status.state === 'revoked' && !wiped) {
+        // The DS removed this device and the user signed in again: start over as a new device.
+        // The wipe drops the old keys; onboarding then links this device or restores it.
+        await client.signOutDevice().catch((e: unknown) => console.warn('[crypto] wipe failed', e))
+        if (this.current !== client) return
+        this.stop()
+        return this.start(opts, true)
+      }
       useCryptoStore.setState({ phase: 'ready' })
       this.setStatus(status)
     } catch (e) {
@@ -256,8 +267,9 @@ class CryptoService {
   /** Stores the status. The listeners hear each change once, after init finished. */
   private setStatus(status: CryptoStatus): void {
     useCryptoStore.setState({ status })
-    // The Worker verified the revocation (§12.4) and cleared its store.
-    if (status.state === 'revoked') {
+    // A revocation while the app runs: sign out. At start (phase 'starting'), start() wipes the
+    // device and starts over instead, so the next sign-in does not end here again.
+    if (status.state === 'revoked' && useCryptoStore.getState().phase === 'ready') {
       setCryptoFatal('device_revoked')
       takusenService.signOut()
       return

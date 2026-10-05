@@ -1180,6 +1180,8 @@ A device accepts a `dsk_transfer` only when its DSK generation is above the stor
 
 **Password reset.** A reset revokes all sessions and all devices of the user on the server (reason `password_reset`). It deletes their key packages. It sets `superseded_at` on the current master key, so the user has no current master key. The user then restores the master key from the recovery key (the same record), or makes a new master key (`generation + 1`, `prev_signature` null). Contacts see "security key changed" for a new master key. Old history stays unreadable without the recovery key. A user who has lost the recovery key and all devices does a password reset first. A bearer token alone cannot replace the master key.
 
+**A removed device.** A revocation while the app runs shows "This device was signed out", and the app signs out. A device that the DS revoked while the app was closed learns it at the next start: the Worker reads its own row with `GET /users/:id/keys`, and waits at most 5 s. A device that never finished its link drops its identity row and starts at `needs_identity`, and the next link registers a new device. A set-up device starts locked (`revoked`). The UI then wipes it with `signOutDevice` and starts again at `needs_identity`, where the user links the device or restores it. Thus a removed device never loops between sign-in and "signed out".
+
 ### 12.5 Verification, linking and device messages
 
 **TOFU.** A client pins the first master key that it sees for a user. A change shows a blocking warning for a verified contact and a quiet notice for an unverified contact. Users verify accounts, not devices. The client also stores the highest DSK generation that it saw for each user (§12.4 rule 9), and never accepts a lower current generation.
@@ -1784,6 +1786,8 @@ The message is UTF-8 text. Its lines are joined by `\n`: `hachiman-device-proof/
 Takusen gives 401 `DeviceProofInvalid` when a header is missing or malformed, when the ts is more than 5 minutes from its clock, when the signature does not verify under `devices.mls_signature_key` (or the device has no key), or when the nonce was used before. Takusen remembers a nonce only after the signature verifies (Redis `takusen:device_nonce:{key}:{nonce}`, `SET NX`, TTL 10 min).
 
 `POST /devices` is the only route that has a proof but no device id. Its body presents `mlsSignatureKey`, and the request must carry a proof by that key with the device id `""` in the message. Takusen stores the key in the new row. The certificate of the device must certify the same key later (`PUT /devices/:id/certificate` gives 400 `InvalidCertificate` for another key).
+
+**Device binding.** Takusen binds each OIDC grant to the first device that the grant presents (Redis `takusen:grant_device:{grantId}`). After that, the grant can claim only that device, else 403 `DeviceNotActive`. One exception: a grant whose device is not active can move to a pending device, so a client that lost its store can register again. Each sign-in gets its own grant: the provider's `loadExistingGrant` loads only the grant of the current consent, not the grant of the browser session. The web app and the desktop app sign in through the same browser with the same client, so a shared grant bound the desktop's device to the web device. Thus every sign-in shows the consent screen.
 
 The client signs in the crypto Worker (`CryptoApi.proveDevice`). The UI thread never holds the key. RestClient sends the proof on every request that sends `X-Hachiman-Device`, and on `POST /devices`.
 

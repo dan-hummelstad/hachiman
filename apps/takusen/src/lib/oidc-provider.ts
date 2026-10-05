@@ -134,6 +134,14 @@ function buildConfiguration(): Configuration {
     // revocation. Use the same allowlist as the /api/* middleware, which
     // answers the preflights (src/lib/allowed-origins.ts). Never `Origin: null`.
     clientBasedCORS: (_ctx, origin) => isAllowedOrigin(origin),
+    // One grant per sign-in, not one per browser session and client (panva's default). The web
+    // app and the desktop app sign in through the same browser with the same client, and Takusen
+    // binds each grant to one device (§12.12 "Device binding"): a shared grant made the desktop's
+    // device "not active" (bound to the web device). Every sign-in thus asks for consent.
+    loadExistingGrant: async (ctx) => {
+      const grantId = ctx.oidc.result?.consent?.grantId
+      return grantId ? await ctx.oidc.provider.Grant.find(grantId) : undefined
+    },
     async findAccount(_ctx, id) {
       const row = await db.query.users.findFirst({
         where: eq(users.id, id),
