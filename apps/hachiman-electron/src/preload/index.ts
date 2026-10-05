@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from "electron";
 import {
+  CHECK_FOR_UPDATE_CHANNEL,
   INVITE_CODE_CHANNEL,
   OAUTH_CALLBACK_CHANNEL,
   OPEN_EXTERNAL_CHANNEL,
@@ -10,6 +11,7 @@ import {
   SELECT_SCREEN_SOURCE_CHANNEL,
   type ScreenSourceInfo,
   type SecureStorageResult,
+  type UpdateCheckResult,
 } from "../shared/ipc";
 
 /**
@@ -53,6 +55,9 @@ const bridge = {
   /** The listed source that the next getDisplayMedia captures. */
   selectScreenSource: (id: string): Promise<void> =>
     ipcRenderer.invoke(SELECT_SCREEN_SOURCE_CHANNEL, id),
+  /** Check for a desktop update now; main shows its restart prompt for a new build. */
+  checkForUpdate: (): Promise<UpdateCheckResult> =>
+    ipcRenderer.invoke(CHECK_FOR_UPDATE_CHANNEL),
   /** Wrap key of the crypto store (main validates the userId). The caller zeroes `value`. */
   secureStorage: {
     getWrapKeyBytes: (

@@ -11,6 +11,7 @@ import { join } from "path";
 import { electronApp, optimizer, is } from "@electron-toolkit/utils";
 import icon from "../../resources/icon.png?asset";
 import {
+  CHECK_FOR_UPDATE_CHANNEL,
   OPEN_EXTERNAL_CHANNEL,
   PROBE_REGIONS_CHANNEL,
   SECURE_STORAGE_CLEAR_CHANNEL,
@@ -27,7 +28,7 @@ import { flushPendingUrls, registerProtocolHandlers } from "./protocol-handler";
 import { validateProbeTargets } from "./probe-target-guard";
 import { probeRegions } from "./region-probe";
 import { registerScreenShare } from "./screen-share";
-import { startUpdater } from "./updater";
+import { checkForUpdate, startUpdater } from "./updater";
 import {
   devRenderer,
   packagedRenderer,
@@ -160,12 +161,22 @@ function wrapKeyStore(): WrapKeyStore {
   });
   return wrapKeys;
 }
-function checkAppFrame(e: IpcMainInvokeEvent): void {
+function isAppFrame(e: IpcMainInvokeEvent): boolean {
   const frame = e.senderFrame;
-  if (!frame || frame.parent !== null || !renderer.isAppUrl(frame.url)) {
-    throw new SecureStorageError("Malformed", "caller is not the app page");
-  }
+  return (
+    frame !== null && frame.parent === null && renderer.isAppUrl(frame.url)
+  );
 }
+function checkAppFrame(e: IpcMainInvokeEvent): void {
+  if (!isAppFrame(e))
+    throw new SecureStorageError("Malformed", "caller is not the app page");
+}
+// IPC: the settings "Check for updates" button. A manual check offers a build put off with "Later" again.
+ipcMain.handle(CHECK_FOR_UPDATE_CHANNEL, (e) =>
+  isAppFrame(e)
+    ? checkForUpdate(true)
+    : { status: "failed", reason: "caller is not the app page" },
+);
 ipcMain.handle(SECURE_STORAGE_GET_CHANNEL, (e, userId: unknown) =>
   toIpcResult(async () => {
     checkAppFrame(e);

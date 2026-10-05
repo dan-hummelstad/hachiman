@@ -371,6 +371,7 @@ Both routes are public, with no auth. `:platform` is `macos` or `windows`. Takus
 
 The app (`apps/hachiman-electron/src/main/updater.ts`) checks at start and every 4 h when it was built with `MAIN_VITE_BUILD_SHA` (CI sets the commit).
 When `sha` differs from its own, it downloads the zip, drops it unless its SHA-256 is `sha256`, unpacks it and asks to restart.
+After "Later", the timer does not ask again for that build. User settings → Updates checks at once (`IPlatformService.checkForUpdate`, IPC `hachiman:check-for-update` from the top frame of the app page only) and asks again for a build that was put off. The timer and the button share one check at a time.
 Windows runs the NSIS installer with `/S --force-run`. macOS (unsigned builds, so no Squirrel.Mac) copies the `.app` from the dmg over its own bundle after it quits. When the install folder is not writable, it opens the dmg instead.
 
 ### Pages
@@ -917,9 +918,18 @@ export interface IPlatformService {
   getScreenSources(): Promise<{ id: string; name: string; kind: 'screen' | 'window'; thumbnail: Blob }[] | null>
   /** Electron: the listed source that the next screen share captures. Browser: no-op. */
   selectScreenSource(id: string): Promise<void>
+  /** Electron: check for a new build now, and offer it (also one that the user put off). Browser: not-available. */
+  checkForUpdate(): Promise<UpdateCheckResult>
   /** The wrap key of the encrypted crypto store (§12.17). */
   readonly secureStorage: ISecureStorage
 }
+
+// `build` and `latest` are short commits (§4 Desktop updates).
+export type UpdateCheckResult =
+  | { status: 'up-to-date'; build: string }
+  | { status: 'offered'; build: string; latest: string }   // downloaded; the host showed its restart prompt
+  | { status: 'not-available'; reason: string }            // a dev build, the web app, or no build published
+  | { status: 'failed'; reason: string }
 
 export interface ISecureStorage {
   readonly backend: 'os-keychain' | 'browser-indexeddb'
