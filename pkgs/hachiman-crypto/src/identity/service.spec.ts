@@ -629,12 +629,16 @@ describe('key changes, revocation of this device, recovery key rotation', () => 
     const oldId = b.svc.status().deviceId!
     ds.devices.get(oldId)!.status = 'revoked' // removed in the devices panel while the app was closed
     const again = await makeDevice(ds, ALICE, 'Phone', b.store)
-    // No status event at start: the UI must not take it for a revocation while running (sign-out).
+    // Locked, with no status event: the UI must not take it for a revocation while running.
     expect(again.of('status')).toEqual([])
-    expect(again.svc.status()).toMatchObject({ state: 'needs_identity', deviceId: null })
-    await again.svc.linkAsNewDevice('sas')
-    expect(again.svc.status().state).toBe('linking')
-    expect(again.svc.status().deviceId).not.toBe(oldId)
+    expect(again.svc.status().state).toBe('revoked')
+    // The UI wipes a revoked start, and the next start links as a new device.
+    await again.svc.signOutDevice()
+    const fresh = await makeDevice(ds, ALICE, 'Phone', b.store)
+    expect(fresh.svc.status()).toMatchObject({ state: 'needs_identity', deviceId: null })
+    await fresh.svc.linkAsNewDevice('sas')
+    expect(fresh.svc.status().state).toBe('linking')
+    expect(fresh.svc.status().deviceId).not.toBe(oldId)
   })
 
   it('a set-up device revoked while the app was closed starts locked, quietly, until the wipe', async () => {

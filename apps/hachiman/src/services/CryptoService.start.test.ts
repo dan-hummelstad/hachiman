@@ -42,6 +42,16 @@ it('a device that the DS removed starts over at sign-in instead of signing out a
   expect(signOut).not.toHaveBeenCalled()
 })
 
+it('a failed wipe fails the start (error screen) instead of starting again', async () => {
+  const signOut = vi.spyOn(takusenService, 'signOut').mockImplementation(() => undefined)
+  wipes.mockRejectedValueOnce(new Error('store busy'))
+  states.push('revoked')
+  await cryptoService.start(opts)
+  expect(useCryptoStore.getState().phase).toBe('error')
+  expect(useCryptoStore.getState().fatal).toBeNull()
+  expect(signOut).not.toHaveBeenCalled()
+})
+
 it('a revocation while the app runs still signs out', async () => {
   const signOut = vi.spyOn(takusenService, 'signOut').mockImplementation(() => undefined)
   states.push('ready')

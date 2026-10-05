@@ -85,11 +85,8 @@ class CryptoService {
     this.stub = true
   }
 
-  /**
-   * Signed in: make the client and init it. Idempotent for one user; another user stops first.
-   * A device that the DS removed starts over: `wiped` is the second start, after the wipe.
-   */
-  async start(opts: CryptoStartOptions, wiped = false): Promise<void> {
+  /** Signed in: make the client and init it. Idempotent for one user; another user stops first. */
+  async start(opts: CryptoStartOptions): Promise<void> {
     if (this.current && this.userId === opts.userId && useCryptoStore.getState().phase !== 'error')
       return
     this.stop()
@@ -119,13 +116,14 @@ class CryptoService {
         origin: new URL(takusenService.env.apiBase).origin
       })
       if (this.current !== client) return
-      if (status.state === 'revoked' && !wiped) {
+      if (status.state === 'revoked') {
         // The DS removed this device and the user signed in again: start over as a new device.
-        // The wipe drops the old keys; onboarding then links this device or restores it.
-        await client.signOutDevice().catch((e: unknown) => console.warn('[crypto] wipe failed', e))
+        // The wipe destroys the store, so the next start is needs_identity (onboarding links or
+        // restores). A failed wipe fails the start (the error screen), so this cannot loop.
+        await client.signOutDevice()
         if (this.current !== client) return
         this.stop()
-        return this.start(opts, true)
+        return this.start(opts)
       }
       useCryptoStore.setState({ phase: 'ready' })
       this.setStatus(status)
