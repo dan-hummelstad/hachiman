@@ -231,6 +231,23 @@ describe('device linking', () => {
     expect(a.of('linkDone')).toEqual([{ sessionId, role: 'existing_device', ok: false, error: 'LinkAborted' }])
     expect(b.of('linkDone')).toEqual([{ sessionId, role: 'new_device', ok: false, error: 'LinkAborted' }])
   })
+
+  it('ignores a cancel from the new device after it took the keys', async () => {
+    const { dev: a } = await primary()
+    const b = await makeDevice(ds, ALICE, 'Phone')
+    const { sessionId, qrPayload } = await b.svc.linkAsNewDevice('qr')
+    // The UI unmounts the link screen at status 'ready' and cancels a session it thinks is open.
+    const push = b.events.push.bind(b.events)
+    b.events.push = (...items) => {
+      for (const i of items) if (i.event === 'status' && (i.payload as { state: string }).state === 'ready') void b.svc.linkCancel(sessionId)
+      return push(...items)
+    }
+    await ds.flush()
+    await a.svc.linkScan(qrPayload!)
+    await ds.flush()
+    expect(b.of('linkDone')).toEqual([{ sessionId, role: 'new_device', ok: true, error: null }])
+    expect(a.of('linkDone')).toEqual([{ sessionId, role: 'existing_device', ok: true, error: null }])
+  })
 })
 
 describe('revocation and DSK rotation across devices', () => {
