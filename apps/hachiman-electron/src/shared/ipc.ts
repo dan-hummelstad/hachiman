@@ -15,6 +15,16 @@ export const SCREEN_SOURCES_CHANNEL = "hachiman:screen-sources";
 /** renderer → main (invoke): the listed source that the next getDisplayMedia captures. */
 export const SELECT_SCREEN_SOURCE_CHANNEL = "hachiman:select-screen-source";
 
+/** renderer → main (invoke): check for a desktop update now (updater.ts). */
+export const CHECK_FOR_UPDATE_CHANNEL = "hachiman:check-for-update";
+
+/** Same shape as `UpdateCheckResult` in `@hachiman/hachiman` (IPlatformService.ts). */
+export type UpdateCheckResult =
+  | { status: "up-to-date"; build: string }
+  | { status: "offered"; build: string; latest: string }
+  | { status: "not-available"; reason: string }
+  | { status: "failed"; reason: string };
+
 /** One share target for the in-app picker (SCREEN_SOURCES_CHANNEL). */
 export interface ScreenSourceInfo {
   id: string;

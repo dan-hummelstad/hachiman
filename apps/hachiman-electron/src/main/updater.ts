@@ -16,6 +16,7 @@ import { pipeline } from "stream/promises";
 import type { ReadableStream } from "stream/web";
 import { promisify } from "util";
 import { resolveTakusenEnv } from "@hachiman/hachiman/takusen-env";
+import type { UpdateCheckResult } from "../shared/ipc";
 
 interface Target {
   /** `:platform` of the Takusen route. */
@@ -56,27 +57,71 @@ const MAC_SWAP_SCRIPT =
 
 const run = promisify(execFile);
 // The build the user already saw a prompt for, so a "Later" is not asked again every interval.
+// A manual check asks again.
 let offeredSha: string | null = null;
+// One check at a time: the timer and the settings button share it.
+let checking: Promise<UpdateCheckResult> | null = null;
 
 export function startUpdater(): void {
-  const target = TARGETS[process.platform];
-  if (!app.isPackaged || !BUILD_SHA || !target) return;
-  const url = `${resolveTakusenEnv(env).apiBase}/desktop-update/${target.name}`;
+  if (!app.isPackaged || !BUILD_SHA || !TARGETS[process.platform]) return;
   const tick = (): void => {
-    check(target, url).catch((e: unknown) =>
-      console.warn("[hachiman] update check failed", e),
-    );
+    void checkForUpdate(false).then((r) => {
+      if (r.status === "failed")
+        console.warn("[hachiman] update check failed", r.reason);
+    });
   };
   tick();
   setInterval(tick, CHECK_INTERVAL_MS);
 }
 
-async function check(target: Target, url: string): Promise<void> {
+/** `manual`: the user asked (settings), so a build they put off with "Later" is offered again. */
+export function checkForUpdate(manual: boolean): Promise<UpdateCheckResult> {
+  checking ??= runCheck(manual).finally(() => {
+    checking = null;
+  });
+  return checking;
+}
+
+async function runCheck(manual: boolean): Promise<UpdateCheckResult> {
+  const target = TARGETS[process.platform];
+  if (!app.isPackaged || !BUILD_SHA || !target) {
+    return {
+      status: "not-available",
+      reason:
+        "This build does not update itself (a development or local build).",
+    };
+  }
+  try {
+    return await check(target, manual);
+  } catch (e) {
+    return {
+      status: "failed",
+      reason: e instanceof Error ? e.message : String(e),
+    };
+  }
+}
+
+async function check(
+  target: Target,
+  manual: boolean,
+): Promise<UpdateCheckResult> {
+  const build = BUILD_SHA.slice(0, 7);
+  const url = `${resolveTakusenEnv(env).apiBase}/desktop-update/${target.name}`;
   const res = await fetch(url);
-  if (res.status === 404) return; // updates not configured, or no build yet
+  if (res.status === 404)
+    return {
+      status: "not-available",
+      reason: "No desktop build is published yet.",
+    };
   if (!res.ok) throw new Error(`update info: HTTP ${res.status}`);
   const { sha, sha256 } = (await res.json()) as { sha: string; sha256: string };
-  if (sha === BUILD_SHA || sha === offeredSha) return;
+  if (sha === BUILD_SHA) return { status: "up-to-date", build };
+  const offered = {
+    status: "offered",
+    build,
+    latest: sha.slice(0, 7),
+  } as const;
+  if (sha === offeredSha && !manual) return offered;
 
   const installer = await download(target, `${url}/download`, sha256);
   offeredSha = sha;
@@ -88,12 +133,14 @@ async function check(target: Target, url: string): Promise<void> {
     message: "A new version of Hachiman is ready.",
     detail: `Build ${sha.slice(0, 7)}. Hachiman restarts to install it.`,
   });
-  if (response !== 0) return;
+  if (response !== 0) return offered;
   try {
     await target.install(installer);
   } catch (e) {
     dialog.showErrorBox("Hachiman update failed", String(e));
+    throw e;
   }
+  return offered;
 }
 
 async function download(

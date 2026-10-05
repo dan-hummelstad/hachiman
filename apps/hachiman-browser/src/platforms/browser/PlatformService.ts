@@ -61,5 +61,10 @@ export const platformService: IPlatformService = {
   probeRegions: async () => [],
   getScreenSources: async () => null,
   selectScreenSource: async () => undefined,
+  // Each page load gets the deployed build.
+  checkForUpdate: async () => ({
+    status: "not-available",
+    reason: "The web app updates when you reload the page.",
+  }),
   secureStorage: createBrowserSecureStorage(),
 };

@@ -23,6 +23,7 @@ export const platformService: IPlatformService = {
   probeRegions: (targets) => window.hachiman.probeRegions(targets),
   getScreenSources: () => window.hachiman.getScreenSources(),
   selectScreenSource: (id) => window.hachiman.selectScreenSource(id),
+  checkForUpdate: () => window.hachiman.checkForUpdate(),
   secureStorage: {
     backend: "os-keychain",
     // Main keeps the bytes under safeStorage (main/secure-storage.ts). The

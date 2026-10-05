@@ -12,7 +12,8 @@ export type {
   IPlatformService,
   RegionProbeTarget,
   RegionProbeResult,
-  ScreenSource
+  ScreenSource,
+  UpdateCheckResult
 } from './shared/IPlatformService'
 
 // Takusen SSO. The App completes sign-in itself via `platform.onOAuthCallback`;

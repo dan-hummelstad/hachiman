@@ -20,6 +20,15 @@ export interface ScreenSource {
   thumbnail: string
 }
 
+/** A manual desktop update check (`IPlatformService.checkForUpdate`). `build`: the short commit. */
+export type UpdateCheckResult =
+  | { status: 'up-to-date'; build: string }
+  /** A newer build is downloaded and the host showed its restart prompt. */
+  | { status: 'offered'; build: string; latest: string }
+  /** The host cannot update itself: a dev build, the web app, or no build is published. */
+  | { status: 'not-available'; reason: string }
+  | { status: 'failed'; reason: string }
+
 export interface IPlatformService {
   readonly platform: 'electron' | 'browser'
   /** The host hides the native title bar, so the UI draws a draggable strip (Electron on macOS). */
@@ -38,6 +47,8 @@ export interface IPlatformService {
   getScreenSources(): Promise<ScreenSource[] | null>
   /** Electron: the listed source that the next screen share captures. Browser: no-op. */
   selectScreenSource(id: string): Promise<void>
+  /** Electron: check for a new build now, and offer it (also one that the user put off). Browser: not-available. */
+  checkForUpdate(): Promise<UpdateCheckResult>
   /** The wrap key of the encrypted crypto store (§12.17). */
   readonly secureStorage: ISecureStorage
 }
