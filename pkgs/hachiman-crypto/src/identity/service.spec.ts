@@ -142,7 +142,6 @@ describe('device linking', () => {
     const inTransfer = (await b.store.list('epochSecrets')).map((x) => x.key)
     expect(inTransfer.length).toBeGreaterThan(0)
     expect(inTransfer.length).toBeLessThan(9000)
-    // Every group keeps its newest keys.
     for (const g of groups) expect(inTransfer).toContain(secretKey(g, 2999))
     // One history_keys item per group, sent in the background.
     await vi.waitFor(() => expect(ds.inbox.get(b.svc.self().deviceId)).toHaveLength(3))
