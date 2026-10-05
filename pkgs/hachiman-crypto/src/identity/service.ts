@@ -438,12 +438,21 @@ export const createIdentityService: CreateIdentityService = (ctx, deps) => {
     for (const e of entries) await store.put('epochSecrets', epochKey(e.groupId, e.epoch), { groupId: e.groupId, epoch: e.epoch, secret: e.secret, backedUp: true })
   }
 
+  /**
+   * Stores the keys this device lacks, then emits epochKeysAvailable (as GroupService does) so
+   * the messages that are pending on them decrypt again. A recovery restore imports after the
+   * device is ready, so those messages are already pending.
+   */
   async function importHistory(entries: readonly HistoryKeyEntry[], backedUp: boolean): Promise<void> {
+    const added = new Map<string, number[]>()
     for (const e of entries) {
       const key = epochKey(e.groupId, e.epoch)
       if ((await store.get('epochSecrets', key)) !== undefined) continue
       await store.put('epochSecrets', key, { groupId: e.groupId, epoch: e.epoch, secret: e.secret, backedUp })
+      const gid = groupKey(e.groupId)
+      added.set(gid, [...(added.get(gid) ?? []), e.epoch])
     }
+    for (const [groupId, epochs] of added) ctx.emit('epochKeysAvailable', { groupId, epochs: epochs.sort((a, b) => a - b) })
   }
 
   async function exportHistory(): Promise<HistoryKeyEntry[]> {
@@ -1166,8 +1175,10 @@ export const createIdentityService: CreateIdentityService = (ctx, deps) => {
     },
     deviceName: () => requireInit().deviceName,
     async completeNewDevice(r, history) {
-      await becomeReady(await pinDs(r))
+      // Keys first: 'ready' opens the app, which decrypts the open channel at once.
+      const row = await pinDs(r)
       await importHistory(history, true)
+      await becomeReady(row)
       await bestEffort(replenishKeyPackages())
     },
     exportHistory,
