@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { createAdminService } from '../admin/service'
 import { admin } from '../admin/index'
@@ -6,7 +6,8 @@ import type { CryptoErrorShape } from '../api'
 import { fromB64url, toB64url } from '../codec'
 import { DSK_ROTATION_GRACE_MS, LINK_SESSION_TTL_MS } from '../constants'
 import { kt } from '../kt/index'
-import { encodeDskTransfer } from './codec'
+import { decodeHistoryKeysPayload, encodeDskTransfer } from './codec'
+import { openDeviceMessage } from './device-message'
 import { identity } from './index'
 import { FakeDs, makeDevice, type TestDevice } from './test-helpers'
 
@@ -131,6 +132,33 @@ describe('device linking', () => {
     // 'ready' opens the app, which decrypts the open channel at once: the keys come first.
     const kinds = b.events.map((x) => (x.event === 'status' ? `status:${(x.payload as { state: string }).state}` : x.event))
     expect(kinds.indexOf('epochKeysAvailable')).toBeLessThan(kinds.indexOf('status:ready'))
+  })
+
+  it('a history above one link message: the newest keys in the transfer, the rest in the inbox', async () => {
+    const { dev: a } = await primary()
+    const groups = [1, 2, 3].map((n) => new Uint8Array(22).fill(n))
+    for (const g of groups) for (let e = 0; e < 3000; e++) await a.store.put('epochSecrets', secretKey(g, e), { groupId: g, epoch: e, secret: new Uint8Array(32).fill(e % 256), backedUp: false })
+    const b = await linkSas(a, 'Phone')
+    const inTransfer = (await b.store.list('epochSecrets')).map((x) => x.key)
+    expect(inTransfer.length).toBeGreaterThan(0)
+    expect(inTransfer.length).toBeLessThan(9000)
+    for (const g of groups) expect(inTransfer).toContain(secretKey(g, 2999))
+    // One history_keys item per group, sent in the background.
+    await vi.waitFor(() => expect(ds.inbox.get(b.svc.self().deviceId)).toHaveLength(3))
+    const items = ds.inbox.get(b.svc.self().deviceId)!
+    expect(items.every((i) => i.kind === 'history_keys')).toBe(true)
+    const pushed: string[] = []
+    for (const item of items) {
+      const opened = await openDeviceMessage({
+        recipientHpkePrivateKey: b.svc.self().hpkeKey.privateKey,
+        recipientDeviceId: b.svc.self().deviceId,
+        sealed: fromB64url(item.body),
+        senderSignatureKey: () => Promise.resolve(a.svc.self().mlsSignatureKey.publicKey),
+      })
+      const p = decodeHistoryKeysPayload(opened.payload)
+      pushed.push(...p.keys.map((k) => secretKey(p.groupId, k.epoch)))
+    }
+    expect([...inTransfer, ...pushed].sort()).toEqual(groups.flatMap((g) => Array.from({ length: 3000 }, (_, e) => secretKey(g, e))).sort())
   })
 
   it('SAS mode: a key substituted by the DS changes the emoji and the user stops the transfer', async () => {
@@ -638,6 +666,36 @@ describe('key changes, revocation of this device, recovery key rotation', () => 
     expect(fresh.svc.status()).toMatchObject({ state: 'needs_identity', deviceId: null })
     await fresh.svc.linkAsNewDevice('sas')
     expect(fresh.svc.status().state).toBe('linking')
+    expect(fresh.svc.status().deviceId).not.toBe(oldId)
+  })
+
+  it('a half-linked device (certified on the DS, the transfer lost) starts over at the next start', async () => {
+    const { dev: a } = await primary(ALICE)
+    const b = await makeDevice(ds, ALICE, 'Phone')
+    const { sessionId } = await b.svc.linkAsNewDevice('sas')
+    const oldId = b.svc.status().deviceId!
+    await ds.flush()
+    await a.svc.linkAccept(sessionId)
+    await ds.flush()
+    // The certificate PUT goes through, then the transfer is lost.
+    const put = a.transport.putDeviceCertificate.bind(a.transport)
+    const post = a.transport.postLinkMessage.bind(a.transport)
+    let certified = false
+    a.transport.putDeviceCertificate = (id, body) => put(id, body).then((d) => ((certified = true), d))
+    a.transport.postLinkMessage = (id, body) => (certified ? Promise.reject(new Error('network')) : post(id, body))
+    await expect(a.svc.linkConfirmSas(sessionId, true)).rejects.toThrow('network')
+    await ds.flush()
+    expect(ds.devices.get(oldId)!.status).toBe('active')
+    const again = await makeDevice(ds, ALICE, 'Phone', b.store)
+    expect(again.of('status')).toEqual([])
+    expect(again.svc.status().state).toBe('revoked')
+    // The wipe signs the device out on the DS too: no active device that nobody holds.
+    again.transport.deviceId = oldId // the device proof of the restarted store
+    await again.svc.signOutDevice()
+    expect(ds.devices.get(oldId)).toMatchObject({ status: 'revoked', revokeReason: 'signed_out' })
+    const fresh = await makeDevice(ds, ALICE, 'Phone', b.store)
+    expect(fresh.svc.status()).toMatchObject({ state: 'needs_identity', deviceId: null })
+    await fresh.svc.linkAsNewDevice('sas')
     expect(fresh.svc.status().deviceId).not.toBe(oldId)
   })
 

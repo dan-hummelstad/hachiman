@@ -99,6 +99,15 @@ function UserRow({
             done={`${u.displayName} is signed out.`}
             action={() => adminFetch(`/users/${u.id}/sign-out`, { method: 'POST' })}
           />
+          <ConfirmAction
+            destructive
+            label="Reset keys"
+            title={`Reset the security keys of ${u.displayName}?`}
+            body="For a user who has no device to link from and no recovery key. This signs out and removes all of their devices. At the next sign-in they restore with the recovery key or make new keys. With new keys, they cannot read their old messages. The account and its guilds stay."
+            confirmLabel="Reset keys"
+            done={`The keys of ${u.displayName} are reset.`}
+            action={() => adminFetch(`/users/${u.id}/reset-keys`, { method: 'POST' })}
+          />
           {!self && (
             <ConfirmAction
               destructive
