@@ -356,7 +356,7 @@ E2EE variables: Takusen reads `TAKUSEN_DS_SIGNING_KEY` and `TAKUSEN_KT_SIGNING_K
 
 Full setup notes: [`docs/takusen-sso-setup.md`](docs/takusen-sso-setup.md). Server flags: [`apps/hachiman-server/README.md`](apps/hachiman-server/README.md). Placement design: [`apps/takusen/PLACEMENT-DESIGN.md`](apps/takusen/PLACEMENT-DESIGN.md).
 
-Schema changes during development: run `pnpm db:reset`. It empties the dev DB, then migrates and seeds. Do not stack ALTERs. There is no migration from plaintext data.
+Schema changes: each change adds a migration (`pnpm -F @hachiman/takusen db:generate`), and `pnpm db:migrate` applies it. Do not edit or regenerate a committed migration. `pnpm db:reset` empties the dev DB, then migrates and seeds. There is no migration from plaintext data.
 
 ## Checks
 

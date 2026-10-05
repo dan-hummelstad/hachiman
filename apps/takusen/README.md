@@ -294,7 +294,7 @@ DATABASE_URL=postgres://takusen:takusen@localhost:5432/hachiman_e2ee_test pnpm d
 TAKUSEN_PG_TEST_URL=postgres://takusen:takusen@localhost:5432/hachiman_e2ee_test pnpm test:pg
 ```
 
-When the schema changes, drop and create the test database again, then migrate it.
+When the schema changes, run `db:migrate` on the test database again.
 
 The E2EE canary (`src/e2ee/canary.integration.ts`) needs a running test deployment: Takusen, its gRPC process and the gateway. Two headless clients sign in, send a unique string in a DM, a private channel and a public channel, and decrypt it. Then the script searches every Postgres column, S3 object, Redis key and Redis command, and every client frame for that string. Run it only against a test database, because it creates users and guilds:
 
@@ -303,7 +303,7 @@ CANARY_BASE_URL=http://localhost:3100 CANARY_GATEWAY_URL=ws://localhost:8180/gat
   node --env-file=<test env file> --import tsx src/e2ee/canary.integration.ts   # from apps/takusen
 ```
 
-The schema still changes. Do not add ALTER migrations to a dev DB. Drop the schema, then run `db:migrate` and `db:seed` again.
+Each schema change gets a new migration: edit `src/db/schema.ts`, run `pnpm db:generate`, and commit the new file in `drizzle/` and `drizzle/meta/`. Do not edit or regenerate a committed migration. `db:migrate` applies the new migrations to a database that has data.
 
 ### Environment
 
