@@ -75,6 +75,8 @@ const BACKUP_INTERVAL_MS = 24 * 60 * 60_000
 const BACKUP_BATCH_KEYS = 4096
 /** History keys per group in a LinkTransfer. */
 const LINK_HISTORY_PER_GROUP = 4096
+/** The start-up revocation check waits at most this long, so an offline start is not held up. */
+const START_CHECK_MS = 5_000
 const MAX_UPLOAD_PER_CALL = 100
 /** Master generations that a reset tries after a password reset (see createIdentity). */
 const RESET_GENERATION_PROBES = 64
@@ -928,11 +930,16 @@ export const createIdentityService: CreateIdentityService = (ctx, deps) => {
   }
 
   async function lock(r: IdentityRow): Promise<void> {
+    await markLocked(r)
+    emitStatus()
+  }
+
+  /** lock without the status event (the start-up check: the start result reports it). */
+  async function markLocked(r: IdentityRow): Promise<void> {
     if (r.lockedAtMs == null) await saveRow({ ...r, lockedAtMs: ctx.now() })
     self = null
     keyCache.clear()
     state = 'revoked'
-    emitStatus()
   }
 
   async function signOutDevice(): Promise<void> {
@@ -1115,6 +1122,26 @@ export const createIdentityService: CreateIdentityService = (ctx, deps) => {
     ctx.emit('error', { code, message: e instanceof Error ? e.message : String(e), dsCode })
   }
 
+  /**
+   * Start-up check: the DS revoked this device while the app was closed, so no USER_KEYS_UPDATE
+   * came. Without it, the stored device id goes to the gateway, which closes 4013, the app signs
+   * out, and the next sign-in does the same. The device locks, as a locked store loads (no status
+   * event: the start result reports 'revoked'), and the UI wipes it with signOutDevice and starts
+   * again at needs_identity. Network failures and a slow DS skip the check: the next start checks.
+   */
+  async function lockIfRevoked(): Promise<void> {
+    const r = row
+    if (r === null) return
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const keys = await Promise.race([
+      transport.getUserKeys(r.userId).catch(() => null),
+      new Promise<null>((resolve) => (timer = setTimeout(() => resolve(null), START_CHECK_MS))),
+    ])
+    clearTimeout(timer)
+    const me = keys?.devices.find((d) => d.id === r.deviceId)
+    if (me?.status === 'revoked' && row === r) await markLocked(r)
+  }
+
   async function bestEffort(p: Promise<unknown>): Promise<void> {
     try {
       await p
@@ -1204,10 +1231,12 @@ export const createIdentityService: CreateIdentityService = (ctx, deps) => {
       if (stored.deviceCertificate.length === 0 || stored.master === null || stored.dsk === null) {
         self = null
         state = 'linking'
+        await lockIfRevoked()
         return null
       }
       self = buildSelf(stored)
       state = 'ready'
+      await lockIfRevoked()
       return self
     },
     self: requireSelf,

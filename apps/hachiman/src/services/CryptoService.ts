@@ -116,6 +116,15 @@ class CryptoService {
         origin: new URL(takusenService.env.apiBase).origin
       })
       if (this.current !== client) return
+      if (status.state === 'revoked') {
+        // The DS removed this device and the user signed in again: start over as a new device.
+        // The wipe destroys the store, so the next start is needs_identity (onboarding links or
+        // restores). A failed wipe fails the start (the error screen), so this cannot loop.
+        await client.signOutDevice()
+        if (this.current !== client) return
+        this.stop()
+        return this.start(opts)
+      }
       useCryptoStore.setState({ phase: 'ready' })
       this.setStatus(status)
     } catch (e) {
@@ -256,8 +265,9 @@ class CryptoService {
   /** Stores the status. The listeners hear each change once, after init finished. */
   private setStatus(status: CryptoStatus): void {
     useCryptoStore.setState({ status })
-    // The Worker verified the revocation (§12.4) and cleared its store.
-    if (status.state === 'revoked') {
+    // A revocation while the app runs: sign out. At start (phase 'starting'), start() wipes the
+    // device and starts over instead, so the next sign-in does not end here again.
+    if (status.state === 'revoked' && useCryptoStore.getState().phase === 'ready') {
       setCryptoFatal('device_revoked')
       takusenService.signOut()
       return
