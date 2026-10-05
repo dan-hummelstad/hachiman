@@ -120,8 +120,9 @@ function Choose({
       )}
       {reset && (
         <Warning>
-          Your password was reset. This signed out all of your devices and stopped your security
-          key. Use your recovery key to get your key and your message history back.
+          Your password or your security keys were reset. This signed out all of your devices and
+          stopped your security key. Use your recovery key to get your key and your message history
+          back.
         </Warning>
       )}
       {!reset && (
@@ -161,6 +162,12 @@ function Choose({
           disabled={existing}
           onClick={() => onStep('setup')}
         />
+      )}
+      {existing && (
+        <p className="text-muted-foreground text-xs">
+          No other device and no recovery key? Ask the admin of this server to reset your keys. Then
+          sign in again and select Reset my keys.
+        </p>
       )}
     </div>
   )
