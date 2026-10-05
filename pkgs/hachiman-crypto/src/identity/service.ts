@@ -40,6 +40,7 @@ import {
   BackupKind,
   CipherSuite,
   DeviceRevocationReason,
+  HISTORY_BUNDLE_MAX_EPOCHS,
   KEY_PACKAGE_LIFETIME_MS,
   KEY_PACKAGE_TARGET,
   KtEntryType,
@@ -74,7 +75,6 @@ const BACKUP_INTERVAL_MS = 24 * 60 * 60_000
 /** Keys per history blob: 4096 × 42 bytes stays far below the 1 MiB blob limit. */
 const BACKUP_BATCH_KEYS = 4096
 /** History keys per group in a LinkTransfer. */
-const LINK_HISTORY_PER_GROUP = 4096
 /** The start-up revocation check waits at most this long, so an offline start is not held up. */
 const START_CHECK_MS = 5_000
 const MAX_UPLOAD_PER_CALL = 100
@@ -459,7 +459,7 @@ export const createIdentityService: CreateIdentityService = (ctx, deps) => {
 
   async function exportHistory(): Promise<HistoryKeyEntry[]> {
     const all = (await store.list('epochSecrets')).map((x) => ({ groupId: x.value.groupId, epoch: x.value.epoch, secret: x.value.secret }))
-    return groupHistory(all).flatMap((g) => g.keys.slice(-LINK_HISTORY_PER_GROUP).map((k) => ({ groupId: g.groupId, ...k })))
+    return groupHistory(all).flatMap((g) => g.keys.slice(-HISTORY_BUNDLE_MAX_EPOCHS).map((k) => ({ groupId: g.groupId, ...k })))
   }
 
   async function backupNow(): Promise<{ uploaded: number }> {
@@ -945,22 +945,21 @@ export const createIdentityService: CreateIdentityService = (ctx, deps) => {
   async function signOutDevice(): Promise<void> {
     if (row === null) throw new CryptoError('NoIdentity', 'this device has no identity')
     const r = row
-    if (r.lockedAtMs != null) {
-      // The explicit wipe of a locked device: the DS revoked it already.
-      try {
-        await transport.revokeDevice(r.deviceId, { revocation: null, reason: 'signed_out' })
-      } catch {
-        // A revoked device cannot sign out again on the DS. The local store goes anyway.
-      }
-      await forget()
-      return
-    }
+    const locked = r.lockedAtMs != null
+    // signed_out verifies under the device certificate on the DS. A pending device has none and
+    // signs out unsigned. A locked device was revoked already, or is half-linked (lockIfUnusable):
+    // active on the DS with a certificate for this MLS key, though this store never got it.
     let revocation: string | null = null
-    if (self !== null) {
-      const rev = identity.signOut({ userId: self.userId, deviceId: self.deviceId, masterGeneration: self.chain.master.generation, mlsSignatureKey: self.mlsSignatureKey }, ctx.now())
-      revocation = toB64url(identity.encodeRevocation(rev))
+    if (locked || self !== null) {
+      const masterGeneration = r.master ? identity.decodeMasterKeyRecord(r.master.record).generation : 0
+      revocation = toB64url(identity.encodeRevocation(identity.signOut({ userId: r.userId, deviceId: r.deviceId, masterGeneration, mlsSignatureKey: r.mlsSignatureKey }, ctx.now())))
     }
-    await transport.revokeDevice(r.deviceId, { revocation, reason: 'signed_out' })
+    try {
+      await transport.revokeDevice(r.deviceId, { revocation, reason: 'signed_out' })
+    } catch (e) {
+      // A revoked device cannot sign out again on the DS. Its local store goes anyway.
+      if (!locked) throw e
+    }
     await forget()
   }
 
@@ -1128,8 +1127,12 @@ export const createIdentityService: CreateIdentityService = (ctx, deps) => {
    * out, and the next sign-in does the same. The device locks, as a locked store loads (no status
    * event: the start result reports 'revoked'), and the UI wipes it with signOutDevice and starts
    * again at needs_identity. Network failures and a slow DS skip the check: the next start checks.
+   *
+   * A half-linked device starts over the same way: the existing device certified it on the DS
+   * (active), but the transfer never came, so this store has no certificate. Its link keys were in
+   * memory only, and the DS starts no link for an active device, so it cannot finish.
    */
-  async function lockIfRevoked(): Promise<void> {
+  async function lockIfUnusable(): Promise<void> {
     const r = row
     if (r === null) return
     let timer: ReturnType<typeof setTimeout> | undefined
@@ -1139,7 +1142,8 @@ export const createIdentityService: CreateIdentityService = (ctx, deps) => {
     ])
     clearTimeout(timer)
     const me = keys?.devices.find((d) => d.id === r.deviceId)
-    if (me?.status === 'revoked' && row === r) await markLocked(r)
+    const halfLinked = me?.status === 'active' && r.deviceCertificate.length === 0
+    if ((me?.status === 'revoked' || halfLinked) && row === r) await markLocked(r)
   }
 
   async function bestEffort(p: Promise<unknown>): Promise<void> {
@@ -1209,6 +1213,7 @@ export const createIdentityService: CreateIdentityService = (ctx, deps) => {
       await bestEffort(replenishKeyPackages())
     },
     exportHistory,
+    reportError,
   })
 
   const service: IdentityService = {
@@ -1231,12 +1236,12 @@ export const createIdentityService: CreateIdentityService = (ctx, deps) => {
       if (stored.deviceCertificate.length === 0 || stored.master === null || stored.dsk === null) {
         self = null
         state = 'linking'
-        await lockIfRevoked()
+        await lockIfUnusable()
         return null
       }
       self = buildSelf(stored)
       state = 'ready'
-      await lockIfRevoked()
+      await lockIfUnusable()
       return self
     },
     self: requireSelf,

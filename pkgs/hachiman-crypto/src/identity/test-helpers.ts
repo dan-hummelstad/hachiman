@@ -22,7 +22,7 @@ import type {
   WireLinkMessage,
 } from '../api'
 import { fromB64url, toB64url } from '../codec'
-import { DeviceRevocationReason, LINK_SESSION_TTL_MS } from '../constants'
+import { DeviceRevocationReason, LINK_MESSAGE_MAX_BYTES, LINK_SESSION_TTL_MS } from '../constants'
 import { kt } from '../kt/index'
 import { generateEd25519 } from '../sign'
 import { equalBytes, randomBytes } from './bytes'
@@ -379,6 +379,7 @@ export class FakeDs {
       },
       async postLinkMessage(sessionId, body) {
         const caller = ds.caller(t, userId, true)
+        if (fromB64url(body.body).length > LINK_MESSAGE_MAX_BYTES) throw new DsError('ValidationError')
         const s = ds.links.get(sessionId)
         if (!s || s.userId !== userId || s.expiresAtMs <= ds.now) throw new DsError('LinkExpired')
         if (caller.id !== s.newDeviceId && s.peer === null) s.peer = caller.id

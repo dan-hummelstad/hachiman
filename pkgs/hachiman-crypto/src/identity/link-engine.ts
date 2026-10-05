@@ -22,9 +22,10 @@ import {
   type X25519KeyPair,
 } from '../api'
 import { fromB64url, toB64url } from '../codec'
-import { LINK_SESSION_TTL_MS } from '../constants'
+import { LINK_MESSAGE_MAX_BYTES, LINK_SESSION_TTL_MS } from '../constants'
 import { equalBytes } from './bytes'
-import { encodeLinkOffer } from './codec'
+import { encodeLinkOffer, groupHistory } from './codec'
+import { sealHistoryKeys } from './device-message'
 import { identity, keyPairMatches, verifyDeviceCert, verifyDskCert, verifyMasterSelfSignature } from './index'
 
 type IdentityRow = StoreSchema['identity']
@@ -45,6 +46,8 @@ export interface LinkHost {
   completeNewDevice(row: IdentityRow, history: HistoryKeyEntry[]): Promise<void>
   /** Existing device role: epoch secrets for the new device. */
   exportHistory(): Promise<HistoryKeyEntry[]>
+  /** A failure of background work (the history keys that did not fit in the transfer). */
+  reportError(e: unknown): void
 }
 
 interface Session {
@@ -80,6 +83,17 @@ function errorCode(e: unknown): CryptoErrorCode {
   // A session that the DS deleted or expired (410 LinkExpired): the peer cancelled or time ran out.
   if (typeof e === 'object' && e !== null && 'dsCode' in e) return e.dsCode === 'LinkExpired' ? 'LinkExpired' : 'LinkAborted'
   return 'LinkAborted'
+}
+
+/** Each group's newest keys first, groups interleaved: a cut keeps the recent history of every group. */
+function newestFirst(keys: HistoryKeyEntry[]): HistoryKeyEntry[] {
+  const top = new Map<string, number>()
+  const tagged = keys.map((k) => ({ k, g: toB64url(k.groupId) }))
+  for (const { k, g } of tagged) top.set(g, Math.max(top.get(g) ?? 0, k.epoch))
+  return tagged
+    .map(({ k, g }) => ({ k, age: top.get(g)! - k.epoch }))
+    .sort((a, b) => a.age - b.age)
+    .map(({ k }) => k)
 }
 
 export function createLinkEngine(host: LinkHost): LinkEngine {
@@ -142,8 +156,15 @@ export function createLinkEngine(host: LinkHost): LinkEngine {
 
   // MARK: existing device
 
+  /**
+   * Certifies the new device and sends the transfer. One link message holds at most
+   * LINK_MESSAGE_MAX_BYTES: the transfer carries the newest keys of each group that fit, and the
+   * rest goes to the new device as history_keys device messages. The size is fixed before the
+   * certificate PUT, so the post cannot fail on size after the device is active.
+   */
   async function sendTransfer(s: Session): Promise<void> {
-    if (s.derived === null) throw new CryptoError('Malformed', 'no link key')
+    const derived = s.derived
+    if (derived === null) throw new CryptoError('Malformed', 'no link key')
     const self = host.self()
     const row = host.row()
     if (row.dsk === null) throw new CryptoError('NoIdentity', 'this device has no device-signing key')
@@ -151,16 +172,57 @@ export function createLinkEngine(host: LinkHost): LinkEngine {
       { cert: self.chain.dsk, keyPair: { publicKey: self.chain.dsk.publicKey, privateKey: row.dsk.privateKey } },
       { deviceId: s.offer.deviceId, mlsSignatureKey: s.offer.mlsSignatureKey, hpkeKey: s.offer.hpkeKey, issuedAtMs: ctx.now(), displayName: s.offer.deviceName },
     )
-    await ctx.transport.putDeviceCertificate(s.offer.deviceId, { certificate: toB64url(identity.encodeDeviceCertificate(cert)) })
-    const transfer: LinkTransfer = {
-      master: self.chain.master,
-      dskCert: self.chain.dsk,
-      dskPrivateKey: row.dsk.privateKey,
-      deviceCertificate: cert,
-      historyKeys: await host.exportHistory(),
+    const history = newestFirst(await host.exportHistory())
+    const dskPrivateKey = row.dsk.privateKey
+    const message = (n: number): LinkMessage => {
+      const transfer: LinkTransfer = { master: self.chain.master, dskCert: self.chain.dsk, dskPrivateKey, deviceCertificate: cert, historyKeys: history.slice(0, n) }
+      return { type: 'transfer', sealed: identity.link.sealTransfer(derived.key, derived.transcriptHash, transfer) }
     }
+    const fits = (n: number): boolean => identity.link.encodeMessage(message(n)).length <= LINK_MESSAGE_MAX_BYTES
+    let n = history.length
+    if (!fits(n)) {
+      // The largest n that fits.
+      let lo = 0
+      let hi = n - 1
+      while (lo < hi) {
+        const mid = Math.ceil((lo + hi) / 2)
+        if (fits(mid)) lo = mid
+        else hi = mid - 1
+      }
+      n = lo
+    }
+    await ctx.transport.putDeviceCertificate(s.offer.deviceId, { certificate: toB64url(identity.encodeDeviceCertificate(cert)) })
     s.phase = 'done'
-    await post(s, { type: 'transfer', sealed: identity.link.sealTransfer(s.derived.key, s.derived.transcriptHash, transfer) })
+    await post(s, message(n))
+    if (n < history.length) void sendHistoryRest(s.offer, history.slice(n)).catch(host.reportError)
+  }
+
+  /**
+   * The keys that did not fit in the transfer, one history_keys response per group (§12.5): at
+   * most HISTORY_BUNDLE_MAX_EPOCHS each, as exportHistory caps. The new device opens them once it
+   * is ready (they wait in its inbox). A rate limit waits and tries again.
+   */
+  async function sendHistoryRest(offer: LinkOffer, keys: HistoryKeyEntry[]): Promise<void> {
+    const self = host.self()
+    for (const g of groupHistory(keys)) {
+      const sealed = await sealHistoryKeys({ deviceId: self.deviceId, signatureKey: self.mlsSignatureKey.privateKey }, offer, {
+        type: 'response',
+        groupId: g.groupId,
+        epochFrom: g.keys[0]!.epoch,
+        epochTo: g.keys[g.keys.length - 1]!.epoch,
+        keys: g.keys,
+      })
+      for (;;) {
+        try {
+          await ctx.transport.postInbox(offer.deviceId, { kind: 'history_keys', body: toB64url(sealed) })
+          break
+        } catch (e) {
+          if ((e as { dsCode?: string } | null)?.dsCode !== 'RateLimited') throw e
+          // ponytail: a fixed wait; the inbox limit is per minute (§12.18 rate limits).
+          await new Promise((resolve) => setTimeout(resolve, 60_000))
+        }
+      }
+    }
   }
 
   async function existingStep(s: Session, m: LinkMessage): Promise<void> {

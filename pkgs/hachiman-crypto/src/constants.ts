@@ -208,6 +208,8 @@ export const HANDSHAKE_RETENTION_MS = 30 * 24 * 60 * 60_000
 export const HANDSHAKE_INLINE_MAX_BYTES = 32_768
 export const GROUP_STATE_EPOCHS_KEPT = 8
 export const HISTORY_BUNDLE_MAX_EPOCHS = 4096
+/** The largest link message body that the DS takes (Takusen LINK_MESSAGE_MAX_BYTES, §12.5). */
+export const LINK_MESSAGE_MAX_BYTES = 262_144
 export const HISTORY_BUNDLE_MAX_BYTES = 524_288
 /**
  * Default for TAKUSEN_PUBLIC_SET_MAX_MEMBERS: leaves of one public_set group (§12.7.8).
