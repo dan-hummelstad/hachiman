@@ -131,7 +131,7 @@ E2EE variables (contract §12.18):
 - Gateway: `GATEWAY_MIN_CLIENT_VERSION` (default `0.1.0`). IDENTIFY with an older `clientVersion` gets close 4012.
 - Media: `MEDIA_WS_READ_LIMIT` (default 1048576). The voice WebSocket rejects larger frames. Commits, Welcomes and ratchet trees use this socket.
 
-**Dev DB schema churn:** schemas still change. Per `feedback_dev_migrations.md`, drop the dev DB and reseed instead of stacking ALTERs. Postgres is the only database. Run `pnpm db:reset`: it drops the schemas, migrates, and seeds the `hachiman-client` OIDC client and the regions.
+**Schema changes: stack migrations.** For each schema change, edit `apps/takusen/src/db/schema.ts`, run `pnpm -F @hachiman/takusen db:generate`, and commit the new SQL file and `drizzle/meta/` with the schema change. Do not edit, delete or regenerate a committed migration. Deployed databases apply the new migrations with `db:migrate`, so a migration must work on a database that has data: give a new NOT NULL column a default or a backfill. Postgres is the only database. `pnpm db:reset` empties a local dev DB, then migrates and seeds the `hachiman-client` OIDC client and the regions. Use it to clear dev data, not to apply a schema change.
 
 ## Working in the shared UI (`apps/hachiman/src/`)
 

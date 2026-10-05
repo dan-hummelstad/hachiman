@@ -240,7 +240,7 @@ Dropped column: `oidc_clients.virtual_server_id`. Dropped tables: `virtual_serve
 Kept unchanged: `users`, `accounts`, `sessions`, `verification_tokens`, `password_reset_tokens`,
 `oidc_adapter_payloads`, `oidc_clients` (minus the column), `regions`, `media_nodes`.
 
-Migration:
+Migration (one time, in the Discord-style refactor; since then each schema change adds a new migration, see `CLAUDE.md`):
 1. Delete `drizzle/*.sql` + `drizzle/meta`.
 2. Regenerate a single `0000_initial.sql`. Keep the hand-added `idx_media_nodes_placement` index: declare it in schema.ts.
 3. Drop + reseed the dev DB.
@@ -1019,7 +1019,7 @@ This section is normative for E2EE. `docs/e2ee-plan.md` gives the reasons. `pkgs
 - Every channel type uses E2EE: DMs, group DMs, guild text channels, voice, video and screen share. There is no plaintext mode and no mixed mode.
 - Takusen, the gateway and the media nodes relay ciphertext. Only member devices hold keys.
 - The gateway accepts only clients that send the capability `e2ee/1` and a version at or above the minimum (§12.13).
-- There is no migration from plaintext. Per `feedback_dev_migrations.md`, drop the dev database and reseed.
+- There is no migration from plaintext data.
 - Avatars, guild icons and banners stay plaintext. They are public profile data.
 - Metadata stays visible to the server: membership, sender, time, sizes, typing, presence, voice state and speaking state.
 - Each device is a separate MLS member. One device has one MLS signature key for all of its groups.
