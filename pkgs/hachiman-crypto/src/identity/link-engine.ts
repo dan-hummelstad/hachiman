@@ -205,6 +205,8 @@ export function createLinkEngine(host: LinkHost): LinkEngine {
       master: { record: identity.encodeMasterKeyRecord(t.master), privateKey: null },
     }
     if (s.derived === null) fail('no link key')
+    // Committed: completeNewDevice reports 'ready', and the UI may cancel the session as it closes.
+    s.phase = 'done'
     await host.completeNewDevice(row, t.historyKeys)
   }
 
@@ -404,6 +406,8 @@ export function createLinkEngine(host: LinkHost): LinkEngine {
 
     async linkCancel(sessionId) {
       const s = sessions.get(sessionId)
+      // The new device holds the keys; the session finishes on its own.
+      if (s?.role === 'new_device' && s.phase === 'done') return
       if (s) await abort(s, 'cancelled', 'LinkAborted')
       // The new device owns the session. The existing device leaves it, so the abort is still readable.
       if (!s || s.role === 'new_device') await ctx.transport.deleteLinkSession(sessionId).catch(() => undefined)
