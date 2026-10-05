@@ -78,6 +78,9 @@ type wsClient struct {
 	ws     *websocket.Conn
 	frames chan frame
 	closed chan error // the terminal read error
+	// rosters that next skipped, for expectRoster: two sessions' frames can
+	// reach the server in either order, so a roster may come before the op.
+	held []frame
 }
 
 func (h *harness) dial(token string) *wsClient {
@@ -122,7 +125,7 @@ func (c *wsClient) send(op string, d any) {
 
 // next returns the next frame with the given op, skipping candidate frames.
 // A non-E2EE op also skips e2ee_* frames; an e2ee_* op skips the non-E2EE
-// frames and e2ee_roster (use expectRoster for rosters).
+// frames and e2ee_roster. Skipped rosters are held for expectRoster.
 func (c *wsClient) next(op string) json.RawMessage {
 	c.t.Helper()
 	timeout := time.After(5 * time.Second)
@@ -131,6 +134,9 @@ func (c *wsClient) next(op string) json.RawMessage {
 		case f := <-c.frames:
 			if f.Op == op {
 				return f.D
+			}
+			if f.Op == "e2ee_roster" {
+				c.held = append(c.held, f)
 			}
 			skip := f.Op == "candidate" || isE2EE(f.Op) != isE2EE(op) || (isE2EE(op) && f.Op == "e2ee_roster")
 			if !skip {

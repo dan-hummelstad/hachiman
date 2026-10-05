@@ -56,12 +56,22 @@ func sids(es []rosterEntry) string {
 	return strings.Join(out, ",")
 }
 
-// expectRoster skips frames until an e2ee_roster that matches pred. Another
-// e2ee_* op on the way fails the test.
+// expectRoster skips frames until an e2ee_roster that matches pred, first
+// among the rosters that next held. Another e2ee_* op on the way fails the test.
 func (c *wsClient) expectRoster(pred func(rosterMsg) bool) rosterMsg {
 	c.t.Helper()
-	timeout := time.After(5 * time.Second)
 	var last rosterMsg
+	for len(c.held) > 0 {
+		f := c.held[0]
+		c.held = c.held[1:]
+		if err := json.Unmarshal(f.D, &last); err != nil {
+			c.t.Fatal(err)
+		}
+		if pred(last) {
+			return last
+		}
+	}
+	timeout := time.After(5 * time.Second)
 	for {
 		select {
 		case f := <-c.frames:
