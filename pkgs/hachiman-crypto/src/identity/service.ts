@@ -1217,6 +1217,7 @@ export const createIdentityService: CreateIdentityService = (ctx, deps) => {
       await bestEffort(replenishKeyPackages())
     },
     exportHistory,
+    reportError,
   })
 
   const service: IdentityService = {

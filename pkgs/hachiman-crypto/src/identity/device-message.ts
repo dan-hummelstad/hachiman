@@ -16,7 +16,9 @@ import {
   decodeDeviceMessagePlaintext,
   decodeSealedDeviceMessage,
   encodeDeviceMessagePlaintext,
+  encodeHistoryKeysPayload,
   encodeSealedDeviceMessage,
+  type HistoryKeysPayload,
 } from './codec'
 
 let suite: CipherSuite | null = null
@@ -47,6 +49,22 @@ export async function sealDeviceMessage(input: SealInput): Promise<Uint8Array> {
   const plaintext = encodeDeviceMessagePlaintext({ payload: input.payload, signature })
   const ciphertext = bytes(await ctx.seal(plaintext.slice().buffer, uuidToBytes(input.senderDeviceId).slice().buffer))
   return encodeSealedDeviceMessage({ kind: input.kind, senderDeviceId: input.senderDeviceId, enc, ciphertext })
+}
+
+/** A history_keys device message to another own device (§12.5). */
+export function sealHistoryKeys(
+  from: { deviceId: DeviceId; signatureKey: Uint8Array },
+  to: { deviceId: DeviceId; hpkeKey: Uint8Array },
+  payload: HistoryKeysPayload,
+): Promise<Uint8Array> {
+  return sealDeviceMessage({
+    recipientHpkeKey: to.hpkeKey,
+    recipientDeviceId: to.deviceId,
+    kind: 'history_keys',
+    senderDeviceId: from.deviceId,
+    signatureKey: from.signatureKey,
+    payload: encodeHistoryKeysPayload(payload),
+  })
 }
 
 export interface OpenInput {

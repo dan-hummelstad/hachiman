@@ -37,8 +37,8 @@ import {
 import { CodecError, decode, fromB64url, toB64url } from '../codec'
 import { COMMIT_REJECTED_RESYNC_DELAYS_MS, DSK_ROTATION_GRACE_MS, FORK_ALERT_FAILURES, FORK_ALERT_WINDOW_MS, FORK_RESYNC_MAX_INTERVAL_MS, FORK_RESYNC_MIN_INTERVAL_MS, GROUP_STATE_EPOCHS_KEPT, HISTORY_BUNDLE_MAX_EPOCHS, WIRE_VERSION, type CipherSuiteId } from '../constants'
 import { equalBytes } from '../identity/bytes'
-import { decodeHistoryKeysPayload, encodeHistoryKeysPayload } from '../identity/codec'
-import { openDeviceMessage, sealDeviceMessage } from '../identity/device-message'
+import { decodeHistoryKeysPayload, type HistoryKeysPayload } from '../identity/codec'
+import { openDeviceMessage, sealHistoryKeys } from '../identity/device-message'
 import { identity as identityModule } from '../identity/index'
 import {
   checkAdd,
@@ -929,18 +929,11 @@ export const createGroupService = ((ctx: EngineContext, identity: IdentityServic
     return cert?.userId === self.userId ? cert : null
   }
 
-  async function sendHistoryKeys(deviceId: DeviceId, payload: Parameters<typeof encodeHistoryKeysPayload>[0]): Promise<void> {
+  async function sendHistoryKeys(deviceId: DeviceId, payload: HistoryKeysPayload): Promise<void> {
     const cert = await ownDeviceCertificate(deviceId)
     if (cert === null) return
     const self = identity.self()
-    const sealed = await sealDeviceMessage({
-      recipientHpkeKey: cert.hpkeKey,
-      recipientDeviceId: deviceId,
-      kind: 'history_keys',
-      senderDeviceId: self.deviceId,
-      signatureKey: self.mlsSignatureKey.privateKey,
-      payload: encodeHistoryKeysPayload(payload),
-    })
+    const sealed = await sealHistoryKeys({ deviceId: self.deviceId, signatureKey: self.mlsSignatureKey.privateKey }, { deviceId, hpkeKey: cert.hpkeKey }, payload)
     await transport.postInbox(deviceId, { kind: 'history_keys', body: toB64url(sealed) })
   }
 

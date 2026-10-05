@@ -1287,6 +1287,8 @@ SAS mode:
 4. Both devices show the 7 emoji. The user compares them and confirms on the existing device.
 5. The existing device certifies the new device and posts `transfer`, as in QR mode. A mismatch sends `abort` with reason 1.
 
+**Transfer size.** The DS takes a link message of at most 256 KiB (`LINK_MESSAGE_MAX_BYTES`). The transfer carries the history keys that fit: the newest keys of each group first (at most 4096 per group). The existing device fixes this cut before the certificate PUT, so the transfer post cannot fail on size after the new device is `active`. It then sends the other keys to the new device as `history_keys` device messages (type `response`, one per group, at most `HISTORY_BUNDLE_MAX_EPOCHS` keys each) through the inbox. It waits and tries again after a `RateLimited`. The new device opens them from its inbox once it is ready.
+
 The existing device sends the transfer only after the user confirms. A server that changes a key cannot make both SAS values equal, because the new device committed to its key first.
 
 **Device messages.** Devices of one user send secrets to each other through the device inbox (§12.7.6):
