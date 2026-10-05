@@ -120,6 +120,19 @@ describe('device linking', () => {
     expect(ds.keyPackages.get(`${c.svc.self().deviceId}:1`)).toEqual({ count: 100, lastResort: true })
   })
 
+  it('the new device stores the history keys before it is ready, and says which arrived', async () => {
+    const { dev: a } = await primary()
+    const g = new Uint8Array(22).fill(5)
+    for (const e of [1, 2]) await a.store.put('epochSecrets', secretKey(g, e), { groupId: g, epoch: e, secret: new Uint8Array(32).fill(e), backedUp: false })
+    const b = await linkSas(a, 'Phone')
+    expect((await b.store.list('epochSecrets')).map((x) => x.value.epoch).sort()).toEqual([1, 2])
+    // The pending messages of those epochs decrypt again (the UI retries the group).
+    expect(b.of('epochKeysAvailable')).toEqual([{ groupId: toB64url(g), epochs: [1, 2] }])
+    // 'ready' opens the app, which decrypts the open channel at once: the keys come first.
+    const kinds = b.events.map((x) => (x.event === 'status' ? `status:${(x.payload as { state: string }).state}` : x.event))
+    expect(kinds.indexOf('epochKeysAvailable')).toBeLessThan(kinds.indexOf('status:ready'))
+  })
+
   it('SAS mode: a key substituted by the DS changes the emoji and the user stops the transfer', async () => {
     const { dev: a } = await primary()
     const b = await makeDevice(ds, ALICE, 'Phone')
@@ -309,9 +322,10 @@ describe('recovery', () => {
     await n.svc.restoreFromRecoveryKey(recoveryKey)
     expect(n.svc.self().chain.master).toEqual(a.svc.self().chain.master)
     expect((await n.transport.getUserKeys(ALICE)).masterKey?.generation).toBe(1)
-    // History keys come back from the backup.
+    // History keys come back from the backup, and the messages pending on them decrypt again.
     const secrets = await n.store.list('epochSecrets')
     expect(secrets.map((s) => s.value.epoch)).toEqual([1])
+    expect(n.of('epochKeysAvailable')).toEqual([{ groupId: toB64url(new Uint8Array(22).fill(1)), epochs: [1] }])
   })
 
   it('makes a new identity on reset, and contacts see a key change', async () => {
