@@ -530,7 +530,15 @@ export const createIdentityService: CreateIdentityService = (ctx, deps) => {
   }
 
   async function fetchKeys(userId: UserId): Promise<VerifiedKeys | null> {
-    const wire = await transport.getUserKeys(userId)
+    let wire: Awaited<ReturnType<typeof transport.getUserKeys>>
+    try {
+      wire = await transport.getUserKeys(userId)
+    } catch (e) {
+      // 404: no shared guild or DM any more (a former member whose leaf waits for its Remove).
+      // No keys, as for a user without a master key: a new leaf of the user fails the chain check.
+      if (transportCode(e) === 'NotFound') return null
+      throw e
+    }
     if (wire.userId !== userId) throw new CryptoError('InvalidChain', 'the DS answered for another user')
     if (wire.masterKey === null) return null
     const recordBytes = fromB64url(wire.masterKey.record)
