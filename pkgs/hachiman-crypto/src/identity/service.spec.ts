@@ -641,6 +641,36 @@ describe('key changes, revocation of this device, recovery key rotation', () => 
     expect(fresh.svc.status().deviceId).not.toBe(oldId)
   })
 
+  it('a half-linked device (certified on the DS, the transfer lost) starts over at the next start', async () => {
+    const { dev: a } = await primary(ALICE)
+    const b = await makeDevice(ds, ALICE, 'Phone')
+    const { sessionId } = await b.svc.linkAsNewDevice('sas')
+    const oldId = b.svc.status().deviceId!
+    await ds.flush()
+    await a.svc.linkAccept(sessionId)
+    await ds.flush()
+    // The certificate PUT goes through, then the transfer is lost.
+    const put = a.transport.putDeviceCertificate.bind(a.transport)
+    const post = a.transport.postLinkMessage.bind(a.transport)
+    let certified = false
+    a.transport.putDeviceCertificate = (id, body) => put(id, body).then((d) => ((certified = true), d))
+    a.transport.postLinkMessage = (id, body) => (certified ? Promise.reject(new Error('network')) : post(id, body))
+    await expect(a.svc.linkConfirmSas(sessionId, true)).rejects.toThrow('network')
+    await ds.flush()
+    expect(ds.devices.get(oldId)!.status).toBe('active')
+    const again = await makeDevice(ds, ALICE, 'Phone', b.store)
+    expect(again.of('status')).toEqual([])
+    expect(again.svc.status().state).toBe('revoked')
+    // The wipe signs the device out on the DS too: no active device that nobody holds.
+    again.transport.deviceId = oldId // the device proof of the restarted store
+    await again.svc.signOutDevice()
+    expect(ds.devices.get(oldId)).toMatchObject({ status: 'revoked', revokeReason: 'signed_out' })
+    const fresh = await makeDevice(ds, ALICE, 'Phone', b.store)
+    expect(fresh.svc.status()).toMatchObject({ state: 'needs_identity', deviceId: null })
+    await fresh.svc.linkAsNewDevice('sas')
+    expect(fresh.svc.status().deviceId).not.toBe(oldId)
+  })
+
   it('a set-up device revoked while the app was closed starts locked, quietly, until the wipe', async () => {
     const { dev: a } = await primary(ALICE)
     const id = a.svc.status().deviceId!
