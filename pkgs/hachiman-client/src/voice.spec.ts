@@ -238,6 +238,7 @@ describe('VoiceConnection', () => {
     pc().connectionState = 'failed'
     pc().onconnectionstatechange?.()
     expect(closed).toHaveBeenCalledWith({ code: 1006, reason: 'ice failed' })
+    expect(vc.closeCode).toBe(1006)
     expect(ws.closedWith).toBe(1000)
     expect(d.closeCount).toBe(1)
   })

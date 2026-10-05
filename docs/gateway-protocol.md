@@ -829,6 +829,7 @@ export class VoiceConnection extends TypedEventEmitter<VoiceEvents> {
   constructor(opts: { endpoint: string; token: string; iceServers: RTCIceServer[]; e2ee: VoiceE2eeDelegate })
   connect(): Promise<void>
   close(): void
+  readonly closeCode: number | null   // the code of an unexpected close ('close' event); null while open or after close()
   setMicrophone(stream: MediaStream | null): Promise<void>   // null = stop sending
   setMuted(muted: boolean): Promise<void>                    // gates the outgoing track; the mic stream stays open
   setSpeaking(speaking: boolean): void                       // sends op speaking

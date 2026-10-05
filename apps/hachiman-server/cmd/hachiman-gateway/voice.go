@@ -87,8 +87,7 @@ func (s *session) onVoice(ctx context.Context, req voiceRequest) error {
 		SessionID: s.id, UserID: me, DeviceID: s.deviceID, GuildID: req.GuildID, ChannelID: chID, MediaNodeID: nodeID,
 		JTI: randomToken(), IssuedAt: now, ExpiresAt: now.Add(voicetoken.DefaultTTL),
 	}
-	// In the session hash too: a RESUME restores it with the voice state.
-	s.voiceJTI = claims.JTI
+	// In the session hash, which outlives a RESUME (VOICE_DISCONNECTED names it).
 	s.g.rdb.HSet(ctx, kSession(s.id), "voiceJti", claims.JTI)
 	token, err := s.g.signer.Mint(claims)
 	if err != nil {
@@ -109,7 +108,6 @@ func (s *session) onVoice(ctx context.Context, req voiceRequest) error {
 // session for the same user is left alone.
 func (s *session) leaveVoice(ctx context.Context) {
 	s.voice = nil
-	s.voiceJTI = ""
 	cur := s.g.currentVoice(ctx, s.user.ID)
 	if cur == nil || cur.SessionID != s.id {
 		return
@@ -122,7 +120,6 @@ func (s *session) leaveVoice(ctx context.Context) {
 func (s *session) restoreVoice(ctx context.Context) {
 	if cur := s.g.currentVoice(ctx, s.user.ID); cur != nil && cur.SessionID == s.id {
 		s.voice = cur
-		s.voiceJTI, _ = s.g.rdb.HGet(ctx, kSession(s.id), "voiceJti").Result()
 	}
 }
 
@@ -137,15 +134,16 @@ func (s *session) onVoiceDisconnected(raw json.RawMessage) {
 		ChannelID string `json:"channelId"`
 		JTI       string `json:"jti"`
 	}
-	if json.Unmarshal(raw, &d) != nil || d.SessionID != s.id || d.JTI == "" || d.JTI != s.voiceJTI {
+	if json.Unmarshal(raw, &d) != nil || d.SessionID != s.id || d.JTI == "" {
 		return
 	}
 	if s.voice == nil || s.voice.ChannelID == nil || *s.voice.ChannelID != d.ChannelID {
 		return
 	}
-	// After a RESUME on another node, this object lives on until its grace
-	// ends, with the same id and the old jti: only the owner may act.
-	if owner, _ := s.g.rdb.HGet(s.ctx, kSession(s.id), "owner").Result(); owner != s.owner {
+	// owner: after a RESUME on another node, this object lives on until its
+	// grace ends, with the same id; only the owner may act.
+	cur, _ := s.g.rdb.HMGet(s.ctx, kSession(s.id), "owner", "voiceJti").Result()
+	if len(cur) != 2 || cur[0] != s.owner || cur[1] != d.JTI {
 		return
 	}
 	s.leaveVoice(s.ctx)

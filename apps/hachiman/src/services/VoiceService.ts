@@ -126,11 +126,8 @@ class VoiceService {
     // Our own leave/switch clears `this.conn` first, so those don't land here.
     hachiman.on('voice', (vc) => {
       if (vc) {
-        // Runs after the 'voice' null below: the client leaves on close before this listener. A
-        // drop without a close code (a new gateway session) keeps `lost`.
         vc.on('close', ({ code }) => {
           if (code === MEDIA_UNSUPPORTED) setCryptoFatal('update_required')
-          if (!REJOIN_CODES.has(code)) this.lost = null
         })
         return
       }
@@ -138,10 +135,13 @@ class VoiceService {
       this.resync = null
       if (resync) return void this.rejoin(resync)
       if (!this.conn) return
+      // No close code: the client dropped the call itself (a new gateway session).
+      const code = this.conn.closeCode
       const { guildId, channelId } = useVoiceStore.getState()
       playSound('voiceDisconnect')
       this.endSession()
-      this.lost = guildId && channelId ? { guildId, channelId } : null
+      if (!guildId || !channelId || (code !== null && !REJOIN_CODES.has(code))) return
+      this.lost = { guildId, channelId }
       setTimeout(() => this.rejoinLost(), REJOIN_DELAY_MS)
     })
     hachiman.on('state', (state) => {

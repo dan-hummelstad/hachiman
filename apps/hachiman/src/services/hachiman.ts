@@ -23,7 +23,7 @@ import { currentDeviceId, setCryptoFatal, useCryptoStore } from '@/stores/crypto
 import { resetGuildStore, useGuildStore } from '@/stores/guildStore'
 import { resetMessagesStore, useMessageStore } from '@/stores/messagesStore'
 import { closeAllDialogs } from '@/stores/dialogStore'
-import { DM_HOME, forgetGuild, openChannel, useNavStore } from '@/stores/navStore'
+import { DM_HOME, forgetGuild, openChannel, selectedChannelId } from '@/stores/navStore'
 import { useTakusenStore } from '@/stores/takusenStore'
 import { resetUserStore, useUserStore } from '@/stores/userStore'
 import { resetVoiceMirror, useVoiceStore } from '@/stores/voiceStore'
@@ -106,8 +106,7 @@ const onUpdate = (e: GatewayDispatch): void => {
       return syncAll()
     case 'READY': {
       docsService.onReady(true)
-      const nav = useNavStore.getState()
-      messagesService.onNewSession(nav.channelByGuild[nav.guildKey] ?? null)
+      messagesService.onNewSession(selectedChannelId())
       useUserStore.setState({ status: hachiman.cache.presences.get(e.d.user.id) ?? 'online' })
       cryptoService.sync()
       return syncAll()
@@ -165,8 +164,7 @@ const onMessageCreate = async (m: Message): Promise<void> => {
   useMessageStore.getState().setTyping(m.channelId, m.author.id, null)
   const me = hachiman.cache.user
   if (!me || row?.decrypt.status !== 'ok') return
-  const nav = useNavStore.getState()
-  const viewing = nav.channelByGuild[nav.guildKey] === m.channelId && document.hasFocus()
+  const viewing = selectedChannelId() === m.channelId && document.hasFocus()
   const myRoles = m.guildId ? (hachiman.cache.members.get(m.guildId)?.get(me.id)?.roles ?? []) : []
   const sound = messageSound(row, me, viewing, myRoles)
   if (sound) playSound(sound)
@@ -265,7 +263,7 @@ export function startHachiman(host?: IPlatformService): void {
   voiceService.start()
   startSounds()
   // Back online: reconnect now instead of after the remaining backoff (up to 30 s).
-  if (typeof window !== 'undefined') window.addEventListener('online', () => hachiman.gateway.retryNow())
+  window.addEventListener('online', () => hachiman.gateway.retryNow())
 
   const apply = (signedIn: boolean): void => {
     if (signedIn) {
