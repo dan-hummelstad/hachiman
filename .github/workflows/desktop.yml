@@ -21,6 +21,12 @@ on:
 permissions:
   contents: read
 
+# One run at a time: a new push cancels the older run (the updater only wants the newest build).
+# Overlapping runs pruned each other's artifacts, and a release then found none.
+concurrency:
+  group: desktop
+  cancel-in-progress: true
+
 jobs:
   build:
     strategy:
@@ -90,6 +96,7 @@ jobs:
             for (const name of ['hachiman-macos', 'hachiman-windows']) {
               const artifacts = await github.paginate(github.rest.actions.listArtifactsForRepo, { owner, repo, name })
               for (const a of artifacts) {
-                if (a.workflow_run?.id !== context.runId) await github.rest.actions.deleteArtifact({ owner, repo, artifact_id: a.id })
+                // Older runs only (run ids grow): never the artifacts of a newer run.
+                if (a.workflow_run && a.workflow_run.id < context.runId) await github.rest.actions.deleteArtifact({ owner, repo, artifact_id: a.id })
               }
             }
