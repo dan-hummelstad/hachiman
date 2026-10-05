@@ -172,9 +172,14 @@ class CryptoService {
     }
   }
 
-  /** §12.13 events go to the Worker. Dropped while it is not ready: `sync` catches up. */
+  /**
+   * §12.13 events go to the Worker. Dropped while it is not ready: `sync` catches up. Not
+   * DEVICE_LINK: it drives the link of a new device (§12.5), which is 'linking', not 'ready',
+   * until the link finishes. Dropping it stalled every link before the emoji or the transfer.
+   */
   onGatewayEvent(event: CryptoGatewayEvent): void {
-    if (!this.ready) return
+    const started = this.current !== null && useCryptoStore.getState().phase === 'ready'
+    if (!this.ready && !(event.t === 'DEVICE_LINK' && started)) return
     void this.current
       ?.onGatewayEvent(event)
       .catch((e: unknown) => console.warn('[crypto] %s failed', event.t, e))
