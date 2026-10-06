@@ -257,6 +257,22 @@ describe('RestClient fetch routes', () => {
     })
     await rest.createInvite('g1', { maxAgeSeconds: 3600 })
     expect(last().body).toEqual({ maxAgeSeconds: 3600 })
+    await rest.createInvite('g1', { maxAgeSeconds: 3600, maxUses: 1, record: 'UkVD' })
+    expect(last().body).toEqual({ maxAgeSeconds: 3600, maxUses: 1, record: 'UkVD' })
+  })
+
+  it('the invite history routes use the §12.12 paths and bodies', async () => {
+    await rest.inviteRecords('g1')
+    expect(last()).toMatchObject({ url: 'http://api/v1/guilds/g1/invite-records', method: 'GET' })
+    await rest.postInviteBundle('i1', { groupId: 'R1', epoch: 4, blob: 'QkxC' })
+    expect(last()).toMatchObject({
+      url: 'http://api/v1/invite-records/i1/bundles',
+      method: 'POST',
+      body: { groupId: 'R1', epoch: 4, blob: 'QkxC' },
+    })
+    await rest.inviteBundles('ABCD2345')
+    expect(last()).toMatchObject({ url: 'http://api/v1/invites/ABCD2345/bundles', method: 'GET' })
+    expect(last().headers['Authorization']).toBe('Bearer tok')
   })
 
   it('the page routes use the §4 Pages paths and bodies', async () => {

@@ -21,6 +21,7 @@ import {
   toChannel,
   toDmChannel,
   toGuild,
+  toInvite,
   toMessage,
   toUser,
   type GuildFullInput,
@@ -51,7 +52,7 @@ function user(id: string, displayName: string) {
   return { id, displayName, name: null, email: `${displayName}@example.com`, image: null }
 }
 function member(userId: string): GuildMemberRow {
-  return { guildId: GUILD, userId, nick: null, joinedAt: T }
+  return { guildId: GUILD, userId, nick: null, joinedAt: T, inviteId: null }
 }
 function channel(id: string, name: string): ChannelRow {
   return {
@@ -263,6 +264,23 @@ test('messages query rejects out-of-range limits and non-uuid cursors', () => {
   assert.throws(() => parseMessageQuery(new URLSearchParams({ limit: '0' })))
   assert.throws(() => parseMessageQuery(new URLSearchParams({ limit: 'abc' })))
   assert.throws(() => parseMessageQuery(new URLSearchParams({ before: '123' })))
+})
+
+// --- invites ----------------------------------------------------------------
+test('toInvite: the id, hasHistory for an invite with a record, and the record stays out', () => {
+  const row = { id: ID(9), code: 'ABCD2345', guildId: GUILD, createdBy: OWNER, expiresAt: null, maxUses: 1, uses: 0, revoked: false, record: null, keyId: null, exhaustedAt: null, createdAt: T }
+  assert.deepEqual(toInvite(row), {
+    id: ID(9),
+    code: 'ABCD2345',
+    guildId: GUILD,
+    createdBy: OWNER,
+    expiresAt: null,
+    maxUses: 1,
+    uses: 0,
+    createdAt: T.toISOString(),
+    hasHistory: false,
+  })
+  assert.equal(toInvite({ ...row, record: new Uint8Array([1]), keyId: new Uint8Array(32) }).hasHistory, true)
 })
 
 // --- report -----------------------------------------------------------------

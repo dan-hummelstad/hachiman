@@ -44,7 +44,7 @@ Preview state persists under `preview:*` localStorage keys, so it never touches 
   - `fetchBlob` gives the fixture files and the files uploaded in this session. It renders the SVG fixture images to PNG, because their pointers say PNG.
   - The §12.12 routes reject with `PreviewUnsupported`. Only the crypto Worker calls them.
   - You can create, edit or delete channels, roles and guilds.
-  - The invite list has `nt0wl5x` and an older permanent invite by petra_v (`p3rm4nt`). A new invite gets an `inv-NNNN` code, with the expiry and the maximum uses of the request.
+  - The invite list has `nt0wl5x` and an older permanent invite by petra_v (`p3rm4nt`). A new invite gets an `inv-NNNN` code, with the expiry and the maximum uses of the request. It has `hasHistory` when the request has a `record`.
   - I own Night Owls, so its invite dialog offers 7 days and "Permanent" (with the warning). In Lattice Labs I am not an administrator, so the dialog offers 24 hours or less.
   - `previewInvite` returns "Pixel Pushers".
 - `joinVoice`, `leaveVoice` and `setSelfVoice` update my voice state. `setSelfVoice` keeps the client's own mute and deafen rules. There is no media.

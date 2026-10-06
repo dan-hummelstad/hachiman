@@ -15,7 +15,7 @@ import { createDocProvider, type DocProviderDeps } from './DocProvider'
 import { collectMediaUploadIds, forgetCopiedMedia } from './media'
 import { endPosition } from './page-tree'
 import { createRewrapper, pagesChannelsOf, snapshotHeadless } from './rewrap'
-import { createTitleCatchUp, keepTitle, mergeNode, nodeOf, titleNode } from './titles'
+import { createTitleCatchUp, isNewer, keepTitle, mergeNode, nodeOf, titleNode } from './titles'
 import type { DocHandle, DocProvider, DocsService } from './types'
 
 const utf8 = new TextEncoder()
@@ -73,7 +73,12 @@ interface Open {
 
 const open = new Map<string, Open>()
 const markdown = new Map<string, () => string>()
-/** Pages whose title waits for keys: retried on epochKeysAvailable and after a catch-up. */
+/** The providers of the re-wrap pass that run: reset() destroys them. */
+const headless = new Set<Pick<DocProvider, 'destroy'>>()
+/**
+ * Pages whose title waits for keys, with the newest row of each: retried on epochKeysAvailable,
+ * after a catch-up, and when this device joins a group.
+ */
 const pendingTitles = new Map<string, Page>()
 let generation = 0
 
@@ -101,9 +106,11 @@ async function decryptTitles(pages: Page[]): Promise<PageNode[]> {
   const ahead = new Set<string>()
   for (const [i, p] of pages.entries()) {
     const r = results[i]
+    if (r?.status === 'pending' && r.reason === 'epoch_ahead') ahead.add(p.channelId)
+    // A newer row of the page came in during the decrypt: the entry is the newer row's.
+    if (isNewer(pendingTitles.get(p.id), p) || isNewer(findPage(p.id), p)) continue
     if (r && r.status !== 'pending') pendingTitles.delete(p.id)
     else pendingTitles.set(p.id, p)
-    if (r?.status === 'pending' && r.reason === 'epoch_ahead') ahead.add(p.channelId)
   }
   titleCatchUp.noteResults(
     pages.map((p) => p.channelId),
@@ -154,10 +161,13 @@ const rewrapper = createRewrapper({
     return o !== undefined
   },
   snapshotPage: (channelId, pageId) =>
-    snapshotHeadless(createDocProvider(channelId, pageId, headlessDeps))
+    snapshotHeadless(createDocProvider(channelId, pageId, headlessDeps), headless)
 })
 
-/** Stores `node` unless the store has it. A decrypted title stays while a newer one is pending. */
+/**
+ * Stores `node` unless the store has it or a newer row. A decrypted title stays while a newer one
+ * is pending.
+ */
 function storeNode(node: PageNode): void {
   const merged = mergeNode(findPage(node.id), node)
   if (merged) useDocsStore.getState().upsertPage(merged)
@@ -191,6 +201,8 @@ export const docsService: DocsService & {
   onOffline(): void
   /** New epoch keys: pending titles and waiting pages try again. */
   retry(): void
+  /** This device joined a group (Welcome, external join, create): as retry(). */
+  onMembership(e: CryptoEvents['membership']): void
   /** A commit added a user to a text group: the re-wrap pass of its pages channels (rewrap.ts). */
   onUsersAdded(e: CryptoEvents['usersAdded']): void
   /** Sign-out. */
@@ -338,6 +350,15 @@ export const docsService: DocsService & {
     for (const o of open.values()) void o.provider.resync()
   },
 
+  onMembership(e) {
+    // A title of a group that this device has not joined is pending 'group_unknown'. The Worker
+    // does not keep doc envelopes, so no epochKeysAvailable follows the join. The event of a join
+    // lists the whole roster, this device too.
+    const me = currentDeviceId()
+    if (e.kind !== 'removed' && me !== null && e.subjects.some((s) => s.deviceId === me))
+      docsService.retry()
+  },
+
   onUsersAdded(e) {
     rewrapper.onUsersAdded(e)
   },
@@ -346,6 +367,8 @@ export const docsService: DocsService & {
     generation++
     rewrapper.reset()
     titleCatchUp.reset()
+    for (const p of headless) p.destroy()
+    headless.clear()
     for (const id of [...open.keys()]) closePage(id)
     pendingTitles.clear()
     markdown.clear()

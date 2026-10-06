@@ -170,6 +170,7 @@ export function toMessage(
 
 export function toInvite(i: InviteRow): Invite {
   return {
+    id: i.id,
     code: i.code,
     guildId: i.guildId,
     createdBy: i.createdBy,
@@ -177,6 +178,7 @@ export function toInvite(i: InviteRow): Invite {
     maxUses: i.maxUses,
     uses: i.uses,
     createdAt: i.createdAt.toISOString(),
+    hasHistory: i.record !== null,
   }
 }
 

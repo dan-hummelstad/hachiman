@@ -113,6 +113,8 @@ export interface Message {
 }
 
 export interface Invite {
+  /** `sendInviteBundles` and `POST /invite-records/:inviteId/bundles` name the invite by it (§12.12). */
+  id: string
   code: string
   guildId: string
   createdBy: string
@@ -120,6 +122,8 @@ export interface Invite {
   maxUses: number | null
   uses: number
   createdAt: string
+  /** The invite has a signed record: the link carries history (§12.11.4). */
+  hasHistory: boolean
 }
 
 export interface InvitePreview {
@@ -127,6 +131,7 @@ export interface InvitePreview {
   guild: Pick<Guild, 'id' | 'name' | 'icon'>
   memberCount: number
   expiresAt: string | null
+  hasHistory: boolean
 }
 
 export interface Presence {
@@ -468,6 +473,27 @@ export interface AdminAction {
   seq: number
   action: B64url
   createdAt: string
+}
+
+/** An active invite with history of a guild (GET /guilds/:id/invite-records, §12.11.4). */
+export interface InviteRecord {
+  inviteId: string
+  /** sign_public of the record: the invite key id. */
+  keyId: B64url
+  /** The encoded SignedInviteRecord. */
+  record: B64url
+  expiresAt: string | null
+  /** The newest stored bundle epoch of each group. */
+  bundled: { groupId: B64url; epoch: number }[]
+}
+
+/** The bundles of an invite for its redeemer (GET /invites/:code/bundles, §12.11.4). */
+export interface InviteBundles {
+  inviteId: string
+  /** The encoded SignedInviteRecord. */
+  record: B64url
+  /** `blob`: an encoded InviteBundle. */
+  bundles: { groupId: B64url; epoch: number; blob: B64url; senderDevice: string }[]
 }
 
 // ---- Gateway (§6) ----

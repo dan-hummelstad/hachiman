@@ -3,7 +3,8 @@
  * DELETE /api/v1/guilds/:id/roles/:roleId — MANAGE_ROLES + hierarchy; never @everyone.
  * A permissions change and a delete take X-Hachiman-Signed-Action (role_update /
  * role_delete, §12.16). Both tell the DS in the same transaction (§12.18), and
- * revoke the permanent invites of users who lost ADMINISTRATOR (§4).
+ * revoke the permanent invites and the invites with history of users who lost
+ * ADMINISTRATOR (§4).
  */
 import { and, eq } from 'drizzle-orm'
 import { Permissions } from '@hachiman/client/permissions'
@@ -26,7 +27,7 @@ import {
 } from '@/lib/guild-access'
 import { colorSchema, nameSchema, permissionsSchema } from '@/lib/guild-schemas'
 import { loadChannels, membershipChanged, membershipTransaction, MembershipTriggers } from '@/lib/guilds'
-import { publishInviteDeletes, revokePermanentInvitesOfNonAdmins, type RevokedInvite } from '@/lib/invite-limits'
+import { publishInviteDeletes, revokeAdminInvitesOfNonAdmins, type RevokedInvite } from '@/lib/invite-limits'
 import { toRole } from '@/lib/wire'
 
 interface RouteContext {
@@ -80,7 +81,7 @@ export async function PATCH(req: NextRequest, ctx: RouteContext): Promise<NextRe
       let revoked: RevokedInvite[] = []
       if (body.permissions !== undefined) {
         // `current` was read before the transaction, so a concurrent grant can hide a demotion.
-        revoked = await revokePermanentInvitesOfNonAdmins(tx, id)
+        revoked = await revokeAdminInvitesOfNonAdmins(tx, id)
         if (body.permissions !== current.permissions) {
           await membershipChanged(tx, MembershipTriggers.roleChanged(id, roleId), actor)
         }
@@ -113,7 +114,7 @@ export async function DELETE(req: NextRequest, ctx: RouteContext): Promise<NextR
         .where(eq(permissionOverwrites.targetId, roleId))
         .returning({ channelId: permissionOverwrites.channelId })
       await tx.delete(roles).where(and(eq(roles.id, roleId), eq(roles.guildId, id)))
-      const revoked = await revokePermanentInvitesOfNonAdmins(tx, id)
+      const revoked = await revokeAdminInvitesOfNonAdmins(tx, id)
       await membershipChanged(tx, MembershipTriggers.roleDeleted(id, roleId), actor)
       return { touched: rows.map((r) => r.channelId), revoked }
     })

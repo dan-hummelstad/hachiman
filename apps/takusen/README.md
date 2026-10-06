@@ -71,7 +71,7 @@ flowchart TB
   OA["lib/oidc-adapter.ts"]
   OI["lib/oidc-interaction.ts"]
   GA["lib/guild-access.ts<br/>permissions"]
-  GL["lib/guilds.ts, invites.ts,<br/>invite-limits.ts"]
+  GL["lib/guilds.ts, invites.ts,<br/>invite-limits.ts,<br/>invite-history.ts"]
   WIRE["lib/wire.ts<br/>row to wire shape"]
   UP["lib/uploads.ts<br/>claims"]
   FI["lib/files.ts<br/>pure helpers"]
@@ -145,7 +145,8 @@ flowchart TB
 | `src/lib/oidc-interaction.ts` | Bridges `next/headers` to the panva interaction API. |
 | `src/lib/guild-access.ts` | Loads membership, roles and overwrites, and computes permissions with `@hachiman/client/permissions`. Also `publishToChannel()`. |
 | `src/lib/guilds.ts`, `invites.ts` | Guild read models and invite logic. |
-| `src/lib/invite-limits.ts` | Invite limits (contract §4): only an administrator makes an invite that is permanent or lasts longer than 24 hours. A route that takes ADMINISTRATOR away revokes the permanent invites of that user in its transaction, and publishes `INVITE_DELETE`. |
+| `src/lib/invite-limits.ts` | Invite limits (contract §4): only an administrator makes an invite that is permanent, lasts longer than 24 hours, or has history. A route that takes ADMINISTRATOR away revokes the permanent invites and the invites with history of that user in its transaction, and publishes `INVITE_DELETE`. |
+| `src/lib/invite-history.ts` | Invites with history (contract §12.11.4, §12.12): the record checks of `POST /guilds/:id/invites`, the member list of records, and the store of the sealed bundles with its caps (1 MiB per sender user other than the creator, 4 MiB per invite) and its sweep. The storage seam `InviteHistoryStore` has a Drizzle and an in-memory implementation (`invite-history.in-memory.ts`). `invite-history.conformance.ts` runs on both. |
 | `src/lib/wire.ts` | Converts DB rows to wire shapes (contract §1). No DB access. |
 | `src/lib/events.ts` | Redis client and the `publishToGuild()` / `publishToUser()` publishers (contract §5). |
 | `src/lib/uploads.ts` | Upload claims (image or attachment) and attachment row deletion. |
@@ -160,9 +161,9 @@ flowchart TB
 | `src/grpc/media-nodes.ts` | `RegisterMediaNode` and `MediaNodeHeartbeat` handlers. |
 | `src/grpc/placement.ts` | `PlaceMediaSession` handler: least-loaded fresh node in the region. |
 | `src/grpc/repo.ts`, `repo.in-memory.ts` | `MediaNodesRepo`: Drizzle implementation and the test implementation. |
-| `src/grpc/mls-scheduler.ts` | The MLS batch scheduler (a timer and `takusen:mls_wakeup`) and the daily DS sweeps: old handshakes, inbox items, link sessions, join requests, group epochs, and suite upgrades. Contract §12.7.5, §12.7.9, §12.15. |
+| `src/grpc/mls-scheduler.ts` | The MLS batch scheduler (a timer and `takusen:mls_wakeup`) and the daily DS sweeps: old handshakes, inbox items, link sessions, join requests, group epochs, page media, the bundles of ended invites, and suite upgrades. Contract §12.7.5, §12.7.9, §12.11.4, §12.15. |
 | `src/grpc/kt-heads.ts` | The 10 s timer that signs key transparency tree heads and publishes `KT_TREE_HEAD`. Only this process signs heads. Contract §12.14. |
-| `src/app/api/v1/devices/`, `mls/`, `backups/`, `kt/` | The E2EE routes of contract §12.12. `users/[id]/keys`, `master-key`, `device-signing-key` and `channels/[id]/mls-group` are E2EE routes too. Each one is a thin `dsRoute()` wrapper around `lib/mls`. |
+| `src/app/api/v1/devices/`, `mls/`, `backups/`, `kt/` | The E2EE routes of contract §12.12. `users/[id]/keys`, `master-key`, `device-signing-key` and `channels/[id]/mls-group` are E2EE routes too. Each one is a thin `dsRoute()` wrapper around `lib/mls`. The invite history routes (`guilds/[id]/invite-records`, `invite-records/`, `invites/[code]/bundles`) call `lib/invite-history.ts`. |
 | `src/lib/mls/` | The delivery service. See "The delivery service" below. |
 | `src/lib/errors.ts`, `api-helpers.ts` | Domain errors and `ApiError(code, status, message?, extra?, retryAfterSec?)`. `errorResponse()` maps them to `{ error, message?, ...extra }` and sets `Retry-After`. |
 
@@ -288,7 +289,7 @@ pnpm -F @hachiman/takusen db:studio
 pnpm -F @hachiman/takusen sessions:revoke  # sign out all users
 ```
 
-The MlsRepo conformance suite (`src/lib/mls/repo.conformance.ts`) is one test suite for both MlsRepo implementations. `pnpm test` runs it on `InMemoryMlsRepo` (`repo.in-memory.test.ts`). `repo.drizzle.pg.test.ts` runs it on `drizzleMlsRepo` and a real Postgres, but only when `TAKUSEN_PG_TEST_URL` is set. Otherwise it skips, so `pnpm test` needs no database. Use a separate test database. The suite refuses the database `takusen`, because it writes rows that it does not delete. `src/lib/invite-limits.pg.test.ts` uses the same rules for the SQL of the invite limits (the revoke of permanent invites and `createPermanentInvite`). `test:pg` runs both. To run them against the Docker Postgres (use the user of your container):
+The MlsRepo conformance suite (`src/lib/mls/repo.conformance.ts`) is one test suite for both MlsRepo implementations. `pnpm test` runs it on `InMemoryMlsRepo` (`repo.in-memory.test.ts`). `repo.drizzle.pg.test.ts` runs it on `drizzleMlsRepo` and a real Postgres, but only when `TAKUSEN_PG_TEST_URL` is set. Otherwise it skips, so `pnpm test` needs no database. Use a separate test database. The suite refuses the database `takusen`, because it writes rows that it does not delete. `src/lib/invite-limits.pg.test.ts` uses the same rules for the SQL of the invite limits (the revoke of admin invites and `createAdminInvite`), and `src/lib/invite-history.pg.test.ts` runs the InviteHistoryStore conformance suite on `drizzleInviteHistoryStore`. `test:pg` runs all three. To run them against the Docker Postgres (use the user of your container):
 
 ```bash
 docker exec hachiman-postgres psql -U takusen -d postgres -c 'CREATE DATABASE hachiman_e2ee_test'   # once

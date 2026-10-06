@@ -151,13 +151,19 @@ export function pagesChannelsOf(
     .map((c) => c.id)
 }
 
-/** Snapshots a page that is not open with a headless provider, and always destroys the provider. */
+/**
+ * Snapshots a page that is not open with a headless provider, and always destroys the provider.
+ * `running` holds the provider meanwhile, so that a sign-out destroys it (DocsService.reset).
+ */
 export async function snapshotHeadless(
-  provider: Pick<DocProvider, 'snapshotIfNeeded' | 'destroy'>
+  provider: Pick<DocProvider, 'snapshotIfNeeded' | 'destroy'>,
+  running: Set<Pick<DocProvider, 'destroy'>>
 ): Promise<void> {
+  running.add(provider)
   try {
     await provider.snapshotIfNeeded()
   } finally {
+    running.delete(provider)
     provider.destroy()
   }
 }
@@ -178,11 +184,13 @@ export interface RewrapDeps {
 /**
  * One pass over one channel: snapshots and pointers first, then the titles. `thorough`: the
  * committer's second pass, which also loads the pages with updates after a current snapshot.
+ * `cancelled`: true after a sign-out. The pass stops before its next page and before the titles.
  */
 export async function rewrapChannel(
   deps: RewrapDeps,
   channelId: string,
-  thorough = false
+  thorough = false,
+  cancelled: () => boolean = () => false
 ): Promise<void> {
   const crypto = deps.crypto()
   const group = await crypto.ensureChannelGroup(channelId)
@@ -200,6 +208,7 @@ export async function rewrapChannel(
     }
   }
   for (const head of heads) {
+    if (cancelled()) return
     if (deps.resyncOpen(head.pageId)) continue
     const snap = head.snapshot
     const staleSnap = snap !== null && isStale(snap, cur)
@@ -209,20 +218,23 @@ export async function rewrapChannel(
     } else if (snap && staleSnap)
       await each(head.pageId, () => rewrapPointer(crypto, deps.rest, channelId, snap))
   }
-  if (!heads.some(staleTitle)) return
+  if (cancelled() || !heads.some(staleTitle)) return
   // The page list first, then the heads again: a rename after the list read fails the
   // compare-and-set, and a rename before the second heads read makes the title current.
   const pages = await deps.rest.getPages(channelId)
   const stale = new Set(
     (await deps.rest.getPageHeads(channelId)).filter(staleTitle).map((h) => h.pageId)
   )
-  for (const page of pages)
-    if (stale.has(page.id)) await each(page.id, () => rewrapTitle(crypto, deps.rest, page))
+  for (const page of pages) {
+    if (!stale.has(page.id)) continue
+    if (cancelled()) return
+    await each(page.id, () => rewrapTitle(crypto, deps.rest, page))
+  }
 }
 
 export interface Rewrapper {
   onUsersAdded(e: CryptoEvents['usersAdded']): void
-  /** Sign-out: no pass starts after this. */
+  /** Sign-out: no pass starts after this, and a pass that runs stops before its next page. */
   reset(): void
 }
 
@@ -235,7 +247,7 @@ export function createRewrapper(deps: RewrapDeps): Rewrapper {
   >()
   /**
    * groupId → the generation of its running pass. A pass of an older generation (before a reset)
-   * stops at its next channel and does not hold back a pass of the new one.
+   * stops at its next page and does not hold back a pass of the new one.
    */
   const running = new Map<string, number>()
   /** A request during a pass gives one more pass, for the latest time asked. */
@@ -254,11 +266,12 @@ export function createRewrapper(deps: RewrapDeps): Rewrapper {
     const thorough = due !== undefined && at >= due
     if (thorough) thoroughAt.delete(groupId)
     const gen = generation
+    const cancelled = (): boolean => gen !== generation
     running.set(groupId, gen)
     void (async () => {
       for (const channelId of deps.channelsOf(groupId)) {
-        if (gen !== generation) return
-        await rewrapChannel(deps, channelId, thorough).catch((e: unknown) =>
+        if (cancelled()) return
+        await rewrapChannel(deps, channelId, thorough, cancelled).catch((e: unknown) =>
           console.warn('[docs] re-wrap of channel %s failed', channelId, codeOf(e) ?? e)
         )
       }

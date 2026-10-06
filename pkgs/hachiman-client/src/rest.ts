@@ -24,7 +24,9 @@ import type {
   InboxItem,
   InboxKind,
   Invite,
+  InviteBundles,
   InvitePreview,
+  InviteRecord,
   JoinRequest,
   KtConsistencyProof,
   KtEntry,
@@ -181,6 +183,8 @@ export interface CreateInviteBody {
   maxUses?: Opt<number>
   /** Required with `maxAgeSeconds: 0`: the user accepted the permanent-invite warning. */
   acknowledgedPermanent?: Opt<boolean>
+  /** An invite with history: the encoded SignedInviteRecord (§12.11.4). ADMINISTRATOR only. */
+  record?: Opt<B64url>
 }
 export interface CreatePageBody {
   /** A new UUID that the client chooses: the title envelope binds it (§12.20). */
@@ -510,6 +514,16 @@ export class RestClient {
     )
   getAdminActions = (guildId: string, after: number, limit?: number) =>
     this.req<AdminAction[]>('GET', `/guilds/${e(guildId)}/admin-actions${query({ after, limit })}`)
+
+  // MARK: - Invites with history (§12.11.4)
+
+  /** Member only. The active invites with history of the guild. */
+  inviteRecords = (guildId: string) => this.req<InviteRecord[]>('GET', `/guilds/${e(guildId)}/invite-records`)
+  /** `blob`: an encoded InviteBundle. 204. */
+  postInviteBundle = (inviteId: string, body: { groupId: B64url; epoch: number; blob: B64url }) =>
+    this.req<undefined>('POST', `/invite-records/${e(inviteId)}/bundles`, body)
+  /** Only for the redeemer, during 1 h after its join with the invite. Else 404 UnknownInvite. */
+  inviteBundles = (code: string) => this.req<InviteBundles>('GET', `/invites/${e(code)}/bundles`)
   report = (body: { messageId: string; content: B64url; frankingKey: B64url; reason: string }) =>
     this.req<{ id: string; verified: boolean }>('POST', '/reports', body)
 

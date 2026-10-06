@@ -65,6 +65,9 @@ export type DsRest = Pick<
   | 'ktConsistency'
   | 'ktEntries'
   | 'getAdminActions'
+  | 'inviteRecords'
+  | 'postInviteBundle'
+  | 'inviteBundles'
 >
 
 export type DsCache = Pick<HachimanCache, 'user' | 'channels' | 'guilds' | 'roles' | 'members'>
@@ -82,9 +85,6 @@ const call = async <T>(p: () => Promise<T>): Promise<T> => {
     throw transportError(e)
   }
 }
-
-// S3b: RestClient gets the invite routes (§12.12). Until then the calls reject as Transport.
-const notImplemented = (): Promise<never> => Promise.reject(new Error('not implemented'))
 
 /** The users who may read `channelId` (§2 VIEW_CHANNEL), from the cache. */
 export function channelReaders(cache: DsCache, channelId: string): string[] {
@@ -162,9 +162,9 @@ export function createDsTransport(rest: DsRest, cache: DsCache): DsTransport {
 
     adminActions: (guildId, after) => call(() => rest.getAdminActions(guildId, after)),
 
-    inviteRecords: () => call(notImplemented),
-    postInviteBundle: () => call(notImplemented),
-    inviteBundles: () => call(notImplemented),
+    inviteRecords: (guildId) => call(() => rest.inviteRecords(guildId)),
+    postInviteBundle: (inviteId, body) => call(() => rest.postInviteBundle(inviteId, body)),
+    inviteBundles: (code) => call(() => rest.inviteBundles(code)),
 
     channelReaders: (channelId) => Promise.resolve(channelReaders(cache, channelId)),
     guildMembers: (guildId) => Promise.resolve([...(cache.members.get(guildId)?.keys() ?? [])])

@@ -225,8 +225,14 @@ export const guildMembers = pgTable(
     joinedAt: timestamp('joined_at', { withTimezone: true, mode: 'date' })
       .notNull()
       .defaultNow(),
+    // The invite of the join. The redeemer of an invite with history gets its bundles (§12.11.4).
+    inviteId: uuid('invite_id').references((): AnyPgColumn => invites.id, { onDelete: 'set null' }),
   },
-  (table) => [primaryKey({ columns: [table.guildId, table.userId] })],
+  (table) => [
+    primaryKey({ columns: [table.guildId, table.userId] }),
+    // The ON DELETE SET NULL of each deleted invite looks up its members here.
+    index('guild_members_invite_idx').on(table.inviteId).where(sql`${table.inviteId} is not null`),
+  ],
 )
 
 // Guild channels (guildId set) and DMs (guildId null, participants in
@@ -355,23 +361,54 @@ export const dmParticipants = pgTable(
   ],
 )
 
-export const invites = pgTable('invites', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  code: text('code').notNull().unique(),
-  guildId: uuid('guild_id')
-    .notNull()
-    .references(() => guilds.id, { onDelete: 'cascade' }),
-  createdBy: uuid('created_by')
-    .notNull()
-    .references(() => users.id, { onDelete: 'cascade' }),
-  expiresAt: timestamp('expires_at', { withTimezone: true, mode: 'date' }),
-  maxUses: integer('max_uses'),
-  uses: integer('uses').notNull().default(0),
-  revoked: boolean('revoked').notNull().default(false),
-  createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
-    .notNull()
-    .defaultNow(),
-})
+export const invites = pgTable(
+  'invites',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    code: text('code').notNull().unique(),
+    guildId: uuid('guild_id')
+      .notNull()
+      .references(() => guilds.id, { onDelete: 'cascade' }),
+    createdBy: uuid('created_by')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    expiresAt: timestamp('expires_at', { withTimezone: true, mode: 'date' }),
+    maxUses: integer('max_uses'),
+    uses: integer('uses').notNull().default(0),
+    revoked: boolean('revoked').notNull().default(false),
+    // An invite with history (§12.11.4): the SignedInviteRecord and its key id (sign_public).
+    record: bytea('record'),
+    keyId: bytea('key_id'),
+    // The accept of the last use sets it. The bundle sweep keys on it.
+    exhaustedAt: timestamp('exhausted_at', { withTimezone: true, mode: 'date' }),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [index('invites_guild_idx').on(table.guildId), uniqueIndex('invites_key_id_uq').on(table.keyId)],
+)
+
+// The sealed epoch secrets of an invite with history (§12.11.4). Takusen cannot open them.
+export const inviteBundles = pgTable(
+  'invite_bundles',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    inviteId: uuid('invite_id')
+      .notNull()
+      .references(() => invites.id, { onDelete: 'cascade' }),
+    groupId: bytea('group_id').notNull(),
+    epoch: integer('epoch').notNull(),
+    senderDevice: uuid('sender_device').notNull(),
+    // The share of one member (§12.12) counts all its devices, also revoked ones.
+    senderUser: uuid('sender_user').notNull(),
+    blob: bytea('blob').notNull(),
+    size: integer('size').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [index('invite_bundles_invite_created_idx').on(table.inviteId, table.createdAt)],
+)
 
 // One row per stored object (contract §4 Files). `purpose` is set by the first
 // claim and never changes: deleting a message deletes its objects, so an
@@ -438,6 +475,7 @@ export type MemberRoleRow = typeof memberRoles.$inferSelect
 export type PermissionOverwriteRow = typeof permissionOverwrites.$inferSelect
 export type DmParticipantRow = typeof dmParticipants.$inferSelect
 export type InviteRow = typeof invites.$inferSelect
+export type InviteBundleRow = typeof inviteBundles.$inferSelect
 export type UploadRow = typeof uploads.$inferSelect
 
 // ===== Auth UI agent additions =====

@@ -258,6 +258,8 @@ export function startHachiman(host?: IPlatformService): void {
     void messagesService.retryGroup(groupId)
     docsService.retry()
   })
+  // This device joined a group: the page titles of that group decrypt now.
+  cryptoService.on('membership', (e) => docsService.onMembership(e))
   // A new user in a text group: re-wrap the pages of its pages channels (§12.20).
   cryptoService.on('usersAdded', (e) => docsService.onUsersAdded(e))
   cryptoService.on('status', (s) => {

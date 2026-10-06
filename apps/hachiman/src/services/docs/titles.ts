@@ -58,8 +58,18 @@ export const sameNode = (a: PageNode | undefined, b: PageNode): boolean =>
   a.parentId === b.parentId &&
   a.position === b.position
 
-/** The node to store for `next` (a PAGE_* event or a REST row), or null when the store has it. */
+/** `a` is a newer row of the page than `b`. Takusen sends ISO timestamps, which compare as strings. */
+export const isNewer = (
+  a: Pick<Page, 'updatedAt'> | undefined,
+  b: Pick<Page, 'updatedAt'>
+): boolean => a !== undefined && a.updatedAt > b.updatedAt
+
+/**
+ * The node to store for `next` (a PAGE_* event, a REST row or a title retry), or null when the
+ * store has it or a newer row of the page (a retry that a newer PAGE_UPDATE overtook).
+ */
 export function mergeNode(stored: PageNode | undefined, next: PageNode): PageNode | null {
+  if (isNewer(stored, next)) return null
   const node = keepTitle(stored, next)
   return sameNode(stored, node) ? null : node
 }

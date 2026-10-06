@@ -187,23 +187,38 @@ describe('createDsTransport', () => {
     expect(Object.keys(t).sort()).toEqual([...methods].sort())
   })
 
-  // S3b: replace with the route checks when RestClient has the invite routes.
-  it('rejects the invite routes as Transport until RestClient has them', async () => {
-    const { rest: r, seen } = rest(() => ({ status: 200, body: [] }))
+  it('calls the invite routes of §12.12 and rejects 404 UnknownInvite as Transport', async () => {
+    const records = [
+      { inviteId: 'i-1', keyId: 'S0lE', record: 'UkVD', expiresAt: null, bundled: [{ groupId: 'R1', epoch: 3 }] }
+    ]
+    const bundles = { inviteId: 'i-1', record: 'UkVD', bundles: [] }
+    const { rest: r, seen } = rest((req) =>
+      req.url.endsWith('/invite-records')
+        ? { status: 200, body: records }
+        : req.method === 'POST'
+          ? { status: 204 }
+          : { status: 200, body: bundles }
+    )
     const t = createDsTransport(r, emptyCache())
-    for (const p of [
-      t.inviteRecords('g-1'),
-      t.postInviteBundle('i-1', { groupId: 'AA', epoch: 1, blob: 'AA' }),
-      t.inviteBundles('CODE')
-    ]) {
-      const caught = await p.then(
-        () => null,
-        (e: unknown) => e
-      )
-      expect(caught).toBeInstanceOf(CryptoError)
-      expect((caught as CryptoError).code).toBe('Transport')
-    }
-    expect(seen).toEqual([])
+    expect(await t.inviteRecords('g-1')).toEqual(records)
+    expect(await t.postInviteBundle('i-1', { groupId: 'R1', epoch: 4, blob: 'QkxC' })).toBeUndefined()
+    expect(await t.inviteBundles('ABCD2345')).toEqual(bundles)
+    expect(seen.map((s) => `${s.method} ${s.url.replace('http://takusen/api/v1', '')}`)).toEqual([
+      'GET /guilds/g-1/invite-records',
+      'POST /invite-records/i-1/bundles',
+      'GET /invites/ABCD2345/bundles'
+    ])
+    expect(seen[1]?.body).toEqual({ groupId: 'R1', epoch: 4, blob: 'QkxC' })
+    for (const s of seen) expect(s.headers['X-Hachiman-Device']).toBe('dev-1')
+
+    const { rest: gone } = rest(() => ({ status: 404, body: { error: 'UnknownInvite' } }))
+    let caught: unknown
+    await createDsTransport(gone, emptyCache())
+      .inviteBundles('ABCD2345')
+      .catch((e: unknown) => (caught = e))
+    expect(caught).toBeInstanceOf(CryptoError)
+    expect((caught as CryptoError).code).toBe('Transport')
+    expect((caught as CryptoError).dsCode).toBe('UnknownInvite')
   })
 })
 

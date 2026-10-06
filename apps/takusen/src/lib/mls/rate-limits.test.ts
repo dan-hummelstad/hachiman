@@ -32,7 +32,7 @@ async function hits(rate: RateLimiter, which: DeviceRateLimit, device: { id: str
   return ok
 }
 
-const WHICH: DeviceRateLimit[] = ['commits', 'keyPackages', 'inboxPosts', 'backups', 'linkMessages', 'joinRequests']
+const WHICH: DeviceRateLimit[] = ['commits', 'keyPackages', 'inboxPosts', 'backups', 'linkMessages', 'joinRequests', 'inviteBundles']
 
 describe('per-user rate limits (§12.12)', () => {
   for (const which of WHICH) {

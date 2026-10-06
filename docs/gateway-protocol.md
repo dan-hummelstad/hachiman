@@ -83,8 +83,9 @@ interface Message {
   nonce?: string                   // echoed from the create request, never stored
 }
 
-interface Invite { code: string; guildId: string; createdBy: string; expiresAt: string | null; maxUses: number | null; uses: number; createdAt: string }
-interface InvitePreview { code: string; guild: Pick<Guild, 'id' | 'name' | 'icon'>; memberCount: number; expiresAt: string | null }
+interface Invite { id: string; code: string; guildId: string; createdBy: string; expiresAt: string | null; maxUses: number | null; uses: number; createdAt: string
+  hasHistory: boolean }            // the invite has a signed record: an invite with history (§12.11.4)
+interface InvitePreview { code: string; guild: Pick<Guild, 'id' | 'name' | 'icon'>; memberCount: number; expiresAt: string | null; hasHistory: boolean }
 
 interface Presence { userId: string; status: PresenceStatus }
 
@@ -194,14 +195,14 @@ New/changed tables (all ids `uuid` defaultRandom, timestamps `timestamptz` defau
 |---|---|---|
 | `guilds` | id, owner_id → users (cascade), name, icon null, banner null, region → regions.code (set null), page_storage_bytes bigint (mode number) default 0, created_at | replaces virtual_servers. icon/banner hold file keys. `page_storage_bytes`: the page quota count (§4 Pages) |
 | `uploads` | id, uploader_id → users (cascade), key unique, filename null (null for blobs), size bigint (mode number), content_type, encrypted bool default false, message_id null → messages (cascade), position int default 0, purpose `upload_purpose` enum ('attachment','image','page_snapshot','page_media') null, page_id null → doc_pages (cascade), last_referenced_at null, created_at | index (message_id); index (page_id); CHECK `uploads_attachment_has_message`: `(purpose IS NOT DISTINCT FROM 'attachment') = (message_id IS NOT NULL)`; CHECK `uploads_page_media_has_page`: `purpose IS DISTINCT FROM 'page_media' OR page_id IS NOT NULL`; CHECK `uploads_page_id_is_page_purpose`: `page_id IS NULL OR purpose IN ('page_snapshot','page_media')`. One row per stored object. The first claim sets purpose, and purpose never changes. message_id is set when a message claims it, together with purpose. A `page_snapshot` upload has its purpose from the upload on, and page_id from the snapshot claim (§4 Pages) |
-| `guild_members` | guild_id → guilds (cascade), user_id → users (cascade), nick null, joined_at | PK (guild_id, user_id) |
+| `guild_members` | guild_id → guilds (cascade), user_id → users (cascade), nick null, joined_at, invite_id null → invites (set null) | PK (guild_id, user_id); index (invite_id) where not null. `invite_id`: the invite of the join (§4 accept). The redeemer of an invite with history gets its bundles with it (§12.11.4) |
 | `channels` | id, guild_id null → guilds (cascade), type `channel_type` enum, name null, topic null, parent_id null → channels (set null), position int default 0, owner_id null → users (set null), mls_group_id bytea null → mls_groups (set null), created_at | index (guild_id) |
 | `messages` | id, channel_id → channels (cascade), author_id → users (cascade), group_id bytea → mls_groups (cascade), epoch bigint, sender_device uuid null → devices (set null), client_msg_id bytea, envelope bytea, franking_tag bytea, size int, created_at, edited_at null | index (channel_id, created_at desc, id desc); unique (channel_id, client_msg_id). No `content` column (§12.8) |
 | `roles` | id, guild_id → guilds (cascade), name, color int default 0, position int default 0, permissions bigint (mode number) | @everyone row has id = guild_id |
 | `member_roles` | guild_id, user_id, role_id → roles (cascade) | PK (user_id, role_id); FK (guild_id,user_id) → guild_members (cascade) |
 | `permission_overwrites` | channel_id → channels (cascade), target_id uuid, target_type `overwrite_type` enum ('role','member'), allow bigint, deny bigint | PK (channel_id, target_id) |
 | `dm_participants` | channel_id → channels (cascade), user_id → users (cascade) | PK (channel_id, user_id); index (user_id) |
-| `invites` | id, code unique, guild_id → guilds (cascade), created_by → users (cascade), expires_at null, max_uses null, uses int default 0, revoked bool default false, created_at | replaces invite_codes |
+| `invites` | id, code unique, guild_id → guilds (cascade), created_by → users (cascade), expires_at null, max_uses null, uses int default 0, revoked bool default false, record bytea null, key_id bytea null, exhausted_at null, created_at | index (guild_id); unique (key_id). Replaces invite_codes. `record` and `key_id`: the `SignedInviteRecord` of an invite with history and its `sign_public` (§12.11.4). The accept of the last use sets `exhausted_at` |
 
 Pages tables (§4 Pages, §12.20). The server sees the tree and the timestamps. Titles, edits and snapshot pointers are envelopes:
 
@@ -230,6 +231,7 @@ E2EE tables (§12). `bytea` columns hold the binary objects of §12 as they are.
 | `device_inbox` | id, seq bigint identity, device_id → devices (cascade), kind `inbox_kind`, sender_device null → devices (set null), body bytea, size int, created_at, expires_at | index (device_id, seq) |
 | `key_backups` | id, user_id → users (cascade), key_id bytea, kind `backup_kind`, group_id bytea null, epoch_from bigint null, epoch_to bigint null, blob bytea, size int, created_at | index (user_id); unique (user_id) where kind = 'identity' |
 | `history_bundles` | id, group_id → mls_groups (cascade), epoch bigint, sender_device → devices (cascade), blob bytea, created_at | unique (group_id, epoch, sender_device) |
+| `invite_bundles` | id, invite_id → invites (cascade), group_id bytea, epoch int, sender_device uuid (no FK), sender_user uuid (no FK), blob bytea, size int, created_at | index (invite_id, created_at). The sealed `InviteBundle`s of an invite with history (§12.11.4). At most `INVITE_BUNDLES_MAX_BYTES` per invite, and at most 1 MiB per sender user other than the creator, for all devices of that user together: the oldest go first |
 | `device_link_sessions` | id, user_id → users (cascade), new_device_id → devices (cascade), offer bytea, created_at, expires_at | |
 | `device_link_messages` | session_id → device_link_sessions (cascade), seq int, from_device → devices (cascade), body bytea, created_at | PK (session_id, seq) |
 | `kt_entries` | idx bigint PK (leaf index from 0), user_id uuid (no FK: the log is append-only), type smallint, entry bytea, leaf_hash bytea, created_at | index (user_id, idx) |
@@ -268,9 +270,11 @@ Implemented extras (Discord semantics):
   - `maxAgeSeconds` has the default 86400. A user without ADMINISTRATOR can send 1 to 86400. Takusen rejects 0 and larger values from this user with 403 `MissingPermissions`.
   - A user with ADMINISTRATOR can send 1 to 604800, or 0. 0 makes a permanent invite (`expiresAt: null`). A permanent invite needs `acknowledgedPermanent: true`, else 400 `ValidationError`. The 403 check runs before the 400 check. A value above 604800 gets 400 `ValidationError` for every user.
   - `maxUses` is 0 to 100. The default 0 means no limit.
-  - Takusen makes a permanent invite in a transaction. The transaction locks the guild row and the membership row of the creator (`FOR SHARE`), and checks ADMINISTRATOR again. Thus a role or member change at the same time cannot leave a permanent invite of a user without ADMINISTRATOR.
-- Revoke = soft (`revoked`). Only the first revoke publishes `INVITE_DELETE`. A revoke stops new joins at once, because the accept locks the invite row. Members who joined already stay members.
-- Revoke on loss of ADMINISTRATOR: a role permissions edit, a role delete, a member-role edit that removes a role, a kick and a leave revoke the permanent invites whose creator no longer has ADMINISTRATOR or is no longer a member. This occurs in the transaction of the change, before the DS change. Takusen checks every creator in the guild, because one role change can demote many users. After the commit, Takusen publishes `INVITE_DELETE` → guild for each revoked invite. The first such change in a guild also revokes the permanent invites that users without ADMINISTRATOR made before these limits existed.
+  - An invite with history (body `record`, §12.11.4) needs ADMINISTRATOR, else 403 `MissingPermissions` before the other checks, and an active `X-Hachiman-Device`. `record` is the base64url `SignedInviteRecord`, at most 16 KiB. Takusen verifies it with `DsModule.verifyInviteRecord` under the certificate of the device (§12.18). Then it requires all of these, else 400 `ValidationError`: `guild_id`, `creator_user_id` and `creator_device_id` are the guild, the caller and the device of the request. `max_uses` is `maxUses`. `expires_at_ms` is 0 when `maxAgeSeconds` is 0, else at most 5 minutes from now + `maxAgeSeconds`. `channel_ids` has at most 500 ids. No other invite has the key id (`sign_public`). Takusen stores `record` and `key_id`. Takusen does not check the admin state of the record: members do (§12.16). The creator device sends the first bundles with the `id` of the returned `Invite` (`POST /invite-records/:inviteId/bundles`, §12.12).
+  - Takusen makes a permanent invite and an invite with history in a transaction. The transaction locks the guild row and the membership row of the creator (`FOR SHARE`), and checks ADMINISTRATOR again. Thus a role or member change at the same time cannot leave such an invite of a user without ADMINISTRATOR.
+- Accept: the membership row of a new member names the invite (`guild_members.invite_id`). The accept of the last use sets `invites.exhausted_at`.
+- Revoke = soft (`revoked`). The revoke deletes the bundles of the invite (§12.11.4) in the same transaction. Only the first revoke publishes `INVITE_DELETE`. A revoke stops new joins at once, because the accept locks the invite row. Members who joined already stay members.
+- Revoke on loss of ADMINISTRATOR: a role permissions edit, a role delete, a member-role edit that removes a role, a kick and a leave revoke the permanent invites and the invites with history whose creator no longer has ADMINISTRATOR or is no longer a member, and delete their bundles. This occurs in the transaction of the change, before the DS change. Takusen checks every creator in the guild, because one role change can demote many users. After the commit, Takusen publishes `INVITE_DELETE` → guild for each revoked invite. The first such change in a guild also revokes the permanent invites that users without ADMINISTRATOR made before these limits existed.
 - `GET /guilds/:id` reads voice states/presences from Redis.
 - Next route folders for `/users/@me` live under `users/[id]`, and `/devices/@me/...` lives under `devices/[id]/...` (`@x` is a parallel-route slot in Next). The `[id]` handlers accept `@me`.
 - CORS (`apps/takusen/src/lib/cors.ts`): `Access-Control-Allow-Headers` is `Authorization, Content-Type, X-Requested-With, X-Hachiman-Device, X-Hachiman-Device-Ts, X-Hachiman-Device-Nonce, X-Hachiman-Device-Sig, X-Hachiman-Signed-Action`. `Access-Control-Expose-Headers` is `Retry-After`.
@@ -296,17 +300,17 @@ Implemented extras (Discord semantics):
 | DELETE `/channels/:id/messages/:mid` | author or MANAGE_MESSAGES | 204 | `MESSAGE_DELETE {id, channelId, guildId}` |
 | POST `/channels/:id/typing` | SEND_MESSAGES | 204 | `TYPING_START {channelId, guildId, userId, timestamp}` |
 | GET `/guilds/:id/members` | member | `Member[]` | — |
-| PATCH `/guilds/:id/members/:userId` `{nick?, roles?}` | nick: self→CHANGE_NICKNAME, other→MANAGE_NICKNAMES; roles→MANAGE_ROLES + hierarchy | `Member` | `GUILD_MEMBER_UPDATE`; `INVITE_DELETE` → guild for each revoked permanent invite |
-| DELETE `/guilds/:id/members/:userId` | KICK_MEMBERS (not owner) | 204 | `GUILD_MEMBER_REMOVE {guildId, user}` → guild; `GUILD_DELETE {id}` → user:{kicked}; `INVITE_DELETE` → guild for each revoked permanent invite |
+| PATCH `/guilds/:id/members/:userId` `{nick?, roles?}` | nick: self→CHANGE_NICKNAME, other→MANAGE_NICKNAMES; roles→MANAGE_ROLES + hierarchy | `Member` | `GUILD_MEMBER_UPDATE`; `INVITE_DELETE` → guild for each revoked invite (Invite limits) |
+| DELETE `/guilds/:id/members/:userId` | KICK_MEMBERS (not owner) | 204 | `GUILD_MEMBER_REMOVE {guildId, user}` → guild; `GUILD_DELETE {id}` → user:{kicked}; `INVITE_DELETE` → guild for each revoked invite (Invite limits) |
 | DELETE `/users/@me/guilds/:id` | member, not owner | 204 | same as kick |
 | GET `/guilds/:id/roles` | member | `Role[]` | — |
 | POST `/guilds/:id/roles` `{name, color?, permissions?}` | MANAGE_ROLES | `Role` | `GUILD_ROLE_CREATE {guildId, role}` |
 | PATCH `/guilds/:id/roles` `[{id, position}]` | MANAGE_ROLES | `Role[]` | `GUILD_ROLE_UPDATE` per changed role |
-| PATCH `/guilds/:id/roles/:roleId` `{name?, color?, permissions?}` | MANAGE_ROLES + hierarchy | `Role` | `GUILD_ROLE_UPDATE`; `INVITE_DELETE` → guild for each revoked permanent invite |
-| DELETE `/guilds/:id/roles/:roleId` | MANAGE_ROLES + hierarchy, not @everyone | 204 | `GUILD_ROLE_DELETE {guildId, roleId}`; `INVITE_DELETE` → guild for each revoked permanent invite |
+| PATCH `/guilds/:id/roles/:roleId` `{name?, color?, permissions?}` | MANAGE_ROLES + hierarchy | `Role` | `GUILD_ROLE_UPDATE`; `INVITE_DELETE` → guild for each revoked invite (Invite limits) |
+| DELETE `/guilds/:id/roles/:roleId` | MANAGE_ROLES + hierarchy, not @everyone | 204 | `GUILD_ROLE_DELETE {guildId, roleId}`; `INVITE_DELETE` → guild for each revoked invite (Invite limits) |
 | GET `/guilds/:id/invites` | MANAGE_GUILD | `Invite[]`: the invites that are not revoked (expired ones too), permanent first, then newest first | — |
-| POST `/guilds/:id/invites` `{maxAgeSeconds?, maxUses?, acknowledgedPermanent?}` | CREATE_INSTANT_INVITE; ADMINISTRATOR for `maxAgeSeconds` 0 or above 86400 (Invite limits) | `Invite` | — |
-| DELETE `/invites/:code` | MANAGE_GUILD | 204 | `INVITE_DELETE {guildId, code, inviteId}` → guild (first revoke only) |
+| POST `/guilds/:id/invites` `{maxAgeSeconds?, maxUses?, acknowledgedPermanent?, record?}` | CREATE_INSTANT_INVITE; ADMINISTRATOR for `maxAgeSeconds` 0 or above 86400, and for `record` (with `X-Hachiman-Device`) (Invite limits) | `Invite` | — |
+| DELETE `/invites/:code` | MANAGE_GUILD | 204. Deletes the bundles of the invite | `INVITE_DELETE {guildId, code, inviteId}` → guild (first revoke only) |
 | GET `/invites/:code` | **public** | `InvitePreview` (non-consuming) | — |
 | POST `/invites/:code` | auth | `GuildFull` (idempotent if already a member — no use consumed) | `GUILD_MEMBER_ADD` → guild; `GUILD_CREATE` → user:{me} |
 | GET `/users/@me/channels` | auth | `Channel[]` (DMs) | — |
@@ -317,7 +321,7 @@ Implemented extras (Discord semantics):
 | POST `/uploads?filename=<name>` raw body | auth | `{id, key, size}` (201): a plaintext profile image | — |
 | GET `/files/:uploadId/:filename` | **public** | file bytes (`/files/{uploadId}/blob` for blobs) | — |
 
-The E2EE routes (devices, keys, MLS, inbox, backups, linking, key transparency, reports) are in §12.12. In Phase 4, the role, overwrite and member-role routes and the channel `historyVisibility` change also take the header `X-Hachiman-Signed-Action` (§12.16). The header is necessary only when the request changes signed state: a role PATCH only with `permissions`, a member PATCH only with `roles`. A signed `role_create` names the role id, and `POST /guilds/:id/roles` creates the role with that id. The guild `publicHistoryVisibility` has no admin action type and is not signed.
+The E2EE routes (devices, keys, MLS, inbox, backups, linking, key transparency, reports, invites with history) are in §12.12. In Phase 4, the role, overwrite and member-role routes and the channel `historyVisibility` change also take the header `X-Hachiman-Signed-Action` (§12.16). The header is necessary only when the request changes signed state: a role PATCH only with `permissions`, a member PATCH only with `roles`. A signed `role_create` names the role id, and `POST /guilds/:id/roles` creates the role with that id. The guild `publicHistoryVisibility` has no admin action type and is not signed.
 
 ### Files
 
@@ -776,7 +780,7 @@ export class RestClient {
   getMessages(channelId, { before?, limit? }); editMessage(...); deleteMessage(...); triggerTyping(channelId)
   getMembers(guildId); updateMember(guildId, userId, body, opts?); kickMember(guildId, userId); leaveGuild(guildId)
   getRoles(guildId); createRole(guildId, body, opts?); reorderRoles(guildId, positions, opts?); updateRole(guildId, roleId, body, opts?); deleteRole(guildId, roleId, opts?)
-  getInvites(guildId); createInvite(guildId, { maxAgeSeconds?, maxUses?, acknowledgedPermanent? }); deleteInvite(code); previewInvite(code); acceptInvite(code)
+  getInvites(guildId); createInvite(guildId, { maxAgeSeconds?, maxUses?, acknowledgedPermanent?, record? }); deleteInvite(code); previewInvite(code); acceptInvite(code)
   getDmChannels(); openDm(recipientIds); getUser(id)
   updateMe({ avatar? }); getLimits()
   // §4 Pages
@@ -802,6 +806,7 @@ export class RestClient {
   postHistoryBundle(groupId, body); getHistoryBundles(groupId, epoch)
   createLinkSession(body); listLinkSessions(); postLinkMessage(id, body); getLinkMessages(id, after); deleteLinkSession(id)
   ktTreeHead(); ktInclusion(index, treeSize); ktConsistency(from, to); ktEntries(query); getAdminActions(guildId, after); report(body)
+  inviteRecords(guildId); postInviteBundle(inviteId, { groupId, epoch, blob }); inviteBundles(code)
 }
 export const EMBEDDABLE: { image: readonly string[]; video: readonly string[]; audio: readonly string[] }   // src/files.ts
 export function embedKind(contentType: string): 'image' | 'video' | 'audio' | 'file'   // ignores MIME parameters (`; codecs=...`) and case
@@ -901,7 +906,7 @@ export class HachimanClient extends TypedEventEmitter<HachimanClientEvents> {
 }
 ```
 
-`types.ts` also exports the §12.12 shapes (`Device`, `UserKeys`, `DsInfo`, `MlsGroup`, `GroupState`, `CreateGroupRequest`, `CommitRequest`, `Handshake`, `JoinRequest`, `InboxItem`, `BackupIndex`, `HistoryBundle`, `LinkSession`, `LinkMessage`, `KtTreeHead`, `KtInclusionProof`, `KtConsistencyProof`, `KtEntry`, `AdminAction`), the §12.13 events in `GatewayEvents`, and `VoiceE2eeServerOp` / `VoiceE2eeClientOp` (§8). The shapes are structurally equal to the `Wire*` types and the voice op types of `@hachiman/crypto` (`src/api.ts`). The shared UI typechecks the two against each other where it joins them.
+`types.ts` also exports the §12.12 shapes (`Device`, `UserKeys`, `DsInfo`, `MlsGroup`, `GroupState`, `CreateGroupRequest`, `CommitRequest`, `Handshake`, `JoinRequest`, `InboxItem`, `BackupIndex`, `HistoryBundle`, `LinkSession`, `LinkMessage`, `KtTreeHead`, `KtInclusionProof`, `KtConsistencyProof`, `KtEntry`, `AdminAction`, `InviteRecord`, `InviteBundles`), the §12.13 events in `GatewayEvents`, and `VoiceE2eeServerOp` / `VoiceE2eeClientOp` (§8). The shapes are structurally equal to the `Wire*` types and the voice op types of `@hachiman/crypto` (`src/api.ts`). The shared UI typechecks the two against each other where it joins them.
 
 `setSelfVoice` is the only place that sets self mute and deafen. The rules follow Discord:
 - Deafen mutes the outgoing audio and all remote playback. Op 4 then sends `selfMute: true`.
@@ -1861,7 +1866,7 @@ struct {
 ```
 
 - The AAD and the signed TBS bind a bundle to one invite and one group. A server cannot move a bundle to another invite or to another group.
-- Limits: 640 KiB for one bundle (`INVITE_BUNDLE_MAX_BYTES`). Takusen keeps at most 4 MiB of bundles per invite (`INVITE_BUNDLES_MAX_BYTES`) and deletes the oldest bundles above that. The redeemer gets the bundles only during 1 h after its guild join with the invite (`INVITE_BUNDLE_FETCH_WINDOW_MS`).
+- Limits: 640 KiB for one bundle (`INVITE_BUNDLE_MAX_BYTES`). Takusen keeps at most 4 MiB of bundles per invite (`INVITE_BUNDLES_MAX_BYTES`) and deletes the oldest bundles above that. One sender user keeps at most 1 MiB of them, for all its devices together, unless it is the creator (§12.12). The redeemer gets the bundles only during 1 h after its guild join with the invite (`INVITE_BUNDLE_FETCH_WINDOW_MS`).
 
 **Redeemer checks.** The redeemer derives the two key pairs from the seed. It accepts the record only when `sign_public` and `hpke_public` of the record are the derived keys, and the record passes the checks of §12.16. Thus the record, the seed and the bundles are bound: a server cannot give another record. For each bundle, the redeemer opens the HPKE ciphertext with the AAD of the invite and the group. Then it requires all of these:
 - `sign_public` of the TBS is the derived `sign_public`, and `group_id` of the TBS is the group of the AAD.
@@ -1994,6 +1999,19 @@ CORS (§4) allows the request headers `X-Hachiman-Device` and `X-Hachiman-Signed
 | GET `/guilds/:id/admin-actions?after=&limit=` | | — | `AdminAction[]` with `seq > after`, ascending (member only). `after` default -1 (from the genesis). `limit` default 100, at most 1000 |
 | POST `/reports` | D | `{messageId, content, frankingKey, reason}` | `{id, verified}` (201) |
 
+**Invites with history** (§12.11.4). Takusen stores the records and the sealed bundles. It cannot open a bundle. The record of an invite comes with `POST /guilds/:id/invites` (§4 "Invite limits").
+
+| Method + path | D | Body | Returns |
+|---|---|---|---|
+| GET `/guilds/:id/invite-records` | | — | `InviteRecord[]` (member only): the invites of the guild with a record that are not revoked, expired or exhausted |
+| POST `/invite-records/:inviteId/bundles` | D | `{groupId, epoch, blob}` (`blob`: an `InviteBundle`, at most 640 KiB) | 204 |
+| GET `/invites/:code/bundles` | | — | `InviteBundles` |
+
+- `GET /guilds/:id/invite-records`: `bundled` gives the newest stored bundle epoch of each group of the invite. A member device sends only the epochs after it. `bundled` is only a hint: any reader of the group can raise it with a bundle that does not open. Thus the device that made the commit of an epoch always sends the bundle of that epoch, also when `bundled` already has the epoch.
+- `POST /invite-records/:inviteId/bundles`: the caller reads the group (else 404 `UnknownGroup`), and `epoch` is not above the epoch of the group (else 400 `ValidationError`). The group is of the guild of the invite, and the invite is active and has a record, else 404 `UnknownInvite`. Takusen locks the invite row (`FOR NO KEY UPDATE`), so a revoke cannot leave a bundle behind, and two posts cannot pass the caps together. After the insert, Takusen deletes the oldest bundles of the sender user until they are at most 1 MiB together (`INVITE_BUNDLES_SENDER_MAX_BYTES` in `lib/invite-history.ts`), unless the caller is the creator of the invite. The share counts the bundles of all devices of the user, also of revoked devices. Thus more devices, or a new device, do not give more space. Every member reads `public_set`, so without this share one member could push the bundles of the creator out of the cap. Then Takusen deletes the oldest bundles of the invite until they are at most 4 MiB together (`INVITE_BUNDLES_MAX_BYTES`). **Residual risk:** members who act together can still push the bundles of the creator out. Four users always can, and fewer users can when the creation bundles are large.
+- `GET /invites/:code/bundles`: only for a member whose membership row names the invite (`guild_members.invite_id`, §4 accept), during 1 h after the join (`INVITE_BUNDLE_FETCH_WINDOW_MS`), and only while the invite is not revoked. An exhausted or expired invite still gives its bundles in that hour. Every other case is 404 `UnknownInvite`. The bundles come oldest first.
+- Retention: a revoke deletes the bundles of the invite (§4). The daily sweep of the gRPC process deletes the bundles of revoked invites, and of invites that expired or were exhausted more than 1 h before.
+
 **Wire shapes.** These are the TS types in `pkgs/hachiman-crypto/src/api.ts` (`Wire*`). `@hachiman/client` exports the same shapes without the `Wire` prefix (§10).
 
 ```ts
@@ -2028,9 +2046,11 @@ interface KtInclusionProof { leafIndex; treeSize; auditPath: string[] }
 interface KtConsistencyProof { from; to; proof: string[] }
 interface KtEntry { index; userId; type: 1 | 2 | 3 | 4; entry; createdAt }
 interface AdminAction { guildId; seq; action; createdAt }
+interface InviteRecord { inviteId; keyId /* sign_public */; record /* SignedInviteRecord */; expiresAt: string | null; bundled: { groupId; epoch }[] }
+interface InviteBundles { inviteId; record /* SignedInviteRecord */; bundles: { groupId; epoch; blob /* InviteBundle */; senderDevice }[] }
 ```
 
-**Rate limits** (per device unless noted): key package upload 10/min, commits 30/min, join requests 30/min, inbox posts 60/min, link messages 30/min, link sessions 5/hour per user, reports 10/hour per user, backups 60/hour. Each per-device limit also has a per-user limit for all devices of the user together: key package upload 30/min, commits 90/min, join requests 90/min, inbox posts 180/min, link messages 90/min, backups 120/hour. Thus a user cannot get more requests with more devices. A request must be in both limits.
+**Rate limits** (per device unless noted): key package upload 10/min, commits 30/min, join requests 30/min, inbox posts 60/min, link messages 30/min, link sessions 5/hour per user, reports 10/hour per user, backups 60/hour, invite bundle posts 120/min. Each per-device limit also has a per-user limit for all devices of the user together: key package upload 30/min, commits 90/min, join requests 90/min, inbox posts 180/min, link messages 90/min, backups 120/hour, invite bundle posts 360/min. Thus a user cannot get more requests with more devices. A request must be in both limits.
 
 ### 12.13 Gateway
 
@@ -2283,6 +2303,7 @@ export class ApiError extends Error {
 | `BackupTooLarge` | 413 | a backup limit of §12.11.3 |
 | `WrongBackupKey` | 409 | the `keyId` differs from the stored backup key id |
 | `LinkExpired` | 410 | the link session is gone |
+| `UnknownInvite` | 404 | an invite bundle route (§12.12) for an unknown invite, or one that the caller may not use |
 | `InvalidAdminAction` | 400 | the action does not decode, verify or match the request |
 | `AdminActionConflict` | 409 | `seq` or `prev_hash` does not continue the chain |
 | `RateLimited` | 429 | a §12.12 rate limit. Header `Retry-After` |

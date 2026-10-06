@@ -15,8 +15,10 @@ import {
   InviteRevokedError,
   MissingPermissionsError,
   NotFoundError,
+  ValidationError,
 } from '@/lib/errors'
 import { membershipChanged, membershipTransaction, MembershipTriggers } from '@/lib/guilds'
+import { drizzleInviteHistoryStore } from '@/lib/invite-history'
 import { creatorsWithoutAdmin } from '@/lib/invite-limits'
 import { drizzleMlsRepo } from '@/lib/mls/repo.drizzle'
 
@@ -72,6 +74,7 @@ export async function previewInvite(code: string): Promise<InvitePreview> {
     guild,
     memberCount: n,
     expiresAt: invite.expiresAt ? invite.expiresAt.toISOString() : null,
+    hasHistory: invite.record !== null,
   }
 }
 
@@ -95,8 +98,9 @@ export async function getInvitePreview(code: string): Promise<InvitePreview | nu
 /**
  * Join the invite's guild. Existing members get `joined: false` and consume
  * no use (even if the invite has since expired). The row lock serialises
- * concurrent accepts so `maxUses` can't be overshot. A join tells the DS in
- * the same transaction (`guild_member_added`, §12.18).
+ * concurrent accepts so `maxUses` can't be overshot. The membership row names
+ * the invite, and the last use sets `exhausted_at` (§12.11.4). A join tells
+ * the DS in the same transaction (`guild_member_added`, §12.18).
  */
 export async function acceptInvite(
   code: string,
@@ -118,27 +122,32 @@ export async function acceptInvite(
       .where(and(eq(guildMembers.guildId, invite.guildId), eq(guildMembers.userId, userId)))
     if (existing) return { guildId: invite.guildId, joined: false }
     assertUsable(invite)
-    await tx.insert(guildMembers).values({ guildId: invite.guildId, userId })
-    await tx
-      .update(invites)
-      .set({ uses: invite.uses + 1 })
-      .where(eq(invites.id, invite.id))
+    await drizzleInviteHistoryStore(tx).joinWithInvite(invite, userId, new Date())
     await membershipChanged(tx, MembershipTriggers.memberJoined(invite.guildId, userId), actorDeviceId)
     return { guildId: invite.guildId, joined: true }
   })
 }
 
 /**
- * A permanent invite (contract §4 "Invite limits"). The transaction holds the
- * guild row and the creator's membership row FOR SHARE, and checks
- * ADMINISTRATOR again inside it. A role or member-role change locks the guild
- * row FOR UPDATE, and a removal deletes the membership row. Thus a concurrent
- * demotion either comes first (403 here) or waits and then revokes this invite.
+ * An invite that needs ADMINISTRATOR: a permanent invite (contract §4 "Invite
+ * limits"), or an invite with history (§12.11.4) with its record and key id.
+ * The transaction holds the guild row and the creator's membership row FOR
+ * SHARE, and checks ADMINISTRATOR again inside it. A role or member-role
+ * change locks the guild row FOR UPDATE, and a removal deletes the membership
+ * row. Thus a concurrent demotion either comes first (403 here) or waits and
+ * then revokes this invite. A key id that another invite has gives 400.
  */
-export async function createPermanentInvite(
-  opts: { guildId: string; createdBy: string; maxUses: number | null },
+export async function createAdminInvite(
+  opts: {
+    guildId: string
+    createdBy: string
+    expiresAt: Date | null
+    maxUses: number | null
+    history?: { record: Uint8Array; keyId: Uint8Array } | undefined
+  },
   database: Database = db,
 ): Promise<InviteRow> {
+  const { history, ...values } = opts
   return database.transaction(async (tx) => {
     await tx.select({ id: guilds.id }).from(guilds).where(eq(guilds.id, opts.guildId)).for('share')
     const [member] = await tx
@@ -148,16 +157,20 @@ export async function createPermanentInvite(
       .for('share')
     const data = member ? await drizzleMlsRepo(tx).getGuildPermissionData(opts.guildId) : null
     if (!data || creatorsWithoutAdmin(data, [opts.createdBy]).size > 0) {
-      throw new MissingPermissionsError('Only an administrator can make a permanent invite')
+      throw new MissingPermissionsError('Only an administrator can make this invite')
     }
-    // A unique violation would abort the transaction: skip the collision and retry.
+    // A unique violation would abort the transaction: skip the conflict, then retry a code collision.
     for (let attempt = 0; attempt < 3; attempt++) {
       const [row] = await tx
         .insert(invites)
-        .values({ ...opts, expiresAt: null, code: generateInviteCode() })
-        .onConflictDoNothing({ target: invites.code })
+        .values({ ...values, ...history, code: generateInviteCode() })
+        .onConflictDoNothing()
         .returning()
       if (row) return row
+      if (history) {
+        const [taken] = await tx.select({ id: invites.id }).from(invites).where(eq(invites.keyId, history.keyId)).limit(1)
+        if (taken) throw new ValidationError('Another invite has this key id')
+      }
     }
     throw new Error('Could not allocate an invite code')
   })

@@ -21,6 +21,7 @@
  *   - REDIS_URL               — the scheduler wakeup channel and the event bus.
  *   - TAKUSEN_DS_SIGNING_KEY, TAKUSEN_KT_SIGNING_KEY, TAKUSEN_MLS_* — §12.18.
  */
+import { drizzleInviteHistoryStore } from '../lib/invite-history'
 import { dsDeps } from '../lib/mls/context'
 import { MLS_WAKEUP_CHANNEL } from '../lib/mls/events'
 import { loadOrCreateSeed } from '../lib/mls/keys'
@@ -39,6 +40,7 @@ async function startDsJobs(): Promise<() => Promise<void>> {
     repo,
     deps,
     pageMedia: { repo: drizzlePageMediaSweepRepo(), deleteObjects },
+    inviteBundles: drizzleInviteHistoryStore(),
     async subscribe(onGroup) {
       const sub = redis().duplicate()
       sub.on('message', (_channel: string, message: string) => {

@@ -334,6 +334,31 @@ describe('rewrapChannel', () => {
     expect(console.warn).not.toHaveBeenCalled()
   })
 
+  it('a sign-out stops the channel before its next page and before the titles', async () => {
+    const h = harness()
+    h.server.add('a', { titleEpoch: 1, snapshot: { baseSeq: 1, epoch: 1 } })
+    h.server.add('b', { titleEpoch: 1, snapshot: { baseSeq: 1, epoch: 1 } })
+    h.epoch.current = 2
+    let signedOut = false
+    h.server.postPageSnapshot.mockImplementationOnce(async () => {
+      signedOut = true
+      throw new RestError(409, 'SnapshotConflict', undefined, { baseSeq: 1 })
+    })
+    await rewrapChannel(h.deps, CHANNEL, false, () => signedOut)
+    expect(h.server.postPageSnapshot).toHaveBeenCalledTimes(1)
+    expect(h.deps.resyncOpen).toHaveBeenCalledTimes(1)
+    expect(h.server.getPages).not.toHaveBeenCalled()
+    expect(h.server.updatePage).not.toHaveBeenCalled()
+    // A sign-out during the title phase stops before the next title.
+    signedOut = false
+    h.server.updatePage.mockImplementationOnce(async () => {
+      signedOut = true
+      throw new RestError(409, 'PageConflict')
+    })
+    await rewrapChannel(h.deps, CHANNEL, false, () => signedOut)
+    expect(h.server.updatePage).toHaveBeenCalledTimes(1)
+  })
+
   it('a 403 stops the channel', async () => {
     const h = harness()
     h.server.add('a', { titleEpoch: 2, snapshot: { baseSeq: 1, epoch: 1 } })
@@ -370,25 +395,30 @@ describe('pagesChannelsOf', () => {
 
 describe('snapshotHeadless', () => {
   it('destroys the provider after the snapshot, also when the snapshot fails', async () => {
+    const running = new Set<{ destroy(): void }>()
     let done = (): void => {}
     const ok = {
       snapshotIfNeeded: vi.fn(() => new Promise<void>((resolve) => (done = resolve))),
       destroy: vi.fn()
     }
-    const run = snapshotHeadless(ok)
+    const run = snapshotHeadless(ok, running)
     await Promise.resolve()
     expect(ok.destroy).not.toHaveBeenCalled()
+    // A sign-out meanwhile destroys the providers in the set.
+    expect([...running]).toEqual([ok])
     done()
     await run
     expect(ok.destroy).toHaveBeenCalledTimes(1)
+    expect(running.size).toBe(0)
     const bad = {
       snapshotIfNeeded: vi.fn(async () => {
         throw new Error('no blob')
       }),
       destroy: vi.fn()
     }
-    await expect(snapshotHeadless(bad)).rejects.toThrow('no blob')
+    await expect(snapshotHeadless(bad, running)).rejects.toThrow('no blob')
     expect(bad.destroy).toHaveBeenCalledTimes(1)
+    expect(running.size).toBe(0)
   })
 })
 
@@ -494,6 +524,28 @@ describe('createRewrapper', () => {
     r.reset()
     await vi.advanceTimersByTimeAsync(60_000)
     expect(h.server.getPageHeads).toHaveBeenCalledTimes(2)
+  })
+
+  it('a reset stops the pass that runs before its next page', async () => {
+    const h = harness()
+    h.server.add('a', { titleEpoch: 1, latestSeq: 3 })
+    h.server.add('b', { titleEpoch: 1, latestSeq: 2 })
+    h.epoch.current = 2
+    let release = (): void => {}
+    h.deps.snapshotPage.mockImplementationOnce(
+      () => new Promise<void>((resolve) => (release = resolve))
+    )
+    const r = createRewrapper(h.deps)
+    r.onUsersAdded(event(true))
+    await vi.advanceTimersByTimeAsync(0)
+    expect(h.deps.snapshotPage.mock.calls).toEqual([[CHANNEL, 'a']])
+    r.reset()
+    release()
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(h.deps.snapshotPage).toHaveBeenCalledTimes(1)
+    expect(h.deps.resyncOpen).toHaveBeenCalledTimes(1)
+    expect(h.server.getPages).not.toHaveBeenCalled()
+    expect(h.server.updatePage).not.toHaveBeenCalled()
   })
 
   it('a pass from before a reset does not hold back or end a pass of the next session', async () => {

@@ -6,7 +6,7 @@
  * DELETE /api/v1/guilds/:id/members/:userId — kick: KICK_MEMBERS, not the
  *        owner, and (unless owner/admin) the target's top role must be below ours.
  * Both tell the DS in the same transaction (§12.18), and revoke the permanent
- * invites of users who lost ADMINISTRATOR (§4).
+ * invites and the invites with history of users who lost ADMINISTRATOR (§4).
  */
 import { and, eq, inArray } from 'drizzle-orm'
 import { highestRolePosition, Permissions } from '@hachiman/client/permissions'
@@ -28,7 +28,7 @@ import {
 } from '@/lib/guild-access'
 import { assertId } from '@/lib/ids'
 import { loadMember, membershipChanged, membershipTransaction, MembershipTriggers, removeMember } from '@/lib/guilds'
-import { publishInviteDeletes, revokePermanentInvitesOfNonAdmins, type RevokedInvite } from '@/lib/invite-limits'
+import { publishInviteDeletes, revokeAdminInvitesOfNonAdmins, type RevokedInvite } from '@/lib/invite-limits'
 
 interface RouteContext {
   params: Promise<{ id: string; userId: string }>
@@ -99,7 +99,7 @@ export async function PATCH(req: NextRequest, ctx: RouteContext): Promise<NextRe
         await tx.insert(memberRoles).values(toAdd.map((roleId) => ({ guildId: id, userId, roleId })))
       }
       // Only a removed role can take ADMINISTRATOR away.
-      const revoked: RevokedInvite[] = toRemove.length > 0 ? await revokePermanentInvitesOfNonAdmins(tx, id) : []
+      const revoked: RevokedInvite[] = toRemove.length > 0 ? await revokeAdminInvitesOfNonAdmins(tx, id) : []
       if (toAdd.length > 0 || toRemove.length > 0) {
         await membershipChanged(tx, MembershipTriggers.memberRolesEdited(id, userId), actor)
       }

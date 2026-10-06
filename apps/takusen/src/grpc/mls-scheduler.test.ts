@@ -9,6 +9,7 @@ import { describe, test } from 'node:test'
 import { Permissions } from '@hachiman/client/permissions'
 
 import { setBusPublisher } from '../lib/events'
+import { InMemoryInviteHistoryStore } from '../lib/invite-history.in-memory'
 import { toB64 } from '../lib/mls/bytes'
 import { Outbox } from '../lib/mls/events'
 import { postJoinRequest } from '../lib/mls/joins'
@@ -120,6 +121,26 @@ describe('MlsScheduler', () => {
     assert.equal((await scheduler.sweep()).pageMedia, 2)
     assert.deepEqual(deleted.sort(), ['key-oldest', 'key-unlisted'])
     assert.deepEqual([...media.uploads.keys()].sort(), ['claimed', 'current', 'previous'])
+  })
+
+  test('the daily sweep deletes the bundles of revoked invites and of invites that ended more than an hour ago', async () => {
+    const w = await newWorld()
+    const invites = new InMemoryInviteHistoryStore()
+    const guildId = 'g'
+    const endsSoon = invites.addInvite({ guildId, createdBy: 'u', expiresAt: new Date(w.clock.now + 60_000) })
+    const live = invites.addInvite({ guildId, createdBy: 'u' })
+    const revoked = invites.addInvite({ guildId, createdBy: 'u', revoked: true })
+    for (const inv of [endsSoon, live, revoked]) {
+      await invites.insertBundle({ inviteId: inv.id, groupId: new Uint8Array([1]), epoch: 1, senderDevice: 'd', senderUser: 'u', blob: new Uint8Array(4), size: 4 })
+    }
+    const scheduler = new MlsScheduler({ repo: w.repo, deps: w.deps, flush: async () => undefined, logger: () => undefined, inviteBundles: invites })
+    assert.equal((await scheduler.sweep()).inviteBundles, 1, 'the revoked invite')
+
+    w.clock.now += 61 * 60_000
+    assert.equal((await scheduler.sweep()).inviteBundles, 0, 'expired less than an hour ago')
+    w.clock.now += 60 * 60_000
+    assert.equal((await scheduler.sweep()).inviteBundles, 1)
+    assert.deepEqual(invites.bundles.map((b) => b.inviteId), [live.id])
   })
 
   test('the sweep starts a suite upgrade when suite 83 is enabled and every reader device has a key package', async () => {

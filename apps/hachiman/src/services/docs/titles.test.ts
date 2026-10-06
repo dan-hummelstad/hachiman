@@ -84,6 +84,18 @@ describe('mergeNode', () => {
     expect(mergeNode(node(), failed)?.titleState).toBe('failed')
   })
 
+  it('never stores an older row over a newer one', () => {
+    const newer = node({ updatedAt: '2026-10-06T10:00:01.000Z' }, 'Renamed')
+    const older = node({ updatedAt: '2026-10-06T10:00:00.000Z', position: 512 }, 'Notes')
+    expect(mergeNode(newer, older)).toBeNull()
+    expect(mergeNode(older, newer)).toEqual(newer)
+    const behind = titleNode(
+      page({ updatedAt: '2026-10-06T10:00:01.000Z' }),
+      pending('epoch_ahead')
+    )
+    expect(mergeNode(behind, older)).toBeNull()
+  })
+
   it('keepTitle applies to the page list of a reload, page by page', () => {
     const behind = titleNode(page({ updatedAt: 't2' }), pending('no_history_key'))
     expect(keepTitle(node(), behind)).toMatchObject({ title: 'Notes', titleState: 'ok' })

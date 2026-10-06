@@ -171,7 +171,10 @@ const DS_ROUTES = [
   'ktConsistency',
   'ktEntries',
   'getAdminActions',
-  'report'
+  'report',
+  'inviteRecords',
+  'postInviteBundle',
+  'inviteBundles'
 ] as const satisfies readonly AsyncKey[]
 
 /**
@@ -257,17 +260,20 @@ export function stubRest(): void {
   /** Blob key → the "encrypted" (stub: plain) blob that the preview uploaded. */
   const blobs = new Map<string, Blob>()
   const invite = (guildId: string): Invite => ({
+    id: `inv-${guildId}`,
     code: INVITE_CODE,
     guildId,
     createdBy: ME.id,
     expiresAt: new Date(now + 7 * DAY).toISOString(),
     maxUses: null,
     uses: 3,
-    createdAt: new Date(now - DAY).toISOString()
+    createdAt: new Date(now - DAY).toISOString(),
+    hasHistory: false
   })
   /** An older permanent invite by another member, so the list shows the sort and the badge. */
   const permanentInvite = (guildId: string): Invite => ({
     ...invite(guildId),
+    id: `inv-permanent-${guildId}`,
     code: PERMANENT_INVITE_CODE,
     createdBy: U.petra.id,
     expiresAt: null,
@@ -581,6 +587,7 @@ export function stubRest(): void {
     getInvites: (guildId) => [invite(guildId), permanentInvite(guildId)],
     createInvite: (guildId, body = {}) => ({
       ...invite(guildId),
+      id: nextId('invite'),
       code: nextId('inv'),
       expiresAt:
         body.maxAgeSeconds === 0
@@ -588,14 +595,16 @@ export function stubRest(): void {
           : new Date(Date.now() + (body.maxAgeSeconds ?? 86400) * 1000).toISOString(),
       maxUses: body.maxUses || null,
       uses: 0,
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
+      hasHistory: body.record !== undefined
     }),
     deleteInvite: () => undefined,
     previewInvite: (code) => ({
       code,
       guild: { id: 'g-preview-invite', name: 'Pixel Pushers', icon: null },
       memberCount: 48,
-      expiresAt: null
+      expiresAt: null,
+      hasHistory: false
     }),
     acceptInvite: (code) => createGuild(`Joined via ${code}`),
     getDmChannels: () => dms,
