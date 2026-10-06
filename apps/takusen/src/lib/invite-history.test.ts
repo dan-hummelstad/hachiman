@@ -13,7 +13,7 @@ import { DEFAULT_EVERYONE } from '@hachiman/client/permissions'
 import type { InviteRow } from '@/db/schema'
 import { ApiError, ValidationError } from '@/lib/errors'
 import { toB64 } from '@/lib/mls/bytes'
-import { INVITE_BUNDLE_FETCH_WINDOW_MS, INVITE_BUNDLE_MAX_BYTES, INVITE_BUNDLES_MAX_BYTES, type InviteRecordView } from '@/lib/mls/crypto'
+import { INVITE_BUNDLE_FETCH_WINDOW_MS, INVITE_BUNDLE_MAX_BYTES, INVITE_BUNDLES_MAX_BYTES, type DsModule, type InviteRecordView } from '@/lib/mls/crypto'
 import { encodeGroupId } from '@/lib/mls/groups'
 import { InMemoryMlsRepo } from '@/lib/mls/repo.in-memory'
 
@@ -52,12 +52,13 @@ function apiCode(code: string, status: number) {
 
 describe('checkInviteRecord', () => {
   const keyId = new Uint8Array(32).fill(7)
-  const expect: RecordExpectation = { guildId: 'g1', userId: 'u1', deviceId: 'd1', maxAgeSeconds: 86_400, maxUses: 1, now: NOW }
+  const [c1, c2] = [randomUUID(), randomUUID()]
+  const expect: RecordExpectation = { guildId: 'g1', userId: 'u1', deviceId: 'd1', maxAgeSeconds: 86_400, maxUses: 1, now: NOW, guildChannelIds: new Set([c1, c2]) }
   const view = (over: Partial<InviteRecordView> = {}): InviteRecordView => ({
     guildId: 'g1',
     hpkePublic: toB64(new Uint8Array(32)),
     keyId: toB64(keyId),
-    channelIds: [],
+    channelIds: [c1, c2],
     adminChainSeq: 3,
     expiresAtMs: NOW.getTime() + 86_400_000,
     maxUses: 1,
@@ -70,9 +71,10 @@ describe('checkInviteRecord', () => {
     assert.deepEqual(checkInviteRecord(view(), expect), keyId)
     assert.deepEqual(checkInviteRecord(view({ expiresAtMs: 0 }), { ...expect, maxAgeSeconds: 0 }), keyId)
     assert.deepEqual(checkInviteRecord(view({ expiresAtMs: NOW.getTime() + 86_400_000 - INVITE_RECORD_EXPIRY_SKEW_MS }), expect), keyId)
+    assert.deepEqual(checkInviteRecord(view({ channelIds: [] }), { ...expect, guildChannelIds: new Set() }), keyId)
   })
 
-  test('rejects a record that does not verify, or that is not for this guild, user, device or body', () => {
+  test('rejects a record that does not verify, or that is not for this guild, user, device, body or channels', () => {
     const bad: [InviteRecordView | null, RecordExpectation][] = [
       [null, expect],
       [view({ guildId: 'g2' }), expect],
@@ -83,6 +85,9 @@ describe('checkInviteRecord', () => {
       [view(), { ...expect, maxAgeSeconds: 0 }],
       [view({ expiresAtMs: NOW.getTime() + 86_400_000 + INVITE_RECORD_EXPIRY_SKEW_MS + 1 }), expect],
       [view({ channelIds: Array.from({ length: 501 }, () => randomUUID()) }), expect],
+      // A channel of another guild, or no channel.
+      [view({ channelIds: [c1, randomUUID()] }), expect],
+      [view(), { ...expect, guildChannelIds: new Set([c1]) }],
       [view({ keyId: toB64(new Uint8Array(16)) }), expect],
       [view({ keyId: 'not base64url!' }), expect],
     ]
@@ -101,6 +106,13 @@ describe('isInviteActive', () => {
     assert.equal(isInviteActive({ ...base, maxUses: 1, uses: 1 }, NOW), false)
   })
 })
+
+/** A DsModule that gives each record the scope `channelIds` (the records of the in-memory store are random bytes). */
+function scopeDs(channelIds: string[] = []): Pick<DsModule, 'parseInviteRecord'> {
+  return {
+    parseInviteRecord: () => ({ guildId: '', hpkePublic: '', keyId: '', channelIds, adminChainSeq: 0, expiresAtMs: 0, maxUses: 0, creatorUserId: '', creatorDeviceId: '' }),
+  }
+}
 
 /** A guild with a public_set group at epoch 5, a reader and a stranger, and an invite with history. */
 async function world() {
@@ -129,13 +141,13 @@ async function world() {
   const invite = store.addInvite({ guildId: guild, createdBy: owner, ...historySeed() })
   const caller = { userId: member, device: { id: randomUUID() } }
   const creator = { userId: owner, device: { id: randomUUID() } }
-  return { mls, store, owner, guild, member, stranger, groupId, invite, caller, creator }
+  return { mls, store, ds: scopeDs(), owner, guild, member, stranger, groupId, invite, caller, creator }
 }
 
 describe('listInviteRecords', () => {
   test('gives the wire shape of the active records', async () => {
     const w = await world()
-    await postInviteBundle(w.store, w.mls, w.caller, w.invite.id, { groupId: w.groupId, epoch: 4, blob: new Uint8Array(8) }, NOW)
+    await postInviteBundle(w.store, w.mls, w.ds, w.caller, w.invite.id, { groupId: w.groupId, epoch: 4, blob: new Uint8Array(8) }, NOW)
     w.store.addInvite({ guildId: w.guild, createdBy: w.owner })
     assert.deepEqual(await listInviteRecords(w.store, w.guild, NOW), [
       {
@@ -155,7 +167,7 @@ describe('postInviteBundle', () => {
     const n = Math.ceil(INVITE_BUNDLES_MAX_BYTES / INVITE_BUNDLE_MAX_BYTES) + 1
     await w.mls.updateGroup(w.groupId, { epoch: n })
     for (let epoch = 0; epoch < n; epoch++) {
-      await postInviteBundle(w.store, w.mls, w.creator, w.invite.id, { groupId: w.groupId, epoch, blob: new Uint8Array(INVITE_BUNDLE_MAX_BYTES) }, NOW)
+      await postInviteBundle(w.store, w.mls, w.ds, w.creator, w.invite.id, { groupId: w.groupId, epoch, blob: new Uint8Array(INVITE_BUNDLE_MAX_BYTES) }, NOW)
     }
     const kept = await w.store.listBundles(w.invite.id)
     assert.equal(kept.length, Math.floor(INVITE_BUNDLES_MAX_BYTES / INVITE_BUNDLE_MAX_BYTES))
@@ -168,18 +180,18 @@ describe('postInviteBundle', () => {
     const big = new Uint8Array(INVITE_BUNDLE_MAX_BYTES)
     const creation = Math.floor((INVITE_BUNDLES_MAX_BYTES - INVITE_BUNDLES_SENDER_MAX_BYTES) / INVITE_BUNDLE_MAX_BYTES)
     for (let i = 0; i < creation; i++) {
-      await postInviteBundle(w.store, w.mls, w.creator, w.invite.id, { groupId: w.groupId, epoch: 5, blob: big }, NOW)
+      await postInviteBundle(w.store, w.mls, w.ds, w.creator, w.invite.id, { groupId: w.groupId, epoch: 5, blob: big }, NOW)
     }
     // Four devices, or a device that is revoked and replaced: a share per device would push out the creation bundles.
     const devices = Array.from({ length: 4 }, () => ({ id: randomUUID() }))
     const flood = Math.ceil(INVITE_BUNDLES_MAX_BYTES / INVITE_BUNDLE_MAX_BYTES) + 1
     for (let i = 0; i < flood; i++) {
       const device = devices[i % devices.length]!
-      await postInviteBundle(w.store, w.mls, { ...w.caller, device }, w.invite.id, { groupId: w.groupId, epoch: 5, blob: big }, NOW)
+      await postInviteBundle(w.store, w.mls, w.ds, { ...w.caller, device }, w.invite.id, { groupId: w.groupId, epoch: 5, blob: big }, NOW)
     }
     const second = w.mls.addUser()
     w.mls.addGuildMember(w.guild, second)
-    await postInviteBundle(w.store, w.mls, { userId: second, device: { id: randomUUID() } }, w.invite.id, { groupId: w.groupId, epoch: 5, blob: new Uint8Array(8) }, NOW)
+    await postInviteBundle(w.store, w.mls, w.ds, { userId: second, device: { id: randomUUID() } }, w.invite.id, { groupId: w.groupId, epoch: 5, blob: new Uint8Array(8) }, NOW)
 
     const by = (user: string) => w.store.bundles.filter((b) => b.senderUser === user)
     assert.ok(creation * INVITE_BUNDLE_MAX_BYTES > INVITE_BUNDLES_SENDER_MAX_BYTES, 'the creator is above the share of one user')
@@ -194,12 +206,47 @@ describe('postInviteBundle', () => {
   test('rejects a large blob, a group that the caller cannot read and an epoch ahead of the group', async () => {
     const w = await world()
     const post = (caller: typeof w.caller, body: { groupId: Uint8Array; epoch: number; blob: Uint8Array }) =>
-      postInviteBundle(w.store, w.mls, caller, w.invite.id, body, NOW)
+      postInviteBundle(w.store, w.mls, w.ds, caller, w.invite.id, body, NOW)
     await assert.rejects(post(w.caller, { groupId: w.groupId, epoch: 5, blob: new Uint8Array(INVITE_BUNDLE_MAX_BYTES + 1) }), apiCode('ValidationError', 400))
     await assert.rejects(post({ ...w.caller, userId: w.stranger }, { groupId: w.groupId, epoch: 5, blob: new Uint8Array(1) }), apiCode('UnknownGroup', 404))
     await assert.rejects(post(w.caller, { groupId: encodeGroupId('public_set', randomUUID(), 0), epoch: 5, blob: new Uint8Array(1) }), apiCode('UnknownGroup', 404))
     await assert.rejects(post(w.caller, { groupId: w.groupId, epoch: 6, blob: new Uint8Array(1) }), apiCode('ValidationError', 400))
     assert.deepEqual(await w.store.listBundles(w.invite.id), [])
+  })
+
+  test('accepts the channel group of a channel that the record names, and rejects another channel group', async () => {
+    const w = await world()
+    const channelGroup = async (channelId: string) => {
+      const groupId = encodeGroupId('channel', channelId, 0)
+      await w.mls.insertGroup({
+        groupId,
+        kind: 'channel',
+        scopeId: channelId,
+        guildId: w.guild,
+        channelId,
+        generation: 0,
+        cipherSuite: 1,
+        status: 'active',
+        epoch: 2,
+        groupInfo: null,
+        ratchetTree: null,
+        historyVisibility: 'joined',
+      })
+      return groupId
+    }
+    const named = w.mls.addChannel({ guildId: w.guild, type: 'text' })
+    const other = w.mls.addChannel({ guildId: w.guild, type: 'text' })
+    const ds = scopeDs([named])
+    // The member reads both channels. Without the scope check, a reader of a private channel could post wrong keys for its group.
+    await postInviteBundle(w.store, w.mls, ds, w.caller, w.invite.id, { groupId: await channelGroup(named), epoch: 2, blob: new Uint8Array(1) }, NOW)
+    await assert.rejects(
+      postInviteBundle(w.store, w.mls, ds, w.caller, w.invite.id, { groupId: await channelGroup(other), epoch: 2, blob: new Uint8Array(1) }, NOW),
+      apiCode('ValidationError', 400),
+    )
+    assert.deepEqual(
+      w.store.bundles.map((b) => toB64(b.groupId)),
+      [toB64(encodeGroupId('channel', named, 0))],
+    )
   })
 
   test('gives 404 UnknownInvite for an unknown invite, another guild, no record, or an invite that is not active', async () => {
@@ -214,7 +261,7 @@ describe('postInviteBundle', () => {
       w.store.addInvite({ ...seed, maxUses: 1, uses: 1, exhaustedAt: NOW }).id,
     ]
     for (const id of ids) {
-      await assert.rejects(postInviteBundle(w.store, w.mls, w.caller, id, { groupId: w.groupId, epoch: 5, blob: new Uint8Array(1) }, NOW), apiCode('UnknownInvite', 404))
+      await assert.rejects(postInviteBundle(w.store, w.mls, w.ds, w.caller, id, { groupId: w.groupId, epoch: 5, blob: new Uint8Array(1) }, NOW), apiCode('UnknownInvite', 404))
     }
     assert.deepEqual(w.store.bundles, [])
   })
@@ -224,7 +271,7 @@ describe('inviteBundlesOf', () => {
   async function redeemed(over: Partial<InviteRow> = {}) {
     const w = await world()
     Object.assign(w.invite, over)
-    await postInviteBundle(w.store, w.mls, w.caller, w.invite.id, { groupId: w.groupId, epoch: 5, blob: new Uint8Array([1, 2]) }, NOW)
+    await postInviteBundle(w.store, w.mls, w.ds, w.caller, w.invite.id, { groupId: w.groupId, epoch: 5, blob: new Uint8Array([1, 2]) }, NOW)
     const redeemer = randomUUID()
     await w.store.joinWithInvite(w.invite, redeemer, NOW)
     return { ...w, redeemer }
@@ -265,7 +312,7 @@ describe('sweepInviteBundles', () => {
     const w = await world()
     const ended = w.store.addInvite({ guildId: w.guild, createdBy: w.owner, ...historySeed(), expiresAt: new Date(NOW.getTime() + 60_000) })
     for (const inv of [w.invite, ended]) {
-      await postInviteBundle(w.store, w.mls, w.caller, inv.id, { groupId: w.groupId, epoch: 5, blob: new Uint8Array(1) }, NOW)
+      await postInviteBundle(w.store, w.mls, w.ds, w.caller, inv.id, { groupId: w.groupId, epoch: 5, blob: new Uint8Array(1) }, NOW)
     }
     assert.equal(await sweepInviteBundles(w.store, new Date(NOW.getTime() + HOUR_MS)), 0, 'expired 59 min ago')
     assert.equal(await sweepInviteBundles(w.store, new Date(NOW.getTime() + 2 * HOUR_MS)), 1)

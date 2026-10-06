@@ -436,24 +436,38 @@ export const createIdentityService: CreateIdentityService = (ctx, deps) => {
     return out
   }
 
+  /**
+   * Marks the uploaded secrets after the upload. GroupService can replace a secret during the
+   * upload (§12.11.1): that row keeps `backedUp` false, so the next backup uploads the new secret.
+   */
   async function markBackedUp(entries: readonly HistoryKeyEntry[]): Promise<void> {
-    for (const e of entries) await store.put('epochSecrets', epochKey(e.groupId, e.epoch), { groupId: e.groupId, epoch: e.epoch, secret: e.secret, backedUp: true })
+    await store.transaction(['epochSecrets'], async (tx) => {
+      for (const e of entries) {
+        const key = epochKey(e.groupId, e.epoch)
+        const row = await tx.get('epochSecrets', key)
+        if (row === undefined || row.backedUp || !equalBytes(row.secret, e.secret)) continue
+        await tx.put('epochSecrets', key, { ...row, backedUp: true })
+      }
+    })
   }
 
   /**
    * Stores the keys this device lacks, then emits epochKeysAvailable (as GroupService does) so
    * the messages that are pending on them decrypt again. A recovery restore imports after the
-   * device is ready, so those messages are already pending.
+   * device is ready, so those messages are already pending. One transaction, so
+   * GroupService.storeEpochSecret cannot run between the read and the write (§12.11.1).
    */
   async function importHistory(entries: readonly HistoryKeyEntry[], backedUp: boolean): Promise<void> {
     const added = new Map<string, number[]>()
-    for (const e of entries) {
-      const key = epochKey(e.groupId, e.epoch)
-      if ((await store.get('epochSecrets', key)) !== undefined) continue
-      await store.put('epochSecrets', key, { groupId: e.groupId, epoch: e.epoch, secret: e.secret, backedUp })
-      const gid = groupKey(e.groupId)
-      added.set(gid, [...(added.get(gid) ?? []), e.epoch])
-    }
+    await store.transaction(['epochSecrets'], async (tx) => {
+      for (const e of entries) {
+        const key = epochKey(e.groupId, e.epoch)
+        if ((await tx.get('epochSecrets', key)) !== undefined) continue
+        await tx.put('epochSecrets', key, { groupId: e.groupId, epoch: e.epoch, secret: e.secret, backedUp })
+        const gid = groupKey(e.groupId)
+        added.set(gid, [...(added.get(gid) ?? []), e.epoch])
+      }
+    })
     for (const [groupId, epochs] of added) ctx.emit('epochKeysAvailable', { groupId, epochs: epochs.sort((a, b) => a - b) })
   }
 

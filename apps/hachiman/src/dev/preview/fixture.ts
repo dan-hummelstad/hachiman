@@ -398,7 +398,10 @@ const fromBundle = (author: User): Partial<ChatMessage> => ({
   }
 })
 
-/** The membership timeline of #general (§12.16): I added yuki today. */
+/**
+ * The membership timeline of #general (§12.16): I added yuki today, then made an invite with
+ * history (§12.11.4).
+ */
 export function fixtureMembership(): Map<string, MembershipEvent[]> {
   return new Map([
     [
@@ -411,6 +414,15 @@ export function fixtureMembership(): Map<string, MembershipEvent[]> {
           actorUserId: ME.id,
           kind: 'added',
           subjects: [{ userId: U.yuki.id, deviceId: `d-${U.yuki.id}` }]
+        },
+        {
+          groupId: groupOf(G1C.general),
+          channelId: G1C.general,
+          epoch: 3,
+          actorUserId: ME.id,
+          kind: 'invite_with_history',
+          subjects: [],
+          inviteKeyId: 'JJ_yk1feTO0h_S5J6sqZRLsZV8LvC5sw55Ig_vLHXYY'
         }
       ]
     ]

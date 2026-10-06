@@ -1,7 +1,8 @@
 /**
  * GroupService (docs/gateway-protocol.md §12.6, §12.7, §12.8.7, §12.11.1, §12.11.2): group sync,
  * the device inbox, batch commits, joins, resyncs, own commits across a crash (pendingCommits),
- * the fork alert, epoch secrets, the membership timeline and history bundles.
+ * the fork alert, epoch secrets, the membership timeline and history bundles. onOwnCommit and
+ * onJoin tell the InviteService about each own commit and each join (invite bundles, §12.11.4).
  *
  * Every group has a lock, so handshakes, commits and joins of one group run one at a time.
  */
@@ -73,6 +74,7 @@ export interface GroupServiceExt extends GroupService {
 }
 
 type GroupRow = StoreSchema['groups']
+type EpochListener = (e: { groupId: Uint8Array; epoch: number }) => void
 
 interface Ctx {
   gid: string
@@ -132,6 +134,8 @@ export const createGroupService = ((ctx: EngineContext, identity: IdentityServic
   const mls = deps.mls ?? defaultMls
   const sleep = deps.sleep ?? defaultSleep
   const handles = new Map<string, MlsGroupHandle>()
+  /** Counts the saveRow calls per group: load caches a restored handle only when none came between. */
+  const saves = new Map<string, number>()
   /** Handles of recent epochs: history bundles need K_hist of their epoch (§12.11.2). */
   const recent = new Map<string, Map<number, MlsGroupHandle>>()
   const locks = new Map<string, Promise<unknown>>()
@@ -140,6 +144,8 @@ export const createGroupService = ((ctx: EngineContext, identity: IdentityServic
   /** Groups with an automatic resync scheduled after a rejected commit. */
   const recovering = new Set<string>()
   const background = new Set<Promise<unknown>>()
+  const ownCommitListeners = new Set<EpochListener>()
+  const joinListeners = new Set<EpochListener>()
   let inboxLock: Promise<unknown> = Promise.resolve()
 
   identity.onDskRotated(() => {
@@ -158,6 +164,22 @@ export const createGroupService = ((ctx: EngineContext, identity: IdentityServic
     ctx.emit('error', { code, message: e instanceof Error ? e.message : String(e), dsCode: dsCode(e) })
   }
 
+  /**
+   * After an own commit that the DS accepted (the new epoch and its secret are stored), or after a
+   * join. The listeners run later, outside the group lock: sendState holds the lock on the encrypt
+   * path, and a listener that waits for the group would wait for itself.
+   */
+  function notify(listeners: Set<EpochListener>, h: MlsGroupHandle): void {
+    const e = { groupId: h.groupId, epoch: h.epoch }
+    for (const cb of listeners) {
+      spawn(
+        Promise.resolve().then(() => {
+          cb(e)
+        }),
+      )
+    }
+  }
+
   function withLock<R>(key: string, fn: () => Promise<R>): Promise<R> {
     const prev = locks.get(key) ?? Promise.resolve()
     const run = prev.then(fn, fn)
@@ -170,11 +192,15 @@ export const createGroupService = ((ctx: EngineContext, identity: IdentityServic
   }
 
   async function load(gid: string): Promise<Ctx | null> {
+    const seen = saves.get(gid) ?? 0
     const row = await store.get('groups', gid)
     if (row === undefined) return null
     let handle = handles.get(gid) ?? null
     if (handle === null && row.state.length > 0) {
       handle = await mls.restore(row.state)
+      // A caller outside the lock (descriptor, currentEpoch) restored a row that a locked caller
+      // replaced or removed meanwhile: read it again, and never cache the old handle.
+      if ((saves.get(gid) ?? 0) !== seen) return load(gid)
       handles.set(gid, handle)
     }
     return { gid, row, handle }
@@ -302,13 +328,24 @@ export const createGroupService = ((ctx: EngineContext, identity: IdentityServic
     }
   }
 
+  /**
+   * The secret of an epoch that this device holds the state of. It comes from MLS, so it replaces
+   * an imported secret that differs: any member can sign an invite bundle (§12.11.4).
+   */
   async function storeEpochSecret(gid: string, h: MlsGroupHandle): Promise<void> {
     const key = `${gid}:${h.epoch}`
-    if ((await store.get('epochSecrets', key)) !== undefined) return
-    await store.put('epochSecrets', key, { groupId: h.groupId, epoch: h.epoch, secret: await messageSecret(h), backedUp: false })
+    const secret = await messageSecret(h)
+    const replaced = await store.transaction(['epochSecrets'], async (tx) => {
+      const old = await tx.get('epochSecrets', key)
+      if (old !== undefined && equalBytes(old.secret, secret)) return false
+      await tx.put('epochSecrets', key, { groupId: h.groupId, epoch: h.epoch, secret, backedUp: false })
+      return old !== undefined
+    })
+    if (replaced) ctx.emit('epochKeysAvailable', { groupId: gid, epochs: [h.epoch] })
   }
 
   async function saveRow(g: Ctx, h: MlsGroupHandle | null, lastSeq: number, status?: GroupStatus): Promise<void> {
+    saves.set(g.gid, (saves.get(g.gid) ?? 0) + 1)
     g.row = { ...g.row, state: h === null ? new Uint8Array(0) : h.state, lastSeq, status: status ?? g.row.status }
     g.handle = h
     await store.put('groups', g.gid, g.row)
@@ -433,6 +470,7 @@ export const createGroupService = ((ctx: EngineContext, identity: IdentityServic
       const change = diff(before, mls.roster(next))
       await enterEpoch(g, next, h.seq, { kind: h.kind === 'external_commit' ? 'resynced' : 'added', actor: self.userId, ...change })
       emitUsersAdded(g, before, change.added, true)
+      notify(ownCommitListeners, next)
       return true
     }
 
@@ -533,6 +571,7 @@ export const createGroupService = ((ctx: EngineContext, identity: IdentityServic
     }
     await enterEpoch(g, pc.next, Math.max(g.row.lastSeq, res.seq), { kind, actor: identity.self().userId, added: pc.added, removed: pc.removed })
     await store.delete('pendingCommits', g.gid)
+    notify(ownCommitListeners, pc.next)
     return 'ok'
   }
 
@@ -613,7 +652,11 @@ export const createGroupService = ((ctx: EngineContext, identity: IdentityServic
       const added = resync ? pc.added : roster
       await enterEpoch(target, pc.next, res.seq, { kind: resync ? 'resynced' : 'joined_external', actor: null, added, removed: resync ? pc.removed : [] })
       await store.delete('pendingCommits', gid)
-      if (!resync) await joinerCheck(target, roster)
+      notify(ownCommitListeners, pc.next)
+      if (!resync) {
+        notify(joinListeners, pc.next)
+        await joinerCheck(target, roster)
+      }
       return
     }
     throw new CryptoError('EpochConflict', `external commit to ${gid} lost ${COMMIT_ATTEMPTS} times`)
@@ -721,6 +764,7 @@ export const createGroupService = ((ctx: EngineContext, identity: IdentityServic
       joinRequested.delete(gid)
       const roster = mls.roster(handle)
       await enterEpoch(g, handle, lastSeq, { kind: 'added', actor: null, added: roster, removed: [] })
+      notify(joinListeners, handle)
       await joinerCheck(g, roster)
       if (desc.historyVisibility === 'shared') await fetchBundles(g, handle)
       await catchUp(g)
@@ -973,17 +1017,21 @@ export const createGroupService = ((ctx: EngineContext, identity: IdentityServic
 
   // MARK: - the public surface
 
+  /** Never replaces a stored secret. One transaction, so storeEpochSecret cannot run between the read and the write. */
   async function importHistoryKeys(entries: HistoryKeyEntry[], source: 'own_device' | 'backup' | 'bundle'): Promise<void> {
+    if (entries.length === 0) return
     const byGroup = new Map<string, number[]>()
-    for (const e of entries) {
-      const gid = toB64url(e.groupId)
-      const key = `${gid}:${e.epoch}`
-      if ((await store.get('epochSecrets', key)) !== undefined) continue
-      await store.put('epochSecrets', key, { groupId: e.groupId, epoch: e.epoch, secret: e.secret, backedUp: source === 'backup' })
-      const list = byGroup.get(gid) ?? []
-      list.push(e.epoch)
-      byGroup.set(gid, list)
-    }
+    await store.transaction(['epochSecrets'], async (tx) => {
+      for (const e of entries) {
+        const gid = toB64url(e.groupId)
+        const key = `${gid}:${e.epoch}`
+        if ((await tx.get('epochSecrets', key)) !== undefined) continue
+        await tx.put('epochSecrets', key, { groupId: e.groupId, epoch: e.epoch, secret: e.secret, backedUp: source === 'backup' })
+        const list = byGroup.get(gid) ?? []
+        list.push(e.epoch)
+        byGroup.set(gid, list)
+      }
+    })
     for (const [groupId, epochs] of byGroup) ctx.emit('epochKeysAvailable', { groupId, epochs: epochs.sort((a, b) => a - b) })
   }
 
@@ -1152,8 +1200,8 @@ export const createGroupService = ((ctx: EngineContext, identity: IdentityServic
           if (h === null) throw new CryptoError('NotMember', 'removed from the group')
           const revoked = await revokedLeaves(h)
           if (!mls.hasPendingRemoves(h) && revoked.leaves.length === 0) {
-            const epochSecret = (await service.epochSecret(h.groupId, h.epoch)) ?? (await messageSecret(h))
-            return { groupId: h.groupId, epoch: h.epoch, ownLeaf: h.ownLeaf, epochSecret }
+            // From the MLS state, never from a stored row: an imported secret cannot steer a send.
+            return { groupId: h.groupId, epoch: h.epoch, ownLeaf: h.ownLeaf, epochSecret: await messageSecret(h) }
           }
           // §12.7.4: commit the pending Removes before the device encrypts. A revoked leaf goes by
           // value too (§12.4 rule 7): a DS that withholds its Remove does not keep it in the tree.
@@ -1237,6 +1285,29 @@ export const createGroupService = ((ctx: EngineContext, identity: IdentityServic
     },
 
     importHistoryKeys,
+
+    async descriptor(groupId) {
+      const g = await load(toB64url(groupId))
+      return g?.handle == null ? null : contextOf(g.handle).descriptor
+    },
+
+    onOwnCommit(cb) {
+      ownCommitListeners.add(cb)
+      return () => {
+        ownCommitListeners.delete(cb)
+      }
+    },
+
+    onJoin(cb) {
+      joinListeners.add(cb)
+      return () => {
+        joinListeners.delete(cb)
+      }
+    },
+
+    appendTimeline(groupId, events) {
+      return withLock(`g:${groupId}`, () => appendTimeline(groupId, events))
+    },
 
     async idle() {
       while (background.size > 0) await Promise.allSettled([...background])

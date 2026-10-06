@@ -73,6 +73,8 @@ Line counts are from 2026-10-02 on branch `e2ee`. Test files are not in the coun
 | `kt/index.ts` | 183 | KT codecs, RFC 6962 / RFC 9162 Merkle math |
 | `kt/client.ts` | 205 | Tree-head pinning, consistency, inclusion, gossip |
 | `admin/index.ts` | 348 | Admin action codecs, sign, verify, hash, replay |
+| `invites/codec.ts`, `invites/keys.ts`, `invites/record.ts` | 417 | Invites with history (§12.11.4): record, bundle and auth codecs, the keys from the seed, the HPKE bundle seal, the signatures |
+| `invites/service.ts` | 553 | The record checks against the admin state (§12.16), the scope from the own descriptors and the group ids, bundles after own commits, redemption and its key limits, the later fetches after a join, the seed wipe |
 | `franking/index.ts` | 71 | Franking tag, constant-time compare |
 | `store/index.ts` | 353 | Encrypted IndexedDB store, AAD |
 | `store/serialize.ts` | 79 | Store record encoding |

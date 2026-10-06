@@ -257,5 +257,9 @@ describe('DsModule helpers', () => {
     tampered[30]! ^= 1
     expect(ds.verifyInviteRecord(tampered, cert)).toBeNull()
     expect(ds.verifyInviteRecord(signed, cert.subarray(1))).toBeNull()
+    // parseInviteRecord decodes without the signature: the tampered record decodes too.
+    expect(ds.parseInviteRecord(signed)).toEqual(ds.verifyInviteRecord(signed, cert))
+    expect(ds.parseInviteRecord(tampered).keyId).toBe(toB64url(keys.sign.publicKey))
+    expect(() => ds.parseInviteRecord(signed.subarray(1))).toThrow(expect.objectContaining({ code: 'Malformed' }) as Error)
   })
 })

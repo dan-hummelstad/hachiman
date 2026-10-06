@@ -120,6 +120,44 @@ describe('CryptoStore', () => {
     store.close()
   })
 
+  it('upgrades a version 1 database: the invites table comes, the old records stay', async () => {
+    const userId = `user-${++users}`
+    const wrapKey = await key()
+    const old = createCryptoStore()
+    await old.open({ origin: ORIGIN, userId, wrapKey })
+    await old.put('inbox', 'self', { lastSeq: 7 })
+    old.close()
+    const sealed = await rawGet(userId, 'inbox', 'self')
+    // Turn it back into a version 1 database with the same record: the tables before invites (§12.17).
+    const v1 = await new Promise<IDBDatabase>((resolve, reject) => {
+      const del = indexedDB.deleteDatabase(storeDatabaseName(ORIGIN, userId))
+      del.onerror = () => {
+        reject(del.error ?? new Error('delete'))
+      }
+      del.onsuccess = () => {
+        const r = indexedDB.open(storeDatabaseName(ORIGIN, userId), 1)
+        r.onupgradeneeded = () => {
+          for (const t of STORE_TABLES) if (t !== 'invites') r.result.createObjectStore(t)
+        }
+        r.onsuccess = () => {
+          resolve(r.result)
+        }
+        r.onerror = () => {
+          reject(r.error ?? new Error('open'))
+        }
+      }
+    })
+    expect(v1.objectStoreNames.contains('invites')).toBe(false)
+    await req(v1.transaction('inbox', 'readwrite').objectStore('inbox').put(sealed, 'self'))
+    v1.close()
+    const { store } = await openStore(userId, wrapKey)
+    expect(await store.get('inbox', 'self')).toEqual({ lastSeq: 7 })
+    const row: StoreSchema['invites'] = { guildId: 'g', record: new Uint8Array([1]), role: 'member', inviteId: null, code: null, revoked: false, expiresAtMs: 0, bundled: { a: 2 }, seed: null, redeemedAtMs: null }
+    await store.put('invites', 'k', row)
+    expect(await store.get('invites', 'k')).toEqual(row)
+    store.close()
+  })
+
   it('seals each write with a fresh nonce: the same value gives different records', async () => {
     const { store, userId } = await openStore()
     await store.put('inbox', 'self', { lastSeq: 1 })

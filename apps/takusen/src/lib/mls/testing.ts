@@ -13,7 +13,7 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto'
 
 import { decodeDocEnvelope, decodeEnvelope, encodeDocHeader, encodeEnvelope, encodeHeader } from '../../../../../pkgs/hachiman-crypto/src/envelope/codec'
 import { identity, verifyDeviceCert, verifyDskCert } from '../../../../../pkgs/hachiman-crypto/src/identity/index'
-import { inviteRecordView } from '../../../../../pkgs/hachiman-crypto/src/invites/codec'
+import { decodeInviteRecord, decodeSignedInviteRecord, inviteRecordView } from '../../../../../pkgs/hachiman-crypto/src/invites/codec'
 import { verifyInviteRecordSignature } from '../../../../../pkgs/hachiman-crypto/src/invites/record'
 import { kt } from '../../../../../pkgs/hachiman-crypto/src/kt/index'
 
@@ -391,6 +391,10 @@ export class FakeDs implements DsModule {
     } catch {
       return null
     }
+  }
+  /** The real decode (§12.11.4). */
+  parseInviteRecord(signedRecord: Uint8Array) {
+    return inviteRecordView(decodeInviteRecord(decodeSignedInviteRecord(signedRecord).record))
   }
   parseEnvelopeHeader(envelope: Uint8Array) {
     return decodeEnvelope(envelope).header

@@ -406,6 +406,8 @@ export type CryptoGatewayEvent =
   | { t: 'USER_KEYS_UPDATE'; d: { userId: UserId; kind: 'device_added' | 'device_revoked' | 'master_key_changed' | 'dsk_rotated'; deviceId: DeviceId | null } }
   | { t: 'KEY_PACKAGES_LOW'; d: { deviceId: DeviceId; cipherSuite: CipherSuiteId; remaining: number } }
   | { t: 'KT_TREE_HEAD'; d: WireKtTreeHead }
+  /** §6: an invite was revoked. The InviteService stops its bundles (§12.11.4). */
+  | { t: 'INVITE_DELETE'; d: { guildId: GuildId; code: string; inviteId: string } }
 
 // MARK: - 2. DsTransport (main thread → Takusen REST, §12.12)
 
@@ -725,10 +727,16 @@ export interface MembershipEvent {
   groupId: GroupIdB64
   channelId: ChannelId | null
   epoch: number
-  /** The user whose device committed. Null for an external commit. */
+  /** The user whose device committed. Null for an external commit. 'invite_with_history': the creator of the invite. */
   actorUserId: UserId | null
-  kind: 'added' | 'removed' | 'joined_external' | 'resynced' | 'created'
+  /**
+   * 'invite_with_history': this device checked the record of an invite with history whose scope has
+   * this group (§12.11.4). `subjects` is empty. Once per record and group.
+   */
+  kind: 'added' | 'removed' | 'joined_external' | 'resynced' | 'created' | 'invite_with_history'
   subjects: { userId: UserId; deviceId: DeviceId }[]
+  /** 'invite_with_history' only: the invite key id. Two invites in one epoch give two events. */
+  inviteKeyId?: B64url
 }
 
 // MARK: - 3c. Voice (§8, §12.10)
@@ -977,12 +985,21 @@ export interface CryptoApi {
   /**
    * After POST /guilds/:id/invites: seals the epoch secrets that this device holds for each group
    * of the scope (at most HISTORY_BUNDLE_MAX_EPOCHS each, the newest) and posts one bundle per group.
+   * Throws CryptoError('InvalidChain') when the record fails the checks of §12.16.
    */
   sendInviteBundles(input: { guildId: GuildId; inviteId: string; record: B64url }): Promise<{ groups: number }>
   /**
    * After POST /invites/:code: verifies the record against the seed and the admin state, opens
-   * each bundle, checks its sender and imports its keys (source 'bundle'). Messages that decrypt
-   * with them have `membershipVerified` false.
+   * each bundle, checks its sender and its group and imports its keys (source 'bundle'). Messages
+   * that decrypt with them have `membershipVerified` false. Call it when the guild members are in
+   * the client cache (the creator must be in `guildMembers`). Throws CryptoError('GroupPending')
+   * while `guildMembers` of the guild does not have this user: the cache does not have the guild
+   * yet, so retry after GUILD_CREATE. Throws CryptoError('InvalidChain') when the record fails; a
+   * record that expired less than INVITE_BUNDLE_FETCH_WINDOW_MS ago still passes. A bundle that
+   * fails is dropped alone (an `error` event), also a bundle of a group outside the scope. Per
+   * epoch, the keys of the creator device win, then the first bundle; keys above the bundle epoch
+   * are dropped (§12.11.4). The Worker gets the bundles again after the redemption and after each
+   * join of a scope group (§12.11.4 "Later bundles").
    */
   redeemInvite(input: { code: string; linkSecret: string }): Promise<{ groups: number; keys: number }>
 
@@ -1034,7 +1051,10 @@ export interface CryptoEvents {
   /** Existing device, SAS mode: show these emoji. */
   linkSas: { sessionId: string; emoji: SasEmoji[] }
   linkDone: { sessionId: string; role: LinkRole; ok: boolean; error: CryptoErrorCode | null }
-  /** Messages that were 'pending' can now decrypt: the UI calls decryptMessages again. */
+  /**
+   * Messages that were 'pending' can now decrypt: the UI calls decryptMessages again. Also when
+   * the secret from the MLS state replaced a stored secret that differed (§12.11.1).
+   */
   epochKeysAvailable: { groupId: GroupIdB64; epochs: number[] }
   /** 'kt_missing': KT is required (§12.14) but a key object had no KT entry, or no signed tree head covered it. */
   ktAlert: { kind: 'self_unknown_entry' | 'split_view' | 'bad_proof' | 'kt_missing'; detail: string }
@@ -1639,6 +1659,11 @@ export interface DsModule {
    * certificate (the ids must match). Null on any failure. The admin checks stay with the members (§12.16).
    */
   verifyInviteRecord(signedRecord: Uint8Array, creatorCertificate: Uint8Array): InviteRecordView | null
+  /**
+   * §12.11.4: decodes a SignedInviteRecord without the signature check, for a record that Takusen
+   * verified before it stored it (the scope of a bundle post). Throws CryptoError('Malformed').
+   */
+  parseInviteRecord(signedRecord: Uint8Array): InviteRecordView
   parseEnvelopeHeader(envelope: Uint8Array): EnvelopeHeader
   /** The header of a whole DocEnvelope (§12.20). Throws CryptoError('Malformed'). */
   parseDocEnvelopeHeader(envelope: Uint8Array): DocEnvelopeHeader
@@ -1812,6 +1837,25 @@ export interface StoreSchema {
    * resync: the time of the last one and the number in the current streak.
    */
   aeadFailures: { failures: { atMs: number; senderDevice: DeviceId }[]; lastResyncMs?: number; resyncStreak?: number }
+  /**
+   * Key: the invite key id (sign_public) base64url. An invite with history that this device checked
+   * (§12.11.4). `record`: the encoded SignedInviteRecord. `bundled`: per group id (base64url), the
+   * newest epoch that this device sent a bundle for. `seed`: the redeemer's invite seed, kept for
+   * INVITE_AUTH_WINDOW_MS after `redeemedAtMs`, then wiped; INVITE_DELETE also wipes it. `code`: the
+   * redeemer's invite code, for the later fetches of the bundles. `revoked`: an INVITE_DELETE came.
+   */
+  invites: {
+    guildId: GuildId
+    record: Uint8Array
+    role: 'member' | 'redeemed'
+    inviteId: string | null
+    code: string | null
+    revoked: boolean
+    expiresAtMs: number
+    bundled: Record<string, number>
+    seed: Uint8Array | null
+    redeemedAtMs: number | null
+  }
 }
 
 export interface CryptoStore {
@@ -1972,7 +2016,24 @@ export interface GroupService extends Pick<CryptoApi, 'sync' | 'ensureChannelGro
   currentEpoch(groupId: Uint8Array): Promise<number | null>
   /** Epoch secrets for an own new device (link) or a history_keys request. */
   exportHistoryKeys(groupIds: Uint8Array[] | 'all', maxEpochsPerGroup: number): Promise<HistoryKeyEntry[]>
+  /** Never replaces a stored secret (§12.11.1). */
   importHistoryKeys(entries: HistoryKeyEntry[], source: 'own_device' | 'backup' | 'bundle'): Promise<void>
+  /** The MLS-authenticated descriptor of a group (§12.6), from the local state. Null without state. */
+  descriptor(groupId: Uint8Array): Promise<GroupDescriptor | null>
+  /**
+   * Calls `cb` after each own commit that the DS accepted: a batch or pre-send commit, an own
+   * external commit (join or resync), and a commit adopted after a crash. `epoch` is the new epoch,
+   * and its secret is stored. The call is asynchronous, outside the group lock. Returns the unsubscribe.
+   */
+  onOwnCommit(cb: (e: { groupId: Uint8Array; epoch: number }) => void): () => void
+  /**
+   * Calls `cb` after this device joins a group: a Welcome, or an own external commit that adds its
+   * leaf (not a resync). `epoch` is the join epoch. Asynchronous and outside the group lock, as
+   * onOwnCommit. Returns the unsubscribe.
+   */
+  onJoin(cb: (e: { groupId: Uint8Array; epoch: number }) => void): () => void
+  /** Appends events to the membership timeline of a group (emits `membership`). Takes the group lock. */
+  appendTimeline(groupId: GroupIdB64, events: MembershipEvent[]): Promise<void>
 }
 
 /** src/envelope/service.ts (crypto-envelope). Messages, attachments, franking reports. */
@@ -1985,6 +2046,14 @@ export type CreateDocService = (ctx: EngineContext, identity: IdentityService, g
 /** src/admin/service.ts (crypto-identity, Phase 4). */
 export type AdminService = Pick<CryptoApi, 'signAdminAction'>
 export type CreateAdminService = (ctx: EngineContext, identity: IdentityService) => AdminService
+
+/** src/invites/service.ts. Invites with history (§12.11.4). */
+export interface InviteService extends Pick<CryptoApi, 'prepareHistoryInvite' | 'sendInviteBundles' | 'redeemInvite'> {
+  /** INVITE_DELETE: marks the invite revoked and drops the cached records of the guild. */
+  onGatewayEvent(event: CryptoGatewayEvent): Promise<void>
+}
+/** `perms`: the §2 rules, for the record and scope checks of §12.16. */
+export type CreateInviteService = (ctx: EngineContext, identity: IdentityService, groups: GroupService, perms: AdminPermissionModel) => InviteService
 
 /** src/media/service.ts (crypto-media). Voice groups and frame keys. */
 export type VoiceService = Pick<CryptoApi, 'voiceStart' | 'voiceHandle' | 'voiceAttachTransform' | 'voiceDetachTransform' | 'voiceRoster' | 'voiceEpochCode' | 'voiceStop'>

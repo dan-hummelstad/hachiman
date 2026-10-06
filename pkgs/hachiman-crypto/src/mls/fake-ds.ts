@@ -3,9 +3,11 @@
  * An in-memory delivery service for the GroupService specs. It adds the §12.7 MLS routes to the
  * identity FakeDs: compare-and-set on the epoch, the handshake stream with `seq`, DS proposals
  * that go into the stream before a batch uses them (§12.7.4), Welcome delivery through the device
- * inbox, join requests, and DsModule.checkCommit on every upload. Not part of the package exports.
+ * inbox, join requests, and DsModule.checkCommit on every upload. It also stores invite records and
+ * invite bundles (§12.11.4, §12.12). Not part of the package exports.
  */
 import type {
+  AdminPermissionModel,
   CryptoGatewayEvent,
   DsSigner,
   DsTransport,
@@ -27,6 +29,8 @@ import { identity } from '../identity/index'
 import { DsError, FakeDs, MemoryStore, testPermissions } from '../identity/test-helpers'
 import { createIdentityService } from '../identity/service'
 import { createMessageService } from '../envelope/service'
+import { decodeInviteRecord, decodeSignedInviteRecord } from '../invites/codec'
+import { createInviteService, type InviteServiceExt } from '../invites/service'
 import { ds } from './ds'
 import { mls } from './index'
 import { createGroupService, type GroupServiceExt } from './service'
@@ -65,12 +69,28 @@ interface Group {
   expiredBefore: number
 }
 
+/** An invite with history (§4, §12.12): the record that the route stored, and its bundles. */
+interface Invite {
+  id: string
+  code: string
+  guildId: string
+  keyId: string
+  record: string
+  expiresAtMs: number
+  revoked: boolean
+  bundles: { groupId: string; epoch: number; blob: string; senderDevice: string; senderUser: string }[]
+  /** The users who joined the guild with the invite. */
+  joined: Set<string>
+}
+
 export interface Client {
   userId: string
   deviceId: string
   identity: IdentityService
   groups: GroupServiceExt
   messages: MessageService
+  /** Null unless the client was made with `invitePermissions`. */
+  invites: InviteServiceExt | null
   ctx: EngineContext
   store: MemoryStore
   transport: DsTransport & { deviceId: string | null }
@@ -91,6 +111,7 @@ export class FakeMlsDs {
   inbox = new Map<string, WireInboxItem[]>()
   joinRequests = new Map<string, WireJoinRequest & { userId: string }>()
   clients = new Map<string, Client>()
+  invites = new Map<string, Invite>()
   /** Rewrites the `next` hashes of published handshakes (fork tests). */
   tamperNext: ((h: WireHandshake) => WireHandshake['next']) | null = null
   /** The wait between automatic resync attempts of every client (GroupServiceDeps.sleep). */
@@ -112,8 +133,11 @@ export class FakeMlsDs {
 
   // MARK: - clients
 
-  /** `adminPermissions`: the GroupService also replays signed admin actions (§12.16), as in the Worker. */
-  async client(userId: string, opts: { recoveryKey?: string; store?: MemoryStore; adminPermissions?: boolean } = {}): Promise<Client & { recoveryKey: string | null }> {
+  /**
+   * `adminPermissions`: the GroupService also replays signed admin actions (§12.16), as in the Worker.
+   * `invitePermissions`: the client gets an InviteService with these §2 rules.
+   */
+  async client(userId: string, opts: { recoveryKey?: string; store?: MemoryStore; adminPermissions?: boolean; invitePermissions?: AdminPermissionModel } = {}): Promise<Client & { recoveryKey: string | null }> {
     const store = opts.store ?? new MemoryStore()
     const restart = opts.store !== undefined
     const transport = this.transport(userId)
@@ -131,6 +155,7 @@ export class FakeMlsDs {
     const identity = createIdentityService(ctx, { mls, adminPermissions: testPermissions })
     const groups = createGroupService(ctx, identity, { sleep: (ms) => this.sleep(ms), ...(opts.adminPermissions === true ? { adminPermissions: testPermissions } : {}) })
     const messages = createMessageService(ctx, identity, groups)
+    const invites = opts.invitePermissions === undefined ? null : createInviteService(ctx, identity, groups, opts.invitePermissions)
     const loaded = await identity.load({ userId, wrapKey: {} as CryptoKey, platform: 'electron', clientVersion: '1.0.0', deviceName: 'test', origin: ctx.origin })
     let recoveryKey: string | null = null
     if (restart) transport.deviceId = loaded!.deviceId
@@ -143,6 +168,7 @@ export class FakeMlsDs {
       identity,
       groups,
       messages,
+      invites,
       ctx,
       store,
       transport,
@@ -155,6 +181,7 @@ export class FakeMlsDs {
     const route = async (e: CryptoGatewayEvent): Promise<void> => {
       if (!c.online) return
       if (e.t.startsWith('MLS_') || e.t === 'DEVICE_INBOX') await groups.onGatewayEvent(e)
+      else if (e.t === 'INVITE_DELETE') await invites?.onGatewayEvent(e)
       else await identity.onGatewayEvent(e)
     }
     this.id.subscribe(deviceId, route)
@@ -170,9 +197,14 @@ export class FakeMlsDs {
       for (let next = this.queue.shift(); next !== undefined; next = this.queue.shift()) {
         n++
         const c = this.clients.get(next.deviceId)
-        if (c?.online) await c.groups.onGatewayEvent(next.event)
+        if (!c?.online) continue
+        if (next.event.t === 'INVITE_DELETE') await c.invites?.onGatewayEvent(next.event)
+        else await c.groups.onGatewayEvent(next.event)
       }
-      for (const c of this.clients.values()) await c.groups.idle()
+      for (const c of this.clients.values()) {
+        await c.groups.idle()
+        await c.invites?.idle()
+      }
       quiet = n === 0 && this.queue.length === 0 ? quiet + 1 : 0
     }
   }
@@ -365,6 +397,31 @@ export class FakeMlsDs {
     return { epoch: epoch + 1, seq: h.seq }
   }
 
+  // MARK: - invites with history (the parts of Takusen outside the DS, §4)
+
+  /** POST /guilds/:id/invites with a record. Like Takusen, it does not check the admin state. */
+  createInvite(guildId: string, record: string): { inviteId: string; code: string } {
+    const rec = decodeInviteRecord(decodeSignedInviteRecord(fromB64url(record)).record)
+    const inv: Invite = { id: this.uuid(), code: this.uuid().slice(0, 8).toUpperCase(), guildId, keyId: toB64url(rec.signPublic), record, expiresAtMs: rec.expiresAtMs, revoked: false, bundles: [], joined: new Set() }
+    this.invites.set(inv.id, inv)
+    return { inviteId: inv.id, code: inv.code }
+  }
+
+  /** POST /invites/:code: the user joins the guild with the invite. */
+  acceptInvite(code: string, userId: string): void {
+    const inv = [...this.invites.values()].find((i) => i.code === code)!
+    this.guilds.get(inv.guildId)!.add(userId)
+    inv.joined.add(userId)
+  }
+
+  /** DELETE /invites/:code: revoke, delete the bundles, INVITE_DELETE to the guild. */
+  revokeInvite(inviteId: string): void {
+    const inv = this.invites.get(inviteId)!
+    inv.revoked = true
+    inv.bundles = []
+    this.publish(this.activeDevices(this.guilds.get(inv.guildId) ?? []), { t: 'INVITE_DELETE', d: { guildId: inv.guildId, code: inv.code, inviteId } })
+  }
+
   /** MLS_JOIN_UPDATE for a join request (the scheduler finds no online member, §12.7.5 step 7). */
   joinUpdate(requestId: string, status: WireJoinRequest['status']): void {
     const r = this.joinRequests.get(requestId)!
@@ -506,6 +563,34 @@ export class FakeMlsDs {
       async getHistoryBundles(groupId: string, epoch: number) {
         caller()
         return group(groupId).bundles.filter((b) => b.epoch === epoch).map((b) => ({ ...b, groupId }))
+      },
+      async inviteRecords(guildId: string) {
+        caller()
+        if (self.guilds.get(guildId)?.has(userId) !== true) throw new DsError('UnknownGuild')
+        return [...self.invites.values()]
+          .filter((i) => i.guildId === guildId && !i.revoked && (i.expiresAtMs === 0 || i.expiresAtMs > self.id.now))
+          .map((i) => {
+            const newest = new Map<string, number>()
+            for (const b of i.bundles) newest.set(b.groupId, Math.max(newest.get(b.groupId) ?? -1, b.epoch))
+            return { inviteId: i.id, keyId: i.keyId, record: i.record, expiresAt: i.expiresAtMs === 0 ? null : new Date(i.expiresAtMs).toISOString(), bundled: [...newest].map(([groupId, epoch]) => ({ groupId, epoch })) }
+          })
+      },
+      async postInviteBundle(inviteId: string, body: { groupId: string; epoch: number; blob: string }) {
+        const c = caller()
+        const inv = self.invites.get(inviteId)
+        if (inv === undefined || inv.revoked) throw new DsError('UnknownInvite')
+        const g = group(body.groupId)
+        if (!self.readersOf(g).has(userId) || g.guildId !== inv.guildId) throw new DsError('UnknownGroup')
+        // The scope of the stored record (§12.12): public_set, or a channel that the record names.
+        const scope = decodeInviteRecord(decodeSignedInviteRecord(fromB64url(inv.record)).record).channelIds
+        if (g.kind !== 'public_set' && !(g.kind === 'channel' && scope.includes(g.channelId!))) throw new DsError('ValidationError')
+        inv.bundles.push({ ...body, senderDevice: c.id, senderUser: userId })
+      },
+      async inviteBundles(code: string) {
+        caller()
+        const inv = [...self.invites.values()].find((i) => i.code === code)
+        if (inv === undefined || inv.revoked || !inv.joined.has(userId)) throw new DsError('UnknownInvite')
+        return { inviteId: inv.id, record: inv.record, bundles: inv.bundles.map(({ groupId, epoch, blob, senderDevice }) => ({ groupId, epoch, blob, senderDevice })) }
       },
       async channelReaders(channelId: string) {
         return [...(self.channels.get(channelId)?.readers ?? [])]

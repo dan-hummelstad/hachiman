@@ -23,6 +23,7 @@ import {
   INVITE_BUNDLE_MAX_BYTES,
   INVITE_BUNDLES_MAX_BYTES,
   INVITE_MAX_SCOPE_CHANNELS,
+  type DsModule,
   type InviteRecordView,
   type WireInviteBundles,
   type WireInviteRecord,
@@ -54,6 +55,8 @@ export interface RecordExpectation {
   maxAgeSeconds: number
   maxUses: number
   now: Date
+  /** The ids of the record `channel_ids` that are channels of the guild. */
+  guildChannelIds: ReadonlySet<string>
 }
 
 /**
@@ -73,6 +76,9 @@ export function checkInviteRecord(view: InviteRecordView | null, e: RecordExpect
     throw new ValidationError('The record expires_at_ms does not match maxAgeSeconds')
   }
   if (view.channelIds.length > INVITE_MAX_SCOPE_CHANNELS) throw new ValidationError('The record has too many channels')
+  // A channel id does not name its guild, and the redeemer cannot check the guild of a group that
+  // it does not hold yet (§12.11.4 "Scope").
+  if (view.channelIds.some((c) => !e.guildChannelIds.has(c))) throw new ValidationError('The record names a channel that is not of this guild')
   const keyId = fromB64(view.keyId)
   if (!keyId || keyId.length !== 32) throw new ValidationError('The record has no valid key id')
   return keyId
@@ -249,15 +255,27 @@ export async function listInviteRecords(store: InviteHistoryStore, guildId: stri
 }
 
 /**
+ * The scope of the stored record (§12.11.4): the `public_set` group, or the
+ * `channel` group of a channel that the record names. Members also check that
+ * @everyone still views the channel. Takusen verified the record at POST.
+ */
+function inRecordScope(group: { kind: string; channelId: string | null }, record: Uint8Array, ds: Pick<DsModule, 'parseInviteRecord'>): boolean {
+  if (group.kind === 'public_set') return true
+  return group.kind === 'channel' && group.channelId !== null && ds.parseInviteRecord(record).channelIds.includes(group.channelId)
+}
+
+/**
  * POST /invite-records/:inviteId/bundles. The caller reads the group, the group
- * belongs to the guild of the invite, and the invite is active with a record.
- * The invite row stays locked until the caps are applied: a revoke cannot leave
- * a bundle behind, and two posts cannot pass the caps together. The share of
- * one sender user applies first, then the cap of the invite.
+ * belongs to the guild of the invite and to the scope of its record, and the
+ * invite is active with a record. The invite row stays locked until the caps
+ * are applied: a revoke cannot leave a bundle behind, and two posts cannot pass
+ * the caps together. The share of one sender user applies first, then the cap
+ * of the invite.
  */
 export async function postInviteBundle(
   store: InviteHistoryStore,
   mls: MlsRepo,
+  ds: Pick<DsModule, 'parseInviteRecord'>,
   caller: { userId: string; device: { id: string } },
   inviteId: string,
   body: { groupId: Uint8Array; epoch: number; blob: Uint8Array },
@@ -269,6 +287,8 @@ export async function postInviteBundle(
   await store.transaction(async (s) => {
     const invite = await s.getInvite(inviteId, true)
     if (!invite || invite.guildId !== group.guildId || invite.record === null || !isInviteActive(invite, now)) throw unknownInvite()
+    // Any reader of a private channel could else post wrong keys for its group (§12.12).
+    if (!inRecordScope(group, invite.record, ds)) throw new ApiError('ValidationError', 400, 'the group is not in the scope of the invite')
     await s.insertBundle({
       inviteId,
       groupId: body.groupId,

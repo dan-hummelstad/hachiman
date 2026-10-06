@@ -6,16 +6,17 @@
  *      unlimited. Without ADMINISTRATOR: 1–86400 s, else 403. ADMINISTRATOR:
  *      up to 7 days, or 0 (permanent) with acknowledgedPermanent: true, else 400.
  *      `record` (an invite with history, §12.11.4): ADMINISTRATOR and
- *      X-Hachiman-Device. The record must verify under the device certificate
- *      and match the guild, the caller and the body, else 400.
+ *      X-Hachiman-Device. The record must verify under the device certificate,
+ *      match the guild, the caller and the body, and name only channels of the
+ *      guild, else 400.
  */
-import { and, desc, eq, isNull } from 'drizzle-orm'
+import { and, desc, eq, inArray, isNull } from 'drizzle-orm'
 import { Permissions } from '@hachiman/client/permissions'
 import { NextResponse, type NextRequest } from 'next/server'
 import { z } from 'zod'
 
 import { db } from '@/db/client'
-import { invites } from '@/db/schema'
+import { channels, invites } from '@/db/schema'
 import { errorResponse, parseBody } from '@/lib/api-helpers'
 import { requireUser } from '@/lib/auth-helpers'
 import { MissingPermissionsError } from '@/lib/errors'
@@ -71,6 +72,13 @@ export async function POST(req: NextRequest, ctx: RouteContext): Promise<NextRes
     if (body.record) {
       const device = await requireDevice(req, session.user.id)
       const view = device.certificate ? (await getDsModule()).verifyInviteRecord(body.record, device.certificate) : null
+      const known =
+        view && view.channelIds.length > 0
+          ? await db
+              .select({ id: channels.id })
+              .from(channels)
+              .where(and(eq(channels.guildId, access.guild.id), inArray(channels.id, view.channelIds)))
+          : []
       const keyId = checkInviteRecord(view, {
         guildId: access.guild.id,
         userId: session.user.id,
@@ -78,6 +86,7 @@ export async function POST(req: NextRequest, ctx: RouteContext): Promise<NextRes
         maxAgeSeconds: body.maxAgeSeconds,
         maxUses: body.maxUses,
         now,
+        guildChannelIds: new Set(known.map((c) => c.id)),
       })
       history = { record: body.record, keyId }
     }

@@ -421,6 +421,29 @@ describe('recovery', () => {
     expect((await n.store.list('epochSecrets')).length).toBe(3)
   })
 
+  it('a secret that GroupService replaces during the upload stays not backed up (§12.11.1)', async () => {
+    const { dev: a } = await primary()
+    const g = new Uint8Array(22).fill(4)
+    const imported = new Uint8Array(32).fill(1)
+    const fromMls = new Uint8Array(32).fill(2)
+    await a.store.put('epochSecrets', secretKey(g, 0), { groupId: g, epoch: 0, secret: imported, backedUp: false })
+    await a.store.put('epochSecrets', secretKey(g, 1), { groupId: g, epoch: 1, secret: new Uint8Array(32).fill(3), backedUp: false })
+    const post = a.transport.postHistoryBackup
+    a.transport.postHistoryBackup = async (body) => {
+      // The device enters epoch 0 while the blob is on the way: the MLS secret replaces the imported one.
+      await a.store.put('epochSecrets', secretKey(g, 0), { groupId: g, epoch: 0, secret: fromMls, backedUp: false })
+      return post(body)
+    }
+    expect(await a.svc.backupNow()).toEqual({ uploaded: 1 })
+    a.transport.postHistoryBackup = post
+    expect(await a.store.get('epochSecrets', secretKey(g, 0))).toMatchObject({ secret: fromMls, backedUp: false })
+    expect((await a.store.get('epochSecrets', secretKey(g, 1)))?.backedUp).toBe(true)
+    // The next backup uploads the MLS secret.
+    ds.now += 24 * 60 * 60_000
+    expect(await a.svc.backupNow()).toEqual({ uploaded: 1 })
+    expect(await a.store.get('epochSecrets', secretKey(g, 0))).toMatchObject({ secret: fromMls, backedUp: true })
+  })
+
   it('uploads history blobs at 64 unbacked epochs or after 24 h', async () => {
     const { dev: a } = await primary()
     expect(await a.svc.backupNow()).toEqual({ uploaded: 0 })

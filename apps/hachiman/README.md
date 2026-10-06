@@ -100,7 +100,7 @@ flowchart LR
   HC -- "update, MESSAGE_*, voice" --> H
   H -- setState --> ST
   H -- "MESSAGE_*" --> MD
-  H -- "MLS_*, DEVICE_*, USER_KEYS_UPDATE,<br/>KEY_PACKAGES_LOW, KT_TREE_HEAD" --> CS
+  H -- "MLS_*, DEVICE_*, USER_KEYS_UPDATE,<br/>KEY_PACKAGES_LOW, KT_TREE_HEAD,<br/>INVITE_DELETE" --> CS
   MD -- decryptMessages --> CS
   MD -- upsert --> ST
   CS <-- RPC --> CW
@@ -130,7 +130,7 @@ Only `services/hachiman.ts` writes the mirror stores (`guildStore`, `channelStor
 - **Attachments** show as object URLs of decrypted blobs (`hooks/use-decrypted-blob.ts`, `lib/blob-url-cache.ts`). The cache loads each blob one time and releases a URL when no component holds it.
 - **Voice.** `voice-e2ee.ts` is the `VoiceE2eeDelegate` of `@hachiman/client`. It makes one transform Worker per call and one sender transform per track. A media close 4013 makes `VoiceService` join again. The call UI shows the participants from the MLS tree (`components/voice/call-roster.ts`).
 - **Admin actions.** `AdminActionService` signs role, overwrite, member-role and history-visibility changes (§12.16) and sends them in `X-Hachiman-Signed-Action`.
-- **cryptoStore** holds the Worker phase, `CryptoStatus`, the fatal state (4012 `update_required`, 4013 `device_revoked`), key-change, fork and KT alerts, membership events and the voice roster. It never holds key material or a recovery key.
+- **cryptoStore** holds the Worker phase, `CryptoStatus`, the fatal state (4012 `update_required`, 4013 `device_revoked`), key-change, fork and KT alerts, membership events and the voice roster. It never holds key material, a recovery key or an invite seed.
 
 `SoundService.playSound` checks `prefsStore` (`soundsEnabled`, `disabledSounds`, `soundVolume`) before each sound. Message sounds come from `cuelume`. Voice sounds come from `lib/chime.ts` (Web Audio).
 

@@ -35,11 +35,12 @@ const TABLE_SET = {
   timeline: true,
   membership: true,
   aeadFailures: true,
+  invites: true,
 } as const satisfies Record<Table, true>
 export const STORE_TABLES = Object.keys(TABLE_SET) as Table[]
 
 /** Raise when a table is added: onupgradeneeded creates the missing object stores. */
-const DB_VERSION = 1
+const DB_VERSION = 2
 const RECORD_VERSION = 1
 const NONCE_LENGTH = 12
 const TAG_LENGTH = 16

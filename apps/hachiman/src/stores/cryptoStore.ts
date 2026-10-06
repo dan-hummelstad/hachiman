@@ -119,8 +119,9 @@ export function clearLinkState(): void {
   useCryptoStore.setState({ linkSas: null, linkDone: null })
 }
 
+/** `inviteKeyId`: two invites with history in one epoch have no subjects, so the key id tells them apart. */
 const eventKey = (e: MembershipEvent): string =>
-  `${e.groupId}:${e.epoch}:${e.kind}:${e.subjects.map((s) => s.deviceId).join(',')}`
+  `${e.groupId}:${e.epoch}:${e.kind}:${e.subjects.map((s) => s.deviceId).join(',')}:${e.inviteKeyId ?? ''}`
 
 /** Adds membership events of one channel in arrival order, without duplicates. */
 export function addMembership(channelId: string, events: MembershipEvent[]): void {

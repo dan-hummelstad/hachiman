@@ -180,7 +180,7 @@ If a selector returns a fresh array/object literal, React shows the warning "get
 
 - Decrypt before store. Every ciphertext `Message` goes through the crypto Worker (`services/message-decrypt.ts`). Only the result goes into `messagesStore`. Never store or show an envelope as text.
 - Attachments show as object URLs of decrypted blobs (`hooks/use-decrypted-blob.ts`, `lib/blob-url-cache.ts`). Never set the `src` of an attachment to a file URL. Avatars, icons and banners stay plaintext.
-- `cryptoStore` holds status, alerts and metadata only. It never holds key material or a recovery key.
+- `cryptoStore` holds status, alerts and metadata only. It never holds key material, a recovery key or an invite seed.
 - The voice UI shows call participants from the MLS tree (`components/voice/call-roster.ts`), not from the server roster.
 - Pages: every page title, Yjs update, snapshot pointer and awareness frame is a page envelope (§12.20) from `encryptDoc`. `docsStore` holds the page tree and presence, never a `Y.Doc`. The `Y.Doc` stays in `DocProvider`. A page media node holds its pointer (with the file key) inside the `Y.Doc`, and shows through `use-decrypted-blob`.
 
@@ -202,7 +202,7 @@ Browser-safe only (`fetch`, `WebSocket`, `RTCPeerConnection`): no Node imports, 
 
 Contract §12 of `docs/gateway-protocol.md` is normative for E2EE. `src/api.ts` (types and module interfaces) and `src/constants.ts` change together with §12, in the same change. `docs/e2ee-plan.md` gives the reasons. The package README has the module map.
 
-- **No private key outside the crypto Worker.** All key material lives in the Worker (`src/worker/`). The UI thread gets only status, decrypted content and attachment pointers. Do not add a `CryptoApi` method that returns a key, and do not export engine modules from `src/index.ts`. The one exception is the SFrame exporter secret of a call. The crypto Worker sends it to the transform Worker on a `MessagePort` that the UI thread does not read.
+- **No private key outside the crypto Worker.** All key material lives in the Worker (`src/worker/`). The UI thread gets only status, decrypted content and attachment pointers. Do not add a `CryptoApi` method that returns a key, except the recovery key and the invite seed (contract §12.17, below). Do not export engine modules from `src/index.ts`. The SFrame exporter secret of a call does not reach the UI thread either: the crypto Worker sends it to the transform Worker on a `MessagePort` that the UI thread does not read. The invite seed of an invite with history crosses the UI thread as opaque base64url text: `prepareHistoryInvite` returns it once, and `redeemInvite` takes it. The UI keeps it only in component state or an in-memory map and in the link fragment `#k=`. It never goes into a Zustand store or `localStorage`, and into `sessionStorage` only across the browser sign-in redirect.
 - The Worker never calls `fetch`. It calls `DsTransport`, and the main thread does the REST call (`apps/hachiman/src/services/ds-transport.ts`).
 - Only `src/worker/` imports `@hachiman/client` (`@hachiman/client/permissions`). `src/admin/` gets the permission rules through `AdminPermissionModel`.
 - `src/mls/ds.ts` is the Node entry for Takusen. Its import graph uses only `globalThis.crypto`. It must not import `src/attachments`, `src/store`, `src/worker`, `src/bridge` or `src/media`.
@@ -284,7 +284,7 @@ These files predate the Discord-style refactor and target the deleted Mumble/pro
 - Do not edit `*.pb.go` by hand. Regenerate with `go generate`.
 - Do not change a wire shape without an update to `docs/gateway-protocol.md` in the same change.
 - Do not change `pkgs/hachiman-crypto/src/api.ts` or `constants.ts` without the matching update to contract §12.
-- Do not let a private key or an MLS secret reach the UI thread. The crypto Worker sends only the SFrame exporter secret, and only to the transform Worker.
+- Do not let a private key or an MLS secret reach the UI thread. The crypto Worker sends only the SFrame exporter secret, and only to the transform Worker. The invite seed also crosses the UI thread, as the recovery key does (contract §12.17): opaque text in component state and the link fragment, never in a store or `localStorage`.
 - Do not import `@hachiman/crypto` from `@hachiman/client`.
 - Do not nest `TooltipProvider`s. There is already one at the App root.
 - Do not add features beyond what the task requires. The UI is in active flux toward a Discord-like layout, and unrelated refactors create merge churn.

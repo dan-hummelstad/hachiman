@@ -194,6 +194,8 @@ function forwardCryptoEvents(): void {
   hachiman.on('USER_KEYS_UPDATE', (d) => fwd({ t: 'USER_KEYS_UPDATE', d }))
   hachiman.on('KEY_PACKAGES_LOW', (d) => fwd({ t: 'KEY_PACKAGES_LOW', d }))
   hachiman.on('KT_TREE_HEAD', (d) => fwd({ t: 'KT_TREE_HEAD', d }))
+  // A revoked invite with history: the Worker sends no more bundles for it (§12.11.4).
+  hachiman.on('INVITE_DELETE', (d) => fwd({ t: 'INVITE_DELETE', d }))
 }
 
 /** Gateway close 4012 or 4013 (§12.13): the client does not reconnect. 4013 also signs out. */
