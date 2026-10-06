@@ -50,7 +50,6 @@ const {
 /** Lets the promise callbacks of redeemWaitingInvites run. */
 const settle = (): Promise<void> => new Promise((r) => setTimeout(r, 0))
 
-/** The fake sessionStorage of a test. */
 function stubSessionStorage(): Map<string, string> {
   const storage = new Map<string, string>()
   vi.stubGlobal('sessionStorage', {

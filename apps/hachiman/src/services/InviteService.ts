@@ -44,7 +44,6 @@ export function stashInviteKey(code: string, key: string | null): void {
   else linkKeys.set(code, key)
 }
 
-/** The key that stashInviteKey keeps for `code`, or null. */
 export function peekInviteKey(code: string): string | null {
   return linkKeys.get(code) ?? null
 }

@@ -381,7 +381,6 @@ export const createInviteService = ((ctx, identity, groups, perms): InviteServic
     return { inviteId: res.inviteId, signed, rec, imported }
   }
 
-  /** The redeemer keeps the seed, the invite is not revoked, and the redemption is less than `windowMs` ago. */
   function liveRedeemer(row: Row | undefined, now: number, windowMs: number): row is LiveRedeemer {
     return row?.role === 'redeemed' && !row.revoked && row.seed !== null && row.code !== null && row.redeemedAtMs !== null && now - row.redeemedAtMs < windowMs
   }

@@ -6,7 +6,6 @@
  * Takusen and `node --test` can load it.
  */
 
-/** A parsed invite link. */
 export interface InviteLink {
   code: string
   /**
@@ -62,7 +61,6 @@ export function parseInviteLink(input: string): InviteLink | null {
   return f ? { code, key: f.key } : null
 }
 
-/** The invite code of a link or a bare code (see parseInviteLink). */
 export function parseInviteCode(input: string): string | null {
   return parseInviteLink(input)?.code ?? null
 }

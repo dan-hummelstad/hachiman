@@ -322,7 +322,6 @@ describe('POST /mls/groups/:id/commits (§12.7.3)', () => {
     x.invite().record = narrow
     await refused(x.join(x.dDev, x.auth(x.dDev, narrow)), /not in the scope/)
     x.invite().record = stored
-    // Revoked, then expired.
     x.invite().revoked = true
     await refused(x.join(x.dDev, x.auth(x.dDev)), /revoked or expired/)
     x.invite().revoked = false

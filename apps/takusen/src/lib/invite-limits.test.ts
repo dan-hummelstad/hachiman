@@ -95,7 +95,6 @@ describe('hasGuildPermission (ADMINISTRATOR)', () => {
     const mod = repo.addUser()
     repo.addGuildMember(guild, admin, [adminRole])
     repo.addGuildMember(guild, mod, [modRole])
-    /** The users of `ids` that have ADMINISTRATOR now. */
     const admins = async (ids: string[]) => {
       const data = (await repo.getGuildPermissionData(guild))!
       return ids.filter((id) => hasGuildPermission(data, id, Permissions.ADMINISTRATOR))

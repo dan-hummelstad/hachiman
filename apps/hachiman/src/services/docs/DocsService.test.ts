@@ -102,7 +102,6 @@ const flush = async (): Promise<void> => {
   for (let i = 0; i < 3; i++) await new Promise((resolve) => setTimeout(resolve, 0))
 }
 
-/** The next decrypt waits for release(). */
 function holdNextDecrypt(): { release: () => void } {
   const hold = { release: () => {} }
   crypto.decryptDoc.mockImplementationOnce(

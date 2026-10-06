@@ -48,7 +48,6 @@ export function needsAdministrator(i: { expiresAt: Date | null; record: Uint8Arr
   return i.expiresAt === null || i.record !== null
 }
 
-/** needsAdministrator as a condition on `invites`. */
 export function needsAdministratorSql() {
   return or(isNull(invites.expiresAt), isNotNull(invites.record))
 }

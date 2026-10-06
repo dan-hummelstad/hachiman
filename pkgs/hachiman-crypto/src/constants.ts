@@ -234,7 +234,6 @@ export const PUBLIC_SET_MAX_MEMBERS = 500
 
 // MARK: - Invites with history (§12.11.4)
 
-/** HPKE info of an InviteBundle. */
 export const INVITE_BUNDLE_HPKE_INFO = 'hachiman invite bundle v1'
 /** Version byte of InviteRecord, InviteBundleTBS, InviteBundle and InviteAuth. */
 export const INVITE_WIRE_VERSION = 1

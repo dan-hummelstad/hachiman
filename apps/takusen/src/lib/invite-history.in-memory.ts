@@ -36,7 +36,6 @@ export class InMemoryInviteHistoryStore implements InviteHistoryStore {
     return row
   }
 
-  /** Test seeding: a membership. */
   addMember(guildId: string, userId: string, join: { inviteId: string | null; joinedAt: Date } = { inviteId: null, joinedAt: new Date() }): void {
     this.members.set(`${guildId}:${userId}`, join)
   }

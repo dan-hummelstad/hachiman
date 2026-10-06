@@ -166,7 +166,6 @@ export class InMemoryMlsRepo implements MlsRepo {
     this.s.invites.push({ id, guildId: i.guildId, keyId: i.keyId, record: i.record, expiresAt: i.expiresAt ?? null, revoked: i.revoked ?? false })
     return id
   }
-  /** A guild member who joined with an invite at `joinedAt`. */
   addInviteMember(guildId: string, userId: string, inviteId: string, joinedAt: Date): void {
     this.addGuildMember(guildId, userId)
     this.s.inviteJoins.push({ guildId, userId, inviteId, joinedAt })

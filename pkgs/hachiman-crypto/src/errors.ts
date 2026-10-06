@@ -14,7 +14,6 @@ export function isTransient(e: unknown): boolean {
   return dsCodeOf(e) !== undefined || (e instanceof CryptoError && e.code === 'Transport')
 }
 
-/** Emits `e` as an 'error' event. An error that is not a CryptoError has the code 'Transport'. */
 export function reportError(ctx: Pick<EngineContext, 'emit'>, e: unknown): void {
   ctx.emit('error', { code: e instanceof CryptoError ? e.code : 'Transport', message: e instanceof Error ? e.message : String(e), dsCode: dsCodeOf(e) })
 }

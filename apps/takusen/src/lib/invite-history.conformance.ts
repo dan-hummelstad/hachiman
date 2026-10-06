@@ -26,7 +26,6 @@ export interface InviteSeed {
 
 export interface InviteHistoryFixtures {
   addUser(): Promise<string>
-  /** A guild of `ownerId`. */
   addGuild(ownerId: string): Promise<string>
   addInvite(seed: InviteSeed): Promise<InviteRow>
 }

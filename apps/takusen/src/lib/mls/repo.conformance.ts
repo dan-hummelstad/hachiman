@@ -26,9 +26,7 @@ export interface RepoFixtures {
   addChannel(c: { guildId: string | null; type: ChannelInfo['type'] }): Promise<string>
   setOverwrites(channelId: string, ows: OverwriteInfo[]): Promise<void>
   addDm(participants: string[]): Promise<string>
-  /** An invite of the guild by `createdBy`. */
   addInvite(i: { guildId: string; createdBy: string; keyId: Uint8Array | null; record: Uint8Array | null; expiresAt: Date | null; revoked: boolean }): Promise<string>
-  /** A guild member who joined with the invite at `joinedAt`. */
   addInviteMember(guildId: string, userId: string, inviteId: string, joinedAt: Date): Promise<void>
 }
 

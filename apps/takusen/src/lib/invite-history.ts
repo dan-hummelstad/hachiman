@@ -97,7 +97,6 @@ export function inviteUsability(
   return 'ok'
 }
 
-/** Not revoked, not expired, not exhausted. */
 export function isInviteActive(i: Pick<InviteRow, 'revoked' | 'expiresAt' | 'exhaustedAt' | 'maxUses' | 'uses'>, now: Date): boolean {
   return inviteUsability(i, now) === 'ok'
 }
@@ -120,7 +119,6 @@ export interface StoredInviteRecord {
 export type NewInviteBundle = Omit<InviteBundleRow, 'id' | 'createdAt'>
 
 export interface InviteHistoryStore {
-  /** Runs `fn` in one transaction. */
   transaction<T>(fn: (store: InviteHistoryStore) => Promise<T>): Promise<T>
   /** `lock`: FOR NO KEY UPDATE. A revoke, an accept and another bundle post of the invite wait for the transaction. */
   getInvite(id: string, lock?: boolean): Promise<InviteRow | null>
