@@ -36,6 +36,7 @@ flowchart TD
   MAIN["src/main.tsx<br/>boot + render"]
   PS["src/platforms/browser/PlatformService.ts<br/>platformService, consumeLaunchUrl"]
   KS["src/platforms/browser/secure-storage.ts<br/>createBrowserSecureStorage"]
+  LU["src/platforms/browser/launch-url.ts<br/>launchRoute"]
   IPS["IPlatformService<br/>(@hachiman/hachiman)"]
   APP["App, ThemeProvider, PlatformProvider<br/>(@hachiman/hachiman)"]
   PRE["startPreview<br/>(@hachiman/hachiman/dev/preview)"]
@@ -44,6 +45,7 @@ flowchart TD
   MAIN --> PS
   PS -- "implements" --> IPS
   PS --> KS
+  PS --> LU
   MAIN --> APP
   MAIN -.->|"dev + ?preview"| PRE
 ```
@@ -54,21 +56,22 @@ flowchart TD
 | `src/main.tsx` | Reads the launch query and calls `consumeLaunchUrl`. In dev with `?preview`, it starts preview mode. Then it renders `App` in `PlatformProvider` and `ThemeProvider`. |
 | `src/platforms/browser/PlatformService.ts` | `platformService` (the `IPlatformService` implementation) and `consumeLaunchUrl`. |
 | `src/platforms/browser/secure-storage.ts` | `createBrowserSecureStorage`: the IndexedDB wrap key store. |
+| `src/platforms/browser/launch-url.ts` | `launchRoute`: the route of the load URL, with the invite parser as a parameter (pure, for `node --test`). |
 | `csp.ts` | `browserCsp`: the Electron CSP rules (`../hachiman-electron/src/main/csp-policy.ts`) as a header and as a meta tag. |
 | `vite.config.ts` | React and Tailwind plugins. The `@` alias points to `../hachiman/src`. The dev server uses port 5173 with `strictPort`. `envDir` is the repo root. It sends the CSP and builds module Workers (`worker.format: 'es'`). |
-| `*.test.mts`, `src/**/*.test.mts` | CSP and secure storage tests (`node --test`). |
+| `*.test.mts`, `src/**/*.test.mts` | CSP, secure storage and launch URL tests (`node --test`). |
 | `tsconfig.json` | Extends `tsconfig.base.json`. It mirrors the `@` alias for the shared UI source. |
 
 ### Launch URL routes
 
-`consumeLaunchUrl` reads the page URL once at startup. It handles two routes:
+`consumeLaunchUrl` reads the page URL once at startup. It handles two routes (`launchRoute`):
 
 | Route | Action |
 |---|---|
 | `/oauth/callback?code=…&state=…` (or `error=`) | Sends the full URL to `onOAuthCallback` subscribers. |
-| `/invite/<code>` | Sends the code to `onInviteCode` subscribers. |
+| `/invite/<code>[#k=<key>]` | Sends the code and the key of an invite with history (`parseInviteLink`) to `onInviteLink` subscribers. A link with a malformed key opens nothing (fail closed). Every `/invite` path is a match, also one that does not parse. |
 
-After a match, it replaces the URL with `/`. A reload then does not use the single-use OAuth code again or open the invite again. Values that arrive before the UI subscribes stay in a buffer.
+After a match, it replaces the URL with `/`. A reload then does not use the single-use OAuth code again or open the invite again. The replace also removes the invite key from the address bar and the history entry. Values that arrive before the UI subscribes stay in a buffer.
 
 ### OAuth redirect round trip
 
@@ -96,7 +99,7 @@ sequenceDiagram
   TK-->>TS: access_token, refresh_token
 ```
 
-The redirect reloads the page. `pendingFlow` survives the reload because the Takusen store persists it to `localStorage`. If the sign-in started from an invite, `App` opens the invite dialog after `completeSignIn`.
+The redirect reloads the page. `pendingFlow` survives the reload because the Takusen store persists it to `localStorage`. If the sign-in started from an invite, `App` opens the invite dialog after `completeSignIn`. The key of an invite with history does not go into `pendingFlow`: the UI keeps it in `sessionStorage` (this tab only) during the redirect, and moves it back into memory at the callback. After the callback, the UI deletes every other kept key: a sign-in that did not finish leaves none (contract §11).
 
 The redirect URI is `VITE_HACHIMAN_OIDC_REDIRECT` if it is set. Otherwise it is `${window.location.origin}/oauth/callback`. The value must be a redirect URI of the `hachiman-client` OIDC client in `apps/takusen/src/db/seed.ts`.
 

@@ -1,10 +1,9 @@
 /**
- * Custom-scheme deep links → renderer IPC.
+ * Custom-scheme deep links → renderer IPC. ./deep-link-route.ts checks each URL:
  *
- *  - `takusen://invite/<code>`         → INVITE_CODE_CHANNEL (payload: the code)
- *  - `app.hachiman://oauth-callback?…` → OAUTH_CALLBACK_CHANNEL (payload: the raw URL;
- *    the shared UI's takusenService parses code/state). Reverse-DNS scheme because
- *    RFC 8252 §7.1 requires it for native OAuth redirects (panva rejects bare schemes).
+ *  - `takusen://invite/<code>[#k=<key>]` → INVITE_LINK_CHANNEL (payload: the
+ *    checked link, rebuilt)
+ *  - `app.hachiman://oauth-callback?…`   → OAUTH_CALLBACK_CHANNEL (payload: the raw URL)
  *
  * Entry points: cold-start argv (Win/Linux), `second-instance` argv (Win/Linux,
  * app already running), `open-url` (macOS, both cases). The single-instance lock
@@ -12,37 +11,20 @@
  */
 import { BrowserWindow, type App } from "electron";
 import path from "path";
-import { INVITE_CODE_CHANNEL, OAUTH_CALLBACK_CHANNEL } from "../shared/ipc";
-
-const INVITE_SCHEME = "takusen";
-const OAUTH_SCHEME = "app.hachiman";
-// Same shape as the shared UI's parseInviteCode (apps/hachiman/src/services/InviteService.ts),
-// which main can't import; keep the two in step.
-const INVITE_CODE_RE = /^[A-Za-z0-9_-]{2,64}$/;
+import { INVITE_LINK_CHANNEL, OAUTH_CALLBACK_CHANNEL } from "../shared/ipc";
+import { INVITE_SCHEME, OAUTH_SCHEME, routeDeepLink } from "./deep-link-route";
 
 type Delivery = { channel: string; payload: string };
 
+const CHANNELS = {
+  invite: INVITE_LINK_CHANNEL,
+  oauth: OAUTH_CALLBACK_CHANNEL,
+} as const;
+
 /** Map a raw URL to what the renderer receives, or null if it isn't ours. */
 function route(raw: string): Delivery | null {
-  let url: URL;
-  try {
-    url = new URL(raw);
-  } catch {
-    return null;
-  }
-  if (url.protocol === `${INVITE_SCHEME}:` && url.hostname === "invite") {
-    const code = url.pathname.replace(/^\/+|\/+$/g, "");
-    return INVITE_CODE_RE.test(code)
-      ? { channel: INVITE_CODE_CHANNEL, payload: code }
-      : null;
-  }
-  if (
-    url.protocol === `${OAUTH_SCHEME}:` &&
-    url.hostname === "oauth-callback"
-  ) {
-    return { channel: OAUTH_CALLBACK_CHANNEL, payload: raw };
-  }
-  return null;
+  const link = routeDeepLink(raw);
+  return link ? { channel: CHANNELS[link.kind], payload: link.payload } : null;
 }
 
 // Deliveries that arrived before a window existed; drained by flushPendingUrls.

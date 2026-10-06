@@ -1,5 +1,6 @@
+import { Permissions, type Channel } from '@hachiman/client'
 import { describe, expect, it } from 'vitest'
-import { inviteExpiryChoices, isInviteExpiryChoice, sortInvites } from './invites'
+import { inviteExpiryChoices, inviteScope, isInviteExpiryChoice, sortInvites } from './invites'
 
 describe('inviteExpiryChoices', () => {
   it('gives a member without ADMINISTRATOR at most 24 hours and no permanent invite', () => {
@@ -40,5 +41,58 @@ describe('sortInvites', () => {
     ]
     expect(sortInvites(list).map((i) => i.code)).toEqual(['b', 'd', 'a', 'c'])
     expect(list.map((i) => i.code)).toEqual(['a', 'b', 'c', 'd'])
+  })
+})
+
+describe('inviteScope', () => {
+  const guild = { id: 'g', ownerId: 'owner' }
+  const VIEW = Permissions.VIEW_CHANNEL
+  const channel = (id: string, over: Partial<Channel> = {}): Channel => ({
+    id,
+    guildId: 'g',
+    type: 'text',
+    name: id,
+    topic: null,
+    parentId: null,
+    position: 0,
+    permissionOverwrites: [],
+    mlsGroupId: null,
+    historyVisibility: 'shared',
+    ...over
+  })
+  const roles = new Map([
+    ['g', { id: 'g', permissions: VIEW }],
+    ['mods', { id: 'mods', permissions: VIEW | Permissions.MANAGE_GUILD }]
+  ])
+
+  it('lists the text and pages channels that @everyone can view, in sidebar order', () => {
+    const scope = inviteScope(guild, roles, [
+      channel('rules', { position: 2 }),
+      channel('docs', { type: 'pages', position: 1 }),
+      channel('lounge', { type: 'voice' }),
+      channel('cat', { type: 'category' }),
+      channel('other-guild', { guildId: 'h' }),
+      channel('mods-only', {
+        permissionOverwrites: [
+          { id: 'g', type: 'role', allow: 0, deny: VIEW },
+          { id: 'mods', type: 'role', allow: VIEW, deny: 0 }
+        ]
+      }),
+      channel('owner-only', {
+        permissionOverwrites: [
+          { id: 'g', type: 'role', allow: 0, deny: VIEW },
+          { id: 'owner', type: 'member', allow: VIEW, deny: 0 }
+        ]
+      })
+    ])
+    expect(scope.map((c) => c.id)).toEqual(['docs', 'rules'])
+  })
+
+  it('follows an @everyone overwrite that opens a channel', () => {
+    const closed = new Map([['g', { id: 'g', permissions: 0 }]])
+    const open = channel('open', {
+      permissionOverwrites: [{ id: 'g', type: 'role', allow: VIEW, deny: 0 }]
+    })
+    expect(inviteScope(guild, closed, [channel('a'), open]).map((c) => c.id)).toEqual(['open'])
   })
 })

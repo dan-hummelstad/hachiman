@@ -931,8 +931,8 @@ export interface IPlatformService {
   readonly oauthRedirectUri: string
   /** Opens the OAuth authorization page. Browser: same-tab redirect. Electron: system browser. */
   beginOAuth(url: string): void
-  /** Invite links (`takusen://invite/<code>` or `https://<takusen>/invite/<code>`) → code. Returns unsubscribe. */
-  onInviteCode(cb: (code: string) => void): () => void
+  /** Invite links (`takusen://invite/<code>` or `https://<takusen>/invite/<code>`, `#k=<key>` with history) → code and key. Returns unsubscribe. */
+  onInviteLink(cb: (link: InviteLink) => void): () => void
   /** OAuth redirect URLs delivered by the host (Electron custom scheme / browser callback route). */
   onOAuthCallback(cb: (url: string) => void): () => void
   /** Electron: TCP-connect RTT probe from main. Browser: resolves []. */
@@ -969,6 +969,13 @@ export interface ISecureStorage {
 // The values are CryptoErrorCode values of @hachiman/crypto, so the UI handles them like crypto errors.
 export type SecureStorageErrorCode = 'SecureStorageUnavailable' | 'StoreCorrupt' | 'Malformed'
 export function secureStorageErrorCode(e: unknown): SecureStorageErrorCode | null
+
+// apps/hachiman/src/lib/invite-link.ts
+export interface InviteLink {
+  code: string
+  key: string | null   // the invite seed of an invite with history (§12.11.4): 43 canonical base64url characters
+}
+export function parseInviteLink(input: string): InviteLink | null
 ```
 
 `secureStorage` (§12.17):
@@ -990,6 +997,19 @@ Each host declares its title bar. The Electron main process hides the native tit
 `VITE_HACHIMAN_OIDC_REDIRECT` replaces the default URI on either host.
 
 When the user starts sign-in from an invite dialog, the pending PKCE flow also keeps the invite code. After the callback, the UI opens the invite dialog again. It does this also when sign-in fails. The browser host needs this step: the redirect loads the page again, and the host removed `/invite/<code>` from the URL at start-up. When the callback fails, the UI shows the cause and tells the user to sign in again. The sign-in screen and the invite dialog show this message.
+
+The key of an invite with history does not go into the pending flow, because the Takusen store keeps the flow in `localStorage`. In the browser host, the UI keeps the key in `sessionStorage` (`hachiman-invite-key:<code>`, this tab only) during the redirect, and moves it back into memory at the callback. At start-up, after the callback of the load URL, the UI deletes every other `hachiman-invite-key:` entry. Thus a sign-in that did not finish (the user left the sign-in page, for example) leaves no key. The Electron renderer keeps the key in memory.
+
+Invite links:
+- The forms are `takusen://invite/<code>`, `https://<Takusen issuer origin>/invite/<code>`, the web client path `/invite/<code>`, and a bare code. The link of an invite with history ends in `#k=<key>` (§12.11.4). `parseInviteLink` reads all of them.
+- **Fail closed.** A link with a fragment other than `k=` and 43 base64url characters gives null, and the host drops the link. The last character must be canonical (one of `AEIMQUYcgkosw048`): 32 bytes use only 4 bits of it, and the crypto Worker refuses other bits. Thus a damaged link cannot join without the history by accident.
+- Browser host: it reads `/invite/<code>[#k=<key>]` at start-up (`src/platforms/browser/launch-url.ts`). Then it replaces the URL with `/`, also when the link does not parse. This also removes the key from the address bar and the history entry.
+- Electron: the main process checks the deep link (`apps/hachiman-electron/src/main/deep-link-route.ts`). It sends the link, rebuilt from the checked parts, on the IPC channel `hachiman:invite-link`. The renderer parses the link again.
+- The Takusen page `/invite/<code>` links to `${HACHIMAN_WEB_URL}/invite/<code>` and to `takusen://invite/<code>`. A browser does not send the fragment to the server. Thus a script on the page adds the fragment to both links. It forwards only a well-formed `#k=` (`src/lib/invite-fragment.ts`), and it removes any fragment from the address bar with `history.replaceState`. **Residual risk:** Takusen serves this script, so a hostile Takusen can read the key in either host (§12.17 "Browser host").
+- The shared UI keeps the key only in memory (`InviteService`) and in component state, never in a store (§12.17). The join window says "This invite includes history" when the preview has `hasHistory` and the link has a key. When the link has no key, it tells the user to open the full link. A pasted link with a key also opens the join window. When the join window closes without a join, also when another window takes its place, the UI forgets the key.
+- The join of an invite with history uses the invite, but the redemption needs the crypto Worker of this window. When the Worker cannot start (`LockHeld`: Hachiman runs in another tab, or another start error, or a fatal state), the join window shows a warning, and the user must select "Join without the history" before the join.
+- After `POST /invites/:code`, the UI calls `redeemInvite` when the crypto Worker is ready and the client cache has this user in the members of the guild. It tries at once, when the status becomes ready, and on `READY` and `GUILD_CREATE`. `GroupPending` makes it wait for the next of these. A `Transport` error other than 404 `UnknownInvite` (a network error, a 5xx, a 429) makes it try again after 5 s, then after a wait that doubles up to 5 min, while the next try comes before `INVITE_BUNDLE_FETCH_WINDOW_MS` after the join. Another failure, or the end of that window, loses only the history: the user stays a member, and a security notice tells the user. The notice holds the guild id only.
+- The invite window of an administrator has the switch "Include history" (off by default), with the scope: the text and pages channels that @everyone can view, from the REST roles, with each `joined` channel marked. Switching it on sets one use. The window then calls `prepareHistoryInvite`, `POST /guilds/:id/invites` with the record, and `sendInviteBundles`. `sendInviteBundles` fails when a bundle post fails. When it fails, the window revokes the invite. When it sends no bundle (`groups` 0: this device holds no group of the scope, for example because the channels have no messages yet), the window keeps the invite and shows a warning: the link then gives only the history that other members send at their commits (§12.11.4). The link shows once: the invite list cannot copy the link of an invite with history (`hasHistory`).
 
 Screen share source selection:
 - Browser: `getScreenSources` gives null. `getDisplayMedia` then shows the picker of the browser.
@@ -1031,7 +1051,7 @@ The packaged Electron app does not load the renderer from `file://`. A `file://`
 - The middleware is the only source of CORS headers under `/api/*`, `/api/oidc` included. It answers all preflights. The OIDC route removes the CORS headers and the `Vary` header that the OIDC provider sets.
 - On the token, userinfo and revocation endpoints, the OIDC provider also examines the origin with the same allowlist. It rejects a different origin with a 400 response.
 
-Deep link scheme: `takusen://invite/<code>` (replaces `takusen://join#<signed payload>`). OAuth callback scheme unchanged (`app.hachiman://oauth-callback`).
+Deep link scheme: `takusen://invite/<code>[#k=<base64url invite seed>]` (replaces `takusen://join#<signed payload>`). OAuth callback scheme unchanged (`app.hachiman://oauth-callback`).
 
 ## 12. End-to-end encryption
 
@@ -1811,7 +1831,7 @@ sign_priv = HKDF-SHA256(salt = "", IKM = invite_seed, info = "hachiman invite si
 - The derivation does not use the RFC 9180 `DeriveKeyPair`.
 - `sign_public` is the **invite key id** (`keyId`, base64url on a JSON wire).
 - Test vector: `invite_seed` = bytes 0x00, 0x01, … 0x1f. `hpke_public` = `f2e52868376523060a03d6ddcbaee000ddffe9f0fe3fec04a5d139a432c19873`. `sign_public` = `249ff29357de4ced21fd2e49eaca9944bb1957c2ef0b9b30e79220fef2c75d86`.
-- The link is `https://<Takusen issuer origin>/invite/<code>#k=<base64url(invite_seed)>` (`INVITE_LINK_PARAM`, 43 characters, no padding). A browser does not send the fragment to the server.
+- The link is `https://<Takusen issuer origin>/invite/<code>#k=<base64url(invite_seed)>` (`INVITE_LINK_PARAM`, 43 characters, no padding). A browser does not send the fragment to the server. A script of the Takusen page hands it on to the app (§11 "Invite links").
 
 **Record.** The creator device signs the record. The client sends it in the body of `POST /guilds/:id/invites` (§12.12).
 
@@ -1922,7 +1942,7 @@ struct {
 - The signature does not cover `signed_record`. A verifier checks the record separately: a member with the checks of §12.16, Takusen by a byte compare with the record that it stored for the invite. The signature key is `sign_public` of that record.
 - A join with `InviteAuth` must come in the 24 h after the guild join of the redeemer with the invite (`INVITE_AUTH_WINDOW_MS`).
 
-**API.** `CryptoApi.prepareHistoryInvite` makes the seed and signs the record. `CryptoApi.sendInviteBundles` sends the bundles of the creator device after `POST /guilds/:id/invites`. `CryptoApi.redeemInvite` runs after `POST /invites/:code`: it checks the record, opens the bundles and imports the keys. The Worker calls the routes through `DsTransport.inviteRecords`, `DsTransport.postInviteBundle` and `DsTransport.inviteBundles` (§12.12).
+**API.** `CryptoApi.prepareHistoryInvite` makes the seed and signs the record. `CryptoApi.sendInviteBundles` sends the bundles of the creator device after `POST /guilds/:id/invites`. It rejects with the error of the first post that fails, so that the caller can revoke the invite. It returns the number of groups that it sent: 0 when the device holds no group of the scope. `CryptoApi.redeemInvite` runs after `POST /invites/:code`: it checks the record, opens the bundles and imports the keys. The Worker calls the routes through `DsTransport.inviteRecords`, `DsTransport.postInviteBundle` and `DsTransport.inviteBundles` (§12.12).
 
 ### 12.12 REST routes (Takusen, base `/api/v1`)
 
@@ -2230,11 +2250,11 @@ franking_tag = HMAC-SHA256(franking_key, "hachiman franking v1" ‖ channel_id(1
 
 - **DsTransport adapter.** The main thread implements `DsTransport` over `RestClient`. It maps 404 `UnknownGroup` from `GET /channels/:id/mls-group` to `null` (`getGroupForChannel`).
 - **Worker.** All key material lives in the `@hachiman/crypto` Worker. The UI thread never holds private keys. The UI holds decrypted content and attachment pointers.
-- **Exception: the invite seed** (§12.11.4). It crosses the UI thread as opaque base64url text, as the recovery key does. `prepareHistoryInvite` returns it once, and `redeemInvite` takes it. The UI keeps it only in component state or in an in-memory map, and puts it only in the link fragment `#k=`. It never goes into a Zustand store or `localStorage`. Only the browser sign-in redirect keeps it in `sessionStorage`, until the redemption. The creator Worker does not store the seed.
+- **Exception: the invite seed** (§12.11.4). It crosses the UI thread as opaque base64url text, as the recovery key does. `prepareHistoryInvite` returns it once, and `redeemInvite` takes it. The UI keeps it only in component state or in an in-memory map, and puts it only in the link fragment `#k=`. It never goes into a Zustand store or `localStorage`. Only the browser sign-in redirect keeps it in `sessionStorage`, until the sign-in callback. The next start-up deletes a key that no callback used (§11). The creator Worker does not store the seed.
 - **One tab per device.** The bridge takes the Web Lock `hachiman-crypto:{origin}:{userId}`. A second tab gets `CryptoError` `LockHeld` and shows "open in another tab". Two Workers on one store would fork the group state.
 - **Store.** IndexedDB, one database per (origin, user). Each record is AES-256-GCM under the non-extractable wrap key from `IPlatformService.secureStorage` (§11), with a random 12-byte nonce. The AAD is `encode(struct { opaque table<V>; opaque key<V>; })`, so the AAD is injective. The wrap key is used directly. There is no HKDF step, because a non-extractable AES-GCM key cannot be an HKDF input.
 - **Store table `invites`** (key: the invite key id). The records that the device accepted, the newest epoch that it sent per group (`bundled`), the revoke flag, and for a redeemer the invite code and the seed. The seed stays until `INVITE_AUTH_WINDOW_MS` after the redemption, or until `INVITE_DELETE`. The device deletes the row of an expired invite. The table came with database version 2: an upgrade adds the table and keeps the other records.
-- **Browser host.** The browser host shows the label "trusts the server's code", because a hostile server can send hostile JavaScript. The Electron host is the strong client. `CryptoStatus.hostTrust` gives the value.
+- **Browser host.** The browser host shows the label "trusts the server's code", because a hostile server can send hostile JavaScript. The Electron host is the strong client. `CryptoStatus.hostTrust` gives the value. One exception applies to both hosts: a clicked invite link opens the Takusen page `/invite/<code>` in a browser, and a script of that page reads the invite seed (§11). Only a link that the user pastes into the Electron app does not go through Takusen.
 - **CSP.** Electron (rules in `apps/hachiman-electron/src/main/csp-policy.ts`, applied by `csp.ts`, §11) adds `worker-src 'self'`, and `blob:` to `img-src` and `media-src` (decrypted attachments are object URLs). It does not add `blob:` to `script-src` or `worker-src`. The browser host sends the same policy. ts-mls, @noble and @hpke are pure TypeScript on WebCrypto, so the hosts do not add `'wasm-unsafe-eval'`. Both hosts build the crypto Worker and the transform Worker with Vite (`new Worker(new URL(…, import.meta.url), { type: 'module' })`).
 - **Light clients.** Deferred until ts-mls supports partial trees: joining with a membership proof, and processing commits without the full ratchet tree (IETF MLS light clients draft). The condition is testable: the `smoke.spec.ts` case "needs the full ratchet tree to join" fails when support exists. Until then, every member holds the full tree, and the Phase 3 load test measures its size.
 - **Later:** search (a local index), sender-made link previews, content-free push.

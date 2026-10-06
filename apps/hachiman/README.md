@@ -63,7 +63,7 @@ flowchart LR
 
 | Export | File | Use |
 |---|---|---|
-| `.` | `src/index.ts` | `App`, `ThemeProvider`, `PlatformProvider`, `usePlatform`, the `IPlatformService` types, `takusenService`, `parseInviteCode` |
+| `.` | `src/index.ts` | `App`, `ThemeProvider`, `PlatformProvider`, `usePlatform`, the `IPlatformService` types (with `InviteLink`), `takusenService`, `parseInviteLink`, `parseInviteCode` |
 | `./shared/*` | `src/shared/*` | The platform seam files |
 | `./takusen-env` | `src/shared/takusen-env.ts` | `resolveTakusenEnv` (pure, for the Electron main process) |
 | `./dev/*` | `src/dev/*.ts` | Preview mode (`./dev/preview/index`) |
@@ -130,13 +130,14 @@ Only `services/hachiman.ts` writes the mirror stores (`guildStore`, `channelStor
 - **Attachments** show as object URLs of decrypted blobs (`hooks/use-decrypted-blob.ts`, `lib/blob-url-cache.ts`). The cache loads each blob one time and releases a URL when no component holds it.
 - **Voice.** `voice-e2ee.ts` is the `VoiceE2eeDelegate` of `@hachiman/client`. It makes one transform Worker per call and one sender transform per track. A media close 4013 makes `VoiceService` join again. The call UI shows the participants from the MLS tree (`components/voice/call-roster.ts`).
 - **Admin actions.** `AdminActionService` signs role, overwrite, member-role and history-visibility changes (§12.16) and sends them in `X-Hachiman-Signed-Action`.
+- **Invites with history** (§12.11.4). An administrator switches on "Include history" in the invite window. `InviteService.createHistoryInvite` calls `prepareHistoryInvite`, creates the invite with the record and calls `sendInviteBundles`. The window shows the link with `#k=<key>` once, from component state. A host gives an opened link to `onInviteLink`. `App.tsx` keeps its key in a memory map of `InviteService`, and `JoinServerModal` reads it from there. After the join, `redeemWaitingInvites` calls `redeemInvite` when the Worker is ready and the guild members are in the cache (`hachiman.ts` calls it again on the ready status, `READY` and `GUILD_CREATE`). After a transport error it tries again with a growing wait, during the fetch window. A final failure adds a security notice (`cryptoStore.inviteHistoryFailures`, guild ids only). When the Worker cannot start in this window (`LockHeld`), `JoinServerModal` asks the user to agree to a join without the history. The browser sign-in redirect keeps the key in `sessionStorage` only, and `App.tsx` deletes the keys of a sign-in that did not finish (`dropSignInInviteKeys`).
 - **cryptoStore** holds the Worker phase, `CryptoStatus`, the fatal state (4012 `update_required`, 4013 `device_revoked`), key-change, fork and KT alerts, membership events and the voice roster. It never holds key material, a recovery key or an invite seed.
 
 `SoundService.playSound` checks `prefsStore` (`soundsEnabled`, `disabledSounds`, `soundVolume`) before each sound. Message sounds come from `cuelume`. Voice sounds come from `lib/chime.ts` (Web Audio).
 
 | Path | Contents |
 |---|---|
-| `src/App.tsx` | App root. It holds the one `TooltipProvider`, calls `startHachiman(platform)`, and subscribes to `onOAuthCallback` and `onInviteCode`. It shows `FatalScreen`, `Shell` inside `CryptoGate`, or `SignInScreen`, plus `Dialogs` and `SecurityNotices`. |
+| `src/App.tsx` | App root. It holds the one `TooltipProvider`, calls `startHachiman(platform)`, and subscribes to `onOAuthCallback` and `onInviteLink`. It keeps the key of an invite link in `InviteService` memory, not in the dialog store. It shows `FatalScreen`, `Shell` inside `CryptoGate`, or `SignInScreen`, plus `Dialogs` and `SecurityNotices`. |
 | `src/index.ts` | Public exports of the package |
 | `src/components/shell/` | `Shell`, channel pane, guild header and menus, the dialog host (`dialogs.tsx`) |
 | `src/components/chat/` | Transcript, message row and toolbar, composer, typing line, the "unable to decrypt" text (`decrypt-text.ts`), MLS membership lines |
@@ -144,13 +145,13 @@ Only `services/hachiman.ts` writes the mirror stores (`guildStore`, `channelStor
 | `src/components/voice/` | Voice room, `stream-grid`, `screen-share-controls`, `screen-source-picker`, stream quality fields, self mute and deafen toggles, call security (`call-roster`, `call-security`, `verify-call-dialog`) |
 | `src/components/security/` | `CryptoGate` (`onboarding.tsx`): the gate in front of `Shell`, and the onboarding (set up, link, restore, reset). Devices panel, device linking (QR and SAS emoji), verification, key-change dialog. Recovery key view and panel, security log and notices, the host trust label, fatal screens. `qr.ts` is a small QR encoder (no dependency) |
 | `src/components/people/` | Member list sections by presence |
-| `src/components/settings/` | Settings layout. `user/` holds account, appearance, voice and sounds. `invites.ts`, `invite-options.tsx` and `permanent-invite-confirm.tsx` hold the invite choices (more than 24 hours and permanent only for an administrator) and the permanent-invite warning. The guild settings dialogs are in `src/components/`. |
+| `src/components/settings/` | Settings layout. `user/` holds account, appearance, voice and sounds. `invites.ts`, `invite-options.tsx`, `invite-history-option.tsx` and `permanent-invite-confirm.tsx` hold the invite choices (more than 24 hours, permanent and "Include history" only for an administrator), the scope of an invite with history, and the permanent-invite warning. The guild settings dialogs are in `src/components/`. |
 | `src/components/ui/` | shadcn and local primitives (dialog, tooltip, avatar, window strip, title bar) |
 | `src/components/*.tsx` | Server icon rail, channel sidebar, member list, voice panel, guild and channel dialogs, sign-in screen |
 | `src/stores/` | Zustand stores. `prefsStore`, `navStore`, `takusenStore` (session) and part of `voiceStore` (mute, deafen) persist to `localStorage`. `cryptoStore` is memory only. |
 | `src/services/` | `hachiman.ts`, `CryptoService`, `ds-transport`, `message-decrypt`, `voice-e2ee`, `MessagesService`, `VoiceService`, `InviteService`, `UploadService`, `AdminActionService`, `TakusenService`, `SoundService` |
 | `src/hooks/` | `use-hachiman` (derived channel and voice lists), `use-member`, `use-sign-in`, `use-recommended-region`, `use-mic-level`, `use-action`, `use-draft`, `use-decrypted-blob`, `use-membership-timeline` and others |
-| `src/lib/` | Pure helpers: `sounds`, `chime`, `stream-quality`, `connection-quality`, `mentions`, `model`, `role-ink`, `format-bytes`, `attachments` (upload id order), `blob-url-cache`, `admin-payload`, `client-version`, `utils` |
+| `src/lib/` | Pure helpers: `sounds`, `chime`, `stream-quality`, `connection-quality`, `mentions`, `model`, `role-ink`, `format-bytes`, `attachments` (upload id order), `blob-url-cache`, `invite-link` (`parseInviteLink`), `admin-payload`, `client-version`, `utils` |
 | `src/shared/` | `IPlatformService.ts`, `PlatformContext.tsx`, `takusen-env.ts` |
 | `src/dev/preview/` | Preview mode: fixture, REST and voice stubs, the crypto stub |
 | `src/assets/` | `main.css` and the bundled fonts |

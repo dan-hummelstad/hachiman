@@ -234,7 +234,7 @@ For changes to the voice stack (`pkg/media/sfu.go`, `pkg/media/ssrc_pool.go`, `c
 
 - `csp.ts` + `csp-policy.ts` — CSP built from the `VITE_` URLs. The browser host sends the same policy (`apps/hachiman-browser/csp.ts`).
 - `secure-storage.ts` — the per-user wrap key for `IPlatformService.secureStorage`, sealed with Electron `safeStorage`. It fails closed without an OS keystore.
-- `protocol-handler.ts` — deep links `takusen://invite/<code>` and `app.hachiman://oauth-callback`, single-instance lock
+- `protocol-handler.ts` + `deep-link-route.ts` — deep links `takusen://invite/<code>[#k=<key>]` and `app.hachiman://oauth-callback`, single-instance lock
 - `renderer-protocol.ts` + `renderer-path.ts` — packaged renderer on `hachiman://app/`
 - `region-probe.ts` + `probe-target-guard.ts` — TCP RTT probe to each region's `probeHost`, with an SSRF guard
 - `screen-share.ts` — desktopCapturer sources + display-media handler

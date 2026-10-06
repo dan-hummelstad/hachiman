@@ -44,9 +44,9 @@ Preview state persists under `preview:*` localStorage keys, so it never touches 
   - `fetchBlob` gives the fixture files and the files uploaded in this session. It renders the SVG fixture images to PNG, because their pointers say PNG.
   - The §12.12 routes reject with `PreviewUnsupported`. Only the crypto Worker calls them.
   - You can create, edit or delete channels, roles and guilds.
-  - The invite list has `nt0wl5x` and an older permanent invite by petra_v (`p3rm4nt`). A new invite gets an `inv-NNNN` code, with the expiry and the maximum uses of the request. It has `hasHistory` when the request has a `record`.
-  - I own Night Owls, so its invite dialog offers 7 days and "Permanent" (with the warning). In Lattice Labs I am not an administrator, so the dialog offers 24 hours or less.
-  - `previewInvite` returns "Pixel Pushers".
+  - The invite list has an invite with history (`h1st0ry`, no Copy button), `nt0wl5x` and an older permanent invite by petra_v (`p3rm4nt`). A new invite gets an `inv-NNNN` code, with the expiry and the maximum uses of the request. It has `hasHistory` when the request has a `record`.
+  - I own Night Owls, so its invite dialog offers 7 days, "Permanent" (with the warning) and "Include history". The crypto stub signs a placeholder record and gives a random key, so the link ends in `#k=`. In Lattice Labs I am not an administrator, so the dialog offers 24 hours or less and no history.
+  - `previewInvite` returns "Pixel Pushers". For `h1st0ry` it has `hasHistory`: open `/invite/h1st0ry?preview` for the "Open the full link" note, or add `#k=` and a well-formed key (43 base64url characters, for example 43 × `A`) for the "includes history" note. The stub `redeemInvite` imports nothing.
 - `joinVoice`, `leaveVoice` and `setSelfVoice` update my voice state. `setSelfVoice` keeps the client's own mute and deafen rules. There is no media.
 - The stub table is typed against `hachiman.rest`. If a REST method is added or renamed, `stubs.ts` does not compile until it has a stub or is in `DS_ROUTES`.
 

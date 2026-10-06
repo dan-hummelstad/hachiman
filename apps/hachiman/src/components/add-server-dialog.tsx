@@ -8,8 +8,8 @@ import { RegionSelect } from '@/components/region-select'
 import { useAction } from '@/hooks/use-action'
 import type { CreateGuildBody, GuildFull } from '@hachiman/client'
 import { adminActionService } from '@/services/AdminActionService'
-import { acceptInvite, parseInviteCode } from '@/services/InviteService'
-import { useDialog } from '@/stores/dialogStore'
+import { acceptInvite, parseInviteLink, stashInviteKey } from '@/services/InviteService'
+import { openDialog, useDialog } from '@/stores/dialogStore'
 import { selectGuild } from '@/stores/navStore'
 
 /** POST /guilds, then the owner's genesis admin action (§12.16), then select the guild. */
@@ -50,14 +50,20 @@ export function AddServerDialog(): React.JSX.Element {
       )
       if (!created.ok) return
     } else {
-      const code = parseInviteCode(value)
-      if (!code) {
+      const link = parseInviteLink(value)
+      if (!link) {
         setError(
           'That isn’t an invite link or code. Paste the whole link, or just the code at its end.'
         )
         return
       }
-      if (!(await run('join', () => acceptInvite(code))).ok) return
+      if (link.key) {
+        // An invite with history: the join window shows it, and keeps the key out of stores.
+        stashInviteKey(link.code, link.key)
+        openDialog({ kind: 'joinInvite', code: link.code })
+        return
+      }
+      if (!(await run('join', () => acceptInvite(link.code))).ok) return
     }
     close()
   }

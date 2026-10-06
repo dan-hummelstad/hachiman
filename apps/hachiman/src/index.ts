@@ -9,6 +9,7 @@ export { ThemeProvider } from './components/theme-provider'
 // Platform seam (contract §11)
 export { PlatformProvider, usePlatform } from './shared/PlatformContext'
 export type {
+  InviteLink,
   IPlatformService,
   RegionProbeTarget,
   RegionProbeResult,
@@ -20,5 +21,6 @@ export type {
 // the Electron host reads `takusenService.env` for its redirect URI.
 export { takusenService } from './services/TakusenService'
 
-// Invite links: `takusen://invite/<code>`, `https://<host>/invite/<code>`, or a bare code → code.
-export { parseInviteCode } from './services/InviteService'
+// Invite links: `takusen://invite/<code>`, `https://<host>/invite/<code>` (with `#k=<key>` for an
+// invite with history), or a bare code → code and key. A malformed key gives null.
+export { parseInviteCode, parseInviteLink } from './lib/invite-link'

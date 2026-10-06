@@ -135,6 +135,17 @@ describe('InviteService (§12.11.4)', () => {
     expect(toB64url(stored!.seed!)).toBe(inv.linkSecret)
   }, 120_000)
 
+  it('sendInviteBundles rejects with the error of a failed post, so the caller can revoke the invite', async () => {
+    const { ds, alice, guildId, general } = await world()
+    const p = await alice.invites!.prepareHistoryInvite({ guildId, channelIds: [general], expiresAtMs: ds.id.now + DAY, maxUses: 1 })
+    const { inviteId } = ds.createInvite(guildId, p.record)
+    // Takusen refuses the post (here: the invite was revoked in the meantime).
+    ds.invites.get(inviteId)!.revoked = true
+    await expect(alice.invites!.sendInviteBundles({ guildId, inviteId, record: p.record })).rejects.toMatchObject({ code: 'Transport', dsCode: 'UnknownInvite' })
+    expect(ds.invites.get(inviteId)!.bundles).toEqual([])
+    expect(alice.of('error')).toEqual([])
+  }, 120_000)
+
   it('a commit bundle fills the epochs that a committer without the service left out', async () => {
     const { ds, alice, bob, guildId, general, gid } = await world()
     const inv = await invite(ds, alice, guildId, [general])

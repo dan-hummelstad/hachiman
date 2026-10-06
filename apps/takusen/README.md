@@ -131,7 +131,7 @@ flowchart TB
 | `src/app/(dashboard)/` | Signed-in dashboard: `dashboard`, `account` and `admin` pages. |
 | `src/app/(marketing)/page.tsx` | Landing page at `/`. |
 | `src/app/oidc/interaction/[uid]/` | OIDC login and consent screen. It is a page, not an API route, so it can read the Auth.js session. |
-| `src/app/invite/[code]/` | Public invite preview page. It links to `HACHIMAN_WEB_URL`. |
+| `src/app/invite/[code]/` | Public invite preview page. It links to `HACHIMAN_WEB_URL` and to `takusen://invite/<code>`. The client component `open-invite-buttons.tsx` adds the `#k=` key of an invite with history to both links, and removes it from the address bar (contract §11 "Invite links"). `src/lib/invite-fragment.ts` makes the decision, and its test covers it. |
 | `src/app/oauth/electron-bridge/` | Hands the OIDC callback to the `app.hachiman://oauth-callback` deep link. |
 | `src/app/api/oidc/[...path]/` | Adapts Next.js requests to the panva `oidc-provider` callback. |
 | `src/app/api/auth/[...nextauth]/` | Auth.js handlers for the dashboard cookie session. |

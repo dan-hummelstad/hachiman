@@ -4,6 +4,7 @@
  * - prepareHistoryInvite makes the seed and signs the record. The seed leaves the Worker once, as
  *   the link secret (§12.17). The creator does not keep it.
  * - sendInviteBundles: the creation bundles of this device, one per scope group that it holds.
+ *   The first failed post rejects.
  * - After each own commit in a scope group of an active invite (GroupService.onOwnCommit), this
  *   device sends a bundle with the new epoch and the epochs after the newest bundled one.
  * - redeemInvite (after the guild join): checks the record against the seed and the admin state,
@@ -485,17 +486,15 @@ export const createInviteService = ((ctx, identity, groups, perms): InviteServic
       const row = await noteRecord(input.inviteId, c.record, signed, state)
       // The cached list of the guild predates this invite: the next own commit reads it again.
       records.delete(input.guildId)
+      // A failed post rejects: the caller revokes the invite, so no link lacks the bundles of
+      // its creator (§11). 0 groups: this device holds no group of the scope.
       let sent = 0
       for (const g of await scopeGroups(c.record, state)) {
         const keys = await secretsOf(g.gid)
         const newest = keys.at(-1)?.epoch
         if (newest === undefined || (row.bundled[g.gid] ?? -1) >= newest) continue
-        try {
-          await sendBundle(input.inviteId, c.record, g.gid, keys)
-          sent++
-        } catch (e) {
-          report(e)
-        }
+        await sendBundle(input.inviteId, c.record, g.gid, keys)
+        sent++
       }
       return { groups: sent }
     },

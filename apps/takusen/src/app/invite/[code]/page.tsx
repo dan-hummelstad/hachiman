@@ -1,6 +1,6 @@
 import { Window, WindowScreen } from '@/components/window'
-import { Button } from '@/components/ui/button'
 import { getInvitePreview } from '@/lib/invites'
+import { OpenInviteButtons } from './open-invite-buttons'
 
 export const dynamic = 'force-dynamic'
 
@@ -19,6 +19,7 @@ function guildInitials(name: string): string {
 
 // Public, non-consuming landing page. Joining happens in the app
 // (POST /api/v1/invites/:code), reached via the deep link or the web client.
+// OpenInviteButtons hands on the `#k=` key of an invite with history.
 export default async function InvitePage({ params }: InvitePageProps): Promise<React.JSX.Element> {
   const { code } = await params
   const preview = await getInvitePreview(code)
@@ -44,14 +45,10 @@ export default async function InvitePage({ params }: InvitePageProps): Promise<R
       <Window
         title="Guild invite"
         footer={
-          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-            <Button asChild variant="outline">
-              <a href={`${webUrl}/invite/${encoded}`}>Open in browser</a>
-            </Button>
-            <Button asChild>
-              <a href={`takusen://invite/${encoded}`}>Open in Hachiman</a>
-            </Button>
-          </div>
+          <OpenInviteButtons
+            webHref={`${webUrl}/invite/${encoded}`}
+            appHref={`takusen://invite/${encoded}`}
+          />
         }
       >
         <div className="flex items-center gap-4">

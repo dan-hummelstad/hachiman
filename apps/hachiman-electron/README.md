@@ -51,7 +51,7 @@ flowchart TB
     IDX["index.ts<br/>window, IPC handlers"]
     CSP["csp.ts + csp-policy.ts<br/>buildCsp"]
     KS["secure-storage.ts<br/>wrap key store"]
-    PROT["protocol-handler.ts<br/>deep links, single-instance lock"]
+    PROT["protocol-handler.ts<br/>+ deep-link-route.ts<br/>deep links, single-instance lock"]
     RP["renderer-protocol.ts<br/>+ renderer-path.ts<br/>hachiman://app"]
     GUARD["probe-target-guard.ts<br/>validateProbeTargets"]
     PROBE["region-probe.ts<br/>probeRegions"]
@@ -80,7 +80,7 @@ flowchart TB
   IPC -.-> SS
   IPC -.-> BR
 
-  PROT -- "hachiman:invite-code<br/>hachiman:oauth-callback" --> BR
+  PROT -- "hachiman:invite-link<br/>hachiman:oauth-callback" --> BR
   BR -- "hachiman:open-external<br/>hachiman:probe-regions<br/>hachiman:secure-storage-*" --> IDX
   BR -- "hachiman:screen-sources<br/>hachiman:select-screen-source" --> SS
   BR --> PSV --> UI
@@ -90,7 +90,7 @@ IPC channels (`src/shared/ipc.ts`):
 
 | Channel | Direction | Payload |
 |---|---|---|
-| `hachiman:invite-code` | main → renderer | Invite code from `takusen://invite/<code>` |
+| `hachiman:invite-link` | main → renderer | `takusen://invite/<code>[#k=<key>]`, rebuilt from the parts that `deep-link-route.ts` checked. The key is the seed of an invite with history. The renderer parses it with `parseInviteLink`. |
 | `hachiman:oauth-callback` | main → renderer | The raw `app.hachiman://oauth-callback?…` URL |
 | `hachiman:open-external` | renderer → main (invoke) | An `http:` or `https:` URL. Main refuses other schemes. |
 | `hachiman:probe-regions` | renderer → main (invoke) | `{region, host, port}[]` → `{region, rttMs}[]` |
@@ -108,6 +108,7 @@ The preload buffers the two main → renderer channels until the UI subscribes. 
 | `src/main/csp-policy.ts` | The CSP rules. It has no imports, because the browser host also uses it. |
 | `src/main/secure-storage.ts` | The wrap key store for `secureStorage`. It has no Electron imports, so `node --test` can load it. |
 | `src/main/protocol-handler.ts` | `takusen://invite/<code>` and `app.hachiman://oauth-callback` from `argv`, `second-instance` and `open-url`. Holds the single-instance lock. |
+| `src/main/deep-link-route.ts` | `routeDeepLink`: checks a deep link and gives what the renderer receives. An invite link with a fragment other than `#k=` and 43 canonical base64url characters is dropped (fail closed). It has no Electron imports, so `node --test` can load it. |
 | `src/main/renderer-protocol.ts` | Serves the built renderer from `hachiman://app/` with the CSP header. In dev, adds the CSP to the dev server responses. |
 | `src/main/renderer-path.ts` | Maps `hachiman://app/…` to a file and refuses path traversal and symlink escapes. It has no Electron imports, so `node --test` can load it. |
 | `src/main/region-probe.ts` | TCP connect RTT: 3 samples per target, minimum wins, 2 s timeout, 8 sockets at a time |
@@ -118,7 +119,7 @@ The preload buffers the two main → renderer channels until the UI subscribes. 
 | `src/shared/ipc.ts` | IPC channel names, `ScreenSourceInfo` and `SecureStorageResult`. Constants and types only. |
 | `src/renderer/src/PlatformService.ts` | `IPlatformService` adapter over `window.hachiman` |
 | `src/renderer/src/main.tsx` | Renders `PlatformProvider` + `ThemeProvider` + `App` |
-| `src/main/*.test.mts` | `csp`, `secure-storage`, `probe-target-guard` and `renderer-path` unit tests (`node --test`) |
+| `src/main/*.test.mts` | `csp`, `secure-storage`, `probe-target-guard`, `renderer-path` and `deep-link-route` unit tests (`node --test`) |
 
 ## OAuth sign-in
 
@@ -146,7 +147,7 @@ sequenceDiagram
   SB->>BP: load bridge page
   BP->>SB: location.assign("app.hachiman://oauth-callback?code&state")
   SB->>M: OS protocol handler (open-url or second-instance)
-  M->>M: route(), focus window
+  M->>M: routeDeepLink(), focus window
   M->>PR: send hachiman:oauth-callback (raw URL)
   PR->>UI: onOAuthCallback(url)
   UI->>TS: completeSignIn(url)
@@ -156,7 +157,7 @@ sequenceDiagram
   TS->>TS: setSession, schedule refresh
 ```
 
-The redirect URI is `VITE_HACHIMAN_OIDC_REDIRECT`, or else `${issuerOrigin}/oauth/electron-bridge`. The Takusen seed registers `http://localhost:3000/oauth/electron-bridge` on the `hachiman-client` OIDC client. If the user started from an invite, `App.tsx` opens the invite again after the callback.
+The redirect URI is `VITE_HACHIMAN_OIDC_REDIRECT`, or else `${issuerOrigin}/oauth/electron-bridge`. The Takusen seed registers `http://localhost:3000/oauth/electron-bridge` on the `hachiman-client` OIDC client. If the user started from an invite, `App.tsx` opens the invite again after the callback. The key of an invite with history stays in renderer memory during the sign-in.
 
 ## Screen share source pick
 

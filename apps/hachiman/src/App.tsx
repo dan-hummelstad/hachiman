@@ -11,6 +11,7 @@ import { WindowStrip } from '@/components/ui/window-strip'
 
 import { errMsg } from '@/lib/utils'
 import { startHachiman } from '@/services/hachiman'
+import { dropSignInInviteKeys, restoreInviteKey, stashInviteKey } from '@/services/InviteService'
 import { takusenService } from '@/services/TakusenService'
 import { usePlatform } from '@/shared/PlatformContext'
 import { useCryptoStore } from '@/stores/cryptoStore'
@@ -31,27 +32,36 @@ function App(): React.JSX.Element {
 
   // The host gives the crypto Worker its store wrap key (§11).
   useEffect(() => startHachiman(platform), [platform])
+  useEffect(() => {
+    const off = platform.onOAuthCallback((url) => {
+      // Read before completeSignIn clears the pending flow; reopen the invite either way.
+      const inviteCode = useTakusenStore.getState().pendingFlow?.inviteCode
+      if (inviteCode) restoreInviteKey(inviteCode)
+      void takusenService
+        .completeSignIn(url)
+        .catch((e) => {
+          console.error('[oauth] callback failed', e)
+          useTakusenStore
+            .getState()
+            .setAuthError(`Sign-in did not finish: ${errMsg(e)}. Sign in again.`)
+        })
+        .finally(() => {
+          if (inviteCode) openDialog({ kind: 'joinInvite', code: inviteCode })
+        })
+    })
+    // The browser host gives the callback of the load URL during the subscription, so the key of
+    // its sign-in is in memory now. A key still in sessionStorage is of a sign-in that did not
+    // finish (§12.17).
+    dropSignInInviteKeys()
+    return off
+  }, [platform])
   useEffect(
     () =>
-      platform.onOAuthCallback((url) => {
-        // Read before completeSignIn clears the pending flow; reopen the invite either way.
-        const inviteCode = useTakusenStore.getState().pendingFlow?.inviteCode
-        void takusenService
-          .completeSignIn(url)
-          .catch((e) => {
-            console.error('[oauth] callback failed', e)
-            useTakusenStore
-              .getState()
-              .setAuthError(`Sign-in did not finish: ${errMsg(e)}. Sign in again.`)
-          })
-          .finally(() => {
-            if (inviteCode) openDialog({ kind: 'joinInvite', code: inviteCode })
-          })
+      platform.onInviteLink(({ code, key }) => {
+        // The key of an invite with history stays out of the dialog store (§12.17).
+        stashInviteKey(code, key)
+        openDialog({ kind: 'joinInvite', code })
       }),
-    [platform]
-  )
-  useEffect(
-    () => platform.onInviteCode((code) => openDialog({ kind: 'joinInvite', code })),
     [platform]
   )
   useEffect(() => {

@@ -985,7 +985,9 @@ export interface CryptoApi {
   /**
    * After POST /guilds/:id/invites: seals the epoch secrets that this device holds for each group
    * of the scope (at most HISTORY_BUNDLE_MAX_EPOCHS each, the newest) and posts one bundle per group.
-   * Throws CryptoError('InvalidChain') when the record fails the checks of §12.16.
+   * Throws CryptoError('InvalidChain') when the record fails the checks of §12.16, and the error of
+   * the first post that fails (the caller then revokes the invite). `groups` 0: this device holds
+   * no group of the scope.
    */
   sendInviteBundles(input: { guildId: GuildId; inviteId: string; record: B64url }): Promise<{ groups: number }>
   /**

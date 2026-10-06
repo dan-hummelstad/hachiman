@@ -191,6 +191,8 @@ type RestStubs = {
 
 const INVITE_CODE = 'nt0wl5x'
 const PERMANENT_INVITE_CODE = 'p3rm4nt'
+/** An invite with history: the list hides its Copy button, and its preview says so. */
+const HISTORY_INVITE_CODE = 'h1st0ry'
 const PREVIEW_DEVICE = READY.deviceId
 
 /** About 2 s of upload progress in ticks, so the composer tray's progress bar shows. */
@@ -279,6 +281,15 @@ export function stubRest(): void {
     expiresAt: null,
     uses: 12,
     createdAt: new Date(now - 30 * DAY).toISOString()
+  })
+  const historyInvite = (guildId: string): Invite => ({
+    ...invite(guildId),
+    id: `inv-history-${guildId}`,
+    code: HISTORY_INVITE_CODE,
+    expiresAt: new Date(now + DAY / 2).toISOString(),
+    maxUses: 1,
+    uses: 0,
+    hasHistory: true
   })
   const createGuild = (name: string): GuildFull => {
     const id = nextId('g')
@@ -584,7 +595,7 @@ export function stubRest(): void {
     deleteRole: (guildId, roleId) => {
       dispatch({ t: 'GUILD_ROLE_DELETE', d: { guildId, roleId } })
     },
-    getInvites: (guildId) => [invite(guildId), permanentInvite(guildId)],
+    getInvites: (guildId) => [historyInvite(guildId), invite(guildId), permanentInvite(guildId)],
     createInvite: (guildId, body = {}) => ({
       ...invite(guildId),
       id: nextId('invite'),
@@ -604,7 +615,7 @@ export function stubRest(): void {
       guild: { id: 'g-preview-invite', name: 'Pixel Pushers', icon: null },
       memberCount: 48,
       expiresAt: null,
-      hasHistory: false
+      hasHistory: code === HISTORY_INVITE_CODE
     }),
     acceptInvite: (code) => createGuild(`Joined via ${code}`),
     getDmChannels: () => dms,

@@ -12,6 +12,7 @@ import { CLIENT_CAPABILITIES, CLIENT_VERSION } from '@/lib/client-version'
 import { cryptoService } from '@/services/CryptoService'
 import { createDsTransport } from '@/services/ds-transport'
 import { docsService } from '@/services/docs/DocsService'
+import { redeemWaitingInvites, resetInvites } from '@/services/InviteService'
 import { messagesService } from '@/services/MessagesService'
 import { takusenService } from '@/services/TakusenService'
 import { messageSound, playSound, startSounds } from '@/services/SoundService'
@@ -109,14 +110,17 @@ const onUpdate = (e: GatewayDispatch): void => {
       messagesService.onNewSession(selectedChannelId())
       useUserStore.setState({ status: hachiman.cache.presences.get(e.d.user.id) ?? 'online' })
       cryptoService.sync()
-      return syncAll()
+      syncAll()
+      return redeemWaitingInvites()
     }
     case 'RESUMED':
       docsService.onReady(false)
       cryptoService.sync()
       return syncAll()
     case 'GUILD_CREATE':
-      return syncAll()
+      syncAll()
+      // A joined invite with history waits for the members of its guild (§12.11.4).
+      return redeemWaitingInvites()
     case 'CHANNEL_CREATE':
     case 'CHANNEL_UPDATE':
     case 'CHANNEL_DELETE':
@@ -269,6 +273,7 @@ export function startHachiman(host?: IPlatformService): void {
     // Setup or linking finished: catch up and decrypt what waited.
     if (hachiman.gateway.state === 'ready') cryptoService.sync()
     messagesService.retryAll()
+    redeemWaitingInvites()
   })
   voiceService.start()
   startSounds()
@@ -287,6 +292,7 @@ export function startHachiman(host?: IPlatformService): void {
     cryptoService.stop()
     messagesService.reset()
     docsService.reset()
+    resetInvites()
     clearDecryptedBlobs()
     resetUserStore()
     resetGuildStore()

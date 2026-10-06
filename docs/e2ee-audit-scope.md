@@ -132,6 +132,12 @@ Line counts are from 2026-10-02 on branch `e2ee`. Test files are not in the coun
 | `apps/hachiman-electron/src/main/secure-storage.ts` | 259 | `safeStorage` wrap key, Linux backend refusal |
 | `apps/hachiman-electron/src/main/csp-policy.ts` | 64 | CSP rules |
 | `apps/hachiman-browser/src/platforms/browser/secure-storage.ts` | 180 | Non-extractable IndexedDB wrap key |
+| `apps/hachiman/src/services/InviteService.ts` | 277 | Custody of the invite seed, the exception to "no key outside the Worker" (§12.17): the in-memory key maps, the `sessionStorage` entry across the browser sign-in redirect and its removal at start-up, the hand-off to `redeemInvite`, the revoke when a creation bundle fails |
+| `apps/hachiman/src/lib/invite-link.ts` | 53 | `parseInviteLink`: the `#k=` format check that fails closed (43 canonical base64url characters) |
+| `apps/hachiman/src/components/join-server-modal.tsx`, `invite-dialog.tsx` | 413 | The seed in component state only; the link shows once; a join without a crypto Worker needs consent |
+| `apps/hachiman-electron/src/main/deep-link-route.ts` | 49 | Deep link check in main: drops a link with another fragment, rebuilds the link from the checked parts |
+| `apps/hachiman-browser/src/platforms/browser/launch-url.ts` | 31 | The load URL: every `/invite` path resets to `/`, so the seed leaves the address bar and the history entry |
+| `apps/takusen/src/app/invite/[code]/open-invite-buttons.tsx`, `src/lib/invite-fragment.ts` | 87 | The Takusen page script that reads `#k=`, forwards only a well-formed key to both hosts, and strips the fragment (see L-17) |
 
 ## 4. Invariants to check
 
@@ -235,6 +241,7 @@ Each invariant has an ID, so that an auditor can refer to it. "Tested by" names 
 - **L-14 Revoked-device signatures.** A revoked device can still sign envelopes for epochs before the Remove that the client processed (§12.8.5 step 4). The server sets the order and `created_at` of such rows.
 - **L-15 KT freshness.** An inclusion proof shows that a key object is in the log, not that it is the newest entry of the user. The DS can serve an old DSK cert or hide a revocation entry from contacts (§12.14). A client that pinned `ktRequired: false` checks no proofs until it stores its first head.
 - **L-16 Fork alert.** The AEAD failure count uses unauthenticated headers. A server can trigger a resync, but the rate limit allows at most one per group in 10 minutes, with exponential backoff (§12.8.7).
+- **L-17 Invite links with history.** The link is a bearer secret: anyone who gets the full link (`#k=<seed>`) can join and read the history of the scope until the invite expires, its uses end, or an administrator revokes it (§12.11.4). A clicked link opens the Takusen page `/invite/<code>` in a browser, and Takusen serves the script that reads the fragment. Thus a hostile Takusen can read the seed in both hosts, the Electron host too (§11 "Invite links", §12.17 "Browser host"). Only a link that the user pastes into the Electron app does not go through Takusen. The seed also crosses the UI thread of the app as text (§12.17 "Exception: the invite seed").
 
 ## 6. Fuzz and property tests
 

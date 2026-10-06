@@ -18,6 +18,8 @@ import { useGuildStore } from '@/stores/guildStore'
 /**
  * Create (CREATE_INSTANT_INVITE) + list/revoke (MANAGE_GUILD). The tab keeps its own local list
  * from GET /guilds/:id/invites, permanent invites first. INVITE_DELETE removes a revoked invite.
+ * The link of an invite with history has a key that only its creator saw once, so the list cannot
+ * copy it (§12.11.4).
  */
 export function GuildInvitesTab({ guildId }: { guildId: string }): React.JSX.Element {
   const perms = usePermissions(guildId)
@@ -123,7 +125,17 @@ export function GuildInvitesTab({ guildId }: { guildId: string }): React.JSX.Ele
             <tbody>
               {sorted.map((inv) => (
                 <tr key={inv.code} className="hover:bg-accent/50 border-b last:border-b-0">
-                  <td className="px-2 py-1.5 font-mono text-[13px]">{inv.code}</td>
+                  <td className="px-2 py-1.5 font-mono text-[13px]">
+                    {inv.code}
+                    {inv.hasHistory && (
+                      <span
+                        className="border-primary text-primary ml-2 border px-1 font-sans text-xs font-semibold"
+                        title="The link includes history. Only its creator saw the full link."
+                      >
+                        History
+                      </span>
+                    )}
+                  </td>
                   <td className="max-w-40 truncate">{displayName(members?.get(inv.createdBy))}</td>
                   <td className="tabular-nums">
                     {inv.uses}
@@ -143,12 +155,14 @@ export function GuildInvitesTab({ guildId }: { guildId: string }): React.JSX.Ele
                   </td>
                   <td className="py-1">
                     <span className="flex justify-end gap-1">
-                      <IconButton
-                        label={`${copied === inv.code ? 'Copied' : 'Copy'} link for ${inv.code}`}
-                        onClick={() => copy(inv.code)}
-                      >
-                        {copied === inv.code ? <Check className="text-online" /> : <Copy />}
-                      </IconButton>
+                      {!inv.hasHistory && (
+                        <IconButton
+                          label={`${copied === inv.code ? 'Copied' : 'Copy'} link for ${inv.code}`}
+                          onClick={() => copy(inv.code)}
+                        >
+                          {copied === inv.code ? <Check className="text-online" /> : <Copy />}
+                        </IconButton>
+                      )}
                       {canList && (
                         <IconButton
                           tone="danger"
