@@ -1,20 +1,17 @@
 /**
- * Tests for the load-URL routes of the browser host (./launch-url.ts) with the
- * shared UI's invite parser. Run via the package `test` script.
+ * Tests for the load-URL routes of the browser host (./launch-url.ts). The
+ * invite grammar has its own tests in @hachiman/client (invite-link.spec.ts).
+ * Run via the package `test` script.
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { parseInviteLink } from "../../../../hachiman/src/lib/invite-link.ts";
 import { launchRoute } from "./launch-url.ts";
 
 const KEY = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8";
 
-const route = (href: string) => {
+const route = (href: string): ReturnType<typeof launchRoute> => {
   const url = new URL(href);
-  return launchRoute(
-    { pathname: url.pathname, search: url.search, href },
-    parseInviteLink,
-  );
+  return launchRoute({ pathname: url.pathname, search: url.search, href });
 };
 
 test("an invite link opens with its key", () => {
@@ -29,12 +26,7 @@ test("an invite link opens with its key", () => {
 });
 
 test("an invite link with a malformed key is a route that opens nothing", () => {
-  for (const fragment of [
-    "#k=",
-    `#k=${KEY.slice(1)}`,
-    `#k=${KEY.slice(0, -1)}B`,
-    "#section",
-  ]) {
+  for (const fragment of ["#k=", "#section"]) {
     assert.deepEqual(
       route(`https://app.example/invite/nt0wl5x${fragment}`),
       { kind: "invite", link: null },

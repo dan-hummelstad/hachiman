@@ -11,7 +11,7 @@
  * - Snapshot: when more than SNAPSHOT_EVERY updates follow the newest snapshot, or when the
  *   snapshot or an update after it is of an older epoch (or group) than the current one, so that a
  *   member who joined later can read the page. A page with no update after its snapshot gets its
- *   pointer re-wrapped instead (rewrap.ts).
+ *   pointer re-wrapped instead (envelopes.ts).
  * - Waiting (no key for the snapshot or for an update): a slow retry that loads the state again,
  *   until a member re-wraps the pointer or posts a snapshot that covers the update.
  * - Awareness: DocAwareness.ts.
@@ -29,7 +29,7 @@ import {
 import type { CryptoApi, DocDecryptResult, DocSnapshotPointer } from '@hachiman/crypto'
 import type { DocPeer } from '@/stores/docsStore'
 import { createDocAwareness, createMutedAwareness } from './DocAwareness'
-import { isStale, parsePointer, rewrapPointer } from './rewrap'
+import { isStale, openPointer, rewrapPointer } from './envelopes'
 import type { DocProvider, DocStatus } from './types'
 
 /** The transaction origin of remote updates. Local edits have any other origin. */
@@ -77,8 +77,6 @@ export interface DocProviderDeps {
   setPresence(pageId: string, peers: DocPeer[]): void
   /** The page_media upload ids that the doc references (POST snapshots `mediaUploadIds`). */
   collectMediaUploadIds(doc: Y.Doc): string[]
-  /** A provider that nobody views (the re-wrap pass): no awareness frames and no snapshot jitter. */
-  headless?: boolean
   random?(): number
 }
 
@@ -91,7 +89,12 @@ const statusOf = (e: unknown): number | null => (e instanceof RestError ? e.stat
 export function createDocProvider(
   channelId: string,
   pageId: string,
-  deps: DocProviderDeps
+  deps: DocProviderDeps,
+  /**
+   * headless: a provider that nobody views (the re-wrap pass): no awareness frames and no snapshot
+   * jitter.
+   */
+  opts: { headless?: boolean } = {}
 ): DocProvider {
   const doc = new Y.Doc()
   const listeners = new Set<(status: DocStatus) => void>()
@@ -115,7 +118,10 @@ export function createDocProvider(
   // Snapshot state: the newest snapshot and the group epochs of the updates after it.
   let snapBase = 0
   let snapEpoch: GroupEpoch | null = null
-  /** The newest snapshot row that this provider read or posted: an idle page re-wraps its pointer. */
+  /**
+   * The newest snapshot row that this provider read or posted. When set, its baseSeq is snapBase.
+   * null after a SnapshotConflict, whose row is not known here.
+   */
   let snapRow: DocSnapshot | null = null
   let chain: (GroupEpoch & { seq: number })[] = []
   let current: GroupEpoch | null = null
@@ -128,7 +134,7 @@ export function createDocProvider(
   let sending = false
   let sendRetries = 0
 
-  const aware = deps.headless
+  const aware = opts.headless
     ? createMutedAwareness(doc)
     : createDocAwareness(doc, channelId, pageId, deps, () => loaded)
 
@@ -183,7 +189,7 @@ export function createDocProvider(
   /**
    * Waiting for keys (§12.20 "Access by new members") or for a retry. A re-wrap or a snapshot by a
    * member sends no event to this page, so the page retries slowly (and on PAGE_UPDATE,
-   * DocsService). A page that shows its content stays 'ready' while it waits.
+   * pageChanged). A page that shows its content stays 'ready' while it waits.
    */
   const onPending = (reason: Extract<DocDecryptResult, { status: 'pending' }>['reason']): void => {
     if (reason !== 'no_history_key' && reason !== 'group_unknown') return scheduleRetry()
@@ -266,21 +272,11 @@ export function createDocProvider(
     const snap = state.snapshot
     // A reload applies only a snapshot that holds more than the doc.
     if (snap && (!loaded || snap.baseSeq > applied)) {
-      const [r] = await deps.crypto().decryptDoc([
-        {
-          id: 'snapshot',
-          channelId,
-          pageId,
-          kind: 'doc_snapshot',
-          senderDevice: snap.senderDevice,
-          envelope: snap.envelope
-        }
-      ])
+      const o = await openPointer(deps.crypto(), channelId, pageId, snap)
       if (destroyed) return
-      if (!r || r.status === 'pending') return onPending(r?.reason ?? 'transport')
-      const pointer = r.status === 'ok' ? parsePointer(r.bytes) : null
-      if (!pointer || pointer.uploadId !== snap.uploadId) {
-        console.warn('[docs] snapshot dropped:', r.status === 'failed' ? r.reason : 'pointer')
+      if (o.status === 'pending') return onPending(o.reason)
+      if (o.status === 'bad') {
+        console.warn('[docs] snapshot dropped:', o.reason)
         if (!loaded) return setStatus('error')
         // A page that is loaded skips the bad snapshot and stays as it is: it waits for the next one.
         return scheduleWait()
@@ -288,10 +284,10 @@ export function createDocProvider(
       const blob = await deps.rest.fetchBlob(snap.key)
       const plain = await deps.crypto().decryptAttachment(
         {
-          key: pointer.fileKey,
-          sha256: pointer.sha256,
+          key: o.pointer.fileKey,
+          sha256: o.pointer.sha256,
           mime: 'application/octet-stream',
-          size: pointer.size
+          size: o.pointer.size
         },
         blob
       )
@@ -299,11 +295,7 @@ export function createDocProvider(
       if (destroyed) return
       Y.applyUpdate(doc, bytes, REMOTE)
       applied = Math.max(applied, snap.baseSeq)
-      snapBase = snap.baseSeq
-      snapEpoch = { groupId: snap.groupId, epoch: snap.epoch }
-      snapRow = snap
-      noteCurrent(snapEpoch)
-      chain = chain.filter((c) => c.seq > snapBase)
+      adoptSnapshot(snap)
     }
     loaded = true
     // The doc holds every update up to `applied` now: the drain goes on after it.
@@ -425,23 +417,32 @@ export function createDocProvider(
     return snapshotRun
   }
 
+  /**
+   * Takes `row` as the newest snapshot. A row older than the one held (a reply that a reload
+   * overtook) changes nothing.
+   */
+  function adoptSnapshot(row: DocSnapshot): void {
+    if (row.baseSeq < snapBase) return
+    snapRow = row
+    snapBase = row.baseSeq
+    snapEpoch = { groupId: row.groupId, epoch: row.epoch }
+    noteCurrent(snapEpoch)
+    chain = chain.filter((c) => c.seq > snapBase)
+  }
+
   /** An idle page: the pointer of the newest snapshot again, in the current epoch (§12.20). */
   async function rewrapIdle(): Promise<void> {
-    const snap =
-      snapRow?.baseSeq === snapBase ? snapRow : (await deps.rest.getPageState(pageId)).snapshot
+    const snap = snapRow ?? (await deps.rest.getPageState(pageId)).snapshot
     if (destroyed || snap?.baseSeq !== snapBase) return
     const row = await rewrapPointer(deps.crypto(), deps.rest, channelId, snap)
     // null: another member was first, or the pointer does not open here. Both end the attempt.
-    if (row) {
-      snapRow = row
-      snapEpoch = { groupId: row.groupId, epoch: row.epoch }
-      noteCurrent(snapEpoch)
-    } else snapEpoch = current
+    if (row) adoptSnapshot(row)
+    else snapEpoch = current
   }
 
   async function snapshot(): Promise<void> {
     try {
-      if (!deps.headless) await sleep(random() * SNAPSHOT_JITTER_MS)
+      if (!opts.headless) await sleep(random() * SNAPSHOT_JITTER_MS)
       if (destroyed || status !== 'ready' || !needsSnapshot()) return
       if (applied <= snapBase) {
         if (!forceSnapshot) return await rewrapIdle()
@@ -480,23 +481,25 @@ export function createDocProvider(
       })
       noteCurrent(out)
       try {
-        snapRow = await deps.rest.postPageSnapshot(pageId, {
-          baseSeq,
-          uploadId: upload.id,
-          envelope: out.envelope,
-          mediaUploadIds
-        })
+        adoptSnapshot(
+          await deps.rest.postPageSnapshot(pageId, {
+            baseSeq,
+            uploadId: upload.id,
+            envelope: out.envelope,
+            mediaUploadIds
+          })
+        )
         forceSnapshot = false
-        snapBase = baseSeq
-        snapEpoch = { groupId: out.groupId, epoch: out.epoch }
       } catch (e) {
         if (codeOf(e) !== 'SnapshotConflict') throw e
-        // Another member was first. Its upload wins; mine stays unclaimed for the sweep.
+        // Another member was first. Its upload wins; mine stays unclaimed for the sweep. Its row is
+        // not known here: rewrapIdle reads it again.
         const theirs = e instanceof RestError ? e.details.baseSeq : undefined
         if (typeof theirs === 'number') snapBase = Math.max(snapBase, theirs)
+        snapRow = null
         snapEpoch = current
+        chain = chain.filter((c) => c.seq > snapBase)
       }
-      chain = chain.filter((c) => c.seq > snapBase)
     } catch (e) {
       if (statusOf(e) === 403) canWrite = false
       console.warn('[docs] snapshot failed', codeOf(e) ?? e)
@@ -513,8 +516,8 @@ export function createDocProvider(
     get status() {
       return status
     },
-    get waitingForKeys() {
-      return blocked || status === 'waiting'
+    pageChanged() {
+      if (blocked || status === 'waiting') void resync()
     },
     onStatus(cb) {
       listeners.add(cb)
@@ -531,6 +534,7 @@ export function createDocProvider(
     receiveAwareness: aware.receive,
     resync,
     async snapshotIfNeeded() {
+      // The load and any queued drain end first.
       await run(async () => {})
       await maybeSnapshot()
     },

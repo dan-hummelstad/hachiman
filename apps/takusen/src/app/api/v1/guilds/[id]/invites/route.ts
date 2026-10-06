@@ -19,11 +19,10 @@ import { db } from '@/db/client'
 import { channels, invites } from '@/db/schema'
 import { errorResponse, parseBody } from '@/lib/api-helpers'
 import { requireUser } from '@/lib/auth-helpers'
-import { MissingPermissionsError } from '@/lib/errors'
 import { isPrivileged, loadGuildAccess, requirePermission } from '@/lib/guild-access'
 import { checkInviteRecord, INVITE_RECORD_MAX_BYTES } from '@/lib/invite-history'
 import { assertInviteLimits, MAX_INVITE_AGE_S, MAX_LIMITED_INVITE_AGE_S } from '@/lib/invite-limits'
-import { createAdminInvite, createInvite } from '@/lib/invites'
+import { createInvite } from '@/lib/invites'
 import { b64 } from '@/lib/mls/bytes'
 import { getDsModule } from '@/lib/mls/crypto'
 import { requireDevice } from '@/lib/mls/device-auth'
@@ -64,9 +63,7 @@ export async function POST(req: NextRequest, ctx: RouteContext): Promise<NextRes
     const access = await loadGuildAccess(id, session.user.id)
     requirePermission(access.permissions, Permissions.CREATE_INSTANT_INVITE)
     const body = await parseBody(req, createInviteSchema)
-    const isAdmin = isPrivileged(access)
-    if (body.record && !isAdmin) throw new MissingPermissionsError('Only an administrator can make an invite with history')
-    assertInviteLimits(body, isAdmin)
+    assertInviteLimits(body, isPrivileged(access))
     const now = new Date()
     let history: { record: Uint8Array; keyId: Uint8Array } | undefined
     if (body.record) {
@@ -90,13 +87,13 @@ export async function POST(req: NextRequest, ctx: RouteContext): Promise<NextRes
       })
       history = { record: body.record, keyId }
     }
-    const opts = {
+    const row = await createInvite({
       guildId: access.guild.id,
       createdBy: session.user.id,
       expiresAt: body.maxAgeSeconds === 0 ? null : new Date(now.getTime() + body.maxAgeSeconds * 1000),
       maxUses: body.maxUses > 0 ? body.maxUses : null,
-    }
-    const row = opts.expiresAt === null || history ? await createAdminInvite({ ...opts, history }) : await createInvite(opts)
+      history,
+    })
     return NextResponse.json(toInvite(row))
   } catch (err) {
     return errorResponse(err)

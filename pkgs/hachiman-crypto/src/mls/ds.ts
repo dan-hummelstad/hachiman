@@ -33,7 +33,7 @@ import { envelope } from '../envelope/index'
 import { verifyFrankingSync } from '../franking/index'
 import { equalBytes } from '../identity/bytes'
 import { identity, verifyDeviceCert, verifyDskCert, verifyMasterSelfSignature } from '../identity/index'
-import { decodeInviteRecord, decodeSignedInviteRecord, inviteRecordView } from '../invites/codec'
+import { inviteRecordView, readSignedInviteRecord } from '../invites/codec'
 import { verifyInviteAuth, verifyInviteRecordSignature } from '../invites/record'
 import { kt } from '../kt/index'
 import {
@@ -512,7 +512,7 @@ export const ds: DsModule = {
 
   parseInviteRecord(signedRecord) {
     try {
-      return inviteRecordView(decodeInviteRecord(decodeSignedInviteRecord(signedRecord).record))
+      return inviteRecordView(readSignedInviteRecord(signedRecord))
     } catch (e) {
       throw new CryptoError('Malformed', `invite record: ${(e as Error).message}`)
     }

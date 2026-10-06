@@ -21,17 +21,12 @@ import {
   RestError,
   has,
   type Channel,
-  type DocSnapshot,
   type Page,
   type PageHead,
   type RestClient
 } from '@hachiman/client'
-import {
-  ADD_ONLY_EPOCH_GRACE_MS,
-  type CryptoApi,
-  type CryptoEvents,
-  type DocSnapshotPointer
-} from '@hachiman/crypto'
+import { ADD_ONLY_EPOCH_GRACE_MS, type CryptoApi, type CryptoEvents } from '@hachiman/crypto'
+import { isStale, rewrapPointer } from './envelopes'
 import type { DocProvider } from './types'
 
 /** The committer runs the pass again after this: the last envelope of the old epoch is in then. */
@@ -39,70 +34,11 @@ export const REWRAP_AGAIN_MS = ADD_ONLY_EPOCH_GRACE_MS + 2000
 /** The random wait of a member that did not commit: after the epoch grace. */
 export const REWRAP_DELAY_MS = [12_000, 20_000] as const
 
-type GroupEpoch = { groupId: string; epoch: number }
 type DocCrypto = Pick<CryptoApi, 'encryptDoc' | 'decryptDoc'>
 
-const fromUtf8 = new TextDecoder('utf-8', { fatal: true })
 /** The error code of a RestError or of a Worker error. */
 const codeOf = (e: unknown): unknown => (e as { code?: unknown } | null)?.code
 const statusOf = (e: unknown): number | null => (e instanceof RestError ? e.status : null)
-
-/** An envelope of another group, or of an older epoch, is closed to a member that joined later. */
-export const isStale = (g: GroupEpoch, current: GroupEpoch): boolean =>
-  g.groupId !== current.groupId || g.epoch < current.epoch
-
-export function parsePointer(bytes: Uint8Array): DocSnapshotPointer | null {
-  try {
-    const p = JSON.parse(fromUtf8.decode(bytes)) as Partial<DocSnapshotPointer> | null
-    return p &&
-      typeof p.uploadId === 'string' &&
-      typeof p.fileKey === 'string' &&
-      typeof p.sha256 === 'string' &&
-      typeof p.size === 'number'
-      ? (p as DocSnapshotPointer)
-      : null
-  } catch {
-    return null
-  }
-}
-
-/**
- * Posts the pointer of `snap` again, encrypted in the current epoch, with the same baseSeq and
- * uploadId. The re-wrapper signs the pointer as its own, so only a pointer that verifies and names
- * the upload of the row goes out. Resolves the new row, or null when this device cannot open the
- * pointer or another member was first (409 SnapshotConflict).
- */
-export async function rewrapPointer(
-  crypto: DocCrypto,
-  rest: Pick<RestClient, 'postPageSnapshot'>,
-  channelId: string,
-  snap: DocSnapshot
-): Promise<DocSnapshot | null> {
-  const { pageId } = snap
-  const [r] = await crypto.decryptDoc([
-    {
-      id: 'snapshot',
-      channelId,
-      pageId,
-      kind: 'doc_snapshot',
-      senderDevice: snap.senderDevice,
-      envelope: snap.envelope
-    }
-  ])
-  if (r?.status !== 'ok' || parsePointer(r.bytes)?.uploadId !== snap.uploadId) return null
-  const out = await crypto.encryptDoc({ channelId, pageId, kind: 'doc_snapshot', bytes: r.bytes })
-  try {
-    return await rest.postPageSnapshot(pageId, {
-      baseSeq: snap.baseSeq,
-      uploadId: snap.uploadId,
-      envelope: out.envelope,
-      mediaUploadIds: snap.mediaUploadIds
-    })
-  } catch (e) {
-    if (codeOf(e) === 'SnapshotConflict') return null
-    throw e
-  }
-}
 
 /**
  * PATCHes the title of `page` again, encrypted in the current epoch. The bytes stay as they are.
@@ -238,36 +174,45 @@ export interface Rewrapper {
   reset(): void
 }
 
+/**
+ * The pass state of one group. A reset drops every record: a pass from before it changes only
+ * its own record.
+ */
+interface GroupPass {
+  timer: { handle: ReturnType<typeof setTimeout>; due: number; then: number | null } | null
+  running: boolean
+  /** A request during a pass gives one more pass, for the latest time asked. */
+  rerunAt: number | null
+  /** The due time of the committer's second pass: the first pass for that time is thorough. */
+  thoroughAt: number | null
+  /** Set by reset: the pass stops before its next page, and its end starts no other pass. */
+  cancelled: boolean
+}
+
 /** The timing of the passes, one at a time per group (a request during a pass runs one more). */
 export function createRewrapper(deps: RewrapDeps): Rewrapper {
   const random = deps.random ?? Math.random
-  const timers = new Map<
-    string,
-    { timer: ReturnType<typeof setTimeout>; due: number; then: number | null }
-  >()
-  /**
-   * groupId → the generation of its running pass. A pass of an older generation (before a reset)
-   * stops at its next page and does not hold back a pass of the new one.
-   */
-  const running = new Map<string, number>()
-  /** A request during a pass gives one more pass, for the latest time asked. */
-  const rerun = new Map<string, number>()
-  /** The due time of the committer's second pass: the first pass for that time is thorough. */
-  const thoroughAt = new Map<string, number>()
-  let generation = 0
+  const groups = new Map<string, GroupPass>()
+  const groupOf = (groupId: string): GroupPass => {
+    let g = groups.get(groupId)
+    if (!g) {
+      g = { timer: null, running: false, rerunAt: null, thoroughAt: null, cancelled: false }
+      groups.set(groupId, g)
+    }
+    return g
+  }
 
   /** `at`: the time for which the pass was asked (now, or the due time of its timer). */
   function pass(groupId: string, at: number): void {
-    if (running.get(groupId) === generation) {
-      rerun.set(groupId, Math.max(rerun.get(groupId) ?? at, at))
+    const g = groupOf(groupId)
+    if (g.running) {
+      g.rerunAt = Math.max(g.rerunAt ?? at, at)
       return
     }
-    const due = thoroughAt.get(groupId)
-    const thorough = due !== undefined && at >= due
-    if (thorough) thoroughAt.delete(groupId)
-    const gen = generation
-    const cancelled = (): boolean => gen !== generation
-    running.set(groupId, gen)
+    const thorough = g.thoroughAt !== null && at >= g.thoroughAt
+    if (thorough) g.thoroughAt = null
+    g.running = true
+    const cancelled = (): boolean => g.cancelled
     void (async () => {
       for (const channelId of deps.channelsOf(groupId)) {
         if (cancelled()) return
@@ -276,43 +221,42 @@ export function createRewrapper(deps: RewrapDeps): Rewrapper {
         )
       }
     })().finally(() => {
-      // A pass of the new generation runs: its own end handles the requests.
-      if (running.get(groupId) !== gen) return
-      running.delete(groupId)
-      const again = rerun.get(groupId)
-      rerun.delete(groupId)
-      if (again !== undefined) pass(groupId, again)
+      g.running = false
+      const again = g.rerunAt
+      g.rerunAt = null
+      if (!g.cancelled && again !== null) pass(groupId, again)
     })
   }
 
   /** A pass at `due` or later. An earlier timer stays: the later pass follows it. */
   function schedule(groupId: string, due: number): void {
-    const cur = timers.get(groupId)
-    if (cur) {
-      if (due > cur.due) cur.then = Math.max(cur.then ?? 0, due)
+    const g = groupOf(groupId)
+    if (g.timer) {
+      if (due > g.timer.due) g.timer.then = Math.max(g.timer.then ?? 0, due)
       return
     }
-    const entry = {
+    const t = {
       due,
       then: null as number | null,
-      timer: setTimeout(
+      handle: setTimeout(
         () => {
-          timers.delete(groupId)
+          g.timer = null
           pass(groupId, due)
-          if (entry.then !== null) schedule(groupId, entry.then)
+          if (t.then !== null) schedule(groupId, t.then)
         },
         Math.max(0, due - Date.now())
       )
     }
-    timers.set(groupId, entry)
+    g.timer = t
   }
 
   return {
     onUsersAdded(e) {
       const now = Date.now()
       if (e.byMe) {
+        const g = groupOf(e.groupId)
         const again = now + REWRAP_AGAIN_MS
-        thoroughAt.set(e.groupId, Math.max(thoroughAt.get(e.groupId) ?? again, again))
+        g.thoroughAt = Math.max(g.thoroughAt ?? again, again)
         pass(e.groupId, now)
         schedule(e.groupId, again)
         return
@@ -321,11 +265,11 @@ export function createRewrapper(deps: RewrapDeps): Rewrapper {
       schedule(e.groupId, now + min + random() * (max - min))
     },
     reset() {
-      generation++
-      for (const t of timers.values()) clearTimeout(t.timer)
-      timers.clear()
-      rerun.clear()
-      thoroughAt.clear()
+      for (const g of groups.values()) {
+        g.cancelled = true
+        if (g.timer) clearTimeout(g.timer.handle)
+      }
+      groups.clear()
     }
   }
 }

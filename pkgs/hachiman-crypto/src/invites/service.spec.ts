@@ -6,11 +6,12 @@ import { createAdminService } from '../admin/service'
 import { fromB64url, toB64url, uuidToBytes } from '../codec'
 import { HANDSHAKE_RETENTION_MS, INVITE_AUTH_WINDOW_MS, INVITE_BUNDLE_FETCH_WINDOW_MS } from '../constants'
 import { compareBytes, randomBytes } from '../identity/bytes'
+import { storedEpochSecrets } from '../mls/epoch-secrets'
 import { FakeMlsDs, type Client } from '../mls/fake-ds'
 import { externalCommitAuth } from '../mls/index'
 import { groupId as makeGroupId } from '../mls/wire'
 import { clientPermissions } from '../worker/permissions'
-import { decodeInviteRecord, decodeSignedInviteRecord, encodeInviteBundle, encodeSignedInviteRecord } from './codec'
+import { decodeSignedInviteRecord, encodeInviteBundle, encodeSignedInviteRecord, readSignedInviteRecord } from './codec'
 import { deriveInviteKeys, sealInviteBundle } from './keys'
 import { signInviteBundle, signInviteRecord } from './record'
 import { createInviteService, INVITE_REFETCH_DELAY_MS } from './service'
@@ -48,7 +49,7 @@ async function invite(ds: FakeMlsDs, creator: Client, guildId: string, channelId
   const p = await creator.invites!.prepareHistoryInvite({ guildId, channelIds, expiresAtMs: ds.id.now + DAY, maxUses: 1 })
   const { inviteId, code } = ds.createInvite(guildId, p.record)
   const sent = await creator.invites!.sendInviteBundles({ guildId, inviteId, record: p.record })
-  return { ...p, inviteId, code, sent, keyId: toB64url(decodeInviteRecord(decodeSignedInviteRecord(fromB64url(p.record)).record).signPublic) }
+  return { ...p, inviteId, code, sent, keyId: toB64url(readSignedInviteRecord(fromB64url(p.record)).signPublic) }
 }
 
 async function send(from: Client, channelId: string, text: string): Promise<EncryptMessageOutput> {
@@ -82,7 +83,7 @@ async function joinPublicSet(ds: FakeMlsDs, c: Client, channelId: string, gid: s
 
 /** A bundle that `from` signs with its own device key, for any epochs it likes. */
 async function forgeBundle(from: Client, signedRecord: string, gid: string, keys: { epoch: number; secret: Uint8Array }[]): Promise<string> {
-  const rec = decodeInviteRecord(decodeSignedInviteRecord(fromB64url(signedRecord)).record)
+  const rec = readSignedInviteRecord(fromB64url(signedRecord))
   const self = from.identity.self()
   const content = signInviteBundle({ signPublic: rec.signPublic, groupId: fromB64url(gid), keys, senderUserId: self.userId, senderDeviceId: self.deviceId }, self.mlsSignatureKey.privateKey)
   return toB64url(await sealInviteBundle(rec, fromB64url(gid), content))
@@ -207,6 +208,31 @@ describe('InviteService (§12.11.4)', () => {
     await expect(alice.invites!.prepareHistoryInvite({ guildId, channelIds: ['not-a-uuid'], expiresAtMs: 0, maxUses: 0 })).rejects.toMatchObject({ code: 'Malformed' })
   }, 120_000)
 
+  it('a scope group that this device left: no bundle and no timeline event, although its epoch secrets stay', async () => {
+    const { ds, alice, bob, guildId, general, gid } = await world()
+    const side = ds.channel(guildId, [alice.userId, bob.userId])
+    const sideGid = ds.allocate('channel', { guildId, channelId: side }, alice.deviceId)
+    await ds.flush()
+    ds.batch(sideGid, alice.deviceId)
+    await ds.flush()
+    // bob removes alice from the side channel group: her row keeps no MLS state.
+    ds.channels.get(side)!.readers.delete(alice.userId)
+    await ds.queueRemove(sideGid, alice.deviceId)
+    await ds.flush()
+    await bob.groups.sendState(side)
+    await ds.flush()
+    expect((await alice.store.get('groups', sideGid))!.state.length).toBe(0)
+    expect(await alice.groups.descriptor(fromB64url(sideGid))).toBeNull()
+    expect(await storedEpochSecrets(alice.store, sideGid, 0, Infinity)).not.toEqual([])
+
+    const inv = await invite(ds, alice, guildId, [general, side])
+    expect(inv.channelIds).toContain(side)
+    expect(inv.sent).toEqual({ groups: 1 })
+    expect(ds.invites.get(inv.inviteId)!.bundles.map((b) => b.groupId)).toEqual([gid])
+    expect((await alice.groups.membershipTimeline(side, 10)).filter((e) => e.kind === 'invite_with_history')).toEqual([])
+    expect((await alice.groups.membershipTimeline(general, 10)).filter((e) => e.kind === 'invite_with_history')).toHaveLength(1)
+  }, 120_000)
+
   it('a demoted creator: members send no bundle, the redeemer rejects the record', async () => {
     const { ds, alice, bob, carol, guildId, general } = await world()
     const role = ds.uuid()
@@ -237,7 +263,7 @@ describe('InviteService (§12.11.4)', () => {
     const inv = await invite(ds, alice, guildId, [general])
     const other = await invite(ds, alice, guildId, [general])
     const stored = ds.invites.get(inv.inviteId)!
-    const rec = decodeInviteRecord(decodeSignedInviteRecord(fromB64url(inv.record)).record)
+    const rec = readSignedInviteRecord(fromB64url(inv.record))
     const keys = (await alice.groups.exportHistoryKeys([fromB64url(gid)], 10)).map((k) => ({ epoch: k.epoch, secret: k.secret }))
 
     // A bundle that names alice's device but carries the signature of bob's device.
@@ -269,7 +295,7 @@ describe('InviteService (§12.11.4)', () => {
     // One bit of expires_at_ms: the keys stay, so only the signature catches it.
     const signed = decodeSignedInviteRecord(fromB64url(inv.record))
     const tampered = toB64url(encodeSignedInviteRecord({ record: signed.record.map((x, i, all) => (i === all.length - 40 ? x ^ 1 : x)), signature: signed.signature }))
-    expect(decodeInviteRecord(decodeSignedInviteRecord(fromB64url(tampered)).record).expiresAtMs).not.toBe(rec.expiresAtMs)
+    expect(readSignedInviteRecord(fromB64url(tampered)).expiresAtMs).not.toBe(rec.expiresAtMs)
     stored.record = tampered
     await expect(carol.invites!.redeemInvite({ code: inv.code, linkSecret: inv.linkSecret })).rejects.toMatchObject({ code: 'InvalidChain', message: expect.stringContaining('bad signature') as string })
     // Members do not send bundles for the changed record either.
@@ -539,7 +565,7 @@ describe('InviteService (§12.11.4)', () => {
       const { inviteId, code } = ds.createInvite(guildId, p.record)
       await alice.invites!.sendInviteBundles({ guildId, inviteId, record: p.record })
       ds.acceptInvite(code, carol.userId)
-      return { ...p, code, keyId: toB64url(decodeInviteRecord(decodeSignedInviteRecord(fromB64url(p.record)).record).signPublic) }
+      return { ...p, code, keyId: toB64url(readSignedInviteRecord(fromB64url(p.record)).signPublic) }
     }
     const first = await permanent()
     const timers = vi.spyOn(globalThis, 'setTimeout')

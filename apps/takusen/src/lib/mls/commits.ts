@@ -6,7 +6,7 @@
  *
  * The DS never makes a commit. It only orders and checks them.
  */
-import { computeBasePermissions, has, Permissions } from '@hachiman/client/permissions'
+import { has, Permissions } from '@hachiman/client/permissions'
 
 import { ApiError } from '@/lib/errors'
 
@@ -17,7 +17,7 @@ import type { DsDeps } from './context'
 import { GROUP_STATE_EPOCHS_KEPT, INVITE_AUTH_WINDOW_MS, type CommitInspection, type LeafEntry } from './crypto'
 import { emitToGroup, handshakeEvent, type Outbox } from './events'
 import { signProposalsLocked } from './proposals'
-import { channelPermissionsOf, readersOfGroup } from './readers'
+import { channelPermissionsOf, hasGuildPermission, readersOfGroup } from './readers'
 import type { DeviceRow, GroupRow, MemberRow, MlsRepo, NewMember, PendingRow } from './repo'
 import { toWireGroup } from './shapes'
 import { encodeWelcomeItem, parseGroupInfoContext, parsePublicMessagePrefix, type GroupContextSummary } from './wire-format'
@@ -317,9 +317,7 @@ async function inviteJoinRefusal(
 
 async function guildHas(r: MlsRepo, guildId: string, userId: string, bit: number): Promise<boolean> {
   const data = await r.getGuildPermissionData(guildId)
-  const roles = data?.members.get(userId)
-  if (!data || !roles) return false
-  return has(computeBasePermissions(data.guild, { user: { id: userId }, roles }, data.roles), bit)
+  return data !== null && hasGuildPermission(data, userId, bit)
 }
 
 /**

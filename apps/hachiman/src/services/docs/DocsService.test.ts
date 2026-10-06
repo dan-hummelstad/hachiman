@@ -53,8 +53,13 @@ interface FakeProvider {
 }
 const providers: FakeProvider[] = []
 vi.mock('./DocProvider', () => ({
-  createDocProvider: (_channelId: string, pageId: string, deps: { headless?: boolean }) => {
-    if (!deps.headless) throw new Error('only the re-wrap pass makes providers here')
+  createDocProvider: (
+    _channelId: string,
+    pageId: string,
+    _deps: unknown,
+    opts?: { headless?: boolean }
+  ) => {
+    if (!opts?.headless) throw new Error('only the re-wrap pass makes providers here')
     const p: FakeProvider = {
       pageId,
       finish: () => {},

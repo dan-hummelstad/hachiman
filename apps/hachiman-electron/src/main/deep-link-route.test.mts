@@ -32,19 +32,9 @@ test("an invite link keeps a well-formed key of an invite with history", () => {
   });
 });
 
+// The full malformed-key table is in @hachiman/client (invite-link.spec.ts).
 test("an invite link with a malformed key or another fragment is dropped", () => {
-  for (const fragment of [
-    "#k=",
-    `#k=${KEY.slice(1)}`,
-    `#k=${KEY}A`,
-    // Non-canonical: the last character has bits that 32 bytes do not use.
-    `#k=${KEY.slice(0, -1)}B`,
-    `#k=${KEY.slice(0, -1)}_`,
-    `#k=${KEY.slice(1)}%`,
-    `#k=${KEY}&x=1`,
-    `#x=1&k=${KEY}`,
-    "#section",
-  ]) {
+  for (const fragment of ["#k=", "#section"]) {
     assert.equal(
       routeDeepLink(`takusen://invite/nt0wl5x${fragment}`),
       null,

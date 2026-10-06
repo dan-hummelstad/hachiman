@@ -13,7 +13,7 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto'
 
 import { decodeDocEnvelope, decodeEnvelope, encodeDocHeader, encodeEnvelope, encodeHeader } from '../../../../../pkgs/hachiman-crypto/src/envelope/codec'
 import { identity, verifyDeviceCert, verifyDskCert } from '../../../../../pkgs/hachiman-crypto/src/identity/index'
-import { decodeInviteRecord, decodeSignedInviteRecord, inviteRecordView } from '../../../../../pkgs/hachiman-crypto/src/invites/codec'
+import { inviteRecordView, readSignedInviteRecord } from '../../../../../pkgs/hachiman-crypto/src/invites/codec'
 import { verifyInviteAuth, verifyInviteRecordSignature } from '../../../../../pkgs/hachiman-crypto/src/invites/record'
 import { kt } from '../../../../../pkgs/hachiman-crypto/src/kt/index'
 
@@ -397,7 +397,7 @@ export class FakeDs implements DsModule {
   }
   /** The real decode (§12.11.4). */
   parseInviteRecord(signedRecord: Uint8Array) {
-    return inviteRecordView(decodeInviteRecord(decodeSignedInviteRecord(signedRecord).record))
+    return inviteRecordView(readSignedInviteRecord(signedRecord))
   }
   /** The real pure check (§12.11.4). */
   verifyInviteAuth(input: { authenticatedData: Uint8Array; groupId: Uint8Array; leafSignatureKey: Uint8Array }) {

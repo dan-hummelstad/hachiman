@@ -5,14 +5,15 @@ import { Button } from '@/components/ui/button'
 import { ErrorText, SectionHeading } from '@/components/ui/field'
 import { IconButton } from '@/components/ui/icon-button'
 import { InviteOptions } from '@/components/settings/invite-options'
-import { formatExpiry, isInviteExpiryChoice, sortInvites } from '@/components/settings/invites'
+import { formatExpiry, sortInvites } from '@/components/settings/invites'
 import { PermanentInviteConfirm } from '@/components/settings/permanent-invite-confirm'
+import { useInviteCreation } from '@/components/settings/use-invite-creation'
 import { useAction } from '@/hooks/use-action'
 import { usePermissions } from '@/hooks/use-hachiman'
 import { displayName } from '@/lib/model'
 import { errMsg } from '@/lib/utils'
 import { hachiman } from '@/services/hachiman'
-import { copyInviteLink, createInvite, DEFAULT_INVITE_OPTIONS } from '@/services/InviteService'
+import { copyInviteLink, createInvite } from '@/services/InviteService'
 import { useGuildStore } from '@/stores/guildStore'
 
 /**
@@ -29,16 +30,28 @@ export function GuildInvitesTab({ guildId }: { guildId: string }): React.JSX.Ele
   const members = useGuildStore((s) => s.members.get(guildId))
   const [invites, setInvites] = useState<Invite[]>([])
   const sorted = useMemo(() => sortInvites(invites), [invites])
-  const [options, setOptions] = useState(DEFAULT_INVITE_OPTIONS)
   const [copied, setCopied] = useState<string | null>(null)
-  const [confirmingPermanent, setConfirmingPermanent] = useState(false)
   const { run, busy, error, setError } = useAction()
 
-  // The user can lose ADMINISTRATOR while the tab is open: fall back to a choice they still have.
-  if (!isInviteExpiryChoice(options.expiry, isAdmin)) {
-    setOptions({ ...options, expiry: DEFAULT_INVITE_OPTIONS.expiry })
-    setConfirmingPermanent(false)
+  const copy = (code: string): void => {
+    copyInviteLink(code).then(
+      () => setCopied(code),
+      (e: unknown) => setError(errMsg(e))
+    )
   }
+
+  const added = (inv: Invite): void => {
+    setInvites((cur) => [inv, ...cur])
+    copy(inv.code)
+  }
+
+  const { options, setOptions, create, confirm } = useInviteCreation({
+    isAdmin,
+    run,
+    what: 'create an invite',
+    make: (o, acknowledgedPermanent) => createInvite(guildId, o, acknowledgedPermanent),
+    onCreated: added
+  })
 
   useEffect(() => {
     if (!canList) return
@@ -58,27 +71,6 @@ export function GuildInvitesTab({ guildId }: { guildId: string }): React.JSX.Ele
     }
   }, [guildId])
 
-  const copy = (code: string): void => {
-    copyInviteLink(code).then(
-      () => setCopied(code),
-      (e: unknown) => setError(errMsg(e))
-    )
-  }
-
-  const added = (inv: Invite): void => {
-    setInvites((cur) => [inv, ...cur])
-    copy(inv.code)
-  }
-
-  const create = async (): Promise<void> => {
-    if (options.expiry === 0) {
-      setConfirmingPermanent(true)
-      return
-    }
-    const created = await run('create an invite', () => createInvite(guildId, options))
-    if (created.ok) added(created.value)
-  }
-
   const revoke = async (code: string): Promise<void> => {
     const revoked = await run(`revoke ${code}`, () => hachiman.rest.deleteInvite(code))
     if (revoked.ok) setInvites((cur) => cur.filter((i) => i.code !== code))
@@ -95,11 +87,7 @@ export function GuildInvitesTab({ guildId }: { guildId: string }): React.JSX.Ele
               {busy ? 'Creating…' : 'Create and copy link'}
             </Button>
           </div>
-          <PermanentInviteConfirm
-            open={confirmingPermanent}
-            onClose={() => setConfirmingPermanent(false)}
-            onConfirm={async () => added(await createInvite(guildId, options, true))}
-          />
+          <PermanentInviteConfirm {...confirm} />
         </section>
       )}
       <ErrorText>{error}</ErrorText>

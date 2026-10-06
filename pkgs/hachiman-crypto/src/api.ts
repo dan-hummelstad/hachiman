@@ -1486,7 +1486,7 @@ export interface ProposalPolicy {
    * InviteAuth that the InviteService accepted (§12.11.4): the new leaf key that it authorizes. A
    * user without a leaf can then join, when it is a reader.
    */
-  inviteJoinKey?: Uint8Array | null
+  inviteJoinKey?: Uint8Array
   /** Synchronous (the ts-mls callback is synchronous): prefetch with IdentityService.chainContextFor. */
   chainContextFor(userId: UserId): ChainContext
   /**
@@ -2040,30 +2040,32 @@ export interface GroupService extends Pick<CryptoApi, 'sync' | 'ensureChannelGro
   importHistoryKeys(entries: HistoryKeyEntry[], source: 'own_device' | 'backup' | 'bundle'): Promise<void>
   /** The MLS-authenticated descriptor of a group (§12.6), from the local state. Null without state. */
   descriptor(groupId: Uint8Array): Promise<GroupDescriptor | null>
-  /**
-   * Calls `cb` after each own commit that the DS accepted: a batch or pre-send commit, an own
-   * external commit (join or resync), and a commit adopted after a crash. `epoch` is the new epoch,
-   * and its secret is stored. The call is asynchronous, outside the group lock. Returns the unsubscribe.
-   */
-  onOwnCommit(cb: (e: { groupId: Uint8Array; epoch: number }) => void): () => void
-  /**
-   * Calls `cb` after this device joins a group: a Welcome, or an own external commit that adds its
-   * leaf (not a resync). `epoch` is the join epoch. Asynchronous and outside the group lock, as
-   * onOwnCommit. Returns the unsubscribe.
-   */
-  onJoin(cb: (e: { groupId: Uint8Array; epoch: number }) => void): () => void
   /** Appends events to the membership timeline of a group (emits `membership`). Takes the group lock. */
   appendTimeline(groupId: GroupIdB64, events: MembershipEvent[]): Promise<void>
   /**
-   * The InviteService sets it at its creation (§12.11.4 "Join authorization"). Without it, this
-   * device never joins with an InviteAuth and rejects every external join of a user without a leaf
-   * into a 'channel' group.
+   * The InviteService calls it once at its creation (§12.11.4). A later call replaces the port.
+   * Without a port, this device never joins with an InviteAuth and rejects every external join of a
+   * user without a leaf into a 'channel' group.
    */
-  setInviteJoins(joins: InviteJoins): void
+  attachInvites(port: InvitePort): void
 }
 
-/** The invite side of an external commit with an InviteAuth (§12.11.4, §12.7.3). */
-export interface InviteJoins {
+/**
+ * The InviteService side of GroupService (§12.11.4, §12.7.3): the bundles after own commits and
+ * joins, and the InviteAuth of an external commit ("Join authorization").
+ */
+export interface InvitePort {
+  /**
+   * After each own commit that the DS accepted: a batch or pre-send commit, an own external commit
+   * (join or resync), and a commit adopted after a crash. `epoch` is the new epoch, and its secret
+   * is stored. The call is asynchronous, outside the group lock.
+   */
+  ownCommit(e: { groupId: Uint8Array; epoch: number }): void
+  /**
+   * After this device joins a group: a Welcome, or an own external commit that adds its leaf (not a
+   * resync). `epoch` is the join epoch. Asynchronous and outside the group lock, as ownCommit.
+   */
+  joined(e: { groupId: Uint8Array; epoch: number }): void
   /**
    * Joiner: the encoded InviteAuth for an external commit of this device into the 'channel' group
    * of `channelId`: from a redeemed invite whose record names the channel, that is not revoked or

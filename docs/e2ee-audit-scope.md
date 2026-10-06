@@ -132,12 +132,12 @@ Line counts are from 2026-10-02 on branch `e2ee`. Test files are not in the coun
 | `apps/hachiman-electron/src/main/secure-storage.ts` | 259 | `safeStorage` wrap key, Linux backend refusal |
 | `apps/hachiman-electron/src/main/csp-policy.ts` | 64 | CSP rules |
 | `apps/hachiman-browser/src/platforms/browser/secure-storage.ts` | 180 | Non-extractable IndexedDB wrap key |
-| `apps/hachiman/src/services/InviteService.ts` | 277 | Custody of the invite seed, the exception to "no key outside the Worker" (§12.17): the in-memory key maps, the `sessionStorage` entry across the browser sign-in redirect and its removal at start-up, the hand-off to `redeemInvite`, the revoke when a creation bundle fails |
-| `apps/hachiman/src/lib/invite-link.ts` | 53 | `parseInviteLink`: the `#k=` format check that fails closed (43 canonical base64url characters) |
+| `apps/hachiman/src/services/InviteService.ts` | 276 | Custody of the invite seed, the exception to "no key outside the Worker" (§12.17): the in-memory key maps, the `sessionStorage` entry across the browser sign-in redirect and its removal at start-up, the hand-off to `redeemInvite`, the revoke when a creation bundle fails |
+| `pkgs/hachiman-client/src/invite-link.ts` | 68 | `parseInviteLink`, `parseInviteKeyFragment`: the `#k=` format check that fails closed (43 canonical base64url characters). The one link grammar: the shared UI re-exports it (`apps/hachiman/src/lib/invite-link.ts`), and Electron main and the Takusen page use it |
 | `apps/hachiman/src/components/join-server-modal.tsx`, `invite-dialog.tsx` | 413 | The seed in component state only; the link shows once; a join without a crypto Worker needs consent |
-| `apps/hachiman-electron/src/main/deep-link-route.ts` | 49 | Deep link check in main: drops a link with another fragment, rebuilds the link from the checked parts |
-| `apps/hachiman-browser/src/platforms/browser/launch-url.ts` | 31 | The load URL: every `/invite` path resets to `/`, so the seed leaves the address bar and the history entry |
-| `apps/takusen/src/app/invite/[code]/open-invite-buttons.tsx`, `src/lib/invite-fragment.ts` | 87 | The Takusen page script that reads `#k=`, forwards only a well-formed key to both hosts, and strips the fragment (see L-17) |
+| `apps/hachiman-electron/src/main/deep-link-route.ts` | 43 | Deep link check in main: rebuilds the link from the URL parts, checks it with `parseInviteLink`, drops a link with another fragment |
+| `apps/hachiman-browser/src/platforms/browser/launch-url.ts` | 33 | The load URL: every `/invite` path resets to `/`, so the seed leaves the address bar and the history entry |
+| `apps/takusen/src/app/invite/[code]/open-invite-buttons.tsx`, `src/lib/invite-fragment.ts` | 84 | The Takusen page script that reads `#k=`, forwards only a well-formed key to both hosts, and strips the fragment (see L-17) |
 
 ## 4. Invariants to check
 

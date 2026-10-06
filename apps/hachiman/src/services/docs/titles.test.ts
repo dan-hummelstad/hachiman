@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Page } from '@hachiman/client'
-import type { DocDecryptResult } from '@hachiman/crypto'
+import type { DocDecryptResult, EncryptedDocItem } from '@hachiman/crypto'
 import type { PageNode } from '@/stores/docsStore'
-import { createTitleCatchUp, keepTitle, mergeNode, titleNode } from './titles'
+import { createPageTitles, keepTitle, mergeNode, titleNode, type PageTitlesDeps } from './titles'
 
 const utf8 = new TextEncoder()
 
@@ -103,17 +103,36 @@ describe('mergeNode', () => {
   })
 })
 
-describe('createTitleCatchUp', () => {
+describe('createPageTitles', () => {
   // eslint-disable-next-line @typescript-eslint/explicit-function-return-type -- the harness is its own type
   function harness() {
-    const deps = {
-      ensureChannelGroup: vi.fn<(channelId: string) => Promise<unknown>>(async () => ({})),
-      retry: vi.fn()
+    /** channel → why its titles wait. A channel that is not here decrypts. */
+    const waiting = new Map<string, 'epoch_ahead' | 'group_unknown'>()
+    const stored = new Map<string, PageNode>()
+    const worker = { ready: true }
+    const crypto = {
+      decryptDoc: vi.fn(async (items: EncryptedDocItem[]) =>
+        items.map((it): DocDecryptResult => {
+          const reason = waiting.get(it.channelId)
+          return reason ? { status: 'pending', id: it.id, reason } : { ...ok('Notes'), id: it.id }
+        })
+      ),
+      ensureChannelGroup: vi.fn<(channelId: string) => Promise<unknown>>(async () => ({}))
     }
-    return { deps, catchUp: createTitleCatchUp(deps) }
+    const titles = createPageTitles({
+      crypto: () => {
+        if (!worker.ready) throw new Error('not ready')
+        return crypto as unknown as ReturnType<PageTitlesDeps['crypto']>
+      },
+      findPage: (id) => stored.get(id),
+      upsertPage: (n) => {
+        stored.set(n.id, n)
+      }
+    })
+    return { waiting, stored, worker, crypto, titles }
   }
   const flush = async (): Promise<void> => {
-    for (let i = 0; i < 5; i++) await Promise.resolve()
+    for (let i = 0; i < 3; i++) await new Promise((resolve) => setTimeout(resolve, 0))
   }
 
   beforeEach(() => {
@@ -125,52 +144,91 @@ describe('createTitleCatchUp', () => {
   })
 
   it('catches a channel up once, then decrypts the titles again', async () => {
-    const { deps, catchUp } = harness()
-    catchUp.noteResults(['c-1', 'c-2', 'c-1'], new Set(['c-1']))
+    const { waiting, stored, crypto, titles } = harness()
+    waiting.set('c-1', 'epoch_ahead')
+    const nodes = await titles.decrypt([
+      page(),
+      page({ id: 'p-2', channelId: 'c-2' }),
+      page({ id: 'p-3' })
+    ])
+    expect(nodes.map((n) => n.titleState)).toEqual(['pending', 'ok', 'pending'])
     await flush()
-    expect(deps.ensureChannelGroup.mock.calls).toEqual([['c-1']])
-    expect(deps.retry).toHaveBeenCalledTimes(1)
-    // The retry finds the title still ahead: no second catch-up (no loop).
-    catchUp.noteResults(['c-1'], new Set(['c-1']))
+    expect(crypto.ensureChannelGroup.mock.calls).toEqual([['c-1']])
+    // The retry finds the titles still ahead: no second catch-up (no loop).
+    expect(crypto.decryptDoc.mock.lastCall?.[0].map((it) => it.pageId)).toEqual(['p-1', 'p-3'])
+    expect(crypto.decryptDoc).toHaveBeenCalledTimes(2)
+    // The titles of the channel decrypt with none ahead: they are stored.
+    waiting.delete('c-1')
+    titles.retry()
     await flush()
-    expect(deps.ensureChannelGroup).toHaveBeenCalledTimes(1)
-    expect(deps.retry).toHaveBeenCalledTimes(1)
-    // The titles of the channel decrypt with none ahead: the next lag gets a catch-up again.
-    catchUp.noteResults(['c-1'], new Set())
-    catchUp.noteResults(['c-1'], new Set(['c-1']))
+    expect(stored.get('p-1')).toMatchObject({ title: 'Notes', titleState: 'ok' })
+    expect(crypto.decryptDoc).toHaveBeenCalledTimes(3)
+    // The next lag gets a catch-up again.
+    waiting.set('c-1', 'epoch_ahead')
+    await titles.decrypt([page({ updatedAt: 't2' })])
     await flush()
-    expect(deps.ensureChannelGroup).toHaveBeenCalledTimes(2)
+    expect(crypto.ensureChannelGroup).toHaveBeenCalledTimes(2)
+    expect(crypto.decryptDoc).toHaveBeenCalledTimes(5)
     // READY and RESUMED clear it too.
-    catchUp.clear()
-    catchUp.noteResults(['c-1'], new Set(['c-1']))
+    titles.onReady()
+    titles.retry()
     await flush()
-    expect(deps.ensureChannelGroup).toHaveBeenCalledTimes(3)
-    expect(deps.retry).toHaveBeenCalledTimes(3)
+    expect(crypto.ensureChannelGroup).toHaveBeenCalledTimes(3)
+    expect(crypto.decryptDoc).toHaveBeenCalledTimes(7)
+    // The decrypted title stays while the newer one waits.
+    expect(stored.get('p-1')).toMatchObject({ title: 'Notes', titleState: 'ok' })
   })
 
   it('a failed catch-up does not retry, and the next title that is ahead tries again', async () => {
-    const { deps, catchUp } = harness()
-    deps.ensureChannelGroup.mockRejectedValueOnce(new Error('not ready'))
-    catchUp.noteResults(['c-1'], new Set(['c-1']))
+    const { waiting, crypto, titles } = harness()
+    waiting.set('c-1', 'epoch_ahead')
+    crypto.ensureChannelGroup.mockRejectedValueOnce(new Error('not ready'))
+    await titles.decrypt([page()])
     await flush()
-    expect(deps.retry).not.toHaveBeenCalled()
-    catchUp.noteResults(['c-1'], new Set(['c-1']))
+    expect(crypto.ensureChannelGroup).toHaveBeenCalledTimes(1)
+    expect(crypto.decryptDoc).toHaveBeenCalledTimes(1)
+    titles.retry()
     await flush()
-    expect(deps.ensureChannelGroup).toHaveBeenCalledTimes(2)
-    expect(deps.retry).toHaveBeenCalledTimes(1)
+    expect(crypto.ensureChannelGroup).toHaveBeenCalledTimes(2)
+    expect(crypto.decryptDoc).toHaveBeenCalledTimes(3)
   })
 
   it('a catch-up that ends after sign-out does not retry', async () => {
-    const { deps, catchUp } = harness()
+    const { waiting, crypto, titles } = harness()
+    waiting.set('c-1', 'epoch_ahead')
+    waiting.set('c-2', 'group_unknown')
     let done = (): void => {}
-    deps.ensureChannelGroup.mockImplementationOnce(
+    crypto.ensureChannelGroup.mockImplementationOnce(
       () => new Promise((resolve) => (done = () => resolve({})))
     )
-    catchUp.noteResults(['c-1'], new Set(['c-1']))
+    await titles.decrypt([page()])
     await flush()
-    catchUp.reset()
+    titles.reset()
+    // A title of the next session waits: the old catch-up does not decrypt it.
+    await titles.decrypt([page({ id: 'p-2', channelId: 'c-2' })])
     done()
     await flush()
-    expect(deps.retry).not.toHaveBeenCalled()
+    expect(crypto.decryptDoc).toHaveBeenCalledTimes(2)
+  })
+
+  it('a Worker that is not ready: the titles show pending until a retry', async () => {
+    const { stored, worker, crypto, titles } = harness()
+    worker.ready = false
+    const nodes = await titles.decrypt([
+      page(),
+      page({ id: 'p-2' }),
+      page({ id: 'p-3', channelId: 'c-2' })
+    ])
+    expect(nodes.map((n) => n.titleState)).toEqual(['pending', 'pending', 'pending'])
+    worker.ready = true
+    // A deleted page or channel waits no more.
+    titles.forget(['p-2'])
+    titles.forgetChannel('c-2')
+    titles.retry()
+    await flush()
+    expect(crypto.decryptDoc.mock.calls.map(([items]) => items.map((it) => it.pageId))).toEqual([
+      ['p-1']
+    ])
+    expect(stored.get('p-1')).toMatchObject({ title: 'Notes', titleState: 'ok' })
   })
 })

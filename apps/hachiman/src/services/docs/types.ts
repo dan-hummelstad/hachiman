@@ -53,10 +53,12 @@ export interface DocsService {
  */
 export interface DocProvider extends Omit<DocHandle, 'close'> {
   /**
-   * The page waits for a key: status 'waiting', or a page that shows its content and stopped at
-   * an update without a key. A PAGE_UPDATE of the page makes it load again (§12.20 "The new member").
+   * A PAGE_UPDATE of this page. A title re-wrap follows the pointer re-wrap of its page
+   * (rewrap.ts), so a page that waits for a key loads again (§12.20 "The new member"). This
+   * includes status 'waiting', and a page that shows its content but stopped at an update without
+   * a key. Any other page ignores it.
    */
-  readonly waitingForKeys: boolean
+  pageChanged(): void
   /** A DOC_UPDATE for this page (ciphertext). Fills a seq gap from REST first. */
   receiveUpdate(d: Pick<DocUpdate, 'seq' | 'groupId' | 'epoch' | 'senderDevice' | 'envelope'>): void
   /** A DOC_AWARENESS for this page (ciphertext). Frames of this device are ignored. */

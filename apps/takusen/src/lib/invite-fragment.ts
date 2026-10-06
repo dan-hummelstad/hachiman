@@ -5,12 +5,9 @@
  * to the app. Pure, so `node --test` covers the decision.
  */
 
-/**
- * The base64url seed of 32 bytes, no padding (`INVITE_LINK_PARAM`, 43 characters). 32 bytes use 4
- * bits of the last character, so its other 2 bits are 0 (canonical), as the crypto Worker requires.
- * The shared UI (`lib/invite-link.ts`) and Electron main (`deep-link-route.ts`) check this form.
- */
-const KEY_FRAGMENT_RE = /^#k=[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$/
+// The key form (43 canonical base64url characters) comes from `@hachiman/client/invite-link`, the
+// one invite link grammar. The app and Electron main use it too.
+import { parseInviteKeyFragment } from '@hachiman/client/invite-link'
 
 export interface InviteFragment {
   /**
@@ -24,7 +21,7 @@ export interface InviteFragment {
 
 /** `location.hash` of the invite page → what to forward, and whether to strip it. */
 export function inviteFragment(hash: string): InviteFragment {
-  const strip = hash !== ''
-  if (hash === '' || hash === '#') return { forward: '', strip }
-  return { forward: KEY_FRAGMENT_RE.test(hash) ? hash : null, strip }
+  if (hash === '') return { forward: '', strip: false }
+  const f = hash.startsWith('#') ? parseInviteKeyFragment(hash.slice(1)) : null
+  return { forward: f === null ? null : f.key === null ? '' : hash, strip: true }
 }

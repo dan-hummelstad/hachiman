@@ -44,6 +44,7 @@ flowchart TD
   TY["types.ts<br/>wire types, GatewayEvents"]
   PE["permissions.ts<br/>bitfield"]
   FI["files.ts<br/>upload policy"]
+  IL["invite-link.ts<br/>invite link grammar"]
 
   IDX --> HC
   HC --> RC
@@ -65,7 +66,7 @@ flowchart TD
 
 | File | Contents |
 |---|---|
-| `src/index.ts` | Public surface. It exports every module below. |
+| `src/index.ts` | Public surface. It exports every module below, except `invite-link.ts` (subpath only). |
 | `src/client.ts` | `HachimanClient`. It owns `rest` and `gateway`, keeps the cache and owns the active `VoiceConnection`. It has `joinVoice`, `leaveVoice`, `setSelfVoice`, `setScreen`, `permissionsFor` and `guildPermissions`. `connect` waits while `device()` returns null. |
 | `src/rest.ts` | `RestClient` has one method for each REST route of §4 and §12.12. It throws `RestError` on a non-2xx response. `uploadBlob` and `uploadImage` use `XMLHttpRequest` to report progress. |
 | `src/gateway.ts` | `GatewayClient`. It handles HELLO, IDENTIFY, heartbeat, RESUME, RECONNECT and INVALID_SESSION, and reconnects with backoff. It emits one typed event for each dispatch. After close 4012 or 4013 it stays closed and emits `fatal`. |
@@ -73,12 +74,13 @@ flowchart TD
 | `src/permissions.ts` | Discord-style permission bitfield, `has`, `computeChannelPermissions`, `effectivePermissions`. It imports only `./types`, because `@hachiman/crypto` imports it. |
 | `src/types.ts` | Wire types, the E2EE shapes of §12.12, the `GatewayEvents` map and the voice ops. It imports nothing. |
 | `src/files.ts` | Upload policy: `DEFAULT_LIMITS`, `PROFILE_IMAGE_TYPES`, `blobKey`, `EMBEDDABLE`, `embedKind`. |
+| `src/invite-link.ts` | The one invite link grammar (contract §11, §12.11.4): `parseInviteLink`, `parseInviteCode`, `parseInviteKeyFragment`, `inviteKeyFragment`. It has no imports. The shared UI re-exports it as `@hachiman/hachiman/invite-link` for the hosts. Takusen's invite page uses `parseInviteKeyFragment`. |
 | `src/typed-event-emitter.ts` | Small typed event emitter. It does not use `node:events`. |
 | `src/test/fake-ws.ts` | WebSocket fake for the tests. |
 | `src/test/fake-rtc.ts` | `RTCPeerConnection` and `VoiceE2eeDelegate` fakes for the tests. |
 | `src/*.spec.ts` | Vitest tests. |
 
-The package exports these subpaths: `.`, `./permissions`, `./files` and `./types`.
+The package exports these subpaths: `.`, `./permissions`, `./files`, `./invite-link` and `./types`.
 
 ### Connect, cache and voice join
 

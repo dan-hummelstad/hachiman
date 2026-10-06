@@ -970,12 +970,16 @@ export interface ISecureStorage {
 export type SecureStorageErrorCode = 'SecureStorageUnavailable' | 'StoreCorrupt' | 'Malformed'
 export function secureStorageErrorCode(e: unknown): SecureStorageErrorCode | null
 
-// apps/hachiman/src/lib/invite-link.ts
+// @hachiman/client/invite-link: the one invite link grammar. The hosts import it as @hachiman/hachiman/invite-link
+// (a re-export). The root of @hachiman/hachiman exports parseInviteLink and parseInviteCode too.
 export interface InviteLink {
   code: string
   key: string | null   // the invite seed of an invite with history (§12.11.4): 43 canonical base64url characters
 }
 export function parseInviteLink(input: string): InviteLink | null
+export function parseInviteCode(input: string): string | null
+export function parseInviteKeyFragment(fragment: string): { key: string | null } | null  // fragment without '#'; '' → key null
+export function inviteKeyFragment(key: string): string  // '#k=' + key
 ```
 
 `secureStorage` (§12.17):
@@ -1004,8 +1008,8 @@ Invite links:
 - The forms are `takusen://invite/<code>`, `https://<Takusen issuer origin>/invite/<code>`, the web client path `/invite/<code>`, and a bare code. The link of an invite with history ends in `#k=<key>` (§12.11.4). `parseInviteLink` reads all of them.
 - **Fail closed.** A link with a fragment other than `k=` and 43 base64url characters gives null, and the host drops the link. The last character must be canonical (one of `AEIMQUYcgkosw048`): 32 bytes use only 4 bits of it, and the crypto Worker refuses other bits. Thus a damaged link cannot join without the history by accident.
 - Browser host: it reads `/invite/<code>[#k=<key>]` at start-up (`src/platforms/browser/launch-url.ts`). Then it replaces the URL with `/`, also when the link does not parse. This also removes the key from the address bar and the history entry.
-- Electron: the main process checks the deep link (`apps/hachiman-electron/src/main/deep-link-route.ts`). It sends the link, rebuilt from the checked parts, on the IPC channel `hachiman:invite-link`. The renderer parses the link again.
-- The Takusen page `/invite/<code>` links to `${HACHIMAN_WEB_URL}/invite/<code>` and to `takusen://invite/<code>`. A browser does not send the fragment to the server. Thus a script on the page adds the fragment to both links. It forwards only a well-formed `#k=` (`src/lib/invite-fragment.ts`), and it removes any fragment from the address bar with `history.replaceState`. **Residual risk:** Takusen serves this script, so a hostile Takusen can read the key in either host (§12.17 "Browser host").
+- Electron: the main process checks the deep link (`apps/hachiman-electron/src/main/deep-link-route.ts`). It rebuilds the link from the URL parts, checks it with `parseInviteLink`, and sends it on the IPC channel `hachiman:invite-link`. The renderer parses the link again.
+- The Takusen page `/invite/<code>` links to `${HACHIMAN_WEB_URL}/invite/<code>` and to `takusen://invite/<code>`. A browser does not send the fragment to the server. Thus a script on the page adds the fragment to both links. It forwards only a well-formed `#k=` (`src/lib/invite-fragment.ts`, with `parseInviteKeyFragment`), and it removes any fragment from the address bar with `history.replaceState`. **Residual risk:** Takusen serves this script, so a hostile Takusen can read the key in either host (§12.17 "Browser host").
 - The shared UI keeps the key only in memory (`InviteService`) and in component state, never in a store (§12.17). The join window says "This invite includes history" when the preview has `hasHistory` and the link has a key. When the link has no key, it tells the user to open the full link. A pasted link with a key also opens the join window. When the join window closes without a join, also when another window takes its place, the UI forgets the key.
 - The join of an invite with history uses the invite, but the redemption needs the crypto Worker of this window. When the Worker cannot start (`LockHeld`: Hachiman runs in another tab, or another start error, or a fatal state), the join window shows a warning, and the user must select "Join without the history" before the join.
 - After `POST /invites/:code`, the UI calls `redeemInvite` when the crypto Worker is ready and the client cache has this user in the members of the guild. It tries at once, when the status becomes ready, and on `READY` and `GUILD_CREATE`. `GroupPending` makes it wait for the next of these. A `Transport` error other than 404 `UnknownInvite` (a network error, a 5xx, a 429) makes it try again after 5 s, then after a wait that doubles up to 5 min, while the next try comes before `INVITE_BUNDLE_FETCH_WINDOW_MS` after the join. Another failure, or the end of that window, loses only the history: the user stays a member, and a security notice tells the user. The notice holds the guild id only.
@@ -1834,7 +1838,7 @@ sign_priv = HKDF-SHA256(salt = "", IKM = invite_seed, info = "hachiman invite si
 - The derivation does not use the RFC 9180 `DeriveKeyPair`.
 - `sign_public` is the **invite key id** (`keyId`, base64url on a JSON wire).
 - Test vector: `invite_seed` = bytes 0x00, 0x01, … 0x1f. `hpke_public` = `f2e52868376523060a03d6ddcbaee000ddffe9f0fe3fec04a5d139a432c19873`. `sign_public` = `249ff29357de4ced21fd2e49eaca9944bb1957c2ef0b9b30e79220fef2c75d86`.
-- The link is `https://<Takusen issuer origin>/invite/<code>#k=<base64url(invite_seed)>` (`INVITE_LINK_PARAM`, 43 characters, no padding). A browser does not send the fragment to the server. A script of the Takusen page hands it on to the app (§11 "Invite links").
+- The link is `https://<Takusen issuer origin>/invite/<code>#k=<base64url(invite_seed)>` (43 characters, no padding). `parseInviteKeyFragment` of `@hachiman/client/invite-link` checks the fragment. A browser does not send the fragment to the server. A script of the Takusen page hands it on to the app (§11 "Invite links").
 
 **Record.** The creator device signs the record. The client sends it in the body of `POST /guilds/:id/invites` (§12.12).
 
@@ -1952,7 +1956,7 @@ struct {
   - The invite is not revoked and not expired. `exhausted_at` does not matter: the redeemer itself used the last use.
   - `channel_ids` of the record has the channel of the group.
   - The caller joined the guild with this invite (`guild_members.invite_id`), at most `INVITE_AUTH_WINDOW_MS` ago.
-- **Members** check the `InviteAuth` before they apply the commit (`ProposalPolicy.inviteJoinKey`, `InviteJoins.checkJoin`): the signature for the group and the new leaf key, the record with the checks of §12.16 without the expiry, the revoke mark of the device, and the scope (the channel of the descriptor is in `channel_ids`, and @everyone still views it in `S`). A member can process the commit long after the upload, and Takusen checked the expiry at the upload. The joiner must also be a reader (`channelReaders`, and `adminReaders` when the device has them). A failed fetch during the check (keys, guild members, admin chain) is not a verdict: the member does not apply the commit and processes it again at the next catch-up. The first check of a record adds the timeline event `invite_with_history` (above). The member gets the invite id for its row from `GET /guilds/:id/invite-records`, so that `INVITE_DELETE` marks the row.
+- **Members** check the `InviteAuth` before they apply the commit (`ProposalPolicy.inviteJoinKey`, `InvitePort.checkJoin`): the signature for the group and the new leaf key, the record with the checks of §12.16 without the expiry, the revoke mark of the device, and the scope (the channel of the descriptor is in `channel_ids`, and @everyone still views it in `S`). A member can process the commit long after the upload, and Takusen checked the expiry at the upload. The joiner must also be a reader (`channelReaders`, and `adminReaders` when the device has them). A failed fetch during the check (keys, guild members, admin chain) is not a verdict: the member does not apply the commit and processes it again at the next catch-up. The first check of a record adds the timeline event `invite_with_history` (above). The member gets the invite id for its row from `GET /guilds/:id/invite-records`, so that `INVITE_DELETE` marks the row.
 - **A member that rejects the join only detects it.** It raises a fork alert (`commit_rejected`) and resyncs its own leaf, and the joiner stays in the tree (§12.7.9). The check of Takusen keeps a user without the seed out. A member rejects a valid join when it got a revoke of the invite or a demotion of the creator after the upload, and when it is an older client (§12.7.3 "Invite joins and older clients").
 
 **API.** `CryptoApi.prepareHistoryInvite` makes the seed and signs the record. `CryptoApi.sendInviteBundles` sends the bundles of the creator device after `POST /guilds/:id/invites`. It rejects with the error of the first post that fails, so that the caller can revoke the invite. It returns the number of groups that it sent: 0 when the device holds no group of the scope. `CryptoApi.redeemInvite` runs after `POST /invites/:code`: it checks the record, opens the bundles and imports the keys. The Worker calls the routes through `DsTransport.inviteRecords`, `DsTransport.postInviteBundle` and `DsTransport.inviteBundles` (§12.12).

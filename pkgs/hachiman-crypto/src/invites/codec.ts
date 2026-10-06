@@ -156,14 +156,24 @@ export function encodeSignedInviteRecord(s: SignedInviteRecord): Uint8Array {
   return encode((w) => void w.opaque(s.record).opaque(signature(s.signature)))
 }
 
-/** Also checks that `record` decodes. */
-export function decodeSignedInviteRecord(b: Uint8Array): SignedInviteRecord {
+function readSigned(b: Uint8Array): { record: Uint8Array; signature: Uint8Array; rec: InviteRecord } {
   if (b.length > MAX_SIGNED_RECORD_BYTES) throw new CodecError('signed invite record too large')
   return decode(b, (r) => {
     const record = r.opaque(MAX_RECORD_BYTES)
-    decodeInviteRecord(record)
-    return { record, signature: signature(r.opaque(SIG)) }
+    const rec = decodeInviteRecord(record)
+    return { record, rec, signature: signature(r.opaque(SIG)) }
   })
+}
+
+/** Also checks that `record` decodes. */
+export function decodeSignedInviteRecord(b: Uint8Array): SignedInviteRecord {
+  const s = readSigned(b)
+  return { record: s.record, signature: s.signature }
+}
+
+/** The InviteRecord inside an encoded SignedInviteRecord. Same checks as decodeSignedInviteRecord. Does not verify the signature. */
+export function readSignedInviteRecord(b: Uint8Array): InviteRecord {
+  return readSigned(b).rec
 }
 
 // MARK: - Invite bundles

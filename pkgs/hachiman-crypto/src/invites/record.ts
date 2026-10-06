@@ -25,6 +25,7 @@ import {
   encodeInviteRecord,
   encodeSignedInviteRecord,
   inviteAuthContent,
+  readSignedInviteRecord,
 } from './codec'
 
 // MARK: - InviteRecord
@@ -93,7 +94,7 @@ export function signInviteAuth(input: { signedRecord: Uint8Array; signPrivateKey
 export function verifyInviteAuth(input: { auth: Uint8Array; groupId: Uint8Array; leafSignatureKey: Uint8Array }): { keyId: Uint8Array; signedRecord: Uint8Array; record: InviteRecord } | null {
   try {
     const a = decodeInviteAuth(input.auth)
-    const record = decodeInviteRecord(decodeSignedInviteRecord(a.signedRecord).record)
+    const record = readSignedInviteRecord(a.signedRecord)
     if (!verifyWithLabel(record.signPublic, SignLabel.INVITE_AUTH, inviteAuthContent(input.groupId, input.leafSignatureKey), a.signature)) return null
     return { keyId: record.signPublic, signedRecord: a.signedRecord, record }
   } catch {

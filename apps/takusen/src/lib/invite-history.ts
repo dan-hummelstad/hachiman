@@ -84,9 +84,22 @@ export function checkInviteRecord(view: InviteRecordView | null, e: RecordExpect
   return keyId
 }
 
+export type InviteUsability = 'ok' | 'revoked' | 'expired' | 'exhausted'
+
+/** Why an invite cannot be used, in this order, or 'ok'. `activeRecords` has the same rule in SQL. */
+export function inviteUsability(
+  i: Pick<InviteRow, 'revoked' | 'expiresAt' | 'exhaustedAt' | 'maxUses' | 'uses'>,
+  now: Date,
+): InviteUsability {
+  if (i.revoked) return 'revoked'
+  if (i.expiresAt !== null && i.expiresAt <= now) return 'expired'
+  if (i.exhaustedAt !== null || (i.maxUses !== null && i.uses >= i.maxUses)) return 'exhausted'
+  return 'ok'
+}
+
 /** Not revoked, not expired, not exhausted. */
 export function isInviteActive(i: Pick<InviteRow, 'revoked' | 'expiresAt' | 'exhaustedAt' | 'maxUses' | 'uses'>, now: Date): boolean {
-  return !i.revoked && (i.expiresAt === null || i.expiresAt > now) && i.exhaustedAt === null && (i.maxUses === null || i.uses < i.maxUses)
+  return inviteUsability(i, now) === 'ok'
 }
 
 function unknownInvite(): ApiError {
@@ -171,6 +184,7 @@ export function drizzleInviteHistoryStore(x: Executor = db): InviteHistoryStore 
             eq(invites.guildId, guildId),
             isNotNull(invites.record),
             isNotNull(invites.keyId),
+            // The next four lines are inviteUsability(i, now) === 'ok'. Keep them in step.
             eq(invites.revoked, false),
             or(isNull(invites.expiresAt), gt(invites.expiresAt, now)),
             isNull(invites.exhaustedAt),

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import type { CryptoEvents, EncryptedMessage } from '../api'
+import type { CryptoEvents, EncryptedMessage, InvitePort } from '../api'
 import { admin } from '../admin/index'
 import { createAdminService } from '../admin/service'
 import { fromB64url, toB64url } from '../codec'
@@ -16,6 +16,11 @@ async function world(names: string[]): Promise<{ ds: FakeMlsDs; c: Record<string
   for (const n of names) c[n] = await ds.client(ds.uuid())
   await ds.flush()
   return { ds, c }
+}
+
+/** An InvitePort that records the hooks and gives no invite join. */
+function testPort(hooks: Partial<Pick<InvitePort, 'ownCommit' | 'joined'>>): InvitePort {
+  return { authFor: () => Promise.resolve(null), checkJoin: () => Promise.resolve('test'), ownCommit: () => undefined, joined: () => undefined, ...hooks }
 }
 
 async function epochOf(c: Client, gid: string): Promise<number | null> {
@@ -143,7 +148,7 @@ describe('GroupService', () => {
     await ds.flush()
     alice.online = false
     const joins: number[] = []
-    bob.groups.onJoin((e) => joins.push(e.epoch))
+    bob.groups.attachInvites(testPort({ joined: (e) => joins.push(e.epoch) }))
     await bob.groups.ensureChannelGroup(general)
     const req = [...ds.joinRequests.values()].find((r) => r.deviceId === bob.deviceId)!
     ds.groups.get(gid)!.pending = []
@@ -537,16 +542,23 @@ describe('GroupService', () => {
     expect(await secretOf(bob, gid)).toBe(await secretOf(alice, gid))
   }, 120_000)
 
-  it('onOwnCommit fires after each own accepted commit, never after a commit of another device; onJoin after a Welcome', async () => {
+  it('InvitePort.ownCommit fires after each own accepted commit, never after a commit of another device; joined after a Welcome', async () => {
     const { ds, c } = await world(['alice', 'bob', 'carol'])
     const { alice, bob, carol } = c as Record<'alice' | 'bob' | 'carol', Client>
     const seen: { device: string; gid: string; epoch: number }[] = []
     const joins: { device: string; gid: string; epoch: number }[] = []
-    for (const x of [alice, bob]) x.groups.onOwnCommit((e) => seen.push({ device: x.deviceId, gid: toB64url(e.groupId), epoch: e.epoch }))
-    for (const x of [alice, bob, carol]) x.groups.onJoin((e) => joins.push({ device: x.deviceId, gid: toB64url(e.groupId), epoch: e.epoch }))
+    const record = (list: typeof seen, x: Client) => (e: { groupId: Uint8Array; epoch: number }) => {
+      list.push({ device: x.deviceId, gid: toB64url(e.groupId), epoch: e.epoch })
+    }
+    for (const x of [alice, bob]) x.groups.attachInvites(testPort({ ownCommit: record(seen, x), joined: record(joins, x) }))
+    // A later attachInvites replaces the port.
+    const replaced: unknown[] = []
+    carol.groups.attachInvites(testPort({ joined: (e) => replaced.push(e) }))
+    carol.groups.attachInvites(testPort({ joined: record(joins, carol) }))
     // The batch commit of the Adds.
     const { channelId, gid } = await channelGroup(ds, [alice, bob, carol])
     expect(seen).toEqual([{ device: alice.deviceId, gid, epoch: 1 }])
+    expect(replaced).toEqual([])
     expect(joins).toEqual([
       { device: bob.deviceId, gid, epoch: 1 },
       { device: carol.deviceId, gid, epoch: 1 },

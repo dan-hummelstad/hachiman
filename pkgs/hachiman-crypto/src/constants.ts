@@ -250,8 +250,6 @@ export const INVITE_BUNDLE_MAX_BYTES = 640 * 1024
 export const INVITE_BUNDLE_FETCH_WINDOW_MS = 3_600_000
 /** An invite_auth join is accepted this long after the guild join with the invite. */
 export const INVITE_AUTH_WINDOW_MS = 86_400_000
-/** The link fragment parameter of the seed: `#k=<base64url(seed)>`. */
-export const INVITE_LINK_PARAM = 'k'
 
 // MARK: - Key transparency (§12.14)
 

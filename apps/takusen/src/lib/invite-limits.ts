@@ -10,14 +10,14 @@
  * and `lib/invites.ts` imports `lib/guilds.ts`.
  */
 import { and, eq, isNotNull, isNull, or } from 'drizzle-orm'
-import { computeBasePermissions, has, Permissions } from '@hachiman/client/permissions'
+import { Permissions } from '@hachiman/client/permissions'
 
 import type { Tx } from '@/db/client'
 import { invites } from '@/db/schema'
 import { MissingPermissionsError, ValidationError } from '@/lib/errors'
 import { publishToGuild } from '@/lib/events'
 import { drizzleInviteHistoryStore } from '@/lib/invite-history'
-import type { GuildPermissionData } from '@/lib/mls/repo'
+import { hasGuildPermission } from '@/lib/mls/readers'
 import { drizzleMlsRepo } from '@/lib/mls/repo.drizzle'
 
 /** The longest invite that a user without ADMINISTRATOR can make. */
@@ -25,8 +25,12 @@ export const MAX_LIMITED_INVITE_AGE_S = 86_400
 /** The longest invite with an expiry (zod rejects more for everyone). */
 export const MAX_INVITE_AGE_S = 7 * 86_400
 
-/** Call after the zod parse. A non-admin gets the 403, also when the acknowledgment is missing. */
-export function assertInviteLimits(body: { maxAgeSeconds: number; acknowledgedPermanent?: boolean }, isAdmin: boolean): void {
+/** Call after the zod parse. A non-admin gets the 403 (history, permanent, above 24 h), also when the acknowledgment is missing. */
+export function assertInviteLimits(
+  body: { maxAgeSeconds: number; acknowledgedPermanent?: boolean; record?: unknown },
+  isAdmin: boolean,
+): void {
+  if (body.record !== undefined && !isAdmin) throw new MissingPermissionsError('Only an administrator can make an invite with history')
   if (!isAdmin && (body.maxAgeSeconds === 0 || body.maxAgeSeconds > MAX_LIMITED_INVITE_AGE_S)) {
     throw new MissingPermissionsError('Only an administrator can make an invite that is permanent or lasts longer than 24 hours')
   }
@@ -35,16 +39,18 @@ export function assertInviteLimits(body: { maxAgeSeconds: number; acknowledgedPe
   }
 }
 
-/** The creators that are not members of the guild or do not have ADMINISTRATOR. Mirrors `readersFrom`. */
-export function creatorsWithoutAdmin(data: GuildPermissionData, creators: Iterable<string>): Set<string> {
-  const out = new Set<string>()
-  for (const id of creators) {
-    const roles = data.members.get(id)
-    if (!roles || !has(computeBasePermissions(data.guild, { user: { id }, roles }, data.roles), Permissions.ADMINISTRATOR)) {
-      out.add(id)
-    }
-  }
-  return out
+/**
+ * Permanent, or with history (§4 "Invite limits", §12.11.4): only an
+ * administrator makes it, and it is revoked when its creator loses
+ * ADMINISTRATOR. Keep in step with needsAdministratorSql.
+ */
+export function needsAdministrator(i: { expiresAt: Date | null; record: Uint8Array | null }): boolean {
+  return i.expiresAt === null || i.record !== null
+}
+
+/** needsAdministrator as a condition on `invites`. */
+export function needsAdministratorSql() {
+  return or(isNull(invites.expiresAt), isNotNull(invites.record))
 }
 
 export interface RevokedInvite {
@@ -65,12 +71,11 @@ export async function revokeAdminInvitesOfNonAdmins(tx: Tx, guildId: string): Pr
   const rows = await tx
     .select({ id: invites.id, createdBy: invites.createdBy })
     .from(invites)
-    .where(and(eq(invites.guildId, guildId), eq(invites.revoked, false), or(isNull(invites.expiresAt), isNotNull(invites.record))))
+    .where(and(eq(invites.guildId, guildId), eq(invites.revoked, false), needsAdministratorSql()))
   if (rows.length === 0) return []
   const data = await drizzleMlsRepo(tx).getGuildPermissionData(guildId)
   if (!data) return []
-  const lost = creatorsWithoutAdmin(data, new Set(rows.map((r) => r.createdBy)))
-  const hit = rows.filter((r) => lost.has(r.createdBy))
+  const hit = rows.filter((r) => !hasGuildPermission(data, r.createdBy, Permissions.ADMINISTRATOR))
   if (hit.length === 0) return []
   return drizzleInviteHistoryStore(tx).revokeInvites(hit.map((r) => r.id))
 }

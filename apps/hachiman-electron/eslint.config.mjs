@@ -9,7 +9,7 @@ import { fileURLToPath } from "url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const MAIN_IMPORT_MSG =
-  "Main may import only @hachiman/hachiman/takusen-env from the shared UI lib.";
+  "Main may import only the pure subpaths @hachiman/hachiman/takusen-env and @hachiman/hachiman/invite-link from the shared UI lib.";
 
 export default defineConfig(
   { ignores: ["**/node_modules", "**/dist", "**/out"] },
@@ -59,7 +59,11 @@ export default defineConfig(
           paths: [{ name: "@hachiman/hachiman", message: MAIN_IMPORT_MSG }],
           patterns: [
             {
-              group: ["@hachiman/hachiman/*", "!@hachiman/hachiman/takusen-env"],
+              group: [
+                "@hachiman/hachiman/*",
+                "!@hachiman/hachiman/takusen-env",
+                "!@hachiman/hachiman/invite-link",
+              ],
               message: MAIN_IMPORT_MSG,
             },
           ],

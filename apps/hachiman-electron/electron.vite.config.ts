@@ -19,7 +19,8 @@ export default defineConfig(({ mode }) => ({
   main: {
     envDir,
     // Bundle (do not externalize) the shared lib: main imports its pure
-    // takusen-env resolver as TS source for the CSP (src/main/csp.ts).
+    // takusen-env resolver as TS source for the CSP (src/main/csp.ts), and its
+    // pure invite-link parser for deep links (src/main/deep-link-route.ts).
     build: { externalizeDeps: { exclude: ["@hachiman/hachiman"] } },
   },
   preload: { envDir },

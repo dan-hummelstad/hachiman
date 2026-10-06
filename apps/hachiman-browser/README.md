@@ -56,7 +56,7 @@ flowchart TD
 | `src/main.tsx` | Reads the launch query and calls `consumeLaunchUrl`. In dev with `?preview`, it starts preview mode. Then it renders `App` in `PlatformProvider` and `ThemeProvider`. |
 | `src/platforms/browser/PlatformService.ts` | `platformService` (the `IPlatformService` implementation) and `consumeLaunchUrl`. |
 | `src/platforms/browser/secure-storage.ts` | `createBrowserSecureStorage`: the IndexedDB wrap key store. |
-| `src/platforms/browser/launch-url.ts` | `launchRoute`: the route of the load URL, with the invite parser as a parameter (pure, for `node --test`). |
+| `src/platforms/browser/launch-url.ts` | `launchRoute`: the route of the load URL. It parses an invite link with `parseInviteLink` of `@hachiman/hachiman/invite-link` (pure, for `node --test`). |
 | `csp.ts` | `browserCsp`: the Electron CSP rules (`../hachiman-electron/src/main/csp-policy.ts`) as a header and as a meta tag. |
 | `vite.config.ts` | React and Tailwind plugins. The `@` alias points to `../hachiman/src`. The dev server uses port 5173 with `strictPort`. `envDir` is the repo root. It sends the CSP and builds module Workers (`worker.format: 'es'`). |
 | `*.test.mts`, `src/**/*.test.mts` | CSP, secure storage and launch URL tests (`node --test`). |

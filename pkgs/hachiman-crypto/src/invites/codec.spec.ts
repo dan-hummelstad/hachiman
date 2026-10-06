@@ -68,6 +68,21 @@ describe('invite codecs', () => {
     roundTrip(fc.record({ signedRecord: record.map((r) => c.encodeSignedInviteRecord({ record: c.encodeInviteRecord(r), signature: new Uint8Array(64) })), signature: sig }), c.encodeInviteAuth, c.decodeInviteAuth)
   })
 
+  it('readSignedInviteRecord returns the inner record and rejects what decodeSignedInviteRecord rejects', () => {
+    fc.assert(
+      fc.property(record, sig, (r, s) => {
+        const b = c.encodeSignedInviteRecord({ record: c.encodeInviteRecord(r), signature: s })
+        expect(c.readSignedInviteRecord(b)).toEqual(r)
+        expect(() => c.readSignedInviteRecord(new Uint8Array([...b, 0]))).toThrow(CodecError)
+        expect(() => c.readSignedInviteRecord(b.subarray(0, b.length - 1))).toThrow(CodecError)
+      }),
+      { numRuns: 50 },
+    )
+    const rec = c.encodeInviteRecord(baseRecord)
+    expect(() => c.readSignedInviteRecord(encode((w) => void w.opaque(rec).opaque(new Uint8Array(63))))).toThrow(/64 bytes/)
+    expect(() => c.readSignedInviteRecord(encode((w) => void w.opaque(rec.subarray(1)).opaque(new Uint8Array(64))))).toThrow(CodecError)
+  })
+
   it('pins the InviteRecord layout', () => {
     const b = c.encodeInviteRecord(baseRecord)
     // version, guild_id, hpke_public, sign_public, channel_ids<V> (32 bytes, prefix 0x20), then the rest.

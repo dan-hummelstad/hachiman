@@ -5,6 +5,7 @@
  * one use — idempotently for existing members.
  */
 import { and, count, eq } from 'drizzle-orm'
+import { Permissions } from '@hachiman/client/permissions'
 import type { InvitePreview } from '@hachiman/client/types'
 
 import { db, type Database } from '@/db/client'
@@ -18,8 +19,9 @@ import {
   ValidationError,
 } from '@/lib/errors'
 import { membershipChanged, membershipTransaction, MembershipTriggers } from '@/lib/guilds'
-import { drizzleInviteHistoryStore } from '@/lib/invite-history'
-import { creatorsWithoutAdmin } from '@/lib/invite-limits'
+import { drizzleInviteHistoryStore, inviteUsability } from '@/lib/invite-history'
+import { needsAdministrator } from '@/lib/invite-limits'
+import { hasGuildPermission } from '@/lib/mls/readers'
 import { drizzleMlsRepo } from '@/lib/mls/repo.drizzle'
 
 // RFC 4648 base32 minus the ambiguous {0, O, I, 1}. 8 chars ≈ 1.1e12 codes;
@@ -43,9 +45,14 @@ function normalizeCode(code: string): string | null {
 }
 
 function assertUsable(invite: InviteRow): void {
-  if (invite.revoked) throw new InviteRevokedError()
-  if (invite.expiresAt && invite.expiresAt.getTime() <= Date.now()) throw new InviteExpiredError()
-  if (invite.maxUses !== null && invite.uses >= invite.maxUses) throw new InviteExhaustedError()
+  switch (inviteUsability(invite, new Date())) {
+    case 'revoked':
+      throw new InviteRevokedError()
+    case 'expired':
+      throw new InviteExpiredError()
+    case 'exhausted':
+      throw new InviteExhaustedError()
+  }
 }
 
 export async function getInviteByCode(code: string): Promise<InviteRow | null> {
@@ -129,15 +136,17 @@ export async function acceptInvite(
 }
 
 /**
- * An invite that needs ADMINISTRATOR: a permanent invite (contract §4 "Invite
- * limits"), or an invite with history (§12.11.4) with its record and key id.
- * The transaction holds the guild row and the creator's membership row FOR
- * SHARE, and checks ADMINISTRATOR again inside it. A role or member-role
- * change locks the guild row FOR UPDATE, and a removal deletes the membership
- * row. Thus a concurrent demotion either comes first (403 here) or waits and
- * then revokes this invite. A key id that another invite has gives 400.
+ * Makes an invite in one transaction. An invite that needs ADMINISTRATOR
+ * (`needsAdministrator`) is a permanent invite (contract §4 "Invite limits"),
+ * or an invite with history (§12.11.4) with its record and key id. Only for
+ * such an invite, the transaction holds the guild row and the creator's
+ * membership row FOR SHARE, and checks ADMINISTRATOR again inside it. A role
+ * or member-role change locks the guild row FOR UPDATE, and a removal deletes
+ * the membership row. Thus a concurrent demotion either comes first (403 here)
+ * or waits and then revokes this invite. A key id that another invite has
+ * gives 400.
  */
-export async function createAdminInvite(
+export async function createInvite(
   opts: {
     guildId: string
     createdBy: string
@@ -149,15 +158,18 @@ export async function createAdminInvite(
 ): Promise<InviteRow> {
   const { history, ...values } = opts
   return database.transaction(async (tx) => {
-    await tx.select({ id: guilds.id }).from(guilds).where(eq(guilds.id, opts.guildId)).for('share')
-    const [member] = await tx
-      .select({ userId: guildMembers.userId })
-      .from(guildMembers)
-      .where(and(eq(guildMembers.guildId, opts.guildId), eq(guildMembers.userId, opts.createdBy)))
-      .for('share')
-    const data = member ? await drizzleMlsRepo(tx).getGuildPermissionData(opts.guildId) : null
-    if (!data || creatorsWithoutAdmin(data, [opts.createdBy]).size > 0) {
-      throw new MissingPermissionsError('Only an administrator can make this invite')
+    if (needsAdministrator({ expiresAt: opts.expiresAt, record: history?.record ?? null })) {
+      await tx.select({ id: guilds.id }).from(guilds).where(eq(guilds.id, opts.guildId)).for('share')
+      const [member] = await tx
+        .select({ userId: guildMembers.userId })
+        .from(guildMembers)
+        .where(and(eq(guildMembers.guildId, opts.guildId), eq(guildMembers.userId, opts.createdBy)))
+        .for('share')
+      // Check only a membership row that this transaction locked: the next read can see a join that committed after the lock.
+      const data = member ? await drizzleMlsRepo(tx).getGuildPermissionData(opts.guildId) : null
+      if (!data || !hasGuildPermission(data, opts.createdBy, Permissions.ADMINISTRATOR)) {
+        throw new MissingPermissionsError('Only an administrator can make this invite')
+      }
     }
     // A unique violation would abort the transaction: skip the conflict, then retry a code collision.
     for (let attempt = 0; attempt < 3; attempt++) {
@@ -174,24 +186,4 @@ export async function createAdminInvite(
     }
     throw new Error('Could not allocate an invite code')
   })
-}
-
-export async function createInvite(opts: {
-  guildId: string
-  createdBy: string
-  expiresAt: Date | null
-  maxUses: number | null
-}): Promise<InviteRow> {
-  for (let attempt = 0; ; attempt++) {
-    try {
-      const [row] = await db
-        .insert(invites)
-        .values({ ...opts, code: generateInviteCode() })
-        .returning()
-      return row
-    } catch (err) {
-      // 23505 unique_violation: code collision — retry with a fresh code.
-      if ((err as { code?: string }).code !== '23505' || attempt >= 2) throw err
-    }
-  }
 }

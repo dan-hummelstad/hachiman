@@ -5,17 +5,19 @@
  *   the link secret (§12.17). The creator does not keep it.
  * - sendInviteBundles: the creation bundles of this device, one per scope group that it holds.
  *   The first failed post rejects.
- * - After each own commit in a scope group of an active invite (GroupService.onOwnCommit), this
+ * - After each own commit in a scope group of an active invite (InvitePort.ownCommit), this
  *   device sends a bundle with the new epoch and the epochs after the newest bundled one.
  * - redeemInvite (after the guild join): checks the record against the seed and the admin state,
  *   opens each bundle of a scope group, checks its sender and imports the keys. The redeemer gets
  *   the bundles again INVITE_REFETCH_DELAY_MS after the redemption and after each own join of a
- *   scope group (GroupService.onJoin): a later commit bundle fills the epochs that had none.
+ *   scope group (InvitePort.joined): a later commit bundle fills the epochs that had none.
  * - prune wipes the redeemer seed INVITE_AUTH_WINDOW_MS after the redemption (a timer, and at the
  *   start), and deletes the row of an invite HANDSHAKE_RETENTION_MS after its expiry.
- * - Join authorization (GroupService.setInviteJoins): while the redeemer keeps the seed, it signs an
- *   InviteAuth for its external commit into a 'channel' group of the scope. A member checks the
+ * - Join authorization (InvitePort.authFor, checkJoin): while the redeemer keeps the seed, it signs
+ *   an InviteAuth for its external commit into a 'channel' group of the scope. A member checks the
  *   InviteAuth of such a commit before it applies it. The redemption syncs the groups at once.
+ *
+ * The service attaches its InvitePort to GroupService once, at its creation (attachInvites).
  *
  * A device checks each record against its current verified admin state (§12.16), and decides the
  * scope from its own MLS group descriptors, never from REST data. Every check fails closed.
@@ -30,7 +32,7 @@ import {
   type GroupIdParts,
   type GuildId,
   type HistoryKeyEntry,
-  type InviteJoins,
+  type InvitePort,
   type InviteService,
   type StoreSchema,
   type WireInviteRecord,
@@ -38,9 +40,11 @@ import {
 import { AdminBits } from '../admin/index'
 import { bytesToUuid, fromB64url, toB64url, uuidToBytes } from '../codec'
 import { HANDSHAKE_RETENTION_MS, HISTORY_BUNDLE_MAX_EPOCHS, INVITE_AUTH_WINDOW_MS, INVITE_BUNDLE_FETCH_WINDOW_MS, INVITE_MAX_SCOPE_CHANNELS, INVITE_SEED_BYTES } from '../constants'
+import { reportError } from '../errors'
 import { compareBytes, equalBytes } from '../identity/bytes'
+import { storedEpochSecrets } from '../mls/epoch-secrets'
 import { parseGroupId } from '../mls/wire'
-import { type InviteRecord, decodeInviteBundleContent, decodeInviteBundleTbs, decodeInviteRecord, decodeSignedInviteRecord } from './codec'
+import { type InviteRecord, decodeInviteBundleContent, decodeInviteBundleTbs, readSignedInviteRecord } from './codec'
 import { deriveInviteKeys, openInviteBundle, sealInviteBundle } from './keys'
 import { signInviteAuth, signInviteBundle, signInviteRecord, verifyInviteAuth, verifyInviteBundle, verifyInviteRecordSignature } from './record'
 
@@ -58,13 +62,11 @@ export interface InviteServiceExt extends InviteService {
 }
 
 type Row = StoreSchema['invites']
-type Check = { ok: true; record: InviteRecord } | { ok: false; reason: string }
-/** A redeemer row that can still get the bundles. */
-type Refetchable = Row & { code: string; seed: Uint8Array; redeemedAtMs: number }
+type Check = { ok: true; record: InviteRecord; state: AdminReplayState } | { ok: false; reason: string }
+/** A redeemer row that keeps its seed and is not revoked. */
+type LiveRedeemer = Row & { role: 'redeemed'; code: string; seed: Uint8Array; redeemedAtMs: number }
 
 const MAX_U32 = 0xffffffff
-/** Up to this many epochs, a commit bundle reads the secrets one by one instead of listing the group. */
-const SHORT_GAP = 64
 
 export const createInviteService = ((ctx, identity, groups, perms): InviteServiceExt => {
   const { store, transport } = ctx
@@ -78,16 +80,19 @@ export const createInviteService = ((ctx, identity, groups, perms): InviteServic
   const refetchTimers = new Map<string, ReturnType<typeof setTimeout>>()
 
   spawn(prune())
-  groups.onOwnCommit((e) => {
-    // One commit after the other: two sends for one group would race on `bundled`.
-    const run = sending.then(() => afterOwnCommit(e))
-    sending = run.catch(() => undefined)
-    spawn(run)
-  })
-  groups.onJoin((e) => {
-    spawn(afterJoin(e))
-  })
-  groups.setInviteJoins({ authFor, checkJoin } satisfies InviteJoins)
+  groups.attachInvites({
+    authFor,
+    checkJoin,
+    ownCommit: (e) => {
+      // One commit after the other: two sends for one group would race on `bundled`.
+      const run = sending.then(() => afterOwnCommit(e))
+      sending = run.catch(() => undefined)
+      spawn(run)
+    },
+    joined: (e) => {
+      spawn(afterJoin(e))
+    },
+  } satisfies InvitePort)
 
   // MARK: - plumbing
 
@@ -97,9 +102,7 @@ export const createInviteService = ((ctx, identity, groups, perms): InviteServic
   }
 
   function report(e: unknown): void {
-    const code = e instanceof CryptoError ? e.code : 'Transport'
-    const dsCode = typeof e === 'object' && e !== null && 'dsCode' in e && typeof e.dsCode === 'string' ? e.dsCode : undefined
-    ctx.emit('error', { code, message: e instanceof Error ? e.message : String(e), dsCode })
+    reportError(ctx, e)
   }
 
   function recordsOf(guildId: GuildId): Promise<WireInviteRecord[]> {
@@ -153,7 +156,7 @@ export const createInviteService = ((ctx, identity, groups, perms): InviteServic
   async function checkRecord(guildId: GuildId, signed: Uint8Array, state: AdminReplayState | null, graceMs = 0): Promise<Check> {
     let rec: InviteRecord
     try {
-      rec = decodeInviteRecord(decodeSignedInviteRecord(signed).record)
+      rec = readSignedInviteRecord(signed)
     } catch {
       return { ok: false, reason: 'malformed' }
     }
@@ -168,12 +171,12 @@ export const createInviteService = ((ctx, identity, groups, perms): InviteServic
     if ((await identity.chainContextFor(rec.creatorUserId, false)).revokedDeviceIds.has(rec.creatorDeviceId)) return { ok: false, reason: 'the creator device is revoked' }
     if ((await identity.trustOf(rec.creatorUserId)) === 'changed') return { ok: false, reason: 'the creator key changed' }
     const hit = verified.get(keyId)
-    if (hit?.seq === state.seq && equalBytes(hit.signed, signed)) return { ok: true, record: hit.record }
+    if (hit?.seq === state.seq && equalBytes(hit.signed, signed)) return { ok: true, record: hit.record, state }
     const cert = await identity.deviceCertificate(rec.creatorUserId, rec.creatorDeviceId)
     const ok = cert === null ? null : verifyInviteRecordSignature(signed, cert)
     if (ok === null) return { ok: false, reason: 'bad signature or unknown creator device' }
     verified.set(keyId, { seq: state.seq, signed, record: ok })
-    return { ok: true, record: ok }
+    return { ok: true, record: ok, state }
   }
 
   /** §12.11.4 "Scope": from the MLS-authenticated descriptor of the group. */
@@ -209,7 +212,7 @@ export const createInviteService = ((ctx, identity, groups, perms): InviteServic
   async function scopeGroups(rec: InviteRecord, state: AdminReplayState): Promise<{ gid: string; groupId: Uint8Array; descriptor: GroupDescriptor }[]> {
     const out: { gid: string; groupId: Uint8Array; descriptor: GroupDescriptor }[] = []
     for (const { key, value } of await store.list('groups')) {
-      if (value.state.length === 0 || !idInScope(value.groupId, rec, state)) continue
+      if (!idInScope(value.groupId, rec, state)) continue
       const descriptor = await groups.descriptor(value.groupId)
       if (descriptor !== null && inScope(descriptor, rec, state)) out.push({ gid: key, groupId: value.groupId, descriptor })
     }
@@ -251,23 +254,6 @@ export const createInviteService = ((ctx, identity, groups, perms): InviteServic
     })
   }
 
-  /** Stored epoch secrets of a group, ascending. */
-  async function secretsOf(gid: string): Promise<HistoryKeyEntry[]> {
-    return (await store.list('epochSecrets', `${gid}:`)).map(({ value }) => ({ groupId: value.groupId, epoch: value.epoch, secret: value.secret })).sort((a, b) => a.epoch - b.epoch)
-  }
-
-  /** The stored secrets of the epochs above `floor` up to `epoch`, ascending. A short gap reads each row. */
-  async function secretsAfter(gid: string, floor: number, epoch: number): Promise<HistoryKeyEntry[]> {
-    const from = Math.max(floor + 1, epoch - HISTORY_BUNDLE_MAX_EPOCHS + 1, 0)
-    if (epoch - from >= SHORT_GAP) return (await secretsOf(gid)).filter((k) => k.epoch >= from && k.epoch <= epoch)
-    const out: HistoryKeyEntry[] = []
-    for (let e = from; e <= epoch; e++) {
-      const row = await store.get('epochSecrets', `${gid}:${e}`)
-      if (row !== undefined) out.push({ groupId: row.groupId, epoch: row.epoch, secret: row.secret })
-    }
-    return out
-  }
-
   /** Seals `keys` (ascending, the newest HISTORY_BUNDLE_MAX_EPOCHS) and posts the bundle with the newest epoch. */
   async function sendBundle(inviteId: string, rec: InviteRecord, gid: string, keys: HistoryKeyEntry[]): Promise<void> {
     const kept = keys.slice(-HISTORY_BUNDLE_MAX_EPOCHS)
@@ -302,13 +288,14 @@ export const createInviteService = ((ctx, identity, groups, perms): InviteServic
       try {
         const signed = fromB64url(w.record)
         const c = await checkRecord(desc.guildId, signed, state)
-        if (!c.ok || state === null || !inScope(desc, c.record, state)) continue
-        const row = await noteRecord(w.inviteId, c.record, signed, state)
+        if (!c.ok || !inScope(desc, c.record, c.state)) continue
+        const row = await noteRecord(w.inviteId, c.record, signed, c.state)
         const own = row.bundled[gid] ?? -1
         if (own >= e.epoch) continue
         // The REST hint can be at or above the new epoch: then only the new epoch goes.
         const floor = Math.min(Math.max(own, w.bundled.find((b) => b.groupId === gid)?.epoch ?? -1), e.epoch - 1)
-        const keys = await secretsAfter(gid, floor, e.epoch)
+        // The epochs above `floor` up to the new one, and at most the newest HISTORY_BUNDLE_MAX_EPOCHS.
+        const keys = await storedEpochSecrets(store, gid, Math.max(floor + 1, e.epoch - HISTORY_BUNDLE_MAX_EPOCHS + 1, 0), e.epoch)
         if (keys.at(-1)?.epoch !== e.epoch) continue
         await sendBundle(w.inviteId, c.record, gid, keys)
       } catch (err) {
@@ -330,7 +317,7 @@ export const createInviteService = ((ctx, identity, groups, perms): InviteServic
     let rec: InviteRecord
     try {
       signed = fromB64url(res.record)
-      rec = decodeInviteRecord(decodeSignedInviteRecord(signed).record)
+      rec = readSignedInviteRecord(signed)
     } catch {
       throw new CryptoError('Malformed', 'the invite record does not decode')
     }
@@ -342,10 +329,10 @@ export const createInviteService = ((ctx, identity, groups, perms): InviteServic
     // later). A retry passes then, so that is not a record failure.
     const memberIds = await transport.guildMembers(rec.guildId)
     if (!memberIds.includes(identity.self().userId)) throw new CryptoError('GroupPending', 'the guild members are not loaded yet')
-    const state = await identity.adminState(rec.guildId)
     // Takusen serves the bundles for 1 h after the join, also when the invite expired since (§12.12).
-    const c = await checkRecord(rec.guildId, signed, state, INVITE_BUNDLE_FETCH_WINDOW_MS)
-    if (!c.ok || state === null) throw new CryptoError('InvalidChain', `the invite record does not verify: ${c.ok ? 'no admin state' : c.reason}`)
+    const c = await checkRecord(rec.guildId, signed, await identity.adminState(rec.guildId), INVITE_BUNDLE_FETCH_WINDOW_MS)
+    if (!c.ok) throw new CryptoError('InvalidChain', `the invite record does not verify: ${c.reason}`)
+    const { state } = c
     const members = new Set(memberIds)
     const accepted: { creator: boolean; keys: HistoryKeyEntry[] }[] = []
     for (const b of res.bundles) {
@@ -394,9 +381,9 @@ export const createInviteService = ((ctx, identity, groups, perms): InviteServic
     return { inviteId: res.inviteId, signed, rec, imported }
   }
 
-  /** The redeemer still keeps the seed, and Takusen still gives the bundles (§12.12). */
-  function refetchable(row: Row | undefined, now: number): row is Refetchable {
-    return row?.role === 'redeemed' && !row.revoked && row.seed !== null && row.code !== null && row.redeemedAtMs !== null && now - row.redeemedAtMs < INVITE_BUNDLE_FETCH_WINDOW_MS
+  /** The redeemer keeps the seed, the invite is not revoked, and the redemption is less than `windowMs` ago. */
+  function liveRedeemer(row: Row | undefined, now: number, windowMs: number): row is LiveRedeemer {
+    return row?.role === 'redeemed' && !row.revoked && row.seed !== null && row.code !== null && row.redeemedAtMs !== null && now - row.redeemedAtMs < windowMs
   }
 
   /** One later fetch per invite: a call before it runs moves it. */
@@ -415,7 +402,8 @@ export const createInviteService = ((ctx, identity, groups, perms): InviteServic
   /** §12.11.4 "Later bundles": the same checks as the redemption. Keeps the row as it is. */
   async function refetch(keyId: string): Promise<void> {
     const row = await store.get('invites', keyId)
-    if (refetchable(row, ctx.now())) await openBundles(row.code, row.seed)
+    // Takusen gives the bundles for INVITE_BUNDLE_FETCH_WINDOW_MS after the join (§12.12).
+    if (liveRedeemer(row, ctx.now(), INVITE_BUNDLE_FETCH_WINDOW_MS)) await openBundles(row.code, row.seed)
   }
 
   /** This device joined a group: each redeemed invite whose scope has the group fetches again. */
@@ -423,13 +411,13 @@ export const createInviteService = ((ctx, identity, groups, perms): InviteServic
     const desc = await groups.descriptor(e.groupId)
     if (desc?.guildId == null || (desc.kind !== 'public_set' && desc.kind !== 'channel')) return
     const now = ctx.now()
-    const rows = (await store.list('invites')).filter(({ value }) => value.guildId === desc.guildId && refetchable(value, now))
+    const rows = (await store.list('invites')).filter(({ value }) => value.guildId === desc.guildId && liveRedeemer(value, now, INVITE_BUNDLE_FETCH_WINDOW_MS))
     if (rows.length === 0) return
     const state = await identity.adminState(desc.guildId)
     if (state === null) return
     for (const { key, value } of rows) {
       try {
-        if (inScope(desc, decodeInviteRecord(decodeSignedInviteRecord(value.record).record), state)) scheduleRefetch(key)
+        if (inScope(desc, readSignedInviteRecord(value.record), state)) scheduleRefetch(key)
       } catch (err) {
         report(err)
       }
@@ -453,15 +441,15 @@ export const createInviteService = ((ctx, identity, groups, perms): InviteServic
     // The InviteAuth binds the group id, and the group id names the channel (§12.6).
     if (parts.kind !== 'channel' || parts.scope !== group.channelId) return null
     const now = ctx.now()
-    const rows = (await store.list('invites')).filter(
-      ({ value }) => value.role === 'redeemed' && !value.revoked && value.seed !== null && value.guildId === group.guildId && value.redeemedAtMs !== null && now - value.redeemedAtMs < INVITE_AUTH_WINDOW_MS,
-    )
+    const rows = (await store.list('invites'))
+      .map(({ value }) => value)
+      .filter((v): v is LiveRedeemer => v.guildId === group.guildId && liveRedeemer(v, now, INVITE_AUTH_WINDOW_MS))
     if (rows.length === 0) return null
     const state = await identity.adminState(group.guildId)
-    for (const { value } of rows) {
+    for (const value of rows) {
       const c = await checkRecord(group.guildId, value.record, state)
-      if (!c.ok || state === null || !inScope({ kind: 'channel', guildId: group.guildId, channelId: group.channelId }, c.record, state)) continue
-      const keys = deriveInviteKeys(value.seed!)
+      if (!c.ok || !inScope({ kind: 'channel', guildId: group.guildId, channelId: group.channelId }, c.record, c.state)) continue
+      const keys = deriveInviteKeys(value.seed)
       return signInviteAuth({ signedRecord: value.record, signPrivateKey: keys.sign.privateKey, groupId: group.groupId, leafSignatureKey: identity.self().mlsSignatureKey.publicKey })
     }
     return null
@@ -477,12 +465,11 @@ export const createInviteService = ((ctx, identity, groups, perms): InviteServic
     if (d.kind !== 'channel' || d.guildId === null || d.channelId === null) return 'not a channel group'
     const v = verifyInviteAuth({ auth: input.authenticatedData, groupId: input.groupId, leafSignatureKey: input.leafSignatureKey })
     if (v === null) return 'the InviteAuth does not verify for this group and leaf'
-    const state = await identity.adminState(d.guildId)
-    const c = await checkRecord(d.guildId, v.signedRecord, state, Infinity)
+    const c = await checkRecord(d.guildId, v.signedRecord, await identity.adminState(d.guildId), Infinity)
     if (!c.ok) return c.reason
-    if (state === null || !inScope(d, c.record, state)) return 'the channel is not in the scope of the invite'
+    if (!inScope(d, c.record, c.state)) return 'the channel is not in the scope of the invite'
     // The timeline event takes the group lock, which the caller holds: it runs after the commit.
-    spawn(noteJoinRecord(c.record, v.signedRecord, state))
+    spawn(noteJoinRecord(c.record, v.signedRecord, c.state))
     return null
   }
 
@@ -563,9 +550,9 @@ export const createInviteService = ((ctx, identity, groups, perms): InviteServic
       } catch {
         throw new CryptoError('Malformed', 'the invite record is not base64url')
       }
-      const state = await identity.adminState(input.guildId)
-      const c = await checkRecord(input.guildId, signed, state)
-      if (!c.ok || state === null) throw new CryptoError('InvalidChain', `the invite record does not verify: ${c.ok ? 'no admin state' : c.reason}`)
+      const c = await checkRecord(input.guildId, signed, await identity.adminState(input.guildId))
+      if (!c.ok) throw new CryptoError('InvalidChain', `the invite record does not verify: ${c.reason}`)
+      const { state } = c
       const row = await noteRecord(input.inviteId, c.record, signed, state)
       // The cached list of the guild predates this invite: the next own commit reads it again.
       records.delete(input.guildId)
@@ -573,7 +560,7 @@ export const createInviteService = ((ctx, identity, groups, perms): InviteServic
       // its creator (§11). 0 groups: this device holds no group of the scope.
       let sent = 0
       for (const g of await scopeGroups(c.record, state)) {
-        const keys = await secretsOf(g.gid)
+        const keys = await storedEpochSecrets(store, g.gid, 0, Infinity)
         const newest = keys.at(-1)?.epoch
         if (newest === undefined || (row.bundled[g.gid] ?? -1) >= newest) continue
         await sendBundle(input.inviteId, c.record, g.gid, keys)

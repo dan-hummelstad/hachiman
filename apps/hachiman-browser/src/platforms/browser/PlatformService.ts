@@ -1,8 +1,4 @@
-import {
-  parseInviteLink,
-  type InviteLink,
-  type IPlatformService,
-} from "@hachiman/hachiman";
+import type { InviteLink, IPlatformService } from "@hachiman/hachiman";
 import { launchRoute } from "./launch-url";
 import { createBrowserSecureStorage } from "./secure-storage";
 
@@ -41,7 +37,7 @@ const oauthCallbacks = buffered<string>();
  * bar and the history entry. A link with a malformed key opens nothing.
  */
 export function consumeLaunchUrl(loc: Location = window.location): void {
-  const route = launchRoute(loc, parseInviteLink);
+  const route = launchRoute(loc);
   if (route === null) return;
   if (route.kind === "oauth") oauthCallbacks.emit(route.url);
   else if (route.link !== null) inviteLinks.emit(route.link);

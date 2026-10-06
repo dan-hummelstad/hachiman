@@ -22,6 +22,7 @@ import {
   INVITE_BUNDLES_SENDER_MAX_BYTES,
   INVITE_RECORD_EXPIRY_SKEW_MS,
   inviteBundlesOf,
+  inviteUsability,
   isInviteActive,
   listInviteRecords,
   postInviteBundle,
@@ -104,6 +105,25 @@ describe('isInviteActive', () => {
     assert.equal(isInviteActive({ ...base, expiresAt: NOW }, NOW), false)
     assert.equal(isInviteActive({ ...base, exhaustedAt: NOW }, NOW), false)
     assert.equal(isInviteActive({ ...base, maxUses: 1, uses: 1 }, NOW), false)
+  })
+})
+
+describe('inviteUsability', () => {
+  const base = { revoked: false, expiresAt: null, exhaustedAt: null, maxUses: null, uses: 0 }
+  const past = new Date(NOW.getTime() - 1)
+  test('one tag per rule', () => {
+    assert.equal(inviteUsability(base, NOW), 'ok')
+    assert.equal(inviteUsability({ ...base, expiresAt: new Date(NOW.getTime() + 1), maxUses: 2, uses: 1 }, NOW), 'ok')
+    assert.equal(inviteUsability({ ...base, revoked: true }, NOW), 'revoked')
+    assert.equal(inviteUsability({ ...base, expiresAt: NOW }, NOW), 'expired')
+    assert.equal(inviteUsability({ ...base, exhaustedAt: past }, NOW), 'exhausted')
+    assert.equal(inviteUsability({ ...base, maxUses: 1, uses: 1 }, NOW), 'exhausted')
+  })
+
+  test('revoked comes before expired, and expired before exhausted', () => {
+    const exhausted = { exhaustedAt: past, maxUses: 1, uses: 1 }
+    assert.equal(inviteUsability({ ...base, ...exhausted, revoked: true, expiresAt: past }, NOW), 'revoked')
+    assert.equal(inviteUsability({ ...base, ...exhausted, expiresAt: past }, NOW), 'expired')
   })
 })
 

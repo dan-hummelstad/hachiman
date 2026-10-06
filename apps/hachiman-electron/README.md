@@ -90,7 +90,7 @@ IPC channels (`src/shared/ipc.ts`):
 
 | Channel | Direction | Payload |
 |---|---|---|
-| `hachiman:invite-link` | main → renderer | `takusen://invite/<code>[#k=<key>]`, rebuilt from the parts that `deep-link-route.ts` checked. The key is the seed of an invite with history. The renderer parses it with `parseInviteLink`. |
+| `hachiman:invite-link` | main → renderer | `takusen://invite/<code>[#k=<key>]`, rebuilt from the URL parts and checked by `deep-link-route.ts`. The key is the seed of an invite with history. The renderer parses it with `parseInviteLink`. |
 | `hachiman:oauth-callback` | main → renderer | The raw `app.hachiman://oauth-callback?…` URL |
 | `hachiman:open-external` | renderer → main (invoke) | An `http:` or `https:` URL. Main refuses other schemes. |
 | `hachiman:probe-regions` | renderer → main (invoke) | `{region, host, port}[]` → `{region, rttMs}[]` |
@@ -108,7 +108,7 @@ The preload buffers the two main → renderer channels until the UI subscribes. 
 | `src/main/csp-policy.ts` | The CSP rules. It has no imports, because the browser host also uses it. |
 | `src/main/secure-storage.ts` | The wrap key store for `secureStorage`. It has no Electron imports, so `node --test` can load it. |
 | `src/main/protocol-handler.ts` | `takusen://invite/<code>` and `app.hachiman://oauth-callback` from `argv`, `second-instance` and `open-url`. Holds the single-instance lock. |
-| `src/main/deep-link-route.ts` | `routeDeepLink`: checks a deep link and gives what the renderer receives. An invite link with a fragment other than `#k=` and 43 canonical base64url characters is dropped (fail closed). It has no Electron imports, so `node --test` can load it. |
+| `src/main/deep-link-route.ts` | `routeDeepLink`: checks a deep link and gives what the renderer receives. It checks an invite link with `parseInviteLink` of `@hachiman/hachiman/invite-link`, the parser that the renderer uses. An invite link with a fragment other than `#k=` and 43 canonical base64url characters is dropped (fail closed). It has no Electron imports, so `node --test` can load it. |
 | `src/main/renderer-protocol.ts` | Serves the built renderer from `hachiman://app/` with the CSP header. In dev, adds the CSP to the dev server responses. |
 | `src/main/renderer-path.ts` | Maps `hachiman://app/…` to a file and refuses path traversal and symlink escapes. It has no Electron imports, so `node --test` can load it. |
 | `src/main/region-probe.ts` | TCP connect RTT: 3 samples per target, minimum wins, 2 s timeout, 8 sockets at a time |

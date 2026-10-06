@@ -22,20 +22,9 @@ test('an empty fragment forwards nothing', () => {
   assert.deepEqual(inviteFragment('#'), { forward: '', strip: true })
 })
 
+// The full malformed-key table is in @hachiman/client (src/invite-link.spec.ts).
 test('a malformed, non-canonical or other fragment is not forwarded, and is stripped', () => {
-  for (const hash of [
-    '#k=',
-    `#k=${KEY.slice(1)}`,
-    `#k=${KEY}A`,
-    `#k=${KEY.slice(0, -1)}B`,
-    `#k=${KEY.slice(0, -1)}_`,
-    `#k=${KEY.slice(1)}+`,
-    `#k=${KEY.slice(1)}=`,
-    `#k=${KEY}&x=1`,
-    `#x=1&k=${KEY}`,
-    `#K=${KEY}`,
-    '#section',
-  ]) {
+  for (const hash of ['#k=', `#k=${KEY.slice(0, -1)}B`, '#section', `k=${KEY}`]) {
     assert.deepEqual(inviteFragment(hash), { forward: null, strip: true }, hash)
   }
 })

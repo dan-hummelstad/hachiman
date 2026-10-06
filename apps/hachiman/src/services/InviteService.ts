@@ -1,12 +1,11 @@
 import type { CreateGuildBody, GuildFull, Invite, InvitePreview } from '@hachiman/client'
 import { CryptoError, INVITE_BUNDLE_FETCH_WINDOW_MS } from '@hachiman/crypto'
+import { inviteKeyFragment } from '@/lib/invite-link'
 import { cryptoService } from '@/services/CryptoService'
 import { hachiman } from '@/services/hachiman'
 import { takusenService } from '@/services/TakusenService'
 import { pushInviteHistoryFailure } from '@/stores/cryptoStore'
 import { selectGuild } from '@/stores/navStore'
-
-export { parseInviteLink } from '@/lib/invite-link'
 
 export function previewInvite(code: string): Promise<InvitePreview> {
   return hachiman.rest.previewInvite(code)
@@ -191,7 +190,7 @@ export async function createGuild(body: CreateGuildBody): Promise<GuildFull> {
  */
 export function inviteUrl(code: string, key: string | null = null): string {
   const url = `${takusenService.env.issuerOrigin}/invite/${encodeURIComponent(code)}`
-  return key === null ? url : `${url}#k=${key}`
+  return key === null ? url : url + inviteKeyFragment(key)
 }
 
 /** Copy the invite's link; rejects with a user-facing message. */

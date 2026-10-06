@@ -21,6 +21,7 @@ import type {
 import { CryptoError } from '../api'
 import { fromB64url, toB64url } from '../codec'
 import { CLIENT_MSG_ID_LENGTH } from '../constants'
+import { dsCodeOf, isTransient } from '../errors'
 import { attachments } from '../attachments'
 import { encodeContent, envelopeLength, uploadIdsOf } from './codec'
 import { envelope } from './index'
@@ -58,16 +59,6 @@ interface Verified {
 type Step = { ok: true; value: Verified } | { ok: false; result: DecryptResult }
 
 // MARK: - Shared with DocService (doc-service.ts)
-
-function dsCodeOf(e: unknown): string | undefined {
-  if (typeof e === 'object' && e !== null && 'dsCode' in e && typeof e.dsCode === 'string') return e.dsCode
-  return undefined
-}
-
-/** A DS or transport failure: the item is retried later, never given a failure code. */
-function isTransient(e: unknown): boolean {
-  return dsCodeOf(e) !== undefined || (e instanceof CryptoError && e.code === 'Transport')
-}
 
 /**
  * Decrypts items one by one. One failed DS call marks only its own item with `pending(item)`,

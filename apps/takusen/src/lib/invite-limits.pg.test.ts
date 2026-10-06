@@ -1,7 +1,7 @@
 /**
  * The SQL of the invite limits (docs/gateway-protocol.md §4 "Invite limits")
  * and of the invites with history (§12.11.4) on a real Postgres:
- * revokeAdminInvitesOfNonAdmins and createAdminInvite. invite-limits.test.ts
+ * revokeAdminInvitesOfNonAdmins and createInvite. invite-limits.test.ts
  * and invite-history.test.ts cover the pure parts.
  *
  * It runs only when TAKUSEN_PG_TEST_URL is set, as repo.drizzle.pg.test.ts
@@ -22,7 +22,7 @@ import * as schema from '@/db/schema'
 import { MissingPermissionsError, ValidationError } from '@/lib/errors'
 import { historySeed } from '@/lib/invite-history.conformance'
 import { revokeAdminInvitesOfNonAdmins } from '@/lib/invite-limits'
-import { createAdminInvite, generateInviteCode } from '@/lib/invites'
+import { createInvite, generateInviteCode } from '@/lib/invites'
 
 const url = process.env.TAKUSEN_PG_TEST_URL
 
@@ -183,11 +183,11 @@ describe('invite limits (Postgres)', { skip }, () => {
     })
   })
 
-  describe('createAdminInvite', () => {
+  describe('createInvite', () => {
     test('an administrator gets a permanent invite', async () => {
       const w = await world()
       for (const createdBy of [w.owner, w.admin]) {
-        const row = await createAdminInvite({ guildId: w.guild, createdBy, expiresAt: null, maxUses: 5 }, db)
+        const row = await createInvite({ guildId: w.guild, createdBy, expiresAt: null, maxUses: 5 }, db)
         assert.equal(row.expiresAt, null)
         assert.equal(row.revoked, false)
         assert.equal(row.createdBy, createdBy)
@@ -198,33 +198,45 @@ describe('invite limits (Postgres)', { skip }, () => {
 
     test('a member without ADMINISTRATOR, a demoted admin and a non-member get 403', async () => {
       const w = await world()
-      await assert.rejects(createAdminInvite({ guildId: w.guild, createdBy: w.mod, expiresAt: null, maxUses: null }, db), MissingPermissionsError)
+      await assert.rejects(createInvite({ guildId: w.guild, createdBy: w.mod, expiresAt: null, maxUses: null }, db), MissingPermissionsError)
 
       await db
         .delete(schema.memberRoles)
         .where(and(eq(schema.memberRoles.guildId, w.guild), eq(schema.memberRoles.userId, w.admin)))
-      await assert.rejects(createAdminInvite({ guildId: w.guild, createdBy: w.admin, expiresAt: null, maxUses: null }, db), MissingPermissionsError)
+      await assert.rejects(createInvite({ guildId: w.guild, createdBy: w.admin, expiresAt: null, maxUses: null }, db), MissingPermissionsError)
 
       const stranger = await addUser()
-      await assert.rejects(createAdminInvite({ guildId: w.guild, createdBy: stranger, expiresAt: null, maxUses: null }, db), MissingPermissionsError)
+      await assert.rejects(createInvite({ guildId: w.guild, createdBy: stranger, expiresAt: null, maxUses: null }, db), MissingPermissionsError)
 
       const rows = await db.select({ id: schema.invites.id }).from(schema.invites).where(eq(schema.invites.guildId, w.guild))
       assert.equal(rows.length, 0)
+    })
+
+    test('a member without ADMINISTRATOR gets a limited invite', async () => {
+      const w = await world()
+      const expiresAt = new Date(Date.now() + DAY_MS)
+      const row = await createInvite({ guildId: w.guild, createdBy: w.mod, expiresAt, maxUses: null }, db)
+      assert.equal(row.expiresAt?.getTime(), expiresAt.getTime())
+      assert.equal(row.createdBy, w.mod)
+      assert.equal(row.maxUses, null)
+      assert.equal(row.record, null)
+      assert.equal(row.keyId, null)
+      assert.match(row.code, /^[A-Z2-9]{8}$/)
     })
 
     test('an invite with history stores the record and the key id, and a taken key id gives 400', async () => {
       const w = await world()
       const history = historySeed()
       const expiresAt = new Date(Date.now() + DAY_MS)
-      const row = await createAdminInvite({ guildId: w.guild, createdBy: w.admin, expiresAt, maxUses: 1, history }, db)
+      const row = await createInvite({ guildId: w.guild, createdBy: w.admin, expiresAt, maxUses: 1, history }, db)
       assert.deepEqual(row.record, history.record)
       assert.deepEqual(row.keyId, history.keyId)
       assert.equal(row.expiresAt?.getTime(), expiresAt.getTime())
       await assert.rejects(
-        createAdminInvite({ guildId: w.guild, createdBy: w.owner, expiresAt: null, maxUses: null, history: { ...historySeed(), keyId: history.keyId } }, db),
+        createInvite({ guildId: w.guild, createdBy: w.owner, expiresAt: null, maxUses: null, history: { ...historySeed(), keyId: history.keyId } }, db),
         ValidationError,
       )
-      await assert.rejects(createAdminInvite({ guildId: w.guild, createdBy: w.mod, expiresAt, maxUses: 1, history: historySeed() }, db), MissingPermissionsError)
+      await assert.rejects(createInvite({ guildId: w.guild, createdBy: w.mod, expiresAt, maxUses: 1, history: historySeed() }, db), MissingPermissionsError)
       const rows = await db.select({ id: schema.invites.id }).from(schema.invites).where(eq(schema.invites.guildId, w.guild))
       assert.deepEqual(rows, [{ id: row.id }])
     })

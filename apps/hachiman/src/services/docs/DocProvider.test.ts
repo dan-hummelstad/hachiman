@@ -156,7 +156,10 @@ interface Harness {
   open(): DocProvider
 }
 
-function harness(opts: Partial<DocProviderDeps> = {}): Harness {
+function harness(
+  opts: Partial<DocProviderDeps> = {},
+  providerOpts: { headless?: boolean } = {}
+): Harness {
   const epoch = { current: 1 }
   const crypto = fakeCrypto(epoch)
   const server = fakeServer(epoch)
@@ -181,7 +184,7 @@ function harness(opts: Partial<DocProviderDeps> = {}): Harness {
     sent,
     presence,
     open: () => {
-      const p = createDocProvider(CHANNEL, PAGE, deps)
+      const p = createDocProvider(CHANNEL, PAGE, deps, providerOpts)
       providers.push(p)
       return p
     }
@@ -562,13 +565,22 @@ describe('DocProvider', () => {
     await settle()
     // The page shows what it has, and the updates after the one without a key wait.
     expect(q.status).toBe('ready')
-    expect(q.waitingForKeys).toBe(true)
     expect(q.doc.getText('t').toString()).toBe('a')
+    // PAGE_UPDATE loads it again. The retry that is due keeps its time.
+    const reads = (): number => h.server.getPageState.mock.calls.length
+    const before = reads()
+    q.pageChanged()
+    await settle()
+    expect(reads()).toBe(before + 1)
     h.server.snapshot = readableSnapshot(h, 2, 'up-y')
     await settle(10_000)
     expect(q.status).toBe('ready')
-    expect(q.waitingForKeys).toBe(false)
     expect(q.doc.getText('t').toString()).toHaveLength(3)
+    // Caught up: PAGE_UPDATE changes nothing.
+    const after = reads()
+    q.pageChanged()
+    await settle()
+    expect(reads()).toBe(after)
   })
 
   it('a loaded page skips a newer snapshot that does not open, and stays usable', async () => {
@@ -587,7 +599,6 @@ describe('DocProvider', () => {
     await q.resync()
     expect(reads()).toBe(2)
     expect(q.status).toBe('ready')
-    expect(q.waitingForKeys).toBe(true)
     expect(h.server.fetchBlob).not.toHaveBeenCalled()
     // Local edits still go out.
     q.doc.getText('t').insert(0, 'x')
@@ -599,6 +610,23 @@ describe('DocProvider', () => {
     await settle(1_000)
     expect(reads()).toBe(3)
     expect(q.status).toBe('ready')
+    // It still waits for the key: PAGE_UPDATE loads it again.
+    q.pageChanged()
+    await settle()
+    expect(reads()).toBe(4)
+  })
+
+  it('a ready page that waits for no key ignores pageChanged', async () => {
+    const h = harness()
+    await remoteEdit(h, 'a')
+    const q = h.open()
+    await settle()
+    expect(q.status).toBe('ready')
+    const reads = h.server.getPageState.mock.calls.length
+    q.pageChanged()
+    await settle()
+    expect(h.server.getPageState).toHaveBeenCalledTimes(reads)
+    expect(h.server.getPageUpdates).not.toHaveBeenCalled()
   })
 
   it('the reload of a page that waits for a key backs off when the snapshot blob fails', async () => {
@@ -622,7 +650,7 @@ describe('DocProvider', () => {
   })
 
   it('a headless provider sends no awareness and snapshots without the jitter', async () => {
-    const h = harness({ headless: true, random: () => 1 })
+    const h = harness({ random: () => 1 }, { headless: true })
     await remoteEdit(h, 'old', 1)
     h.epoch.current = 2
     const p = h.open()

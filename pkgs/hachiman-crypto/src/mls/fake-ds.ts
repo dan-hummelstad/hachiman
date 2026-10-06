@@ -31,7 +31,7 @@ import { identity } from '../identity/index'
 import { DsError, FakeDs, MemoryStore, testPermissions } from '../identity/test-helpers'
 import { createIdentityService } from '../identity/service'
 import { createMessageService } from '../envelope/service'
-import { decodeInviteRecord, decodeSignedInviteRecord } from '../invites/codec'
+import { readSignedInviteRecord } from '../invites/codec'
 import { createInviteService, type InviteServiceExt } from '../invites/service'
 import { ds } from './ds'
 import { mls } from './index'
@@ -427,7 +427,7 @@ export class FakeMlsDs {
 
   /** POST /guilds/:id/invites with a record. Like Takusen, it does not check the admin state. */
   createInvite(guildId: string, record: string): { inviteId: string; code: string } {
-    const rec = decodeInviteRecord(decodeSignedInviteRecord(fromB64url(record)).record)
+    const rec = readSignedInviteRecord(fromB64url(record))
     const inv: Invite = { id: this.uuid(), code: this.uuid().slice(0, 8).toUpperCase(), guildId, keyId: toB64url(rec.signPublic), record, expiresAtMs: rec.expiresAtMs, revoked: false, bundles: [], joined: new Map() }
     this.invites.set(inv.id, inv)
     return { inviteId: inv.id, code: inv.code }
@@ -608,7 +608,7 @@ export class FakeMlsDs {
         const g = group(body.groupId)
         if (!self.readersOf(g).has(userId) || g.guildId !== inv.guildId) throw new DsError('UnknownGroup')
         // The scope of the stored record (§12.12): public_set, or a channel that the record names.
-        const scope = decodeInviteRecord(decodeSignedInviteRecord(fromB64url(inv.record)).record).channelIds
+        const scope = readSignedInviteRecord(fromB64url(inv.record)).channelIds
         if (g.kind !== 'public_set' && !(g.kind === 'channel' && scope.includes(g.channelId!))) throw new DsError('ValidationError')
         inv.bundles.push({ ...body, senderDevice: c.id, senderUser: userId })
       },

@@ -9,6 +9,7 @@
     ".": "./src/index.ts",
     "./shared/*": "./src/shared/*",
     "./takusen-env": "./src/shared/takusen-env.ts",
+    "./invite-link": "./src/lib/invite-link.ts",
     "./dev/*": "./src/dev/*.ts",
     "./style.css": "./src/assets/main.css"
   },

@@ -7,12 +7,9 @@ import { Input } from '@/components/ui/input'
 import { ModalWindow } from '@/components/ui/modal-window'
 import { InviteHistoryOption } from '@/components/settings/invite-history-option'
 import { InviteOptions } from '@/components/settings/invite-options'
-import {
-  inviteExpiryChoices,
-  inviteScope,
-  isInviteExpiryChoice
-} from '@/components/settings/invites'
+import { inviteExpiryChoices, inviteScope } from '@/components/settings/invites'
 import { PermanentInviteConfirm } from '@/components/settings/permanent-invite-confirm'
+import { useInviteCreation } from '@/components/settings/use-invite-creation'
 import { useAction } from '@/hooks/use-action'
 import { usePermissions } from '@/hooks/use-hachiman'
 import { errMsg } from '@/lib/utils'
@@ -20,7 +17,6 @@ import {
   copyInviteLink,
   createHistoryInvite,
   createInvite,
-  DEFAULT_INVITE_OPTIONS,
   inviteUrl,
   type InviteOptionsValue
 } from '@/services/InviteService'
@@ -28,16 +24,19 @@ import { useChannelStore } from '@/stores/channelStore'
 import { useDialog } from '@/stores/dialogStore'
 import { useGuildStore } from '@/stores/guildStore'
 
-const optionsKey = (o: InviteOptionsValue, history: boolean): string =>
+const optionsTag = (o: InviteOptionsValue, history: boolean): string =>
   `${o.expiry}:${o.maxUses}:${history}`
 
 const NO_CHANNELS: Channel[] = []
 
-/** A created link. `secret`: the key of an invite with history, only in this state (§12.17). */
+/**
+ * A created link. `tag`: the options it was made for (`optionsTag`). `key`: the seed of an invite
+ * with history, only in this state (§12.17).
+ */
 interface Created {
-  key: string
+  tag: string
   code: string
-  secret: string | null
+  key: string | null
   /** The channel names of the signed scope of an invite with history. */
   scope: string[]
   /** An invite with history for which this device sent nothing: it holds no group of the scope. */
@@ -63,12 +62,10 @@ export function InviteDialog(): React.JSX.Element {
   const perms = usePermissions(guildId)
   const canCreate = has(perms, Permissions.CREATE_INSTANT_INVITE)
   const isAdmin = has(perms, Permissions.ADMINISTRATOR)
-  const [options, setOptions] = useState(DEFAULT_INVITE_OPTIONS)
   const [includeHistory, setIncludeHistory] = useState(false)
-  // Tagged with the options it was made for, so it hides when they change.
+  // Tagged (`Created.tag`) with the options it was made for, so it hides when they change.
   const [created, setCreated] = useState<Created | null>(null)
   const [copied, setCopied] = useState(false)
-  const [confirmingPermanent, setConfirmingPermanent] = useState(false)
   const { run, busy, error, setError, clearError } = useAction()
 
   const scope = useMemo(
@@ -78,58 +75,51 @@ export function InviteDialog(): React.JSX.Element {
   // The user can lose ADMINISTRATOR, and the last channel can leave the scope, while it is open.
   const history = isAdmin && includeHistory && scope.length > 0
 
-  // The user can lose ADMINISTRATOR while the window is open: fall back to a choice they still have.
-  if (!isInviteExpiryChoice(options.expiry, isAdmin)) {
-    setOptions({ ...options, expiry: DEFAULT_INVITE_OPTIONS.expiry })
-    setConfirmingPermanent(false)
-  }
-
-  const key = optionsKey(options, history)
-  const shown = created?.key === key ? created : null
-  const link = shown ? inviteUrl(shown.code, shown.secret) : ''
-
-  const make = async (acknowledgedPermanent: boolean): Promise<Created> => {
-    if (!history) {
-      const inv = await createInvite(guildId, options, acknowledgedPermanent)
-      return { key, code: inv.code, secret: null, scope: [], noOwnHistory: false }
+  const { options, setOptions, create, confirm } = useInviteCreation({
+    isAdmin,
+    run,
+    what: 'create an invite link',
+    make: async (o, acknowledgedPermanent): Promise<Created> => {
+      if (!history) {
+        const inv = await createInvite(guildId, o, acknowledgedPermanent)
+        return {
+          tag: optionsTag(o, history),
+          code: inv.code,
+          key: null,
+          scope: [],
+          noOwnHistory: false
+        }
+      }
+      const made = await createHistoryInvite(
+        guildId,
+        o,
+        scope.map((c) => c.id),
+        acknowledgedPermanent
+      )
+      // The signed scope is a subset of the input, in byte order: show it in sidebar order.
+      const signed = new Set(made.channelIds)
+      return {
+        tag: optionsTag(o, history),
+        code: made.invite.code,
+        key: made.key,
+        scope: scope.filter((c) => signed.has(c.id)).map((c) => `#${c.name ?? c.id}`),
+        noOwnHistory: made.groups === 0
+      }
+    },
+    onCreated: (c) => {
+      setCreated(c)
+      setCopied(false)
     }
-    const made = await createHistoryInvite(
-      guildId,
-      options,
-      scope.map((c) => c.id),
-      acknowledgedPermanent
-    )
-    // The signed scope is a subset of the input, in byte order: show it in sidebar order.
-    const signed = new Set(made.channelIds)
-    return {
-      key,
-      code: made.invite.code,
-      secret: made.key,
-      scope: scope.filter((c) => signed.has(c.id)).map((c) => `#${c.name ?? c.id}`),
-      noOwnHistory: made.groups === 0
-    }
-  }
+  })
 
-  const create = async (): Promise<void> => {
-    if (options.expiry === 0) {
-      setConfirmingPermanent(true)
-      return
-    }
-    const made = await run('create an invite link', () => make(false))
-    if (!made.ok) return
-    setCreated(made.value)
-    setCopied(false)
-  }
-
-  const createPermanent = async (): Promise<void> => {
-    setCreated(await make(true))
-    setCopied(false)
-  }
+  const tag = optionsTag(options, history)
+  const shown = created?.tag === tag ? created : null
+  const link = shown ? inviteUrl(shown.code, shown.key) : ''
 
   const copy = (): void => {
     if (!shown) return
     clearError()
-    copyInviteLink(shown.code, shown.secret).then(
+    copyInviteLink(shown.code, shown.key).then(
       () => setCopied(true),
       (e: unknown) => setError(errMsg(e))
     )
@@ -186,7 +176,7 @@ export function InviteDialog(): React.JSX.Element {
             id="invite-link"
             label="Invite link"
             hint={
-              shown?.secret
+              shown?.key
                 ? `${expiryHint} It includes the history of ${shown.scope.join(', ')}. Copy it now: this window does not show it again.`
                 : expiryHint
             }
@@ -225,9 +215,7 @@ export function InviteDialog(): React.JSX.Element {
           )}
           <ErrorText>{error}</ErrorText>
           <PermanentInviteConfirm
-            open={confirmingPermanent}
-            onClose={() => setConfirmingPermanent(false)}
-            onConfirm={createPermanent}
+            {...confirm}
             scope={history ? scope.map((c) => `#${c.name ?? c.id}`) : null}
           />
         </>
