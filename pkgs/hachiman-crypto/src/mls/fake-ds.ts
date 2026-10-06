@@ -4,10 +4,12 @@
  * identity FakeDs: compare-and-set on the epoch, the handshake stream with `seq`, DS proposals
  * that go into the stream before a batch uses them (§12.7.4), Welcome delivery through the device
  * inbox, join requests, and DsModule.checkCommit on every upload. It also stores invite records and
- * invite bundles (§12.11.4, §12.12). Not part of the package exports.
+ * invite bundles (§12.11.4, §12.12), and applies the external commit rule of Takusen with its
+ * InviteAuth check (§12.7.3). Not part of the package exports.
  */
 import type {
   AdminPermissionModel,
+  CommitInspection,
   CryptoGatewayEvent,
   DsSigner,
   DsTransport,
@@ -23,7 +25,7 @@ import type {
   WireMlsGroup,
 } from '../api'
 import { encode, fromB64url, toB64url } from '../codec'
-import { WIRE_VERSION, type CipherSuiteId, type GroupKindName, type HistoryVisibilityName } from '../constants'
+import { INVITE_AUTH_WINDOW_MS, WIRE_VERSION, type CipherSuiteId, type GroupKindName, type HistoryVisibilityName } from '../constants'
 import { randomBytes } from '../identity/bytes'
 import { identity } from '../identity/index'
 import { DsError, FakeDs, MemoryStore, testPermissions } from '../identity/test-helpers'
@@ -79,8 +81,8 @@ interface Invite {
   expiresAtMs: number
   revoked: boolean
   bundles: { groupId: string; epoch: number; blob: string; senderDevice: string; senderUser: string }[]
-  /** The users who joined the guild with the invite. */
-  joined: Set<string>
+  /** The users who joined the guild with the invite, and when (ms). */
+  joined: Map<string, number>
 }
 
 export interface Client {
@@ -367,6 +369,15 @@ export class FakeMlsDs {
         throw new DsError('IllegalMembership')
       }
     }
+    // The external commit rule (§12.7.3): in channel and dm, a user without a leaf joins only with
+    // a valid InviteAuth (channel).
+    if (insp.sender.type === 'new_member_commit' && g.kind !== 'public_set' && !g.roster.some((r) => r.userId === caller.userId)) {
+      const why = this.inviteJoinRefusal(g, caller, insp)
+      if (why !== null) {
+        this.log.push(`IllegalAdd: ${why}`)
+        throw new DsError('IllegalAdd')
+      }
+    }
     this.onCommit?.(caller.id)
     const external = insp.sender.type === 'new_member_commit'
     const gi = decodeGroupInfoMessage(groupInfo)
@@ -397,12 +408,27 @@ export class FakeMlsDs {
     return { epoch: epoch + 1, seq: h.seq }
   }
 
+  /** Takusen's InviteAuth check of an external join (commits.ts, §12.11.4). Null when it allows the join. */
+  private inviteJoinRefusal(g: Group, caller: { id: string; userId: string }, insp: CommitInspection): string | null {
+    const leaf = insp.next.roster.find((r) => r.deviceId === caller.id)
+    if (g.kind !== 'channel' || leaf === undefined || insp.authenticatedData.length === 0) return 'no leaf of the user'
+    const v = ds.verifyInviteAuth({ authenticatedData: insp.authenticatedData, groupId: fromB64url(g.groupId), leafSignatureKey: leaf.signatureKey })
+    if (v === null) return 'the InviteAuth does not verify'
+    const inv = [...this.invites.values()].find((i) => i.keyId === toB64url(v.keyId))
+    if (inv === undefined || inv.revoked || inv.guildId !== g.guildId || inv.record !== toB64url(v.signedRecord)) return 'unknown invite'
+    if (inv.expiresAtMs !== 0 && inv.expiresAtMs <= this.id.now) return 'the invite expired'
+    if (!v.record.channelIds.includes(g.channelId!)) return 'the channel is not in the scope'
+    const joinedAt = inv.joined.get(caller.userId)
+    if (joinedAt === undefined || this.id.now - joinedAt > INVITE_AUTH_WINDOW_MS) return 'not joined with the invite'
+    return null
+  }
+
   // MARK: - invites with history (the parts of Takusen outside the DS, §4)
 
   /** POST /guilds/:id/invites with a record. Like Takusen, it does not check the admin state. */
   createInvite(guildId: string, record: string): { inviteId: string; code: string } {
     const rec = decodeInviteRecord(decodeSignedInviteRecord(fromB64url(record)).record)
-    const inv: Invite = { id: this.uuid(), code: this.uuid().slice(0, 8).toUpperCase(), guildId, keyId: toB64url(rec.signPublic), record, expiresAtMs: rec.expiresAtMs, revoked: false, bundles: [], joined: new Set() }
+    const inv: Invite = { id: this.uuid(), code: this.uuid().slice(0, 8).toUpperCase(), guildId, keyId: toB64url(rec.signPublic), record, expiresAtMs: rec.expiresAtMs, revoked: false, bundles: [], joined: new Map() }
     this.invites.set(inv.id, inv)
     return { inviteId: inv.id, code: inv.code }
   }
@@ -411,7 +437,7 @@ export class FakeMlsDs {
   acceptInvite(code: string, userId: string): void {
     const inv = [...this.invites.values()].find((i) => i.code === code)!
     this.guilds.get(inv.guildId)!.add(userId)
-    inv.joined.add(userId)
+    inv.joined.set(userId, this.id.now)
   }
 
   /** DELETE /invites/:code: revoke, delete the bundles, INVITE_DELETE to the guild. */

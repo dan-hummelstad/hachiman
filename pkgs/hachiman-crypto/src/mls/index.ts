@@ -269,6 +269,22 @@ export function handshakeUserIds(handle: MlsGroupHandle, message: Uint8Array): U
   return [...users]
 }
 
+/**
+ * The `authenticated_data` and the new leaf key of an external commit, when the data is not empty
+ * (an InviteAuth, §12.11.4). Null for any other message. processHandshake verifies the signature
+ * over both later.
+ */
+export function externalCommitAuth(message: Uint8Array): { authenticatedData: Uint8Array; leafSignatureKey: Uint8Array } | null {
+  let c: PublicMessage['content']
+  try {
+    c = decodeMessageAsPublic(message).content
+  } catch {
+    return null
+  }
+  if (c.contentType !== 'commit' || c.sender.senderType !== 'new_member_commit' || c.commit.path === undefined || c.authenticatedData.length === 0) return null
+  return { authenticatedData: c.authenticatedData, leafSignatureKey: c.commit.path.leafNode.signaturePublicKey }
+}
+
 /** Every user with a leaf in an encoded ratchet tree. */
 export function treeUserIds(ratchetTree: Uint8Array): UserId[] {
   return [...new Set(rosterOfTree(decodeTree(ratchetTree)).map((e) => e.userId))]
@@ -448,7 +464,7 @@ export const mls: MlsModule = {
     const cs = await suite(suiteId(gi.groupContext.cipherSuite))
     let r
     try {
-      r = await joinGroupExternal(gi, kp.publicPackage, kp.privatePackage, input.resync, cs, tree, clientConfig)
+      r = await joinGroupExternal(gi, kp.publicPackage, kp.privatePackage, input.resync, cs, tree, clientConfig, input.authenticatedData)
     } catch (e) {
       throw wrap(e)
     }

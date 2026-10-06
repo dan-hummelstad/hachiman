@@ -1,12 +1,13 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import type { AdminPayload, CryptoEvents, EncryptedMessage, EncryptMessageOutput, IdentityService } from '../api'
+import { CryptoError, type AdminPayload, type CryptoEvents, type EncryptedMessage, type EncryptMessageOutput, type IdentityService } from '../api'
 import { AdminBits, admin } from '../admin/index'
 import { createAdminService } from '../admin/service'
 import { fromB64url, toB64url, uuidToBytes } from '../codec'
-import { INVITE_BUNDLE_FETCH_WINDOW_MS } from '../constants'
+import { HANDSHAKE_RETENTION_MS, INVITE_AUTH_WINDOW_MS, INVITE_BUNDLE_FETCH_WINDOW_MS } from '../constants'
 import { compareBytes, randomBytes } from '../identity/bytes'
 import { FakeMlsDs, type Client } from '../mls/fake-ds'
+import { externalCommitAuth } from '../mls/index'
 import { groupId as makeGroupId } from '../mls/wire'
 import { clientPermissions } from '../worker/permissions'
 import { decodeInviteRecord, decodeSignedInviteRecord, encodeInviteBundle, encodeSignedInviteRecord } from './codec'
@@ -562,7 +563,7 @@ describe('InviteService (§12.11.4)', () => {
     expect(await carol.store.get('invites', second.keyId)).toMatchObject({ role: 'redeemed', seed: null })
   }, 120_000)
 
-  it('wipes the redeemer seed after INVITE_AUTH_WINDOW_MS and drops expired rows', async () => {
+  it('wipes the redeemer seed after INVITE_AUTH_WINDOW_MS; drops the row HANDSHAKE_RETENTION_MS after the expiry', async () => {
     const { ds, alice, carol, guildId, general, gid } = await world()
     const inv = await invite(ds, alice, guildId, [general])
     ds.acceptInvite(inv.code, carol.userId)
@@ -575,6 +576,271 @@ describe('InviteService (§12.11.4)', () => {
     ds.id.now += DAY / 2 + 1
     await carol.groups.resyncAll('fork')
     await ds.flush()
+    // Expired: an invite join of it can still come in the handshake stream, so the row stays.
+    expect(await carol.store.get('invites', inv.keyId)).toMatchObject({ role: 'redeemed', seed: null })
+    ds.id.now += HANDSHAKE_RETENTION_MS
+    await createInviteService(carol.ctx, carol.identity, carol.groups, clientPermissions).idle()
     expect(await carol.store.get('invites', inv.keyId)).toBeUndefined()
+  }, 120_000)
+})
+
+describe('Join authorization (§12.11.4)', () => {
+  /**
+   * world() plus a channel `side` with its own channel group (alice and bob, epoch 1), and an invite
+   * for general and side. `creator` 'bob': alice gives bob an administrator role, and bob makes it.
+   */
+  async function sideWorld(creator: 'alice' | 'bob' = 'alice') {
+    const w = await world()
+    const { ds, alice, bob, guildId, general } = w
+    const side = ds.channel(guildId, [alice.userId, bob.userId])
+    const sideGid = ds.allocate('channel', { guildId, channelId: side }, alice.deviceId)
+    await ds.flush()
+    ds.batch(sideGid, alice.deviceId)
+    await ds.flush()
+    const old = await send(alice, side, 'before the invite')
+    if (creator === 'bob') {
+      const role = ds.uuid()
+      await act(ds, alice, guildId, { type: 1, roleId: role, permissions: AdminBits.ADMINISTRATOR, position: 1 })
+      await act(ds, alice, guildId, { type: 7, userId: bob.userId, roleIds: [role] })
+    }
+    const inv = await invite(ds, creator === 'bob' ? bob : alice, guildId, [general, side])
+    expect(inv.sent).toEqual({ groups: 2 })
+    return { ...w, side, sideGid, old, inv }
+  }
+
+  const joinOf = (w: Awaited<ReturnType<typeof sideWorld>>, c: Client) => w.ds.groups.get(w.sideGid)!.handshakes.find((h) => h.kind === 'external_commit' && h.senderDevice === c.deviceId)!
+
+  /** POST /invites/:code for `c`: it joins the guild, and it reads side (@everyone views it). */
+  function accept(w: Awaited<ReturnType<typeof sideWorld>>, c: Client): void {
+    w.ds.acceptInvite(w.inv.code, c.userId)
+    w.ds.channels.get(w.side)!.readers.add(c.userId)
+  }
+
+  it('the redeemer joins a channel group of the scope with no member online; the members apply the join', async () => {
+    const w = await sideWorld()
+    const { ds, alice, bob, carol, guildId, side, sideGid, inv } = w
+    alice.online = false
+    bob.online = false
+    accept(w, carol)
+    await carol.invites!.redeemInvite({ code: inv.code, linkSecret: inv.linkSecret })
+    // The redemption syncs: carol's external commit carries the InviteAuth, and the DS accepts it.
+    await ds.flush()
+    expect(await carol.groups.currentEpoch(fromB64url(sideGid))).toBe(2)
+    expect(ds.log).toEqual([])
+    expect(errors(carol)).toEqual([])
+    const [h] = ds.groups.get(sideGid)!.handshakes.slice(-1)
+    expect(h).toMatchObject({ kind: 'external_commit', senderDevice: carol.deviceId })
+    // The history of side opens from the creation bundle.
+    expect(await carol.messages.decryptMessages([row(alice, side, guildId, w.old, 'm1')])).toMatchObject([{ status: 'ok', content: { text: 'before the invite' }, sender: { membershipVerified: false } }])
+
+    // alice and bob come back and check the InviteAuth before they apply the commit.
+    alice.online = true
+    bob.online = true
+    await alice.groups.sync()
+    await bob.groups.sync()
+    await ds.flush()
+    for (const m of [alice, bob]) {
+      expect(await m.groups.currentEpoch(fromB64url(sideGid))).toBe(2)
+      expect(m.of('forkAlert')).toEqual([])
+      expect(errors(m)).toEqual([])
+    }
+    expect((await alice.groups.membershipTimeline(side, 10)).at(-1)).toMatchObject({ kind: 'joined_external', subjects: [{ userId: carol.userId, deviceId: carol.deviceId }] })
+    // bob saw the record for the first time: the timeline shows the invite. His row has the invite
+    // id from the record list, so a revoke marks it.
+    expect((await bob.groups.membershipTimeline(side, 10)).filter((e) => e.kind === 'invite_with_history')).toMatchObject([{ actorUserId: alice.userId, inviteKeyId: inv.keyId }])
+    expect(await bob.store.get('invites', inv.keyId)).toMatchObject({ role: 'member', inviteId: inv.inviteId, revoked: false })
+    const sent = await send(carol, side, 'hello')
+    expect(sent.epoch).toBe(2)
+    expect(await alice.messages.decryptMessages([row(carol, side, guildId, sent, 'm2')])).toMatchObject([{ status: 'ok', content: { text: 'hello' }, sender: { membershipVerified: true } }])
+
+    // A resync of carol, who still keeps the seed, does not carry the InviteAuth.
+    expect(externalCommitAuth(fromB64url(joinOf(w, carol).message))).not.toBeNull()
+    await carol.groups.resyncAll('fork')
+    await ds.flush()
+    const resync = ds.groups.get(sideGid)!.handshakes.at(-1)!
+    expect(resync).toMatchObject({ kind: 'external_commit', senderDevice: carol.deviceId, epoch: 2 })
+    expect(externalCommitAuth(fromB64url(resync.message))).toBeNull()
+    for (const m of [alice, bob]) expect(m.of('forkAlert')).toEqual([])
+
+    ds.revokeInvite(inv.inviteId)
+    await ds.flush()
+    expect(await bob.store.get('invites', inv.keyId)).toMatchObject({ revoked: true })
+  }, 120_000)
+
+  it('no join with an InviteAuth: a scope without the channel, a user without the invite, a DS that refuses it', async () => {
+    const w = await sideWorld()
+    const { ds, alice, bob, carol, guildId, side, sideGid } = w
+    alice.online = false
+    bob.online = false
+    const joinRequest = (c: Client) => [...ds.joinRequests.values()].filter((r) => r.deviceId === c.deviceId && r.groupId === sideGid).map((r) => r.status)
+
+    // dave reads side but has no invite: a join request waits for a member.
+    const dave = await ds.client(ds.uuid(), opts)
+    await ds.flush()
+    ds.guilds.get(guildId)!.add(dave.userId)
+    ds.channels.get(side)!.readers.add(dave.userId)
+    await dave.groups.sync()
+    await ds.flush()
+    expect(joinRequest(dave)).toEqual(['queued'])
+
+    // An invite of general only: carol reads side, but the record does not name it.
+    const narrow = await invite(ds, alice, guildId, [w.general])
+    ds.acceptInvite(narrow.code, carol.userId)
+    ds.channels.get(side)!.readers.add(carol.userId)
+    await carol.invites!.redeemInvite({ code: narrow.code, linkSecret: narrow.linkSecret })
+    await ds.flush()
+    expect(joinRequest(carol)).toEqual(['queued'])
+    expect(ds.log).toEqual([])
+
+    // erin redeems the invite of side, but her guild join is older than INVITE_AUTH_WINDOW_MS for the
+    // DS: it refuses the commit, and she asks to join instead.
+    const erin = await ds.client(ds.uuid(), opts)
+    await ds.flush()
+    accept(w, erin)
+    ds.invites.get(w.inv.inviteId)!.joined.set(erin.userId, ds.id.now - INVITE_AUTH_WINDOW_MS - 1)
+    await erin.invites!.redeemInvite({ code: w.inv.code, linkSecret: w.inv.linkSecret })
+    await ds.flush()
+    expect(ds.log).toEqual(['IllegalAdd: not joined with the invite'])
+    expect(errors(erin)).toEqual([expect.stringContaining('IllegalAdd') as string])
+    expect(joinRequest(erin)).toEqual(['queued'])
+    expect(await erin.groups.currentEpoch(fromB64url(sideGid))).toBeNull()
+    expect(ds.groups.get(sideGid)!.epoch).toBe(1)
+    // The refused commit left no pendingCommits row, and erin does not try the InviteAuth again in
+    // this session: not on the next sync, not from ensureChannelGroup.
+    expect(await erin.store.get('pendingCommits', sideGid)).toBeUndefined()
+    await erin.groups.sync()
+    await erin.groups.ensureChannelGroup(side)
+    await ds.flush()
+    expect(ds.log).toEqual(['IllegalAdd: not joined with the invite'])
+    expect(errors(erin)).toHaveLength(1)
+    expect(joinRequest(erin)).toEqual(['queued'])
+  }, 120_000)
+
+  it('ensureChannelGroup also joins with the InviteAuth; a failed fetch in the member check is not a verdict', async () => {
+    const w = await sideWorld()
+    const { ds, alice, bob, carol, side, sideGid, inv } = w
+    alice.online = false
+    bob.online = false
+    // carol does not read side yet when she redeems: the sync of the redemption does not list its group.
+    ds.acceptInvite(inv.code, carol.userId)
+    await carol.invites!.redeemInvite({ code: inv.code, linkSecret: inv.linkSecret })
+    await ds.flush()
+    expect(await carol.groups.currentEpoch(fromB64url(sideGid))).toBeNull()
+    ds.channels.get(side)!.readers.add(carol.userId)
+    await carol.groups.ensureChannelGroup(side)
+    await ds.flush()
+    expect(await carol.groups.currentEpoch(fromB64url(sideGid))).toBe(2)
+    expect(joinOf(w, carol).epoch).toBe(1)
+
+    // bob cannot get the guild members during his check: he does not apply the commit, and raises
+    // no fork alert. His next catch-up applies it.
+    const guildMembers = bob.transport.guildMembers
+    bob.transport.guildMembers = () => Promise.reject(new CryptoError('Transport', 'network down'))
+    bob.online = true
+    await bob.groups.sync()
+    await ds.flush()
+    expect(await bob.groups.currentEpoch(fromB64url(sideGid))).toBe(1)
+    expect(errors(bob)).toContain('network down')
+    bob.transport.guildMembers = guildMembers
+    await bob.groups.sync()
+    await ds.flush()
+    expect(await bob.groups.currentEpoch(fromB64url(sideGid))).toBe(2)
+    expect(bob.of('forkAlert')).toEqual([])
+    expect(ds.groups.get(sideGid)!.epoch).toBe(2)
+  }, 120_000)
+
+  it('members decide from their own admin state: a channel that @everyone no longer views, a demoted creator', async () => {
+    for (const k of [
+      { creator: 'alice', member: 'bob', why: 'the channel is not in the scope of the invite' },
+      { creator: 'bob', member: 'alice', why: 'the creator is not an administrator' },
+    ] as const) {
+      const w = await sideWorld(k.creator)
+      const { ds, alice, bob, carol, guildId, side, sideGid, inv } = w
+      alice.online = false
+      bob.online = false
+      accept(w, carol)
+      await carol.invites!.redeemInvite({ code: inv.code, linkSecret: inv.linkSecret })
+      await ds.flush()
+      expect(await carol.groups.currentEpoch(fromB64url(sideGid))).toBe(2)
+      // A change after the upload. The DS does not check the admin state, and still lists carol as a reader of side.
+      if (k.creator === 'alice') await act(ds, alice, guildId, { type: 5, channelId: side, targetId: guildId, targetType: 'role', allow: 0, deny: AdminBits.VIEW_CHANNEL })
+      else await act(ds, alice, guildId, { type: 7, userId: bob.userId, roleIds: [] })
+      const m = k.member === 'bob' ? bob : alice
+      m.online = true
+      await m.groups.sync()
+      await ds.flush()
+      expect(m.of<CryptoEvents['forkAlert']>('forkAlert')).toEqual([{ groupId: sideGid, channelId: side, epoch: 1, reason: 'commit_rejected' }])
+      expect(errors(m)).toContain(`group ${sideGid}: commit ${joinOf(w, carol).seq} rejected: external_join_without_leaf (invite_auth: ${k.why})`)
+    }
+  }, 240_000)
+
+  it('a member keeps the row of an expired invite: a join that it applies after the expiry adds no second timeline event', async () => {
+    const w = await sideWorld()
+    const { ds, alice, bob, carol, side, sideGid, inv } = w
+    alice.online = false
+    // carol joins, and bob applies the join at once: his row has the invite id.
+    accept(w, carol)
+    await carol.invites!.redeemInvite({ code: inv.code, linkSecret: inv.linkSecret })
+    await ds.flush()
+    expect(await bob.groups.currentEpoch(fromB64url(sideGid))).toBe(2)
+    expect(await bob.store.get('invites', inv.keyId)).toMatchObject({ role: 'member', inviteId: inv.inviteId })
+    // dave joins before the expiry while bob is offline. bob restarts (a prune) after the expiry.
+    bob.online = false
+    const dave = await ds.client(ds.uuid(), opts)
+    await ds.flush()
+    accept(w, dave)
+    await dave.invites!.redeemInvite({ code: inv.code, linkSecret: inv.linkSecret })
+    await ds.flush()
+    expect(await dave.groups.currentEpoch(fromB64url(sideGid))).toBe(3)
+    ds.id.now += DAY + 1
+    const restarted = createInviteService(bob.ctx, bob.identity, bob.groups, clientPermissions)
+    bob.invites = restarted
+    await restarted.idle()
+    expect(await bob.store.get('invites', inv.keyId)).toMatchObject({ inviteId: inv.inviteId })
+    bob.online = true
+    await bob.groups.sync()
+    await ds.flush()
+    expect(await bob.groups.currentEpoch(fromB64url(sideGid))).toBe(3)
+    expect(bob.of('forkAlert')).toEqual([])
+    expect((await bob.groups.membershipTimeline(side, 20)).filter((e) => e.kind === 'invite_with_history')).toHaveLength(1)
+  }, 120_000)
+
+  it('a member with a revoke of the invite, and an old client, reject a join that the DS accepts (fork alert only)', async () => {
+    const w = await sideWorld()
+    const { ds, alice, bob, carol, side, sideGid, inv } = w
+    // frank reads side with an old client (no InviteService).
+    const frank = await ds.client(ds.uuid())
+    await ds.flush()
+    ds.guilds.get(w.guildId)!.add(frank.userId)
+    ds.channels.get(side)!.readers.add(frank.userId)
+    await frank.groups.sync()
+    await ds.flush()
+    ds.batch(sideGid, alice.deviceId)
+    await ds.flush()
+    expect(await frank.groups.currentEpoch(fromB64url(sideGid))).toBe(2)
+    // alice got a revoke that the server ignores.
+    const row_ = (await alice.store.get('invites', inv.keyId))!
+    await alice.store.put('invites', inv.keyId, { ...row_, revoked: true })
+    accept(w, carol)
+    await carol.invites!.redeemInvite({ code: inv.code, linkSecret: inv.linkSecret })
+    await ds.flush()
+    const join = ds.groups.get(sideGid)!.handshakes.find((h) => h.kind === 'external_commit' && h.senderDevice === carol.deviceId)!
+    expect(join.epoch).toBe(2)
+    expect(bob.of('forkAlert')).toEqual([])
+    for (const [m, why] of [
+      [alice, 'external_join_without_leaf (invite_auth: revoked)'],
+      [frank, 'external_join_without_leaf (invite_auth: no invite service)'],
+    ] as const) {
+      expect(m.of<CryptoEvents['forkAlert']>('forkAlert')).toEqual([{ groupId: sideGid, channelId: side, epoch: 2, reason: 'commit_rejected' }])
+      expect(errors(m)).toContain(`group ${sideGid}: commit ${join.seq} rejected: ${why}`)
+    }
+    // Detection only: the resync of alice and frank keeps carol in the tree (§12.7.3).
+    const epoch = ds.groups.get(sideGid)!.epoch
+    for (const m of [alice, bob, carol, frank]) expect(await m.groups.currentEpoch(fromB64url(sideGid))).toBe(epoch)
+    expect(ds.groups.get(sideGid)!.roster.some((r) => r.deviceId === carol.deviceId)).toBe(true)
+    // Only the join carries the InviteAuth, not the resyncs.
+    const resyncs = ds.groups.get(sideGid)!.handshakes.filter((h) => h.kind === 'external_commit' && h !== join)
+    expect(new Set(resyncs.map((h) => h.senderDevice))).toEqual(new Set([alice.deviceId, frank.deviceId]))
+    for (const h of [join, ...resyncs]) expect(externalCommitAuth(fromB64url(h.message)) !== null).toBe(h === join)
   }, 120_000)
 })

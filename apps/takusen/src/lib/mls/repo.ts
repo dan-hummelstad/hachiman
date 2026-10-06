@@ -18,6 +18,7 @@ import type {
   devices,
   deviceSigningKeys,
   historyBundles,
+  invites,
   keyBackups,
   keyPackages,
   ktEntries,
@@ -51,6 +52,8 @@ export type LinkSessionRow = typeof deviceLinkSessions.$inferSelect
 export type LinkMessageRow = typeof deviceLinkMessages.$inferSelect
 export type KtEntryRow = typeof ktEntries.$inferSelect
 export type KtHeadRow = typeof ktTreeHeads.$inferSelect
+/** The columns of an invite that the InviteAuth check of an external commit reads (§12.11.4). */
+export type InviteKeyRow = Pick<typeof invites.$inferSelect, 'id' | 'guildId' | 'record' | 'revoked' | 'expiresAt'>
 
 export type GroupKind = GroupRow['kind']
 export type PendingStatus = PendingRow['status']
@@ -266,4 +269,10 @@ export interface MlsRepo {
   latestKtHead(): Promise<KtHeadRow | null>
   insertKtHead(h: Omit<KtHeadRow, 'createdAt' | 'publishedAt'>): Promise<void>
   markKtHeadPublished(treeSize: number, at: Date): Promise<void>
+
+  // MARK: invites with history (§12.11.4 "Join authorization")
+  /** The invite whose key id (`invites.key_id`, the record sign_public) is `keyId`, or null. */
+  getInviteByKeyId(keyId: Uint8Array): Promise<InviteKeyRow | null>
+  /** When `userId` joined the guild of the invite with it (`guild_members.invite_id`), or null. */
+  inviteJoinedBy(inviteId: string, userId: string): Promise<Date | null>
 }

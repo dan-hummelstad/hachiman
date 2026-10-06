@@ -142,12 +142,17 @@ export function evaluateCommit(state: ClientState, pm: PublicMessage, placed: re
     if (!hasInit || removes > 1) return 'external_commit_shape'
     if (removes === 1) return null
     if (policy.kind === 'public_set') return policy.readers?.has(id.userId) ? null : 'not_reader'
-    // channel / dm: only a user who already has a leaf (a new own device).
+    // channel / dm: only a user who already has a leaf (a new own device), or in a channel group the
+    // new leaf that an accepted InviteAuth names (§12.11.4).
     const hasLeaf = leaves.some((l) => {
       const x = l === undefined ? null : parseIdentity(l)
       return x !== null && x.userId === id.userId
     })
-    if (!hasLeaf) return 'external_join_without_leaf'
+    if (!hasLeaf) {
+      const invited = policy.kind === 'channel' && policy.inviteJoinKey != null && equalBytes(policy.inviteJoinKey, newLeaf.signaturePublicKey)
+      if (!invited) return 'external_join_without_leaf'
+      if (policy.adminReaders !== null && !policy.adminReaders.has(id.userId)) return 'not_admin_reader'
+    }
     return policy.readers?.has(id.userId) ? null : 'not_reader'
   }
 

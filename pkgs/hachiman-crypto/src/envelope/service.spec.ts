@@ -162,6 +162,7 @@ function makeGroups(world: World, self: Device, view: View): GroupService {
     onOwnCommit: unimplemented,
     onJoin: unimplemented,
     appendTimeline: unimplemented,
+    setInviteJoins: unimplemented,
     sendState(channelId) {
       const groupId = world.channelGroup.get(channelId)!
       const epoch = world.current.get(toB64url(groupId))!

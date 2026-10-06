@@ -26,6 +26,7 @@ import type {
   HandshakeRow,
   HistoryBundleRow,
   InboxRow,
+  InviteKeyRow,
   JoinRequestRow,
   KeyPackageRow,
   KtEntryRow,
@@ -87,6 +88,9 @@ interface State {
   linkMessages: LinkMessageRow[]
   kt: KtEntryRow[]
   ktHeads: KtHeadRow[]
+  invites: (InviteKeyRow & { keyId: Uint8Array | null })[]
+  /** guild_members.invite_id and joined_at of the members who joined with an invite. */
+  inviteJoins: { guildId: string; userId: string; inviteId: string; joinedAt: Date }[]
 }
 
 function emptyState(): State {
@@ -119,6 +123,8 @@ function emptyState(): State {
     linkMessages: [],
     kt: [],
     ktHeads: [],
+    invites: [],
+    inviteJoins: [],
   }
 }
 
@@ -152,6 +158,18 @@ export class InMemoryMlsRepo implements MlsRepo {
   }
   removeGuildMember(guildId: string, userId: string): void {
     this.s.guildMembers.get(guildId)!.delete(userId)
+    this.s.inviteJoins = this.s.inviteJoins.filter((j) => j.guildId !== guildId || j.userId !== userId)
+  }
+  /** An invite of the guild (lib/invites.ts owns the table). */
+  addInvite(i: { guildId: string; keyId: Uint8Array | null; record: Uint8Array | null; expiresAt?: Date | null; revoked?: boolean }): string {
+    const id = randomUUID()
+    this.s.invites.push({ id, guildId: i.guildId, keyId: i.keyId, record: i.record, expiresAt: i.expiresAt ?? null, revoked: i.revoked ?? false })
+    return id
+  }
+  /** A guild member who joined with an invite at `joinedAt`. */
+  addInviteMember(guildId: string, userId: string, inviteId: string, joinedAt: Date): void {
+    this.addGuildMember(guildId, userId)
+    this.s.inviteJoins.push({ guildId, userId, inviteId, joinedAt })
   }
   addChannel(c: Omit<ChannelInfo, 'id' | 'mlsGroupId'> & { id?: string }): string {
     const id = c.id ?? randomUUID()
@@ -187,6 +205,7 @@ export class InMemoryMlsRepo implements MlsRepo {
     this.s.joinRequests = this.s.joinRequests.filter((j) => j.userId !== userId)
     this.s.keyPackages = this.s.keyPackages.filter((k) => k.userId !== userId)
     for (const g of this.s.guildMembers.values()) g.delete(userId)
+    this.s.inviteJoins = this.s.inviteJoins.filter((j) => j.userId !== userId)
   }
 
   // MARK: transactions
@@ -721,5 +740,15 @@ export class InMemoryMlsRepo implements MlsRepo {
   async markKtHeadPublished(treeSize: number, at: Date): Promise<void> {
     const h = this.s.ktHeads.find((x) => x.treeSize === treeSize)
     if (h) h.publishedAt = at
+  }
+
+  // MARK: invites with history
+
+  async getInviteByKeyId(keyId: Uint8Array): Promise<InviteKeyRow | null> {
+    const i = this.s.invites.find((x) => bytesEq(x.keyId, keyId))
+    return i ? { id: i.id, guildId: i.guildId, record: i.record, revoked: i.revoked, expiresAt: i.expiresAt } : null
+  }
+  async inviteJoinedBy(inviteId: string, userId: string): Promise<Date | null> {
+    return this.s.inviteJoins.find((j) => j.inviteId === inviteId && j.userId === userId)?.joinedAt ?? null
   }
 }

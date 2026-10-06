@@ -3,15 +3,20 @@
  * §12.7.7) on the in-memory repo with the FakeDs of testing.ts.
  */
 import assert from 'node:assert/strict'
+import { randomBytes, randomUUID } from 'node:crypto'
 import { describe, test } from 'node:test'
 
 import { Permissions } from '@hachiman/client/permissions'
+
+import { deriveInviteKeys } from '../../../../../pkgs/hachiman-crypto/src/invites/keys'
+import { signInviteAuth, signInviteRecord } from '../../../../../pkgs/hachiman-crypto/src/invites/record'
 
 import { ApiError } from '@/lib/errors'
 import { setBusPublisher } from '@/lib/events'
 
 import { toB64 } from './bytes'
 import { commitCheckError, uploadCommit } from './commits'
+import { INVITE_AUTH_WINDOW_MS } from './crypto'
 import { Outbox } from './events'
 import { createGroup } from './groups'
 import { uploadKeyPackages } from './key-packages'
@@ -88,6 +93,45 @@ async function privateChannel(w: World) {
   const pending = (await w.repo.listGroupsByChannel(channelId)).find((g) => g.kind === 'channel')!
   const group = await activate(w, out, pending, oDev)
   return { owner, carol, eve, guildId, staff, channelId, oDev, cDev, eDev, group, out }
+}
+
+/**
+ * A guild where @everyone views a channel that an overwrite hides from the role `muted`: the
+ * channel has its own group, with the owner only. dave joins the guild with an invite with history
+ * whose record names the channel (§12.11.4).
+ */
+async function invitedChannel(w: World) {
+  const owner = w.repo.addUser()
+  const guildId = w.repo.addGuild(owner, undefined, Permissions.VIEW_CHANNEL | Permissions.SEND_MESSAGES)
+  const muted = w.repo.addRole(guildId, 0)
+  const channelId = w.repo.addChannel({ guildId, type: 'text' })
+  const otherChannel = w.repo.addChannel({ guildId, type: 'text' })
+  w.repo.setOverwrites(channelId, [{ id: muted, type: 'role', allow: 0, deny: Permissions.VIEW_CHANNEL }])
+  const oDev = await activeDevice(w, owner)
+  const out = new Outbox()
+  await w.repo.transaction((r) => onMembershipChangeWith(r, w.deps, out, { kind: 'channel_created', channelId }, oDev.id))
+  const pending = (await w.repo.listGroupsByChannel(channelId)).find((g) => g.kind === 'channel')!
+  const group = await activate(w, out, pending, oDev)
+  const keys = deriveInviteKeys(new Uint8Array(randomBytes(32)))
+  // Takusen compares the record bytes only: the creator signature was checked at POST /guilds/:id/invites.
+  const record = (channelIds: string[]) =>
+    signInviteRecord(
+      { guildId, hpkePublic: keys.hpke.publicKey, signPublic: keys.sign.publicKey, channelIds, adminChainSeq: 0, expiresAtMs: 0, maxUses: 1, creatorUserId: owner, creatorDeviceId: oDev.id },
+      new Uint8Array(randomBytes(32)),
+    )
+  const signed = record([channelId])
+  const inviteId = w.repo.addInvite({ guildId, keyId: keys.sign.publicKey, record: signed })
+  const dave = w.repo.addUser()
+  const dDev = await activeDevice(w, dave)
+  w.repo.addInviteMember(guildId, dave, inviteId, new Date(w.clock.now))
+  const invite = () => w.repo.s.invites.find((i) => i.id === inviteId)!
+  const auth = (who: DeviceRow, signedRecord = signed) => signInviteAuth({ signedRecord, signPrivateKey: keys.sign.privateKey, groupId: group.groupId, leafSignatureKey: who.mlsSignatureKey! })
+  /** The external join of `who` (leaf 1) with `authenticatedData`. */
+  const join = async (who: DeviceRow, authenticatedData: Uint8Array | null) => {
+    const body = await commitRequest(w, group.groupId, null, { refs: [], adds: [], removes: [], external: { leaf: leafOf(who, 1), resyncOf: null }, ...(authenticatedData ? { authenticatedData: toB64(authenticatedData) } : {}) })
+    return uploadCommit(w.repo, w.deps, new Outbox(), { userId: who.userId, device: who }, group.groupId, body)
+  }
+  return { guildId, channelId, otherChannel, oDev, dDev, group, record, invite, auth, join }
 }
 
 describe('POST /mls/groups (§12.7.7)', () => {
@@ -254,6 +298,60 @@ describe('POST /mls/groups/:id/commits (§12.7.3)', () => {
     const leaf = { ...leafOf(cDev, 1) }
     const body = await commitRequest(w, group.groupId, null, { refs: [], adds: [], removes: [], external: { leaf, resyncOf: null } })
     await rejects(uploadCommit(w.repo, w.deps, new Outbox(), { userId: carol, device: cDev }, group.groupId, body), 'IllegalAdd', 403)
+  })
+
+  test('external commit with an InviteAuth (§12.11.4): only the redeemer, for a channel of the scope, in the window', async () => {
+    const w = await newWorld()
+    const x = await invitedChannel(w)
+    const refused = async (p: Promise<unknown>, why: RegExp) => assert.match((await rejects(p, 'IllegalAdd', 403)).message, why)
+
+    await refused(x.join(x.dDev, null), /no invite authorization/)
+    // The signature binds the new leaf key: an InviteAuth for another key does not verify.
+    await refused(x.join(x.dDev, x.auth(x.oDev)), /does not verify/)
+    await refused(x.join(x.dDev, randomBytes(40)), /does not verify/)
+    // The record in the InviteAuth is not the stored record of the invite (same key id).
+    await refused(x.join(x.dDev, x.auth(x.dDev, x.record([x.channelId]))), /unknown invite/)
+    // The invite of the key id is of another guild.
+    const guildOfInvite = x.invite().guildId
+    x.invite().guildId = randomUUID()
+    await refused(x.join(x.dDev, x.auth(x.dDev)), /unknown invite/)
+    x.invite().guildId = guildOfInvite
+    // A record that does not name the channel.
+    const narrow = x.record([x.otherChannel])
+    const stored = x.invite().record
+    x.invite().record = narrow
+    await refused(x.join(x.dDev, x.auth(x.dDev, narrow)), /not in the scope/)
+    x.invite().record = stored
+    // Revoked, then expired.
+    x.invite().revoked = true
+    await refused(x.join(x.dDev, x.auth(x.dDev)), /revoked or expired/)
+    x.invite().revoked = false
+    x.invite().expiresAt = new Date(w.clock.now)
+    await refused(x.join(x.dDev, x.auth(x.dDev)), /revoked or expired/)
+    x.invite().expiresAt = null
+    // erin reads the channel, holds the seed, but joined the guild without the invite.
+    const erin = w.repo.addUser()
+    w.repo.addGuildMember(x.guildId, erin)
+    const eDev = await activeDevice(w, erin)
+    await refused(x.join(eDev, x.auth(eDev)), /did not join the guild with this invite/)
+    // Later than INVITE_AUTH_WINDOW_MS after the guild join of dave.
+    w.clock.now += INVITE_AUTH_WINDOW_MS + 1
+    await refused(x.join(x.dDev, x.auth(x.dDev)), /did not join the guild with this invite/)
+    w.clock.now -= INVITE_AUTH_WINDOW_MS + 1
+    assert.equal((await w.repo.getGroup(x.group.groupId))!.epoch, 0)
+
+    // The redeemer: accepted.
+    assert.deepEqual(await x.join(x.dDev, x.auth(x.dDev)), { epoch: 1, seq: 1 })
+    assert.deepEqual((await w.repo.listMembers(x.group.groupId)).map((m) => m.deviceId), [x.oDev.id, x.dDev.id])
+    assert.equal(toB64(w.ds.checks.at(-1)!.groupId), toB64(x.group.groupId))
+  })
+
+  test('external commit with an InviteAuth: a dm group never takes it', async () => {
+    const w = await newWorld()
+    const { group, bDev } = await dmActive(w)
+    const body = await commitRequest(w, group.groupId, null, { refs: [], adds: [], removes: [], external: { leaf: leafOf(bDev, 1), resyncOf: null }, authenticatedData: toB64(randomBytes(40)) })
+    const err = await rejects(uploadCommit(w.repo, w.deps, new Outbox(), { userId: bDev.userId, device: bDev }, group.groupId, body), 'IllegalAdd', 403)
+    assert.match(err.message, /not a channel group/)
   })
 
   test('a GCE needs MANAGE_CHANNELS, and only history_visibility may change', async () => {

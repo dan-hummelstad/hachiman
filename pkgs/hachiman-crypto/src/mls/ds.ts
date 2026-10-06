@@ -34,7 +34,7 @@ import { verifyFrankingSync } from '../franking/index'
 import { equalBytes } from '../identity/bytes'
 import { identity, verifyDeviceCert, verifyDskCert, verifyMasterSelfSignature } from '../identity/index'
 import { decodeInviteRecord, decodeSignedInviteRecord, inviteRecordView } from '../invites/codec'
-import { verifyInviteRecordSignature } from '../invites/record'
+import { verifyInviteAuth, verifyInviteRecordSignature } from '../invites/record'
 import { kt } from '../kt/index'
 import {
   DS_CREDENTIAL_IDENTITY,
@@ -331,6 +331,7 @@ async function checkCommit(input: Parameters<DsModule['checkCommit']>[0]): Promi
     changedLeaves,
     removedLeaves,
     descriptorChanged,
+    authenticatedData: c.authenticatedData,
   }
   return { ok: true, inspection }
 }
@@ -515,6 +516,11 @@ export const ds: DsModule = {
     } catch (e) {
       throw new CryptoError('Malformed', `invite record: ${(e as Error).message}`)
     }
+  },
+
+  verifyInviteAuth(input) {
+    const v = verifyInviteAuth({ auth: input.authenticatedData, groupId: input.groupId, leafSignatureKey: input.leafSignatureKey })
+    return v === null ? null : { keyId: v.keyId, signedRecord: v.signedRecord, record: inviteRecordView(v.record) }
   },
 
   parseEnvelopeHeader(bytes) {

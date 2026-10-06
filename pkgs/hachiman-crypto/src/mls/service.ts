@@ -3,6 +3,8 @@
  * the device inbox, batch commits, joins, resyncs, own commits across a crash (pendingCommits),
  * the fork alert, epoch secrets, the membership timeline and history bundles. onOwnCommit and
  * onJoin tell the InviteService about each own commit and each join (invite bundles, §12.11.4).
+ * Through setInviteJoins, the InviteService makes and checks the InviteAuth of an external join
+ * into a 'channel' group (§12.11.4 "Join authorization").
  *
  * Every group has a lock, so handshakes, commits and joins of one group run one at a time.
  */
@@ -23,6 +25,7 @@ import {
   type GroupStatus,
   type HistoryKeyEntry,
   type IdentityService,
+  type InviteJoins,
   type LeafEntry,
   type MembershipEvent,
   type MlsGroupHandle,
@@ -46,6 +49,7 @@ import {
   checkStoredProposal,
   contextOf,
   dropStoredProposals,
+  externalCommitAuth,
   handshakeUserIds,
   hasStoredProposal,
   keyPackageIdentity,
@@ -65,6 +69,8 @@ const Perm = { ADMINISTRATOR: 1 << 3, MANAGE_CHANNELS: 1 << 4, MANAGE_GUILD: 1 <
 const HANDSHAKE_PAGE = 100
 const TIMELINE_MAX = 1000
 const COMMIT_ATTEMPTS = 5
+/** The §12.19 codes of a commit upload that the DS refused before it stored anything (§12.7.3). */
+const COMMIT_REFUSALS = new Set(['InvalidCommit', 'IllegalAdd', 'IllegalMembership', 'IllegalRemove', 'GroupFull', 'GroupPending', 'GroupRetired', 'UnknownGroup', 'MissingPermissions', 'InboxFull'])
 
 export type { GroupServiceDeps } from '../api'
 
@@ -141,11 +147,14 @@ export const createGroupService = ((ctx: EngineContext, identity: IdentityServic
   const locks = new Map<string, Promise<unknown>>()
   const stuck = new Map<string, string>()
   const joinRequested = new Set<string>()
+  /** Groups where the DS refused the invite join of this device (403 IllegalAdd): no new try in this session. */
+  const inviteJoinRefused = new Set<string>()
   /** Groups with an automatic resync scheduled after a rejected commit. */
   const recovering = new Set<string>()
   const background = new Set<Promise<unknown>>()
   const ownCommitListeners = new Set<EpochListener>()
   const joinListeners = new Set<EpochListener>()
+  let inviteJoins: InviteJoins | null = null
   let inboxLock: Promise<unknown> = Promise.resolve()
 
   identity.onDskRotated(() => {
@@ -476,6 +485,8 @@ export const createGroupService = ((ctx: EngineContext, identity: IdentityServic
 
     const desc = descriptorOf(g)
     const policy = await buildPolicy(desc, handshakeUserIds(handle, h.message))
+    const invite = h.kind === 'external_commit' && desc.kind === 'channel' ? await inviteJoinKey(handle.groupId, desc, h.message) : null
+    if (invite !== null) policy.inviteJoinKey = invite.key
     const r = await mls.processHandshake(handle, h.message, policy)
     if (r.result === 'rejected') {
       if (h.kind === 'proposal') {
@@ -486,7 +497,8 @@ export const createGroupService = ((ctx: EngineContext, identity: IdentityServic
       // The DS accepted a commit that this client rejects: stop (fail closed), raise the fork
       // alert and resync the own leaf by external commit (§12.7.9).
       stuck.set(g.gid, r.reason)
-      report(new CryptoError('InvalidChain', `group ${g.gid}: commit ${h.seq} rejected: ${r.reason}`))
+      const why = invite?.why == null ? '' : ` (invite_auth: ${invite.why})`
+      report(new CryptoError('InvalidChain', `group ${g.gid}: commit ${h.seq} rejected: ${r.reason}${why}`))
       forkAlert(g, 'commit_rejected')
       scheduleRecovery(g.gid)
       return false
@@ -517,6 +529,26 @@ export const createGroupService = ((ctx: EngineContext, identity: IdentityServic
     await enterEpoch(g, r.handle, h.seq, { kind, actor: external ? null : (committer?.userId ?? null), added: r.added, removed: r.removed })
     emitUsersAdded(g, mls.roster(handle), r.added, false)
     return true
+  }
+
+  /**
+   * §12.11.4 "Join authorization": the InviteAuth of an external commit into a 'channel' group, as
+   * the InviteService checks it. `key` is the new leaf key when it authorizes the join. Null when
+   * the commit carries no `authenticated_data`. A failed fetch (keys, members, admin chain) or a
+   * store error is not a verdict: it rejects, and the handshake runs again on the next catch-up, as
+   * when buildPolicy fails.
+   */
+  async function inviteJoinKey(groupId: Uint8Array, d: GroupDescriptor, message: Uint8Array): Promise<{ key: Uint8Array | null; why: string | null } | null> {
+    const auth = externalCommitAuth(message)
+    if (auth === null) return null
+    if (inviteJoins === null) return { key: null, why: 'no invite service' }
+    try {
+      const why = await inviteJoins.checkJoin({ groupId, descriptor: d, ...auth })
+      return { key: why === null ? auth.leafSignatureKey : null, why }
+    } catch (e) {
+      if (isTransient(e) || !(e instanceof CryptoError)) throw e
+      return { key: null, why: e.message }
+    }
   }
 
   function diff(before: LeafEntry[], after: LeafEntry[]): { added: LeafEntry[]; removed: LeafEntry[] } {
@@ -624,8 +656,12 @@ export const createGroupService = ((ctx: EngineContext, identity: IdentityServic
     spawn(Promise.resolve().then(() => withGroup(gid, async (g) => (g === null ? undefined : resyncLocked(g, reason)))))
   }
 
-  /** External commit with a fresh key package: a resync when the tree has the own key, else a join. */
-  async function externalCommit(gid: string, g: Ctx | null): Promise<void> {
+  /**
+   * External commit with a fresh key package: a resync when the tree has the own key, else a join.
+   * `inviteAuth`: an InviteAuth for a join into a 'channel' group (§12.11.4). It signs the group and
+   * the own MLS key, so every attempt can use it. A resync does not carry it.
+   */
+  async function externalCommit(gid: string, g: Ctx | null, inviteAuth: Uint8Array | null = null): Promise<void> {
     const self = identity.self()
     for (let attempt = 0; attempt < COMMIT_ATTEMPTS; attempt++) {
       const group = await transport.getGroup(gid)
@@ -635,13 +671,22 @@ export const createGroupService = ((ctx: EngineContext, identity: IdentityServic
       const resync = treeHasSignatureKey(tree, self.mlsSignatureKey.publicKey)
       const kp = await freshKeyPackage(group.cipherSuite, false)
       const policy = await buildPolicy(descriptorOfWire(group), treeUserIds(tree))
-      const pc = await mls.joinExternal({ groupInfo: fromB64url(st.groupInfo), ratchetTree: tree, keyPackage: kp, resync, policy })
+      const authenticatedData = resync || inviteAuth === null ? new Uint8Array(0) : inviteAuth
+      const pc = await mls.joinExternal({ groupInfo: fromB64url(st.groupInfo), ratchetTree: tree, keyPackage: kp, resync, policy, authenticatedData })
       const desc = contextOf(pc.next).descriptor
       const row: GroupRow = g?.row ?? { groupId: fromB64url(gid), state: new Uint8Array(0), channelId: desc?.channelId ?? null, kind: group.kind, lastSeq: 0, status: group.status }
       const target: Ctx = g ?? { gid, row, handle: null }
       target.row = { ...row, channelId: desc?.channelId ?? null, kind: group.kind, status: group.status }
       await store.put('pendingCommits', gid, { epoch: pc.epoch, state: pc.next.state, createdAtMs: ctx.now() })
-      const res = await transport.postCommit(gid, { ...pc.request, batchId: null, rejected: [] })
+      let res
+      try {
+        res = await transport.postCommit(gid, { ...pc.request, batchId: null, rejected: [] })
+      } catch (e) {
+        // A §12.7.3 refusal: the DS did not store the commit, so no adoption waits for the row. A
+        // network error or a 5xx can hide an accepted commit: the row stays (§12.7.9).
+        if (COMMIT_REFUSALS.has(dsCode(e) ?? '')) await store.delete('pendingCommits', gid)
+        throw e
+      }
       if (!res.ok) {
         await store.delete('pendingCommits', gid)
         continue
@@ -713,6 +758,29 @@ export const createGroupService = ((ctx: EngineContext, identity: IdentityServic
       joinRequested.delete(group.groupId)
       throw e
     }
+  }
+
+  /**
+   * A group that the DS does not list this device in, without state: a 'channel' group of the scope
+   * of a redeemed invite joins at once by external commit with an InviteAuth (§12.11.4). A DS that
+   * refuses it gives a join request, as any other group. After a refusal (403 IllegalAdd: for
+   * example a revoke that this device missed, or a guild join with another invite), the device does
+   * not try the InviteAuth for that group again in this session.
+   */
+  async function joinOrRequest(group: WireMlsGroup): Promise<void> {
+    if (group.kind === 'channel' && group.guildId !== null && group.channelId !== null && inviteJoins !== null && !inviteJoinRefused.has(group.groupId)) {
+      try {
+        const auth = await inviteJoins.authFor({ groupId: fromB64url(group.groupId), guildId: group.guildId, channelId: group.channelId })
+        if (auth !== null) {
+          await withGroup(group.groupId, async (g) => (g?.handle != null ? undefined : externalCommit(group.groupId, g, auth)))
+          return
+        }
+      } catch (e) {
+        if (dsCode(e) === 'IllegalAdd') inviteJoinRefused.add(group.groupId)
+        report(e)
+      }
+    }
+    await requestJoin(group)
   }
 
   /** The first handshake seq to fetch for a state at `epoch`: after the last handshake of an older epoch. */
@@ -1083,7 +1151,7 @@ export const createGroupService = ((ctx: EngineContext, identity: IdentityServic
           if (group.status !== 'active') continue
           if (!hasState) {
             if (group.member) await joinAsMember(group.groupId)
-            else if (group.kind !== 'public_set') await requestJoin(group)
+            else if (group.kind !== 'public_set') await joinOrRequest(group)
             continue
           }
           await withGroup(group.groupId, async (g) => {
@@ -1161,7 +1229,7 @@ export const createGroupService = ((ctx: EngineContext, identity: IdentityServic
       }
       if (group.status !== 'active') return group
       if (group.member) await joinAsMember(group.groupId)
-      else await requestJoin(group)
+      else await joinOrRequest(group)
       return group
     },
 
@@ -1307,6 +1375,10 @@ export const createGroupService = ((ctx: EngineContext, identity: IdentityServic
 
     appendTimeline(groupId, events) {
       return withLock(`g:${groupId}`, () => appendTimeline(groupId, events))
+    },
+
+    setInviteJoins(joins) {
+      inviteJoins = joins
     },
 
     async idle() {

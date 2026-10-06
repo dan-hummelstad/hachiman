@@ -26,6 +26,10 @@ export interface RepoFixtures {
   addChannel(c: { guildId: string | null; type: ChannelInfo['type'] }): Promise<string>
   setOverwrites(channelId: string, ows: OverwriteInfo[]): Promise<void>
   addDm(participants: string[]): Promise<string>
+  /** An invite of the guild by `createdBy`. */
+  addInvite(i: { guildId: string; createdBy: string; keyId: Uint8Array | null; record: Uint8Array | null; expiresAt: Date | null; revoked: boolean }): Promise<string>
+  /** A guild member who joined with the invite at `joinedAt`. */
+  addInviteMember(guildId: string, userId: string, inviteId: string, joinedAt: Date): Promise<void>
 }
 
 export interface RepoUnderTest {
@@ -404,6 +408,27 @@ export function describeMlsRepo(name: string, open: () => Promise<RepoUnderTest>
       assert.equal((await repo.ktLeafHashes(size + 2)).length, size + 2)
       assert.deepEqual((await repo.listKtEntriesRange(i1, i2 + 1)).map((e) => e.idx), [i1, i2])
       assert.deepEqual((await repo.listKtEntriesOfUser(userId, -1, 10)).map((e) => e.idx), [i1, i2])
+    })
+
+    test('invites with history: the invite of a key id, and the join of a user with it', async () => {
+      const owner = await fx.addUser()
+      const member = await fx.addUser()
+      const other = await fx.addUser()
+      const guildId = await fx.addGuild(owner)
+      const keyId = bytes(32)
+      const record = bytes(64)
+      const expiresAt = new Date(Date.UTC(2027, 0, 1))
+      const inviteId = await fx.addInvite({ guildId, createdBy: owner, keyId, record, expiresAt, revoked: true })
+      const plain = await fx.addInvite({ guildId, createdBy: owner, keyId: null, record: null, expiresAt: null, revoked: false })
+      assert.deepEqual(await repo.getInviteByKeyId(keyId), { id: inviteId, guildId, record, revoked: true, expiresAt })
+      assert.equal(await repo.getInviteByKeyId(bytes(32)), null)
+      const joinedAt = new Date(Date.UTC(2026, 9, 1, 12))
+      await fx.addInviteMember(guildId, member, inviteId, joinedAt)
+      await fx.addInviteMember(guildId, other, plain, joinedAt)
+      assert.deepEqual(await repo.inviteJoinedBy(inviteId, member), joinedAt)
+      assert.equal(await repo.inviteJoinedBy(inviteId, other), null)
+      assert.equal(await repo.inviteJoinedBy(inviteId, owner), null)
+      assert.equal(await repo.inviteJoinedBy(plain, member), null)
     })
   })
 }

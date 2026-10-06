@@ -70,6 +70,14 @@ describeMlsRepo(
           for (const userId of participants) await db.insert(schema.dmParticipants).values({ channelId: id, userId })
           return id
         },
+        async addInvite(i) {
+          const id = randomUUID()
+          await db.insert(schema.invites).values({ id, code: randomUUID(), guildId: i.guildId, createdBy: i.createdBy, keyId: i.keyId, record: i.record, expiresAt: i.expiresAt, revoked: i.revoked })
+          return id
+        },
+        async addInviteMember(guildId, userId, inviteId, joinedAt) {
+          await db.insert(schema.guildMembers).values({ guildId, userId, inviteId, joinedAt })
+        },
       },
       async close() {
         await client.end()

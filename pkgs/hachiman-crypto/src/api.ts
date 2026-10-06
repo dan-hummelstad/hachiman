@@ -1481,6 +1481,12 @@ export interface ProposalPolicy {
    * not fall back to the unsigned DS readers.
    */
   adminChainMissing?: boolean
+  /**
+   * Set only for an external commit into a 'channel' group whose `authenticated_data` holds an
+   * InviteAuth that the InviteService accepted (§12.11.4): the new leaf key that it authorizes. A
+   * user without a leaf can then join, when it is a reader.
+   */
+  inviteJoinKey?: Uint8Array | null
   /** Synchronous (the ts-mls callback is synchronous): prefetch with IdentityService.chainContextFor. */
   chainContextFor(userId: UserId): ChainContext
   /**
@@ -1503,7 +1509,8 @@ export interface MlsModule {
 
   createGroup(input: { groupId: Uint8Array; descriptor: GroupDescriptor; dsExternalSender: Uint8Array | null; cipherSuite: CipherSuiteId; keyPackage: { publicPackage: Uint8Array; privatePackage: Uint8Array } }): Promise<{ handle: MlsGroupHandle; groupInfo: Uint8Array; ratchetTree: Uint8Array }>
   joinFromWelcome(input: { welcome: Uint8Array; ratchetTree: Uint8Array; keyPackage: { publicPackage: Uint8Array; privatePackage: Uint8Array }; policy: ProposalPolicy }): Promise<MlsGroupHandle>
-  joinExternal(input: { groupInfo: Uint8Array; ratchetTree: Uint8Array; keyPackage: { publicPackage: Uint8Array; privatePackage: Uint8Array }; resync: boolean; policy: ProposalPolicy }): Promise<PendingCommit>
+  /** `authenticatedData`: the MLS `authenticated_data` of the commit (an encoded InviteAuth, §12.11.4). Default empty. */
+  joinExternal(input: { groupInfo: Uint8Array; ratchetTree: Uint8Array; keyPackage: { publicPackage: Uint8Array; privatePackage: Uint8Array }; resync: boolean; policy: ProposalPolicy; authenticatedData?: Uint8Array }): Promise<PendingCommit>
 
   /** Applies one handshake. A rejected message leaves the state unchanged. */
   processHandshake(handle: MlsGroupHandle, message: Uint8Array, policy: ProposalPolicy): Promise<
@@ -1568,6 +1575,8 @@ export interface CommitInspection {
   removedLeaves: number[]
   /** True when the commit changes the group context extensions (only history_visibility may change, §12.6). */
   descriptorChanged: boolean
+  /** The `authenticated_data` of the FramedContent (the commit signature covers it). An InviteAuth for an invite join (§12.11.4). */
+  authenticatedData: Uint8Array
 }
 
 export interface GroupInfoInspection {
@@ -1666,6 +1675,13 @@ export interface DsModule {
    * verified before it stored it (the scope of a bundle post). Throws CryptoError('Malformed').
    */
   parseInviteRecord(signedRecord: Uint8Array): InviteRecordView
+  /**
+   * §12.11.4 "Join authorization": decodes the InviteAuth in the `authenticated_data` of an external
+   * commit and verifies its signature over `groupId` and the new leaf key under the `sign_public` of
+   * its record. It does not verify the creator signature of the record: Takusen compares the record
+   * bytes with the record of the invite. Null on any failure.
+   */
+  verifyInviteAuth(input: { authenticatedData: Uint8Array; groupId: Uint8Array; leafSignatureKey: Uint8Array }): { keyId: Uint8Array; signedRecord: Uint8Array; record: InviteRecordView } | null
   parseEnvelopeHeader(envelope: Uint8Array): EnvelopeHeader
   /** The header of a whole DocEnvelope (§12.20). Throws CryptoError('Malformed'). */
   parseDocEnvelopeHeader(envelope: Uint8Array): DocEnvelopeHeader
@@ -1845,6 +1861,8 @@ export interface StoreSchema {
    * newest epoch that this device sent a bundle for. `seed`: the redeemer's invite seed, kept for
    * INVITE_AUTH_WINDOW_MS after `redeemedAtMs`, then wiped; INVITE_DELETE also wipes it. `code`: the
    * redeemer's invite code, for the later fetches of the bundles. `revoked`: an INVITE_DELETE came.
+   * The row goes HANDSHAKE_RETENTION_MS after the expiry of the invite: an invite join can come in
+   * the handshake stream until then.
    */
   invites: {
     guildId: GuildId
@@ -2036,6 +2054,31 @@ export interface GroupService extends Pick<CryptoApi, 'sync' | 'ensureChannelGro
   onJoin(cb: (e: { groupId: Uint8Array; epoch: number }) => void): () => void
   /** Appends events to the membership timeline of a group (emits `membership`). Takes the group lock. */
   appendTimeline(groupId: GroupIdB64, events: MembershipEvent[]): Promise<void>
+  /**
+   * The InviteService sets it at its creation (§12.11.4 "Join authorization"). Without it, this
+   * device never joins with an InviteAuth and rejects every external join of a user without a leaf
+   * into a 'channel' group.
+   */
+  setInviteJoins(joins: InviteJoins): void
+}
+
+/** The invite side of an external commit with an InviteAuth (§12.11.4, §12.7.3). */
+export interface InviteJoins {
+  /**
+   * Joiner: the encoded InviteAuth for an external commit of this device into the 'channel' group
+   * of `channelId`: from a redeemed invite whose record names the channel, that is not revoked or
+   * expired, and whose seed this device still keeps. Null when no invite gives one.
+   */
+  authFor(group: { groupId: Uint8Array; guildId: GuildId; channelId: ChannelId }): Promise<Uint8Array | null>
+  /**
+   * Member: checks the InviteAuth in the `authenticated_data` of an external commit into the
+   * 'channel' group of `descriptor`: the signature over the group and the new leaf key, the record
+   * against the current admin state (§12.16, without the expiry), the local revoke, and the scope.
+   * Null when the InviteAuth authorizes the leaf key, else the reason. A failed fetch rejects: it
+   * is not a verdict, and the commit is processed again later. It runs inside the group lock of the
+   * commit, so it must not wait for work that takes a group lock.
+   */
+  checkJoin(input: { groupId: Uint8Array; descriptor: GroupDescriptor; authenticatedData: Uint8Array; leafSignatureKey: Uint8Array }): Promise<string | null>
 }
 
 /** src/envelope/service.ts (crypto-envelope). Messages, attachments, franking reports. */

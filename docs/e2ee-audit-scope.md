@@ -56,11 +56,11 @@ Line counts are from 2026-10-02 on branch `e2ee`. Test files are not in the coun
 | `identity/recovery.ts` | 116 | Recovery key text form, `K_backup`, `key_id` |
 | `identity/device-message.ts` | 92 | HPKE device messages |
 | `identity/safety.ts` | 56 | Safety numbers |
-| `mls/index.ts` | 639 | ts-mls wrapper: create, commit, join, exporter |
-| `mls/service.ts` | 1157 | GroupService: handshakes, pending Removes, batches, fork alert |
-| `mls/policy.ts` | 209 | The §12.7.3 policy table on the client |
+| `mls/index.ts` | 687 | ts-mls wrapper: create, commit, join, exporter, the `authenticated_data` of an external commit (`externalCommitAuth`, `joinExternal`) |
+| `mls/service.ts` | 1390 | GroupService: handshakes, pending Removes, batches, fork alert, the `InviteAuth` check before an external commit is applied (`inviteJoinKey`), and the invite join of the redeemer (`joinOrRequest`) |
+| `mls/policy.ts` | 215 | The §12.7.3 policy table on the client, with the invite join of a user without a leaf (`inviteJoinKey`, §12.11.4) |
 | `mls/wire.ts` | 450 | MLS framing, group ids, leaf chains, context extensions |
-| `mls/ds.ts` | 509 | `DsModule`: `checkCommit`, inspectors, verifiers (runs in Takusen) |
+| `mls/ds.ts` | 538 | `DsModule`: `checkCommit`, inspectors, verifiers (runs in Takusen), `verifyInviteAuth`, `authenticatedData` in the inspection |
 | `mls/history.ts` | 110 | History bundles (§12.11.2) |
 | `envelope/codec.ts` | 440 | Envelope, content and plaintext codecs and limits |
 | `envelope/index.ts` | 174 | `K_msg`, seal, open |
@@ -74,7 +74,7 @@ Line counts are from 2026-10-02 on branch `e2ee`. Test files are not in the coun
 | `kt/client.ts` | 205 | Tree-head pinning, consistency, inclusion, gossip |
 | `admin/index.ts` | 348 | Admin action codecs, sign, verify, hash, replay |
 | `invites/codec.ts`, `invites/keys.ts`, `invites/record.ts` | 417 | Invites with history (§12.11.4): record, bundle and auth codecs, the keys from the seed, the HPKE bundle seal, the signatures |
-| `invites/service.ts` | 553 | The record checks against the admin state (§12.16), the scope from the own descriptors and the group ids, bundles after own commits, redemption and its key limits, the later fetches after a join, the seed wipe |
+| `invites/service.ts` | 637 | The record checks against the admin state (§12.16), the scope from the own descriptors and the group ids, bundles after own commits, redemption and its key limits, the later fetches after a join, the seed wipe, the `InviteAuth` of an invite join (made by the redeemer, checked by members) |
 | `franking/index.ts` | 71 | Franking tag, constant-time compare |
 | `store/index.ts` | 353 | Encrypted IndexedDB store, AAD |
 | `store/serialize.ts` | 79 | Store record encoding |
@@ -87,7 +87,7 @@ Line counts are from 2026-10-02 on branch `e2ee`. Test files are not in the coun
 
 | File | Lines | What to examine |
 |---|---|---|
-| `lib/mls/commits.ts` | 328 | §12.7.3 checks 1 to 11 around `checkCommit` |
+| `lib/mls/commits.ts` | 365 | §12.7.3 checks 1 to 11 around `checkCommit`, and the `InviteAuth` rule of an external join into a `channel` group (§12.11.4) |
 | `lib/mls/batches.ts` | 280 | Batch scheduler (§12.7.5) |
 | `lib/mls/membership.ts` | 305 | Remove proposals on permission changes |
 | `lib/mls/readers.ts` | 100 | `channelReaders` |

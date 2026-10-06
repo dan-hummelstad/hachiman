@@ -30,6 +30,12 @@ describeMlsRepo('InMemoryMlsRepo', async () => {
       async addDm(participants) {
         return repo.addDm(participants)
       },
+      async addInvite(i) {
+        return repo.addInvite(i)
+      },
+      async addInviteMember(guildId, userId, inviteId, joinedAt) {
+        repo.addInviteMember(guildId, userId, inviteId, joinedAt)
+      },
     },
   }
 })

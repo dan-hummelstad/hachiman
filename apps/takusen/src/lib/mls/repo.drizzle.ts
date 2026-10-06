@@ -18,6 +18,7 @@ import {
   guildMembers,
   guilds,
   historyBundles,
+  invites,
   keyBackups,
   keyPackages,
   ktEntries,
@@ -673,6 +674,25 @@ export function drizzleMlsRepo(x: Executor = db): MlsRepo {
     },
     async markKtHeadPublished(treeSize, at) {
       await x.update(ktTreeHeads).set({ publishedAt: at }).where(eq(ktTreeHeads.treeSize, treeSize))
+    },
+
+    // MARK: invites with history
+
+    async getInviteByKeyId(keyId) {
+      const [row] = await x
+        .select({ id: invites.id, guildId: invites.guildId, record: invites.record, revoked: invites.revoked, expiresAt: invites.expiresAt })
+        .from(invites)
+        .where(eq(invites.keyId, keyId))
+        .limit(1)
+      return row ?? null
+    },
+    async inviteJoinedBy(inviteId, userId) {
+      const [row] = await x
+        .select({ joinedAt: guildMembers.joinedAt })
+        .from(guildMembers)
+        .where(and(eq(guildMembers.inviteId, inviteId), eq(guildMembers.userId, userId)))
+        .limit(1)
+      return row?.joinedAt ?? null
     },
   }
   return repo

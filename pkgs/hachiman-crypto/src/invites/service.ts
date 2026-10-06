@@ -12,7 +12,10 @@
  *   the bundles again INVITE_REFETCH_DELAY_MS after the redemption and after each own join of a
  *   scope group (GroupService.onJoin): a later commit bundle fills the epochs that had none.
  * - prune wipes the redeemer seed INVITE_AUTH_WINDOW_MS after the redemption (a timer, and at the
- *   start), and deletes the rows of expired invites.
+ *   start), and deletes the row of an invite HANDSHAKE_RETENTION_MS after its expiry.
+ * - Join authorization (GroupService.setInviteJoins): while the redeemer keeps the seed, it signs an
+ *   InviteAuth for its external commit into a 'channel' group of the scope. A member checks the
+ *   InviteAuth of such a commit before it applies it. The redemption syncs the groups at once.
  *
  * A device checks each record against its current verified admin state (§12.16), and decides the
  * scope from its own MLS group descriptors, never from REST data. Every check fails closed.
@@ -20,24 +23,26 @@
 import {
   CryptoError,
   type AdminReplayState,
+  type ChannelId,
   type CreateInviteService,
   type CryptoGatewayEvent,
   type GroupDescriptor,
   type GroupIdParts,
   type GuildId,
   type HistoryKeyEntry,
+  type InviteJoins,
   type InviteService,
   type StoreSchema,
   type WireInviteRecord,
 } from '../api'
 import { AdminBits } from '../admin/index'
 import { bytesToUuid, fromB64url, toB64url, uuidToBytes } from '../codec'
-import { HISTORY_BUNDLE_MAX_EPOCHS, INVITE_AUTH_WINDOW_MS, INVITE_BUNDLE_FETCH_WINDOW_MS, INVITE_MAX_SCOPE_CHANNELS, INVITE_SEED_BYTES } from '../constants'
+import { HANDSHAKE_RETENTION_MS, HISTORY_BUNDLE_MAX_EPOCHS, INVITE_AUTH_WINDOW_MS, INVITE_BUNDLE_FETCH_WINDOW_MS, INVITE_MAX_SCOPE_CHANNELS, INVITE_SEED_BYTES } from '../constants'
 import { compareBytes, equalBytes } from '../identity/bytes'
 import { parseGroupId } from '../mls/wire'
 import { type InviteRecord, decodeInviteBundleContent, decodeInviteBundleTbs, decodeInviteRecord, decodeSignedInviteRecord } from './codec'
 import { deriveInviteKeys, openInviteBundle, sealInviteBundle } from './keys'
-import { signInviteBundle, signInviteRecord, verifyInviteBundle, verifyInviteRecordSignature } from './record'
+import { signInviteAuth, signInviteBundle, signInviteRecord, verifyInviteAuth, verifyInviteBundle, verifyInviteRecordSignature } from './record'
 
 /** How long the record list of a guild serves the commits of this device. INVITE_DELETE drops it. */
 export const INVITE_RECORDS_TTL_MS = 60_000
@@ -82,6 +87,7 @@ export const createInviteService = ((ctx, identity, groups, perms): InviteServic
   groups.onJoin((e) => {
     spawn(afterJoin(e))
   })
+  groups.setInviteJoins({ authFor, checkJoin } satisfies InviteJoins)
 
   // MARK: - plumbing
 
@@ -109,8 +115,11 @@ export const createInviteService = ((ctx, identity, groups, perms): InviteServic
   }
 
   /**
-   * Wipes the seeds after INVITE_AUTH_WINDOW_MS, and deletes the rows of expired invites. Then
-   * arms one timer for the next seed that must go, so a redeemer without a later commit wipes it too.
+   * Wipes the seeds after INVITE_AUTH_WINDOW_MS, and deletes the row of an invite
+   * HANDSHAKE_RETENTION_MS after its expiry. Until then, an invite join that the DS accepted before
+   * the expiry can still come in the handshake stream: the row keeps the revoke mark, and the
+   * timeline event of the record goes only once into each group. Then arms one timer for the next
+   * seed that must go, so a redeemer without a later commit wipes it too.
    */
   async function prune(): Promise<void> {
     const now = ctx.now()
@@ -119,7 +128,7 @@ export const createInviteService = ((ctx, identity, groups, perms): InviteServic
       for (const { key, value } of await tx.list('invites')) {
         const wipeAt = value.seed === null ? Infinity : (value.redeemedAtMs ?? -Infinity) + INVITE_AUTH_WINDOW_MS + 1
         const seedDone = wipeAt <= now
-        const expired = value.expiresAtMs !== 0 && value.expiresAtMs <= now
+        const expired = value.expiresAtMs !== 0 && value.expiresAtMs + HANDSHAKE_RETENTION_MS <= now
         if (expired && (value.seed === null || seedDone)) await tx.delete('invites', key)
         else if (seedDone) await tx.put('invites', key, { ...value, seed: null })
         else at = Math.min(at, wipeAt)
@@ -427,6 +436,80 @@ export const createInviteService = ((ctx, identity, groups, perms): InviteServic
     }
   }
 
+  // MARK: - join authorization (§12.11.4)
+
+  /**
+   * Joiner: an InviteAuth from a redeemed invite whose seed this device keeps, whose record passes
+   * the checks of §12.16 now and names the channel, and that @everyone still views. A record that
+   * the members would reject gives no join: the members would raise a fork alert.
+   */
+  async function authFor(group: { groupId: Uint8Array; guildId: GuildId; channelId: ChannelId }): Promise<Uint8Array | null> {
+    let parts: GroupIdParts
+    try {
+      parts = parseGroupId(group.groupId)
+    } catch {
+      return null
+    }
+    // The InviteAuth binds the group id, and the group id names the channel (§12.6).
+    if (parts.kind !== 'channel' || parts.scope !== group.channelId) return null
+    const now = ctx.now()
+    const rows = (await store.list('invites')).filter(
+      ({ value }) => value.role === 'redeemed' && !value.revoked && value.seed !== null && value.guildId === group.guildId && value.redeemedAtMs !== null && now - value.redeemedAtMs < INVITE_AUTH_WINDOW_MS,
+    )
+    if (rows.length === 0) return null
+    const state = await identity.adminState(group.guildId)
+    for (const { value } of rows) {
+      const c = await checkRecord(group.guildId, value.record, state)
+      if (!c.ok || state === null || !inScope({ kind: 'channel', guildId: group.guildId, channelId: group.channelId }, c.record, state)) continue
+      const keys = deriveInviteKeys(value.seed!)
+      return signInviteAuth({ signedRecord: value.record, signPrivateKey: keys.sign.privateKey, groupId: group.groupId, leafSignatureKey: identity.self().mlsSignatureKey.publicKey })
+    }
+    return null
+  }
+
+  /**
+   * Member: the InviteAuth of an external commit into a 'channel' group. The record checks of §12.16
+   * without the expiry: a member can process the commit long after the upload, and Takusen checked
+   * the expiry and the join window then.
+   */
+  async function checkJoin(input: { groupId: Uint8Array; descriptor: GroupDescriptor; authenticatedData: Uint8Array; leafSignatureKey: Uint8Array }): Promise<string | null> {
+    const d = input.descriptor
+    if (d.kind !== 'channel' || d.guildId === null || d.channelId === null) return 'not a channel group'
+    const v = verifyInviteAuth({ auth: input.authenticatedData, groupId: input.groupId, leafSignatureKey: input.leafSignatureKey })
+    if (v === null) return 'the InviteAuth does not verify for this group and leaf'
+    const state = await identity.adminState(d.guildId)
+    const c = await checkRecord(d.guildId, v.signedRecord, state, Infinity)
+    if (!c.ok) return c.reason
+    if (state === null || !inScope(d, c.record, state)) return 'the channel is not in the scope of the invite'
+    // The timeline event takes the group lock, which the caller holds: it runs after the commit.
+    spawn(noteJoinRecord(c.record, v.signedRecord, state))
+    return null
+  }
+
+  /**
+   * The row of a record that an invite join shows. The invite id comes from the record list of the
+   * guild, so that INVITE_DELETE marks the row. Without it (a failed fetch, or an invite that the
+   * list does not have), the id stays null until an own commit in a scope group reads the list.
+   */
+  async function noteJoinRecord(rec: InviteRecord, signed: Uint8Array, state: AdminReplayState): Promise<void> {
+    const keyId = toB64url(rec.signPublic)
+    let inviteId: string | null = null
+    if ((await store.get('invites', keyId))?.inviteId == null) {
+      try {
+        const find = (list: WireInviteRecord[]) => list.find((w) => w.keyId === keyId)?.inviteId
+        inviteId = find(await recordsOf(rec.guildId)) ?? null
+        if (inviteId === null) {
+          // The cached list can predate the invite.
+          records.delete(rec.guildId)
+          inviteId = find(await recordsOf(rec.guildId)) ?? null
+        }
+      } catch (e) {
+        report(e)
+      }
+    }
+    await noteRecord(inviteId, rec, signed, state)
+  }
+
   // MARK: - the public surface
 
   const service: InviteServiceExt = {
@@ -526,6 +609,8 @@ export const createInviteService = ((ctx, identity, groups, perms): InviteServic
       })
       // Arms the timer that wipes the seed.
       spawn(prune())
+      // The channel groups of the scope join now, by external commit with an InviteAuth.
+      spawn(groups.sync())
       // The bundle of a commit just before the redemption, or of a commit that adds this device
       // while the redemption runs, can come after the fetch.
       scheduleRefetch(keyId)
