@@ -13,6 +13,8 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto'
 
 import { decodeDocEnvelope, decodeEnvelope, encodeDocHeader, encodeEnvelope, encodeHeader } from '../../../../../pkgs/hachiman-crypto/src/envelope/codec'
 import { identity, verifyDeviceCert, verifyDskCert } from '../../../../../pkgs/hachiman-crypto/src/identity/index'
+import { inviteRecordView } from '../../../../../pkgs/hachiman-crypto/src/invites/codec'
+import { verifyInviteRecordSignature } from '../../../../../pkgs/hachiman-crypto/src/invites/record'
 import { kt } from '../../../../../pkgs/hachiman-crypto/src/kt/index'
 
 import { bytesEqual, fromB64, Reader, toB64 } from './bytes'
@@ -380,6 +382,15 @@ export class FakeDs implements DsModule {
   }
   adminActionHash(): never {
     throw new Error('not used by the DS tests')
+  }
+  /** The real pure check (§12.11.4). */
+  verifyInviteRecord(signedRecord: Uint8Array, creatorCertificate: Uint8Array) {
+    try {
+      const rec = verifyInviteRecordSignature(signedRecord, identity.decodeDeviceCertificate(creatorCertificate))
+      return rec === null ? null : inviteRecordView(rec)
+    } catch {
+      return null
+    }
   }
   parseEnvelopeHeader(envelope: Uint8Array) {
     return decodeEnvelope(envelope).header

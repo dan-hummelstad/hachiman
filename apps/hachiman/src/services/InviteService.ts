@@ -54,17 +54,26 @@ export async function copyInviteLink(code: string): Promise<void> {
 
 /** What a new invite link allows. 0 = no limit, for both fields. */
 export interface InviteOptionsValue {
-  /** Seconds until it expires. */
+  /** Seconds until it expires. 0 = permanent (administrators only). */
   expiry: number
   maxUses: number
 }
 
-/** 7 days, unlimited uses. Shared by InviteDialog and the Invites tab. */
-export const DEFAULT_INVITE_OPTIONS: InviteOptionsValue = { expiry: 604800, maxUses: 0 }
+/** 24 hours, unlimited uses: allowed for every member. Shared by InviteDialog and the Invites tab. */
+export const DEFAULT_INVITE_OPTIONS: InviteOptionsValue = { expiry: 86400, maxUses: 0 }
 
-export function createInvite(guildId: string, o: InviteOptionsValue): Promise<Invite> {
+/**
+ * `acknowledgedPermanent`: the user accepted the permanent-invite warning. Takusen rejects a
+ * permanent invite (`expiry` 0) without it.
+ */
+export function createInvite(
+  guildId: string,
+  o: InviteOptionsValue,
+  acknowledgedPermanent = false
+): Promise<Invite> {
   return hachiman.rest.createInvite(guildId, {
-    maxAgeSeconds: o.expiry || undefined,
-    maxUses: o.maxUses || undefined
+    maxAgeSeconds: o.expiry,
+    maxUses: o.maxUses || undefined,
+    acknowledgedPermanent: o.expiry === 0 ? acknowledgedPermanent : undefined
   })
 }

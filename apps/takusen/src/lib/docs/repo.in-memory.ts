@@ -9,7 +9,7 @@ import type { DocPageRow, DocSnapshotRow, DocUpdateRow, UploadRow } from '@/db/s
 import { UnknownUploadError } from '@/lib/errors'
 import { pageMediaClaimable, pageSnapshotClaimable } from '@/lib/uploads'
 
-import type { DeletedUpload, DocsRepo } from './repo'
+import type { DeletedUpload, DocsRepo, StoredSnapshot } from './repo'
 
 export type MemUpload = Pick<UploadRow, 'id' | 'uploaderId' | 'key' | 'size' | 'encrypted' | 'purpose' | 'pageId' | 'lastReferencedAt' | 'createdAt'>
 
@@ -83,6 +83,10 @@ export class InMemoryDocsStore {
     const guildOfPage = (pageId: string) => {
       const page = s().pages.get(pageId)
       return page ? s().channels.get(page.channelId) : undefined
+    }
+    const stored = (row: DocSnapshotRow): StoredSnapshot => {
+      const u = s().uploads.get(row.uploadId)!
+      return { row: { ...row }, key: u.key, size: u.size }
     }
     const removeUploads = (ids: Set<string>): DeletedUpload[] => {
       const out: DeletedUpload[] = []
@@ -162,10 +166,16 @@ export class InMemoryDocsStore {
         return s()
           .snapshots.filter((r) => r.pageId === pageId)
           .sort((a, b) => b.baseSeq - a.baseSeq)
-          .map((row) => {
-            const u = s().uploads.get(row.uploadId)!
-            return { row: { ...row }, key: u.key, size: u.size }
-          })
+          .map(stored)
+      },
+      async newestSnapshots(channelId) {
+        const newest = new Map<string, DocSnapshotRow>()
+        for (const r of s().snapshots) {
+          if (s().pages.get(r.pageId)?.channelId !== channelId) continue
+          const cur = newest.get(r.pageId)
+          if (!cur || r.baseSeq > cur.baseSeq) newest.set(r.pageId, r)
+        }
+        return [...newest.values()].map(stored)
       },
       async insertSnapshot(values) {
         if (s().snapshots.some((r) => (r.pageId === values.pageId && r.baseSeq === values.baseSeq) || r.uploadId === values.uploadId)) {
@@ -173,6 +183,12 @@ export class InMemoryDocsStore {
         }
         const row: DocSnapshotRow = { ...values, createdAt: new Date() }
         s().snapshots.push(row)
+        return { ...row }
+      },
+      async rewrapSnapshot(pageId, baseSeq, values) {
+        const row = s().snapshots.find((r) => r.pageId === pageId && r.baseSeq === baseSeq)
+        if (!row) return null
+        Object.assign(row, values)
         return { ...row }
       },
 

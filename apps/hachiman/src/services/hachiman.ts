@@ -258,6 +258,8 @@ export function startHachiman(host?: IPlatformService): void {
     void messagesService.retryGroup(groupId)
     docsService.retry()
   })
+  // A new user in a text group: re-wrap the pages of its pages channels (§12.20).
+  cryptoService.on('usersAdded', (e) => docsService.onUsersAdded(e))
   cryptoService.on('status', (s) => {
     if (s.state !== 'ready') return
     // Setup or linking finished: catch up and decrypt what waited.

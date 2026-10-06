@@ -3,7 +3,8 @@
  *      mediaUploadIds } + X-Hachiman-Device — SEND_MESSAGES. Compare-and-set
  *      on baseSeq (409 SnapshotConflict {baseSeq}), claims the
  *      ?kind=page_snapshot blob, keeps the previous snapshot and deletes the
- *      older ones (§4 Pages).
+ *      older ones. The baseSeq and uploadId of the newest snapshot in a newer
+ *      epoch is a re-wrap of its pointer: no claim (§4 Pages).
  */
 import { NextResponse, type NextRequest } from 'next/server'
 

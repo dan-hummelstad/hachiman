@@ -80,9 +80,26 @@ export function drizzleDocsRepo(x: Database | Tx = db): DocsRepo {
         .where(eq(docSnapshots.pageId, pageId))
         .orderBy(desc(docSnapshots.baseSeq))
     },
+    async newestSnapshots(channelId) {
+      return x
+        .selectDistinctOn([docSnapshots.pageId], { row: docSnapshots, key: uploads.key, size: uploads.size })
+        .from(docSnapshots)
+        .innerJoin(uploads, eq(uploads.id, docSnapshots.uploadId))
+        .innerJoin(docPages, eq(docPages.id, docSnapshots.pageId))
+        .where(eq(docPages.channelId, channelId))
+        .orderBy(docSnapshots.pageId, desc(docSnapshots.baseSeq))
+    },
     async insertSnapshot(values) {
       const [row] = await x.insert(docSnapshots).values(values).returning()
       return row!
+    },
+    async rewrapSnapshot(pageId, baseSeq, values) {
+      const [row] = await x
+        .update(docSnapshots)
+        .set(values)
+        .where(and(eq(docSnapshots.pageId, pageId), eq(docSnapshots.baseSeq, baseSeq)))
+        .returning()
+      return row ?? null
     },
 
     claimSnapshotUpload: (pageId, uploadId, userId) => claimPageSnapshot(x, pageId, uploadId, userId),

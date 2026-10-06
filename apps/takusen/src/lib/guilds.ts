@@ -32,6 +32,7 @@ import {
 } from '@/db/schema'
 import { NotFoundError } from '@/lib/errors'
 import { publishToGuild, publishToUser, redis } from '@/lib/events'
+import { publishInviteDeletes, revokePermanentInvitesOfNonAdmins } from '@/lib/invite-limits'
 import { toB64 } from '@/lib/mls/bytes'
 import { discardMembershipWork, onMembershipChange, wakeScheduler, type MembershipChange } from '@/lib/mls/membership'
 import { deleteObjects } from '@/lib/storage'
@@ -341,23 +342,27 @@ export async function loadChannel(id: string): Promise<Channel> {
 }
 
 /**
- * Kick / leave: drop the membership (member_roles cascade), queue the DS
- * Removes in the same transaction, and tell the guild and the removed user.
- * The caller has already checked permissions.
+ * Kick / leave: drop the membership (member_roles cascade), revoke the
+ * permanent invites of the removed user (§4), queue the DS Removes in the same
+ * transaction, and tell the guild and the removed user. The caller has already
+ * checked permissions.
  */
 export async function removeMember(guildId: string, userId: string, actorDeviceId: string | null): Promise<void> {
   const user = await getUserById(userId)
   if (!user) throw new NotFoundError('Unknown member')
-  await membershipTransaction(async (tx) => {
+  const revoked = await membershipTransaction(async (tx) => {
     const deleted = await tx
       .delete(guildMembers)
       .where(and(eq(guildMembers.guildId, guildId), eq(guildMembers.userId, userId)))
       .returning({ userId: guildMembers.userId })
     if (deleted.length === 0) throw new NotFoundError('Unknown member')
+    const revoked = await revokePermanentInvitesOfNonAdmins(tx, guildId)
     await membershipChanged(tx, MembershipTriggers.memberLeft(guildId, userId), actorDeviceId)
+    return revoked
   })
   await publishToGuild(guildId, 'GUILD_MEMBER_REMOVE', { guildId, user: toUser(user) })
   await publishToUser(userId, 'GUILD_DELETE', { id: guildId })
+  await publishInviteDeletes(guildId, revoked)
 }
 
 /**

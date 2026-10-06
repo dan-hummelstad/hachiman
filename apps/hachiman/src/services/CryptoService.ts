@@ -49,6 +49,7 @@ const EVENTS = [
   'epochKeysAvailable',
   'ktAlert',
   'voiceRoster',
+  'usersAdded',
   'error'
 ] as const satisfies readonly (keyof CryptoEvents)[]
 
@@ -312,6 +313,9 @@ class CryptoService {
           useCryptoStore.setState({ voice: { ...voice, roster: r.roster, epoch: r.epoch } })
         return
       }
+      case 'usersAdded':
+        // No store state: DocsService runs the re-wrap pass (hachiman.ts).
+        return
       case 'error':
         return useCryptoStore.setState({ lastError: p as CryptoEvents['error'] })
     }

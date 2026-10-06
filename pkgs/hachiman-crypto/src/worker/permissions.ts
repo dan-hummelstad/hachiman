@@ -41,4 +41,10 @@ export const clientPermissions: AdminPermissionModel = {
     if (target === undefined) return false
     return highestRolePosition(memberOf(state, actorUserId), roles) > target.position
   },
+
+  /** A member with no roles whose id matches no member overwrite: only the @everyone role and overwrite apply. */
+  everyoneChannelPermissions(state, channelId) {
+    const everyone = overwritesOf(state, channelId).filter((o) => o.type === 'role' && o.id === state.guildId)
+    return computeChannelPermissions(guildOf(state), { roles: [], user: { id: '' } }, rolesOf(state), { permissionOverwrites: everyone })
+  },
 }

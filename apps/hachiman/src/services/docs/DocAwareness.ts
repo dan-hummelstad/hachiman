@@ -64,6 +64,12 @@ function peerOf(clientId: number, state: unknown, userId: string | undefined): D
   }
 }
 
+/** The awareness of a provider that nobody views (DocProviderDeps.headless): no frame, no timer. */
+export function createMutedAwareness(doc: Y.Doc): DocAwareness {
+  const none = (): void => {}
+  return { awareness: new Awareness(doc), announce: none, receive: none, destroy: none }
+}
+
 /** `live()`: the page loaded; frames before that wait. */
 export function createDocAwareness(
   doc: Y.Doc,

@@ -226,4 +226,36 @@ describe('DsModule helpers', () => {
     expect(ds.verifyRevocation(identity.encodeRevocation(out), { master, deviceCertificate: cert })?.reason).toBe(5)
     expect(ds.verifyRevocation(identity.encodeRevocation(out), { master, deviceCertificate: null })).toBeNull()
   })
+
+  it('verifies an invite record under the creator certificate (§12.11.4)', async () => {
+    const { identity } = await import('../identity/index')
+    const { signInviteRecord } = await import('../invites/record')
+    const { deriveInviteKeys } = await import('../invites/keys')
+    const d = makeDevice(makeUser())
+    const keys = deriveInviteKeys(new Uint8Array(32).fill(3))
+    const channels = [uuid(), uuid()].sort()
+    const guildId = uuid()
+    const signed = signInviteRecord(
+      { guildId, hpkePublic: keys.hpke.publicKey, signPublic: keys.sign.publicKey, channelIds: channels, adminChainSeq: 4, expiresAtMs: 0, maxUses: 0, creatorUserId: d.user.userId, creatorDeviceId: d.deviceId },
+      d.sig.privateKey,
+    )
+    const cert = identity.encodeDeviceCertificate(d.chain.device)
+    expect(ds.verifyInviteRecord(signed, cert)).toEqual({
+      guildId,
+      hpkePublic: toB64url(keys.hpke.publicKey),
+      keyId: toB64url(keys.sign.publicKey),
+      channelIds: channels,
+      adminChainSeq: 4,
+      expiresAtMs: 0,
+      maxUses: 0,
+      creatorUserId: d.user.userId,
+      creatorDeviceId: d.deviceId,
+    })
+    // Another device of the same user, a tampered record, a malformed certificate.
+    expect(ds.verifyInviteRecord(signed, identity.encodeDeviceCertificate(makeDevice(d.user).chain.device))).toBeNull()
+    const tampered = signed.slice()
+    tampered[30]! ^= 1
+    expect(ds.verifyInviteRecord(tampered, cert)).toBeNull()
+    expect(ds.verifyInviteRecord(signed, cert.subarray(1))).toBeNull()
+  })
 })

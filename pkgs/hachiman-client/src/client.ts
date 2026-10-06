@@ -488,7 +488,8 @@ export class HachimanClient extends TypedEventEmitter<HachimanClientEvents> {
       case 'PAGE_DELETE':
       case 'DOC_UPDATE':
       case 'DOC_AWARENESS':
-        break // not cached; consumers (the crypto Worker for the §12.13 events, the shared UI DocsService for pages) handle the re-emitted event
+      case 'INVITE_DELETE':
+        break // not cached; consumers (the crypto Worker for the §12.13 events, the shared UI DocsService for pages, the invite list) handle the re-emitted event
     }
   }
 }

@@ -71,7 +71,7 @@ flowchart TB
   OA["lib/oidc-adapter.ts"]
   OI["lib/oidc-interaction.ts"]
   GA["lib/guild-access.ts<br/>permissions"]
-  GL["lib/guilds.ts, invites.ts"]
+  GL["lib/guilds.ts, invites.ts,<br/>invite-limits.ts"]
   WIRE["lib/wire.ts<br/>row to wire shape"]
   UP["lib/uploads.ts<br/>claims"]
   FI["lib/files.ts<br/>pure helpers"]
@@ -145,6 +145,7 @@ flowchart TB
 | `src/lib/oidc-interaction.ts` | Bridges `next/headers` to the panva interaction API. |
 | `src/lib/guild-access.ts` | Loads membership, roles and overwrites, and computes permissions with `@hachiman/client/permissions`. Also `publishToChannel()`. |
 | `src/lib/guilds.ts`, `invites.ts` | Guild read models and invite logic. |
+| `src/lib/invite-limits.ts` | Invite limits (contract §4): only an administrator makes an invite that is permanent or lasts longer than 24 hours. A route that takes ADMINISTRATOR away revokes the permanent invites of that user in its transaction, and publishes `INVITE_DELETE`. |
 | `src/lib/wire.ts` | Converts DB rows to wire shapes (contract §1). No DB access. |
 | `src/lib/events.ts` | Redis client and the `publishToGuild()` / `publishToUser()` publishers (contract §5). |
 | `src/lib/uploads.ts` | Upload claims (image or attachment) and attachment row deletion. |
@@ -229,13 +230,15 @@ Contract §4 Pages and §12.20. A `pages` channel holds a tree of pages. The con
 | File | What |
 |---|---|
 | `repo.ts`, `repo.drizzle.ts`, `repo.in-memory.ts` | `DocsRepo`, the storage seam. `repo.conformance.ts` is one suite for both implementations. Change the two implementations in the same commit. |
-| `service.ts` | Create, move (cycle check), delete; the update log (`seq` from `doc_pages.latest_seq` under a row lock); the snapshot compare-and-set; media claims; the guild quota (`guilds.page_storage_bytes`). |
+| `service.ts` | Create, move (cycle check), delete; the update log (`seq` from `doc_pages.latest_seq` under a row lock); the snapshot compare-and-set and the pointer re-wrap (the same `baseSeq` and `uploadId` in a newer epoch: the row changes in place, with no claim, quota change or delete); the title compare-and-set (`ifUpdatedAt`, 409 `PageConflict`); the page heads (`GET /channels/:id/pages/heads`); media claims; the guild quota (`guilds.page_storage_bytes`). |
 | `access.ts`, `wire.ts`, `config.ts` | The channel and permission checks of the routes, the zod bodies and wire shapes, and the limits. |
 | `../mls/envelopes.ts` | `acceptDocEnvelope`: the page envelope header checks. It shares the group, epoch and sender checks with `acceptEnvelope`. |
 | `../page-media-sweep.ts` | The daily sweep of page media that no kept snapshot lists. |
 | `../channel-types.ts` | `TEXT_GROUP_TYPES`: `text` and `pages` use a text MLS group. |
 
 Storage: Postgres holds rows of bounded size (the tree, update envelopes up to 32 KiB, pointer envelopes). The snapshot bytes and page media are encrypted S3 objects in `uploads` (purposes `page_snapshot` and `page_media`, column `page_id`). A page keeps at most two snapshots. `DOC_UPDATE` is published to `guild:{id}` after the commit, as other events are.
+
+A new member of the group of a pages channel cannot open the envelopes of older epochs. The members re-wrap the newest snapshot pointer and the title of each page in the new epoch (contract §12.20 "Access by new members"). Takusen stores the header group and epoch of each snapshot, so the re-wrap rule needs no schema change. The heads route decodes only the header of each title envelope.
 
 ## Conventions
 
@@ -274,7 +277,7 @@ pnpm -F @hachiman/takusen start:grpc   # gRPC process (production)
 pnpm -F @hachiman/takusen typecheck    # tsgo
 pnpm -F @hachiman/takusen test         # every src/**/*.test.ts on node --test with the tsx loader, no DB, no Redis
 pnpm -F @hachiman/takusen test:canary  # the E2EE canary against a running test deployment (below)
-pnpm -F @hachiman/takusen test:pg      # the MlsRepo conformance suite on Postgres; needs TAKUSEN_PG_TEST_URL (below)
+pnpm -F @hachiman/takusen test:pg      # the src/**/*.pg.test.ts suites on Postgres; need TAKUSEN_PG_TEST_URL (below)
 pnpm -F @hachiman/takusen lint
 pnpm -F @hachiman/takusen format
 
@@ -285,7 +288,7 @@ pnpm -F @hachiman/takusen db:studio
 pnpm -F @hachiman/takusen sessions:revoke  # sign out all users
 ```
 
-The MlsRepo conformance suite (`src/lib/mls/repo.conformance.ts`) is one test suite for both MlsRepo implementations. `pnpm test` runs it on `InMemoryMlsRepo` (`repo.in-memory.test.ts`). `repo.drizzle.pg.test.ts` runs it on `drizzleMlsRepo` and a real Postgres, but only when `TAKUSEN_PG_TEST_URL` is set. Otherwise it skips, so `pnpm test` needs no database. Use a separate test database. The suite refuses the database `takusen`, because it writes rows that it does not delete. To run it against the Docker Postgres (use the user of your container):
+The MlsRepo conformance suite (`src/lib/mls/repo.conformance.ts`) is one test suite for both MlsRepo implementations. `pnpm test` runs it on `InMemoryMlsRepo` (`repo.in-memory.test.ts`). `repo.drizzle.pg.test.ts` runs it on `drizzleMlsRepo` and a real Postgres, but only when `TAKUSEN_PG_TEST_URL` is set. Otherwise it skips, so `pnpm test` needs no database. Use a separate test database. The suite refuses the database `takusen`, because it writes rows that it does not delete. `src/lib/invite-limits.pg.test.ts` uses the same rules for the SQL of the invite limits (the revoke of permanent invites and `createPermanentInvite`). `test:pg` runs both. To run them against the Docker Postgres (use the user of your container):
 
 ```bash
 docker exec hachiman-postgres psql -U takusen -d postgres -c 'CREATE DATABASE hachiman_e2ee_test'   # once

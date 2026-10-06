@@ -25,6 +25,7 @@ const perms: AdminPermissionModel = {
   guildPermissions: (s, u) => (u === s.ownerId ? 0x7fffffff : 0),
   channelPermissions: (s, _c, u) => (u === s.ownerId ? 0x7fffffff : 0),
   outranks: (s, actor) => actor === s.ownerId,
+  everyoneChannelPermissions: () => 0,
 }
 
 function chain(payloads: AdminPayload[]): AdminAction[] {

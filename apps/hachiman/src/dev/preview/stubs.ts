@@ -187,6 +187,7 @@ type RestStubs = {
 }
 
 const INVITE_CODE = 'nt0wl5x'
+const PERMANENT_INVITE_CODE = 'p3rm4nt'
 const PREVIEW_DEVICE = READY.deviceId
 
 /** About 2 s of upload progress in ticks, so the composer tray's progress bar shows. */
@@ -264,6 +265,15 @@ export function stubRest(): void {
     uses: 3,
     createdAt: new Date(now - DAY).toISOString()
   })
+  /** An older permanent invite by another member, so the list shows the sort and the badge. */
+  const permanentInvite = (guildId: string): Invite => ({
+    ...invite(guildId),
+    code: PERMANENT_INVITE_CODE,
+    createdBy: U.petra.id,
+    expiresAt: null,
+    uses: 12,
+    createdAt: new Date(now - 30 * DAY).toISOString()
+  })
   const createGuild = (name: string): GuildFull => {
     const id = nextId('g')
     const g: GuildFull = {
@@ -334,6 +344,16 @@ export function stubRest(): void {
 
   const impl: RestStubs = {
     getPages: (channelId) => [...pages.values()].filter((p) => p.channelId === channelId),
+    // No snapshots, and the stub envelopes have no header: nothing for a re-wrap pass to do.
+    getPageHeads: (channelId) =>
+      [...pages.values()]
+        .filter((p) => p.channelId === channelId)
+        .map((p) => ({
+          pageId: p.id,
+          latestSeq: docUpdates.get(p.id)?.length ?? 0,
+          title: null,
+          snapshot: null
+        })),
     createPage: (channelId, body) => {
       const now = new Date().toISOString()
       const p: Page = { ...body, channelId, createdBy: ME.id, createdAt: now, updatedAt: now }
@@ -343,6 +363,8 @@ export function stubRest(): void {
     },
     updatePage: (pageId, body) => {
       const p = pageOf(pageId)
+      if (body.ifUpdatedAt != null && body.ifUpdatedAt !== p.updatedAt)
+        throw new RestError(409, 'PageConflict')
       const next: Page = {
         ...p,
         parentId: body.parentId === undefined ? p.parentId : body.parentId,
@@ -556,8 +578,18 @@ export function stubRest(): void {
     deleteRole: (guildId, roleId) => {
       dispatch({ t: 'GUILD_ROLE_DELETE', d: { guildId, roleId } })
     },
-    getInvites: (guildId) => [invite(guildId)],
-    createInvite: (guildId) => invite(guildId),
+    getInvites: (guildId) => [invite(guildId), permanentInvite(guildId)],
+    createInvite: (guildId, body = {}) => ({
+      ...invite(guildId),
+      code: nextId('inv'),
+      expiresAt:
+        body.maxAgeSeconds === 0
+          ? null
+          : new Date(Date.now() + (body.maxAgeSeconds ?? 86400) * 1000).toISOString(),
+      maxUses: body.maxUses || null,
+      uses: 0,
+      createdAt: new Date().toISOString()
+    }),
     deleteInvite: () => undefined,
     previewInvite: (code) => ({
       code,

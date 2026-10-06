@@ -201,6 +201,16 @@ export interface PageState {
   latestSeq: number
 }
 
+/** One page of GET /channels/:id/pages/heads: what a re-wrap pass needs (§12.20 "Access by new members"). */
+export interface PageHead {
+  pageId: string
+  latestSeq: number
+  /** The group and epoch of the title envelope header. null when the header does not decode. */
+  title: { groupId: B64url; epoch: number } | null
+  /** The newest snapshot. */
+  snapshot: DocSnapshot | null
+}
+
 export interface DocUpdatePage {
   updates: DocUpdate[]
   latestSeq: number
@@ -598,6 +608,8 @@ export interface GatewayEvents {
   GUILD_ROLE_CREATE: { guildId: string; role: Role }
   GUILD_ROLE_UPDATE: { guildId: string; role: Role }
   GUILD_ROLE_DELETE: { guildId: string; roleId: string }
+  /** An invite was revoked: by DELETE /invites/:code, or because its creator lost ADMINISTRATOR. To every member. */
+  INVITE_DELETE: { guildId: string; code: string; inviteId: string }
   PRESENCE_UPDATE: Presence
   VOICE_STATE_UPDATE: VoiceState
   VOICE_SERVER_UPDATE: VoiceServerUpdate

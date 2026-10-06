@@ -431,6 +431,9 @@ export class FakeDs {
       declineBatch: unsupported,
       postHistoryBundle: unsupported,
       getHistoryBundles: unsupported,
+      inviteRecords: unsupported,
+      postInviteBundle: unsupported,
+      inviteBundles: unsupported,
       channelReaders: unsupported,
       guildMembers: unsupported,
     }
@@ -463,6 +466,7 @@ export const testPermissions: AdminPermissionModel = {
   guildPermissions: (s, userId) => (userId === s.ownerId ? 0x7fffffff : (s.roles.find((r) => r.id === s.guildId)?.permissions ?? 0)),
   channelPermissions: (s, _c, userId) => (userId === s.ownerId ? 0x7fffffff : 0),
   outranks: (s, actor) => actor === s.ownerId,
+  everyoneChannelPermissions: () => 0,
 }
 
 export interface TestDevice {

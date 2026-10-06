@@ -3,7 +3,7 @@
  * bodies (§4 Pages). No DB access.
  */
 import { z } from 'zod'
-import type { DocSnapshot, DocUpdate, Page } from '@hachiman/client/types'
+import type { DocSnapshot, DocUpdate, Page, PageHead } from '@hachiman/client/types'
 
 import type { DocPageRow, DocUpdateRow } from '@/db/schema'
 import { toB64 } from '@/lib/mls/bytes'
@@ -11,6 +11,7 @@ import { envelopeField } from '@/lib/wire'
 
 import { MEDIA_CLAIM_IDS_MAX, SNAPSHOT_MEDIA_IDS_MAX, UPDATES_LIMIT_DEFAULT, UPDATES_LIMIT_MAX } from './config'
 import type { StoredSnapshot } from './repo'
+import type { PageHeadRow } from './service'
 
 export function toPage(row: DocPageRow): Page {
   return {
@@ -53,6 +54,15 @@ export function toDocSnapshot({ row, key, size }: StoredSnapshot): DocSnapshot {
   }
 }
 
+export function toPageHead({ page, title, snapshot }: PageHeadRow): PageHead {
+  return {
+    pageId: page.id,
+    latestSeq: page.latestSeq,
+    title: title && { groupId: toB64(title.groupId), epoch: title.epoch },
+    snapshot: snapshot && toDocSnapshot(snapshot),
+  }
+}
+
 const position = z.number().int().min(0).max(2 ** 31 - 1)
 const uniqueIds = (max: number, min = 0) =>
   z
@@ -74,6 +84,8 @@ export const updatePageSchema = z
     parentId: z.string().uuid().nullable().optional(),
     position: position.optional(),
     titleEnvelope: envelopeField.optional(),
+    /** Compare-and-set: 409 PageConflict when the page `updatedAt` differs. */
+    ifUpdatedAt: z.string().datetime().optional(),
   })
   .strict()
 export type UpdatePageBody = z.infer<typeof updatePageSchema>

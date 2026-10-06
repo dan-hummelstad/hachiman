@@ -33,6 +33,8 @@ import { envelope } from '../envelope/index'
 import { verifyFrankingSync } from '../franking/index'
 import { equalBytes } from '../identity/bytes'
 import { identity, verifyDeviceCert, verifyDskCert, verifyMasterSelfSignature } from '../identity/index'
+import { inviteRecordView } from '../invites/codec'
+import { verifyInviteRecordSignature } from '../invites/record'
 import { kt } from '../kt/index'
 import {
   DS_CREDENTIAL_IDENTITY,
@@ -496,6 +498,15 @@ export const ds: DsModule = {
 
   adminActionHash(action) {
     return admin.hash(admin.decodeAction(action))
+  },
+
+  verifyInviteRecord(signedRecord, creatorCertificate) {
+    try {
+      const rec = verifyInviteRecordSignature(signedRecord, identity.decodeDeviceCertificate(creatorCertificate))
+      return rec === null ? null : inviteRecordView(rec)
+    } catch {
+      return null
+    }
   },
 
   parseEnvelopeHeader(bytes) {

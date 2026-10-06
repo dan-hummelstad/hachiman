@@ -144,7 +144,7 @@ Only `services/hachiman.ts` writes the mirror stores (`guildStore`, `channelStor
 | `src/components/voice/` | Voice room, `stream-grid`, `screen-share-controls`, `screen-source-picker`, stream quality fields, self mute and deafen toggles, call security (`call-roster`, `call-security`, `verify-call-dialog`) |
 | `src/components/security/` | `CryptoGate` (`onboarding.tsx`): the gate in front of `Shell`, and the onboarding (set up, link, restore, reset). Devices panel, device linking (QR and SAS emoji), verification, key-change dialog. Recovery key view and panel, security log and notices, the host trust label, fatal screens. `qr.ts` is a small QR encoder (no dependency) |
 | `src/components/people/` | Member list sections by presence |
-| `src/components/settings/` | Settings layout. `user/` holds account, appearance, voice and sounds. The guild settings dialogs are in `src/components/`. |
+| `src/components/settings/` | Settings layout. `user/` holds account, appearance, voice and sounds. `invites.ts`, `invite-options.tsx` and `permanent-invite-confirm.tsx` hold the invite choices (more than 24 hours and permanent only for an administrator) and the permanent-invite warning. The guild settings dialogs are in `src/components/`. |
 | `src/components/ui/` | shadcn and local primitives (dialog, tooltip, avatar, window strip, title bar) |
 | `src/components/*.tsx` | Server icon rail, channel sidebar, member list, voice panel, guild and channel dialogs, sign-in screen |
 | `src/stores/` | Zustand stores. `prefsStore`, `navStore`, `takusenStore` (session) and part of `voiceStore` (mute, deafen) persist to `localStorage`. `cryptoStore` is memory only. |
@@ -265,8 +265,10 @@ A `pages` channel shows the chat in the center and the pages panel on the right,
 | `components/docs/page-links.ts`, `page-picker.tsx` | Links with the target `hachiman:page/<id>`, shown with the current title. Slash menu items "Link to page" and "New sub-page". |
 | `components/docs/page-media.tsx`, `services/docs/media.ts` | Drop or paste a file: encrypt, upload, claim, then insert an `hm_media` node that holds the pointer. Shown through `use-decrypted-blob`. A copy puts only the upload id on the clipboard, never the file key. |
 | `services/docs/DocsService.ts` | The page tree per channel, title encryption, the `PAGE_*` events, into `docsStore`. |
+| `services/docs/titles.ts` | Pure title rules: the node of a page from its decrypt result, the merge into the stored node (a decrypted title stays while a newer envelope is pending), and one group catch-up per channel when a title is of an epoch that the Worker did not apply yet. |
 | `services/docs/page-tree.ts` | Pure tree helpers: depth-first rows, path, subtree, positions. A drop is usually one PATCH (the midpoint between the new neighbours). |
-| `services/docs/DocProvider.ts` | One `Y.Doc` and awareness per open page: load the snapshot and updates, batch local updates (100 ms), encrypt and post, apply remote updates, fill `seq` gaps, post snapshots. `DocAwareness.ts` relays awareness through gateway op 5. |
+| `services/docs/DocProvider.ts` | One `Y.Doc` and awareness per open page: load the snapshot and updates, batch local updates (100 ms), encrypt and post, apply remote updates, fill `seq` gaps, post snapshots. An idle page gets its snapshot pointer re-wrapped instead. A page that waits for keys (for its snapshot or for an update) retries slowly and reads the state again, so a newer snapshot opens it. `DocAwareness.ts` relays awareness through gateway op 5. |
+| `services/docs/rewrap.ts` | The re-wrap pass for new members (contract §12.20 "Access by new members"). The Worker event `usersAdded` starts it: at once and after the epoch grace on the committer, after 12 to 20 s on the other members. Per pages channel of the group, it reads the page heads, re-wraps stale snapshot pointers and titles, and loads a closed page with updates after a stale snapshot (or with no snapshot) into a headless provider, to post a full snapshot. Only the committer's second pass also loads the pages with updates after a current snapshot. |
 
 ```mermaid
 flowchart LR
@@ -279,6 +281,10 @@ flowchart LR
   Provider --> GW[GatewayClient<br/>op 5]
   hachiman.ts -- PAGE_* / DOC_* events --> DocsService
   hachiman.ts -- DOC_UPDATE / DOC_AWARENESS --> Provider
+  hachiman.ts -- usersAdded --> DocsService
+  DocsService --> Rewrap[rewrap.ts<br/>page heads, re-wrap]
+  Rewrap --> REST
+  Rewrap --> Crypto
 ```
 
 ## Conventions

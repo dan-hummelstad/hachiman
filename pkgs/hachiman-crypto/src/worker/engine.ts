@@ -225,6 +225,10 @@ export function createEngine(env: EngineEnv): Engine {
     backupNow: () => s().identity.backupNow(),
     ktSelfCheck: () => s().identity.ktSelfCheck(),
     signAdminAction: (g, t, p) => s().admin.signAdminAction(g, t, p),
+    // Invites with history (§12.11.4): the Worker invite service is not wired yet.
+    prepareHistoryInvite: () => Promise.reject(new CryptoError('Unsupported', 'not implemented')),
+    sendInviteBundles: () => Promise.reject(new CryptoError('Unsupported', 'not implemented')),
+    redeemInvite: () => Promise.reject(new CryptoError('Unsupported', 'not implemented')),
     proveDevice: (input) => s().identity.proveDevice(input),
 
     voiceStart: (o) => s().voice.voiceStart(o),

@@ -22,7 +22,8 @@ import {
 } from './codec'
 
 let suite: CipherSuite | null = null
-const hpke = (): CipherSuite =>
+/** The §12.3 HPKE suite: device messages and invite bundles (§12.11.4). */
+export const hpke = (): CipherSuite =>
   (suite ??= new CipherSuite({ kem: new DhkemX25519HkdfSha256(), kdf: new HkdfSha256(), aead: new Aes128Gcm() }))
 
 const info = (kind: DeviceMessageKind, recipientDeviceId: DeviceId): Uint8Array =>

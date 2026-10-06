@@ -62,6 +62,19 @@ describe('AdminPermissionModel over @hachiman/client/permissions', () => {
     expect(p.channelPermissions(state, OPEN, PLAIN, [OWNER])).toBe(0)
   })
 
+  it('gives @everyone alone: the @everyone overwrite applies, role and member overwrites do not', () => {
+    expect(p.everyoneChannelPermissions(state, OPEN)).toBe(everyone)
+    expect(p.everyoneChannelPermissions(state, SECRET)).toBe(0)
+    // A role overwrite that denies does not reach a member without that role.
+    const denied: AdminReplayState = { ...state, overwrites: [{ channelId: OPEN, targetId: 'helper', targetType: 'role', allow: 0, deny: Permissions.VIEW_CHANNEL }] }
+    expect(p.everyoneChannelPermissions(denied, OPEN)).toBe(everyone)
+    // A member overwrite never applies, whatever its target id.
+    const member: AdminReplayState = { ...state, overwrites: [{ channelId: OPEN, targetId: G, targetType: 'member', allow: 0, deny: Permissions.VIEW_CHANNEL }] }
+    expect(p.everyoneChannelPermissions(member, OPEN)).toBe(everyone)
+    const adminEveryone: AdminReplayState = { ...state, roles: [{ id: G, permissions: Permissions.ADMINISTRATOR, position: 0 }] }
+    expect(p.everyoneChannelPermissions(adminEveryone, SECRET)).toBe(ALL_PERMISSIONS)
+  })
+
   it('checks the role hierarchy strictly', () => {
     for (const r of [G, 'helper', 'mod', 'admin']) expect(p.outranks(state, OWNER, r)).toBe(true)
     expect(p.outranks(state, MOD, 'helper')).toBe(true)

@@ -83,6 +83,9 @@ const call = async <T>(p: () => Promise<T>): Promise<T> => {
   }
 }
 
+// S3b: RestClient gets the invite routes (§12.12). Until then the calls reject as Transport.
+const notImplemented = (): Promise<never> => Promise.reject(new Error('not implemented'))
+
 /** The users who may read `channelId` (§2 VIEW_CHANNEL), from the cache. */
 export function channelReaders(cache: DsCache, channelId: string): string[] {
   const channel = cache.channels.get(channelId)
@@ -158,6 +161,10 @@ export function createDsTransport(rest: DsRest, cache: DsCache): DsTransport {
     ktEntries: (query) => call(() => rest.ktEntries({ userId: query.userId, after: query.after })),
 
     adminActions: (guildId, after) => call(() => rest.getAdminActions(guildId, after)),
+
+    inviteRecords: () => call(notImplemented),
+    postInviteBundle: () => call(notImplemented),
+    inviteBundles: () => call(notImplemented),
 
     channelReaders: (channelId) => Promise.resolve(channelReaders(cache, channelId)),
     guildMembers: (guildId) => Promise.resolve([...(cache.members.get(guildId)?.keys() ?? [])])

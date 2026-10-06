@@ -304,8 +304,8 @@ export interface HistoryKey {
   epoch: number
   secret: Uint8Array
 }
-const writeHistoryKey = (w: Writer, k: HistoryKey): void => void w.u64(k.epoch).fixed(k.secret, 32)
-const readHistoryKey = (r: Reader): HistoryKey => ({ epoch: r.u64n(), secret: r.fixed(32) })
+export const writeHistoryKey = (w: Writer, k: HistoryKey): void => void w.u64(k.epoch).fixed(k.secret, 32)
+export const readHistoryKey = (r: Reader): HistoryKey => ({ epoch: r.u64n(), secret: r.fixed(32) })
 
 /** struct { opaque group_id<V>; HistoryKey keys<V>; } HistoryBatch. */
 function writeHistoryBatch(w: Writer, groupId: Uint8Array, keys: readonly HistoryKey[]): void {

@@ -121,6 +121,12 @@ function failingContext(nowMs: number): ChainContext {
   return { pinnedMaster: null, currentDsk: null, highestSeenDskGeneration: null, revokedDeviceIds: new Set(), leaf: null, entering: false, nowMs }
 }
 
+/** The users of `added` that had no leaf in `before`: a new device of a member is no new user. */
+function newUserIds(before: readonly LeafEntry[], added: readonly LeafEntry[]): UserId[] {
+  const known = new Set(before.map((x) => x.userId))
+  return [...new Set(added.map((a) => a.userId).filter((u) => !known.has(u)))]
+}
+
 export const createGroupService = ((ctx: EngineContext, identity: IdentityService, deps: GroupServiceDeps = {}): GroupServiceExt => {
   const { store, transport } = ctx
   const mls = deps.mls ?? defaultMls
@@ -424,8 +430,9 @@ export const createGroupService = ((ctx: EngineContext, identity: IdentityServic
         return false
       }
       const before = mls.roster(handle)
-      const after = mls.roster(next)
-      await enterEpoch(g, next, h.seq, { kind: h.kind === 'external_commit' ? 'resynced' : 'added', actor: self.userId, ...diff(before, after) })
+      const change = diff(before, mls.roster(next))
+      await enterEpoch(g, next, h.seq, { kind: h.kind === 'external_commit' ? 'resynced' : 'added', actor: self.userId, ...change })
+      emitUsersAdded(g, before, change.added, true)
       return true
     }
 
@@ -470,6 +477,7 @@ export const createGroupService = ((ctx: EngineContext, identity: IdentityServic
     let kind: MembershipEvent['kind'] = 'added'
     if (external) kind = r.removed.length > 0 || r.added.length === 0 ? 'resynced' : 'joined_external'
     await enterEpoch(g, r.handle, h.seq, { kind, actor: external ? null : (committer?.userId ?? null), added: r.added, removed: r.removed })
+    emitUsersAdded(g, mls.roster(handle), r.added, false)
     return true
   }
 
@@ -539,13 +547,26 @@ export const createGroupService = ((ctx: EngineContext, identity: IdentityServic
   /** §12.11.2: a commit that added a device of a new user in a 'shared' group sends a bundle. */
   async function maybeSendBundle(g: Ctx, before: LeafEntry[], added: LeafEntry[]): Promise<void> {
     if (g.handle === null || descriptorOf(g).historyVisibility !== 'shared') return
-    const known = new Set(before.map((x) => x.userId))
-    if (!added.some((a) => !known.has(a.userId))) return
+    if (newUserIds(before, added).length === 0) return
     try {
       await sendBundle(g, g.handle)
     } catch (e) {
       report(e)
     }
+  }
+
+  /**
+   * §12.20 "Access by new members": after a commit (in the new epoch) that added a leaf of a new
+   * user to a text group. The callers are the commits of others, the own batch commits and the
+   * crash adoption, never an own join, Welcome or create (`added` is the whole roster there).
+   */
+  function emitUsersAdded(g: Ctx, before: LeafEntry[], added: LeafEntry[], byMe: boolean): void {
+    const kind = g.row.kind
+    const d = g.handle === null ? null : contextOf(g.handle).descriptor
+    if (g.handle === null || d === null || (kind !== 'public_set' && kind !== 'channel')) return
+    const userIds = newUserIds(before, added)
+    if (userIds.length === 0) return
+    ctx.emit('usersAdded', { groupId: g.gid, kind, guildId: d.guildId, channelId: d.channelId, epoch: g.handle.epoch, userIds, byMe })
   }
 
   /** The leaves of revoked devices other than the own leaf, and their users (§12.4 rule 7). */
@@ -855,6 +876,7 @@ export const createGroupService = ((ctx: EngineContext, identity: IdentityServic
         await catchUp(g).catch(report)
         return decline('not_synced')
       }
+      emitUsersAdded(g, before, pc.added, true)
       await maybeSendBundle(g, before, pc.added)
     })
   }

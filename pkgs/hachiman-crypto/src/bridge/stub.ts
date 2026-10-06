@@ -195,6 +195,11 @@ export const createCryptoStub: CreateCryptoStub = () => {
     backupNow: () => Promise.resolve({ uploaded: 0 }),
     ktSelfCheck: () => Promise.resolve({ ok: true, treeSize: 0, unknownEntries: [] }),
     signAdminAction: () => Promise.resolve({ header: toB64url(utf8('hachiman-stub-admin-action')), seq: 0 }),
+    // A placeholder record and a random seed in the link format (43 base64url characters).
+    prepareHistoryInvite: (input) =>
+      Promise.resolve({ record: toB64url(utf8('hachiman-stub-invite-record')), linkSecret: toB64url(crypto.getRandomValues(new Uint8Array(32))), channelIds: [...input.channelIds].sort() }),
+    sendInviteBundles: () => Promise.resolve({ groups: 0 }),
+    redeemInvite: () => Promise.resolve({ groups: 0, keys: 0 }),
     // The preview has no DS: an unsigned placeholder.
     proveDevice: () => Promise.resolve({ ts: Date.now(), nonce: stubId(), sig: '' }),
 

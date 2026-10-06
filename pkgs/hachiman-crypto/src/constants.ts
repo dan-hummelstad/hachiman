@@ -77,6 +77,12 @@ export const SignLabel = {
   TREE_HEAD: 'TreeHead',
   DEVICE_MESSAGE: 'DeviceMessage',
   DOC_ENVELOPE: 'DocEnvelope',
+  /** InviteRecord, by the creator device MLS key (§12.11.4). */
+  INVITE_RECORD: 'InviteRecord',
+  /** InviteBundleTBS, by the sender device MLS key (§12.11.4). */
+  INVITE_BUNDLE: 'InviteBundle',
+  /** InviteAuth, by the invite sign key (§12.11.4). */
+  INVITE_AUTH: 'InviteAuth',
 } as const
 
 // MARK: - HKDF info strings (§12.3, §12.5, §12.8, §12.11)
@@ -91,6 +97,10 @@ export const HkdfInfo = {
   LINK_SAS: 'hachiman link sas v1',
   LINK_KEY: 'hachiman link key v1',
   SEALED_DEVICE_MESSAGE: 'hachiman sealed v1',
+  /** The invite HPKE (X25519) private key from the invite seed (§12.11.4). */
+  INVITE_HPKE: 'hachiman invite hpke v1',
+  /** The invite sign (Ed25519) private key from the invite seed (§12.11.4). */
+  INVITE_SIGN: 'hachiman invite sign v1',
 } as const
 
 /** Epoch grace for message sends after a commit that removed no leaf (§12.8.4). */
@@ -221,6 +231,27 @@ export const HISTORY_BUNDLE_MAX_BYTES = 524_288
  * grows about with the square of the leaves).
  */
 export const PUBLIC_SET_MAX_MEMBERS = 500
+
+// MARK: - Invites with history (§12.11.4)
+
+/** HPKE info of an InviteBundle. */
+export const INVITE_BUNDLE_HPKE_INFO = 'hachiman invite bundle v1'
+/** Version byte of InviteRecord, InviteBundleTBS, InviteBundle and InviteAuth. */
+export const INVITE_WIRE_VERSION = 1
+/** The invite seed: the secret of the link fragment. */
+export const INVITE_SEED_BYTES = 32
+/** Channel ids in InviteRecord.channel_ids. */
+export const INVITE_MAX_SCOPE_CHANNELS = 500
+/** Stored bundle bytes per invite. Takusen drops the oldest bundles above it. */
+export const INVITE_BUNDLES_MAX_BYTES = 4 * 1024 * 1024
+/** One InviteBundle blob. */
+export const INVITE_BUNDLE_MAX_BYTES = 640 * 1024
+/** The redeemer gets the bundles only this long after its guild join with the invite. */
+export const INVITE_BUNDLE_FETCH_WINDOW_MS = 3_600_000
+/** An invite_auth join is accepted this long after the guild join with the invite. */
+export const INVITE_AUTH_WINDOW_MS = 86_400_000
+/** The link fragment parameter of the seed: `#k=<base64url(seed)>`. */
+export const INVITE_LINK_PARAM = 'k'
 
 // MARK: - Key transparency (§12.14)
 

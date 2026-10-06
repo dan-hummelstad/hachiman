@@ -40,6 +40,12 @@ const perms: AdminPermissionModel = {
     const top = Math.max(0, ...(s.memberRoles.find((m) => m.userId === actor)?.roleIds ?? []).map((id) => s.roles.find((r) => r.id === id)?.position ?? 0))
     return role !== undefined && role.position < top
   },
+  everyoneChannelPermissions(s, channelId) {
+    let p = s.roles.find((r) => r.id === s.guildId)?.permissions ?? 0
+    if (p & Permissions.ADMINISTRATOR) return ALL
+    for (const o of s.overwrites.filter((x) => x.channelId === channelId && x.targetId === s.guildId)) p = (p & ~o.deny) | o.allow
+    return p & Permissions.VIEW_CHANNEL ? p : 0
+  },
 }
 
 function actor(userId: string) {
@@ -78,6 +84,7 @@ describe('admin codecs', () => {
   it('keeps the §2 bits in sync with @hachiman/client', () => {
     expect(AdminBits.ADMINISTRATOR).toBe(Permissions.ADMINISTRATOR)
     expect(AdminBits.MANAGE_CHANNELS).toBe(Permissions.MANAGE_CHANNELS)
+    expect(AdminBits.VIEW_CHANNEL).toBe(Permissions.VIEW_CHANNEL)
     expect(AdminBits.MANAGE_ROLES).toBe(Permissions.MANAGE_ROLES)
     expect(DEFAULT_EVERYONE_PERMISSIONS).toBe(DEFAULT_EVERYONE)
   })

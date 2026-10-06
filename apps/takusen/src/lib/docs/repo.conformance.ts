@@ -166,6 +166,42 @@ export function describeDocsRepo(name: string, open: () => Promise<DocsRepoUnder
       assert.equal(await t.fx.storage(guild), before - 50)
     })
 
+    test('rewrapSnapshot replaces the envelope columns in place; newestSnapshots gives one per page', async () => {
+      const g = await t.fx.addGuild()
+      const ch = await t.fx.addChannel(g)
+      const [a, b, none] = [await addPage({ channelId: ch }), await addPage({ channelId: ch }), await addPage({ channelId: ch })]
+      const elsewhere = await addPage()
+      const group2 = await t.fx.addGroup()
+      const put = async (pageId: string, baseSeq: number, media: string[] = []) => {
+        const id = await t.fx.addUpload({ uploaderId: user, purpose: 'page_snapshot' })
+        await tx(async (r) => {
+          await r.claimSnapshotUpload(pageId, id, user)
+          await r.insertSnapshot({ pageId, baseSeq, uploadId: id, groupId: group, epoch: 1, senderDevice: null, envelope: new Uint8Array([1]), mediaUploadIds: media })
+        })
+        return id
+      }
+      await put(a.id, 1)
+      const newestA = await put(a.id, 2, [randomUUID()])
+      const newestB = await put(b.id, 5)
+      await put(elsewhere.id, 1)
+
+      const heads = await tx((r) => r.newestSnapshots(ch))
+      assert.deepEqual(heads.map((s) => [s.row.pageId, s.row.baseSeq, s.row.uploadId]).sort(), [[a.id, 2, newestA], [b.id, 5, newestB]].sort())
+      assert.ok(!heads.some((s) => s.row.pageId === none.id))
+
+      const [before] = await tx((r) => r.listSnapshots(a.id))
+      const row = await tx((r) => r.rewrapSnapshot(a.id, 2, { groupId: group2, epoch: 7, senderDevice: null, envelope: new Uint8Array([9, 9]) }))
+      assert.deepEqual(row?.groupId, group2)
+      assert.equal(row?.epoch, 7)
+      assert.deepEqual(row?.envelope, new Uint8Array([9, 9]))
+      assert.equal(row?.uploadId, newestA)
+      assert.deepEqual(row?.mediaUploadIds, before!.row.mediaUploadIds)
+      assert.equal(row?.createdAt.getTime(), before!.row.createdAt.getTime())
+      const after = await tx((r) => r.listSnapshots(a.id))
+      assert.deepEqual(after.map((s) => [s.row.baseSeq, s.row.epoch]), [[2, 7], [1, 1]])
+      assert.equal(await tx((r) => r.rewrapSnapshot(a.id, 3, { groupId: group, epoch: 8, senderDevice: null, envelope: new Uint8Array([1]) })), null)
+    })
+
     test('claimMediaUploads counts only new claims and refuses foreign uploads', async () => {
       const a = await addPage()
       const b = await addPage()

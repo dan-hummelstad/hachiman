@@ -1,9 +1,11 @@
 /**
  * The pages of each pages channel (contract §4 Pages): the tree with decrypted titles in docsStore,
- * the PAGE_* mirror, and one DocProvider per open page with a reference count. Decrypt before
- * store: a title envelope never reaches the store, only its text or a pending/failed state.
+ * the PAGE_* mirror, one DocProvider per open page with a reference count, and the re-wrap pass for
+ * new members (rewrap.ts). Decrypt before store: a title envelope never reaches the store, only its
+ * text or a pending/failed state.
  */
 import type { GatewayEvents, Page } from '@hachiman/client'
+import type { CryptoEvents } from '@hachiman/crypto'
 import { cryptoService } from '@/services/CryptoService'
 import { hachiman } from '@/services/hachiman'
 import { currentDeviceId } from '@/stores/cryptoStore'
@@ -12,10 +14,11 @@ import { useUserStore } from '@/stores/userStore'
 import { createDocProvider, type DocProviderDeps } from './DocProvider'
 import { collectMediaUploadIds, forgetCopiedMedia } from './media'
 import { endPosition } from './page-tree'
+import { createRewrapper, pagesChannelsOf, snapshotHeadless } from './rewrap'
+import { createTitleCatchUp, keepTitle, mergeNode, nodeOf, titleNode } from './titles'
 import type { DocHandle, DocProvider, DocsService } from './types'
 
 const utf8 = new TextEncoder()
-const fromUtf8 = new TextDecoder('utf-8', { fatal: true })
 
 /** A stable cursor color per user. */
 export function userColor(userId: string): string {
@@ -48,6 +51,21 @@ const providerDeps: DocProviderDeps = {
   collectMediaUploadIds
 }
 
+/** A provider that shows nothing and sends no awareness: the re-wrap pass loads a closed page with it. */
+const headlessDeps: DocProviderDeps = {
+  get rest() {
+    return hachiman.rest
+  },
+  crypto: providerDeps.crypto,
+  sendAwareness: () => {},
+  deviceId: currentDeviceId,
+  me: () => null,
+  online: providerDeps.online,
+  setPresence: () => {},
+  collectMediaUploadIds,
+  headless: true
+}
+
 interface Open {
   provider: DocProvider
   refs: number
@@ -55,25 +73,19 @@ interface Open {
 
 const open = new Map<string, Open>()
 const markdown = new Map<string, () => string>()
-/** Pages whose title waits for keys: retried on epochKeysAvailable. */
+/** Pages whose title waits for keys: retried on epochKeysAvailable and after a catch-up. */
 const pendingTitles = new Map<string, Page>()
 let generation = 0
 
-/** A page without its envelope: the store never holds ciphertext. */
-const nodeOf = (p: Page, title: string, titleState: PageNode['titleState']): PageNode => ({
-  id: p.id,
-  channelId: p.channelId,
-  parentId: p.parentId,
-  position: p.position,
-  createdBy: p.createdBy,
-  createdAt: p.createdAt,
-  updatedAt: p.updatedAt,
-  title,
-  titleState
+/** Titles of an epoch that the Worker did not apply yet: one catch-up per channel (titles.ts). */
+const titleCatchUp = createTitleCatchUp({
+  ensureChannelGroup: (channelId) => cryptoService.client().ensureChannelGroup(channelId),
+  retry: () => retryTitles()
 })
 
 async function decryptTitles(pages: Page[]): Promise<PageNode[]> {
   if (pages.length === 0) return []
+  const gen = generation
   const results = await cryptoService.client().decryptDoc(
     pages.map((p) => ({
       id: p.id,
@@ -84,23 +96,20 @@ async function decryptTitles(pages: Page[]): Promise<PageNode[]> {
       envelope: p.titleEnvelope
     }))
   )
-  return pages.map((p, i) => {
+  const nodes = pages.map((p, i) => titleNode(p, results[i]))
+  if (gen !== generation) return nodes
+  const ahead = new Set<string>()
+  for (const [i, p] of pages.entries()) {
     const r = results[i]
-    if (r?.status === 'ok') {
-      pendingTitles.delete(p.id)
-      try {
-        return nodeOf(p, fromUtf8.decode(r.bytes), 'ok')
-      } catch {
-        return nodeOf(p, '', 'failed')
-      }
-    }
-    if (r?.status === 'failed') {
-      pendingTitles.delete(p.id)
-      return nodeOf(p, '', 'failed')
-    }
-    pendingTitles.set(p.id, p)
-    return nodeOf(p, '', 'pending')
-  })
+    if (r && r.status !== 'pending') pendingTitles.delete(p.id)
+    else pendingTitles.set(p.id, p)
+    if (r?.status === 'pending' && r.reason === 'epoch_ahead') ahead.add(p.channelId)
+  }
+  titleCatchUp.noteResults(
+    pages.map((p) => p.channelId),
+    ahead
+  )
+  return nodes
 }
 
 /** Decrypt failures of the Worker call itself (not ready yet): the titles show pending. */
@@ -132,12 +141,43 @@ function closePage(pageId: string): void {
   o.provider.destroy()
 }
 
+const rewrapper = createRewrapper({
+  get rest() {
+    return hachiman.rest
+  },
+  crypto: () => cryptoService.client(),
+  channelsOf: (groupId) =>
+    pagesChannelsOf(hachiman.cache.channels.values(), groupId, (id) => hachiman.permissionsFor(id)),
+  resyncOpen: (pageId) => {
+    const o = open.get(pageId)
+    if (o) void o.provider.resync()
+    return o !== undefined
+  },
+  snapshotPage: (channelId, pageId) =>
+    snapshotHeadless(createDocProvider(channelId, pageId, headlessDeps))
+})
+
+/** Stores `node` unless the store has it. A decrypted title stays while a newer one is pending. */
+function storeNode(node: PageNode): void {
+  const merged = mergeNode(findPage(node.id), node)
+  if (merged) useDocsStore.getState().upsertPage(merged)
+}
+
 async function upsertFromEvent(page: Page): Promise<void> {
   // A channel that the UI never loaded gets its whole list on the first loadPages.
   if (!useDocsStore.getState().pagesByChannel.has(page.channelId)) return
   const gen = generation
   const [node] = await nodesOf([page])
-  if (node && gen === generation) useDocsStore.getState().upsertPage(node)
+  if (node && gen === generation) storeNode(node)
+}
+
+function retryTitles(): void {
+  if (pendingTitles.size === 0) return
+  const gen = generation
+  void nodesOf([...pendingTitles.values()]).then((nodes) => {
+    if (gen !== generation) return
+    for (const n of nodes) if (n.titleState !== 'pending') storeNode(n)
+  })
 }
 
 export const docsService: DocsService & {
@@ -151,6 +191,8 @@ export const docsService: DocsService & {
   onOffline(): void
   /** New epoch keys: pending titles and waiting pages try again. */
   retry(): void
+  /** A commit added a user to a text group: the re-wrap pass of its pages channels (rewrap.ts). */
+  onUsersAdded(e: CryptoEvents['usersAdded']): void
   /** Sign-out. */
   reset(): void
 } = {
@@ -158,7 +200,14 @@ export const docsService: DocsService & {
     const gen = generation
     const pages = await hachiman.rest.getPages(channelId)
     const nodes = await nodesOf(pages)
-    if (gen === generation) useDocsStore.getState().setPages(channelId, nodes)
+    if (gen !== generation) return
+    const stored = new Map(
+      (useDocsStore.getState().pagesByChannel.get(channelId) ?? []).map((p) => [p.id, p])
+    )
+    useDocsStore.getState().setPages(
+      channelId,
+      nodes.map((n) => keepTitle(stored.get(n.id), n))
+    )
   },
 
   openPage(channelId, pageId) {
@@ -241,6 +290,10 @@ export const docsService: DocsService & {
 
   onPageEvent(d) {
     void upsertFromEvent(d)
+    // A title re-wrap follows the pointer re-wrap of its page: a page that waits for a key (also
+    // one that shows its content) tries again.
+    const o = open.get(d.id)
+    if (o?.provider.waitingForKeys) void o.provider.resync()
   },
 
   onPageDelete(d) {
@@ -266,6 +319,8 @@ export const docsService: DocsService & {
   },
 
   onReady(full) {
+    // The Worker syncs after READY and RESUMED: a title that is ahead gets a catch-up again.
+    titleCatchUp.clear()
     if (full)
       for (const channelId of useDocsStore.getState().pagesByChannel.keys())
         void docsService
@@ -279,18 +334,18 @@ export const docsService: DocsService & {
   },
 
   retry() {
-    if (pendingTitles.size > 0) {
-      const gen = generation
-      void nodesOf([...pendingTitles.values()]).then((nodes) => {
-        if (gen !== generation) return
-        for (const n of nodes) if (n.titleState !== 'pending') useDocsStore.getState().upsertPage(n)
-      })
-    }
+    retryTitles()
     for (const o of open.values()) void o.provider.resync()
+  },
+
+  onUsersAdded(e) {
+    rewrapper.onUsersAdded(e)
   },
 
   reset() {
     generation++
+    rewrapper.reset()
+    titleCatchUp.reset()
     for (const id of [...open.keys()]) closePage(id)
     pendingTitles.clear()
     markdown.clear()

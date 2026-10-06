@@ -130,7 +130,7 @@ The client carries ciphertext only. It never decrypts.
 - **REST errors.** `RestError` has `status`, `code`, `details` (the other body fields, for example `{epoch}` or `{userIds}`) and `retryAfterSec` (from `Retry-After` on 429).
 - **Special results.** `postCommit` gives `{ok: false, code: 'EpochConflict', epoch}` on 409 `EpochConflict`, not an error. `getChannelMlsGroup` gives null on 404 `UnknownGroup`.
 - **Signed admin actions (Phase 4).** The role, overwrite, member, channel and guild PATCH methods take `{signedAction}`. The client sends it in `X-Hachiman-Signed-Action`.
-- **Gateway events.** The §12.13 events (`MLS_HANDSHAKE`, `MLS_BATCH_ASSIGN`, `DEVICE_INBOX`, ...) are in `GatewayEvents`. The client emits them and does not cache them.
+- **Gateway events.** The §12.13 events (`MLS_HANDSHAKE`, `MLS_BATCH_ASSIGN`, `DEVICE_INBOX`, ...) are in `GatewayEvents`. The client emits them and does not cache them. It also does not cache `INVITE_DELETE` (an invite was revoked).
 - **Gateway close 4012 or 4013.** The gateway does not accept this client or this device. `GatewayClient` stays `closed` and emits `fatal`. `HachimanClient` leaves voice and emits `fatal`. Call `connect` again only after the cause is fixed (for example, a new device).
 
 ### Voice

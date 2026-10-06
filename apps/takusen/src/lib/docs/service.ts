@@ -7,6 +7,8 @@
  */
 import type { DocPageRow, DocUpdateRow } from '@/db/schema'
 import { ApiError, NotFoundError, UploadTooLargeError, ValidationError } from '@/lib/errors'
+import { bytesEqual } from '@/lib/mls/bytes'
+import type { DsModule } from '@/lib/mls/crypto'
 import type { AcceptedDocEnvelope, DocEnvelopeInput } from '@/lib/mls/envelopes'
 
 import { STATE_UPDATES_MAX, type DocsLimits } from './config'
@@ -43,7 +45,7 @@ export async function createPage(repo: DocsRepo, accept: AcceptDocEnvelope, inpu
   return row
 }
 
-/** PATCH /pages/:pageId: a move, a reorder and/or a rename. */
+/** PATCH /pages/:pageId: a move, a reorder and/or a rename. `ifUpdatedAt` makes it a compare-and-set. */
 export async function updatePage(repo: DocsRepo, accept: AcceptDocEnvelope, input: Actor & { page: DocPageRow; body: UpdatePageBody; now: Date }): Promise<DocPageRow> {
   const { page, body } = input
   if (body.parentId) {
@@ -54,6 +56,12 @@ export async function updatePage(repo: DocsRepo, accept: AcceptDocEnvelope, inpu
     if ((await repo.subtreeIds(page.id)).includes(body.parentId)) {
       throw new ApiError('PageCycle', 400, 'a page cannot move into its own subtree')
     }
+  }
+  if (body.ifUpdatedAt !== undefined) {
+    // After lockTree: the lock order of a move. A title re-wrap must not undo a rename (§12.20).
+    const locked = await repo.lockPage(page.id)
+    if (!locked) throw new NotFoundError('Unknown page')
+    if (locked.updatedAt.getTime() !== Date.parse(body.ifUpdatedAt)) throw new ApiError('PageConflict', 409, 'the page changed after ifUpdatedAt')
   }
   if (body.titleEnvelope) {
     await accept({ channelId: page.channelId, pageId: page.id, userId: input.userId, deviceId: input.deviceId, kind: 'doc_title', envelope: body.titleEnvelope })
@@ -81,6 +89,30 @@ function latestSeqOf(page: DocPageRow, updates: DocUpdateRow[]): number {
   return Math.max(page.latestSeq, updates.at(-1)?.seq ?? 0)
 }
 
+/** One page of GET /channels/:id/pages/heads. */
+export interface PageHeadRow {
+  page: DocPageRow
+  /** The group and epoch of the title envelope header. null when the header does not decode. */
+  title: { groupId: Uint8Array; epoch: number } | null
+  snapshot: StoredSnapshot | null
+}
+
+/** GET /channels/:id/pages/heads: what a re-wrap pass needs, without the update log (§12.20). */
+export async function listPageHeads(repo: DocsRepo, ds: Pick<DsModule, 'parseDocEnvelopeHeader'>, channelId: string): Promise<PageHeadRow[]> {
+  const pages = await repo.listPages(channelId)
+  const snapshots = new Map((await repo.newestSnapshots(channelId)).map((s) => [s.row.pageId, s]))
+  return pages.map((page) => {
+    let title: PageHeadRow['title'] = null
+    try {
+      const h = ds.parseDocEnvelopeHeader(page.titleEnvelope)
+      title = { groupId: h.groupId, epoch: h.epoch }
+    } catch {
+      // A title that does not decode is not re-wrapped.
+    }
+    return { page, title, snapshot: snapshots.get(page.id) ?? null }
+  })
+}
+
 /** GET /pages/:pageId/state. */
 export async function getPageState(repo: DocsRepo, page: DocPageRow): Promise<{ snapshot: StoredSnapshot | null; updates: DocUpdateRow[]; latestSeq: number }> {
   const [snapshot] = await repo.listSnapshots(page.id)
@@ -105,8 +137,9 @@ export async function postUpdate(repo: DocsRepo, accept: AcceptDocEnvelope, inpu
 
 /**
  * POST /pages/:pageId/snapshots: compare-and-set on base_seq, claim the blob,
- * insert, keep the previous snapshot and delete the older ones. Returns the
- * object keys to delete after commit.
+ * insert, keep the previous snapshot and delete the older ones. The baseSeq of
+ * the newest snapshot is a re-wrap instead. Returns the object keys to delete
+ * after commit.
  */
 export async function postSnapshot(
   repo: DocsRepo,
@@ -117,10 +150,11 @@ export async function postSnapshot(
   const page = await repo.lockPage(input.page.id)
   if (!page) throw new NotFoundError('Unknown page')
   const existing = await repo.listSnapshots(page.id)
-  const current = existing[0]?.row.baseSeq ?? 0
-  if (body.baseSeq <= current || body.baseSeq > page.latestSeq) {
-    throw new ApiError('SnapshotConflict', 409, `baseSeq must be above ${current} and at most ${page.latestSeq}`, { baseSeq: current })
-  }
+  const newest = existing[0]
+  const current = newest?.row.baseSeq ?? 0
+  const conflict = (message: string) => new ApiError('SnapshotConflict', 409, message, { baseSeq: current })
+  if (newest && body.baseSeq === current) return { snapshot: await rewrap(repo, accept, input, newest, conflict), keys: [] }
+  if (body.baseSeq <= current || body.baseSeq > page.latestSeq) throw conflict(`baseSeq must be above ${current} and at most ${page.latestSeq}`)
   const accepted = await accept({ channelId: page.channelId, pageId: page.id, userId: input.userId, deviceId: input.deviceId, kind: 'doc_snapshot', envelope: body.envelope })
   const blob = await repo.claimSnapshotUpload(page.id, body.uploadId, input.userId)
   if (blob.size > input.limits.maxSnapshotBytes) throw new UploadTooLargeError(`A page snapshot is at most ${input.limits.maxSnapshotBytes} bytes`)
@@ -140,6 +174,33 @@ export async function postSnapshot(
   if (previous) await repo.deleteUpdatesThrough(page.id, previous.row.baseSeq)
   const deleted = older.length > 0 ? await repo.deletePageUploads({ uploadIds: older.map((s) => s.row.uploadId) }) : []
   return { snapshot: { row, key: blob.key, size: blob.size }, keys: deleted.map((d) => d.key) }
+}
+
+/**
+ * A re-wrap (§4 Pages, §12.20 "Access by new members"): the pointer of the newest snapshot again,
+ * in a newer epoch of its group or in the new group of the channel. No claim, no quota change, no
+ * delete. The stored media_upload_ids stay, so a re-wrap cannot drop a media reference.
+ */
+async function rewrap(
+  repo: DocsRepo,
+  accept: AcceptDocEnvelope,
+  input: Actor & { page: DocPageRow; body: PostSnapshotBody },
+  newest: StoredSnapshot,
+  conflict: (message: string) => ApiError,
+): Promise<StoredSnapshot> {
+  const { page, body } = input
+  if (body.uploadId !== newest.row.uploadId) throw conflict('a re-wrap keeps the uploadId of the newest snapshot')
+  const accepted = await accept({ channelId: page.channelId, pageId: page.id, userId: input.userId, deviceId: input.deviceId, kind: 'doc_snapshot', envelope: body.envelope })
+  // accept takes only the current group, so another group means that the stored one is older.
+  if (bytesEqual(accepted.groupId, newest.row.groupId) && accepted.epoch <= newest.row.epoch) throw conflict('the newest snapshot is of this epoch already')
+  const row = await repo.rewrapSnapshot(page.id, newest.row.baseSeq, {
+    groupId: accepted.groupId,
+    epoch: accepted.epoch,
+    senderDevice: accepted.senderDeviceId,
+    envelope: body.envelope,
+  })
+  if (!row) throw new NotFoundError('Unknown page')
+  return { row, key: newest.key, size: newest.size }
 }
 
 /** POST /pages/:pageId/media: new claims count against the guild quota; every claim refreshes last_referenced_at. */

@@ -353,6 +353,27 @@ export interface WireAdminAction {
   createdAt: string
 }
 
+/** An active invite with history of a guild (GET /guilds/:id/invite-records, §12.11.4). */
+export interface WireInviteRecord {
+  inviteId: string
+  /** sign_public of the record: the invite key id. */
+  keyId: B64url
+  /** The encoded SignedInviteRecord. */
+  record: B64url
+  expiresAt: string | null
+  /** The newest stored bundle epoch of each group. */
+  bundled: { groupId: GroupIdB64; epoch: number }[]
+}
+
+/** The bundles of an invite for its redeemer (GET /invites/:code/bundles, §12.11.4). */
+export interface WireInviteBundles {
+  inviteId: string
+  /** The encoded SignedInviteRecord. */
+  record: B64url
+  /** `blob`: an encoded InviteBundle. */
+  bundles: { groupId: GroupIdB64; epoch: number; blob: B64url; senderDevice: DeviceId }[]
+}
+
 /** The ciphertext Message of §1, as the crypto Worker consumes it. */
 export interface EncryptedMessage {
   id: MessageId
@@ -447,6 +468,13 @@ export interface DsTransport {
   ktEntries(query: { userId: UserId; after: number }): Promise<WireKtEntry[]>
   // signed admin actions (Phase 4)
   adminActions(guildId: GuildId, after: number): Promise<WireAdminAction[]>
+  // invites with history (§12.11.4)
+  /** Any guild member. Active invites with a record only. */
+  inviteRecords(guildId: GuildId): Promise<WireInviteRecord[]>
+  /** `blob`: an encoded InviteBundle. The caller is a reader of the group. */
+  postInviteBundle(inviteId: string, body: { groupId: GroupIdB64; epoch: number; blob: B64url }): Promise<void>
+  /** The redeemer, within INVITE_BUNDLE_FETCH_WINDOW_MS of its guild join with the invite. */
+  inviteBundles(code: string): Promise<WireInviteBundles>
   // permission data for channelReaders checks (from the HachimanClient cache)
   channelReaders(channelId: ChannelId): Promise<UserId[]>
   guildMembers(guildId: GuildId): Promise<UserId[]>
@@ -934,6 +962,30 @@ export interface CryptoApi {
    */
   signAdminAction(guildId: GuildId, type: AdminActionTypeId, payload: Uint8Array): Promise<{ header: B64url; seq: number }>
 
+  // invites with history (§12.11.4)
+  /**
+   * Makes a new invite seed and signs an InviteRecord with the device MLS key. `record` is the
+   * encoded SignedInviteRecord for POST /guilds/:id/invites. `linkSecret` is the seed as base64url.
+   * Like the recovery key, it crosses to the UI thread: an exception recorded in §12.17. The UI
+   * keeps it only in component state and puts it only in the link fragment. `channelIds` is the
+   * scope that the record holds: the input channels that @everyone can view in the verified admin
+   * state, sorted. `expiresAtMs` 0 is permanent, `maxUses` 0 is no limit. Throws
+   * CryptoError('Unsupported') without an admin state, when this user is not an administrator in
+   * it or not a guild member, and when no channel stays.
+   */
+  prepareHistoryInvite(input: { guildId: GuildId; channelIds: ChannelId[]; expiresAtMs: number; maxUses: number }): Promise<{ record: B64url; linkSecret: string; channelIds: ChannelId[] }>
+  /**
+   * After POST /guilds/:id/invites: seals the epoch secrets that this device holds for each group
+   * of the scope (at most HISTORY_BUNDLE_MAX_EPOCHS each, the newest) and posts one bundle per group.
+   */
+  sendInviteBundles(input: { guildId: GuildId; inviteId: string; record: B64url }): Promise<{ groups: number }>
+  /**
+   * After POST /invites/:code: verifies the record against the seed and the admin state, opens
+   * each bundle, checks its sender and imports its keys (source 'bundle'). Messages that decrypt
+   * with them have `membershipVerified` false.
+   */
+  redeemInvite(input: { code: string; linkSecret: string }): Promise<{ groups: number; keys: number }>
+
   // device proof of possession (§12.12, §12.13)
   /**
    * Signs a DS request or an IDENTIFY/RESUME with the device MLS signature key. The Worker adds the
@@ -987,6 +1039,12 @@ export interface CryptoEvents {
   /** 'kt_missing': KT is required (§12.14) but a key object had no KT entry, or no signed tree head covered it. */
   ktAlert: { kind: 'self_unknown_entry' | 'split_view' | 'bad_proof' | 'kt_missing'; detail: string }
   voiceRoster: { handle: string; roster: VoiceRosterEntry[]; epoch: number }
+  /**
+   * §12.20 "Access by new members": a commit in a text group added a leaf of a user that had no
+   * leaf before. The UI re-wraps the page pointers and titles of the pages channels of the group.
+   * `byMe`: this device made the commit. Never for an own join, Welcome or create.
+   */
+  usersAdded: { groupId: GroupIdB64; kind: 'public_set' | 'channel'; guildId: GuildId | null; channelId: ChannelId | null; epoch: number; userIds: UserId[]; byMe: boolean }
   error: CryptoErrorShape
 }
 
@@ -1221,6 +1279,11 @@ export interface AdminPermissionModel {
   channelPermissions(state: AdminReplayState, channelId: ChannelId, userId: UserId, guildMembers: readonly UserId[]): number
   /** Role hierarchy check for role edits and member-role changes (§4 "Implemented extras"). */
   outranks(state: AdminReplayState, actorUserId: UserId, roleId: string): boolean
+  /**
+   * The channel permissions of a member with no roles who is not the owner: the @everyone role and
+   * the @everyone overwrite only. The scope check of an invite with history (§12.11.4, §12.16).
+   */
+  everyoneChannelPermissions(state: AdminReplayState, channelId: ChannelId): number
 }
 
 export interface AdminActionModule {
@@ -1240,6 +1303,27 @@ export interface AdminActionModule {
    * with the failing seq.
    */
   replay(state: AdminReplayState | null, actions: AdminAction[], actorCert: (userId: UserId, deviceId: DeviceId) => DeviceCertificate | null, perms: AdminPermissionModel): AdminReplayState
+}
+
+// MARK: 4.1c invites (src/invites, §12.11.4)
+
+/** A decoded InviteRecord. Ids are text, keys are base64url. */
+export interface InviteRecordView {
+  guildId: GuildId
+  /** X25519: the HPKE recipient key of the bundles. */
+  hpkePublic: B64url
+  /** sign_public (Ed25519): the invite key id. */
+  keyId: B64url
+  /** Strictly ascending (16-byte order), at most INVITE_MAX_SCOPE_CHANNELS. */
+  channelIds: ChannelId[]
+  /** The seq of the admin state that the creator used (§12.16). */
+  adminChainSeq: number
+  /** 0 = permanent. */
+  expiresAtMs: number
+  /** 0 = no limit. */
+  maxUses: number
+  creatorUserId: UserId
+  creatorDeviceId: DeviceId
 }
 
 export interface LinkSecrets {
@@ -1550,6 +1634,11 @@ export interface DsModule {
   verifyAdminAction(action: Uint8Array, actorCertificate: Uint8Array): AdminAction | null
   /** SHA-256(encode(action)), for the next prev_hash. */
   adminActionHash(action: Uint8Array): Uint8Array
+  /**
+   * §12.11.4: decodes a SignedInviteRecord and verifies its signature under the creator device
+   * certificate (the ids must match). Null on any failure. The admin checks stay with the members (§12.16).
+   */
+  verifyInviteRecord(signedRecord: Uint8Array, creatorCertificate: Uint8Array): InviteRecordView | null
   parseEnvelopeHeader(envelope: Uint8Array): EnvelopeHeader
   /** The header of a whole DocEnvelope (§12.20). Throws CryptoError('Malformed'). */
   parseDocEnvelopeHeader(envelope: Uint8Array): DocEnvelopeHeader

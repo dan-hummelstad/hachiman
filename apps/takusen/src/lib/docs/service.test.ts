@@ -16,8 +16,8 @@ import type { DocEnvelopeInput } from '@/lib/mls/envelopes'
 import { checkPageAccess, type PageMode } from './access'
 import { docsLimits, type DocsLimits } from './config'
 import { InMemoryDocsStore } from './repo.in-memory'
-import { claimMedia, createPage, deletePage, getPageState, postSnapshot, postUpdate, updatePage, type AcceptDocEnvelope } from './service'
-import { createPageSchema, postSnapshotSchema } from './wire'
+import { claimMedia, createPage, deletePage, getPageState, listPageHeads, postSnapshot, postUpdate, updatePage, type AcceptDocEnvelope } from './service'
+import { createPageSchema, postSnapshotSchema, toPageHead, updatePageSchema } from './wire'
 
 const GROUP = new Uint8Array(16).fill(7)
 const env = () => new Uint8Array(randomBytes(12))
@@ -32,6 +32,9 @@ describe('pages service', () => {
   let channelId: string
   let checks: DocEnvelopeInput[]
   let accept: AcceptDocEnvelope
+  /** The group and epoch that the fake accept gives (the current ones of the channel). */
+  let group: Uint8Array
+  let epoch: number
   let limits: DocsLimits
   const userId = randomUUID()
   const deviceId = randomUUID()
@@ -41,9 +44,11 @@ describe('pages service', () => {
     guildId = store.addGuild()
     channelId = store.addChannel(guildId)
     checks = []
+    group = GROUP
+    epoch = 4
     accept = async (input) => {
       checks.push(input)
-      return { groupId: GROUP, epoch: 4, senderDeviceId: input.deviceId, size: input.envelope.length }
+      return { groupId: group, epoch, senderDeviceId: input.deviceId, size: input.envelope.length }
     }
     limits = { maxSnapshotBytes: 1000, guildStorageBytes: 500 }
   })
@@ -107,6 +112,18 @@ describe('pages service', () => {
       assert.equal(checks.at(-1)?.kind, 'doc_title')
       assert.deepEqual(row.titleEnvelope, title)
       assert.equal(row.updatedAt.getTime(), now.getTime())
+    })
+
+    test('ifUpdatedAt makes the PATCH a compare-and-set', async () => {
+      const page = await newPage()
+      const title = env()
+      const patch = (ifUpdatedAt: string, now: Date) =>
+        store.transaction((r) => updatePage(r, accept, { page, userId, deviceId, body: { titleEnvelope: title, ifUpdatedAt }, now }))
+      const renamed = await patch(page.updatedAt.toISOString(), new Date(page.updatedAt.getTime() + 1000))
+      assert.deepEqual(renamed.titleEnvelope, title)
+      // A second re-wrap that read the old row loses, and changes nothing.
+      await assert.rejects(patch(page.updatedAt.toISOString(), new Date(page.updatedAt.getTime() + 2000)), apiCode('PageConflict'))
+      assert.equal(store.state.pages.get(page.id)?.updatedAt.getTime(), renamed.updatedAt.getTime())
     })
 
     test('delete takes the subtree, its uploads and their bytes', async () => {
@@ -223,6 +240,115 @@ describe('pages service', () => {
     })
   })
 
+  describe('snapshot re-wrap', () => {
+    const other = { userId: randomUUID(), deviceId: randomUUID() }
+    const rewrap = (page: DocPageRow, baseSeq: number, uploadId: string, by = other, envelope = env()) =>
+      store.transaction((r) => postSnapshot(r, accept, { page, guildId, ...by, limits, body: { baseSeq, uploadId, envelope, mediaUploadIds: [] } }))
+
+    /** A page with two snapshots (2 and 4) and an update after each. */
+    async function pageWithSnapshots(): Promise<{ page: DocPageRow; first: string; newest: string; media: string }> {
+      const page = await newPage()
+      for (let i = 0; i < 5; i++) await post(page)
+      const fresh = (await store.transaction((r) => r.getPage(page.id)))!
+      const [first, newest, media] = [snapshotUpload(), snapshotUpload(), randomUUID()]
+      await snapshot(fresh, 2, first)
+      await snapshot(fresh, 4, newest, [media])
+      return { page: fresh, first, newest, media }
+    }
+
+    test('the newest baseSeq and uploadId in a newer epoch replace the pointer envelope only', async () => {
+      const { page, first, newest, media } = await pageWithSnapshots()
+      const storage = store.storage(guildId)
+      const updates = store.state.updates.map((u) => u.seq)
+      epoch = 5
+      const envelope = env()
+      const out = await rewrap(page, 4, newest, other, envelope)
+      assert.deepEqual(out.keys, [])
+      assert.equal(out.snapshot.row.epoch, 5)
+      assert.equal(out.snapshot.row.senderDevice, other.deviceId)
+      assert.deepEqual(out.snapshot.row.envelope, envelope)
+      assert.equal(out.snapshot.key, `${newest}/blob`)
+      assert.equal(checks.at(-1)?.kind, 'doc_snapshot')
+      // No claim, no quota change, no delete; the media references stay.
+      assert.deepEqual(out.snapshot.row.mediaUploadIds, [media])
+      assert.equal(store.storage(guildId), storage)
+      assert.deepEqual(store.state.updates.map((u) => u.seq), updates)
+      assert.ok(store.state.uploads.has(first) && store.state.uploads.has(newest))
+      assert.deepEqual(store.state.snapshots.map((s) => s.baseSeq).sort((a, b) => a - b), [2, 4])
+      assert.equal((await getPageState(store.repo(), page)).snapshot?.row.epoch, 5)
+    })
+
+    test('the same epoch, an older epoch or another uploadId is 409 SnapshotConflict', async () => {
+      const { page, first, newest } = await pageWithSnapshots()
+      const conflict = (err: unknown) => apiCode('SnapshotConflict')(err) && (err as ApiError).extra?.baseSeq === 4
+      await assert.rejects(rewrap(page, 4, newest), conflict)
+      epoch = 3
+      await assert.rejects(rewrap(page, 4, newest), conflict)
+      epoch = 5
+      await assert.rejects(rewrap(page, 4, first), conflict)
+      await assert.rejects(rewrap(page, 4, snapshotUpload()), conflict)
+      assert.equal(store.state.snapshots.find((s) => s.baseSeq === 4)?.epoch, 4)
+    })
+
+    test('another group is a re-wrap at any epoch', async () => {
+      const { page, newest } = await pageWithSnapshots()
+      group = new Uint8Array(16).fill(9)
+      epoch = 1
+      const out = await rewrap(page, 4, newest)
+      assert.deepEqual(out.snapshot.row.groupId, group)
+      assert.equal(out.snapshot.row.epoch, 1)
+    })
+
+    test('of two concurrent re-wraps in one epoch, exactly one wins', async () => {
+      const { page, newest } = await pageWithSnapshots()
+      epoch = 6
+      const results = await Promise.allSettled([rewrap(page, 4, newest), rewrap(page, 4, newest, { userId, deviceId })])
+      assert.equal(results.filter((r) => r.status === 'fulfilled').length, 1)
+      const lost = results.find((r) => r.status === 'rejected')
+      assert.ok(lost && apiCode('SnapshotConflict')(lost.reason))
+    })
+
+    test('a page without a snapshot has nothing to re-wrap', async () => {
+      const page = await newPage()
+      await post(page)
+      const before = checks.length
+      await assert.rejects(rewrap(page, 0, snapshotUpload()), apiCode('SnapshotConflict'))
+      assert.equal(checks.length, before)
+    })
+  })
+
+  describe('heads', () => {
+    const parse = {
+      parseDocEnvelopeHeader(envelope: Uint8Array) {
+        if (envelope[0] === 0) throw new Error('malformed')
+        return { kind: 'doc_title' as const, groupId: GROUP, channelId, pageId: '', epoch: envelope[0]!, senderLeaf: 0, senderDeviceId: deviceId, salt: new Uint8Array(32) }
+      },
+    }
+
+    test('gives the title epoch, latest_seq and the newest snapshot of each page', async () => {
+      const a = await newPage()
+      const b = await newPage()
+      const c = await newPage()
+      for (let i = 0; i < 3; i++) await post(a)
+      const fresh = (await store.transaction((r) => r.getPage(a.id)))!
+      await snapshot(fresh, 1, snapshotUpload())
+      await snapshot(fresh, 2, snapshotUpload())
+      await store.transaction((r) => r.updatePage(b.id, { titleEnvelope: new Uint8Array([3, 1]), updatedAt: new Date() }))
+      await store.transaction((r) => r.updatePage(c.id, { titleEnvelope: new Uint8Array([0]), updatedAt: new Date() }))
+      await store.transaction((r) => r.updatePage(a.id, { titleEnvelope: new Uint8Array([7]), updatedAt: new Date() }))
+      store.addChannel(guildId)
+
+      const heads = new Map((await listPageHeads(store.repo(), parse, channelId)).map(toPageHead).map((h) => [h.pageId, h]))
+      assert.equal(heads.size, 3)
+      assert.equal(heads.get(a.id)?.latestSeq, 3)
+      assert.equal(heads.get(a.id)?.snapshot?.baseSeq, 2)
+      assert.deepEqual(heads.get(a.id)?.title, { groupId: Buffer.from(GROUP).toString('base64url'), epoch: 7 })
+      assert.equal(heads.get(b.id)?.snapshot, null)
+      assert.equal(heads.get(b.id)?.title?.epoch, 3)
+      assert.equal(heads.get(c.id)?.title, null)
+    })
+  })
+
   describe('media', () => {
     test('a new claim adds its bytes, a refresh adds none and sets last_referenced_at', async () => {
       const page = await newPage()
@@ -288,6 +414,11 @@ describe('page bodies and limits', () => {
     assert.equal(createPageSchema.safeParse({ id: 'x', parentId: null, titleEnvelope: 'AAAA' }).success, false)
     assert.equal(createPageSchema.safeParse({ id: randomUUID(), parentId: null, titleEnvelope: '!!' }).success, false)
     assert.equal(createPageSchema.safeParse({ id: randomUUID(), parentId: null, titleEnvelope: 'AAAA' }).success, true)
+  })
+
+  test('ifUpdatedAt is an ISO date', () => {
+    assert.equal(updatePageSchema.safeParse({ ifUpdatedAt: '2026-10-06T10:00:00.123Z' }).success, true)
+    assert.equal(updatePageSchema.safeParse({ ifUpdatedAt: 'yesterday' }).success, false)
   })
 
   test('a snapshot lists at most 1000 media ids, without duplicates', () => {

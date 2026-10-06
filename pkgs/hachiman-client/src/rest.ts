@@ -37,6 +37,7 @@ import type {
   Message,
   MlsGroup,
   Page,
+  PageHead,
   PageState,
   ProposalRejection,
   RevocationReason,
@@ -175,8 +176,11 @@ export interface RolePosition {
   position: number
 }
 export interface CreateInviteBody {
+  /** 1–86400; an administrator also 0 (permanent) or up to 604800 (§4). */
   maxAgeSeconds?: Opt<number>
   maxUses?: Opt<number>
+  /** Required with `maxAgeSeconds: 0`: the user accepted the permanent-invite warning. */
+  acknowledgedPermanent?: Opt<boolean>
 }
 export interface CreatePageBody {
   /** A new UUID that the client chooses: the title envelope binds it (§12.20). */
@@ -189,6 +193,8 @@ export interface UpdatePageBody {
   parentId?: Opt<string | null>
   position?: Opt<number>
   titleEnvelope?: Opt<B64url>
+  /** Compare-and-set on `Page.updatedAt`: 409 PageConflict when the page changed. */
+  ifUpdatedAt?: Opt<string>
 }
 export interface PostSnapshotBody {
   baseSeq: number
@@ -322,6 +328,8 @@ export class RestClient {
   // MARK: - Pages (§4 Pages)
 
   getPages = (channelId: string) => this.req<Page[]>('GET', `/channels/${e(channelId)}/pages`)
+  /** Per page: the title epoch and the newest snapshot, without the update log. */
+  getPageHeads = (channelId: string) => this.req<PageHead[]>('GET', `/channels/${e(channelId)}/pages/heads`)
   createPage = (channelId: string, body: CreatePageBody) =>
     this.req<Page>('POST', `/channels/${e(channelId)}/pages`, body)
   updatePage = (pageId: string, body: UpdatePageBody) => this.req<Page>('PATCH', `/pages/${e(pageId)}`, body)

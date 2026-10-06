@@ -7,15 +7,18 @@
 import { and, count, eq } from 'drizzle-orm'
 import type { InvitePreview } from '@hachiman/client/types'
 
-import { db } from '@/db/client'
+import { db, type Database } from '@/db/client'
 import { guildMembers, guilds, invites, type InviteRow } from '@/db/schema'
 import {
   InviteExhaustedError,
   InviteExpiredError,
   InviteRevokedError,
+  MissingPermissionsError,
   NotFoundError,
 } from '@/lib/errors'
 import { membershipChanged, membershipTransaction, MembershipTriggers } from '@/lib/guilds'
+import { creatorsWithoutAdmin } from '@/lib/invite-limits'
+import { drizzleMlsRepo } from '@/lib/mls/repo.drizzle'
 
 // RFC 4648 base32 minus the ambiguous {0, O, I, 1}. 8 chars ≈ 1.1e12 codes;
 // the unique index on `code` catches the rare collision (createInvite retries).
@@ -122,6 +125,41 @@ export async function acceptInvite(
       .where(eq(invites.id, invite.id))
     await membershipChanged(tx, MembershipTriggers.memberJoined(invite.guildId, userId), actorDeviceId)
     return { guildId: invite.guildId, joined: true }
+  })
+}
+
+/**
+ * A permanent invite (contract §4 "Invite limits"). The transaction holds the
+ * guild row and the creator's membership row FOR SHARE, and checks
+ * ADMINISTRATOR again inside it. A role or member-role change locks the guild
+ * row FOR UPDATE, and a removal deletes the membership row. Thus a concurrent
+ * demotion either comes first (403 here) or waits and then revokes this invite.
+ */
+export async function createPermanentInvite(
+  opts: { guildId: string; createdBy: string; maxUses: number | null },
+  database: Database = db,
+): Promise<InviteRow> {
+  return database.transaction(async (tx) => {
+    await tx.select({ id: guilds.id }).from(guilds).where(eq(guilds.id, opts.guildId)).for('share')
+    const [member] = await tx
+      .select({ userId: guildMembers.userId })
+      .from(guildMembers)
+      .where(and(eq(guildMembers.guildId, opts.guildId), eq(guildMembers.userId, opts.createdBy)))
+      .for('share')
+    const data = member ? await drizzleMlsRepo(tx).getGuildPermissionData(opts.guildId) : null
+    if (!data || creatorsWithoutAdmin(data, [opts.createdBy]).size > 0) {
+      throw new MissingPermissionsError('Only an administrator can make a permanent invite')
+    }
+    // A unique violation would abort the transaction: skip the collision and retry.
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const [row] = await tx
+        .insert(invites)
+        .values({ ...opts, expiresAt: null, code: generateInviteCode() })
+        .onConflictDoNothing({ target: invites.code })
+        .returning()
+      if (row) return row
+    }
+    throw new Error('Could not allocate an invite code')
   })
 }
 

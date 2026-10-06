@@ -177,11 +177,33 @@ describe('createDsTransport', () => {
       'ktConsistency',
       'ktEntries',
       'adminActions',
+      'inviteRecords',
+      'postInviteBundle',
+      'inviteBundles',
       'channelReaders',
       'guildMembers'
     ]
     for (const m of methods) expect(typeof t[m]).toBe('function')
     expect(Object.keys(t).sort()).toEqual([...methods].sort())
+  })
+
+  // S3b: replace with the route checks when RestClient has the invite routes.
+  it('rejects the invite routes as Transport until RestClient has them', async () => {
+    const { rest: r, seen } = rest(() => ({ status: 200, body: [] }))
+    const t = createDsTransport(r, emptyCache())
+    for (const p of [
+      t.inviteRecords('g-1'),
+      t.postInviteBundle('i-1', { groupId: 'AA', epoch: 1, blob: 'AA' }),
+      t.inviteBundles('CODE')
+    ]) {
+      const caught = await p.then(
+        () => null,
+        (e: unknown) => e
+      )
+      expect(caught).toBeInstanceOf(CryptoError)
+      expect((caught as CryptoError).code).toBe('Transport')
+    }
+    expect(seen).toEqual([])
   })
 })
 

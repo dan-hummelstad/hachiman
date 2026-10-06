@@ -249,6 +249,7 @@ All targets run on every `test` command with a small budget. A longer run uses t
 | KT proofs and codecs | `src/kt/kt.fuzz.spec.ts` | K-1, K-2, S-4, canonical bytes |
 | Admin actions | `src/admin/admin.fuzz.spec.ts` | S-3, G-1, canonical bytes |
 | Identity, link, backup codecs | `src/identity/codec.fuzz.spec.ts` | `CodecError` only, canonical bytes |
+| Invite record, bundle and auth codecs | `src/invites/codec.fuzz.spec.ts` | `CodecError` only, canonical bytes |
 | DS module | `src/mls/ds.fuzz.spec.ts` | `checkCommit` never throws, S-6, inspectors, verifiers |
 | `decodeB64url` (Go) | `cmd/hachiman-media/e2ee_fuzz_test.go` `FuzzDecodeB64url` | Strict §12.2 |
 | Commit header (Go) | `FuzzParseCommitHeader` | Canonical prefix |
