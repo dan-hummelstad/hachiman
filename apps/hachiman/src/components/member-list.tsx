@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react'
+import { useMemo } from 'react'
 import { Crown } from 'lucide-react'
 import type { Member } from '@hachiman/client'
 import { CustomStatusLine } from '@/components/people/custom-status-line'
@@ -8,8 +8,9 @@ import { UserAvatar } from '@/components/shell/user-avatar'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { SystemTag } from '@/components/ui/system-tag'
 import { UserProfilePopover } from '@/components/user-profile-popover'
+import { LiveCard } from '@/components/voice/live-card'
 import { useChannelOccupants } from '@/hooks/use-hachiman'
-import { useMemberView, usePresence, useSpeakingMember } from '@/hooks/use-member'
+import { usePresence, useSpeakingMember } from '@/hooks/use-member'
 import { groupMembers } from '@/lib/member-groups'
 import { ROLE_INK_SCOPE, roleInk } from '@/lib/role-ink'
 import { cn } from '@/lib/utils'
@@ -84,7 +85,7 @@ export function MemberList({ guildId }: { guildId: string }): React.JSX.Element 
       {streamers.length > 0 && (
         <div className="flex shrink-0 flex-col gap-2 p-2">
           {streamers.map((s) => (
-            <LiveCard key={s.userId} guildId={guildId} {...s} />
+            <StreamerCard key={s.userId} guildId={guildId} {...s} />
           ))}
         </div>
       )}
@@ -163,45 +164,25 @@ function MemberRow({
  * A member who streams. The frame shows only inside that call: SFrame keys are in the call's MLS
  * group (decision 4). Elsewhere the card shows the streamer's avatar on the live tint.
  */
-function LiveCard({
+function StreamerCard({
   guildId,
   userId,
   channelId
 }: Streamer & { guildId: string }): React.JSX.Element {
-  const { name, avatar, ink } = useMemberView(guildId, userId)
   const channelName = useChannelStore((s) => s.channels.get(channelId)?.name ?? 'voice')
   const inCall = useChannelOccupants(guildId, channelId).length
   const stream = useVoiceStore((s) =>
     s.channelId === channelId ? s.screens.get(userId) : undefined
   )
   return (
-    <button
-      type="button"
+    <LiveCard
+      guildId={guildId}
+      userId={userId}
+      channelName={channelName}
+      watching={Math.max(0, inCall - 1)}
+      size="sm"
+      stream={stream}
       onClick={() => openChannel(guildId, channelId)}
-      className="border-feature-danger/50 bg-feature-danger/10 hover:bg-feature-danger/15 focus-visible:outline-line-focus flex items-center gap-2.5 border p-2 text-left focus-visible:outline-2"
-    >
-      <span className="bg-feature-danger/20 relative flex h-12 w-20 shrink-0 items-center justify-center overflow-hidden">
-        {stream ? (
-          <StreamThumb stream={stream} />
-        ) : (
-          <UserAvatar avatar={avatar} name={name} color={ink} size={32} />
-        )}
-        <SystemTag kind="live" className="absolute top-0.5 left-0.5 h-4 px-1 text-[9px]" />
-      </span>
-      <span className="flex min-w-0 flex-col">
-        <span className="text-text-primary truncate text-[13px] font-bold">{name} is live</span>
-        <span className="text-text-tertiary truncate text-xs">
-          {channelName} · {inCall} in the call
-        </span>
-      </span>
-    </button>
+    />
   )
-}
-
-function StreamThumb({ stream }: { stream: MediaStream }): React.JSX.Element {
-  const video = useRef<HTMLVideoElement>(null)
-  useEffect(() => {
-    if (video.current) video.current.srcObject = stream
-  }, [stream])
-  return <video ref={video} autoPlay muted playsInline className="size-full object-cover" />
 }

@@ -1,6 +1,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowDown } from 'lucide-react'
 import type { Channel } from '@hachiman/client'
+import { SystemTag } from '@/components/ui/system-tag'
 import { highlightRow, jumpStep } from '@/lib/navigation'
 import { cn } from '@/lib/utils'
 import { messagesService } from '@/services/MessagesService'
@@ -215,9 +216,7 @@ function NewDivider(): React.JSX.Element {
     >
       {/* A 2px coral wash (B1/B2): a 1px full-strength line reads as a grey rule at 1x. */}
       <div className="bg-feature-danger/25 h-0.5 flex-1" />
-      <span className="bg-feature-danger text-text-on-accent rounded-check px-1.5 py-px text-[10px] leading-4 font-extrabold tracking-[0.6px]">
-        NEW
-      </span>
+      <SystemTag kind="new" />
     </div>
   )
 }

@@ -14,13 +14,9 @@ export function VoiceStateBadges({
   if (!state.selfMute && !state.selfDeaf && !state.selfStream) return null
   return (
     <span className={cn('text-feature-danger-text flex shrink-0 items-center gap-1', className)}>
-      {state.selfStream && <LiveBadge />}
+      {state.selfStream && <SystemTag kind="live" />}
       {state.selfMute && <MicOff aria-label="Muted" className="size-3.5" />}
       {state.selfDeaf && <HeadphoneOff aria-label="Deafened" className="size-3.5" />}
     </span>
   )
-}
-
-export function LiveBadge({ className }: { className?: string }): React.JSX.Element {
-  return <SystemTag kind="live" className={className} />
 }

@@ -3,7 +3,7 @@ import { Activity, Check, Eye, Info, PhoneCall, Volume2 } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import { UserAvatar } from '@/components/shell/user-avatar'
 import { Button } from '@/components/ui/button'
-import { SystemTag } from '@/components/ui/system-tag'
+import { LiveCard } from '@/components/voice/live-card'
 import { useCanJoinVoice } from '@/components/voice/use-call-security'
 import { useMemberView } from '@/hooks/use-member'
 import { activeCalls, type ActiveCall } from '@/lib/active-now'
@@ -100,7 +100,13 @@ function CallCard({ call }: { call: ActiveCall }): React.JSX.Element {
       </button>
 
       {streamerId !== null ? (
-        <LiveBlock call={call} streamerId={streamerId} />
+        <LiveCard
+          guildId={call.guildId}
+          userId={streamerId}
+          channelName={call.channelName}
+          watching={call.userIds.length - 1}
+          size="md"
+        />
       ) : (
         <Faces guildId={call.guildId} userIds={call.userIds} />
       )}
@@ -122,40 +128,6 @@ function CallCard({ call }: { call: ActiveCall }): React.JSX.Element {
         </Button>
       )}
     </section>
-  )
-}
-
-/** The streamer's avatar on the live tint, "<name> is live", the channel and the count. */
-function LiveBlock({
-  call,
-  streamerId
-}: {
-  call: ActiveCall
-  streamerId: string
-}): React.JSX.Element {
-  const { name, avatar, ink } = useMemberView(call.guildId, streamerId)
-  return (
-    <div className="flex flex-col gap-2">
-      <div className="bg-feature-danger/10 border-feature-danger/30 relative flex aspect-video items-center justify-center border">
-        <SystemTag kind="live" className="absolute top-1.5 left-1.5" />
-        <UserAvatar
-          avatar={avatar}
-          name={name}
-          color={ink}
-          size={48}
-          className="ring-feature-danger/40 rounded-full ring-4"
-        />
-      </div>
-      <div className="flex min-w-0 items-center gap-2">
-        <UserAvatar avatar={avatar} name={name} color={ink} size={24} />
-        <span className="flex min-w-0 flex-col">
-          <span className="text-text-primary truncate text-[13px] font-bold">{name} is live</span>
-          <span className="text-text-tertiary truncate text-xs">
-            {call.channelName} · {call.userIds.length - 1} watching
-          </span>
-        </span>
-      </div>
-    </div>
   )
 }
 

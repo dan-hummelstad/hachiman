@@ -1,8 +1,8 @@
 import { LoaderCircle, ShieldCheck } from 'lucide-react'
+import { StreamerName } from '@/components/voice/live-card'
 import { useCallParticipants, useCallSecurity } from '@/components/voice/use-call-security'
 import { useVoiceRegionName } from '@/components/voice/use-voice-region'
 import { useChannelOccupants } from '@/hooks/use-hachiman'
-import { useMemberView } from '@/hooks/use-member'
 import type { GuildChannel } from '@/lib/model'
 import { cn } from '@/lib/utils'
 import { openDialog } from '@/stores/dialogStore'
@@ -25,14 +25,14 @@ export function VoiceHeaderMeta({ channel }: { channel: GuildChannel }): React.J
     <span className="text-text-tertiary min-w-0 truncate text-[13px] font-medium">
       Voice · {count} in call
       {region && ` · ${region}`}
-      {streamer && <StreamerNote guildId={channel.guildId} userId={streamer} />}
+      {streamer && (
+        <>
+          {' · '}
+          <StreamerName guildId={channel.guildId} userId={streamer} />
+        </>
+      )}
     </span>
   )
-}
-
-function StreamerNote({ guildId, userId }: { guildId: string; userId: string }): React.JSX.Element {
-  const { name } = useMemberView(guildId, userId)
-  return <> · {name} is live</>
 }
 
 /**

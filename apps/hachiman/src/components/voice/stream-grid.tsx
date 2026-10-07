@@ -1,9 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
-import { Eye, LoaderCircle, Maximize } from 'lucide-react'
+import { LoaderCircle, Maximize } from 'lucide-react'
 import type { VoiceState } from '@hachiman/client'
-import { UserAvatar } from '@/components/shell/user-avatar'
 import { IconButton } from '@/components/ui/icon-button'
-import { LiveBadge } from '@/components/voice/voice-state-badges'
+import { SystemTag } from '@/components/ui/system-tag'
 import { TileNameTag } from '@/components/voice/voice-tile'
 import { TILE, stageColumns } from '@/components/voice/voice-tile-styles'
 import { useMemberView } from '@/hooks/use-member'
@@ -94,7 +93,7 @@ function StreamTile({
         )}
       >
         <TileNameTag>
-          <LiveBadge />
+          <SystemTag kind="live" />
           <span className="truncate" style={ink ? { color: ink } : undefined}>
             {name}
           </span>
@@ -115,7 +114,7 @@ function StreamTile({
         <video ref={video} autoPlay playsInline muted className="size-full object-contain" />
       </button>
       <TileNameTag>
-        <LiveBadge />
+        <SystemTag kind="live" />
         <span className="truncate" style={ink && !self ? { color: ink } : undefined}>
           {self ? 'Your stream' : name}
         </span>
@@ -127,53 +126,6 @@ function StreamTile({
       >
         <Maximize />
       </IconButton>
-    </div>
-  )
-}
-
-/**
- * A live stream seen from outside its call (arc plan decision 4). Only members of the call hold
- * the SFrame keys (§12.10), so there is no frame to show: the card shows the streamer's avatar on
- * the live tint with "LIVE · n watching".
- */
-export function LiveCard({
-  guildId,
-  userId,
-  channelName,
-  watching
-}: {
-  guildId: string
-  userId: string
-  channelName: string
-  /** The other people in the channel. */
-  watching: number
-}): React.JSX.Element {
-  const { member, name, ink } = useMemberView(guildId, userId)
-  return (
-    <div className="bg-feature-danger/10 border-feature-danger/30 relative flex aspect-video w-full max-w-2xl items-center justify-center border">
-      <span className="absolute top-3 left-3 flex items-center gap-1.5">
-        <LiveBadge />
-        <span className="bg-surface-window/85 text-text-primary flex h-[18px] items-center gap-1 px-1.5 text-[11px] leading-none font-bold">
-          <Eye className="size-3" aria-hidden />
-          {watching} watching
-        </span>
-      </span>
-      <UserAvatar
-        name={name}
-        avatar={member?.user.avatar}
-        color={ink}
-        size={112}
-        className="ring-feature-danger/40 rounded-full ring-4"
-      />
-      <span className="absolute bottom-3 left-3 flex min-w-0 items-center gap-2">
-        <UserAvatar name={name} avatar={member?.user.avatar} color={ink} size={32} />
-        <span className="flex min-w-0 flex-col">
-          <span className="truncate text-sm font-bold" style={ink ? { color: ink } : undefined}>
-            {name}
-          </span>
-          <span className="text-text-secondary truncate text-xs">Streaming {channelName}</span>
-        </span>
-      </span>
     </div>
   )
 }
