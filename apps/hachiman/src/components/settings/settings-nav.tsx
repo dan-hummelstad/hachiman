@@ -77,7 +77,7 @@ function SettingsNavView({
   const selected = resolveSection(model, section)
   const back = useBackLabel()
   return (
-    <nav aria-label={model.label} className="flex min-h-0 flex-col gap-1 px-2.5">
+    <nav aria-label={model.label} className="flex min-h-0 flex-col gap-1">
       <button
         type="button"
         onClick={onBack}

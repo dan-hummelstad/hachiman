@@ -152,7 +152,7 @@ export function GuildInvitesTab({ guildId }: { guildId: string }): React.JSX.Ele
           >
             <div
               role="row"
-              className={`section-label border-line-hairline border-b py-2.5 ${GRID}`}
+              className={`section-label bg-surface-raised/60 border-line-hairline border-b py-2.5 ${GRID}`}
             >
               <span role="columnheader">Code</span>
               <span role="columnheader">Created by</span>
@@ -189,7 +189,7 @@ export function GuildInvitesTab({ guildId }: { guildId: string }): React.JSX.Ele
                     </code>
                     {inv.hasHistory && (
                       <span
-                        className="rounded-check bg-accent-tint text-accent-text shrink-0 px-1.5 text-[10.5px] leading-4 font-bold"
+                        className="bg-accent-tint text-accent-text shrink-0 px-1.5 text-[10.5px] leading-4 font-bold"
                         title="The link includes history. Only its creator saw the full link."
                       >
                         History
@@ -220,7 +220,7 @@ export function GuildInvitesTab({ guildId }: { guildId: string }): React.JSX.Ele
                     {spent ? (
                       'Used up'
                     ) : inv.expiresAt === null ? (
-                      <span className="rounded-check bg-feature-danger/15 text-feature-danger-text px-1.5 text-[10.5px] leading-4 font-bold">
+                      <span className="bg-feature-danger/15 text-feature-danger-text px-1.5 text-[10.5px] leading-4 font-bold">
                         Permanent
                       </span>
                     ) : (
@@ -234,7 +234,7 @@ export function GuildInvitesTab({ guildId }: { guildId: string }): React.JSX.Ele
                     {!inv.hasHistory && (
                       <IconButton
                         label={`${copied === inv.code ? 'Copied' : 'Copy'} link for ${inv.code}`}
-                        className="rounded-control border-line-hairline size-7 border"
+                        className="rounded-control bg-surface-raised size-7"
                         disabled={spent}
                         onClick={() => copy(inv.code)}
                       >
@@ -249,7 +249,7 @@ export function GuildInvitesTab({ guildId }: { guildId: string }): React.JSX.Ele
                       <IconButton
                         tone="danger"
                         label={`Revoke ${inv.code}`}
-                        className="rounded-control border-line-hairline text-feature-danger-text size-7 border"
+                        className="rounded-control bg-surface-raised text-feature-danger-text size-7"
                         onClick={() => void revoke(inv.code)}
                       >
                         <Trash2 />

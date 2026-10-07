@@ -53,7 +53,7 @@ export function ScreenWindow({
             <span
               aria-hidden
               className={cn(
-                'rounded-control flex size-9 shrink-0 items-center justify-center [&_svg]:size-[18px]',
+                'flex size-9 shrink-0 items-center justify-center [&_svg]:size-[18px]',
                 FEATURE_TILE[tone === 'danger' ? 'danger' : 'voice']
               )}
             >
@@ -174,7 +174,7 @@ export function OptionCard({
       <span
         aria-hidden
         className={cn(
-          'rounded-control flex size-11 shrink-0 items-center justify-center [&_svg]:size-5',
+          'flex size-11 shrink-0 items-center justify-center [&_svg]:size-5',
           FEATURE_TILE[feature]
         )}
       >

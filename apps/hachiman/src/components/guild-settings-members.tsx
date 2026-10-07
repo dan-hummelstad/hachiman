@@ -81,7 +81,7 @@ export function GuildMembersTab({ guild }: { guild: Guild }): React.JSX.Element 
         aria-label="Members"
         className="bg-surface-panel border-line-hairline border"
       >
-        <div role="row" className={`section-label border-line-hairline border-b py-2.5 ${GRID}`}>
+        <div role="row" className={`section-label bg-surface-raised/60 border-line-hairline border-b py-2.5 ${GRID}`}>
           <span role="columnheader">Name</span>
           <span role="columnheader">Roles</span>
           <span role="columnheader" className="sr-only">

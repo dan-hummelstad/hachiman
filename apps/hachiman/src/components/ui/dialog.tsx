@@ -94,7 +94,7 @@ function DialogHeader({
         <span
           aria-hidden
           className={cn(
-            'rounded-control flex size-9 shrink-0 items-center justify-center [&_svg]:size-[18px]',
+            'flex size-9 shrink-0 items-center justify-center [&_svg]:size-[18px]',
             FEATURE_TILE[feature]
           )}
         >
