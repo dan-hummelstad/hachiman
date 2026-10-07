@@ -54,7 +54,12 @@ func (s *session) onVoice(ctx context.Context, req voiceRequest) error {
 		s.g.removeVoice(ctx, *prev)
 		prev = nil
 	}
-	st := VoiceState{GuildID: req.GuildID, ChannelID: &chID, UserID: me, SessionID: s.id, SelfMute: req.SelfMute, SelfDeaf: req.SelfDeaf, SelfStream: req.SelfStream}
+	moved := prev == nil || prev.SessionID != s.id || prev.ChannelID == nil || *prev.ChannelID != chID
+	joinedAt := iso(time.Now())
+	if !moved && prev.JoinedAt != "" {
+		joinedAt = prev.JoinedAt // mute/deaf/stream toggle keeps the call timer
+	}
+	st := VoiceState{GuildID: req.GuildID, ChannelID: &chID, UserID: me, SessionID: s.id, SelfMute: req.SelfMute, SelfDeaf: req.SelfDeaf, SelfStream: req.SelfStream, JoinedAt: joinedAt}
 	if _, err := s.g.rdb.TxPipelined(ctx, func(p redis.Pipeliner) error {
 		p.HSet(ctx, kVoice(req.GuildID), me, string(mustJSON(st)))
 		p.Set(ctx, kVoiceUser(me), req.GuildID, 0)
@@ -65,7 +70,6 @@ func (s *session) onVoice(ctx context.Context, req voiceRequest) error {
 	s.voice = &st
 	s.g.publish(ctx, "guild:"+req.GuildID, "VOICE_STATE_UPDATE", st)
 
-	moved := prev == nil || prev.SessionID != s.id || prev.ChannelID == nil || *prev.ChannelID != chID
 	if !moved {
 		return nil // mute/deaf/stream toggle: media connection stays as is
 	}

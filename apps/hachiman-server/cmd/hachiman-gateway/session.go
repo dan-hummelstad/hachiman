@@ -350,17 +350,20 @@ func (g *Gateway) presences(ctx context.Context, userIDs []string) []Presence {
 	if len(userIDs) == 0 {
 		return out
 	}
-	ks := make([]string, len(userIDs))
+	n := len(userIDs)
+	ks := make([]string, 2*n)
 	for i, id := range userIDs {
-		ks[i] = kPresence(id)
+		ks[i], ks[n+i] = kPresence(id), kCustomStatus(id)
 	}
 	vals, err := g.rdb.MGet(ctx, ks...).Result()
 	if err != nil {
 		slog.Warn("presence read failed", "err", err)
 	}
-	for i, v := range vals {
-		if st, ok := v.(string); ok && st != "offline" {
-			out = append(out, Presence{UserID: userIDs[i], Status: st})
+	now := time.Now()
+	for i := 0; i < len(vals) && i < n; i++ {
+		if st, ok := vals[i].(string); ok && st != "offline" {
+			cs, _ := vals[n+i].(string)
+			out = append(out, Presence{UserID: userIDs[i], Status: st, CustomStatus: parseCustomStatus(cs, now)})
 		}
 	}
 	return out
@@ -399,6 +402,9 @@ func (s *session) restorePresence(ctx context.Context) bool {
 
 func (s *session) publishPresence() {
 	d := Presence{UserID: s.user.ID, Status: s.status}
+	if s.status != "offline" {
+		d.CustomStatus = s.g.customStatus(s.ctx, s.user.ID)
+	}
 	for gid := range s.guilds {
 		s.g.publish(s.ctx, "guild:"+gid, "PRESENCE_UPDATE", d)
 	}
@@ -410,13 +416,34 @@ func (s *session) publishPresence() {
 func (s *session) onOp(f inFrame) {
 	switch f.Op {
 	case opPresenceUpdate:
-		var p struct{ Status string }
-		if json.Unmarshal(f.D, &p) != nil || !slices.Contains([]string{"online", "idle", "dnd", "offline"}, p.Status) || p.Status == s.status {
+		// status: absent = unchanged. customStatus: absent = unchanged, null = clear.
+		var p struct {
+			Status       string
+			CustomStatus json.RawMessage
+		}
+		if json.Unmarshal(f.D, &p) != nil || (p.Status != "" && !slices.Contains([]string{"online", "idle", "dnd", "offline"}, p.Status)) {
 			return
 		}
-		s.status = p.Status
-		s.g.rdb.Set(s.ctx, kPresence(s.user.ID), s.status, sessionTTL)
-		s.publishPresence()
+		changed := false
+		if p.CustomStatus != nil {
+			cs, err := sanitizeCustomStatus(p.CustomStatus, time.Now())
+			if err != nil {
+				return
+			}
+			if err := s.g.setCustomStatus(s.ctx, s.user.ID, cs); err != nil {
+				slog.Warn("custom status write failed", "session", s.id, "err", err)
+				return
+			}
+			changed = true
+		}
+		if p.Status != "" && p.Status != s.status {
+			s.status = p.Status
+			s.g.rdb.Set(s.ctx, kPresence(s.user.ID), s.status, sessionTTL)
+			changed = true
+		}
+		if changed {
+			s.publishPresence()
+		}
 	case opVoiceState:
 		var p voiceRequest
 		if json.Unmarshal(f.D, &p) != nil {

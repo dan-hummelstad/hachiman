@@ -262,6 +262,47 @@ describe('HachimanClient cache', () => {
     expect(client.cache.guilds.size).toBe(1)
   })
 
+  it('caches custom statuses and voice joinedAt', () => {
+    const c = client.cache
+    expect(c.customStatuses.size).toBe(0)
+    const cs = { text: 'Reading chapter 6', expiresAt: null }
+    dispatch('PRESENCE_UPDATE', { userId: 'bob', status: 'idle', customStatus: cs })
+    expect(c.presences.get('bob')).toBe('idle')
+    expect(c.customStatuses.get('bob')).toEqual(cs)
+    dispatch('PRESENCE_UPDATE', { userId: 'bob', status: 'online' })
+    expect(c.customStatuses.has('bob')).toBe(false)
+    dispatch('PRESENCE_UPDATE', { userId: 'bob', status: 'dnd', customStatus: cs })
+    dispatch('PRESENCE_UPDATE', { userId: 'bob', status: 'offline', customStatus: cs })
+    expect(c.customStatuses.has('bob')).toBe(false)
+
+    dispatch('VOICE_STATE_UPDATE', {
+      guildId: 'g',
+      channelId: 'vc',
+      userId: 'bob',
+      sessionId: 'x',
+      selfMute: true,
+      selfDeaf: false,
+      selfStream: false,
+      joinedAt: '2026-10-07T12:00:00Z',
+    })
+    expect(c.voiceStates.get('g')?.get('bob')?.joinedAt).toBe('2026-10-07T12:00:00Z')
+
+    dispatch('READY', {
+      ...readyPayload,
+      guilds: [{ ...guild, presences: [{ userId: 'bob', status: 'online', customStatus: cs }] }],
+      presences: [{ userId: 'dmpal', status: 'idle', customStatus: { text: 'away', expiresAt: '2026-10-08T00:00:00Z' } }],
+    })
+    expect(c.customStatuses.get('bob')).toEqual(cs)
+    expect(c.customStatuses.get('dmpal')?.text).toBe('away')
+  })
+
+  it('setCustomStatus sends op 3', () => {
+    client.setCustomStatus('5am, watching the VOD')
+    expect(ws.sent.at(-1)).toEqual({ op: 3, d: { customStatus: { text: '5am, watching the VOD', expiresAt: null } } })
+    client.setCustomStatus('')
+    expect(ws.sent.at(-1)).toEqual({ op: 3, d: { customStatus: null } })
+  })
+
   it('roles, presence, voice state and guild delete', () => {
     dispatch('GUILD_ROLE_CREATE', {
       guildId: 'g',

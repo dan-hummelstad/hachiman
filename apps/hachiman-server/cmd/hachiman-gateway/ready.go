@@ -65,8 +65,9 @@ type Member struct {
 }
 
 type Presence struct {
-	UserID string `json:"userId"`
-	Status string `json:"status"`
+	UserID       string        `json:"userId"`
+	Status       string        `json:"status"`
+	CustomStatus *CustomStatus `json:"customStatus,omitempty"`
 }
 
 type VoiceState struct {
@@ -77,6 +78,7 @@ type VoiceState struct {
 	SelfMute   bool    `json:"selfMute"`
 	SelfDeaf   bool    `json:"selfDeaf"`
 	SelfStream bool    `json:"selfStream"`
+	JoinedAt   string  `json:"joinedAt"` // set on join and on a channel move (contract §1)
 }
 
 type GuildFull struct {

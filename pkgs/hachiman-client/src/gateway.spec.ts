@@ -64,6 +64,23 @@ describe('GatewayClient', () => {
     expect(gw.latencyMs).not.toBeNull()
   })
 
+  it('setCustomStatus sends op 3 with customStatus; an empty text clears', async () => {
+    gw.connect()
+    const ws = FakeWebSocket.last
+    await ready(ws)
+    gw.setCustomStatus('Reading chapter 6', '2026-10-08T00:00:00Z')
+    expect(ws.sent.at(-1)).toEqual({
+      op: 3,
+      d: { customStatus: { text: 'Reading chapter 6', expiresAt: '2026-10-08T00:00:00Z' } },
+    })
+    gw.setCustomStatus('brb')
+    expect(ws.sent.at(-1)).toEqual({ op: 3, d: { customStatus: { text: 'brb', expiresAt: null } } })
+    gw.setCustomStatus('  ')
+    expect(ws.sent.at(-1)).toEqual({ op: 3, d: { customStatus: null } })
+    gw.updatePresence('idle')
+    expect(ws.sent.at(-1)).toEqual({ op: 3, d: { status: 'idle' } })
+  })
+
   it('sendDocAwareness sends op 5; an ephemeral dispatch (no s) keeps the seq', async () => {
     gw.connect()
     const ws = FakeWebSocket.last

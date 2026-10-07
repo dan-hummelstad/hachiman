@@ -11,6 +11,7 @@ import {
   type GatewayEvents,
   type GatewayFrame,
   type PresenceStatus,
+  type PresenceUpdateRequest,
   type VoiceStateUpdateRequest,
 } from './types'
 
@@ -102,7 +103,16 @@ export class GatewayClient extends TypedEventEmitter<GatewayClientEvents> {
   }
 
   updatePresence(status: PresenceStatus): void {
-    this.send(GatewayOp.PRESENCE_UPDATE, { status })
+    this.send(GatewayOp.PRESENCE_UPDATE, { status } satisfies PresenceUpdateRequest)
+  }
+
+  /**
+   * Op 3 with `customStatus` (§6). An empty `text` clears. The gateway trims, strips control
+   * characters and drops a text over 64 characters. Dropped while not connected.
+   */
+  setCustomStatus(text: string, expiresAt: string | null = null): void {
+    const customStatus = text.trim() === '' ? null : { text, expiresAt }
+    this.send(GatewayOp.PRESENCE_UPDATE, { customStatus } satisfies PresenceUpdateRequest)
   }
 
   // ponytail: frames sent while not connected are dropped; add an outbox if the UI needs queueing.
