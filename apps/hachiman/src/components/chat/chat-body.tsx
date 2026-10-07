@@ -90,6 +90,7 @@ function ChannelChat({ channel }: { channel: Channel }): React.JSX.Element {
               </p>
             )}
             <Composer
+              channel={channel}
               placeholder={`Message ${where}`}
               disabledReason={disabledReason}
               disabledAction={

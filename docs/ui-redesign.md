@@ -194,6 +194,7 @@ From left to right after the name and topic: the threads button (sky, with the t
 - **Reactions.** Pill chips under the message: emoji and count. My reaction gets the accent ring and tint. A click toggles my reaction. The last chip adds a reaction. A message with no reactions shows no chips: the React button in the hover toolbar adds the first one.
 - **Replies.** A reply shows a quote of its target above the text. A click on the quote jumps to the target.
 - **Page cards.** A message with a page link shows a square card with the page title, its channel and "Open". Page edits do not show in the chat.
+- **Mentions in the composer.** Type `@` for members, roles and @everyone, or `#` for channels and pages. The arrow keys move through the list, Enter or Tab picks, and Esc closes it. A picked role shows as `@Name` and is sent as `<@&roleId>`. A picked page is sent as a page link, so it shows as a page card.
 - **Blocked users.** A message of a blocked user shows as one collapsed line, "Blocked message". A click shows it.
 
 ## 8. E2EE rules in the UI
