@@ -8,7 +8,6 @@ import { Dialogs } from '@/components/shell/dialogs'
 import { Shell } from '@/components/shell/shell'
 import { TooltipProvider } from '@/components/ui/tooltip'
 
-import { useAppShortcuts } from '@/hooks/use-app-shortcuts'
 import { errMsg } from '@/lib/utils'
 import { startHachiman } from '@/services/hachiman'
 import { dropSignInInviteKeys, restoreInviteKey, stashInviteKey } from '@/services/InviteService'
@@ -29,7 +28,6 @@ function App(): React.JSX.Element {
   const platform = usePlatform()
   const signedIn = useTakusenStore((s) => s.session !== null)
   const fatal = useCryptoStore((s) => s.fatal)
-  useAppShortcuts()
 
   // The host gives the crypto Worker its store wrap key (§11).
   useEffect(() => startHachiman(platform), [platform])

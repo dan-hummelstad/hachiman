@@ -11,16 +11,16 @@ import { useSettingsMode } from '@/components/settings/use-settings-mode'
 import { ChannelPane, NoChannelPane } from '@/components/shell/channel-pane'
 import { FavouriteDms } from '@/components/shell/favourite-dms'
 import { QuickSwitcher, SwitcherField } from '@/components/shell/quick-switcher'
-import { useSwitcherShortcut } from '@/components/shell/switcher-state'
 import { Sidebar } from '@/components/shell/sidebar'
 import { SidebarControls } from '@/components/shell/sidebar-controls'
 import { useSidebarView } from '@/components/shell/sidebar-state'
 import { TabBar } from '@/components/shell/tab-bar'
-import { useSidebarReveal, useSidebarShortcut } from '@/components/shell/use-sidebar-reveal'
+import { useSidebarReveal } from '@/components/shell/use-sidebar-reveal'
 import { SpaceBar } from '@/components/shell/space-bar'
 import { useGuildTint } from '@/components/shell/use-guild-tint'
 import { VoiceDock } from '@/components/voice-connected-panel'
 import { VoiceRoom } from '@/components/voice/voice-room'
+import { useAppShortcuts } from '@/hooks/use-app-shortcuts'
 import { useGuildChannels } from '@/hooks/use-hachiman'
 import { useMediaQuery } from '@/hooks/use-media-query'
 import { isGuildChannel } from '@/lib/model'
@@ -84,8 +84,7 @@ export function Shell(): React.JSX.Element {
   const [floatSlot, setFloatSlot] = useState<HTMLDivElement | null>(null)
   const dockHost = useDockHost(floatDock ? floatSlot : footSlot)
   useSidebarReveal(sidebarRef)
-  useSidebarShortcut()
-  useSwitcherShortcut()
+  useAppShortcuts()
 
   // Default to the first text channel when a guild has no (valid) selection.
   useEffect(() => {

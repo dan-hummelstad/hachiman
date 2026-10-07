@@ -1,8 +1,20 @@
 import { useEffect } from 'react'
+import { toggleSidebar } from '@/components/shell/sidebar-state'
+import { closeSwitcher, isSwitcherOpen, openSwitcher } from '@/components/shell/switcher-state'
+import { isModKey } from '@/lib/mod-key'
+import { matchShortcut, underModal } from '@/lib/shortcuts'
 import { hachiman } from '@/services/hachiman'
+import { useDialogStore } from '@/stores/dialogStore'
 import { useDocsStore } from '@/stores/docsStore'
 import { useGuildStore } from '@/stores/guildStore'
-import { back, forward, navigate, type View } from '@/stores/navStore'
+import {
+  back,
+  closeSettings,
+  forward,
+  navigate,
+  useNavStore,
+  type View
+} from '@/stores/navStore'
 import { currentTabs, viewOfTarget } from '@/stores/tabsStore'
 
 /** Whether the target of a history entry is still there (N2: a gone target is skipped). */
@@ -42,18 +54,45 @@ export function openTab(index: number): boolean {
 }
 
 /**
- * The app-wide navigation keys: ⌘[ / ⌘] (Ctrl on Windows and Linux) back and forward, the mouse
- * back and forward buttons, and ⌘1–⌘9 for the pinned tabs (N1, N2). Mount once in the shell.
+ * The app-wide keys (lib/shortcuts.ts) and the mouse back and forward buttons. One listener; no
+ * key acts under a modal dialog, except ⌘K, which closes an open quick switcher. Mount once in
+ * the shell.
  */
 export function useAppShortcuts(): void {
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
-      const mod = navigator.platform.toLowerCase().includes('mac') ? e.metaKey : e.ctrlKey
-      if (!mod || e.altKey || e.shiftKey) return
-      let handled = false
-      if (e.key === '[') handled = goBack()
-      else if (e.key === ']') handled = goForward()
-      else if (e.key >= '1' && e.key <= '9') handled = openTab(Number(e.key) - 1)
+      const shortcut = matchShortcut(e.key, isModKey(e))
+      if (!shortcut) return
+      if (shortcut.kind === 'switcher' && isSwitcherOpen()) {
+        e.preventDefault()
+        closeSwitcher()
+        return
+      }
+      if (underModal(e.target, useDialogStore.getState().dialog !== null)) return
+      let handled = true
+      switch (shortcut.kind) {
+        case 'back':
+          handled = goBack()
+          break
+        case 'forward':
+          handled = goForward()
+          break
+        case 'tab':
+          handled = openTab(shortcut.index)
+          break
+        case 'sidebar':
+          toggleSidebar()
+          break
+        case 'switcher':
+          openSwitcher('open')
+          break
+        case 'leaveSettings':
+          // An Esc that a menu or popover took, or that a field in [data-esc-local] uses, stays.
+          if (e.defaultPrevented || useNavStore.getState().settings === null) return
+          if ((e.target as Element | null)?.closest?.('[data-esc-local]')) return
+          closeSettings()
+          return
+      }
       if (handled) e.preventDefault()
     }
     // Buttons 3 and 4: the mouse back and forward buttons.

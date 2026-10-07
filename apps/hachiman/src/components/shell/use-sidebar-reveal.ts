@@ -1,27 +1,8 @@
 import { useEffect } from 'react'
-import {
-  revealSidebar,
-  toggleSidebar,
-  tuckSidebar,
-  useSidebarView
-} from '@/components/shell/sidebar-state'
+import { revealSidebar, tuckSidebar, useSidebarView } from '@/components/shell/sidebar-state'
 import { isSwitcherOpen } from '@/components/shell/switcher-state'
-import { isModKey } from '@/lib/mod-key'
 import { HIDE_DELAY_MS, canHide, holdsOf, inHotZone } from '@/lib/sidebar-reveal'
 import { useDialogStore } from '@/stores/dialogStore'
-
-/** ⌘S (Ctrl S) toggles the sidebar. Neither the composer nor the page editor binds it. */
-export function useSidebarShortcut(): void {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key.toLowerCase() !== 's' || !isModKey(e)) return
-      e.preventDefault()
-      toggleSidebar()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [])
-}
 
 /**
  * N3, the hidden sidebar: the pointer in the left 8 px reveals it; it hides 300 ms after the
