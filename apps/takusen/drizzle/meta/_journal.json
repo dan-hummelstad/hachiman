@@ -43,6 +43,13 @@
       "when": 1791365152568,
       "tag": "0005_thread_activity",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1791365253345,
+      "tag": "0006_guild_event_times",
+      "breakpoints": true
     }
   ]
 }

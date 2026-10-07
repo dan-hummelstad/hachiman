@@ -1,0 +1,2 @@
+UPDATE "guild_events" SET "ends_at" = NULL WHERE "ends_at" <= "starts_at";--> statement-breakpoint
+ALTER TABLE "guild_events" ADD CONSTRAINT "guild_events_ends_after_starts" CHECK ("guild_events"."ends_at" is null or "guild_events"."ends_at" > "guild_events"."starts_at");

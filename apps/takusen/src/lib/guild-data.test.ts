@@ -16,6 +16,7 @@ import { publishToChannel } from '@/lib/guild-access'
 import {
   createEventSchema,
   eventTimes,
+  eventTimesError,
   isListed,
   MAX_EVENT_TITLE,
   OPEN_EVENT_LISTED_MS,
@@ -96,6 +97,12 @@ describe('guild events', () => {
     assert.deepEqual(eventTimes({}, NOW, current), current)
     assert.throws(() => eventTimes({ endsAt: at(-2 * HOUR).toISOString() }, NOW, current), ValidationError)
     assert.throws(() => eventTimes({ startsAt: at(2 * HOUR).toISOString() }, NOW, current), ValidationError)
+  })
+
+  test('update: the CHECK violation of a concurrent PATCH is the same 400', () => {
+    assert.ok(eventTimesError(new Error('query failed', { cause: { code: '23514' } })) instanceof ValidationError)
+    const other = new Error('other')
+    assert.equal(eventTimesError(other), other)
   })
 
   test('listed while upcoming or ongoing; an event with no end for 6 h after its start', () => {

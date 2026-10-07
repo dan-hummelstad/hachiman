@@ -251,7 +251,7 @@ Pins, guild events and blocks (§4 Pins, guild events and blocks, `apps/takusen/
 | Table | Columns | Notes |
 |---|---|---|
 | `channel_pins` | channel_id → channels (cascade), message_id → messages (cascade), pinned_by null → users (set null), pinned_at | PK (channel_id, message_id). The server learns which message ids are pinned, not their content |
-| `guild_events` | id, guild_id → guilds (cascade), channel_id null → channels (set null), title, starts_at, ends_at null, created_by null → users (set null), created_at | index (guild_id, starts_at). Plaintext metadata (§12.1) |
+| `guild_events` | id, guild_id → guilds (cascade), channel_id null → channels (set null), title, starts_at, ends_at null, created_by null → users (set null), created_at | index (guild_id, starts_at). CHECK (ends_at is null or ends_at > starts_at). Plaintext metadata (§12.1) |
 | `guild_event_rsvps` | event_id → guild_events (cascade), user_id → users (cascade), created_at | PK (event_id, user_id). One row per member who is going |
 | `user_blocks` | user_id → users (cascade), blocked_user_id → users (cascade), created_at | PK (user_id, blocked_user_id); index (blocked_user_id) |
 

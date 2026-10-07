@@ -16,6 +16,7 @@ import { loadGuildAccess, requirePermission } from '@/lib/guild-access'
 import {
   assertEventChannel,
   eventTimes,
+  eventTimesError,
   isGoing,
   loadEvent,
   rsvpCount,
@@ -53,6 +54,9 @@ export async function PATCH(req: NextRequest, ctx: RouteContext): Promise<NextRe
       })
       .where(eq(guildEvents.id, event.id))
       .returning()
+      .catch((err: unknown) => {
+        throw eventTimesError(err)
+      })
     const [updated, mine] = await Promise.all([rsvpCount(event.id), isGoing(event.id, userId)])
     const wire = toGuildEvent(row!, updated)
     await publishToGuild(event.guildId, 'GUILD_EVENT_UPDATE', wire)

@@ -51,6 +51,17 @@ export function eventTimes(
   return { startsAt, endsAt }
 }
 
+/**
+ * Maps the guild_events_ends_after_starts CHECK violation (a concurrent PATCH
+ * changed the other time after `eventTimes` ran) to the same 400. Other errors pass.
+ */
+export function eventTimesError(err: unknown): unknown {
+  for (let e: unknown = err; e && typeof e === 'object'; e = (e as { cause?: unknown }).cause) {
+    if ((e as { code?: string }).code === '23514') return new ValidationError('endsAt must be after startsAt')
+  }
+  return err
+}
+
 /** True while the list shows the event: upcoming or ongoing. */
 export function isListed(e: Pick<GuildEventRow, 'startsAt' | 'endsAt'>, now: Date): boolean {
   if (e.endsAt !== null) return e.endsAt.getTime() > now.getTime()

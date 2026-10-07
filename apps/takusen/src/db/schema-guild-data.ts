@@ -3,7 +3,8 @@
  * guild events and blocks"), re-exported by schema.ts. The references into schema.ts are
  * lazy, so the import cycle between the two files is safe.
  */
-import { index, pgTable, primaryKey, text, timestamp, uuid } from 'drizzle-orm/pg-core'
+import { sql } from 'drizzle-orm'
+import { check, index, pgTable, primaryKey, text, timestamp, uuid } from 'drizzle-orm/pg-core'
 
 import { channels, guilds, messages, users } from './schema'
 
@@ -40,7 +41,11 @@ export const guildEvents = pgTable(
     createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
     createdAt: createdAt(),
   },
-  (table) => [index('guild_events_guild_starts_idx').on(table.guildId, table.startsAt)],
+  (table) => [
+    index('guild_events_guild_starts_idx').on(table.guildId, table.startsAt),
+    // Two concurrent PATCHes each pass the route check against the old row.
+    check('guild_events_ends_after_starts', sql`${table.endsAt} is null or ${table.endsAt} > ${table.startsAt}`),
+  ],
 )
 
 export const guildEventRsvps = pgTable(
