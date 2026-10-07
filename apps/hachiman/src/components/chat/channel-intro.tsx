@@ -1,5 +1,14 @@
 import { useRef } from 'react'
-import { Lock, Settings, ShieldQuestion, Upload, UserPlus, Users } from 'lucide-react'
+import {
+  CornerUpLeft,
+  Lock,
+  MessagesSquare,
+  Settings,
+  ShieldQuestion,
+  Upload,
+  UserPlus,
+  Users
+} from 'lucide-react'
 import { Permissions, has, type Channel, type Role } from '@hachiman/client'
 import { HeaderChannelIcon } from '@/components/shell/channel-pane'
 import { UserAvatar } from '@/components/shell/user-avatar'
@@ -9,6 +18,8 @@ import { usePermissions } from '@/hooks/use-hachiman'
 import { usePresence } from '@/hooks/use-member'
 import { channelLabel, hexColor } from '@/lib/model'
 import { cn } from '@/lib/utils'
+import { jumpToMessage, openChannelView } from '@/components/pins/jump'
+import { useChannelStore } from '@/stores/channelStore'
 import { openDialog } from '@/stores/dialogStore'
 import { openSettings } from '@/stores/navStore'
 import { useChannelAccess } from '@/lib/channel-access'
@@ -35,6 +46,7 @@ export function ChannelIntro({
   onUpload?: (files: File[]) => void
 }): React.JSX.Element {
   if (channel.guildId === null) return <DmIntro channel={channel} />
+  if (channel.type === 'thread') return <ThreadIntro thread={channel} />
   return <GuildIntro channel={channel} empty={empty} onUpload={onUpload} />
 }
 
@@ -102,6 +114,47 @@ function GuildIntro({
         />
       )}
       {empty && !access.restricted && onUpload && <DropCard name={name} onUpload={onUpload} />}
+    </div>
+  )
+}
+
+/** The start of a thread: its name, "Thread in #parent" and a link to the message it started from. */
+function ThreadIntro({ thread }: { thread: Channel }): React.JSX.Element {
+  const parent = useChannelStore((s) =>
+    thread.parentId ? s.channels.get(thread.parentId) : undefined
+  )
+  const startId = thread.threadStartMessageId ?? null
+  return (
+    <div className="px-5 pt-10 pb-4">
+      <div className={cn('mb-4 flex size-16 items-center justify-center', FEATURE_TILE.thread)}>
+        <MessagesSquare className="size-8" aria-hidden />
+      </div>
+      <h2 className="text-page-title text-text-primary">{thread.name}</h2>
+      {parent && (
+        <p className="text-body text-text-secondary mt-1.5 max-w-[70ch]">
+          Thread in{' '}
+          <button
+            type="button"
+            onClick={() => openChannelView(parent)}
+            className="text-text-primary rounded-control focus-visible:outline-line-focus font-semibold outline-none hover:underline focus-visible:outline-2"
+          >
+            #{channelLabel(parent).name}
+          </button>
+          . Messages are end-to-end encrypted.
+        </p>
+      )}
+      {parent && startId && (
+        <div className="mt-4 flex gap-2">
+          <Button
+            variant="quiet"
+            className={INTRO_BUTTON}
+            onClick={() => jumpToMessage(parent, startId)}
+          >
+            <CornerUpLeft aria-hidden />
+            Jump to the start message
+          </Button>
+        </div>
+      )}
     </div>
   )
 }
