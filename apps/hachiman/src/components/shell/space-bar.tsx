@@ -12,7 +12,9 @@ import { GuildTile } from '@/components/ui/guild-tile'
 import { PRESENCE_LABEL, PresenceDot } from '@/components/ui/presence'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { GuildMenuItems } from '@/components/shell/guild-menu-items'
+import { CornerBadge } from '@/components/shell/unread-marks'
 import { UserAvatar } from '@/components/shell/user-avatar'
+import type { UnreadBadge } from '@/lib/notify'
 import { cn } from '@/lib/utils'
 import { setMyStatus } from '@/services/hachiman'
 import { takusenService } from '@/services/TakusenService'
@@ -20,6 +22,7 @@ import { openDialog, useDialogStore } from '@/stores/dialogStore'
 import { useGuildStore } from '@/stores/guildStore'
 import { DM_HOME, selectGuild, useSelectedGuildId } from '@/stores/navStore'
 import { useTakusenStore } from '@/stores/takusenStore'
+import { useDmUnread, useGuildUnread } from '@/stores/unreadStore'
 import { useUserStore } from '@/stores/userStore'
 
 /** For my own status, offline is a choice: "Invisible". */
@@ -37,6 +40,7 @@ const RING = 'ring-text-primary ring-offset-surface-window ring-2 ring-offset-2'
 export function SpaceBar(): React.JSX.Element {
   const guilds = useGuildStore((s) => s.guilds)
   const selectedGuildId = useSelectedGuildId()
+  const dmBadge = useDmUnread()
 
   return (
     <nav aria-label="Spaces" className="flex h-10 shrink-0 items-center gap-2 px-1">
@@ -47,28 +51,12 @@ export function SpaceBar(): React.JSX.Element {
           active={selectedGuildId === null}
           onClick={() => selectGuild(DM_HOME)}
           className="bg-surface-raised text-text-secondary"
+          badge={dmBadge}
         >
           <MessageCircle className="size-3.5" />
         </SpaceButton>
         {[...guilds.values()].map((g) => (
-          <ContextMenu key={g.id}>
-            <ContextMenuTrigger asChild>
-              <SpaceButton
-                label={g.name}
-                active={selectedGuildId === g.id}
-                onClick={() => selectGuild(g.id)}
-              >
-                <GuildTile guild={g} className="bg-surface-raised size-full border-0 text-[10px]" />
-              </SpaceButton>
-            </ContextMenuTrigger>
-            <ContextMenuContent>
-              <GuildMenuItems
-                guildId={g.id}
-                Item={ContextMenuItem}
-                Separator={ContextMenuSeparator}
-              />
-            </ContextMenuContent>
-          </ContextMenu>
+          <GuildSpaceButton key={g.id} guildId={g.id} active={selectedGuildId === g.id} />
         ))}
       </div>
       <SpaceButton
@@ -79,6 +67,36 @@ export function SpaceBar(): React.JSX.Element {
         <Plus className="size-3.5" />
       </SpaceButton>
     </nav>
+  )
+}
+
+/** A guild's space button with its unread dot and mention sum (N7); right click: the guild menu. */
+function GuildSpaceButton({
+  guildId,
+  active
+}: {
+  guildId: string
+  active: boolean
+}): React.JSX.Element | null {
+  const guild = useGuildStore((s) => s.guilds.get(guildId))
+  const badge = useGuildUnread(guildId)
+  if (!guild) return null
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger asChild>
+        <SpaceButton
+          label={guild.name}
+          active={active}
+          onClick={() => selectGuild(guildId)}
+          badge={badge}
+        >
+          <GuildTile guild={guild} className="bg-surface-raised size-full border-0 text-[10px]" />
+        </SpaceButton>
+      </ContextMenuTrigger>
+      <ContextMenuContent>
+        <GuildMenuItems guildId={guildId} Item={ContextMenuItem} Separator={ContextMenuSeparator} />
+      </ContextMenuContent>
+    </ContextMenu>
   )
 }
 
@@ -130,17 +148,22 @@ function MeButton(): React.JSX.Element {
 }
 
 /**
- * One 26px round space button with a tooltip. Extra props (from a wrapping
- * `ContextMenuTrigger asChild`) land on the button.
+ * One 26px round space button with a tooltip and an optional unread badge (N7) on its corner.
+ * Extra props (from a wrapping `ContextMenuTrigger asChild`) land on the button.
  */
 function SpaceButton({
   label,
   active = false,
+  badge,
   className,
   children,
   ...props
-}: React.ComponentProps<'button'> & { label: string; active?: boolean }): React.JSX.Element {
-  return (
+}: React.ComponentProps<'button'> & {
+  label: string
+  active?: boolean
+  badge?: UnreadBadge
+}): React.JSX.Element {
+  const button = (
     <Tooltip>
       <TooltipTrigger asChild>
         <button
@@ -159,5 +182,12 @@ function SpaceButton({
       </TooltipTrigger>
       <TooltipContent side="top">{label}</TooltipContent>
     </Tooltip>
+  )
+  if (!badge) return button
+  return (
+    <span className="relative flex shrink-0">
+      {button}
+      <CornerBadge badge={badge} />
+    </span>
   )
 }

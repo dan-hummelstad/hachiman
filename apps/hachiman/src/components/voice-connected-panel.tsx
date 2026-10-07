@@ -1,14 +1,16 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { AudioLines, HeadphoneOff, Headphones, Mic, MicOff, PhoneOff } from 'lucide-react'
 import { IconButton } from '@/components/ui/icon-button'
 import { CallSecurityBanner, CallSecuritySection } from '@/components/voice/call-security'
 import { ScreenShareControls } from '@/components/voice/screen-share-controls'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { useElapsed } from '@/hooks/use-elapsed'
 import { cn } from '@/lib/utils'
 import { voiceService } from '@/services/VoiceService'
 import { useChannelStore } from '@/stores/channelStore'
 import { useGuildStore } from '@/stores/guildStore'
+import { useUserStore } from '@/stores/userStore'
 import { useVoiceStore, type VoiceConnectionState } from '@/stores/voiceStore'
 import { classifyQuality, fmtLoss, fmtMs, QUALITY_TIER_LABEL } from '@/lib/connection-quality'
 
@@ -103,7 +105,7 @@ export function VoiceDock(): React.JSX.Element | null {
             <CallSecuritySection />
           </PopoverContent>
         </Popover>
-        <CallTimer key={channelId} />
+        <CallTimer key={channelId} channelId={channelId} />
       </div>
       <div
         className={cn(
@@ -140,28 +142,31 @@ export function VoiceDock(): React.JSX.Element | null {
   )
 }
 
-/** My time in this call, counted from when the dock mounted for the channel (client only, N17). */
-function CallTimer(): React.JSX.Element {
-  const [since] = useState(() => Date.now())
-  const [now, setNow] = useState(since)
-  useEffect(() => {
-    const t = setInterval(() => setNow(Date.now()), 1000)
-    return () => clearInterval(t)
-  }, [])
+/**
+ * My time in this call (N17): from my own VoiceState.joinedAt when the gateway sent one, else
+ * from when the dock mounted for the channel.
+ */
+function CallTimer({ channelId }: { channelId: string }): React.JSX.Element {
+  const [mountedAt] = useState(() => Date.now())
+  const joinedAt = useMyJoinedAt(channelId)
+  const elapsed = useElapsed(joinedAt ?? mountedAt)
   return (
     <span className="bg-feature-voice/15 text-feature-voice-text shrink-0 px-1.5 py-0.5 font-mono text-xs font-semibold tabular-nums">
-      {formatElapsed(now - since)}
+      {elapsed}
     </span>
   )
 }
 
-/** h:mm:ss, or m:ss under an hour. */
-function formatElapsed(ms: number): string {
-  const total = Math.max(0, Math.floor(ms / 1000))
-  const h = Math.floor(total / 3600)
-  const m = Math.floor((total % 3600) / 60)
-  const s = String(total % 60).padStart(2, '0')
-  return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${s}` : `${m}:${s}`
+/** My VoiceState.joinedAt in `channelId` (ms), or null. */
+function useMyJoinedAt(channelId: string): number | null {
+  const myId = useUserStore((s) => s.me?.id)
+  const joinedAt = useVoiceStore((s) => {
+    if (!myId || !s.guildId) return undefined
+    const vs = s.voiceStates.get(s.guildId)?.get(myId)
+    return vs?.channelId === channelId ? vs.joinedAt : undefined
+  })
+  const t = joinedAt ? Date.parse(joinedAt) : NaN
+  return Number.isNaN(t) ? null : t
 }
 
 function QualityRow({ label, value }: { label: string; value: string }): React.JSX.Element {

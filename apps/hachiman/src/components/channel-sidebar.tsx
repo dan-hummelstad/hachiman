@@ -10,6 +10,8 @@ import {
   Plus,
   Settings,
   SquarePen,
+  Star,
+  StarOff,
   Trash2,
   UserPlus,
   Users
@@ -40,11 +42,14 @@ import {
 import { IconButton } from '@/components/ui/icon-button'
 import { SystemTag } from '@/components/ui/system-tag'
 import { useChannelAccess } from '@/lib/channel-access'
+import { MentionCount, UnreadPip } from '@/components/shell/unread-marks'
 import { GuildHeader } from '@/components/shell/guild-header'
 import { UserAvatar } from '@/components/shell/user-avatar'
 import { UserProfilePopover } from '@/components/user-profile-popover'
+import { callStartedAt } from '@/lib/call-timer'
 import { ChannelIcon } from '@/lib/channel-icon'
 import { CHANNEL_KINDS, CREATE_CHANNEL_TYPES, dmName, groupChannels } from '@/lib/model'
+import { isMuted } from '@/lib/notify'
 import { ROLE_INK_SCOPE } from '@/lib/role-ink'
 import {
   useDmChannels,
@@ -52,6 +57,7 @@ import {
   usePermissions,
   useChannelOccupants
 } from '@/hooks/use-hachiman'
+import { useElapsed } from '@/hooks/use-elapsed'
 import { useSpeakingMember } from '@/hooks/use-member'
 import { cn } from '@/lib/utils'
 import { hachiman } from '@/services/hachiman'
@@ -60,6 +66,8 @@ import { openDialog } from '@/stores/dialogStore'
 import { useGuildStore } from '@/stores/guildStore'
 import { useMessageStore, type ChatMessage } from '@/stores/messagesStore'
 import { selectChannel, useSelectedChannelId } from '@/stores/navStore'
+import { useFavouriteDms, useNotifyPrefs, usePrefsStore } from '@/stores/prefsStore'
+import { useChannelUnread, useDmUnread } from '@/stores/unreadStore'
 import { useUserStore } from '@/stores/userStore'
 import { useVoiceStore } from '@/stores/voiceStore'
 
@@ -81,7 +89,8 @@ export function GuildChannelList({ guildId }: { guildId: string }): React.JSX.El
   return (
     <>
       <GuildHeader guildId={guildId} />
-      <div className="-mx-1 mt-2 min-h-0 flex-1 overflow-y-auto px-1 pb-2">
+      {/* Full sidebar width (its padding is 10), so the unread pip sits at the window edge. */}
+      <div className="-mx-2.5 mt-2 min-h-0 flex-1 overflow-y-auto px-2.5 pb-2">
         <GuildChannels guildId={guildId} />
       </div>
     </>
@@ -265,6 +274,11 @@ function ChannelRow({
   const canConnect = has(usePermissions(guildId, channel.id), Permissions.CONNECT)
   const canInvite = has(usePermissions(guildId), Permissions.CREATE_INSTANT_INVITE)
   const { readOnly, restricted } = useChannelAccess(channel)
+  const badge = useChannelUnread(channel.id)
+  const muted = isMuted(useNotifyPrefs(), channel.id, guildId)
+  const unread = badge.unread && !selected
+  const callSince = useMemo(() => (isVoice ? callStartedAt(occupants) : null), [isVoice, occupants])
+  const callElapsed = useElapsed(callSince)
 
   const { setNodeRef, attributes, listeners, transform, transition, isDragging } = useSortable({
     id: channel.id,
@@ -290,15 +304,18 @@ function ChannelRow({
             {...listeners}
             role={undefined}
             tabIndex={-1}
-            className={rowClass(selected, 'group/row gap-1 pr-1 pl-0')}
+            className={rowClass(selected, 'group/row relative gap-1 pr-1 pl-0')}
           >
+            {unread && <UnreadPip className="-left-2.5" />}
             <button
               type="button"
               onClick={() => selectChannel(channel.id)}
               onDoubleClick={isVoice ? join : undefined}
               className={cn(
                 'flex h-full min-w-0 flex-1 items-center gap-2 pl-2.5 text-left',
-                isVoiceHere && !selected && 'text-feature-voice-text'
+                isVoiceHere && !selected && 'text-feature-voice-text',
+                unread && 'text-text-primary font-bold',
+                muted && !selected && 'opacity-50'
               )}
               aria-current={selected ? 'page' : undefined}
               aria-label={
@@ -333,6 +350,15 @@ function ChannelRow({
               {(readOnly || restricted) && (
                 <Lock aria-label={lockLabel} className="text-text-tertiary size-3.5" />
               )}
+              {callElapsed && (
+                <span
+                  aria-label={`Call running for ${callElapsed}`}
+                  className="bg-feature-voice/15 text-feature-voice-text px-1.5 py-0.5 font-mono text-[11px] leading-4 font-semibold tabular-nums"
+                >
+                  {callElapsed}
+                </span>
+              )}
+              <MentionCount count={badge.mentions} />
             </span>
             <span className={cn('items-center', showActions)}>
               {isVoice && canConnect && !isVoiceHere && (
@@ -431,6 +457,7 @@ function VoiceMemberRow({
 export function DmSpace(): React.JSX.Element {
   const selectedChannelId = useSelectedChannelId()
   const online = useOnlineFriends()
+  const dmBadge = useDmUnread()
   const openPeople = (): void => selectChannel(null)
 
   return (
@@ -452,8 +479,16 @@ export function DmSpace(): React.JSX.Element {
           className={rowClass(selectedChannelId === null)}
         >
           <Users className="text-text-tertiary size-4 shrink-0" />
-          <span className="flex-1 truncate">People</span>
+          <span
+            className={cn(
+              'flex-1 truncate',
+              dmBadge.unread && selectedChannelId !== null && 'text-text-primary font-bold'
+            )}
+          >
+            People
+          </span>
           <span className="text-text-tertiary text-xs font-semibold">{online} online</span>
+          <MentionCount count={dmBadge.mentions} />
         </button>
         <h3 className="section-label flex h-[30px] items-center px-1 pt-3">Conversations</h3>
         <DmList />
@@ -499,29 +534,74 @@ function DmRow({ channel, selected }: { channel: Channel; selected: boolean }): 
   const live = useVoiceStore((s) =>
     other && !isGroup ? isStreaming(s.voiceStates, other.id) : false
   )
+  const badge = useChannelUnread(channel.id)
+  const unread = badge.unread && !selected
+  const favourite = useFavouriteDms().includes(channel.id)
 
   return (
-    <li>
-      <button
-        type="button"
-        onClick={() => selectChannel(channel.id)}
-        aria-current={selected ? 'page' : undefined}
-        className={rowClass(selected, 'h-[46px] gap-2.5 pl-1.5 font-normal')}
-      >
-        <UserAvatar
-          name={name}
-          avatar={other?.avatar}
-          size={32}
-          status={isGroup ? undefined : status}
-          cutout="bg-surface-window"
-        />
-        <span className="grid min-w-0 flex-1 leading-tight">
-          <span className="text-text-primary truncate text-[14px] font-bold">{name}</span>
-          {preview && <span className="text-text-tertiary truncate text-xs">{preview}</span>}
-        </span>
-        {live && <SystemTag kind="live" />}
-      </button>
-    </li>
+    <ContextMenu>
+      <ContextMenuTrigger asChild>
+        <li>
+          <button
+            type="button"
+            onClick={() => selectChannel(channel.id)}
+            aria-current={selected ? 'page' : undefined}
+            className={rowClass(selected, 'h-[46px] gap-2.5 pl-1.5 font-normal')}
+          >
+            <UserAvatar
+              name={name}
+              avatar={other?.avatar}
+              size={32}
+              status={isGroup ? undefined : status}
+              cutout="bg-surface-window"
+            />
+            <span className="grid min-w-0 flex-1 leading-tight">
+              <span
+                className={cn(
+                  'text-text-primary truncate text-[14px]',
+                  unread ? 'font-extrabold' : 'font-bold'
+                )}
+              >
+                {name}
+              </span>
+              {preview && (
+                <span
+                  className={cn(
+                    'truncate text-xs',
+                    unread ? 'text-text-secondary font-semibold' : 'text-text-tertiary'
+                  )}
+                >
+                  {preview}
+                </span>
+              )}
+            </span>
+            {live && <SystemTag kind="live" />}
+            <MentionCount count={badge.mentions} />
+          </button>
+        </li>
+      </ContextMenuTrigger>
+      <ContextMenuContent>
+        <FavouriteDmItem channelId={channel.id} favourite={favourite} />
+      </ContextMenuContent>
+    </ContextMenu>
+  )
+}
+
+/** "Add to favourites" or "Remove from favourites" (N6), for a DM row's or tile's menu. */
+export function FavouriteDmItem({
+  channelId,
+  favourite
+}: {
+  channelId: string
+  favourite: boolean
+}): React.JSX.Element {
+  return (
+    <ContextMenuItem
+      onSelect={() => usePrefsStore.getState().setFavouriteDm(channelId, !favourite)}
+    >
+      {favourite ? <StarOff /> : <Star />}
+      {favourite ? 'Remove from favourites' : 'Add to favourites'}
+    </ContextMenuItem>
   )
 }
 

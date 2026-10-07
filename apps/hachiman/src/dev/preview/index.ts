@@ -5,7 +5,7 @@ import { cryptoService } from '@/services/CryptoService'
 import { hachiman, startHachiman } from '@/services/hachiman'
 import { takusenService } from '@/services/TakusenService'
 import { addMembership } from '@/stores/cryptoStore'
-import type { ReadState } from '@hachiman/client'
+import type { ReadState, ReadyPayload } from '@hachiman/client'
 import { useMessageStore, type ChatMessage } from '@/stores/messagesStore'
 import { addMentions, useUnreadStore } from '@/stores/unreadStore'
 import { useNavStore } from '@/stores/navStore'
@@ -17,12 +17,15 @@ import {
   DAY,
   DM1,
   DM2,
+  DM3,
+  DM4,
   G1,
   G1C,
   G2,
   G2C,
   G3,
   G3C,
+  GDM1,
   MEMBER_COUNT,
   ME,
   QUALITY,
@@ -95,6 +98,32 @@ function previewReadStates(history: Map<string, ChatMessage[]>): {
   return { readStates, mentions }
 }
 
+/** N6 fixture: the favourite DM tiles of B1 (marlowe, yuki.h, Juni, quill, the group DM). */
+const FAVOURITE_DMS = [DM1, DM2, DM3, DM4, GDM1]
+
+/** N17 fixture: seconds since each voice participant joined. Lounge started 1:24:07 ago (B1). */
+const JOINED_AGO_S: Record<string, number> = {
+  [ME.id]: 5047,
+  [U.marlowe.id]: 4980,
+  [U.juniper.id]: 3120,
+  [U.ozzy.id]: 610,
+  [U.quill.id]: 1260
+}
+
+/** READY with a `joinedAt` on each fixture voice state. */
+function withJoinedAt(ready: ReadyPayload): ReadyPayload {
+  return {
+    ...ready,
+    guilds: ready.guilds.map((g) => ({
+      ...g,
+      voiceStates: g.voiceStates.map((vs) => ({
+        ...vs,
+        joinedAt: new Date(now - (JOINED_AGO_S[vs.userId] ?? 300) * 1000).toISOString()
+      }))
+    }))
+  }
+}
+
 /**
  * Seed the stores with the preview fixture and cut every network seam. Call before the first
  * render. Idempotent enough for HMR (a reload re-runs it from scratch).
@@ -140,7 +169,16 @@ export function startPreview(opts: PreviewOptions = {}): void {
   for (const [channelId, events] of fixtureMembership()) addMembership(channelId, events)
   hachiman.gateway.emit('state', 'ready')
   const unread = previewReadStates(history)
-  dispatch({ t: 'READY', d: { ...READY, readStates: unread.readStates } })
+  dispatch({ t: 'READY', d: { ...withJoinedAt(READY), readStates: unread.readStates } })
+  usePrefsStore.setState((s) => ({
+    accounts: {
+      ...s.accounts,
+      [ME.id]: {
+        ...(s.accounts[ME.id] ?? { notify: {}, muted: [] }),
+        favouriteDms: FAVOURITE_DMS
+      }
+    }
+  }))
   useUnreadStore.setState((s) => ({
     byChannel: unread.mentions.reduce((m, [id, ids]) => addMentions(m, id, ids), s.byChannel)
   }))
