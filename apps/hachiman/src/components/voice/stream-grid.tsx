@@ -1,8 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
-import { LoaderCircle, Maximize } from 'lucide-react'
+import { Eye, LoaderCircle, Maximize } from 'lucide-react'
 import type { VoiceState } from '@hachiman/client'
+import { UserAvatar } from '@/components/shell/user-avatar'
 import { IconButton } from '@/components/ui/icon-button'
 import { LiveBadge } from '@/components/voice/voice-state-badges'
+import { TileNameTag } from '@/components/voice/voice-tile'
+import { TILE, stageColumns } from '@/components/voice/voice-tile-styles'
 import { useMemberView } from '@/hooks/use-member'
 import { cn } from '@/lib/utils'
 import { useUserStore } from '@/stores/userStore'
@@ -42,10 +45,7 @@ export function StreamGrid({
 
   return (
     <div
-      className={cn(
-        'grid min-h-0 w-full flex-1 auto-rows-fr gap-2',
-        shown.length > 1 && 'md:grid-cols-2'
-      )}
+      className={cn('grid min-h-0 w-full flex-1 auto-rows-fr gap-3', stageColumns(shown.length))}
     >
       {shown.map((l) => (
         <StreamTile
@@ -78,7 +78,7 @@ function StreamTile({
   focused: boolean
   onToggleFocus: () => void
 }): React.JSX.Element {
-  const { name } = useMemberView(guildId, userId)
+  const { name, ink } = useMemberView(guildId, userId)
   const frame = useRef<HTMLDivElement>(null)
   const video = useRef<HTMLVideoElement>(null)
   useEffect(() => {
@@ -87,33 +87,93 @@ function StreamTile({
 
   if (!stream)
     return (
-      <div className="relative flex min-h-0 flex-col items-center justify-center gap-2 border bg-black text-xs text-white/70">
-        <LoaderCircle className="size-5 animate-spin" aria-hidden />
+      <div
+        className={cn(
+          TILE,
+          'text-text-secondary flex flex-col items-center justify-center gap-2 text-xs'
+        )}
+      >
+        <TileNameTag>
+          <LiveBadge />
+          <span className="truncate" style={ink ? { color: ink } : undefined}>
+            {name}
+          </span>
+        </TileNameTag>
+        <LoaderCircle className="text-feature-event-text size-5 animate-spin" aria-hidden />
         {name} is joining the encrypted call
       </div>
     )
 
   return (
-    <div ref={frame} className="group relative min-h-0 overflow-hidden border bg-black">
+    <div ref={frame} className={cn(TILE, 'group overflow-hidden bg-black')}>
       <button
         type="button"
         aria-label={focused ? `Show all streams` : `Focus ${name}'s stream`}
-        className="focus-visible:outline-ring size-full focus-visible:outline-2 focus-visible:-outline-offset-2"
+        className="focus-visible:outline-line-focus size-full outline-none focus-visible:outline-2 focus-visible:-outline-offset-2"
         onClick={onToggleFocus}
       >
         <video ref={video} autoPlay playsInline muted className="size-full object-contain" />
       </button>
-      <span className="pointer-events-none absolute bottom-2 left-2 flex items-center gap-1.5 bg-black/70 px-1.5 py-0.5 text-xs text-white">
+      <TileNameTag>
         <LiveBadge />
-        {self ? 'Your stream' : name}
-      </span>
+        <span className="truncate" style={ink && !self ? { color: ink } : undefined}>
+          {self ? 'Your stream' : name}
+        </span>
+      </TileNameTag>
       <IconButton
         label="Full screen"
-        className="absolute top-2 right-2 bg-black/70 text-white opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 hover:bg-black/90 hover:text-white"
+        className="bg-surface-window/85 text-text-primary hover:bg-surface-window hover:text-text-primary absolute top-3 right-3 opacity-0 group-focus-within:opacity-100 group-hover:opacity-100"
         onClick={() => void frame.current?.requestFullscreen()}
       >
         <Maximize />
       </IconButton>
+    </div>
+  )
+}
+
+/**
+ * A live stream seen from outside its call (arc plan decision 4). Only members of the call hold
+ * the SFrame keys (§12.10), so there is no frame to show: the card shows the streamer's avatar on
+ * the live tint with "LIVE · n watching".
+ */
+export function LiveCard({
+  guildId,
+  userId,
+  channelName,
+  watching
+}: {
+  guildId: string
+  userId: string
+  channelName: string
+  /** The other people in the channel. */
+  watching: number
+}): React.JSX.Element {
+  const { member, name, ink } = useMemberView(guildId, userId)
+  return (
+    <div className="bg-feature-danger/10 border-feature-danger/30 relative flex aspect-video w-full max-w-2xl items-center justify-center border">
+      <span className="absolute top-3 left-3 flex items-center gap-1.5">
+        <LiveBadge />
+        <span className="bg-surface-window/85 text-text-primary flex h-[18px] items-center gap-1 px-1.5 text-[11px] leading-none font-bold">
+          <Eye className="size-3" aria-hidden />
+          {watching} watching
+        </span>
+      </span>
+      <UserAvatar
+        name={name}
+        avatar={member?.user.avatar}
+        color={ink}
+        size={112}
+        className="ring-feature-danger/40 rounded-full ring-4"
+      />
+      <span className="absolute bottom-3 left-3 flex min-w-0 items-center gap-2">
+        <UserAvatar name={name} avatar={member?.user.avatar} color={ink} size={32} />
+        <span className="flex min-w-0 flex-col">
+          <span className="truncate text-sm font-bold" style={ink ? { color: ink } : undefined}>
+            {name}
+          </span>
+          <span className="text-text-secondary truncate text-xs">Streaming {channelName}</span>
+        </span>
+      </span>
     </div>
   )
 }

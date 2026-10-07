@@ -11,8 +11,13 @@ import { useVoiceStore } from '@/stores/voiceStore'
 /**
  * Share-screen toggle plus the stream quality picker. Render only while in voice. Hosts with
  * their own source list (Electron) get the in-app picker; the browser shows its own.
+ * `buttonClassName` restyles both buttons, for the control bar of the stage.
  */
-export function ScreenShareControls(): React.JSX.Element {
+export function ScreenShareControls({
+  buttonClassName
+}: {
+  buttonClassName?: string
+}): React.JSX.Element {
   const platform = usePlatform()
   const sharing = useVoiceStore((s) => s.localScreen !== null)
   const [picker, setPicker] = useState<PickerState | null>(null)
@@ -38,28 +43,29 @@ export function ScreenShareControls(): React.JSX.Element {
         label={sharing ? 'Stop sharing' : 'Share your screen'}
         pressed={sharing}
         tone="online"
+        className={buttonClassName}
         onClick={() => (sharing ? voiceService.stopScreenShare() : void start())}
       >
         {sharing ? <ScreenShareOff /> : <ScreenShare />}
       </IconButton>
-      <StreamQualityPicker />
+      <StreamQualityPicker className={buttonClassName} />
       <ScreenSourcePicker picker={picker} onClose={() => setPicker(null)} />
     </>
   )
 }
 
-function StreamQualityPicker(): React.JSX.Element {
+function StreamQualityPicker({ className }: { className?: string }): React.JSX.Element {
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <IconButton label="Stream quality">
+        <IconButton label="Stream quality" className={className}>
           <SlidersHorizontal />
         </IconButton>
       </PopoverTrigger>
-      <PopoverContent side="top" className="w-60 space-y-3">
-        <p className="text-sm font-semibold">Stream quality</p>
+      <PopoverContent side="top" className="w-64 space-y-3">
+        <p className="section-label">Stream quality</p>
         <StreamQualityFields />
-        <p className="text-muted-foreground text-xs">
+        <p className="text-text-tertiary text-xs">
           Changes apply to a live share. Higher settings need more upload bandwidth.
         </p>
       </PopoverContent>
