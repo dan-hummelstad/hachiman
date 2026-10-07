@@ -68,7 +68,10 @@ describe('fallbackHue', () => {
 })
 
 describe('tintColors', () => {
-  it('keeps the lightness fixed per theme', () => {
-    expect(tintColors(10)).toEqual({ light: 'hsl(10 45% 91%)', dark: 'hsl(10 42% 17%)' })
+  it('washes a fixed-lightness hue over the Arc base of each theme', () => {
+    expect(tintColors(10)).toEqual({
+      light: 'color-mix(in oklab, hsl(10 45% 91%) 30%, #e4e0fe)',
+      dark: 'color-mix(in oklab, hsl(10 42% 17%) 30%, #201c46)'
+    })
   })
 })

@@ -72,9 +72,22 @@ export function fallbackHue(guildId: string): number {
   return FALLBACK_HUES[(h >>> 0) % FALLBACK_HUES.length] ?? FALLBACK_HUES[0]
 }
 
-/** The wallpaper colours of a hue: fixed saturation and lightness for each theme. */
+/** The Arc wallpaper of each theme (B1, B2): the base that a guild hue washes over. */
+const BASE = { light: '#e4e0fe', dark: '#201c46' } as const
+/** How much of the guild hue the wallpaper takes. More reads as a coloured window, not a wash. */
+const WASH = 30
+
+/**
+ * The wallpaper colours of a hue: a faint wash of the hue (fixed saturation and lightness per
+ * theme) over the Arc base, so every guild stays close to B1/B8/B10.
+ */
 export function tintColors(hue: number): { light: string; dark: string } {
-  return { light: `hsl(${hue} 45% 91%)`, dark: `hsl(${hue} 42% 17%)` }
+  const wash = (color: string, base: string): string =>
+    `color-mix(in oklab, ${color} ${WASH}%, ${base})`
+  return {
+    light: wash(`hsl(${hue} 45% 91%)`, BASE.light),
+    dark: wash(`hsl(${hue} 42% 17%)`, BASE.dark)
+  }
 }
 
 const ICON_SAMPLE = 32
