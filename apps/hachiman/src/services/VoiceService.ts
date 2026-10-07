@@ -190,7 +190,13 @@ class VoiceService {
   private async connect(guildId: string, channelId: string): Promise<void> {
     if (useVoiceStore.getState().channelId === channelId) return
     this.teardown()
-    useVoiceStore.setState({ guildId, channelId, connectionState: 'new', screens: new Map() })
+    useVoiceStore.setState({
+      guildId,
+      channelId,
+      localJoinedAt: Date.now(),
+      connectionState: 'new',
+      screens: new Map()
+    })
     try {
       const conn = await hachiman.joinVoice(guildId, channelId)
       this.conn = conn

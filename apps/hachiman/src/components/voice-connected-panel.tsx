@@ -1,4 +1,3 @@
-import { useState } from 'react'
 import { AudioLines, HeadphoneOff, Headphones, Mic, MicOff, PhoneOff } from 'lucide-react'
 import { IconButton } from '@/components/ui/icon-button'
 import { CallSecurityBanner, CallSecuritySection } from '@/components/voice/call-security'
@@ -105,7 +104,7 @@ export function VoiceDock(): React.JSX.Element | null {
             <CallSecuritySection />
           </PopoverContent>
         </Popover>
-        <CallTimer key={channelId} channelId={channelId} />
+        <CallTimer channelId={channelId} />
       </div>
       <div
         className={cn(
@@ -144,12 +143,12 @@ export function VoiceDock(): React.JSX.Element | null {
 
 /**
  * My time in this call (N17): from my own VoiceState.joinedAt when the gateway sent one, else
- * from when the dock mounted for the channel.
+ * from when this client joined (voiceStore), so a remount of the dock keeps the time.
  */
 function CallTimer({ channelId }: { channelId: string }): React.JSX.Element {
-  const [mountedAt] = useState(() => Date.now())
+  const localJoinedAt = useVoiceStore((s) => s.localJoinedAt)
   const joinedAt = useMyJoinedAt(channelId)
-  const elapsed = useElapsed(joinedAt ?? mountedAt)
+  const elapsed = useElapsed(joinedAt ?? localJoinedAt)
   return (
     <span className="bg-feature-voice/15 text-feature-voice-text shrink-0 px-1.5 py-0.5 font-mono text-xs font-semibold tabular-nums">
       {elapsed}

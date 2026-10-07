@@ -10,6 +10,8 @@ interface VoiceStoreState {
   /** The single global voice session (one per user). null = not in voice. */
   guildId: string | null
   channelId: string | null
+  /** When this client joined `channelId` (ms): the call timer's fallback without a joinedAt. */
+  localJoinedAt: number | null
   connectionState: VoiceConnectionState
   micActive: boolean
   /** Mirror of `HachimanClient.selfVoice`. `ownMute` and `selfDeaf` persist; `selfMute` derives from them. */
@@ -35,6 +37,7 @@ interface VoiceStoreState {
 const SESSION_DEFAULTS = {
   guildId: null,
   channelId: null,
+  localJoinedAt: null,
   connectionState: 'idle' as VoiceConnectionState,
   micActive: false,
   localScreen: null,

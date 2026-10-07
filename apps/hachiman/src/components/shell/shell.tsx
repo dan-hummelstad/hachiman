@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { DmSpace, GuildChannelList } from '@/components/channel-sidebar'
 import { ChatBody } from '@/components/chat/chat-body'
 import { HomePane } from '@/components/home-pane'
@@ -49,8 +50,9 @@ const WALLPAPER = cn(
  *
  * N3: with the sidebar hidden, the card takes the window width (inset 8), the sidebar slides in
  * over it from the left edge, and the voice dock floats in the card's bottom-left corner. The
- * card then sets `--dock-inset` (the dock width and its gap) and the footers in the pane shift
- * right by it, so the composer is not covered.
+ * card then sets `--dock-inset` (the dock width and its gap) and the composer footer shifts right
+ * by it, so it is not covered. The one VoiceDock moves between the sidebar foot and the float
+ * spot (useDockHost); it does not remount.
  *
  * Settings (Phase 7): the sidebar middle shows the settings list and the card shows the settings
  * page, in place of the channel list, the pane and the right column. Nothing covers the window.
@@ -78,6 +80,9 @@ export function Shell(): React.JSX.Element {
   const dockInset = hidden && inVoice
   const settings = useSettingsMode()
   const sidebarRef = useRef<HTMLDivElement>(null)
+  const [footSlot, setFootSlot] = useState<HTMLDivElement | null>(null)
+  const [floatSlot, setFloatSlot] = useState<HTMLDivElement | null>(null)
+  const dockHost = useDockHost(floatDock ? floatSlot : footSlot)
   useSidebarReveal(sidebarRef)
   useSidebarShortcut()
   useSwitcherShortcut()
@@ -92,7 +97,7 @@ export function Shell(): React.JSX.Element {
   return (
     <div
       style={tint as React.CSSProperties}
-      className={cn('relative flex min-h-0 flex-1', WALLPAPER)}
+      className={cn('relative flex min-h-0 flex-1 [--dock-width:264px]', WALLPAPER)}
     >
       {tucked && (
         <div
@@ -144,7 +149,7 @@ export function Shell(): React.JSX.Element {
           }
           foot={
             <>
-              {!tucked && <VoiceDock />}
+              <div ref={setFootSlot} className="contents" />
               <SpaceBar />
             </>
           }
@@ -153,11 +158,10 @@ export function Shell(): React.JSX.Element {
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <TabBar inbox={<InboxButton />} />
         <div
-          style={dockInset ? ({ '--dock-inset': '272px' } as React.CSSProperties) : undefined}
           className={cn(
             'border-line-hairline bg-surface-content relative mb-2 flex min-h-0 flex-1 border',
             hidden ? 'mx-2' : 'mr-2',
-            dockInset && '[&_main_footer]:pl-[calc(var(--dock-inset)+16px)]'
+            dockInset && '[--dock-inset:calc(var(--dock-width)+8px)]'
           )}
         >
           {settings ? (
@@ -192,14 +196,31 @@ export function Shell(): React.JSX.Element {
             </main>
           )}
           {!settings && sideOpen && selectedChannel && <RightColumn channel={selectedChannel} />}
-          {floatDock && (
-            <div className="bg-surface-window absolute bottom-2 left-2 z-20 w-[264px] shadow-xl">
-              <VoiceDock />
-            </div>
-          )}
+          <div
+            ref={setFloatSlot}
+            className={cn(
+              'bg-surface-window absolute bottom-2 left-2 z-20 w-(--dock-width) shadow-xl',
+              !floatDock && 'hidden'
+            )}
+          />
         </div>
       </div>
       <QuickSwitcher />
+      {createPortal(<VoiceDock />, dockHost)}
     </div>
   )
+}
+
+/** A node the VoiceDock renders into, kept in `slot`: moving it keeps the dock mounted. */
+function useDockHost(slot: HTMLElement | null): HTMLElement {
+  const [host] = useState(() => {
+    const el = document.createElement('div')
+    el.style.display = 'contents'
+    return el
+  })
+  useLayoutEffect(() => {
+    if (slot && host.parentElement !== slot) slot.appendChild(host)
+  }, [slot, host])
+  useEffect(() => () => host.remove(), [host])
+  return host
 }
