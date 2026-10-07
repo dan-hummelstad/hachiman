@@ -1,83 +1,41 @@
-import {
-  HachimanClient,
-  type GatewayDevice,
-  type GatewayDispatch,
-  type GatewayEvents,
-  type GuildEventWithMe,
-  type Message,
-  type PresenceStatus
-} from '@hachiman/client'
-import { createTransformWorker } from '@hachiman/crypto'
+import type { GatewayDispatch, GatewayEvents, Message, PresenceStatus } from '@hachiman/client'
 import { clearDecryptedBlobs } from '@/hooks/use-decrypted-blob'
-import { CLIENT_CAPABILITIES, CLIENT_VERSION } from '@/lib/client-version'
+import { hachiman } from '@/services/client'
 import { cryptoService } from '@/services/CryptoService'
 import { createDsTransport } from '@/services/ds-transport'
 import { docsService } from '@/services/docs/DocsService'
-import { blockService, eventsService, pinsService } from '@/services/guild-features'
+import { features, type ClientFeature } from '@/services/features'
+import { blocksFeature, eventsFeature, pinsFeature } from '@/services/guild-features'
 import { redeemWaitingInvites, resetInvites } from '@/services/InviteService'
+import { messageContext } from '@/services/message-context'
 import { messagesService } from '@/services/MessagesService'
 import { takusenService } from '@/services/TakusenService'
-import { messageSound, playSound, startSounds } from '@/services/SoundService'
-import { unreadService } from '@/services/UnreadService'
-import { createVoiceE2ee } from '@/services/voice-e2ee'
+import { soundFeature, startSounds } from '@/services/SoundService'
+import { tabsFeature } from '@/services/tabs-feature'
+import { unreadFeature } from '@/services/UnreadService'
 import { voiceService } from '@/services/VoiceService'
 import type { IPlatformService } from '@/shared/IPlatformService'
 import { resetChannelStore, useChannelStore } from '@/stores/channelStore'
 import { resetComposerStore } from '@/stores/composerStore'
-import { byStart, resetEventsStore, useEventsStore } from '@/stores/eventsStore'
 import { resetThreadsStore } from '@/stores/threadsStore'
-import { currentDeviceId, setCryptoFatal, useCryptoStore } from '@/stores/cryptoStore'
+import { setCryptoFatal, useCryptoStore } from '@/stores/cryptoStore'
 import { resetGuildStore, useGuildStore } from '@/stores/guildStore'
 import { resetMessagesStore, useMessageStore } from '@/stores/messagesStore'
 import { closeAllDialogs } from '@/stores/dialogStore'
-import { useDocsStore } from '@/stores/docsStore'
 import {
   clearHistory,
   DM_HOME,
   forgetGuild,
   openChannel,
-  selectedChannelId,
-  useNavStore
+  selectedChannelId
 } from '@/stores/navStore'
-import { notifyPrefs, usePrefsStore } from '@/stores/prefsStore'
-import { loadTabs, pruneTabs, type TabTarget } from '@/stores/tabsStore'
+import { usePrefsStore } from '@/stores/prefsStore'
+import { migrateLegacyTabs } from '@/stores/tabsStore'
 import { useTakusenStore } from '@/stores/takusenStore'
 import { resetUserStore, useUserStore } from '@/stores/userStore'
 import { resetVoiceMirror, useVoiceStore } from '@/stores/voiceStore'
 
-/** IDENTIFY facts (§12.13). Null until the crypto Worker has a device row: connect() waits. */
-function device(): GatewayDevice | null {
-  const deviceId = currentDeviceId()
-  return deviceId
-    ? { deviceId, capabilities: [...CLIENT_CAPABILITIES], clientVersion: CLIENT_VERSION }
-    : null
-}
-
-/** One delegate and one transform Worker per call, for the channel that VoiceService joins. */
-function voiceE2ee(): ReturnType<typeof createVoiceE2ee> {
-  const { guildId, channelId } = useVoiceStore.getState()
-  if (!guildId || !channelId) throw new Error('voice e2ee: no voice target')
-  return createVoiceE2ee({
-    crypto: cryptoService.client(),
-    target: { guildId, channelId },
-    createWorker: createTransformWorker,
-    createTransform: (worker, options, transfer) =>
-      new RTCRtpScriptTransform(worker, options, transfer),
-    createChannel: () => new MessageChannel(),
-    onHandle: (handle) =>
-      useCryptoStore.setState({ voice: handle ? { handle, epoch: null, roster: [] } : null })
-  })
-}
-
-/** The one HachimanClient. Tokens come from the Takusen session. */
-export const hachiman = new HachimanClient({
-  apiUrl: `${takusenService.env.apiBase.replace(/\/$/, '')}/v1`,
-  gatewayUrl: takusenService.env.gatewayUrl,
-  getToken: takusenService.getAccessToken,
-  device,
-  proveDevice: (req) => cryptoService.proveDevice(req),
-  voiceE2ee
-})
+export { hachiman }
 
 const TYPING_MS = 10_000
 
@@ -102,21 +60,6 @@ function syncPresences(): void {
   })
 }
 
-/** cache.events → eventsStore, each guild earliest start first. */
-export function syncEvents(): void {
-  const byGuild = new Map<string, GuildEventWithMe[]>()
-  for (const [guildId, events] of hachiman.cache.events)
-    byGuild.set(guildId, [...events.values()].sort(byStart))
-  useEventsStore.setState({ byGuild })
-}
-
-/** cache.blocks → userStore, and the `blocked` flag of the message rows. */
-export function syncBlocks(): void {
-  const blocks = new Set(hachiman.cache.blocks)
-  useUserStore.setState({ blocks })
-  useMessageStore.getState().setBlockedUsers(blocks)
-}
-
 function syncChannels(): void {
   useChannelStore.setState({ channels: new Map(hachiman.cache.channels) })
 }
@@ -125,25 +68,62 @@ function syncVoiceStates(): void {
   useVoiceStore.setState({ voiceStates: copy2(hachiman.cache.voiceStates) })
 }
 
-/** A tab's target is still there: its channel is in the cache, and its page (once loaded). */
-function tabExists(t: TabTarget): boolean {
-  if (!hachiman.cache.channels.has(t.id)) return false
-  if (t.kind !== 'page') return true
-  const pages = useDocsStore.getState().pagesByChannel.get(t.id)
-  return pages === undefined || pages.some((p) => p.id === t.pageId)
-}
-
-/** The account whose tabs and per-account preferences apply (null = signed out). */
+/** The account whose per-account preferences (tabs too) apply (null = signed out). */
 function setAccount(userId: string | null): void {
   usePrefsStore.getState().setAccountId(userId)
-  loadTabs(userId)
+  if (userId !== null) migrateLegacyTabs(userId)
 }
 
-/** Channels went away: drop their tabs and read states. */
-function onChannelsGone(): void {
-  pruneTabs(tabExists)
-  unreadService.onChannelsChanged()
+/** The messages, the pages and the invites with history hook into the session as features too. */
+const messagesFeature: ClientFeature = {
+  name: 'messages',
+  onCryptoReady: () => messagesService.retryAll(),
+  onGroupKeys: (groupId) => void messagesService.retryGroup(groupId),
+  reset: () => messagesService.reset()
 }
+
+const docsFeature: ClientFeature = {
+  name: 'docs',
+  onReady: () => docsService.onReady(true),
+  onDispatch(e: GatewayDispatch): void {
+    switch (e.t) {
+      case 'RESUMED':
+        return docsService.onReady(false)
+      case 'CHANNEL_DELETE':
+        return docsService.onChannelDelete(e.d.id)
+      case 'PAGE_CREATE':
+      case 'PAGE_UPDATE':
+        return docsService.onPageEvent(e.d)
+      case 'PAGE_DELETE':
+        return docsService.onPageDelete(e.d)
+    }
+  },
+  onGroupKeys: () => docsService.retry(),
+  reset: () => docsService.reset()
+}
+
+const invitesFeature: ClientFeature = {
+  name: 'invites',
+  onReady: () => redeemWaitingInvites(),
+  onDispatch(e: GatewayDispatch): void {
+    // A joined invite with history waits for the members of its guild (§12.11.4).
+    if (e.t === 'GUILD_CREATE') redeemWaitingInvites()
+  },
+  onCryptoReady: () => redeemWaitingInvites(),
+  reset: () => resetInvites()
+}
+
+features.register(
+  messagesFeature,
+  docsFeature,
+  invitesFeature,
+  unreadFeature,
+  soundFeature,
+  pinsFeature,
+  eventsFeature,
+  blocksFeature,
+  tabsFeature
+)
 
 function syncAll(): void {
   useUserStore.setState({ me: hachiman.cache.user })
@@ -151,45 +131,30 @@ function syncAll(): void {
   syncPresences()
   syncChannels()
   syncVoiceStates()
-  syncEvents()
 }
 
-const onUpdate = (e: GatewayDispatch): void => {
+/** The core mirrors: the cache → the stores. */
+function mirror(e: GatewayDispatch): void {
   switch (e.t) {
     case 'GUILD_DELETE':
       // Left / kicked / deleted: drop the selection and its remembered channel.
       forgetGuild(e.d.id)
-      syncAll()
-      return onChannelsGone()
-    case 'READY': {
-      docsService.onReady(true)
+      return syncAll()
+    case 'READY':
       messagesService.onNewSession(selectedChannelId())
       useUserStore.setState({ status: hachiman.cache.presences.get(e.d.user.id) ?? 'online' })
       cryptoService.sync()
       syncAll()
-      setAccount(e.d.user.id)
-      pruneTabs(tabExists)
-      unreadService.onReady()
-      void blockService.load()
-      loadSelectedGuildEvents()
-      return redeemWaitingInvites()
-    }
+      return setAccount(e.d.user.id)
     case 'RESUMED':
-      docsService.onReady(false)
       cryptoService.sync()
       return syncAll()
     case 'GUILD_CREATE':
-      syncAll()
-      loadSelectedGuildEvents()
-      // A joined invite with history waits for the members of its guild (§12.11.4).
-      return redeemWaitingInvites()
+      return syncAll()
     case 'CHANNEL_CREATE':
     case 'CHANNEL_UPDATE':
     case 'CHANNEL_DELETE':
-      if (e.t === 'CHANNEL_DELETE') docsService.onChannelDelete(e.d.id)
-      syncChannels()
-      if (e.t === 'CHANNEL_DELETE') onChannelsGone()
-      return
+      return syncChannels()
     case 'VOICE_STATE_UPDATE':
       return syncVoiceStates()
     case 'USER_UPDATE':
@@ -206,26 +171,13 @@ const onUpdate = (e: GatewayDispatch): void => {
       // The raw event keeps 'offline' (Invisible) for me; the cache drops it.
       if (e.d.userId === hachiman.cache.user?.id) useUserStore.setState({ status: e.d.status })
       return syncPresences()
-    case 'GUILD_EVENT_CREATE':
-    case 'GUILD_EVENT_UPDATE':
-    case 'GUILD_EVENT_DELETE':
-    case 'GUILD_EVENT_RSVP':
-      return syncEvents()
-    case 'USER_BLOCK_UPDATE':
-      return syncBlocks()
-    case 'CHANNEL_PINS_UPDATE':
-      return pinsService.onPinsUpdate(e.d.channelId)
   }
 }
 
-/**
- * The events of the selected guild load on READY, on GUILD_CREATE and on every guild switch
- * (N14): whichever comes once the guild is in the cache.
- */
-function loadSelectedGuildEvents(): void {
-  const { guildKey } = useNavStore.getState()
-  if (guildKey !== DM_HOME && hachiman.cache.guilds.has(guildKey))
-    eventsService.ensureLoaded(guildKey)
+const onUpdate = (e: GatewayDispatch): void => {
+  mirror(e)
+  if (e.t === 'READY') features.ready()
+  features.dispatch(e)
 }
 
 /** Set my presence: shown immediately, then confirmed by the PRESENCE_UPDATE echo. */
@@ -234,10 +186,14 @@ export function setMyStatus(status: PresenceStatus): void {
   hachiman.gateway.updatePresence(status)
 }
 
+/** The id of the 1:1 DM with `userId`, opened (or reused) on the server. */
+export async function dmChannelWith(userId: string): Promise<string> {
+  return (await hachiman.rest.openDm([userId])).id
+}
+
 /** Open (or reuse) a 1:1 DM with `userId` and switch the view to it. */
 export async function openDmWith(userId: string): Promise<void> {
-  const dm = await hachiman.rest.openDm([userId])
-  openChannel(DM_HOME, dm.id)
+  openChannel(DM_HOME, await dmChannelWith(userId))
 }
 
 /** MESSAGE_UPDATE: decrypt, then store. */
@@ -245,17 +201,11 @@ const onMessageUpdate = (m: Message): void => {
   void messagesService.ingest([m])
 }
 
-/** MESSAGE_CREATE: decrypt, store, then the typing line and the sound (mentions are in the content). */
+/** MESSAGE_CREATE: decrypt, store, clear the typing line, then the features (unread, sound). */
 const onMessageCreate = async (m: Message): Promise<void> => {
   const [row] = await messagesService.ingest([m])
   useMessageStore.getState().setTyping(m.channelId, m.author.id, null)
-  unreadService.onMessageCreate(m, row)
-  const me = hachiman.cache.user
-  if (!me || row?.decrypt.status !== 'ok' || row.kind === 'page_activity' || row.blocked) return
-  const viewing = selectedChannelId() === m.channelId && document.hasFocus()
-  const myRoles = m.guildId ? (hachiman.cache.members.get(m.guildId)?.get(me.id)?.roles ?? []) : []
-  const sound = messageSound(row, me, viewing, myRoles, notifyPrefs())
-  if (sound) playSound(sound)
+  features.message(m, row, messageContext(m.channelId, row))
 }
 
 const onTyping = (d: GatewayEvents['TYPING_START']): void => {
@@ -333,46 +283,26 @@ export function startHachiman(host?: IPlatformService): void {
     useMessageStore.getState().remove(d.channelId, d.id)
   })
   hachiman.on('TYPING_START', onTyping)
-  hachiman.on('READ_STATE_UPDATE', (d) => unreadService.onReadStateUpdate(d))
   hachiman.on('fatal', onFatal)
   // 4004: the gateway rejected the token before its expiry. A refresh that fails signs out.
   hachiman.gateway.on('close', ({ code }) => {
     if (code === 4004) takusenService.refreshNow()
   })
-  hachiman.on('PAGE_CREATE', (d) => docsService.onPageEvent(d))
-  hachiman.on('PAGE_UPDATE', (d) => docsService.onPageEvent(d))
-  hachiman.on('PAGE_DELETE', (d) => docsService.onPageDelete(d))
   hachiman.on('DOC_UPDATE', (d) => docsService.onDocUpdate(d))
   hachiman.on('DOC_AWARENESS', (d) => docsService.onDocAwareness(d))
   forwardCryptoEvents()
-  cryptoService.on('epochKeysAvailable', ({ groupId }) => {
-    void messagesService.retryGroup(groupId)
-    pinsService.retryGroup(groupId)
-    docsService.retry()
-  })
+  cryptoService.on('epochKeysAvailable', ({ groupId }) => features.groupKeys(groupId))
   // This device joined a group: the page titles of that group decrypt now.
   cryptoService.on('membership', (e) => docsService.onMembership(e))
   // A new user in a text group: re-wrap the pages of its pages channels (§12.20).
   cryptoService.on('usersAdded', (e) => docsService.onUsersAdded(e))
-  // A deleted page closes its tabs.
-  useDocsStore.subscribe((s, p) => {
-    if (s.pagesByChannel !== p.pagesByChannel) pruneTabs(tabExists)
-  })
   cryptoService.on('status', (s) => {
     if (s.state !== 'ready') return
-    unreadService.onCryptoReady()
     // Setup or linking finished: catch up and decrypt what waited.
     if (hachiman.gateway.state === 'ready') cryptoService.sync()
-    messagesService.retryAll()
-    pinsService.retryAll()
-    redeemWaitingInvites()
-  })
-  // A guild switch loads the events of that guild (N14).
-  useNavStore.subscribe((s, prev) => {
-    if (s.guildKey !== prev.guildKey) loadSelectedGuildEvents()
+    features.cryptoReady()
   })
   voiceService.start()
-  unreadService.start()
   startSounds()
   // Back online: reconnect now instead of after the remaining backoff (up to 30 s).
   window.addEventListener('online', () => hachiman.gateway.retryNow())
@@ -388,21 +318,15 @@ export function startHachiman(host?: IPlatformService): void {
     voiceService.leaveVoice()
     hachiman.disconnect()
     cryptoService.stop()
-    messagesService.reset()
-    pinsService.reset()
-    eventsService.reset()
-    docsService.reset()
-    resetInvites()
+    features.reset()
     clearDecryptedBlobs()
     resetUserStore()
     resetGuildStore()
     resetChannelStore()
     resetVoiceMirror()
     resetMessagesStore()
-    unreadService.reset()
     setAccount(null)
     clearHistory()
-    resetEventsStore()
     resetThreadsStore()
     resetComposerStore()
     closeAllDialogs() // open dialogs belong to the session that just ended

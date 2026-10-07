@@ -2,27 +2,27 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import type { View } from '@/stores/navStore'
 import {
   activeIndex,
+  currentTabs,
   isPinned,
-  loadTabs,
+  migrateLegacyTabs,
   moveTab,
   pinTab,
   pruneTabs,
   targetOf,
   unpinTab,
-  useTabsStore,
   type TabTarget
 } from '@/stores/tabsStore'
+import { usePrefsStore } from '@/stores/prefsStore'
 
 const general: TabTarget = { kind: 'channel', id: 'general', guildId: 'g1' }
 const lounge: TabTarget = { kind: 'channel', id: 'lounge', guildId: 'g1' }
 const dm: TabTarget = { kind: 'dm', id: 'dm1', guildId: null }
 const page: TabTarget = { kind: 'page', id: 'wiki', guildId: 'g2', pageId: 'p1' }
 const wiki: TabTarget = { kind: 'channel', id: 'wiki', guildId: 'g2' }
-const tabs = (): TabTarget[] => useTabsStore.getState().tabs
+const tabs = (): TabTarget[] => currentTabs()
 
 beforeEach(() => {
-  loadTabs(null)
-  loadTabs('u1')
+  usePrefsStore.setState({ accounts: {}, accountId: 'u1' })
 })
 
 describe('tabsStore', () => {
@@ -46,10 +46,32 @@ describe('tabsStore', () => {
     expect(tabs()).toEqual([general, dm])
   })
 
-  it('a sign-out drops the tabs of the account', () => {
+  it('a sign-out shows no tabs, and the account gets its own back', () => {
     pinTab(general)
-    loadTabs(null)
+    usePrefsStore.getState().setAccountId(null)
     expect(tabs()).toEqual([])
+    pinTab(dm)
+    usePrefsStore.getState().setAccountId('u2')
+    expect(tabs()).toEqual([])
+    usePrefsStore.getState().setAccountId('u1')
+    expect(tabs()).toEqual([general])
+  })
+
+  it('moves the tabs of the old storage key once, then deletes the key', () => {
+    const store = new Map<string, string>([['hachiman:tabs:u1', JSON.stringify([dm, { bad: 1 }])]])
+    const ls = {
+      getItem: (k: string) => store.get(k) ?? null,
+      removeItem: (k: string) => void store.delete(k)
+    }
+    const prev = globalThis.localStorage
+    Object.defineProperty(globalThis, 'localStorage', { value: ls, configurable: true })
+    try {
+      migrateLegacyTabs('u1')
+      expect(tabs()).toEqual([dm])
+      expect(store.has('hachiman:tabs:u1')).toBe(false)
+    } finally {
+      Object.defineProperty(globalThis, 'localStorage', { value: prev, configurable: true })
+    }
   })
 
   it('lights the tab of the open view, for each kind', () => {

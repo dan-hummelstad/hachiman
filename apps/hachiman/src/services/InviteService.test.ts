@@ -15,7 +15,7 @@ const cache = {
   user: { id: 'me' },
   members: new Map<string, Map<string, unknown>>()
 }
-vi.mock('@/services/hachiman', () => ({ hachiman: { rest, cache } }))
+vi.mock('@/services/client', () => ({ hachiman: { rest, cache } }))
 
 const crypto = {
   prepareHistoryInvite: vi.fn((input: { channelIds: string[] }) =>

@@ -40,7 +40,7 @@ const rest = {
 }
 const channels = new Map<string, Pick<Channel, 'id' | 'type' | 'mlsGroupId'>>()
 const CAN_WRITE = Permissions.VIEW_CHANNEL | Permissions.SEND_MESSAGES
-vi.mock('@/services/hachiman', () => ({
+vi.mock('@/services/client', () => ({
   hachiman: { rest, cache: { channels }, permissionsFor: () => CAN_WRITE }
 }))
 vi.mock('@/services/CryptoService', () => ({ cryptoService: { client: () => crypto } }))

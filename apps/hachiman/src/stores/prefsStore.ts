@@ -4,6 +4,7 @@ import { devtools, persist } from 'zustand/middleware'
 import type { StreamQuality } from '@/lib/stream-quality'
 import type { SoundEvent } from '@/lib/sounds'
 import type { NotifyLevel, NotifyPrefs } from '@/lib/notify'
+import type { TabTarget } from '@/stores/tabsStore'
 
 export type MessageDisplay = 'cozy' | 'compact'
 /** `system` follows the OS colour scheme. Applied to `<html>` by `ThemeProvider`. */
@@ -11,10 +12,12 @@ export type Theme = 'dark' | 'light' | 'system'
 /** N3: the sidebar docked beside the content, or hidden and shown on hover. */
 export type SidebarMode = 'docked' | 'undocked'
 
-/** The preferences of one account on this device (N6, N9). */
+/** The preferences of one account on this device (N1, N6, N9). */
 export interface AccountPrefs extends NotifyPrefs {
   /** DM channel ids, in tile order. */
   favouriteDms: string[]
+  /** The pinned tabs (N1), in tab order. Absent in data stored before tabs moved here. */
+  tabs?: TabTarget[]
 }
 
 const EMPTY_ACCOUNT: AccountPrefs = { favouriteDms: [], notify: {}, muted: [] }
@@ -55,7 +58,11 @@ interface PrefsState {
   /** null clears the level of `id` (channel or guild): it follows its parent or the default. */
   setNotifyLevel: (id: string, level: NotifyLevel | null) => void
   setMuted: (id: string, muted: boolean) => void
+  /** Replaces the tabs of the signed-in account with `f(tabs)`; returning `tabs` changes nothing. */
+  updateTabs: (f: (tabs: TabTarget[]) => TabTarget[]) => void
 }
+
+const NO_TABS: TabTarget[] = []
 
 /** The preferences of the signed-in account (a stable empty object when none). */
 export const accountPrefs = (s: Pick<PrefsState, 'accounts' | 'accountId'>): AccountPrefs =>
@@ -122,6 +129,14 @@ export const usePrefsStore = create<PrefsState>()(
                 ? a
                 : { ...a, muted: muted ? [...a.muted, id] : a.muted.filter((m) => m !== id) }
             )
+          ),
+        updateTabs: (f) =>
+          set((s) =>
+            updateAccount(s, (a) => {
+              const before = a.tabs ?? NO_TABS
+              const tabs = f(before)
+              return tabs === before ? a : { ...a, tabs }
+            })
           )
       }),
       {
@@ -160,6 +175,9 @@ export function moved<T>(list: readonly T[], from: number, to: number): T[] {
 
 export const useSidebarMode = (): SidebarMode => usePrefsStore((s) => s.sidebar)
 export const useFavouriteDms = (): string[] => usePrefsStore((s) => accountPrefs(s).favouriteDms)
+/** The pinned tabs of the signed-in account (a stable empty list when none). */
+export const accountTabs = (s: Pick<PrefsState, 'accounts' | 'accountId'>): TabTarget[] =>
+  accountPrefs(s).tabs ?? NO_TABS
 /** The notification preferences of the signed-in account (stable while unchanged). */
 export const useNotifyPrefs = (): NotifyPrefs => usePrefsStore(accountPrefs)
 /** The notification preferences, outside React. */

@@ -8,16 +8,16 @@ const activity = { pageId: 'p-1', changes: 2 }
 
 describe('rowKind', () => {
   it('collapses a blocked author before the kind, also for page activity', () => {
-    expect(rowKind({ blocked: true, decrypt: ok })).toBe('blocked')
+    expect(rowKind({ decrypt: ok }, true)).toBe('blocked')
     expect(
-      rowKind({ blocked: true, kind: 'page_activity', pageActivity: activity, decrypt: ok })
+      rowKind({ kind: 'page_activity', pageActivity: activity, decrypt: ok }, true)
     ).toBe('blocked')
   })
 
   it('shows the real kind of a blocked row once the user shows it', () => {
-    const m = { blocked: true, kind: 'page_activity', pageActivity: activity, decrypt: ok } as const
-    expect(rowKind(m, true)).toBe('page_activity')
-    expect(rowKind({ blocked: true, decrypt: ok }, true)).toBe('message')
+    const m = { kind: 'page_activity', pageActivity: activity, decrypt: ok } as const
+    expect(rowKind(m, false)).toBe('page_activity')
+    expect(rowKind({ decrypt: ok }, false)).toBe('message')
   })
 
   it('gives a page activity without readable content the message row (with its placeholder)', () => {

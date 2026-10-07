@@ -9,6 +9,7 @@ import { useMemberView } from '@/hooks/use-member'
 import { tokenize } from '@/lib/mentions'
 import { cn } from '@/lib/utils'
 import type { ChatMessage } from '@/stores/messagesStore'
+import { useIsBlocked } from '@/stores/userStore'
 
 /**
  * One decrypted message in a list (pins N13, the inbox N8): avatar, author, time, three lines of
@@ -27,7 +28,8 @@ export function MessagePreview({
   className?: string
 }): React.JSX.Element {
   const { name, avatar, ink } = useMemberView(message.guildId, message.author.id, message.author)
-  const unreadable = message.blocked ? 'Blocked message' : decryptText(message.decrypt)
+  const blocked = useIsBlocked(message.author.id)
+  const unreadable = blocked ? 'Blocked message' : decryptText(message.decrypt)
   return (
     <div
       className={cn(

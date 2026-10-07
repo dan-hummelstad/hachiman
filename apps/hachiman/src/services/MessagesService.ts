@@ -9,14 +9,16 @@ import { uploadIdsOf } from '@/lib/attachments'
 import { mentionsOf } from '@/lib/mentions'
 import { errMsg } from '@/lib/utils'
 import { cryptoService } from '@/services/CryptoService'
-import { hachiman } from '@/services/hachiman'
+import { hachiman } from '@/services/client'
 import { createMessageDecryptor } from '@/services/message-decrypt'
 import { playSound } from '@/services/SoundService'
 import {
   dropHistory,
   messagesEpoch,
+  reactionEventOf,
   useMessageStore,
-  type ChatMessage
+  type ChatMessage,
+  type ReactionEvent
 } from '@/stores/messagesStore'
 import { useUserStore } from '@/stores/userStore'
 
@@ -288,18 +290,18 @@ export const messagesService = {
     if (!me || !targetClientMsgId || !emoji) return
     const nonce = crypto.randomUUID()
     const store = useMessageStore.getState()
+    const previous = reactionEventOf(channelId, targetClientMsgId, me.id, emoji)
     // Optimistic: the echo has a later sentAtMs, so it replaces this event in the fold.
-    store.applyReactions(channelId, [
-      {
-        messageId: nonce,
-        target: targetClientMsgId,
-        userId: me.id,
-        emoji,
-        remove,
-        sentAtMs: Date.now(),
-        createdAt: new Date().toISOString()
-      }
-    ])
+    const optimistic: ReactionEvent = {
+      messageId: nonce,
+      target: targetClientMsgId,
+      userId: me.id,
+      emoji,
+      remove,
+      sentAtMs: Date.now(),
+      createdAt: new Date().toISOString()
+    }
+    store.applyReactions(channelId, [optimistic])
     try {
       const sent = await sealAndPost(
         channelId,
@@ -313,7 +315,8 @@ export const messagesService = {
       )
       await decryptor.ingest([sent])
     } catch (err) {
-      useMessageStore.getState().remove(channelId, nonce)
+      // The pair shows what it showed before: a failed un-react keeps the reaction.
+      useMessageStore.getState().restoreReaction(channelId, optimistic, previous)
       throw new Error(sendErrorText(err), { cause: err })
     }
   },

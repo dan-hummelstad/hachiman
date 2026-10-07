@@ -4,7 +4,7 @@ import type { AttachmentPointer } from '@hachiman/crypto'
 import { BlobUrlCache } from '@/lib/blob-url-cache'
 import { errMsg } from '@/lib/utils'
 import { cryptoService } from '@/services/CryptoService'
-import { hachiman } from '@/services/hachiman'
+import { hachiman } from '@/services/client'
 import { useCryptoStore } from '@/stores/cryptoStore'
 
 /** What a decrypt needs: a file pointer or a thumbnail pointer (§12.9). */

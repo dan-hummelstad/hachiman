@@ -42,8 +42,6 @@ export interface ChatMessage extends Omit<Message, 'envelope' | 'attachments' | 
   kind?: 'message' | 'page_activity'
   /** Set on kind 'page_activity'. The page is in this (pages) channel. */
   pageActivity?: { pageId: string; changes: number }
-  /** The author is blocked (N23): the row decrypts, the UI hides it behind "Blocked message". */
-  blocked?: boolean
 }
 
 /**
@@ -84,8 +82,6 @@ interface MessagesState {
    * reaction whose target is not loaded yet shows once the target loads.
    */
   reactions: Map<string, Map<string, ReactionMap>>
-  /** The blocked user ids (N23): rows of these authors get `blocked: true`. */
-  blockedUsers: ReadonlySet<string>
   /** Merge server messages by id; a message whose nonce matches a pending row replaces it. */
   upsert: (channelId: string, messages: ChatMessage[]) => void
   addPending: (message: ChatMessage) => void
@@ -95,8 +91,15 @@ interface MessagesState {
   setTyping: (channelId: string, userId: string, until: number | null) => void
   /** Folds decrypted reaction messages. A row with the id of a reaction (a placeholder) goes away. */
   applyReactions: (channelId: string, events: ReactionEvent[]) => void
-  /** Sets the blocked users and marks the stored rows again. */
-  setBlockedUsers: (userIds: ReadonlySet<string>) => void
+  /**
+   * Takes back a failed optimistic reaction: the (user, emoji) of `optimistic` gets `previous`
+   * again (or no event). A newer event of that pair stays.
+   */
+  restoreReaction: (
+    channelId: string,
+    optimistic: ReactionEvent,
+    previous: ReactionEvent | undefined
+  ) => void
 }
 
 const byTime = (a: ChatMessage, b: ChatMessage): number =>
@@ -125,16 +128,6 @@ export function foldReactions(log: Iterable<ReactionEvent>): ReactionMap {
   return out
 }
 
-const withBlocked = (m: ChatMessage, blocked: ReadonlySet<string>): ChatMessage => {
-  if (blocked.size === 0 && m.blocked === undefined) return m
-  const is = blocked.has(m.author.id)
-  if (is === (m.blocked === true)) return m
-  if (is) return { ...m, blocked: true }
-  const rest = { ...m }
-  delete rest.blocked
-  return rest
-}
-
 /** `reactions` with the targets of one channel folded again from `logs`. */
 function refold(
   reactions: MessagesState['reactions'],
@@ -154,7 +147,7 @@ function refold(
 
 type MessagesData = Pick<
   MessagesState,
-  'byChannel' | 'hasMore' | 'typing' | 'reactionLog' | 'reactions' | 'blockedUsers'
+  'byChannel' | 'hasMore' | 'typing' | 'reactionLog' | 'reactions'
 >
 
 const initialMessagesState = (): MessagesData => ({
@@ -162,8 +155,7 @@ const initialMessagesState = (): MessagesData => ({
   hasMore: new Map(),
   typing: new Map(),
   reactionLog: new Map(),
-  reactions: new Map(),
-  blockedUsers: new Set()
+  reactions: new Map()
 })
 
 export const useMessageStore = create<MessagesState>()(
@@ -173,8 +165,7 @@ export const useMessageStore = create<MessagesState>()(
       set((s) => {
         if (incoming.length === 0) return {}
         const list = [...(s.byChannel.get(channelId) ?? [])]
-        for (const raw of incoming) {
-          const m = withBlocked(raw, s.blockedUsers)
+        for (const m of incoming) {
           const i = list.findIndex((x) => x.id === m.id || (m.nonce && x.nonce === m.nonce))
           if (i >= 0) list[i] = m
           else list.push(m)
@@ -184,10 +175,7 @@ export const useMessageStore = create<MessagesState>()(
       }),
     addPending: (message) =>
       set((s) => {
-        const list = [
-          ...(s.byChannel.get(message.channelId) ?? []),
-          withBlocked(message, s.blockedUsers)
-        ]
+        const list = [...(s.byChannel.get(message.channelId) ?? []), message]
         return { byChannel: new Map(s.byChannel).set(message.channelId, list) }
       }),
     markFailed: (channelId, nonce, sendError) =>
@@ -259,18 +247,37 @@ export const useMessageStore = create<MessagesState>()(
         }
         return out
       }),
-    setBlockedUsers: (userIds) =>
+    restoreReaction: (channelId, optimistic, previous) =>
       set((s) => {
-        const byChannel = new Map<string, ChatMessage[]>()
-        for (const [id, list] of s.byChannel)
-          byChannel.set(
-            id,
-            list.map((m) => withBlocked(m, userIds))
-          )
-        return { blockedUsers: userIds, byChannel }
+        const logs = s.reactionLog.get(channelId)
+        const log = logs?.get(optimistic.target)
+        const key = reactionKey(optimistic)
+        if (!logs || !log || log.get(key)?.messageId !== optimistic.messageId) return {}
+        const nextLog = new Map(log)
+        if (previous) nextLog.set(key, previous)
+        else nextLog.delete(key)
+        const nextLogs = new Map(logs).set(optimistic.target, nextLog)
+        return {
+          reactionLog: new Map(s.reactionLog).set(channelId, nextLogs),
+          reactions: refold(s.reactions, channelId, nextLogs, [optimistic.target])
+        }
       })
   }))
 )
+
+/** The newest reaction event of (user, emoji) on a target, if the store has one. */
+export function reactionEventOf(
+  channelId: string,
+  target: string,
+  userId: string,
+  emoji: string
+): ReactionEvent | undefined {
+  return useMessageStore
+    .getState()
+    .reactionLog.get(channelId)
+    ?.get(target)
+    ?.get(reactionKey({ userId, emoji }))
+}
 
 const EMPTY_REACTIONS: ReactionMap = new Map()
 

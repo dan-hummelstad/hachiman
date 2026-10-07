@@ -7,7 +7,7 @@
 import type { GatewayEvents, Page } from '@hachiman/client'
 import type { CryptoEvents } from '@hachiman/crypto'
 import { cryptoService } from '@/services/CryptoService'
-import { hachiman } from '@/services/hachiman'
+import { hachiman } from '@/services/client'
 import { messagesService } from '@/services/MessagesService'
 import { createPageActivity } from '@/services/PageActivityService'
 import { currentDeviceId } from '@/stores/cryptoStore'

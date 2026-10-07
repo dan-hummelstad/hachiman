@@ -15,12 +15,18 @@ interface UserState {
   gatewayState: GatewayState
   /** The user ids that I blocked (N23). Mirror of HachimanClient.cache.blocks. */
   blocks: ReadonlySet<string>
+  /**
+   * The blocked users from the last block list (blockService.load), for their names: a blocked
+   * user I share no guild with is in no member list. Can lack a user blocked since.
+   */
+  blockedUsers: ReadonlyMap<string, User>
 }
 
-const initialUserState = (): Pick<UserState, 'me' | 'status' | 'blocks'> => ({
+const initialUserState = (): Pick<UserState, 'me' | 'status' | 'blocks' | 'blockedUsers'> => ({
   me: null,
   status: 'online',
-  blocks: new Set()
+  blocks: new Set(),
+  blockedUsers: new Map()
 })
 
 export const useUserStore = create<UserState>()(
