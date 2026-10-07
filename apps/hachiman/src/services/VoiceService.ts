@@ -8,7 +8,7 @@ import {
 import { isGuildChannel } from '@/lib/model'
 import { ResyncBackoff } from '@/lib/resync-backoff'
 import { captureConstraints, tuneTrack, type StreamQuality } from '@/lib/stream-quality'
-import { hachiman } from '@/services/hachiman'
+import { hachiman } from '@/services/client'
 import { playSound, selfVoiceSound } from '@/services/SoundService'
 import { setCryptoFatal, useCryptoStore } from '@/stores/cryptoStore'
 import { usePrefsStore } from '@/stores/prefsStore'

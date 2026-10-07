@@ -1,6 +1,7 @@
 import type {} from '@redux-devtools/extension'
 import { useMemo } from 'react'
 import { create } from 'zustand'
+import { useShallow } from 'zustand/react/shallow'
 import { devtools } from 'zustand/middleware'
 import type { Channel } from '@hachiman/client'
 import { useChannelStore } from '@/stores/channelStore'
@@ -80,12 +81,19 @@ const EMPTY_ORDER: string[] = []
 /** The threads under a channel, newest activity first. */
 export function useThreads(parentId: string): Channel[] {
   const channels = useChannelStore((s) => s.channels)
-  const byChannel = useMessageStore((s) => s.byChannel)
-  const order = useThreadsStore((s) => s.order.get(parentId) ?? EMPTY_ORDER)
-  return useMemo(
-    () => threadsOf(channels, parentId, (id) => lastActivityOf(byChannel, id), order),
-    [channels, byChannel, order, parentId]
+  const ids = useMemo(
+    () => [...channels.values()].filter((c) => isThreadOf(c, parentId)).map((c) => c.id),
+    [channels, parentId]
   )
+  // Only the last activity of these threads: a message in another channel does not re-sort.
+  const activity = useMessageStore(
+    useShallow((s) => ids.map((id) => lastActivityOf(s.byChannel, id)))
+  )
+  const order = useThreadsStore((s) => s.order.get(parentId) ?? EMPTY_ORDER)
+  return useMemo(() => {
+    const at = new Map(ids.map((id, i) => [id, activity[i] ?? null]))
+    return threadsOf(channels, parentId, (id) => at.get(id) ?? null, order)
+  }, [channels, ids, activity, order, parentId])
 }
 
 export function useThreadCount(parentId: string): number {

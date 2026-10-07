@@ -2,7 +2,7 @@ import type { CreateGuildBody, GuildFull, Invite, InvitePreview } from '@hachima
 import { CryptoError, INVITE_BUNDLE_FETCH_WINDOW_MS } from '@hachiman/crypto'
 import { inviteKeyFragment } from '@/lib/invite-link'
 import { cryptoService } from '@/services/CryptoService'
-import { hachiman } from '@/services/hachiman'
+import { hachiman } from '@/services/client'
 import { takusenService } from '@/services/TakusenService'
 import { pushInviteHistoryFailure } from '@/stores/cryptoStore'
 import { selectGuild } from '@/stores/navStore'

@@ -1,8 +1,10 @@
-import type {} from '@redux-devtools/extension'
-import { create } from 'zustand'
-import { devtools } from 'zustand/middleware'
-import { moved } from '@/stores/prefsStore'
+import { accountTabs, moved, usePrefsStore } from '@/stores/prefsStore'
 import { useCurrentView, type View } from '@/stores/navStore'
+
+/**
+ * The pinned tabs (N1) of the signed-in account. They live in its account preferences
+ * (prefsStore), so they persist per account with the other preferences.
+ */
 
 /**
  * A pinned tab (N1). `id` is the channel id (a pages channel for 'page', with `pageId`). Voice and
@@ -15,82 +17,52 @@ export interface TabTarget {
   pageId?: string
 }
 
-interface TabsState {
-  /** The account whose tabs these are; null = signed out (no tabs). */
-  userId: string | null
-  tabs: TabTarget[]
-  pin: (target: TabTarget, at?: number) => void
-  unpin: (target: TabTarget) => void
-  move: (from: number, to: number) => void
-}
+const legacyKey = (userId: string): string => `hachiman:tabs:${userId}`
 
-const storageKey = (userId: string): string => `hachiman:tabs:${userId}`
-
-function readTabs(userId: string): TabTarget[] {
+/**
+ * Once per account: the tabs that older builds kept under `hachiman:tabs:<userId>` move into the
+ * account preferences, then the key goes. Call it after setAccountId.
+ */
+export function migrateLegacyTabs(userId: string): void {
   try {
-    const raw = localStorage.getItem(storageKey(userId))
-    const parsed: unknown = raw ? JSON.parse(raw) : []
-    return Array.isArray(parsed) ? (parsed as TabTarget[]) : []
+    const raw = localStorage.getItem(legacyKey(userId))
+    if (raw === null) return
+    const parsed: unknown = JSON.parse(raw)
+    const legacy = Array.isArray(parsed) ? parsed.filter(isTabTarget) : []
+    if (usePrefsStore.getState().accountId === userId)
+      usePrefsStore.getState().updateTabs((tabs) => (tabs.length > 0 ? tabs : legacy))
+    localStorage.removeItem(legacyKey(userId))
   } catch {
-    return []
+    // No storage (private window, tests) or bad JSON: nothing to move.
   }
 }
 
-function writeTabs(userId: string | null, tabs: TabTarget[]): void {
-  if (userId === null) return
-  try {
-    localStorage.setItem(storageKey(userId), JSON.stringify(tabs))
-  } catch {
-    // No storage (private window, tests): the tabs live for this session only.
-  }
+function isTabTarget(v: unknown): v is TabTarget {
+  if (typeof v !== 'object' || v === null) return false
+  const t = v as Record<string, unknown>
+  return (
+    (t.kind === 'channel' || t.kind === 'page' || t.kind === 'dm') &&
+    typeof t.id === 'string' &&
+    (t.guildId === null || typeof t.guildId === 'string') &&
+    (t.pageId === undefined || typeof t.pageId === 'string')
+  )
 }
 
 export const sameTarget = (a: TabTarget, b: TabTarget): boolean =>
   a.kind === b.kind && a.id === b.id && (a.pageId ?? null) === (b.pageId ?? null)
 
-export const useTabsStore = create<TabsState>()(
-  devtools((set) => {
-    const update = (f: (tabs: TabTarget[]) => TabTarget[]): void =>
-      set((s) => {
-        const tabs = f(s.tabs)
-        if (tabs === s.tabs) return s
-        writeTabs(s.userId, tabs)
-        return { tabs }
-      })
-    return {
-      userId: null,
-      tabs: [],
-      pin: (target, at) =>
-        update((tabs) => {
-          if (tabs.some((t) => sameTarget(t, target))) return tabs
-          const next = [...tabs]
-          next.splice(at ?? next.length, 0, target)
-          return next
-        }),
-      unpin: (target) =>
-        update((tabs) =>
-          tabs.some((t) => sameTarget(t, target))
-            ? tabs.filter((t) => !sameTarget(t, target))
-            : tabs
-        ),
-      move: (from, to) => update((tabs) => (from === to ? tabs : moved(tabs, from, to)))
-    }
-  })
-)
+const updateTabs = (f: (tabs: TabTarget[]) => TabTarget[]): void =>
+  usePrefsStore.getState().updateTabs(f)
 
-/** Sign-in (or a switch of account): load that account's tabs. null = sign-out. */
-export function loadTabs(userId: string | null): void {
-  if (useTabsStore.getState().userId === userId) return
-  useTabsStore.setState({ userId, tabs: userId === null ? [] : readTabs(userId) })
-}
+/** The tabs of the signed-in account, outside React. */
+export const currentTabs = (): TabTarget[] => accountTabs(usePrefsStore.getState())
 
 /** Drops the tabs whose target is gone (channel deleted, guild left, no VIEW_CHANNEL, page deleted). */
 export function pruneTabs(exists: (t: TabTarget) => boolean): void {
-  const { tabs, userId } = useTabsStore.getState()
-  const kept = tabs.filter(exists)
-  if (kept.length === tabs.length) return
-  writeTabs(userId, kept)
-  useTabsStore.setState({ tabs: kept })
+  updateTabs((tabs) => {
+    const kept = tabs.filter(exists)
+    return kept.length === tabs.length ? tabs : kept
+  })
 }
 
 /** The tab target of a view; null for views that cannot be pinned (DM home, guild, settings). */
@@ -132,11 +104,20 @@ export const isPinned = (tabs: readonly TabTarget[], target: TabTarget): boolean
   tabs.some((t) => sameTarget(t, target))
 
 export const pinTab = (target: TabTarget, at?: number): void =>
-  useTabsStore.getState().pin(target, at)
-export const unpinTab = (target: TabTarget): void => useTabsStore.getState().unpin(target)
-export const moveTab = (from: number, to: number): void => useTabsStore.getState().move(from, to)
+  updateTabs((tabs) => {
+    if (tabs.some((t) => sameTarget(t, target))) return tabs
+    const next = [...tabs]
+    next.splice(at ?? next.length, 0, target)
+    return next
+  })
+export const unpinTab = (target: TabTarget): void =>
+  updateTabs((tabs) =>
+    tabs.some((t) => sameTarget(t, target)) ? tabs.filter((t) => !sameTarget(t, target)) : tabs
+  )
+export const moveTab = (from: number, to: number): void =>
+  updateTabs((tabs) => (from === to ? tabs : moved(tabs, from, to)))
 
-export const useTabs = (): TabTarget[] => useTabsStore((s) => s.tabs)
+export const useTabs = (): TabTarget[] => usePrefsStore(accountTabs)
 
 /** The index of the lit tab, or -1. */
 export function useActiveTabIndex(): number {
@@ -147,4 +128,4 @@ export function useActiveTabIndex(): number {
 
 /** Whether `target` is pinned (false for null). */
 export const useIsPinned = (target: TabTarget | null): boolean =>
-  useTabsStore((s) => target !== null && isPinned(s.tabs, target))
+  usePrefsStore((s) => target !== null && isPinned(accountTabs(s), target))

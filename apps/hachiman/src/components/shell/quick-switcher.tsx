@@ -15,12 +15,12 @@ import { dmName } from '@/lib/model'
 import { MOD_KEY } from '@/lib/mod-key'
 import { rankItems, recentKeys, type SwitchItem, type SwitchKind } from '@/lib/quick-switcher'
 import { cn } from '@/lib/utils'
-import { hachiman } from '@/services/hachiman'
+import { dmChannelWith, hachiman } from '@/services/hachiman'
 import { useChannelStore } from '@/stores/channelStore'
 import { useDocsStore } from '@/stores/docsStore'
 import { useGuildStore } from '@/stores/guildStore'
 import { currentView, navigate, useNavStore, type View } from '@/stores/navStore'
-import { isPinned, pinTab, targetOf, useTabsStore } from '@/stores/tabsStore'
+import { isPinned, pinTab, targetOf, useTabs } from '@/stores/tabsStore'
 import { useChannelUnread } from '@/stores/unreadStore'
 import { useUserStore } from '@/stores/userStore'
 
@@ -137,8 +137,7 @@ function viewOfItem(it: SwitchItem): View | null {
 async function activate(it: SwitchItem, pin: boolean): Promise<void> {
   let view = viewOfItem(it)
   if (!view && it.userId) {
-    const dm = await hachiman.rest.openDm([it.userId])
-    view = { kind: 'dm', channelId: dm.id }
+    view = { kind: 'dm', channelId: await dmChannelWith(it.userId) }
   }
   if (!view) return
   const target = targetOf(view)
@@ -169,7 +168,7 @@ function SwitcherPanel({ mode }: { mode: SwitcherMode }): React.JSX.Element {
   const [items] = useState(collectItems)
   const [recent] = useState(() => recentKeys(useNavStore.getState().past, currentView()))
   const results = useMemo(() => rankItems(items, query, recent), [items, query, recent])
-  const tabs = useTabsStore((s) => s.tabs)
+  const tabs = useTabs()
   const selected = Math.min(index, Math.max(results.length - 1, 0))
 
   useEffect(() => {

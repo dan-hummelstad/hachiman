@@ -3,7 +3,7 @@ import { hachiman } from '@/services/hachiman'
 import { useDocsStore } from '@/stores/docsStore'
 import { useGuildStore } from '@/stores/guildStore'
 import { back, forward, navigate, type View } from '@/stores/navStore'
-import { useTabsStore, viewOfTarget } from '@/stores/tabsStore'
+import { currentTabs, viewOfTarget } from '@/stores/tabsStore'
 
 /** Whether the target of a history entry is still there (N2: a gone target is skipped). */
 export function viewExists(view: View): boolean {
@@ -35,7 +35,7 @@ export const goForward = (): boolean => forward(viewExists)
 
 /** Opens pinned tab `index` (0-based). False when there is no such tab. */
 export function openTab(index: number): boolean {
-  const tab = useTabsStore.getState().tabs[index]
+  const tab = currentTabs()[index]
   if (!tab) return false
   navigate(viewOfTarget(tab))
   return true

@@ -10,7 +10,6 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { SegmentedControl } from '@/components/ui/segmented-control'
 import { channelLabel } from '@/lib/model'
 import { cn } from '@/lib/utils'
-import { hachiman } from '@/services/hachiman'
 import { unreadService } from '@/services/UnreadService'
 import { useChannelStore } from '@/stores/channelStore'
 import { useGuildStore } from '@/stores/guildStore'
@@ -196,7 +195,11 @@ function UnreadList({
                   {badge.mentions}
                 </span>
               )}
-              <Button variant="quiet" size="sm" onClick={() => markChannelRead(channel.id)}>
+              <Button
+                variant="quiet"
+                size="sm"
+                onClick={() => unreadService.markChannelRead(channel.id)}
+              >
                 <CheckCheck />
                 Mark read
               </Button>
@@ -206,12 +209,4 @@ function UnreadList({
       ))}
     </>
   )
-}
-
-/** Acks the newest message of a channel: the loaded one, else the one READY named. */
-function markChannelRead(channelId: string): void {
-  const loaded = useMessageStore.getState().byChannel.get(channelId)
-  const last = loaded?.findLast((m) => !m.pending && !m.failed)?.id
-  const id = last ?? hachiman.cache.readStates.get(channelId)?.lastMessageId
-  if (id) unreadService.markRead(channelId, id)
 }

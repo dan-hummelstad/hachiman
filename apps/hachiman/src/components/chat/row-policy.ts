@@ -36,10 +36,10 @@ export function rowPolicy(channel: Channel, perms: number): RowPolicy {
 export type RowKind = 'blocked' | 'page_activity' | 'message'
 
 export function rowKind(
-  message: Pick<ChatMessage, 'blocked' | 'kind' | 'pageActivity' | 'decrypt'>,
-  showBlocked = false
+  message: Pick<ChatMessage, 'kind' | 'pageActivity' | 'decrypt'>,
+  hideAsBlocked = false
 ): RowKind {
-  if (message.blocked && !showBlocked) return 'blocked'
+  if (hideAsBlocked) return 'blocked'
   if (
     message.kind === 'page_activity' &&
     message.pageActivity !== undefined &&

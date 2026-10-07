@@ -14,7 +14,7 @@ import type { ChatMessage } from '@/stores/messagesStore'
 import type { MessageDisplay } from '@/stores/prefsStore'
 import { useComposerStore } from '@/stores/composerStore'
 import { openDialog } from '@/stores/dialogStore'
-import { useUserStore } from '@/stores/userStore'
+import { useIsBlocked, useUserStore } from '@/stores/userStore'
 import { MessageAttachments } from './attachments/message-attachments'
 import { messageMentionsMe, tokenize, type Token } from '@/lib/mentions'
 import { decryptText } from './decrypt-text'
@@ -46,7 +46,8 @@ export const TranscriptRow = memo(function TranscriptRow(
   props: TranscriptRowProps
 ): React.JSX.Element {
   const [shown, setShown] = useState(false)
-  switch (rowKind(props.message, shown)) {
+  const blocked = useIsBlocked(props.message.author.id)
+  switch (rowKind(props.message, blocked && !shown)) {
     case 'blocked':
       return <BlockedRow message={props.message} onShow={() => setShown(true)} />
     case 'page_activity':

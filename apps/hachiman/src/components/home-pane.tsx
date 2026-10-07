@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Ban, MessageCircle, MoreHorizontal, Search, SquarePen, Users } from 'lucide-react'
 import type { User } from '@hachiman/client'
 import { ActiveNow } from '@/components/people/active-now'
@@ -26,7 +26,6 @@ import { useOpenDm, usePresence } from '@/hooks/use-member'
 import { activityLabel } from '@/lib/member-activity'
 import { cn } from '@/lib/utils'
 import { blockService } from '@/services/guild-features'
-import { hachiman } from '@/services/hachiman'
 import { useChannelStore } from '@/stores/channelStore'
 import { useGuildStore } from '@/stores/guildStore'
 import { useUserStore } from '@/stores/userStore'
@@ -208,32 +207,28 @@ function PersonRow({ user, dim }: { user: User; dim: boolean }): React.JSX.Eleme
 
 /**
  * The people I blocked, with Unblock. A blocked user I no longer share a guild with is not in the
- * member lists, so their name comes from `GET /users/@me/blocks`.
+ * member lists, so their name comes from the block list of blockService.
  */
 function BlockedList({ people, query }: { people: User[]; query: string }): React.JSX.Element {
   const blocks = useUserStore((s) => s.blocks)
+  const blockedUsers = useUserStore((s) => s.blockedUsers)
   const channels = useChannelStore((s) => s.channels)
-  const [fetched, setFetched] = useState<ReadonlyMap<string, User> | null>(null)
+  // One reload per mount for a name that the list lacks (a user blocked since the last load).
+  const reloaded = useRef(false)
 
   const known = useMemo(() => {
-    const byId = new Map<string, User>(fetched ?? [])
+    const byId = new Map<string, User>(blockedUsers)
     for (const u of people) byId.set(u.id, u)
     for (const c of channels.values()) for (const u of c.recipients ?? []) byId.set(u.id, u)
     return byId
-  }, [people, channels, fetched])
+  }, [people, channels, blockedUsers])
   const missing = [...blocks].some((id) => !known.has(id))
 
   useEffect(() => {
-    if (!missing || fetched) return
-    let live = true
-    hachiman.rest
-      .getBlocks()
-      .then((list) => live && setFetched(new Map(list.map((b) => [b.user.id, b.user]))))
-      .catch((e: unknown) => console.warn('[blocks] list failed', e))
-    return () => {
-      live = false
-    }
-  }, [missing, fetched])
+    if (!missing || reloaded.current) return
+    reloaded.current = true
+    void blockService.load()
+  }, [missing])
 
   const users = useMemo(
     () =>

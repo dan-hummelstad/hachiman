@@ -11,7 +11,7 @@ import {
   observeLabels,
   pageLabels,
   setPageLabels
-} from '@/services/docs/DocProvider'
+} from '@/services/docs/labels'
 import type { DocHandle } from '@/services/docs/types'
 
 const LABEL_FEATURES: readonly Feature[] = ['page', 'event', 'voice', 'thread', 'accent']

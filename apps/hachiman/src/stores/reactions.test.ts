@@ -101,16 +101,32 @@ describe('reaction fold', () => {
   })
 })
 
-describe('blocked users', () => {
-  it('flags the rows of a blocked author and clears the flag on unblock', () => {
+describe('restoreReaction', () => {
+  it('a failed un-react shows the reaction again', () => {
     const s = useMessageStore.getState()
-    s.upsert('c', [row('m1', 'x', 'u-bad'), row('m2', 'y', 'u-ok')])
-    s.setBlockedUsers(new Set(['u-bad']))
-    const rows = (): ChatMessage[] => useMessageStore.getState().byChannel.get('c') ?? []
-    expect(rows().map((m) => m.blocked === true)).toEqual([true, false])
-    s.upsert('c', [row('m3', 'z', 'u-bad')])
-    expect(rows().find((m) => m.id === 'm3')?.blocked).toBe(true)
-    s.setBlockedUsers(new Set())
-    expect(rows().some((m) => m.blocked)).toBe(false)
+    const added = ev('u1', '👍', 1)
+    s.applyReactions('c', [added])
+    const undo = ev('u1', '👍', 2, true)
+    s.applyReactions('c', [undo])
+    expect(reactionsOf()).toEqual({})
+    s.restoreReaction('c', undo, added)
+    expect(reactionsOf()).toEqual({ '👍': ['u1'] })
+  })
+
+  it('a failed first reaction goes away', () => {
+    const s = useMessageStore.getState()
+    const add = ev('u1', '🎉', 1)
+    s.applyReactions('c', [add])
+    s.restoreReaction('c', add, undefined)
+    expect(reactionsOf()).toEqual({})
+  })
+
+  it('keeps a newer event of the pair', () => {
+    const s = useMessageStore.getState()
+    const add = ev('u1', '🎉', 1)
+    s.applyReactions('c', [add])
+    s.applyReactions('c', [ev('u1', '🎉', 5)])
+    s.restoreReaction('c', add, undefined)
+    expect(reactionsOf()).toEqual({ '🎉': ['u1'] })
   })
 })

@@ -1,14 +1,16 @@
 /**
- * Read state and unread counts (N7). Fed by services/hachiman.ts: READY, MESSAGE_CREATE (after
- * the decrypt), READ_STATE_UPDATE and channel or guild removals. The UI calls `markRead`.
+ * Read state and unread counts (N7). A client feature (services/features.ts): READY, MESSAGE_CREATE
+ * (after the decrypt), READ_STATE_UPDATE and channel or guild removals. The UI calls `markRead`
+ * and `markChannelRead`.
  */
-import type { GatewayEvents, Message } from '@hachiman/client'
-import { messageMentionsMe } from '@/lib/mentions'
+import type { GatewayDispatch, GatewayEvents, Message } from '@hachiman/client'
 import { cryptoService } from '@/services/CryptoService'
-import { hachiman } from '@/services/hachiman'
+import { hachiman } from '@/services/client'
+import type { ClientFeature } from '@/services/features'
+import { mentionsMe, type MessageContext } from '@/services/message-context'
 import { rowFor, toEncrypted } from '@/services/message-decrypt'
 import { mentionPass } from '@/services/unread-pass'
-import type { ChatMessage } from '@/stores/messagesStore'
+import { useMessageStore, type ChatMessage } from '@/stores/messagesStore'
 import { selectedChannelId, useNavStore } from '@/stores/navStore'
 import {
   addMentions,
@@ -29,21 +31,6 @@ const acks = new Map<string, { messageId: string; timer: ReturnType<typeof setTi
 let passWaiting = false
 /** Bumped by READY and sign-out, so a pass of an older session does not write. */
 let session = 0
-
-const viewing = (channelId: string): boolean =>
-  selectedChannelId() === channelId && typeof document !== 'undefined' && document.hasFocus()
-
-function myRoles(guildId: string | null): string[] {
-  const me = hachiman.cache.user
-  if (!me || !guildId) return []
-  return hachiman.cache.members.get(guildId)?.get(me.id)?.roles ?? []
-}
-
-/** Whether a decrypted row is from someone else and mentions me. */
-function mentionsMe(row: ChatMessage): boolean {
-  const me = hachiman.cache.user
-  return !!me && row.author.id !== me.id && messageMentionsMe(row, me, myRoles(row.guildId))
-}
 
 const historyOrder = (a: Message, b: Message): number =>
   a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id)
@@ -108,7 +95,7 @@ function snapshotOpened(): void {
 let started = false
 
 export const unreadService = {
-  /** Once, from startHachiman. */
+  /** Idempotent: the NEW divider follows the open channel. */
   start(): void {
     if (started) return
     started = true
@@ -117,6 +104,7 @@ export const unreadService = {
 
   /** READY: the server's read states, then the mention pass. */
   onReady(): void {
+    unreadService.start()
     session++
     useUnreadStore.setState({
       byChannel: fromReadStates([...hachiman.cache.readStates.values()]),
@@ -132,16 +120,16 @@ export const unreadService = {
   },
 
   /**
-   * MESSAGE_CREATE. `row` is the decrypted row (undefined when it did not decrypt). A message from
-   * someone else counts unless its channel is open and the window has focus.
+   * MESSAGE_CREATE. A notification (services/message-context.ts) counts unless its channel is open
+   * and the window has focus.
    */
-  onMessageCreate(m: Message, row: ChatMessage | undefined): void {
-    const me = hachiman.cache.user
-    if (!me || m.author.id === me.id || viewing(m.channelId)) return
-    const mentioned = row?.decrypt.status === 'ok' && mentionsMe(row)
+  onMessageCreate(m: Pick<Message, 'id' | 'channelId'>, ctx: MessageContext): void {
+    if (!ctx.isNotification || ctx.viewing) return
     useUnreadStore.setState((s) => {
       const byChannel = addUnread(s.byChannel, m.channelId)
-      return { byChannel: mentioned ? addMentions(byChannel, m.channelId, [m.id]) : byChannel }
+      return {
+        byChannel: ctx.mentionsMe ? addMentions(byChannel, m.channelId, [m.id]) : byChannel
+      }
     })
   },
 
@@ -180,6 +168,14 @@ export const unreadService = {
     acks.set(channelId, { messageId, timer })
   },
 
+  /** Acks the newest message of a channel: the loaded one, else the one READY named. */
+  markChannelRead(channelId: string): void {
+    const loaded = useMessageStore.getState().byChannel.get(channelId)
+    const last = loaded?.findLast((m) => !m.pending && !m.failed)?.id
+    const id = last ?? hachiman.cache.readStates.get(channelId)?.lastMessageId
+    if (id) unreadService.markRead(channelId, id)
+  },
+
   /** Sign-out. */
   reset(): void {
     session++
@@ -188,4 +184,16 @@ export const unreadService = {
     acks.clear()
     resetUnreadStore()
   }
+}
+
+export const unreadFeature: ClientFeature = {
+  name: 'unread',
+  onReady: () => unreadService.onReady(),
+  onDispatch(e: GatewayDispatch): void {
+    if (e.t === 'READ_STATE_UPDATE') unreadService.onReadStateUpdate(e.d)
+    if (e.t === 'GUILD_DELETE' || e.t === 'CHANNEL_DELETE') unreadService.onChannelsChanged()
+  },
+  onMessage: (m, _row, ctx) => unreadService.onMessageCreate(m, ctx),
+  onCryptoReady: () => unreadService.onCryptoReady(),
+  reset: () => unreadService.reset()
 }

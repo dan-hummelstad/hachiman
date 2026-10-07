@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { voiceActivity, type VoiceActivity } from '@/lib/member-activity'
 import { useChannelStore } from '@/stores/channelStore'
@@ -30,15 +30,4 @@ export function useVoiceActivity(
       }),
     [userId, contextGuildId, voiceStates, channels, guilds, speaking, myChannelId]
   )
-}
-
-/** `Date.now()`, renewed every `intervalMs` while `active`. */
-export function useNow(active: boolean, intervalMs = 1000): number {
-  const [now, setNow] = useState(() => Date.now())
-  useEffect(() => {
-    if (!active) return
-    const t = setInterval(() => setNow(Date.now()), intervalMs)
-    return () => clearInterval(t)
-  }, [active, intervalMs])
-  return now
 }

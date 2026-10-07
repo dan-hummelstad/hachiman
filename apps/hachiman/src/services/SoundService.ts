@@ -1,11 +1,12 @@
 import { play } from 'cuelume'
-import type { SelfVoiceState, User, VoiceState } from '@hachiman/client'
-import { messageMentionsMe } from '@/lib/mentions'
+import type { SelfVoiceState, VoiceState } from '@hachiman/client'
 import { isMuted, notifyLevel, shouldPing, type NotifyPrefs } from '@/lib/notify'
 import type { ChatMessage } from '@/stores/messagesStore'
 import { playChime } from '@/lib/chime'
 import { SOUNDS, type SoundEvent } from '@/lib/sounds'
-import { usePrefsStore } from '@/stores/prefsStore'
+import type { ClientFeature } from '@/services/features'
+import type { MessageContext } from '@/services/message-context'
+import { notifyPrefs, usePrefsStore } from '@/stores/prefsStore'
 import { useUserStore } from '@/stores/userStore'
 import { useVoiceStore } from '@/stores/voiceStore'
 
@@ -48,19 +49,28 @@ const NO_NOTIFY_PREFS: NotifyPrefs = { notify: {}, muted: [] }
 
 /**
  * Pings by the notification level of the channel (N9). The defaults are Discord's: a DM or a
- * mention of me pings. Never while I am looking at that channel; my own messages never ping.
+ * mention of me pings. Only a decrypted chat row that is a notification (not mine, not blocked)
+ * pings, and never while I am looking at that channel.
  */
 export function messageSound(
-  m: Pick<ChatMessage, 'author' | 'guildId' | 'channelId' | 'content' | 'mentions'>,
-  me: Pick<User, 'id' | 'username'>,
-  viewing: boolean,
-  myRoleIds: readonly string[] = [],
+  row: Pick<ChatMessage, 'guildId' | 'channelId' | 'decrypt' | 'kind'> | undefined,
+  ctx: MessageContext,
   prefs: NotifyPrefs = NO_NOTIFY_PREFS
 ): SoundEvent | null {
-  if (m.author.id === me.id || viewing) return null
-  const level = notifyLevel(prefs, m.channelId, m.guildId)
-  const muted = isMuted(prefs, m.channelId, m.guildId)
-  return shouldPing(level, muted, messageMentionsMe(m, me, myRoleIds)) ? 'message' : null
+  if (!row || !ctx.isNotification || ctx.viewing) return null
+  if (row.decrypt.status !== 'ok' || row.kind === 'page_activity') return null
+  const level = notifyLevel(prefs, row.channelId, row.guildId)
+  const muted = isMuted(prefs, row.channelId, row.guildId)
+  return shouldPing(level, muted, ctx.mentionsMe) ? 'message' : null
+}
+
+/** The message sound as a client feature. */
+export const soundFeature: ClientFeature = {
+  name: 'sound',
+  onMessage(_m, row, ctx): void {
+    const sound = messageSound(row, ctx, notifyPrefs())
+    if (sound) playSound(sound)
+  }
 }
 
 /** Another user's change, heard from inside `myChannelId`: join, leave, share start or stop. */

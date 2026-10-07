@@ -31,7 +31,7 @@ import {
   type AdminPayload
 } from '@hachiman/crypto'
 import { cryptoService } from '@/services/CryptoService'
-import { hachiman } from '@/services/hachiman'
+import { hachiman } from '@/services/client'
 
 /** The position that POST /guilds/:id/roles gives a new role. */
 const NEW_ROLE_POSITION = 1

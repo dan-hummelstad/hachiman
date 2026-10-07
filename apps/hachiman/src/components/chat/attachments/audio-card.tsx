@@ -5,7 +5,8 @@ import { useAction } from '@/hooks/use-action'
 import { decryptBlob, downloadAttachment, useDecryptedBlob } from '@/hooks/use-decrypted-blob'
 import { formatBytes } from '@/lib/format-bytes'
 import { cn } from '@/lib/utils'
-import { downsamplePeaks, formatDuration, WAVEFORM_BARS } from '@/lib/waveform'
+import { formatClock } from '@/lib/time-format'
+import { downsamplePeaks, WAVEFORM_BARS } from '@/lib/waveform'
 import { useCryptoStore } from '@/stores/cryptoStore'
 
 interface Waveform {
@@ -169,7 +170,7 @@ export function AudioCard({ audio }: { audio: AttachmentPointer }): React.JSX.El
               ))}
             </div>
             <span className="text-text-tertiary text-meta shrink-0 tabular-nums">
-              {formatDuration(position)} / {formatDuration(duration)}
+              {formatClock(position * 1000)} / {formatClock(duration * 1000)}
             </span>
           </div>
         )}

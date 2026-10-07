@@ -3,7 +3,7 @@ import type { Channel } from '@hachiman/client'
 import { moved } from '@/stores/prefsStore'
 import { callStartedAt } from './call-timer'
 import { favouriteMove, favouriteTiles } from './favourite-dms'
-import { formatElapsed } from './member-activity'
+import { formatClock } from './time-format'
 
 describe('callStartedAt (N17)', () => {
   it('is the oldest joinedAt of the participants', () => {
@@ -28,7 +28,7 @@ describe('callStartedAt (N17)', () => {
 
   it('formats as the B1 chip', () => {
     const start = callStartedAt([{ joinedAt: '2026-10-07T10:00:00Z' }])!
-    expect(formatElapsed(start + (3600 + 24 * 60 + 7) * 1000 - start)).toBe('1:24:07')
+    expect(formatClock(start + (3600 + 24 * 60 + 7) * 1000 - start)).toBe('1:24:07')
   })
 })
 

@@ -15,7 +15,7 @@ import { pointerOf } from '@/lib/attachments'
 import { formatBytes } from '@/lib/format-bytes'
 import { errMsg } from '@/lib/utils'
 import { cryptoService } from '@/services/CryptoService'
-import { hachiman } from '@/services/hachiman'
+import { hachiman } from '@/services/client'
 import { useLimitsStore } from '@/stores/limitsStore'
 
 const FORMAT_NAMES: Record<(typeof PROFILE_IMAGE_TYPES)[number], string> = {

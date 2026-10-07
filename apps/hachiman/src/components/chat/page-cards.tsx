@@ -2,7 +2,8 @@ import { useEffect } from 'react'
 import { FileText, PanelRight } from 'lucide-react'
 import { UserAvatar } from '@/components/shell/user-avatar'
 import { useMemberView } from '@/hooks/use-member'
-import { relativeTime } from '@/lib/relative-time'
+import { useNow } from '@/hooks/use-elapsed'
+import { relativeTime } from '@/lib/time-format'
 import { cn } from '@/lib/utils'
 import { docsService } from '@/services/docs/DocsService'
 import { pageTitle } from '@/services/docs/page-tree'
@@ -65,6 +66,7 @@ export function PageLinkCard({
   guildId: string | null
 }): React.JSX.Element {
   const page = usePage(pageId, guildId)
+  const now = useNow(true, 60_000)
   const channelName = useChannelStore((s) =>
     page ? s.channels.get(page.channelId)?.name : undefined
   )
@@ -90,7 +92,7 @@ export function PageLinkCard({
             <>
               Page in #{channelName ?? 'pages'} ·{' '}
               <time dateTime={page.updatedAt} title={formatFull(page.updatedAt)}>
-                edited {relativeTime(page.updatedAt)}
+                edited {relativeTime(page.updatedAt, now)}
               </time>
             </>
           ) : (
@@ -124,6 +126,7 @@ export function PageActivityRow({ message }: { message: ChatMessage }): React.JS
   const activity = message.pageActivity ?? { pageId: '', changes: 0 }
   const { name, avatar, ink } = useMemberView(message.guildId, message.author.id, message.author)
   const page = usePage(activity.pageId, message.guildId)
+  const now = useNow(true, 60_000)
   const guildId = message.guildId
   const changes = `${activity.changes} ${activity.changes === 1 ? 'change' : 'changes'}`
   return (
@@ -146,7 +149,7 @@ export function PageActivityRow({ message }: { message: ChatMessage }): React.JS
           <p className="text-text-tertiary text-meta">
             {changes} ·{' '}
             <time dateTime={message.createdAt} title={formatFull(message.createdAt)}>
-              {relativeTime(message.createdAt)}
+              {relativeTime(message.createdAt, now)}
             </time>
           </p>
         </div>
