@@ -65,6 +65,8 @@ export function Shell(): React.JSX.Element {
   const tucked = useSidebarTucked()
   const inVoice = useVoiceStore((s) => s.channelId !== null)
   const floatDock = tucked && inVoice
+  // Kept while the sidebar is revealed: the revealed sidebar slides over, nothing moves.
+  const dockInset = hidden && inVoice
   const sidebarRef = useRef<HTMLDivElement>(null)
   useSidebarReveal(sidebarRef)
   useSidebarShortcut()
@@ -126,11 +128,11 @@ export function Shell(): React.JSX.Element {
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <TabBar />
         <div
-          style={floatDock ? ({ '--dock-inset': '272px' } as React.CSSProperties) : undefined}
+          style={dockInset ? ({ '--dock-inset': '272px' } as React.CSSProperties) : undefined}
           className={cn(
             'border-line-hairline bg-surface-content relative mb-2 flex min-h-0 flex-1 border',
             hidden ? 'mx-2' : 'mr-2',
-            floatDock && '[&_main_footer]:pl-[calc(var(--dock-inset)+16px)]'
+            dockInset && '[&_main_footer]:pl-[calc(var(--dock-inset)+16px)]'
           )}
         >
           <main className="flex min-h-0 min-w-0 flex-1 flex-col">

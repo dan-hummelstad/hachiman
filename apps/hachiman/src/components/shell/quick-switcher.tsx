@@ -332,7 +332,7 @@ function ResultRow({
       </span>
       {pinned && <Pin aria-label="Pinned" className="text-text-tertiary size-3.5 shrink-0" />}
       {badge.mentions > 0 ? (
-        <span className="bg-mention rounded-pill flex h-4 min-w-4 items-center justify-center px-1 text-[10px] font-bold text-white">
+        <span className="bg-feature-danger rounded-pill flex h-4 min-w-4 items-center justify-center px-1 text-[10px] font-bold text-white">
           {badge.mentions}
         </span>
       ) : (

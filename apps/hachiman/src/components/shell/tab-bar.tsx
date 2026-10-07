@@ -207,7 +207,7 @@ function Tab({
         'focus-visible:ring-ring outline-none focus-visible:ring-2',
         active
           ? 'bg-surface-raised text-text-primary font-bold shadow-soft'
-          : 'bg-surface-panel/40 text-text-secondary hover:bg-surface-hover hover:text-text-primary',
+          : 'bg-surface-hover/50 text-text-secondary hover:bg-surface-hover hover:text-text-primary',
         isDragging && 'opacity-70'
       )}
     >
@@ -221,7 +221,7 @@ function Tab({
       {inCall ? (
         <AudioLines aria-label="In call" className="text-feature-voice size-3.5 shrink-0" />
       ) : badge.mentions > 0 ? (
-        <span className="bg-mention rounded-pill flex h-4 min-w-4 shrink-0 items-center justify-center px-1 text-[10px] font-bold text-white">
+        <span className="bg-feature-danger rounded-pill flex h-4 min-w-4 shrink-0 items-center justify-center px-1 text-[10px] font-bold text-white">
           {badge.mentions}
         </span>
       ) : (
