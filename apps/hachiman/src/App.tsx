@@ -7,7 +7,6 @@ import { SignInScreen } from '@/components/sign-in-screen'
 import { Dialogs } from '@/components/shell/dialogs'
 import { Shell } from '@/components/shell/shell'
 import { TooltipProvider } from '@/components/ui/tooltip'
-import { WindowStrip } from '@/components/ui/window-strip'
 
 import { useAppShortcuts } from '@/hooks/use-app-shortcuts'
 import { errMsg } from '@/lib/utils'
@@ -20,7 +19,7 @@ import { openDialog } from '@/stores/dialogStore'
 import { useTakusenStore } from '@/stores/takusenStore'
 
 /**
- * App root: optional Electron window strip above one of
+ * App root: one of
  * - a fatal screen (update required, device signed out: §12.13),
  * - the signed-in shell behind the encryption gate (start-up, onboarding: §12.4, §12.5),
  * - the sign-in window,
@@ -85,7 +84,6 @@ function App(): React.JSX.Element {
   return (
     <TooltipProvider delayDuration={200}>
       <div className="bg-background text-foreground flex h-screen w-screen flex-col overflow-hidden">
-        <WindowStrip />
         {fatal ? (
           <FatalScreen fatal={fatal} />
         ) : signedIn ? (

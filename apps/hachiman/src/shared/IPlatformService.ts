@@ -35,7 +35,7 @@ export type UpdateCheckResult =
 
 export interface IPlatformService {
   readonly platform: 'electron' | 'browser'
-  /** The host hides the native title bar, so the UI draws a draggable strip (Electron on macOS). */
+  /** The host hides the native title bar: the traffic lights sit in the sidebar's controls row (Electron on macOS). */
   readonly insetTitleBar: boolean
   /** OAuth `redirect_uri` for this host; Takusen's client registration must allow it. */
   readonly oauthRedirectUri: string

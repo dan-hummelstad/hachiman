@@ -1,5 +1,19 @@
 import { useMemo, useState } from 'react'
-import { ChevronDown, LogOut, PhoneCall, Plus, Settings, Trash2, Users } from 'lucide-react'
+import {
+  ChevronDown,
+  HeadphoneOff,
+  Lock,
+  Megaphone,
+  MessageCircle,
+  MicOff,
+  PhoneCall,
+  Plus,
+  Settings,
+  SquarePen,
+  Trash2,
+  UserPlus,
+  Users
+} from 'lucide-react'
 import {
   DndContext,
   PointerSensor,
@@ -24,14 +38,11 @@ import {
   ContextMenuTrigger
 } from '@/components/ui/context-menu'
 import { IconButton } from '@/components/ui/icon-button'
-import { SelectableRow, selectableRowClass } from '@/components/ui/selectable-row'
-import { TitleBar } from '@/components/ui/title-bar'
-import { NavUser } from '@/components/nav-user'
+import { SystemTag } from '@/components/ui/system-tag'
+import { channelAccess } from '@/components/shell/channel-access'
 import { GuildHeader } from '@/components/shell/guild-header'
 import { UserAvatar } from '@/components/shell/user-avatar'
 import { UserProfilePopover } from '@/components/user-profile-popover'
-import { VoiceStateBadges } from '@/components/voice/voice-state-badges'
-import { VoiceConnectedPanel } from '@/components/voice-connected-panel'
 import { ChannelIcon } from '@/lib/channel-icon'
 import { CHANNEL_KINDS, CREATE_CHANNEL_TYPES, dmName, groupChannels } from '@/lib/model'
 import { ROLE_INK_SCOPE } from '@/lib/role-ink'
@@ -47,81 +58,35 @@ import { hachiman } from '@/services/hachiman'
 import { voiceService } from '@/services/VoiceService'
 import { openDialog } from '@/stores/dialogStore'
 import { useGuildStore } from '@/stores/guildStore'
-import { selectChannel, useSelectedChannelId, useSelectedGuildId } from '@/stores/navStore'
+import { useMessageStore, type ChatMessage } from '@/stores/messagesStore'
+import { selectChannel, useSelectedChannelId } from '@/stores/navStore'
+import { useUserStore } from '@/stores/userStore'
 import { useVoiceStore } from '@/stores/voiceStore'
 
-/**
- * Channel sidebar (240px): title bar, the selected guild's channels grouped by category
- * (or the DM list), then the voice connected panel and the user panel.
- */
-export function ChannelSidebar(): React.JSX.Element {
-  const guildId = useSelectedGuildId()
+/** A 30px sidebar row (padding 0/8/0/10): hover fill, and the selected fill with radius 8. */
+function rowClass(selected: boolean, className?: string): string {
+  return cn(
+    'rounded-control flex h-[30px] w-full items-center gap-2 pr-2 pl-2.5 text-left text-label',
+    selected
+      ? 'bg-surface-selected text-text-primary font-bold'
+      : 'text-text-secondary hover:bg-surface-hover hover:text-text-primary',
+    className
+  )
+}
+
+// MARK: - Guild space
+
+/** The middle of the sidebar in a guild: the guild header row, then the channel list. */
+export function GuildChannelList({ guildId }: { guildId: string }): React.JSX.Element {
   return (
-    <aside className="bg-sidebar text-sidebar-foreground flex h-full min-h-0 w-60 shrink-0 flex-col border-x">
-      {guildId ? (
-        <GuildHeader guildId={guildId} />
-      ) : (
-        <TitleBar left={<h2 className="truncate">Direct messages</h2>} />
-      )}
-      <div className="min-h-0 flex-1 overflow-y-auto px-2 py-3">
-        {guildId ? <GuildChannels guildId={guildId} /> : <DmList />}
+    <>
+      <GuildHeader guildId={guildId} />
+      <div className="-mx-1 mt-2 min-h-0 flex-1 overflow-y-auto px-1 pb-2">
+        <GuildChannels guildId={guildId} />
       </div>
-      <VoiceConnectedPanel />
-      <NavUser />
-    </aside>
+    </>
   )
 }
-
-function DmList(): React.JSX.Element {
-  const dms = useDmChannels()
-  const presences = useGuildStore((s) => s.presences)
-  const selectedChannelId = useSelectedChannelId()
-  return (
-    <ul className="flex flex-col gap-px">
-      <li>
-        <SelectableRow
-          selected={selectedChannelId === null}
-          notch={false}
-          onClick={() => selectChannel(null)}
-          className={SIDEBAR_ROW}
-        >
-          <Users className="text-muted-foreground size-4 shrink-0" />
-          <span className="truncate">People</span>
-        </SelectableRow>
-      </li>
-      <li className="section-label px-2 pt-4 pb-1">Direct messages</li>
-      {dms.length === 0 && (
-        <li className="text-muted-foreground px-2 py-1 text-xs">No conversations yet.</li>
-      )}
-      {dms.map((c) => {
-        const other = c.type === 'dm' ? c.recipients?.[0] : undefined
-        const name = dmName(c)
-        return (
-          <li key={c.id}>
-            <SelectableRow
-              selected={selectedChannelId === c.id}
-              notch={false}
-              onClick={() => selectChannel(c.id)}
-              className={cn(SIDEBAR_ROW, 'h-10')}
-            >
-              <UserAvatar
-                name={name}
-                avatar={other?.avatar}
-                size={24}
-                status={other ? (presences.get(other.id) ?? 'offline') : undefined}
-                cutout={selectedChannelId === c.id ? 'bg-accent' : 'bg-sidebar'}
-              />
-              <span className="truncate">{name}</span>
-            </SelectableRow>
-          </li>
-        )
-      })}
-    </ul>
-  )
-}
-
-/** Sidebar rows use the selectable-row look without the notch, at the sidebar's spacing. */
-const SIDEBAR_ROW = 'gap-2 px-2'
 
 function GuildChannels({ guildId }: { guildId: string }): React.JSX.Element {
   const channels = useGuildChannels(guildId)
@@ -154,7 +119,7 @@ function GuildChannels({ guildId }: { guildId: string }): React.JSX.Element {
   return (
     <div className="flex flex-col gap-3">
       {channels.length === 0 && (
-        <p className="text-muted-foreground px-2 py-1 text-xs">No channels yet.</p>
+        <p className="text-text-tertiary px-2.5 py-1 text-xs">No channels yet.</p>
       )}
       {loose.length > 0 && group(loose)}
       {categories.map((cat) => {
@@ -166,12 +131,12 @@ function GuildChannels({ guildId }: { guildId: string }): React.JSX.Element {
           <section key={cat.id}>
             <ContextMenu>
               <ContextMenuTrigger asChild>
-                <div className="group/section flex h-6 items-center pr-1">
+                <div className="flex h-[30px] items-center pr-1">
                   <button
                     type="button"
                     onClick={() => toggle(cat.id)}
                     aria-expanded={!isCollapsed}
-                    className="section-label hover:text-foreground flex min-w-0 flex-1 items-center gap-1 px-1 text-left"
+                    className="section-label hover:text-text-secondary flex h-full min-w-0 flex-1 items-center gap-1.5 pl-1 text-left"
                   >
                     <ChevronDown
                       className={cn(
@@ -186,7 +151,7 @@ function GuildChannels({ guildId }: { guildId: string }): React.JSX.Element {
                       size="sm"
                       label="Create channel"
                       onClick={() => createIn('text', cat.id)}
-                      className="opacity-0 group-hover/section:opacity-100 focus-visible:opacity-100"
+                      className="text-text-tertiary rounded-control"
                     >
                       <Plus />
                     </IconButton>
@@ -267,7 +232,7 @@ function SortableGroup({
   return (
     <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
       <SortableContext items={list.map((c) => c.id)} strategy={verticalListSortingStrategy}>
-        <ul className="flex flex-col gap-px">
+        <ul className="flex flex-col gap-0.5">
           {list.map((c) => (
             <ChannelRow
               key={c.id}
@@ -298,7 +263,9 @@ function ChannelRow({
   const occupants = useChannelOccupants(guildId, channel.id)
   const isVoiceHere = useVoiceStore((s) => isVoice && s.channelId === channel.id)
   const canConnect = has(usePermissions(guildId, channel.id), Permissions.CONNECT)
-  const highlighted = selected || isVoiceHere
+  const canInvite = has(usePermissions(guildId), Permissions.CREATE_INSTANT_INVITE)
+  const everyone = useGuildStore((s) => s.roles.get(guildId)?.get(guildId)?.permissions ?? 0)
+  const { readOnly, restricted } = channelAccess(channel, guildId, everyone)
 
   const { setNodeRef, attributes, listeners, transform, transition, isDragging } = useSortable({
     id: channel.id,
@@ -312,6 +279,8 @@ function ChannelRow({
   }
 
   const join = (): void => void voiceService.join(channel)
+  const lockLabel = restricted ? 'Restricted channel' : 'Read only'
+  const showActions = selected ? 'flex' : 'hidden group-hover/row:flex group-focus-within/row:flex'
 
   return (
     <ContextMenu>
@@ -322,43 +291,80 @@ function ChannelRow({
             {...listeners}
             role={undefined}
             tabIndex={-1}
-            className={selectableRowClass(highlighted, 'group gap-1 pr-1 pl-0', { notch: false })}
+            className={rowClass(selected, 'group/row gap-1 pr-1 pl-0')}
           >
             <button
               type="button"
               onClick={() => selectChannel(channel.id)}
               onDoubleClick={isVoice ? join : undefined}
-              className="flex h-full min-w-0 flex-1 items-center gap-2 pl-2 text-left"
+              className={cn(
+                'flex h-full min-w-0 flex-1 items-center gap-2 pl-2.5 text-left',
+                isVoiceHere && !selected && 'text-feature-voice-text'
+              )}
               aria-current={selected ? 'page' : undefined}
-              aria-label={channel.type === 'text' ? undefined : `${channel.name} (${channel.type})`}
+              aria-label={
+                readOnly
+                  ? `${channel.name} (read only)`
+                  : channel.type === 'text'
+                    ? undefined
+                    : `${channel.name} (${channel.type})`
+              }
             >
-              <ChannelIcon
-                type={channel.type}
-                className="text-muted-foreground size-4 shrink-0"
-                aria-hidden
-              />
+              {readOnly ? (
+                <Megaphone className="text-feature-event size-4 shrink-0" aria-hidden />
+              ) : (
+                <ChannelIcon
+                  type={channel.type}
+                  className={cn(
+                    'size-4 shrink-0',
+                    isVoice ? 'text-feature-voice' : 'text-text-tertiary'
+                  )}
+                  aria-hidden
+                />
+              )}
               <span className="truncate">{channel.name}</span>
             </button>
-            {isVoiceHere ? (
-              <IconButton size="sm" label="Disconnect" onClick={() => voiceService.leaveVoice()}>
-                <LogOut />
-              </IconButton>
-            ) : (
-              isVoice &&
-              canConnect && (
-                <IconButton
-                  size="sm"
-                  label="Join voice"
-                  onClick={join}
-                  className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
-                >
+            <span
+              className={cn(
+                'items-center gap-1 pr-1',
+                selected ? 'hidden' : 'flex group-hover/row:hidden group-focus-within/row:hidden'
+              )}
+            >
+              {channel.type === 'pages' && <SystemTag kind="page" />}
+              {(readOnly || restricted) && (
+                <Lock aria-label={lockLabel} className="text-text-tertiary size-3.5" />
+              )}
+            </span>
+            <span className={cn('items-center', showActions)}>
+              {isVoice && canConnect && !isVoiceHere && (
+                <IconButton size="sm" label="Join voice" onClick={join} className="rounded-control">
                   <PhoneCall />
                 </IconButton>
-              )
-            )}
+              )}
+              {canInvite && (
+                <IconButton
+                  size="sm"
+                  label="Invite people"
+                  onClick={() => openDialog({ kind: 'invite', guildId })}
+                  className="rounded-control"
+                >
+                  <UserPlus />
+                </IconButton>
+              )}
+              {canManage && (
+                <IconButton
+                  size="sm"
+                  label="Channel settings"
+                  onClick={() => openDialog({ kind: 'channelSettings', channelId: channel.id })}
+                  className="rounded-control"
+                >
+                  <Settings />
+                </IconButton>
+              )}
+            </span>
           </div>
           {occupants.length > 0 && (
-            <ul className={cn('flex flex-col gap-px pt-px pb-1', ROLE_INK_SCOPE)}>
+            <ul className={cn('flex flex-col pt-0.5 pb-1', ROLE_INK_SCOPE)}>
               {occupants.map((vs) => (
                 <VoiceMemberRow key={vs.userId} guildId={guildId} state={vs} />
               ))}
@@ -375,6 +381,7 @@ function ChannelRow({
   )
 }
 
+/** A voice participant: 26 high, indent 34, with the LIVE tag and the mute and deafen marks. */
 function VoiceMemberRow({
   guildId,
   state
@@ -389,8 +396,8 @@ function VoiceMemberRow({
         <button
           type="button"
           className={cn(
-            'hover:bg-accent/60 flex h-7 w-full items-center gap-2 pr-2 pl-8 text-left text-[13px]',
-            speaking ? 'text-foreground' : 'text-muted-foreground'
+            'hover:bg-surface-hover rounded-control flex h-[26px] w-full items-center gap-2 pr-2 pl-[34px] text-left text-[14px]',
+            speaking ? 'text-text-primary font-semibold' : 'text-text-secondary'
           )}
         >
           <UserAvatar
@@ -403,9 +410,139 @@ function VoiceMemberRow({
           <span className="flex-1 truncate" style={ink ? { color: ink } : undefined}>
             {name}
           </span>
-          <VoiceStateBadges state={state} />
+          {state.selfStream && <SystemTag kind="live" />}
+          {state.selfMute && (
+            <MicOff aria-label="Muted" className="text-feature-danger size-3.5 shrink-0" />
+          )}
+          {state.selfDeaf && (
+            <HeadphoneOff aria-label="Deafened" className="text-feature-danger size-3.5 shrink-0" />
+          )}
         </button>
       </UserProfilePopover>
     </li>
   )
+}
+
+// MARK: - DM space
+
+/**
+ * The middle of the sidebar in the DM space (E1–E3): the "Direct messages" header with "New
+ * message", the People row with the online count, and the conversations.
+ */
+export function DmSpace(): React.JSX.Element {
+  const selectedChannelId = useSelectedChannelId()
+  const online = useOnlineFriends()
+  const openPeople = (): void => selectChannel(null)
+
+  return (
+    <>
+      <div className="flex h-9 shrink-0 items-center gap-2 px-1.5">
+        <span className="bg-accent-primary text-text-on-accent flex size-[22px] shrink-0 items-center justify-center rounded-full">
+          <MessageCircle className="size-3" />
+        </span>
+        <h2 className="text-label min-w-0 flex-1 truncate font-extrabold">Direct messages</h2>
+        <IconButton label="New message" onClick={openPeople} className="rounded-control">
+          <SquarePen />
+        </IconButton>
+      </div>
+      <div className="-mx-1 mt-2 min-h-0 flex-1 overflow-y-auto px-1 pb-2">
+        <button
+          type="button"
+          onClick={openPeople}
+          aria-current={selectedChannelId === null ? 'page' : undefined}
+          className={rowClass(selectedChannelId === null)}
+        >
+          <Users className="text-text-tertiary size-4 shrink-0" />
+          <span className="flex-1 truncate">People</span>
+          <span className="text-text-tertiary text-xs font-semibold">{online} online</span>
+        </button>
+        <h3 className="section-label flex h-[30px] items-center px-1 pt-3">Conversations</h3>
+        <DmList />
+      </div>
+    </>
+  )
+}
+
+/** Users other than me whose presence is not offline. */
+function useOnlineFriends(): number {
+  const presences = useGuildStore((s) => s.presences)
+  const myId = useUserStore((s) => s.me?.id)
+  return useMemo(() => {
+    let n = 0
+    for (const [id, p] of presences) if (id !== myId && p !== 'offline') n++
+    return n
+  }, [presences, myId])
+}
+
+/** The DM and group DM rows: avatar, name, the last decrypted message and LIVE. */
+export function DmList(): React.JSX.Element {
+  const dms = useDmChannels()
+  const selectedChannelId = useSelectedChannelId()
+  if (dms.length === 0)
+    return <p className="text-text-tertiary px-2.5 py-1 text-xs">No conversations yet.</p>
+  return (
+    <ul className="flex flex-col gap-0.5">
+      {dms.map((c) => (
+        <DmRow key={c.id} channel={c} selected={selectedChannelId === c.id} />
+      ))}
+    </ul>
+  )
+}
+
+function DmRow({ channel, selected }: { channel: Channel; selected: boolean }): React.JSX.Element {
+  const isGroup = channel.type === 'group_dm'
+  const other = channel.recipients?.[0]
+  const name = dmName(channel)
+  const status = useGuildStore((s) =>
+    other ? (s.presences.get(other.id) ?? 'offline') : undefined
+  )
+  const preview = useMessageStore((s) => previewOf(s.byChannel.get(channel.id), isGroup))
+  const live = useVoiceStore((s) =>
+    other && !isGroup ? isStreaming(s.voiceStates, other.id) : false
+  )
+
+  return (
+    <li>
+      <button
+        type="button"
+        onClick={() => selectChannel(channel.id)}
+        aria-current={selected ? 'page' : undefined}
+        className={rowClass(selected, 'h-[46px] gap-2.5 pl-1.5 font-normal')}
+      >
+        <UserAvatar
+          name={name}
+          avatar={other?.avatar}
+          size={32}
+          status={isGroup ? undefined : status}
+          cutout="bg-surface-window"
+        />
+        <span className="grid min-w-0 flex-1 leading-tight">
+          <span className="text-text-primary truncate text-[14px] font-bold">{name}</span>
+          {preview && <span className="text-text-tertiary truncate text-xs">{preview}</span>}
+        </span>
+        {live && <SystemTag kind="live" />}
+      </button>
+    </li>
+  )
+}
+
+/** The text of the last decrypted message, with its author in a group. */
+function previewOf(messages: ChatMessage[] | undefined, withAuthor: boolean): string | null {
+  if (!messages) return null
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i]
+    if (!m || m.decrypt.status !== 'ok') continue
+    const text = m.content.trim() || (m.attachments.length > 0 ? 'Sent an attachment' : '')
+    if (!text) continue
+    return withAuthor ? `${m.author.username}: ${text}` : text
+  }
+  return null
+}
+
+function isStreaming(
+  voiceStates: ReadonlyMap<string, ReadonlyMap<string, VoiceState>>,
+  userId: string
+): boolean {
+  for (const states of voiceStates.values()) if (states.get(userId)?.selfStream) return true
+  return false
 }
