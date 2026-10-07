@@ -18,7 +18,12 @@ export function RoleChip({
   className?: string
 }): React.JSX.Element {
   return (
-    <span className={cn('rounded-check bg-surface-raised text-text-primary flex h-6 items-center gap-1.5 px-2 text-xs font-semibold', className)}>
+    <span
+      className={cn(
+        'rounded-check bg-surface-raised text-text-primary flex h-6 items-center gap-1.5 px-2 text-xs font-semibold',
+        className
+      )}
+    >
       <span
         aria-hidden
         className="size-2 shrink-0"

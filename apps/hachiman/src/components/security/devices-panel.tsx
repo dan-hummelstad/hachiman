@@ -212,7 +212,7 @@ function Tag({
   return (
     <span
       className={cn(
-        'rounded-check inline-flex h-[18px] shrink-0 items-center gap-1 px-1.5 text-[10.5px] font-bold [&_svg]:size-3',
+        'inline-flex h-[18px] shrink-0 items-center gap-1 px-1.5 text-[10.5px] font-bold [&_svg]:size-3',
         tone === 'accent' && 'bg-accent-tint text-accent-text',
         tone === 'voice' && 'bg-feature-voice/15 text-feature-voice-text',
         tone === 'event' && 'bg-feature-event/15 text-feature-event-text'
@@ -262,7 +262,7 @@ function DeviceRow({
   return (
     <li className={cn('grid gap-1 px-4 py-3', device.current && 'bg-surface-hover/50')}>
       <div className="flex items-center gap-3">
-        <span className="rounded-control bg-surface-raised text-text-secondary flex size-10 shrink-0 items-center justify-center">
+        <span className="bg-surface-raised text-text-secondary flex size-10 shrink-0 items-center justify-center">
           <PlatformIcon platform={device.platform} className="size-[18px]" />
         </span>
         <div className="min-w-0 flex-1">
@@ -298,7 +298,7 @@ function DeviceRow({
           <div className="flex shrink-0 items-center gap-1.5">
             <IconButton
               label="Rename"
-              className="rounded-control border-line-hairline size-8 border"
+              className="rounded-control bg-surface-raised size-8"
               onClick={() => setName(device.name)}
             >
               <Pencil />

@@ -208,59 +208,55 @@ function SidebarPreview({ mode }: { mode: SidebarMode }): React.JSX.Element {
 }
 
 const SAMPLE = [
-  { time: '10:42', author: 'alice', color: '#e0823d', text: 'anyone up for a game?' },
-  { time: '10:42', author: 'alice', color: '#e0823d', text: 'lounge is open' },
-  { time: '10:43', author: 'bob', color: '#4fa3e0', text: 'sure, in 5' }
+  {
+    time: '10:42',
+    author: 'marlowe',
+    ink: 'text-feature-event-text',
+    text: 'anyone up for a game?'
+  },
+  { time: '10:42', author: 'marlowe', ink: 'text-feature-event-text', text: 'lounge is open' },
+  { time: '10:43', author: 'Juni', ink: 'text-feature-danger-text', text: 'sure, in 5' }
 ]
+// Cozy shows one line per author, so that both groups fit the preview.
+const COZY_SAMPLE = SAMPLE.filter((m, i) => i === 0 || SAMPLE[i - 1].author !== m.author)
 
 function TranscriptPreview({ display }: { display: MessageDisplay }): React.JSX.Element {
   return (
     <span
       aria-hidden
-      className="rounded-control bg-surface-window border-line-hairline block h-[92px] overflow-hidden border px-3 py-2 font-mono text-[13px] leading-[22px]"
+      className="rounded-control bg-surface-window border-line-hairline block h-[92px] overflow-hidden border px-3 py-2 text-[12.5px] leading-5"
     >
       {display === 'compact'
         ? SAMPLE.map((m, i) => (
             <span key={i} className="flex gap-3 whitespace-nowrap">
-              <span className="text-muted-foreground w-10 shrink-0 font-sans text-xs leading-[22px] tabular-nums">
+              <span className="text-muted-foreground w-10 shrink-0 text-xs leading-5 tabular-nums">
                 {m.time}
               </span>
-              <span className="w-12 shrink-0 text-right font-semibold" style={{ color: m.color }}>
+              <span className={cn('w-14 shrink-0 text-right font-semibold', m.ink)}>
                 {m.author}
               </span>
               <span className="truncate">{m.text}</span>
             </span>
           ))
-        : SAMPLE.map((m, i) => {
-            const head = i === 0 || SAMPLE[i - 1].author !== m.author
-            return (
-              <span key={i} className={cn('flex gap-3', head && i > 0 && 'mt-2')}>
-                <span className="w-6 shrink-0">
-                  {head && (
-                    <span
-                      className="bg-accent mt-0.5 flex size-6 items-center justify-center font-sans text-[11px] font-semibold"
-                      style={{ color: m.color }}
-                    >
-                      {m.author[0].toUpperCase()}
-                    </span>
-                  )}
-                </span>
-                <span className="grid min-w-0">
-                  {head && (
-                    <span className="flex items-baseline gap-2">
-                      <span className="font-semibold" style={{ color: m.color }}>
-                        {m.author}
-                      </span>
-                      <span className="text-muted-foreground font-sans text-xs tabular-nums">
-                        {m.time}
-                      </span>
-                    </span>
-                  )}
-                  <span className="truncate">{m.text}</span>
-                </span>
+        : COZY_SAMPLE.map((m, i) => (
+            <span key={i} className={cn('flex gap-3', i > 0 && 'mt-1.5')}>
+              <span
+                className={cn(
+                  'bg-accent mt-0.5 flex size-6 shrink-0 items-center justify-center text-[11px] font-semibold',
+                  m.ink
+                )}
+              >
+                {m.author[0].toUpperCase()}
               </span>
-            )
-          })}
+              <span className="grid min-w-0 leading-[17px]">
+                <span className="flex items-baseline gap-2">
+                  <span className={cn('font-semibold', m.ink)}>{m.author}</span>
+                  <span className="text-muted-foreground text-[11px] tabular-nums">{m.time}</span>
+                </span>
+                <span className="truncate">{m.text}</span>
+              </span>
+            </span>
+          ))}
     </span>
   )
 }
