@@ -1,7 +1,8 @@
 /**
- * Pins, guild events and user blocks (docs/gateway-protocol.md §3, §4 "Pins,
- * guild events and blocks"), re-exported by schema.ts. The references into schema.ts are
- * lazy, so the import cycle between the two files is safe.
+ * Read states, pins, guild events and user blocks (docs/gateway-protocol.md §1
+ * ReadState, §3, §4 "Pins, guild events and blocks"), re-exported by
+ * schema.ts. The references into schema.ts are lazy, so the import cycle
+ * between the two files is safe.
  */
 import { sql } from 'drizzle-orm'
 import { check, index, pgTable, primaryKey, text, timestamp, uuid } from 'drizzle-orm/pg-core'
@@ -9,6 +10,27 @@ import { check, index, pgTable, primaryKey, text, timestamp, uuid } from 'drizzl
 import { channels, guilds, messages, users } from './schema'
 
 const createdAt = () => timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow()
+
+// Read state (§1 ReadState). The position is the (created_at, id) of the last
+// read message, the order of the messages table. last_read_created_at is a
+// copy, so the position stays when that message is deleted (no foreign key).
+export const readStates = pgTable(
+  'read_states',
+  {
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    channelId: uuid('channel_id')
+      .notNull()
+      .references(() => channels.id, { onDelete: 'cascade' }),
+    lastReadMessageId: uuid('last_read_message_id').notNull(),
+    lastReadCreatedAt: timestamp('last_read_created_at', { withTimezone: true, mode: 'date' }).notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [primaryKey({ columns: [table.userId, table.channelId] })],
+)
 
 // The server learns which message ids are pinned. It learns no content.
 export const channelPins = pgTable(

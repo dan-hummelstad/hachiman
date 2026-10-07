@@ -220,7 +220,7 @@ Threads: a thread has no overwrites. Every permission check on a thread uses its
 DM channels: participants get `VIEW_CHANNEL | SEND_MESSAGES | ATTACH_FILES | READ_MESSAGE_HISTORY`, non-participants 0.
 Role hierarchy: a member may only edit/assign roles whose `position` is strictly below the highest role of that member (owner/admin exempt).
 
-## 3. Postgres schema (Takusen Drizzle, `apps/takusen/src/db/schema.ts`)
+## 3. Postgres schema (Takusen Drizzle, `apps/takusen/src/db/schema.ts` and the files it re-exports: `schema-auth.ts`, `schema-channel-state.ts`, `schema-pages.ts`)
 
 New/changed tables (all ids `uuid` defaultRandom, timestamps `timestamptz` default now):
 
@@ -246,7 +246,7 @@ Pages tables (§4 Pages, §12.20). The server sees the tree and the timestamps. 
 | `doc_updates` | page_id → doc_pages (cascade), seq bigint, group_id bytea → mls_groups (cascade), epoch bigint, sender_device null → devices (set null), envelope bytea, created_at | PK (page_id, seq). One doc_update envelope (one encrypted Yjs update) per row |
 | `doc_snapshots` | page_id → doc_pages (cascade), base_seq bigint, upload_id unique → uploads (cascade), group_id bytea → mls_groups (cascade), epoch bigint, sender_device null → devices (set null), envelope bytea, media_upload_ids uuid[] default '{}', created_at | PK (page_id, base_seq). The bytes are the S3 object of `upload_id`. `envelope` is the doc_snapshot pointer envelope. A re-wrap (§4 Pages) replaces `envelope`, `group_id`, `epoch` and `sender_device` in place |
 
-Pins, guild events and blocks (§4 Pins, guild events and blocks, `apps/takusen/src/db/schema-guild-data.ts`):
+Pins, guild events and blocks (§4 Pins, guild events and blocks, `apps/takusen/src/db/schema-channel-state.ts`, with `read_states`):
 
 | Table | Columns | Notes |
 |---|---|---|
