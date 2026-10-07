@@ -1,13 +1,14 @@
 import { useCallback, useState } from 'react'
-import { ModalWindow } from '@/components/ui/modal-window'
+import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { OnboardingFlow } from '@/components/security/onboarding'
-import { ONBOARDING_TITLES, type OnboardingStep } from '@/components/security/onboarding-steps'
+import { type OnboardingStep } from '@/components/security/onboarding-steps'
 import { useCryptoStore } from '@/stores/cryptoStore'
 import { useDialog } from '@/stores/dialogStore'
 
 /**
  * Dialog kind 'securitySetup': the onboarding flow in a window, at the step that the opener asks
- * for. The window does not close while a new recovery key shows.
+ * for. Each step brings its own header and footer. The window does not close while a new recovery
+ * key shows.
  */
 export function SecuritySetupDialog(): React.JSX.Element {
   const { dialog, open, close } = useDialog('securitySetup')
@@ -17,13 +18,8 @@ export function SecuritySetupDialog(): React.JSX.Element {
   const onHold = useCallback((h: boolean) => setHold(h), [])
 
   return (
-    <ModalWindow
-      open={open}
-      onClose={() => !hold && close()}
-      title={ONBOARDING_TITLES[step]}
-      className="sm:max-w-[520px]"
-    >
-      <div className="max-h-[75vh] overflow-y-auto">
+    <Dialog open={open} onOpenChange={(o) => !o && !hold && close()}>
+      <DialogContent aria-describedby={undefined} className="sm:max-w-[560px]">
         <OnboardingFlow
           state={state}
           step={step}
@@ -31,7 +27,7 @@ export function SecuritySetupDialog(): React.JSX.Element {
           onHold={onHold}
           onFinished={close}
         />
-      </div>
-    </ModalWindow>
+      </DialogContent>
+    </Dialog>
   )
 }

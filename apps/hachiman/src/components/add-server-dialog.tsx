@@ -1,5 +1,7 @@
 import { useState } from 'react'
-import { ChevronRight, Link2, Plus } from 'lucide-react'
+import { ChevronRight, Link2, Lock, Plus, Sparkles } from 'lucide-react'
+import { FEATURE_TILE, type Feature } from '@/components/ui/feature'
+import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { ErrorText, Field } from '@/components/ui/field'
@@ -75,17 +77,35 @@ export function AddServerDialog(): React.JSX.Element {
         open={open}
         onClose={close}
         title={TITLES.choose}
-        description="A guild is where you and your friends chat and talk. Make your own, or join one you were invited to."
+        icon={<Plus />}
+        feature="voice"
+        actions={
+          <>
+            <span className="text-text-secondary text-meta mr-auto flex items-center gap-1.5 self-center">
+              <Lock aria-hidden className="text-feature-voice-text size-3.5" />
+              Every guild is end-to-end encrypted.
+            </span>
+            <Button variant="quiet" onClick={close}>
+              Cancel
+            </Button>
+          </>
+        }
       >
-        <div className="grid gap-2">
+        <p className="text-text-secondary text-sm">
+          A guild is where you and your friends chat and talk. Make your own, or join one you were
+          invited to.
+        </p>
+        <div className="grid gap-3">
           <ChoiceRow
-            icon={<Plus />}
+            icon={<Sparkles />}
+            feature="accent"
             title="Create a guild"
             hint="Your own place. You’re the owner and set the rules."
             onClick={() => goto('create')}
           />
           <ChoiceRow
             icon={<Link2 />}
+            feature="voice"
             title="Join with an invite"
             hint="Paste a link or code someone sent you."
             onClick={() => goto('join')}
@@ -101,6 +121,8 @@ export function AddServerDialog(): React.JSX.Element {
       open={open}
       onClose={close}
       title={TITLES[step]}
+      icon={step === 'create' ? <Sparkles /> : <Link2 />}
+      feature={step === 'create' ? 'accent' : 'voice'}
       description={
         step === 'create'
           ? 'Give it a name. You can change it later in guild settings.'
@@ -108,7 +130,7 @@ export function AddServerDialog(): React.JSX.Element {
       }
       actions={
         <>
-          <Button type="button" variant="ghost" className="mr-auto" onClick={() => goto('choose')}>
+          <Button type="button" variant="quiet" className="mr-auto" onClick={() => goto('choose')}>
             Back
           </Button>
           <Button type="submit" form={formId} disabled={busy || !value.trim()}>
@@ -156,8 +178,10 @@ export function AddServerDialog(): React.JSX.Element {
   )
 }
 
+/** One option card: icon tile and hover border in the feature colour, chevron to the next step. */
 function ChoiceRow(props: {
   icon: React.ReactNode
+  feature: Extract<Feature, 'accent' | 'voice'>
   title: string
   hint: string
   onClick: () => void
@@ -166,16 +190,25 @@ function ChoiceRow(props: {
     <button
       type="button"
       onClick={props.onClick}
-      className="bg-card hover:bg-accent hover:border-muted-foreground group flex items-center gap-3 border p-3 text-left"
+      className={cn(
+        'rounded-option border-line-hairline bg-surface-raised hover:bg-surface-hover focus-visible:outline-line-focus group flex items-center gap-3 border px-3.5 py-3 text-left transition-colors outline-none focus-visible:outline-2 focus-visible:outline-offset-1',
+        props.feature === 'voice' ? 'hover:border-feature-voice' : 'hover:border-accent-primary'
+      )}
     >
-      <span className="bg-primary text-primary-foreground flex size-10 shrink-0 items-center justify-center [&_svg]:size-5">
+      <span
+        aria-hidden
+        className={cn(
+          'rounded-control flex size-11 shrink-0 items-center justify-center [&_svg]:size-5',
+          FEATURE_TILE[props.feature]
+        )}
+      >
         {props.icon}
       </span>
-      <span className="grid min-w-0 flex-1">
-        <span className="text-sm font-semibold">{props.title}</span>
-        <span className="text-muted-foreground text-xs leading-4">{props.hint}</span>
+      <span className="grid min-w-0 flex-1 gap-0.5">
+        <span className="text-label text-text-primary">{props.title}</span>
+        <span className="text-meta text-text-secondary">{props.hint}</span>
       </span>
-      <ChevronRight className="text-muted-foreground group-hover:text-foreground size-4" />
+      <ChevronRight className="text-text-tertiary group-hover:text-text-primary size-4" />
     </button>
   )
 }

@@ -1,4 +1,5 @@
 import { useId } from 'react'
+import { History } from 'lucide-react'
 import type { Channel } from '@hachiman/client'
 import { Warning } from '@/components/security/screen-window'
 import { Switch } from '@/components/ui/switch'
@@ -21,8 +22,16 @@ export function InviteHistoryOption({
   const joined = scope.some((c) => c.historyVisibility === 'joined')
   return (
     <div className="grid gap-2">
-      <label htmlFor={id} className="flex items-center justify-between gap-4 text-sm">
-        Include history
+      <label htmlFor={id} className="flex items-center gap-3 py-1">
+        <History aria-hidden className="text-text-tertiary size-4 shrink-0" />
+        <span className="grid min-w-0 flex-1">
+          <span className="text-label text-text-primary">Include history</span>
+          <span className="text-meta text-text-tertiary">
+            {scope.length === 0
+              ? 'No text or pages channel is visible to everyone, so an invite cannot include history.'
+              : 'The new member can read the earlier messages and pages of the public channels.'}
+          </span>
+        </span>
         <Switch
           id={id}
           checked={checked}
@@ -30,26 +39,20 @@ export function InviteHistoryOption({
           onCheckedChange={onChange}
         />
       </label>
-      {scope.length === 0 ? (
-        <p className="text-muted-foreground text-xs leading-4">
-          No text or pages channel is visible to everyone, so an invite cannot include history.
-        </p>
-      ) : (
-        checked && (
-          <Warning>
-            Anyone who gets this link can read the earlier messages and the pages of these channels:{' '}
-            {scope.map((c, i) => (
-              <span key={c.id}>
-                {i > 0 && ', '}
-                <span className="font-semibold">#{c.name ?? c.id}</span>
-                {c.historyVisibility === 'joined' && ' (joined)'}
-              </span>
-            ))}
-            .
-            {joined &&
-              ' A channel marked "joined" shows its history only to members who were there. This invite gives its history too.'}
-          </Warning>
-        )
+      {checked && scope.length > 0 && (
+        <Warning>
+          Anyone who gets this link can read the earlier messages and the pages of these channels:{' '}
+          {scope.map((c, i) => (
+            <span key={c.id}>
+              {i > 0 && ', '}
+              <span className="font-semibold">#{c.name ?? c.id}</span>
+              {c.historyVisibility === 'joined' && ' (joined)'}
+            </span>
+          ))}
+          .
+          {joined &&
+            ' A channel marked "joined" shows its history only to members who were there. This invite gives its history too.'}
+        </Warning>
       )}
     </div>
   )

@@ -1,9 +1,9 @@
 import { useMemo, useState } from 'react'
+import { Check, Copy, Link2, UserPlus } from 'lucide-react'
 import { Permissions, has, type Channel } from '@hachiman/client'
 import { Warning } from '@/components/security/screen-window'
 import { Button } from '@/components/ui/button'
 import { ErrorText, Field } from '@/components/ui/field'
-import { Input } from '@/components/ui/input'
 import { ModalWindow } from '@/components/ui/modal-window'
 import { InviteHistoryOption } from '@/components/settings/invite-history-option'
 import { InviteOptions } from '@/components/settings/invite-options'
@@ -137,19 +137,22 @@ export function InviteDialog(): React.JSX.Element {
       open={open}
       onClose={close}
       title={guild?.name ? `Invite people to ${guild.name}` : 'Invite people'}
-      description="Send this link to anyone you want to join."
+      icon={<UserPlus />}
       actions={
-        <Button variant="ghost" onClick={close}>
+        <Button variant="secondary" onClick={close}>
           Done
         </Button>
       }
     >
       {!canCreate ? (
-        <p className="text-muted-foreground text-sm">
+        <p className="text-text-secondary text-sm">
           You don’t have permission to create invites here. Ask a guild admin for a link.
         </p>
       ) : (
         <>
+          <p className="text-text-secondary -mb-1 text-sm">
+            Send this link to anyone you want to join.
+          </p>
           <div className="grid grid-cols-2 gap-3">
             <InviteOptions
               value={options}
@@ -181,21 +184,23 @@ export function InviteDialog(): React.JSX.Element {
                 : expiryHint
             }
           >
-            <div className="flex">
-              <Input
+            <div className="rounded-control border-line-strong bg-surface-sunken focus-within:border-accent-primary flex h-10 items-center gap-2 border pr-1 pl-3">
+              <Link2 aria-hidden className="text-text-tertiary size-4 shrink-0" />
+              <input
                 id="invite-link"
                 readOnly
                 value={link}
                 placeholder="Create a link to share it"
                 onFocus={(e) => e.currentTarget.select()}
-                className="font-mono text-[13px]"
+                className="placeholder:text-text-tertiary min-w-0 flex-1 bg-transparent font-mono text-[13px] outline-none"
               />
               {shown ? (
-                <Button className="h-9 w-28 shrink-0" onClick={copy}>
+                <Button className="w-28" onClick={copy}>
+                  {copied ? <Check /> : <Copy />}
                   {copied ? 'Copied' : 'Copy link'}
                 </Button>
               ) : (
-                <Button className="h-9 w-28 shrink-0" disabled={busy} onClick={() => void create()}>
+                <Button className="w-28" disabled={busy} onClick={() => void create()}>
                   {busy ? 'Creating…' : 'Create link'}
                 </Button>
               )}
@@ -208,7 +213,7 @@ export function InviteDialog(): React.JSX.Element {
             </Warning>
           )}
           {!history && (
-            <p className="text-muted-foreground text-xs leading-4">
+            <p className="text-meta text-text-tertiary">
               This invite does not include message history. The new member sees pages, and the
               history of the channels that they can see, only when a member shares it.
             </p>

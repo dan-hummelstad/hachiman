@@ -1,4 +1,4 @@
-import { ShieldAlert } from 'lucide-react'
+import { KeyRound, ShieldAlert, ShieldCheck } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -48,42 +48,53 @@ export function KeyChangeDialog(): React.JSX.Element {
         onEscapeKeyDown={keep}
         onPointerDownOutside={keep}
         onInteractOutside={keep}
-        className="sm:max-w-[460px]"
+        className="sm:max-w-[520px]"
       >
-        <DialogHeader icon={<ShieldAlert />} feature={blocking ? 'danger' : 'event'}>
+        <DialogHeader
+          icon={blocking ? <ShieldAlert /> : <KeyRound />}
+          feature={blocking ? 'danger' : 'event'}
+        >
           <DialogTitle>
             {blocking ? `${name} has a new security key` : `New security key for ${name}`}
           </DialogTitle>
           <DialogDescription>
-            {blocking
-              ? `You verified ${name} before. Their security key is now different.`
-              : `The security key of ${name} changed.`}
+            {blocking ? `You verified ${name} before` : `${name} isn’t verified`}
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-3 text-sm">
-          <p>
+          <p className="font-semibold">
+            {blocking
+              ? 'Their security key is different from the one you verified.'
+              : `The security key of ${name} changed.`}
+          </p>
+          <p className="text-text-secondary">
             This happens when {name} resets their account or sets up Hachiman again. It can also
-            mean that someone tries to read your messages with {name}.
+            mean that someone is trying to read your messages with {name}.
           </p>
           {blocking ? (
             <Warning tone="danger">
-              Do not trust the new key before you compare the safety number with {name}, in person
-              or on a call.
+              Don’t trust the new key until you compare the safety number with {name}, in person or
+              on a call.
             </Warning>
           ) : (
-            <p className="text-muted-foreground text-xs leading-4">
-              You did not verify {name}, so Hachiman uses the new key. To be sure, compare the
+            <Warning>
+              You haven’t verified {name}, so Hachiman now uses the new key. To be sure, compare the
               safety number with them.
-            </p>
+            </Warning>
           )}
           <ErrorText>{error}</ErrorText>
         </div>
         <DialogFooter>
-          <Button variant="ghost" disabled={busy} onClick={() => void accept()}>
+          <Button
+            variant={blocking ? 'quiet' : 'secondary'}
+            disabled={busy}
+            onClick={() => void accept()}
+          >
             {blocking ? 'Accept the new key' : 'OK'}
           </Button>
           <Button disabled={busy} onClick={() => openDialog({ kind: 'verification', userId })}>
-            Compare the safety number
+            <ShieldCheck />
+            Compare safety numbers
           </Button>
         </DialogFooter>
       </DialogContent>

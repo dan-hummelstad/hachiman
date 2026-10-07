@@ -1,10 +1,10 @@
 import { useState } from 'react'
+import { CirclePlus, FolderPlus } from 'lucide-react'
 import type { CreateChannelBody } from '@hachiman/client'
 import { ModalWindow } from '@/components/ui/modal-window'
 import { Button } from '@/components/ui/button'
 import { ErrorText } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import { RadioCard } from '@/components/ui/radio-card'
 import { useAction } from '@/hooks/use-action'
 import { ChannelIcon } from '@/lib/channel-icon'
@@ -14,6 +14,7 @@ import { docsService } from '@/services/docs/DocsService'
 import { hachiman } from '@/services/hachiman'
 import { useChannelStore } from '@/stores/channelStore'
 import { useDialog } from '@/stores/dialogStore'
+import { useGuildStore } from '@/stores/guildStore'
 import { selectChannel } from '@/stores/navStore'
 
 type ChannelKind = CreateChannelBody['type']
@@ -34,6 +35,8 @@ export function CreateChannelDialog(): React.JSX.Element {
   const parentName = useChannelStore((s) =>
     parentId ? (s.channels.get(parentId)?.name ?? null) : null
   )
+
+  const guildName = useGuildStore((s) => s.guilds.get(guildId)?.name ?? null)
 
   const isCategory = type === 'category'
 
@@ -66,19 +69,19 @@ export function CreateChannelDialog(): React.JSX.Element {
       open={open}
       onClose={close}
       title={isCategory ? 'Create category' : 'Create channel'}
+      icon={isCategory ? <FolderPlus /> : <CirclePlus />}
       description={
-        parentName
-          ? `In ${parentName}`
-          : isCategory
-            ? 'Categories group channels in the sidebar.'
-            : undefined
+        isCategory
+          ? 'Categories group channels in the sidebar.'
+          : [parentName && `In ${parentName}`, guildName].filter(Boolean).join(' · ') || undefined
       }
       actions={
         <>
-          <Button type="button" variant="ghost" disabled={busy} onClick={close}>
+          <Button type="button" variant="quiet" disabled={busy} onClick={close}>
             Cancel
           </Button>
           <Button type="submit" form={FORM_ID} disabled={busy || !name.trim()}>
+            {!isCategory && <CirclePlus />}
             {busy ? 'Creating…' : isCategory ? 'Create category' : 'Create channel'}
           </Button>
         </>
@@ -87,9 +90,7 @@ export function CreateChannelDialog(): React.JSX.Element {
       <form id={FORM_ID} onSubmit={(e) => void handleSubmit(e)} className="grid gap-4">
         {!isCategory && (
           <fieldset className="grid gap-2">
-            <legend className="text-muted-foreground mb-2 text-xs leading-4 font-semibold">
-              Type
-            </legend>
+            <legend className="section-label mb-2">Type</legend>
             {CREATE_CHANNEL_TYPES.map((t) => {
               const { label, hint } = CHANNEL_KINDS[t]
               return (
@@ -109,10 +110,12 @@ export function CreateChannelDialog(): React.JSX.Element {
           </fieldset>
         )}
         <div className="grid gap-2">
-          <Label htmlFor="channel-name">{isCategory ? 'Category name' : 'Channel name'}</Label>
+          <label htmlFor="channel-name" className="section-label">
+            {isCategory ? 'Category name' : 'Channel name'}
+          </label>
           <div className="relative">
             {!isCategory && (
-              <span className="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2">
+              <span className="text-text-tertiary pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2">
                 <ChannelIcon type={type} className="size-4" />
               </span>
             )}

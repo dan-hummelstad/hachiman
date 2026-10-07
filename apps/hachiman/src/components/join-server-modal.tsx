@@ -1,4 +1,5 @@
 import { useEffect, useId, useState } from 'react'
+import { Check, Link2 } from 'lucide-react'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Button } from '@/components/ui/button'
 import { ErrorText } from '@/components/ui/field'
@@ -64,10 +65,12 @@ export function JoinServerModal(): React.JSX.Element {
       open={open}
       onClose={dismiss}
       title="Guild invite"
-      description="You’ve been invited to join a guild."
+      description="You’ve been invited to join a guild"
+      icon={<Link2 />}
+      feature="voice"
       actions={
         <>
-          <Button variant="ghost" onClick={dismiss}>
+          <Button variant="quiet" onClick={dismiss}>
             {loadError ? 'Close' : 'Not now'}
           </Button>
           {!loadError && (
@@ -75,45 +78,59 @@ export function JoinServerModal(): React.JSX.Element {
               disabled={!session || !preview || busy || (historyBlocked && !withoutHistory)}
               onClick={() => void join()}
             >
+              <Check />
               {busy ? 'Joining…' : 'Accept invite'}
             </Button>
           )}
         </>
       }
     >
-      <div className="bg-card flex items-center gap-4 border p-4">
-        {preview ? (
-          <>
-            <GuildTile guild={preview.guild} size="lg" />
-            <span className="grid min-w-0">
-              <span className="truncate text-[15px] leading-5 font-semibold">
-                {preview.guild.name}
+      <div className="border-line-hairline bg-surface-raised overflow-hidden border">
+        <div
+          aria-hidden
+          className="from-accent-primary/70 to-feature-page/40 h-[70px] bg-gradient-to-r"
+        />
+        <div className="flex items-end gap-3.5 px-4 pb-4">
+          {preview ? (
+            <>
+              <GuildTile
+                guild={preview.guild}
+                size="lg"
+                className="border-surface-raised -mt-7 border-4"
+              />
+              <span className="grid min-w-0 gap-0.5 pb-0.5">
+                <span className="text-heading truncate">{preview.guild.name}</span>
+                <span className="text-meta text-text-secondary flex items-center gap-1.5 tabular-nums">
+                  <span aria-hidden className="bg-text-tertiary size-2 rounded-full" />
+                  {preview.memberCount} {preview.memberCount === 1 ? 'member' : 'members'}
+                </span>
               </span>
-              <span className="text-muted-foreground flex items-center gap-1.5 text-xs tabular-nums">
-                <span aria-hidden className="bg-online size-2" />
-                {preview.memberCount} {preview.memberCount === 1 ? 'member' : 'members'}
+            </>
+          ) : loadError ? (
+            <span className="grid gap-1 pt-3">
+              <span className="text-label">This invite doesn’t work</span>
+              <span className="text-meta text-text-secondary">
+                It may have expired or been revoked ({loadError}). Ask whoever sent it for a new
+                one.
               </span>
             </span>
-          </>
-        ) : loadError ? (
-          <span className="grid gap-1">
-            <span className="text-sm font-semibold">This invite doesn’t work</span>
-            <span className="text-muted-foreground text-xs leading-4">
-              It may have expired or been revoked ({loadError}). Ask whoever sent it for a new one.
-            </span>
-          </span>
-        ) : (
-          <>
-            <Skeleton className="size-14 shrink-0" />
-            <span className="grid flex-1 gap-2" aria-label="Loading invite">
-              <Skeleton className="h-4 w-2/3" />
-              <Skeleton className="h-3 w-1/3" />
-            </span>
-          </>
-        )}
+          ) : (
+            <>
+              <Skeleton className="-mt-7 size-14 shrink-0 rounded-full" />
+              <span className="grid flex-1 gap-2" aria-label="Loading invite">
+                <Skeleton className="h-4 w-2/3" />
+                <Skeleton className="h-3 w-1/3" />
+              </span>
+            </>
+          )}
+        </div>
       </div>
-      <p className="text-muted-foreground -mt-2 text-xs">
-        Invite code <span className="text-foreground font-mono text-[13px]">{code}</span>
+      <p className="text-meta text-text-secondary flex items-center gap-2">
+        Invite code
+        <span className="bg-surface-sunken text-text-primary px-2 py-0.5 font-mono text-[13px] font-semibold">
+          {code}
+        </span>
+        {preview?.expiresAt && <span className="ml-auto">{expiresIn(preview.expiresAt)}</span>}
       </p>
       {preview?.hasHistory &&
         (historyBlocked ? (
@@ -164,7 +181,7 @@ function SignInPrompt({
   const { signIn, busy, error } = useSignIn(code, inviteKey)
   return (
     <div className="grid gap-2">
-      <div className="bg-card flex items-center gap-3 border p-3">
+      <div className="border-line-hairline bg-surface-raised flex items-center gap-3 border p-3">
         <span className="flex-1 text-sm">Sign in with Takusen to accept this invite.</span>
         <Button size="sm" disabled={busy} onClick={() => void signIn()}>
           {busy ? 'Opening…' : 'Sign in'}
@@ -173,4 +190,13 @@ function SignInPrompt({
       <ErrorText>{error}</ErrorText>
     </div>
   )
+}
+
+/** "Expires in 6 days", "Expires in 3 hours", "Expires soon". */
+function expiresIn(iso: string): string {
+  const ms = new Date(iso).getTime() - Date.now()
+  const hours = Math.floor(ms / 3_600_000)
+  if (hours >= 48) return `Expires in ${Math.floor(hours / 24)} days`
+  if (hours >= 2) return `Expires in ${hours} hours`
+  return 'Expires soon'
 }
