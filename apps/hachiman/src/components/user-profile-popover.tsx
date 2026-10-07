@@ -9,6 +9,7 @@ import { RoleChip } from '@/components/ui/role-chip'
 import { useMemberView, useOpenDm, usePresence } from '@/hooks/use-member'
 import { memberRoles } from '@/lib/model'
 import { ROLE_INK_SCOPE } from '@/lib/role-ink'
+import { userBanner } from '@/lib/user-tint'
 import { cn } from '@/lib/utils'
 import { useCryptoStore } from '@/stores/cryptoStore'
 import { openDialog } from '@/stores/dialogStore'
@@ -85,21 +86,28 @@ function ProfileCard(props: {
 
   return (
     <div className="flex flex-col">
-      <div
-        className={cn('h-14 border-b', !ink && 'bg-accent')}
-        style={ink ? { background: ink } : undefined}
-      />
+      <div className="h-16" style={{ background: ink ?? userBanner(userId) }} />
       <div className="flex flex-col gap-3 px-4 pb-4">
-        <div className="bg-popover -mt-9 w-fit border-4 border-[var(--popover)]">
-          <UserAvatar avatar={identity?.avatar} name={name} color={ink} size={64} />
+        <div className="-mt-10 w-fit">
+          <UserAvatar
+            avatar={identity?.avatar}
+            name={name}
+            color={ink}
+            size={64}
+            status={status}
+            cutout="bg-popover"
+            className="ring-popover rounded-full ring-4"
+          />
         </div>
 
         <div className="flex min-w-0 flex-col gap-0.5">
-          <span className="truncate text-base leading-6 font-semibold">{name}</span>
-          <span className="text-muted-foreground truncate font-mono text-[13px]">
+          <span className="text-text-primary truncate text-lg leading-6 font-extrabold">
+            {name}
+          </span>
+          <span className="text-text-tertiary truncate font-mono text-[13px]">
             {identity?.username ?? userId}
           </span>
-          <span className="text-muted-foreground mt-1 flex items-center gap-2 text-xs">
+          <span className="text-text-secondary mt-1 flex items-center gap-2 text-xs">
             <PresenceDot status={status} />
             {PRESENCE_LABEL[status]}
           </span>
@@ -108,12 +116,12 @@ function ProfileCard(props: {
         {voice?.channelId && (voice.selfMute || voice.selfDeaf) && (
           <div className="flex gap-1">
             {voice.selfMute && (
-              <span className="text-destructive border-destructive/40 flex items-center gap-1 border px-1.5 py-0.5 text-xs">
+              <span className="bg-feature-danger/15 text-feature-danger-text flex items-center gap-1 px-1.5 py-0.5 text-xs font-semibold">
                 <MicOff className="size-3" /> Muted
               </span>
             )}
             {voice.selfDeaf && (
-              <span className="text-destructive border-destructive/40 flex items-center gap-1 border px-1.5 py-0.5 text-xs">
+              <span className="bg-feature-danger/15 text-feature-danger-text flex items-center gap-1 px-1.5 py-0.5 text-xs font-semibold">
                 <VolumeX className="size-3" /> Deafened
               </span>
             )}
@@ -121,11 +129,11 @@ function ProfileCard(props: {
         )}
 
         {chips.length > 0 && (
-          <div className="flex flex-col gap-1.5 border-t pt-3">
+          <div className="border-line-hairline flex flex-col gap-1.5 border-t pt-3">
             <span className="section-label">Roles</span>
             <div className="flex flex-wrap gap-1">
               {chips.map((r) => (
-                <RoleChip key={r.id} role={r} className="bg-background" />
+                <RoleChip key={r.id} role={r} />
               ))}
             </div>
           </div>
@@ -142,7 +150,7 @@ function ProfileCard(props: {
             </Button>
             <Button
               size="sm"
-              variant="outline"
+              variant="secondary"
               disabled={!encryption}
               onClick={() => {
                 props.onDone()

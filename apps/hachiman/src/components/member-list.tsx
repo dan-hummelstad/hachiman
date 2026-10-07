@@ -1,68 +1,114 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
+import { AudioLines, Crown, Volume2 } from 'lucide-react'
 import type { Member } from '@hachiman/client'
-import { PresenceSections } from '@/components/people/presence-sections'
+import { useVoiceActivity } from '@/components/people/use-voice-activity'
 import { UserAvatar } from '@/components/shell/user-avatar'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { TitleBar } from '@/components/ui/title-bar'
+import { SystemTag } from '@/components/ui/system-tag'
 import { UserProfilePopover } from '@/components/user-profile-popover'
-import { usePresence, useSpeakingMember } from '@/hooks/use-member'
-import { sortMembersByName } from '@/lib/model'
+import { useChannelOccupants } from '@/hooks/use-hachiman'
+import { useMemberView, usePresence, useSpeakingMember } from '@/hooks/use-member'
+import { activityLabel } from '@/lib/member-activity'
+import { groupMembers } from '@/lib/member-groups'
 import { ROLE_INK_SCOPE } from '@/lib/role-ink'
 import { cn } from '@/lib/utils'
+import { useChannelStore } from '@/stores/channelStore'
 import { useGuildStore } from '@/stores/guildStore'
+import { openChannel } from '@/stores/navStore'
+import { useUserStore } from '@/stores/userStore'
+import { useVoiceStore } from '@/stores/voiceStore'
 
-const memberId = (m: Member): string => m.user.id
+const EMPTY_STREAMERS: Streamer[] = []
 
-/** Right column: the guild's members split into Online / Offline, names in their highest role colour. */
+interface Streamer {
+  userId: string
+  channelId: string
+}
+
+/**
+ * The members of a guild, for the right column (RightColumn puts the column head above it).
+ * Sections from `groupMembers`, names in their highest role colour, an activity line from the
+ * voice states, and a live card per member who streams.
+ */
 export function MemberList({ guildId }: { guildId: string }): React.JSX.Element {
   const members = useGuildStore((s) => s.members.get(guildId))
-  const sorted = useMemo(() => sortMembersByName(members?.values() ?? []), [members])
+  const presences = useGuildStore((s) => s.presences)
+  const ownerId = useGuildStore((s) => s.guilds.get(guildId)?.ownerId)
+  const myId = useUserStore((s) => s.me?.id)
+  const groups = useMemo(
+    () => groupMembers(members?.values() ?? [], presences),
+    [members, presences]
+  )
+  const states = useVoiceStore((s) => s.voiceStates.get(guildId))
+  const streamers = useMemo(() => {
+    const list: Streamer[] = []
+    for (const vs of states?.values() ?? [])
+      if (vs.selfStream && vs.channelId) list.push({ userId: vs.userId, channelId: vs.channelId })
+    return list.length > 0 ? list : EMPTY_STREAMERS
+  }, [states])
 
   return (
-    <aside
-      className={cn(
-        'bg-sidebar text-sidebar-foreground flex h-full min-h-0 w-60 shrink-0 flex-col border-l',
-        ROLE_INK_SCOPE
-      )}
-    >
-      <TitleBar left={<h2 className="truncate">Members</h2>} />
+    <div className={cn('flex min-h-0 flex-1 flex-col', ROLE_INK_SCOPE)}>
       <ScrollArea className="min-h-0 flex-1">
-        <div className="flex flex-col gap-4 px-2 py-3">
-          <PresenceSections
-            items={sorted}
-            idOf={memberId}
-            labelClassName="px-2 pb-1"
-            renderRow={(m, offline) => (
-              <MemberRow key={m.user.id} member={m} guildId={guildId} dim={offline} />
-            )}
-          />
+        <div className="flex flex-col gap-3 px-2 py-3">
+          {groups.map((g) => (
+            <section key={g.id} aria-label={g.label}>
+              <h3 className="section-label px-2 pb-1">
+                {g.label} — {g.members.length}
+              </h3>
+              <ul className="flex flex-col gap-px">
+                {g.members.map((m) => (
+                  <MemberRow
+                    key={m.user.id}
+                    member={m}
+                    guildId={guildId}
+                    dim={g.dim}
+                    owner={m.user.id === ownerId}
+                    me={m.user.id === myId}
+                  />
+                ))}
+              </ul>
+            </section>
+          ))}
         </div>
       </ScrollArea>
-    </aside>
+      {streamers.length > 0 && (
+        <div className="flex shrink-0 flex-col gap-2 p-2">
+          {streamers.map((s) => (
+            <LiveCard key={s.userId} guildId={guildId} {...s} />
+          ))}
+        </div>
+      )}
+    </div>
   )
 }
 
 function MemberRow({
   member,
   guildId,
-  dim
+  dim,
+  owner,
+  me
 }: {
   member: Member
   guildId: string
   dim: boolean
+  owner: boolean
+  me: boolean
 }): React.JSX.Element {
   const userId = member.user.id
   const { name, ink, speaking } = useSpeakingMember(guildId, userId)
   const status = usePresence(userId)
+  const activity = useVoiceActivity(userId, guildId)
   return (
     <li>
       <UserProfilePopover userId={userId} guildId={guildId}>
         <button
           type="button"
           className={cn(
-            'group hover:bg-sidebar-accent flex h-10 w-full items-center gap-2.5 px-2 text-left text-sm',
-            'focus-visible:outline-ring focus-visible:outline-2 focus-visible:-outline-offset-2',
-            dim && 'opacity-50 hover:opacity-100'
+            'group rounded-control hover:bg-surface-hover flex min-h-[42px] w-full items-center gap-2.5 px-2 py-1 text-left',
+            'focus-visible:outline-line-focus focus-visible:outline-2 focus-visible:-outline-offset-2',
+            dim && 'opacity-45 hover:opacity-100'
           )}
         >
           <UserAvatar
@@ -70,14 +116,86 @@ function MemberRow({
             name={name}
             color={ink}
             speaking={speaking}
-            status={status}
-            cutout="bg-sidebar group-hover:bg-sidebar-accent"
+            status={dim ? undefined : status}
+            cutout="bg-surface-panel"
           />
-          <span className="truncate font-medium" style={ink ? { color: ink } : undefined}>
-            {name}
+          <span className="flex min-w-0 flex-1 flex-col">
+            <span className="flex min-w-0 items-center gap-1.5">
+              <span
+                className="text-text-primary truncate text-sm leading-5 font-semibold"
+                style={ink ? { color: ink } : undefined}
+              >
+                {name}
+              </span>
+              {owner && (
+                <Crown
+                  className="text-feature-event-text size-3.5 shrink-0"
+                  aria-label="Guild owner"
+                />
+              )}
+              {me && <SystemTag kind="you" />}
+            </span>
+            {activity && !dim && (
+              <span className="text-feature-voice-text flex min-w-0 items-center gap-1 text-xs leading-4 font-semibold">
+                {activity.speaking ? (
+                  <AudioLines className="size-3.5 shrink-0" aria-hidden />
+                ) : (
+                  <Volume2 className="size-3.5 shrink-0" aria-hidden />
+                )}
+                <span className="truncate">{activityLabel(activity)}</span>
+              </span>
+            )}
           </span>
+          {activity?.streaming && !dim && <SystemTag kind="live" />}
         </button>
       </UserProfilePopover>
     </li>
   )
+}
+
+/**
+ * A member who streams. The frame shows only inside that call: SFrame keys are in the call's MLS
+ * group (decision 4). Elsewhere the card shows the streamer's avatar on the live tint.
+ */
+function LiveCard({
+  guildId,
+  userId,
+  channelId
+}: Streamer & { guildId: string }): React.JSX.Element {
+  const { name, avatar, ink } = useMemberView(guildId, userId)
+  const channelName = useChannelStore((s) => s.channels.get(channelId)?.name ?? 'voice')
+  const inCall = useChannelOccupants(guildId, channelId).length
+  const stream = useVoiceStore((s) =>
+    s.channelId === channelId ? s.screens.get(userId) : undefined
+  )
+  return (
+    <button
+      type="button"
+      onClick={() => openChannel(guildId, channelId)}
+      className="border-feature-danger/50 bg-feature-danger/10 hover:bg-feature-danger/15 focus-visible:outline-line-focus flex items-center gap-2.5 border p-2 text-left focus-visible:outline-2"
+    >
+      <span className="bg-feature-danger/20 relative flex h-12 w-20 shrink-0 items-center justify-center overflow-hidden">
+        {stream ? (
+          <StreamThumb stream={stream} />
+        ) : (
+          <UserAvatar avatar={avatar} name={name} color={ink} size={32} />
+        )}
+        <SystemTag kind="live" className="absolute top-0.5 left-0.5 h-4 px-1 text-[9px]" />
+      </span>
+      <span className="flex min-w-0 flex-col">
+        <span className="text-text-primary truncate text-[13px] font-bold">{name} is live</span>
+        <span className="text-text-tertiary truncate text-xs">
+          {channelName} · {inCall} in the call
+        </span>
+      </span>
+    </button>
+  )
+}
+
+function StreamThumb({ stream }: { stream: MediaStream }): React.JSX.Element {
+  const video = useRef<HTMLVideoElement>(null)
+  useEffect(() => {
+    if (video.current) video.current.srcObject = stream
+  }, [stream])
+  return <video ref={video} autoPlay muted playsInline className="size-full object-cover" />
 }
