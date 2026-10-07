@@ -16,21 +16,8 @@ import {
   UserPlus,
   Users
 } from 'lucide-react'
-import {
-  DndContext,
-  PointerSensor,
-  closestCenter,
-  useSensor,
-  useSensors,
-  type DragEndEvent
-} from '@dnd-kit/core'
-import {
-  SortableContext,
-  arrayMove,
-  useSortable,
-  verticalListSortingStrategy
-} from '@dnd-kit/sortable'
-import { CSS } from '@dnd-kit/utilities'
+import { DndContext, closestCenter, type DragEndEvent } from '@dnd-kit/core'
+import { SortableContext, arrayMove, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { Permissions, has, type Channel, type VoiceState } from '@hachiman/client'
 import {
   ContextMenu,
@@ -73,6 +60,7 @@ import { useChannelUnread, useDmUnread } from '@/stores/unreadStore'
 import { useUserStore } from '@/stores/userStore'
 import { useVoiceStore } from '@/stores/voiceStore'
 import { selectableRowClass } from '@/components/ui/selectable-row'
+import { useDragSensors, useSortableRow } from '@/hooks/use-sortable-row'
 
 /** A 30px sidebar row (padding 0/8/0/10): hover fill, and the selected fill with radius 8. */
 function rowClass(selected: boolean, className?: string): string {
@@ -230,7 +218,7 @@ function SortableGroup({
   canManage
 }: GroupProps): React.JSX.Element {
   // 4px activation distance so a click isn't swallowed as a drag.
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }))
+  const sensors = useDragSensors()
 
   const onDragEnd = ({ active, over }: DragEndEvent): void => {
     if (!over || active.id === over.id) return
@@ -285,16 +273,10 @@ function ChannelRow({
   const callSince = useMemo(() => (isVoice ? callStartedAt(occupants) : null), [isVoice, occupants])
   const callElapsed = useElapsed(callSince)
 
-  const { setNodeRef, attributes, listeners, transform, transition, isDragging } = useSortable({
+  const { setNodeRef, attributes, listeners, style } = useSortableRow({
     id: channel.id,
     disabled: !canManage
   })
-  const style: React.CSSProperties = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    opacity: isDragging ? 0.5 : 1,
-    zIndex: isDragging ? 1 : undefined
-  }
 
   const join = (): void => void voiceService.join(channel)
   const lockLabel = restricted ? 'Restricted channel' : 'Read only'

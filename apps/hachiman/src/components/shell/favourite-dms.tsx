@@ -1,15 +1,7 @@
 import { useMemo } from 'react'
 import { Plus } from 'lucide-react'
-import {
-  DndContext,
-  PointerSensor,
-  closestCenter,
-  useSensor,
-  useSensors,
-  type DragEndEvent
-} from '@dnd-kit/core'
-import { SortableContext, rectSortingStrategy, useSortable } from '@dnd-kit/sortable'
-import { CSS } from '@dnd-kit/utilities'
+import { DndContext, closestCenter, type DragEndEvent } from '@dnd-kit/core'
+import { SortableContext, rectSortingStrategy } from '@dnd-kit/sortable'
 import type { Channel } from '@hachiman/client'
 import { FavouriteDmItem } from '@/components/channel-sidebar'
 import { UserAvatar } from '@/components/shell/user-avatar'
@@ -25,6 +17,7 @@ import { useGuildStore } from '@/stores/guildStore'
 import { DM_HOME, navigate, useNavStore } from '@/stores/navStore'
 import { useFavouriteDms, usePrefsStore } from '@/stores/prefsStore'
 import { useChannelUnread } from '@/stores/unreadStore'
+import { useDragSensors, useSortableRow } from '@/hooks/use-sortable-row'
 
 /** The open tile (E2): an opaque accent wash, so the presence cutout can match it. */
 const OPEN_BG = 'bg-[color-mix(in_oklab,var(--accent-primary)_17%,var(--surface-raised))]'
@@ -40,7 +33,7 @@ export function FavouriteDms(): React.JSX.Element {
   const channels = useChannelStore((s) => s.channels)
   const tiles = useMemo(() => favouriteTiles(ids, channels), [ids, channels])
   // 4px activation distance so a click is not taken as a drag.
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }))
+  const sensors = useDragSensors()
 
   const onDragEnd = ({ active, over }: DragEndEvent): void => {
     if (!over) return
@@ -87,15 +80,7 @@ function FavouriteTile({ channel }: { channel: Channel }): React.JSX.Element {
   const open = useNavStore(
     (s) => s.guildKey === DM_HOME && s.channelByGuild[DM_HOME] === channel.id
   )
-  const { setNodeRef, attributes, listeners, transform, transition, isDragging } = useSortable({
-    id: channel.id
-  })
-  const style: React.CSSProperties = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    opacity: isDragging ? 0.5 : 1,
-    zIndex: isDragging ? 1 : undefined
-  }
+  const { setNodeRef, attributes, listeners, style } = useSortableRow({ id: channel.id })
 
   return (
     <ContextMenu>
