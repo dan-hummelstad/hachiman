@@ -121,6 +121,13 @@ interface PageHead {               // GET /channels/:id/pages/heads: the data of
   snapshot: DocSnapshot | null     // the newest snapshot
 }
 
+interface ReadState {              // READY readStates; READ_STATE_UPDATE sets lastReadMessageId
+  channelId: string
+  lastReadMessageId: string | null // null: the user did not ack this channel
+  unreadCount: number              // messages after lastReadMessageId from other authors, at most 100. 0 when lastReadMessageId is null
+  lastMessageId: string | null     // the newest message of the channel. null: no messages
+}
+
 interface GuildFull extends Guild {  // READY + GUILD_CREATE
   channels: Channel[]              // only channels the user can VIEW
   roles: Role[]
@@ -202,6 +209,7 @@ New/changed tables (all ids `uuid` defaultRandom, timestamps `timestamptz` defau
 | `member_roles` | guild_id, user_id, role_id → roles (cascade) | PK (user_id, role_id); FK (guild_id,user_id) → guild_members (cascade) |
 | `permission_overwrites` | channel_id → channels (cascade), target_id uuid, target_type `overwrite_type` enum ('role','member'), allow bigint, deny bigint | PK (channel_id, target_id) |
 | `dm_participants` | channel_id → channels (cascade), user_id → users (cascade) | PK (channel_id, user_id); index (user_id) |
+| `read_states` | user_id → users (cascade), channel_id → channels (cascade), last_read_message_id uuid, last_read_created_at, updated_at | PK (user_id, channel_id). The read position is (`last_read_created_at`, `last_read_message_id`), the order of `messages`. It has no foreign key to `messages`: the position stays when that message is deleted |
 | `invites` | id, code unique, guild_id → guilds (cascade), created_by → users (cascade), expires_at null, max_uses null, uses int default 0, revoked bool default false, record bytea null, key_id bytea null, exhausted_at null, created_at | index (guild_id); unique (key_id). Replaces invite_codes. `record` and `key_id`: the `SignedInviteRecord` of an invite with history and its `sign_public` (§12.11.4). The accept of the last use sets `exhausted_at` |
 
 Pages tables (§4 Pages, §12.20). The server sees the tree and the timestamps. Titles, edits and snapshot pointers are envelopes:
@@ -299,6 +307,7 @@ Implemented extras (Discord semantics):
 | PATCH `/channels/:id/messages/:mid` `{envelope}` + `X-Hachiman-Device` (attachments do not change) | author; §12.8.4 | `Message` | `MESSAGE_UPDATE` |
 | DELETE `/channels/:id/messages/:mid` | author or MANAGE_MESSAGES | 204 | `MESSAGE_DELETE {id, channelId, guildId}` |
 | POST `/channels/:id/typing` | SEND_MESSAGES | 204 | `TYPING_START {channelId, guildId, userId, timestamp}` |
+| POST `/channels/:id/ack` `{messageId}` | VIEW_CHANNEL. The message must be in the channel, else 404 `NotFound`. 120 per user per 60 s, else 429 `RateLimited` | 204 | `READ_STATE_UPDATE {channelId, lastReadMessageId}` → user:{me}, only when the read state moved. The read state moves only forward in (created_at, id) order. An ack for the same or an older message changes nothing |
 | GET `/guilds/:id/members` | member | `Member[]` | — |
 | PATCH `/guilds/:id/members/:userId` `{nick?, roles?}` | nick: self→CHANGE_NICKNAME, other→MANAGE_NICKNAMES; roles→MANAGE_ROLES + hierarchy | `Member` | `GUILD_MEMBER_UPDATE`; `INVITE_DELETE` → guild for each revoked invite (Invite limits) |
 | DELETE `/guilds/:id/members/:userId` | KICK_MEMBERS (not owner) | 204 | `GUILD_MEMBER_REMOVE {guildId, user}` → guild; `GUILD_DELETE {id}` → user:{kicked}; `INVITE_DELETE` → guild for each revoked invite (Invite limits) |
@@ -561,7 +570,7 @@ Dispatch events:
 
 | t | d |
 |---|---|
-| READY | `{ v: 1, sessionId, deviceId, user: User, guilds: GuildFull[], privateChannels: Channel[], presences: Presence[] /* DM partners */ }` |
+| READY | `{ v: 1, sessionId, deviceId, user: User, guilds: GuildFull[], privateChannels: Channel[], presences: Presence[] /* DM partners */, readStates: ReadState[] }`. `readStates` has one entry for each text and pages channel that the user can VIEW and for each DM and group DM. The gateway reads them from Postgres in one query |
 | RESUMED | `{}` |
 | GUILD_CREATE | `GuildFull` |
 | GUILD_UPDATE | `Guild` |
@@ -570,6 +579,7 @@ Dispatch events:
 | MESSAGE_CREATE / MESSAGE_UPDATE | `Message` (ciphertext, §1) |
 | MESSAGE_DELETE | `{ id, channelId, guildId }` |
 | TYPING_START | `{ channelId, guildId, userId, timestamp }` |
+| READ_STATE_UPDATE | `{ channelId, lastReadMessageId }` — a session of the current user acked a channel (to user:{me} only). The other sessions clear their unread marks |
 | GUILD_MEMBER_ADD / GUILD_MEMBER_UPDATE | `Member` |
 | GUILD_MEMBER_REMOVE | `{ guildId, user: User }` |
 | USER_UPDATE | `User` — the current user changed (to user:{me} only). Other users see the change through GUILD_MEMBER_UPDATE. `// ponytail:` DM recipients stay stale until the next READY |
@@ -777,7 +787,7 @@ export class RestClient {
   getMe(); createGuild(body); getGuild(id); updateGuild(id, body, opts?); deleteGuild(id)
   createChannel(guildId, body); reorderChannels(guildId, body); updateChannel(id, body, opts?); deleteChannel(id)
   putOverwrite(channelId, targetId, body, opts?); deleteOverwrite(channelId, targetId, opts?)
-  getMessages(channelId, { before?, limit? }); editMessage(...); deleteMessage(...); triggerTyping(channelId)
+  getMessages(channelId, { before?, limit? }); editMessage(...); deleteMessage(...); triggerTyping(channelId); ackMessage(channelId, messageId)
   getMembers(guildId); updateMember(guildId, userId, body, opts?); kickMember(guildId, userId); leaveGuild(guildId)
   getRoles(guildId); createRole(guildId, body, opts?); reorderRoles(guildId, positions, opts?); updateRole(guildId, roleId, body, opts?); deleteRole(guildId, roleId, opts?)
   getInvites(guildId); createInvite(guildId, { maxAgeSeconds?, maxUses?, acknowledgedPermanent?, record? }); deleteInvite(code); previewInvite(code); acceptInvite(code)
@@ -884,6 +894,7 @@ export class HachimanClient extends TypedEventEmitter<HachimanClientEvents> {
     members: Map<string, Map<string, Member>>    // guildId → userId → Member
     presences: Map<string, PresenceStatus>       // userId → status
     voiceStates: Map<string, Map<string, VoiceState>>  // guildId → userId → state
+    readStates: Map<string, ReadState>           // channelId → state. From READY. READ_STATE_UPDATE sets lastReadMessageId and unreadCount 0
   }
   connect(): void; disconnect(): void
   permissionsFor(channelId: string): number      // for the current user

@@ -602,7 +602,8 @@ export const READY: ReadyPayload = {
   deviceId: 'preview-device',
   guilds: [guild1, guild2, guild3],
   privateChannels: dms,
-  presences: Object.entries(PRESENCE).map(([userId, status]) => ({ userId, status }))
+  presences: Object.entries(PRESENCE).map(([userId, status]) => ({ userId, status })),
+  readStates: []
 }
 
 /** channelId → seeded history (oldest first), including the pending/failed rows in #general. */

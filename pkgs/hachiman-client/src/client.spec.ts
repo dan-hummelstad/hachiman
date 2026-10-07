@@ -73,6 +73,10 @@ const readyPayload: ReadyPayload = {
   guilds: [guild],
   privateChannels: [channel('dm', { guildId: null, type: 'dm', name: null })],
   presences: [],
+  readStates: [
+    { channelId: 'general', lastReadMessageId: 'm1', unreadCount: 3, lastMessageId: 'm4' },
+    { channelId: 'dm', lastReadMessageId: null, unreadCount: 0, lastMessageId: null },
+  ],
 }
 
 const device = { deviceId: 'dev1', capabilities: ['e2ee/1'], clientVersion: '1.0.0' }
@@ -134,6 +138,19 @@ describe('HachimanClient cache', () => {
     expect(client.permissionsFor('dm')).toBe(
       P.VIEW_CHANNEL | P.SEND_MESSAGES | P.ATTACH_FILES | P.READ_MESSAGE_HISTORY,
     )
+  })
+
+  it('READY fills readStates and READ_STATE_UPDATE moves the read state forward', () => {
+    const r = client.cache.readStates
+    expect(r.get('general')).toEqual({ channelId: 'general', lastReadMessageId: 'm1', unreadCount: 3, lastMessageId: 'm4' })
+    dispatch('READ_STATE_UPDATE', { channelId: 'general', lastReadMessageId: 'm4' })
+    expect(r.get('general')).toEqual({ channelId: 'general', lastReadMessageId: 'm4', unreadCount: 0, lastMessageId: 'm4' })
+    dispatch('READ_STATE_UPDATE', { channelId: 'dm', lastReadMessageId: 'd1' })
+    expect(r.get('dm')).toEqual({ channelId: 'dm', lastReadMessageId: 'd1', unreadCount: 0, lastMessageId: 'd1' })
+    dispatch('CHANNEL_DELETE', channel('general'))
+    expect(r.has('general')).toBe(false)
+    dispatch('READY', { ...readyPayload, readStates: [] })
+    expect(r.size).toBe(0)
   })
 
   it('after a RESUME it leaves a call of this session that the client dropped, before state ready', async () => {

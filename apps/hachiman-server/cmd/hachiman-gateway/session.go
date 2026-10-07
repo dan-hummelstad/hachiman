@@ -304,6 +304,22 @@ func (s *session) addDM(ch Channel) {
 	}
 }
 
+// visibleReadStates keeps the read states of DMs and of the guild channels
+// the user can view (VIEW_CHANNEL), as clientGuilds does for channels.
+func (s *session) visibleReadStates(all []ReadState) []ReadState {
+	out := []ReadState{}
+	for _, r := range all {
+		if r.guildID != nil {
+			gs := s.guilds[*r.guildID]
+			if gs == nil || !gs.canView(s.user.ID, r.ChannelID) {
+				continue
+			}
+		}
+		out = append(out, r)
+	}
+	return out
+}
+
 // clientGuilds turns loaded guilds into the client's view: visible channels
 // only, plus live voice states and online presences from Redis.
 func (s *session) clientGuilds(ctx context.Context, gfs []*GuildFull) []GuildFull {

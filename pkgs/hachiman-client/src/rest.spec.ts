@@ -315,6 +315,11 @@ describe('RestClient fetch routes', () => {
     ).rejects.toMatchObject({ status: 409, code: 'SnapshotConflict', details: { baseSeq: 12 } })
   })
 
+  it('ackMessage posts the message id', async () => {
+    await rest.ackMessage('c1', 'm1')
+    expect(last()).toMatchObject({ url: 'http://api/v1/channels/c1/ack', method: 'POST', body: { messageId: 'm1' } })
+  })
+
   it('sendMessage and editMessage send the envelope', async () => {
     await rest.sendMessage('c1', { envelope: 'SAE', nonce: 'n', attachments: ['f1', 't1'] })
     expect(last()).toMatchObject({

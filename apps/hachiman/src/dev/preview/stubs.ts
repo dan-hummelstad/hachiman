@@ -554,6 +554,7 @@ export function stubRest(): void {
       dispatch({ t: 'MESSAGE_DELETE', d: { id: messageId, channelId, guildId: null } })
     },
     triggerTyping: () => undefined,
+    ackMessage: () => undefined,
     getMembers: (guildId) => [...(cache.members.get(guildId)?.values() ?? [])],
     updateMember: (guildId, userId, body) => {
       const m = { ...must(cache.members.get(guildId)?.get(userId), 'member'), ...body }

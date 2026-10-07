@@ -297,6 +297,9 @@ export class RestClient {
   deleteMessage = (channelId: string, messageId: string) =>
     this.req<undefined>('DELETE', `/channels/${e(channelId)}/messages/${e(messageId)}`)
   triggerTyping = (channelId: string) => this.req<undefined>('POST', `/channels/${e(channelId)}/typing`)
+  /** Moves the read state of the channel forward to `messageId` (§4). An older message is ignored. */
+  ackMessage = (channelId: string, messageId: string) =>
+    this.req<undefined>('POST', `/channels/${e(channelId)}/ack`, { messageId })
 
   getMembers = (guildId: string) => this.req<Member[]>('GET', `/guilds/${e(guildId)}/members`)
   updateMember = (guildId: string, userId: string, body: UpdateMemberBody, opts: SignedActionOptions = {}) =>
