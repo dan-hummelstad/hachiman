@@ -1,13 +1,25 @@
 import { useEffect, useRef, useState } from 'react'
 import { CircleAlert, ImagePlus, Lock, Plus, X } from 'lucide-react'
+import type { Channel } from '@hachiman/client'
 import type { AttachmentPointer } from '@hachiman/crypto'
 import { IconButton } from '@/components/ui/icon-button'
+import {
+  applyCompletion,
+  findTrigger,
+  toWire,
+  type RoleInsert,
+  type Trigger
+} from '@/lib/mention-complete'
 import { cn } from '@/lib/utils'
 import { UploadTray } from './attachments/upload-tray'
 import type { Uploads } from './attachments/use-uploads'
+import { insertFor, useMentionItems, type MentionItem } from './mention-items'
+import { MentionMenu } from './mention-menu'
 import { submitOnEnter } from './submit-on-enter'
 
 interface ComposerProps {
+  /** The channel the message goes to: the source of the `@` and `#` suggestions. */
+  channel: Channel
   placeholder: string
   /** A plain reason shown instead of the input when I can't send. */
   disabledReason?: string
@@ -35,8 +47,12 @@ const TOOL = 'text-text-tertiary hover:bg-surface-hover hover:text-text-primary 
  * the right. Enter sends, Shift+Enter adds a newline, grows to about 8 lines. Pending attachments
  * sit in a tray above the text; sending waits until they all finished uploading. The emoji and
  * sticker buttons of the mocks have no feature yet and are not rendered.
+ *
+ * `@` and `#` open suggestions (mention-menu.tsx): members, roles, @everyone, channels, pages.
+ * A picked role shows as `@Name` and is sent as `<@&roleId>` (lib/mention-complete `toWire`).
  */
 export function Composer({
+  channel,
   placeholder,
   disabledReason,
   disabledAction,
@@ -51,6 +67,11 @@ export function Composer({
   const picker = useRef<HTMLInputElement>(null)
   const imagePicker = useRef<HTMLInputElement>(null)
   const input = useRef<HTMLTextAreaElement>(null)
+  const [trigger, setTrigger] = useState<Trigger | null>(null)
+  const [active, setActive] = useState(0)
+  const pickedRoles = useRef<RoleInsert[]>([])
+  const items = useMentionItems(channel, trigger)
+  const menuOpen = items.length > 0
   const replying = reply !== undefined
   // Reply moves the focus here, so that the answer can be typed at once.
   useEffect(() => {
@@ -75,8 +96,42 @@ export function Composer({
     if (uploads.busy) return uploads.setNotices(['Wait for the uploads to finish, then send.'])
     if (uploads.failed) return uploads.setNotices(['Remove the failed uploads to send.'])
     if (!text.trim() && uploads.items.length === 0) return
-    onSend(text, uploads.take())
+    onSend(toWire(text, pickedRoles.current), uploads.take())
     setText('')
+    setTrigger(null)
+    pickedRoles.current = []
+  }
+
+  /** The trigger at the caret after a change or a caret move; a new trigger starts at the top. */
+  const track = (value: string, caret: number | null): void => {
+    const next = caret === null ? null : findTrigger(value, caret)
+    setTrigger((prev) => {
+      if (prev?.start !== next?.start || prev?.char !== next?.char) setActive(0)
+      return next
+    })
+  }
+
+  const pick = (item: MentionItem): void => {
+    if (!trigger) return
+    const { insert, role } = insertFor(item)
+    const done = applyCompletion(text, trigger, insert)
+    if (role) pickedRoles.current = [...pickedRoles.current, role]
+    setText(done.text)
+    setTrigger(null)
+    requestAnimationFrame(() => input.current?.setSelectionRange(done.caret, done.caret))
+  }
+
+  /** The menu's keys: arrows move, Enter or Tab picks, Escape closes. True when handled. */
+  const menuKey = (e: React.KeyboardEvent): boolean => {
+    if (!menuOpen || e.nativeEvent.isComposing) return false
+    const item = items[active]
+    if (e.key === 'ArrowDown') setActive((active + 1) % items.length)
+    else if (e.key === 'ArrowUp') setActive((active - 1 + items.length) % items.length)
+    else if ((e.key === 'Enter' || e.key === 'Tab') && !e.shiftKey && item) pick(item)
+    else if (e.key === 'Escape') setTrigger(null)
+    else return false
+    e.preventDefault()
+    return true
   }
 
   const filePicker = (
@@ -111,7 +166,7 @@ export function Composer({
       )}
       <div
         className={cn(
-          'rounded-option bg-surface-raised border border-transparent transition-colors',
+          'rounded-option bg-surface-raised relative border border-transparent transition-colors',
           'focus-within:border-line-focus',
           paused && 'opacity-60'
         )}
@@ -130,6 +185,9 @@ export function Composer({
               <X />
             </IconButton>
           </div>
+        )}
+        {menuOpen && (
+          <MentionMenu items={items} active={active} onPick={pick} onHover={setActive} />
         )}
         <UploadTray items={uploads.items} onRemove={uploads.remove} />
         <div className="flex min-h-[52px] items-end gap-1 px-2.5 py-2.5">
@@ -152,11 +210,20 @@ export function Composer({
             disabled={!!paused}
             value={text}
             rows={1}
+            role="combobox"
+            aria-expanded={menuOpen}
+            aria-controls={menuOpen ? 'mention-menu' : undefined}
+            aria-activedescendant={menuOpen ? `mention-${active}` : undefined}
+            aria-autocomplete="list"
             onChange={(e) => {
               setText(e.target.value)
+              track(e.target.value, e.target.selectionStart)
               if (e.target.value) onTyping()
             }}
+            onSelect={(e) => track(e.currentTarget.value, e.currentTarget.selectionStart)}
+            onBlur={() => setTrigger(null)}
             onKeyDown={(e) => {
+              if (menuKey(e)) return
               if (e.key === 'Escape' && reply) {
                 e.preventDefault()
                 reply.onCancel()

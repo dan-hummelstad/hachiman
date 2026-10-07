@@ -14,7 +14,7 @@ import { PRESENCE_LABEL, PresenceDot } from '@/components/ui/presence'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { CustomStatusDialog } from '@/components/people/custom-status-dialog'
 import { GuildMenuItems } from '@/components/shell/guild-menu-items'
-import { CornerBadge } from '@/components/shell/unread-marks'
+import { UnreadMark } from '@/components/ui/unread-mark'
 import { useCustomStatus } from '@/hooks/use-custom-status'
 import { UserAvatar } from '@/components/shell/user-avatar'
 import type { UnreadBadge } from '@/lib/notify'
@@ -214,7 +214,7 @@ function SpaceButton({
   return (
     <span className="relative flex shrink-0">
       {button}
-      <CornerBadge badge={badge} />
+      <UnreadMark badge={badge} size="corner" />
     </span>
   )
 }

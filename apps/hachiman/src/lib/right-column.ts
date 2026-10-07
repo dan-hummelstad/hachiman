@@ -48,3 +48,15 @@ export function guildPagesSections(
   }
   return out
 }
+
+/** The default width of the page column (C1), restored by a double-click on its edge. */
+export const PAGE_COLUMN_DEFAULT = 540
+const PAGE_COLUMN_MIN = 360
+/** What the chat beside the page keeps at least, with the sidebar and the gaps. */
+const CHAT_MIN = 640
+
+/** The page column width clamped to its minimum and to what leaves the chat room in `windowWidth`. */
+export function clampPageColumn(width: number, windowWidth: number): number {
+  const max = Math.max(PAGE_COLUMN_MIN, windowWidth - CHAT_MIN)
+  return Math.round(Math.min(Math.max(width, PAGE_COLUMN_MIN), max))
+}

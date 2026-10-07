@@ -26,6 +26,30 @@ export const inHotZone = (x: number): boolean => x >= 0 && x < EDGE_PX
 export const startsHidden = (mode: SidebarMode, windowWidth: number): boolean =>
   mode === 'undocked' || windowWidth < NARROW_WIDTH
 
+/**
+ * The sidebar of a window: in the layout ('docked'), out of it and not shown ('tucked'), or out
+ * of it and slid in over the content ('revealed').
+ */
+export type SidebarView = 'docked' | 'tucked' | 'revealed'
+
+/** The sidebar a window opens with. */
+export const initialSidebar = (mode: SidebarMode, windowWidth: number): SidebarView =>
+  startsHidden(mode, windowWidth) ? 'tucked' : 'docked'
+
+/** A tucked sidebar reveals; a revealed one tucks; the dock toggle pins or unpins it. */
+export type SidebarAction = 'reveal' | 'tuck' | 'toggleDock'
+
+export function sidebarAfter(view: SidebarView, action: SidebarAction): SidebarView {
+  switch (action) {
+    case 'reveal':
+      return view === 'tucked' ? 'revealed' : view
+    case 'tuck':
+      return view === 'revealed' ? 'tucked' : view
+    case 'toggleDock':
+      return view === 'docked' ? 'tucked' : 'docked'
+  }
+}
+
 /** Whether `el` takes text: an input, a textarea or a contenteditable element. */
 export function isTextField(el: Element | null): boolean {
   if (!el) return false

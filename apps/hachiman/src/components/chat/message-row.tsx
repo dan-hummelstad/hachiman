@@ -22,11 +22,11 @@ import { formatFull, formatTime } from './format'
 import { useMessageMoreItems } from './message-more-items'
 import { MessageToolbar } from './message-toolbar'
 import { MessageTokens } from './message-tokens'
-import { PageActivityRow, PageLinkCard } from './page-cards'
+import { PageLinkCard } from './page-cards'
 import { ReactionChips } from './reactions'
 import { ReplyQuote } from './reply-quote'
 import { react } from './transcript-actions'
-import { rowKind, type RowPolicy } from './row-policy'
+import { type RowPolicy } from './row-policy'
 import { submitOnEnter } from './submit-on-enter'
 
 export interface TranscriptRowProps {
@@ -41,20 +41,14 @@ export interface TranscriptRowProps {
   onEditingChange: (messageId: string | null) => void
 }
 
-/** One row of the transcript: the row that `rowKind` picks for the message. */
+/** One row of the transcript: a blocked author's row stays collapsed until the user shows it (N23). */
 export const TranscriptRow = memo(function TranscriptRow(
   props: TranscriptRowProps
 ): React.JSX.Element {
   const [shown, setShown] = useState(false)
   const blocked = useIsBlocked(props.message.author.id)
-  switch (rowKind(props.message, blocked && !shown)) {
-    case 'blocked':
-      return <BlockedRow message={props.message} onShow={() => setShown(true)} />
-    case 'page_activity':
-      return <PageActivityRow message={props.message} />
-    case 'message':
-      return <MessageRow {...props} />
-  }
+  if (blocked && !shown) return <BlockedRow message={props.message} onShow={() => setShown(true)} />
+  return <MessageRow {...props} />
 })
 
 /**

@@ -53,12 +53,12 @@ const NO_NOTIFY_PREFS: NotifyPrefs = { notify: {}, muted: [] }
  * pings, and never while I am looking at that channel.
  */
 export function messageSound(
-  row: Pick<ChatMessage, 'guildId' | 'channelId' | 'decrypt' | 'kind'> | undefined,
+  row: Pick<ChatMessage, 'guildId' | 'channelId' | 'decrypt'> | undefined,
   ctx: MessageContext,
   prefs: NotifyPrefs = NO_NOTIFY_PREFS
 ): SoundEvent | null {
   if (!row || !ctx.isNotification || ctx.viewing) return null
-  if (row.decrypt.status !== 'ok' || row.kind === 'page_activity') return null
+  if (row.decrypt.status !== 'ok') return null
   const level = notifyLevel(prefs, row.channelId, row.guildId)
   const muted = isMuted(prefs, row.channelId, row.guildId)
   return shouldPing(level, muted, ctx.mentionsMe) ? 'message' : null

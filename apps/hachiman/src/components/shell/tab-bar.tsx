@@ -11,20 +11,12 @@ import {
   Volume2,
   X
 } from 'lucide-react'
-import {
-  DndContext,
-  PointerSensor,
-  closestCenter,
-  useSensor,
-  useSensors,
-  type DragEndEvent
-} from '@dnd-kit/core'
-import { SortableContext, horizontalListSortingStrategy, useSortable } from '@dnd-kit/sortable'
-import { CSS } from '@dnd-kit/utilities'
+import { DndContext, closestCenter, type DragEndEvent } from '@dnd-kit/core'
+import { SortableContext, horizontalListSortingStrategy } from '@dnd-kit/sortable'
 import { openSwitcher } from '@/components/shell/switcher-state'
 import { DRAG_REGION } from '@/components/shell/sidebar'
 import { SidebarControls } from '@/components/shell/sidebar-controls'
-import { useSidebarHidden } from '@/components/shell/sidebar-state'
+import { useSidebarView } from '@/components/shell/sidebar-state'
 import { UserAvatar } from '@/components/shell/user-avatar'
 import { Button } from '@/components/ui/button'
 import { ContextMenuItem } from '@/components/ui/context-menu'
@@ -50,8 +42,10 @@ import {
   viewOfTarget,
   type TabTarget
 } from '@/stores/tabsStore'
+import { UnreadMark } from '@/components/ui/unread-mark'
 import { useChannelUnread } from '@/stores/unreadStore'
 import { useVoiceStore } from '@/stores/voiceStore'
+import { useDragSensors, useSortableRow } from '@/hooks/use-sortable-row'
 
 const NO_DRAG = '[-webkit-app-region:no-drag]'
 
@@ -63,7 +57,7 @@ const tabKey = (t: TabTarget): string => `${t.kind}:${t.id}:${t.pageId ?? ''}`
  * button and the inbox spot at the end.
  */
 export function TabBar({ inbox }: { inbox?: React.ReactNode }): React.JSX.Element {
-  const hidden = useSidebarHidden()
+  const hidden = useSidebarView() !== 'docked'
   const { insetTitleBar } = usePlatform()
   return (
     <div
@@ -77,7 +71,7 @@ export function TabBar({ inbox }: { inbox?: React.ReactNode }): React.JSX.Elemen
       <PinCurrent />
       <Tabs />
       <Button
-        variant="ghost"
+        variant="quiet"
         aria-label="Pin a tab"
         title="Pin a tab"
         onClick={() => openSwitcher('pin')}
@@ -129,7 +123,7 @@ function PinCurrent(): React.JSX.Element {
 function Tabs(): React.JSX.Element {
   const tabs = useTabs()
   const active = useActiveTabIndex()
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }))
+  const sensors = useDragSensors()
   const ids = tabs.map(tabKey)
   const onDragEnd = ({ active: a, over }: DragEndEvent): void => {
     if (!over || a.id === over.id) return
@@ -187,8 +181,9 @@ function Tab({
   }, [needsTitles, target.id])
   const badge = useChannelUnread(target.id)
   const inCall = useVoiceStore((s) => s.channelId !== null && s.channelId === target.id)
-  const { setNodeRef, attributes, listeners, transform, transition, isDragging } = useSortable({
-    id
+  const { setNodeRef, attributes, listeners, isDragging, style } = useSortableRow({
+    id,
+    translateOnly: true
   })
   // A target that is gone: pruneTabs drops it once the caches show that.
   if (!channel) return null
@@ -200,11 +195,6 @@ function Tab({
         ? pageTitle || 'Untitled'
         : (channel.name ?? '')
   const other = target.kind === 'dm' ? channel.recipients?.[0] : undefined
-  const style: React.CSSProperties = {
-    transform: CSS.Translate.toString(transform),
-    transition,
-    zIndex: isDragging ? 1 : undefined
-  }
   const shortcut = index < 9 ? ` (${index + 1})` : ''
 
   return (
@@ -242,14 +232,8 @@ function Tab({
       <span className="min-w-0 truncate">{name}</span>
       {inCall ? (
         <AudioLines aria-label="In call" className="text-feature-voice size-3.5 shrink-0" />
-      ) : badge.mentions > 0 ? (
-        <span className="bg-feature-danger rounded-pill flex h-4 min-w-4 shrink-0 items-center justify-center px-1 text-[10px] font-bold text-white">
-          {badge.mentions}
-        </span>
       ) : (
-        badge.unread && (
-          <span aria-label="Unread" className="bg-text-primary size-1.5 shrink-0 rounded-full" />
-        )
+        <UnreadMark badge={badge} size="sm" />
       )}
       {active && (
         <button

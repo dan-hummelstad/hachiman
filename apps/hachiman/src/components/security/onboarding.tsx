@@ -25,8 +25,7 @@ import {
   ScreenActions,
   ScreenWindow,
   StepFrame,
-  StepHeader,
-  Warning
+  StepHeader
 } from '@/components/security/screen-window'
 import { useAction } from '@/hooks/use-action'
 import { cn } from '@/lib/utils'
@@ -37,6 +36,7 @@ import { takusenService } from '@/services/TakusenService'
 import { usePlatform } from '@/shared/PlatformContext'
 import { useCryptoStore } from '@/stores/cryptoStore'
 import { useTakusenStore } from '@/stores/takusenStore'
+import { Callout } from '@/components/ui/callout'
 
 /** What the server says about the account, for the choice of steps. Null while it loads or fails. */
 interface AccountFacts {
@@ -193,16 +193,16 @@ function Choose({
         device needs your security keys before it can show them.
       </p>
       {state === 'linking' && (
-        <Warning tone="info">
+        <Callout tone="info">
           A link to another device started on this device and did not finish. Start again.
-        </Warning>
+        </Callout>
       )}
       {reset && (
-        <Warning>
+        <Callout tone="caution">
           Your password or your security keys were reset. This signed out all of your devices and
           stopped your security key. Use your recovery key to get your key and your message history
           back.
-        </Warning>
+        </Callout>
       )}
       {!reset && (
         <OptionCard
@@ -336,10 +336,10 @@ function CreateIdentity({
             tile="bg-feature-voice/15 text-feature-voice-text"
           />
         </ul>
-        <Warning>
+        <Callout tone="caution">
           Do this only if you do not use Hachiman on another device. If you do, link this device to
           it instead.
-        </Warning>
+        </Callout>
         <ErrorText>{error}</ErrorText>
       </StepFrame>
     )
@@ -360,11 +360,11 @@ function CreateIdentity({
         </>
       }
     >
-      <Warning tone="danger">
+      <Callout tone="danger">
         A reset makes a new security key. Messages from before the reset become unreadable, on all
         devices. Your contacts see that your security key changed. If you have your recovery key, go
         back and use it.
-      </Warning>
+      </Callout>
       <label htmlFor={checkId} className="flex items-start gap-2">
         <Checkbox
           id={checkId}

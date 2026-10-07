@@ -12,7 +12,7 @@ const DANGER =
   'bg-feature-danger text-text-on-accent hover:bg-feature-danger/90 active:bg-feature-danger/80'
 const QUIET = 'text-text-primary hover:bg-surface-hover'
 
-/** Arc kit buttons (docs/ui-redesign.md §5): all radius 8. The shadcn names stay as aliases. */
+/** Arc kit buttons (docs/ui-redesign.md §5): all radius 8. */
 const buttonVariants = cva(
   "rounded-control inline-flex shrink-0 items-center justify-center gap-1.5 whitespace-nowrap border border-transparent text-sm leading-5 font-semibold select-none transition-colors disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 [&_svg]:shrink-0 outline-none focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-line-focus aria-invalid:border-feature-danger",
   {
@@ -27,10 +27,6 @@ const buttonVariants = cva(
         quiet: QUIET,
         voice:
           'bg-feature-voice text-[#06281a] hover:bg-feature-voice/90 active:bg-feature-voice/80',
-        default: PRIMARY,
-        destructive: DANGER,
-        outline: SECONDARY,
-        ghost: QUIET,
         link: 'h-auto! rounded-none border-0 px-0! text-accent-text underline-offset-4 hover:underline'
       },
       size: {

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { createPortal } from 'react-dom'
+import * as DialogPrimitive from '@radix-ui/react-dialog'
 import { AtSign, FileText, Hash, Pin, Search, Volume2, type LucideIcon } from 'lucide-react'
 import { Permissions, has } from '@hachiman/client'
 import {
@@ -8,9 +8,10 @@ import {
   useSwitcher,
   type SwitcherMode
 } from '@/components/shell/switcher-state'
-import { useSidebarHidden, useSidebarRevealed } from '@/components/shell/sidebar-state'
+import { useSidebarView } from '@/components/shell/sidebar-state'
 import { FEATURE_TEXT } from '@/components/ui/feature'
 import { Keycap } from '@/components/ui/keycap'
+import { UnreadMark } from '@/components/ui/unread-mark'
 import { dmName } from '@/lib/model'
 import { MOD_KEY } from '@/lib/mod-key'
 import { rankItems, recentKeys, type SwitchItem, type SwitchKind } from '@/lib/quick-switcher'
@@ -23,6 +24,7 @@ import { currentView, navigate, useNavStore, type View } from '@/stores/navStore
 import { isPinned, pinTab, targetOf, useTabs } from '@/stores/tabsStore'
 import { useChannelUnread } from '@/stores/unreadStore'
 import { useUserStore } from '@/stores/userStore'
+import { selectableRowClass } from '@/components/ui/selectable-row'
 
 /** The field at the top of the sidebar: "Search or jump to… ⌘K". */
 export function SwitcherField(): React.JSX.Element {
@@ -152,7 +154,13 @@ async function activate(it: SwitchItem, pin: boolean): Promise<void> {
 export function QuickSwitcher(): React.JSX.Element | null {
   const mode = useSwitcher((s) => s.mode)
   if (mode === null) return null
-  return createPortal(<SwitcherPanel mode={mode} />, document.body)
+  return (
+    <DialogPrimitive.Root open onOpenChange={(open) => !open && closeSwitcher()}>
+      <DialogPrimitive.Portal>
+        <SwitcherPanel mode={mode} />
+      </DialogPrimitive.Portal>
+    </DialogPrimitive.Root>
+  )
 }
 
 function SwitcherPanel({ mode }: { mode: SwitcherMode }): React.JSX.Element {
@@ -160,9 +168,8 @@ function SwitcherPanel({ mode }: { mode: SwitcherMode }): React.JSX.Element {
   const [index, setIndex] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const listRef = useRef<HTMLUListElement>(null)
-  const sidebarHidden = useSidebarHidden()
-  const revealed = useSidebarRevealed()
-  const anchored = mode === 'open' && (!sidebarHidden || revealed)
+  const sidebar = useSidebarView()
+  const anchored = mode === 'open' && sidebar !== 'tucked'
 
   // A snapshot when the panel opens: the lists are small and do not change while it is open.
   const [items] = useState(collectItems)
@@ -170,13 +177,6 @@ function SwitcherPanel({ mode }: { mode: SwitcherMode }): React.JSX.Element {
   const results = useMemo(() => rankItems(items, query, recent), [items, query, recent])
   const tabs = useTabs()
   const selected = Math.min(index, Math.max(results.length - 1, 0))
-
-  useEffect(() => {
-    const prev = document.activeElement
-    return () => {
-      if (prev instanceof HTMLElement && prev.isConnected) prev.focus()
-    }
-  }, [])
 
   useEffect(() => {
     listRef.current
@@ -197,25 +197,24 @@ function SwitcherPanel({ mode }: { mode: SwitcherMode }): React.JSX.Element {
     } else if (e.key === 'Enter') {
       e.preventDefault()
       run(results[selected], mode === 'pin' || e.metaKey || e.ctrlKey)
-    } else if (e.key === 'Escape') {
-      e.preventDefault()
-      e.stopPropagation()
-      closeSwitcher()
     }
   }
 
   return (
     <>
-      <div className="fixed inset-0 z-50" onMouseDown={closeSwitcher} aria-hidden />
-      <div
-        role="dialog"
-        aria-label={mode === 'pin' ? 'Pin to tabs' : 'Search or jump to'}
+      <DialogPrimitive.Overlay className="fixed inset-0 z-50" />
+      <DialogPrimitive.Content
+        data-slot="quick-switcher"
+        aria-describedby={undefined}
         onKeyDown={onKeyDown}
         className={cn(
           'border-line-strong bg-surface-raised text-text-primary rounded-control fixed z-50 flex w-[480px] max-w-[calc(100vw-32px)] flex-col overflow-hidden border shadow-xl',
           anchored ? 'top-[54px] left-2.5' : 'top-14 left-1/2 -translate-x-1/2'
         )}
       >
+        <DialogPrimitive.Title className="sr-only">
+          {mode === 'pin' ? 'Pin to tabs' : 'Search or jump to'}
+        </DialogPrimitive.Title>
         <div className="border-line-hairline flex h-11 shrink-0 items-center gap-2 border-b px-3">
           {mode === 'pin' ? (
             <Pin className="text-accent-text size-4 shrink-0" />
@@ -223,7 +222,6 @@ function SwitcherPanel({ mode }: { mode: SwitcherMode }): React.JSX.Element {
             <Search className="text-text-tertiary size-4 shrink-0" />
           )}
           <input
-            autoFocus
             value={query}
             onChange={(e) => {
               setQuery(e.target.value)
@@ -279,7 +277,7 @@ function SwitcherPanel({ mode }: { mode: SwitcherMode }): React.JSX.Element {
             </>
           )}
         </div>
-      </div>
+      </DialogPrimitive.Content>
     </>
   )
 }
@@ -316,9 +314,9 @@ function ResultRow({
       onMouseMove={onHover}
       onMouseDown={(e) => e.preventDefault()}
       onClick={(e) => onPick(e.metaKey || e.ctrlKey)}
-      className={cn(
-        'rounded-control flex h-9 cursor-pointer items-center gap-2.5 px-2.5 text-[14px]',
-        active ? 'bg-surface-selected' : 'hover:bg-surface-hover'
+      className={selectableRowClass(
+        active,
+        'text-text-primary flex h-9 cursor-pointer items-center gap-2.5 px-2.5 text-[14px]'
       )}
     >
       <Icon className={cn('size-4 shrink-0', KIND_COLOUR[item.kind])} />
@@ -330,15 +328,7 @@ function ResultRow({
         {item.guildName ?? (item.kind === 'dm' ? 'Direct message' : '')}
       </span>
       {pinned && <Pin aria-label="Pinned" className="text-text-tertiary size-3.5 shrink-0" />}
-      {badge.mentions > 0 ? (
-        <span className="bg-feature-danger rounded-pill flex h-4 min-w-4 items-center justify-center px-1 text-[10px] font-bold text-white">
-          {badge.mentions}
-        </span>
-      ) : (
-        badge.unread && (
-          <span aria-label="Unread" className="bg-text-primary size-1.5 rounded-full" />
-        )
-      )}
+      <UnreadMark badge={badge} size="sm" />
     </li>
   )
 }

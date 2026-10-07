@@ -1,4 +1,3 @@
-import { useMemo } from 'react'
 import { ChevronDown, Lock } from 'lucide-react'
 import {
   DropdownMenu,
@@ -9,6 +8,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { GuildTile } from '@/components/ui/guild-tile'
 import { GuildMenuItems } from '@/components/shell/guild-menu-items'
+import { useOnlineCount } from '@/hooks/use-online-count'
 import { useGuildStore } from '@/stores/guildStore'
 
 /**
@@ -64,18 +64,4 @@ export function GuildHeader({ guildId }: { guildId: string }): React.JSX.Element
       </DropdownMenuContent>
     </DropdownMenu>
   )
-}
-
-/** Members of the guild whose presence is not offline. */
-function useOnlineCount(guildId: string): number {
-  const members = useGuildStore((s) => s.members.get(guildId))
-  const presences = useGuildStore((s) => s.presences)
-  return useMemo(() => {
-    let n = 0
-    for (const id of members?.keys() ?? []) {
-      const p = presences.get(id)
-      if (p && p !== 'offline') n++
-    }
-    return n
-  }, [members, presences])
 }

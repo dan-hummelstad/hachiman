@@ -1,8 +1,8 @@
 import { useId } from 'react'
 import { History } from 'lucide-react'
 import type { Channel } from '@hachiman/client'
-import { Warning } from '@/components/security/screen-window'
 import { Switch } from '@/components/ui/switch'
+import { Callout } from '@/components/ui/callout'
 
 /**
  * "Include history" of an administrator's invite (§12.11.4), and its scope: the channels that
@@ -40,7 +40,7 @@ export function InviteHistoryOption({
         />
       </label>
       {checked && scope.length > 0 && (
-        <Warning>
+        <Callout tone="caution">
           Anyone who gets this link can read the earlier messages and the pages of these channels:{' '}
           {scope.map((c, i) => (
             <span key={c.id}>
@@ -52,7 +52,7 @@ export function InviteHistoryOption({
           .
           {joined &&
             ' A channel marked "joined" shows its history only to members who were there. This invite gives its history too.'}
-        </Warning>
+        </Callout>
       )}
     </div>
   )

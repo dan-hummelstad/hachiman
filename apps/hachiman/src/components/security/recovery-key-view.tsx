@@ -4,13 +4,14 @@ import { Copy, Download, KeyRound, RotateCcw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ErrorText, Field } from '@/components/ui/field'
 import { Textarea } from '@/components/ui/textarea'
-import { StepBody, StepFooter, StepFrame, Warning } from '@/components/security/screen-window'
+import { StepBody, StepFooter, StepFrame } from '@/components/security/screen-window'
 import {
   RECOVERY_KEY_CHARS,
   checkRecoveryKey,
   checkRecoveryKeyShape,
   recoveryKeyBody
 } from '@/components/security/recovery-key'
+import { Callout } from '@/components/ui/callout'
 
 /**
  * Shows a new recovery key one time (§12.11.3). The key lives only in the state of the caller:
@@ -88,10 +89,10 @@ export function RecoveryKeyReveal({
         </Button>
       </div>
       {note && <p className="text-meta text-text-tertiary">{note}</p>}
-      <Warning tone="danger">
+      <Callout tone="danger">
         Anyone with this key can read all of your encrypted history. Keep it private. If you lose it
         and all of your devices, you cannot read your old messages again.
-      </Warning>
+      </Callout>
       <label htmlFor={checkId} className="flex items-start gap-2">
         <Checkbox
           id={checkId}

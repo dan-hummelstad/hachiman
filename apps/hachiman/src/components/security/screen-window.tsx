@@ -1,5 +1,4 @@
 import { ChevronRight, ShieldAlert, ShieldCheck } from 'lucide-react'
-import { Callout } from '@/components/ui/callout'
 import { DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { FEATURE_TILE, type Feature } from '@/components/ui/feature'
 import { cn } from '@/lib/utils'
@@ -197,15 +196,4 @@ export function OptionCard({
       />
     </button>
   )
-}
-
-/** A short warning box inside a window or a settings page. */
-export function Warning({
-  children,
-  tone = 'warning'
-}: {
-  children: React.ReactNode
-  tone?: 'warning' | 'danger' | 'info'
-}): React.JSX.Element {
-  return <Callout tone={tone === 'warning' ? 'caution' : tone}>{children}</Callout>
 }

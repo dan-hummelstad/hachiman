@@ -38,10 +38,6 @@ export interface ChatMessage extends Omit<Message, 'envelope' | 'attachments' | 
   failed?: boolean
   /** Why the send failed, in words for the user. */
   sendError?: string
-  /** Absent: 'message'. 'page_activity': "edited <page> · n changes" (N21), see `pageActivity`. */
-  kind?: 'message' | 'page_activity'
-  /** Set on kind 'page_activity'. The page is in this (pages) channel. */
-  pageActivity?: { pageId: string; changes: number }
 }
 
 /**
@@ -301,7 +297,7 @@ export function replyPreviewOf(
   list: readonly ChatMessage[] | undefined,
   replyTo: string
 ): ReplyPreview {
-  const target = list?.find((m) => m.clientMsgId === replyTo && m.kind !== 'page_activity')
+  const target = list?.find((m) => m.clientMsgId === replyTo)
   if (!target) return MISSING
   return target.decrypt.status === 'ok'
     ? { status: 'ok', message: target }
@@ -317,9 +313,7 @@ export function useReplyTarget(channelId: string, replyTo: string | null): ChatM
   return useMessageStore((s) =>
     replyTo === null
       ? null
-      : (s.byChannel
-          .get(channelId)
-          ?.find((m) => m.clientMsgId === replyTo && m.kind !== 'page_activity') ?? null)
+      : (s.byChannel.get(channelId)?.find((m) => m.clientMsgId === replyTo) ?? null)
   )
 }
 

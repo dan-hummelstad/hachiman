@@ -38,6 +38,8 @@ interface PrefsState {
   /** Sounds the user switched off one by one. Ignored while `soundsEnabled` is false. */
   disabledSounds: SoundEvent[]
   sidebar: SidebarMode
+  /** Width in px of the right column while it shows a page (the user drags its edge). */
+  pageColumnWidth: number
   /** userId → that account's preferences. */
   accounts: Record<string, AccountPrefs>
   /** The signed-in user id. Not persisted: services/hachiman.ts sets it. */
@@ -51,6 +53,7 @@ interface PrefsState {
   setSoundVolume: (soundVolume: number) => void
   setSoundEnabled: (event: SoundEvent, enabled: boolean) => void
   setSidebar: (sidebar: SidebarMode) => void
+  setPageColumnWidth: (pageColumnWidth: number) => void
   setAccountId: (accountId: string | null) => void
   setFavouriteDm: (channelId: string, favourite: boolean) => void
   /** Reorders the favourite tiles. */
@@ -81,6 +84,7 @@ export const usePrefsStore = create<PrefsState>()(
         soundVolume: 0.7,
         disabledSounds: [],
         sidebar: 'docked',
+        pageColumnWidth: 540,
         accounts: {},
         accountId: null,
         setTheme: (theme) => set({ theme }),
@@ -97,6 +101,7 @@ export const usePrefsStore = create<PrefsState>()(
               : [...new Set([...s.disabledSounds, event])]
           })),
         setSidebar: (sidebar) => set({ sidebar }),
+        setPageColumnWidth: (pageColumnWidth) => set({ pageColumnWidth }),
         setAccountId: (accountId) => set({ accountId }),
         setFavouriteDm: (channelId, favourite) =>
           set((s) =>

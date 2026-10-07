@@ -224,6 +224,7 @@ export function startPreview(opts: PreviewOptions = {}): void {
   useVoiceStore.setState({
     guildId: G1,
     channelId: G1C.lounge,
+    localJoinedAt: now - 754_000,
     connectionState: 'connected',
     speaking: new Set([U.marlowe.id]),
     peers: [U.marlowe, U.juniper, U.ozzy].map((u, i) => ({ userId: u.id, ssrc: 1000 + i })),

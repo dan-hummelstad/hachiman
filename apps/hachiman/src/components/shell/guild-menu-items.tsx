@@ -23,7 +23,7 @@ interface MenuPrimitives {
   Separator: React.ComponentType
 }
 
-/** A guild's actions (rail context menu and channel-sidebar title dropdown). */
+/** A guild's actions (space bar context menu and the guild header dropdown). */
 export function GuildMenuItems({
   guildId,
   Item,

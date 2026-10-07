@@ -6,7 +6,6 @@ import { ErrorText } from '@/components/ui/field'
 import { GuildTile } from '@/components/ui/guild-tile'
 import { ModalWindow } from '@/components/ui/modal-window'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Warning } from '@/components/security/screen-window'
 import { useAction } from '@/hooks/use-action'
 import { useKeyedAsync } from '@/hooks/use-keyed-async'
 import { useSignIn } from '@/hooks/use-sign-in'
@@ -19,6 +18,7 @@ import {
 import { useCryptoStore } from '@/stores/cryptoStore'
 import { useDialog } from '@/stores/dialogStore'
 import { useTakusenStore } from '@/stores/takusenStore'
+import { Callout } from '@/components/ui/callout'
 
 /**
  * Opened by an invite deep link: preview the guild, then accept. The key of an invite with history
@@ -135,13 +135,13 @@ export function JoinServerModal(): React.JSX.Element {
       {preview?.hasHistory &&
         (historyBlocked ? (
           <div className="grid gap-2">
-            <Warning>
+            <Callout tone="caution">
               {lockHeld
                 ? 'This invite includes history, but Hachiman runs in another tab, so this tab cannot open it. Paste the link in that tab (+, then Join with an invite), or close that tab and open the link again.'
                 : 'This invite includes history, but encryption does not run in this window, so it cannot open the history.'}{' '}
               If you join here, the invite is used, and you get the history only when a member
               shares it.
-            </Warning>
+            </Callout>
             <label htmlFor={checkId} className="flex items-start gap-2 text-sm">
               <Checkbox
                 id={checkId}
@@ -153,16 +153,16 @@ export function JoinServerModal(): React.JSX.Element {
             </label>
           </div>
         ) : key ? (
-          <Warning tone="info">
+          <Callout tone="info">
             This invite includes history. After you join, you can read the earlier messages and
             pages of the channels that everyone in the guild can see.
-          </Warning>
+          </Callout>
         ) : (
-          <Warning>
+          <Callout tone="caution">
             This invite includes history, but this link does not have its key. Open the full link to
             get the history. If you join without it, you get the history only when a member shares
             it.
-          </Warning>
+          </Callout>
         ))}
       {!session && <SignInPrompt code={code} inviteKey={key} />}
       <ErrorText>{error}</ErrorText>

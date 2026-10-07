@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { Channel, Guild, Member, PresenceStatus, Role, VoiceState } from '@hachiman/client'
 import { groupMembers } from './member-groups'
 import { activityLabel, voiceActivity, type ActivitySources } from './member-activity'
-import { countPageLinks, guildPagesSections } from './right-column'
+import { clampPageColumn, countPageLinks, guildPagesSections } from './right-column'
 import { userHue } from './user-tint'
 import type { PageNode } from '@/stores/docsStore'
 import { countWords } from './word-count'
@@ -247,5 +247,18 @@ describe('guildPagesSections', () => {
     expect(s.map((x) => [x.channel.id, x.pages?.map((p) => [p.page.id, p.depth])])).toEqual([
       ['c1', [['p2', 0]]]
     ])
+  })
+})
+
+describe('clampPageColumn', () => {
+  it('keeps the width between the minimum and what leaves the chat room', () => {
+    expect(clampPageColumn(540, 1440)).toBe(540)
+    expect(clampPageColumn(100, 1440)).toBe(360)
+    expect(clampPageColumn(2000, 1440)).toBe(800)
+    expect(clampPageColumn(700.4, 1440)).toBe(700)
+  })
+
+  it('never goes below the minimum on a narrow window', () => {
+    expect(clampPageColumn(540, 800)).toBe(360)
   })
 })

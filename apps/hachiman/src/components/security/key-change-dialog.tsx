@@ -10,12 +10,12 @@ import {
 } from '@/components/ui/dialog'
 import { ErrorText } from '@/components/ui/field'
 import { friendly } from '@/components/security/errors'
-import { Warning } from '@/components/security/screen-window'
 import { useUserName } from '@/components/security/use-user-name'
 import { useAction } from '@/hooks/use-action'
 import { cryptoService } from '@/services/CryptoService'
 import { dismissKeyChange } from '@/stores/cryptoStore'
 import { openDialog, useDialog } from '@/stores/dialogStore'
+import { Callout } from '@/components/ui/callout'
 
 /**
  * Dialog kind 'keyChange' (§12.5 TOFU, §12.4 rule 9): the security key of a contact changed, or
@@ -72,15 +72,15 @@ export function KeyChangeDialog(): React.JSX.Element {
             mean that someone is trying to read your messages with {name}.
           </p>
           {blocking ? (
-            <Warning tone="danger">
+            <Callout tone="danger">
               Don’t trust the new key until you compare the safety number with {name}, in person or
               on a call.
-            </Warning>
+            </Callout>
           ) : (
-            <Warning>
+            <Callout tone="caution">
               You haven’t verified {name}, so Hachiman now uses the new key. To be sure, compare the
               safety number with them.
-            </Warning>
+            </Callout>
           )}
           <ErrorText>{error}</ErrorText>
         </div>

@@ -1,6 +1,7 @@
 import { setSidebarMode } from '@/components/shell/sidebar-state'
 import { SectionHeading } from '@/components/ui/field'
 import { Keycap } from '@/components/ui/keycap'
+import { RadioCard } from '@/components/ui/radio-card'
 import { MOD_KEY } from '@/lib/mod-key'
 import { cn } from '@/lib/utils'
 import {
@@ -30,14 +31,14 @@ export function AppearanceSection(): React.JSX.Element {
         <SectionHeading>Theme</SectionHeading>
         <div role="radiogroup" aria-label="Theme" className="grid grid-cols-3 gap-3">
           {THEMES.map((t) => (
-            <OptionCard
+            <RadioCard
               key={t.value}
+              name="theme"
               checked={theme === t.value}
-              onSelect={() => setTheme(t.value)}
-              label={t.label}
-            >
-              <ThemeSwatch value={t.value} />
-            </OptionCard>
+              onChange={() => setTheme(t.value)}
+              title={t.label}
+              preview={<ThemeSwatch value={t.value} />}
+            />
           ))}
         </div>
       </section>
@@ -45,12 +46,14 @@ export function AppearanceSection(): React.JSX.Element {
         <SectionHeading>Sidebar</SectionHeading>
         <div role="radiogroup" aria-label="Sidebar" className="grid grid-cols-2 gap-3">
           {(['docked', 'undocked'] as SidebarMode[]).map((m) => (
-            <OptionCard
+            <RadioCard
               key={m}
+              name="sidebar"
               checked={sidebar === m}
-              onSelect={() => setSidebarMode(m)}
-              label={m === 'docked' ? 'Docked' : 'Undocked'}
-              hint={
+              onChange={() => setSidebarMode(m)}
+              title={m === 'docked' ? 'Docked' : 'Undocked'}
+              preview={<SidebarPreview mode={m} />}
+              description={
                 m === 'docked' ? (
                   'Part of the window, always visible'
                 ) : (
@@ -60,9 +63,7 @@ export function AppearanceSection(): React.JSX.Element {
                   </>
                 )
               }
-            >
-              <SidebarPreview mode={m} />
-            </OptionCard>
+            />
           ))}
         </div>
       </section>
@@ -70,19 +71,19 @@ export function AppearanceSection(): React.JSX.Element {
         <SectionHeading>Message display</SectionHeading>
         <div role="radiogroup" aria-label="Message display" className="grid grid-cols-2 gap-3">
           {(['cozy', 'compact'] as MessageDisplay[]).map((d) => (
-            <OptionCard
+            <RadioCard
               key={d}
+              name="message-display"
               checked={messageDisplay === d}
-              onSelect={() => setMessageDisplay(d)}
-              label={d === 'cozy' ? 'Cozy' : 'Compact'}
-              hint={
+              onChange={() => setMessageDisplay(d)}
+              title={d === 'cozy' ? 'Cozy' : 'Compact'}
+              preview={<TranscriptPreview display={d} />}
+              description={
                 d === 'cozy'
                   ? 'Avatars and names above each group'
                   : 'One line per message, like an IRC log'
               }
-            >
-              <TranscriptPreview display={d} />
-            </OptionCard>
+            />
           ))}
         </div>
       </section>
@@ -90,47 +91,10 @@ export function AppearanceSection(): React.JSX.Element {
   )
 }
 
-function OptionCard(props: {
-  checked: boolean
-  onSelect: () => void
-  label: string
-  hint?: React.ReactNode
-  children: React.ReactNode
-}): React.JSX.Element {
-  return (
-    <button
-      type="button"
-      role="radio"
-      aria-checked={props.checked}
-      onClick={props.onSelect}
-      className={cn(
-        'rounded-option bg-surface-panel grid gap-3 border p-2.5 text-left transition-colors outline-none focus-visible:outline-2 focus-visible:outline-line-focus',
-        props.checked
-          ? 'border-accent-primary bg-accent-tint/40'
-          : 'border-line-hairline hover:border-line-strong'
-      )}
-    >
-      {props.children}
-      <span className="flex items-center gap-2.5 px-1">
-        <span
-          aria-hidden
-          className={cn(
-            'rounded-pill flex size-5 shrink-0 items-center justify-center border-2',
-            props.checked ? 'border-accent-primary bg-accent-primary' : 'border-line-strong'
-          )}
-        >
-          {props.checked && <span className="size-2 rounded-full bg-white" />}
-        </span>
-        <span className="grid">
-          <span className="text-label">{props.label}</span>
-          {props.hint && <span className="text-meta text-text-tertiary">{props.hint}</span>}
-        </span>
-      </span>
-    </button>
-  )
-}
-
-/** Miniature of the app chrome, drawn with the real tokens of `scheme`. */
+/**
+ * Miniature of the Arc window in `scheme`, drawn with its real tokens: the sidebar on the
+ * wallpaper, then the content card.
+ */
 function MiniChrome({
   scheme,
   className
@@ -139,13 +103,15 @@ function MiniChrome({
   className?: string
 }): React.JSX.Element {
   return (
-    <span className={cn(scheme, 'bg-background flex h-full', className)}>
-      <span className="bg-rail w-[14%]" />
-      <span className="bg-sidebar w-[30%] border-r" />
-      <span className="flex flex-1 flex-col gap-1 p-1.5">
-        <span className="bg-foreground/60 h-1 w-3/4" />
-        <span className="bg-foreground/35 h-1 w-1/2" />
-        <span className="bg-primary h-1 w-2/3" />
+    <span className={cn(scheme, 'bg-surface-window flex h-full', className)}>
+      <span className="flex w-[28%] shrink-0 flex-col gap-1 p-1.5">
+        <span className="bg-text-tertiary/50 h-1 w-3/4" />
+        <span className="bg-accent-primary h-1 w-2/3" />
+        <span className="bg-text-tertiary/35 h-1 w-1/2" />
+      </span>
+      <span className="bg-surface-content border-line-hairline my-1 mr-1 flex flex-1 flex-col gap-1 border p-1.5">
+        <span className="bg-text-primary/60 h-1 w-3/4" />
+        <span className="bg-text-primary/35 h-1 w-1/2" />
       </span>
     </span>
   )
@@ -229,7 +195,7 @@ function TranscriptPreview({ display }: { display: MessageDisplay }): React.JSX.
       {display === 'compact'
         ? SAMPLE.map((m, i) => (
             <span key={i} className="flex gap-3 whitespace-nowrap">
-              <span className="text-muted-foreground w-10 shrink-0 text-xs leading-5 tabular-nums">
+              <span className="text-text-secondary w-10 shrink-0 text-xs leading-5 tabular-nums">
                 {m.time}
               </span>
               <span className={cn('w-14 shrink-0 text-right font-semibold', m.ink)}>
@@ -242,7 +208,7 @@ function TranscriptPreview({ display }: { display: MessageDisplay }): React.JSX.
             <span key={i} className={cn('flex gap-3', i > 0 && 'mt-1.5')}>
               <span
                 className={cn(
-                  'bg-accent mt-0.5 flex size-6 shrink-0 items-center justify-center text-[11px] font-semibold',
+                  'bg-surface-hover mt-0.5 flex size-6 shrink-0 items-center justify-center text-[11px] font-semibold',
                   m.ink
                 )}
               >
@@ -251,7 +217,7 @@ function TranscriptPreview({ display }: { display: MessageDisplay }): React.JSX.
               <span className="grid min-w-0 leading-[17px]">
                 <span className="flex items-baseline gap-2">
                   <span className={cn('font-semibold', m.ink)}>{m.author}</span>
-                  <span className="text-muted-foreground text-[11px] tabular-nums">{m.time}</span>
+                  <span className="text-text-secondary text-[11px] tabular-nums">{m.time}</span>
                 </span>
                 <span className="truncate">{m.text}</span>
               </span>

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { MAX_MENTIONS, mentionsOf, messageMentionsMe } from './mentions'
+import { MAX_MENTIONS, mentionsOf, messageMentionsMe, tokenize } from './mentions'
 
 const me = { id: 'u-me', username: 'kestrel' }
 
@@ -13,6 +13,14 @@ describe('mentionsOf', () => {
       { type: 'user', id: 'u-marlowe' },
       { type: 'everyone', id: null }
     ])
+  })
+
+  it('gives a role mention for <@&id>, which is not a user mention', () => {
+    expect(mentionsOf('ping <@&r-captain> and <@u-1>', () => null)).toEqual([
+      { type: 'role', id: 'r-captain' },
+      { type: 'user', id: 'u-1' }
+    ])
+    expect(tokenize('<@&r-1>')).toEqual([{ kind: 'mention', value: '<@&r-1>', roleId: 'r-1' }])
   })
 
   it('caps the list at MAX_MENTIONS', () => {

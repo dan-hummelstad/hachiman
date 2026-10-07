@@ -364,11 +364,7 @@ describe('kind routing', () => {
     const out = await d.ingest([wire('m1'), wire('m2')])
     expect(folded).toEqual(['u-1:🔥:cmid-m0'])
     expect(rows.has('m1')).toBe(false)
-    expect(out.map((r) => r.id)).toEqual(['m2'])
-    expect(rows.get('m2')).toMatchObject({
-      kind: 'page_activity',
-      pageActivity: { pageId: 'p-1', changes: 2 },
-      decrypt: { status: 'ok' }
-    })
+    expect(rows.has('m2')).toBe(false)
+    expect(out).toEqual([])
   })
 })

@@ -1,7 +1,5 @@
 import { useEffect } from 'react'
 import { FileText, PanelRight } from 'lucide-react'
-import { UserAvatar } from '@/components/shell/user-avatar'
-import { useMemberView } from '@/hooks/use-member'
 import { useNow } from '@/hooks/use-elapsed'
 import { relativeTime } from '@/lib/time-format'
 import { cn } from '@/lib/utils'
@@ -10,7 +8,6 @@ import { pageTitle } from '@/services/docs/page-tree'
 import { useChannelStore } from '@/stores/channelStore'
 import { useDocsStore, type PageNode } from '@/stores/docsStore'
 import { navigate } from '@/stores/navStore'
-import type { ChatMessage } from '@/stores/messagesStore'
 import { formatFull } from './format'
 
 const FOCUS = 'focus-visible:outline-line-focus outline-none focus-visible:outline-2'
@@ -113,59 +110,6 @@ export function PageLinkCard({
           Open
         </button>
       )}
-    </div>
-  )
-}
-
-/**
- * A page activity row (N21.3, C1): "<author> edited <page> · n changes · <time> · View". The
- * page is in the channel of the row (a pages channel). `rowKind` shows it only for a decrypted
- * row with `pageActivity`.
- */
-export function PageActivityRow({ message }: { message: ChatMessage }): React.JSX.Element {
-  const activity = message.pageActivity ?? { pageId: '', changes: 0 }
-  const { name, avatar, ink } = useMemberView(message.guildId, message.author.id, message.author)
-  const page = usePage(activity.pageId, message.guildId)
-  const now = useNow(true, 60_000)
-  const guildId = message.guildId
-  const changes = `${activity.changes} ${activity.changes === 1 ? 'change' : 'changes'}`
-  return (
-    <div className="px-4 py-1" data-message-id={message.id}>
-      <div className="bg-surface-panel border-line-hairline flex max-w-[640px] items-center gap-3 border px-3 py-2">
-        <UserAvatar avatar={avatar} name={name} color={ink} size={24} />
-        <div className="min-w-0 flex-1 text-[13.5px] leading-5">
-          <p className="text-text-secondary truncate">
-            <span
-              className={cn('font-bold', !ink && 'text-text-primary')}
-              style={ink ? { color: ink } : undefined}
-            >
-              {name}
-            </span>{' '}
-            edited{' '}
-            <span className="text-text-primary font-semibold">
-              {page ? pageTitle(page) : 'a page'}
-            </span>
-          </p>
-          <p className="text-text-tertiary text-meta">
-            {changes} ·{' '}
-            <time dateTime={message.createdAt} title={formatFull(message.createdAt)}>
-              {relativeTime(message.createdAt, now)}
-            </time>
-          </p>
-        </div>
-        {page && guildId !== null && (
-          <button
-            type="button"
-            onClick={() => openPage(page, guildId)}
-            className={cn(
-              'rounded-control text-accent-text hover:bg-accent-tint h-8 shrink-0 px-3 text-[13px] font-semibold',
-              FOCUS
-            )}
-          >
-            View
-          </button>
-        )}
-      </div>
     </div>
   )
 }

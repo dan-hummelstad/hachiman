@@ -1,6 +1,8 @@
 import { useMemberView } from '@/hooks/use-member'
 import { mentionsUser, type MentionToken, type Token } from '@/lib/mentions'
+import { hexColor } from '@/lib/model'
 import { cn } from '@/lib/utils'
+import { useGuildStore } from '@/stores/guildStore'
 import { useUserStore } from '@/stores/userStore'
 import { TextWithChannelRefs } from './channel-ref'
 
@@ -27,6 +29,8 @@ export function MessageTokens({
           >
             {t.value}
           </a>
+        ) : 'roleId' in t ? (
+          <RoleMention key={i} roleId={t.roleId} raw={t.value} guildId={guildId} />
         ) : (
           <Mention key={i} token={t} guildId={guildId} />
         )
@@ -56,6 +60,40 @@ function Mention({
       )}
     >
       {byId && (member || fallback) ? `@${name}` : token.value}
+    </span>
+  )
+}
+
+/**
+ * `<@&roleId>` as `@Role` in the role colour, highlighted when I hold the role. A role that is not
+ * known (deleted, or another guild) shows as "@deleted-role".
+ */
+function RoleMention({
+  roleId,
+  raw,
+  guildId
+}: {
+  roleId: string
+  raw: string
+  guildId: string | null
+}): React.JSX.Element {
+  const role = useGuildStore((s) => (guildId ? s.roles.get(guildId)?.get(roleId) : undefined))
+  const meId = useUserStore((s) => s.me?.id)
+  const mine = useGuildStore(
+    (s) =>
+      !!guildId && !!meId && (s.members.get(guildId)?.get(meId)?.roles.includes(roleId) ?? false)
+  )
+  const color = role && role.color !== 0 ? hexColor(role.color) : undefined
+  return (
+    <span
+      title={role ? undefined : raw}
+      className={cn(
+        'rounded-check px-1 font-semibold',
+        mine ? 'bg-feature-event/20 text-feature-event-text' : 'bg-accent-tint text-accent-text'
+      )}
+      style={!mine && color ? { color } : undefined}
+    >
+      @{role?.name ?? 'deleted-role'}
     </span>
   )
 }

@@ -79,7 +79,7 @@ function ChannelChat({ channel }: { channel: Channel }): React.JSX.Element {
         policy={policy}
         onUpload={canAttach ? uploads.add : undefined}
       />
-      <footer className="shrink-0 px-4">
+      <footer className="flex min-h-[calc(var(--dock-height,0px)+8px)] shrink-0 flex-col justify-end pr-4 pl-[calc(var(--dock-inset,0px)+16px)]">
         {dmPeer && blockedPeer ? (
           <BlockedNotice user={dmPeer} />
         ) : (
@@ -90,6 +90,7 @@ function ChannelChat({ channel }: { channel: Channel }): React.JSX.Element {
               </p>
             )}
             <Composer
+              channel={channel}
               placeholder={`Message ${where}`}
               disabledReason={disabledReason}
               disabledAction={

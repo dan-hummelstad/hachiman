@@ -6,7 +6,7 @@ import { ErrorText } from '@/components/ui/field'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { friendly } from '@/components/security/errors'
 import { RecoveryKeyReveal } from '@/components/security/recovery-key-view'
-import { StepFrame, Warning } from '@/components/security/screen-window'
+import { StepFrame } from '@/components/security/screen-window'
 import { useAction } from '@/hooks/use-action'
 import { cn } from '@/lib/utils'
 import { cryptoService } from '@/services/CryptoService'
@@ -76,10 +76,10 @@ export function RotateRecoveryKey({
           ? 'Your account has a recovery key. With it, you can use your messages on a new device when no other device is signed in.'
           : 'Your account has no recovery key. If you lose all of your devices, you cannot read your messages again.'}
       </p>
-      <Warning>
+      <Callout tone="caution">
         A new recovery key replaces the old one. The old key stops working, and Hachiman encrypts
         your backups again with the new key.
-      </Warning>
+      </Callout>
       {!primary && (
         <p className="text-meta text-text-tertiary">
           Only a device with your security key can make a recovery key: your first device, or a

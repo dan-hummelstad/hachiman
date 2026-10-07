@@ -2,7 +2,6 @@ import { useMemo, useState } from 'react'
 import { Check, Copy, Link2, UserPlus } from 'lucide-react'
 import { useCopy } from '@/hooks/use-copy'
 import { Permissions, has, type Channel } from '@hachiman/client'
-import { Warning } from '@/components/security/screen-window'
 import { Button } from '@/components/ui/button'
 import { ErrorText, Field } from '@/components/ui/field'
 import { ModalWindow } from '@/components/ui/modal-window'
@@ -24,6 +23,7 @@ import {
 import { useChannelStore } from '@/stores/channelStore'
 import { useDialog } from '@/stores/dialogStore'
 import { useGuildStore } from '@/stores/guildStore'
+import { Callout } from '@/components/ui/callout'
 
 const optionsTag = (o: InviteOptionsValue, history: boolean): string =>
   `${o.expiry}:${o.maxUses}:${history}`
@@ -218,10 +218,10 @@ export function InviteDialog(): React.JSX.Element {
             </div>
           </Field>
           {shown?.noOwnHistory && (
-            <Warning>
+            <Callout tone="caution">
               This device has no history of these channels yet (no messages, for example). The link
               gives only the history that other members send when the new member joins.
-            </Warning>
+            </Callout>
           )}
           {!history && (
             <p className="text-meta text-text-tertiary">

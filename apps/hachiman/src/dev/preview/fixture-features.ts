@@ -6,8 +6,7 @@ import { hachiman } from '@/services/hachiman'
 import { messagesService } from '@/services/MessagesService'
 import { useCryptoStore } from '@/stores/cryptoStore'
 import { useMessageStore, type ChatMessage } from '@/stores/messagesStore'
-import { DAY, G1, G1C, G2, G2C, G3, G3C, ME, U, channel, groupOf, nextId, now } from './fixture'
-import { PAGE } from './fixture-pages'
+import { DAY, G1, G1C, G3, G3C, ME, U, channel, groupOf, nextId, now } from './fixture'
 import { dispatch } from './stubs'
 
 /** A stub envelope (NOT ENCRYPTED) for a ciphertext row. */
@@ -46,7 +45,7 @@ export function stubWire(row: ChatMessage): Message {
 
 const generalRows = (): ChatMessage[] =>
   (useMessageStore.getState().byChannel.get(G1C.general) ?? []).filter(
-    (m) => !m.pending && m.decrypt.status === 'ok' && m.kind !== 'page_activity'
+    (m) => !m.pending && m.decrypt.status === 'ok'
   )
 
 /** The four pins of #general: the newest four decrypted fixture rows, newest first. */
@@ -171,31 +170,6 @@ function seedEncryptedFixtures(): void {
       })
     ])
   }
-
-  // "yuki.h edited RFC: pages channels · 2 changes · View" in #design-pages.
-  const pagesId = G2C.designPages
-  const paId = nextId('m')
-  void messagesService.ingest([
-    {
-      id: paId,
-      channelId: pagesId,
-      guildId: G2,
-      author: U.yuki,
-      senderDevice: `d-${U.yuki.id}`,
-      groupId: groupOf(pagesId),
-      epoch: 3,
-      clientMsgId: `cmid-${paId}`,
-      attachments: [],
-      createdAt: new Date(now - 40 * 60_000).toISOString(),
-      editedAt: null,
-      envelope: stubEnvelope(pagesId, `cmid-${paId}`, {
-        kind: 'page_activity',
-        editOf: null,
-        content: { pageId: PAGE.rfc, changes: 2, sentAtMs: now - 40 * 60_000 }
-      })
-    }
-  ])
-  useMessageStore.getState().setHasMore(pagesId, false)
 }
 
 /** Custom statuses and threads: plaintext metadata, dispatched as gateway events. */

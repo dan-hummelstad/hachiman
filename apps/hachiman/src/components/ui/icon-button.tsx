@@ -48,7 +48,7 @@ export function IconButton({
     <Tooltip>
       <TooltipTrigger asChild>
         <Button
-          variant="ghost"
+          variant="quiet"
           type={type}
           aria-label={label}
           aria-pressed={pressed}

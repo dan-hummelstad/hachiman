@@ -28,7 +28,8 @@ import {
   DM_HOME,
   forgetGuild,
   openChannel,
-  selectedChannelId
+  selectedChannelId,
+  useNavStore
 } from '@/stores/navStore'
 import { usePrefsStore } from '@/stores/prefsStore'
 import { migrateLegacyTabs } from '@/stores/tabsStore'
@@ -146,6 +147,7 @@ function mirror(e: GatewayDispatch): void {
       useUserStore.setState({ status: hachiman.cache.presences.get(e.d.user.id) ?? 'online' })
       cryptoService.sync()
       syncAll()
+      dropUnknownGuild()
       return setAccount(e.d.user.id)
     case 'RESUMED':
       cryptoService.sync()
@@ -173,6 +175,16 @@ function mirror(e: GatewayDispatch): void {
       if (e.d.userId === hachiman.cache.user?.id) useUserStore.setState({ status: e.d.status })
       return syncPresences()
   }
+}
+
+/**
+ * The selected guild is saved on the device, not per account. After a sign-in as another account
+ * (or a guild left while offline) it can name a guild that READY does not list: fall back to the
+ * DM home instead of a guild header that never loads.
+ */
+function dropUnknownGuild(): void {
+  const { guildKey } = useNavStore.getState()
+  if (guildKey !== DM_HOME && !hachiman.cache.guilds.has(guildKey)) forgetGuild(guildKey)
 }
 
 const onUpdate = (e: GatewayDispatch): void => {

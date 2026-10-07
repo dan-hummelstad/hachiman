@@ -1,20 +1,16 @@
 import { useMemo } from 'react'
-import { Plus } from 'lucide-react'
-import {
-  DndContext,
-  PointerSensor,
-  closestCenter,
-  useSensor,
-  useSensors,
-  type DragEndEvent
-} from '@dnd-kit/core'
-import { SortableContext, rectSortingStrategy, useSortable } from '@dnd-kit/sortable'
-import { CSS } from '@dnd-kit/utilities'
+import { Plus, Star, StarOff } from 'lucide-react'
+import { DndContext, closestCenter, type DragEndEvent } from '@dnd-kit/core'
+import { SortableContext, rectSortingStrategy } from '@dnd-kit/sortable'
 import type { Channel } from '@hachiman/client'
-import { FavouriteDmItem } from '@/components/channel-sidebar'
 import { UserAvatar } from '@/components/shell/user-avatar'
-import { CornerBadge } from '@/components/shell/unread-marks'
-import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from '@/components/ui/context-menu'
+import { UnreadMark } from '@/components/ui/unread-mark'
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger
+} from '@/components/ui/context-menu'
 import { IconButton } from '@/components/ui/icon-button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { favouriteMove, favouriteTiles } from '@/lib/favourite-dms'
@@ -25,6 +21,8 @@ import { useGuildStore } from '@/stores/guildStore'
 import { DM_HOME, navigate, useNavStore } from '@/stores/navStore'
 import { useFavouriteDms, usePrefsStore } from '@/stores/prefsStore'
 import { useChannelUnread } from '@/stores/unreadStore'
+import { useDragSensors, useSortableRow } from '@/hooks/use-sortable-row'
+import { openDmHome } from '@/components/sidebar/sidebar-row'
 
 /** The open tile (E2): an opaque accent wash, so the presence cutout can match it. */
 const OPEN_BG = 'bg-[color-mix(in_oklab,var(--accent-primary)_17%,var(--surface-raised))]'
@@ -33,14 +31,15 @@ const OPEN_BG = 'bg-[color-mix(in_oklab,var(--accent-primary)_17%,var(--surface-
  * The favourite DMs at the sidebar top (N6, kit "SIDEBAR · TOP"): the "Direct messages" label
  * with "+" (the DM home, where a conversation starts), then one 46px tile per favourite with
  * presence and the mention count (N7). Drag to reorder; right click to remove. With no favourites
- * only the label shows.
+ * only the label shows. In the DM space the label row is left out (`label` false): the space header
+ * there says "Direct messages" and has "New message".
  */
-export function FavouriteDms(): React.JSX.Element {
+export function FavouriteDms({ label = true }: { label?: boolean }): React.JSX.Element | null {
   const ids = useFavouriteDms()
   const channels = useChannelStore((s) => s.channels)
   const tiles = useMemo(() => favouriteTiles(ids, channels), [ids, channels])
   // 4px activation distance so a click is not taken as a drag.
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }))
+  const sensors = useDragSensors()
 
   const onDragEnd = ({ active, over }: DragEndEvent): void => {
     if (!over) return
@@ -48,19 +47,22 @@ export function FavouriteDms(): React.JSX.Element {
     if (m) usePrefsStore.getState().moveFavouriteDm(m.from, m.to)
   }
 
+  if (!label && tiles.length === 0) return null
   return (
     <section aria-label="Favourite direct messages" className="flex flex-col gap-1.5">
-      <div className="flex h-6 items-center pr-0.5 pl-1">
-        <h2 className="section-label flex-1">Direct messages</h2>
-        <IconButton
-          size="sm"
-          label="New message"
-          onClick={() => navigate({ kind: 'dmHome' })}
-          className="text-text-tertiary rounded-control"
-        >
-          <Plus />
-        </IconButton>
-      </div>
+      {label && (
+        <div className="flex h-6 items-center pr-0.5 pl-1">
+          <h2 className="section-label flex-1">Direct messages</h2>
+          <IconButton
+            size="sm"
+            label="New message"
+            onClick={openDmHome}
+            className="text-text-tertiary rounded-control"
+          >
+            <Plus />
+          </IconButton>
+        </div>
+      )}
       {tiles.length > 0 && (
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
           <SortableContext items={tiles.map((c) => c.id)} strategy={rectSortingStrategy}>
@@ -87,15 +89,7 @@ function FavouriteTile({ channel }: { channel: Channel }): React.JSX.Element {
   const open = useNavStore(
     (s) => s.guildKey === DM_HOME && s.channelByGuild[DM_HOME] === channel.id
   )
-  const { setNodeRef, attributes, listeners, transform, transition, isDragging } = useSortable({
-    id: channel.id
-  })
-  const style: React.CSSProperties = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    opacity: isDragging ? 0.5 : 1,
-    zIndex: isDragging ? 1 : undefined
-  }
+  const { setNodeRef, attributes, listeners, style } = useSortableRow({ id: channel.id })
 
   return (
     <ContextMenu>
@@ -129,7 +123,12 @@ function FavouriteTile({ channel }: { channel: Channel }): React.JSX.Element {
                       cutout={open ? OPEN_BG : 'bg-surface-raised'}
                     />
                   )}
-                  <CornerBadge badge={badge} dot={false} className="-top-1.5 -right-2" />
+                  <UnreadMark
+                    badge={badge}
+                    size="corner"
+                    dot={false}
+                    className="-top-1.5 -right-2"
+                  />
                 </span>
               </button>
             </TooltipTrigger>
@@ -164,5 +163,23 @@ function GroupAvatars({ channel }: { channel: Channel }): React.JSX.Element {
         />
       )}
     </span>
+  )
+}
+
+/** "Add to favourites" or "Remove from favourites" (N6), for a DM row's or tile's menu. */
+export function FavouriteDmItem({
+  channelId,
+  favourite
+}: {
+  channelId: string
+  favourite: boolean
+}): React.JSX.Element {
+  return (
+    <ContextMenuItem
+      onSelect={() => usePrefsStore.getState().setFavouriteDm(channelId, !favourite)}
+    >
+      {favourite ? <StarOff /> : <Star />}
+      {favourite ? 'Remove from favourites' : 'Add to favourites'}
+    </ContextMenuItem>
   )
 }

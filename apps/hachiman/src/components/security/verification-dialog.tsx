@@ -17,12 +17,12 @@ import { TrustChip } from '@/components/people/trust-chip'
 import { useContactSecurity } from '@/components/people/use-contact-security'
 import { invalidateTrust } from '@/components/people/use-contact-trust'
 import { QrCodeView, ScanOrPaste } from '@/components/security/qr-view'
-import { Warning } from '@/components/security/screen-window'
 import { useUserName } from '@/components/security/use-user-name'
 import { useAction } from '@/hooks/use-action'
 import { cryptoService } from '@/services/CryptoService'
 import { dismissKeyChange } from '@/stores/cryptoStore'
 import { useDialog } from '@/stores/dialogStore'
+import { Callout } from '@/components/ui/callout'
 
 const TRUST_TEXT: Record<TrustInfo['state'], string> = {
   verified: 'You verified this person.',
@@ -103,11 +103,11 @@ export function VerificationDialog(): React.JSX.Element {
           </p>
         )}
         {trust?.state === 'changed' && (
-          <Warning tone="danger">
+          <Callout tone="danger">
             A new key can mean that {name} set up their account again. It can also mean that someone
             tries to read your messages. Compare the safety number with {name} in person or on a
             call before you trust it.
-          </Warning>
+          </Callout>
         )}
 
         {safety && (
@@ -136,10 +136,10 @@ export function VerificationDialog(): React.JSX.Element {
                 pasteLabel="Or paste the code text from their device"
                 onCode={(c) => void onScan(c)}
               />
-              <Warning>
+              <Callout tone="caution">
                 Paste only a code that you took from their device yourself. A code that came through
                 a message or an email proves nothing.
-              </Warning>
+              </Callout>
               <Button variant="quiet" onClick={() => setScanning(false)}>
                 Cancel
               </Button>

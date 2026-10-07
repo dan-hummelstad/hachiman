@@ -34,7 +34,6 @@ describe('isNotification', () => {
     expect(isNotification(row('bob'), 'me', (id) => id === 'bob')).toBe(false)
     // A reaction is no row.
     expect(isNotification(undefined, 'me')).toBe(false)
-    expect(isNotification(row('bob', { kind: 'page_activity' }), 'me')).toBe(true)
   })
 })
 
@@ -55,12 +54,5 @@ describe('messageContext and the sound', () => {
     expect(ctx.isNotification).toBe(true)
     expect(ctx.mentionsMe).toBe(true)
     expect(messageSound(row('bob'), ctx)).toBe('message')
-  })
-
-  it('a page activity counts as unread but does not ping', () => {
-    const r = row('bob', { kind: 'page_activity', content: '', mentions: [] })
-    const ctx = messageContext('dm', r)
-    expect(ctx.isNotification).toBe(true)
-    expect(messageSound(r, ctx)).toBeNull()
   })
 })

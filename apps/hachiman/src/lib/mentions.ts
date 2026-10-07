@@ -1,26 +1,27 @@
 import type { Mention } from '@hachiman/crypto'
 
-/** An `@username` or `<@userId>` reference. */
+/** An `@username`, `<@userId>` or `<@&roleId>` reference. */
 export type MentionToken = { kind: 'mention'; value: string } & (
-  { userId: string } | { username: string }
+  { userId: string } | { username: string } | { roleId: string }
 )
 
 export type Token = { kind: 'text'; value: string } | { kind: 'link'; value: string } | MentionToken
 
-// link | <@id> | @username (ends on a word char, so "@kestrel." stops before the dot)
-const TOKEN_RE = /(https?:\/\/[^\s<>]+[^\s<>.,;:!?'")\]])|<@([\w-]+)>|@([\w.-]*\w)/g
+// link | <@&roleId> | <@id> | @username (ends on a word char, so "@kestrel." stops before the dot)
+const TOKEN_RE = /(https?:\/\/[^\s<>]+[^\s<>.,;:!?'")\]])|<@&([\w-]+)>|<@([\w-]+)>|@([\w.-]*\w)/g
 
 /** Split a message body into plain text, mentions and links. The one mention parser. */
 export function tokenize(content: string): Token[] {
   const out: Token[] = []
   let last = 0
   for (const m of content.matchAll(TOKEN_RE)) {
-    const [value, link, userId, username] = m
+    const [value, link, roleId, userId, username] = m
     const i = m.index
     // An "@" glued to a word (e.g. an email) isn't a mention.
     if (username && i > 0 && /\w/.test(content[i - 1])) continue
     if (i > last) out.push({ kind: 'text', value: content.slice(last, i) })
     if (link) out.push({ kind: 'link', value })
+    else if (roleId) out.push({ kind: 'mention', value, roleId })
     else if (userId) out.push({ kind: 'mention', value, userId })
     else out.push({ kind: 'mention', value, username })
     last = i + value.length
@@ -31,7 +32,7 @@ export function tokenize(content: string): Token[] {
 
 /** Whether `token` mentions `me` (by id, or by username case-insensitively). */
 export function mentionsUser(token: Token, me: { id: string; username: string }): boolean {
-  if (token.kind !== 'mention') return false
+  if (token.kind !== 'mention' || 'roleId' in token) return false
   return 'userId' in token
     ? token.userId === me.id
     : token.username.toLowerCase() === me.username.toLowerCase()
@@ -47,7 +48,8 @@ export const MAX_MENTIONS = 100
 
 /**
  * The structured mentions of a message text, for the envelope. `<@id>` mentions that user,
- * `@everyone` everyone, and `@username` the user that `resolve` finds (else nothing).
+ * `<@&id>` that role, `@everyone` everyone, and `@username` the user that `resolve` finds (else
+ * nothing).
  */
 export function mentionsOf(
   content: string,
@@ -63,7 +65,8 @@ export function mentionsOf(
   }
   for (const t of tokenize(content)) {
     if (t.kind !== 'mention') continue
-    if ('userId' in t) add({ type: 'user', id: t.userId })
+    if ('roleId' in t) add({ type: 'role', id: t.roleId })
+    else if ('userId' in t) add({ type: 'user', id: t.userId })
     else if (t.username.toLowerCase() === 'everyone') add({ type: 'everyone', id: null })
     else {
       const id = resolve(t.username)
