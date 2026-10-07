@@ -225,7 +225,7 @@ function Tab({
         }
       }}
       className={cn(
-        'rounded-control group/tab flex h-[34px] max-w-[200px] min-w-[52px] shrink cursor-default items-center gap-1.5 px-2 text-[13px] select-none',
+        'rounded-control group/tab flex h-[34px] max-w-[200px] min-w-[112px] shrink cursor-default items-center gap-1.5 px-2 text-[13px] select-none',
         'focus-visible:ring-ring outline-none focus-visible:ring-2',
         active
           ? 'bg-surface-raised text-text-primary font-bold shadow-soft'
@@ -269,12 +269,15 @@ function Tab({
   )
 }
 
-/** The guild crest: the guild icon at 16px, or its initials. */
+/**
+ * The guild crest: the guild icon at 16px, or its initials. In a narrow tab it gives up its
+ * width before the name truncates (shrink weight far above the name's).
+ */
 function Crest({ name, icon }: { name: string; icon: string | null }): React.JSX.Element {
   return (
     <span
       aria-hidden
-      className="bg-rail text-text-primary flex size-4 shrink-0 items-center justify-center overflow-hidden rounded-[4px] text-[7px] leading-none font-bold"
+      className="bg-rail text-text-primary flex h-4 w-4 min-w-0 shrink-[100] items-center justify-center overflow-hidden rounded-[4px] text-[7px] leading-none font-bold"
     >
       {icon ? (
         <img src={hachiman.rest.fileUrl(icon)} alt="" className="size-full object-cover" />

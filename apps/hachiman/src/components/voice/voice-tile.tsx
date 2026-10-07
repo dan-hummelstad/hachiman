@@ -66,7 +66,7 @@ export function ParticipantTile({
           className={cn(
             TILE,
             'hover:bg-surface-hover flex size-full flex-col items-center justify-center gap-3 transition-colors outline-none focus-visible:outline-2 focus-visible:-outline-offset-2',
-            speaking && 'border-feature-voice outline-feature-voice outline-1 -outline-offset-2',
+            speaking && 'border-feature-voice ring-feature-voice ring-1 ring-inset',
             pending && 'opacity-60'
           )}
         >

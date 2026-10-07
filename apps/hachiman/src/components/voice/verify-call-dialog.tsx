@@ -133,7 +133,7 @@ function ParticipantList({
   meId: string | null
 }): React.JSX.Element {
   return (
-    <ul className="bg-surface-raised border-line-hairline border py-1">
+    <ul className="border-line-hairline border py-1">
       {participants.map((p) => (
         <ParticipantRow key={p.userId} guildId={guildId} participant={p} self={p.userId === meId} />
       ))}

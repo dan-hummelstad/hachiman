@@ -205,9 +205,10 @@ function NewDivider(): React.JSX.Element {
     <div
       role="separator"
       aria-label="New messages"
-      className="mt-3 mb-1 flex items-center pr-4 pl-5"
+      className="mt-3 mb-1 flex items-center gap-2 pr-4 pl-5"
     >
-      <div className="bg-feature-danger h-px flex-1" />
+      {/* A 2px coral wash (B1/B2): a 1px full-strength line reads as a grey rule at 1x. */}
+      <div className="bg-feature-danger/25 h-0.5 flex-1" />
       <span className="bg-feature-danger text-text-on-accent rounded-check px-1.5 py-px text-[10px] leading-4 font-extrabold tracking-[0.6px]">
         NEW
       </span>
