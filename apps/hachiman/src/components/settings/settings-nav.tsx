@@ -9,10 +9,10 @@ import {
   type SettingsModel
 } from '@/components/settings/settings-model'
 import { useOwnDevices } from '@/components/security/devices-panel'
-import { cn } from '@/lib/utils'
 import { useChannelStore } from '@/stores/channelStore'
 import { useSelectedChannelId, type SettingsTarget } from '@/stores/navStore'
 import { useCryptoStore } from '@/stores/cryptoStore'
+import { selectableRowClass } from '@/components/ui/selectable-row'
 
 interface SettingsNavProps {
   target: SettingsTarget
@@ -110,11 +110,9 @@ function SettingsNavView({
                   type="button"
                   aria-current={on ? 'page' : undefined}
                   onClick={() => onSelect(s.id)}
-                  className={cn(
-                    'rounded-control flex h-8 items-center gap-2.5 px-2.5 text-left text-sm font-semibold transition-colors [&_svg]:size-4 [&_svg]:shrink-0',
-                    on
-                      ? 'bg-surface-selected text-text-primary'
-                      : 'text-text-secondary hover:bg-surface-hover hover:text-text-primary'
+                  className={selectableRowClass(
+                    on,
+                    'flex h-8 items-center gap-2.5 px-2.5 text-left text-sm font-semibold transition-colors [&_svg]:size-4 [&_svg]:shrink-0'
                   )}
                 >
                   <span aria-hidden className={on ? 'text-accent-text' : 'text-text-tertiary'}>

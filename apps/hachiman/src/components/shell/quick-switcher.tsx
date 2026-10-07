@@ -24,6 +24,7 @@ import { currentView, navigate, useNavStore, type View } from '@/stores/navStore
 import { isPinned, pinTab, targetOf, useTabs } from '@/stores/tabsStore'
 import { useChannelUnread } from '@/stores/unreadStore'
 import { useUserStore } from '@/stores/userStore'
+import { selectableRowClass } from '@/components/ui/selectable-row'
 
 /** The field at the top of the sidebar: "Search or jump to… ⌘K". */
 export function SwitcherField(): React.JSX.Element {
@@ -313,9 +314,9 @@ function ResultRow({
       onMouseMove={onHover}
       onMouseDown={(e) => e.preventDefault()}
       onClick={(e) => onPick(e.metaKey || e.ctrlKey)}
-      className={cn(
-        'rounded-control flex h-9 cursor-pointer items-center gap-2.5 px-2.5 text-[14px]',
-        active ? 'bg-surface-selected' : 'hover:bg-surface-hover'
+      className={selectableRowClass(
+        active,
+        'text-text-primary flex h-9 cursor-pointer items-center gap-2.5 px-2.5 text-[14px]'
       )}
     >
       <Icon className={cn('size-4 shrink-0', KIND_COLOUR[item.kind])} />

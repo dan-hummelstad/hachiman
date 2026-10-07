@@ -129,7 +129,12 @@ function FavouriteTile({ channel }: { channel: Channel }): React.JSX.Element {
                       cutout={open ? OPEN_BG : 'bg-surface-raised'}
                     />
                   )}
-                  <UnreadMark badge={badge} size="corner" dot={false} className="-top-1.5 -right-2" />
+                  <UnreadMark
+                    badge={badge}
+                    size="corner"
+                    dot={false}
+                    className="-top-1.5 -right-2"
+                  />
                 </span>
               </button>
             </TooltipTrigger>

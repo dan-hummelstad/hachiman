@@ -72,15 +72,17 @@ import { useFavouriteDms, useNotifyPrefs, usePrefsStore } from '@/stores/prefsSt
 import { useChannelUnread, useDmUnread } from '@/stores/unreadStore'
 import { useUserStore } from '@/stores/userStore'
 import { useVoiceStore } from '@/stores/voiceStore'
+import { selectableRowClass } from '@/components/ui/selectable-row'
 
 /** A 30px sidebar row (padding 0/8/0/10): hover fill, and the selected fill with radius 8. */
 function rowClass(selected: boolean, className?: string): string {
-  return cn(
-    'rounded-control flex h-[30px] w-full items-center gap-2 pr-2 pl-2.5 text-left text-label',
-    selected
-      ? 'bg-surface-selected text-text-primary font-bold'
-      : 'text-text-secondary hover:bg-surface-hover hover:text-text-primary',
-    className
+  return selectableRowClass(
+    selected,
+    cn(
+      'flex h-[30px] w-full items-center gap-2 pr-2 pl-2.5 text-left text-label',
+      selected && 'font-bold',
+      className
+    )
   )
 }
 

@@ -18,6 +18,7 @@ import { displayName, hexColor, rolesByPositionDesc } from '@/lib/model'
 import { cn } from '@/lib/utils'
 import { adminActionService } from '@/services/AdminActionService'
 import { useGuildStore } from '@/stores/guildStore'
+import { selectableRowClass } from '@/components/ui/selectable-row'
 
 type Tri = 'allow' | 'inherit' | 'deny'
 
@@ -141,11 +142,9 @@ export function ChannelPermissionsPage({
                   type="button"
                   aria-current={on || undefined}
                   onClick={() => select(o.id)}
-                  className={cn(
-                    'rounded-control flex h-9 w-full items-center gap-2.5 px-2.5 text-left text-sm font-semibold',
-                    on
-                      ? 'bg-surface-selected text-text-primary'
-                      : 'text-text-secondary hover:bg-surface-hover hover:text-text-primary'
+                  className={selectableRowClass(
+                    on,
+                    'flex h-9 w-full items-center gap-2.5 px-2.5 text-left text-sm font-semibold'
                   )}
                 >
                   {o.id === guildId ? (

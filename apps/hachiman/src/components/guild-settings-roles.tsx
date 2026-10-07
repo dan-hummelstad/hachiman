@@ -17,6 +17,7 @@ import { hexColor, rolesByPositionDesc } from '@/lib/model'
 import { cn } from '@/lib/utils'
 import { adminActionService } from '@/services/AdminActionService'
 import { useGuildStore } from '@/stores/guildStore'
+import { selectableRowClass } from '@/components/ui/selectable-row'
 
 /** The colour row of the role editor (0 = no colour). */
 const SWATCHES = [
@@ -116,12 +117,12 @@ export function GuildRolesTab({ guildId }: { guildId: string }): React.JSX.Eleme
                   if (role) moveTo(role, i)
                   setDragging(null)
                 }}
-                className={cn(
-                  'group rounded-control flex h-9 items-center gap-1 pr-1 pl-1 text-sm font-semibold',
-                  isSelected
-                    ? 'bg-surface-selected text-text-primary'
-                    : 'text-text-secondary hover:bg-surface-hover hover:text-text-primary',
-                  dragging === r.id && 'opacity-50'
+                className={selectableRowClass(
+                  isSelected,
+                  cn(
+                    'group flex h-9 items-center gap-1 pr-1 pl-1 text-sm font-semibold',
+                    dragging === r.id && 'opacity-50'
+                  )
                 )}
               >
                 <GripVertical
