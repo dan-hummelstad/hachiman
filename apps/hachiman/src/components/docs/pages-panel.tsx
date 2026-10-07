@@ -392,12 +392,21 @@ function OpenPage({
   )
 }
 
-const WORD_COUNT_DELAY_MS = 400
+const WORD_COUNT_DELAY_MS = 1000
+
+/** The footer line of each page status. OpenPage shows the footer only for 'ready' and 'offline'. */
+const FOOTER: Record<DocStatus, { label: string; live: boolean }> = {
+  ready: { label: 'Saved', live: true },
+  offline: { label: 'Offline', live: false },
+  loading: { label: 'Loading', live: false },
+  waiting: { label: 'Waiting for a member', live: false },
+  error: { label: 'Cannot be read', live: false }
+}
 
 /**
  * "Saved · end-to-end encrypted" while the page is live (each edit goes out encrypted within
  * 100 ms), "Offline" while edits wait. The word count reads the markdown that the editor
- * registers (DocsService.copyMarkdown), after each change of the doc.
+ * registers (DocsService.copyMarkdown), when typing pauses and the main thread is idle.
  */
 function PageFooter({
   handle,
@@ -407,7 +416,7 @@ function PageFooter({
   status: DocStatus
 }): React.JSX.Element {
   const words = useWordCount(handle)
-  const live = status === 'ready'
+  const { label, live } = FOOTER[status]
   return (
     <footer className="border-line-hairline flex h-10 shrink-0 items-center gap-2 border-t px-4 text-xs font-semibold">
       <span
@@ -417,7 +426,7 @@ function PageFooter({
         )}
       >
         <Lock className="size-3.5" aria-hidden />
-        {live ? 'Saved' : 'Offline'} · end-to-end encrypted
+        {label} · end-to-end encrypted
       </span>
       <span className="flex-1" />
       {words !== null && (
@@ -433,11 +442,20 @@ function useWordCount(handle: DocHandle): number | null {
   const [words, setWords] = useState<number | null>(null)
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | undefined
+    let idle: number | undefined
+    const measure = (): void => {
+      idle = undefined
+      const md = docsService.copyMarkdown(handle.pageId)
+      setWords(md === null ? null : countWords(md))
+    }
+    // The whole page goes to markdown: only after typing pauses, and when the thread is idle.
     const count = (): void => {
       clearTimeout(timer)
       timer = setTimeout(() => {
-        const md = docsService.copyMarkdown(handle.pageId)
-        setWords(md === null ? null : countWords(md))
+        if (idle !== undefined) return
+        if (typeof requestIdleCallback === 'function')
+          idle = requestIdleCallback(measure, { timeout: 2000 })
+        else measure()
       }, WORD_COUNT_DELAY_MS)
     }
     // The editor registers its markdown source after it mounts (lazy chunk): count once after that.
@@ -445,6 +463,7 @@ function useWordCount(handle: DocHandle): number | null {
     handle.doc.on('update', count)
     return () => {
       clearTimeout(timer)
+      if (idle !== undefined) cancelIdleCallback(idle)
       handle.doc.off('update', count)
     }
   }, [handle])
