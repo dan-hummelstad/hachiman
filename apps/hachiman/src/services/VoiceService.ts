@@ -165,21 +165,25 @@ class VoiceService {
     })
   }
 
-  /** Join a guild voice channel if I may CONNECT there; otherwise a no-op. */
-  join(channel: Channel): Promise<void> {
+  /**
+   * Join a guild voice channel if I may CONNECT there; otherwise a no-op. `muted` ("Watch
+   * stream", N18) turns self-mute on before the join, so no audio goes out from the start.
+   */
+  join(channel: Channel, opts: { muted?: boolean } = {}): Promise<void> {
     if (
       channel.type !== 'voice' ||
       !isGuildChannel(channel) ||
       !has(hachiman.permissionsFor(channel.id), Permissions.CONNECT)
     )
       return Promise.resolve()
-    return this.joinVoice(channel.guildId, channel.id)
+    return this.joinVoice(channel.guildId, channel.id, opts)
   }
 
   /** A join by the user. It cancels a waiting automatic rejoin. */
-  joinVoice(guildId: string, channelId: string): Promise<void> {
+  joinVoice(guildId: string, channelId: string, opts: { muted?: boolean } = {}): Promise<void> {
     this.cancelResync()
     this.lost = null
+    if (opts.muted) this.setSelfVoice({ selfMute: true })
     return this.connect(guildId, channelId)
   }
 

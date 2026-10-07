@@ -12,6 +12,7 @@ import {
 } from 'lucide-react'
 import type { ContactDevice } from '@hachiman/crypto'
 import type { Guild, Role, User } from '@hachiman/client'
+import { CustomStatusLine } from '@/components/people/custom-status-line'
 import { useNow, useVoiceActivity } from '@/components/people/use-voice-activity'
 import { useUserBanner } from '@/components/people/use-user-banner'
 import {
@@ -123,6 +124,7 @@ export function DmProfileColumn({ user }: { user: User }): React.JSX.Element {
                 {standing.role.name} in {standing.guild.name}
               </p>
             )}
+            <CustomStatusLine userId={userId} className="mt-1 text-[13px] leading-5" />
           </div>
 
           {activity && <ActivityCard activity={activity} />}

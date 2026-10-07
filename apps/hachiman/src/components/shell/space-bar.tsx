@@ -1,4 +1,5 @@
-import { LogOut, MessageCircle, Plus } from 'lucide-react'
+import { useState } from 'react'
+import { LogOut, MessageCircle, MessageSquareText, Plus } from 'lucide-react'
 import type { PresenceStatus } from '@hachiman/client'
 import {
   ContextMenu,
@@ -11,8 +12,10 @@ import {
 import { GuildTile } from '@/components/ui/guild-tile'
 import { PRESENCE_LABEL, PresenceDot } from '@/components/ui/presence'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { CustomStatusDialog } from '@/components/people/custom-status-dialog'
 import { GuildMenuItems } from '@/components/shell/guild-menu-items'
 import { CornerBadge } from '@/components/shell/unread-marks'
+import { useCustomStatus } from '@/hooks/use-custom-status'
 import { UserAvatar } from '@/components/shell/user-avatar'
 import type { UnreadBadge } from '@/lib/notify'
 import { cn } from '@/lib/utils'
@@ -107,43 +110,58 @@ function MeButton(): React.JSX.Element {
   const handle = useTakusenStore((s) => s.session?.user.handle)
   const settingsOpen = useDialogStore((s) => s.dialog?.kind === 'userSettings')
   const name = me?.username ?? handle ?? 'Guest'
+  const custom = useCustomStatus(me?.id ?? '')
+  const [statusOpen, setStatusOpen] = useState(false)
 
   return (
-    <ContextMenu>
-      <ContextMenuTrigger asChild>
-        <SpaceButton
-          label="User settings"
-          active={settingsOpen}
-          onClick={() => openDialog({ kind: 'userSettings' })}
-          className="overflow-visible"
-        >
-          <UserAvatar
-            name={name}
-            avatar={me?.avatar}
-            size={26}
-            status={status}
-            cutout="bg-surface-window"
-          />
-        </SpaceButton>
-      </ContextMenuTrigger>
-      <ContextMenuContent className="w-52">
-        <ContextMenuLabel className="text-text-tertiary text-xs font-semibold">
-          Status
-        </ContextMenuLabel>
-        {STATUSES.map((s) => (
-          <ContextMenuItem key={s} onSelect={() => setMyStatus(s)}>
-            <span className="flex size-4 items-center justify-center">
-              <PresenceDot status={s} />
+    <>
+      <ContextMenu>
+        <ContextMenuTrigger asChild>
+          <SpaceButton
+            label="User settings"
+            active={settingsOpen}
+            onClick={() => openDialog({ kind: 'userSettings' })}
+            className="overflow-visible"
+          >
+            <UserAvatar
+              name={name}
+              avatar={me?.avatar}
+              size={26}
+              status={status}
+              cutout="bg-surface-window"
+            />
+          </SpaceButton>
+        </ContextMenuTrigger>
+        <ContextMenuContent className="w-52">
+          <ContextMenuLabel className="text-text-tertiary text-xs font-semibold">
+            Status
+          </ContextMenuLabel>
+          {STATUSES.map((s) => (
+            <ContextMenuItem key={s} onSelect={() => setMyStatus(s)}>
+              <span className="flex size-4 items-center justify-center">
+                <PresenceDot status={s} />
+              </span>
+              <span className={cn(status === s && 'font-semibold')}>{STATUS_LABEL[s]}</span>
+            </ContextMenuItem>
+          ))}
+          <ContextMenuSeparator />
+          <ContextMenuItem disabled={!me} onSelect={() => setStatusOpen(true)}>
+            <MessageSquareText />
+            <span className="flex min-w-0 flex-col">
+              <span>{custom ? 'Edit status' : 'Set a status'}</span>
+              {custom && <span className="text-text-tertiary truncate text-xs">{custom.text}</span>}
             </span>
-            <span className={cn(status === s && 'font-semibold')}>{STATUS_LABEL[s]}</span>
           </ContextMenuItem>
-        ))}
-        <ContextMenuSeparator />
-        <ContextMenuItem onSelect={() => takusenService.signOut()}>
-          <LogOut /> Sign out
-        </ContextMenuItem>
-      </ContextMenuContent>
-    </ContextMenu>
+          <ContextMenuSeparator />
+          <ContextMenuItem onSelect={() => takusenService.signOut()}>
+            <LogOut /> Sign out
+          </ContextMenuItem>
+        </ContextMenuContent>
+      </ContextMenu>
+      {me && (
+        <CustomStatusDialog userId={me.id} open={statusOpen} onClose={() => setStatusOpen(false)} />
+      )}
+    </>
   )
 }
 
