@@ -1,65 +1,18 @@
 import { ChevronLeft } from 'lucide-react'
 import { Keycap } from '@/components/ui/keycap'
-import {
-  useChannelSettingsModel,
-  useGuildSettingsModel,
-  useUserSettingsModel,
-  isVisible,
-  resolveSection,
-  type SettingsModel
-} from '@/components/settings/settings-model'
-import { useOwnDevices } from '@/components/security/devices-panel'
+import type { SettingsModel } from '@/components/settings/settings-model'
 import { useChannelStore } from '@/stores/channelStore'
-import { useSelectedChannelId, type SettingsTarget } from '@/stores/navStore'
-import { useCryptoStore } from '@/stores/cryptoStore'
+import { isVisible, resolveSection } from '@/lib/settings-sections'
+import { useSelectedChannelId } from '@/stores/navStore'
 import { selectableRowClass } from '@/components/ui/selectable-row'
 
 interface SettingsNavProps {
-  target: SettingsTarget
+  model: SettingsModel
   /** The picked section; an unknown or hidden one shows the first visible section. */
   section: string | null
   onSelect: (section: string) => void
   /** The back row and `Esc`: leave settings. */
   onBack: () => void
-}
-
-/**
- * The settings list of the sidebar middle (F7, G1, H1): the "Back to #channel" row, the header of
- * the thing being set up, the section list with counts, and the red action set apart.
- */
-export function SettingsNav(props: SettingsNavProps): React.JSX.Element {
-  const { target } = props
-  if (target.kind === 'user') return <UserNav {...props} />
-  if (target.kind === 'guild') return <GuildNav {...props} guildId={target.guildId} />
-  return <ChannelNav {...props} channelId={target.channelId} />
-}
-
-function UserNav(props: SettingsNavProps): React.JSX.Element {
-  const model = useUserSettingsModel()
-  const encryption = useCryptoStore((s) => s.phase === 'ready' && s.status?.state === 'ready')
-  const { devices } = useOwnDevices(encryption)
-  const count = devices?.filter((d) => d.status !== 'revoked').length
-  return <SettingsNavView {...props} model={withCount(model, 'devices', count)} />
-}
-
-/** `model` with `count` on the item `id`. */
-function withCount(model: SettingsModel, id: string, count: number | undefined): SettingsModel {
-  if (count === undefined) return model
-  return {
-    ...model,
-    groups: model.groups.map((g) => ({
-      ...g,
-      items: g.items.map((s) => (s.id === id ? { ...s, count } : s))
-    }))
-  }
-}
-
-function GuildNav(props: SettingsNavProps & { guildId: string }): React.JSX.Element {
-  return <SettingsNavView {...props} model={useGuildSettingsModel(props.guildId)} />
-}
-
-function ChannelNav(props: SettingsNavProps & { channelId: string }): React.JSX.Element {
-  return <SettingsNavView {...props} model={useChannelSettingsModel(props.channelId)} />
 }
 
 function useBackLabel(): string {
@@ -68,13 +21,17 @@ function useBackLabel(): string {
   return name ? `Back to #${name}` : 'Back'
 }
 
-function SettingsNavView({
+/**
+ * The settings list of the sidebar middle (F7, G1, H1): the "Back to #channel" row, the header of
+ * the thing being set up, the section list with counts, and the red action set apart.
+ */
+export function SettingsNav({
   model,
   section,
   onSelect,
   onBack
-}: Omit<SettingsNavProps, 'target'> & { model: SettingsModel }): React.JSX.Element {
-  const selected = resolveSection(model, section)
+}: SettingsNavProps): React.JSX.Element {
+  const selected = resolveSection(model.groups, section)?.id
   const back = useBackLabel()
   return (
     <nav aria-label={model.label} className="flex min-h-0 flex-col gap-1">

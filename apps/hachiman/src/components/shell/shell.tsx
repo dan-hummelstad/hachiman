@@ -5,6 +5,7 @@ import { ChatBody } from '@/components/chat/chat-body'
 import { HomePane } from '@/components/home-pane'
 import { InboxButton } from '@/components/inbox/inbox-button'
 import { RightColumn } from '@/components/people/right-column'
+import { useSettingsModel } from '@/components/settings/settings-model'
 import { SettingsNav } from '@/components/settings/settings-nav'
 import { SettingsPage } from '@/components/settings/settings-page'
 import { useSettingsMode } from '@/components/settings/use-settings-mode'
@@ -79,6 +80,7 @@ export function Shell(): React.JSX.Element {
   // Kept while the sidebar is revealed: the revealed sidebar slides over, nothing moves.
   const dockInset = hidden && inVoice
   const settings = useSettingsMode()
+  const settingsModel = useSettingsModel(settings?.target ?? null)
   const sidebarRef = useRef<HTMLDivElement>(null)
   const [footSlot, setFootSlot] = useState<HTMLDivElement | null>(null)
   const [floatSlot, setFloatSlot] = useState<HTMLDivElement | null>(null)
@@ -133,9 +135,9 @@ export function Shell(): React.JSX.Element {
             </>
           }
           middle={
-            settings ? (
+            settings && settingsModel ? (
               <SettingsNav
-                target={settings.target}
+                model={settingsModel}
                 section={settings.section}
                 onSelect={setSettingsSection}
                 onBack={closeSettings}
@@ -163,10 +165,10 @@ export function Shell(): React.JSX.Element {
             dockInset && '[--dock-inset:calc(var(--dock-width)+8px)]'
           )}
         >
-          {settings ? (
+          {settings && settingsModel ? (
             <div className="flex min-h-0 min-w-0 flex-1 flex-col">
               <SettingsPage
-                target={settings.target}
+                model={settingsModel}
                 section={settings.section}
                 onClose={closeSettings}
               />
