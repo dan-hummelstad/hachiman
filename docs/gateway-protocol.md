@@ -978,8 +978,8 @@ export class HachimanClient extends TypedEventEmitter<HachimanClientEvents> {
     events: Map<string, Map<string, GuildEventWithMe>>  // guildId → eventId; filled by fetchGuildEvents, kept by GUILD_EVENT_*
     blocks: Set<string>                          // blocked user ids; filled by fetchBlocks, kept by USER_BLOCK_UPDATE
   }
-  fetchGuildEvents(guildId): Promise<GuildEventWithMe[]>   // GUILD_EVENT_* for a guild that was not fetched do not fill the cache
-  fetchBlocks(): Promise<Set<string>>
+  fetchGuildEvents(guildId): Promise<GuildEventWithMe[]>   // GUILD_EVENT_* for a guild that was not fetched do not fill the cache. A result that arrives after a READY, or after its guild left the cache, does not fill it
+  fetchBlocks(): Promise<BlockedUser[]>                    // fills cache.blocks (not after a READY that came meanwhile); resolves the list with the users
   // Pins are not cached: CHANNEL_PINS_UPDATE is re-emitted only.
   connect(): void; disconnect(): void
   permissionsFor(channelId: string): number      // for the current user

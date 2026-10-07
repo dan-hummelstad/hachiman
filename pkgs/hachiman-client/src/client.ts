@@ -4,6 +4,7 @@ import { GatewayClient, type GatewayDispatch, type GatewayEventHandlers, type Ga
 import { effectivePermissions, type PermissionContext } from './permissions'
 import { RestClient, type TokenProvider } from './rest'
 import type {
+  BlockedUser,
   Channel,
   DeviceProver,
   GatewayDevice,
@@ -143,6 +144,8 @@ export class HachimanClient extends TypedEventEmitter<HachimanClientEvents> {
 
   private _voice: VoiceConnection | null = null
   private voiceTarget: { guildId: string; channelId: string } | null = null
+  /** Bumped by READY: a fetch that started before it does not fill the new cache. */
+  private session = 0
   /** The user's choices. The wire and media state derive from these (see `selfVoice`). */
   private ownMute = false
   private deafened = false
@@ -414,17 +417,23 @@ export class HachimanClient extends TypedEventEmitter<HachimanClientEvents> {
 
   /** Loads the upcoming and ongoing events of a guild into `cache.events`. */
   async fetchGuildEvents(guildId: string): Promise<GuildEventWithMe[]> {
+    const started = this.session
     const events = await this.rest.getGuildEvents(guildId)
-    this.cache.events.set(guildId, new Map(events.map(ev => [ev.id, ev])))
+    // A READY or GUILD_DELETE meanwhile: the guild of this list is not in the cache any more.
+    if (started === this.session && this.cache.guilds.has(guildId))
+      this.cache.events.set(guildId, new Map(events.map(ev => [ev.id, ev])))
     return events
   }
 
-  /** Loads the blocked user ids into `cache.blocks`. */
-  async fetchBlocks(): Promise<Set<string>> {
+  /** Loads the blocked user ids into `cache.blocks`. Resolves the list with the users. */
+  async fetchBlocks(): Promise<BlockedUser[]> {
+    const started = this.session
     const blocks = await this.rest.getBlocks()
-    this.cache.blocks.clear()
-    for (const b of blocks) this.cache.blocks.add(b.user.id)
-    return this.cache.blocks
+    if (started === this.session) {
+      this.cache.blocks.clear()
+      for (const b of blocks) this.cache.blocks.add(b.user.id)
+    }
+    return blocks
   }
 
   private removeGuild(guildId: string): void {
@@ -456,6 +465,7 @@ export class HachimanClient extends TypedEventEmitter<HachimanClientEvents> {
     const c = this.cache
     switch (e.t) {
       case 'READY':
+        this.session++
         // A fresh session invalidates any voice session bound to the old one.
         this.cancelPendingJoin?.()
         this.voiceTarget = null

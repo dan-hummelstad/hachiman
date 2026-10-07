@@ -4,7 +4,7 @@ import { VoiceConnection } from './voice'
 import { Permissions as P } from './permissions'
 import { fakeDelegate, type FakeDelegate } from './test/fake-rtc'
 import { FakeWebSocket, installFakeWebSocket } from './test/fake-ws'
-import type { Channel, GuildFull, Member, Message, ReadyPayload, User } from './types'
+import type { Channel, GuildEventWithMe, GuildFull, Member, Message, ReadyPayload, User } from './types'
 
 const me: User = { id: 'me', username: 'me', avatar: null }
 const bob: User = { id: 'bob', username: 'bob', avatar: null }
@@ -338,9 +338,29 @@ describe('HachimanClient cache', () => {
     expect(client.cache.events.has('g')).toBe(false)
   })
 
+  it('a guild events list that arrives after GUILD_DELETE or READY does not fill the cache', async () => {
+    let resolve: (v: GuildEventWithMe[]) => void = () => {}
+    vi.spyOn(client.rest, 'getGuildEvents').mockImplementation(
+      () => new Promise<GuildEventWithMe[]>(r => (resolve = r)),
+    )
+    const gone = client.fetchGuildEvents('g')
+    dispatch('GUILD_DELETE', { id: 'g' })
+    resolve([])
+    await gone
+    expect(client.cache.events.has('g')).toBe(false)
+
+    let resolveBlocks: (v: { user: User; createdAt: string }[]) => void = () => {}
+    vi.spyOn(client.rest, 'getBlocks').mockImplementation(() => new Promise(r => (resolveBlocks = r)))
+    const stale = client.fetchBlocks()
+    dispatch('READY', readyPayload)
+    resolveBlocks([{ user: bob, createdAt: '' }])
+    expect(await stale).toEqual([{ user: bob, createdAt: '' }])
+    expect(client.cache.blocks.size).toBe(0)
+  })
+
   it('blocks: fetch fills the set, USER_BLOCK_UPDATE keeps it, READY clears it', async () => {
     vi.spyOn(client.rest, 'getBlocks').mockResolvedValue([{ user: bob, createdAt: '' }])
-    await client.fetchBlocks()
+    expect(await client.fetchBlocks()).toEqual([{ user: bob, createdAt: '' }])
     expect([...client.cache.blocks]).toEqual(['bob'])
     dispatch('USER_BLOCK_UPDATE', { userId: 'bob', blocked: false })
     dispatch('USER_BLOCK_UPDATE', { userId: 'carol', blocked: true })
