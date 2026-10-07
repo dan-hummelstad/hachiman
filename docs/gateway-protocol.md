@@ -87,13 +87,23 @@ interface Invite { id: string; code: string; guildId: string; createdBy: string;
   hasHistory: boolean }            // the invite has a signed record: an invite with history (§12.11.4)
 interface InvitePreview { code: string; guild: Pick<Guild, 'id' | 'name' | 'icon'>; memberCount: number; expiresAt: string | null; hasHistory: boolean }
 
-interface Presence { userId: string; status: PresenceStatus }
+interface Presence {
+  userId: string; status: PresenceStatus
+  customStatus?: CustomStatus      // absent = none. Plaintext: the same people see it as the status
+}
+interface CustomStatus {
+  text: string                     // 1–64 characters, trimmed, no control or bidi control characters (§6 op 3)
+  expiresAt: string | null         // RFC 3339. Clients hide the status from then on; the gateway sends no event at expiry
+}
 
 interface VoiceState {
   guildId: string; channelId: string | null; userId: string
   sessionId: string                // gateway session id
   selfMute: boolean; selfDeaf: boolean
   selfStream: boolean              // screen share is live (§8)
+  joinedAt: string                 // RFC 3339: when this session joined the channel. Kept across mute, deafen and stream
+                                   // changes, set again on a move to another channel or a join from another session.
+                                   // The call start of a channel is the oldest joinedAt of its states
 }
 
 // A page of a pages channel (§4 Pages). The server sees only the tree and the timestamps.
@@ -517,6 +527,7 @@ Other Redis keys (owned by the gateway unless noted):
 | `user_sessions:{userId}` | set | live session ids (TTL 90 s) — a user goes offline only when the last session ends |
 | `events:{sessionId}` | list | last 500 dispatched frames (JSON, newest first) for RESUME. Same TTL |
 | `presence:{userId}` | string | status. TTL 90 s, refreshed on heartbeat. Absent ⇒ offline |
+| `custom_status:{userId}` | string | `CustomStatus` JSON (§1), written by op 3. No TTL without `expiresAt` (it survives sign-out), else it expires at `expiresAt`. Readers also drop a value whose `expiresAt` has passed. Sent only with a presence that is not `offline` |
 | `voice:{guildId}` | hash | userId → `VoiceState` JSON. Readers drop entries whose `session:{sessionId}` is gone |
 | `voice_user:{userId}` | string | guildId the user is in voice for (one voice session per user globally) |
 | `voice_room:{channelId}` | string | mediaNodeId hosting that channel (sticky; SET NX, EX 24 h, deleted when the last user leaves). The endpoint comes from `media_nodes.signaling_url`. A missing node row drops the key and re-places |
@@ -538,7 +549,7 @@ URL: `ws(s)://<host>/gateway` (dev `ws://localhost:8080/gateway`). Text frames, 
 | 0 | DISPATCH | S→C | event payload; `s` = seq, `t` = event name |
 | 1 | HEARTBEAT | C→S | last seq received or null |
 | 2 | IDENTIFY | C→S | `{ token, deviceId, capabilities: string[], clientVersion, deviceProof: { ts, nonce, sig } }` (Takusen access token, §12.13) |
-| 3 | PRESENCE_UPDATE | C→S | `{ status }` |
+| 3 | PRESENCE_UPDATE | C→S | `{ status?, customStatus?: { text, expiresAt?: string \| null } \| null }` (below) |
 | 4 | VOICE_STATE_UPDATE | C→S | `{ guildId, channelId: string \| null, selfMute, selfDeaf, selfStream }` |
 | 5 | DOC_AWARENESS | C→S | `{ channelId, pageId, envelope }`: a doc_awareness envelope (§12.20), base64url |
 | 6 | RESUME | C→S | `{ token, sessionId, seq, deviceId, deviceProof: { ts, nonce, sig } }` |
@@ -586,7 +597,7 @@ Dispatch events:
 | GUILD_ROLE_CREATE / GUILD_ROLE_UPDATE | `{ guildId, role: Role }` |
 | GUILD_ROLE_DELETE | `{ guildId, roleId }` |
 | INVITE_DELETE | `{ guildId, code, inviteId }` — an invite was revoked (§4): by `DELETE /invites/:code`, or because its creator lost ADMINISTRATOR. To every member of the guild. The crypto Worker also gets it (§12.13) |
-| PRESENCE_UPDATE | `{ userId, status }` (published to guild:{g} for every guild of the user, and user:{p} for DM partners) |
+| PRESENCE_UPDATE | `Presence` (published to guild:{g} for every guild of the user, and user:{p} for DM partners) |
 | VOICE_STATE_UPDATE | `VoiceState` (`channelId: null` = left) |
 | VOICE_SERVER_UPDATE | `{ guildId, channelId, endpoint, token, iceServers: RTCIceServer[], expiresAt }` — to the requesting session only |
 | PAGE_CREATE / PAGE_UPDATE | `Page & { guildId }` |
@@ -612,6 +623,11 @@ Sessions are not pinned to a node.
 After IDENTIFY and after RESUME, the gateway subscribes the session and then does the device check again, before READY or RESUMED (§12.13).
 
 Presence: IDENTIFY sets `online` (or the last client-requested status). The session TTL expiring ⇒ offline.
+Op 3: an absent `status` keeps the status, an absent `customStatus` keeps the custom status, `customStatus: null` clears it.
+The gateway removes control characters (Unicode Cc) and the bidi embedding, override and isolate characters (U+202A–U+202E, U+2066–U+2069) from `text`, then trims it.
+An empty result clears, and so does an `expiresAt` that is not in the future.
+It drops the frame (no close, no answer) when `status` is not a `PresenceStatus`, when `text` is longer than 64 characters (code points), when `expiresAt` is not RFC 3339, or when `customStatus` is not an object or null.
+Else it writes `custom_status:{userId}` (§5) and publishes PRESENCE_UPDATE with the current status and custom status, also when only the custom status changed.
 The gateway publishes `offline` itself when a socket closes without resuming within 60 s (in-process timer).
 `// ponytail:` the users of a crashed node flip to offline only when readers notice that the key is gone. Add a sweeper if that matters.
 
@@ -839,6 +855,7 @@ export class GatewayClient extends TypedEventEmitter<GatewayClientEvents> {
   readonly sessionId: string | null
   readonly latencyMs: number | null   // HEARTBEAT → ACK RTT
   updatePresence(status: PresenceStatus): void
+  setCustomStatus(text: string, expiresAt?: string | null): void   // op 3 customStatus; an empty text sends null (clear)
   updateVoiceState(d: { guildId: string; channelId: string | null; selfMute: boolean; selfDeaf: boolean }): void
   sendDocAwareness(d: { channelId: string; pageId: string; envelope: string }): void   // op 5. Dropped while not connected
   // events: 'state' (state), 'dispatch' ({t, d}), and each event name from §6 with its typed payload
@@ -893,6 +910,7 @@ export class HachimanClient extends TypedEventEmitter<HachimanClientEvents> {
     roles: Map<string, Map<string, Role>>        // guildId → roleId → Role
     members: Map<string, Map<string, Member>>    // guildId → userId → Member
     presences: Map<string, PresenceStatus>       // userId → status
+    customStatuses: Map<string, CustomStatus>    // userId → custom status of an online user; check expiresAt when showing it
     voiceStates: Map<string, Map<string, VoiceState>>  // guildId → userId → state
     readStates: Map<string, ReadState>           // channelId → state. From READY. READ_STATE_UPDATE sets lastReadMessageId and unreadCount 0
   }
@@ -903,6 +921,7 @@ export class HachimanClient extends TypedEventEmitter<HachimanClientEvents> {
   leaveVoice(): void
   readonly selfVoice: SelfVoiceState             // { ownMute, selfMute, selfDeaf }
   setSelfVoice(change: Partial<SelfVoice>): SelfVoiceState   // SelfVoice = { selfMute, selfDeaf }
+  setCustomStatus(text: string, expiresAt?: string | null): void   // gateway.setCustomStatus; the cache changes on the PRESENCE_UPDATE echo
   setScreen(track: MediaStreamTrack | null, encoding?: ScreenEncoding | null): Promise<void>   // null = stop; sets selfStream
   readonly voice: VoiceConnection | null
   // When the gateway becomes 'ready' (before the 'state' event), a voice state of this session that the client is not in

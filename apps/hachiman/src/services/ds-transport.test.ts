@@ -58,6 +58,7 @@ const emptyCache = (): HachimanCache => ({
   roles: new Map(),
   members: new Map(),
   presences: new Map(),
+  customStatuses: new Map(),
   voiceStates: new Map(),
   readStates: new Map()
 })

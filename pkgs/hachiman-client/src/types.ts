@@ -134,9 +134,19 @@ export interface InvitePreview {
   hasHistory: boolean
 }
 
+/** A user-chosen status line (§1). Plaintext, shown to the people who see the presence. */
+export interface CustomStatus {
+  /** 1 to 64 characters, trimmed, no control characters. */
+  text: string
+  /** RFC 3339. Hide the status from this time on: the gateway sends no event at expiry. */
+  expiresAt: string | null
+}
+
 export interface Presence {
   userId: string
   status: PresenceStatus
+  /** Absent: no custom status. */
+  customStatus?: CustomStatus
 }
 
 export interface VoiceState {
@@ -147,6 +157,8 @@ export interface VoiceState {
   selfMute: boolean
   selfDeaf: boolean
   selfStream: boolean
+  /** RFC 3339: when this session joined the channel. Kept across mute, deafen and stream changes, reset on a move. Absent from an older gateway. */
+  joinedAt?: string
 }
 
 // ---- Pages (§1, §4 Pages, §12.20) ----
@@ -583,6 +595,12 @@ export interface VoiceServerUpdate {
   token: string
   iceServers: RTCIceServer[]
   expiresAt: string
+}
+
+/** Op 3 (§6). `status` absent: unchanged. `customStatus` absent: unchanged; null: clear. */
+export interface PresenceUpdateRequest {
+  status?: PresenceStatus
+  customStatus?: { text: string; expiresAt?: string | null } | null
 }
 
 export interface VoiceStateUpdateRequest {

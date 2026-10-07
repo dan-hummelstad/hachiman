@@ -13,6 +13,8 @@ import type {
   Member,
   PresenceStatus,
   ReadState,
+  Presence,
+  CustomStatus,
   ReadyPayload,
   Role,
   User,
@@ -79,6 +81,8 @@ export interface HachimanCache {
   members: Map<string, Map<string, Member>>
   /** userId → status. Absent ⇒ offline. */
   presences: Map<string, PresenceStatus>
+  /** userId → custom status of an online user (§1). Check `expiresAt` when showing it. */
+  customStatuses: Map<string, CustomStatus>
   /** guildId → userId → state */
   voiceStates: Map<string, Map<string, VoiceState>>
   /** channelId → read state, from READY and READ_STATE_UPDATE (§1 ReadState). */
@@ -125,6 +129,7 @@ export class HachimanClient extends TypedEventEmitter<HachimanClientEvents> {
     roles: new Map(),
     members: new Map(),
     presences: new Map(),
+    customStatuses: new Map(),
     voiceStates: new Map(),
     readStates: new Map(),
   }
@@ -329,6 +334,14 @@ export class HachimanClient extends TypedEventEmitter<HachimanClientEvents> {
   }
 
   /**
+   * Sets my custom status (§6 op 3); an empty `text` clears it. The cache changes when the
+   * gateway echoes PRESENCE_UPDATE. Dropped while the gateway is not connected.
+   */
+  setCustomStatus(text: string, expiresAt: string | null = null): void {
+    this.gateway.setCustomStatus(text, expiresAt)
+  }
+
+  /**
    * Sends `track` as my screen share (`null` stops it) and sets `selfStream` to match. Outside
    * voice it does nothing; leaving voice or joining another channel ends the share. A new
    * `encoding` for the live track sends no VOICE_STATE_UPDATE. The caller owns the track.
@@ -389,7 +402,7 @@ export class HachimanClient extends TypedEventEmitter<HachimanClientEvents> {
     c.roles.set(g.id, new Map(g.roles.map(r => [r.id, r])))
     c.members.set(g.id, new Map(g.members.map(m => [m.user.id, m])))
     c.voiceStates.set(g.id, new Map(g.voiceStates.filter(v => v.channelId).map(v => [v.userId, v])))
-    for (const p of g.presences) this.setPresence(p.userId, p.status)
+    for (const p of g.presences) this.setPresence(p)
   }
 
   private removeGuild(guildId: string): void {
@@ -409,9 +422,11 @@ export class HachimanClient extends TypedEventEmitter<HachimanClientEvents> {
     }
   }
 
-  private setPresence(userId: string, status: PresenceStatus): void {
+  private setPresence({ userId, status, customStatus }: Presence): void {
     if (status === 'offline') this.cache.presences.delete(userId)
     else this.cache.presences.set(userId, status)
+    if (status === 'offline' || !customStatus) this.cache.customStatuses.delete(userId)
+    else this.cache.customStatuses.set(userId, customStatus)
   }
 
   private apply(e: GatewayDispatch): void {
@@ -426,7 +441,7 @@ export class HachimanClient extends TypedEventEmitter<HachimanClientEvents> {
         for (const m of Object.values(c)) if (m instanceof Map) m.clear()
         for (const g of e.d.guilds) this.ingestGuild(g)
         for (const ch of e.d.privateChannels) c.channels.set(ch.id, ch)
-        for (const p of e.d.presences) this.setPresence(p.userId, p.status)
+        for (const p of e.d.presences) this.setPresence(p)
         for (const r of e.d.readStates ?? []) c.readStates.set(r.channelId, r)
         break
       case 'GUILD_CREATE':
@@ -482,7 +497,7 @@ export class HachimanClient extends TypedEventEmitter<HachimanClientEvents> {
         break
       }
       case 'PRESENCE_UPDATE':
-        this.setPresence(e.d.userId, e.d.status)
+        this.setPresence(e.d)
         break
       case 'VOICE_STATE_UPDATE':
         // One voice session per user globally: a state anywhere replaces any other.
