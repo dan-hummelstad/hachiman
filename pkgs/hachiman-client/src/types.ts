@@ -554,7 +554,27 @@ export interface ReadyPayload {
   guilds: GuildFull[]
   privateChannels: Channel[]
   presences: Presence[]
+  /** One per viewable text, pages, dm and group_dm channel (§1 ReadState). */
+  readStates: ReadState[]
 }
+
+/**
+ * Where the current user has read to in one channel (§1). Messages are in
+ * (createdAt, id) order. `lastReadMessageId` is null when the user never
+ * acked the channel. Then `unreadCount` is 0 and `lastMessageId` tells if the
+ * channel has messages.
+ */
+export interface ReadState {
+  channelId: string
+  lastReadMessageId: string | null
+  /** Messages after `lastReadMessageId` from other authors, at most READ_STATE_UNREAD_CAP. READY only. */
+  unreadCount: number
+  /** The newest message of the channel, null when it has none. READY only. */
+  lastMessageId: string | null
+}
+
+/** The highest `unreadCount` in READY. */
+export const READ_STATE_UNREAD_CAP = 100
 
 export interface VoiceServerUpdate {
   guildId: string
@@ -626,6 +646,8 @@ export interface GatewayEvents {
   MESSAGE_UPDATE: Message
   MESSAGE_DELETE: { id: string; channelId: string; guildId: string | null }
   TYPING_START: { channelId: string; guildId: string | null; userId: string; timestamp: string }
+  /** To `user:{id}`: a session of the current user acked a channel (POST /channels/:id/ack). */
+  READ_STATE_UPDATE: { channelId: string; lastReadMessageId: string }
   GUILD_MEMBER_ADD: Member
   GUILD_MEMBER_UPDATE: Member
   GUILD_MEMBER_REMOVE: { guildId: string; user: User }

@@ -12,6 +12,7 @@ import type {
   GuildFull,
   Member,
   PresenceStatus,
+  ReadState,
   ReadyPayload,
   Role,
   User,
@@ -80,6 +81,8 @@ export interface HachimanCache {
   presences: Map<string, PresenceStatus>
   /** guildId → userId → state */
   voiceStates: Map<string, Map<string, VoiceState>>
+  /** channelId → read state, from READY and READ_STATE_UPDATE (§1 ReadState). */
+  readStates: Map<string, ReadState>
 }
 
 const VOICE_SERVER_TIMEOUT_MS = 15_000
@@ -123,6 +126,7 @@ export class HachimanClient extends TypedEventEmitter<HachimanClientEvents> {
     members: new Map(),
     presences: new Map(),
     voiceStates: new Map(),
+    readStates: new Map(),
   }
 
   private _voice: VoiceConnection | null = null
@@ -391,7 +395,11 @@ export class HachimanClient extends TypedEventEmitter<HachimanClientEvents> {
   private removeGuild(guildId: string): void {
     const c = this.cache
     c.guilds.delete(guildId)
-    for (const ch of c.channels.values()) if (ch.guildId === guildId) c.channels.delete(ch.id)
+    for (const ch of c.channels.values())
+      if (ch.guildId === guildId) {
+        c.channels.delete(ch.id)
+        c.readStates.delete(ch.id)
+      }
     c.roles.delete(guildId)
     c.members.delete(guildId)
     c.voiceStates.delete(guildId)
@@ -419,6 +427,7 @@ export class HachimanClient extends TypedEventEmitter<HachimanClientEvents> {
         for (const g of e.d.guilds) this.ingestGuild(g)
         for (const ch of e.d.privateChannels) c.channels.set(ch.id, ch)
         for (const p of e.d.presences) this.setPresence(p.userId, p.status)
+        for (const r of e.d.readStates ?? []) c.readStates.set(r.channelId, r)
         break
       case 'GUILD_CREATE':
         this.ingestGuild(e.d)
@@ -435,7 +444,19 @@ export class HachimanClient extends TypedEventEmitter<HachimanClientEvents> {
         break
       case 'CHANNEL_DELETE':
         c.channels.delete(e.d.id)
+        c.readStates.delete(e.d.id)
         break
+      case 'READ_STATE_UPDATE': {
+        // The ack moved forward. Messages after it that arrived since READY are not counted here.
+        const prev = c.readStates.get(e.d.channelId)
+        c.readStates.set(e.d.channelId, {
+          channelId: e.d.channelId,
+          lastReadMessageId: e.d.lastReadMessageId,
+          unreadCount: 0,
+          lastMessageId: prev?.lastMessageId ?? e.d.lastReadMessageId,
+        })
+        break
+      }
       case 'GUILD_MEMBER_ADD':
       case 'GUILD_MEMBER_UPDATE':
         sub(c.members, e.d.guildId).set(e.d.user.id, e.d)
