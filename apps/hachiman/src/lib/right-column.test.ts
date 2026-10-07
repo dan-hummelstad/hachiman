@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { Channel, Guild, Member, PresenceStatus, VoiceState } from '@hachiman/client'
+import type { Channel, Guild, Member, PresenceStatus, Role, VoiceState } from '@hachiman/client'
 import { groupMembers } from './member-groups'
 import {
   activityLabel,
@@ -7,14 +7,21 @@ import {
   voiceActivity,
   type ActivitySources
 } from './member-activity'
+import { countPageLinks, guildPagesSections } from './right-column'
 import { userHue } from './user-tint'
+import type { PageNode } from '@/stores/docsStore'
 import { countWords } from './word-count'
 
-const member = (id: string, username: string, nick: string | null = null): Member => ({
+const member = (
+  id: string,
+  username: string,
+  nick: string | null = null,
+  roles: string[] = []
+): Member => ({
   guildId: 'g1',
   user: { id, username, avatar: null },
   nick,
-  roles: [],
+  roles,
   joinedAt: '2026-10-01T00:00:00Z'
 })
 
@@ -34,6 +41,66 @@ describe('groupMembers', () => {
   it('leaves out empty sections', () => {
     expect(groupMembers(members, new Map()).map((g) => g.id)).toEqual(['offline'])
     expect(groupMembers([], new Map())).toEqual([])
+  })
+})
+
+describe('groupMembers with hoisted roles', () => {
+  const role = (id: string, name: string, position: number, hoist = true, color = 0): Role => ({
+    id,
+    guildId: 'g1',
+    name,
+    color,
+    hoist,
+    position,
+    permissions: 0
+  })
+  const roles = new Map(
+    [
+      role('captain', 'Captain', 4, true, 0xffc36b),
+      role('shot', 'Shotcallers', 3),
+      role('plain', 'Plain', 5, false),
+      role('squad-b', 'Squad B', 2),
+      role('squad-a', 'Squad A', 2)
+    ].map((r) => [r.id, r])
+  )
+  const online = (ids: string[]): Map<string, PresenceStatus> =>
+    new Map(ids.map((id) => [id, 'online' as const]))
+
+  it('puts an online member in the section of the highest hoisted role, offline last', () => {
+    const members = [
+      member('u1', 'marlowe', null, ['shot', 'captain']),
+      member('u2', 'juni', null, ['plain', 'shot']),
+      member('u3', 'yuki', null, ['plain']),
+      member('u4', 'sable', null, ['captain']),
+      member('u5', 'ozzy', null, ['squad-b'])
+    ]
+    const groups = groupMembers(members, online(['u1', 'u2', 'u3', 'u5']), roles)
+    expect(groups.map((g) => [g.id, g.label, g.dim, g.members.map((m) => m.user.id)])).toEqual([
+      ['captain', 'Captain', false, ['u1']],
+      ['shot', 'Shotcallers', false, ['u2']],
+      ['squad-b', 'Squad B', false, ['u5']],
+      ['online', 'Online', false, ['u3']],
+      ['offline', 'Offline', true, ['u4']]
+    ])
+    expect(groups[0]?.color).toBe('#ffc36b')
+    expect(groups[1]?.color).toBeUndefined()
+  })
+  it('orders roles with the same position by id', () => {
+    const members = [member('u1', 'a', null, ['squad-b']), member('u2', 'b', null, ['squad-a'])]
+    const both = member('u3', 'c', null, ['squad-b', 'squad-a'])
+    const groups = groupMembers([...members, both], online(['u1', 'u2', 'u3']), roles)
+    expect(groups.map((g) => [g.id, g.members.map((m) => m.user.id)])).toEqual([
+      ['squad-a', ['u2', 'u3']],
+      ['squad-b', ['u1']]
+    ])
+  })
+  it('groups by online and offline when no role is hoisted', () => {
+    const flat = new Map([...roles].map(([id, r]) => [id, { ...r, hoist: false }]))
+    const members = [member('u1', 'a', null, ['captain']), member('u2', 'b')]
+    expect(groupMembers(members, online(['u1']), flat).map((g) => g.id)).toEqual([
+      'online',
+      'offline'
+    ])
   })
 })
 
@@ -133,5 +200,65 @@ describe('userHue', () => {
       expect(userHue(id)).toBeGreaterThanOrEqual(0)
       expect(userHue(id)).toBeLessThan(360)
     }
+  })
+})
+
+describe('countPageLinks', () => {
+  const a = '0b7c1d9e-4f2a-4c1b-9a3e-5d6f7a8b9c0d'
+  const b = '1b7c1d9e-4f2a-4c1b-9a3e-5d6f7a8b9c0d'
+  it('counts distinct linked pages', () => {
+    expect(countPageLinks([])).toBe(0)
+    expect(
+      countPageLinks([
+        `see [RFC](hachiman:page/${a}) and [Glossary](hachiman:page/${b})`,
+        `again hachiman:page/${a.toUpperCase()}`,
+        'hachiman:page/not-a-uuid'
+      ])
+    ).toBe(2)
+  })
+})
+
+describe('guildPagesSections', () => {
+  const pagesChannel = (id: string): Channel => ({ ...channel(id, 'g1', id), type: 'pages' })
+  const page = (
+    id: string,
+    channelId: string,
+    title: string,
+    parentId: string | null = null
+  ): PageNode => ({
+    id,
+    channelId,
+    parentId,
+    position: 0,
+    createdBy: null,
+    createdAt: '2026-10-01T00:00:00Z',
+    updatedAt: '2026-10-01T00:00:00Z',
+    title,
+    titleState: 'ok'
+  })
+  const channels = [pagesChannel('c1'), pagesChannel('c2'), pagesChannel('c3')]
+  const loaded = new Map([
+    ['c1', [page('p1', 'c1', 'RFC: pages'), page('p2', 'c1', 'Glossary', 'p1')]],
+    ['c2', [page('p3', 'c2', 'Scrim playbook')]]
+  ])
+  it('lists every channel in tree order, unloaded ones without pages', () => {
+    const s = guildPagesSections(channels, loaded, '')
+    expect(s.map((x) => [x.channel.id, x.pages?.map((p) => [p.page.id, p.depth])])).toEqual([
+      [
+        'c1',
+        [
+          ['p1', 0],
+          ['p2', 1]
+        ]
+      ],
+      ['c2', [['p3', 0]]],
+      ['c3', undefined]
+    ])
+  })
+  it('filters by title and leaves out channels without a match', () => {
+    const s = guildPagesSections(channels, loaded, ' gloss ')
+    expect(s.map((x) => [x.channel.id, x.pages?.map((p) => [p.page.id, p.depth])])).toEqual([
+      ['c1', [['p2', 0]]]
+    ])
   })
 })

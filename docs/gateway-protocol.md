@@ -2576,6 +2576,8 @@ struct {
 - `doc_awareness`: one y-protocols awareness update. The state holds the user id, display name, color, cursor and selection.
 - `doc_title`: the UTF-8 title, 1 to 200 bytes (`MAX_PAGE_TITLE_BYTES`).
 
+Page labels ("RFC", "Draft") are page content: they are in the Y.Doc (`Y.Map` `meta`, key `labels`, at most 5 strings of at most 24 characters), so `doc_update` and `doc_snapshot` carry them encrypted, and no route or event carries them.
+
 **Key.** The derivation of §12.8.2 with another label:
 
 ```

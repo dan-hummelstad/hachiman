@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { MessageCircle, MicOff, ShieldCheck, VolumeX } from 'lucide-react'
 import type { User } from '@hachiman/client'
+import { useUserBanner } from '@/components/people/use-user-banner'
 import { UserAvatar } from '@/components/shell/user-avatar'
 import { Button } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
@@ -9,7 +10,6 @@ import { RoleChip } from '@/components/ui/role-chip'
 import { useMemberView, useOpenDm, usePresence } from '@/hooks/use-member'
 import { memberRoles } from '@/lib/model'
 import { ROLE_INK_SCOPE } from '@/lib/role-ink'
-import { userBanner } from '@/lib/user-tint'
 import { cn } from '@/lib/utils'
 import { useCryptoStore } from '@/stores/cryptoStore'
 import { openDialog } from '@/stores/dialogStore'
@@ -83,10 +83,11 @@ function ProfileCard(props: {
   const encryption = useCryptoStore((s) => s.phase === 'ready' && s.status?.state === 'ready')
   const chips = memberRoles(member, roles)
   const identity = member?.user ?? props.user
+  const banner = useUserBanner(userId, identity?.avatar)
 
   return (
     <div className="flex flex-col">
-      <div className="h-16" style={{ background: ink ?? userBanner(userId) }} />
+      <div className="h-16" style={{ background: banner }} />
       <div className="flex flex-col gap-3 px-4 pb-4">
         <div className="-mt-10 w-fit">
           <UserAvatar

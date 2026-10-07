@@ -3,7 +3,15 @@ import * as Y from 'yjs'
 import { RestError, type DocSnapshot, type DocUpdate } from '@hachiman/client'
 import type { DocDecryptResult, EncryptDocInput } from '@hachiman/crypto'
 import { AWARENESS_MS, HEARTBEAT_MS, awarenessClientIds } from './DocAwareness'
-import { BATCH_MS, SNAPSHOT_EVERY, createDocProvider, type DocProviderDeps } from './DocProvider'
+import {
+  BATCH_MS,
+  SNAPSHOT_EVERY,
+  createDocProvider,
+  observeLabels,
+  pageLabels,
+  setPageLabels,
+  type DocProviderDeps
+} from './DocProvider'
 import type { DocProvider } from './types'
 
 const CHANNEL = 'c-1'
@@ -733,5 +741,28 @@ describe('DocProvider', () => {
     p.receiveAwareness({ deviceId: 'd-1', envelope: out.envelope })
     expect(h.crypto.decryptDoc).not.toHaveBeenCalled()
     peer.destroy()
+  })
+})
+
+describe('page labels', () => {
+  it('stores normalized labels in the meta map and syncs them as doc content', () => {
+    const a = new Y.Doc()
+    const seen: string[][] = []
+    const stop = observeLabels(a, (l) => seen.push(l))
+    expect(pageLabels(a)).toEqual([])
+    setPageLabels(a, [' RFC ', 'rfc', '', 'Draft', 'x'.repeat(30), 'a', 'b', 'c'])
+    expect(pageLabels(a)).toEqual(['RFC', 'Draft', 'x'.repeat(24), 'a', 'b'])
+    expect(seen).toHaveLength(1)
+    stop()
+    const b = new Y.Doc()
+    Y.applyUpdate(b, Y.encodeStateAsUpdate(a))
+    expect(pageLabels(b)).toEqual(['RFC', 'Draft', 'x'.repeat(24), 'a', 'b'])
+  })
+  it('ignores a malformed remote value', () => {
+    const d = new Y.Doc()
+    d.getMap('meta').set('labels', 'RFC')
+    expect(pageLabels(d)).toEqual([])
+    d.getMap('meta').set('labels', [1, 'Draft', null])
+    expect(pageLabels(d)).toEqual(['Draft'])
   })
 })

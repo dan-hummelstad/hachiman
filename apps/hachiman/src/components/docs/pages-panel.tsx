@@ -30,6 +30,7 @@ import { useChannelStore } from '@/stores/channelStore'
 import { flattenPages, pagePath, pageTitle } from '@/services/docs/page-tree'
 import { findPage, useDocsStore, type DocPeer, type PageNode } from '@/stores/docsStore'
 import { openChannel } from '@/stores/navStore'
+import { PageLabels } from './page-labels'
 import { pageHref } from './page-links'
 import { PageTreePopover } from './page-tree-popover'
 
@@ -41,10 +42,15 @@ const EMPTY_PEERS: DocPeer[] = []
 const MAX_AVATARS = 5
 
 /**
- * Opens `pageId` in its pages channel. A page of another channel also selects that channel.
+ * Opens `pageId` in its pages channel. A page of another channel also selects that channel, or
+ * calls `elsewhere` when the panel shows beside another channel (N21.1).
  * A page of a channel that is not loaded cannot be found, so the click does nothing.
  */
-function openPageAnywhere(pageId: string, fromChannelId: string): void {
+function openPageAnywhere(
+  pageId: string,
+  fromChannelId: string,
+  elsewhere?: (channelId: string) => void
+): void {
   const page = findPage(pageId)
   if (!page) {
     console.warn('[pages] link to an unknown page', pageId)
@@ -52,6 +58,7 @@ function openPageAnywhere(pageId: string, fromChannelId: string): void {
   }
   useDocsStore.getState().setOpenPage(page.channelId, pageId)
   if (page.channelId === fromChannelId) return
+  if (elsewhere) return elsewhere(page.channelId)
   const channel = useChannelStore.getState().channels.get(page.channelId)
   if (channel?.guildId) openChannel(channel.guildId, channel.id)
 }
@@ -63,11 +70,17 @@ function openPageAnywhere(pageId: string, fromChannelId: string): void {
  */
 export function PagesPanel({
   channel,
-  switcher
+  switcher,
+  onOpenElsewhere
 }: {
   channel: Channel
   /** The "Members | Pages" control of the right column, at the start of the head. */
   switcher?: React.ReactNode
+  /**
+   * The panel shows beside another channel (N21.1): a link to a page of another pages channel
+   * calls this (with that channel) in place of selecting the channel.
+   */
+  onOpenElsewhere?: (channelId: string) => void
 }): React.JSX.Element {
   const { pages, loaded, openId } = useDocsStore(
     useShallow((s) => ({
@@ -96,7 +109,10 @@ export function PagesPanel({
     return flattenPages(pages)[0]?.page.id ?? null
   }, [openId, pages])
 
-  const open = useCallback((id: string) => openPageAnywhere(id, channel.id), [channel.id])
+  const open = useCallback(
+    (id: string) => openPageAnywhere(id, channel.id, onOpenElsewhere),
+    [channel.id, onOpenElsewhere]
+  )
 
   return (
     <div
@@ -360,6 +376,7 @@ function OpenPage({
             : 'Read only. You cannot edit pages in this channel.'}
         </div>
       )}
+      <PageLabels handle={handle} editable={canEdit} />
       <div className="flex min-h-0 flex-1 flex-col">
         <Suspense fallback={<LoadingBody />}>
           <PageEditor
