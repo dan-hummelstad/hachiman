@@ -1,6 +1,8 @@
 # Arc redesign: new features plan
 
-**Status: plan.** Base: `main` at `a687198`. This plan covers each element of the Pencil frame **Final** that main does not have. `docs/arc-redesign-plan.md` is the parent plan: it restyles what exists and names the slot where each feature here plugs in (its §6 and §7). When a feature changes a wire shape, the same PR updates `docs/gateway-protocol.md`. When it changes `pkgs/hachiman-crypto/src/api.ts`, the same PR updates contract §12.
+**Status: built**, except N19, N20 and N22. The `arc/*` branch stack shipped the Tier 1 items (N1 to N7, N11, N15), the Tier 2 items (N8 to N10, N13, N14, N16, N17, N21, N24 to N26), and from Tier 3 threads (N12), watch a stream (N18) and blocking (N23). The server parts are read state (`read_states`, `POST /channels/:id/ack`, `READ_STATE_UPDATE`, READY `readStates`), pins (`channel_pins`), guild events (`guild_events`, `guild_event_rsvps`, MANAGE_EVENTS), blocks (`user_blocks`), role hoist (`roles.hoist`), threads (channel type `thread`, at most 50 per guild in READY), custom status (Redis `custom_status:{userId}`) and `VoiceState.joinedAt`. Reactions and page activity are the envelope content kinds `reaction` and `page_activity`. `TrustInfo.verifiedAt` gives the verified date. The contract (`docs/gateway-protocol.md`) has each change. The rest of this plan is the history of the work.
+
+Base of the plan: `main` at `a687198`. This plan covers each element of the Pencil frame **Final** that main does not have. `docs/arc-redesign-plan.md` is the parent plan: it restyles what exists and names the slot where each feature here plugs in (its §6 and §7). When a feature changes a wire shape, the same PR updates `docs/gateway-protocol.md`. When it changes `pkgs/hachiman-crypto/src/api.ts`, the same PR updates contract §12.
 
 ## 1. Rules
 
@@ -335,3 +337,20 @@ Redesign Phase 0 ─ Phase 1 ─────────── Phase 2 ───
 | N26 | | | | | | | ✓ (api.ts) |
 
 All others are client only.
+
+## 7. Not built
+
+- **N19 camera.** It needs a video track per user in the SFU, simulcast and an SFrame key for each track. That is voice SFU and voice E2EE platform work. It needs its own design doc.
+- **N20 DM calls.** A DM has no voice channel, no placement and no voice group today. That is voice SFU and voice E2EE platform work. It needs its own design doc.
+- **N22 bots and embeds.** A bot needs its own identity and trust model in the MLS groups. It needs its own design doc.
+
+Known leftovers of the built items:
+
+- Verify and profile views show no device fingerprints. `ContactDevice` has no fingerprint, so this needs a crypto API change and a contract §12 change.
+- The call roster does not mark the users who watch a stream (N18).
+- The mention inbox does not fetch the messages around a mention that is not loaded (N8).
+- Tabs, favourites and notification levels do not sync across devices (N1, N6, N9).
+- The Electron `app-command` back and forward on Windows is not wired (N2).
+- The dock badge shows no unread count (N7).
+- The invite preview shows no banner and no online count.
+- "Create channel" has no Private channel toggle.

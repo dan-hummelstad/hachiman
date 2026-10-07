@@ -137,9 +137,9 @@ E2EE variables (contract §12.18):
 
 Most React work lands here. Layout:
 
-- `components/`: `shell/`, `chat/`, `voice/` (incl. screen share and call security), `people/`, `settings/`, `docs/` (the pages panel, the Milkdown Crepe editor, page links, page media), `security/` (`CryptoGate` onboarding in front of the shell, the QR encoder `qr.ts`, and the security dialogs: devices, verification, linking, key change, recovery, fatal screens), `ui/` (shadcn primitives)
-- `stores/` (Zustand): guild, channel, messages, voice, user, takusen, prefs, limits, nav, dialog, crypto, docs
-- `services/`: `hachiman.ts` owns the `HachimanClient` singleton and mirrors its cache into the stores. `App.tsx` calls `startHachiman(platform)`: the crypto Worker does not start without the platform (it needs `secureStorage` for the wrap key). `MessagesService` / `VoiceService` / `InviteService` / `UploadService` / `TakusenService` sit on top. `SoundService` plays event chimes (`lib/sounds.ts` lists the events) as `prefsStore` permits.
+- `components/`: `shell/` (the sidebar and its slots, the tab bar, the quick switcher, the space bar, the content card), `chat/`, `voice/` (incl. screen share and call security), `people/`, `settings/`, `docs/` (the pages panel, the Milkdown Crepe editor, page links, page media), `security/` (`CryptoGate` onboarding in front of the shell, the QR encoder `qr.ts`, and the security dialogs: devices, verification, linking, key change, recovery, fatal screens), `inbox/`, `events/`, `threads/`, `pins/`, `notify/`, `ui/` (shadcn and Arc primitives). Settings are in the sidebar: `settings/settings-nav.tsx` in the sidebar middle, `settings/settings-page.tsx` in the content card
+- `stores/` (Zustand): guild, channel, messages, voice, user, takusen, prefs, limits, nav, dialog, crypto, docs, tabs, unread, composer, pins, events, threads
+- `services/`: `hachiman.ts` owns the `HachimanClient` singleton and mirrors its cache into the stores. `App.tsx` calls `startHachiman(platform)`: the crypto Worker does not start without the platform (it needs `secureStorage` for the wrap key). `MessagesService` / `VoiceService` / `InviteService` / `UploadService` / `TakusenService` sit on top. `SoundService` plays event chimes (`lib/sounds.ts` lists the events) as `prefsStore` permits. `UnreadService` keeps the read state and counts mentions on the client. `guild-features.ts` holds the pins, events, threads and blocks services. `PageActivityService` posts page activity.
 - `services/CryptoService.ts` owns the one `CryptoClient` (the crypto Worker) and mirrors its events into `cryptoStore`. `ds-transport.ts` serves the Worker's REST calls. `message-decrypt.ts` decrypts messages. `voice-e2ee.ts` is the voice delegate. `AdminActionService` signs admin changes. `services/docs/` holds the pages data layer: `DocsService` (the page tree and titles) and `DocProvider` (one Yjs `Y.Doc` and awareness per open page: load, batch, encrypt, send, gap fill, snapshots).
 - `hooks/`, `lib/` (helpers: mentions, stream quality, connection quality, sounds, ...)
 - `shared/`: `IPlatformService.ts` (the seam), `PlatformContext.tsx`, `takusen-env.ts`
@@ -173,7 +173,7 @@ If a selector returns a fresh array/object literal, React shows the warning "get
 ### Other UI conventions
 
 - Tooltips: there is **one** `TooltipProvider` at the App root (`App.tsx`). Do not nest more. Radix tolerates it, but the delay gets shadowed and the behavior becomes inconsistent.
-- `NavUser` uses plain markup + `useIsMobile()`. There is no shadcn sidebar component, and no code mounts a `SidebarProvider`. Do not add one.
+- The sidebar is `components/shell/sidebar.tsx`, plain markup. There is no shadcn sidebar component, and no code mounts a `SidebarProvider`. Do not add one.
 - `userData` should come from `useUserStore`, not hardcoded.
 
 ### E2EE rules in the UI

@@ -77,11 +77,13 @@ flowchart LR
 ```mermaid
 flowchart LR
   PC["shared/PlatformContext.tsx<br/>usePlatform()"]
-  C["components/<br/>shell, chat, voice,<br/>people, settings, ui"]
+  C["components/<br/>shell, chat, voice, people, settings,<br/>inbox, events, threads, pins, notify, ui"]
   HK["hooks/"]
-  ST["stores/ (Zustand)<br/>guild, channel, messages, voice,<br/>user, takusen, prefs, limits,<br/>nav, dialog"]
+  ST["stores/ (Zustand)<br/>guild, channel, messages, voice,<br/>user, takusen, prefs, limits,<br/>nav, dialog, docs, tabs, composer"]
+  FST["stores/ (feature)<br/>unread, pins, events, threads"]
   CST["stores/cryptoStore.ts<br/>phase, status, fatal, alerts,<br/>membership, voice roster"]
   SV["services/<br/>MessagesService, VoiceService,<br/>InviteService, UploadService,<br/>TakusenService, AdminActionService"]
+  FSV["services/<br/>UnreadService, guild-features<br/>(pins, events, threads, blocks),<br/>PageActivityService"]
   H["services/hachiman.ts<br/>singleton + event mirror"]
   HC["HachimanClient<br/>(@hachiman/client)"]
   CS["services/CryptoService.ts<br/>+ ds-transport, voice-e2ee"]
@@ -93,6 +95,12 @@ flowchart LR
   PC --> HK
   C -- selectors --> ST
   HK -- selectors --> ST
+  C -- selectors --> FST
+  C -- actions --> FSV
+  FSV -- "rest calls" --> HC
+  FSV -- "decrypt (pins, mention pass)" --> MD
+  FSV -- setState --> FST
+  H -- "READY, READ_STATE_UPDATE,<br/>CHANNEL_PINS_UPDATE, MESSAGE_CREATE" --> FSV
   C -- actions --> SV
   C -- selectors --> CST
   SV -- calls --> HC
@@ -120,7 +128,7 @@ Data flows in one direction:
 4. `services/hachiman.ts` copies the changed cache slice into a store. A message goes through the crypto Worker first.
 5. Components re-render from their selectors.
 
-Only `services/hachiman.ts` writes the mirror stores (`guildStore`, `channelStore`, and the voice states in `voiceStore`). `MessagesService` writes optimistic rows into `messagesStore`. The decrypted server echo replaces each row by nonce.
+Only `services/hachiman.ts` writes the mirror stores (`guildStore`, `channelStore`, `eventsStore`, and the voice states in `voiceStore`). `UnreadService` writes `unreadStore`. `PinsService` writes `pinsStore`. `threadService` writes the activity order in `threadsStore`. `MessagesService` writes optimistic rows into `messagesStore`. The decrypted server echo replaces each row by nonce.
 
 ### E2EE in the UI
 
@@ -140,22 +148,62 @@ Only `services/hachiman.ts` writes the mirror stores (`guildStore`, `channelStor
 |---|---|
 | `src/App.tsx` | App root. It holds the one `TooltipProvider`, calls `startHachiman(platform)`, and subscribes to `onOAuthCallback` and `onInviteLink`. It keeps the key of an invite link in `InviteService` memory, not in the dialog store. It shows `FatalScreen`, `Shell` inside `CryptoGate`, or `SignInScreen`, plus `Dialogs` and `SecurityNotices`. |
 | `src/index.ts` | Public exports of the package |
-| `src/components/shell/` | `Shell`, channel pane, guild header and menus, the dialog host (`dialogs.tsx`) |
-| `src/components/chat/` | Transcript, message row and toolbar, composer, typing line, the "unable to decrypt" text (`decrypt-text.ts`), MLS membership lines |
-| `src/components/chat/attachments/` | `useUploads`, upload tray, drop zone, attachment grid, lightbox |
+| `src/components/shell/` | `Shell` and its layout (see "Shell layout" below). `Sidebar` (four slots), `SidebarControls`, the hide and reveal state (`sidebar-state.ts`, `use-sidebar-reveal.ts`), `TabBar` and `PinToTabsButton`, `QuickSwitcher` (⌘K), `FavouriteDms`, `SpaceBar`, the unread marks, the guild tint, the channel pane and its header, guild header and menus, the dialog host (`dialogs.tsx`) |
+| `src/components/chat/` | Transcript with the NEW divider, message row and toolbar, reaction chips and picker (`reactions.tsx`), reply quote, page link cards and page activity rows (`page-cards.tsx`), channel intro, composer, typing line, the "unable to decrypt" text (`decrypt-text.ts`), MLS membership lines |
+| `src/components/chat/attachments/` | `useUploads`, upload tray, drop zone, attachment grid, audio card with waveform, lightbox |
+| `src/components/inbox/` | `InboxButton`: the Mentions and Unread popover, with "Mark read". `inbox-model.ts` builds the lists |
+| `src/components/events/` | The guild event row, the details popover with the "Going" toggle, and the create and edit dialog |
+| `src/components/threads/` | `ThreadsButton` (the thread list in the channel header), the create thread dialog, the thread name rules |
+| `src/components/pins/` | `PinsButton` (the pin count and popover in the channel header), "Pin message" in the message menu, jump to a pinned message |
+| `src/components/notify/` | `NotifyButton` (the bell menu of a channel), `FollowButton` (a read-only channel), `NotifySettingsDialog` (the guild levels and mute) |
 | `src/components/voice/` | Voice room, `stream-grid`, `screen-share-controls`, `screen-source-picker`, stream quality fields, self mute and deafen toggles, call security (`call-roster`, `call-security`, `verify-call-dialog`) |
 | `src/components/security/` | `CryptoGate` (`onboarding.tsx`): the gate in front of `Shell`, and the onboarding (set up, link, restore, reset). Devices panel, device linking (QR and SAS emoji), verification, key-change dialog. Recovery key view and panel, security log and notices, the host trust label, fatal screens. `qr.ts` is a small QR encoder (no dependency) |
-| `src/components/people/` | Member list sections by presence |
-| `src/components/settings/` | Settings layout. `user/` holds account, appearance, voice and sounds. `invites.ts`, `invite-options.tsx`, `invite-history-option.tsx` and `permanent-invite-confirm.tsx` hold the invite choices (more than 24 hours, permanent and "Include history" only for an administrator), the scope of an invite with history, and the permanent-invite warning. `use-invite-creation.ts` holds the create flow that the invite window and the Invites tab share: the options, and the warning before a permanent invite. The guild settings dialogs are in `src/components/`. |
-| `src/components/ui/` | shadcn and local primitives (dialog, tooltip, avatar, window strip, title bar) |
-| `src/components/*.tsx` | Server icon rail, channel sidebar, member list, voice panel, guild and channel dialogs, sign-in screen |
-| `src/stores/` | Zustand stores. `prefsStore`, `navStore`, `takusenStore` (session) and part of `voiceStore` (mute, deafen) persist to `localStorage`. `cryptoStore` is memory only. |
-| `src/services/` | `hachiman.ts`, `CryptoService`, `ds-transport`, `message-decrypt`, `voice-e2ee`, `MessagesService`, `VoiceService`, `InviteService`, `UploadService`, `AdminActionService`, `TakusenService`, `SoundService` |
-| `src/hooks/` | `use-hachiman` (derived channel and voice lists), `use-member`, `use-sign-in`, `use-recommended-region`, `use-mic-level`, `use-action`, `use-draft`, `use-decrypted-blob`, `use-membership-timeline` and others |
-| `src/lib/` | Pure helpers: `sounds`, `chime`, `stream-quality`, `connection-quality`, `mentions`, `model`, `role-ink`, `format-bytes`, `attachments` (upload id order), `blob-url-cache`, `invite-link` (re-export of `@hachiman/client/invite-link`), `admin-payload`, `client-version`, `utils` |
+| `src/components/people/` | `RightColumn` (members, pages, DM profile), `DmProfileColumn`, the guild pages list, Active now, custom status dialog and line, block dialog, new message dialog |
+| `src/components/settings/` | Settings in the sidebar: `SettingsNav` (the section list in the sidebar middle) and `SettingsPage` (the page in the content card). `settings-model.tsx` holds the sections of the user, guild and channel settings. `SaveBar`, the guild and channel overview and permissions pages, the role hoist row. `user/` holds account, appearance, voice and sounds. `invites.ts`, `invite-options.tsx`, `invite-history-option.tsx` and `permanent-invite-confirm.tsx` hold the invite choices (more than 24 hours, permanent and "Include history" only for an administrator), the scope of an invite with history, and the permanent-invite warning. `use-invite-creation.ts` holds the create flow that the invite window and the Invites tab share: the options, and the warning before a permanent invite. The guild settings dialogs are in `src/components/`. |
+| `src/components/ui/` | shadcn and local primitives (dialog, tooltip, avatar, title bar) and the Arc primitives (badge, callout, checkbox, chip, keycap, radio card, segmented control, system tag, `feature.ts`). See `docs/ui-redesign.md` §5 |
+| `src/components/*.tsx` | Channel sidebar (`GuildChannelList`, `DmSpace`), home pane, member list, voice dock (`voice-connected-panel.tsx`), guild and channel dialogs, user profile popover, sign-in screen |
+| `src/stores/` | Zustand stores. `prefsStore` (also the sidebar mode, favourite DMs and notification levels per account), `navStore` (the view, not the history), `takusenStore` (session) and part of `voiceStore` (mute, deafen) persist to `localStorage`. `tabsStore` writes `hachiman:tabs:<userId>`. `unreadStore`, `pinsStore`, `eventsStore`, `threadsStore`, `composerStore` and `cryptoStore` are memory only. |
+| `src/services/` | `hachiman.ts`, `CryptoService`, `ds-transport`, `message-decrypt`, `voice-e2ee`, `MessagesService`, `VoiceService`, `InviteService`, `UploadService`, `AdminActionService`, `TakusenService`, `SoundService`, `UnreadService` with `unread-pass.ts`, `PinsService`, `PageActivityService`, `guild-features.ts` (`pinsService`, `eventsService`, `threadService`, `blockService`, `setCustomStatus`) |
+| `src/hooks/` | `use-hachiman` (derived channel and voice lists), `use-member`, `use-app-shortcuts`, `use-custom-status`, `use-elapsed`, `use-sign-in`, `use-recommended-region`, `use-mic-level`, `use-action`, `use-draft`, `use-decrypted-blob`, `use-membership-timeline` and others |
+| `src/lib/` | Pure helpers: `sidebar-reveal`, `right-column`, `quick-switcher`, `reactions`, `notify`, `guild-tint`, `active-now`, `custom-status`, `member-groups`, `channel-access`, `waveform`, `sounds`, `chime`, `stream-quality`, `connection-quality`, `mentions`, `model`, `role-ink`, `format-bytes`, `attachments` (upload id order), `blob-url-cache`, `invite-link` (re-export of `@hachiman/client/invite-link`), `admin-payload`, `client-version`, `utils` |
 | `src/shared/` | `IPlatformService.ts`, `PlatformContext.tsx`, `takusen-env.ts` |
 | `src/dev/preview/` | Preview mode: fixture, REST and voice stubs, the crypto stub |
 | `src/assets/` | `main.css` and the bundled fonts |
+
+## Shell layout
+
+`components/shell/shell.tsx` gives the signed-in layout (`docs/ui-redesign.md` §6, §7). The window is a wallpaper that the guild tints (`use-guild-tint.ts`). The sidebar and the content column sit on it.
+
+```mermaid
+flowchart LR
+  subgraph SB["Sidebar (280)"]
+    direction TB
+    CTL["controls<br/>SidebarControls: toggle, back, forward<br/>InboxButton"]
+    TOP["top<br/>SwitcherField (⌘K), FavouriteDms"]
+    MID["middle<br/>GuildChannelList, DmSpace<br/>or SettingsNav"]
+    FOOT["foot<br/>VoiceDock, SpaceBar"]
+    CTL --> TOP --> MID --> FOOT
+  end
+  subgraph COL["Content column"]
+    direction TB
+    TAB["TabBar (48)<br/>pin glyph, pinned tabs, +"]
+    subgraph CARD["Content card (inset 8, 1 px border)"]
+      direction LR
+      MAIN["main<br/>HomePane, ChannelPane<br/>(ChatBody or VoiceRoom)<br/>or SettingsPage"]
+      RC["RightColumn<br/>members 252, page 540,<br/>DM profile"]
+      MAIN --- RC
+    end
+    TAB --> CARD
+  end
+  SB --- COL
+```
+
+- `Sidebar` has four slots: `controls`, `top`, `middle` and `foot`. The controls row is the window drag region. With an inset title bar, it starts after the traffic lights.
+- Settings use the sidebar. `SettingsNav` replaces the sidebar middle, and `SettingsPage` shows in the content card. `navStore.settings` holds the open settings view.
+- The sidebar has three states: docked, hidden and revealed (`sidebar-state.ts`, `use-sidebar-reveal.ts`, `lib/sidebar-reveal.ts`). When it is hidden, the card takes the window width, `TabBar` shows the sidebar controls, search and inbox, and the voice dock floats in the bottom-left corner of the card. The composer moves right by `--dock-inset`, so the dock does not cover it.
+- `TabBar` shows the pinned tabs of `tabsStore`. A tab lights up when its target is the open view. `PinToTabsButton` and `PinToTabsMenuItem` pin a view from the channel intro, the page header and the context menus.
+- `RightColumn` opens by default on windows of 1200 px and wider. The header toggle overrides the default.
+- `QuickSwitcher` is mounted once in the shell. `useSwitcherShortcut` opens it on ⌘K.
 
 ## Send a message with an attachment
 
@@ -206,6 +254,48 @@ sequenceDiagram
 ```
 
 The composer refuses to send while an upload runs or after an upload fails. If the send fails, `markFailed` flags the row. The user can then retry or discard it. A retry encrypts again and sends the same attachment ids, because Takusen did not claim them. A `StaleEpoch`, `GroupPending`, `EpochConflict` or `PendingRemoves` error makes `MessagesService` catch up and encrypt again, with at most 4 attempts in total.
+
+## Unread and ack
+
+```mermaid
+sequenceDiagram
+  participant H as services/hachiman.ts
+  participant US as UnreadService
+  participant UST as unreadStore
+  participant MD as message-decrypt
+  participant TR as Transcript
+  participant HC as HachimanClient
+  participant TK as Takusen
+
+  H->>US: onReady() (READY readStates)
+  US->>UST: fromReadStates (a channel with messages and no read state counts 1)
+  US->>MD: mention pass (unread-pass.ts, at most 20 channels, 50 messages each)
+  MD-->>US: decrypted rows (counted, not stored)
+  US->>UST: addMentions
+  H->>US: onMessageCreate(message, row) (after the decrypt)
+  US->>UST: addUnread, addMentions (not for the open, focused channel)
+  TR->>US: markRead(channelId, lastId) (open, focused, last row in view)
+  US->>UST: markReadTo
+  US->>HC: rest.ackMessage (after 1 s without a newer call)
+  HC->>TK: POST /channels/:id/ack
+  TK-->>H: READ_STATE_UPDATE (to my other sessions too)
+  H->>US: onReadStateUpdate
+  US->>UST: markReadTo
+```
+
+- Mentions are counted on the client only, because the server cannot read them. The mention pass runs after READY, when the crypto Worker is ready.
+- The unread count is an upper bound. The server counts every message row, also reactions and page activity posts.
+- The NEW divider uses the read state that the channel had when it opened (`unreadStore.opened`). It stays until another channel opens.
+- `useChannelUnread`, `useGuildUnread`, `useDmUnread` and `useAnyMention` apply the notification levels and the mutes of `prefsStore` (`lib/notify.ts`). The channel rows, the space bar, the tabs, the favourite DM tiles and the inbox dot read them.
+- `InboxButton` shows the mention ids of `unreadStore` and the channels with unread messages. "Mark read" calls `markRead`.
+
+## Reactions and page activity
+
+A reaction and a page activity post are encrypted messages with their own envelope content kind (contract §12.8.1). The server stores them as normal message rows.
+
+- **Send a reaction.** `MessagesService.react` folds the reaction into `messagesStore` at once (`applyReactions`), encrypts a `reaction` kind with the target client_msg_id, and posts it. A failed send takes the reaction back.
+- **Receive a reaction.** `message-decrypt.ts` gives a `reaction` result to `deps.reactions`, never to a row. `messagesStore.applyReactions` keeps the newest event per (user, emoji) and target (`reactionLog`), and folds them into `reactions`. The fold is by client_msg_id, so a reaction whose target is not loaded shows when the target loads. `components/chat/reactions.tsx` shows the chips (`lib/reactions.ts`).
+- **Page activity.** `DocProvider` calls `onLocalEdit` when a local edit of a page reaches the server. `PageActivityService` counts the edits as changes (edits less than 30 s apart are one change). It posts at most one `page_activity` message per page per 10 minutes, 30 s after the first edit. `MessagesService.postPageActivity` encrypts and posts it in the pages channel of the page. The receiver shows a row of kind `page_activity` ("edited <page> · n changes") from `components/chat/page-cards.tsx`.
 
 ## Voice join and screen share
 
@@ -258,7 +348,7 @@ A media close 4012 shows "update required" in the call UI. A media close 4013 se
 
 ## Pages channel
 
-A `pages` channel shows the chat in the center and the page in the right column (`components/people/right-column.tsx`, 540 wide). The column head switches between Members and Pages.
+A `pages` channel shows the chat in the center and the page in the right column (`components/people/right-column.tsx`, 540 wide). The column head switches between Members and Pages. In a text channel, the Pages tab lists the pages of all pages channels of the guild (`people/guild-pages-list.tsx`), and one page opens beside the chat at 540. Page labels ("RFC", "Draft") are in the `Y.Doc` (`docs/page-labels.tsx`), so they are encrypted with the page.
 
 | Path | What |
 |---|---|
