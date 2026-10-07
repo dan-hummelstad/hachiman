@@ -1,3 +1,4 @@
+import { setSidebarMode } from '@/components/shell/sidebar-state'
 import { SectionHeading } from '@/components/ui/field'
 import { Keycap } from '@/components/ui/keycap'
 import { MOD_KEY } from '@/lib/mod-key'
@@ -22,7 +23,6 @@ export function AppearanceSection(): React.JSX.Element {
   const messageDisplay = usePrefsStore((s) => s.messageDisplay)
   const setMessageDisplay = usePrefsStore((s) => s.setMessageDisplay)
   const sidebar = usePrefsStore((s) => s.sidebar)
-  const setSidebar = usePrefsStore((s) => s.setSidebar)
 
   return (
     <div className="grid gap-8">
@@ -48,7 +48,7 @@ export function AppearanceSection(): React.JSX.Element {
             <OptionCard
               key={m}
               checked={sidebar === m}
-              onSelect={() => setSidebar(m)}
+              onSelect={() => setSidebarMode(m)}
               label={m === 'docked' ? 'Docked' : 'Undocked'}
               hint={
                 m === 'docked' ? (

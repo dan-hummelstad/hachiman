@@ -48,7 +48,10 @@ const RING = 'ring-text-primary ring-offset-surface-window ring-2 ring-offset-2'
  */
 export function SpaceBar(): React.JSX.Element {
   const guilds = useGuildStore((s) => s.guilds)
-  const selectedGuildId = useSelectedGuildId()
+  const selected = useSelectedGuildId()
+  // While user settings show, only my avatar is ringed.
+  const userSettings = useNavStore((s) => s.settings?.target.kind === 'user')
+  const selectedGuildId = userSettings ? undefined : selected
   const dmBadge = useDmUnread()
 
   return (
