@@ -110,11 +110,7 @@ function MessageRow(props: TranscriptRowProps): React.JSX.Element {
           ? () => useComposerStore.getState().setReplyTarget(message.channelId, target)
           : undefined
       }
-      onCopy={
-        readable
-          ? () => void navigator.clipboard?.writeText(message.content).catch(() => {})
-          : undefined
-      }
+      copyText={readable ? message.content : undefined}
       onEdit={mine && readable ? () => props.onEditingChange(message.id) : undefined}
       onDelete={
         mine || policy.canManage

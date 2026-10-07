@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Check, Copy, Hourglass, Link2, Trash2 } from 'lucide-react'
+import { useCopy } from '@/hooks/use-copy'
 import { Permissions, has, type Channel, type GatewayEvents, type Invite } from '@hachiman/client'
 import { UserAvatar } from '@/components/shell/user-avatar'
 import { Button } from '@/components/ui/button'
@@ -42,10 +43,10 @@ export function GuildInvitesTab({ guildId }: { guildId: string }): React.JSX.Ele
   const channels = useChannelStore((s) => s.channels)
   const [invites, setInvites] = useState<Invite[]>([])
   const sorted = useMemo(() => sortInvites(invites), [invites])
-  const [copied, setCopied] = useState<string | null>(null)
   const [now] = useState(Date.now)
   const [includeHistory, setIncludeHistory] = useState(false)
   const { run, busy, error, setError } = useAction()
+  const { copied, copy: copyLink } = useCopy({ onError: (e) => setError(errMsg(e)) })
 
   const scope = useMemo(
     () => (guild && roles ? inviteScope(guild, roles, channels.values()) : NO_CHANNELS),
@@ -54,12 +55,8 @@ export function GuildInvitesTab({ guildId }: { guildId: string }): React.JSX.Ele
   // The user can lose ADMINISTRATOR, and the last channel can leave the scope, while it is open.
   const history = isAdmin && includeHistory && scope.length > 0
 
-  const copy = (code: string, key: string | null = null): void => {
-    copyInviteLink(code, key).then(
-      () => setCopied(code),
-      (e: unknown) => setError(errMsg(e))
-    )
-  }
+  const copy = (code: string, key: string | null = null): void =>
+    copyLink(() => copyInviteLink(code, key), code)
 
   const { options, setOptions, create, confirm } = useInviteCreation({
     isAdmin,

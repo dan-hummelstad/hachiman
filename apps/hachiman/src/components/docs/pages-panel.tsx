@@ -22,6 +22,7 @@ import { IconButton } from '@/components/ui/icon-button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { usePermissions } from '@/hooks/use-hachiman'
+import { useCopy } from '@/hooks/use-copy'
 import { cn, errMsg } from '@/lib/utils'
 import { countWords } from '@/lib/word-count'
 import { docsService } from '@/services/docs/DocsService'
@@ -262,46 +263,35 @@ function Presence({ pageId }: { pageId: string }): React.JSX.Element | null {
   )
 }
 
-/** True for 1.5 s after `flash()`. */
-function useFlash(): [boolean, () => void] {
-  const [on, setOn] = useState(false)
-  useEffect(() => {
-    if (!on) return
-    const t = setTimeout(() => setOn(false), 1500)
-    return () => clearTimeout(t)
-  }, [on])
-  return [on, () => setOn(true)]
-}
-
-function copyText(text: string, done: () => void): void {
-  navigator.clipboard?.writeText(text).then(done, (e) => console.warn('[pages] copy failed', e))
-}
-
 /** Copies a markdown link to the page. Pasted into a page, it is a page link (page-links.ts). */
 function CopyLink({ page }: { page: PageNode }): React.JSX.Element {
-  const [copied, flash] = useFlash()
-  const copy = (): void => {
+  const { copied, copy } = useCopy()
+  const copyLink = (): void => {
     const title = pageTitle(page).replace(/[[\]\\]/g, '\\$&')
-    copyText(`[${title}](${pageHref(page.id)})`, flash)
+    copy(`[${title}](${pageHref(page.id)})`)
   }
   return (
-    <IconButton label={copied ? 'Copied' : 'Copy link'} tooltipSide="bottom" onClick={copy}>
-      {copied ? <Check /> : <Link2 />}
+    <IconButton
+      label={copied !== null ? 'Copied' : 'Copy link'}
+      tooltipSide="bottom"
+      onClick={copyLink}
+    >
+      {copied !== null ? <Check /> : <Link2 />}
     </IconButton>
   )
 }
 
 function MoreMenu({ pageId }: { pageId: string }): React.JSX.Element {
-  const [copied, flash] = useFlash()
+  const { copied, copy } = useCopy()
   const copyMarkdown = (): void => {
     const md = docsService.copyMarkdown(pageId)
-    if (md !== null) copyText(md, flash)
+    if (md !== null) copy(md)
   }
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <IconButton label={copied ? 'Copied' : 'More'} tooltipSide="bottom">
-          {copied ? <Check /> : <MoreHorizontal />}
+        <IconButton label={copied !== null ? 'Copied' : 'More'} tooltipSide="bottom">
+          {copied !== null ? <Check /> : <MoreHorizontal />}
         </IconButton>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">

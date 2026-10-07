@@ -1,5 +1,5 @@
-import { useState } from 'react'
 import { Check, Copy } from 'lucide-react'
+import { useCopy } from '@/hooks/use-copy'
 import { ImageField } from '@/components/settings/image-field'
 import { UserAvatar } from '@/components/shell/user-avatar'
 import { IconButton } from '@/components/ui/icon-button'
@@ -63,7 +63,7 @@ function AccountRow({
   /** Shows a copy button. */
   copy?: boolean
 }): React.JSX.Element {
-  const [copied, setCopied] = useState(false)
+  const { copied, copy: copyValue } = useCopy()
   return (
     <div className="flex items-center gap-3 py-3">
       <div className="grid min-w-0 flex-1 gap-0.5">
@@ -72,16 +72,11 @@ function AccountRow({
       </div>
       {copy && (
         <IconButton
-          label={copied ? 'Copied' : `Copy ${label.toLowerCase()}`}
+          label={copied !== null ? 'Copied' : `Copy ${label.toLowerCase()}`}
           className="rounded-control border-line-hairline size-8 border"
-          onClick={() =>
-            void navigator.clipboard.writeText(value).then(
-              () => setCopied(true),
-              () => setCopied(false)
-            )
-          }
+          onClick={() => copyValue(value)}
         >
-          {copied ? <Check className="text-feature-voice-text" /> : <Copy />}
+          {copied !== null ? <Check className="text-feature-voice-text" /> : <Copy />}
         </IconButton>
       )}
     </div>
