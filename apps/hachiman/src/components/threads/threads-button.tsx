@@ -119,7 +119,7 @@ function ThreadRow({ thread, onOpen }: { thread: Channel; onOpen: () => void }):
           {thread.name}
         </span>
         <span className="text-text-tertiary truncate text-[12px] font-medium">
-          {last ? `Last message ${formatFull(last)}` : 'No messages loaded'}
+          {last ? `Last message ${formatFull(last)}` : 'No recent messages'}
         </span>
       </span>
       {badge.mentions > 0 ? (

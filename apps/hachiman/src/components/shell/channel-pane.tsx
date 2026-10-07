@@ -64,7 +64,8 @@ export function ChannelPane({
 }: ChannelPaneProps): React.JSX.Element {
   const perms = usePermissions(channel.guildId, channel.id)
   const isDm = channel.guildId === null
-  const canManage = !isDm && has(perms, Permissions.MANAGE_CHANNELS)
+  // A thread has no settings page of its own: only its name changes (N12).
+  const canManage = !isDm && channel.type !== 'thread' && has(perms, Permissions.MANAGE_CHANNELS)
   const hasMessages = channel.type !== 'voice' && channel.type !== 'category'
 
   return (
