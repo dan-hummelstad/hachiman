@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import { ChevronLeft, FileText, Users } from 'lucide-react'
 import type { Channel } from '@hachiman/client'
 import { PagesPanel } from '@/components/docs/pages-panel'
@@ -7,11 +7,12 @@ import { DmProfileColumn } from '@/components/people/dm-profile-column'
 import { GuildPagesList } from '@/components/people/guild-pages-list'
 import { IconButton } from '@/components/ui/icon-button'
 import { SegmentedControl, type SegmentedOption } from '@/components/ui/segmented-control'
-import { countPageLinks } from '@/lib/right-column'
+import { clampPageColumn, countPageLinks, PAGE_COLUMN_DEFAULT } from '@/lib/right-column'
 import { cn } from '@/lib/utils'
 import { useChannelStore } from '@/stores/channelStore'
 import { useDocsStore } from '@/stores/docsStore'
 import { useMessageStore, type ChatMessage } from '@/stores/messagesStore'
+import { usePrefsStore } from '@/stores/prefsStore'
 
 export type RightColumnTab = 'members' | 'pages'
 
@@ -20,8 +21,9 @@ const EMPTY_MESSAGES: ChatMessage[] = []
 /**
  * The right column of the content card (arc plan §5 Phase 4).
  * - Guild channel: the "Members | Pages" head over the member list (252 wide). In a pages channel
- *   the Pages tab is the default and the column widens to 540 for the open page (C1). In a text
- *   channel the Pages tab lists the guild's pages, and one opens beside the chat at 540 (N21.1).
+ *   the Pages tab is the default and the column widens for the open page (C1, 540 by default; the
+ *   user drags its left edge). In a text channel the Pages tab lists the guild's pages, and one
+ *   opens beside the chat the same way (N21.1).
  * - DM: the profile of the other user (E2, E3).
  * - Group DM: nothing (null).
  */
@@ -77,15 +79,18 @@ function GuildColumn({
   const pagesTab = hasTabs && tab === 'pages'
   const panelChannel = isPages ? channel : beside
   const wide = pagesTab && panelChannel !== undefined
+  const pageWidth = usePrefsStore((s) => s.pageColumnWidth)
 
   return (
     <aside
       aria-label={pagesTab ? 'Pages' : 'Members'}
+      style={wide ? { width: clampPageColumn(pageWidth, window.innerWidth) } : undefined}
       className={cn(
-        'bg-surface-panel border-line-hairline flex h-full min-h-0 shrink-0 flex-col border-l',
-        wide ? 'w-[540px]' : 'w-[252px]'
+        'bg-surface-panel border-line-hairline relative flex h-full min-h-0 shrink-0 flex-col border-l',
+        !wide && 'w-[252px]'
       )}
     >
+      {wide && <ColumnResizeHandle width={pageWidth} />}
       {wide ? (
         <PagesPanel
           key={panelChannel.id}
@@ -128,5 +133,48 @@ function GuildColumn({
         </>
       )}
     </aside>
+  )
+}
+
+const KEY_STEP = 16
+
+/**
+ * The left edge of the page column. Dragging it, or the arrow keys while it has focus, set the
+ * width (saved in prefsStore); a double-click restores the default.
+ */
+function ColumnResizeHandle({ width }: { width: number }): React.JSX.Element {
+  const setWidth = usePrefsStore((s) => s.setPageColumnWidth)
+  const drag = useRef<{ x: number; width: number } | null>(null)
+  const set = (w: number): void => setWidth(clampPageColumn(w, window.innerWidth))
+  const shown = clampPageColumn(width, window.innerWidth)
+
+  return (
+    <div
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="Resize the page column"
+      aria-valuenow={shown}
+      tabIndex={0}
+      className="group absolute inset-y-0 -left-1 z-10 w-2 cursor-col-resize outline-none"
+      onPointerDown={(e) => {
+        e.preventDefault()
+        e.currentTarget.setPointerCapture(e.pointerId)
+        drag.current = { x: e.clientX, width: shown }
+      }}
+      onPointerMove={(e) => {
+        if (drag.current) set(drag.current.width + drag.current.x - e.clientX)
+      }}
+      onPointerUp={() => (drag.current = null)}
+      onPointerCancel={() => (drag.current = null)}
+      onDoubleClick={() => set(PAGE_COLUMN_DEFAULT)}
+      onKeyDown={(e) => {
+        if (e.key === 'ArrowLeft') set(shown + KEY_STEP)
+        else if (e.key === 'ArrowRight') set(shown - KEY_STEP)
+        else return
+        e.preventDefault()
+      }}
+    >
+      <div className="group-hover:bg-accent-primary group-focus-visible:bg-accent-primary mx-auto h-full w-0.5 transition-colors" />
+    </div>
   )
 }
