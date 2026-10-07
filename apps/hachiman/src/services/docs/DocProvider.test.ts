@@ -3,15 +3,8 @@ import * as Y from 'yjs'
 import { RestError, type DocSnapshot, type DocUpdate } from '@hachiman/client'
 import type { DocDecryptResult, EncryptDocInput } from '@hachiman/crypto'
 import { AWARENESS_MS, HEARTBEAT_MS, awarenessClientIds } from './DocAwareness'
-import {
-  BATCH_MS,
-  SNAPSHOT_EVERY,
-  createDocProvider,
-  observeLabels,
-  pageLabels,
-  setPageLabels,
-  type DocProviderDeps
-} from './DocProvider'
+import { BATCH_MS, SNAPSHOT_EVERY, createDocProvider, type DocProviderDeps } from './DocProvider'
+import { observeLabels, pageLabels, setPageLabels } from './labels'
 import type { DocProvider } from './types'
 
 const CHANNEL = 'c-1'
