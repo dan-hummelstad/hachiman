@@ -1,15 +1,33 @@
 import { useEffect, useId, useState } from 'react'
-import { Checkbox } from '@/components/ui/checkbox'
-import { KeyRound, Link2, RotateCcw, Sparkles } from 'lucide-react'
+import {
+  Check,
+  ChevronLeft,
+  KeyRound,
+  Link2,
+  LogOut,
+  RotateCcw,
+  ShieldCheck,
+  Sparkles
+} from 'lucide-react'
 import type { CryptoState } from '@hachiman/crypto'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { ErrorText } from '@/components/ui/field'
 import { friendly } from '@/components/security/errors'
 import { HostTrustNote } from '@/components/security/host-trust'
 import { LinkAsNewDevice } from '@/components/security/link-new-device'
 import { ONBOARDING_TITLES, type OnboardingStep } from '@/components/security/onboarding-steps'
 import { RecoveryKeyInput, RecoveryKeyReveal } from '@/components/security/recovery-key-view'
-import { ScreenWindow, Warning } from '@/components/security/screen-window'
+import {
+  EmptyWindow,
+  OptionCard,
+  ScreenActions,
+  ScreenWindow,
+  StepFrame,
+  StepHeader,
+  Warning
+} from '@/components/security/screen-window'
 import { useAction } from '@/hooks/use-action'
 import { cn } from '@/lib/utils'
 import { cryptoService } from '@/services/CryptoService'
@@ -49,9 +67,25 @@ function useAccountFacts(userId: string | null): AccountFacts | null {
   return facts && facts.userId === userId ? facts.value : null
 }
 
+/** The Back button that starts the footer of a step. */
+export function BackButton({
+  onClick,
+  disabled
+}: {
+  onClick: () => void
+  disabled?: boolean
+}): React.JSX.Element {
+  return (
+    <Button variant="quiet" className="sm:mr-auto" disabled={disabled} onClick={onClick}>
+      <ChevronLeft /> Back
+    </Button>
+  )
+}
+
 /**
  * The identity onboarding of this device (§12.4, §12.5, §12.11.3): set up a first device, link
- * from another device, restore with the recovery key, or reset after a password reset.
+ * from another device, restore with the recovery key, or reset after a password reset. Each step
+ * renders a whole dialog step (header, body, footer) inside the caller's DialogContent.
  *
  * `onHold(true)` keeps the caller from closing the flow while a new recovery key shows: the status
  * turns 'ready' before the user saved the key.
@@ -61,7 +95,8 @@ export function OnboardingFlow({
   step,
   onStep,
   onHold,
-  onFinished
+  onFinished,
+  gate = false
 }: {
   state: CryptoState
   step: OnboardingStep
@@ -69,6 +104,8 @@ export function OnboardingFlow({
   onHold: (hold: boolean) => void
   /** After the last step (the status is 'ready'). */
   onFinished?: () => void
+  /** In the CryptoGate (no window behind): the first step offers Sign out and the host note. */
+  gate?: boolean
 }): React.JSX.Element {
   const userId = useCryptoStore((s) => s.status?.userId ?? null)
   const facts = useAccountFacts(userId)
@@ -76,41 +113,82 @@ export function OnboardingFlow({
 
   if (state === 'ready' && step !== 'setup' && step !== 'reset') {
     return (
-      <div className="grid gap-3">
-        <p className="text-sm">Encryption is set up on this device.</p>
-        {onFinished && <Button onClick={onFinished}>Close</Button>}
-      </div>
+      <StepFrame
+        icon={<ShieldCheck />}
+        feature="voice"
+        title={ONBOARDING_TITLES.choose}
+        footer={
+          onFinished && (
+            <Button className="w-full" onClick={onFinished}>
+              Close
+            </Button>
+          )
+        }
+      >
+        <div className="border-feature-voice/40 bg-feature-voice/5 grid justify-items-center gap-2 border px-4 py-6 text-center">
+          <span className="bg-feature-voice/15 text-feature-voice-text flex size-12 items-center justify-center rounded-full [&_svg]:size-6">
+            <Check />
+          </span>
+          <p className="text-heading">Encryption is set up on this device</p>
+          <p className="text-text-secondary">
+            This device has a security key and can read your messages.
+          </p>
+        </div>
+      </StepFrame>
     )
   }
 
   switch (step) {
     case 'setup':
-      return <CreateIdentity mode="setup" onHold={onHold} onBack={back} onFinished={onFinished} />
+      return (
+        <CreateIdentity
+          mode="setup"
+          onHold={onHold}
+          onBack={back}
+          onLink={() => onStep('link')}
+          onFinished={onFinished}
+        />
+      )
     case 'reset':
       return <CreateIdentity mode="reset" onHold={onHold} onBack={back} onFinished={onFinished} />
     case 'link':
-      return <LinkAsNewDevice onBack={back} />
+      return <LinkAsNewDevice title={ONBOARDING_TITLES.link} onBack={back} />
     case 'restore':
       return <Restore onBack={back} />
     case 'choose':
-      return <Choose state={state} facts={facts} onStep={onStep} />
+      return <Choose state={state} facts={facts} onStep={onStep} gate={gate} />
   }
 }
 
 function Choose({
   state,
   facts,
-  onStep
+  onStep,
+  gate
 }: {
   state: CryptoState
   facts: AccountFacts | null
   onStep: (step: OnboardingStep) => void
+  gate: boolean
 }): React.JSX.Element {
   const reset = facts?.passwordReset === true
   const existing = facts?.hasMaster === true
+  const hostTrust = useCryptoStore((s) => s.status?.hostTrust ?? null)
   return (
-    <div className="grid gap-3">
-      <p className="text-sm">
+    <StepFrame
+      icon={<ShieldCheck />}
+      feature="voice"
+      title={ONBOARDING_TITLES.choose}
+      subtitle="Your messages and calls are end-to-end encrypted"
+      footer={
+        gate && (
+          <Button variant="quiet" className="sm:mr-auto" onClick={() => takusenService.signOut()}>
+            <LogOut /> Sign out
+          </Button>
+        )
+      }
+    >
+      <p className="text-text-secondary">
         Hachiman encrypts your messages and calls on your devices. The server cannot read them. This
         device needs your security keys before it can show them.
       </p>
@@ -127,83 +205,53 @@ function Choose({
         </Warning>
       )}
       {!reset && (
-        <ChoiceButton
+        <OptionCard
           icon={<Link2 />}
           title="Link from another device"
           hint="Use a device where you already use Hachiman. Your history comes too."
-          primary={existing}
+          emphasis={existing}
           onClick={() => onStep('link')}
         />
       )}
-      <ChoiceButton
+      <OptionCard
         icon={<KeyRound />}
+        feature="voice"
         title="Restore with recovery key"
         hint="Use the recovery key that you saved when you set up your first device."
-        primary={reset}
+        emphasis={reset}
         onClick={() => onStep('restore')}
       />
       {reset ? (
-        <ChoiceButton
+        <OptionCard
           icon={<RotateCcw />}
+          feature="danger"
           title="Reset my keys"
           hint="Only if you lost the recovery key. Old messages become unreadable."
-          danger
           onClick={() => onStep('reset')}
         />
       ) : (
-        <ChoiceButton
+        <OptionCard
           icon={<Sparkles />}
+          feature="page"
           title="Set up this device"
           hint={
             existing
               ? 'Not available: your account already has a security key. Link this device or use your recovery key.'
               : 'For your first device. This makes a new security key and a recovery key.'
           }
-          primary={facts !== null && !existing}
+          emphasis={facts !== null && !existing}
           disabled={existing}
           onClick={() => onStep('setup')}
         />
       )}
       {existing && (
-        <p className="text-muted-foreground text-xs">
+        <p className="text-meta text-text-tertiary">
           No other device and no recovery key? Ask the admin of this server to reset your keys. Then
           sign in again and select Reset my keys.
         </p>
       )}
-    </div>
-  )
-}
-
-function ChoiceButton(props: {
-  icon: React.ReactNode
-  title: string
-  hint: string
-  primary?: boolean
-  danger?: boolean
-  disabled?: boolean
-  onClick: () => void
-}): React.JSX.Element {
-  return (
-    <button
-      type="button"
-      disabled={props.disabled}
-      onClick={props.onClick}
-      className={cn(
-        'hover:bg-accent flex items-start gap-3 border p-3 text-left disabled:pointer-events-none disabled:opacity-60',
-        'focus-visible:outline-ring outline-none focus-visible:outline-2',
-        '[&>svg]:mt-0.5 [&>svg]:size-5 [&>svg]:shrink-0',
-        props.primary && 'border-primary',
-        props.danger && 'border-destructive/60'
-      )}
-    >
-      {props.icon}
-      <span className="grid gap-0.5">
-        <span className={cn('text-sm font-semibold', props.danger && 'text-destructive')}>
-          {props.title}
-        </span>
-        <span className="text-muted-foreground text-xs leading-4">{props.hint}</span>
-      </span>
-    </button>
+      {gate && hostTrust === 'server_code' && <HostTrustNote />}
+    </StepFrame>
   )
 }
 
@@ -211,11 +259,13 @@ function CreateIdentity({
   mode,
   onHold,
   onBack,
+  onLink,
   onFinished
 }: {
   mode: 'setup' | 'reset'
   onHold: (hold: boolean) => void
   onBack: () => void
+  onLink?: () => void
   onFinished: (() => void) | undefined
 }): React.JSX.Element {
   const [recoveryKey, setRecoveryKey] = useState<string | null>(null)
@@ -248,72 +298,143 @@ function CreateIdentity({
     )
   }
 
-  return (
-    <div className="grid gap-3">
-      {mode === 'setup' ? (
-        <p className="text-sm">
-          This makes a new security key for your account on this device, and a recovery key for you
-          to keep. Do this only if you do not use Hachiman on another device.
-        </p>
-      ) : (
-        <>
-          <Warning tone="danger">
-            A reset makes a new security key. Messages from before the reset become unreadable, on
-            all devices. Your contacts see that your security key changed. If you have your recovery
-            key, go back and use it.
-          </Warning>
-          <label htmlFor={checkId} className="flex items-start gap-2 text-sm">
-            <Checkbox
-              id={checkId}
-              className="mt-0.5"
-              checked={understood}
-              onChange={(e) => setUnderstood(e.target.checked)}
-            />
-            I understand that I cannot read my old messages after the reset.
-          </label>
-        </>
-      )}
-      <ErrorText>{error}</ErrorText>
-      <Button
-        variant={mode === 'reset' ? 'destructive' : 'default'}
-        disabled={busy || (mode === 'reset' && !understood)}
-        onClick={() => void create()}
+  if (mode === 'setup') {
+    return (
+      <StepFrame
+        icon={<Sparkles />}
+        title={ONBOARDING_TITLES.setup}
+        subtitle="Start a new identity"
+        footer={
+          <>
+            <BackButton disabled={busy} onClick={onBack} />
+            {onLink && (
+              <Button variant="secondary" disabled={busy} onClick={onLink}>
+                <Link2 /> Link instead
+              </Button>
+            )}
+            <Button disabled={busy} onClick={() => void create()}>
+              {busy ? 'Making keys…' : 'Set up this device'}
+            </Button>
+          </>
+        }
       >
-        {busy ? 'Making keys…' : mode === 'setup' ? 'Set up this device' : 'Reset my keys'}
-      </Button>
-      <Button variant="ghost" disabled={busy} onClick={onBack}>
-        Back
-      </Button>
-    </div>
+        <p>
+          This makes a new security key for your account on this device, and a recovery key for you
+          to keep.
+        </p>
+        <ul className="border-line-hairline bg-surface-sunken grid gap-3 border px-3.5 py-3">
+          <KeyItem
+            icon={<KeyRound />}
+            title="A security key"
+            hint="Lives only on this device"
+            tile="bg-accent-tint text-accent-text"
+          />
+          <KeyItem
+            icon={<RotateCcw />}
+            title="A recovery key"
+            hint="For you to keep somewhere safe and offline"
+            tile="bg-feature-voice/15 text-feature-voice-text"
+          />
+        </ul>
+        <Warning>
+          Do this only if you do not use Hachiman on another device. If you do, link this device to
+          it instead.
+        </Warning>
+        <ErrorText>{error}</ErrorText>
+      </StepFrame>
+    )
+  }
+
+  return (
+    <StepFrame
+      icon={<RotateCcw />}
+      feature="danger"
+      title={ONBOARDING_TITLES.reset}
+      subtitle="Start over without your old messages"
+      footer={
+        <>
+          <BackButton disabled={busy} onClick={onBack} />
+          <Button variant="danger" disabled={busy || !understood} onClick={() => void create()}>
+            <RotateCcw /> {busy ? 'Making keys…' : 'Reset my keys'}
+          </Button>
+        </>
+      }
+    >
+      <Warning tone="danger">
+        A reset makes a new security key. Messages from before the reset become unreadable, on all
+        devices. Your contacts see that your security key changed. If you have your recovery key, go
+        back and use it.
+      </Warning>
+      <label htmlFor={checkId} className="flex items-start gap-2">
+        <Checkbox
+          id={checkId}
+          className="mt-0.5"
+          checked={understood}
+          onChange={(e) => setUnderstood(e.target.checked)}
+        />
+        I understand that I cannot read my old messages after the reset.
+      </label>
+      <ErrorText>{error}</ErrorText>
+    </StepFrame>
+  )
+}
+
+function KeyItem(props: {
+  icon: React.ReactNode
+  title: string
+  hint: string
+  tile: string
+}): React.JSX.Element {
+  return (
+    <li className="flex items-center gap-3">
+      <span
+        aria-hidden
+        className={cn(
+          'rounded-control flex size-8 shrink-0 items-center justify-center [&_svg]:size-4',
+          props.tile
+        )}
+      >
+        {props.icon}
+      </span>
+      <span className="grid">
+        <span className="text-label">{props.title}</span>
+        <span className="text-meta text-text-tertiary">{props.hint}</span>
+      </span>
+    </li>
   )
 }
 
 function Restore({ onBack }: { onBack: () => void }): React.JSX.Element {
   const { run, busy, error } = useAction()
   return (
-    <div className="grid gap-3">
+    <>
+      <StepHeader
+        icon={<KeyRound />}
+        feature="voice"
+        title={ONBOARDING_TITLES.restore}
+        subtitle="Read your messages on this device"
+      />
       <p className="text-sm">
-        Type or paste your recovery key. Hachiman gets your security key and your message history
-        from the encrypted backup.
+        Type or paste the recovery key that you saved when you set up Hachiman. Hachiman gets your
+        security key and your message history from the encrypted backup.
       </p>
       <RecoveryKeyInput
         busy={busy}
         error={error}
         submitLabel="Restore"
+        footerStart={<BackButton disabled={busy} onClick={onBack} />}
         onSubmit={(key) =>
           void run('restore', () => friendly(cryptoService.restoreFromRecoveryKey(key)))
         }
       />
-      <Button variant="ghost" disabled={busy} onClick={onBack}>
-        Back
-      </Button>
-    </div>
+    </>
   )
 }
 
 /**
  * The app root for a signed-in user: the shell when the identity of this device is ready, else
- * the start-up, error or onboarding screen (driven by cryptoStore).
+ * the start-up, error or onboarding screen (driven by cryptoStore). None of them shows over the
+ * shell: they show over an empty window (decision 3 of the Arc plan).
  */
 export function CryptoGate({ children }: { children: React.ReactNode }): React.JSX.Element {
   const phase = useCryptoStore((s) => s.phase)
@@ -326,13 +447,16 @@ export function CryptoGate({ children }: { children: React.ReactNode }): React.J
     return <OnboardingScreen state={state ?? 'needs_identity'} onHold={setHold} />
   return (
     <ScreenWindow title="Starting encryption">
-      <p className="text-sm" role="status">
+      <p className="text-text-secondary text-sm" role="status">
         Hachiman opens the key store of this device…
       </p>
     </ScreenWindow>
   )
 }
 
+const keepOpen = (e: Event): void => e.preventDefault()
+
+/** The set-up dialog on the scrim over the empty window. It cannot be dismissed. */
 function OnboardingScreen({
   state,
   onHold
@@ -341,19 +465,21 @@ function OnboardingScreen({
   onHold: (hold: boolean) => void
 }): React.JSX.Element {
   const [step, setStep] = useState<OnboardingStep>('choose')
-  const hostTrust = useCryptoStore((s) => s.status?.hostTrust ?? null)
   return (
-    <ScreenWindow title={ONBOARDING_TITLES[step]} wide>
-      <OnboardingFlow state={state} step={step} onStep={setStep} onHold={onHold} />
-      {hostTrust === 'server_code' && <HostTrustNote />}
-      <button
-        type="button"
-        className="text-muted-foreground justify-self-start text-xs underline-offset-4 hover:underline"
-        onClick={() => takusenService.signOut()}
-      >
-        Sign out
-      </button>
-    </ScreenWindow>
+    <EmptyWindow>
+      <Dialog open modal>
+        <DialogContent
+          showCloseButton={false}
+          aria-describedby={undefined}
+          onEscapeKeyDown={keepOpen}
+          onPointerDownOutside={keepOpen}
+          onInteractOutside={keepOpen}
+          className="sm:max-w-[560px]"
+        >
+          <OnboardingFlow state={state} step={step} onStep={setStep} onHold={onHold} gate />
+        </DialogContent>
+      </Dialog>
+    </EmptyWindow>
   )
 }
 
@@ -384,12 +510,12 @@ function StartError(): React.JSX.Element {
   return (
     <ScreenWindow title="Encryption did not start" tone="danger">
       <p className="text-sm">{text}</p>
-      <div className="flex justify-end gap-2">
-        <Button variant="ghost" onClick={() => takusenService.signOut()}>
+      <ScreenActions>
+        <Button variant="quiet" onClick={() => takusenService.signOut()}>
           Sign out
         </Button>
         <Button onClick={retry}>Try again</Button>
-      </div>
+      </ScreenActions>
     </ScreenWindow>
   )
 }

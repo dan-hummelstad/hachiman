@@ -1,5 +1,13 @@
 import { useCallback, useEffect, useState } from 'react'
-import { BadgeCheck, MonitorSmartphone, ScanLine, ShieldAlert } from 'lucide-react'
+import {
+  BadgeCheck,
+  Check,
+  MonitorSmartphone,
+  QrCode,
+  ScanLine,
+  ShieldAlert,
+  ShieldCheck
+} from 'lucide-react'
 import {
   VERIFY_QR_PREFIX,
   type ContactDevice,
@@ -8,6 +16,7 @@ import {
 } from '@hachiman/crypto'
 import { Button } from '@/components/ui/button'
 import { ErrorText, SectionHeading } from '@/components/ui/field'
+import { cn } from '@/lib/utils'
 import { ModalWindow } from '@/components/ui/modal-window'
 import { cryptoErrorText, friendly } from '@/components/security/errors'
 import { QrCodeView, ScanOrPaste } from '@/components/security/qr-view'
@@ -41,6 +50,7 @@ export function VerificationDialog(): React.JSX.Element {
   const [loadError, setLoadError] = useState<string | null>(null)
   const [scanning, setScanning] = useState(false)
   const [scanResult, setScanResult] = useState<'match' | 'mismatch' | null>(null)
+  const [showCode, setShowCode] = useState(false)
   const { run, busy, error } = useAction()
 
   const load = useCallback(() => {
@@ -101,21 +111,24 @@ export function VerificationDialog(): React.JSX.Element {
       open={open}
       onClose={close}
       title={`Verify ${name}`}
-      className="sm:max-w-[520px]"
+      description={`Safety number for you and ${name}`}
+      icon={<ShieldCheck />}
+      feature="voice"
+      className="sm:max-w-[560px]"
       actions={
-        <Button variant="ghost" onClick={close}>
+        <Button variant="secondary" onClick={close}>
           Done
         </Button>
       }
     >
-      <div className="grid max-h-[70vh] gap-4 overflow-y-auto">
+      <div className="-mx-[22px] grid max-h-[70vh] gap-4 overflow-y-auto px-[22px]">
         {loadError && <ErrorText>{loadError}</ErrorText>}
-        {trust && (
+        {trust && trust.state !== 'tofu' && (
           <p className="flex items-start gap-2 text-sm">
             {trust.state === 'verified' ? (
-              <BadgeCheck className="text-online mt-0.5 size-4 shrink-0" />
+              <BadgeCheck className="text-feature-voice-text mt-0.5 size-4 shrink-0" />
             ) : trust.state === 'changed' ? (
-              <ShieldAlert className="text-destructive mt-0.5 size-4 shrink-0" />
+              <ShieldAlert className="text-feature-danger-text mt-0.5 size-4 shrink-0" />
             ) : null}
             {TRUST_TEXT[trust.state]}
           </p>
@@ -130,27 +143,18 @@ export function VerificationDialog(): React.JSX.Element {
 
         {safety && (
           <section className="grid gap-3">
-            <SectionHeading>Safety number</SectionHeading>
-            <p className="text-muted-foreground text-xs leading-4">
+            <p className="text-text-secondary text-sm">
               You and {name} see the same 60 digits. Compare them in person or on a call. If they
-              are the same, nobody is between you.
+              match, nobody is between you.
             </p>
             <div
               aria-label="Safety number"
-              className="bg-card grid grid-cols-4 gap-x-4 gap-y-1 border p-3 font-mono text-[15px] leading-6 tracking-wider"
+              className="border-line-hairline bg-surface-sunken grid grid-cols-4 gap-x-6 gap-y-2 border px-5 py-4 font-mono text-[20px] leading-7 font-semibold tracking-[0.08em]"
             >
               {safety.groups.map((g, i) => (
                 <span key={i}>{g}</span>
               ))}
             </div>
-            {safety.qrPayload && (
-              <div className="grid justify-items-center gap-1">
-                <QrCodeView value={safety.qrPayload} label={`Safety number code for ${name}`} />
-                <span className="text-muted-foreground text-xs">
-                  {name} can scan this code on their device.
-                </span>
-              </div>
-            )}
           </section>
         )}
 
@@ -167,14 +171,15 @@ export function VerificationDialog(): React.JSX.Element {
                 Paste only a code that you took from their device yourself. A code that came through
                 a message or an email proves nothing.
               </Warning>
-              <Button variant="ghost" onClick={() => setScanning(false)}>
+              <Button variant="quiet" onClick={() => setScanning(false)}>
                 Cancel
               </Button>
             </>
           ) : (
             <div className="flex flex-wrap gap-2">
               <Button
-                variant="outline"
+                variant="secondary"
+                size="lg"
                 disabled={busy}
                 onClick={() => {
                   setScanResult(null)
@@ -184,23 +189,33 @@ export function VerificationDialog(): React.JSX.Element {
                 <ScanLine /> Scan their code
               </Button>
               {trust?.state === 'verified' ? (
-                <Button variant="ghost" disabled={busy} onClick={() => void setVerified(false)}>
+                <Button
+                  variant="quiet"
+                  size="lg"
+                  disabled={busy}
+                  onClick={() => void setVerified(false)}
+                >
                   Remove verification
                 </Button>
               ) : (
-                <Button disabled={busy || !safety} onClick={() => void setVerified(true)}>
-                  <BadgeCheck /> The numbers match: mark as verified
+                <Button
+                  size="lg"
+                  className="flex-1"
+                  disabled={busy || !safety}
+                  onClick={() => void setVerified(true)}
+                >
+                  <Check /> The numbers match — mark as verified
                 </Button>
               )}
               {trust?.state === 'changed' && (
-                <Button variant="ghost" disabled={busy} onClick={() => void acknowledge()}>
+                <Button variant="quiet" disabled={busy} onClick={() => void acknowledge()}>
                   Accept the new key without a check
                 </Button>
               )}
             </div>
           )}
           {scanResult === 'match' && (
-            <p className="text-online text-sm font-semibold" role="status">
+            <p className="text-feature-voice-text text-sm font-semibold" role="status">
               The code matches. {name} is verified.
             </p>
           )}
@@ -211,33 +226,80 @@ export function VerificationDialog(): React.JSX.Element {
             </ErrorText>
           )}
           <ErrorText>{error}</ErrorText>
+          {safety?.qrPayload &&
+            (showCode ? (
+              <div className="grid justify-items-center gap-1 pt-1">
+                <QrCodeView value={safety.qrPayload} label={`Safety number code for ${name}`} />
+                <span className="text-meta text-text-tertiary">
+                  {name} can scan this code on their device.
+                </span>
+              </div>
+            ) : (
+              <Button
+                variant="quiet"
+                size="sm"
+                className="justify-self-start"
+                onClick={() => setShowCode(true)}
+              >
+                <QrCode /> Show my code for {name} to scan
+              </Button>
+            ))}
         </section>
 
         <section className="grid gap-2">
-          <SectionHeading>Their devices</SectionHeading>
+          <SectionHeading className="mb-0">
+            Their devices{devices && devices.length > 0 ? ` · ${devices.length}` : ''}
+          </SectionHeading>
           {devices === null ? (
-            <p className="text-muted-foreground text-sm">Loading…</p>
+            <p className="text-text-tertiary text-sm">Loading…</p>
           ) : devices.length === 0 ? (
-            <p className="text-muted-foreground text-sm">No verified devices.</p>
+            <p className="text-text-tertiary text-sm">No verified devices.</p>
           ) : (
-            <ul className="grid gap-1 text-sm">
+            <ul className="border-line-hairline bg-surface-sunken grid border text-sm">
               {devices.map((d) => (
-                <li key={d.deviceId} className="flex items-center gap-2">
-                  <MonitorSmartphone className="size-4 shrink-0" />
-                  <span className="truncate">{d.displayName}</span>
-                  <span className="text-muted-foreground ml-auto shrink-0 text-xs">
-                    since {new Date(d.issuedAtMs).toLocaleDateString()}
+                <li
+                  key={d.deviceId}
+                  className="border-line-hairline flex items-center gap-3 border-b px-3.5 py-2.5 last:border-b-0"
+                >
+                  <MonitorSmartphone className="text-text-secondary size-[18px] shrink-0" />
+                  <span className="grid min-w-0 flex-1">
+                    <span className="text-label truncate">{d.displayName}</span>
+                    <span className="text-meta text-text-tertiary">
+                      added {new Date(d.issuedAtMs).toLocaleDateString()}
+                    </span>
                   </span>
+                  {trust && <TrustBadge state={trust.state} />}
                 </li>
               ))}
             </ul>
           )}
-          <p className="text-muted-foreground text-xs leading-4">
-            The names come from the device certificates. A device that you do not expect can mean a
+          <p className="text-meta text-text-tertiary">
+            Device names come from the device certificates. A device you don’t expect can mean a
             problem: ask {name}.
           </p>
         </section>
       </div>
     </ModalWindow>
+  )
+}
+
+/** The trust of the user (decision 5: users are verified, not devices), on each device row. */
+function TrustBadge({ state }: { state: TrustInfo['state'] }): React.JSX.Element | null {
+  if (state === 'unknown') return null
+  const verified = state === 'verified'
+  return (
+    <span
+      className={cn(
+        'inline-flex h-[22px] shrink-0 items-center gap-1 px-2 text-[11.5px] font-bold [&_svg]:size-3.5',
+        verified
+          ? 'bg-feature-voice/15 text-feature-voice-text'
+          : state === 'changed'
+            ? 'bg-feature-danger/15 text-feature-danger-text'
+            : 'bg-feature-event/15 text-feature-event-text'
+      )}
+    >
+      {verified ? <BadgeCheck aria-hidden /> : <ShieldAlert aria-hidden />}
+      {verified ? 'Verified' : state === 'changed' ? 'Key changed' : 'Not verified'}
+    </span>
   )
 }

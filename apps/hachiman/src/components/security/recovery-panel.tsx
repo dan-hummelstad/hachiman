@@ -2,10 +2,10 @@ import { useState } from 'react'
 import { KeyRound } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ErrorText } from '@/components/ui/field'
-import { ModalWindow } from '@/components/ui/modal-window'
+import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { friendly } from '@/components/security/errors'
 import { RecoveryKeyReveal } from '@/components/security/recovery-key-view'
-import { Warning } from '@/components/security/screen-window'
+import { StepFrame, Warning } from '@/components/security/screen-window'
 import { useAction } from '@/hooks/use-action'
 import { cryptoService } from '@/services/CryptoService'
 import { useCryptoStore } from '@/stores/cryptoStore'
@@ -51,29 +51,41 @@ export function RotateRecoveryKey({
   }
 
   return (
-    <div className="grid gap-4">
-      <p className="text-sm">
+    <StepFrame
+      icon={<KeyRound />}
+      feature="event"
+      title="Make a new recovery key"
+      subtitle={configured ? 'Replaces the key you have now' : 'Your account has none yet'}
+      footer={
+        <>
+          {onDone && (
+            <Button variant="quiet" disabled={busy} onClick={onDone}>
+              Cancel
+            </Button>
+          )}
+          <Button disabled={!primary || busy} onClick={() => void rotate()}>
+            <KeyRound /> {busy ? 'Making the key…' : 'Make a new recovery key'}
+          </Button>
+        </>
+      }
+    >
+      <p>
         {configured
           ? 'Your account has a recovery key. With it, you can use your messages on a new device when no other device is signed in.'
           : 'Your account has no recovery key. If you lose all of your devices, you cannot read your messages again.'}
       </p>
-      <Warning tone={configured ? 'info' : 'warning'}>
-        A new recovery key replaces the old one. The old key stops working. Hachiman encrypts your
-        backups again with the new key.
+      <Warning>
+        A new recovery key replaces the old one. The old key stops working, and Hachiman encrypts
+        your backups again with the new key.
       </Warning>
       {!primary && (
-        <p className="text-muted-foreground text-xs leading-4">
+        <p className="text-meta text-text-tertiary">
           Only a device with your security key can make a recovery key: your first device, or a
           device that you restored with the recovery key.
         </p>
       )}
       <ErrorText>{error}</ErrorText>
-      <div>
-        <Button disabled={!primary || busy} onClick={() => void rotate()}>
-          <KeyRound /> {busy ? 'Making the key…' : 'Make a new recovery key'}
-        </Button>
-      </div>
-    </div>
+    </StepFrame>
   )
 }
 
@@ -83,14 +95,11 @@ export function RecoveryKeyDialog(): React.JSX.Element {
   // While a new key shows, the window closes only through the "I saved" confirmation.
   const [showing, setShowing] = useState(false)
   return (
-    <ModalWindow
-      open={open}
-      onClose={() => !showing && close()}
-      title="Recovery key"
-      className="sm:max-w-[480px]"
-    >
-      <RotateRecoveryKey onShowingKey={setShowing} onDone={close} />
-    </ModalWindow>
+    <Dialog open={open} onOpenChange={(o) => !o && !showing && close()}>
+      <DialogContent aria-describedby={undefined} className="sm:max-w-[520px]">
+        <RotateRecoveryKey onShowingKey={setShowing} onDone={close} />
+      </DialogContent>
+    </Dialog>
   )
 }
 

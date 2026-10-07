@@ -1,17 +1,17 @@
 import { useEffect, useRef, useState } from 'react'
-import { Check, QrCode, Smile, X } from 'lucide-react'
+import { Check, MonitorSmartphone, ScanLine, Smile, X } from 'lucide-react'
 import { LINK_QR_PREFIX } from '@hachiman/crypto'
 import { Button } from '@/components/ui/button'
+import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { ErrorText } from '@/components/ui/field'
-import { ModalWindow } from '@/components/ui/modal-window'
+import { SegmentedControl } from '@/components/ui/segmented-control'
 import { SelectableRow } from '@/components/ui/selectable-row'
 import { cryptoErrorText, friendly } from '@/components/security/errors'
-import { LinkAsNewDevice } from '@/components/security/link-new-device'
+import { LinkAsNewDevice, Waiting } from '@/components/security/link-new-device'
 import { ScanOrPaste } from '@/components/security/qr-view'
 import { SasEmojiRow } from '@/components/security/sas-emoji'
-import { Warning } from '@/components/security/screen-window'
+import { StepFrame, Warning } from '@/components/security/screen-window'
 import { useAction } from '@/hooks/use-action'
-import { cn } from '@/lib/utils'
 import { cryptoService } from '@/services/CryptoService'
 import { clearLinkState, useCryptoStore } from '@/stores/cryptoStore'
 import { useDialog } from '@/stores/dialogStore'
@@ -31,22 +31,28 @@ interface PendingSession {
 export function DeviceLinkDialog(): React.JSX.Element {
   const { dialog, open, close } = useDialog('deviceLink')
   return (
-    <ModalWindow
-      open={open}
-      onClose={close}
-      title={dialog.role === 'existing_device' ? 'Link a new device' : 'Link this device'}
-      className="sm:max-w-[520px]"
-    >
-      <div className="max-h-[75vh] overflow-y-auto">
+    <Dialog open={open} onOpenChange={(o) => !o && close()}>
+      <DialogContent aria-describedby={undefined} className="sm:max-w-[560px]">
         {dialog.role === 'existing_device' ? (
           <LinkFromThisDevice initialSessionId={dialog.sessionId} onClose={close} />
         ) : (
           <LinkAsNewDevice onBack={close} />
         )}
-      </div>
-    </ModalWindow>
+      </DialogContent>
+    </Dialog>
   )
 }
+
+const FRAME = {
+  icon: <MonitorSmartphone />,
+  title: 'Link a new device',
+  subtitle: 'From this device'
+} as const
+
+const MODES = [
+  { value: 'qr', label: 'Scan the code', icon: <ScanLine /> },
+  { value: 'sas', label: 'Compare emoji', icon: <Smile /> }
+] as const
 
 function LinkFromThisDevice({
   initialSessionId,
@@ -115,82 +121,97 @@ function LinkFromThisDevice({
 
   if (done) {
     return (
-      <div className="grid gap-3">
+      <StepFrame
+        {...FRAME}
+        icon={done.ok ? <Check /> : FRAME.icon}
+        feature={done.ok ? 'voice' : 'danger'}
+        footer={
+          <>
+            {!done.ok && (
+              <Button variant="quiet" onClick={restart}>
+                Try again
+              </Button>
+            )}
+            <Button onClick={onClose}>Done</Button>
+          </>
+        }
+      >
         {done.ok ? (
-          <p className="text-sm" role="status">
+          <p role="status">
             <b>{active?.name}</b> is linked. It gets your messages now.
           </p>
         ) : (
           <ErrorText>{`The link did not finish: ${cryptoErrorText({ code: done.error })}`}</ErrorText>
         )}
-        <div className="flex justify-end gap-2">
-          {!done.ok && (
-            <Button variant="ghost" onClick={restart}>
-              Try again
-            </Button>
-          )}
-          <Button onClick={onClose}>Done</Button>
-        </div>
-      </div>
+      </StepFrame>
     )
   }
 
   if (active) {
     return (
-      <div className="grid gap-4">
+      <StepFrame
+        {...FRAME}
+        footer={
+          <>
+            <Button variant="quiet" className={sas ? 'sm:mr-auto' : undefined} onClick={restart}>
+              Cancel
+            </Button>
+            {sas && (
+              <>
+                <Button variant="secondary" disabled={busy} onClick={() => void confirm(false)}>
+                  <X /> They do not match
+                </Button>
+                <Button disabled={busy} onClick={() => void confirm(true)}>
+                  <Check /> They match
+                </Button>
+              </>
+            )}
+          </>
+        }
+      >
         {sas ? (
           <>
-            <p className="text-sm">
+            <p>
               Compare these emoji with the emoji on <b>{active.name}</b>. They must be the same, in
               the same order.
             </p>
             <SasEmojiRow emoji={sas.emoji} />
-            <ErrorText>{error}</ErrorText>
-            <div className="flex flex-wrap justify-end gap-2">
-              <Button variant="outline" disabled={busy} onClick={() => void confirm(false)}>
-                <X /> They do not match
-              </Button>
-              <Button disabled={busy} onClick={() => void confirm(true)}>
-                <Check /> They match
-              </Button>
-            </div>
           </>
         ) : (
-          <>
-            <p className="text-sm" role="status">
-              {mode === 'sas'
-                ? `Waiting for ${active.name}…`
-                : `Sending the keys to ${active.name}…`}
-            </p>
-            <ErrorText>{error}</ErrorText>
-          </>
+          <Waiting>
+            {mode === 'sas' ? `Waiting for ${active.name}…` : `Sending the keys to ${active.name}…`}
+          </Waiting>
         )}
-        <Button variant="ghost" onClick={restart}>
-          Cancel
-        </Button>
-      </div>
+        <ErrorText>{error}</ErrorText>
+      </StepFrame>
     )
   }
 
   return (
-    <div className="grid gap-4">
+    <StepFrame
+      {...FRAME}
+      footer={
+        <Button variant="quiet" onClick={onClose}>
+          Cancel
+        </Button>
+      }
+    >
       <Warning>
         Link only a device that you have with you now. A linked device can read all of your
         messages.
       </Warning>
-      <div role="tablist" className="grid grid-cols-2 border">
-        <ModeTab selected={mode === 'qr'} onClick={() => setMode('qr')}>
-          <QrCode /> Scan the code
-        </ModeTab>
-        <ModeTab selected={mode === 'sas'} onClick={() => setMode('sas')}>
-          <Smile /> Compare emoji
-        </ModeTab>
-      </div>
+      <SegmentedControl
+        label="How to link"
+        options={MODES}
+        value={mode}
+        onChange={setMode}
+        className="flex w-full"
+      />
       {mode === 'qr' ? (
         <>
-          <p className="text-sm">
+          <p>
             On the new device, select <b>Link from another device</b> and then <b>Show a QR code</b>
-            . Scan the code, or copy its text there and paste it here.
+            . Scan the code here, or copy its text there and paste it below.
           </p>
           <ScanOrPaste prefix={LINK_QR_PREFIX} busy={busy} onCode={(c) => void scan(c)} />
         </>
@@ -202,32 +223,7 @@ function LinkFromThisDevice({
         />
       )}
       <ErrorText>{error}</ErrorText>
-    </div>
-  )
-}
-
-function ModeTab({
-  selected,
-  onClick,
-  children
-}: {
-  selected: boolean
-  onClick: () => void
-  children: React.ReactNode
-}): React.JSX.Element {
-  return (
-    <button
-      type="button"
-      role="tab"
-      aria-selected={selected}
-      onClick={onClick}
-      className={cn(
-        'flex h-9 items-center justify-center gap-2 text-sm [&_svg]:size-4',
-        selected ? 'bg-accent font-semibold' : 'text-muted-foreground hover:bg-accent/60'
-      )}
-    >
-      {children}
-    </button>
+    </StepFrame>
   )
 }
 
@@ -267,16 +263,14 @@ function SessionPicker({
   const pick = sessions?.find((s) => s.sessionId === selected) ?? null
   return (
     <div className="grid gap-3">
-      <p className="text-sm">
+      <p>
         On the new device, select <b>Link from another device</b> and then <b>Compare emoji</b>.
         Then select the device here.
       </p>
       <ErrorText>{error}</ErrorText>
-      {sessions?.length === 0 && (
-        <p className="text-muted-foreground text-sm">No device asks to link now.</p>
-      )}
+      {sessions?.length === 0 && <p className="text-text-tertiary">No device asks to link now.</p>}
       {sessions && sessions.length > 0 && (
-        <ul className="grid border">
+        <ul className="border-line-hairline grid border">
           {sessions.map((s) => (
             <li key={s.sessionId}>
               <SelectableRow
@@ -284,7 +278,7 @@ function SessionPicker({
                 onClick={() => setSelected(s.sessionId)}
               >
                 <span className="truncate">{s.newDeviceName}</span>
-                <span className="text-muted-foreground ml-auto shrink-0 text-xs">
+                <span className="text-text-tertiary ml-auto shrink-0 text-xs">
                   {s.platform === 'electron' ? 'Desktop app' : 'Browser'} ·{' '}
                   {new Date(s.createdAt).toLocaleTimeString()}
                 </span>
@@ -294,7 +288,7 @@ function SessionPicker({
         </ul>
       )}
       <div className="flex justify-end gap-2">
-        <Button variant="ghost" onClick={() => setAttempt((n) => n + 1)}>
+        <Button variant="quiet" onClick={() => setAttempt((n) => n + 1)}>
           Look again
         </Button>
         <Button disabled={busy || !pick} onClick={() => pick && onPick(pick)}>

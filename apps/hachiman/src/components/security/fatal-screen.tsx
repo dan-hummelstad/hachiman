@@ -1,5 +1,5 @@
 import { Button } from '@/components/ui/button'
-import { ScreenWindow } from '@/components/security/screen-window'
+import { ScreenActions, ScreenWindow } from '@/components/security/screen-window'
 import { takusenService } from '@/services/TakusenService'
 import { usePlatform } from '@/shared/PlatformContext'
 import { setCryptoFatal, type CryptoFatal } from '@/stores/cryptoStore'
@@ -24,9 +24,9 @@ export function FatalScreen({ fatal }: { fatal: CryptoFatal }): React.JSX.Elemen
             ? 'Reload the page to get the new version.'
             : 'Install the new version of the desktop app, then open it again.'}
         </p>
-        <div className="flex justify-end gap-2">
+        <ScreenActions>
           <Button
-            variant="ghost"
+            variant="quiet"
             onClick={() => {
               takusenService.signOut()
               setCryptoFatal(null)
@@ -35,7 +35,7 @@ export function FatalScreen({ fatal }: { fatal: CryptoFatal }): React.JSX.Elemen
             Sign out
           </Button>
           {platform === 'browser' && <Button onClick={() => location.reload()}>Reload</Button>}
-        </div>
+        </ScreenActions>
       </ScreenWindow>
     )
   }
@@ -51,9 +51,9 @@ export function FatalScreen({ fatal }: { fatal: CryptoFatal }): React.JSX.Elemen
         To use Hachiman here again, sign in. Then link this device from another device, or use your
         recovery key.
       </p>
-      <div className="flex justify-end">
+      <ScreenActions>
         <Button onClick={() => setCryptoFatal(null)}>Sign in again</Button>
-      </div>
+      </ScreenActions>
     </ScreenWindow>
   )
 }

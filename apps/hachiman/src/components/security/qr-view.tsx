@@ -57,10 +57,10 @@ export function CopyableCode({
     <div className="grid gap-1.5">
       <span className="text-xs leading-4 font-semibold">{label}</span>
       <div className="flex items-start gap-2">
-        <code className="bg-card max-h-20 min-w-0 flex-1 overflow-y-auto border p-2 font-mono text-[11px] leading-4 break-all select-all">
+        <code className="border-line-hairline bg-surface-sunken max-h-20 min-w-0 flex-1 overflow-y-auto border p-2 font-mono text-[11px] leading-4 break-all select-all">
           {value}
         </code>
-        <Button type="button" size="sm" variant="outline" onClick={copy}>
+        <Button type="button" size="sm" variant="secondary" onClick={copy}>
           <Copy /> {copied === 'yes' ? 'Copied' : 'Copy'}
         </Button>
       </div>
@@ -137,7 +137,7 @@ export function ScanOrPaste({
           ) : null}
           <Button
             type="button"
-            variant="outline"
+            variant="secondary"
             disabled={busy}
             onClick={() => {
               setError(null)
@@ -153,14 +153,14 @@ export function ScanOrPaste({
         <Field id="scan-paste" label={pasteLabel}>
           <Textarea
             id="scan-paste"
-            className="font-mono text-[11px]"
+            className="font-mono text-[12px]"
             value={text}
             spellCheck={false}
             autoComplete="off"
             onChange={(e) => setText(e.target.value)}
           />
         </Field>
-        <Button type="submit" disabled={busy || !trimmed}>
+        <Button type="submit" className="justify-self-end" disabled={busy || !trimmed}>
           Use this code
         </Button>
       </form>
