@@ -198,7 +198,7 @@ function MessageRowContent(props: MessageRowProps): React.JSX.Element {
         {quote}
         <div className="text-body flex gap-3">
           <Timestamp iso={message.createdAt} className="w-11 shrink-0 leading-[22px]" />
-          <span className="w-[14ch] shrink-0 text-right leading-[22px]">{author}</span>
+          <span className="w-[10ch] shrink-0 truncate text-right leading-[22px]">{author}</span>
           <div className="max-w-[90ch] min-w-0 flex-1">{body}</div>
         </div>
         {toolbar}

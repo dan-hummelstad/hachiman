@@ -138,6 +138,19 @@ export function pushHistory(past: View[], from: View): Pick<NavState, 'past' | '
 }
 
 /**
+ * History after leaving a settings view for `to`: settings are not history entries once left, so
+ * Back returns to the view before them. The settings entries on top of `past` go, and so does the
+ * view settings opened from when `to` is that view.
+ */
+export function leaveSettings(past: View[], to: View): Pick<NavState, 'past' | 'future'> {
+  const next = [...past]
+  while (next.length > 0 && next[next.length - 1].kind === 'settings') next.pop()
+  const last = next[next.length - 1]
+  if (last && sameView(last, to)) next.pop()
+  return { past: next, future: [] }
+}
+
+/**
  * One step back (`dir` 'back') or forward. Entries whose target `exists` says is gone are dropped.
  * Null when no entry is left on that side.
  */
@@ -194,7 +207,11 @@ function record(): void {
   if (sameView(view, lastView)) return
   const from = lastView
   lastView = view
-  useNavStore.setState((s) => pushHistory(s.past, from))
+  useNavStore.setState((s) =>
+    from.kind === 'settings' && view.kind !== 'settings'
+      ? leaveSettings(s.past, view)
+      : pushHistory(s.past, from)
+  )
 }
 useNavStore.subscribe(record)
 useDocsStore.subscribe(record)
@@ -214,7 +231,13 @@ function applyQuietly(view: View): void {
 export function navigate(view: View): void {
   const from = currentView()
   applyQuietly(view)
-  if (!sameView(from, lastView)) useNavStore.setState((s) => pushHistory(s.past, from))
+  if (sameView(from, lastView)) return
+  const to = lastView
+  useNavStore.setState((s) =>
+    from.kind === 'settings' && to.kind !== 'settings'
+      ? leaveSettings(s.past, to)
+      : pushHistory(s.past, from)
+  )
 }
 
 function step(dir: 'back' | 'forward', exists: (v: View) => boolean): boolean {

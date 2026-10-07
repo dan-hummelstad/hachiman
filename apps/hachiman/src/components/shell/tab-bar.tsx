@@ -1,4 +1,16 @@
-import { AudioLines, FileText, Hash, Pin, PinOff, Plus, Search, Volume2, X } from 'lucide-react'
+import { useEffect } from 'react'
+import {
+  AudioLines,
+  FileText,
+  Hash,
+  MessagesSquare,
+  Pin,
+  PinOff,
+  Plus,
+  Search,
+  Volume2,
+  X
+} from 'lucide-react'
 import {
   DndContext,
   PointerSensor,
@@ -20,6 +32,7 @@ import { FEATURE_TEXT } from '@/components/ui/feature'
 import { IconButton } from '@/components/ui/icon-button'
 import { dmName, guildInitials } from '@/lib/model'
 import { cn } from '@/lib/utils'
+import { docsService } from '@/services/docs/DocsService'
 import { hachiman } from '@/services/hachiman'
 import { usePlatform } from '@/shared/PlatformContext'
 import { useChannelStore } from '@/stores/channelStore'
@@ -163,6 +176,15 @@ function Tab({
       ? s.pagesByChannel.get(target.id)?.find((p) => p.id === target.pageId)?.title
       : undefined
   )
+  // A page tab of a pages channel not opened yet: load its titles for the tab name.
+  const pagesLoaded = useDocsStore((s) => s.pagesByChannel.has(target.id))
+  const needsTitles = target.kind === 'page' && !pagesLoaded
+  useEffect(() => {
+    if (!needsTitles) return
+    docsService
+      .loadPages(target.id)
+      .catch((e: unknown) => console.warn('[tabs] page titles failed', e))
+  }, [needsTitles, target.id])
   const badge = useChannelUnread(target.id)
   const inCall = useVoiceStore((s) => s.channelId !== null && s.channelId === target.id)
   const { setNodeRef, attributes, listeners, transform, transition, isDragging } = useSortable({
@@ -269,6 +291,8 @@ function TabIcon({ target, type }: { target: TabTarget; type: string }): React.J
   if (target.kind === 'page' || type === 'pages')
     return <FileText className={cn('size-3.5 shrink-0', FEATURE_TEXT.page)} />
   if (type === 'voice') return <Volume2 className={cn('size-3.5 shrink-0', FEATURE_TEXT.voice)} />
+  if (type === 'thread')
+    return <MessagesSquare className={cn('size-3.5 shrink-0', FEATURE_TEXT.thread)} />
   return <Hash className="text-text-tertiary size-3.5 shrink-0" />
 }
 

@@ -83,7 +83,7 @@ function App(): React.JSX.Element {
 
   return (
     <TooltipProvider delayDuration={200}>
-      <div className="bg-background text-foreground flex h-screen w-screen flex-col overflow-hidden">
+      <div className="bg-background text-foreground flex h-screen w-screen flex-col overflow-clip">
         {fatal ? (
           <FatalScreen fatal={fatal} />
         ) : signedIn ? (

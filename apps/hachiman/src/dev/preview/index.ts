@@ -35,7 +35,19 @@ import {
   fixtureMembership,
   now
 } from './fixture'
+import { PAGE } from './fixture-pages'
 import { dispatch, seedFeatureFixtures, stubRest, stubVoice } from './stubs'
+import { pinTab, type TabTarget } from '@/stores/tabsStore'
+
+/** The B1 tab row (pinTab skips a tab that is already pinned). */
+const PREVIEW_TABS: TabTarget[] = [
+  { kind: 'channel', id: G1C.general, guildId: G1 },
+  { kind: 'channel', id: G1C.lounge, guildId: G1 },
+  { kind: 'page', id: G2C.designPages, guildId: G2, pageId: PAGE.rfc },
+  { kind: 'dm', id: DM1, guildId: null },
+  { kind: 'channel', id: G2C.standup, guildId: G2 },
+  { kind: 'channel', id: 'c-no-thread-bracket', guildId: G1 }
+]
 
 export interface PreviewOptions {
   /** Show the signed-out screen instead of the seeded app. */
@@ -60,8 +72,12 @@ function isolatePersistence(): void {
   }
 }
 
-/** N7 fixture: #lfg 1 unread with a mention, Dog-ear Club 3 mentions, the marlowe DM 2. */
+/**
+ * N7 fixture: #general 3 unread from marlowe's mention on (the B1 NEW divider), #lfg 1 unread
+ * with a mention, Dog-ear Club 3 mentions, the marlowe DM 2.
+ */
 const UNREAD: { channelId: string; unread: number; mentions: number }[] = [
+  { channelId: G1C.general, unread: 3, mentions: 1 },
   { channelId: G1C.lfg, unread: 1, mentions: 1 },
   { channelId: G3C.reading, unread: 3, mentions: 3 },
   { channelId: DM1, unread: 2, mentions: 2 }
@@ -88,9 +104,17 @@ function previewReadStates(history: Map<string, ChatMessage[]>): {
     if (!spec) {
       return { channelId, lastReadMessageId: last, unreadCount: 0, lastMessageId: last }
     }
-    const tail = list.slice(Math.max(0, list.length - spec.unread))
-    const readTo = list[list.length - tail.length - 1]?.id ?? null
-    const found = tail.map((m) => m.id).slice(-spec.mentions)
+    // The unread ones are the last `unread` messages from others: my own never count.
+    const theirs = list.filter((m) => m.author.id !== ME.id)
+    const tail = theirs.slice(Math.max(0, theirs.length - spec.unread))
+    const readTo = tail.length > 0 ? (list[list.indexOf(tail[0]) - 1]?.id ?? null) : last
+    const mine = `@${ME.username}`
+    const found = [
+      ...tail.filter((m) => m.content.includes(mine)),
+      ...tail.filter((m) => !m.content.includes(mine)).reverse()
+    ]
+      .slice(0, spec.mentions)
+      .map((m) => m.id)
     while (found.length < spec.mentions) found.push(`${channelId}-mention-${found.length}`)
     mentions.push([channelId, found])
     return { channelId, lastReadMessageId: readTo, unreadCount: spec.unread, lastMessageId: last }
@@ -208,6 +232,8 @@ export function startPreview(opts: PreviewOptions = {}): void {
     channelByGuild: { [G1]: G1C.general, [G2]: G2C.standup, [G3]: G3C.reading }
   })
   useUserStore.setState({ me: ME })
+  // Every load: READY prunes the thread tab (the fixture threads come after READY).
+  PREVIEW_TABS.forEach((t, i) => pinTab(t, i))
 
   console.info(
     '[preview] seeded: %d guilds, %d members, me = %s',

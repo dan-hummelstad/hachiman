@@ -133,15 +133,24 @@ describe('settings view', () => {
     expect(currentView()).toEqual(guildSettings(null))
   })
 
-  it('closing records the settings view, so back reopens it', () => {
+  it('closing is not an entry: back goes to the view before settings', () => {
+    openChannel('g1', 'x')
     openChannel('g1', 'a')
     openSettings({ kind: 'user' }, 'appearance')
+    setSettingsSection('devices')
     closeSettings()
+    expect(currentView()).toEqual(ch('a'))
     expect(back()).toBe(true)
-    expect(useNavStore.getState().settings).toEqual({
-      target: { kind: 'user' },
-      section: 'appearance'
-    })
+    expect(currentView()).toEqual(ch('x'))
+    expect(useNavStore.getState().settings).toBeNull()
+  })
+
+  it('leaving settings for another channel keeps the channel it opened from', () => {
+    openChannel('g1', 'a')
+    openSettings({ kind: 'user' })
+    openChannel('g1', 'b')
+    expect(back()).toBe(true)
+    expect(currentView()).toEqual(ch('a'))
   })
 
   it('a navigation elsewhere or leaving the guild closes it', () => {
