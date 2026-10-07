@@ -5,7 +5,7 @@
  * of in a Worker; its IndexedDB store is fake-indexeddb.
  */
 import { HachimanClient, type Message } from '@hachiman/client'
-import type { CryptoEvents, CryptoGatewayEvent, CryptoStatus, DecryptResult, DsTransport, EncryptedMessage } from '@hachiman/crypto'
+import type { AttachmentPointer, CryptoEvents, CryptoGatewayEvent, CryptoStatus, DecryptResult, DsTransport, EncryptedMessage } from '@hachiman/crypto'
 
 import { createDsTransport } from '../../../hachiman/src/services/ds-transport'
 import { createEngine, type Engine } from '../../../../pkgs/hachiman-crypto/src/worker/engine'
@@ -147,7 +147,7 @@ export class CanaryClient {
   }
 
   /** Encrypt for the channel's current group and post, as MessagesService.send does (with its retries). */
-  async send(channelId: string, text: string, attachments: Parameters<CanaryClient['engine']['api']['encryptMessage']>[0]['content']['attachments'] = []): Promise<Message> {
+  async send(channelId: string, text: string, attachments: AttachmentPointer[] = []): Promise<Message> {
     const ids = attachments.flatMap((p) => (p.thumbnail ? [p.uploadId, p.thumbnail.uploadId] : [p.uploadId]))
     for (let attempt = 1; ; attempt++) {
       try {
@@ -164,13 +164,16 @@ export class CanaryClient {
   }
 
   /** Decrypts a message until it is 'ok' or a final failure. Pending results wait for keys. */
-  async decrypt(m: Message, timeoutMs = 60_000): Promise<Extract<DecryptResult, { status: 'ok' }>> {
+  async decrypt(m: Message, timeoutMs = 60_000): Promise<Extract<DecryptResult, { status: 'ok'; kind: 'message' | 'edit' }>> {
     const end = Date.now() + timeoutMs
     let last: DecryptResult | null = null
     while (Date.now() < end) {
       const [r] = await this.engine.api.decryptMessages([toEncrypted(m)])
       last = r!
-      if (r!.status === 'ok') return r!
+      if (r!.status === 'ok') {
+        if (r!.kind !== 'message' && r!.kind !== 'edit') throw new Error(`canary: ${this.opts.name} got kind ${r!.kind} for ${m.id}`)
+        return r!
+      }
       if (r!.status === 'failed') throw new Error(`canary: ${this.opts.name} cannot decrypt ${m.id}: ${JSON.stringify(r)}`)
       await sleep(500)
     }

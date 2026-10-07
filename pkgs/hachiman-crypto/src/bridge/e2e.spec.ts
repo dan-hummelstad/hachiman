@@ -95,7 +95,7 @@ describe('two CryptoClients end to end', () => {
     const pointer = { ...enc.draft, uploadId, thumbnail: null }
     const withFile = await alice.client.encryptMessage({ channelId, kind: 'message', editOf: null, content: text('a file', [pointer]) })
     const [ar] = await bob.client.decryptMessages([row(ds, alice, channelId, withFile, [{ id: uploadId, size: enc.blob.size }])])
-    if (ar?.status !== 'ok') throw new Error(`attachment message: ${JSON.stringify(ar)}`)
+    if (ar?.status !== 'ok' || ar.kind !== 'message') throw new Error(`attachment message: ${JSON.stringify(ar)}`)
     const got = ar.content.attachments[0]!
     expect(got).toMatchObject({ uploadId, name: 'noise.bin', size: bytes.length })
     const plain = await bob.client.decryptAttachment(got, enc.blob)

@@ -4,17 +4,19 @@
  */
 import type {
   AttachmentPointer,
+  ClientMsgIdB64,
   CreateMessageService,
   CryptoErrorShape,
   DecryptFailure,
   DecryptResult,
+  EncryptMessageInput,
   EncryptedMessage,
   EngineContext,
   EnvelopeHeader,
   EnvelopeOpenResult,
   GroupService,
   IdentityService,
-  MessageContent,
+  KindedContent,
   ThumbnailPointer,
   UserId,
 } from '../api'
@@ -23,7 +25,7 @@ import { fromB64url, toB64url } from '../codec'
 import { CLIENT_MSG_ID_LENGTH } from '../constants'
 import { dsCodeOf, isTransient } from '../errors'
 import { attachments } from '../attachments'
-import { encodeContent, envelopeLength, uploadIdsOf } from './codec'
+import { attachmentsOf, encodeContent, envelopeLength, uploadIdsOf } from './codec'
 import { envelope } from './index'
 
 /** Placeholder upload id: a draft validates its pointer fields before the upload ids exist. */
@@ -118,6 +120,34 @@ export async function isRevokedSender(identity: IdentityService, groups: GroupSe
   return removedAt !== null && h.epoch >= removedAt && (await identity.chainContextFor(userId, false)).revokedDeviceIds.has(h.senderDeviceId)
 }
 
+// MARK: - Kinds
+
+/** The Worker side of an EncryptMessageInput: edit_of as bytes, and the sent_at_ms of this send. */
+function withSentAt(input: EncryptMessageInput, editOf: Uint8Array | null, sentAtMs: number): KindedContent<Uint8Array> {
+  switch (input.kind) {
+    case 'message':
+    case 'edit':
+      return { kind: input.kind, editOf, content: { ...input.content, sentAtMs } }
+    case 'reaction':
+      return { kind: input.kind, editOf: null, content: { ...input.content, sentAtMs } }
+    case 'page_activity':
+      return { kind: input.kind, editOf: null, content: { ...input.content, sentAtMs } }
+  }
+}
+
+/** The UI side of an opened envelope: edit_of as base64url. */
+function decryptedContent(o: EnvelopeOpenResult): KindedContent<ClientMsgIdB64> {
+  switch (o.kind) {
+    case 'message':
+    case 'edit':
+      return { kind: o.kind, editOf: o.editOf === null ? null : toB64url(o.editOf), content: o.content }
+    case 'reaction':
+      return { kind: o.kind, editOf: null, content: o.content }
+    case 'page_activity':
+      return { kind: o.kind, editOf: null, content: o.content }
+  }
+}
+
 // MARK: - MessageService
 
 export const createMessageService: CreateMessageService = (ctx, identity, groups) => {
@@ -165,7 +195,7 @@ export const createMessageService: CreateMessageService = (ctx, identity, groups
       const cert = await identity.deviceOwnerCertificate(h.senderDeviceId, m.authorId)
       if (cert === null) return { failure: 'invalid_chain' }
       if (cert.deviceId !== h.senderDeviceId) return { failure: 'invalid_chain' }
-      if (cert.userId !== m.authorId) return { failure: kind === 'message' ? 'device_mismatch' : 'edit_not_author' }
+      if (cert.userId !== m.authorId) return { failure: kind === 'edit' ? 'edit_not_author' : 'device_mismatch' }
       if (await isRevokedSender(identity, groups, h, cert.userId)) return { failure: 'invalid_chain' }
       return { signatureKey: cert.mlsSignatureKey }
     })
@@ -174,8 +204,11 @@ export const createMessageService: CreateMessageService = (ctx, identity, groups
       return fail(opened.failure)
     }
 
-    // Step 8: pointer upload ids and blob sizes against the row, in order.
-    const ids = uploadIdsOf(opened.content.attachments)
+    // Step 7 (row): a reaction or page activity is never edited, so its row has no edited_at.
+    if ((opened.kind === 'reaction' || opened.kind === 'page_activity') && m.editedAt !== null) return fail('malformed')
+
+    // Step 8: pointer upload ids and blob sizes against the row, in order. Kinds 3 and 4 have none.
+    const ids = uploadIdsOf(attachmentsOf(opened))
     if (ids.length !== m.attachments.length) return fail('attachments_mismatch')
     for (let i = 0; i < ids.length; i++) {
       const row = m.attachments[i]!
@@ -219,12 +252,10 @@ export const createMessageService: CreateMessageService = (ctx, identity, groups
     }
 
     return {
+      ...decryptedContent(opened),
       status: 'ok',
       messageId: m.id,
       clientMsgId: m.clientMsgId,
-      kind: opened.kind,
-      editOf: opened.editOf === null ? null : toB64url(opened.editOf),
-      content: opened.content,
       sender: {
         userId: m.authorId,
         deviceId: header.senderDeviceId,
@@ -244,13 +275,13 @@ export const createMessageService: CreateMessageService = (ctx, identity, groups
   return {
     async encryptMessage(input) {
       let clientMsgId: Uint8Array
-      if (input.kind === 'message') {
-        if (input.editOf !== null) throw new CryptoError('Malformed', 'kind message has no editOf')
-        clientMsgId = ctx.random(CLIENT_MSG_ID_LENGTH)
-        if (clientMsgId.length !== CLIENT_MSG_ID_LENGTH) throw new CryptoError('Malformed', 'random source returned a wrong length')
-      } else {
+      if (input.kind === 'edit') {
         if (input.editOf === null) throw new CryptoError('Malformed', 'kind edit needs editOf')
         clientMsgId = bytesFromB64(input.editOf, CLIENT_MSG_ID_LENGTH, 'editOf')
+      } else {
+        if (input.editOf !== null) throw new CryptoError('Malformed', `kind ${input.kind} has no editOf`)
+        clientMsgId = ctx.random(CLIENT_MSG_ID_LENGTH)
+        if (clientMsgId.length !== CLIENT_MSG_ID_LENGTH) throw new CryptoError('Malformed', 'random source returned a wrong length')
       }
 
       // An edit must carry a sent_at_ms above every version that this client accepted (step 10).
@@ -259,14 +290,13 @@ export const createMessageService: CreateMessageService = (ctx, identity, groups
         const prev = await ctx.store.get('seen', seenKey(input.channelId, toB64url(clientMsgId)))
         if (prev !== undefined && sentAtMs <= prev.sentAtMs) sentAtMs = prev.sentAtMs + 1
       }
-      const content: MessageContent = { ...input.content, sentAtMs }
-      const editOf = input.kind === 'edit' ? clientMsgId : null
+      const body = withSentAt(input, input.kind === 'edit' ? clientMsgId : null, sentAtMs)
 
       const state = await groups.sendState(input.channelId)
       const self = identity.self()
       const ktTreeHead = await identity.treeHeadForGossip(toB64url(state.groupId))
 
-      const contentBytes = encodeContent({ kind: input.kind, editOf, content, ktTreeHead })
+      const contentBytes = encodeContent({ ...body, ktTreeHead })
       const limit = await envelopeLimit()
       const size = envelopeLength(contentBytes.length)
       if (size > limit) throw new CryptoError('TooLarge', `envelope of ${size} bytes exceeds ${limit}`)
@@ -280,9 +310,7 @@ export const createMessageService: CreateMessageService = (ctx, identity, groups
           senderDeviceId: self.deviceId,
           clientMsgId,
         },
-        kind: input.kind,
-        editOf,
-        content,
+        ...body,
         epochSecret: state.epochSecret,
         signatureKey: self.mlsSignatureKey.privateKey,
         ktTreeHead,

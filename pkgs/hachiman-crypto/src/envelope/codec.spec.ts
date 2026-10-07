@@ -129,7 +129,9 @@ describe('EnvelopeContent', () => {
 
   it('maps 0 to null for optional dimensions', () => {
     const b = encodeContent({ kind: 'message', editOf: null, content: content({ attachments: [pointer(1, { width: 0, durationMs: 0 })] }), ktTreeHead: null })
-    const p = decodeContent(b).content.attachments[0]!
+    const d = decodeContent(b)
+    if (d.kind !== 'message') throw new Error('not a message')
+    const p = d.content.attachments[0]!
     expect(p.width).toBeNull()
     expect(p.durationMs).toBeNull()
   })

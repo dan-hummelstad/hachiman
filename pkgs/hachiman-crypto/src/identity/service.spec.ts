@@ -475,6 +475,35 @@ describe('trust and verification', () => {
     expect(await a.svc.verifyQr(fake.qrPayload)).toEqual({ userId: BOB, match: false })
   })
 
+  it('verifiedAt: set by setVerified and verifyQr, cleared by unverify and a key change, kept in the store', async () => {
+    const { dev: a } = await primary(ALICE)
+    const { dev: b } = await primary(BOB, 'Bob')
+    expect((await a.svc.getTrust(BOB)).verifiedAt).toBeNull()
+    const t1 = new Date(ds.now).toISOString()
+    expect(await a.svc.setVerified(BOB, true)).toMatchObject({ state: 'verified', verifiedAt: t1 })
+    expect((await a.store.get('contacts', BOB))?.verifiedAtMs).toBe(ds.now)
+    // A store row of an older version has no verifiedAtMs: verified, without a date.
+    const row = (await a.store.get('contacts', BOB))!
+    const { verifiedAtMs: _drop, ...old } = row
+    await a.store.put('contacts', BOB, old)
+    expect(await a.svc.getTrust(BOB)).toMatchObject({ state: 'verified', verifiedAt: null })
+    expect(await a.svc.setVerified(BOB, false)).toMatchObject({ state: 'tofu', verifiedAt: null })
+    expect((await a.store.get('contacts', BOB))?.verifiedAtMs).toBeNull()
+    ds.now += 60_000
+    expect(await a.svc.verifyQr((await b.svc.getSafetyNumber(ALICE)).qrPayload)).toEqual({ userId: BOB, match: true })
+    expect((await a.svc.getTrust(BOB)).verifiedAt).toBe(new Date(ds.now).toISOString())
+    // A new master key of the contact clears it; a new verification sets a new time.
+    ds.passwordReset(BOB)
+    const n = await makeDevice(ds, BOB, 'Bob after reset')
+    await n.svc.resetIdentity()
+    await ds.flush()
+    expect(await a.svc.getTrust(BOB)).toMatchObject({ state: 'changed', verifiedAt: null })
+    expect((await a.store.get('contacts', BOB))?.verifiedAtMs).toBeNull()
+    ds.now += 60_000
+    expect(await a.svc.setVerified(BOB, true)).toMatchObject({ state: 'verified', verifiedAt: new Date(ds.now).toISOString() })
+    expect((await a.svc.getTrust(ALICE)).verifiedAt).toBeNull()
+  })
+
   it('raises keyChange on a DSK downgrade and keeps the highest generation', async () => {
     const { dev: a } = await primary(ALICE)
     const { dev: b } = await primary(BOB, 'Bob')

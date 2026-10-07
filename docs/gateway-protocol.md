@@ -1290,6 +1290,13 @@ struct {
 
 The scanner checks that both keys match its own pins. A match sets the contact to `verified`.
 
+**Trust state.** `CryptoApi.getTrust(userId)`, `setVerified` and `acknowledgeKeyChange` return `TrustInfo { userId, state, masterKeyGeneration, changedAt, verifiedAt }`. `state` is `verified`, `tofu`, `changed` or `unknown`. `changedAt` is the ISO time of a key change that the user did not acknowledge. `verifiedAt` is the ISO time when this device verified the contact:
+- `setVerified(userId, true)` and a matching `verifyQr` set it to the current time. A new verification sets a new time.
+- `setVerified(userId, false)`, an acknowledged key change and a new master key that is not a signed rotation (state `changed`) set it to null.
+- A signed rotation of the master key (`prev_signature`, §12.4) keeps the state and `verifiedAt`.
+- The Worker keeps it in the encrypted store with the contact (`contacts.verifiedAtMs`). A contact row of an older version has no such field: `verifiedAt` is null and the state stays `verified`. The UI then shows "Verified" without a date.
+- It is null when the state is not `verified`, and for the own user. The time is local to the device and is not sent to the server or to other devices.
+
 **Epoch code.** The 30-digit code of a group is `digits(first 30 bytes of epoch_authenticator)`, in 6 groups of 5. All members of one epoch see the same code. The call UI shows it.
 
 **Device linking.** A new device gets the DSK from an existing device of the same user. Both devices are signed in to the same account. They talk through a link session on Takusen (`/devices/link-sessions`, §12.12). Link sessions expire after 10 minutes.
@@ -1623,12 +1630,31 @@ struct {
 } AttachmentPointer;
 
 struct {
-  uint8 kind;                      // 1 message, 2 edit
   optional<opaque> edit_of[16];    // kind 2: the client_msg_id of the original
   opaque text<V>;                  // UTF-8, at most 8000 bytes
   Mention mentions<V>;             // at most 100
   AttachmentPointer attachments<V>;  // at most maxAttachmentsPerMessage (10)
   optional<opaque> reply_to[16];   // a client_msg_id in the same channel
+} MessageBody;
+
+struct {
+  opaque target[16];               // the client_msg_id of a message in the same channel
+  opaque emoji<V>;                 // UTF-8, 1 to 32 UTF-16 code units, no control character
+  uint8 remove;                    // 0 add, 1 remove
+} ReactionBody;
+
+struct {
+  opaque page_id[16];              // a page of a pages channel (§12.20)
+  uint32 changes;                  // 1 to 10000
+} PageActivityBody;
+
+struct {
+  uint8 kind;                      // 1 message, 2 edit, 3 reaction, 4 page_activity
+  select (kind) {
+    case 1, 2: MessageBody body;
+    case 3:    ReactionBody body;
+    case 4:    PageActivityBody body;
+  };
   uint64 sent_at_ms;               // sender clock, display only
   optional<opaque> kt_tree_head<V>;  // SignedTreeHead gossip (§12.14)
 } EnvelopeContent;
@@ -1642,6 +1668,20 @@ struct {
 ```
 
 A message must have text or at least one attachment. `channel_id` stops the server from moving a message to another channel of the same `public_set` group.
+
+**Kinds.** The kind byte is the first byte of `EnvelopeContent`. It is inside the ciphertext, the signature and the franking tag cover it, and the body layout follows from it. Thus a changed kind byte gives `aead`, `bad_signature`, `bad_franking` or `malformed`. The bytes of kind 1 and kind 2 are the same as before kinds 3 and 4.
+
+| Kind | Name | `CryptoApi` content | Rules |
+|---|---|---|---|
+| 1 | `message` | `MessageContent` | Text or at least one attachment. |
+| 2 | `edit` | `MessageContent` | §12.8.6. |
+| 3 | `reaction` | `ReactionContent { target, emoji, remove, sentAtMs }` | `emoji` has 1 to 32 UTF-16 code units (`MAX_REACTION_EMOJI_LENGTH`), at most 96 UTF-8 bytes, no control character (Unicode `Cc`) and no lone surrogate. `remove` is 0 or 1. `target` is not the header `client_msg_id`. |
+| 4 | `page_activity` | `PageActivityContent { pageId, changes, sentAtMs }` | `changes` is 1 to 10000 (`MAX_PAGE_ACTIVITY_CHANGES`). `pageId` is a lowercase UUID. |
+
+- A reaction and a page activity are new messages: each has a new `client_msg_id`, no `edit_of`, no attachments and no `reply_to`. The server stores them as normal message rows and cannot tell them apart from kind 1. They count toward history pages and toward the server unread count. SEND_MESSAGES covers them.
+- A reaction is one event: user U added or removed `emoji` on `target`. The receiver folds the reactions of a channel into the target message. For each (sender user, target, emoji), the event with the highest `sent_at_ms` wins. A reaction is not a chat row and does not count as unread on the client.
+- A page activity tells the channel that the sender edited a page (§12.20). The sender sends at most one per page per 10 minutes. The client shows it as an activity line, not as a chat row.
+- **Old clients.** A client that does not know a kind gives `malformed` at step 3 (§12.8.5) and changes no state. It does not count toward the fork alert. Thus a reaction or a page activity shows as one undecryptable row on an older client, and does no other harm.
 
 #### 12.8.2 Message key
 
@@ -1681,11 +1721,11 @@ For each message, in history order (`MessageService.decryptMessages`). Each step
 1. **Header.** Decode the header. It does not decode: `malformed`. `channel_id` differs from the row: `wrong_channel`. `group_id` or `epoch` differs from the row: `wrong_group`. `client_msg_id` differs from the row: `replay`. `sender_device_id` differs from the row `senderDevice`: `device_mismatch`.
 2. **Epoch secret.** Get `S_e`. The epoch is ahead of the local state: buffer the message, `pending` `epoch_ahead`. The client never held the group and has no bundle or backup key for it: `pending` `group_unknown` (a Welcome can still come). The client knows the group but has no key for that old epoch: `pending` `no_history_key`. A DS call for this message failed (`CryptoError` `Transport`): `pending` `transport`. This is not a verdict on the message. The UI decrypts it again later.
 3. **Decrypt.** A failed tag: `failed` `aead`, and the failure counts toward the fork alert. A plaintext that does not decode, or that breaks a §12.8.1 limit: `malformed`.
-4. **Sender.** Get the verified `DeviceCertificate` of `sender_device_id`, revoked devices included (`IdentityService.deviceOwnerCertificate`). The lookup tries the keys of the row author first, then the keys of each user that the Worker already fetched and verified, and then fetches the keys of the author again. It fetches the keys of one user again at most once per `KEY_REFRESH_MIN_MS` (10 s). Thus a device of another user is found, and gives `device_mismatch` or `edit_not_author`, not `invalid_chain`. No certificate, or the chain check fails: `invalid_chain`. The certificate user is not the row author: `device_mismatch` (kind 1) or `edit_not_author` (kind 2). **Revoked sender.** When this client processed the Remove of the device in this group, it stores the first epoch without the leaf (`membership.removedAtEpoch`, `GroupService.removedAt`). An Add of the device clears it. An envelope from a revoked device at that epoch or later: `invalid_chain`. **Residual risk:** a revoked device can still sign envelopes for older epochs, in which it was a member. The server sets the order and `created_at`, so such a forged message can show anywhere in the history of those epochs. A client that never processed the Remove (history from a bundle or a backup) has no bound.
+4. **Sender.** Get the verified `DeviceCertificate` of `sender_device_id`, revoked devices included (`IdentityService.deviceOwnerCertificate`). The lookup tries the keys of the row author first, then the keys of each user that the Worker already fetched and verified, and then fetches the keys of the author again. It fetches the keys of one user again at most once per `KEY_REFRESH_MIN_MS` (10 s). Thus a device of another user is found, and gives `device_mismatch` or `edit_not_author`, not `invalid_chain`. No certificate, or the chain check fails: `invalid_chain`. The certificate user is not the row author: `edit_not_author` (kind 2) or `device_mismatch` (all other kinds). **Revoked sender.** When this client processed the Remove of the device in this group, it stores the first epoch without the leaf (`membership.removedAtEpoch`, `GroupService.removedAt`). An Add of the device clears it. An envelope from a revoked device at that epoch or later: `invalid_chain`. **Residual risk:** a revoked device can still sign envelopes for older epochs, in which it was a member. The server sets the order and `created_at`, so such a forged message can show anywhere in the history of those epochs. A client that never processed the Remove (history from a bundle or a backup) has no bound.
 5. **Signature.** Check the signature with the certificate `mls_signature_key`. Else `bad_signature`.
 6. **Franking.** Compute the HMAC of §12.16 from the decrypted `franking_key`, the header `channel_id` and `client_msg_id`, and the received `encode(EnvelopeContent)`. It must equal the header `franking_tag`. Else `bad_franking`. Thus a report can always prove the content that the recipients saw.
-7. **Kind.** Kind 1 has no `edit_of`. Kind 2 has `edit_of` = the header `client_msg_id` = the row `clientMsgId`. Else `malformed`.
-8. **Attachments.** The list of pointer upload ids (for each pointer: the file id, then the thumbnail id when it has one) equals the row attachment ids, in order. Each `blob_size` equals the row `size` of that id. Else `attachments_mismatch`. This rule is the same for kind 1 and kind 2, so an edit cannot change the attachments.
+7. **Kind.** Kind 1 has no `edit_of`. Kind 2 has `edit_of` = the header `client_msg_id` = the row `clientMsgId`. Kinds 3 and 4 have no `edit_of` field. A kind 3 `target` is not the header `client_msg_id`. A row with `editedAt` holds no kind 3 or kind 4 envelope, because a reaction and a page activity are never edited. Else `malformed`.
+8. **Attachments.** The list of pointer upload ids (for each pointer: the file id, then the thumbnail id when it has one) equals the row attachment ids, in order. Each `blob_size` equals the row `size` of that id. Else `attachments_mismatch`. This rule is the same for kind 1 and kind 2, so an edit cannot change the attachments. Kinds 3 and 4 have no pointers, so their row must have no attachments.
 9. **Membership.** `membershipVerified` is true when the client saw the device hold `sender_leaf` at that epoch (store table `membership`). Messages from a history bundle or a backup have `membershipVerified` false. The UI shows "membership at that time not verified".
 10. **Dedupe and rollback.** The key is `(channel_id, client_msg_id)`. The store table `seen` maps it to the server message id and the highest `sent_at_ms` that the client accepted for it. A different message id with the same key: `replay`. A lower `sent_at_ms` than the stored value: `stale_edit`. Thus the server cannot serve an older edit, or the original, after the client saw a newer edit. The UI keeps the newer content that it has. The same `sent_at_ms` is the same envelope again, and is accepted.
 11. **Gossip.** A `kt_tree_head` goes to `IdentityService.observeTreeHead`.
@@ -1696,6 +1736,8 @@ For each message, in history order (`MessageService.decryptMessages`). Each step
 - The edit uses the current group and epoch of the channel. After a channel move (§12.6), that is the new group, so the header group differs from the group of the original. A device of the author other than the original sender may edit.
 - `PATCH /channels/:id/messages/:mid { envelope }` replaces the stored envelope and the header fields (§12.8.4). The server allows only the author. The client retries a 409 `StaleEpoch` with the same `client_msg_id`.
 - A delete is the REST `DELETE` only. It removes the ciphertext and the attachment and thumbnail blobs. There is no delete envelope.
+- The author can `PATCH` a reaction or page activity row with a kind 2 envelope. The row then shows as a message with the content of the edit. This is the same as a new message from the author, so the client accepts it. A client that saw the reaction before keeps the fold of it.
+- **API.** `CryptoApi.encryptMessage(input)` takes `EncryptMessageInput = { channelId } & KindedContentInput`: `{ kind: 'message' | 'edit', editOf, content: MessageContent without sentAtMs }`, `{ kind: 'reaction', editOf: null, content: { target, emoji, remove } }` or `{ kind: 'page_activity', editOf: null, content: { pageId, changes } }`. The Worker sets `sentAtMs`. An `ok` `DecryptResult` (`DecryptedMessage`) carries the same `kind`, `editOf` and `content` union. The UI checks `kind` before it reads `content`.
 
 #### 12.8.7 Fork alert
 
@@ -2497,5 +2539,7 @@ An `ok` result has `{ id, kind, bytes, sender }`: the body bytes and the `Decryp
 - **Titles of the new member.** A title re-wrap can come before the device of the new member joins the group. The title then stays `pending` `group_unknown`. Doc envelopes do not go into the `buffered` table, so no `epochKeysAvailable` follows the join. Thus the client decrypts its pending titles again when the Worker reports a `membership` event that names this device (a Welcome, an own external join or a create).
 - **The other members.** A re-wrapped title is of the new epoch. A member whose Worker did not apply the commit yet gets `pending` `epoch_ahead` for it. Doc envelopes do not go into the `buffered` table, so no `epochKeysAvailable` follows. Thus the client calls `ensureChannelGroup` once for the channel (it fetches the handshakes) and then decrypts the pending titles again. Until a title decrypts, the client shows the title that it decrypted before. A channel that is still ahead after this gets no new catch-up until a decrypt of its titles finds none ahead, or until READY or RESUMED. Thus a title that stays ahead does not cause a loop.
 - A removed member gets no new envelope, because the re-wrap is in an epoch without its leaf.
+
+**Page activity in a channel.** An editor can tell a text channel that it edited a page. It sends a message envelope of kind 4 `page_activity { pageId, changes }` (§12.8.1) in that channel, not a page envelope. The sender sends at most one per page per 10 minutes. `changes` counts the local Yjs updates of that time (1 to 10000). The receiver shows the line only for a page that it can open, and decrypts the title with `decryptDoc` as for the page list. The server sees a normal message row.
 
 **Residual risk.** The server can withhold updates, or serve an older title envelope (a rollback of a rename). It cannot forge, change or move an envelope to another page or channel, because the header is the AAD and the sender signs it. A replayed update does no harm, because Yjs ignores an update that it already has. A member who can edit can damage a page. This includes a re-wrap with a false pointer for the `uploadId` of the newest snapshot: the page then does not open until a member posts a new snapshot. The previous snapshot (§4 Pages) is the recovery path. A re-wrap does not change the blob. Thus a removed member that kept an old `fileKey` can open that blob when the server gives it the blob.
