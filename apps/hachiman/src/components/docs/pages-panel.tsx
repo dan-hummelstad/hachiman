@@ -30,6 +30,7 @@ import { useChannelStore } from '@/stores/channelStore'
 import { flattenPages, pagePath, pageTitle } from '@/services/docs/page-tree'
 import { findPage, useDocsStore, type DocPeer, type PageNode } from '@/stores/docsStore'
 import { openChannel } from '@/stores/navStore'
+import { PageLabels } from './page-labels'
 import { pageHref } from './page-links'
 import { PageTreePopover } from './page-tree-popover'
 
@@ -360,6 +361,7 @@ function OpenPage({
             : 'Read only. You cannot edit pages in this channel.'}
         </div>
       )}
+      <PageLabels handle={handle} editable={canEdit} />
       <div className="flex min-h-0 flex-1 flex-col">
         <Suspense fallback={<LoadingBody />}>
           <PageEditor
