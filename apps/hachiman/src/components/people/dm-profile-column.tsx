@@ -1,18 +1,12 @@
 import { useMemo } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import {
-  AudioLines,
-  Crown,
-  MonitorSmartphone,
-  Phone,
-  ShieldCheck,
-  ShieldQuestion,
-  Volume2
-} from 'lucide-react'
+import { Crown, MonitorSmartphone, Phone, ShieldCheck, ShieldQuestion } from 'lucide-react'
 import type { ContactDevice } from '@hachiman/crypto'
 import type { Guild, Role, User } from '@hachiman/client'
 import { CustomStatusLine } from '@/components/people/custom-status-line'
 import { useNow, useVoiceActivity } from '@/components/people/use-voice-activity'
+import { VoiceActivityLine } from '@/components/people/voice-activity-line'
+import { useCanJoinVoice } from '@/components/voice/use-call-security'
 import { useUserBanner } from '@/components/people/use-user-banner'
 import { TRUST_LOOK } from '@/components/people/trust-look'
 import { useContactSecurity, type ContactSecurity } from '@/components/people/use-contact-security'
@@ -161,11 +155,11 @@ export function DmProfileColumn({ user }: { user: User }): React.JSX.Element {
 function ActivityCard({ activity }: { activity: VoiceActivity }): React.JSX.Element {
   const now = useNow(activity.joinedAt !== null)
   const channel = useChannelStore((s) => s.channels.get(activity.channelId))
+  const canJoin = useCanJoinVoice(activity.guildId, activity.channelId)
   const { run, busy } = useAction()
   const since = activity.joinedAt ? Date.parse(activity.joinedAt) : NaN
   const timer = Number.isNaN(since) ? null : formatElapsed(now - since)
-  // A DM has no guild context, so otherGuildName names the guild of the call.
-  const detail = [activity.withMe ? 'In the call with you' : activity.otherGuildName, timer]
+  const detail = [activity.withMe ? 'In the call with you' : null, timer].filter(Boolean)
   const join = (): void => {
     if (!channel) return
     void run('join the call', async () => {
@@ -175,25 +169,19 @@ function ActivityCard({ activity }: { activity: VoiceActivity }): React.JSX.Elem
   }
   return (
     <div className="border-feature-voice/40 bg-feature-voice/10 flex flex-col gap-2.5 border p-3">
-      <div className="flex items-start gap-2.5">
-        {activity.speaking ? (
-          <AudioLines className="text-feature-voice-text mt-0.5 size-4 shrink-0" aria-hidden />
-        ) : (
-          <Volume2 className="text-feature-voice-text mt-0.5 size-4 shrink-0" aria-hidden />
-        )}
-        <div className="flex min-w-0 flex-col">
-          <span className="text-text-primary truncate text-[13px] font-bold">
-            {activity.speaking ? 'Speaking in' : 'In'} {activity.channelName}
+      <div className="flex min-w-0 flex-col">
+        <VoiceActivityLine
+          activity={activity}
+          className="text-text-primary [&_svg]:text-feature-voice-text gap-2.5 text-[13px] font-bold"
+        />
+        {detail.length > 0 && (
+          <span className="text-feature-voice-text truncate pl-6 text-xs tabular-nums">
+            {detail.join(' · ')}
           </span>
-          {detail.some(Boolean) && (
-            <span className="text-feature-voice-text truncate text-xs tabular-nums">
-              {detail.filter(Boolean).join(' · ')}
-            </span>
-          )}
-        </div>
+        )}
       </div>
       {!activity.withMe && channel && (
-        <Button variant="voice" size="sm" disabled={busy} onClick={join}>
+        <Button variant="voice" size="sm" disabled={busy || !canJoin} onClick={join}>
           <Phone /> Join
         </Button>
       )}

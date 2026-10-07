@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { VoiceRosterEntry } from '@hachiman/crypto'
 import { callParticipants, type CallParticipant } from '@/components/voice/call-roster'
-import { useChannelOccupants } from '@/hooks/use-hachiman'
+import { Permissions, has } from '@hachiman/client'
+import { canJoinVoice } from '@/components/voice/join-gate'
+import { useChannelOccupants, usePermissions } from '@/hooks/use-hachiman'
 import { cryptoService } from '@/services/CryptoService'
 import { useCryptoStore } from '@/stores/cryptoStore'
 import { useVoiceStore } from '@/stores/voiceStore'
@@ -75,4 +77,10 @@ export function useEpochCode(): string | null {
 
   // A result of an earlier epoch is never shown as the current code.
   return result !== null && result.key === key ? result.code : null
+}
+
+/** Whether "Join" may start a call in `channelId` (canJoinVoice): Active now, the room, the DM profile. */
+export function useCanJoinVoice(guildId: string, channelId: string): boolean {
+  const canConnect = has(usePermissions(guildId, channelId), Permissions.CONNECT)
+  return canJoinVoice(canConnect, useCallSecurity().kind)
 }

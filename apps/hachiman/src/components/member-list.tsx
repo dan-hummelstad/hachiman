@@ -1,15 +1,15 @@
 import { useEffect, useMemo, useRef } from 'react'
-import { AudioLines, Crown, Volume2 } from 'lucide-react'
+import { Crown } from 'lucide-react'
 import type { Member } from '@hachiman/client'
 import { CustomStatusLine } from '@/components/people/custom-status-line'
 import { useVoiceActivity } from '@/components/people/use-voice-activity'
+import { VoiceActivityLine } from '@/components/people/voice-activity-line'
 import { UserAvatar } from '@/components/shell/user-avatar'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { SystemTag } from '@/components/ui/system-tag'
 import { UserProfilePopover } from '@/components/user-profile-popover'
 import { useChannelOccupants } from '@/hooks/use-hachiman'
 import { useMemberView, usePresence, useSpeakingMember } from '@/hooks/use-member'
-import { activityLabel } from '@/lib/member-activity'
 import { groupMembers } from '@/lib/member-groups'
 import { ROLE_INK_SCOPE, roleInk } from '@/lib/role-ink'
 import { cn } from '@/lib/utils'
@@ -145,14 +145,10 @@ function MemberRow({
               {me && <SystemTag kind="you" />}
             </span>
             {activity && !dim && (
-              <span className="text-feature-voice-text flex min-w-0 items-center gap-1 text-xs leading-4 font-semibold">
-                {activity.speaking ? (
-                  <AudioLines className="size-3.5 shrink-0" aria-hidden />
-                ) : (
-                  <Volume2 className="size-3.5 shrink-0" aria-hidden />
-                )}
-                <span className="truncate">{activityLabel(activity)}</span>
-              </span>
+              <VoiceActivityLine
+                activity={activity}
+                className="text-feature-voice-text text-xs leading-4 font-semibold"
+              />
             )}
             {!activity && !dim && <CustomStatusLine userId={userId} />}
           </span>

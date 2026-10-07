@@ -1,5 +1,4 @@
 import {
-  AudioLines,
   ChevronRight,
   FileText,
   Lock,
@@ -12,6 +11,8 @@ import {
 import { Permissions, has, type Channel, type Role } from '@hachiman/client'
 import { useChannelAccess } from '@/lib/channel-access'
 import { TrustChip } from '@/components/people/trust-chip'
+import { useVoiceActivity } from '@/components/people/use-voice-activity'
+import { VoiceActivityLine } from '@/components/people/voice-activity-line'
 import { useContactTrust } from '@/components/people/use-contact-trust'
 import { NotifyButton } from '@/components/notify/notify-menu'
 import { openChannelView } from '@/components/pins/jump'
@@ -31,7 +32,6 @@ import { cn } from '@/lib/utils'
 import { useChannelStore } from '@/stores/channelStore'
 import { openDialog } from '@/stores/dialogStore'
 import { openSettings } from '@/stores/navStore'
-import { useVoiceStore } from '@/stores/voiceStore'
 
 const PANE = 'bg-surface-content flex min-h-0 min-w-0 flex-1 flex-col'
 /** The pressed header toggle takes the accent tint. */
@@ -256,27 +256,15 @@ function DmTitle({ channel }: { channel: Channel }): React.JSX.Element {
   )
 }
 
-/** "In Lounge" / "Speaking in Lounge" from the user's voice state, when one is known. */
+/** Where the other person of a 1:1 DM is in voice, when the viewer can see it. */
 function VoiceActivity({ userId }: { userId: string }): React.JSX.Element | null {
-  const channelId = useVoiceStore((s) => {
-    for (const guild of s.voiceStates.values()) {
-      const vs = guild.get(userId)
-      if (vs?.channelId) return vs.channelId
-    }
-    return null
-  })
-  const speaking = useVoiceStore((s) => s.speaking.has(userId))
-  const name = useChannelStore((s) => (channelId ? s.channels.get(channelId)?.name : undefined))
-  if (!channelId || !name) return null
+  const activity = useVoiceActivity(userId, null)
+  if (!activity) return null
   return (
-    <span className="text-feature-voice-text inline-flex min-w-0 items-center gap-1 truncate text-[13px] leading-5 font-semibold">
-      {speaking ? (
-        <AudioLines className="size-3.5 shrink-0" aria-hidden />
-      ) : (
-        <Volume2 className="size-3.5 shrink-0" aria-hidden />
-      )}
-      {speaking ? 'Speaking in' : 'In'} {name}
-    </span>
+    <VoiceActivityLine
+      activity={activity}
+      className="text-feature-voice-text text-[13px] leading-5 font-semibold"
+    />
   )
 }
 

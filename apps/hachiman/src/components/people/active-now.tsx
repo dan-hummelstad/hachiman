@@ -1,12 +1,10 @@
 import { useMemo } from 'react'
 import { Activity, Check, Eye, Info, PhoneCall, Volume2 } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
-import { Permissions, has } from '@hachiman/client'
 import { UserAvatar } from '@/components/shell/user-avatar'
 import { Button } from '@/components/ui/button'
 import { SystemTag } from '@/components/ui/system-tag'
-import { useCallSecurity } from '@/components/voice/use-call-security'
-import { usePermissions } from '@/hooks/use-hachiman'
+import { useCanJoinVoice } from '@/components/voice/use-call-security'
 import { useMemberView } from '@/hooks/use-member'
 import { activeCalls, type ActiveCall } from '@/lib/active-now'
 import { ROLE_INK_SCOPE } from '@/lib/role-ink'
@@ -72,9 +70,7 @@ export function ActiveNow(): React.JSX.Element {
 }
 
 function CallCard({ call }: { call: ActiveCall }): React.JSX.Element {
-  const canConnect = has(usePermissions(call.guildId, call.channelId), Permissions.CONNECT)
-  const { kind } = useCallSecurity()
-  const blocked = !canConnect || kind === 'update_required' || kind === 'resyncing'
+  const blocked = !useCanJoinVoice(call.guildId, call.channelId)
   const channel = useChannelStore((s) => s.channels.get(call.channelId))
   const join = (muted: boolean): void => {
     if (channel) void voiceService.join(channel, { muted })
