@@ -6,6 +6,7 @@ import { useUploads } from '@/components/chat/attachments/use-uploads'
 import { Composer } from '@/components/chat/composer'
 import { Transcript } from '@/components/chat/transcript'
 import { TypingLine } from '@/components/chat/typing-line'
+import { FollowButton } from '@/components/notify/notify-menu'
 import { usePermissions } from '@/hooks/use-hachiman'
 import { useMemberView } from '@/hooks/use-member'
 import { channelLabel } from '@/lib/model'
@@ -90,6 +91,9 @@ function ChannelChat({ channel }: { channel: Channel }): React.JSX.Element {
             <Composer
               placeholder={`Message ${where}`}
               disabledReason={disabledReason}
+              disabledAction={
+                !canSend && access.readOnly ? <FollowButton channel={channel} /> : undefined
+              }
               paused={
                 pausedBy
                   ? {

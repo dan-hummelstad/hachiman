@@ -76,6 +76,8 @@ export function groupChannels(channels: readonly Channel[]): ChannelGroups {
   const categories: Channel[] = []
   const byParent = new Map<string, Channel[]>()
   for (const c of channels) {
+    // Threads are reached from the header and the tabs, not the channel list (N12).
+    if (c.type === 'thread') continue
     if (c.type === 'category') categories.push(c)
     else if (c.parentId && ids.has(c.parentId)) {
       const siblings = byParent.get(c.parentId)

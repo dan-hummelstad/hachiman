@@ -1,5 +1,10 @@
 import { useEffect, useState } from 'react'
-import { Check, Copy, Pencil, Reply, SmilePlus, Trash2 } from 'lucide-react'
+import { Check, Copy, Ellipsis, Pencil, Reply, SmilePlus, Trash2 } from 'lucide-react'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuTrigger
+} from '@/components/ui/dropdown-menu'
 import { IconButton } from '@/components/ui/icon-button'
 import { cn } from '@/lib/utils'
 import { EmojiPicker } from './reactions'
@@ -18,6 +23,8 @@ interface MessageToolbarProps {
   onEdit?: () => void
   /** Omitted when I can't delete it (not mine and no MANAGE_MESSAGES). */
   onDelete?: () => void
+  /** The items of the "More" menu (pin N13, thread N12); omitted or null: no "More" button. */
+  more?: React.ReactNode
   className?: string
 }
 
@@ -32,11 +39,13 @@ export function MessageToolbar({
   onCopy,
   onEdit,
   onDelete,
+  more,
   className
 }: MessageToolbarProps): React.JSX.Element {
   const [copied, setCopied] = useState(false)
   const [armed, setArmed] = useState(false)
   const [picking, setPicking] = useState(false)
+  const [moreOpen, setMoreOpen] = useState(false)
 
   useEffect(() => {
     if (!copied) return
@@ -58,7 +67,7 @@ export function MessageToolbar({
         // Hidden until the row is hovered or something inside it has keyboard focus.
         'pointer-events-none opacity-0 group-hover/row:pointer-events-auto group-hover/row:opacity-100',
         'focus-within:pointer-events-auto focus-within:opacity-100',
-        (armed || picking) && 'pointer-events-auto opacity-100',
+        (armed || picking || moreOpen) && 'pointer-events-auto opacity-100',
         className
       )}
     >
@@ -118,6 +127,18 @@ export function MessageToolbar({
             </span>
           )}
         </>
+      )}
+      {more && (
+        <DropdownMenu open={moreOpen} onOpenChange={setMoreOpen}>
+          <DropdownMenuTrigger asChild>
+            <IconButton className={BUTTON} label="More" pressed={moreOpen}>
+              <Ellipsis />
+            </IconButton>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-52">
+            {more}
+          </DropdownMenuContent>
+        </DropdownMenu>
       )}
     </div>
   )

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { DmSpace, GuildChannelList } from '@/components/channel-sidebar'
 import { ChatBody } from '@/components/chat/chat-body'
 import { HomePane } from '@/components/home-pane'
+import { InboxButton } from '@/components/inbox/inbox-button'
 import { RightColumn } from '@/components/people/right-column'
 import { ChannelPane, NoChannelPane } from '@/components/shell/channel-pane'
 import { FavouriteDms } from '@/components/shell/favourite-dms'
@@ -107,7 +108,9 @@ export function Shell(): React.JSX.Element {
           controls={
             <>
               <SidebarControls />
-              {/* N8: the inbox button goes at the end of this row. */}
+              <div className="ml-auto">
+                <InboxButton />
+              </div>
             </>
           }
           top={
@@ -126,7 +129,7 @@ export function Shell(): React.JSX.Element {
         />
       </div>
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-        <TabBar />
+        <TabBar inbox={<InboxButton />} />
         <div
           style={dockInset ? ({ '--dock-inset': '272px' } as React.CSSProperties) : undefined}
           className={cn(

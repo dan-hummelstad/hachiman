@@ -1,8 +1,10 @@
 import {
   AudioLines,
+  ChevronRight,
   FileText,
   Lock,
   Megaphone,
+  MessagesSquare,
   Settings,
   ShieldAlert,
   ShieldCheck,
@@ -13,6 +15,11 @@ import {
 import { Permissions, has, type Channel, type Role } from '@hachiman/client'
 import { useChannelAccess } from '@/lib/channel-access'
 import { useTrustBadge, type TrustBadge } from '@/components/chat/use-dm-trust'
+import { NotifyButton } from '@/components/notify/notify-menu'
+import { openChannelView } from '@/components/pins/jump'
+import { PinsButton } from '@/components/pins/pins-button'
+import { canHoldThreads } from '@/components/threads/thread-name'
+import { ThreadsButton } from '@/components/threads/threads-button'
 import { UserAvatar } from '@/components/shell/user-avatar'
 import { IconButton } from '@/components/ui/icon-button'
 import { TitleBar } from '@/components/ui/title-bar'
@@ -44,9 +51,9 @@ export interface ChannelPaneProps {
 }
 
 /**
- * Main pane frame for a channel: the 56px header (type icon, name, chips, topic; the side toggle
- * and channel settings) over a body. The threads, pins and bell buttons (feature plan N12, N13,
- * N9) go in front of the side toggle when those features land.
+ * Main pane frame for a channel: the 56px header (type icon, name, chips, topic; the threads,
+ * pins and bell buttons of N12, N13 and N9, the side toggle and channel settings) over a body. A
+ * thread shows "#parent › thread" as its title.
  */
 export function ChannelPane({
   channel,
@@ -57,7 +64,9 @@ export function ChannelPane({
 }: ChannelPaneProps): React.JSX.Element {
   const perms = usePermissions(channel.guildId, channel.id)
   const isDm = channel.guildId === null
-  const canManage = !isDm && has(perms, Permissions.MANAGE_CHANNELS)
+  // A thread has no settings page of its own: only its name changes (N12).
+  const canManage = !isDm && channel.type !== 'thread' && has(perms, Permissions.MANAGE_CHANNELS)
+  const hasMessages = channel.type !== 'voice' && channel.type !== 'category'
 
   return (
     <section className={cn(PANE, ROLE_INK_SCOPE)}>
@@ -69,6 +78,9 @@ export function ChannelPane({
             {channel.type === 'voice' && isGuildChannel(channel) && (
               <VoiceHeaderExtras channel={channel} />
             )}
+            {canHoldThreads(channel) && <ThreadsButton channel={channel} />}
+            {hasMessages && <PinsButton channel={channel} />}
+            {hasMessages && <NotifyButton channel={channel} />}
             {onToggleSide && (
               <IconButton
                 label={sideOpen ? `Hide ${side}` : `Show ${side}`}
@@ -131,6 +143,7 @@ export function HeaderChannelIcon({
 
 function ChannelTitle({ channel }: { channel: Channel }): React.JSX.Element {
   const access = useChannelAccess(channel)
+  if (channel.type === 'thread') return <ThreadTitle thread={channel} />
   return (
     <>
       <HeaderChannelIcon channel={channel} readOnly={access.readOnly} />
@@ -166,6 +179,35 @@ function ChannelTitle({ channel }: { channel: Channel }): React.JSX.Element {
           </span>
         </>
       )}
+    </>
+  )
+}
+
+/** "#parent › thread name": the parent opens on click. */
+function ThreadTitle({ thread }: { thread: Channel }): React.JSX.Element {
+  const parent = useChannelStore((s) =>
+    thread.parentId ? s.channels.get(thread.parentId) : undefined
+  )
+  return (
+    <>
+      {parent && (
+        <>
+          <button
+            type="button"
+            onClick={() => openChannelView(parent)}
+            className={cn(
+              'text-text-secondary hover:text-text-primary rounded-control inline-flex min-w-0 shrink items-center gap-1 text-[15px] font-semibold',
+              'focus-visible:outline-line-focus outline-none focus-visible:outline-2'
+            )}
+          >
+            <HeaderChannelIcon channel={parent} readOnly={false} className="size-[18px]" />
+            <span className="truncate">{parent.name}</span>
+          </button>
+          <ChevronRight className="text-text-tertiary size-4 shrink-0" aria-hidden />
+        </>
+      )}
+      <MessagesSquare className="text-feature-thread-text size-5 shrink-0" aria-hidden />
+      <h1 className="text-heading text-text-primary min-w-0 truncate">{thread.name}</h1>
     </>
   )
 }
