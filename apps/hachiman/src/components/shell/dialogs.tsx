@@ -1,4 +1,5 @@
 import type { Channel } from '@hachiman/client'
+import { CircleAlert, Trash2 } from 'lucide-react'
 import { AddServerDialog } from '@/components/add-server-dialog'
 import { ChannelSettingsDialog } from '@/components/channel-settings-dialog'
 import { CreateChannelDialog } from '@/components/create-channel-dialog'
@@ -74,21 +75,31 @@ function DeleteChannelDialog(): React.JSX.Element {
   const { subject: target, open, close } = useDialogSubject('deleteChannel', useDeletedChannel)
   const kind = target?.type === 'category' ? 'category' : 'channel'
 
+  const name = target?.name ?? ''
+  const label = target?.type === 'text' || target?.type === 'pages' ? `#${name}` : name
+
   return (
     <ConfirmDialog
       open={open}
-      title={`Delete ${kind}`}
+      title={`Delete ${label}?`}
       confirmLabel={`Delete ${kind}`}
       tone="danger"
+      icon={<Trash2 />}
       onConfirm={async () => {
         if (target) await hachiman.rest.deleteChannel(target.id)
       }}
       onClose={close}
       body={
-        <p>
-          <span className="font-semibold">{target?.name}</span> will be removed for everyone
-          {target?.type === 'text' ? ', with its message history' : ''}. You can&apos;t undo this.
-        </p>
+        <div className="grid gap-2.5">
+          <p>
+            <span className="font-bold">{label}</span> will be removed for everyone
+            {target?.type === 'text' ? ', with its message history' : ''}.
+          </p>
+          <p className="text-feature-danger-text flex items-center gap-1.5 font-semibold">
+            <CircleAlert aria-hidden className="size-4" />
+            You can&apos;t undo this.
+          </p>
+        </div>
       }
     />
   )
