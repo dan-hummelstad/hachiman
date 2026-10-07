@@ -54,8 +54,14 @@ function tone(): string {
   view.setUint16(34, 8, true)
   text(36, 'data')
   view.setUint32(40, samples, true)
-  for (let i = 0; i < samples; i++)
-    view.setUint8(44 + i, 128 + Math.round(40 * Math.sin((2 * Math.PI * 440 * i) / rate)))
+  // A 440 Hz tone with a pulsing envelope, so that the audio card draws a waveform (N24).
+  for (let i = 0; i < samples; i++) {
+    const envelope = 0.2 + 0.8 * Math.abs(Math.sin((2 * Math.PI * 2.3 * i) / rate))
+    view.setUint8(
+      44 + i,
+      128 + Math.round(40 * envelope * Math.sin((2 * Math.PI * 440 * i) / rate))
+    )
+  }
   let bin = ''
   for (const b of new Uint8Array(view.buffer)) bin += String.fromCharCode(b)
   return `data:audio/wav;base64,${btoa(bin)}`
