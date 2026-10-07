@@ -47,13 +47,13 @@ function LightboxBody({ image }: { image: AttachmentPointer }): React.JSX.Elemen
             className="block max-h-[80vh] max-w-[90vw] object-contain"
           />
         ) : (
-          <span className="text-muted-foreground p-6 text-xs" title={error ?? undefined}>
+          <span className="text-text-tertiary p-6 text-xs" title={error ?? undefined}>
             {error ? 'Unable to decrypt this image.' : 'Decrypting…'}
           </span>
         )}
       </div>
-      <div className="bg-sidebar text-muted-foreground flex items-center justify-between gap-4 border-t px-4 py-2 text-xs tabular-nums">
-        <span className={save.error ? 'text-destructive' : undefined}>
+      <div className="bg-surface-panel border-line-hairline text-text-tertiary flex items-center justify-between gap-4 border-t px-4 py-2 text-xs tabular-nums">
+        <span className={save.error ? 'text-feature-danger-text' : undefined}>
           {save.error ??
             `${image.width && image.height ? `${image.width} × ${image.height}, ` : ''}${formatBytes(image.size)}`}
         </span>
@@ -61,7 +61,7 @@ function LightboxBody({ image }: { image: AttachmentPointer }): React.JSX.Elemen
           type="button"
           disabled={save.busy}
           onClick={() => void save.run('download the image', () => downloadAttachment(image))}
-          className="text-foreground focus-visible:outline-ring flex items-center gap-1.5 font-medium underline-offset-2 outline-none hover:underline focus-visible:outline-2"
+          className="text-text-primary focus-visible:outline-line-focus flex items-center gap-1.5 font-medium underline-offset-2 outline-none hover:underline focus-visible:outline-2"
         >
           Download
           <Download className="size-3.5" aria-hidden />

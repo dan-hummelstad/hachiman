@@ -3,6 +3,9 @@ import { Check, Copy, Pencil, Trash2 } from 'lucide-react'
 import { IconButton } from '@/components/ui/icon-button'
 import { cn } from '@/lib/utils'
 
+/** Rounded 28px icon buttons with 16px icons. */
+const BUTTON = 'text-text-secondary hover:bg-surface-hover hover:text-text-primary size-7'
+
 interface MessageToolbarProps {
   /** Omitted when the message did not decrypt. */
   onCopy?: () => void
@@ -14,8 +17,9 @@ interface MessageToolbarProps {
 }
 
 /**
- * Slack-style hover cluster pinned to the top right of a transcript row. Square, hard shadow.
- * Delete is two-step: the first click arms it, the second deletes.
+ * Hover cluster pinned to the top right of a transcript row: a raised square card with rounded
+ * icon buttons. Delete is two-step: the first click arms it, the second deletes. React (N10),
+ * reply (N11) and thread (N12) go in front of Copy when those features land.
  */
 export function MessageToolbar({
   onCopy,
@@ -42,7 +46,7 @@ export function MessageToolbar({
       role="toolbar"
       aria-label="Message actions"
       className={cn(
-        'bg-popover text-popover-foreground flex border p-0.5 shadow-md',
+        'bg-surface-raised border-line-hairline flex gap-0.5 border p-1 shadow-lg shadow-black/20',
         // Hidden until the row is hovered or something inside it has keyboard focus.
         'pointer-events-none opacity-0 group-hover/row:pointer-events-auto group-hover/row:opacity-100',
         'focus-within:pointer-events-auto focus-within:opacity-100',
@@ -52,7 +56,7 @@ export function MessageToolbar({
     >
       {onCopy && (
         <IconButton
-          size="sm"
+          className={BUTTON}
           label={copied ? 'Copied' : 'Copy text'}
           onClick={() => {
             onCopy()
@@ -63,18 +67,19 @@ export function MessageToolbar({
         </IconButton>
       )}
       {onEdit && (
-        <IconButton size="sm" label="Edit" onClick={onEdit}>
+        <IconButton className={BUTTON} label="Edit" onClick={onEdit}>
           <Pencil />
         </IconButton>
       )}
       {onDelete && (
         <>
           <IconButton
-            size="sm"
             tone="danger"
             label={armed ? 'Click again to delete' : 'Delete'}
             className={cn(
-              armed && 'bg-destructive hover:bg-destructive text-white hover:text-white'
+              BUTTON,
+              armed &&
+                'bg-feature-danger hover:bg-feature-danger text-text-on-accent hover:text-text-on-accent'
             )}
             onClick={() => {
               if (!armed) return setArmed(true)
@@ -85,7 +90,10 @@ export function MessageToolbar({
             <Trash2 />
           </IconButton>
           {armed && (
-            <span aria-hidden className="text-destructive self-center px-1.5 text-xs font-medium">
+            <span
+              aria-hidden
+              className="text-feature-danger-text self-center px-1.5 text-xs font-semibold"
+            >
               Delete?
             </span>
           )}
