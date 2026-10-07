@@ -185,7 +185,7 @@ function PersonRow({ user, dim }: { user: User; dim: boolean }): React.JSX.Eleme
         <DropdownMenuTrigger asChild>
           <IconButton
             label="More"
-            className="opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 data-[state=open]:opacity-100"
+            className="hidden group-focus-within:inline-flex group-hover:inline-flex data-[state=open]:inline-flex"
           >
             <MoreHorizontal />
           </IconButton>
