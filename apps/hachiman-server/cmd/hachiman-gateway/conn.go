@@ -482,6 +482,7 @@ func (g *Gateway) identify(c *conn, raw json.RawMessage) (*session, error) {
 		"guilds":          s.clientGuilds(ctx, data.Guilds),
 		"privateChannels": nonNil(data.DMs),
 		"presences":       g.presences(ctx, keys(s.dmPartners)),
+		"readStates":      s.visibleReadStates(data.ReadStates),
 	}
 	g.addSession(s)
 	go s.run(func() bool {

@@ -88,12 +88,69 @@ type GuildFull struct {
 	Presences   []Presence   `json:"presences"`
 }
 
+// ReadState is contract §1 ReadState, as READY sends it.
+type ReadState struct {
+	ChannelID         string  `json:"channelId"`
+	LastReadMessageID *string `json:"lastReadMessageId"`
+	UnreadCount       int     `json:"unreadCount"`
+	LastMessageID     *string `json:"lastMessageId"`
+	// guildID is nil for a DM. The session filters guild channels by VIEW_CHANNEL.
+	guildID *string
+}
+
+// readStateUnreadCap is the highest unreadCount in READY (§1).
+const readStateUnreadCap = 100
+
+// readStateChannels lists the channels that have a read state: the text and
+// pages channels of the guilds and every DM. The list holds hidden channels
+// too; visibleReadStates filters them.
+func readStateChannels(data *readyData) (ids []string, guildOf map[string]*string) {
+	guildOf = map[string]*string{}
+	for _, gf := range data.Guilds {
+		for _, ch := range gf.Channels {
+			if ch.Type == "text" || ch.Type == "pages" {
+				ids = append(ids, ch.ID)
+				guildOf[ch.ID] = ch.GuildID
+			}
+		}
+	}
+	for _, ch := range data.DMs {
+		ids = append(ids, ch.ID)
+		guildOf[ch.ID] = nil
+	}
+	return ids, guildOf
+}
+
+// readStatesSQL reads the read state of user $2 in each channel of $1 in one
+// query. Messages are in (created_at, id) order (messages_channel_created_idx).
+// unreadCount counts the messages after the read position from other authors,
+// at most $3 of them. Without a read state it is 0: the client uses
+// lastMessageId to show the channel as unread.
+const readStatesSQL = `
+	SELECT ch.id::text, rs.last_read_message_id::text, lm.id::text, COALESCE(uc.n, 0)
+	FROM unnest($1::uuid[]) AS ch(id)
+	LEFT JOIN read_states rs ON rs.channel_id = ch.id AND rs.user_id = $2::uuid
+	LEFT JOIN LATERAL (
+		SELECT m.id FROM messages m WHERE m.channel_id = ch.id
+		ORDER BY m.created_at DESC, m.id DESC LIMIT 1
+	) lm ON true
+	LEFT JOIN LATERAL (
+		SELECT count(*)::int AS n FROM (
+			SELECT 1 FROM messages m
+			WHERE m.channel_id = ch.id AND m.author_id <> $2::uuid
+			  AND (m.created_at, m.id) > (rs.last_read_created_at, rs.last_read_message_id)
+			ORDER BY m.created_at DESC, m.id DESC LIMIT $3
+		) x
+	) uc ON rs.user_id IS NOT NULL`
+
 // readyData is what Postgres knows about a user. Guild channels are ALL of
 // them (not just visible ones): the session needs hidden channels to emit
 // CHANNEL_CREATE when a permission change reveals one.
 type readyData struct {
 	Guilds []*GuildFull
 	DMs    []Channel
+	// ReadStates is filled on a full load only, for hidden channels too.
+	ReadStates []ReadState
 }
 
 // usernameSQL implements contract §1: displayName ?? name ?? email local part.
@@ -242,6 +299,22 @@ func pgLoader(db *pgxpool.Pool) func(ctx context.Context, userID, onlyGuild stri
 		}
 		for _, id := range dmIDs {
 			out.DMs = append(out.DMs, *dms[id])
+		}
+
+		chIDs, guildOf := readStateChannels(out)
+		if len(chIDs) > 0 {
+			rows, _ = db.Query(ctx, readStatesSQL, chIDs, userID, readStateUnreadCap)
+			if err := forEach(rows, func() error {
+				var r ReadState
+				if err := rows.Scan(&r.ChannelID, &r.LastReadMessageID, &r.LastMessageID, &r.UnreadCount); err != nil {
+					return err
+				}
+				r.guildID = guildOf[r.ChannelID]
+				out.ReadStates = append(out.ReadStates, r)
+				return nil
+			}); err != nil {
+				return nil, fmt.Errorf("read states: %w", err)
+			}
 		}
 		return out, nil
 	}
