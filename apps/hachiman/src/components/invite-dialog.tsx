@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import { Check, Copy, Link2, UserPlus } from 'lucide-react'
+import { useCopy } from '@/hooks/use-copy'
 import { Permissions, has, type Channel } from '@hachiman/client'
 import { Warning } from '@/components/security/screen-window'
 import { Button } from '@/components/ui/button'
@@ -65,8 +66,15 @@ export function InviteDialog(): React.JSX.Element {
   const [includeHistory, setIncludeHistory] = useState(false)
   // Tagged (`Created.tag`) with the options it was made for, so it hides when they change.
   const [created, setCreated] = useState<Created | null>(null)
-  const [copied, setCopied] = useState(false)
   const { run, busy, error, setError, clearError } = useAction()
+  const {
+    copied,
+    copy: copyLink,
+    reset: resetCopied
+  } = useCopy({
+    resetMs: null,
+    onError: (e) => setError(errMsg(e))
+  })
 
   const scope = useMemo(
     () => (guild && roles ? inviteScope(guild, roles, channels.values()) : NO_CHANNELS),
@@ -108,7 +116,7 @@ export function InviteDialog(): React.JSX.Element {
     },
     onCreated: (c) => {
       setCreated(c)
-      setCopied(false)
+      resetCopied()
     }
   })
 
@@ -119,10 +127,7 @@ export function InviteDialog(): React.JSX.Element {
   const copy = (): void => {
     if (!shown) return
     clearError()
-    copyInviteLink(shown.code, shown.key).then(
-      () => setCopied(true),
-      (e: unknown) => setError(errMsg(e))
-    )
+    copyLink(() => copyInviteLink(shown.code, shown.key))
   }
 
   const expiryLabel =
@@ -165,7 +170,7 @@ export function InviteDialog(): React.JSX.Element {
               isAdmin={isAdmin}
               onChange={(o) => {
                 setOptions(o)
-                setCopied(false)
+                resetCopied()
               }}
             />
           </div>
@@ -177,7 +182,7 @@ export function InviteDialog(): React.JSX.Element {
                 setIncludeHistory(on)
                 // An invite with history has one use by default (§12.11.4).
                 if (on) setOptions({ ...options, maxUses: 1 })
-                setCopied(false)
+                resetCopied()
               }}
             />
           )}
@@ -202,8 +207,8 @@ export function InviteDialog(): React.JSX.Element {
               />
               {shown ? (
                 <Button className="w-28" onClick={copy}>
-                  {copied ? <Check /> : <Copy />}
-                  {copied ? 'Copied' : 'Copy link'}
+                  {copied !== null ? <Check /> : <Copy />}
+                  {copied !== null ? 'Copied' : 'Copy link'}
                 </Button>
               ) : (
                 <Button className="w-28" disabled={busy} onClick={() => void create()}>

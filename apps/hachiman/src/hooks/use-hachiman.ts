@@ -24,6 +24,30 @@ export function useGuildChannels(guildId: string | null): Channel[] {
   }, [channels, guildId])
 }
 
+/** The channels of `type` in a guild that I can view (VIEW_CHANNEL), in sidebar order. */
+export function useViewableChannels(guildId: string, type: Channel['type']): Channel[] {
+  const channels = useChannelStore((s) => s.channels)
+  const guild = useGuildStore((s) => s.guilds.get(guildId))
+  const roles = useGuildStore((s) => s.roles.get(guildId))
+  const myId = useUserStore((s) => s.me?.id)
+  const member = useGuildStore((s) => (myId ? s.members.get(guildId)?.get(myId) : undefined))
+  return useMemo(
+    () =>
+      [...channels.values()]
+        .filter(
+          (c) =>
+            c.guildId === guildId &&
+            c.type === type &&
+            has(
+              effectivePermissions({ guild, member, roles, channel: c }),
+              Permissions.VIEW_CHANNEL
+            )
+        )
+        .sort(compareChannels),
+    [channels, guildId, type, guild, member, roles]
+  )
+}
+
 const EMPTY_VOICE_STATES: VoiceState[] = []
 
 /** Voice states of the users in one channel (join order); a stable empty array when none. */

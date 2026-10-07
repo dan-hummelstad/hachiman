@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Camera, CameraOff, Copy } from 'lucide-react'
+import { useCopy } from '@/hooks/use-copy'
 import { Button } from '@/components/ui/button'
 import { ErrorText, Field } from '@/components/ui/field'
 import { Textarea } from '@/components/ui/textarea'
@@ -46,13 +47,7 @@ export function CopyableCode({
   value: string
   label: string
 }): React.JSX.Element {
-  const [copied, setCopied] = useState<'yes' | 'failed' | null>(null)
-  const copy = (): void => {
-    navigator.clipboard.writeText(value).then(
-      () => setCopied('yes'),
-      () => setCopied('failed')
-    )
-  }
+  const { copied, failed, copy } = useCopy()
   return (
     <div className="grid gap-1.5">
       <span className="text-xs leading-4 font-semibold">{label}</span>
@@ -60,13 +55,11 @@ export function CopyableCode({
         <code className="border-line-hairline bg-surface-sunken max-h-20 min-w-0 flex-1 overflow-y-auto border p-2 font-mono text-[11px] leading-4 break-all select-all">
           {value}
         </code>
-        <Button type="button" size="sm" variant="secondary" onClick={copy}>
-          <Copy /> {copied === 'yes' ? 'Copied' : 'Copy'}
+        <Button type="button" size="sm" variant="secondary" onClick={() => copy(value)}>
+          <Copy /> {copied !== null ? 'Copied' : 'Copy'}
         </Button>
       </div>
-      {copied === 'failed' && (
-        <ErrorText>Could not copy. Select the text and copy it by hand.</ErrorText>
-      )}
+      {failed && <ErrorText>Could not copy. Select the text and copy it by hand.</ErrorText>}
     </div>
   )
 }

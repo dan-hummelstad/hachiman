@@ -6,12 +6,12 @@ import { CallSecurityBanner } from '@/components/voice/call-security'
 import { secureUserIds } from '@/components/voice/call-roster'
 import { ScreenShareControls } from '@/components/voice/screen-share-controls'
 import { SelfVoiceToggles } from '@/components/voice/self-voice-toggles'
-import { LiveCard, StreamGrid } from '@/components/voice/stream-grid'
-import { useCallParticipants, useCallSecurity } from '@/components/voice/use-call-security'
+import { LiveCard, StreamerName } from '@/components/voice/live-card'
+import { StreamGrid } from '@/components/voice/stream-grid'
+import { useCallParticipants, useCanJoinVoice } from '@/components/voice/use-call-security'
 import { ParticipantTile, type TileStatus } from '@/components/voice/voice-tile'
 import { stageColumns } from '@/components/voice/voice-tile-styles'
 import { useChannelOccupants, usePermissions } from '@/hooks/use-hachiman'
-import { useMemberView } from '@/hooks/use-member'
 import { channelLabel, type GuildChannel } from '@/lib/model'
 import { cn } from '@/lib/utils'
 import { voiceService } from '@/services/VoiceService'
@@ -125,14 +125,14 @@ function ControlBar(): React.JSX.Element {
 function NotJoined({ channel }: { channel: GuildChannel }): React.JSX.Element {
   const occupants = useChannelOccupants(channel.guildId, channel.id)
   const canConnect = has(usePermissions(channel.guildId, channel.id), Permissions.CONNECT)
-  const { kind } = useCallSecurity()
+  const canJoin = useCanJoinVoice(channel.guildId, channel.id)
   const otherCallId = useVoiceStore((s) => s.channelId)
   const otherCallName = useChannelStore((s) =>
     otherCallId ? (s.channels.get(otherCallId)?.name ?? null) : null
   )
   const streamer = occupants.find((vs) => vs.selfStream) ?? null
   const channelName = channelLabel(channel).name
-  const joinDisabled = !canConnect || kind === 'update_required' || kind === 'resyncing'
+  const joinDisabled = !canJoin
 
   return (
     <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-5 overflow-y-auto p-6">
@@ -142,6 +142,7 @@ function NotJoined({ channel }: { channel: GuildChannel }): React.JSX.Element {
           userId={streamer.userId}
           channelName={channelName}
           watching={occupants.length - 1}
+          size="lg"
         />
       ) : occupants.length > 0 ? (
         <ul
@@ -165,7 +166,7 @@ function NotJoined({ channel }: { channel: GuildChannel }): React.JSX.Element {
       ) : null}
       <h2 className="text-text-primary text-center text-lg font-extrabold">
         {streamer ? (
-          <StreamerHeadline
+          <StreamerName
             guildId={channel.guildId}
             userId={streamer.userId}
             channelName={channelName}
@@ -212,22 +213,5 @@ function NotJoined({ channel }: { channel: GuildChannel }): React.JSX.Element {
       )}
       <CallSecurityBanner className="w-full max-w-md" />
     </div>
-  )
-}
-
-function StreamerHeadline({
-  guildId,
-  userId,
-  channelName
-}: {
-  guildId: string
-  userId: string
-  channelName: string
-}): React.JSX.Element {
-  const { name } = useMemberView(guildId, userId)
-  return (
-    <>
-      {name} is live in {channelName}
-    </>
   )
 }

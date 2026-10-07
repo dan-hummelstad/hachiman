@@ -22,6 +22,7 @@ import { IconButton } from '@/components/ui/icon-button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { usePermissions } from '@/hooks/use-hachiman'
+import { useCopy } from '@/hooks/use-copy'
 import { cn, errMsg } from '@/lib/utils'
 import { countWords } from '@/lib/word-count'
 import { docsService } from '@/services/docs/DocsService'
@@ -262,46 +263,35 @@ function Presence({ pageId }: { pageId: string }): React.JSX.Element | null {
   )
 }
 
-/** True for 1.5 s after `flash()`. */
-function useFlash(): [boolean, () => void] {
-  const [on, setOn] = useState(false)
-  useEffect(() => {
-    if (!on) return
-    const t = setTimeout(() => setOn(false), 1500)
-    return () => clearTimeout(t)
-  }, [on])
-  return [on, () => setOn(true)]
-}
-
-function copyText(text: string, done: () => void): void {
-  navigator.clipboard?.writeText(text).then(done, (e) => console.warn('[pages] copy failed', e))
-}
-
 /** Copies a markdown link to the page. Pasted into a page, it is a page link (page-links.ts). */
 function CopyLink({ page }: { page: PageNode }): React.JSX.Element {
-  const [copied, flash] = useFlash()
-  const copy = (): void => {
+  const { copied, copy } = useCopy()
+  const copyLink = (): void => {
     const title = pageTitle(page).replace(/[[\]\\]/g, '\\$&')
-    copyText(`[${title}](${pageHref(page.id)})`, flash)
+    copy(`[${title}](${pageHref(page.id)})`)
   }
   return (
-    <IconButton label={copied ? 'Copied' : 'Copy link'} tooltipSide="bottom" onClick={copy}>
-      {copied ? <Check /> : <Link2 />}
+    <IconButton
+      label={copied !== null ? 'Copied' : 'Copy link'}
+      tooltipSide="bottom"
+      onClick={copyLink}
+    >
+      {copied !== null ? <Check /> : <Link2 />}
     </IconButton>
   )
 }
 
 function MoreMenu({ pageId }: { pageId: string }): React.JSX.Element {
-  const [copied, flash] = useFlash()
+  const { copied, copy } = useCopy()
   const copyMarkdown = (): void => {
     const md = docsService.copyMarkdown(pageId)
-    if (md !== null) copyText(md, flash)
+    if (md !== null) copy(md)
   }
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <IconButton label={copied ? 'Copied' : 'More'} tooltipSide="bottom">
-          {copied ? <Check /> : <MoreHorizontal />}
+        <IconButton label={copied !== null ? 'Copied' : 'More'} tooltipSide="bottom">
+          {copied !== null ? <Check /> : <MoreHorizontal />}
         </IconButton>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
@@ -392,12 +382,21 @@ function OpenPage({
   )
 }
 
-const WORD_COUNT_DELAY_MS = 400
+const WORD_COUNT_DELAY_MS = 1000
+
+/** The footer line of each page status. OpenPage shows the footer only for 'ready' and 'offline'. */
+const FOOTER: Record<DocStatus, { label: string; live: boolean }> = {
+  ready: { label: 'Saved', live: true },
+  offline: { label: 'Offline', live: false },
+  loading: { label: 'Loading', live: false },
+  waiting: { label: 'Waiting for a member', live: false },
+  error: { label: 'Cannot be read', live: false }
+}
 
 /**
  * "Saved · end-to-end encrypted" while the page is live (each edit goes out encrypted within
  * 100 ms), "Offline" while edits wait. The word count reads the markdown that the editor
- * registers (DocsService.copyMarkdown), after each change of the doc.
+ * registers (DocsService.copyMarkdown), when typing pauses and the main thread is idle.
  */
 function PageFooter({
   handle,
@@ -407,7 +406,7 @@ function PageFooter({
   status: DocStatus
 }): React.JSX.Element {
   const words = useWordCount(handle)
-  const live = status === 'ready'
+  const { label, live } = FOOTER[status]
   return (
     <footer className="border-line-hairline flex h-10 shrink-0 items-center gap-2 border-t px-4 text-xs font-semibold">
       <span
@@ -417,7 +416,7 @@ function PageFooter({
         )}
       >
         <Lock className="size-3.5" aria-hidden />
-        {live ? 'Saved' : 'Offline'} · end-to-end encrypted
+        {label} · end-to-end encrypted
       </span>
       <span className="flex-1" />
       {words !== null && (
@@ -433,11 +432,20 @@ function useWordCount(handle: DocHandle): number | null {
   const [words, setWords] = useState<number | null>(null)
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | undefined
+    let idle: number | undefined
+    const measure = (): void => {
+      idle = undefined
+      const md = docsService.copyMarkdown(handle.pageId)
+      setWords(md === null ? null : countWords(md))
+    }
+    // The whole page goes to markdown: only after typing pauses, and when the thread is idle.
     const count = (): void => {
       clearTimeout(timer)
       timer = setTimeout(() => {
-        const md = docsService.copyMarkdown(handle.pageId)
-        setWords(md === null ? null : countWords(md))
+        if (idle !== undefined) return
+        if (typeof requestIdleCallback === 'function')
+          idle = requestIdleCallback(measure, { timeout: 2000 })
+        else measure()
       }, WORD_COUNT_DELAY_MS)
     }
     // The editor registers its markdown source after it mounts (lazy chunk): count once after that.
@@ -445,6 +453,7 @@ function useWordCount(handle: DocHandle): number | null {
     handle.doc.on('update', count)
     return () => {
       clearTimeout(timer)
+      if (idle !== undefined) cancelIdleCallback(idle)
       handle.doc.off('update', count)
     }
   }, [handle])

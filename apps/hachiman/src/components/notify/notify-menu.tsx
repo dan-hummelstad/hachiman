@@ -18,7 +18,7 @@ import { ModalWindow } from '@/components/ui/modal-window'
 import { RadioCard } from '@/components/ui/radio-card'
 import { Switch } from '@/components/ui/switch'
 import { useDialogSubject } from '@/hooks/use-dialog-subject'
-import { isMuted, notifyLevel, type NotifyLevel } from '@/lib/notify'
+import { guildNotifyLevel, isFollowing, isMuted, notifyLevel, type NotifyLevel } from '@/lib/notify'
 import type { DialogOf } from '@/stores/dialogStore'
 import { useGuildStore } from '@/stores/guildStore'
 import { useNotifyPrefs, usePrefsStore } from '@/stores/prefsStore'
@@ -92,13 +92,13 @@ export function NotifyButton({ channel }: { channel: Channel }): React.JSX.Eleme
 }
 
 /**
- * "Follow" in the read-only notice (B7): sets the channel to all messages. While followed it
- * shows "Following"; a click there goes back to the guild setting.
+ * "Follow" in the read-only notice (B7): sets the channel to all messages. While followed
+ * (isFollowing) it shows "Following"; a click there goes back to the guild setting.
  */
 export function FollowButton({ channel }: { channel: Channel }): React.JSX.Element {
   const prefs = useNotifyPrefs()
   const setNotifyLevel = usePrefsStore((s) => s.setNotifyLevel)
-  const following = notifyLevel(prefs, channel.id, channel.guildId) === 'all'
+  const following = isFollowing(prefs, channel.id)
   return (
     <Button
       variant="secondary"
@@ -122,7 +122,7 @@ export function NotifySettingsDialog(): React.JSX.Element {
   const setNotifyLevel = usePrefsStore((s) => s.setNotifyLevel)
   const setMuted = usePrefsStore((s) => s.setMuted)
   const guildId = guild?.id ?? ''
-  const level = prefs.notify[guildId] ?? 'mentions'
+  const level = guildNotifyLevel(prefs, guildId)
   const muted = prefs.muted.includes(guildId)
 
   return (

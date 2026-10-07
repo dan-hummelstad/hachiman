@@ -8,17 +8,26 @@ export interface NotifyPrefs {
   muted: readonly string[]
 }
 
+/** The level of a guild: its own, else the default for guild channels ('mentions'). */
+export function guildNotifyLevel(p: NotifyPrefs, guildId: string): NotifyLevel {
+  return p.notify[guildId] ?? 'mentions'
+}
+
 /** The level of a channel: its own, else its guild's, else the default (DMs: all, guilds: mentions). */
 export function notifyLevel(
   p: NotifyPrefs,
   channelId: string,
   guildId: string | null
 ): NotifyLevel {
-  return (
-    p.notify[channelId] ??
-    (guildId !== null ? p.notify[guildId] : undefined) ??
-    (guildId === null ? 'all' : 'mentions')
-  )
+  return p.notify[channelId] ?? (guildId === null ? 'all' : guildNotifyLevel(p, guildId))
+}
+
+/**
+ * "Following" a read-only channel (B7): the channel itself is set to all messages. A guild level
+ * of 'all' alone is not following, so "Follow" sets the channel and "Following" can undo it.
+ */
+export function isFollowing(p: NotifyPrefs, channelId: string): boolean {
+  return p.notify[channelId] === 'all'
 }
 
 export function isMuted(p: NotifyPrefs, channelId: string, guildId: string | null): boolean {

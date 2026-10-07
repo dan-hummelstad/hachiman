@@ -1,10 +1,13 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowDown } from 'lucide-react'
 import type { Channel } from '@hachiman/client'
+import { SystemTag } from '@/components/ui/system-tag'
+import { highlightRow, jumpStep } from '@/lib/navigation'
 import { cn } from '@/lib/utils'
 import { messagesService } from '@/services/MessagesService'
 import { unreadService } from '@/services/UnreadService'
 import { useMessageStore, type ChatMessage } from '@/stores/messagesStore'
+import { useNavStore } from '@/stores/navStore'
 import { usePrefsStore } from '@/stores/prefsStore'
 import { useFirstUnreadId } from '@/stores/unreadStore'
 import { useUserStore } from '@/stores/userStore'
@@ -12,8 +15,8 @@ import { useMembershipTimeline } from '@/hooks/use-membership-timeline'
 import { ChannelIntro } from './channel-intro'
 import { buildItems, formatDay, membershipSlots } from './format'
 import { MembershipLine } from './membership-line'
-import { MessageRow } from './message-row'
-import { PageActivityRow } from './page-cards'
+import { TranscriptRow } from './message-row'
+import type { RowPolicy } from './row-policy'
 
 const EMPTY_MESSAGES: ChatMessage[] = []
 /** Distance from the bottom (px) past which "Jump to present" appears. */
@@ -28,15 +31,12 @@ const LOAD_PX = 200
  */
 export function Transcript({
   channel,
-  canManageMessages,
-  canSend,
+  policy,
   onUpload
 }: {
   channel: Channel
-  /** May delete others' messages. */
-  canManageMessages: boolean
-  /** SEND_MESSAGES: the rows offer reply and react. */
-  canSend: boolean
+  /** What I may do with the rows, the same object for every row. */
+  policy: RowPolicy
   /** ATTACH_FILES: the drop card of an empty channel offers an upload. */
   onUpload?: (files: File[]) => void
 }): React.JSX.Element {
@@ -59,6 +59,22 @@ export function Transcript({
   useEffect(() => {
     messagesService.ensureLoaded(channelId)
   }, [channelId])
+
+  // A jump from pins, the inbox or a thread start (lib/navigation): show the row once it renders.
+  const jumpId = useNavStore((s) =>
+    s.pendingJump?.channelId === channelId ? s.pendingJump.messageId : null
+  )
+  useEffect(() => {
+    if (jumpId === null) return
+    const step = jumpStep(
+      jumpId,
+      messages.map((m) => m.id),
+      hasMore !== undefined
+    )
+    if (step === 'wait') return
+    if (step === 'show') highlightRow(jumpId)
+    useNavStore.getState().setPendingJump(null)
+  }, [jumpId, messages, hasMore])
 
   const jumpToPresent = useCallback((smooth = true): void => {
     scroller.current?.scrollTo({ top: 0, behavior: smooth ? 'smooth' : 'auto' })
@@ -103,33 +119,24 @@ export function Transcript({
               {hasMore === undefined ? 'Loading messages…' : 'Loading older messages…'}
             </div>
           )}
-          {items.map(({ message, newDay, groupStart }, i) => {
-            const mine = message.author.id === myId
-            return (
-              <Fragment key={message.nonce ?? message.id}>
-                {newDay && <DayDivider iso={message.createdAt} />}
-                {slots.get(i)?.map((e, j) => (
-                  <MembershipLine key={`m${j}`} event={e} channel={channel} />
-                ))}
-                {message.id === firstUnreadId && <NewDivider />}
-                {message.kind === 'page_activity' ? (
-                  <PageActivityRow message={message} />
-                ) : (
-                  <MessageRow
-                    message={message}
-                    groupStart={groupStart || message.id === firstUnreadId}
-                    display={display}
-                    guildId={channel.guildId}
-                    canEdit={mine}
-                    canDelete={mine || canManageMessages}
-                    canSend={canSend}
-                    editing={editingId === message.id}
-                    onEditingChange={setEditingId}
-                  />
-                )}
-              </Fragment>
-            )
-          })}
+          {items.map(({ message, newDay, groupStart }, i) => (
+            <Fragment key={message.nonce ?? message.id}>
+              {newDay && <DayDivider iso={message.createdAt} />}
+              {slots.get(i)?.map((e, j) => (
+                <MembershipLine key={`m${j}`} event={e} channel={channel} />
+              ))}
+              {message.id === firstUnreadId && <NewDivider />}
+              <TranscriptRow
+                message={message}
+                groupStart={groupStart || message.id === firstUnreadId}
+                display={display}
+                guildId={channel.guildId}
+                policy={policy}
+                editing={editingId === message.id}
+                onEditingChange={setEditingId}
+              />
+            </Fragment>
+          ))}
           {slots.get(items.length)?.map((e, j) => (
             <MembershipLine key={`m${j}`} event={e} channel={channel} />
           ))}
@@ -209,9 +216,7 @@ function NewDivider(): React.JSX.Element {
     >
       {/* A 2px coral wash (B1/B2): a 1px full-strength line reads as a grey rule at 1x. */}
       <div className="bg-feature-danger/25 h-0.5 flex-1" />
-      <span className="bg-feature-danger text-text-on-accent rounded-check px-1.5 py-px text-[10px] leading-4 font-extrabold tracking-[0.6px]">
-        NEW
-      </span>
+      <SystemTag kind="new" />
     </div>
   )
 }

@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
-import type { TrustInfo, VoiceRosterEntry } from '@hachiman/crypto'
+import type { VoiceRosterEntry } from '@hachiman/crypto'
 import { callParticipants, type CallParticipant } from '@/components/voice/call-roster'
-import { useChannelOccupants } from '@/hooks/use-hachiman'
+import { Permissions, has } from '@hachiman/client'
+import { canJoinVoice } from '@/components/voice/join-gate'
+import { useChannelOccupants, usePermissions } from '@/hooks/use-hachiman'
 import { cryptoService } from '@/services/CryptoService'
 import { useCryptoStore } from '@/stores/cryptoStore'
 import { useVoiceStore } from '@/stores/voiceStore'
@@ -18,12 +20,7 @@ const EMPTY_ROSTER: VoiceRosterEntry[] = []
  * - 'none': not in a call.
  */
 export type CallSecurityKind =
-  | 'update_required'
-  | 'resyncing'
-  | 'resync_failed'
-  | 'securing'
-  | 'secure'
-  | 'none'
+  'update_required' | 'resyncing' | 'resync_failed' | 'securing' | 'secure' | 'none'
 
 export function useCallSecurity(): { kind: CallSecurityKind; epoch: number | null } {
   const fatal = useCryptoStore((s) => s.fatal)
@@ -82,19 +79,8 @@ export function useEpochCode(): string | null {
   return result !== null && result.key === key ? result.code : null
 }
 
-/** The trust state of one contact, or null while unknown. */
-export function useTrust(userId: string): TrustInfo | null {
-  const [trust, setTrust] = useState<TrustInfo | null>(null)
-  useEffect(() => {
-    let live = true
-    const read = async (): Promise<TrustInfo> => cryptoService.client().getTrust(userId)
-    read().then(
-      (t) => live && setTrust(t),
-      (e: unknown) => console.warn('[voice] trust unavailable for %s', userId, e)
-    )
-    return () => {
-      live = false
-    }
-  }, [userId])
-  return trust?.userId === userId ? trust : null
+/** Whether "Join" may start a call in `channelId` (canJoinVoice): Active now, the room, the DM profile. */
+export function useCanJoinVoice(guildId: string, channelId: string): boolean {
+  const canConnect = has(usePermissions(guildId, channelId), Permissions.CONNECT)
+  return canJoinVoice(canConnect, useCallSecurity().kind)
 }

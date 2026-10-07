@@ -1,7 +1,7 @@
-import { BadgeCheck, Lock, ShieldAlert } from 'lucide-react'
+import { BadgeCheck, Lock } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
-export type SystemTagKind = 'page' | 'live' | 'bot' | 'new' | 'you' | 'encrypted' | 'key-changed'
+export type SystemTagKind = 'page' | 'live' | 'bot' | 'new' | 'you' | 'encrypted'
 
 const TAG: Record<SystemTagKind, { label: string; className: string; icon?: React.ReactNode }> = {
   page: { label: 'PAGE', className: 'bg-feature-page/15 text-feature-page-text' },
@@ -17,15 +17,10 @@ const TAG: Record<SystemTagKind, { label: string; className: string; icon?: Reac
     label: 'ENCRYPTED',
     className: 'bg-feature-voice/15 text-feature-voice-text',
     icon: <Lock aria-hidden />
-  },
-  'key-changed': {
-    label: 'KEY CHANGED',
-    className: 'bg-feature-event/15 text-feature-event-text',
-    icon: <ShieldAlert aria-hidden />
   }
 }
 
-/** Square uppercase system tag: PAGE, LIVE, BOT, NEW, YOU, ENCRYPTED, KEY CHANGED. */
+/** Square uppercase system tag: PAGE, LIVE, BOT, NEW, YOU, ENCRYPTED. */
 export function SystemTag({
   kind,
   className

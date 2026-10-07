@@ -19,6 +19,7 @@ import { blockService } from '@/services/guild-features'
 import { useMessageStore, useReplyTarget, type ChatMessage } from '@/stores/messagesStore'
 import { useIsBlocked } from '@/stores/userStore'
 import { useComposerStore, useReplyTargetId } from '@/stores/composerStore'
+import { rowPolicy } from './row-policy'
 import { useSendPaused } from './use-dm-trust'
 
 const EMPTY_ROWS: ChatMessage[] = []
@@ -36,7 +37,8 @@ function ChannelChat({ channel }: { channel: Channel }): React.JSX.Element {
   const perms = usePermissions(channel.guildId, channel.id)
   const label = channelLabel(channel)
   const where = `${label.sigil}${label.name}`
-  const canSend = has(perms, Permissions.SEND_MESSAGES)
+  const policy = useMemo(() => rowPolicy(channel, perms), [channel, perms])
+  const { canSend } = policy
   const canAttach = canSend && has(perms, Permissions.ATTACH_FILES)
   const uploads = useUploads()
   const access = useChannelAccess(channel)
@@ -74,8 +76,7 @@ function ChannelChat({ channel }: { channel: Channel }): React.JSX.Element {
     >
       <Transcript
         channel={channel}
-        canManageMessages={has(perms, Permissions.MANAGE_MESSAGES)}
-        canSend={canSend}
+        policy={policy}
         onUpload={canAttach ? uploads.add : undefined}
       />
       <footer className="shrink-0 px-4">

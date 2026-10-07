@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useCopy } from '@/hooks/use-copy'
 import { Check, Copy, Ellipsis, Pencil, Reply, SmilePlus, Trash2 } from 'lucide-react'
 import {
   DropdownMenu,
@@ -17,8 +18,8 @@ interface MessageToolbarProps {
   onReact?: (emoji: string) => void
   /** Makes this message the reply target of the composer (N11). */
   onReply?: () => void
-  /** Omitted when the message did not decrypt. */
-  onCopy?: () => void
+  /** The text that "Copy text" copies. Omitted when the message did not decrypt. */
+  copyText?: string
   /** Omitted when the message isn't mine. */
   onEdit?: () => void
   /** Omitted when I can't delete it (not mine and no MANAGE_MESSAGES). */
@@ -36,22 +37,17 @@ interface MessageToolbarProps {
 export function MessageToolbar({
   onReact,
   onReply,
-  onCopy,
+  copyText,
   onEdit,
   onDelete,
   more,
   className
 }: MessageToolbarProps): React.JSX.Element {
-  const [copied, setCopied] = useState(false)
+  const { copied, copy } = useCopy({ resetMs: 1200 })
   const [armed, setArmed] = useState(false)
   const [picking, setPicking] = useState(false)
   const [moreOpen, setMoreOpen] = useState(false)
 
-  useEffect(() => {
-    if (!copied) return
-    const t = setTimeout(() => setCopied(false), 1200)
-    return () => clearTimeout(t)
-  }, [copied])
   useEffect(() => {
     if (!armed) return
     const t = setTimeout(() => setArmed(false), 3000)
@@ -83,16 +79,13 @@ export function MessageToolbar({
           <Reply />
         </IconButton>
       )}
-      {onCopy && (
+      {copyText !== undefined && (
         <IconButton
           className={BUTTON}
-          label={copied ? 'Copied' : 'Copy text'}
-          onClick={() => {
-            onCopy()
-            setCopied(true)
-          }}
+          label={copied !== null ? 'Copied' : 'Copy text'}
+          onClick={() => copy(copyText)}
         >
-          {copied ? <Check /> : <Copy />}
+          {copied !== null ? <Check /> : <Copy />}
         </IconButton>
       )}
       {onEdit && (

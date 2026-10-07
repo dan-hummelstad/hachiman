@@ -19,13 +19,14 @@ import { usePermissions } from '@/hooks/use-hachiman'
 import { usePresence } from '@/hooks/use-member'
 import { channelLabel, hexColor } from '@/lib/model'
 import { cn } from '@/lib/utils'
-import { jumpToMessage, openChannelView } from '@/components/pins/jump'
+import { jumpToMessage, openChannelView } from '@/lib/navigation'
 import { useChannelStore } from '@/stores/channelStore'
 import { openDialog } from '@/stores/dialogStore'
 import { openSettings } from '@/stores/navStore'
 import { pinTab, useIsPinned, type TabTarget } from '@/stores/tabsStore'
 import { useChannelAccess } from '@/lib/channel-access'
-import { useTrustBadge } from './use-dm-trust'
+import { TRUST_LOOK } from '@/components/people/trust-look'
+import { useContactTrust } from '@/components/people/use-contact-trust'
 
 /** The quiet intro buttons: hairline outline, hover wash. */
 const INTRO_BUTTON = 'border-line-hairline text-text-primary'
@@ -262,7 +263,7 @@ function DmIntro({ channel }: { channel: Channel }): React.JSX.Element {
   const recipients = channel.recipients ?? []
   const solo = recipients.length === 1 ? recipients[0] : undefined
   const status = usePresence(solo?.id)
-  const badge = useTrustBadge(solo?.id)
+  const { trust } = useContactTrust(solo?.id)
   return (
     <div className="px-5 pt-10 pb-4">
       {solo ? (
@@ -283,7 +284,7 @@ function DmIntro({ channel }: { channel: Channel }): React.JSX.Element {
       <p className="text-body text-text-secondary mt-1.5 max-w-[70ch]">
         This is the start of your conversation with {name}. Messages are end-to-end encrypted.
       </p>
-      {solo && badge && badge !== 'verified' && (
+      {solo && trust && TRUST_LOOK[trust.state].canVerify && (
         <div className="mt-4 flex gap-2">
           <Button
             variant="quiet"

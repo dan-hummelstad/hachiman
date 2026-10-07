@@ -1,7 +1,9 @@
 import { useMemo } from 'react'
-import { Paperclip } from 'lucide-react'
+import { FileText, Paperclip } from 'lucide-react'
 import { decryptText } from '@/components/chat/decrypt-text'
 import { formatFull, formatTime } from '@/components/chat/format'
+import { messageSummary } from '@/components/chat/message-summary'
+import { MessageTokens } from '@/components/chat/message-tokens'
 import { UserAvatar } from '@/components/shell/user-avatar'
 import { useMemberView } from '@/hooks/use-member'
 import { tokenize } from '@/lib/mentions'
@@ -63,38 +65,27 @@ export function MessagePreview({
 }
 
 function PreviewText({ message }: { message: ChatMessage }): React.JSX.Element {
-  const tokens = useMemo(() => tokenize(message.content), [message.content])
-  const files = message.attachments.length
+  const { text, files, pageLink } = useMemo(() => messageSummary(message), [message])
+  const tokens = useMemo(() => tokenize(text), [text])
   return (
     <>
-      {message.content !== '' && (
+      {text !== '' && (
         <p className="text-text-primary line-clamp-3 text-[13.5px] leading-5 break-words whitespace-pre-wrap">
-          {tokens.map((t, i) =>
-            t.kind === 'mention' && 'userId' in t ? (
-              <MentionName key={i} guildId={message.guildId} userId={t.userId} />
-            ) : (
-              t.value
-            )
-          )}
+          <MessageTokens tokens={tokens} guildId={message.guildId} />
         </p>
       )}
-      {files > 0 && (
+      {files !== null && (
         <p className="text-text-secondary inline-flex items-center gap-1 text-[12.5px] font-semibold">
           <Paperclip className="size-3.5" aria-hidden />
-          {files === 1 ? message.attachments[0].name : `${files} files`}
+          {files}
+        </p>
+      )}
+      {text === '' && files === null && pageLink && (
+        <p className="text-text-secondary inline-flex items-center gap-1 text-[12.5px] font-semibold">
+          <FileText className="size-3.5" aria-hidden />
+          Page link
         </p>
       )}
     </>
   )
-}
-
-function MentionName({
-  guildId,
-  userId
-}: {
-  guildId: string | null
-  userId: string
-}): React.JSX.Element {
-  const { name } = useMemberView(guildId, userId)
-  return <span className="text-accent-text font-semibold">@{name}</span>
 }
