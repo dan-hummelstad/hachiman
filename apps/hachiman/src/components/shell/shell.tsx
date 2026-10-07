@@ -4,6 +4,7 @@ import { ChatBody } from '@/components/chat/chat-body'
 import { HomePane } from '@/components/home-pane'
 import { RightColumn } from '@/components/people/right-column'
 import { ChannelPane, NoChannelPane } from '@/components/shell/channel-pane'
+import { FavouriteDms } from '@/components/shell/favourite-dms'
 import { DRAG_REGION, Sidebar } from '@/components/shell/sidebar'
 import { SpaceBar } from '@/components/shell/space-bar'
 import { useGuildTint } from '@/components/shell/use-guild-tint'
@@ -54,6 +55,11 @@ export function Shell(): React.JSX.Element {
       )}
     >
       <Sidebar
+        top={
+          <>
+            <FavouriteDms />
+          </>
+        }
         middle={selectedGuildId ? <GuildChannelList guildId={selectedGuildId} /> : <DmSpace />}
         foot={
           <>
