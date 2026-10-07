@@ -50,9 +50,8 @@ export function KeyChangeDialog(): React.JSX.Element {
         onInteractOutside={keep}
         className="sm:max-w-[460px]"
       >
-        <DialogHeader>
+        <DialogHeader icon={<ShieldAlert />} feature={blocking ? 'danger' : 'event'}>
           <DialogTitle>
-            <ShieldAlert className="text-destructive" />
             {blocking ? `${name} has a new security key` : `New security key for ${name}`}
           </DialogTitle>
           <DialogDescription>

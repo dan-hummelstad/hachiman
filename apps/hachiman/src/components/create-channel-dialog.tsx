@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { ErrorText } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { RadioCard } from '@/components/ui/radio-card'
 import { useAction } from '@/hooks/use-action'
 import { ChannelIcon } from '@/lib/channel-icon'
 import { CHANNEL_KINDS, CREATE_CHANNEL_TYPES, hasChat } from '@/lib/model'
@@ -91,29 +92,18 @@ export function CreateChannelDialog(): React.JSX.Element {
             </legend>
             {CREATE_CHANNEL_TYPES.map((t) => {
               const { label, hint } = CHANNEL_KINDS[t]
-              const selected = type === t
               return (
-                <label
+                <RadioCard
                   key={t}
-                  className={cn(
-                    'has-focus-visible:outline-ring flex cursor-pointer items-center gap-3 border px-3 py-2 has-focus-visible:outline-2 has-focus-visible:outline-offset-1',
-                    selected ? 'bg-accent border-primary' : 'hover:bg-accent/60'
-                  )}
-                >
-                  <input
-                    type="radio"
-                    name="channel-type"
-                    value={t}
-                    checked={selected}
-                    onChange={() => setType(t)}
-                    className="sr-only"
-                  />
-                  <ChannelIcon type={t} className="text-muted-foreground size-4 shrink-0" />
-                  <span className="grid">
-                    <span className="text-sm font-medium">{label}</span>
-                    <span className="text-muted-foreground text-xs">{hint}</span>
-                  </span>
-                </label>
+                  name="channel-type"
+                  value={t}
+                  checked={type === t}
+                  onChange={() => setType(t)}
+                  icon={<ChannelIcon type={t} />}
+                  title={label}
+                  description={hint}
+                  feature={t === 'voice' ? 'voice' : t === 'pages' ? 'page' : 'accent'}
+                />
               )
             })}
           </fieldset>

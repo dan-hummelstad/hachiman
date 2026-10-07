@@ -1,4 +1,5 @@
 import { useEffect, useId, useState } from 'react'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Button } from '@/components/ui/button'
 import { ErrorText } from '@/components/ui/field'
 import { GuildTile } from '@/components/ui/guild-tile'
@@ -125,10 +126,9 @@ export function JoinServerModal(): React.JSX.Element {
               shares it.
             </Warning>
             <label htmlFor={checkId} className="flex items-start gap-2 text-sm">
-              <input
+              <Checkbox
                 id={checkId}
-                type="checkbox"
-                className="accent-primary mt-0.5 size-4"
+                className="mt-0.5"
                 checked={withoutHistory}
                 onChange={(e) => setWithoutHistory(e.target.checked)}
               />

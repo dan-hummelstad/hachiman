@@ -1,4 +1,5 @@
 import { useEffect, useId, useState } from 'react'
+import { Checkbox } from '@/components/ui/checkbox'
 import { KeyRound, Link2, RotateCcw, Sparkles } from 'lucide-react'
 import type { CryptoState } from '@hachiman/crypto'
 import { Button } from '@/components/ui/button'
@@ -262,10 +263,9 @@ function CreateIdentity({
             key, go back and use it.
           </Warning>
           <label htmlFor={checkId} className="flex items-start gap-2 text-sm">
-            <input
+            <Checkbox
               id={checkId}
-              type="checkbox"
-              className="accent-primary mt-0.5 size-4"
+              className="mt-0.5"
               checked={understood}
               onChange={(e) => setUnderstood(e.target.checked)}
             />

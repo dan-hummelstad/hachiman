@@ -1,150 +1,144 @@
-# Hachiman UI Redesign: Spec
+# Hachiman UI: the Arc spec
 
-Brief (from the user): a complete redesign of the desktop + web app. Keep the **square** structure (zero radius). Lay pages out like Discord, which already works, and borrow from Slack and buzz.xyz. The **UI font** and the **chat font** are different. The UI uses a Roboto-like sans (but not Roboto), and chat stays monospace. It should feel like an **old messenger** (AIM / ICQ / IRC era), made modern.
+This document is the UI spec of the shared UI (`apps/hachiman`). The source of the design is the Pencil file `pencil-new.pen`, frame **Final** (`X9RV1V`). The work plan is `docs/arc-redesign-plan.md`. The features that the design needs and the app does not have yet are in `docs/arc-new-features-plan.md`.
 
 ## 1. Identity
 
-- **Signature (the one bold thing):** the chat is a *transcript*. It uses Geist Mono, with the name of each author in the role color of that author and quiet timestamps. It reads like an IRC/AIM log inside a modern Discord frame. All other parts stay quiet and disciplined.
-- **Old-messenger cues, used sparingly:**
-  - Every pane opens with a 48px **title bar** (1px bottom rule, pane title left, pane tools right). This is like the buddy-list and IM windows of the era.
-  - Floating surfaces (popovers, menus, dialogs) get a **hard offset shadow** (`4px 4px 0` in `--shadow-ink`) instead of a soft blur. No other surface has a shadow.
-  - The signed-out screen is a small **sign-in window** (title bar, compact form), centered on the app background.
-- **Square everything:** `--radius: 0`. Avatars are square too, and presence dots are 8px squares. Status uses shape plus color (see §2), never color alone.
-- **No** all-caps labels, no `·`-joined meta strings, no `→` on buttons, no gradients, no emoji decoration. Sentence case everywhere.
+Header of the Final frame: "Arc sidebar. Square structure. Rounded interaction."
+
+- **Square is structure.** Windows, panels, columns, cards, dialogs, popovers, menus, tables, banners, notices, embeds, attachments and system tags have radius 0.
+- **Rounded is interaction.** Buttons, inputs, search, the composer, tabs, toggles, checks, radios, chips, reactions, selected and hovered rows, badges and avatars are rounded.
+- **Colour marks the feature.** Accent violet marks selection and actions. Green marks voice. Amber marks events. Violet marks pages. Sky marks threads. Coral marks live and errors. Teal marks bots.
+- **One sidebar.** One sidebar (280 px) holds all items that are not content. A space bar at its foot replaces the guild rail.
+- **One content card.** The content sits on one card, inset 8 px from the right and bottom edges of the window, with a 1 px border. The window behind it is a wallpaper.
+- **Soft shadows only on floating surfaces.** Popovers, menus, dialogs and the revealed sidebar get `shadow-soft`. No other surface gets a shadow.
+- **Settings use the sidebar.** Settings replace the middle of the sidebar with their section list and show the page in the content card. Dialogs are only for actions: create, invite, leave, delete, verify, link.
+
+### No placeholders
+
+Ship an element only when its feature exists. When an element needs a feature that is not built, do not render it. The region keeps its size and stays empty, or the control is absent. The feature PR adds the element. Examples: the tab bar, unread badges, the inbox button, reactions, the thread and pin buttons, the event row, the camera button.
 
 ## 2. Tokens (`apps/hachiman/src/assets/main.css`)
 
-Cool slate surfaces with one warm **signal amber** accent. The accent is the AIM running-man yellow, and nothing like Discord blurple or Slack aubergine. Dark is the default.
+Each token is a CSS variable with a dark and a light value. Dark is the default. `@theme inline` exposes each token to Tailwind as a colour: `--surface-content` becomes `bg-surface-content`, `border-surface-content` and `text-surface-content`.
 
 | Token | Dark | Light | Use |
 |---|---|---|---|
-| `--rail` | `#16181d` | `#dfe2e7` | guild rail |
-| `--sidebar` | `#1c1f25` | `#e9ecf0` | channel sidebar, member list, settings nav |
-| `--background` | `#22252c` | `#f6f7f9` | chat / main pane |
-| `--card` / `--popover` | `#2a2e36` | `#ffffff` | raised surfaces, inputs, popovers |
-| `--accent` (hover/selected row) | `#2f343d` | `#dde1e7` | list hover/selection |
-| `--border` | `#353a44` | `#cfd4db` | 1px rules |
-| `--foreground` | `#e6e8ec` | `#1a1d23` | text |
-| `--muted-foreground` | `#99a0ac` | `#5b6270` | secondary text, timestamps |
-| `--primary` | `#f0b429` | `#c98a0b` | signal amber: primary buttons, unread/selected notch, mention highlight edge, focus ring |
-| `--primary-foreground` | `#1b1404` | `#1b1404` | text on amber |
-| `--destructive` | `#f2545b` | `#c9303a` | |
-| `--online` | `#3fb950` | `#1f883d` | presence: filled square |
-| `--idle` | `#d29922` | `#9a6700` | presence: square with a notch (half fill) |
-| `--dnd` | `#f2545b` | `#c9303a` | presence: square with a horizontal bar |
-| `--offline` | `#6e7681` | `#8c939e` | presence: hollow square (2px border) |
-| `--shadow-ink` | `#000000b3` | `#1a1d2333` | hard offset shadow color |
-| `--mention` | `#f0b42914` | `#c98a0b14` | mention row background |
+| `--surface-window` | `#0E0F15` | `#F7F7FB` | the window wallpaper |
+| `--surface-content` | `#1D1E28` | `#FFFFFF` | the content card, dialogs, menus |
+| `--surface-panel` | `#17181F` | `#F8F8FB` | the sidebar, cards on content |
+| `--surface-raised` | `#262836` | `#F1F1F6` | secondary buttons, chips, callouts |
+| `--surface-sunken` | `#0F1016` | `#FFFFFF` | inputs, the segmented control track |
+| `--surface-hover` | `#FFFFFF0F` | `#23204A0D` | hovered rows and quiet buttons |
+| `--surface-selected` | `#7B6CFF2B` | `#6B5BF52B` | the selected row |
+| `--surface-scrim` | `#05060AB8` | `#16151F66` | the dialog scrim |
+| `--line-hairline` | `#2A2C3B` | `#E3E3EC` | 1 px rules and borders |
+| `--line-strong` | `#363849` | `#DCDCE6` | input borders |
+| `--line-focus` | `#7B6CFFB3` | `#6B5BF599` | the focus ring |
+| `--text-primary` | `#F3F4FA` | `#16151F` | body text |
+| `--text-secondary` | `#B6B9CE` | `#4E5066` | secondary text |
+| `--text-tertiary` | `#80839A` | `#6E7088` | meta, timestamps, section labels |
+| `--text-disabled` | `#5C5F76` | `#9C9EB2` | disabled text |
+| `--text-on-accent` | `#FFFFFF` | `#FFFFFF` | text on accent, danger and live fills |
+| `--accent-primary` / `-text` / `-tint` | `#7B6CFF` / `#C9C2FF` / `#7B6CFF2B` | `#6B5BF5` / `#5B4AE8` / `#6B5BF52B` | actions and selection |
+| `--feature-voice` / `-text` | `#3DD68C` / `#3DD68C` | `#34C77F` / `#12945A` | voice |
+| `--feature-event` / `-text` | `#FFB547` / `#FFB547` | `#F5A524` / `#B7700A` | events, caution, mentions |
+| `--feature-page` / `-text` | `#B98CFF` / `#B98CFF` | `#A87BF2` / `#8A55E0` | pages |
+| `--feature-thread` / `-text` | `#4CC2FF` / `#4CC2FF` | `#3DB5F5` / `#1584BE` | threads |
+| `--feature-danger` / `-text` | `#FF5D6E` / `#FF5D6E` | `#F04A5C` / `#D93649` | live, errors, destructive actions |
+| `--feature-activity` | `#FF6FAE` | `#E0569A` | activity |
+| `--feature-bot` | `#2DD4BF` | `#2DD4BF` | bots |
+| `--status-online` / `idle` / `dnd` / `live` / `offline` | green / amber / coral / violet / `#5C5F76` | green / amber / coral / violet / `#9C9EB2` | presence |
+| `--tint-home` | `#1C2130` | `#E7EAF1` | the wallpaper of the DM space |
 
-Spacing uses the default Tailwind scale, with `--spacing` back to `0.25rem`. Borders are 1px, and focus is a `2px` amber outline offset by `1px` (keyboard only, `:focus-visible`).
+Use the `-text` variant of a feature colour for text and icons. Use the base colour for fills and bars. Guild tints and role colours in the mocks are example data, not tokens.
+
+The shadcn names (`--background`, `--card`, `--popover`, `--primary`, `--accent`, `--border`, `--input`, `--ring`, `--muted-foreground`, `--destructive`, `--sidebar`, `--rail`, `--online` and the others) map onto these tokens. Old code keeps working. New code uses the Arc names. Note that shadcn `bg-accent` is the hover wash, and Arc `bg-accent-primary` is the violet.
+
+**Radii:** `rounded-structure` 0, `rounded-check` 4 px, `rounded-control` 8 px, `rounded-option` 10 px, `rounded-pill` 999 px. `rounded-sm` to `rounded-xl` stay 0.
+
+**Space:** 4, 8, 12, 16, 20, 24, 32, 40 px. Use the default Tailwind scale (`--spacing: 0.25rem`).
+
+**Focus:** keyboard focus (`:focus-visible`) shows a 2 px `--line-focus` outline, offset 1 px. Text fields show an accent border instead.
 
 ## 3. Type
 
-| Role | Face | Size / line-height | Weight |
-|---|---|---|---|
-| UI (`font-sans`) | **IBM Plex Sans**: a Roboto-like grotesque with a bit of 70s-computing character | 14px / 20px base | 400 / 500 / 600 |
-| Pane titles | IBM Plex Sans | 15px / 20px | 600 |
-| Page titles (settings, empty states) | IBM Plex Sans | 20px / 28px | 600 |
-| Section labels (sidebar groups, settings groups) | IBM Plex Sans | 12px / 16px, `tracking-[0.01em]` | 600, muted, sentence case |
-| Meta (timestamps, counts) | IBM Plex Sans, tabular-nums | 12px / 16px | 400, muted |
-| Chat body + composer (`font-mono`) | **Geist Mono** | 13.5px / 22px | 400 |
-| Chat author names | Geist Mono | 13.5px | 600, role color |
-| Code, invite codes, ids | Geist Mono | 13px | 400 |
+**Figtree** is the face of all UI and chat text. **IBM Plex Mono** is the face of keys, safety numbers, codes, invite codes and token names. The repo vendors both as woff2 in `apps/hachiman/src/assets/fonts/` (SIL OFL). The CSP allows no font host.
 
-The repo vendors the fonts as woff2 in `apps/hachiman/src/assets/fonts/` (OFL), with no network loading. The Electron CSP forbids remote fonts. Chat lines stay under about 90ch: the transcript column caps message width at `max-w-[90ch]`.
+| Role | Class | Size / weight / extra |
+|---|---|---|
+| Display | `text-display` | 48 / 800 / tracking −1 px |
+| Page title | `text-page-title` | 26 / 800 |
+| Section title | `text-section-title` | 22 / 800 |
+| Heading | `text-heading` | 16 / 800 |
+| Body (chat) | `text-body` | 15 / 500 / line height 1.45 |
+| UI label | `text-label` | 14 / 600 |
+| Meta | `text-meta` | 12 / 500 |
+| Section label | `section-label` | 11.5 / 800 / tracking +0.7 px / uppercase / tertiary |
+| Mono | `font-mono text-mono-key` | 15 / 600 |
 
-## 4. Layout
+The base UI text is 14 / 20, weight 500. The chat is not monospace.
 
-```
-┌────┬───────────────────┬──────────────────────────────────────────┬──────────────┐
-│ ▣  │ Guild name     ▾  │ # general   topic text…        ⌕  👥  ⚙ │ Members      │  48px title bars
-│────│───────────────────│──────────────────────────────────────────│──────────────│
-│ ▢  │ Text              │ alice        10:42                        │ Online — 3   │
-│ ▢  │  # general      ● │ hey, anyone up for a game?                │ ■ alice      │
-│ ▢  │  # random         │ ok in 5                                   │ ■ bob        │
-│    │ Voice             │ bob          10:43                        │ Offline — 2  │
-│ +  │  ◫ Lounge         │ sure                                      │ □ carol      │
-│    │    ■ alice  (spk) │                                           │              │
-│    │───────────────────│                                           │              │
-│    │ Voice connected   │──────────────────────────────────────────│              │
-│    │ Lounge / Guild ⏻  │ [ Message #general                    ]  │              │
-│    │ ■ me   🎙 🎧 ⚙    │ alice is typing…                          │              │
-└────┴───────────────────┴──────────────────────────────────────────┴──────────────┘
- 72px      240px                    flex                                  240px
-```
+## 4. Icons
 
-- **Rail (72px):** a home tile (DM home) at the top, then a 1px rule, then the guild tiles. Guild tiles are 40px squares that show the guild icon, or initials in Plex Sans 600 when the guild has no icon. The selected guild gets a 4px amber notch on its left edge. An unread guild gets a 4px muted notch. "+" (create/join) comes last.
-- **Channel sidebar (240px):**
-  - Title bar shows the guild name and a menu: settings, invite people, create channel, leave.
-  - If the guild has a banner, the banner replaces the title bar. The banner is a 240×135 strip (`object-fit: cover`). The guild name and the menu are on the banner, in white text with a text shadow. If the banner does not load, the plain title bar shows.
-  - Channel groups have sentence-case collapsible headers (they are categories).
-  - Rows are 32px. Text channels show a `#` glyph and voice channels a speaker glyph. Voice occupants sit indented under their channel. The avatar of a speaking occupant gets a 2px `--online` outline. An occupant who shares a screen gets a red "LIVE" mark.
-  - Bottom stack: a **voice connected panel** (only while in voice: channel / guild, quality, share screen, stream quality, disconnect). Below it is the **user panel** (avatar + presence, name, mic / deafen / settings buttons).
-- **Main pane:**
-  - Title bar: channel glyph + name, a 1px vertical rule, then topic (truncated). Tools on the right: member list toggle, pinned/search later (do not add placeholders), and channel settings when permitted.
-  - Body: the transcript.
-  - Footer: the composer plus a typing line.
-- **Voice room** (the main pane of a voice channel):
-  - Live screen shares show at the top, in a grid of black tiles. Each tile shows the video, the sharer's name with a "LIVE" mark, and a full-screen button.
-  - Click a tile to show only that stream. Click it again to show all streams.
-  - Only users in the same voice session see the video.
-  - Occupant tiles and the controls come below the shares. The controls are mute, deafen, share screen, stream quality and leave.
-  - On the desktop app, share screen opens a source picker window. It shows screens, then windows, as thumbnails with names, and the two stream quality selects. A click on a thumbnail starts the share. The browser shows its own picker.
-  - Stream quality is a popover with two selects. Resolution has 720p, 1080p, 1440p and Source. Frame rate has 15, 30 and 60 fps. The default is 1080p at 30 fps. A change applies to a live share immediately.
-- **Member list (240px):** grouped "Online — n" / "Offline — n". Rows show avatar + presence square + name in role color. A click on a row opens the profile card.
-- **DM home:** the sidebar becomes "Direct messages" (DM rows with presence). With no DM open, the main pane shows **People**. People lists everyone you share a guild with, grouped by online/offline, each with a "Message" button (a Slack-like directory).
-- **Settings (guild / channel / user):** full-window overlays, as in Discord. A left nav column (`--sidebar`) holds the section list, with a destructive action at the bottom. Content sits on the right with a max width of 720px. Esc or a square ✕ button at the top right closes it.
-- **Modals** (create/join guild, create channel, invite, confirm): a narrow window with a title bar, a body, and right-aligned actions. Modals use the hard offset shadow.
-- **Electron:** frameless-ish. On macOS, use `titleBarStyle: 'hiddenInset'`. Give the app a 28px draggable top strip (`-webkit-app-region: drag`) with the window title centered in 12px muted Plex Sans. The browser host shows no strip.
+Use Lucide (`lucide-react`) with stroke 1.5. Sizes: 16 px in rows and controls, 18 to 20 px in headers and voice controls, 13 to 14 px in chips. An icon takes the colour of its feature. Else it takes the colour of its text. The iconography board of the Final frame gives the icon for each use.
 
-## 5. Transcript (the signature)
+## 5. Primitives (`apps/hachiman/src/components/ui/`)
 
-- **Cozy (default):** a group header line shows a 32px square avatar in the gutter, then the author, then the time. The author is Geist Mono 600 in role color. The time is 12px Plex Sans, muted. Bodies are Geist Mono 13.5/22. Messages from the same author within 7 minutes merge into the group. When you hover on a continuation line, its time shows in the gutter.
-- **Compact (setting):** IRC-style single lines, `10:42  alice  hey, anyone up?`. The fixed-width time column and right-aligned author column make this the most "old messenger" view.
-- A day divider is a 1px rule with the date centered in 12px muted Plex Sans.
-- A row shows `--accent` on hover. The message toolbar is a small square floating cluster at the top right of the row (Slack-style). It has a hard shadow.
-- Mentions of me get the `--mention` background and a 2px amber left edge.
-- Pending (optimistic) messages render at 50% opacity. A failed message shows in destructive text with a "Retry / Delete" link pair.
-- Attachments show below the message text. A message can have attachments and no text.
-  - One image shows inline in a box of 400×300 or smaller. The box gets its size from the image width and height before the image loads, so the transcript does not move. Two or more images show as a grid of square cells. A click on an image opens the lightbox (filename title bar, image, size, "Open original").
-  - A video shows in a player with the same limits. An audio file shows as a card with the filename, the size and a player. All other files show as a card with a file glyph, the filename (a download link) and the size.
-- Composer: an attach button, file drop on the channel body, and paste. Files upload immediately and show in a tray above the input: square tiles with a thumbnail or a file glyph, a progress bar, and a remove button. Send waits until all uploads are complete.
-- Avatars show the uploaded image. If a user has no avatar, or the image does not load, the avatar shows the initial.
-- Empty channel: one quiet block, "This is the start of #general." plus the topic.
+| Primitive | File | Notes |
+|---|---|---|
+| Button | `button.tsx` | `variant`: `primary`, `secondary`, `danger`, `danger-outline`, `quiet`, `voice`, `link`. The old names `default`, `destructive`, `outline` and `ghost` are aliases. Radius 8. |
+| Input, textarea | `input.tsx`, `textarea.tsx` | Sunken fill, strong border, radius 8, accent border on focus. |
+| Native select | `native-select.tsx` | The input look with a chevrons-up-down mark. `className` styles the wrapper. |
+| Switch | `switch.tsx` | Pill. Accent track when on. |
+| Checkbox | `checkbox.tsx` | A native checkbox, radius 4. |
+| Radio card | `radio-card.tsx` | Radius 10. Icon tile and selected border in the colour of `feature`. |
+| Keycap | `keycap.tsx` | `⌘K`, `Esc` in IBM Plex Mono. |
+| Chip | `chip.tsx` | Pill button. `selected` gives the accent outline and tint. |
+| Badge | `badge.tsx` | Pill count. `tone`: `danger`, `accent`, `quiet`. |
+| System tag | `system-tag.tsx` | Square uppercase tag. `kind`: `page`, `live`, `bot`, `new`, `you`, `encrypted`, `key-changed`. |
+| Segmented control | `segmented-control.tsx` | Two or three views in one control, for example Members and Pages. |
+| Callout | `callout.tsx` | Square notice with a left bar. `tone`: `info`, `caution` (gold), `danger` (red), `success` (green). |
+| Avatar, presence | `avatar.tsx`, `presence.tsx`, `shell/user-avatar.tsx` | Circle avatar. Circle presence dot on the bottom-right corner. |
+| Dialog | `dialog.tsx`, `modal-window.tsx` | See below. |
 
-## 6. Components and ownership
+`feature.ts` holds the class maps for the feature colours (`FEATURE_TEXT`, `FEATURE_TILE`, `FEATURE_BORDER`). Use them when a component takes a `feature` prop.
 
-The `components/ui/*` primitives (shadcn) keep their APIs and change only their styling.
+**Dialog.** A dialog is a square card on `--surface-scrim`, 500 to 640 px wide. The header (padding 16 / 22) has an icon tile in a feature colour, the title (18 / 800) and an optional subtitle (meta, tertiary). The close button is at the top right. The body has padding 18 / 22. The footer (padding 14 / 22) has a hairline rule on top and the actions on the right. A destructive dialog has a red icon tile, one plain sentence about the consequence, and the red button on the right. Pass `icon` and `feature` to `DialogHeader` or `ModalWindow`.
 
-| Area | Files |
+## 6. Layout metrics (window 1440 × 900)
+
+| Region | Size |
 |---|---|
-| Foundation + primitives + host chrome | `assets/main.css`, `assets/fonts/*`, `components/ui/**`, `components/theme-*`, both host apps' HTML/window chrome |
-| Shell + left column | `App.tsx`, `server-icon-rail.tsx`, `channel-sidebar.tsx`, `nav-user.tsx` (user panel), `voice-controls.tsx` (voice connected panel), `create-channel-dialog.tsx`, new `components/shell/*` |
-| Main pane + right column | `chat-area.tsx` (may split into `components/chat/*`), `message-toolbar.tsx`, `member-list.tsx`, `user-profile-popover.tsx`, new `home-pane.tsx` (People) |
-| Overlays + auth | `guild-settings-*.tsx`, `channel-settings-dialog.tsx`, new `user-settings.tsx`, `add-server-dialog.tsx`, `join-server-modal.tsx`, `remove-server-dialog.tsx`, `takusen-signin-*.tsx`, `settings-helpers.ts`, new `components/settings/*` |
-| Preview fixtures + visual QA | new `apps/hachiman/src/dev/*`, and the preview hook in `apps/hachiman-browser/src/main.tsx` |
+| Sidebar | 280 wide, padding 10 |
+| Pinned tab bar | 48 high, tabs 34, gap 4 |
+| Content card | inset 8 right and bottom, 1 px border |
+| Chat header | 56 high, padding 0 / 12 / 0 / 20 |
+| Composer | 52 high, area padding 0 / 16 / 12 / 16 |
+| Members column | 252 wide (page column 540) |
+| Message | avatar 40, gap 14, padding 6 / 10 |
+| Channel and category row | 30 high, padding 0 / 8 / 0 / 10 |
+| Voice participant row | 26 high, indent 34 |
+| Event row | 38 high |
+| DM favourite tile | 46 |
+| Voice dock | about 93 high, buttons 32 |
+| Space bar | 40 high, guild icons 26 |
+| Dialog | 500 to 640 wide |
+| Popover | 480 wide |
+| Settings page | header 76, content padding 28 |
+| Hit target | 32 minimum |
 
-Cross-area contracts:
-- `App.tsx` mounts `<UserSettings open onClose />` from the overlays area. The gear in the user panel calls `onOpenUserSettings`.
-- The user settings Appearance tab writes `theme: 'dark' | 'light' | 'system'` and `messageDisplay: 'cozy' | 'compact'`. Both live in a new tiny persisted `usePrefsStore` (`stores/prefsStore.ts`, owned by the overlays area). `ThemeProvider` applies `theme` to `<html>`, and the transcript reads `messageDisplay`.
-- User settings Voice: input/output device pickers write `inputDeviceId` / `outputDeviceId` to `usePrefsStore`. `VoiceService` should honor them where it is cheap: `getUserMedia({audio:{deviceId}})` and `HTMLMediaElement.setSinkId`.
-- Sounds: `services/SoundService.ts` plays one sound for each Discord sound event. `lib/sounds.ts` lists them.
-  - Voice sounds are soft bell chimes (`lib/chime.ts`), as in Discord. An "on" sound rises, and its "off" sound plays the same notes falling.
-  - Message sounds are Cuelume cues. A received message plays a glass note, and a sent message plays a soft whoosh.
-  - Received messages: a DM or a mention of me. No sound when I look at that channel. Each message that I send plays the sent sound.
-  - My voice actions: join, leave, connection lost, mute, unmute, deafen, undeafen, share start, share stop.
-  - Other users in my voice channel: join, leave, share start, share stop.
-  - Settings: User settings → Voice and audio has a "Play sounds" switch and a volume slider. Each sound also has a switch and a play button. `prefsStore` keeps these choices in local storage.
+## 7. E2EE rules in the UI
 
-## 7. Preview mode (for visual QA without a backend)
+- Show a message only after the crypto Worker decrypts it. A message that does not decrypt shows a danger callout with the reason.
+- Show an attachment only as an object URL of the decrypted blob.
+- Show a stream thumbnail only to members of that call. Outside the call, show the avatar of the streamer on the live tint with "LIVE · n watching".
+- Trust is per user. Device rows show the device fingerprint. The badge shows the trust of the user.
 
-In the browser dev server only (`import.meta.env.DEV`), `?preview` seeds the mirror stores with a realistic fixture:
-- 3 guilds, categories, text and voice channels.
-- About 12 members with roles/colors/presences.
-- Voice occupants, with one speaking.
-- About 40 messages, including a mention, a pending one and a failed one.
-- 2 DMs.
-- A fake signed-in Takusen session.
-- A stub for `hachiman.rest.*`, so clicks do not throw.
+## 8. Preview mode
 
-It never ships in production builds. Use it with the `run` skill or Playwright to take a screenshot: `http://localhost:5173/?preview`.
+In the browser dev server only, `?preview` fills the stores from `apps/hachiman/src/dev/preview/`. The fixture uses the cast of the mocks: Night Owls, Lattice Labs and Dog-ear Club, and the users marlowe, Juni, ozzy, kestrel (you), yuki.h, quill, renata, petra_v, sable, tobias, wren and vexbot. Compare each screen with its mock. Add `&theme=light` for the light theme. `apps/hachiman/src/dev/README.md` lists the fixture cases.
+
+## 9. Sounds
+
+`services/SoundService.ts` plays one sound for each sound event. `lib/sounds.ts` lists the events. Voice sounds are soft bell chimes (`lib/chime.ts`). Message sounds are Cuelume cues. User settings, Voice and audio, has a "Play sounds" switch, a volume slider, and a switch and a play button for each sound.

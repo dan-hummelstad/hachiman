@@ -96,7 +96,7 @@ export function Composer({
             className={cn(
               'field-sizing-content block max-h-[196px] min-h-[42px] w-full resize-none bg-transparent py-[10px] pr-3',
               canAttach ? 'pl-1.5' : 'pl-3',
-              'placeholder:text-muted-foreground font-mono text-[13.5px] leading-[22px] outline-none'
+              'placeholder:text-muted-foreground text-[15px] leading-[22px] outline-none'
             )}
           />
         </div>

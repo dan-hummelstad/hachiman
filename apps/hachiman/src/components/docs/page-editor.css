@@ -24,8 +24,8 @@
   --crepe-font-default: var(--font-sans);
   --crepe-font-code: var(--font-mono);
 
-  --crepe-shadow-1: var(--hard-shadow);
-  --crepe-shadow-2: var(--hard-shadow);
+  --crepe-shadow-1: var(--shadow-soft);
+  --crepe-shadow-2: var(--shadow-soft);
 }
 
 .hm-page-editor .milkdown .ProseMirror {

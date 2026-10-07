@@ -1,4 +1,5 @@
 import { useId, useState } from 'react'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Copy, Download } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ErrorText, Field } from '@/components/ui/field'
@@ -81,10 +82,9 @@ export function RecoveryKeyReveal({
         and all of your devices, you cannot read your old messages again.
       </Warning>
       <label htmlFor={checkId} className="flex items-start gap-2 text-sm">
-        <input
+        <Checkbox
           id={checkId}
-          type="checkbox"
-          className="accent-primary mt-0.5 size-4"
+          className="mt-0.5"
           checked={saved}
           onChange={(e) => setSaved(e.target.checked)}
         />

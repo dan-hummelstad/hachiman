@@ -33,7 +33,7 @@ function LightboxBody({ image }: { image: AttachmentPointer }): React.JSX.Elemen
   const save = useAction()
   return (
     <>
-      <DialogTitle className="min-w-0">
+      <DialogTitle className="min-h-10 min-w-0 border-b px-4 pr-14">
         <span className="truncate font-mono text-[13px] font-normal">{image.name}</span>
       </DialogTitle>
       <div

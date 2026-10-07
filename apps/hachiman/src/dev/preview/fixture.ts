@@ -1,4 +1,5 @@
-// Preview fixture: three guilds, two DMs and their message history, as plain wire data.
+// Preview fixture: the cast of the Arc mocks (docs/arc-redesign-plan.md decision 11): three
+// guilds, four DMs and their message history, as plain wire data.
 // No stores, no client: ./stubs.ts and ./index.ts wire this into the app. See ../README.md.
 import {
   DEFAULT_EVERYONE,
@@ -134,7 +135,8 @@ function voice(
 const presencesFor = (members: Member[]): { userId: string; status: PresenceStatus }[] =>
   members.map((m) => ({ userId: m.user.id, status: PRESENCE[m.user.id] ?? 'offline' }))
 
-// Guild 1: a game squad. I own it, so every settings surface is available.
+// Guild 1: a game squad. I own it, so every settings surface is available. The mocks show
+// marlowe as Captain and me as a Shotcaller.
 export const G1 = 'g-nightowls'
 export const G1C = {
   text: 'c-no-text',
@@ -143,30 +145,30 @@ export const G1C = {
   clips: 'c-no-clips',
   lfg: 'c-no-lfg',
   patch: 'c-no-patch',
+  playbook: 'c-no-playbook',
   lounge: 'c-no-lounge',
   ranked: 'c-no-ranked',
   afk: 'c-no-afk'
 }
 const G1R = {
   captain: 'r-no-captain',
-  mod: 'r-no-mod',
-  regular: 'r-no-regular',
-  streamer: 'r-no-streamer',
-  bot: 'r-no-bot'
+  shotcallers: 'r-no-shotcallers',
+  squad: 'r-no-squad',
+  bots: 'r-no-bots'
 }
 const g1Members = [
-  member(G1, ME, [G1R.captain], null, 400),
-  member(G1, U.marlowe, [G1R.mod, G1R.regular], null, 380),
-  member(G1, U.juniper, [G1R.regular, G1R.streamer], 'Juni', 300),
-  member(G1, U.ozzy, [G1R.regular], null, 250),
-  member(G1, U.petra, [G1R.mod], null, 200),
-  member(G1, U.quill, [G1R.streamer], null, 150),
-  member(G1, U.renata, [G1R.regular], null, 90),
-  member(G1, U.sable, [], null, 60),
-  member(G1, U.tobias, [G1R.regular], null, 45),
-  member(G1, U.vex, [G1R.bot], null, 30),
+  member(G1, ME, [G1R.shotcallers], null, 400),
+  member(G1, U.marlowe, [G1R.captain], null, 380),
+  member(G1, U.juniper, [G1R.shotcallers], 'Juni', 300),
+  member(G1, U.ozzy, [G1R.squad], null, 250),
+  member(G1, U.petra, [G1R.squad], null, 200),
+  member(G1, U.quill, [G1R.squad], null, 150),
+  member(G1, U.renata, [G1R.squad], null, 90),
+  member(G1, U.sable, [G1R.squad], null, 60),
+  member(G1, U.tobias, [G1R.squad], null, 45),
+  member(G1, U.vex, [G1R.bots], null, 30),
   member(G1, U.wren, [], null, 12),
-  member(G1, U.yuki, [G1R.regular], null, 5)
+  member(G1, U.yuki, [G1R.squad], null, 5)
 ]
 const guild1: GuildFull = {
   id: G1,
@@ -179,28 +181,27 @@ const guild1: GuildFull = {
   publicHistoryVisibility: 'shared',
   roles: [
     role(G1, G1, '@everyone', 0, 0, DEFAULT_EVERYONE),
-    role(G1, G1R.captain, 'Captain', 0xe5534b, 5, Permissions.ADMINISTRATOR),
+    role(G1, G1R.captain, 'Captain', 0xffc36b, 4, Permissions.ADMINISTRATOR),
     role(
       G1,
-      G1R.mod,
-      'Moderator',
-      0xf778ba,
-      4,
+      G1R.shotcallers,
+      'Shotcallers',
+      0xff8fc4,
+      3,
       Permissions.KICK_MEMBERS |
         Permissions.MANAGE_MESSAGES |
         Permissions.MUTE_MEMBERS |
         Permissions.MOVE_MEMBERS
     ),
-    role(G1, G1R.streamer, 'Streamer', 0xbc8cff, 3, 0),
-    role(G1, G1R.regular, 'Regular', 0x58a6ff, 2, 0),
-    role(G1, G1R.bot, 'Bot', 0x39c5cf, 1, Permissions.MANAGE_MESSAGES)
+    role(G1, G1R.squad, 'Squad', 0x7fd3ff, 2, 0),
+    role(G1, G1R.bots, 'Bots', 0x5ee6d0, 1, Permissions.MANAGE_MESSAGES)
   ],
   channels: [
     channel(G1, G1C.text, 'category', 'Text channels', 0),
     channel(G1, G1C.voice, 'category', 'Voice channels', 1),
     channel(G1, G1C.general, 'text', 'general', 0, {
       parentId: G1C.text,
-      topic: 'Squad chat. Scrims are Thursdays 21:00 CET; post your availability in #lfg.'
+      topic: 'Squad chat · Scrims Thursdays 21:00 CET · availability in #lfg'
     }),
     channel(G1, G1C.lfg, 'text', 'lfg', 1, {
       parentId: G1C.text,
@@ -214,6 +215,10 @@ const guild1: GuildFull = {
       parentId: G1C.text,
       topic: 'vexbot posts upstream patch notes here.',
       permissionOverwrites: [{ id: G1, type: 'role', allow: 0, deny: Permissions.SEND_MESSAGES }]
+    }),
+    channel(G1, G1C.playbook, 'pages', 'scrim-playbook', 4, {
+      parentId: G1C.text,
+      topic: 'Comps, callouts and the Thursday plan.'
     }),
     channel(G1, G1C.lounge, 'voice', 'Lounge', 0, { parentId: G1C.voice }),
     channel(G1, G1C.ranked, 'voice', 'Ranked queue', 1, { parentId: G1C.voice }),
@@ -242,14 +247,14 @@ export const G2C = {
   sync: 'c-la-sync',
   designPages: 'c-la-design-pages'
 }
-const G2R = { lead: 'r-la-lead', eng: 'r-la-eng', design: 'r-la-design' }
+const G2R = { lead: 'r-la-lead', eng: 'r-la-eng', design: 'r-la-design', bots: 'r-la-bots' }
 const g2Members = [
-  member(G2, U.petra, [G2R.lead], 'Petra (lead)', 500),
+  member(G2, U.petra, [G2R.lead], 'Petra', 500),
   member(G2, ME, [G2R.eng], null, 210),
   member(G2, U.tobias, [G2R.eng], null, 180),
   member(G2, U.renata, [G2R.design], null, 160),
   member(G2, U.yuki, [G2R.eng], null, 40),
-  member(G2, U.vex, [], null, 30)
+  member(G2, U.vex, [G2R.bots], null, 30)
 ]
 const guild2: GuildFull = {
   id: G2,
@@ -265,16 +270,17 @@ const guild2: GuildFull = {
     role(
       G2,
       G2R.lead,
-      'Tech lead',
-      0xe0823d,
-      3,
+      'Lead',
+      0xffc36b,
+      4,
       Permissions.MANAGE_CHANNELS | Permissions.MANAGE_ROLES | Permissions.KICK_MEMBERS
     ),
-    role(G2, G2R.eng, 'Engineer', 0x6cb6ff, 2, 0),
-    role(G2, G2R.design, 'Design', 0xdb61a2, 1, 0)
+    role(G2, G2R.design, 'Design', 0xff8fc4, 3, 0),
+    role(G2, G2R.eng, 'Engineering', 0x7fd3ff, 2, 0),
+    role(G2, G2R.bots, 'Bots', 0x5ee6d0, 1, 0)
   ],
   channels: [
-    channel(G2, G2C.eng, 'category', 'Engineering', 0),
+    channel(G2, G2C.eng, 'category', 'Engineering', 1),
     channel(G2, G2C.standup, 'text', 'standup', 0, {
       parentId: G2C.eng,
       topic: 'Async standup. Yesterday / today / blockers.'
@@ -288,7 +294,15 @@ const guild2: GuildFull = {
       parentId: G2C.eng,
       topic: 'Specs and RFCs. Chat here, edit the page on the right.'
     }),
-    channel(G2, G2C.deploys, 'text', 'deploys', 3, { topic: 'CI posts every prod deploy here.' }),
+    // Restricted (B9): only Lead and Engineering can see it.
+    channel(G2, G2C.deploys, 'text', 'deploys', 0, {
+      topic: 'CI posts every prod deploy here.',
+      permissionOverwrites: [
+        { id: G2, type: 'role', allow: 0, deny: Permissions.VIEW_CHANNEL },
+        { id: G2R.lead, type: 'role', allow: Permissions.VIEW_CHANNEL, deny: 0 },
+        { id: G2R.eng, type: 'role', allow: Permissions.VIEW_CHANNEL, deny: 0 }
+      ]
+    }),
     channel(G2, G2C.pairing, 'voice', 'Pairing', 0, { parentId: G2C.eng }),
     channel(G2, G2C.sync, 'voice', 'Weekly sync', 1)
   ],
@@ -300,7 +314,7 @@ const guild2: GuildFull = {
   presences: presencesFor(g2Members)
 }
 
-// Guild 3: a book club. Small, no categories (flat list).
+// Guild 3: a book club. Small, no categories (flat list) and no roles. juniper owns it.
 export const G3 = 'g-dogear'
 export const G3C = {
   reading: 'c-de-reading',
@@ -308,10 +322,9 @@ export const G3C = {
   recs: 'c-de-recs',
   room: 'c-de-room'
 }
-const G3R = { host: 'r-de-host' }
 const g3Members = [
-  member(G3, ME, [G3R.host], null, 100),
-  member(G3, U.wren, [G3R.host], null, 100),
+  member(G3, ME, [], null, 100),
+  member(G3, U.wren, [], null, 100),
   member(G3, U.sable, [], 'Sable', 70),
   member(G3, U.juniper, [], null, 50),
   member(G3, U.renata, [], null, 20)
@@ -321,14 +334,11 @@ const guild3: GuildFull = {
   name: 'Dog-ear Club',
   icon: null,
   banner: null,
-  ownerId: ME.id,
+  ownerId: U.juniper.id,
   region: null,
   createdAt: joined(100),
   publicHistoryVisibility: 'shared',
-  roles: [
-    role(G3, G3, '@everyone', 0, 0, DEFAULT_EVERYONE),
-    role(G3, G3R.host, 'Host', 0x2f9e8f, 1, Permissions.MANAGE_CHANNELS)
-  ],
+  roles: [role(G3, G3, '@everyone', 0, 0, DEFAULT_EVERYONE)],
   channels: [
     channel(G3, G3C.reading, 'text', 'currently-reading', 0, {
       topic: 'October: The Left Hand of Darkness. Chapters 1 to 7 by the 14th.'
@@ -346,9 +356,18 @@ const guild3: GuildFull = {
 
 export const DM1 = 'c-dm-marlowe'
 export const DM2 = 'c-dm-yuki'
+export const DM3 = 'c-dm-juni'
+export const DM4 = 'c-dm-quill'
+export const GDM1 = 'c-gdm-squad'
 export const dms: Channel[] = [
   channel(null, DM1, 'dm', null, 0, { recipients: [U.marlowe] }),
-  channel(null, DM2, 'dm', null, 0, { recipients: [U.yuki] })
+  channel(null, DM2, 'dm', null, 0, { recipients: [U.yuki] }),
+  channel(null, DM3, 'dm', null, 0, { recipients: [U.juniper] }),
+  channel(null, DM4, 'dm', null, 0, { recipients: [U.quill] }),
+  channel(null, GDM1, 'group_dm', null, 0, {
+    recipients: [U.juniper, U.ozzy, U.quill],
+    ownerId: U.juniper.id
+  })
 ]
 
 function msg(
@@ -486,12 +505,6 @@ function generalHistory(): ChatMessage[] {
       'cl_crosshair_size 2; cl_crosshair_gap -1; cl_crosshair_color 0x00ff88'
     ),
     m(U.quill, at(t, 10, 40, 30), 'and in game:', { attachments: [ATT.crosshair] }),
-    m(
-      U.marlowe,
-      at(t, 10, 52),
-      `@${ME.username} can you set up the bracket for thursday? you have the admin on the tourney site`
-    ),
-    m(ME, at(t, 10, 55), 'on it'),
     m(U.yuki, at(t, 11, 3), 'what time is it in JST'),
     m(U.yuki, at(t, 11, 3, 30), 'never mind, 5am. I will watch the VOD'),
     m(U.renata, at(t, 11, 14), 'brutal'),
@@ -502,11 +515,17 @@ function generalHistory(): ChatMessage[] {
     m(
       U.vex,
       at(t, 11, 30),
-      'Server maintenance window: Wed 03:00 to 03:30 UTC. Voice may drop briefly.'
+      'Scheduled maintenance: Wed 03:00 – 03:30 UTC. Voice may drop briefly. Text chat stays up.'
     ),
-    m(U.marlowe, at(t, 11, 41), 'ok who is around for a few customs now'),
-    m(U.marlowe, at(t, 11, 41, 20), '', { attachments: [ATT.callouts] }),
-    m(U.juniper, at(t, 11, 42), 'in lounge'),
+    m(
+      U.marlowe,
+      at(t, 11, 41),
+      `@${ME.username} can you set up the bracket for thursday? you have the admin on the tourney site`
+    ),
+    m(U.marlowe, at(t, 11, 41, 20), 'ok who is around for a few customs now', {
+      attachments: [ATT.callouts]
+    }),
+    m(U.juniper, at(t, 11, 42), 'in lounge, bring snacks'),
     m(ME, at(t, 11, 44), 'bracket is up, link in #lfg'),
     m(ME, at(t, 11, 45), 'also pinned the strat doc again so it stops 404ing', {
       pending: true,
@@ -519,6 +538,10 @@ function generalHistory(): ChatMessage[] {
       sendError: 'The channel keys changed while sending. Try again.'
     })
   ]
+  // Juni replies to marlowe's customs call (B1).
+  const customs = list.find((x) => x.content.startsWith('ok who is around'))
+  const snacks = list.find((x) => x.content === 'in lounge, bring snacks')
+  if (customs && snacks) snacks.replyTo = customs.id
   return list
 }
 
@@ -591,6 +614,15 @@ function otherHistory(): Map<string, ChatMessage[]> {
     msg(DM2, null, ME, at(y, 12, 30), 'probably, why'),
     msg(DM2, null, U.yuki, at(y, 12, 31), 'can we seed by timezone so I am not playing at 5am'),
     msg(DM2, null, ME, at(y, 12, 40), 'I will try')
+  ])
+  out.set(DM3, [
+    msg(DM3, null, ME, at(t, 11, 40), 'customs in lounge?'),
+    msg(DM3, null, U.juniper, at(t, 11, 42), 'bring snacks')
+  ])
+  out.set(DM4, [msg(DM4, null, U.quill, at(y, 19, 5), 'streaming ranked at 20:00, duo?')])
+  out.set(GDM1, [
+    msg(GDM1, null, U.juniper, at(y, 20, 46), 'that last round though'),
+    msg(GDM1, null, U.ozzy, at(y, 20, 47), 'gg')
   ])
   return out
 }
