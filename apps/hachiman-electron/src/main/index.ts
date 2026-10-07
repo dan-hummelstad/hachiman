@@ -65,15 +65,15 @@ function createWindow(): void {
     minHeight: 600,
     show: false,
     autoHideMenuBar: true,
-    // Dark `--background` (docs/ui-redesign.md §2, matches the HTML pre-paint) so there is no flash or seam.
-    backgroundColor: "#22252c",
-    // macOS: content runs under the title bar; the renderer's 28px <WindowStrip />
-    // is the drag region and the traffic lights are centred in it. Win/Linux keep
-    // the native frame.
+    // Dark `--surface-window` (docs/ui-redesign.md §2) so there is no flash or seam.
+    backgroundColor: "#0e0f15",
+    // macOS: content runs under the title bar. The traffic lights sit in the sidebar's
+    // 40px controls row, and the tab row above the content card is the drag region
+    // (arc-redesign-plan decision 9). Win/Linux keep the native frame.
     ...(process.platform === "darwin"
       ? {
           titleBarStyle: "hiddenInset" as const,
-          trafficLightPosition: { x: 12, y: 8 },
+          trafficLightPosition: { x: 16, y: 18 },
         }
       : {}),
     ...(process.platform === "linux" ? { icon } : {}),
