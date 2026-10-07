@@ -1,12 +1,17 @@
 import { useEffect, useState } from 'react'
-import { Check, Copy, Pencil, Trash2 } from 'lucide-react'
+import { Check, Copy, Pencil, Reply, SmilePlus, Trash2 } from 'lucide-react'
 import { IconButton } from '@/components/ui/icon-button'
 import { cn } from '@/lib/utils'
+import { EmojiPicker } from './reactions'
 
 /** Rounded 28px icon buttons with 16px icons. */
 const BUTTON = 'text-text-secondary hover:bg-surface-hover hover:text-text-primary size-7'
 
 interface MessageToolbarProps {
+  /** Adds a reaction (N10). Omitted when I can't react (not sent yet, no SEND_MESSAGES). */
+  onReact?: (emoji: string) => void
+  /** Makes this message the reply target of the composer (N11). */
+  onReply?: () => void
   /** Omitted when the message did not decrypt. */
   onCopy?: () => void
   /** Omitted when the message isn't mine. */
@@ -18,10 +23,12 @@ interface MessageToolbarProps {
 
 /**
  * Hover cluster pinned to the top right of a transcript row: a raised square card with rounded
- * icon buttons. Delete is two-step: the first click arms it, the second deletes. React (N10),
- * reply (N11) and thread (N12) go in front of Copy when those features land.
+ * icon buttons. Delete is two-step: the first click arms it, the second deletes. React (N10) and
+ * reply (N11) come first; thread (N12) goes after them when it lands.
  */
 export function MessageToolbar({
+  onReact,
+  onReply,
   onCopy,
   onEdit,
   onDelete,
@@ -29,6 +36,7 @@ export function MessageToolbar({
 }: MessageToolbarProps): React.JSX.Element {
   const [copied, setCopied] = useState(false)
   const [armed, setArmed] = useState(false)
+  const [picking, setPicking] = useState(false)
 
   useEffect(() => {
     if (!copied) return
@@ -50,10 +58,22 @@ export function MessageToolbar({
         // Hidden until the row is hovered or something inside it has keyboard focus.
         'pointer-events-none opacity-0 group-hover/row:pointer-events-auto group-hover/row:opacity-100',
         'focus-within:pointer-events-auto focus-within:opacity-100',
-        armed && 'pointer-events-auto opacity-100',
+        (armed || picking) && 'pointer-events-auto opacity-100',
         className
       )}
     >
+      {onReact && (
+        <EmojiPicker open={picking} onOpenChange={setPicking} onPick={onReact}>
+          <IconButton className={BUTTON} label="Add reaction" onClick={() => setPicking((v) => !v)}>
+            <SmilePlus />
+          </IconButton>
+        </EmojiPicker>
+      )}
+      {onReply && (
+        <IconButton className={BUTTON} label="Reply" onClick={onReply}>
+          <Reply />
+        </IconButton>
+      )}
       {onCopy && (
         <IconButton
           className={BUTTON}

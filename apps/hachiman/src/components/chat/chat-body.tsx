@@ -7,6 +7,7 @@ import { Composer } from '@/components/chat/composer'
 import { Transcript } from '@/components/chat/transcript'
 import { TypingLine } from '@/components/chat/typing-line'
 import { usePermissions } from '@/hooks/use-hachiman'
+import { useMemberView } from '@/hooks/use-member'
 import { channelLabel } from '@/lib/model'
 import { BLOCKED_SEND_ERROR, messagesService } from '@/services/MessagesService'
 import { useChannelAccess, joinNames } from '@/lib/channel-access'
@@ -14,8 +15,9 @@ import { Button } from '@/components/ui/button'
 import { ErrorText } from '@/components/ui/field'
 import { useAction } from '@/hooks/use-action'
 import { blockService } from '@/services/guild-features'
-import { useMessageStore, type ChatMessage } from '@/stores/messagesStore'
+import { useMessageStore, useReplyTarget, type ChatMessage } from '@/stores/messagesStore'
 import { useIsBlocked } from '@/stores/userStore'
+import { useComposerStore, useReplyTargetId } from '@/stores/composerStore'
 import { useSendPaused } from './use-dm-trust'
 
 const EMPTY_ROWS: ChatMessage[] = []
@@ -49,6 +51,9 @@ function ChannelChat({ channel }: { channel: Channel }): React.JSX.Element {
       (m) => m.failed && m.sendError === BLOCKED_SEND_ERROR
     )
   )
+  const replyTo = useReplyTargetId(channel.id)
+  const replyName = useReplyName(channel, replyTo)
+  const clearReply = (): void => useComposerStore.getState().clearReplyTarget(channel.id)
 
   // The read-only notice names who can post (B7); the "Follow" button (N9) goes next to it.
   const disabledReason = canSend
@@ -69,6 +74,7 @@ function ChannelChat({ channel }: { channel: Channel }): React.JSX.Element {
       <Transcript
         channel={channel}
         canManageMessages={has(perms, Permissions.MANAGE_MESSAGES)}
+        canSend={canSend}
         onUpload={canAttach ? uploads.add : undefined}
       />
       <footer className="shrink-0 px-4">
@@ -95,9 +101,11 @@ function ChannelChat({ channel }: { channel: Channel }): React.JSX.Element {
               uploads={uploads}
               canAttach={canAttach}
               onTyping={() => messagesService.typing(channel.id)}
-              onSend={(text, attachments) =>
-                void messagesService.send(channel.id, text, attachments)
-              }
+              reply={replyTo !== null ? { name: replyName, onCancel: clearReply } : undefined}
+              onSend={(text, attachments) => {
+                void messagesService.send(channel.id, text, attachments, replyTo)
+                clearReply()
+              }}
             />
             <TypingLine channel={channel} />
           </>
@@ -130,4 +138,11 @@ function BlockedNotice({ user }: { user: User }): React.JSX.Element {
       <ErrorText>{error}</ErrorText>
     </div>
   )
+}
+
+/** The display name of the reply target's author, or "a message" when it is not loaded. */
+function useReplyName(channel: Channel, replyTo: string | null): string {
+  const target = useReplyTarget(channel.id, replyTo)
+  const { name } = useMemberView(channel.guildId, target?.author.id ?? '', target?.author)
+  return target ? name : 'a message'
 }

@@ -3,14 +3,17 @@ import { ArrowDown } from 'lucide-react'
 import type { Channel } from '@hachiman/client'
 import { cn } from '@/lib/utils'
 import { messagesService } from '@/services/MessagesService'
+import { unreadService } from '@/services/UnreadService'
 import { useMessageStore, type ChatMessage } from '@/stores/messagesStore'
 import { usePrefsStore } from '@/stores/prefsStore'
+import { useFirstUnreadId } from '@/stores/unreadStore'
 import { useUserStore } from '@/stores/userStore'
 import { useMembershipTimeline } from '@/hooks/use-membership-timeline'
 import { ChannelIntro } from './channel-intro'
 import { buildItems, formatDay, membershipSlots } from './format'
 import { MembershipLine } from './membership-line'
 import { MessageRow } from './message-row'
+import { PageActivityRow } from './page-cards'
 
 const EMPTY_MESSAGES: ChatMessage[] = []
 /** Distance from the bottom (px) past which "Jump to present" appears. */
@@ -26,11 +29,14 @@ const LOAD_PX = 200
 export function Transcript({
   channel,
   canManageMessages,
+  canSend,
   onUpload
 }: {
   channel: Channel
   /** May delete others' messages. */
   canManageMessages: boolean
+  /** SEND_MESSAGES: the rows offer reply and react. */
+  canSend: boolean
   /** ATTACH_FILES: the drop card of an empty channel offers an upload. */
   onUpload?: (files: File[]) => void
 }): React.JSX.Element {
@@ -45,6 +51,8 @@ export function Transcript({
   const [editingId, setEditingId] = useState<string | null>(null)
 
   const items = useMemo(() => buildItems(messages), [messages])
+  const firstUnreadId = useFirstUnreadId(channelId)
+  const bottom = useMarkRead(channelId, messages, myId)
   const membership = useMembershipTimeline(channelId)
   const slots = useMemo(() => membershipSlots(messages, membership), [messages, membership])
 
@@ -87,7 +95,6 @@ export function Transcript({
         className="flex min-h-0 flex-1 flex-col-reverse overflow-y-auto"
         data-slot="chat-scroll"
       >
-        {/* The NEW divider (feature plan N7) goes between the rows, above the first unread. */}
         <div className="flex flex-col pt-4 pb-3">
           {hasMore === false ? (
             <ChannelIntro channel={channel} empty={messages.length === 0} onUpload={onUpload} />
@@ -104,22 +111,29 @@ export function Transcript({
                 {slots.get(i)?.map((e, j) => (
                   <MembershipLine key={`m${j}`} event={e} channel={channel} />
                 ))}
-                <MessageRow
-                  message={message}
-                  groupStart={groupStart}
-                  display={display}
-                  guildId={channel.guildId}
-                  canEdit={mine}
-                  canDelete={mine || canManageMessages}
-                  editing={editingId === message.id}
-                  onEditingChange={setEditingId}
-                />
+                {message.id === firstUnreadId && <NewDivider />}
+                {message.kind === 'page_activity' ? (
+                  <PageActivityRow message={message} />
+                ) : (
+                  <MessageRow
+                    message={message}
+                    groupStart={groupStart || message.id === firstUnreadId}
+                    display={display}
+                    guildId={channel.guildId}
+                    canEdit={mine}
+                    canDelete={mine || canManageMessages}
+                    canSend={canSend}
+                    editing={editingId === message.id}
+                    onEditingChange={setEditingId}
+                  />
+                )}
               </Fragment>
             )
           })}
           {slots.get(items.length)?.map((e, j) => (
             <MembershipLine key={`m${j}`} event={e} channel={channel} />
           ))}
+          <div ref={bottom} aria-hidden className="h-px" />
         </div>
       </div>
       {away && (
@@ -135,6 +149,68 @@ export function Transcript({
           Jump to present
         </button>
       )}
+    </div>
+  )
+}
+
+/**
+ * Read acks (N7). The channel counts as read up to its newest sent message while the bottom of
+ * the transcript is in view and the window has focus, and right after my own message arrives.
+ * Returns the ref of a sentinel under the last row.
+ */
+function useMarkRead(
+  channelId: string,
+  messages: readonly ChatMessage[],
+  myId: string | undefined
+): React.RefCallback<HTMLDivElement> {
+  const [inView, setInView] = useState(false)
+  const [focused, setFocused] = useState(() => document.hasFocus())
+
+  const bottom = useCallback((el: HTMLDivElement | null) => {
+    if (!el) return
+    const io = new IntersectionObserver(([entry]) => setInView(entry.isIntersecting), {
+      root: el.closest('[data-slot="chat-scroll"]')
+    })
+    io.observe(el)
+    return () => io.disconnect()
+  }, [])
+
+  useEffect(() => {
+    const on = (): void => setFocused(document.hasFocus())
+    window.addEventListener('focus', on)
+    window.addEventListener('blur', on)
+    return () => {
+      window.removeEventListener('focus', on)
+      window.removeEventListener('blur', on)
+    }
+  }, [])
+
+  // The newest row that the server has (pending and failed rows have no server id yet).
+  let last: ChatMessage | undefined
+  for (let i = messages.length - 1; i >= 0 && !last; i--) {
+    if (!messages[i].pending && !messages[i].failed) last = messages[i]
+  }
+  const lastId = last?.id
+  const lastIsMine = last !== undefined && last.author.id === myId
+  useEffect(() => {
+    if (lastId && ((inView && focused) || lastIsMine)) unreadService.markRead(channelId, lastId)
+  }, [channelId, lastId, lastIsMine, inView, focused])
+
+  return bottom
+}
+
+/** The NEW divider: a coral hairline with the tag on the right, above the first unread row. */
+function NewDivider(): React.JSX.Element {
+  return (
+    <div
+      role="separator"
+      aria-label="New messages"
+      className="mt-3 mb-1 flex items-center pr-4 pl-5"
+    >
+      <div className="bg-feature-danger h-px flex-1" />
+      <span className="bg-feature-danger text-text-on-accent rounded-check px-1.5 py-px text-[10px] leading-4 font-extrabold tracking-[0.6px]">
+        NEW
+      </span>
     </div>
   )
 }
