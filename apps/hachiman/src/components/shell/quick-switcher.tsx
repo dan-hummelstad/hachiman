@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { createPortal } from 'react-dom'
+import * as DialogPrimitive from '@radix-ui/react-dialog'
 import { AtSign, FileText, Hash, Pin, Search, Volume2, type LucideIcon } from 'lucide-react'
 import { Permissions, has } from '@hachiman/client'
 import {
@@ -152,7 +152,13 @@ async function activate(it: SwitchItem, pin: boolean): Promise<void> {
 export function QuickSwitcher(): React.JSX.Element | null {
   const mode = useSwitcher((s) => s.mode)
   if (mode === null) return null
-  return createPortal(<SwitcherPanel mode={mode} />, document.body)
+  return (
+    <DialogPrimitive.Root open onOpenChange={(open) => !open && closeSwitcher()}>
+      <DialogPrimitive.Portal>
+        <SwitcherPanel mode={mode} />
+      </DialogPrimitive.Portal>
+    </DialogPrimitive.Root>
+  )
 }
 
 function SwitcherPanel({ mode }: { mode: SwitcherMode }): React.JSX.Element {
@@ -169,13 +175,6 @@ function SwitcherPanel({ mode }: { mode: SwitcherMode }): React.JSX.Element {
   const results = useMemo(() => rankItems(items, query, recent), [items, query, recent])
   const tabs = useTabs()
   const selected = Math.min(index, Math.max(results.length - 1, 0))
-
-  useEffect(() => {
-    const prev = document.activeElement
-    return () => {
-      if (prev instanceof HTMLElement && prev.isConnected) prev.focus()
-    }
-  }, [])
 
   useEffect(() => {
     listRef.current
@@ -196,25 +195,24 @@ function SwitcherPanel({ mode }: { mode: SwitcherMode }): React.JSX.Element {
     } else if (e.key === 'Enter') {
       e.preventDefault()
       run(results[selected], mode === 'pin' || e.metaKey || e.ctrlKey)
-    } else if (e.key === 'Escape') {
-      e.preventDefault()
-      e.stopPropagation()
-      closeSwitcher()
     }
   }
 
   return (
     <>
-      <div className="fixed inset-0 z-50" onMouseDown={closeSwitcher} aria-hidden />
-      <div
-        role="dialog"
-        aria-label={mode === 'pin' ? 'Pin to tabs' : 'Search or jump to'}
+      <DialogPrimitive.Overlay className="fixed inset-0 z-50" />
+      <DialogPrimitive.Content
+        data-slot="quick-switcher"
+        aria-describedby={undefined}
         onKeyDown={onKeyDown}
         className={cn(
           'border-line-strong bg-surface-raised text-text-primary rounded-control fixed z-50 flex w-[480px] max-w-[calc(100vw-32px)] flex-col overflow-hidden border shadow-xl',
           anchored ? 'top-[54px] left-2.5' : 'top-14 left-1/2 -translate-x-1/2'
         )}
       >
+        <DialogPrimitive.Title className="sr-only">
+          {mode === 'pin' ? 'Pin to tabs' : 'Search or jump to'}
+        </DialogPrimitive.Title>
         <div className="border-line-hairline flex h-11 shrink-0 items-center gap-2 border-b px-3">
           {mode === 'pin' ? (
             <Pin className="text-accent-text size-4 shrink-0" />
@@ -222,7 +220,6 @@ function SwitcherPanel({ mode }: { mode: SwitcherMode }): React.JSX.Element {
             <Search className="text-text-tertiary size-4 shrink-0" />
           )}
           <input
-            autoFocus
             value={query}
             onChange={(e) => {
               setQuery(e.target.value)
@@ -278,7 +275,7 @@ function SwitcherPanel({ mode }: { mode: SwitcherMode }): React.JSX.Element {
             </>
           )}
         </div>
-      </div>
+      </DialogPrimitive.Content>
     </>
   )
 }
