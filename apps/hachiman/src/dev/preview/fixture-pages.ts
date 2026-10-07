@@ -1,9 +1,10 @@
-// Preview fixture, pages (contract §4 Pages): two linked pages in #design-pages, as stub doc
+// Preview fixture, pages (contract §4 Pages): two linked pages in #design-pages and the scrim
+// playbook in #scrim-playbook, as stub doc
 // envelopes. ./stubs.ts seeds its in-memory page routes from fixturePages().
 import type { DocUpdate, Page } from '@hachiman/client'
 import { STUB_MARKER, toB64url, type DocEnvelopeKindName } from '@hachiman/crypto'
 import * as Y from 'yjs'
-import { DAY, G2C, U, groupOf, now } from './fixture'
+import { DAY, G1C, G2C, U, groupOf, now } from './fixture'
 
 /** The stub crypto client's doc envelope (createCryptoStub): base64url JSON, NOT ENCRYPTED. */
 export function stubDocEnvelope(
@@ -53,12 +54,18 @@ const daysAgo = (d: number): string => new Date(now - d * DAY).toISOString()
 
 export const PAGE = {
   rfc: '7c1e2b4a-5d3f-4e6a-9b8c-0d1e2f3a4b5c',
-  glossary: '8d2f3c5b-6e4a-4f7b-8c9d-1e2f3a4b5c6d'
+  glossary: '8d2f3c5b-6e4a-4f7b-8c9d-1e2f3a4b5c6d',
+  playbook: '9e3a4d6c-7f5b-4a8c-9d0e-2f3a4b5c6d7e'
 }
 
 export function fixturePages(): { pages: Page[]; updates: Map<string, DocUpdate[]> } {
-  const channelId = G2C.designPages
-  const page = (id: string, title: string, parentId: string | null, position: number): Page => ({
+  const page = (
+    channelId: string,
+    id: string,
+    title: string,
+    parentId: string | null,
+    position: number
+  ): Page => ({
     id,
     channelId,
     parentId,
@@ -68,7 +75,7 @@ export function fixturePages(): { pages: Page[]; updates: Map<string, DocUpdate[
     createdAt: daysAgo(3),
     updatedAt: daysAgo(1)
   })
-  const update = (pageId: string, blocks: Block[]): DocUpdate => ({
+  const update = (channelId: string, pageId: string, blocks: Block[]): DocUpdate => ({
     pageId,
     seq: 1,
     groupId: groupOf(channelId),
@@ -79,14 +86,15 @@ export function fixturePages(): { pages: Page[]; updates: Map<string, DocUpdate[
   })
   return {
     pages: [
-      page(PAGE.rfc, 'RFC: pages channels', null, 0),
-      page(PAGE.glossary, 'Glossary', PAGE.rfc, 0)
+      page(G2C.designPages, PAGE.rfc, 'RFC: pages channels', null, 0),
+      page(G2C.designPages, PAGE.glossary, 'Glossary', PAGE.rfc, 0),
+      page(G1C.playbook, PAGE.playbook, 'Scrim playbook', null, 0)
     ],
     updates: new Map([
       [
         PAGE.rfc,
         [
-          update(PAGE.rfc, [
+          update(G2C.designPages, PAGE.rfc, [
             { heading: 'RFC: pages channels' },
             ['A pages channel keeps the chat in the center and the page on the right.'],
             ['The terms are in the ', { text: 'Glossary', href: pageLink(PAGE.glossary) }, '.']
@@ -96,10 +104,20 @@ export function fixturePages(): { pages: Page[]; updates: Map<string, DocUpdate[
       [
         PAGE.glossary,
         [
-          update(PAGE.glossary, [
+          update(G2C.designPages, PAGE.glossary, [
             { heading: 'Glossary' },
             ['Page: one markdown document of a pages channel.'],
             ['Back to the ', { text: 'RFC', href: pageLink(PAGE.rfc) }, '.']
+          ])
+        ]
+      ],
+      [
+        PAGE.playbook,
+        [
+          update(G1C.playbook, PAGE.playbook, [
+            { heading: 'Scrim playbook' },
+            ['Thursday 21:00 CET. Double-support comp against their dive.'],
+            ['Callouts: left is from the attacker spawn. Rotate on the second pick.']
           ])
         ]
       ]

@@ -17,12 +17,16 @@ Preview state persists under `preview:*` localStorage keys, so it never touches 
 
 ## Fixture (`preview/fixture.ts`)
 
+The fixture uses the cast of the Arc mocks (`docs/arc-redesign-plan.md` decision 11), so that you can compare a screen to its mock.
+
 - **Me:** `kestrel` (online).
-- **Night Owls** (game squad, I am the owner, so every settings surface shows). Categories "Text channels" (#general, #lfg, #clips (empty), #patch-notes (@everyone cannot send)) and "Voice channels" (Lounge, Ranked queue, AFK). 12 members. Roles: Captain red, Moderator pink, Streamer purple, Regular blue, Bot teal. Lounge has me, marlowe (speaking), Juni (muted) and ozzy (muted + deafened). quill is in Ranked queue. I am voice-connected to Lounge, so the voice panel shows.
-- **Lattice Labs** (dev team). I am a plain Engineer with no manage permissions, so you see the restricted UI. Uncategorized #deploys and "Weekly sync".
-- **Dog-ear Club** (book club). Flat channel list with no categories. I am the owner.
+- **Night Owls** (game squad, I am the owner, so every settings surface shows). Categories "Text channels" (#general, #lfg, #clips (empty), #patch-notes (@everyone cannot send), #scrim-playbook (pages)) and "Voice channels" (Lounge, Ranked queue, AFK). 12 members. Roles: Captain amber (marlowe), Shotcallers pink (Juni, me), Squad sky, Bots teal (vexbot). Lounge has me, marlowe (speaking), Juni (muted) and ozzy (muted + deafened). quill is in Ranked queue. I am voice-connected to Lounge, so the voice panel shows.
+- **Lattice Labs** (dev team). I am a plain Engineering member with no manage permissions, so you see the restricted UI. Uncategorized #deploys (only Lead and Engineering can see it) and "Weekly sync". Category "Engineering" with #standup, #backend, #frontend, #design-pages (pages) and Pairing (yuki.h, renata).
+- **Dog-ear Club** (book club). Flat channel list with no categories and no roles. juniper is the owner.
+- **DMs:** marlowe, yuki.h, Juni, quill, and a group DM with Juni, ozzy and quill.
 - **#general:** about 42 messages over yesterday and today. They include:
-  - a mention of me (`@kestrel`, in the 10:52 message from marlowe)
+  - a mention of me (`@kestrel`, in the 11:41 message from marlowe)
+  - a reply (Juni, 11:42, to marlowe's "ok who is around for a few customs now")
   - a code-ish line (quill)
   - a long paragraph (petra_v)
   - one message that does not decrypt (sable, 11:20, "the signature is not valid")
