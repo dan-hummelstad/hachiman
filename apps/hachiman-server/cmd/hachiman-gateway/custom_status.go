@@ -20,6 +20,8 @@ const maxCustomStatusRunes = 64
 type CustomStatus struct {
 	Text      string  `json:"text"`
 	ExpiresAt *string `json:"expiresAt"`
+	// expires is ExpiresAt as parsed by sanitizeCustomStatus (zero: none).
+	expires time.Time
 }
 
 func kCustomStatus(uid string) string { return "custom_status:" + uid }
@@ -31,10 +33,7 @@ var errBadCustomStatus = errors.New("bad custom status")
 // removed and the ends are trimmed, or an expiresAt that is not in the future.
 // A text over 64 characters or an expiresAt that is not RFC 3339 is an error.
 func sanitizeCustomStatus(raw json.RawMessage, now time.Time) (*CustomStatus, error) {
-	var in *struct {
-		Text      string  `json:"text"`
-		ExpiresAt *string `json:"expiresAt"`
-	}
+	var in *CustomStatus
 	if err := json.Unmarshal(raw, &in); err != nil {
 		return nil, errBadCustomStatus
 	}
@@ -61,6 +60,7 @@ func sanitizeCustomStatus(raw json.RawMessage, now time.Time) (*CustomStatus, er
 		}
 		s := iso(t)
 		out.ExpiresAt = &s
+		out.expires = t
 	}
 	if text == "" {
 		return nil, nil
@@ -89,7 +89,7 @@ func parseCustomStatus(v string, now time.Time) *CustomStatus {
 	return &cs
 }
 
-// setCustomStatus stores cs (nil deletes). The key has no TTL without an
+// setCustomStatus stores cs from sanitizeCustomStatus (nil deletes). The key has no TTL without an
 // expiry, so the status survives sign-out; with one, Redis drops it then.
 func (g *Gateway) setCustomStatus(ctx context.Context, uid string, cs *CustomStatus) error {
 	k := kCustomStatus(uid)
@@ -97,9 +97,8 @@ func (g *Gateway) setCustomStatus(ctx context.Context, uid string, cs *CustomSta
 		return g.rdb.Del(ctx, k).Err()
 	}
 	var ttl time.Duration // 0: no expiry
-	if cs.ExpiresAt != nil {
-		t, _ := time.Parse(time.RFC3339Nano, *cs.ExpiresAt)
-		ttl = max(t.Sub(time.Now()), time.Millisecond)
+	if !cs.expires.IsZero() {
+		ttl = max(time.Until(cs.expires), time.Millisecond)
 	}
 	return g.rdb.Set(ctx, k, string(mustJSON(cs)), ttl).Err()
 }
