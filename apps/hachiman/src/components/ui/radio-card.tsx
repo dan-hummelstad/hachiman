@@ -33,7 +33,7 @@ export function RadioCard({
         <span
           aria-hidden
           className={cn(
-            'rounded-control flex size-9 shrink-0 items-center justify-center [&_svg]:size-4',
+            'flex size-9 shrink-0 items-center justify-center [&_svg]:size-4',
             FEATURE_TILE[feature]
           )}
         >

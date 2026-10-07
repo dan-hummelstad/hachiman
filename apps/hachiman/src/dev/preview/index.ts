@@ -36,6 +36,7 @@ import {
   now
 } from './fixture'
 import { PAGE } from './fixture-pages'
+import { stubAdminActions } from './admin'
 import { dispatch, seedFeatureFixtures, stubRest, stubVoice } from './stubs'
 import { pinTab, type TabTarget } from '@/stores/tabsStore'
 
@@ -159,6 +160,7 @@ export function startPreview(opts: PreviewOptions = {}): void {
   hachiman.gateway.connect = () => {}
   // No Worker and no keys: envelopes are marked JSON (NOT ENCRYPTED, see createCryptoStub).
   cryptoService.useStub()
+  stubAdminActions()
 
   usePrefsStore.getState().setTheme(opts.theme ?? 'dark')
   if (opts.messageDisplay) usePrefsStore.getState().setMessageDisplay(opts.messageDisplay)
