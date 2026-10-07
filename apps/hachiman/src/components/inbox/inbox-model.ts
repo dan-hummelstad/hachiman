@@ -1,0 +1,94 @@
+/**
+ * Pure view models of the inbox (N8): the mentions list and the unread channels by guild. The
+ * popover feeds them from unreadStore, messagesStore, channelStore, guildStore and prefsStore.
+ */
+import type { Channel, Guild } from '@hachiman/client'
+import { compareChannels } from '@/lib/model'
+import {
+  isMuted,
+  notifyLevel,
+  visibleBadge,
+  type NotifyPrefs,
+  type UnreadBadge
+} from '@/lib/notify'
+import type { ChatMessage } from '@/stores/messagesStore'
+import type { ChannelUnread } from '@/stores/unreadStore'
+
+export interface MentionEntry {
+  channelId: string
+  messageId: string
+  /** The decrypted row, when the transcript of the channel has it loaded. */
+  row: ChatMessage | undefined
+}
+
+/**
+ * Every mention of a channel that still exists, newest first. Rows that are loaded sort by their
+ * time; the rest follow, newest mention id of each channel first.
+ */
+export function mentionEntries(
+  unread: ReadonlyMap<string, ChannelUnread>,
+  messages: ReadonlyMap<string, readonly ChatMessage[]>,
+  channels: ReadonlyMap<string, Channel>
+): MentionEntry[] {
+  const loaded: MentionEntry[] = []
+  const rest: MentionEntry[] = []
+  for (const [channelId, c] of unread) {
+    if (!channels.has(channelId) || c.mentionIds.length === 0) continue
+    const rows = messages.get(channelId)
+    for (let i = c.mentionIds.length - 1; i >= 0; i--) {
+      const messageId = c.mentionIds[i]
+      const row = rows?.find((m) => m.id === messageId)
+      ;(row ? loaded : rest).push({ channelId, messageId, row })
+    }
+  }
+  loaded.sort((a, b) => b.row!.createdAt.localeCompare(a.row!.createdAt))
+  return [...loaded, ...rest]
+}
+
+export interface UnreadChannel {
+  channel: Channel
+  badge: UnreadBadge
+}
+
+export interface UnreadGroup {
+  /** null: the DMs. */
+  guildId: string | null
+  name: string
+  channels: UnreadChannel[]
+}
+
+/**
+ * The channels with a visible badge (notification level and mute applied), grouped by guild:
+ * DMs first, then guilds by name. Channels keep the sidebar order.
+ */
+export function unreadGroups(
+  unread: ReadonlyMap<string, ChannelUnread>,
+  channels: ReadonlyMap<string, Channel>,
+  guilds: ReadonlyMap<string, Pick<Guild, 'name'>>,
+  prefs: NotifyPrefs
+): UnreadGroup[] {
+  const groups = new Map<string | null, UnreadGroup>()
+  for (const [id, counts] of unread) {
+    const channel = channels.get(id)
+    if (!channel) continue
+    const guildId = channel.guildId
+    if (guildId !== null && !guilds.has(guildId)) continue
+    const badge = visibleBadge(counts, notifyLevel(prefs, id, guildId), isMuted(prefs, id, guildId))
+    if (!badge.unread && badge.mentions === 0) continue
+    let g = groups.get(guildId)
+    if (!g) {
+      g = {
+        guildId,
+        name: guildId === null ? 'Direct messages' : guilds.get(guildId)!.name,
+        channels: []
+      }
+      groups.set(guildId, g)
+    }
+    g.channels.push({ channel, badge })
+  }
+  for (const g of groups.values()) g.channels.sort((a, b) => compareChannels(a.channel, b.channel))
+  return [...groups.values()].sort(
+    (a, b) =>
+      (a.guildId === null ? 0 : 1) - (b.guildId === null ? 0 : 1) || a.name.localeCompare(b.name)
+  )
+}

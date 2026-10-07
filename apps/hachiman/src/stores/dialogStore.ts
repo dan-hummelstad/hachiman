@@ -22,6 +22,10 @@ type AppDialog =
   | { kind: 'userSettings' }
   /** Create (eventId null) or edit a guild event (N14). */
   | { kind: 'guildEvent'; guildId: string; eventId: string | null }
+  /** N12: a thread on a message of `parentId`, `name` prefilled. */
+  | { kind: 'createThread'; parentId: string; startMessageId: string; name: string }
+  /** N9: the notification level and mute of a guild. */
+  | { kind: 'notifySettings'; guildId: string }
 
 /**
  * The E2EE dialogs (§12.4, §12.5, §12.10, §12.11). No payload holds a secret: a dialog that shows

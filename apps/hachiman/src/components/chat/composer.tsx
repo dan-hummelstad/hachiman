@@ -11,6 +11,8 @@ interface ComposerProps {
   placeholder: string
   /** A plain reason shown instead of the input when I can't send. */
   disabledReason?: string
+  /** A button at the end of the `disabledReason` notice ("Follow", N9). */
+  disabledAction?: React.ReactNode
   /**
    * Sending is paused (a verified contact's key changed, E5): a coral line above a disabled
    * composer that shows this text as its placeholder.
@@ -37,6 +39,7 @@ const TOOL = 'text-text-tertiary hover:bg-surface-hover hover:text-text-primary 
 export function Composer({
   placeholder,
   disabledReason,
+  disabledAction,
   paused,
   uploads,
   canAttach,
@@ -61,7 +64,8 @@ export function Composer({
         className="bg-surface-panel border-line-hairline text-text-secondary flex min-h-[52px] items-center gap-3 border px-4 py-2.5 text-[14px] leading-5 font-medium"
       >
         <Lock className="text-text-tertiary size-4 shrink-0" aria-hidden />
-        {disabledReason}
+        <span className="min-w-0 flex-1">{disabledReason}</span>
+        {disabledAction}
       </div>
     )
   }

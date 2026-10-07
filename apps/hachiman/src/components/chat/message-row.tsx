@@ -1,6 +1,7 @@
 import { memo, useMemo, useState } from 'react'
 import { CircleAlert, EyeOff, RotateCw } from 'lucide-react'
 import type { DecryptFailure } from '@hachiman/crypto'
+import { useMessageMoreItems } from '@/components/pins/message-more-items'
 import { UserAvatar } from '@/components/shell/user-avatar'
 import { Button } from '@/components/ui/button'
 import { ErrorText } from '@/components/ui/field'
@@ -93,6 +94,7 @@ function MessageRowContent(props: MessageRowProps): React.JSX.Element {
   const groupStart = props.groupStart || message.replyTo !== null
   const target = message.clientMsgId
   const canAnswer = props.canSend && settled && target !== ''
+  const more = useMessageMoreItems(message)
 
   const toolbar = settled && !editing && (
     <MessageToolbar
@@ -121,6 +123,7 @@ function MessageRowContent(props: MessageRowProps): React.JSX.Element {
                 .catch((e) => console.error('[chat] delete failed', e))
           : undefined
       }
+      more={more}
     />
   )
 

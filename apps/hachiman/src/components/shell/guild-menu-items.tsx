@@ -1,4 +1,4 @@
-import { CalendarHeart, FolderPlus, LogOut, Plus, Settings, Trash2, UserPlus } from 'lucide-react'
+import { Bell, CalendarHeart, FolderPlus, LogOut, Plus, Settings, Trash2, UserPlus } from 'lucide-react'
 import { Permissions, has } from '@hachiman/client'
 import { useIsGuildOwner, usePermissions } from '@/hooks/use-hachiman'
 import { openDialog } from '@/stores/dialogStore'
@@ -50,6 +50,9 @@ export function GuildMenuItems({
           <CalendarHeart /> Create event
         </Item>
       )}
+      <Item onSelect={() => openDialog({ kind: 'notifySettings', guildId })}>
+        <Bell /> Notification settings
+      </Item>
       <Separator />
       <Item variant="destructive" onSelect={() => openDialog({ kind: 'removeGuild', guildId })}>
         {isOwner ? <Trash2 /> : <LogOut />} {isOwner ? 'Delete guild' : 'Leave guild'}

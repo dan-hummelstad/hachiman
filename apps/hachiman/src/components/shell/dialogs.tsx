@@ -16,6 +16,8 @@ import { SecuritySetupDialog } from '@/components/security/security-setup-dialog
 import { VerificationDialog } from '@/components/security/verification-dialog'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { UserSettings } from '@/components/user-settings'
+import { NotifySettingsDialog } from '@/components/notify/notify-menu'
+import { CreateThreadDialog } from '@/components/threads/create-thread-dialog'
 import { VerifyCallDialog } from '@/components/voice/verify-call-dialog'
 import { useDialogSubject } from '@/hooks/use-dialog-subject'
 import { useLatched } from '@/hooks/use-latched'
@@ -35,6 +37,8 @@ const DIALOGS: Record<AnyDialogKind, () => React.JSX.Element> = {
   deleteChannel: DeleteChannelDialog,
   userSettings: UserSettings,
   guildEvent: EventDialog,
+  createThread: CreateThreadDialog,
+  notifySettings: NotifySettingsDialog,
   // E2EE (§12.4, §12.5, §12.10, §12.11)
   securitySetup: SecuritySetupDialog,
   recoveryKey: RecoveryKeyDialog,
