@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { ScreenShare } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ErrorText } from '@/components/ui/field'
 import { ModalWindow } from '@/components/ui/modal-window'
@@ -27,9 +28,12 @@ export function ScreenSourcePicker({
       open={picker !== null}
       onClose={onClose}
       title="Share your screen"
-      className="sm:max-w-[720px]"
+      description="Pick a screen or a window. Only the people in this call can see it."
+      icon={<ScreenShare />}
+      feature="voice"
+      className="sm:max-w-[640px]"
       actions={
-        <Button variant="ghost" onClick={onClose}>
+        <Button variant="secondary" onClick={onClose}>
           Cancel
         </Button>
       }
@@ -94,21 +98,23 @@ function SourceGroup({
   if (sources.length === 0) return null
   return (
     <section>
-      <h3 className="text-muted-foreground mb-2 text-xs font-semibold">{title}</h3>
+      <h3 className="section-label mb-2">{title}</h3>
       <ul className="grid grid-cols-2 gap-2 sm:grid-cols-3">
         {sources.map((s) => (
           <li key={s.id}>
             <button
               type="button"
               onClick={() => onPick(s.id)}
-              className="hover:bg-accent/60 focus-visible:outline-ring flex w-full flex-col gap-1 border p-1.5 text-left focus-visible:outline-2 focus-visible:-outline-offset-2"
+              className="rounded-option border-line-hairline hover:bg-surface-hover hover:border-feature-voice focus-visible:outline-line-focus flex w-full flex-col gap-1.5 border p-1.5 text-left transition-colors outline-none focus-visible:outline-2 focus-visible:outline-offset-1"
             >
               <img
                 src={s.thumbnail}
                 alt=""
-                className="aspect-video w-full bg-black object-contain"
+                className="aspect-video w-full rounded-[6px] bg-black object-contain"
               />
-              <span className="truncate text-xs">{s.name}</span>
+              <span className="text-text-primary truncate px-0.5 text-xs font-semibold">
+                {s.name}
+              </span>
             </button>
           </li>
         ))}
