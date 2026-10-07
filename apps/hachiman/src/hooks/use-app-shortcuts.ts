@@ -7,14 +7,7 @@ import { hachiman } from '@/services/hachiman'
 import { useDialogStore } from '@/stores/dialogStore'
 import { useDocsStore } from '@/stores/docsStore'
 import { useGuildStore } from '@/stores/guildStore'
-import {
-  back,
-  closeSettings,
-  forward,
-  navigate,
-  useNavStore,
-  type View
-} from '@/stores/navStore'
+import { back, closeSettings, forward, navigate, useNavStore, type View } from '@/stores/navStore'
 import { currentTabs, viewOfTarget } from '@/stores/tabsStore'
 
 /** Whether the target of a history entry is still there (N2: a gone target is skipped). */

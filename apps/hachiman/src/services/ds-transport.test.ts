@@ -193,7 +193,13 @@ describe('createDsTransport', () => {
 
   it('calls the invite routes of §12.12 and rejects 404 UnknownInvite as Transport', async () => {
     const records = [
-      { inviteId: 'i-1', keyId: 'S0lE', record: 'UkVD', expiresAt: null, bundled: [{ groupId: 'R1', epoch: 3 }] }
+      {
+        inviteId: 'i-1',
+        keyId: 'S0lE',
+        record: 'UkVD',
+        expiresAt: null,
+        bundled: [{ groupId: 'R1', epoch: 3 }]
+      }
     ]
     const bundles = { inviteId: 'i-1', record: 'UkVD', bundles: [] }
     const { rest: r, seen } = rest((req) =>
@@ -205,7 +211,9 @@ describe('createDsTransport', () => {
     )
     const t = createDsTransport(r, emptyCache())
     expect(await t.inviteRecords('g-1')).toEqual(records)
-    expect(await t.postInviteBundle('i-1', { groupId: 'R1', epoch: 4, blob: 'QkxC' })).toBeUndefined()
+    expect(
+      await t.postInviteBundle('i-1', { groupId: 'R1', epoch: 4, blob: 'QkxC' })
+    ).toBeUndefined()
     expect(await t.inviteBundles('ABCD2345')).toEqual(bundles)
     expect(seen.map((s) => `${s.method} ${s.url.replace('http://takusen/api/v1', '')}`)).toEqual([
       'GET /guilds/g-1/invite-records',

@@ -9,9 +9,9 @@ const activity = { pageId: 'p-1', changes: 2 }
 describe('rowKind', () => {
   it('collapses a blocked author before the kind, also for page activity', () => {
     expect(rowKind({ decrypt: ok }, true)).toBe('blocked')
-    expect(
-      rowKind({ kind: 'page_activity', pageActivity: activity, decrypt: ok }, true)
-    ).toBe('blocked')
+    expect(rowKind({ kind: 'page_activity', pageActivity: activity, decrypt: ok }, true)).toBe(
+      'blocked'
+    )
   })
 
   it('shows the real kind of a blocked row once the user shows it', () => {

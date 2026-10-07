@@ -196,7 +196,11 @@ function UnreadList({
                 {channelLabel(channel).name}
               </button>
               <UnreadMark badge={badge} dot={false} />
-              <Button variant="quiet" size="sm" onClick={() => unreadService.markChannelRead(channel.id)}>
+              <Button
+                variant="quiet"
+                size="sm"
+                onClick={() => unreadService.markChannelRead(channel.id)}
+              >
                 <CheckCheck />
                 Mark read
               </Button>
