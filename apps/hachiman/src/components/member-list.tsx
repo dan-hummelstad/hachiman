@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef } from 'react'
 import { AudioLines, Crown, Volume2 } from 'lucide-react'
 import type { Member } from '@hachiman/client'
+import { CustomStatusLine } from '@/components/people/custom-status-line'
 import { useVoiceActivity } from '@/components/people/use-voice-activity'
 import { UserAvatar } from '@/components/shell/user-avatar'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -153,6 +154,7 @@ function MemberRow({
                 <span className="truncate">{activityLabel(activity)}</span>
               </span>
             )}
+            {!activity && !dim && <CustomStatusLine userId={userId} />}
           </span>
           {activity?.streaming && !dim && <SystemTag kind="live" />}
         </button>

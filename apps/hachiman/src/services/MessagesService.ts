@@ -112,8 +112,12 @@ async function sealAndPost(
   }
 }
 
+/** The send error of a 1:1 DM with a block in either direction (403 Blocked, contract §4). */
+export const BLOCKED_SEND_ERROR = "You can't message this person."
+
 /** A failed send or edit, in words for the user. */
 export function sendErrorText(e: unknown): string {
+  if (e instanceof RestError && e.code === 'Blocked') return BLOCKED_SEND_ERROR
   if (e instanceof CryptoError && e.code === 'TooLarge')
     return 'This message is too long. Make it shorter.'
   if (e instanceof RestError && e.code === 'EnvelopeTooLarge')

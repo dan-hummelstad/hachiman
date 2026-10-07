@@ -1,20 +1,32 @@
 import { useState } from 'react'
-import { MessageCircle, MicOff, ShieldCheck, VolumeX } from 'lucide-react'
+import { Ban, MessageCircle, MicOff, MoreHorizontal, ShieldCheck, VolumeX } from 'lucide-react'
 import type { User } from '@hachiman/client'
 import { useUserBanner } from '@/components/people/use-user-banner'
+import { BlockConfirmDialog } from '@/components/people/block-dialog'
+import { CustomStatusLine } from '@/components/people/custom-status-line'
 import { UserAvatar } from '@/components/shell/user-avatar'
 import { Button } from '@/components/ui/button'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger
+} from '@/components/ui/dropdown-menu'
+import { ErrorText } from '@/components/ui/field'
+import { IconButton } from '@/components/ui/icon-button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { PRESENCE_LABEL, PresenceDot } from '@/components/ui/presence'
 import { RoleChip } from '@/components/ui/role-chip'
+import { useAction } from '@/hooks/use-action'
 import { useMemberView, useOpenDm, usePresence } from '@/hooks/use-member'
 import { memberRoles } from '@/lib/model'
 import { ROLE_INK_SCOPE } from '@/lib/role-ink'
 import { cn } from '@/lib/utils'
+import { blockService } from '@/services/guild-features'
 import { useCryptoStore } from '@/stores/cryptoStore'
 import { openDialog } from '@/stores/dialogStore'
 import { useGuildStore } from '@/stores/guildStore'
-import { useUserStore } from '@/stores/userStore'
+import { useIsBlocked, useUserStore } from '@/stores/userStore'
 import { useVoiceStore } from '@/stores/voiceStore'
 
 interface UserProfilePopoverProps {
@@ -41,26 +53,45 @@ export function UserProfilePopover({
   side = 'left'
 }: UserProfilePopoverProps): React.JSX.Element {
   const [open, setOpen] = useState(false)
+  // The confirm window lives outside the popover, which closes when it opens.
+  const [blocking, setBlocking] = useState<string | null>(null)
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger
-        asChild
-        onContextMenu={(e) => {
-          e.preventDefault()
-          setOpen(true)
-        }}
-      >
-        {children}
-      </PopoverTrigger>
-      <PopoverContent
-        side={side}
-        align="start"
-        sideOffset={8}
-        className={cn('w-72 p-0', ROLE_INK_SCOPE)}
-      >
-        <ProfileCard userId={userId} guildId={guildId} user={user} onDone={() => setOpen(false)} />
-      </PopoverContent>
-    </Popover>
+    <>
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger
+          asChild
+          onContextMenu={(e) => {
+            e.preventDefault()
+            setOpen(true)
+          }}
+        >
+          {children}
+        </PopoverTrigger>
+        <PopoverContent
+          side={side}
+          align="start"
+          sideOffset={8}
+          className={cn('w-72 p-0', ROLE_INK_SCOPE)}
+        >
+          <ProfileCard
+            userId={userId}
+            guildId={guildId}
+            user={user}
+            onDone={() => setOpen(false)}
+            onBlock={(name) => {
+              setOpen(false)
+              setBlocking(name)
+            }}
+          />
+        </PopoverContent>
+      </Popover>
+      <BlockConfirmDialog
+        userId={userId}
+        name={blocking ?? ''}
+        open={blocking !== null}
+        onClose={() => setBlocking(null)}
+      />
+    </>
   )
 }
 
@@ -69,6 +100,7 @@ function ProfileCard(props: {
   guildId: string | null
   user: User | undefined
   onDone: () => void
+  onBlock: (name: string) => void
 }): React.JSX.Element {
   const { userId, guildId } = props
   const { member, name, ink } = useMemberView(guildId, userId, props.user)
@@ -79,6 +111,8 @@ function ProfileCard(props: {
   )
   const isMe = useUserStore((s) => s.me?.id === userId)
   const dm = useOpenDm(userId)
+  const blocked = useIsBlocked(userId)
+  const unblock = useAction()
   // The safety number needs the crypto Worker (§12.5).
   const encryption = useCryptoStore((s) => s.phase === 'ready' && s.status?.state === 'ready')
   const chips = memberRoles(member, roles)
@@ -112,6 +146,7 @@ function ProfileCard(props: {
             <PresenceDot status={status} />
             {PRESENCE_LABEL[status]}
           </span>
+          <CustomStatusLine userId={userId} className="mt-0.5" />
         </div>
 
         {voice?.channelId && (voice.selfMute || voice.selfDeaf) && (
@@ -141,10 +176,11 @@ function ProfileCard(props: {
         )}
 
         {!isMe && (
-          <div className="grid grid-cols-2 gap-2">
+          <div className="flex gap-2">
             <Button
               size="sm"
-              disabled={dm.busy}
+              className="flex-1"
+              disabled={dm.busy || blocked}
               onClick={() => void dm.open().then((ok) => ok && props.onDone())}
             >
               <MessageCircle className="size-3.5" /> Message
@@ -152,6 +188,7 @@ function ProfileCard(props: {
             <Button
               size="sm"
               variant="secondary"
+              className="flex-1"
               disabled={!encryption}
               onClick={() => {
                 props.onDone()
@@ -160,8 +197,33 @@ function ProfileCard(props: {
             >
               <ShieldCheck className="size-3.5" /> Verify
             </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <IconButton label="More" size="sm" className="rounded-control">
+                  <MoreHorizontal />
+                </IconButton>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {blocked ? (
+                  <DropdownMenuItem
+                    disabled={unblock.busy}
+                    onSelect={() =>
+                      void unblock.run(`unblock ${name}`, () => blockService.unblock(userId))
+                    }
+                  >
+                    <Ban /> Unblock
+                  </DropdownMenuItem>
+                ) : (
+                  <DropdownMenuItem variant="destructive" onSelect={() => props.onBlock(name)}>
+                    <Ban /> Block
+                  </DropdownMenuItem>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         )}
+        {blocked && !isMe && <p className="text-text-tertiary text-xs">You blocked {name}.</p>}
+        <ErrorText>{unblock.error}</ErrorText>
       </div>
     </div>
   )

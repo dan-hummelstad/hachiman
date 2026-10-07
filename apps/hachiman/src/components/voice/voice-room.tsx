@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { Info, PhoneCall, PhoneOff } from 'lucide-react'
+import { Eye, Info, PhoneCall, PhoneOff } from 'lucide-react'
 import { Permissions, has, type VoiceState } from '@hachiman/client'
 import { Button } from '@/components/ui/button'
 import { CallSecurityBanner } from '@/components/voice/call-security'
@@ -132,6 +132,7 @@ function NotJoined({ channel }: { channel: GuildChannel }): React.JSX.Element {
   )
   const streamer = occupants.find((vs) => vs.selfStream) ?? null
   const channelName = channelLabel(channel).name
+  const joinDisabled = !canConnect || kind === 'update_required' || kind === 'resyncing'
 
   return (
     <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-5 overflow-y-auto p-6">
@@ -175,15 +176,29 @@ function NotJoined({ channel }: { channel: GuildChannel }): React.JSX.Element {
           `No one is in ${channelName} yet`
         )}
       </h2>
-      <Button
-        variant="voice"
-        size="lg"
-        disabled={!canConnect || kind === 'update_required' || kind === 'resyncing'}
-        onClick={() => void voiceService.join(channel)}
-      >
-        <PhoneCall />
-        Join voice
-      </Button>
+      <div className="flex flex-wrap items-center justify-center gap-2">
+        <Button
+          variant="voice"
+          size="lg"
+          disabled={joinDisabled}
+          onClick={() => void voiceService.join(channel)}
+        >
+          <PhoneCall />
+          Join voice
+        </Button>
+        {/* N18: a join with the mic muted from the start. The stream needs the call's keys. */}
+        {streamer && (
+          <Button
+            variant="secondary"
+            size="lg"
+            disabled={joinDisabled}
+            onClick={() => void voiceService.join(channel, { muted: true })}
+          >
+            <Eye />
+            Watch stream
+          </Button>
+        )}
+      </div>
       {otherCallName !== null && canConnect && (
         <p className="text-text-tertiary flex items-center gap-1.5 text-[13px]">
           <Info className="size-3.5 shrink-0" aria-hidden />

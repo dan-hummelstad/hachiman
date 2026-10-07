@@ -1,95 +1,292 @@
-import { useMemo, useState } from 'react'
-import { Search } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { Ban, MessageCircle, MoreHorizontal, Search, SquarePen, Users } from 'lucide-react'
 import type { User } from '@hachiman/client'
+import { ActiveNow } from '@/components/people/active-now'
+import { BlockConfirmDialog } from '@/components/people/block-dialog'
+import { NewMessageDialog } from '@/components/people/new-message-dialog'
 import { PresenceSections } from '@/components/people/presence-sections'
+import { filterPeople, usePeople } from '@/components/people/use-people'
+import { useVoiceActivity } from '@/components/people/use-voice-activity'
 import { UserAvatar } from '@/components/shell/user-avatar'
 import { Button } from '@/components/ui/button'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger
+} from '@/components/ui/dropdown-menu'
+import { ErrorText } from '@/components/ui/field'
+import { IconButton } from '@/components/ui/icon-button'
 import { PRESENCE_LABEL } from '@/components/ui/presence'
+import { SegmentedControl, type SegmentedOption } from '@/components/ui/segmented-control'
 import { TitleBar } from '@/components/ui/title-bar'
+import { useAction } from '@/hooks/use-action'
+import { useCustomStatus } from '@/hooks/use-custom-status'
 import { useOpenDm, usePresence } from '@/hooks/use-member'
+import { activityLabel } from '@/lib/member-activity'
 import { cn } from '@/lib/utils'
+import { blockService } from '@/services/guild-features'
+import { hachiman } from '@/services/hachiman'
+import { useChannelStore } from '@/stores/channelStore'
 import { useGuildStore } from '@/stores/guildStore'
 import { useUserStore } from '@/stores/userStore'
 
+type Tab = 'online' | 'all' | 'blocked'
+
 const userId = (u: User): string => u.id
 
-/** DM home with no DM open: everyone I share a guild with, a Slack-like directory. */
+/**
+ * The DM home with no DM open (E1): everyone I share a guild with, in the tabs Online, All and
+ * Blocked, with "New message", a filter, and the "Active now" column on the right.
+ */
 export function HomePane(): React.JSX.Element {
-  const members = useGuildStore((s) => s.members)
-  const myId = useUserStore((s) => s.me?.id)
+  const people = usePeople()
+  const blocks = useUserStore((s) => s.blocks)
+  const presences = useGuildStore((s) => s.presences)
+  const [tab, setTab] = useState<Tab>('online')
   const [query, setQuery] = useState('')
+  const [composing, setComposing] = useState(false)
 
-  const people = useMemo(() => {
-    const byId = new Map<string, User>()
-    for (const guild of members.values()) {
-      for (const m of guild.values()) {
-        if (m.user.id !== myId && !byId.has(m.user.id)) byId.set(m.user.id, m.user)
-      }
-    }
-    return [...byId.values()].sort((a, b) => a.username.localeCompare(b.username))
-  }, [members, myId])
+  const visible = useMemo(() => people.filter((u) => !blocks.has(u.id)), [people, blocks])
+  const online = useMemo(
+    () => visible.filter((u) => (presences.get(u.id) ?? 'offline') !== 'offline'),
+    [visible, presences]
+  )
+  const list = tab === 'online' ? online : visible
+  const matches = useMemo(() => filterPeople(list, query), [list, query])
 
-  const matches = useMemo(() => {
-    const q = query.trim().toLowerCase()
-    return q ? people.filter((u) => u.username.toLowerCase().includes(q)) : people
-  }, [people, query])
+  const tabs: SegmentedOption<Tab>[] = [
+    { value: 'online', label: 'Online', count: online.length },
+    { value: 'all', label: 'All', count: visible.length },
+    { value: 'blocked', label: 'Blocked', count: blocks.size }
+  ]
 
   return (
-    <section className="bg-background flex min-h-0 min-w-0 flex-1 flex-col">
-      <TitleBar left={<h1 className="truncate">People</h1>} />
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto flex max-w-[720px] flex-col gap-5 px-6 py-6">
-          <label className="bg-card focus-within:border-ring flex h-9 items-center gap-2 border px-3">
-            <Search className="text-muted-foreground size-4 shrink-0" aria-hidden />
-            <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Filter people"
-              aria-label="Filter people"
-              className="placeholder:text-muted-foreground min-w-0 flex-1 bg-transparent text-sm outline-none"
-            />
-          </label>
+    <div className="flex min-h-0 min-w-0 flex-1">
+      <section className="bg-background flex min-h-0 min-w-0 flex-1 flex-col">
+        <TitleBar
+          left={
+            <>
+              <Users className="text-text-tertiary size-[18px] shrink-0" aria-hidden />
+              <h1 className="truncate">People</h1>
+              <SegmentedControl
+                label="Show people"
+                options={tabs}
+                value={tab}
+                onChange={setTab}
+                className="ml-2"
+              />
+            </>
+          }
+          right={
+            <Button onClick={() => setComposing(true)}>
+              <SquarePen />
+              New message
+            </Button>
+          }
+        />
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <div className="mx-auto flex max-w-[860px] flex-col gap-4 px-6 py-5">
+            <label className="rounded-control border-line-strong bg-surface-sunken focus-within:border-accent-primary flex h-9 items-center gap-2 border px-3">
+              <Search className="text-text-tertiary size-4 shrink-0" aria-hidden />
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Filter people"
+                aria-label="Filter people"
+                className="placeholder:text-text-tertiary min-w-0 flex-1 bg-transparent text-sm outline-none"
+              />
+            </label>
 
-          {people.length === 0 ? (
-            <Empty>Nobody here yet. People you share a guild with show up in this list.</Empty>
-          ) : matches.length === 0 ? (
-            <Empty>No one matches “{query.trim()}”.</Empty>
-          ) : (
-            <PresenceSections
-              items={matches}
-              idOf={userId}
-              labelClassName="border-b pb-2"
-              renderRow={(u, offline) => <PersonRow key={u.id} user={u} dim={offline} />}
-            />
-          )}
+            {tab === 'blocked' ? (
+              <BlockedList people={people} query={query} />
+            ) : list.length === 0 ? (
+              <Empty>
+                {tab === 'online' && visible.length > 0
+                  ? 'No one is online right now.'
+                  : 'Nobody here yet. People you share a guild with show up in this list.'}
+              </Empty>
+            ) : matches.length === 0 ? (
+              <Empty>No one matches “{query.trim()}”.</Empty>
+            ) : (
+              <div className="flex flex-col gap-4">
+                <PresenceSections
+                  items={matches}
+                  idOf={userId}
+                  labelClassName="px-2 pb-1"
+                  renderRow={(u, offline) => <PersonRow key={u.id} user={u} dim={offline} />}
+                />
+              </div>
+            )}
+          </div>
         </div>
-      </div>
-    </section>
+      </section>
+      <ActiveNow />
+      <NewMessageDialog open={composing} onClose={() => setComposing(false)} />
+    </div>
   )
 }
 
 function Empty({ children }: { children: React.ReactNode }): React.JSX.Element {
-  return <p className="text-muted-foreground py-10 text-center text-sm">{children}</p>
+  return <p className="text-text-tertiary py-10 text-center text-sm">{children}</p>
 }
 
+const ROW =
+  'group rounded-control hover:bg-surface-hover flex min-h-[52px] items-center gap-3 px-2 py-1.5'
+
+/** A person: avatar, name, what they do (voice, custom status or presence), Message and More. */
 function PersonRow({ user, dim }: { user: User; dim: boolean }): React.JSX.Element {
   const status = usePresence(user.id)
+  const custom = useCustomStatus(user.id)
+  const activity = useVoiceActivity(user.id, null)
   const dm = useOpenDm(user.id)
+  const [confirm, setConfirm] = useState(false)
+
   return (
-    <li className="group hover:bg-accent flex h-14 items-center gap-3 border-b px-2">
+    <li className={ROW}>
       <UserAvatar
         avatar={user.avatar}
         name={user.username}
         status={status}
-        cutout="bg-background group-hover:bg-accent"
+        cutout="bg-background group-hover:bg-surface-hover"
         className={cn(dim && 'opacity-50')}
       />
-      <div className="flex min-w-0 flex-1 flex-col">
-        <span className="truncate font-sans text-sm leading-5 font-semibold">{user.username}</span>
-        <span className="text-muted-foreground text-xs">{PRESENCE_LABEL[status]}</span>
+      <div className={cn('flex min-w-0 flex-1 flex-col', dim && 'opacity-60')}>
+        <span className="text-text-primary truncate text-sm leading-5 font-semibold">
+          {user.username}
+        </span>
+        {activity && !dim ? (
+          <span className="text-feature-voice-text truncate text-xs leading-4 font-semibold">
+            {activity.streaming ? `Live in ${activity.channelName}` : activityLabel(activity)}
+          </span>
+        ) : custom && !dim ? (
+          <span className="text-text-secondary truncate text-xs leading-4" title={custom.text}>
+            {custom.text}
+          </span>
+        ) : (
+          <span
+            className={cn(
+              'truncate text-xs leading-4',
+              status === 'dnd' ? 'text-feature-danger-text' : 'text-text-tertiary'
+            )}
+          >
+            {PRESENCE_LABEL[status]}
+          </span>
+        )}
       </div>
-      <Button size="sm" variant="outline" disabled={dm.busy} onClick={() => void dm.open()}>
-        Message
+      <IconButton
+        label={`Message ${user.username}`}
+        disabled={dm.busy}
+        onClick={() => void dm.open()}
+      >
+        <MessageCircle />
+      </IconButton>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <IconButton
+            label="More"
+            className="opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 data-[state=open]:opacity-100"
+          >
+            <MoreHorizontal />
+          </IconButton>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem variant="destructive" onSelect={() => setConfirm(true)}>
+            <Ban /> Block
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <BlockConfirmDialog
+        userId={user.id}
+        name={user.username}
+        open={confirm}
+        onClose={() => setConfirm(false)}
+      />
+    </li>
+  )
+}
+
+/**
+ * The people I blocked, with Unblock. A blocked user I no longer share a guild with is not in the
+ * member lists, so their name comes from `GET /users/@me/blocks`.
+ */
+function BlockedList({ people, query }: { people: User[]; query: string }): React.JSX.Element {
+  const blocks = useUserStore((s) => s.blocks)
+  const channels = useChannelStore((s) => s.channels)
+  const [fetched, setFetched] = useState<ReadonlyMap<string, User> | null>(null)
+
+  const known = useMemo(() => {
+    const byId = new Map<string, User>(fetched ?? [])
+    for (const u of people) byId.set(u.id, u)
+    for (const c of channels.values()) for (const u of c.recipients ?? []) byId.set(u.id, u)
+    return byId
+  }, [people, channels, fetched])
+  const missing = [...blocks].some((id) => !known.has(id))
+
+  useEffect(() => {
+    if (!missing || fetched) return
+    let live = true
+    hachiman.rest
+      .getBlocks()
+      .then((list) => live && setFetched(new Map(list.map((b) => [b.user.id, b.user]))))
+      .catch((e: unknown) => console.warn('[blocks] list failed', e))
+    return () => {
+      live = false
+    }
+  }, [missing, fetched])
+
+  const users = useMemo(
+    () =>
+      [...blocks]
+        .map((id) => known.get(id))
+        .filter((u): u is User => u !== undefined)
+        .sort((a, b) => a.username.localeCompare(b.username)),
+    [blocks, known]
+  )
+  const matches = filterPeople(users, query)
+
+  if (blocks.size === 0) return <Empty>You haven&apos;t blocked anyone.</Empty>
+  if (users.length === 0) return <Empty>Loading…</Empty>
+  if (matches.length === 0) return <Empty>No one matches “{query.trim()}”.</Empty>
+  return (
+    <section>
+      <h3 className="section-label px-2 pb-1">Blocked — {users.length}</h3>
+      <ul className="flex flex-col">
+        {matches.map((u) => (
+          <BlockedRow key={u.id} user={u} />
+        ))}
+      </ul>
+    </section>
+  )
+}
+
+function BlockedRow({ user }: { user: User }): React.JSX.Element {
+  const { run, busy, error } = useAction()
+  return (
+    <li className={ROW}>
+      <UserAvatar
+        avatar={user.avatar}
+        name={user.username}
+        cutout="bg-background group-hover:bg-surface-hover"
+        className="opacity-60"
+      />
+      <div className="flex min-w-0 flex-1 flex-col">
+        <span className="text-text-primary truncate text-sm leading-5 font-semibold">
+          {user.username}
+        </span>
+        {error ? (
+          <ErrorText>{error}</ErrorText>
+        ) : (
+          <span className="text-text-tertiary text-xs leading-4">Blocked</span>
+        )}
+      </div>
+      <Button
+        size="sm"
+        variant="secondary"
+        disabled={busy}
+        onClick={() => void run(`unblock ${user.username}`, () => blockService.unblock(user.id))}
+      >
+        Unblock
       </Button>
     </li>
   )
