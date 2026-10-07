@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import type { TrustInfo, VoiceRosterEntry } from '@hachiman/crypto'
+import type { VoiceRosterEntry } from '@hachiman/crypto'
 import { callParticipants, type CallParticipant } from '@/components/voice/call-roster'
 import { useChannelOccupants } from '@/hooks/use-hachiman'
 import { cryptoService } from '@/services/CryptoService'
@@ -18,12 +18,7 @@ const EMPTY_ROSTER: VoiceRosterEntry[] = []
  * - 'none': not in a call.
  */
 export type CallSecurityKind =
-  | 'update_required'
-  | 'resyncing'
-  | 'resync_failed'
-  | 'securing'
-  | 'secure'
-  | 'none'
+  'update_required' | 'resyncing' | 'resync_failed' | 'securing' | 'secure' | 'none'
 
 export function useCallSecurity(): { kind: CallSecurityKind; epoch: number | null } {
   const fatal = useCryptoStore((s) => s.fatal)
@@ -80,21 +75,4 @@ export function useEpochCode(): string | null {
 
   // A result of an earlier epoch is never shown as the current code.
   return result !== null && result.key === key ? result.code : null
-}
-
-/** The trust state of one contact, or null while unknown. */
-export function useTrust(userId: string): TrustInfo | null {
-  const [trust, setTrust] = useState<TrustInfo | null>(null)
-  useEffect(() => {
-    let live = true
-    const read = async (): Promise<TrustInfo> => cryptoService.client().getTrust(userId)
-    read().then(
-      (t) => live && setTrust(t),
-      (e: unknown) => console.warn('[voice] trust unavailable for %s', userId, e)
-    )
-    return () => {
-      live = false
-    }
-  }, [userId])
-  return trust?.userId === userId ? trust : null
 }

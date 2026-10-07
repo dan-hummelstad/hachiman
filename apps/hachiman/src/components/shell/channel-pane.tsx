@@ -6,15 +6,13 @@ import {
   Megaphone,
   MessagesSquare,
   Settings,
-  ShieldAlert,
-  ShieldCheck,
-  ShieldQuestion,
   Users,
   Volume2
 } from 'lucide-react'
 import { Permissions, has, type Channel, type Role } from '@hachiman/client'
 import { useChannelAccess } from '@/lib/channel-access'
-import { useTrustBadge, type TrustBadge } from '@/components/chat/use-dm-trust'
+import { TrustChip } from '@/components/people/trust-chip'
+import { useContactTrust } from '@/components/people/use-contact-trust'
 import { NotifyButton } from '@/components/notify/notify-menu'
 import { openChannelView } from '@/components/pins/jump'
 import { PinsButton } from '@/components/pins/pins-button'
@@ -282,43 +280,21 @@ function VoiceActivity({ userId }: { userId: string }): React.JSX.Element | null
   )
 }
 
-const TRUST: Record<TrustBadge, { label: string; icon: React.ReactNode; className: string }> = {
-  unverified: {
-    label: 'Not verified',
-    icon: <ShieldQuestion />,
-    className: 'bg-feature-event/15 text-feature-event-text'
-  },
-  verified: {
-    label: 'Verified',
-    icon: <ShieldCheck />,
-    className: 'bg-feature-voice/15 text-feature-voice-text'
-  },
-  changed: {
-    label: 'Key changed',
-    icon: <ShieldAlert />,
-    className: 'bg-feature-danger/15 text-feature-danger-text'
-  }
-}
-
 /** The trust of the other person in a 1:1 DM. Opens the verification dialog. */
 function DmTrustChip({ channel }: { channel: Channel }): React.JSX.Element | null {
   const recipients = channel.recipients ?? []
   const solo = recipients.length === 1 ? recipients[0] : undefined
-  const badge = useTrustBadge(solo?.id)
-  if (!solo || !badge) return null
-  const t = TRUST[badge]
+  const { trust } = useContactTrust(solo?.id)
+  if (!solo || !trust) return null
   return (
-    <button
-      type="button"
-      onClick={() => openDialog({ kind: 'verification', userId: solo.id })}
-      className={cn(
-        'rounded-control inline-flex h-8 items-center gap-1.5 px-2.5 text-[13px] leading-none font-bold transition-opacity hover:opacity-85 [&_svg]:size-4',
-        'focus-visible:outline-line-focus outline-none focus-visible:outline-2 focus-visible:outline-offset-1',
-        t.className
-      )}
-    >
-      {t.icon}
-      {t.label}
-    </button>
+    <TrustChip
+      state={trust.state}
+      size="md"
+      onClick={
+        trust.state === 'unknown'
+          ? undefined
+          : () => openDialog({ kind: 'verification', userId: solo.id })
+      }
+    />
   )
 }

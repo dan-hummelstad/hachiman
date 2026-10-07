@@ -1,4 +1,4 @@
-import { BadgeCheck, Check, LoaderCircle, LogOut, ShieldAlert, ShieldCheck } from 'lucide-react'
+import { Check, LoaderCircle, LogOut, ShieldCheck } from 'lucide-react'
 import { UserAvatar } from '@/components/shell/user-avatar'
 import { Button } from '@/components/ui/button'
 import { Callout } from '@/components/ui/callout'
@@ -8,9 +8,10 @@ import { epochCodeGroups, type CallParticipant } from '@/components/voice/call-r
 import {
   useCallParticipants,
   useCallSecurity,
-  useEpochCode,
-  useTrust
+  useEpochCode
 } from '@/components/voice/use-call-security'
+import { TRUST_LOOK } from '@/components/people/trust-look'
+import { useContactTrust } from '@/components/people/use-contact-trust'
 import { useMemberView } from '@/hooks/use-member'
 import { cn } from '@/lib/utils'
 import { useChannelStore } from '@/stores/channelStore'
@@ -215,22 +216,10 @@ function ParticipantRow({
 }
 
 function TrustMark({ userId }: { userId: string }): React.JSX.Element | null {
-  const trust = useTrust(userId)
-  if (trust?.state === 'verified')
-    return (
-      <BadgeCheck
-        className="text-feature-voice-text size-3.5 shrink-0"
-        aria-label="Verified"
-        role="img"
-      />
-    )
-  if (trust?.state === 'changed')
-    return (
-      <ShieldAlert
-        className="text-feature-danger-text size-3.5 shrink-0"
-        aria-label="Key changed"
-        role="img"
-      />
-    )
-  return null
+  const { trust } = useContactTrust(userId)
+  if (trust?.state !== 'verified' && trust?.state !== 'changed') return null
+  const look = TRUST_LOOK[trust.state]
+  return (
+    <look.Icon className={cn(look.text, 'size-3.5 shrink-0')} aria-label={look.label} role="img" />
+  )
 }

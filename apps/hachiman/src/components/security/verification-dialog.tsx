@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useState } from 'react'
 import {
   BadgeCheck,
   Check,
@@ -8,17 +8,14 @@ import {
   ShieldAlert,
   ShieldCheck
 } from 'lucide-react'
-import {
-  VERIFY_QR_PREFIX,
-  type ContactDevice,
-  type SafetyNumber,
-  type TrustInfo
-} from '@hachiman/crypto'
+import { VERIFY_QR_PREFIX, type TrustInfo } from '@hachiman/crypto'
 import { Button } from '@/components/ui/button'
 import { ErrorText, SectionHeading } from '@/components/ui/field'
-import { cn } from '@/lib/utils'
 import { ModalWindow } from '@/components/ui/modal-window'
-import { cryptoErrorText, friendly } from '@/components/security/errors'
+import { friendly } from '@/components/security/errors'
+import { TrustChip } from '@/components/people/trust-chip'
+import { useContactSecurity } from '@/components/people/use-contact-security'
+import { invalidateTrust } from '@/components/people/use-contact-trust'
 import { QrCodeView, ScanOrPaste } from '@/components/security/qr-view'
 import { Warning } from '@/components/security/screen-window'
 import { useUserName } from '@/components/security/use-user-name'
@@ -44,55 +41,27 @@ export function VerificationDialog(): React.JSX.Element {
   const { dialog, open, close } = useDialog('verification')
   const { userId } = dialog
   const name = useUserName(userId)
-  const [trust, setTrust] = useState<TrustInfo | null>(null)
-  const [safety, setSafety] = useState<SafetyNumber | null>(null)
-  const [devices, setDevices] = useState<ContactDevice[] | null>(null)
-  const [loadError, setLoadError] = useState<string | null>(null)
+  const { trust, safety, devices, error: loadError } = useContactSecurity(userId)
   const [scanning, setScanning] = useState(false)
   const [scanResult, setScanResult] = useState<'match' | 'mismatch' | null>(null)
   const [showCode, setShowCode] = useState(false)
   const { run, busy, error } = useAction()
-
-  const load = useCallback(() => {
-    // client() throws when the Worker is not ready: inside the promise, so it is a load error.
-    Promise.resolve()
-      .then(() => {
-        const client = cryptoService.client()
-        return Promise.all([client.getTrust(userId), client.getSafetyNumber(userId)])
-      })
-      .then(
-        ([t, s]) => {
-          setTrust(t)
-          setSafety(s)
-        },
-        (e: unknown) => setLoadError(cryptoErrorText(e))
-      )
-    // Only chain-checked devices come back. A device that fails the check is not shown.
-    Promise.resolve()
-      .then(() => cryptoService.client().listContactDevices(userId))
-      .then(
-        (list) => setDevices([...list].sort((a, b) => a.issuedAtMs - b.issuedAtMs)),
-        () => setDevices([])
-      )
-  }, [userId])
-  useEffect(load, [load])
 
   const setVerified = async (verified: boolean): Promise<void> => {
     const r = await run(verified ? 'mark as verified' : 'remove the verification', () =>
       friendly(cryptoService.client().setVerified(userId, verified))
     )
     if (!r.ok) return
-    setTrust(r.value)
     if (verified) dismissKeyChange(userId)
+    invalidateTrust()
   }
   const acknowledge = async (): Promise<void> => {
     const r = await run('accept the new key', () =>
       friendly(cryptoService.client().acknowledgeKeyChange(userId))
     )
     if (!r.ok) return
-    setTrust(r.value)
     dismissKeyChange(userId)
-    load()
+    invalidateTrust()
   }
   const onScan = async (payload: string): Promise<void> => {
     setScanning(false)
@@ -102,7 +71,7 @@ export function VerificationDialog(): React.JSX.Element {
     setScanResult(match ? 'match' : 'mismatch')
     if (match) {
       dismissKeyChange(userId)
-      load()
+      invalidateTrust()
     }
   }
 
@@ -268,7 +237,7 @@ export function VerificationDialog(): React.JSX.Element {
                       added {new Date(d.issuedAtMs).toLocaleDateString()}
                     </span>
                   </span>
-                  {trust && <TrustBadge state={trust.state} />}
+                  {trust && <TrustChip state={trust.state} />}
                 </li>
               ))}
             </ul>
@@ -280,26 +249,5 @@ export function VerificationDialog(): React.JSX.Element {
         </section>
       </div>
     </ModalWindow>
-  )
-}
-
-/** The trust of the user (decision 5: users are verified, not devices), on each device row. */
-function TrustBadge({ state }: { state: TrustInfo['state'] }): React.JSX.Element | null {
-  if (state === 'unknown') return null
-  const verified = state === 'verified'
-  return (
-    <span
-      className={cn(
-        'inline-flex h-[22px] shrink-0 items-center gap-1 px-2 text-[11.5px] font-bold [&_svg]:size-3.5',
-        verified
-          ? 'bg-feature-voice/15 text-feature-voice-text'
-          : state === 'changed'
-            ? 'bg-feature-danger/15 text-feature-danger-text'
-            : 'bg-feature-event/15 text-feature-event-text'
-      )}
-    >
-      {verified ? <BadgeCheck aria-hidden /> : <ShieldAlert aria-hidden />}
-      {verified ? 'Verified' : state === 'changed' ? 'Key changed' : 'Not verified'}
-    </span>
   )
 }

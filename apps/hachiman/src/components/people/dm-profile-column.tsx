@@ -5,7 +5,6 @@ import {
   Crown,
   MonitorSmartphone,
   Phone,
-  ShieldAlert,
   ShieldCheck,
   ShieldQuestion,
   Volume2
@@ -15,11 +14,8 @@ import type { Guild, Role, User } from '@hachiman/client'
 import { CustomStatusLine } from '@/components/people/custom-status-line'
 import { useNow, useVoiceActivity } from '@/components/people/use-voice-activity'
 import { useUserBanner } from '@/components/people/use-user-banner'
-import {
-  TRUST_LOOK,
-  useContactSecurity,
-  type ContactSecurity
-} from '@/components/people/use-contact-security'
+import { TRUST_LOOK } from '@/components/people/trust-look'
+import { useContactSecurity, type ContactSecurity } from '@/components/people/use-contact-security'
 import { UserAvatar } from '@/components/shell/user-avatar'
 import { Button } from '@/components/ui/button'
 import { GuildTile } from '@/components/ui/guild-tile'
@@ -205,13 +201,6 @@ function ActivityCard({ activity }: { activity: VoiceActivity }): React.JSX.Elem
   )
 }
 
-const TRUST_ICON = {
-  verified: ShieldCheck,
-  tofu: ShieldQuestion,
-  changed: ShieldAlert,
-  unknown: ShieldQuestion
-} as const
-
 function SecurityCard({
   name,
   userId,
@@ -223,7 +212,7 @@ function SecurityCard({
 }): React.JSX.Element {
   const { trust, safety, error } = security
   const look = trust ? TRUST_LOOK[trust.state] : null
-  const Icon = trust ? TRUST_ICON[trust.state] : ShieldQuestion
+  const Icon = look?.Icon ?? ShieldQuestion
   const verifiedOn = trust?.verifiedAt ? new Date(trust.verifiedAt).toLocaleDateString() : null
   const text =
     error !== null
@@ -237,7 +226,7 @@ function SecurityCard({
             : trust.state === 'tofu'
               ? 'Compare safety numbers once, in person or on a call, so nobody can sit in between.'
               : `Hachiman has no security key for ${name} yet.`
-  const canVerify = trust !== null && (trust.state === 'tofu' || trust.state === 'changed')
+  const canVerify = look?.canVerify ?? false
   return (
     <section className="flex flex-col gap-1.5">
       <h3 className="section-label">Security key</h3>
