@@ -3,6 +3,7 @@
  * (repo.in-memory.ts) follows it method by method: change both together.
  */
 import { and, asc, desc, eq, gt, gte, inArray, isNull, lt, lte, ne, or, sql } from 'drizzle-orm'
+import { alias } from 'drizzle-orm/pg-core'
 
 import { db, type Database, type Tx } from '@/db/client'
 import { TEXT_GROUP_TYPES } from '@/lib/channel-types'
@@ -52,6 +53,8 @@ function isTx(x: Executor): x is Tx {
   return x !== db
 }
 
+const parentChannels = alias(channels, 'parent_channels')
+
 export function drizzleMlsRepo(x: Executor = db): MlsRepo {
   const repo: MlsRepo = {
     async transaction(fn) {
@@ -62,21 +65,24 @@ export function drizzleMlsRepo(x: Executor = db): MlsRepo {
     // MARK: guild, channel and DM data
 
     async getChannel(channelId) {
+      // §12.6: a thread takes the group of its parent; other types keep their own.
       const [c] = await x
-        .select({ id: channels.id, guildId: channels.guildId, type: channels.type, mlsGroupId: channels.mlsGroupId, parentId: channels.parentId })
+        .select({
+          id: channels.id,
+          guildId: channels.guildId,
+          type: channels.type,
+          mlsGroupId: sql<Uint8Array | null>`case when ${channels.type} = 'thread' then ${parentChannels.mlsGroupId} else ${channels.mlsGroupId} end`.mapWith(channels.mlsGroupId),
+          parentId: channels.parentId,
+        })
         .from(channels)
+        .leftJoin(parentChannels, eq(parentChannels.id, channels.parentId))
         .where(eq(channels.id, channelId))
         .limit(1)
-      if (!c) return null
-      if (c.type !== 'thread') return { ...c, parentId: null }
-      const [parent] = c.parentId
-        ? await x.select({ mlsGroupId: channels.mlsGroupId }).from(channels).where(eq(channels.id, c.parentId)).limit(1)
-        : []
-      return { ...c, mlsGroupId: parent?.mlsGroupId ?? null }
+      return c ?? null
     },
     async listGuildTextChannels(guildId) {
       return x
-        .select({ id: channels.id, guildId: channels.guildId, type: channels.type, mlsGroupId: channels.mlsGroupId })
+        .select({ id: channels.id, guildId: channels.guildId, type: channels.type, mlsGroupId: channels.mlsGroupId, parentId: channels.parentId })
         .from(channels)
         .where(and(eq(channels.guildId, guildId), inArray(channels.type, [...TEXT_GROUP_TYPES])))
     },
@@ -93,14 +99,11 @@ export function drizzleMlsRepo(x: Executor = db): MlsRepo {
       return { guild, roles: new Map(roleRows.map((r) => [r.id, r])), members }
     },
     async getChannelOverwrites(channelId) {
-      const [thread] = await x
-        .select({ parentId: channels.parentId })
+      const source = x
+        .select({ id: sql`case when ${channels.type} = 'thread' then ${channels.parentId} else ${channels.id} end` })
         .from(channels)
-        .where(and(eq(channels.id, channelId), eq(channels.type, 'thread')))
-        .limit(1)
-      const target = thread ? thread.parentId : channelId
-      if (!target) return []
-      const rows = await x.select().from(permissionOverwrites).where(eq(permissionOverwrites.channelId, target))
+        .where(eq(channels.id, channelId))
+      const rows = await x.select().from(permissionOverwrites).where(eq(permissionOverwrites.channelId, source))
       return rows.map((o) => ({ id: o.targetId, type: o.targetType, allow: o.allow, deny: o.deny }))
     },
     async getDmParticipants(channelId) {

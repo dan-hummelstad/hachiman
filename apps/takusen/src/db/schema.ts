@@ -8,8 +8,8 @@
  *  - roles, memberRoles, permissionOverwrites       — Discord-style permissions
  *  - dmParticipants, invites, uploads
  *  - docPages, docUpdates, docSnapshots             — pages channels (§3 "Pages tables", schema-pages.ts)
- *  - channelPins, guildEvents, guildEventRsvps, userBlocks — schema-guild-data.ts
- *  - oidcClients, oidcAdapterPayloads, passwordResetTokens
+ *  - readStates, channelPins, guildEvents, guildEventRsvps, userBlocks — schema-channel-state.ts
+ *  - oidcClients, oidcAdapterPayloads, passwordResetTokens — schema-auth.ts
  *  - the E2EE tables (§3 "E2EE tables", §12): devices and keys, the MLS delivery
  *    service, the device inbox, backups, device linking, key transparency,
  *    signed admin actions and message reports
@@ -41,7 +41,8 @@ import { docPages } from './schema-pages'
 
 export { bytea } from './columns'
 export * from './schema-pages'
-export * from './schema-guild-data'
+export * from './schema-auth'
+export * from './schema-channel-state'
 
 // ---------------------------------------------------------------------------
 // Enums
@@ -64,7 +65,6 @@ export const pendingStatusEnum = pgEnum('pending_status', ['queued', 'assigned',
 export const joinStatusEnum = pgEnum('join_status', ['queued', 'committed', 'rejected', 'external_commit', 'waiting'])
 export const inboxKindEnum = pgEnum('inbox_kind', ['welcome', 'dsk_transfer', 'history_keys'])
 export const backupKindEnum = pgEnum('backup_kind', ['identity', 'history'])
-
 
 // ---------------------------------------------------------------------------
 // Auth.js core tables (users, accounts, sessions, verificationTokens)
@@ -165,34 +165,6 @@ export const regions = pgTable('regions', {
 })
 
 // ---------------------------------------------------------------------------
-// OIDC clients. Today only public first-party clients exist (isPublic = true,
-// clientSecret empty): the Hachiman desktop/browser apps use them for end-user
-// PKCE sign-in. PKCE is globally required in oidc-provider, so a public client
-// with token_endpoint_auth_method='none' is safe — the code interception
-// window is closed by the PKCE binding.
-// ---------------------------------------------------------------------------
-export const oidcClients = pgTable(
-  'oidc_clients',
-  {
-    id: uuid('id').primaryKey().defaultRandom(),
-    clientId: text('client_id').notNull().unique(),
-    // Empty string for public clients. NEVER store an actual secret here for
-    // a row where isPublic = true; the adapter omits the field entirely from
-    // the metadata it hands to oidc-provider.
-    clientSecret: text('client_secret').notNull(),
-    isPublic: boolean('is_public').notNull().default(false),
-    redirectUris: jsonb('redirect_uris').$type<string[]>().notNull().default(sql`'[]'::jsonb`),
-    scopes: jsonb('scopes')
-      .$type<string[]>()
-      .notNull()
-      .default(sql`'["openid","profile","email"]'::jsonb`),
-    createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
-      .notNull()
-      .defaultNow(),
-  },
-)
-
-// ---------------------------------------------------------------------------
 // Guilds — a guild is just rows: creating one boots no process. The @everyone
 // role shares the guild's id (see `roles`).
 // ---------------------------------------------------------------------------
@@ -259,8 +231,16 @@ export const channels = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
       .notNull()
       .defaultNow(),
+    // A thread: the time of its last message, else created_at. It orders the thread lists (§4 Threads, §5 READY).
+    lastActivityAt: timestamp('last_activity_at', { withTimezone: true, mode: 'date' })
+      .notNull()
+      .defaultNow(),
   },
-  (table) => [index('channels_guild_id_idx').on(table.guildId), index('channels_parent_id_idx').on(table.parentId)],
+  (table) => [
+    index('channels_guild_id_idx').on(table.guildId),
+    index('channels_parent_activity_idx').on(table.parentId, table.lastActivityAt),
+    index('channels_guild_thread_activity_idx').on(table.guildId, table.lastActivityAt).where(sql`${table.type} = 'thread'`),
+  ],
 )
 
 export const messages = pgTable(
@@ -367,27 +347,6 @@ export const dmParticipants = pgTable(
   ],
 )
 
-// Read state (§1 ReadState). The position is the (created_at, id) of the last
-// read message, the order of the messages table. last_read_created_at is a
-// copy, so the position stays when that message is deleted (no foreign key).
-export const readStates = pgTable(
-  'read_states',
-  {
-    userId: uuid('user_id')
-      .notNull()
-      .references(() => users.id, { onDelete: 'cascade' }),
-    channelId: uuid('channel_id')
-      .notNull()
-      .references(() => channels.id, { onDelete: 'cascade' }),
-    lastReadMessageId: uuid('last_read_message_id').notNull(),
-    lastReadCreatedAt: timestamp('last_read_created_at', { withTimezone: true, mode: 'date' }).notNull(),
-    updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' })
-      .notNull()
-      .defaultNow(),
-  },
-  (table) => [primaryKey({ columns: [table.userId, table.channelId] })],
-)
-
 export const invites = pgTable(
   'invites',
   {
@@ -491,7 +450,6 @@ export type User = typeof users.$inferSelect
 export type NewUser = typeof users.$inferInsert
 export type Region = typeof regions.$inferSelect
 export type NewRegion = typeof regions.$inferInsert
-export type OidcClient = typeof oidcClients.$inferSelect
 export type GuildRow = typeof guilds.$inferSelect
 export type GuildMemberRow = typeof guildMembers.$inferSelect
 export type ChannelRow = typeof channels.$inferSelect
@@ -504,62 +462,6 @@ export type DmParticipantRow = typeof dmParticipants.$inferSelect
 export type InviteRow = typeof invites.$inferSelect
 export type InviteBundleRow = typeof inviteBundles.$inferSelect
 export type UploadRow = typeof uploads.$inferSelect
-
-// ===== Auth UI agent additions =====
-// Password reset tokens — short-lived (e.g. 1h) one-time tokens. We store only
-// the SHA-256 hash so a database leak can't be used to reset accounts.
-export const passwordResetTokens = pgTable('password_reset_tokens', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  userId: uuid('user_id')
-    .notNull()
-    .references(() => users.id, { onDelete: 'cascade' }),
-  tokenHash: text('token_hash').notNull().unique(),
-  expiresAt: timestamp('expires_at', { withTimezone: true, mode: 'date' }).notNull(),
-  createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
-    .notNull()
-    .defaultNow(),
-})
-
-export type PasswordResetToken = typeof passwordResetTokens.$inferSelect
-export type NewPasswordResetToken = typeof passwordResetTokens.$inferInsert
-
-// ===== OIDC provider agent additions =====
-// Generic key/value store for the panva oidc-provider Adapter contract.
-// One row per (model, id) pair: sessions, authorization codes, access &
-// refresh tokens, grants, interactions, replay-detection entries, etc.
-//
-// Indexing rationale:
-//  - (model, uid)        — Session/Interaction lookup by `uid`
-//  - (model, userCode)   — device-flow lookup (unused today, cheap to keep)
-//  - (grantId)           — `revokeByGrantId` cascade
-//  - (expiresAt)         — background sweeper of expired rows
-//
-// `Client` is intentionally NOT stored here — the adapter shims those reads
-// straight from `oidcClients`. Adapter writes for the Client model are no-ops.
-// ---------------------------------------------------------------------------
-export const oidcAdapterPayloads = pgTable(
-  'oidc_adapter_payloads',
-  {
-    id: text('id').notNull(),
-    model: text('model').notNull(),
-    payload: jsonb('payload').$type<Record<string, unknown>>().notNull(),
-    grantId: text('grant_id'),
-    userCode: text('user_code'),
-    uid: text('uid'),
-    expiresAt: timestamp('expires_at', { withTimezone: true, mode: 'date' }),
-    consumedAt: timestamp('consumed_at', { withTimezone: true, mode: 'date' }),
-  },
-  (table) => [
-    primaryKey({ columns: [table.model, table.id] }),
-    index('oidc_adapter_payloads_model_uid_idx').on(table.model, table.uid),
-    index('oidc_adapter_payloads_model_user_code_idx').on(table.model, table.userCode),
-    index('oidc_adapter_payloads_grant_id_idx').on(table.grantId),
-    index('oidc_adapter_payloads_expires_at_idx').on(table.expiresAt),
-  ],
-)
-
-export type OidcAdapterPayload = typeof oidcAdapterPayloads.$inferSelect
-export type NewOidcAdapterPayload = typeof oidcAdapterPayloads.$inferInsert
 
 // ---------------------------------------------------------------------------
 // Media nodes — placement registry for the WebRTC SFU plane.

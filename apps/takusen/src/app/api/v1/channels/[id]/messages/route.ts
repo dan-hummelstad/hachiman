@@ -15,7 +15,7 @@ import { Permissions } from '@hachiman/client/permissions'
 import { NextResponse, type NextRequest } from 'next/server'
 
 import { db } from '@/db/client'
-import { messages, users } from '@/db/schema'
+import { channels, messages, users } from '@/db/schema'
 import { errorResponse, parseBody } from '@/lib/api-helpers'
 import { requireUser } from '@/lib/auth-helpers'
 import { assertNotBlocked } from '@/lib/blocks'
@@ -91,9 +91,12 @@ export async function POST(req: NextRequest, ctx: RouteContext): Promise<NextRes
     const body = await parseBody(req, createMessageSchema)
     if (body.attachments.length > 0) requirePermission(access.permissions, Permissions.ATTACH_FILES)
 
-    const { row, claimed } = await db.transaction((tx) =>
-      sendMessage(drizzleMessageStore(tx), (input) => acceptEnvelope(tx, input), { channelId: id, userId, deviceId: device.id, body }),
-    )
+    const { row, claimed } = await db.transaction(async (tx) => {
+      const sent = await sendMessage(drizzleMessageStore(tx), (input) => acceptEnvelope(tx, input), { channelId: id, userId, deviceId: device.id, body })
+      // Only a thread: the activity orders the thread lists (§4 Threads), and other channels stay unlocked.
+      if (access.channel.type === 'thread') await tx.update(channels).set({ lastActivityAt: sent.row.createdAt }).where(eq(channels.id, id))
+      return sent
+    })
     const author = await requireUserById(userId)
     const message = toMessage(row, author, access.channel.guildId, claimed.map(toAttachment), body.nonce)
     await publishToChannel(access, 'MESSAGE_CREATE', message)

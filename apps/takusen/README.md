@@ -160,7 +160,7 @@ flowchart TB
 | `src/lib/placement.ts` | Pure RTT-based region scorer for `/api/v1/regions/recommend`. |
 | `src/lib/allowed-origins.ts`, `cors.ts` | The CORS allowlist and its headers. |
 | `src/lib/session-revocation.ts` | Rejects Auth.js cookies of deleted users or cookies older than the Redis cut-off. |
-| `src/db/` | Drizzle `schema.ts`, `client.ts`, and the `migrate`, `seed` and `revoke-sessions` scripts. Migrations are in `drizzle/`. |
+| `src/db/` | Drizzle `schema.ts` (it re-exports `schema-auth.ts`, `schema-channel-state.ts` and `schema-pages.ts`), `client.ts`, and the `migrate`, `seed` and `revoke-sessions` scripts. Migrations are in `drizzle/`. |
 | `src/grpc/main.ts`, `server.ts` | gRPC process entry point and server. It binds loopback by default. |
 | `src/grpc/proto.ts` | Loads `apps/hachiman-server/pkg/management/management.proto` with `@grpc/proto-loader`. |
 | `src/grpc/media-nodes.ts` | `RegisterMediaNode` and `MediaNodeHeartbeat` handlers. |

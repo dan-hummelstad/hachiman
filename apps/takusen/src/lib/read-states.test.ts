@@ -33,17 +33,14 @@ function fakeStore(msgs: Msg[]): ReadStateStore & { state: Map<string, Msg> } {
   const state = new Map<string, Msg>()
   return {
     state,
-    async messageInChannel(channelId, messageId) {
-      return byId.get(messageId)?.channelId === channelId
-    },
     async advance(userId, channelId, messageId) {
       const m = byId.get(messageId)
-      if (!m || m.channelId !== channelId) return false
+      if (!m || m.channelId !== channelId) return 'missing'
       const key = `${userId}:${channelId}`
       const cur = state.get(key)
-      if (cur && !after(m, cur)) return false
+      if (cur && !after(m, cur)) return 'stale'
       state.set(key, m)
-      return true
+      return 'moved'
     },
   }
 }

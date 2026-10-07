@@ -7,7 +7,7 @@
  *      newest activity (last message, else creation) first.
  * Rename and delete go through PATCH / DELETE /channels/:threadId (§4 Threads).
  */
-import { and, desc, eq, sql } from 'drizzle-orm'
+import { and, desc, eq } from 'drizzle-orm'
 import { NextResponse, type NextRequest } from 'next/server'
 import { z } from 'zod'
 
@@ -69,12 +69,11 @@ export async function GET(_req: NextRequest, ctx: RouteContext): Promise<NextRes
     const session = await requireUser()
     const { id } = await ctx.params
     await loadChannelAccess(id, session.user.id)
-    const activity = sql`coalesce((select max(m.created_at) from ${messages} m where m.channel_id = ${channels.id}), ${channels.createdAt})`
     const rows = await db
       .select({ id: channels.id })
       .from(channels)
       .where(and(eq(channels.parentId, id), eq(channels.type, 'thread')))
-      .orderBy(desc(activity), desc(channels.id))
+      .orderBy(desc(channels.lastActivityAt), desc(channels.id))
       .limit(THREAD_LIST_MAX)
     return NextResponse.json(await loadChannels(rows.map((r) => r.id)))
   } catch (err) {

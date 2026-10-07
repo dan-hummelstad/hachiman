@@ -12,8 +12,8 @@ import { DEFAULT_EVERYONE, Permissions } from '@hachiman/client/permissions'
 
 import type { ChannelRow, GuildMemberRow, MessageRow, PermissionOverwriteRow, RoleRow } from '@/db/schema'
 import {
+  parseCustomStatus,
   assembleGuildFull,
-  withParentGroups,
   createMessageSchema,
   DEFAULT_PUBLIC_HISTORY_VISIBILITY,
   editMessageSchema,
@@ -68,6 +68,7 @@ function channel(id: string, name: string): ChannelRow {
     mlsGroupId: null,
     threadStartMessageId: null,
     createdAt: T,
+    lastActivityAt: T,
   }
 }
 function role(id: string, position: number, permissions: number): RoleRow {
@@ -182,17 +183,14 @@ test('a thread under a private parent is visible only with the parent', () => {
   assert.deepEqual(names(assembleGuildFull(i)), ['general', 'staff', 'staff-thread', 'general-thread'])
 })
 
-test('a thread has the group of its parent, its creator and its start message', () => {
-  const rows = withParentGroups([{ ...channel(GENERAL, 'general'), mlsGroupId: GROUP }, thread(THREAD_GENERAL, 't', GENERAL)])
-  const wire = toChannel(rows[1]!, [], new Map([[GROUP_B64, 'shared' as const]]))
-  assert.equal(wire.mlsGroupId, GROUP_B64)
-  assert.equal(wire.historyVisibility, 'shared')
+test('a thread has no group fields (readers take the parent), its creator and its start message', () => {
+  const wire = toChannel({ ...thread(THREAD_GENERAL, 't', GENERAL), mlsGroupId: GROUP }, [], new Map([[GROUP_B64, 'shared' as const]]))
+  assert.equal(wire.mlsGroupId, null)
+  assert.equal(wire.historyVisibility, null)
   assert.equal(wire.ownerId, ALICE)
   assert.equal(wire.threadStartMessageId, START)
   assert.deepEqual(wire.permissionOverwrites, [])
   assert.equal('threadStartMessageId' in toChannel(channel(GENERAL, 'general'), []), false)
-  // A thread whose parent is not in the list has no group.
-  assert.equal(withParentGroups([thread(THREAD_GENERAL, 't', GENERAL)], [])[0]!.mlsGroupId, null)
 })
 
 test('voice and category channels have no group fields', () => {
@@ -321,3 +319,14 @@ if (failures.length > 0) {
   process.exit(1)
 }
 console.log(`wire.test: ${passed} passed`)
+
+test('parseCustomStatus reads the stored value as the gateway does', () => {
+  const now = new Date('2026-10-07T12:00:00Z')
+  assert.deepEqual(parseCustomStatus('{"text":"brb","expiresAt":null}', now), { text: 'brb', expiresAt: null })
+  assert.deepEqual(parseCustomStatus('{"text":"brb"}', now), { text: 'brb', expiresAt: null })
+  assert.deepEqual(parseCustomStatus('{"text":"brb","expiresAt":"2026-10-07T13:00:00Z"}', now), { text: 'brb', expiresAt: '2026-10-07T13:00:00Z' })
+  assert.equal(parseCustomStatus('{"text":"brb","expiresAt":"2026-10-07T11:00:00Z"}', now), null)
+  assert.equal(parseCustomStatus('{"text":""}', now), null)
+  assert.equal(parseCustomStatus('not json', now), null)
+  assert.equal(parseCustomStatus(null, now), null)
+})

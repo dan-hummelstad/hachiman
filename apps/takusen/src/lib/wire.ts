@@ -8,6 +8,7 @@ import { computeChannelPermissions, permissionChannel, Permissions } from '@hach
 import type {
   Attachment,
   Channel,
+  CustomStatus,
   Guild,
   GuildFull,
   HistoryVisibility,
@@ -79,7 +80,8 @@ const NO_GROUPS: GroupVisibility = new Map()
  * allocated one, the value is the default of a channel or dm group.
  */
 function groupFields(c: ChannelRow, groups: GroupVisibility): Pick<Channel, 'mlsGroupId' | 'historyVisibility'> {
-  if (c.type === 'voice' || c.type === 'category') return { mlsGroupId: null, historyVisibility: null }
+  // §12.6: a thread has no group of its own. Readers take the group of the parent.
+  if (c.type === 'voice' || c.type === 'category' || c.type === 'thread') return { mlsGroupId: null, historyVisibility: null }
   const mlsGroupId = c.mlsGroupId ? toB64(c.mlsGroupId) : null
   return { mlsGroupId, historyVisibility: (mlsGroupId && groups.get(mlsGroupId)) || 'joined' }
 }
@@ -117,16 +119,23 @@ export function toChannel(c: ChannelRow, overwrites: PermissionOverwriteRow[], g
 }
 
 /**
- * §12.6: a thread has no group of its own. Its row gets the `mlsGroupId` of its
- * parent (from `parents`, by id) before `toChannel`. Other rows stay the same.
+ * A stored `custom_status:{userId}` value (§5), as the gateway reads it: null
+ * for a missing, malformed, empty or expired one.
  */
-export function withParentGroups(rows: ChannelRow[], parents: Iterable<ChannelRow> = rows): ChannelRow[] {
-  if (!rows.some((c) => c.type === 'thread')) return rows
-  const byId = new Map<string, ChannelRow>()
-  for (const p of parents) byId.set(p.id, p)
-  return rows.map((c) =>
-    c.type === 'thread' ? { ...c, mlsGroupId: (c.parentId && byId.get(c.parentId)?.mlsGroupId) || null } : c,
-  )
+export function parseCustomStatus(raw: string | null, now: Date = new Date()): CustomStatus | null {
+  if (!raw) return null
+  let v: unknown
+  try {
+    v = JSON.parse(raw)
+  } catch {
+    return null
+  }
+  if (typeof v !== 'object' || v === null) return null
+  const { text, expiresAt } = v as { text?: unknown; expiresAt?: unknown }
+  if (typeof text !== 'string' || text === '') return null
+  if (expiresAt === null || expiresAt === undefined) return { text, expiresAt: null }
+  if (typeof expiresAt !== 'string' || !(Date.parse(expiresAt) > now.getTime())) return null
+  return { text, expiresAt }
 }
 
 /** DM / group DM as seen by one viewer: `recipients` excludes the viewer. */
@@ -227,7 +236,7 @@ export function assembleGuildFull(input: GuildFullInput): GuildFull {
   const roleMap = new Map(roles.map((r) => [r.id, r]))
   const guild = toGuild(input.guild, input.publicHistoryVisibility ?? DEFAULT_PUBLIC_HISTORY_VISIBILITY)
   const viewer = members.find((m) => m.user.id === input.viewerId)
-  const all = withParentGroups(input.channels).map((c) => toChannel(c, input.overwrites, input.groups))
+  const all = input.channels.map((c) => toChannel(c, input.overwrites, input.groups))
   const byId = new Map(all.map((c) => [c.id, c]))
   const channels = all.filter((c) => {
     const source = permissionChannel(c, (id) => byId.get(id))

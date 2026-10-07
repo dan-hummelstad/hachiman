@@ -70,8 +70,8 @@ export interface ChannelInfo {
   guildId: string | null
   type: 'text' | 'voice' | 'category' | 'dm' | 'group_dm' | 'pages' | 'thread'
   mlsGroupId: Uint8Array | null
-  /** The parent channel of a thread (else null or absent). */
-  parentId?: string | null
+  /** The parent channel of a thread or a channel in a category, else null. */
+  parentId: string | null
 }
 
 export interface OverwriteInfo {

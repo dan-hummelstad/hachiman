@@ -112,19 +112,18 @@ export async function DELETE(req: NextRequest, ctx: RouteContext): Promise<NextR
     const { id } = await ctx.params
     const access = await manageableChannel(id, session.user.id)
     const actor = await actorDeviceId(req, session.user.id)
-    const threads = access.channel.type === THREAD_PARENT_TYPE
-      ? await db.select().from(channels).where(and(eq(channels.parentId, id), eq(channels.type, 'thread')))
-      : []
-    const keys = await membershipTransaction(async (tx) => {
-      const keys: string[] = []
-      for (const t of threads) {
-        keys.push(...(await deleteAttachmentRows(tx, { channelId: t.id })))
-        await tx.delete(channels).where(eq(channels.id, t.id))
-      }
-      keys.push(...(await deleteAttachmentRows(tx, { channelId: id })))
+    const { keys, threads } = await membershipTransaction(async (tx) => {
+      // Lock the channel first: a thread insert key-share-locks its parent, so
+      // no thread can appear after the select below. Without the lock it would
+      // lose its parent to ON DELETE SET NULL and become an orphan.
+      await tx.select({ id: channels.id }).from(channels).where(eq(channels.id, id)).for('update')
+      const isThread = and(eq(channels.parentId, id), eq(channels.type, 'thread'))
+      const threads = access.channel.type === THREAD_PARENT_TYPE ? await tx.select().from(channels).where(isThread) : []
+      const keys = await deleteAttachmentRows(tx, { channelIds: [...threads.map((t) => t.id), id] })
+      if (threads.length > 0) await tx.delete(channels).where(isThread)
       await membershipChanged(tx, MembershipTriggers.channelDeleted(access.channel.guildId!, id), actor)
       await tx.delete(channels).where(eq(channels.id, id))
-      return keys
+      return { keys, threads }
     })
     await deleteObjects(keys)
     for (const t of threads) await publishToChannel({ channel: t, participantIds: [] }, 'CHANNEL_DELETE', toChannel(t, []))

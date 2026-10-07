@@ -63,8 +63,8 @@ interface Channel {
   permissionOverwrites: PermissionOverwrite[]   // [] for DMs and threads
   recipients?: User[]              // dm / group_dm only: every participant except the viewer
   ownerId?: string | null          // group_dm: the owner. thread: the creator
-  mlsGroupId: string | null        // text, pages, dm, group_dm: the current MLS group (base64url, §12.6). thread: the group of the parent. null: no group yet, or voice/category
-  historyVisibility: 'joined' | 'shared' | null   // text, pages, dm, group_dm, thread: the effective value (§12.6). null for voice/category
+  mlsGroupId: string | null        // text, pages, dm, group_dm: the current MLS group (base64url, §12.6). null: no group yet, or voice/category/thread. A thread uses the group of its parent: read it from the parent channel or GET /channels/:threadId/mls-group
+  historyVisibility: 'joined' | 'shared' | null   // text, pages, dm, group_dm: the effective value (§12.6). null for voice/category/thread (a thread has the value of its parent)
   threadStartMessageId?: string | null   // thread only: the message of the parent that starts the thread, or null
 }
 
@@ -153,7 +153,7 @@ interface ReadState {              // READY readStates; READ_STATE_UPDATE sets l
 }
 
 interface GuildFull extends Guild {  // READY + GUILD_CREATE
-  channels: Channel[]              // only channels the user can VIEW. READY: at most the 50 most recently active threads of the guild
+  channels: Channel[]              // only channels the user can VIEW. READY and GET /guilds/:id: at most the 50 most recently active threads of the guild (channels.last_activity_at)
   roles: Role[]
   members: Member[]                // ponytail: full list; add lazy member chunks when guilds exceed ~1k members
   voiceStates: VoiceState[]
@@ -220,7 +220,7 @@ Threads: a thread has no overwrites. Every permission check on a thread uses its
 DM channels: participants get `VIEW_CHANNEL | SEND_MESSAGES | ATTACH_FILES | READ_MESSAGE_HISTORY`, non-participants 0.
 Role hierarchy: a member may only edit/assign roles whose `position` is strictly below the highest role of that member (owner/admin exempt).
 
-## 3. Postgres schema (Takusen Drizzle, `apps/takusen/src/db/schema.ts`)
+## 3. Postgres schema (Takusen Drizzle, `apps/takusen/src/db/schema.ts` and the files it re-exports: `schema-auth.ts`, `schema-channel-state.ts`, `schema-pages.ts`)
 
 New/changed tables (all ids `uuid` defaultRandom, timestamps `timestamptz` default now):
 
@@ -229,7 +229,7 @@ New/changed tables (all ids `uuid` defaultRandom, timestamps `timestamptz` defau
 | `guilds` | id, owner_id → users (cascade), name, icon null, banner null, region → regions.code (set null), page_storage_bytes bigint (mode number) default 0, created_at | replaces virtual_servers. icon/banner hold file keys. `page_storage_bytes`: the page quota count (§4 Pages) |
 | `uploads` | id, uploader_id → users (cascade), key unique, filename null (null for blobs), size bigint (mode number), content_type, encrypted bool default false, message_id null → messages (cascade), position int default 0, purpose `upload_purpose` enum ('attachment','image','page_snapshot','page_media') null, page_id null → doc_pages (cascade), last_referenced_at null, created_at | index (message_id); index (page_id); CHECK `uploads_attachment_has_message`: `(purpose IS NOT DISTINCT FROM 'attachment') = (message_id IS NOT NULL)`; CHECK `uploads_page_media_has_page`: `purpose IS DISTINCT FROM 'page_media' OR page_id IS NOT NULL`; CHECK `uploads_page_id_is_page_purpose`: `page_id IS NULL OR purpose IN ('page_snapshot','page_media')`. One row per stored object. The first claim sets purpose, and purpose never changes. message_id is set when a message claims it, together with purpose. A `page_snapshot` upload has its purpose from the upload on, and page_id from the snapshot claim (§4 Pages) |
 | `guild_members` | guild_id → guilds (cascade), user_id → users (cascade), nick null, joined_at, invite_id null → invites (set null) | PK (guild_id, user_id); index (invite_id) where not null. `invite_id`: the invite of the join (§4 accept). The redeemer of an invite with history gets its bundles with it (§12.11.4) |
-| `channels` | id, guild_id null → guilds (cascade), type `channel_type` enum (incl. `thread`), name null, topic null, parent_id null → channels (set null), position int default 0, owner_id null → users (set null), mls_group_id bytea null → mls_groups (set null), thread_start_message_id uuid null → messages (set null), created_at | index (guild_id); index (parent_id). A thread has `mls_group_id` null: readers take the group of the parent. `DELETE /channels/:id` deletes the threads of the channel (the FK alone sets null) |
+| `channels` | id, guild_id null → guilds (cascade), type `channel_type` enum (incl. `thread`), name null, topic null, parent_id null → channels (set null), position int default 0, owner_id null → users (set null), mls_group_id bytea null → mls_groups (set null), thread_start_message_id uuid null → messages (set null), created_at, last_activity_at timestamptz not null default now() (a thread: set by POST /channels/:id/messages; the migration backfills the last message, else created_at) | index (guild_id); index (parent_id, last_activity_at); index (guild_id, last_activity_at) where type = 'thread'. A thread has `mls_group_id` null: readers take the group of the parent. `DELETE /channels/:id` deletes the threads of the channel (the FK alone sets null) |
 | `messages` | id, channel_id → channels (cascade), author_id → users (cascade), group_id bytea → mls_groups (cascade), epoch bigint, sender_device uuid null → devices (set null), client_msg_id bytea, envelope bytea, franking_tag bytea, size int, created_at, edited_at null | index (channel_id, created_at desc, id desc); unique (channel_id, client_msg_id). No `content` column (§12.8) |
 | `roles` | id, guild_id → guilds (cascade), name, color int default 0, hoist boolean default false, position int default 0, permissions bigint (mode number) | @everyone row has id = guild_id |
 | `member_roles` | guild_id, user_id, role_id → roles (cascade) | PK (user_id, role_id); FK (guild_id,user_id) → guild_members (cascade) |
@@ -246,12 +246,12 @@ Pages tables (§4 Pages, §12.20). The server sees the tree and the timestamps. 
 | `doc_updates` | page_id → doc_pages (cascade), seq bigint, group_id bytea → mls_groups (cascade), epoch bigint, sender_device null → devices (set null), envelope bytea, created_at | PK (page_id, seq). One doc_update envelope (one encrypted Yjs update) per row |
 | `doc_snapshots` | page_id → doc_pages (cascade), base_seq bigint, upload_id unique → uploads (cascade), group_id bytea → mls_groups (cascade), epoch bigint, sender_device null → devices (set null), envelope bytea, media_upload_ids uuid[] default '{}', created_at | PK (page_id, base_seq). The bytes are the S3 object of `upload_id`. `envelope` is the doc_snapshot pointer envelope. A re-wrap (§4 Pages) replaces `envelope`, `group_id`, `epoch` and `sender_device` in place |
 
-Pins, guild events and blocks (§4 Pins, guild events and blocks, `apps/takusen/src/db/schema-guild-data.ts`):
+Pins, guild events and blocks (§4 Pins, guild events and blocks, `apps/takusen/src/db/schema-channel-state.ts`, with `read_states`):
 
 | Table | Columns | Notes |
 |---|---|---|
 | `channel_pins` | channel_id → channels (cascade), message_id → messages (cascade), pinned_by null → users (set null), pinned_at | PK (channel_id, message_id). The server learns which message ids are pinned, not their content |
-| `guild_events` | id, guild_id → guilds (cascade), channel_id null → channels (set null), title, starts_at, ends_at null, created_by null → users (set null), created_at | index (guild_id, starts_at). Plaintext metadata (§12.1) |
+| `guild_events` | id, guild_id → guilds (cascade), channel_id null → channels (set null), title, starts_at, ends_at null, created_by null → users (set null), created_at | index (guild_id, starts_at). CHECK (ends_at is null or ends_at > starts_at). Plaintext metadata (§12.1) |
 | `guild_event_rsvps` | event_id → guild_events (cascade), user_id → users (cascade), created_at | PK (event_id, user_id). One row per member who is going |
 | `user_blocks` | user_id → users (cascade), blocked_user_id → users (cascade), created_at | PK (user_id, blocked_user_id); index (blocked_user_id) |
 
@@ -318,7 +318,7 @@ Implemented extras (Discord semantics):
 - Accept: the membership row of a new member names the invite (`guild_members.invite_id`). The accept of the last use sets `invites.exhausted_at`.
 - Revoke = soft (`revoked`). The revoke deletes the bundles of the invite (§12.11.4) in the same transaction. Only the first revoke publishes `INVITE_DELETE`. A revoke stops new joins at once, because the accept locks the invite row. Members who joined already stay members.
 - Revoke on loss of ADMINISTRATOR: a role permissions edit, a role delete, a member-role edit that removes a role, a kick and a leave revoke the permanent invites and the invites with history whose creator no longer has ADMINISTRATOR or is no longer a member, and delete their bundles. This occurs in the transaction of the change, before the DS change. Takusen checks every creator in the guild, because one role change can demote many users. After the commit, Takusen publishes `INVITE_DELETE` → guild for each revoked invite. The first such change in a guild also revokes the permanent invites that users without ADMINISTRATOR made before these limits existed.
-- `GET /guilds/:id` reads voice states/presences from Redis.
+- `GET /guilds/:id` reads voice states, presences and custom statuses (`custom_status:{userId}`) from Redis, as READY does.
 - Next route folders for `/users/@me` live under `users/[id]`, and `/devices/@me/...` lives under `devices/[id]/...` (`@x` is a parallel-route slot in Next). The `[id]` handlers accept `@me`.
 - CORS (`apps/takusen/src/lib/cors.ts`): `Access-Control-Allow-Headers` is `Authorization, Content-Type, X-Requested-With, X-Hachiman-Device, X-Hachiman-Device-Ts, X-Hachiman-Device-Nonce, X-Hachiman-Device-Sig, X-Hachiman-Signed-Action`. `Access-Control-Expose-Headers` is `Retry-After`.
 
@@ -336,7 +336,7 @@ Implemented extras (Discord semantics):
 | PATCH `/channels/:id` `{name?, topic?, parentId?, position?, historyVisibility?}` | MANAGE_CHANNELS. `historyVisibility` only for a channel with its own group. A thread: only `name`, from MANAGE_CHANNELS or the creator of the thread | `Channel` | `CHANNEL_UPDATE` |
 | DELETE `/channels/:id` | MANAGE_CHANNELS, or the creator of a thread | 204 | `CHANNEL_DELETE`. For a text channel: first one `CHANNEL_DELETE` for each of its threads, which are deleted with it |
 | POST `/channels/:id/threads` `{name, startMessageId?}` | SEND_MESSAGES on `:id`, a guild text channel (else 400). `startMessageId` must be a message of `:id` (else 400) | `Channel` (type `thread`) | `CHANNEL_CREATE` |
-| GET `/channels/:id/threads` | VIEW_CHANNEL on `:id` | `Channel[]`: at most 50 threads, newest activity first (last message, else creation) | — |
+| GET `/channels/:id/threads` | VIEW_CHANNEL on `:id` | `Channel[]`: at most 50 threads, newest activity first (`last_activity_at`: last message, else creation) | — |
 | PUT `/channels/:id/permissions/:targetId` `{type, allow, deny}` | MANAGE_ROLES. Not on a thread (400) | 204 | `CHANNEL_UPDATE` |
 | DELETE `/channels/:id/permissions/:targetId` | MANAGE_ROLES | 204 | `CHANNEL_UPDATE` |
 | GET `/channels/:id/messages?before=<messageId>&limit=50` | VIEW_CHANNEL + READ_MESSAGE_HISTORY | `Message[]` (ciphertext) newest first, limit ≤ 100 | — |
@@ -1477,7 +1477,7 @@ The recipient checks that the sender device belongs to the same user and has a v
 
 **Public channel.** A guild text or pages channel is public when the guild `@everyone` role permissions, with the channel `@everyone` overwrite applied, include VIEW_CHANNEL, and no role or member overwrite on the channel denies VIEW_CHANNEL. All public channels of a guild share the `public_set` group. Each other guild text or pages channel has its own `channel` group. Voice channels have no text group. Takusen tests the two types with one helper, `hasTextGroup(type)`.
 
-**Thread.** A thread has no group. It uses the current group of its parent text channel: the `public_set` group or the `channel` group. The DS resolves the thread to its parent at read time (`MlsRepo.getChannel` gives the `mlsGroupId` of the parent, `getChannelOverwrites` the overwrites of the parent), so a group change of the parent applies to its threads at once. `channelReaders(threadId)` is `channelReaders(parentId)`. A message envelope of a thread names the thread in `channelId` and the group of the parent in `groupId` (§12.8.4). `GET /channels/:threadId/mls-group` gives the group of the parent.
+**Thread.** A thread has no group. It uses the current group of its parent text channel: the `public_set` group or the `channel` group. The DS resolves the thread to its parent at read time (`MlsRepo.getChannel` gives the `mlsGroupId` of the parent, `getChannelOverwrites` the overwrites of the parent), so a group change of the parent applies to its threads at once. `channelReaders(threadId)` is `channelReaders(parentId)`. A message envelope of a thread names the thread in `channelId` and the group of the parent in `groupId` (§12.8.4). `GET /channels/:threadId/mls-group` gives the group of the parent. The `Channel` of a thread has `mlsGroupId` and `historyVisibility` null (§1): a client resolves the thread to its parent, so a group change of the parent needs no `CHANNEL_UPDATE` of its threads.
 
 `channelReaders(channelId)` is the set of guild members whose `computeChannelPermissions` (§2) includes VIEW_CHANNEL. For a DM it is the set of participants. Takusen implements it once in `apps/takusen/src/lib/mls/readers.ts`. Clients compute the same set from their cache with `computeChannelPermissions`.
 

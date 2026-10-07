@@ -105,6 +105,10 @@ type ReadState struct {
 // readStateUnreadCap is the highest unreadCount in READY (§1).
 const readStateUnreadCap = 100
 
+// readyThreadCap is the number of threads per guild in READY (contract §5).
+// Takusen's THREAD_LIST_MAX (lib/threads.ts) is the same cap for GuildFull.
+const readyThreadCap = 50
+
 // readStateChannels lists the channels that have a read state: the text and
 // pages channels of the guilds and every DM. The list holds hidden channels
 // too; visibleReadStates filters them.
@@ -158,9 +162,6 @@ type readyData struct {
 }
 
 // usernameSQL implements contract §1: displayName ?? name ?? email local part.
-// readyThreadCap is the number of threads per guild in READY (contract §5).
-const readyThreadCap = 50
-
 const usernameSQL = `COALESCE(NULLIF(u.display_name, ''), NULLIF(u.name, ''), split_part(u.email, '@', 1))`
 
 func iso(t time.Time) string { return t.UTC().Format(time.RFC3339Nano) }
@@ -215,8 +216,7 @@ func pgLoader(db *pgxpool.Pool) func(ctx context.Context, userID, onlyGuild stri
 				       thread_start_message_id::text, owner_id::text
 				FROM channels WHERE guild_id = ANY($1::uuid[]) AND (type <> 'thread' OR id IN (
 					SELECT id FROM (
-						SELECT t.id, row_number() OVER (PARTITION BY t.guild_id ORDER BY COALESCE(
-							(SELECT max(m.created_at) FROM messages m WHERE m.channel_id = t.id), t.created_at) DESC) AS n
+						SELECT t.id, row_number() OVER (PARTITION BY t.guild_id ORDER BY t.last_activity_at DESC, t.id DESC) AS n
 						FROM channels t WHERE t.type = 'thread' AND t.guild_id = ANY($1::uuid[])
 					) r WHERE r.n <= $2))
 				ORDER BY position, created_at`, ids, readyThreadCap)

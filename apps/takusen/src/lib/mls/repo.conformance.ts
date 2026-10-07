@@ -96,6 +96,10 @@ export function describeMlsRepo(name: string, open: () => Promise<RepoUnderTest>
       assert.deepEqual(await repo.getChannelOverwrites(channelId), [{ id: member, type: 'member', allow: 0, deny: 0x400 }])
       assert.deepEqual((await repo.listGuildTextChannels(guildId)).map((c) => c.id).sort(), [channelId, pagesId].sort())
       assert.deepEqual(await repo.getChannel(channelId), { id: channelId, guildId, type: 'text', mlsGroupId: null, parentId: null })
+      // parentId is the stored parent for every type: here a category.
+      const categoryId = await fx.addChannel({ guildId, type: 'category' })
+      const underCategory = await fx.addChannel({ guildId, type: 'text', parentId: categoryId })
+      assert.deepEqual(await repo.getChannel(underCategory), { id: underCategory, guildId, type: 'text', mlsGroupId: null, parentId: categoryId })
       // §12.6: a thread reads the group and the overwrites of its parent, and is not a text group channel.
       const parentId = await fx.addChannel({ guildId, type: 'text' })
       await fx.setOverwrites(parentId, [{ id: member, type: 'member', allow: 0x800, deny: 0 }])

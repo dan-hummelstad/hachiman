@@ -7,7 +7,7 @@
  * routes (`membershipChanged`, `wakeAfterCommit`, §12.18), and the change
  * that each route trigger gives (`MembershipTriggers`).
  */
-import { and, asc, desc, eq, inArray, ne } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, ne, or } from 'drizzle-orm'
 import type {
   Channel,
   GuildFull,
@@ -36,16 +36,17 @@ import { publishInviteDeletes, revokeAdminInvitesOfNonAdmins } from '@/lib/invit
 import { toB64 } from '@/lib/mls/bytes'
 import { discardMembershipWork, onMembershipChange, wakeScheduler, type MembershipChange } from '@/lib/mls/membership'
 import { deleteObjects } from '@/lib/storage'
+import { THREAD_LIST_MAX } from '@/lib/threads'
 import { deleteAttachmentRows } from '@/lib/uploads'
 import {
   assembleGuildFull,
+  parseCustomStatus,
   DEFAULT_PUBLIC_HISTORY_VISIBILITY,
   toChannel,
   toMember,
   toUser,
   type GroupVisibility,
   type UserLike,
-  withParentGroups,
 } from '@/lib/wire'
 
 // MARK: - DS membership seam (§12.18)
@@ -198,10 +199,27 @@ export async function loadGuildFull(guildId: string, viewerId: string): Promise<
   if (!guild) throw new NotFoundError('Unknown guild')
   const [roleRows, channelRows, overwrites, members, memberRoleRows] = await Promise.all([
     db.select().from(roles).where(eq(roles.guildId, guildId)).orderBy(asc(roles.position)),
+    // Threads: only the THREAD_LIST_MAX most recently active, as in READY (§5).
     db
       .select()
       .from(channels)
-      .where(eq(channels.guildId, guildId))
+      .where(
+        and(
+          eq(channels.guildId, guildId),
+          or(
+            ne(channels.type, 'thread'),
+            inArray(
+              channels.id,
+              db
+                .select({ id: channels.id })
+                .from(channels)
+                .where(and(eq(channels.guildId, guildId), eq(channels.type, 'thread')))
+                .orderBy(desc(channels.lastActivityAt), desc(channels.id))
+                .limit(THREAD_LIST_MAX),
+            ),
+          ),
+        ),
+      )
       .orderBy(asc(channels.position), asc(channels.createdAt)),
     db
       .select({ ow: permissionOverwrites })
@@ -252,14 +270,19 @@ async function readVoiceStates(guildId: string): Promise<VoiceState[]> {
   return states.filter((_, i) => alive[i] === 1)
 }
 
-/** Online presences for `userIds` (absent key ⇒ offline, omitted). */
+/** Online presences for `userIds` (absent key ⇒ offline, omitted), with the custom status as READY has it. */
 async function readPresences(userIds: string[]): Promise<Presence[]> {
   if (userIds.length === 0) return []
-  const statuses = await redis().mget(userIds.map((id) => `presence:${id}`))
+  const [statuses, customs] = await Promise.all([
+    redis().mget(userIds.map((id) => `presence:${id}`)),
+    redis().mget(userIds.map((id) => `custom_status:${id}`)),
+  ])
+  const now = new Date()
   const out: Presence[] = []
   statuses.forEach((status, i) => {
     if (status && status !== 'offline') {
-      out.push({ userId: userIds[i], status: status as PresenceStatus })
+      const customStatus = parseCustomStatus(customs[i] ?? null, now)
+      out.push({ userId: userIds[i]!, status: status as PresenceStatus, ...(customStatus ? { customStatus } : {}) })
     }
   })
   return out
@@ -331,11 +354,8 @@ export async function loadChannels(ids: string[]): Promise<Channel[]> {
     db.select().from(channels).where(inArray(channels.id, ids)),
     db.select().from(permissionOverwrites).where(inArray(permissionOverwrites.channelId, ids)),
   ])
-  const parentIds = own.flatMap((c) => (c.type === 'thread' && c.parentId ? [c.parentId] : []))
-  const parents = parentIds.length > 0 ? await db.select().from(channels).where(inArray(channels.id, parentIds)) : []
-  const rows = withParentGroups(own, parents)
-  const groups = await groupVisibility(rows.map((c) => c.mlsGroupId))
-  const byId = new Map(rows.map((c) => [c.id, toChannel(c, overwrites, groups)]))
+  const groups = await groupVisibility(own.map((c) => c.mlsGroupId))
+  const byId = new Map(own.map((c) => [c.id, toChannel(c, overwrites, groups)]))
   return ids.flatMap((id) => byId.get(id) ?? [])
 }
 

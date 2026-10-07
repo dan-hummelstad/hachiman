@@ -56,7 +56,22 @@ func (gs *guildState) visible(userID string) map[string]bool {
 
 func (gs *guildState) canView(userID, channelID string) bool {
 	ch := gs.channels[channelID]
-	return ch != nil && gs.perms(userID, ch) != 0
+	return ch != nil && gs.canViewChannel(userID, ch)
+}
+
+// canViewChannel is canView for a channel given in full. A thread that the
+// session does not hold (READY carries at most readyThreadCap) resolves
+// through its parent like any other.
+func (gs *guildState) canViewChannel(userID string, ch *Channel) bool {
+	return gs.perms(userID, ch) != 0
+}
+
+// known is the held copy of ch, else ch itself.
+func (gs *guildState) known(ch *Channel) *Channel {
+	if held := gs.channels[ch.ID]; held != nil {
+		return held
+	}
+	return ch
 }
 
 // session state is owned by its run goroutine; other goroutines only post().
@@ -485,9 +500,9 @@ func (s *session) onEvent(ev busEvent) {
 		if json.Unmarshal(e.D, &ch) != nil {
 			return
 		}
-		was := gs.canView(me, ch.ID)
+		was := gs.canViewChannel(me, gs.known(&ch))
 		// An overwrite change on a parent also shows or hides its threads.
-		s.withThreadDiff(gs, ch.ID, func() { gs.channels[ch.ID] = &ch })
+		s.withVisibilityDiff(gs, ch.ID, func() { gs.channels[ch.ID] = &ch })
 		now := gs.canView(me, ch.ID)
 		switch {
 		case now && !was:
@@ -502,7 +517,7 @@ func (s *session) onEvent(ev busEvent) {
 		if json.Unmarshal(e.D, &ch) != nil {
 			return
 		}
-		was := gs.canView(me, ch.ID)
+		was := gs.canViewChannel(me, gs.known(&ch))
 		delete(gs.channels, ch.ID)
 		if was {
 			s.dispatch(e.T, e.D)
@@ -513,14 +528,14 @@ func (s *session) onEvent(ev busEvent) {
 			return
 		}
 		s.dispatch(e.T, e.D)
-		s.withVisibilityDiff(gs, func() { gs.roles[p.Role.ID] = p.Role.Permissions })
+		s.withVisibilityDiff(gs, "", func() { gs.roles[p.Role.ID] = p.Role.Permissions })
 	case "GUILD_ROLE_DELETE":
 		var p struct{ RoleID string }
 		if json.Unmarshal(e.D, &p) != nil {
 			return
 		}
 		s.dispatch(e.T, e.D)
-		s.withVisibilityDiff(gs, func() {
+		s.withVisibilityDiff(gs, "", func() {
 			delete(gs.roles, p.RoleID)
 			gs.myRoles = slices.DeleteFunc(slices.Clone(gs.myRoles), func(r string) bool { return r == p.RoleID })
 		})
@@ -531,7 +546,7 @@ func (s *session) onEvent(ev busEvent) {
 		}
 		s.dispatch(e.T, e.D)
 		if m.User.ID == me {
-			s.withVisibilityDiff(gs, func() { gs.myRoles = m.Roles })
+			s.withVisibilityDiff(gs, "", func() { gs.myRoles = m.Roles })
 		}
 	case "GUILD_UPDATE":
 		var gd Guild
@@ -539,7 +554,7 @@ func (s *session) onEvent(ev busEvent) {
 			return
 		}
 		s.dispatch(e.T, e.D)
-		s.withVisibilityDiff(gs, func() {
+		s.withVisibilityDiff(gs, "", func() {
 			if gd.OwnerID != "" {
 				gs.ownerID = gd.OwnerID
 			}
@@ -609,39 +624,19 @@ func (s *session) onUserEvent(e envelope) {
 }
 
 // withVisibilityDiff applies a permission-state mutation and tells the client
-// about channels it gained or lost as a consequence.
-func (s *session) withVisibilityDiff(gs *guildState, mutate func()) {
+// about channels it gained or lost as a consequence. The channel `except` is
+// left to the caller, which dispatches its own event for it.
+func (s *session) withVisibilityDiff(gs *guildState, except string, mutate func()) {
 	before := gs.visible(s.user.ID)
 	mutate()
 	after := gs.visible(s.user.ID)
 	for id := range after {
-		if !before[id] {
+		if !before[id] && id != except {
 			s.dispatch("CHANNEL_CREATE", gs.channels[id])
 		}
 	}
 	for id := range before {
-		if !after[id] {
-			s.dispatch("CHANNEL_DELETE", gs.channels[id])
-		}
-	}
-}
-
-// withThreadDiff is withVisibilityDiff for the threads of one parent channel.
-func (s *session) withThreadDiff(gs *guildState, parentID string, mutate func()) {
-	var threads []string
-	before := map[string]bool{}
-	for id, ch := range gs.channels {
-		if ch.Type == "thread" && ch.ParentID != nil && *ch.ParentID == parentID {
-			threads = append(threads, id)
-			before[id] = gs.canView(s.user.ID, id)
-		}
-	}
-	mutate()
-	for _, id := range threads {
-		switch now := gs.canView(s.user.ID, id); {
-		case now && !before[id]:
-			s.dispatch("CHANNEL_CREATE", gs.channels[id])
-		case !now && before[id]:
+		if !after[id] && id != except {
 			s.dispatch("CHANNEL_DELETE", gs.channels[id])
 		}
 	}
