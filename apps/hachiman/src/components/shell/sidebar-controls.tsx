@@ -26,7 +26,7 @@ export function SidebarControls(): React.JSX.Element {
       <Tooltip>
         <TooltipTrigger asChild>
           <Button
-            variant="ghost"
+            variant="quiet"
             aria-label={label}
             onClick={toggleSidebar}
             className={`${CONTROL} size-8 p-0 has-[>svg]:p-0`}

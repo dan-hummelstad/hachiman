@@ -78,7 +78,7 @@ export function TabBar({ inbox }: { inbox?: React.ReactNode }): React.JSX.Elemen
       <PinCurrent />
       <Tabs />
       <Button
-        variant="ghost"
+        variant="quiet"
         aria-label="Pin a tab"
         title="Pin a tab"
         onClick={() => openSwitcher('pin')}

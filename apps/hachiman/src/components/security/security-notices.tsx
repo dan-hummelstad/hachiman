@@ -195,7 +195,7 @@ function Notice({
         <p className="leading-5">{text}</p>
         {action && onAction && (
           <div>
-            <Button size="sm" variant="outline" onClick={onAction}>
+            <Button size="sm" variant="secondary" onClick={onAction}>
               {action}
             </Button>
           </div>
