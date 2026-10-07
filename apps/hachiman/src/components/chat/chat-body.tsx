@@ -8,7 +8,7 @@ import { TypingLine } from '@/components/chat/typing-line'
 import { usePermissions } from '@/hooks/use-hachiman'
 import { channelLabel } from '@/lib/model'
 import { messagesService } from '@/services/MessagesService'
-import { useChannelAccess, joinNames } from './channel-access'
+import { useChannelAccess, joinNames } from '@/lib/channel-access'
 import { useSendPaused } from './use-dm-trust'
 
 /**

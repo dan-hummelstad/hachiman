@@ -11,15 +11,16 @@ import {
   Volume2
 } from 'lucide-react'
 import { Permissions, has, type Channel, type Role } from '@hachiman/client'
-import { useChannelAccess } from '@/components/chat/channel-access'
+import { useChannelAccess } from '@/lib/channel-access'
 import { useTrustBadge, type TrustBadge } from '@/components/chat/use-dm-trust'
 import { UserAvatar } from '@/components/shell/user-avatar'
 import { IconButton } from '@/components/ui/icon-button'
 import { TitleBar } from '@/components/ui/title-bar'
+import { VoiceHeaderExtras, VoiceHeaderMeta } from '@/components/voice/voice-header'
 import { usePermissions } from '@/hooks/use-hachiman'
 import { usePresence } from '@/hooks/use-member'
 import { ChannelIcon } from '@/lib/channel-icon'
-import { channelLabel, hexColor } from '@/lib/model'
+import { channelLabel, hexColor, isGuildChannel } from '@/lib/model'
 import { ROLE_INK_SCOPE } from '@/lib/role-ink'
 import { cn } from '@/lib/utils'
 import { useChannelStore } from '@/stores/channelStore'
@@ -65,6 +66,9 @@ export function ChannelPane({
         right={
           <>
             {isDm && <DmTrustChip channel={channel} />}
+            {channel.type === 'voice' && isGuildChannel(channel) && (
+              <VoiceHeaderExtras channel={channel} />
+            )}
             {onToggleSide && (
               <IconButton
                 label={sideOpen ? `Hide ${side}` : `Show ${side}`}
@@ -133,6 +137,7 @@ function ChannelTitle({ channel }: { channel: Channel }): React.JSX.Element {
       <h1 className="text-heading text-text-primary shrink-0 truncate">
         {channelLabel(channel).name}
       </h1>
+      {channel.type === 'voice' && isGuildChannel(channel) && <VoiceHeaderMeta channel={channel} />}
       {access.readOnly && (
         <HeaderChip>
           <Lock aria-hidden />

@@ -39,7 +39,7 @@ import {
 } from '@/components/ui/context-menu'
 import { IconButton } from '@/components/ui/icon-button'
 import { SystemTag } from '@/components/ui/system-tag'
-import { channelAccess } from '@/components/shell/channel-access'
+import { useChannelAccess } from '@/lib/channel-access'
 import { GuildHeader } from '@/components/shell/guild-header'
 import { UserAvatar } from '@/components/shell/user-avatar'
 import { UserProfilePopover } from '@/components/user-profile-popover'
@@ -264,8 +264,7 @@ function ChannelRow({
   const isVoiceHere = useVoiceStore((s) => isVoice && s.channelId === channel.id)
   const canConnect = has(usePermissions(guildId, channel.id), Permissions.CONNECT)
   const canInvite = has(usePermissions(guildId), Permissions.CREATE_INSTANT_INVITE)
-  const everyone = useGuildStore((s) => s.roles.get(guildId)?.get(guildId)?.permissions ?? 0)
-  const { readOnly, restricted } = channelAccess(channel, guildId, everyone)
+  const { readOnly, restricted } = useChannelAccess(channel)
 
   const { setNodeRef, attributes, listeners, transform, transition, isDragging } = useSortable({
     id: channel.id,

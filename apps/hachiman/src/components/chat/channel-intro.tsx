@@ -10,7 +10,7 @@ import { usePresence } from '@/hooks/use-member'
 import { channelLabel, hexColor } from '@/lib/model'
 import { cn } from '@/lib/utils'
 import { openDialog } from '@/stores/dialogStore'
-import { useChannelAccess } from './channel-access'
+import { useChannelAccess } from '@/lib/channel-access'
 import { useTrustBadge } from './use-dm-trust'
 
 /** The quiet intro buttons: hairline outline, hover wash. */
