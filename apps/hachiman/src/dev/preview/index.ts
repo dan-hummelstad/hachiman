@@ -32,7 +32,7 @@ import {
   fixtureMembership,
   now
 } from './fixture'
-import { dispatch, stubRest, stubVoice } from './stubs'
+import { dispatch, seedFeatureFixtures, stubRest, stubVoice } from './stubs'
 
 export interface PreviewOptions {
   /** Show the signed-out screen instead of the seeded app. */
@@ -152,6 +152,7 @@ export function startPreview(opts: PreviewOptions = {}): void {
     useMessageStore.setState((s) => ({ byChannel: new Map(s.byChannel).set(channelId, list) }))
     msgs.setHasMore(channelId, false)
   }
+  seedFeatureFixtures()
   msgs.setTyping(G1C.general, U.juniper.id, now + 3_600_000)
   msgs.setTyping(DM1, U.marlowe.id, now + 3_600_000)
 
