@@ -24,6 +24,7 @@ export const Permissions = {
   CHANGE_NICKNAME: 1 << 26,
   MANAGE_NICKNAMES: 1 << 27,
   MANAGE_ROLES: 1 << 28,
+  MANAGE_EVENTS: 1 << 29,
 } as const
 
 export type PermissionName = keyof typeof Permissions

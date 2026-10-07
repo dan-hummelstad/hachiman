@@ -304,6 +304,8 @@ export const roles = pgTable(
       .references(() => guilds.id, { onDelete: 'cascade' }),
     name: text('name').notNull(),
     color: integer('color').notNull().default(0),
+    // Shown as its own group in the member list (N15). Changes no permission.
+    hoist: boolean('hoist').notNull().default(false),
     position: integer('position').notNull().default(0),
     permissions: bigint('permissions', { mode: 'number' }).notNull().default(0),
   },

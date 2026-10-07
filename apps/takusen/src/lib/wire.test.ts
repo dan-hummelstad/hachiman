@@ -69,7 +69,7 @@ function channel(id: string, name: string): ChannelRow {
   }
 }
 function role(id: string, position: number, permissions: number): RoleRow {
-  return { id, guildId: GUILD, name: id === GUILD ? '@everyone' : 'role', color: 0, position, permissions }
+  return { id, guildId: GUILD, name: id === GUILD ? '@everyone' : 'role', color: 0, hoist: false, position, permissions }
 }
 function overwrite(
   channelId: string,

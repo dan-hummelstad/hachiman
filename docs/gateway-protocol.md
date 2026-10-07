@@ -47,7 +47,7 @@ interface Attachment { id: string; key: string /* `${id}/blob` */; size: number 
 
 interface Limits { maxUploadBytes: number; maxAttachmentsPerMessage: number; maxEnvelopeBytes: number; maxPageSnapshotBytes: number }
 
-interface Role { id: string; guildId: string; name: string; color: number; position: number; permissions: number }
+interface Role { id: string; guildId: string; name: string; color: number; hoist: boolean /* own group in the member list */; position: number; permissions: number }
 // The @everyone role has id === guildId and position 0. It always exists and cannot be deleted.
 
 interface PermissionOverwrite { id: string /* role id or user id */; type: 'role' | 'member'; allow: number; deny: number }
@@ -215,7 +215,7 @@ New/changed tables (all ids `uuid` defaultRandom, timestamps `timestamptz` defau
 | `guild_members` | guild_id → guilds (cascade), user_id → users (cascade), nick null, joined_at, invite_id null → invites (set null) | PK (guild_id, user_id); index (invite_id) where not null. `invite_id`: the invite of the join (§4 accept). The redeemer of an invite with history gets its bundles with it (§12.11.4) |
 | `channels` | id, guild_id null → guilds (cascade), type `channel_type` enum, name null, topic null, parent_id null → channels (set null), position int default 0, owner_id null → users (set null), mls_group_id bytea null → mls_groups (set null), created_at | index (guild_id) |
 | `messages` | id, channel_id → channels (cascade), author_id → users (cascade), group_id bytea → mls_groups (cascade), epoch bigint, sender_device uuid null → devices (set null), client_msg_id bytea, envelope bytea, franking_tag bytea, size int, created_at, edited_at null | index (channel_id, created_at desc, id desc); unique (channel_id, client_msg_id). No `content` column (§12.8) |
-| `roles` | id, guild_id → guilds (cascade), name, color int default 0, position int default 0, permissions bigint (mode number) | @everyone row has id = guild_id |
+| `roles` | id, guild_id → guilds (cascade), name, color int default 0, hoist boolean default false, position int default 0, permissions bigint (mode number) | @everyone row has id = guild_id |
 | `member_roles` | guild_id, user_id, role_id → roles (cascade) | PK (user_id, role_id); FK (guild_id,user_id) → guild_members (cascade) |
 | `permission_overwrites` | channel_id → channels (cascade), target_id uuid, target_type `overwrite_type` enum ('role','member'), allow bigint, deny bigint | PK (channel_id, target_id) |
 | `dm_participants` | channel_id → channels (cascade), user_id → users (cascade) | PK (channel_id, user_id); index (user_id) |
@@ -323,9 +323,9 @@ Implemented extras (Discord semantics):
 | DELETE `/guilds/:id/members/:userId` | KICK_MEMBERS (not owner) | 204 | `GUILD_MEMBER_REMOVE {guildId, user}` → guild; `GUILD_DELETE {id}` → user:{kicked}; `INVITE_DELETE` → guild for each revoked invite (Invite limits) |
 | DELETE `/users/@me/guilds/:id` | member, not owner | 204 | same as kick |
 | GET `/guilds/:id/roles` | member | `Role[]` | — |
-| POST `/guilds/:id/roles` `{name, color?, permissions?}` | MANAGE_ROLES | `Role` | `GUILD_ROLE_CREATE {guildId, role}` |
+| POST `/guilds/:id/roles` `{name, color?, hoist?, permissions?}` | MANAGE_ROLES | `Role` | `GUILD_ROLE_CREATE {guildId, role}` |
 | PATCH `/guilds/:id/roles` `[{id, position}]` | MANAGE_ROLES | `Role[]` | `GUILD_ROLE_UPDATE` per changed role |
-| PATCH `/guilds/:id/roles/:roleId` `{name?, color?, permissions?}` | MANAGE_ROLES + hierarchy | `Role` | `GUILD_ROLE_UPDATE`; `INVITE_DELETE` → guild for each revoked invite (Invite limits) |
+| PATCH `/guilds/:id/roles/:roleId` `{name?, color?, hoist?, permissions?}` | MANAGE_ROLES + hierarchy | `Role` | `GUILD_ROLE_UPDATE`; `INVITE_DELETE` → guild for each revoked invite (Invite limits) |
 | DELETE `/guilds/:id/roles/:roleId` | MANAGE_ROLES + hierarchy, not @everyone | 204 | `GUILD_ROLE_DELETE {guildId, roleId}`; `INVITE_DELETE` → guild for each revoked invite (Invite limits) |
 | GET `/guilds/:id/invites` | MANAGE_GUILD | `Invite[]`: the invites that are not revoked (expired ones too), permanent first, then newest first | — |
 | POST `/guilds/:id/invites` `{maxAgeSeconds?, maxUses?, acknowledgedPermanent?, record?}` | CREATE_INSTANT_INVITE; ADMINISTRATOR for `maxAgeSeconds` 0 or above 86400, and for `record` (with `X-Hachiman-Device`) (Invite limits) | `Invite` | — |
@@ -2308,7 +2308,7 @@ struct {
 Payloads: genesis `{opaque owner_id[16]}`. Role: `{opaque role_id[16]; uint64 permissions; uint32 position}` (delete: `role_id` only). Reorder: `{RolePosition positions<V>}` with `struct { opaque role_id[16]; uint32 position; } RolePosition`. Overwrite: `{opaque channel_id[16]; opaque target_id[16]; uint8 target_type /* 1 role, 2 member */; uint64 allow; uint64 deny}` (delete: no `allow`/`deny`). Member roles: `{opaque user_id[16]; opaque role_ids<V> /* 16-byte ids */}`. History visibility: `{opaque channel_id[16]; uint8 history_visibility}`.
 
 - The client sends the encoded action in the header `X-Hachiman-Signed-Action` on the matching route (§4: roles, overwrites, member roles, channel PATCH). The header holds one base64url action, or two separated by a comma: the genesis, then the action of the request. The two-action form is for the first signed request of a guild. Takusen checks the signature under the actor device certificate, that the action matches the request, and that `seq` and `prev_hash` continue the chain. It stores the action in `admin_actions` in the same transaction. Else 409 `AdminActionConflict` or 400 `InvalidAdminAction`. The header is optional until the guild has a genesis action, then it is required on each request that changes signed state.
-- **Which requests change signed state.** `POST /guilds/:id/roles` (`role_create`), a role PATCH only when it has `permissions` (`role_update`), the role reorder (`role_reorder`), a role DELETE (`role_delete`), an overwrite PUT or DELETE (`overwrite_put`, `overwrite_delete`), a member PATCH only when it has `roles` (`member_roles`), and a channel PATCH with `historyVisibility` (`channel_history_visibility`). Other fields of these routes are not signed.
+- **Which requests change signed state.** `POST /guilds/:id/roles` (`role_create`), a role PATCH only when it has `permissions` (`role_update`), the role reorder (`role_reorder`), a role DELETE (`role_delete`), an overwrite PUT or DELETE (`overwrite_put`, `overwrite_delete`), a member PATCH only when it has `roles` (`member_roles`), and a channel PATCH with `historyVisibility` (`channel_history_visibility`). Other fields of these routes are not signed. `hoist` changes no permission: a role PATCH with only `name`, `color` or `hoist` needs no `X-Hachiman-Signed-Action`, and the `role_create` payload does not carry `hoist`.
 - **Match rules.** A signed `role_create` names the role id, and `POST /guilds/:id/roles` creates the role with that id (it must be a new UUID). The `role_reorder` positions and the `member_roles` role ids match the request as sets: the order does not matter. The `target_type` of an `overwrite_delete` payload is the type of the existing overwrite.
 - **History visibility.** `PATCH /channels/:id` `historyVisibility` and `PATCH /guilds/:id` `publicHistoryVisibility` write `mls_groups.history_visibility`. That column is only the REST mirror. Members change the group descriptor with a GCE commit (§12.6). The guild `publicHistoryVisibility` has no admin action type, and it is not signed.
 - **No permission replay on Takusen.** Takusen does not replay the permissions of signed actions. The REST permission checks on the unsigned state stay authoritative. Takusen checks only the signature, the chain continuity and the match with the request.

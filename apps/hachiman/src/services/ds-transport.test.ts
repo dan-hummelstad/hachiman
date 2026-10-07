@@ -257,6 +257,7 @@ describe('channelReaders', () => {
     guildId: 'g-1',
     name: id,
     color: 0,
+    hoist: false,
     position: id === 'g-1' ? 0 : 1,
     permissions
   })

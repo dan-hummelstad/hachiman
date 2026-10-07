@@ -73,7 +73,7 @@ export function role(
   position: number,
   permissions: number
 ): Role {
-  return { id, guildId, name, color, position, permissions }
+  return { id, guildId, name, color, hoist: false, position, permissions }
 }
 
 export function channel(

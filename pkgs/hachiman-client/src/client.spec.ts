@@ -47,6 +47,7 @@ const guild: GuildFull = {
       guildId: 'g',
       name: '@everyone',
       color: 0,
+      hoist: false,
       position: 0,
       permissions: P.VIEW_CHANNEL | P.SEND_MESSAGES,
     },

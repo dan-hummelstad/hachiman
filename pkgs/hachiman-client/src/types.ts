@@ -54,6 +54,8 @@ export interface Role {
   guildId: string
   name: string
   color: number
+  /** Shown as its own group in the member list. Changes no permission. */
+  hoist: boolean
   position: number
   permissions: number
 }
