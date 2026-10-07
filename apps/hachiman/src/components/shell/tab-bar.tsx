@@ -50,6 +50,7 @@ import {
   viewOfTarget,
   type TabTarget
 } from '@/stores/tabsStore'
+import { UnreadMark } from '@/components/ui/unread-mark'
 import { useChannelUnread } from '@/stores/unreadStore'
 import { useVoiceStore } from '@/stores/voiceStore'
 
@@ -242,14 +243,8 @@ function Tab({
       <span className="min-w-0 truncate">{name}</span>
       {inCall ? (
         <AudioLines aria-label="In call" className="text-feature-voice size-3.5 shrink-0" />
-      ) : badge.mentions > 0 ? (
-        <span className="bg-feature-danger rounded-pill flex h-4 min-w-4 shrink-0 items-center justify-center px-1 text-[10px] font-bold text-white">
-          {badge.mentions}
-        </span>
       ) : (
-        badge.unread && (
-          <span aria-label="Unread" className="bg-text-primary size-1.5 shrink-0 rounded-full" />
-        )
+        <UnreadMark badge={badge} size="sm" />
       )}
       {active && (
         <button

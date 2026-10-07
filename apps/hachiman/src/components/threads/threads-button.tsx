@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button'
 import { ErrorText } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { UnreadMark } from '@/components/ui/unread-mark'
 import { useAction } from '@/hooks/use-action'
 import { usePermissions } from '@/hooks/use-hachiman'
 import { cn } from '@/lib/utils'
@@ -122,15 +123,7 @@ function ThreadRow({ thread, onOpen }: { thread: Channel; onOpen: () => void }):
           {last ? `Last message ${formatFull(last)}` : 'No recent messages'}
         </span>
       </span>
-      {badge.mentions > 0 ? (
-        <span className="bg-feature-danger text-text-on-accent rounded-pill min-w-5 px-1.5 text-center text-[11px] leading-5 font-bold">
-          {badge.mentions}
-        </span>
-      ) : (
-        badge.unread && (
-          <span className="bg-text-primary size-2 shrink-0 rounded-full" aria-label="Unread" />
-        )
-      )}
+      <UnreadMark badge={badge} />
     </button>
   )
 }

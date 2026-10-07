@@ -13,7 +13,7 @@ import { CSS } from '@dnd-kit/utilities'
 import type { Channel } from '@hachiman/client'
 import { FavouriteDmItem } from '@/components/channel-sidebar'
 import { UserAvatar } from '@/components/shell/user-avatar'
-import { CornerBadge } from '@/components/shell/unread-marks'
+import { UnreadMark } from '@/components/ui/unread-mark'
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from '@/components/ui/context-menu'
 import { IconButton } from '@/components/ui/icon-button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -129,7 +129,7 @@ function FavouriteTile({ channel }: { channel: Channel }): React.JSX.Element {
                       cutout={open ? OPEN_BG : 'bg-surface-raised'}
                     />
                   )}
-                  <CornerBadge badge={badge} dot={false} className="-top-1.5 -right-2" />
+                  <UnreadMark badge={badge} size="corner" dot={false} className="-top-1.5 -right-2" />
                 </span>
               </button>
             </TooltipTrigger>

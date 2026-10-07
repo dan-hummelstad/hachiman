@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { IconButton } from '@/components/ui/icon-button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { SegmentedControl } from '@/components/ui/segmented-control'
+import { UnreadMark } from '@/components/ui/unread-mark'
 import { channelLabel } from '@/lib/model'
 import { cn } from '@/lib/utils'
 import { unreadService } from '@/services/UnreadService'
@@ -19,6 +20,9 @@ import { useAnyMention, useUnreadStore } from '@/stores/unreadStore'
 import { mentionEntries, unreadGroups, type MentionEntry, type UnreadGroup } from './inbox-model'
 
 type Tab = 'mentions' | 'unread'
+
+const ANY_MENTION = { mentions: 1, unread: true }
+const NO_MENTION = { mentions: 0, unread: false }
 
 /**
  * The inbox button of the sidebar top (N8): an inbox icon with a red dot while anything mentions
@@ -40,12 +44,13 @@ export function InboxButton({ className }: { className?: string }): React.JSX.El
           )}
         >
           <Inbox />
-          {mentioned && (
-            <span
-              aria-hidden
-              className="bg-feature-danger ring-surface-panel absolute top-1 right-1 size-2 rounded-full ring-2"
-            />
-          )}
+          <UnreadMark
+            badge={mentioned ? ANY_MENTION : NO_MENTION}
+            size="corner"
+            count={false}
+            aria-hidden
+            className="ring-surface-panel top-1 right-1 size-2"
+          />
         </IconButton>
       </PopoverTrigger>
       <PopoverContent align="start" className="w-[420px] max-w-[calc(100vw-32px)] p-0">
@@ -190,16 +195,8 @@ function UnreadList({
                 {channelLabel(channel).sigil}
                 {channelLabel(channel).name}
               </button>
-              {badge.mentions > 0 && (
-                <span className="bg-feature-danger text-text-on-accent rounded-pill min-w-5 px-1.5 text-center text-[11px] leading-5 font-bold">
-                  {badge.mentions}
-                </span>
-              )}
-              <Button
-                variant="quiet"
-                size="sm"
-                onClick={() => unreadService.markChannelRead(channel.id)}
-              >
+              <UnreadMark badge={badge} dot={false} />
+              <Button variant="quiet" size="sm" onClick={() => unreadService.markChannelRead(channel.id)}>
                 <CheckCheck />
                 Mark read
               </Button>

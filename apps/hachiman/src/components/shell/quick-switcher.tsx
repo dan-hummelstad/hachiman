@@ -11,6 +11,7 @@ import {
 import { useSidebarView } from '@/components/shell/sidebar-state'
 import { FEATURE_TEXT } from '@/components/ui/feature'
 import { Keycap } from '@/components/ui/keycap'
+import { UnreadMark } from '@/components/ui/unread-mark'
 import { dmName } from '@/lib/model'
 import { MOD_KEY } from '@/lib/mod-key'
 import { rankItems, recentKeys, type SwitchItem, type SwitchKind } from '@/lib/quick-switcher'
@@ -326,15 +327,7 @@ function ResultRow({
         {item.guildName ?? (item.kind === 'dm' ? 'Direct message' : '')}
       </span>
       {pinned && <Pin aria-label="Pinned" className="text-text-tertiary size-3.5 shrink-0" />}
-      {badge.mentions > 0 ? (
-        <span className="bg-feature-danger rounded-pill flex h-4 min-w-4 items-center justify-center px-1 text-[10px] font-bold text-white">
-          {badge.mentions}
-        </span>
-      ) : (
-        badge.unread && (
-          <span aria-label="Unread" className="bg-text-primary size-1.5 rounded-full" />
-        )
-      )}
+      <UnreadMark badge={badge} size="sm" />
     </li>
   )
 }

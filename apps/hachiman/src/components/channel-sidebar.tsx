@@ -42,7 +42,7 @@ import {
 import { IconButton } from '@/components/ui/icon-button'
 import { SystemTag } from '@/components/ui/system-tag'
 import { useChannelAccess } from '@/lib/channel-access'
-import { MentionCount, UnreadPip } from '@/components/shell/unread-marks'
+import { UnreadMark, UnreadPip } from '@/components/ui/unread-mark'
 import { EventRow } from '@/components/events/event-row'
 import { GuildHeader } from '@/components/shell/guild-header'
 import { PinToTabsMenuItem } from '@/components/shell/tab-bar'
@@ -361,7 +361,7 @@ function ChannelRow({
                   {callElapsed}
                 </span>
               )}
-              <MentionCount count={badge.mentions} />
+              <UnreadMark badge={badge} dot={false} />
             </span>
             <span className={cn('items-center', showActions)}>
               {isVoice && canConnect && !isVoiceHere && (
@@ -491,7 +491,7 @@ export function DmSpace(): React.JSX.Element {
             People
           </span>
           <span className="text-text-tertiary text-xs font-semibold">{online} online</span>
-          <MentionCount count={dmBadge.mentions} />
+          <UnreadMark badge={dmBadge} dot={false} />
         </button>
         <h3 className="section-label flex h-[30px] items-center px-1 pt-3">Conversations</h3>
         <DmList />
@@ -579,7 +579,7 @@ function DmRow({ channel, selected }: { channel: Channel; selected: boolean }): 
               )}
             </span>
             {live && <SystemTag kind="live" />}
-            <MentionCount count={badge.mentions} />
+            <UnreadMark badge={badge} dot={false} />
           </button>
         </li>
       </ContextMenuTrigger>
