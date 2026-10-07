@@ -27,7 +27,7 @@ export function ReplyQuote({
     <div
       className={cn(
         'relative flex h-[22px] min-w-0 items-center text-[13px] leading-[18px]',
-        compact ? 'pl-[calc(2.75rem+14ch+1.5rem)]' : 'pl-[54px]'
+        compact ? 'pl-[calc(2.75rem+10ch+1.5rem)]' : 'pl-[54px]'
       )}
     >
       {!compact && (
