@@ -13,6 +13,7 @@ import {
 import type { ContactDevice } from '@hachiman/crypto'
 import type { Guild, Role, User } from '@hachiman/client'
 import { useNow, useVoiceActivity } from '@/components/people/use-voice-activity'
+import { useUserBanner } from '@/components/people/use-user-banner'
 import {
   TRUST_LOOK,
   useContactSecurity,
@@ -27,7 +28,6 @@ import { usePresence } from '@/hooks/use-member'
 import { formatElapsed, type VoiceActivity } from '@/lib/member-activity'
 import { displayName, hexColor, memberRoles } from '@/lib/model'
 import { ROLE_INK_SCOPE, roleInk } from '@/lib/role-ink'
-import { userBanner } from '@/lib/user-tint'
 import { cn } from '@/lib/utils'
 import { voiceService } from '@/services/VoiceService'
 import { useChannelStore } from '@/stores/channelStore'
@@ -81,6 +81,7 @@ export function DmProfileColumn({ user }: { user: User }): React.JSX.Element {
   const activity = useVoiceActivity(userId, null)
   const security = useContactSecurity(userId)
   const name = displayName(undefined, user)
+  const banner = useUserBanner(userId, user.avatar)
 
   return (
     <aside
@@ -91,7 +92,7 @@ export function DmProfileColumn({ user }: { user: User }): React.JSX.Element {
       )}
     >
       <ScrollArea className="min-h-0 flex-1">
-        <div className="h-24" style={{ background: userBanner(userId) }} aria-hidden />
+        <div className="h-24" style={{ background: banner }} aria-hidden />
         <div className="flex flex-col gap-4 px-4 pb-5">
           <div className="-mt-11 w-fit">
             <UserAvatar
