@@ -34,8 +34,6 @@ interface PrefsState {
   soundVolume: number
   /** Sounds the user switched off one by one. Ignored while `soundsEnabled` is false. */
   disabledSounds: SoundEvent[]
-  /** Width of the pages panel per pages channel, in percent of the split; 0 = collapsed. */
-  pagesPanelSize: Record<string, number>
   sidebar: SidebarMode
   /** userId → that account's preferences. */
   accounts: Record<string, AccountPrefs>
@@ -49,7 +47,6 @@ interface PrefsState {
   setSoundsEnabled: (soundsEnabled: boolean) => void
   setSoundVolume: (soundVolume: number) => void
   setSoundEnabled: (event: SoundEvent, enabled: boolean) => void
-  setPagesPanelSize: (channelId: string, size: number) => void
   setSidebar: (sidebar: SidebarMode) => void
   setAccountId: (accountId: string | null) => void
   setFavouriteDm: (channelId: string, favourite: boolean) => void
@@ -76,7 +73,6 @@ export const usePrefsStore = create<PrefsState>()(
         soundsEnabled: true,
         soundVolume: 0.7,
         disabledSounds: [],
-        pagesPanelSize: {},
         sidebar: 'docked',
         accounts: {},
         accountId: null,
@@ -93,12 +89,6 @@ export const usePrefsStore = create<PrefsState>()(
               ? s.disabledSounds.filter((e) => e !== event)
               : [...new Set([...s.disabledSounds, event])]
           })),
-        setPagesPanelSize: (channelId, size) =>
-          set((s) =>
-            s.pagesPanelSize[channelId] === size
-              ? s
-              : { pagesPanelSize: { ...s.pagesPanelSize, [channelId]: size } }
-          ),
         setSidebar: (sidebar) => set({ sidebar }),
         setAccountId: (accountId) => set({ accountId }),
         setFavouriteDm: (channelId, favourite) =>

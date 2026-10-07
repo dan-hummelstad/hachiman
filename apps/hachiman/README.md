@@ -258,7 +258,7 @@ A media close 4012 shows "update required" in the call UI. A media close 4013 se
 
 ## Pages channel
 
-A `pages` channel shows the chat in the center and the pages panel on the right, in a `react-resizable-panels` group (`components/ui/resizable.tsx`). `prefsStore` keeps the panel width per channel.
+A `pages` channel shows the chat in the center and the page in the right column (`components/people/right-column.tsx`, 540 wide). The column head switches between Members and Pages.
 
 | Path | What |
 |---|---|
