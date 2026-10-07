@@ -61,7 +61,9 @@ flowchart TB
     GB["bus.go<br/>runBus(), Lua scripts, keys"]
     GR["ready.go<br/>pgLoader(), pgNodeURL(), pgDevice()"]
     GV["voice.go<br/>onVoice(), resolveNode(), kick()"]
+    GCS["custom_status.go<br/>sanitizeCustomStatus()"]
     GM --> GC --> GS
+    GS --> GCS
     GC --> GSV
     GC --> GR
     GB -- "busEvent (guild, user, device)" --> GS
@@ -136,7 +138,7 @@ sequenceDiagram
   G->>T: GET /api/v1/users/@me
   G->>G: checkClient: e2ee/1 and clientVersion >= minimum (else 4012)
   G->>P: checkDevice: devices row of this user, not revoked (else 4013)
-  G->>P: load guilds, channels, roles, DMs
+  G->>P: load guilds, channels, roles, DMs, read states
   G->>R: HSET session:{id} userId, deviceId, seq, owner
   G->>R: SET device_online:{deviceId} = sessionId
   G->>P: checkDevice again (revocation race)
@@ -173,6 +175,15 @@ Gateway close codes for E2EE. The client does not reconnect after them:
 | 4013 | The device row does not exist, belongs to another user or is revoked. Also sent on `DEVICE_REVOKED`. The shared UI then signs out. |
 
 If the device lookup itself fails, the gateway closes with 4000, and the client tries again.
+
+### READY, presence and voice state
+
+- **Read states.** READY carries `readStates` for every DM and for each guild text or pages channel that the session can view (`visibleReadStates`). One query (`readStatesSQL`) gives the last read message, the last message and `unreadCount`: the messages of other authors after the read position, capped at 100. A channel without a read state has `unreadCount` 0, and the client uses `lastMessageId` to show it as unread.
+- **Threads.** READY carries at most 50 threads per guild (`readyThreadCap`), the most recently active ones. A thread gets the permissions of its parent channel. A thread with an unknown parent gets no permissions.
+- **Roles.** Each role carries `hoist` (`roles.hoist`).
+- **Custom status.** Op 3 takes `customStatus` beside `status`. An absent field keeps its value, and `customStatus: null` clears it. `sanitizeCustomStatus` removes control characters, trims the text, and refuses a text over 64 characters or an `expiresAt` that is not RFC 3339. The gateway writes Redis `custom_status:{userId}`: no TTL without `expiresAt`, else it expires at `expiresAt`. `PRESENCE_UPDATE` and the READY presences carry it, but only with a presence that is not `offline`.
+- **Events from Takusen.** `READ_STATE_UPDATE` and `USER_BLOCK_UPDATE` come on `user:{id}`. `CHANNEL_PINS_UPDATE` comes with a `channelId`, so the VIEW_CHANNEL filter applies. `GUILD_EVENT_*` come on `guild:{id}`. The gateway does not cache them.
+- **Call start.** Each voice state carries `joinedAt` (RFC 3339). The gateway sets it on a join and on a channel move, and keeps it across mute, deafen and stream changes. The call start of a channel is the oldest `joinedAt` of its states.
 
 ### Pages relay
 

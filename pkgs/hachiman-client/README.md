@@ -123,6 +123,23 @@ sequenceDiagram
 
 `joinVoice` fails after 15 seconds if `VOICE_SERVER_UPDATE` does not arrive. A new READY drops the voice connection.
 
+### Read state, guild data and custom status
+
+These parts carry metadata only. The server never sees the content of a message, a reaction or a page.
+
+| Part | REST (`RestClient`) | Gateway event | Cache (`HachimanClient.cache`) |
+|---|---|---|---|
+| Read state (§1 `ReadState`) | `ackMessage(channelId, messageId)` | `READ_STATE_UPDATE` (to `user:{id}`). READY carries `readStates` (`unreadCount` capped at 100, `lastMessageId`) | `readStates`. A channel delete or a guild leave drops its rows |
+| Pins | `getPins`, `pinMessage`, `unpinMessage` | `CHANNEL_PINS_UPDATE` | not cached. The shared UI loads the pins again |
+| Guild events | `getGuildEvents`, `createGuildEvent`, `updateGuildEvent`, `deleteGuildEvent`, `setEventRsvp` | `GUILD_EVENT_CREATE`, `GUILD_EVENT_UPDATE`, `GUILD_EVENT_DELETE`, `GUILD_EVENT_RSVP` | `events` (guild id to events, each with `me`). `fetchGuildEvents` fills it |
+| Blocks | `getBlocks`, `blockUser`, `unblockUser` | `USER_BLOCK_UPDATE` | `blocks` (user ids). `fetchBlocks` fills it |
+| Threads (channel type `thread`) | `createThread(parentId, {name, startMessageId})`, `listThreads(parentId)` | `CHANNEL_CREATE`, `CHANNEL_UPDATE`, `CHANNEL_DELETE` | `channels`. READY carries at most 50 threads per guild. `listThreads` gives the 50 most active threads of a channel |
+| Custom status (§1 `CustomStatus`) | none | `PRESENCE_UPDATE`. `setCustomStatus(text, expiresAt)` sends op 3. An empty text clears it | `customStatuses` |
+| Role hoist | `hoist` in the role create and update bodies | `GUILD_ROLE_*` | `Role.hoist` |
+| Call start | none | `VOICE_STATE_UPDATE` | `VoiceState.joinedAt` (absent from an older gateway) |
+
+A thread uses the MLS group of its parent channel. `permissionsFor` on a thread gives the permissions of the parent. A reaction and a page activity post are normal messages to this package: the content kind is inside the envelope.
+
 ## End-to-end encryption
 
 The client carries ciphertext only. It never decrypts.

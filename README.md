@@ -5,7 +5,9 @@ Clients use a REST API for reads, writes and files, a WebSocket gateway for real
 
 Everything is end-to-end encrypted (E2EE): DMs, guild text channels, attachments, voice, video and screen share. There is no plaintext mode.
 Key agreement uses MLS (RFC 9420, through ts-mls). Each device is a separate MLS member. Media frames use SFrame.
+
 Takusen, the gateway and the media nodes relay only ciphertext. They see metadata: membership, sender, time, sizes, typing, presence and voice state.
+They also see the read state, pinned message ids, guild events, thread names, blocks and custom status.
 Avatars, guild icons and banners stay plaintext, because they are public profile data.
 
 The Electron app is the strong client. The browser app shows the label "trusts the server's code", because a hostile server can send hostile JavaScript to a browser.
@@ -274,10 +276,11 @@ flowchart LR
   CW["crypto Worker<br/>(@hachiman/crypto)"]
   MD[message-decrypt<br/>decrypt before store]
   S[MessagesService · VoiceService<br/>InviteService · UploadService<br/>AdminActionService]
+  FS[UnreadService · PageActivityService<br/>guild-features: pins, events,<br/>threads, blocks, custom status]
   SND[SoundService<br/>event chimes]
-  ST[Zustand stores<br/>guild, channel, messages, voice,<br/>user, takusen, prefs, limits,<br/>nav, dialog]
+  ST[Zustand stores<br/>guild, channel, messages, voice,<br/>user, takusen, prefs, limits,<br/>nav, dialog, docs, tabs, composer,<br/>unread, pins, events, threads]
   CST[cryptoStore<br/>status, alerts, membership,<br/>voice roster]
-  UI[components<br/>shell, chat, voice,<br/>people, settings, security]
+  UI[components<br/>shell: sidebar, tab bar, content card,<br/>right column · chat, voice, people,<br/>settings, inbox, events, threads,<br/>pins, notify, docs, security]
 
   PS -- beginOAuth, onOAuthCallback --> TS
   PS -- secureStorage wrap key --> CS
@@ -301,9 +304,18 @@ flowchart LR
   ST -- selectors --> UI
   CST -- selectors --> UI
   UI -- actions --> S
+  UI -- actions --> FS
+  H -- "READY, READ_STATE_UPDATE,<br/>CHANNEL_PINS_UPDATE, MESSAGE_CREATE" --> FS
+  FS -- calls --> HC
+  FS -- decrypt --> MD
+  FS -- setState --> ST
 ```
 
-`services/hachiman.ts` owns the one `HachimanClient` and copies its cache into the stores after each event. Components read stores. They write through the services or `hachiman.rest`. The gateway event that results then updates the stores. `SoundService` plays a chime for message, voice and stream events, as `prefsStore` permits.
+`services/hachiman.ts` owns the one `HachimanClient` and copies its cache into the stores after each event. Components read stores. They write through the services or `hachiman.rest`. The gateway event that results then updates the stores.
+
+`UnreadService` keeps the read state and counts the mentions on the client, because the server cannot read them. Reactions and page activity posts are encrypted messages with their own content kind. `SoundService` plays a chime for message, voice and stream events, as `prefsStore` permits.
+
+The shell is one sidebar (280 px) and one content card on a wallpaper that the guild tints. The top of the sidebar holds the controls, the quick switcher and the favourite DMs. Below them are the channel list (or the settings sections), the voice dock and the space bar. The space bar replaces the guild rail. A pinned tab bar runs above the content card. The right column shows the members, a page or a DM profile. The UI spec is [`docs/ui-redesign.md`](docs/ui-redesign.md).
 
 `CryptoService` owns the one `CryptoClient`, which is the crypto Worker of the signed-in user. `services/hachiman.ts` forwards the E2EE gateway events to it. The client cache holds ciphertext. Every message goes through the Worker before it goes into `messagesStore`. `cryptoStore` mirrors the Worker events and holds no key material.
 

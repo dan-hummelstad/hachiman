@@ -1,6 +1,8 @@
 # Arc redesign of the chat app: execution plan
 
-**Status: plan.** Base: `main` at `a687198` (invites with history, invite limits, pages for new members). Source of the design: the Pencil file `pencil-new.pen`, frame **Final** (`X9RV1V`). The frame has 48 screens, a component kit, foundations and a sidebar behaviour board. The features that the app does not have yet are in `docs/arc-new-features-plan.md`. This plan tells where each of them connects.
+**Status: built.** All phases shipped on the `arc/*` branch stack: the Arc tokens, fonts and primitives, the window frame with the one sidebar and the space bar, the content card with the guild tint, the channel header, transcript and composer, the right column (members, pages, DM profile), the voice stage, the Arc dialogs, settings in the sidebar (`SettingsNav` in the sidebar middle, `SettingsPage` in the content card), and the sign-in screen. `docs/ui-redesign.md` is now the spec of the built design. The rest of this plan is the history of the work. "Not built" below lists what is left.
+
+Base of the plan: `main` at `a687198` (invites with history, invite limits, pages for new members). Source of the design: the Pencil file `pencil-new.pen`, frame **Final** (`X9RV1V`). The frame has 48 screens, a component kit, foundations and a sidebar behaviour board. The features that the app does not have yet are in `docs/arc-new-features-plan.md`. This plan tells where each of them connects.
 
 When this plan is done, `docs/ui-redesign.md` describes the Arc design, and this plan and the feature plan are the history of the work.
 
@@ -274,3 +276,20 @@ Phase 0 ─ Phase 1 ─ Phase 2 ─ Phase 3 ─ Phase 4 ─ Phase 5 ─ Phase 6 
 - Mobile layouts. The mocks are desktop only.
 - The Takusen web app frame (`uKgMD`) and the older "Hachiman chat app" frame (`GQ2rn`) in the same file.
 - Any wire change. The redesign phases change only the shared UI and the Electron main window options. Every wire change is in the feature plan.
+
+## 9. Not built
+
+These items are not in the app. Each one needs its own design doc before work starts:
+
+- **N19 camera**, **N20 DM calls** and **N22 bots and embeds** (see `docs/arc-new-features-plan.md`). The first two need platform work in the voice SFU and in voice E2EE. Bots need a new identity and trust model.
+
+Known leftovers:
+
+- Verify and profile views show no device fingerprints. `ContactDevice` has no fingerprint, so this needs a crypto API change and a contract §12 change.
+- The call roster does not mark the users who watch a stream.
+- The mention inbox does not fetch the messages around a mention that is not loaded.
+- Tabs and preferences do not sync across devices.
+- The Electron `app-command` back and forward on Windows is not wired.
+- The dock badge shows no unread count.
+- The invite preview shows no banner and no online count.
+- "Create channel" has no Private channel toggle.

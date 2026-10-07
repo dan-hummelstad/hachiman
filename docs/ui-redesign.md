@@ -12,7 +12,7 @@ Header of the Final frame: "Arc sidebar. Square structure. Rounded interaction."
 - **One sidebar.** One sidebar (280 px) holds all items that are not content. A space bar at its foot replaces the guild rail.
 - **One content card.** The content sits on one card, inset 8 px from the right and bottom edges of the window, with a 1 px border. The window behind it is a wallpaper.
 - **Soft shadows only on floating surfaces.** Popovers, menus, dialogs and the revealed sidebar get `shadow-soft`. No other surface gets a shadow.
-- **Settings use the sidebar.** Settings replace the middle of the sidebar with their section list and show the page in the content card. Dialogs are only for actions: create, invite, leave, delete, verify, link.
+- **Settings use the sidebar.** Settings replace the middle of the sidebar with their section list and show the page in the content card (§7). Dialogs are only for actions: create, invite, leave, delete, verify, link.
 
 ### No placeholders
 
@@ -128,17 +128,85 @@ Use Lucide (`lucide-react`) with stroke 1.5. Sizes: 16 px in rows and controls, 
 | Settings page | header 76, content padding 28 |
 | Hit target | 32 minimum |
 
-## 7. E2EE rules in the UI
+## 7. Shell rules
+
+`components/shell/shell.tsx` builds the shell. `apps/hachiman/README.md` ("Shell layout") has the component map.
+
+### Sidebar
+
+The sidebar has four slots, top to bottom:
+
+| Slot | Contents |
+|---|---|
+| controls (40 high) | the sidebar toggle, back, forward, and the inbox at the right. On macOS the row starts after the traffic lights. The row is the window drag region |
+| top | the quick switcher field ("Search or jump to… ⌘K") and the favourite DMs strip |
+| middle | the channel list of the guild, the DM space, or the settings sections (`SettingsNav`). It scrolls |
+| foot | the voice dock and the space bar |
+
+The sidebar has three states:
+
+- **Docked.** The sidebar sits beside the content column.
+- **Hidden.** The content card takes the window width (inset 8). The sidebar controls move to the start of the tab bar. Search and the inbox move to its end. A faint 8 px strip marks the hot zone at the left edge. The voice dock floats in the bottom-left corner of the content card, and the composer moves right to clear it.
+- **Revealed.** A hidden sidebar slides in over the content with a soft shadow. Nothing in the content moves.
+
+| Rule | Value |
+|---|---|
+| Toggle | ⌘S (Ctrl S) or the sidebar button. `prefsStore.sidebar` keeps the choice (`docked` or `undocked`) |
+| Reveal | the pointer in the left 8 px of the window. The sidebar slides in over 150 ms |
+| Hide | 300 ms after the pointer leaves. Not while a menu, a drag, a focused text field in the sidebar or the quick switcher holds it |
+| Esc | hides a revealed sidebar |
+| Dialogs | open above everything. A revealed sidebar closes first |
+| Narrow windows | below 1100 px the sidebar starts hidden |
+
+`lib/sidebar-reveal.ts` holds these values.
+
+### Settings in the sidebar
+
+Settings do not cover the window. `SettingsNav` replaces the sidebar middle with the section list and a back row. `SettingsPage` shows the open section in the content card (header 76, content padding 28). A page with changes shows the save bar at its foot. The avatar in the space bar opens the user settings. The guild menu and the channel header open the guild and channel settings.
+
+### Tab bar
+
+- The tab bar is 48 high and runs above the content card. It is the window drag region. Tabs and buttons in it are not.
+- It holds the pin glyph, the pinned tabs and "+". The pin glyph pins or unpins the open view. "+" opens the quick switcher in pin mode.
+- A tab is 34 high, 52 to 200 wide, radius 8. It shows the guild crest, the type icon in its feature colour, the name and one state mark: a white dot for unread, a coral count for mentions, or green voice bars for my call.
+- A tab lights up only when its target is the open view. Opening a view that is not pinned adds no tab. The lit tab shows ✕, which unpins it.
+- Drag reorders the tabs. ⌘1 to ⌘9 open tab 1 to 9. When the tabs do not fit, they shrink, then the bar scrolls.
+- `tabsStore` keeps the tabs per account on this device. A tab whose target is gone goes away.
+
+### Right column
+
+| Channel | Column |
+|---|---|
+| Text channel | "Members \| Pages". Members is 252 wide. The Pages tab lists the pages of the guild, and an open page widens the column to 540 |
+| Pages channel | Pages is the default tab. The open page is 540 wide |
+| DM | the profile of the other user (252) |
+| Group DM | no column |
+
+The column opens by default on windows of 1200 px and wider. The header toggle overrides the default.
+
+### Channel header
+
+From left to right after the name and topic: the threads button (sky, with the thread count), the pins button (amber, with the pin count), the bell (notification level), the right column toggle and the settings gear (only for a user who can manage the channel). A button without a count is a plain icon button. A thread header has no settings gear. A channel that cannot hold threads shows no threads button. A voice channel shows no pins and no bell.
+
+### Transcript
+
+- **NEW divider.** A coral hairline with a NEW tag on the right, above the first message after the read point. The read point is the one that the channel had when it opened. The divider stays until another channel opens.
+- **Reactions.** Pill chips under the message: emoji and count. My reaction gets the accent ring and tint. A click toggles my reaction. The last chip adds a reaction. A message with no reactions shows no chips: the React button in the hover toolbar adds the first one.
+- **Replies.** A reply shows a quote of its target above the text. A click on the quote jumps to the target.
+- **Page cards.** A message with a page link shows a square card with the page title, its channel and "Open". A page activity post shows "<user> edited <page> · n changes · View".
+- **Blocked users.** A message of a blocked user shows as one collapsed line, "Blocked message". A click shows it.
+
+## 8. E2EE rules in the UI
 
 - Show a message only after the crypto Worker decrypts it. A message that does not decrypt shows a danger callout with the reason.
 - Show an attachment only as an object URL of the decrypted blob.
 - Show a stream thumbnail only to members of that call. Outside the call, show the avatar of the streamer on the live tint with "LIVE · n watching".
 - Trust is per user. Device rows show the device fingerprint. The badge shows the trust of the user.
 
-## 8. Preview mode
+## 9. Preview mode
 
 In the browser dev server only, `?preview` fills the stores from `apps/hachiman/src/dev/preview/`. The fixture uses the cast of the mocks: Night Owls, Lattice Labs and Dog-ear Club, and the users marlowe, Juni, ozzy, kestrel (you), yuki.h, quill, renata, petra_v, sable, tobias, wren and vexbot. Compare each screen with its mock. Add `&theme=light` for the light theme. `apps/hachiman/src/dev/README.md` lists the fixture cases.
 
-## 9. Sounds
+## 10. Sounds
 
 `services/SoundService.ts` plays one sound for each sound event. `lib/sounds.ts` lists the events. Voice sounds are soft bell chimes (`lib/chime.ts`). Message sounds are Cuelume cues. User settings, Voice and audio, has a "Play sounds" switch, a volume slider, and a switch and a play button for each sound.

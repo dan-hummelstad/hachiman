@@ -69,6 +69,21 @@ The package has no build step. Consumers import the TypeScript source.
 | `src/bridge/` | `index.ts`: `createCryptoClient` (main-thread proxy, Web Lock), `createTransformWorker`. `stub.ts`: `createCryptoStub` for the dev preview (NOT ENCRYPTED, marked with `STUB_MARKER`) | §12.17 |
 | `src/index.ts` | Package exports | |
 
+### Envelope content kinds
+
+`EnvelopeKind` (`src/constants.ts`) and `KindedContent` (`src/api.ts`) give four kinds (§12.8.1). `encryptMessage` takes each kind, and `decryptMessages` gives each kind as a `DecryptedMessage`. Narrow on `kind` before you read `content`.
+
+| Kind | Byte | Content | Use |
+|---|---|---|---|
+| `message` | 1 | `MessageContent` | A chat row |
+| `edit` | 2 | `MessageContent`, with `editOf` | A new version of a message |
+| `reaction` | 3 | `ReactionContent`: `target` (a client_msg_id in the same channel), `emoji` (1 to `MAX_REACTION_EMOJI_LENGTH` UTF-16 units), `remove` | The receiver folds it into the target. It is not a chat row |
+| `page_activity` | 4 | `PageActivityContent`: `pageId`, `changes` (1 to `MAX_PAGE_ACTIVITY_CHANGES`) | "edited <page> · n changes" in the pages channel (§12.20). It is not a chat row |
+
+The Worker sets `sentAtMs` on send. A client that does not know a kind gives `malformed` for it. The server cannot tell the kinds apart: to Takusen, each kind is a normal message row.
+
+`TrustInfo.verifiedAt` is the ISO time when this device marked the user verified (`setVerified`, or a matching `verifyQr`). It is null for a user that is not verified, or that was verified before the store kept the time. A master key change clears it.
+
 Test doubles, not exported: `src/bridge/test-harness.ts` (a Worker over an in-process `MessageChannel`, a Web Locks shim), `src/mls/fake-ds.ts` (an in-memory DS), `src/media/fake-media.ts` (the media relay rules without sockets), `src/envelope/fixtures.ts`, and the `test-helpers.ts` files.
 
 ## Commands
