@@ -13,6 +13,7 @@ import { cryptoErrorText, friendly } from '@/components/security/errors'
 import { HostTrustLine } from '@/components/security/host-trust'
 import { Warning } from '@/components/security/screen-window'
 import { useAction } from '@/hooks/use-action'
+import { relativeTime } from '@/lib/time-format'
 import { cn } from '@/lib/utils'
 import { cryptoService } from '@/services/CryptoService'
 import { hachiman } from '@/services/hachiman'
@@ -191,15 +192,11 @@ function PlatformIcon({
 }
 
 const DATE = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
-const RELATIVE = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' })
 
 /** "active now", "active 2 hours ago", "active yesterday". */
 function activeText(lastSeenAt: string, now: number): string {
-  const mins = Math.round((now - new Date(lastSeenAt).getTime()) / 60_000)
-  if (mins < 5) return 'active now'
-  if (mins < 60) return `active ${RELATIVE.format(-mins, 'minute')}`
-  if (mins < 1440) return `active ${RELATIVE.format(-Math.round(mins / 60), 'hour')}`
-  return `active ${RELATIVE.format(-Math.round(mins / 1440), 'day')}`
+  const seen = Date.parse(lastSeenAt)
+  return now - seen < 5 * 60_000 ? 'active now' : `active ${relativeTime(lastSeenAt, now)}`
 }
 
 function Tag({

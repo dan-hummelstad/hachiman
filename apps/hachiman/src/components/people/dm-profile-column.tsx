@@ -4,9 +4,10 @@ import { Crown, MonitorSmartphone, Phone, ShieldCheck, ShieldQuestion } from 'lu
 import type { ContactDevice } from '@hachiman/crypto'
 import type { Guild, Role, User } from '@hachiman/client'
 import { CustomStatusLine } from '@/components/people/custom-status-line'
-import { useNow, useVoiceActivity } from '@/components/people/use-voice-activity'
+import { useVoiceActivity } from '@/components/people/use-voice-activity'
 import { VoiceActivityLine } from '@/components/people/voice-activity-line'
 import { useCanJoinVoice } from '@/components/voice/use-call-security'
+import { useElapsed } from '@/hooks/use-elapsed'
 import { useUserBanner } from '@/components/people/use-user-banner'
 import { TRUST_LOOK } from '@/components/people/trust-look'
 import { useContactSecurity, type ContactSecurity } from '@/components/people/use-contact-security'
@@ -16,7 +17,7 @@ import { GuildTile } from '@/components/ui/guild-tile'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { useAction } from '@/hooks/use-action'
 import { usePresence } from '@/hooks/use-member'
-import { formatElapsed, type VoiceActivity } from '@/lib/member-activity'
+import type { VoiceActivity } from '@/lib/member-activity'
 import { displayName, hexColor, memberRoles } from '@/lib/model'
 import { ROLE_INK_SCOPE, roleInk } from '@/lib/role-ink'
 import { cn } from '@/lib/utils'
@@ -153,13 +154,12 @@ export function DmProfileColumn({ user }: { user: User }): React.JSX.Element {
 }
 
 function ActivityCard({ activity }: { activity: VoiceActivity }): React.JSX.Element {
-  const now = useNow(activity.joinedAt !== null)
   const channel = useChannelStore((s) => s.channels.get(activity.channelId))
   const canJoin = useCanJoinVoice(activity.guildId, activity.channelId)
   const { run, busy } = useAction()
-  const since = activity.joinedAt ? Date.parse(activity.joinedAt) : NaN
-  const timer = Number.isNaN(since) ? null : formatElapsed(now - since)
-  const detail = [activity.withMe ? 'In the call with you' : null, timer].filter(Boolean)
+  const timer = useElapsed(activity.joinedAt ? Date.parse(activity.joinedAt) : null)
+  // A DM has no guild context, so otherGuildName names the guild of the call.
+  const detail = [activity.withMe ? 'In the call with you' : activity.otherGuildName, timer]
   const join = (): void => {
     if (!channel) return
     void run('join the call', async () => {

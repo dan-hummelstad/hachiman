@@ -32,9 +32,3 @@ export function downsamplePeaks(
   const max = Math.max(...peaks)
   return peaks.map((p) => (max > 0 ? Math.max(WAVEFORM_FLOOR, p / max) : WAVEFORM_FLOOR))
 }
-
-/** `0:04`, `12:30`: minutes and seconds of a playback position. */
-export function formatDuration(seconds: number): string {
-  const s = Number.isFinite(seconds) && seconds > 0 ? Math.floor(seconds) : 0
-  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
-}

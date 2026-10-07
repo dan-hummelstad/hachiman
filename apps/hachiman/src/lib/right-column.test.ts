@@ -1,12 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Channel, Guild, Member, PresenceStatus, Role, VoiceState } from '@hachiman/client'
 import { groupMembers } from './member-groups'
-import {
-  activityLabel,
-  formatElapsed,
-  voiceActivity,
-  type ActivitySources
-} from './member-activity'
+import { activityLabel, voiceActivity, type ActivitySources } from './member-activity'
 import { countPageLinks, guildPagesSections } from './right-column'
 import { userHue } from './user-tint'
 import type { PageNode } from '@/stores/docsStore'
@@ -172,14 +167,6 @@ describe('voiceActivity', () => {
     expect(voiceActivity('u9', 'g1', src())).toBeNull()
     const left = src({ voiceStates: new Map([['g1', new Map([['u1', state('g1', null, 'u1')]])]]) })
     expect(voiceActivity('u1', 'g1', left)).toBeNull()
-  })
-})
-
-describe('formatElapsed', () => {
-  it('formats m:ss and h:mm:ss', () => {
-    expect(formatElapsed(-5)).toBe('0:00')
-    expect(formatElapsed(65_000)).toBe('1:05')
-    expect(formatElapsed((1 * 3600 + 24 * 60 + 7) * 1000)).toBe('1:24:07')
   })
 })
 

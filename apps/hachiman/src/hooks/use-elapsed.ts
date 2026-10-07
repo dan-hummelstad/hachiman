@@ -1,14 +1,13 @@
 import { useEffect, useState } from 'react'
-import { formatElapsed } from '@/lib/member-activity'
+import { formatClock } from '@/lib/time-format'
 
 const pageVisible = (): boolean =>
   typeof document === 'undefined' || document.visibilityState === 'visible'
 
 /**
- * The time since `since` (ms epoch) as `h:mm:ss` or `m:ss`, renewed once a second while the page
- * is visible (N17). Null when `since` is null.
+ * `Date.now()`, renewed every `intervalMs` while `active` and the page is visible.
  */
-export function useElapsed(since: number | null): string | null {
+export function useNow(active: boolean, intervalMs = 1000): number {
   const [now, setNow] = useState(() => Date.now())
   const [visible, setVisible] = useState(pageVisible)
 
@@ -19,10 +18,20 @@ export function useElapsed(since: number | null): string | null {
   }, [])
 
   useEffect(() => {
-    if (since === null || !visible) return
-    const t = setInterval(() => setNow(Date.now()), 1000)
+    if (!active || !visible) return
+    const t = setInterval(() => setNow(Date.now()), intervalMs)
     return () => clearInterval(t)
-  }, [since, visible])
+  }, [active, visible, intervalMs])
 
-  return since === null ? null : formatElapsed(now - since)
+  return now
+}
+
+/**
+ * The time since `since` (ms epoch) as `h:mm:ss` or `m:ss`, renewed once a second while the page
+ * is visible (N17). Null when `since` is null or not a time.
+ */
+export function useElapsed(since: number | null): string | null {
+  const live = since !== null && Number.isFinite(since)
+  const now = useNow(live)
+  return live ? formatClock(now - since) : null
 }
