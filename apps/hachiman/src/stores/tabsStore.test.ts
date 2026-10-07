@@ -69,7 +69,7 @@ describe('tabsStore', () => {
     expect(activeIndex(list, { kind: 'dmHome' })).toBe(-1)
     const settings: View = {
       kind: 'settings',
-      settings: { scope: { kind: 'user' }, section: null }
+      settings: { target: { kind: 'user' }, section: null }
     }
     expect(targetOf(settings)).toBeNull()
   })

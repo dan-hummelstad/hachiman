@@ -9,12 +9,12 @@ import { useDocsStore } from '@/stores/docsStore'
 export const DM_HOME = '@me'
 
 /** Whose settings a settings view shows. */
-export type SettingsScope =
+export type SettingsTarget =
   { kind: 'user' } | { kind: 'guild'; guildId: string } | { kind: 'channel'; channelId: string }
 
-/** A settings page: the scope and its section (null = the first visible one). */
+/** A settings page: the target and its section (null = the first visible one). */
 export interface SettingsView {
-  scope: SettingsScope
+  target: SettingsTarget
   section: string | null
 }
 
@@ -36,10 +36,7 @@ interface NavState {
   guildKey: string
   /** guildKey → channel being viewed there. Absent = none (DM home: the People pane). */
   channelByGuild: Record<string, string>
-  /**
-   * The settings page in front of the view, or null. Only state for now: the settings overlay
-   * dialogs (dialogStore) still render settings.
-   */
+  /** The settings page that the shell shows in place of the view (sidebar + content card), or null. */
   settings: SettingsView | null
   /** Back history, oldest first. In memory only. */
   past: View[]
@@ -52,7 +49,7 @@ interface NavState {
   openChannel: (guildKey: string, channelId: string) => void
   /** Drop a guild's remembered channel; leave it for the DM home if it's the selected one. */
   forgetGuild: (guildId: string) => void
-  openSettings: (scope: SettingsScope, section?: string | null) => void
+  openSettings: (target: SettingsTarget, section?: string | null) => void
   setSettingsSection: (section: string) => void
   closeSettings: () => void
 }
@@ -86,7 +83,7 @@ export const useNavStore = create<NavState>()(
             const channelByGuild = { ...s.channelByGuild }
             delete channelByGuild[guildId]
             const settings =
-              s.settings?.scope.kind === 'guild' && s.settings.scope.guildId === guildId
+              s.settings?.target.kind === 'guild' && s.settings.target.guildId === guildId
                 ? null
                 : s.settings
             return {
@@ -95,7 +92,7 @@ export const useNavStore = create<NavState>()(
               guildKey: s.guildKey === guildId ? DM_HOME : s.guildKey
             }
           }),
-        openSettings: (scope, section = null) => set({ settings: { scope, section } }),
+        openSettings: (target, section = null) => set({ settings: { target, section } }),
         setSettingsSection: (section) =>
           set((s) => (s.settings ? { settings: { ...s.settings, section } } : s)),
         closeSettings: () => set({ settings: null })
@@ -186,7 +183,7 @@ function applyView(view: View): void {
       useDocsStore.getState().setOpenPage(view.channelId, view.pageId)
       return nav.openChannel(view.guildId, view.channelId)
     case 'settings':
-      return nav.openSettings(view.settings.scope, view.settings.section)
+      return nav.openSettings(view.settings.target, view.settings.section)
   }
 }
 
@@ -283,6 +280,8 @@ export const selectChannel = (channelId: string | null, guildKey?: string): void
 export const openChannel = (guildKey: string, channelId: string): void =>
   useNavStore.getState().openChannel(guildKey, channelId)
 export const forgetGuild = (guildId: string): void => useNavStore.getState().forgetGuild(guildId)
-export const openSettings = (scope: SettingsScope, section?: string | null): void =>
-  useNavStore.getState().openSettings(scope, section)
+export const openSettings = (target: SettingsTarget, section?: string | null): void =>
+  useNavStore.getState().openSettings(target, section)
+export const setSettingsSection = (section: string): void =>
+  useNavStore.getState().setSettingsSection(section)
 export const closeSettings = (): void => useNavStore.getState().closeSettings()

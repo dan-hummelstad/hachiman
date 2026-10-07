@@ -180,6 +180,7 @@ const onUpdate = (e: GatewayDispatch): void => {
       return syncAll()
     case 'GUILD_CREATE':
       syncAll()
+      loadSelectedGuildEvents()
       // A joined invite with history waits for the members of its guild (§12.11.4).
       return redeemWaitingInvites()
     case 'CHANNEL_CREATE':
@@ -217,7 +218,10 @@ const onUpdate = (e: GatewayDispatch): void => {
   }
 }
 
-/** The events of the selected guild load on READY and on every guild switch (N14). */
+/**
+ * The events of the selected guild load on READY, on GUILD_CREATE and on every guild switch
+ * (N14): whichever comes once the guild is in the cache.
+ */
 function loadSelectedGuildEvents(): void {
   const { guildKey } = useNavStore.getState()
   if (guildKey !== DM_HOME && hachiman.cache.guilds.has(guildKey))
@@ -365,8 +369,7 @@ export function startHachiman(host?: IPlatformService): void {
   })
   // A guild switch loads the events of that guild (N14).
   useNavStore.subscribe((s, prev) => {
-    if (s.guildKey !== prev.guildKey && hachiman.gateway.state === 'ready')
-      loadSelectedGuildEvents()
+    if (s.guildKey !== prev.guildKey) loadSelectedGuildEvents()
   })
   voiceService.start()
   unreadService.start()

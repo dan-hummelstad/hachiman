@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { startsHidden } from '@/lib/sidebar-reveal'
-import { usePrefsStore } from '@/stores/prefsStore'
+import { usePrefsStore, type SidebarMode } from '@/stores/prefsStore'
 
 /**
  * N3: the sidebar of this window. `hidden` starts from the saved choice (prefsStore.sidebar) and
@@ -21,11 +21,15 @@ export const useSidebarState = create<SidebarState>()(() => ({
 export const useSidebarHidden = (): boolean => useSidebarState((s) => s.hidden)
 export const useSidebarRevealed = (): boolean => useSidebarState((s) => s.revealed)
 
+/** Save `mode` and apply it to this window (Appearance → Sidebar). */
+export function setSidebarMode(mode: SidebarMode): void {
+  usePrefsStore.getState().setSidebar(mode)
+  useSidebarState.setState({ hidden: mode === 'undocked', revealed: false })
+}
+
 /** ⌘S and the sidebar button: dock a hidden (or revealed) sidebar, else hide it. */
 export function toggleSidebar(): void {
-  const hidden = !useSidebarState.getState().hidden
-  usePrefsStore.getState().setSidebar(hidden ? 'undocked' : 'docked')
-  useSidebarState.setState({ hidden, revealed: false })
+  setSidebarMode(useSidebarState.getState().hidden ? 'docked' : 'undocked')
 }
 
 export const setRevealed = (revealed: boolean): void => {

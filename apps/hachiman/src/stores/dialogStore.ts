@@ -4,12 +4,10 @@ import { create } from 'zustand'
 import { devtools } from 'zustand/middleware'
 import type { CreateChannelBody } from '@hachiman/client'
 
-/** The app-level modals and overlays before E2EE. */
+/** The app-level modals before E2EE. Settings are not dialogs: see `openSettings` (navStore). */
 type AppDialog =
   | { kind: 'addGuild' }
   | { kind: 'joinInvite'; code: string }
-  | { kind: 'guildSettings'; guildId: string }
-  | { kind: 'channelSettings'; channelId: string }
   | {
       kind: 'createChannel'
       guildId: string
@@ -19,7 +17,6 @@ type AppDialog =
   | { kind: 'deleteChannel'; channelId: string }
   | { kind: 'removeGuild'; guildId: string }
   | { kind: 'invite'; guildId: string }
-  | { kind: 'userSettings' }
   /** Create (eventId null) or edit a guild event (N14). */
   | { kind: 'guildEvent'; guildId: string; eventId: string | null }
   /** N12: a thread on a message of `parentId`, `name` prefilled. */

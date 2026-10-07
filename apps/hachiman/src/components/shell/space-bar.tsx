@@ -21,9 +21,15 @@ import type { UnreadBadge } from '@/lib/notify'
 import { cn } from '@/lib/utils'
 import { setMyStatus } from '@/services/hachiman'
 import { takusenService } from '@/services/TakusenService'
-import { openDialog, useDialogStore } from '@/stores/dialogStore'
+import { openDialog } from '@/stores/dialogStore'
 import { useGuildStore } from '@/stores/guildStore'
-import { DM_HOME, selectGuild, useSelectedGuildId } from '@/stores/navStore'
+import {
+  DM_HOME,
+  openSettings,
+  selectGuild,
+  useNavStore,
+  useSelectedGuildId
+} from '@/stores/navStore'
 import { useTakusenStore } from '@/stores/takusenStore'
 import { useDmUnread, useGuildUnread } from '@/stores/unreadStore'
 import { useUserStore } from '@/stores/userStore'
@@ -42,7 +48,10 @@ const RING = 'ring-text-primary ring-offset-surface-window ring-2 ring-offset-2'
  */
 export function SpaceBar(): React.JSX.Element {
   const guilds = useGuildStore((s) => s.guilds)
-  const selectedGuildId = useSelectedGuildId()
+  const selected = useSelectedGuildId()
+  // While user settings show, only my avatar is ringed.
+  const userSettings = useNavStore((s) => s.settings?.target.kind === 'user')
+  const selectedGuildId = userSettings ? undefined : selected
   const dmBadge = useDmUnread()
 
   return (
@@ -108,7 +117,7 @@ function MeButton(): React.JSX.Element {
   const me = useUserStore((s) => s.me)
   const status = useUserStore((s) => s.status)
   const handle = useTakusenStore((s) => s.session?.user.handle)
-  const settingsOpen = useDialogStore((s) => s.dialog?.kind === 'userSettings')
+  const settingsOpen = useNavStore((s) => s.settings?.target.kind === 'user')
   const name = me?.username ?? handle ?? 'Guest'
   const custom = useCustomStatus(me?.id ?? '')
   const [statusOpen, setStatusOpen] = useState(false)
@@ -120,7 +129,7 @@ function MeButton(): React.JSX.Element {
           <SpaceButton
             label="User settings"
             active={settingsOpen}
-            onClick={() => openDialog({ kind: 'userSettings' })}
+            onClick={() => openSettings({ kind: 'user' })}
             className="overflow-visible"
           >
             <UserAvatar

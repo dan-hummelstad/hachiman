@@ -32,6 +32,7 @@ import { ROLE_INK_SCOPE } from '@/lib/role-ink'
 import { cn } from '@/lib/utils'
 import { useChannelStore } from '@/stores/channelStore'
 import { openDialog } from '@/stores/dialogStore'
+import { openSettings } from '@/stores/navStore'
 import { useVoiceStore } from '@/stores/voiceStore'
 
 const PANE = 'bg-surface-content flex min-h-0 min-w-0 flex-1 flex-col'
@@ -96,7 +97,7 @@ export function ChannelPane({
               <IconButton
                 label="Channel settings"
                 tooltipSide="bottom"
-                onClick={() => openDialog({ kind: 'channelSettings', channelId: channel.id })}
+                onClick={() => openSettings({ kind: 'channel', channelId: channel.id })}
                 className={HEADER_BUTTON}
               >
                 <Settings />

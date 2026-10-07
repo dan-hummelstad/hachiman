@@ -40,10 +40,6 @@ import { openDialog } from '@/stores/dialogStore'
 import { useGuildStore } from '@/stores/guildStore'
 import { useUserStore } from '@/stores/userStore'
 
-/** What the settings set up. The shell keeps it (with the section) in its settings mode. */
-export type SettingsTarget =
-  { kind: 'user' } | { kind: 'guild'; guildId: string } | { kind: 'channel'; channelId: string }
-
 export type UserSettingsSection =
   'account' | 'devices' | 'recovery' | 'securityLog' | 'appearance' | 'voice' | 'updates'
 export type GuildSettingsSection = 'overview' | 'roles' | 'members' | 'invites'
@@ -158,7 +154,7 @@ export function useUserSettingsModel(): SettingsModel {
       },
       appearance: {
         title: 'Appearance',
-        description: 'Pick a theme and how dense messages are.',
+        description: 'Pick a theme, how the sidebar shows and how dense messages are.',
         render: () => <AppearanceSection />
       },
       voice: {

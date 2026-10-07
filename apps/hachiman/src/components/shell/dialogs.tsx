@@ -1,10 +1,8 @@
 import type { Channel } from '@hachiman/client'
 import { CircleAlert, Trash2 } from 'lucide-react'
 import { AddServerDialog } from '@/components/add-server-dialog'
-import { ChannelSettingsDialog } from '@/components/channel-settings-dialog'
 import { CreateChannelDialog } from '@/components/create-channel-dialog'
 import { EventDialog } from '@/components/events/event-dialog'
-import { GuildSettingsDialog } from '@/components/guild-settings-dialog'
 import { InviteDialog } from '@/components/invite-dialog'
 import { JoinServerModal } from '@/components/join-server-modal'
 import { RemoveServerDialog } from '@/components/remove-server-dialog'
@@ -15,7 +13,6 @@ import { RecoveryKeyDialog } from '@/components/security/recovery-panel'
 import { SecuritySetupDialog } from '@/components/security/security-setup-dialog'
 import { VerificationDialog } from '@/components/security/verification-dialog'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
-import { UserSettings } from '@/components/user-settings'
 import { NotifySettingsDialog } from '@/components/notify/notify-menu'
 import { CreateThreadDialog } from '@/components/threads/create-thread-dialog'
 import { VerifyCallDialog } from '@/components/voice/verify-call-dialog'
@@ -29,13 +26,10 @@ import { useDialogStore, type AnyDialogKind, type DialogOf } from '@/stores/dial
 const DIALOGS: Record<AnyDialogKind, () => React.JSX.Element> = {
   addGuild: AddServerDialog,
   joinInvite: JoinServerModal,
-  guildSettings: GuildSettingsDialog,
   removeGuild: RemoveServerDialog,
   invite: InviteDialog,
-  channelSettings: ChannelSettingsDialog,
   createChannel: CreateChannelDialog,
   deleteChannel: DeleteChannelDialog,
-  userSettings: UserSettings,
   guildEvent: EventDialog,
   createThread: CreateThreadDialog,
   notifySettings: NotifySettingsDialog,
