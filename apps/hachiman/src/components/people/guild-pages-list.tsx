@@ -1,41 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
 import { FileText, Search } from 'lucide-react'
-import { Permissions, effectivePermissions, has, type Channel } from '@hachiman/client'
 import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Skeleton } from '@/components/ui/skeleton'
-import { compareChannels } from '@/lib/model'
+import { useViewableChannels } from '@/hooks/use-hachiman'
 import { guildPagesSections } from '@/lib/right-column'
 import { docsService } from '@/services/docs/DocsService'
 import { pageTitle } from '@/services/docs/page-tree'
-import { useChannelStore } from '@/stores/channelStore'
 import { useDocsStore } from '@/stores/docsStore'
-import { useGuildStore } from '@/stores/guildStore'
-import { useUserStore } from '@/stores/userStore'
-
-/** The pages channels of the guild that the user can view, in sidebar order. */
-function useViewablePagesChannels(guildId: string): Channel[] {
-  const channels = useChannelStore((s) => s.channels)
-  const guild = useGuildStore((s) => s.guilds.get(guildId))
-  const roles = useGuildStore((s) => s.roles.get(guildId))
-  const myId = useUserStore((s) => s.me?.id)
-  const member = useGuildStore((s) => (myId ? s.members.get(guildId)?.get(myId) : undefined))
-  return useMemo(
-    () =>
-      [...channels.values()]
-        .filter(
-          (c) =>
-            c.guildId === guildId &&
-            c.type === 'pages' &&
-            has(
-              effectivePermissions({ guild, member, roles, channel: c }),
-              Permissions.VIEW_CHANNEL
-            )
-        )
-        .sort(compareChannels),
-    [channels, guildId, guild, member, roles]
-  )
-}
 
 /**
  * The Pages tab of a text channel (feature plan N21.1): the pages of every pages channel of the
@@ -48,7 +20,7 @@ export function GuildPagesList({
   guildId: string
   onOpen: (channelId: string, pageId: string) => void
 }): React.JSX.Element {
-  const channels = useViewablePagesChannels(guildId)
+  const channels = useViewableChannels(guildId, 'pages')
   const pagesByChannel = useDocsStore((s) => s.pagesByChannel)
   const [query, setQuery] = useState('')
 
