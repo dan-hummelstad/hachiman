@@ -77,6 +77,8 @@ export interface DocProviderDeps {
   setPresence(pageId: string, peers: DocPeer[]): void
   /** The page_media upload ids that the doc references (POST snapshots `mediaUploadIds`). */
   collectMediaUploadIds(doc: Y.Doc): string[]
+  /** Local edits of this page reached the server (the page activity post, N21). */
+  onLocalEdit?(channelId: string, pageId: string): void
   random?(): number
 }
 
@@ -353,6 +355,7 @@ export function createDocProvider(
     try {
       await sendParts(parts)
       sendRetries = 0
+      deps.onLocalEdit?.(channelId, pageId)
     } catch (e) {
       queue = [...parts, ...queue]
       if (statusOf(e) === 403) {

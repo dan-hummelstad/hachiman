@@ -2,7 +2,9 @@
  * Decrypt before store (§12.8.5): every ciphertext Message goes through the crypto Worker, and only
  * the result goes into messagesStore. No envelope is ever stored as text.
  *
- * - 'ok': the decrypted row replaces the row of that id (an edit replaces the content).
+ * - 'ok': the decrypted row replaces the row of that id (an edit replaces the content). Kind
+ *   'reaction' is no row: it goes to `deps.reactions` (N10). Kind 'page_activity' is a row of
+ *   kind 'page_activity' (N21).
  * - 'pending': a placeholder row. The ciphertext waits here, and `retryGroup` decrypts it again
  *   when the Worker emits epochKeysAvailable. A row that already shows content keeps it.
  * - A rejected call (the Worker is not there, or a Worker transport error) and a 'pending'
@@ -16,7 +18,7 @@
  */
 import type { Message } from '@hachiman/client'
 import type { DecryptResult, EncryptedMessage } from '@hachiman/crypto'
-import type { ChatMessage, DecryptState } from '@/stores/messagesStore'
+import type { ChatMessage, DecryptState, ReactionEvent } from '@/stores/messagesStore'
 
 export interface DecryptorDeps {
   /** CryptoApi.decryptMessages. */
@@ -24,6 +26,11 @@ export interface DecryptorDeps {
   /** The row that the store shows now for a message id. */
   existing(channelId: string, messageId: string): ChatMessage | undefined
   upsert(channelId: string, rows: ChatMessage[]): void
+  /**
+   * Decrypted reaction messages (N10), in history order. They never become rows. Absent: the
+   * caller drops them (the pins list).
+   */
+  reactions?(channelId: string, events: ReactionEvent[]): void
 }
 
 export interface MessageDecryptor {
@@ -98,8 +105,16 @@ export function rowFor(
 ): ChatMessage | null {
   const shows = existing?.decrypt.status === 'ok' && !existing.pending ? existing : undefined
   if (r.status === 'ok') {
-    // Reactions and page activity are not chat rows. Their UI (N10, N21) is not built yet.
-    if (r.kind === 'reaction' || r.kind === 'page_activity') return null
+    // A reaction is not a row: `reactionOf` routes it to the store fold (N10).
+    if (r.kind === 'reaction') return null
+    if (r.kind === 'page_activity')
+      return {
+        ...baseRow(m),
+        kind: 'page_activity',
+        pageActivity: { pageId: r.content.pageId, changes: r.content.changes },
+        sender: r.sender,
+        decrypt: { status: 'ok' }
+      }
     const c = r.content
     return {
       ...baseRow(m),
@@ -120,6 +135,20 @@ export function rowFor(
   if (r.reason === 'stale_edit' && shows) return null
   const decrypt: DecryptState = { status: 'failed', reason: r.reason }
   return { ...baseRow(m), decrypt }
+}
+
+/** The fold input of a decrypted reaction, or null for any other result. */
+export function reactionOf(m: Message, r: DecryptResult): ReactionEvent | null {
+  if (r.status !== 'ok' || r.kind !== 'reaction') return null
+  return {
+    messageId: m.id,
+    target: r.content.target,
+    userId: r.sender.userId,
+    emoji: r.content.emoji,
+    remove: r.content.remove,
+    sentAtMs: r.content.sentAtMs,
+    createdAt: m.createdAt
+  }
 }
 
 /** The waits before each new try of a rejected call or a 'transport' result. */
@@ -175,6 +204,7 @@ export function createMessageDecryptor(deps: DecryptorDeps): MessageDecryptor {
     if (started !== generation) return []
     const byId = new Map(results.map((r) => [r.messageId, r]))
     const rows = new Map<string, ChatMessage[]>()
+    const reactions = new Map<string, ReactionEvent[]>()
     const out: ChatMessage[] = []
     for (const m of ordered) {
       // Fail closed: a result that the Worker did not return is not content.
@@ -186,6 +216,13 @@ export function createMessageDecryptor(deps: DecryptorDeps): MessageDecryptor {
         g.set(m.id, m)
         if (r.reason === 'transport') rejected.set(m.id, m)
       }
+      const reaction = reactionOf(m, r)
+      if (reaction) {
+        let list = reactions.get(m.channelId)
+        if (!list) reactions.set(m.channelId, (list = []))
+        list.push(reaction)
+        continue
+      }
       const row = rowFor(m, r, deps.existing(m.channelId, m.id))
       if (!row) continue
       let list = rows.get(m.channelId)
@@ -194,6 +231,7 @@ export function createMessageDecryptor(deps: DecryptorDeps): MessageDecryptor {
       out.push(row)
     }
     for (const [channelId, list] of rows) deps.upsert(channelId, list)
+    for (const [channelId, list] of reactions) deps.reactions?.(channelId, list)
     if (rejected.size > 0) {
       scheduleRetry()
     } else {

@@ -326,3 +326,49 @@ describe('createMessageDecryptor', () => {
     })
   })
 })
+
+describe('kind routing', () => {
+  it('sends reactions to the fold and stores page activity as its own row kind', async () => {
+    const rows = new Map<string, ChatMessage>()
+    const folded: string[] = []
+    const d = createMessageDecryptor({
+      decrypt: async (ms) =>
+        ms.map((m): DecryptResult => {
+          const base = {
+            status: 'ok' as const,
+            messageId: m.id,
+            clientMsgId: m.clientMsgId,
+            sender: (ok(m, '') as Extract<DecryptResult, { status: 'ok' }>).sender
+          }
+          if (m.id === 'm1')
+            return {
+              ...base,
+              kind: 'reaction',
+              editOf: null,
+              content: { target: 'cmid-m0', emoji: '🔥', remove: false, sentAtMs: 5 }
+            }
+          return {
+            ...base,
+            kind: 'page_activity',
+            editOf: null,
+            content: { pageId: 'p-1', changes: 2, sentAtMs: 6 }
+          }
+        }),
+      existing: (_c, id) => rows.get(id),
+      upsert: (_c, list) => {
+        for (const m of list) rows.set(m.id, m)
+      },
+      reactions: (_c, events) =>
+        folded.push(...events.map((e) => `${e.userId}:${e.emoji}:${e.target}`))
+    })
+    const out = await d.ingest([wire('m1'), wire('m2')])
+    expect(folded).toEqual(['u-1:🔥:cmid-m0'])
+    expect(rows.has('m1')).toBe(false)
+    expect(out.map((r) => r.id)).toEqual(['m2'])
+    expect(rows.get('m2')).toMatchObject({
+      kind: 'page_activity',
+      pageActivity: { pageId: 'p-1', changes: 2 },
+      decrypt: { status: 'ok' }
+    })
+  })
+})
