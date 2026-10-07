@@ -5,21 +5,20 @@ import * as SwitchPrimitive from '@radix-ui/react-switch'
 
 import { cn } from '@/lib/utils'
 
+/** Pill toggle: accent track when on, raised track when off. */
 function Switch({ className, ...props }: React.ComponentProps<typeof SwitchPrimitive.Root>) {
   return (
     <SwitchPrimitive.Root
       data-slot="switch"
       className={cn(
-        'peer data-[state=checked]:bg-primary data-[state=checked]:border-primary data-[state=unchecked]:bg-card data-[state=unchecked]:border-input hover:data-[state=unchecked]:border-muted-foreground inline-flex h-4 w-7 shrink-0 items-center border p-px transition-colors outline-none focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring disabled:cursor-not-allowed disabled:opacity-50',
+        'peer rounded-pill data-[state=checked]:bg-accent-primary data-[state=unchecked]:bg-surface-raised data-[state=unchecked]:border-line-strong data-[state=checked]:border-transparent inline-flex h-5 w-9 shrink-0 items-center border p-0.5 transition-colors outline-none focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-line-focus disabled:cursor-not-allowed disabled:opacity-50',
         className
       )}
       {...props}
     >
       <SwitchPrimitive.Thumb
         data-slot="switch-thumb"
-        className={cn(
-          'data-[state=unchecked]:bg-muted-foreground data-[state=checked]:bg-primary-foreground pointer-events-none block size-3 transition-transform duration-100 data-[state=checked]:translate-x-3 data-[state=unchecked]:translate-x-0'
-        )}
+        className="rounded-pill data-[state=unchecked]:bg-text-tertiary pointer-events-none block size-3.5 bg-white transition-transform duration-100 data-[state=checked]:translate-x-4 data-[state=unchecked]:translate-x-0"
       />
     </SwitchPrimitive.Root>
   )

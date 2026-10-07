@@ -151,11 +151,12 @@ function ChannelIntro({ channel }: { channel: Channel }): React.JSX.Element {
       <h2 className="text-xl leading-7 font-semibold">
         {sigil === '@' ? (
           <>
-            This is the start of your conversation with <span className="font-mono">{name}</span>.
+            This is the start of your conversation with{' '}
+            <span className="font-semibold">{name}</span>.
           </>
         ) : (
           <>
-            This is the start of <span className="font-mono">#{name}</span>.
+            This is the start of <span className="font-semibold">#{name}</span>.
           </>
         )}
       </h2>

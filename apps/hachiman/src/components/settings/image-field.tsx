@@ -87,9 +87,16 @@ export function ImageField({
   return (
     <Field id={id} label={label} hint={hint}>
       <div className="grid justify-items-start gap-3">
-        <Avatar className={cn('bg-rail border', wide ? 'aspect-video size-auto w-60' : 'size-20')}>
+        <Avatar
+          className={cn(
+            'bg-rail border',
+            wide ? 'aspect-video size-auto w-60 rounded-none' : 'size-20'
+          )}
+        >
           {src && <AvatarImage src={src} alt="" />}
-          <AvatarFallback className={cn('bg-rail', !wide && 'text-2xl')}>{fallback}</AvatarFallback>
+          <AvatarFallback className={cn('bg-rail', wide ? 'rounded-none' : 'text-2xl')}>
+            {fallback}
+          </AvatarFallback>
           {busy && preview && (
             <span className="bg-background/70 absolute inset-0 flex items-center justify-center text-xs">
               Uploading…

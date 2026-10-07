@@ -1,3 +1,4 @@
+import { Callout } from '@/components/ui/callout'
 import { cn } from '@/lib/utils'
 
 /**
@@ -47,17 +48,5 @@ export function Warning({
   children: React.ReactNode
   tone?: 'warning' | 'danger' | 'info'
 }): React.JSX.Element {
-  return (
-    <div
-      role="note"
-      className={cn(
-        'border-l-4 px-3 py-2 text-xs leading-4',
-        tone === 'danger' && 'border-destructive bg-destructive/10',
-        tone === 'warning' && 'border-idle bg-idle/10',
-        tone === 'info' && 'border-primary bg-primary/10'
-      )}
-    >
-      {children}
-    </div>
-  )
+  return <Callout tone={tone === 'warning' ? 'caution' : tone}>{children}</Callout>
 }

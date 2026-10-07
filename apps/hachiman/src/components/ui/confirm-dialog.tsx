@@ -10,6 +10,8 @@ interface ConfirmDialogProps {
   body: React.ReactNode
   confirmLabel: string
   tone?: 'default' | 'danger'
+  /** Icon in the header tile; the tile is red for `tone="danger"`. */
+  icon?: React.ReactNode
   /** Awaited; the window closes on success and shows the error inline on failure. */
   onConfirm: () => Promise<void>
   onClose: () => void
@@ -22,7 +24,13 @@ interface ConfirmDialogProps {
 /** "Are you sure?" window: Cancel + one confirm button, busy while `onConfirm` runs. */
 export function ConfirmDialog(props: ConfirmDialogProps): React.JSX.Element {
   return (
-    <ModalWindow open={props.open} onClose={props.onClose} title={props.title}>
+    <ModalWindow
+      open={props.open}
+      onClose={props.onClose}
+      title={props.title}
+      icon={props.icon}
+      feature={props.tone === 'danger' ? 'danger' : 'accent'}
+    >
       <ConfirmBody {...props} />
     </ModalWindow>
   )
@@ -45,11 +53,11 @@ function ConfirmBody(props: ConfirmDialogProps): React.JSX.Element {
       <div className="text-sm">{body}</div>
       <ErrorText>{error}</ErrorText>
       <DialogFooter>
-        <Button variant="ghost" disabled={busy} onClick={onClose}>
+        <Button variant="quiet" disabled={busy} onClick={onClose}>
           Cancel
         </Button>
         <Button
-          variant={tone === 'danger' ? 'destructive' : 'default'}
+          variant={tone === 'danger' ? 'danger' : 'primary'}
           disabled={busy || props.confirmDisabled}
           onClick={() => void confirm()}
         >

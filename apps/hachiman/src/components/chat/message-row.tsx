@@ -91,7 +91,7 @@ export const MessageRow = memo(function MessageRow(props: MessageRowProps): Reac
     <button
       type="button"
       className={cn(
-        'inline-block max-w-full cursor-pointer truncate align-top font-mono font-semibold hover:underline',
+        'inline-block max-w-full cursor-pointer truncate align-top font-bold hover:underline',
         'focus-visible:outline-ring focus-visible:outline-2',
         !ink && 'text-foreground'
       )}
@@ -199,7 +199,7 @@ function MessageBody({
       {showText && (
         <p
           className={cn(
-            'font-mono text-[13.5px] leading-[22px] break-words whitespace-pre-wrap',
+            'text-[15px] leading-[22px] break-words whitespace-pre-wrap',
             message.failed ? 'text-destructive' : 'text-foreground'
           )}
         >
@@ -315,7 +315,7 @@ function EditBox({
             onDone()
           } else submitOnEnter(e, () => void save())
         }}
-        className="bg-card focus-visible:border-ring field-sizing-content block max-h-[198px] min-h-[38px] w-full resize-none border px-3 py-2 font-mono text-[13.5px] leading-[22px] outline-none"
+        className="bg-card focus-visible:border-ring field-sizing-content block max-h-[198px] min-h-[38px] w-full resize-none border px-3 py-2 text-[15px] leading-[22px] outline-none"
       />
       <p className="text-muted-foreground pt-1 font-sans text-xs">
         Enter to <LinkButton onClick={() => void save()}>save</LinkButton>, Esc to{' '}

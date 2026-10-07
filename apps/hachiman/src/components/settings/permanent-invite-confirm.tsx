@@ -1,4 +1,5 @@
 import { useId, useState } from 'react'
+import { Checkbox } from '@/components/ui/checkbox'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { Warning } from '@/components/security/screen-window'
 
@@ -43,10 +44,9 @@ export function PermanentInviteConfirm({
             </Warning>
           )}
           <label htmlFor={checkId} className="flex items-start gap-2 text-sm">
-            <input
+            <Checkbox
               id={checkId}
-              type="checkbox"
-              className="accent-primary mt-0.5 size-4"
+              className="mt-0.5"
               checked={ack}
               onChange={(e) => setAck(e.target.checked)}
             />

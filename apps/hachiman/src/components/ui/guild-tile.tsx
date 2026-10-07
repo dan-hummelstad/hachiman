@@ -11,7 +11,7 @@ const SIZE = {
 } as const
 
 /**
- * Square guild icon: the icon file if set, else initials on the rail colour (also while loading
+ * Circular guild icon: the icon file if set, else initials on the rail colour (also while loading
  * or when the image fails). Decorative (aria-hidden).
  */
 export function GuildTile({
