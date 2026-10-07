@@ -7,6 +7,7 @@ import { ErrorText, Field, SectionHeading } from '@/components/ui/field'
 import { IconButton } from '@/components/ui/icon-button'
 import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
+import { HoistRow } from '@/components/settings/hoist-row'
 import { PERMISSION_LABELS } from '@/components/settings/permission-labels'
 import { SaveBar } from '@/components/settings/save-bar'
 import { useAction } from '@/hooks/use-action'
@@ -299,9 +300,7 @@ function RoleEditor(props: {
           </div>
         </div>
       </div>
-
-      {/* Role groups (N15): the "Show as its own group in the member list" row goes here. */}
-
+      {!isEveryone && <HoistRow role={role} editable={editable} />}
       <section>
         <SectionHeading>Permissions</SectionHeading>
         <div className="divide-line-hairline divide-y">

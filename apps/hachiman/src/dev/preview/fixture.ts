@@ -72,9 +72,10 @@ export function role(
   name: string,
   color: number,
   position: number,
-  permissions: number
+  permissions: number,
+  hoist = false
 ): Role {
-  return { id, guildId, name, color, hoist: false, position, permissions }
+  return { id, guildId, name, color, hoist, position, permissions }
 }
 
 export function channel(
@@ -181,7 +182,7 @@ const guild1: GuildFull = {
   publicHistoryVisibility: 'shared',
   roles: [
     role(G1, G1, '@everyone', 0, 0, DEFAULT_EVERYONE),
-    role(G1, G1R.captain, 'Captain', 0xffc36b, 4, Permissions.ADMINISTRATOR),
+    role(G1, G1R.captain, 'Captain', 0xffc36b, 4, Permissions.ADMINISTRATOR, true),
     role(
       G1,
       G1R.shotcallers,
@@ -191,10 +192,11 @@ const guild1: GuildFull = {
       Permissions.KICK_MEMBERS |
         Permissions.MANAGE_MESSAGES |
         Permissions.MUTE_MEMBERS |
-        Permissions.MOVE_MEMBERS
+        Permissions.MOVE_MEMBERS,
+      true
     ),
-    role(G1, G1R.squad, 'Squad', 0x7fd3ff, 2, 0),
-    role(G1, G1R.bots, 'Bots', 0x5ee6d0, 1, Permissions.MANAGE_MESSAGES)
+    role(G1, G1R.squad, 'Squad', 0x7fd3ff, 2, 0, true),
+    role(G1, G1R.bots, 'Bots', 0x5ee6d0, 1, Permissions.MANAGE_MESSAGES, true)
   ],
   channels: [
     channel(G1, G1C.text, 'category', 'Text channels', 0),

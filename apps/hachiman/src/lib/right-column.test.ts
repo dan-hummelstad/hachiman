@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { Channel, Guild, Member, PresenceStatus, VoiceState } from '@hachiman/client'
+import type { Channel, Guild, Member, PresenceStatus, Role, VoiceState } from '@hachiman/client'
 import { groupMembers } from './member-groups'
 import {
   activityLabel,
@@ -10,11 +10,16 @@ import {
 import { userHue } from './user-tint'
 import { countWords } from './word-count'
 
-const member = (id: string, username: string, nick: string | null = null): Member => ({
+const member = (
+  id: string,
+  username: string,
+  nick: string | null = null,
+  roles: string[] = []
+): Member => ({
   guildId: 'g1',
   user: { id, username, avatar: null },
   nick,
-  roles: [],
+  roles,
   joinedAt: '2026-10-01T00:00:00Z'
 })
 
@@ -34,6 +39,66 @@ describe('groupMembers', () => {
   it('leaves out empty sections', () => {
     expect(groupMembers(members, new Map()).map((g) => g.id)).toEqual(['offline'])
     expect(groupMembers([], new Map())).toEqual([])
+  })
+})
+
+describe('groupMembers with hoisted roles', () => {
+  const role = (id: string, name: string, position: number, hoist = true, color = 0): Role => ({
+    id,
+    guildId: 'g1',
+    name,
+    color,
+    hoist,
+    position,
+    permissions: 0
+  })
+  const roles = new Map(
+    [
+      role('captain', 'Captain', 4, true, 0xffc36b),
+      role('shot', 'Shotcallers', 3),
+      role('plain', 'Plain', 5, false),
+      role('squad-b', 'Squad B', 2),
+      role('squad-a', 'Squad A', 2)
+    ].map((r) => [r.id, r])
+  )
+  const online = (ids: string[]): Map<string, PresenceStatus> =>
+    new Map(ids.map((id) => [id, 'online' as const]))
+
+  it('puts an online member in the section of the highest hoisted role, offline last', () => {
+    const members = [
+      member('u1', 'marlowe', null, ['shot', 'captain']),
+      member('u2', 'juni', null, ['plain', 'shot']),
+      member('u3', 'yuki', null, ['plain']),
+      member('u4', 'sable', null, ['captain']),
+      member('u5', 'ozzy', null, ['squad-b'])
+    ]
+    const groups = groupMembers(members, online(['u1', 'u2', 'u3', 'u5']), roles)
+    expect(groups.map((g) => [g.id, g.label, g.dim, g.members.map((m) => m.user.id)])).toEqual([
+      ['captain', 'Captain', false, ['u1']],
+      ['shot', 'Shotcallers', false, ['u2']],
+      ['squad-b', 'Squad B', false, ['u5']],
+      ['online', 'Online', false, ['u3']],
+      ['offline', 'Offline', true, ['u4']]
+    ])
+    expect(groups[0]?.color).toBe('#ffc36b')
+    expect(groups[1]?.color).toBeUndefined()
+  })
+  it('orders roles with the same position by id', () => {
+    const members = [member('u1', 'a', null, ['squad-b']), member('u2', 'b', null, ['squad-a'])]
+    const both = member('u3', 'c', null, ['squad-b', 'squad-a'])
+    const groups = groupMembers([...members, both], online(['u1', 'u2', 'u3']), roles)
+    expect(groups.map((g) => [g.id, g.members.map((m) => m.user.id)])).toEqual([
+      ['squad-a', ['u2', 'u3']],
+      ['squad-b', ['u1']]
+    ])
+  })
+  it('groups by online and offline when no role is hoisted', () => {
+    const flat = new Map([...roles].map(([id, r]) => [id, { ...r, hoist: false }]))
+    const members = [member('u1', 'a', null, ['captain']), member('u2', 'b')]
+    expect(groupMembers(members, online(['u1']), flat).map((g) => g.id)).toEqual([
+      'online',
+      'offline'
+    ])
   })
 })
 

@@ -10,7 +10,7 @@ import { useChannelOccupants } from '@/hooks/use-hachiman'
 import { useMemberView, usePresence, useSpeakingMember } from '@/hooks/use-member'
 import { activityLabel } from '@/lib/member-activity'
 import { groupMembers } from '@/lib/member-groups'
-import { ROLE_INK_SCOPE } from '@/lib/role-ink'
+import { ROLE_INK_SCOPE, roleInk } from '@/lib/role-ink'
 import { cn } from '@/lib/utils'
 import { useChannelStore } from '@/stores/channelStore'
 import { useGuildStore } from '@/stores/guildStore'
@@ -33,11 +33,12 @@ interface Streamer {
 export function MemberList({ guildId }: { guildId: string }): React.JSX.Element {
   const members = useGuildStore((s) => s.members.get(guildId))
   const presences = useGuildStore((s) => s.presences)
+  const roles = useGuildStore((s) => s.roles.get(guildId))
   const ownerId = useGuildStore((s) => s.guilds.get(guildId)?.ownerId)
   const myId = useUserStore((s) => s.me?.id)
   const groups = useMemo(
-    () => groupMembers(members?.values() ?? [], presences),
-    [members, presences]
+    () => groupMembers(members?.values() ?? [], presences, roles),
+    [members, presences, roles]
   )
   const states = useVoiceStore((s) => s.voiceStates.get(guildId))
   const streamers = useMemo(() => {
@@ -53,7 +54,14 @@ export function MemberList({ guildId }: { guildId: string }): React.JSX.Element 
         <div className="flex flex-col gap-3 px-2 py-3">
           {groups.map((g) => (
             <section key={g.id} aria-label={g.label}>
-              <h3 className="section-label px-2 pb-1">
+              <h3 className="section-label flex items-center gap-1.5 px-2 pb-1">
+                {g.color && (
+                  <span
+                    className="size-2 shrink-0"
+                    style={{ backgroundColor: roleInk(g.color) }}
+                    aria-hidden
+                  />
+                )}
                 {g.label} — {g.members.length}
               </h3>
               <ul className="flex flex-col gap-px">
