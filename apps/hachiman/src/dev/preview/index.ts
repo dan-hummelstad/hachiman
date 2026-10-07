@@ -35,7 +35,19 @@ import {
   fixtureMembership,
   now
 } from './fixture'
+import { PAGE } from './fixture-pages'
 import { dispatch, seedFeatureFixtures, stubRest, stubVoice } from './stubs'
+import { pinTab, type TabTarget } from '@/stores/tabsStore'
+
+/** The B1 tab row (pinTab skips a tab that is already pinned). */
+const PREVIEW_TABS: TabTarget[] = [
+  { kind: 'channel', id: G1C.general, guildId: G1 },
+  { kind: 'channel', id: G1C.lounge, guildId: G1 },
+  { kind: 'page', id: G2C.designPages, guildId: G2, pageId: PAGE.rfc },
+  { kind: 'dm', id: DM1, guildId: null },
+  { kind: 'channel', id: G2C.standup, guildId: G2 },
+  { kind: 'channel', id: 'c-no-thread-bracket', guildId: G1 }
+]
 
 export interface PreviewOptions {
   /** Show the signed-out screen instead of the seeded app. */
@@ -220,6 +232,8 @@ export function startPreview(opts: PreviewOptions = {}): void {
     channelByGuild: { [G1]: G1C.general, [G2]: G2C.standup, [G3]: G3C.reading }
   })
   useUserStore.setState({ me: ME })
+  // Every load: READY prunes the thread tab (the fixture threads come after READY).
+  PREVIEW_TABS.forEach((t, i) => pinTab(t, i))
 
   console.info(
     '[preview] seeded: %d guilds, %d members, me = %s',
