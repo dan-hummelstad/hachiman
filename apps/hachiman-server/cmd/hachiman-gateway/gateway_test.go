@@ -387,6 +387,43 @@ func TestViewChannelFilteringAndVisibilityChanges(t *testing.T) {
 	c.expect("MESSAGE_CREATE")
 }
 
+// A thread outside READY's cap is not held by the session. Its events still
+// resolve through the parent (contract §5, §6).
+func TestThreadOutsideReadyResolvesThroughParent(t *testing.T) {
+	h := newHarness(t)
+	c := h.dial()
+	c.identify()
+	thread := func(id, parent string) Channel {
+		return Channel{ID: id, GuildID: ptr(gid), Type: "thread", ParentID: ptr(parent), PermissionOverwrites: []permissions.Overwrite{}}
+	}
+
+	// Hidden parent: nothing. Visible parent: delivered.
+	h.pub("guild:"+gid, "CHANNEL_DELETE", thread("t-secret", "secret"), "secret")
+	h.pub("guild:"+gid, "CHANNEL_DELETE", thread("t-text", "text"), "text")
+	if f := c.expect("CHANNEL_DELETE"); !strings.Contains(string(f.D), `"id":"t-text"`) {
+		t.Fatalf("CHANNEL_DELETE %s, want t-text only", f.D)
+	}
+
+	// An update of an unheld thread under a visible parent stays an update.
+	h.pub("guild:"+gid, "CHANNEL_UPDATE", thread("t-old", "text"), "text")
+	c.expect("CHANNEL_UPDATE")
+
+	// Hiding the parent hides the held thread too: one CHANNEL_DELETE each.
+	hide := Channel{ID: "text", GuildID: ptr(gid), Type: "text", PermissionOverwrites: []permissions.Overwrite{{ID: me, Type: "member", Deny: permissions.ViewChannel}}}
+	h.pub("guild:"+gid, "CHANNEL_UPDATE", hide, "text")
+	got := map[string]bool{}
+	for range 2 {
+		var ch Channel
+		if err := json.Unmarshal(c.expect("CHANNEL_DELETE").D, &ch); err != nil {
+			t.Fatal(err)
+		}
+		got[ch.ID] = true
+	}
+	if !got["text"] || !got["t-old"] {
+		t.Fatalf("CHANNEL_DELETE for %v, want text and t-old", got)
+	}
+}
+
 func TestResumeReplaysBufferedEvents(t *testing.T) {
 	h := newHarness(t)
 	c := h.dial()
