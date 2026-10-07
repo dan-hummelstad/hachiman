@@ -101,7 +101,7 @@ export function Shell(): React.JSX.Element {
       {hidden && !revealed && (
         <div
           aria-hidden
-          className="from-line-strong/40 pointer-events-none absolute inset-y-0 left-0 z-30 w-2 bg-gradient-to-r to-transparent"
+          className="from-text-tertiary/35 pointer-events-none absolute inset-y-0 left-0 z-30 w-2 bg-gradient-to-r to-transparent"
         />
       )}
       <div
