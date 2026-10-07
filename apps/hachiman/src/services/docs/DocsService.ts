@@ -4,6 +4,7 @@
  * re-wrap pass for new members (rewrap.ts). Decrypt before store: a title envelope never reaches
  * the store, only its text or a pending/failed state.
  */
+import { userHue } from '@/lib/user-tint'
 import type { GatewayEvents, Page } from '@hachiman/client'
 import type { CryptoEvents } from '@hachiman/crypto'
 import { cryptoService } from '@/services/CryptoService'
@@ -24,9 +25,7 @@ const utf8 = new TextEncoder()
 
 /** A stable cursor color per user. */
 export function userColor(userId: string): string {
-  let h = 0
-  for (const c of userId) h = (h * 31 + c.charCodeAt(0)) >>> 0
-  const hue = h % 360
+  const hue = userHue(userId)
   const f = (n: number): string => {
     const k = (n + hue / 30) % 12
     const v = 0.5 - 0.4 * Math.max(-1, Math.min(k - 3, 9 - k, 1))

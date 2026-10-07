@@ -1,3 +1,5 @@
+import { hashString } from '@/lib/hash'
+
 /**
  * Guild tint (docs/arc-new-features-plan.md N4): the window wallpaper takes one hue per guild.
  * The hue is the most common saturated hue of the guild icon. A guild with no icon, or an icon
@@ -64,12 +66,7 @@ export function dominantHue(rgba: ArrayLike<number>): number | null {
 
 /** A hue from the feature palette, chosen by a hash (FNV-1a) of the guild id. */
 export function fallbackHue(guildId: string): number {
-  let h = 0x811c9dc5
-  for (let i = 0; i < guildId.length; i++) {
-    h ^= guildId.charCodeAt(i)
-    h = Math.imul(h, 0x01000193)
-  }
-  return FALLBACK_HUES[(h >>> 0) % FALLBACK_HUES.length] ?? FALLBACK_HUES[0]
+  return FALLBACK_HUES[hashString(guildId) % FALLBACK_HUES.length] ?? FALLBACK_HUES[0]
 }
 
 /** The Arc wallpaper of each theme (B1, B2): the base that a guild hue washes over. */
