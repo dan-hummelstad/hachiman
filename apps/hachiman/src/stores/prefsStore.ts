@@ -3,10 +3,21 @@ import { create } from 'zustand'
 import { devtools, persist } from 'zustand/middleware'
 import type { StreamQuality } from '@/lib/stream-quality'
 import type { SoundEvent } from '@/lib/sounds'
+import type { NotifyLevel, NotifyPrefs } from '@/lib/notify'
 
 export type MessageDisplay = 'cozy' | 'compact'
 /** `system` follows the OS colour scheme. Applied to `<html>` by `ThemeProvider`. */
 export type Theme = 'dark' | 'light' | 'system'
+/** N3: the sidebar docked beside the content, or hidden and shown on hover. */
+export type SidebarMode = 'docked' | 'undocked'
+
+/** The preferences of one account on this device (N6, N9). */
+export interface AccountPrefs extends NotifyPrefs {
+  /** DM channel ids, in tile order. */
+  favouriteDms: string[]
+}
+
+const EMPTY_ACCOUNT: AccountPrefs = { favouriteDms: [], notify: {}, muted: [] }
 
 /** Local, per-device UI preferences. Written by the user settings overlay. */
 interface PrefsState {
@@ -25,6 +36,11 @@ interface PrefsState {
   disabledSounds: SoundEvent[]
   /** Width of the pages panel per pages channel, in percent of the split; 0 = collapsed. */
   pagesPanelSize: Record<string, number>
+  sidebar: SidebarMode
+  /** userId → that account's preferences. */
+  accounts: Record<string, AccountPrefs>
+  /** The signed-in user id. Not persisted: services/hachiman.ts sets it. */
+  accountId: string | null
   setTheme: (theme: Theme) => void
   setMessageDisplay: (messageDisplay: MessageDisplay) => void
   setInputDeviceId: (inputDeviceId: string | null) => void
@@ -34,7 +50,19 @@ interface PrefsState {
   setSoundVolume: (soundVolume: number) => void
   setSoundEnabled: (event: SoundEvent, enabled: boolean) => void
   setPagesPanelSize: (channelId: string, size: number) => void
+  setSidebar: (sidebar: SidebarMode) => void
+  setAccountId: (accountId: string | null) => void
+  setFavouriteDm: (channelId: string, favourite: boolean) => void
+  /** Reorders the favourite tiles. */
+  moveFavouriteDm: (from: number, to: number) => void
+  /** null clears the level of `id` (channel or guild): it follows its parent or the default. */
+  setNotifyLevel: (id: string, level: NotifyLevel | null) => void
+  setMuted: (id: string, muted: boolean) => void
 }
+
+/** The preferences of the signed-in account (a stable empty object when none). */
+export const accountPrefs = (s: Pick<PrefsState, 'accounts' | 'accountId'>): AccountPrefs =>
+  (s.accountId !== null ? s.accounts[s.accountId] : undefined) ?? EMPTY_ACCOUNT
 
 export const usePrefsStore = create<PrefsState>()(
   devtools(
@@ -49,6 +77,9 @@ export const usePrefsStore = create<PrefsState>()(
         soundVolume: 0.7,
         disabledSounds: [],
         pagesPanelSize: {},
+        sidebar: 'docked',
+        accounts: {},
+        accountId: null,
         setTheme: (theme) => set({ theme }),
         setMessageDisplay: (messageDisplay) => set({ messageDisplay }),
         setInputDeviceId: (inputDeviceId) => set({ inputDeviceId }),
@@ -67,9 +98,79 @@ export const usePrefsStore = create<PrefsState>()(
             s.pagesPanelSize[channelId] === size
               ? s
               : { pagesPanelSize: { ...s.pagesPanelSize, [channelId]: size } }
+          ),
+        setSidebar: (sidebar) => set({ sidebar }),
+        setAccountId: (accountId) => set({ accountId }),
+        setFavouriteDm: (channelId, favourite) =>
+          set((s) =>
+            updateAccount(s, (a) => {
+              const has = a.favouriteDms.includes(channelId)
+              if (has === favourite) return a
+              const favouriteDms = favourite
+                ? [...a.favouriteDms, channelId]
+                : a.favouriteDms.filter((id) => id !== channelId)
+              return { ...a, favouriteDms }
+            })
+          ),
+        moveFavouriteDm: (from, to) =>
+          set((s) =>
+            updateAccount(s, (a) => ({ ...a, favouriteDms: moved(a.favouriteDms, from, to) }))
+          ),
+        setNotifyLevel: (id, level) =>
+          set((s) =>
+            updateAccount(s, (a) => {
+              const notify = { ...a.notify }
+              if (level === null) delete notify[id]
+              else notify[id] = level
+              return { ...a, notify }
+            })
+          ),
+        setMuted: (id, muted) =>
+          set((s) =>
+            updateAccount(s, (a) =>
+              a.muted.includes(id) === muted
+                ? a
+                : { ...a, muted: muted ? [...a.muted, id] : a.muted.filter((m) => m !== id) }
+            )
           )
       }),
-      { name: 'hachiman-prefs-storage' }
+      {
+        name: 'hachiman-prefs-storage',
+        partialize: (s) => {
+          const rest: Partial<PrefsState> = { ...s }
+          delete rest.accountId
+          return rest
+        }
+      }
     )
   )
 )
+
+type AccountSlice = Pick<PrefsState, 'accounts' | 'accountId'>
+
+/** Applies `f` to the signed-in account's preferences; no account = no change. */
+function updateAccount(
+  s: AccountSlice,
+  f: (a: AccountPrefs) => AccountPrefs
+): Partial<AccountSlice> {
+  if (s.accountId === null) return {}
+  const before = accountPrefs(s)
+  const after = f(before)
+  return after === before ? {} : { accounts: { ...s.accounts, [s.accountId]: after } }
+}
+
+/** `list` with the item at `from` moved to `to` (both clamped). */
+export function moved<T>(list: readonly T[], from: number, to: number): T[] {
+  const out = [...list]
+  if (from < 0 || from >= out.length) return out
+  const [item] = out.splice(from, 1)
+  out.splice(Math.max(0, Math.min(to, out.length)), 0, item)
+  return out
+}
+
+export const useSidebarMode = (): SidebarMode => usePrefsStore((s) => s.sidebar)
+export const useFavouriteDms = (): string[] => usePrefsStore((s) => accountPrefs(s).favouriteDms)
+/** The notification preferences of the signed-in account (stable while unchanged). */
+export const useNotifyPrefs = (): NotifyPrefs => usePrefsStore(accountPrefs)
+/** The notification preferences, outside React. */
+export const notifyPrefs = (): NotifyPrefs => accountPrefs(usePrefsStore.getState())

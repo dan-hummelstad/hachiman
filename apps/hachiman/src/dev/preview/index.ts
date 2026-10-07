@@ -5,7 +5,9 @@ import { cryptoService } from '@/services/CryptoService'
 import { hachiman, startHachiman } from '@/services/hachiman'
 import { takusenService } from '@/services/TakusenService'
 import { addMembership } from '@/stores/cryptoStore'
-import { useMessageStore } from '@/stores/messagesStore'
+import type { ReadState } from '@hachiman/client'
+import { useMessageStore, type ChatMessage } from '@/stores/messagesStore'
+import { addMentions, useUnreadStore } from '@/stores/unreadStore'
 import { useNavStore } from '@/stores/navStore'
 import { useTakusenStore } from '@/stores/takusenStore'
 import { usePrefsStore, type Theme } from '@/stores/prefsStore'
@@ -14,6 +16,7 @@ import { useVoiceStore } from '@/stores/voiceStore'
 import {
   DAY,
   DM1,
+  DM2,
   G1,
   G1C,
   G2,
@@ -52,6 +55,44 @@ function isolatePersistence(): void {
     s.persist.setOptions({ name: `preview:${name}` })
     void s.persist.rehydrate()
   }
+}
+
+/** N7 fixture: #lfg 1 unread with a mention, Dog-ear Club 3 mentions, the marlowe DM 2. */
+const UNREAD: { channelId: string; unread: number; mentions: number }[] = [
+  { channelId: G1C.lfg, unread: 1, mentions: 1 },
+  { channelId: G3C.reading, unread: 3, mentions: 3 },
+  { channelId: DM1, unread: 2, mentions: 2 }
+]
+
+/**
+ * Read states for every fixture text channel and DM: read to the end, except the UNREAD ones. The
+ * mention pass finds nothing (the stub REST has no ciphertext), so the mention ids come from here.
+ */
+function previewReadStates(history: Map<string, ChatMessage[]>): {
+  readStates: ReadState[]
+  mentions: [string, string[]][]
+} {
+  const ids = [
+    ...READY.guilds.flatMap((g) => g.channels.filter((c) => c.type === 'text').map((c) => c.id)),
+    DM1,
+    DM2
+  ]
+  const mentions: [string, string[]][] = []
+  const readStates = ids.map((channelId): ReadState => {
+    const list = history.get(channelId) ?? []
+    const last = list[list.length - 1]?.id ?? null
+    const spec = UNREAD.find((u) => u.channelId === channelId)
+    if (!spec) {
+      return { channelId, lastReadMessageId: last, unreadCount: 0, lastMessageId: last }
+    }
+    const tail = list.slice(Math.max(0, list.length - spec.unread))
+    const readTo = list[list.length - tail.length - 1]?.id ?? null
+    const found = tail.map((m) => m.id).slice(-spec.mentions)
+    while (found.length < spec.mentions) found.push(`${channelId}-mention-${found.length}`)
+    mentions.push([channelId, found])
+    return { channelId, lastReadMessageId: readTo, unreadCount: spec.unread, lastMessageId: last }
+  })
+  return { readStates, mentions }
 }
 
 /**
@@ -98,7 +139,11 @@ export function startPreview(opts: PreviewOptions = {}): void {
   startHachiman() // registers the gateway → store listeners; connect() is a no-op now
   for (const [channelId, events] of fixtureMembership()) addMembership(channelId, events)
   hachiman.gateway.emit('state', 'ready')
-  dispatch({ t: 'READY', d: READY })
+  const unread = previewReadStates(history)
+  dispatch({ t: 'READY', d: { ...READY, readStates: unread.readStates } })
+  useUnreadStore.setState((s) => ({
+    byChannel: unread.mentions.reduce((m, [id, ids]) => addMentions(m, id, ids), s.byChannel)
+  }))
   // READY carries the fixture's voice state for me; re-echo the client's (persisted) mute/deafen.
   hachiman.setSelfVoice({})
 

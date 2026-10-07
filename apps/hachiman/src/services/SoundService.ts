@@ -1,6 +1,7 @@
 import { play } from 'cuelume'
 import type { SelfVoiceState, User, VoiceState } from '@hachiman/client'
 import { messageMentionsMe } from '@/lib/mentions'
+import { isMuted, notifyLevel, shouldPing, type NotifyPrefs } from '@/lib/notify'
 import type { ChatMessage } from '@/stores/messagesStore'
 import { playChime } from '@/lib/chime'
 import { SOUNDS, type SoundEvent } from '@/lib/sounds'
@@ -43,18 +44,23 @@ export function startSounds(): void {
   })
 }
 
+const NO_NOTIFY_PREFS: NotifyPrefs = { notify: {}, muted: [] }
+
 /**
- * Discord's default: a DM or a mention of me pings, unless I am already looking at that channel.
- * My own messages never ping.
+ * Pings by the notification level of the channel (N9). The defaults are Discord's: a DM or a
+ * mention of me pings. Never while I am looking at that channel; my own messages never ping.
  */
 export function messageSound(
-  m: Pick<ChatMessage, 'author' | 'guildId' | 'content' | 'mentions'>,
+  m: Pick<ChatMessage, 'author' | 'guildId' | 'channelId' | 'content' | 'mentions'>,
   me: Pick<User, 'id' | 'username'>,
   viewing: boolean,
-  myRoleIds: readonly string[] = []
+  myRoleIds: readonly string[] = [],
+  prefs: NotifyPrefs = NO_NOTIFY_PREFS
 ): SoundEvent | null {
   if (m.author.id === me.id || viewing) return null
-  return m.guildId === null || messageMentionsMe(m, me, myRoleIds) ? 'message' : null
+  const level = notifyLevel(prefs, m.channelId, m.guildId)
+  const muted = isMuted(prefs, m.channelId, m.guildId)
+  return shouldPing(level, muted, messageMentionsMe(m, me, myRoleIds)) ? 'message' : null
 }
 
 /** Another user's change, heard from inside `myChannelId`: join, leave, share start or stop. */
