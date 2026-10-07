@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { CalendarHeart } from 'lucide-react'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { eventsService } from '@/services/guild-features'
 import { useNextEvent } from '@/stores/eventsStore'
 import { shortEventWhen } from './event-format'
 import { EventDetails } from './event-popover'
@@ -14,6 +15,8 @@ export function EventRow({ guildId }: { guildId: string }): React.JSX.Element | 
   const event = useNextEvent(guildId)
   const [open, setOpen] = useState(false)
   const now = useMinuteClock()
+  // READY and guild switches load the events too; this covers a row mounted before either.
+  useEffect(() => eventsService.ensureLoaded(guildId), [guildId])
   if (!event) return null
 
   const when = shortEventWhen(event, now)

@@ -57,6 +57,7 @@ export function EventDialog(): React.JSX.Element {
 
   const handleSubmit = async (e: React.FormEvent): Promise<void> => {
     e.preventDefault()
+    if (eventId !== null && !existing) return setError('This event was deleted.')
     const v = validateEventForm(form, Date.now(), existing ?? null)
     if (!v.ok) return setError(v.error)
     const { body } = v
@@ -126,7 +127,7 @@ export function EventDialog(): React.JSX.Element {
               onChange={(e) => set({ startTime: e.target.value })}
             />
           </Field>
-          <Field id="event-end-date" label="End date" hint="Optional">
+          <Field id="event-end-date" label="End date (optional)">
             <Input
               id="event-end-date"
               type="date"
