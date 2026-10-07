@@ -1,13 +1,13 @@
 /**
  * The crypto engine inside the Worker (docs/gateway-protocol.md §12.17): one CryptoApi composed
- * of the identity, group, message, voice and admin services over one EngineContext.
+ * of the identity, group, message, voice, admin and invite services over one EngineContext.
  *
  * - init() opens the store and builds the services. Calls before init give NotInitialized.
  * - Gateway events: DEVICE_INBOX and MLS_* go to GroupService. USER_KEYS_UPDATE, KT_TREE_HEAD,
- *   KEY_PACKAGES_LOW and DEVICE_LINK go to IdentityService.
+ *   KEY_PACKAGES_LOW and DEVICE_LINK go to IdentityService. INVITE_DELETE goes to InviteService.
  * - Calls per group run one at a time, in arrival order: MLS_* events by group id, DEVICE_INBOX
  *   in one queue, and ensureChannelGroup / encryptMessage / encryptDoc by channel. The services also lock
- *   their own state per group.
+ *   their own state per group. sendInviteBundles, redeemInvite and INVITE_DELETE share one queue.
  */
 import {
   CryptoError,
@@ -30,6 +30,7 @@ import { createAdminService } from '../admin/service'
 import { createDocService } from '../envelope/doc-service'
 import { createMessageService } from '../envelope/service'
 import { createIdentityService } from '../identity/service'
+import { createInviteService, type InviteServiceExt } from '../invites/service'
 import { createVoiceService } from '../media/service'
 import { mls } from '../mls/index'
 import { createGroupService, type GroupServiceExt } from '../mls/service'
@@ -61,10 +62,12 @@ interface Services {
   docs: DocService
   voice: VoiceService
   admin: AdminService
+  invites: InviteServiceExt
 }
 
 const GROUP_EVENTS = new Set<CryptoGatewayEvent['t']>(['MLS_HANDSHAKE', 'MLS_BATCH_ASSIGN', 'MLS_JOIN_UPDATE', 'MLS_GROUP_UPDATE', 'DEVICE_INBOX'])
 const IDENTITY_EVENTS = new Set<CryptoGatewayEvent['t']>(['USER_KEYS_UPDATE', 'KT_TREE_HEAD', 'KEY_PACKAGES_LOW', 'DEVICE_LINK'])
+const INVITE_EVENTS = new Set<CryptoGatewayEvent['t']>(['INVITE_DELETE'])
 
 function randomBytes(n: number): Uint8Array {
   const out = new Uint8Array(n)
@@ -130,6 +133,7 @@ export function createEngine(env: EngineEnv): Engine {
       docs: createDocService(ctx, identity, groups),
       voice: createVoiceService(ctx, identity),
       admin: createAdminService(ctx, identity),
+      invites: createInviteService(ctx, identity, groups, env.adminPermissions),
     }
     await identity.load(opts)
     services = next
@@ -163,6 +167,8 @@ export function createEngine(env: EngineEnv): Engine {
       await serial(key, () => svc.groups.onGatewayEvent(e))
     } else if (IDENTITY_EVENTS.has(e.t)) {
       await svc.identity.onGatewayEvent(e)
+    } else if (INVITE_EVENTS.has(e.t)) {
+      await serial('invites', () => svc.invites.onGatewayEvent(e))
     }
     // Any other type is from a newer contract: nothing here consumes it.
   }
@@ -225,6 +231,15 @@ export function createEngine(env: EngineEnv): Engine {
     backupNow: () => s().identity.backupNow(),
     ktSelfCheck: () => s().identity.ktSelfCheck(),
     signAdminAction: (g, t, p) => s().admin.signAdminAction(g, t, p),
+    prepareHistoryInvite: (input) => s().invites.prepareHistoryInvite(input),
+    sendInviteBundles: (input) => {
+      const svc = s()
+      return serial('invites', () => svc.invites.sendInviteBundles(input))
+    },
+    redeemInvite: (input) => {
+      const svc = s()
+      return serial('invites', () => svc.invites.redeemInvite(input))
+    },
     proveDevice: (input) => s().identity.proveDevice(input),
 
     voiceStart: (o) => s().voice.voiceStart(o),
@@ -241,6 +256,7 @@ export function createEngine(env: EngineEnv): Engine {
     async idle() {
       await Promise.all([...queues.values()])
       await services?.groups.idle()
+      await services?.invites.idle()
     },
   }
 }

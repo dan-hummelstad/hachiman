@@ -8,6 +8,13 @@
       "when": 1790952184508,
       "tag": "0000_initial",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1791292529083,
+      "tag": "0001_invite_history",
+      "breakpoints": true
     }
   ]
 }

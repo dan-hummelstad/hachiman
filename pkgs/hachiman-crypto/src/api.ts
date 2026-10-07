@@ -353,6 +353,27 @@ export interface WireAdminAction {
   createdAt: string
 }
 
+/** An active invite with history of a guild (GET /guilds/:id/invite-records, §12.11.4). */
+export interface WireInviteRecord {
+  inviteId: string
+  /** sign_public of the record: the invite key id. */
+  keyId: B64url
+  /** The encoded SignedInviteRecord. */
+  record: B64url
+  expiresAt: string | null
+  /** The newest stored bundle epoch of each group. */
+  bundled: { groupId: GroupIdB64; epoch: number }[]
+}
+
+/** The bundles of an invite for its redeemer (GET /invites/:code/bundles, §12.11.4). */
+export interface WireInviteBundles {
+  inviteId: string
+  /** The encoded SignedInviteRecord. */
+  record: B64url
+  /** `blob`: an encoded InviteBundle. */
+  bundles: { groupId: GroupIdB64; epoch: number; blob: B64url; senderDevice: DeviceId }[]
+}
+
 /** The ciphertext Message of §1, as the crypto Worker consumes it. */
 export interface EncryptedMessage {
   id: MessageId
@@ -385,6 +406,8 @@ export type CryptoGatewayEvent =
   | { t: 'USER_KEYS_UPDATE'; d: { userId: UserId; kind: 'device_added' | 'device_revoked' | 'master_key_changed' | 'dsk_rotated'; deviceId: DeviceId | null } }
   | { t: 'KEY_PACKAGES_LOW'; d: { deviceId: DeviceId; cipherSuite: CipherSuiteId; remaining: number } }
   | { t: 'KT_TREE_HEAD'; d: WireKtTreeHead }
+  /** §6: an invite was revoked. The InviteService stops its bundles (§12.11.4). */
+  | { t: 'INVITE_DELETE'; d: { guildId: GuildId; code: string; inviteId: string } }
 
 // MARK: - 2. DsTransport (main thread → Takusen REST, §12.12)
 
@@ -447,6 +470,13 @@ export interface DsTransport {
   ktEntries(query: { userId: UserId; after: number }): Promise<WireKtEntry[]>
   // signed admin actions (Phase 4)
   adminActions(guildId: GuildId, after: number): Promise<WireAdminAction[]>
+  // invites with history (§12.11.4)
+  /** Any guild member. Active invites with a record only. */
+  inviteRecords(guildId: GuildId): Promise<WireInviteRecord[]>
+  /** `blob`: an encoded InviteBundle. The caller is a reader of the group. */
+  postInviteBundle(inviteId: string, body: { groupId: GroupIdB64; epoch: number; blob: B64url }): Promise<void>
+  /** The redeemer, within INVITE_BUNDLE_FETCH_WINDOW_MS of its guild join with the invite. */
+  inviteBundles(code: string): Promise<WireInviteBundles>
   // permission data for channelReaders checks (from the HachimanClient cache)
   channelReaders(channelId: ChannelId): Promise<UserId[]>
   guildMembers(guildId: GuildId): Promise<UserId[]>
@@ -697,10 +727,16 @@ export interface MembershipEvent {
   groupId: GroupIdB64
   channelId: ChannelId | null
   epoch: number
-  /** The user whose device committed. Null for an external commit. */
+  /** The user whose device committed. Null for an external commit. 'invite_with_history': the creator of the invite. */
   actorUserId: UserId | null
-  kind: 'added' | 'removed' | 'joined_external' | 'resynced' | 'created'
+  /**
+   * 'invite_with_history': this device checked the record of an invite with history whose scope has
+   * this group (§12.11.4). `subjects` is empty. Once per record and group.
+   */
+  kind: 'added' | 'removed' | 'joined_external' | 'resynced' | 'created' | 'invite_with_history'
   subjects: { userId: UserId; deviceId: DeviceId }[]
+  /** 'invite_with_history' only: the invite key id. Two invites in one epoch give two events. */
+  inviteKeyId?: B64url
 }
 
 // MARK: - 3c. Voice (§8, §12.10)
@@ -934,6 +970,41 @@ export interface CryptoApi {
    */
   signAdminAction(guildId: GuildId, type: AdminActionTypeId, payload: Uint8Array): Promise<{ header: B64url; seq: number }>
 
+  // invites with history (§12.11.4)
+  /**
+   * Makes a new invite seed and signs an InviteRecord with the device MLS key. `record` is the
+   * encoded SignedInviteRecord for POST /guilds/:id/invites. `linkSecret` is the seed as base64url.
+   * Like the recovery key, it crosses to the UI thread: an exception recorded in §12.17. The UI
+   * keeps it only in component state and puts it only in the link fragment. `channelIds` is the
+   * scope that the record holds: the input channels that @everyone can view in the verified admin
+   * state, sorted. `expiresAtMs` 0 is permanent, `maxUses` 0 is no limit. Throws
+   * CryptoError('Unsupported') without an admin state, when this user is not an administrator in
+   * it or not a guild member, and when no channel stays.
+   */
+  prepareHistoryInvite(input: { guildId: GuildId; channelIds: ChannelId[]; expiresAtMs: number; maxUses: number }): Promise<{ record: B64url; linkSecret: string; channelIds: ChannelId[] }>
+  /**
+   * After POST /guilds/:id/invites: seals the epoch secrets that this device holds for each group
+   * of the scope (at most HISTORY_BUNDLE_MAX_EPOCHS each, the newest) and posts one bundle per group.
+   * Throws CryptoError('InvalidChain') when the record fails the checks of §12.16, and the error of
+   * the first post that fails (the caller then revokes the invite). `groups` 0: this device holds
+   * no group of the scope.
+   */
+  sendInviteBundles(input: { guildId: GuildId; inviteId: string; record: B64url }): Promise<{ groups: number }>
+  /**
+   * After POST /invites/:code: verifies the record against the seed and the admin state, opens
+   * each bundle, checks its sender and its group and imports its keys (source 'bundle'). Messages
+   * that decrypt with them have `membershipVerified` false. Call it when the guild members are in
+   * the client cache (the creator must be in `guildMembers`). Throws CryptoError('GroupPending')
+   * while `guildMembers` of the guild does not have this user: the cache does not have the guild
+   * yet, so retry after GUILD_CREATE. Throws CryptoError('InvalidChain') when the record fails; a
+   * record that expired less than INVITE_BUNDLE_FETCH_WINDOW_MS ago still passes. A bundle that
+   * fails is dropped alone (an `error` event), also a bundle of a group outside the scope. Per
+   * epoch, the keys of the creator device win, then the first bundle; keys above the bundle epoch
+   * are dropped (§12.11.4). The Worker gets the bundles again after the redemption and after each
+   * join of a scope group (§12.11.4 "Later bundles").
+   */
+  redeemInvite(input: { code: string; linkSecret: string }): Promise<{ groups: number; keys: number }>
+
   // device proof of possession (§12.12, §12.13)
   /**
    * Signs a DS request or an IDENTIFY/RESUME with the device MLS signature key. The Worker adds the
@@ -982,11 +1053,20 @@ export interface CryptoEvents {
   /** Existing device, SAS mode: show these emoji. */
   linkSas: { sessionId: string; emoji: SasEmoji[] }
   linkDone: { sessionId: string; role: LinkRole; ok: boolean; error: CryptoErrorCode | null }
-  /** Messages that were 'pending' can now decrypt: the UI calls decryptMessages again. */
+  /**
+   * Messages that were 'pending' can now decrypt: the UI calls decryptMessages again. Also when
+   * the secret from the MLS state replaced a stored secret that differed (§12.11.1).
+   */
   epochKeysAvailable: { groupId: GroupIdB64; epochs: number[] }
   /** 'kt_missing': KT is required (§12.14) but a key object had no KT entry, or no signed tree head covered it. */
   ktAlert: { kind: 'self_unknown_entry' | 'split_view' | 'bad_proof' | 'kt_missing'; detail: string }
   voiceRoster: { handle: string; roster: VoiceRosterEntry[]; epoch: number }
+  /**
+   * §12.20 "Access by new members": a commit in a text group added a leaf of a user that had no
+   * leaf before. The UI re-wraps the page pointers and titles of the pages channels of the group.
+   * `byMe`: this device made the commit. Never for an own join, Welcome or create.
+   */
+  usersAdded: { groupId: GroupIdB64; kind: 'public_set' | 'channel'; guildId: GuildId | null; channelId: ChannelId | null; epoch: number; userIds: UserId[]; byMe: boolean }
   error: CryptoErrorShape
 }
 
@@ -1221,6 +1301,11 @@ export interface AdminPermissionModel {
   channelPermissions(state: AdminReplayState, channelId: ChannelId, userId: UserId, guildMembers: readonly UserId[]): number
   /** Role hierarchy check for role edits and member-role changes (§4 "Implemented extras"). */
   outranks(state: AdminReplayState, actorUserId: UserId, roleId: string): boolean
+  /**
+   * The channel permissions of a member with no roles who is not the owner: the @everyone role and
+   * the @everyone overwrite only. The scope check of an invite with history (§12.11.4, §12.16).
+   */
+  everyoneChannelPermissions(state: AdminReplayState, channelId: ChannelId): number
 }
 
 export interface AdminActionModule {
@@ -1240,6 +1325,27 @@ export interface AdminActionModule {
    * with the failing seq.
    */
   replay(state: AdminReplayState | null, actions: AdminAction[], actorCert: (userId: UserId, deviceId: DeviceId) => DeviceCertificate | null, perms: AdminPermissionModel): AdminReplayState
+}
+
+// MARK: 4.1c invites (src/invites, §12.11.4)
+
+/** A decoded InviteRecord. Ids are text, keys are base64url. */
+export interface InviteRecordView {
+  guildId: GuildId
+  /** X25519: the HPKE recipient key of the bundles. */
+  hpkePublic: B64url
+  /** sign_public (Ed25519): the invite key id. */
+  keyId: B64url
+  /** Strictly ascending (16-byte order), at most INVITE_MAX_SCOPE_CHANNELS. */
+  channelIds: ChannelId[]
+  /** The seq of the admin state that the creator used (§12.16). */
+  adminChainSeq: number
+  /** 0 = permanent. */
+  expiresAtMs: number
+  /** 0 = no limit. */
+  maxUses: number
+  creatorUserId: UserId
+  creatorDeviceId: DeviceId
 }
 
 export interface LinkSecrets {
@@ -1375,6 +1481,12 @@ export interface ProposalPolicy {
    * not fall back to the unsigned DS readers.
    */
   adminChainMissing?: boolean
+  /**
+   * Set only for an external commit into a 'channel' group whose `authenticated_data` holds an
+   * InviteAuth that the InviteService accepted (§12.11.4): the new leaf key that it authorizes. A
+   * user without a leaf can then join, when it is a reader.
+   */
+  inviteJoinKey?: Uint8Array
   /** Synchronous (the ts-mls callback is synchronous): prefetch with IdentityService.chainContextFor. */
   chainContextFor(userId: UserId): ChainContext
   /**
@@ -1397,7 +1509,8 @@ export interface MlsModule {
 
   createGroup(input: { groupId: Uint8Array; descriptor: GroupDescriptor; dsExternalSender: Uint8Array | null; cipherSuite: CipherSuiteId; keyPackage: { publicPackage: Uint8Array; privatePackage: Uint8Array } }): Promise<{ handle: MlsGroupHandle; groupInfo: Uint8Array; ratchetTree: Uint8Array }>
   joinFromWelcome(input: { welcome: Uint8Array; ratchetTree: Uint8Array; keyPackage: { publicPackage: Uint8Array; privatePackage: Uint8Array }; policy: ProposalPolicy }): Promise<MlsGroupHandle>
-  joinExternal(input: { groupInfo: Uint8Array; ratchetTree: Uint8Array; keyPackage: { publicPackage: Uint8Array; privatePackage: Uint8Array }; resync: boolean; policy: ProposalPolicy }): Promise<PendingCommit>
+  /** `authenticatedData`: the MLS `authenticated_data` of the commit (an encoded InviteAuth, §12.11.4). Default empty. */
+  joinExternal(input: { groupInfo: Uint8Array; ratchetTree: Uint8Array; keyPackage: { publicPackage: Uint8Array; privatePackage: Uint8Array }; resync: boolean; policy: ProposalPolicy; authenticatedData?: Uint8Array }): Promise<PendingCommit>
 
   /** Applies one handshake. A rejected message leaves the state unchanged. */
   processHandshake(handle: MlsGroupHandle, message: Uint8Array, policy: ProposalPolicy): Promise<
@@ -1462,6 +1575,8 @@ export interface CommitInspection {
   removedLeaves: number[]
   /** True when the commit changes the group context extensions (only history_visibility may change, §12.6). */
   descriptorChanged: boolean
+  /** The `authenticated_data` of the FramedContent (the commit signature covers it). An InviteAuth for an invite join (§12.11.4). */
+  authenticatedData: Uint8Array
 }
 
 export interface GroupInfoInspection {
@@ -1550,6 +1665,23 @@ export interface DsModule {
   verifyAdminAction(action: Uint8Array, actorCertificate: Uint8Array): AdminAction | null
   /** SHA-256(encode(action)), for the next prev_hash. */
   adminActionHash(action: Uint8Array): Uint8Array
+  /**
+   * §12.11.4: decodes a SignedInviteRecord and verifies its signature under the creator device
+   * certificate (the ids must match). Null on any failure. The admin checks stay with the members (§12.16).
+   */
+  verifyInviteRecord(signedRecord: Uint8Array, creatorCertificate: Uint8Array): InviteRecordView | null
+  /**
+   * §12.11.4: decodes a SignedInviteRecord without the signature check, for a record that Takusen
+   * verified before it stored it (the scope of a bundle post). Throws CryptoError('Malformed').
+   */
+  parseInviteRecord(signedRecord: Uint8Array): InviteRecordView
+  /**
+   * §12.11.4 "Join authorization": decodes the InviteAuth in the `authenticated_data` of an external
+   * commit and verifies its signature over `groupId` and the new leaf key under the `sign_public` of
+   * its record. It does not verify the creator signature of the record: Takusen compares the record
+   * bytes with the record of the invite. Null on any failure.
+   */
+  verifyInviteAuth(input: { authenticatedData: Uint8Array; groupId: Uint8Array; leafSignatureKey: Uint8Array }): { keyId: Uint8Array; signedRecord: Uint8Array; record: InviteRecordView } | null
   parseEnvelopeHeader(envelope: Uint8Array): EnvelopeHeader
   /** The header of a whole DocEnvelope (§12.20). Throws CryptoError('Malformed'). */
   parseDocEnvelopeHeader(envelope: Uint8Array): DocEnvelopeHeader
@@ -1723,6 +1855,27 @@ export interface StoreSchema {
    * resync: the time of the last one and the number in the current streak.
    */
   aeadFailures: { failures: { atMs: number; senderDevice: DeviceId }[]; lastResyncMs?: number; resyncStreak?: number }
+  /**
+   * Key: the invite key id (sign_public) base64url. An invite with history that this device checked
+   * (§12.11.4). `record`: the encoded SignedInviteRecord. `bundled`: per group id (base64url), the
+   * newest epoch that this device sent a bundle for. `seed`: the redeemer's invite seed, kept for
+   * INVITE_AUTH_WINDOW_MS after `redeemedAtMs`, then wiped; INVITE_DELETE also wipes it. `code`: the
+   * redeemer's invite code, for the later fetches of the bundles. `revoked`: an INVITE_DELETE came.
+   * The row goes HANDSHAKE_RETENTION_MS after the expiry of the invite: an invite join can come in
+   * the handshake stream until then.
+   */
+  invites: {
+    guildId: GuildId
+    record: Uint8Array
+    role: 'member' | 'redeemed'
+    inviteId: string | null
+    code: string | null
+    revoked: boolean
+    expiresAtMs: number
+    bundled: Record<string, number>
+    seed: Uint8Array | null
+    redeemedAtMs: number | null
+  }
 }
 
 export interface CryptoStore {
@@ -1883,7 +2036,51 @@ export interface GroupService extends Pick<CryptoApi, 'sync' | 'ensureChannelGro
   currentEpoch(groupId: Uint8Array): Promise<number | null>
   /** Epoch secrets for an own new device (link) or a history_keys request. */
   exportHistoryKeys(groupIds: Uint8Array[] | 'all', maxEpochsPerGroup: number): Promise<HistoryKeyEntry[]>
+  /** Never replaces a stored secret (§12.11.1). */
   importHistoryKeys(entries: HistoryKeyEntry[], source: 'own_device' | 'backup' | 'bundle'): Promise<void>
+  /** The MLS-authenticated descriptor of a group (§12.6), from the local state. Null without state. */
+  descriptor(groupId: Uint8Array): Promise<GroupDescriptor | null>
+  /** Appends events to the membership timeline of a group (emits `membership`). Takes the group lock. */
+  appendTimeline(groupId: GroupIdB64, events: MembershipEvent[]): Promise<void>
+  /**
+   * The InviteService calls it once at its creation (§12.11.4). A later call replaces the port.
+   * Without a port, this device never joins with an InviteAuth and rejects every external join of a
+   * user without a leaf into a 'channel' group.
+   */
+  attachInvites(port: InvitePort): void
+}
+
+/**
+ * The InviteService side of GroupService (§12.11.4, §12.7.3): the bundles after own commits and
+ * joins, and the InviteAuth of an external commit ("Join authorization").
+ */
+export interface InvitePort {
+  /**
+   * After each own commit that the DS accepted: a batch or pre-send commit, an own external commit
+   * (join or resync), and a commit adopted after a crash. `epoch` is the new epoch, and its secret
+   * is stored. The call is asynchronous, outside the group lock.
+   */
+  ownCommit(e: { groupId: Uint8Array; epoch: number }): void
+  /**
+   * After this device joins a group: a Welcome, or an own external commit that adds its leaf (not a
+   * resync). `epoch` is the join epoch. Asynchronous and outside the group lock, as ownCommit.
+   */
+  joined(e: { groupId: Uint8Array; epoch: number }): void
+  /**
+   * Joiner: the encoded InviteAuth for an external commit of this device into the 'channel' group
+   * of `channelId`: from a redeemed invite whose record names the channel, that is not revoked or
+   * expired, and whose seed this device still keeps. Null when no invite gives one.
+   */
+  authFor(group: { groupId: Uint8Array; guildId: GuildId; channelId: ChannelId }): Promise<Uint8Array | null>
+  /**
+   * Member: checks the InviteAuth in the `authenticated_data` of an external commit into the
+   * 'channel' group of `descriptor`: the signature over the group and the new leaf key, the record
+   * against the current admin state (§12.16, without the expiry), the local revoke, and the scope.
+   * Null when the InviteAuth authorizes the leaf key, else the reason. A failed fetch rejects: it
+   * is not a verdict, and the commit is processed again later. It runs inside the group lock of the
+   * commit, so it must not wait for work that takes a group lock.
+   */
+  checkJoin(input: { groupId: Uint8Array; descriptor: GroupDescriptor; authenticatedData: Uint8Array; leafSignatureKey: Uint8Array }): Promise<string | null>
 }
 
 /** src/envelope/service.ts (crypto-envelope). Messages, attachments, franking reports. */
@@ -1896,6 +2093,14 @@ export type CreateDocService = (ctx: EngineContext, identity: IdentityService, g
 /** src/admin/service.ts (crypto-identity, Phase 4). */
 export type AdminService = Pick<CryptoApi, 'signAdminAction'>
 export type CreateAdminService = (ctx: EngineContext, identity: IdentityService) => AdminService
+
+/** src/invites/service.ts. Invites with history (§12.11.4). */
+export interface InviteService extends Pick<CryptoApi, 'prepareHistoryInvite' | 'sendInviteBundles' | 'redeemInvite'> {
+  /** INVITE_DELETE: marks the invite revoked and drops the cached records of the guild. */
+  onGatewayEvent(event: CryptoGatewayEvent): Promise<void>
+}
+/** `perms`: the §2 rules, for the record and scope checks of §12.16. */
+export type CreateInviteService = (ctx: EngineContext, identity: IdentityService, groups: GroupService, perms: AdminPermissionModel) => InviteService
 
 /** src/media/service.ts (crypto-media). Voice groups and frame keys. */
 export type VoiceService = Pick<CryptoApi, 'voiceStart' | 'voiceHandle' | 'voiceAttachTransform' | 'voiceDetachTransform' | 'voiceRoster' | 'voiceEpochCode' | 'voiceStop'>

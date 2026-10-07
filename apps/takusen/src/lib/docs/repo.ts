@@ -10,6 +10,8 @@ export type NewDocPage = Pick<DocPageRow, 'id' | 'channelId' | 'parentId' | 'pos
 export type DocPagePatch = Partial<Pick<DocPageRow, 'parentId' | 'position' | 'titleEnvelope'>> & { updatedAt: Date }
 export type NewDocUpdate = Omit<DocUpdateRow, 'createdAt'>
 export type NewDocSnapshot = Omit<DocSnapshotRow, 'createdAt'>
+/** The columns that a re-wrap replaces (§4 Pages): the pointer envelope and its header fields. */
+export type SnapshotRewrap = Pick<DocSnapshotRow, 'groupId' | 'epoch' | 'senderDevice' | 'envelope'>
 
 /** A snapshot row with the key and the size of its blob. */
 export interface StoredSnapshot {
@@ -47,7 +49,14 @@ export interface DocsRepo {
 
   /** Newest (highest base_seq) first. */
   listSnapshots(pageId: string): Promise<StoredSnapshot[]>
+  /** The newest snapshot of each page of the channel. A page without a snapshot has none. */
+  newestSnapshots(channelId: string): Promise<StoredSnapshot[]>
   insertSnapshot(values: NewDocSnapshot): Promise<DocSnapshotRow>
+  /**
+   * A re-wrap: replaces the envelope columns of snapshot (pageId, baseSeq) in place. Keeps
+   * upload_id, media_upload_ids and created_at. null when the row does not exist.
+   */
+  rewrapSnapshot(pageId: string, baseSeq: number, values: SnapshotRewrap): Promise<DocSnapshotRow | null>
 
   /** lib/uploads.ts pageSnapshotClaimable. Throws UnknownUpload. */
   claimSnapshotUpload(pageId: string, uploadId: string, userId: string): Promise<{ key: string; size: number }>

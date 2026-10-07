@@ -6,7 +6,7 @@
  *
  * The DS never makes a commit. It only orders and checks them.
  */
-import { computeBasePermissions, has, Permissions } from '@hachiman/client/permissions'
+import { has, Permissions } from '@hachiman/client/permissions'
 
 import { ApiError } from '@/lib/errors'
 
@@ -14,10 +14,10 @@ import { proposalRejections, settleRejections, type CommitterRejection, type Rej
 import { bytesEqual, toB64 } from './bytes'
 import { INBOX_ITEM_MAX_BYTES, INBOX_RETENTION_MS } from './config'
 import type { DsDeps } from './context'
-import { GROUP_STATE_EPOCHS_KEPT, type CommitInspection, type LeafEntry } from './crypto'
+import { GROUP_STATE_EPOCHS_KEPT, INVITE_AUTH_WINDOW_MS, type CommitInspection, type LeafEntry } from './crypto'
 import { emitToGroup, handshakeEvent, type Outbox } from './events'
 import { signProposalsLocked } from './proposals'
-import { channelPermissionsOf, readersOfGroup } from './readers'
+import { channelPermissionsOf, hasGuildPermission, readersOfGroup } from './readers'
 import type { DeviceRow, GroupRow, MemberRow, MlsRepo, NewMember, PendingRow } from './repo'
 import { toWireGroup } from './shapes'
 import { encodeWelcomeItem, parseGroupInfoContext, parsePublicMessagePrefix, type GroupContextSummary } from './wire-format'
@@ -147,7 +147,7 @@ export async function uploadCommit(
     if (illegal.size > 0) throw new ApiError('IllegalMembership', 403, 'the next roster has users who must not be members', { userIds: [...illegal] })
 
     // 9. Policy (§12.7.3 table).
-    await checkPolicy(r, group, readers, insp, caller, prevByLeaf, pending)
+    await checkPolicy(r, deps, group, readers, insp, caller, prevByLeaf, pending)
     if (group.kind === 'public_set' && insp.next.roster.length > deps.config.publicSetMaxMembers && insp.next.roster.length > previousMembers.length) {
       throw new ApiError('GroupFull', 403, `the group has at most ${deps.config.publicSetMaxMembers} leaves`)
     }
@@ -239,6 +239,7 @@ function nextRoster(insp: CommitInspection, prevByLeaf: Map<number, MemberRow>, 
  */
 async function checkPolicy(
   r: MlsRepo,
+  deps: Pick<Deps, 'ds' | 'now'>,
   group: GroupRow,
   readers: Set<string>,
   insp: CommitInspection,
@@ -248,9 +249,11 @@ async function checkPolicy(
 ): Promise<void> {
   const callerLeaves = [...prevByLeaf.values()].filter((m) => m.userId === caller.userId)
   if (insp.sender.type === 'new_member_commit') {
-    // External commit: public_set takes any reader device. channel and dm need a user that has a leaf.
+    // External commit: public_set takes any reader device. channel and dm need a user that has a
+    // leaf, or (channel) a valid InviteAuth of a redeemer (§12.11.4).
     if (group.kind !== 'public_set' && callerLeaves.length === 0) {
-      throw new ApiError('IllegalAdd', 403, 'an external commit here needs a user who already has a leaf')
+      const why = group.kind === 'channel' ? await inviteJoinRefusal(r, deps, group, insp, caller) : 'not a channel group'
+      if (why !== null) throw new ApiError('IllegalAdd', 403, `an external commit here needs a user who already has a leaf, or a valid invite authorization: ${why}`)
     }
   } else {
     const leaf = prevByLeaf.get(insp.sender.leafIndex)
@@ -281,11 +284,40 @@ async function checkPolicy(
   }
 }
 
+/**
+ * §12.11.4 "Join authorization": the external commit of a user without a
+ * leaf into a `channel` group carries an InviteAuth in `authenticated_data`.
+ * Takusen checks its signature over the group and the new leaf key, compares
+ * its record with the stored record of the invite (verified at POST), and
+ * checks the invite, the scope and the join window. The members check the
+ * admin state of the record (§12.16). Null when the join is allowed, else the
+ * reason.
+ */
+async function inviteJoinRefusal(
+  r: MlsRepo,
+  deps: Pick<Deps, 'ds' | 'now'>,
+  group: GroupRow,
+  insp: CommitInspection,
+  caller: { userId: string; device: DeviceRow },
+): Promise<string | null> {
+  if (insp.authenticatedData.length === 0) return 'no invite authorization'
+  const leaf = insp.next.roster.find((l) => l.deviceId === caller.device.id && l.userId === caller.userId)
+  if (!leaf || group.channelId === null) return 'no new leaf'
+  const auth = deps.ds.verifyInviteAuth({ authenticatedData: insp.authenticatedData, groupId: group.groupId, leafSignatureKey: leaf.signatureKey })
+  if (!auth) return 'the invite authorization does not verify'
+  const invite = await r.getInviteByKeyId(auth.keyId)
+  if (!invite || invite.guildId !== group.guildId || invite.record === null || !bytesEqual(invite.record, auth.signedRecord)) return 'unknown invite'
+  const now = deps.now()
+  if (invite.revoked || (invite.expiresAt !== null && invite.expiresAt <= now)) return 'the invite is revoked or expired'
+  if (!auth.record.channelIds.includes(group.channelId)) return 'the channel is not in the scope of the invite'
+  const joinedAt = await r.inviteJoinedBy(invite.id, caller.userId)
+  if (!joinedAt || now.getTime() - joinedAt.getTime() > INVITE_AUTH_WINDOW_MS) return 'the user did not join the guild with this invite in the last 24 h'
+  return null
+}
+
 async function guildHas(r: MlsRepo, guildId: string, userId: string, bit: number): Promise<boolean> {
   const data = await r.getGuildPermissionData(guildId)
-  const roles = data?.members.get(userId)
-  if (!data || !roles) return false
-  return has(computeBasePermissions(data.guild, { user: { id: userId }, roles }, data.roles), bit)
+  return data !== null && hasGuildPermission(data, userId, bit)
 }
 
 /**

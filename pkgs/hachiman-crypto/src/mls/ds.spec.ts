@@ -6,7 +6,7 @@ import { fromB64url, toB64url } from '../codec'
 import { ds } from './ds'
 import { clientConfig, mls } from './index'
 import { dsSigner, keyPackage, makeDevice, makeUser, policy, uuid, type TestDevice, type TestUser } from './test-helpers'
-import { decodeGroupInfoMessage, decodeKeyPackageMessage, encodePublic, suite } from './wire'
+import { decodeGroupInfoMessage, decodeKeyPackageMessage, decodePublicMessage, encodePublic, suite } from './wire'
 
 interface World {
   signer: Awaited<ReturnType<typeof dsSigner>>
@@ -179,6 +179,37 @@ describe('DsModule.checkCommit', () => {
     expect(j.ok && j.inspection.changedLeaves).toEqual([2])
     expect(await ds.checkCommit(input(w, join.request, w.a))).toMatchObject({ ok: false, reason: 'sender: credential is not the request device' })
   }, 60_000)
+
+  it('reports the authenticated_data of an external commit under the commit signature; verifies an InviteAuth (§12.11.4)', async () => {
+    const { signInviteAuth, signInviteRecord } = await import('../invites/record')
+    const { deriveInviteKeys } = await import('../invites/keys')
+    const w = await world('channel')
+    const channelId = mls.parseGroupId(w.ah.groupId).scope
+    const keys = deriveInviteKeys(new Uint8Array(32).fill(5))
+    const signed = signInviteRecord(
+      { guildId: uuid(), hpkePublic: keys.hpke.publicKey, signPublic: keys.sign.publicKey, channelIds: [channelId], adminChainSeq: 0, expiresAtMs: 0, maxUses: 1, creatorUserId: w.a.user.userId, creatorDeviceId: w.a.deviceId },
+      w.a.sig.privateKey,
+    )
+    const auth = signInviteAuth({ signedRecord: signed, signPrivateKey: keys.sign.privateKey, groupId: w.ah.groupId, leafSignatureKey: w.c.sig.publicKey })
+    const gi = await mls.groupInfo(w.bh)
+    const join = await mls.joinExternal({ groupInfo: gi.groupInfo, ratchetTree: gi.ratchetTree, keyPackage: await keyPackage(w.c), resync: false, policy: w.p, authenticatedData: auth })
+    const r = await ds.checkCommit(input(w, join.request, w.c))
+    expect(r.ok && r.inspection.authenticatedData).toEqual(auth)
+    const v = ds.verifyInviteAuth({ authenticatedData: auth, groupId: w.ah.groupId, leafSignatureKey: w.c.sig.publicKey })
+    expect(v).toEqual({ keyId: keys.sign.publicKey, signedRecord: signed, record: ds.parseInviteRecord(signed) })
+    // Another leaf key, another group, a cut InviteAuth.
+    expect(ds.verifyInviteAuth({ authenticatedData: auth, groupId: w.ah.groupId, leafSignatureKey: w.b.sig.publicKey })).toBeNull()
+    expect(ds.verifyInviteAuth({ authenticatedData: auth, groupId: mls.groupId({ kind: 'channel', scope: channelId, generation: 1 }), leafSignatureKey: w.c.sig.publicKey })).toBeNull()
+    expect(ds.verifyInviteAuth({ authenticatedData: auth.subarray(0, auth.length - 1), groupId: w.ah.groupId, leafSignatureKey: w.c.sig.publicKey })).toBeNull()
+    // A changed authenticated_data fails the signature of the new leaf.
+    const pm = decodePublicMessage(fromB64url(join.request.commit))
+    const swapped = encodePublic({ ...pm, content: { ...pm.content, authenticatedData: new Uint8Array([1]) } })
+    expect(await ds.checkCommit(input(w, { ...join.request, commit: toB64url(swapped) }, w.c))).toMatchObject({ ok: false, reason: 'sender: commit signature' })
+    // A commit without it reports an empty value.
+    const plain = await mls.commit(w.ah, { adds: [], removes: [], descriptor: null, policy: w.p })
+    const p = await ds.checkCommit(input(w, plain.request, w.a))
+    expect(p.ok && p.inspection.authenticatedData).toEqual(new Uint8Array(0))
+  }, 60_000)
 })
 
 describe('DsModule helpers', () => {
@@ -225,5 +256,41 @@ describe('DsModule helpers', () => {
     const out = identity.signOut({ userId: u.userId, deviceId: d.deviceId, masterGeneration: 1, mlsSignatureKey: d.sig }, Date.now())
     expect(ds.verifyRevocation(identity.encodeRevocation(out), { master, deviceCertificate: cert })?.reason).toBe(5)
     expect(ds.verifyRevocation(identity.encodeRevocation(out), { master, deviceCertificate: null })).toBeNull()
+  })
+
+  it('verifies an invite record under the creator certificate (§12.11.4)', async () => {
+    const { identity } = await import('../identity/index')
+    const { signInviteRecord } = await import('../invites/record')
+    const { deriveInviteKeys } = await import('../invites/keys')
+    const d = makeDevice(makeUser())
+    const keys = deriveInviteKeys(new Uint8Array(32).fill(3))
+    const channels = [uuid(), uuid()].sort()
+    const guildId = uuid()
+    const signed = signInviteRecord(
+      { guildId, hpkePublic: keys.hpke.publicKey, signPublic: keys.sign.publicKey, channelIds: channels, adminChainSeq: 4, expiresAtMs: 0, maxUses: 0, creatorUserId: d.user.userId, creatorDeviceId: d.deviceId },
+      d.sig.privateKey,
+    )
+    const cert = identity.encodeDeviceCertificate(d.chain.device)
+    expect(ds.verifyInviteRecord(signed, cert)).toEqual({
+      guildId,
+      hpkePublic: toB64url(keys.hpke.publicKey),
+      keyId: toB64url(keys.sign.publicKey),
+      channelIds: channels,
+      adminChainSeq: 4,
+      expiresAtMs: 0,
+      maxUses: 0,
+      creatorUserId: d.user.userId,
+      creatorDeviceId: d.deviceId,
+    })
+    // Another device of the same user, a tampered record, a malformed certificate.
+    expect(ds.verifyInviteRecord(signed, identity.encodeDeviceCertificate(makeDevice(d.user).chain.device))).toBeNull()
+    const tampered = signed.slice()
+    tampered[30]! ^= 1
+    expect(ds.verifyInviteRecord(tampered, cert)).toBeNull()
+    expect(ds.verifyInviteRecord(signed, cert.subarray(1))).toBeNull()
+    // parseInviteRecord decodes without the signature: the tampered record decodes too.
+    expect(ds.parseInviteRecord(signed)).toEqual(ds.verifyInviteRecord(signed, cert))
+    expect(ds.parseInviteRecord(tampered).keyId).toBe(toB64url(keys.sign.publicKey))
+    expect(() => ds.parseInviteRecord(signed.subarray(1))).toThrow(expect.objectContaining({ code: 'Malformed' }) as Error)
   })
 })

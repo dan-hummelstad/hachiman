@@ -1,5 +1,8 @@
 /**
- * Join requests (docs/gateway-protocol.md §12.7.8).
+ * Join requests (docs/gateway-protocol.md §12.7.8). A join request of a user
+ * without a leaf in a `channel` group waits for a member. The redeemer of an
+ * invite with history does not ask: it joins a `channel` group of the invite
+ * scope by external commit with an InviteAuth (commits.ts, §12.11.4).
  */
 import { ApiError } from '@/lib/errors'
 

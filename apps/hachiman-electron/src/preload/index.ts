@@ -1,7 +1,7 @@
 import { contextBridge, ipcRenderer } from "electron";
 import {
   CHECK_FOR_UPDATE_CHANNEL,
-  INVITE_CODE_CHANNEL,
+  INVITE_LINK_CHANNEL,
   OAUTH_CALLBACK_CHANNEL,
   OPEN_EXTERNAL_CHANNEL,
   PROBE_REGIONS_CHANNEL,
@@ -41,8 +41,11 @@ const bridge = {
   insetTitleBar: process.platform === "darwin",
   openExternal: (url: string): Promise<void> =>
     ipcRenderer.invoke(OPEN_EXTERNAL_CHANNEL, url),
-  /** `takusen://invite/<code>` deep links → code. Returns unsubscribe. */
-  onInviteCode: bufferedChannel(INVITE_CODE_CHANNEL),
+  /**
+   * `takusen://invite/<code>[#k=<key>]` deep links, as the link that main checked
+   * and rebuilt. The key is the secret of an invite with history. Returns unsubscribe.
+   */
+  onInviteLink: bufferedChannel(INVITE_LINK_CHANNEL),
   /** Raw `app.hachiman://oauth-callback?…` URLs. Returns unsubscribe. */
   onOAuthCallback: bufferedChannel(OAUTH_CALLBACK_CHANNEL),
   /** TCP-connect RTT probe run in main (targets validated there). */

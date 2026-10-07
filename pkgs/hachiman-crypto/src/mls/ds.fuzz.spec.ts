@@ -178,6 +178,8 @@ describe('DsModule sync verifiers (fuzz)', () => {
         expect(ds.verifyDskCert(x, y)).toBeNull()
         expect(ds.verifyRevocation(x, { master: y, deviceCertificate: x })).toBeNull()
         expect(ds.verifyAdminAction(x, y)).toBeNull()
+        expect(ds.verifyInviteRecord(x, y)).toBeNull()
+        expect(ds.verifyInviteAuth({ authenticatedData: x, groupId: y, leafSignatureKey: x })).toBeNull()
       }),
       runs(2000),
     )

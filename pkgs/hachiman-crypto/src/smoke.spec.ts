@@ -38,6 +38,7 @@ import {
 } from 'ts-mls'
 import { defaultClientConfig } from 'ts-mls/clientConfig.js'
 import { createCustomCredential } from 'ts-mls/customCredential.js'
+import { verifyFramedContentSignature } from 'ts-mls/framedContent.js'
 import { verifyGroupInfoSignature } from 'ts-mls/groupInfo.js'
 import { decodeRatchetTree, encodeRatchetTree } from 'ts-mls/ratchetTree.js'
 import { treeHashRoot } from 'ts-mls/treeHash.js'
@@ -292,6 +293,43 @@ describe('ts-mls capability smoke test', () => {
     expect(b.privatePath.leafIndex).toBe(1)
     expect(leafChain(a, 1)).toBe('chain(b1, dsk 2)')
     expect(await exporter(b, cs)).toEqual(await exporter(a, cs))
+  }, 60_000)
+
+  // Finding: joinGroupExternal takes authenticated_data, and the FramedContent signature of the new
+  // leaf covers it. The InviteAuth of an invite join rides there (§12.11.4): a member reads it from
+  // the decoded commit before processMessage, the DS checks it with verifyFramedContentSignature,
+  // and a changed value fails both. Nothing of it enters the tree.
+  it('keeps the authenticated_data of an external commit under the signature of the new leaf', async () => {
+    const cs = await getCiphersuiteImpl(getCiphersuiteFromName(SUITE))
+    const cfg = config(recordingAuthService([]))
+    const alice = await device(cs, 'alice', 'a1')
+    const bob = await device(cs, 'bob', 'b1')
+    const aKp = await keyPackage(cs, alice)
+    const bKp = await keyPackage(cs, bob)
+    let a = await createGroup(te.encode('auth'), aKp.publicPackage, aKp.privatePackage, [], cs, cfg)
+    const gi = await createGroupInfoWithExternalPubAndRatchetTree(a, [], cs)
+    const auth = te.encode('invite auth')
+    const ext = await joinGroupExternal(gi, bKp.publicPackage, bKp.privatePackage, false, cs, undefined, cfg, auth)
+    const msg = wire({ version: 'mls10', wireformat: 'mls_public_message', publicMessage: ext.publicMessage })
+    if (msg.wireformat !== 'mls_public_message') throw new Error('public')
+    const pm = msg.publicMessage
+    if (pm.content.contentType !== 'commit' || pm.content.sender.senderType !== 'new_member_commit') throw new Error('external commit')
+    expect(pm.content.authenticatedData).toEqual(auth)
+    const leafKey = pm.content.commit.path!.leafNode.signaturePublicKey
+    expect(leafKey).toEqual(bob.sig.publicKey)
+
+    // The DS check, without group state.
+    expect(await verifyFramedContentSignature(leafKey, 'mls_public_message', pm.content, pm.auth, a.groupContext, cs.signature)).toBe(true)
+    const changed = { ...pm, content: { ...pm.content, authenticatedData: te.encode('invite auth!') } }
+    expect(await verifyFramedContentSignature(leafKey, 'mls_public_message', changed.content, changed.auth, a.groupContext, cs.signature)).toBe(false)
+
+    // A member rejects the changed value and applies the original.
+    await expect(processMessage({ wireformat: 'mls_public_message', publicMessage: changed }, a, emptyPskIndex, acceptAll, cs)).rejects.toThrow(/Signature invalid/)
+    a = await apply(a, msg, cs)
+    expect(await exporter(a, cs)).toEqual(await exporter(ext.newState, cs))
+    const leaf = a.ratchetTree[2]
+    if (leaf?.nodeType !== 'leaf') throw new Error('leaf')
+    expect(leaf.leaf.extensions.map((e) => e.extensionType)).toEqual([EXT_DEVICE_CHAIN])
   }, 60_000)
 
   it('rejects a leaf when the authentication service says no', async () => {

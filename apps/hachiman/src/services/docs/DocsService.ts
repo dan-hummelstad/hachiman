@@ -1,21 +1,24 @@
 /**
- * The pages of each pages channel (contract §4 Pages): the tree with decrypted titles in docsStore,
- * the PAGE_* mirror, and one DocProvider per open page with a reference count. Decrypt before
- * store: a title envelope never reaches the store, only its text or a pending/failed state.
+ * The pages of each pages channel (contract §4 Pages): the tree with decrypted titles in docsStore
+ * (titles.ts), the PAGE_* mirror, one DocProvider per open page with a reference count, and the
+ * re-wrap pass for new members (rewrap.ts). Decrypt before store: a title envelope never reaches
+ * the store, only its text or a pending/failed state.
  */
 import type { GatewayEvents, Page } from '@hachiman/client'
+import type { CryptoEvents } from '@hachiman/crypto'
 import { cryptoService } from '@/services/CryptoService'
 import { hachiman } from '@/services/hachiman'
 import { currentDeviceId } from '@/stores/cryptoStore'
-import { findPage, resetDocsStore, useDocsStore, type PageNode } from '@/stores/docsStore'
+import { findPage, resetDocsStore, useDocsStore } from '@/stores/docsStore'
 import { useUserStore } from '@/stores/userStore'
 import { createDocProvider, type DocProviderDeps } from './DocProvider'
 import { collectMediaUploadIds, forgetCopiedMedia } from './media'
 import { endPosition } from './page-tree'
+import { createRewrapper, pagesChannelsOf, snapshotHeadless } from './rewrap'
+import { createPageTitles, keepTitle } from './titles'
 import type { DocHandle, DocProvider, DocsService } from './types'
 
 const utf8 = new TextEncoder()
-const fromUtf8 = new TextDecoder('utf-8', { fatal: true })
 
 /** A stable cursor color per user. */
 export function userColor(userId: string): string {
@@ -55,64 +58,16 @@ interface Open {
 
 const open = new Map<string, Open>()
 const markdown = new Map<string, () => string>()
-/** Pages whose title waits for keys: retried on epochKeysAvailable. */
-const pendingTitles = new Map<string, Page>()
+/** The providers of the re-wrap pass that run: reset() destroys them. */
+const headless = new Set<Pick<DocProvider, 'destroy'>>()
 let generation = 0
 
-/** A page without its envelope: the store never holds ciphertext. */
-const nodeOf = (p: Page, title: string, titleState: PageNode['titleState']): PageNode => ({
-  id: p.id,
-  channelId: p.channelId,
-  parentId: p.parentId,
-  position: p.position,
-  createdBy: p.createdBy,
-  createdAt: p.createdAt,
-  updatedAt: p.updatedAt,
-  title,
-  titleState
+/** The titles that wait for keys, their retry and the catch-up of a channel (titles.ts). */
+const titles = createPageTitles({
+  crypto: () => cryptoService.client(),
+  findPage,
+  upsertPage: (node) => useDocsStore.getState().upsertPage(node)
 })
-
-async function decryptTitles(pages: Page[]): Promise<PageNode[]> {
-  if (pages.length === 0) return []
-  const results = await cryptoService.client().decryptDoc(
-    pages.map((p) => ({
-      id: p.id,
-      channelId: p.channelId,
-      pageId: p.id,
-      kind: 'doc_title' as const,
-      senderDevice: null,
-      envelope: p.titleEnvelope
-    }))
-  )
-  return pages.map((p, i) => {
-    const r = results[i]
-    if (r?.status === 'ok') {
-      pendingTitles.delete(p.id)
-      try {
-        return nodeOf(p, fromUtf8.decode(r.bytes), 'ok')
-      } catch {
-        return nodeOf(p, '', 'failed')
-      }
-    }
-    if (r?.status === 'failed') {
-      pendingTitles.delete(p.id)
-      return nodeOf(p, '', 'failed')
-    }
-    pendingTitles.set(p.id, p)
-    return nodeOf(p, '', 'pending')
-  })
-}
-
-/** Decrypt failures of the Worker call itself (not ready yet): the titles show pending. */
-async function nodesOf(pages: Page[]): Promise<PageNode[]> {
-  try {
-    return await decryptTitles(pages)
-  } catch (e) {
-    console.warn('[docs] titles not decrypted', e)
-    for (const p of pages) pendingTitles.set(p.id, p)
-    return pages.map((p) => nodeOf(p, '', 'pending'))
-  }
-}
 
 async function encryptTitle(channelId: string, pageId: string, title: string): Promise<string> {
   const out = await cryptoService.client().encryptDoc({
@@ -132,12 +87,31 @@ function closePage(pageId: string): void {
   o.provider.destroy()
 }
 
+const rewrapper = createRewrapper({
+  get rest() {
+    return hachiman.rest
+  },
+  crypto: () => cryptoService.client(),
+  channelsOf: (groupId) =>
+    pagesChannelsOf(hachiman.cache.channels.values(), groupId, (id) => hachiman.permissionsFor(id)),
+  resyncOpen: (pageId) => {
+    const o = open.get(pageId)
+    if (o) void o.provider.resync()
+    return o !== undefined
+  },
+  snapshotPage: (channelId, pageId) =>
+    snapshotHeadless(
+      createDocProvider(channelId, pageId, providerDeps, { headless: true }),
+      headless
+    )
+})
+
 async function upsertFromEvent(page: Page): Promise<void> {
   // A channel that the UI never loaded gets its whole list on the first loadPages.
   if (!useDocsStore.getState().pagesByChannel.has(page.channelId)) return
   const gen = generation
-  const [node] = await nodesOf([page])
-  if (node && gen === generation) useDocsStore.getState().upsertPage(node)
+  const [node] = await titles.decrypt([page])
+  if (node && gen === generation) titles.store(node)
 }
 
 export const docsService: DocsService & {
@@ -151,14 +125,25 @@ export const docsService: DocsService & {
   onOffline(): void
   /** New epoch keys: pending titles and waiting pages try again. */
   retry(): void
+  /** This device joined a group (Welcome, external join, create): as retry(). */
+  onMembership(e: CryptoEvents['membership']): void
+  /** A commit added a user to a text group: the re-wrap pass of its pages channels (rewrap.ts). */
+  onUsersAdded(e: CryptoEvents['usersAdded']): void
   /** Sign-out. */
   reset(): void
 } = {
   async loadPages(channelId) {
     const gen = generation
     const pages = await hachiman.rest.getPages(channelId)
-    const nodes = await nodesOf(pages)
-    if (gen === generation) useDocsStore.getState().setPages(channelId, nodes)
+    const nodes = await titles.decrypt(pages)
+    if (gen !== generation) return
+    const stored = new Map(
+      (useDocsStore.getState().pagesByChannel.get(channelId) ?? []).map((p) => [p.id, p])
+    )
+    useDocsStore.getState().setPages(
+      channelId,
+      nodes.map((n) => keepTitle(stored.get(n.id), n))
+    )
   },
 
   openPage(channelId, pageId) {
@@ -241,14 +226,13 @@ export const docsService: DocsService & {
 
   onPageEvent(d) {
     void upsertFromEvent(d)
+    open.get(d.id)?.provider.pageChanged()
   },
 
   onPageDelete(d) {
     useDocsStore.getState().removePages(d.channelId, d.ids)
-    for (const id of d.ids) {
-      pendingTitles.delete(id)
-      closePage(id)
-    }
+    titles.forget(d.ids)
+    for (const id of d.ids) closePage(id)
   },
 
   onDocUpdate(d) {
@@ -261,11 +245,13 @@ export const docsService: DocsService & {
 
   onChannelDelete(channelId) {
     for (const [id, o] of open) if (o.provider.channelId === channelId) closePage(id)
-    for (const [id, p] of pendingTitles) if (p.channelId === channelId) pendingTitles.delete(id)
+    titles.forgetChannel(channelId)
     useDocsStore.getState().removeChannel(channelId)
   },
 
   onReady(full) {
+    // The Worker syncs after READY and RESUMED: a title that is ahead gets a catch-up again.
+    titles.onReady()
     if (full)
       for (const channelId of useDocsStore.getState().pagesByChannel.keys())
         void docsService
@@ -279,20 +265,30 @@ export const docsService: DocsService & {
   },
 
   retry() {
-    if (pendingTitles.size > 0) {
-      const gen = generation
-      void nodesOf([...pendingTitles.values()]).then((nodes) => {
-        if (gen !== generation) return
-        for (const n of nodes) if (n.titleState !== 'pending') useDocsStore.getState().upsertPage(n)
-      })
-    }
+    titles.retry()
     for (const o of open.values()) void o.provider.resync()
+  },
+
+  onMembership(e) {
+    // A title of a group that this device has not joined is pending 'group_unknown'. The Worker
+    // does not keep doc envelopes, so no epochKeysAvailable follows the join. The event of a join
+    // lists the whole roster, this device too.
+    const me = currentDeviceId()
+    if (e.kind !== 'removed' && me !== null && e.subjects.some((s) => s.deviceId === me))
+      docsService.retry()
+  },
+
+  onUsersAdded(e) {
+    rewrapper.onUsersAdded(e)
   },
 
   reset() {
     generation++
+    rewrapper.reset()
+    titles.reset()
+    for (const p of headless) p.destroy()
+    headless.clear()
     for (const id of [...open.keys()]) closePage(id)
-    pendingTitles.clear()
     markdown.clear()
     forgetCopiedMedia()
     resetDocsStore()

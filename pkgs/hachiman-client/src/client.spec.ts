@@ -236,6 +236,15 @@ describe('HachimanClient cache', () => {
     expect(client.cache.guilds.size).toBe(1)
   })
 
+  it('re-emits INVITE_DELETE without touching the cache', () => {
+    const revoked = vi.fn()
+    client.on('INVITE_DELETE', revoked)
+    const d = { guildId: 'g', code: 'ABCDEFGH', inviteId: 'i1' }
+    dispatch('INVITE_DELETE', d)
+    expect(revoked).toHaveBeenCalledWith(d)
+    expect(client.cache.guilds.size).toBe(1)
+  })
+
   it('roles, presence, voice state and guild delete', () => {
     dispatch('GUILD_ROLE_CREATE', {
       guildId: 'g',

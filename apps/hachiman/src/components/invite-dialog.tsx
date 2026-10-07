@@ -1,30 +1,54 @@
-import { useState } from 'react'
-import { Permissions, has } from '@hachiman/client'
+import { useMemo, useState } from 'react'
+import { Permissions, has, type Channel } from '@hachiman/client'
+import { Warning } from '@/components/security/screen-window'
 import { Button } from '@/components/ui/button'
 import { ErrorText, Field } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { ModalWindow } from '@/components/ui/modal-window'
+import { InviteHistoryOption } from '@/components/settings/invite-history-option'
 import { InviteOptions } from '@/components/settings/invite-options'
-import { INVITE_EXPIRY } from '@/components/settings/invites'
+import { inviteExpiryChoices, inviteScope } from '@/components/settings/invites'
+import { PermanentInviteConfirm } from '@/components/settings/permanent-invite-confirm'
+import { useInviteCreation } from '@/components/settings/use-invite-creation'
 import { useAction } from '@/hooks/use-action'
 import { usePermissions } from '@/hooks/use-hachiman'
 import { errMsg } from '@/lib/utils'
 import {
   copyInviteLink,
+  createHistoryInvite,
   createInvite,
-  DEFAULT_INVITE_OPTIONS,
   inviteUrl,
   type InviteOptionsValue
 } from '@/services/InviteService'
+import { useChannelStore } from '@/stores/channelStore'
 import { useDialog } from '@/stores/dialogStore'
 import { useGuildStore } from '@/stores/guildStore'
 
-const optionsKey = (o: InviteOptionsValue): string => `${o.expiry}:${o.maxUses}`
+const optionsTag = (o: InviteOptionsValue, history: boolean): string =>
+  `${o.expiry}:${o.maxUses}:${history}`
+
+const NO_CHANNELS: Channel[] = []
+
+/**
+ * A created link. `tag`: the options it was made for (`optionsTag`). `key`: the seed of an invite
+ * with history, only in this state (§12.17).
+ */
+interface Created {
+  tag: string
+  code: string
+  key: string | null
+  /** The channel names of the signed scope of an invite with history. */
+  scope: string[]
+  /** An invite with history for which this device sent nothing: it holds no group of the scope. */
+  noOwnHistory: boolean
+}
 
 /**
  * "Invite people": pick expiry / max uses, then "Create link" makes one server-side invite.
  * Nothing is created just by opening the window or changing an option; a changed option hides the
- * old link until the user creates a new one.
+ * old link until the user creates a new one. A permanent invite (administrators only) first needs
+ * the user to accept a warning. An administrator can include history (§12.11.4): the link then
+ * holds a key that this window shows once.
  */
 export function InviteDialog(): React.JSX.Element {
   const {
@@ -32,42 +56,87 @@ export function InviteDialog(): React.JSX.Element {
     open,
     close
   } = useDialog('invite')
-  const guildName = useGuildStore((s) => s.guilds.get(guildId)?.name)
+  const guild = useGuildStore((s) => s.guilds.get(guildId))
+  const roles = useGuildStore((s) => s.roles.get(guildId))
+  const channels = useChannelStore((s) => s.channels)
   const perms = usePermissions(guildId)
   const canCreate = has(perms, Permissions.CREATE_INSTANT_INVITE)
-  const [options, setOptions] = useState(DEFAULT_INVITE_OPTIONS)
-  // Tagged with the options it was made for, so it hides when they change.
-  const [created, setCreated] = useState<{ key: string; code: string } | null>(null)
+  const isAdmin = has(perms, Permissions.ADMINISTRATOR)
+  const [includeHistory, setIncludeHistory] = useState(false)
+  // Tagged (`Created.tag`) with the options it was made for, so it hides when they change.
+  const [created, setCreated] = useState<Created | null>(null)
   const [copied, setCopied] = useState(false)
   const { run, busy, error, setError, clearError } = useAction()
 
-  const key = optionsKey(options)
-  const code = created?.key === key ? created.code : null
-  const link = code ? inviteUrl(code) : ''
+  const scope = useMemo(
+    () => (guild && roles ? inviteScope(guild, roles, channels.values()) : NO_CHANNELS),
+    [guild, roles, channels]
+  )
+  // The user can lose ADMINISTRATOR, and the last channel can leave the scope, while it is open.
+  const history = isAdmin && includeHistory && scope.length > 0
 
-  const create = async (): Promise<void> => {
-    const inv = await run('create an invite link', () => createInvite(guildId, options))
-    if (!inv.ok) return
-    setCreated({ key, code: inv.value.code })
-    setCopied(false)
-  }
+  const { options, setOptions, create, confirm } = useInviteCreation({
+    isAdmin,
+    run,
+    what: 'create an invite link',
+    make: async (o, acknowledgedPermanent): Promise<Created> => {
+      if (!history) {
+        const inv = await createInvite(guildId, o, acknowledgedPermanent)
+        return {
+          tag: optionsTag(o, history),
+          code: inv.code,
+          key: null,
+          scope: [],
+          noOwnHistory: false
+        }
+      }
+      const made = await createHistoryInvite(
+        guildId,
+        o,
+        scope.map((c) => c.id),
+        acknowledgedPermanent
+      )
+      // The signed scope is a subset of the input, in byte order: show it in sidebar order.
+      const signed = new Set(made.channelIds)
+      return {
+        tag: optionsTag(o, history),
+        code: made.invite.code,
+        key: made.key,
+        scope: scope.filter((c) => signed.has(c.id)).map((c) => `#${c.name ?? c.id}`),
+        noOwnHistory: made.groups === 0
+      }
+    },
+    onCreated: (c) => {
+      setCreated(c)
+      setCopied(false)
+    }
+  })
+
+  const tag = optionsTag(options, history)
+  const shown = created?.tag === tag ? created : null
+  const link = shown ? inviteUrl(shown.code, shown.key) : ''
 
   const copy = (): void => {
-    if (!code) return
+    if (!shown) return
     clearError()
-    copyInviteLink(code).then(
+    copyInviteLink(shown.code, shown.key).then(
       () => setCopied(true),
       (e: unknown) => setError(errMsg(e))
     )
   }
 
-  const expiryLabel = INVITE_EXPIRY.find((o) => o.seconds === options.expiry)?.label ?? ''
+  const expiryLabel =
+    inviteExpiryChoices(isAdmin).find((o) => o.seconds === options.expiry)?.label ?? ''
+  const expiryHint =
+    options.expiry === 0
+      ? 'This link never expires. Revoke it in Guild settings when you do not need it.'
+      : `This link expires after ${expiryLabel.replace(/^1 /, 'one ')}.`
 
   return (
     <ModalWindow
       open={open}
       onClose={close}
-      title={guildName ? `Invite people to ${guildName}` : 'Invite people'}
+      title={guild?.name ? `Invite people to ${guild.name}` : 'Invite people'}
       description="Send this link to anyone you want to join."
       actions={
         <Button variant="ghost" onClick={close}>
@@ -84,19 +153,32 @@ export function InviteDialog(): React.JSX.Element {
           <div className="grid grid-cols-2 gap-3">
             <InviteOptions
               value={options}
+              isAdmin={isAdmin}
               onChange={(o) => {
                 setOptions(o)
                 setCopied(false)
               }}
             />
           </div>
+          {isAdmin && (
+            <InviteHistoryOption
+              checked={history}
+              scope={scope}
+              onChange={(on) => {
+                setIncludeHistory(on)
+                // An invite with history has one use by default (§12.11.4).
+                if (on) setOptions({ ...options, maxUses: 1 })
+                setCopied(false)
+              }}
+            />
+          )}
           <Field
             id="invite-link"
             label="Invite link"
             hint={
-              options.expiry === 0
-                ? 'This link never expires.'
-                : `This link expires after ${expiryLabel.replace(/^1 /, 'one ')}.`
+              shown?.key
+                ? `${expiryHint} It includes the history of ${shown.scope.join(', ')}. Copy it now: this window does not show it again.`
+                : expiryHint
             }
           >
             <div className="flex">
@@ -108,7 +190,7 @@ export function InviteDialog(): React.JSX.Element {
                 onFocus={(e) => e.currentTarget.select()}
                 className="font-mono text-[13px]"
               />
-              {code ? (
+              {shown ? (
                 <Button className="h-9 w-28 shrink-0" onClick={copy}>
                   {copied ? 'Copied' : 'Copy link'}
                 </Button>
@@ -119,7 +201,23 @@ export function InviteDialog(): React.JSX.Element {
               )}
             </div>
           </Field>
+          {shown?.noOwnHistory && (
+            <Warning>
+              This device has no history of these channels yet (no messages, for example). The link
+              gives only the history that other members send when the new member joins.
+            </Warning>
+          )}
+          {!history && (
+            <p className="text-muted-foreground text-xs leading-4">
+              This invite does not include message history. The new member sees pages, and the
+              history of the channels that they can see, only when a member shares it.
+            </p>
+          )}
           <ErrorText>{error}</ErrorText>
+          <PermanentInviteConfirm
+            {...confirm}
+            scope={history ? scope.map((c) => `#${c.name ?? c.id}`) : null}
+          />
         </>
       )}
     </ModalWindow>

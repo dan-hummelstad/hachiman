@@ -63,9 +63,10 @@ flowchart LR
 
 | Export | File | Use |
 |---|---|---|
-| `.` | `src/index.ts` | `App`, `ThemeProvider`, `PlatformProvider`, `usePlatform`, the `IPlatformService` types, `takusenService`, `parseInviteCode` |
+| `.` | `src/index.ts` | `App`, `ThemeProvider`, `PlatformProvider`, `usePlatform`, the `IPlatformService` types (with `InviteLink`), `takusenService`, `parseInviteLink`, `parseInviteCode` |
 | `./shared/*` | `src/shared/*` | The platform seam files |
 | `./takusen-env` | `src/shared/takusen-env.ts` | `resolveTakusenEnv` (pure, for the Electron main process) |
+| `./invite-link` | `src/lib/invite-link.ts` | `parseInviteLink`, `parseInviteCode`, `inviteKeyFragment`, `InviteLink`: a re-export of `@hachiman/client/invite-link` (pure, for the Electron main process and the hosts' `node --test`) |
 | `./dev/*` | `src/dev/*.ts` | Preview mode (`./dev/preview/index`) |
 | `./style.css` | `src/assets/main.css` | Tailwind v4 tokens and fonts |
 
@@ -100,7 +101,7 @@ flowchart LR
   HC -- "update, MESSAGE_*, voice" --> H
   H -- setState --> ST
   H -- "MESSAGE_*" --> MD
-  H -- "MLS_*, DEVICE_*, USER_KEYS_UPDATE,<br/>KEY_PACKAGES_LOW, KT_TREE_HEAD" --> CS
+  H -- "MLS_*, DEVICE_*, USER_KEYS_UPDATE,<br/>KEY_PACKAGES_LOW, KT_TREE_HEAD,<br/>INVITE_DELETE" --> CS
   MD -- decryptMessages --> CS
   MD -- upsert --> ST
   CS <-- RPC --> CW
@@ -130,13 +131,14 @@ Only `services/hachiman.ts` writes the mirror stores (`guildStore`, `channelStor
 - **Attachments** show as object URLs of decrypted blobs (`hooks/use-decrypted-blob.ts`, `lib/blob-url-cache.ts`). The cache loads each blob one time and releases a URL when no component holds it.
 - **Voice.** `voice-e2ee.ts` is the `VoiceE2eeDelegate` of `@hachiman/client`. It makes one transform Worker per call and one sender transform per track. A media close 4013 makes `VoiceService` join again. The call UI shows the participants from the MLS tree (`components/voice/call-roster.ts`).
 - **Admin actions.** `AdminActionService` signs role, overwrite, member-role and history-visibility changes (§12.16) and sends them in `X-Hachiman-Signed-Action`.
-- **cryptoStore** holds the Worker phase, `CryptoStatus`, the fatal state (4012 `update_required`, 4013 `device_revoked`), key-change, fork and KT alerts, membership events and the voice roster. It never holds key material or a recovery key.
+- **Invites with history** (§12.11.4). An administrator switches on "Include history" in the invite window. `InviteService.createHistoryInvite` calls `prepareHistoryInvite`, creates the invite with the record and calls `sendInviteBundles`. The window shows the link with `#k=<key>` once, from component state. A host gives an opened link to `onInviteLink`. `App.tsx` keeps its key in a memory map of `InviteService`, and `JoinServerModal` reads it from there. After the join, `redeemWaitingInvites` calls `redeemInvite` when the Worker is ready and the guild members are in the cache (`hachiman.ts` calls it again on the ready status, `READY` and `GUILD_CREATE`). The Worker then joins each `channel` group of the scope at once, by external commit with an `InviteAuth` (no member must be online). After a transport error it tries again with a growing wait, during the fetch window. A final failure adds a security notice (`cryptoStore.inviteHistoryFailures`, guild ids only). When the Worker cannot start in this window (`LockHeld`), `JoinServerModal` asks the user to agree to a join without the history. The browser sign-in redirect keeps the key in `sessionStorage` only, and `App.tsx` deletes the keys of a sign-in that did not finish (`dropSignInInviteKeys`).
+- **cryptoStore** holds the Worker phase, `CryptoStatus`, the fatal state (4012 `update_required`, 4013 `device_revoked`), key-change, fork and KT alerts, membership events and the voice roster. It never holds key material, a recovery key or an invite seed.
 
 `SoundService.playSound` checks `prefsStore` (`soundsEnabled`, `disabledSounds`, `soundVolume`) before each sound. Message sounds come from `cuelume`. Voice sounds come from `lib/chime.ts` (Web Audio).
 
 | Path | Contents |
 |---|---|
-| `src/App.tsx` | App root. It holds the one `TooltipProvider`, calls `startHachiman(platform)`, and subscribes to `onOAuthCallback` and `onInviteCode`. It shows `FatalScreen`, `Shell` inside `CryptoGate`, or `SignInScreen`, plus `Dialogs` and `SecurityNotices`. |
+| `src/App.tsx` | App root. It holds the one `TooltipProvider`, calls `startHachiman(platform)`, and subscribes to `onOAuthCallback` and `onInviteLink`. It keeps the key of an invite link in `InviteService` memory, not in the dialog store. It shows `FatalScreen`, `Shell` inside `CryptoGate`, or `SignInScreen`, plus `Dialogs` and `SecurityNotices`. |
 | `src/index.ts` | Public exports of the package |
 | `src/components/shell/` | `Shell`, channel pane, guild header and menus, the dialog host (`dialogs.tsx`) |
 | `src/components/chat/` | Transcript, message row and toolbar, composer, typing line, the "unable to decrypt" text (`decrypt-text.ts`), MLS membership lines |
@@ -144,13 +146,13 @@ Only `services/hachiman.ts` writes the mirror stores (`guildStore`, `channelStor
 | `src/components/voice/` | Voice room, `stream-grid`, `screen-share-controls`, `screen-source-picker`, stream quality fields, self mute and deafen toggles, call security (`call-roster`, `call-security`, `verify-call-dialog`) |
 | `src/components/security/` | `CryptoGate` (`onboarding.tsx`): the gate in front of `Shell`, and the onboarding (set up, link, restore, reset). Devices panel, device linking (QR and SAS emoji), verification, key-change dialog. Recovery key view and panel, security log and notices, the host trust label, fatal screens. `qr.ts` is a small QR encoder (no dependency) |
 | `src/components/people/` | Member list sections by presence |
-| `src/components/settings/` | Settings layout. `user/` holds account, appearance, voice and sounds. The guild settings dialogs are in `src/components/`. |
+| `src/components/settings/` | Settings layout. `user/` holds account, appearance, voice and sounds. `invites.ts`, `invite-options.tsx`, `invite-history-option.tsx` and `permanent-invite-confirm.tsx` hold the invite choices (more than 24 hours, permanent and "Include history" only for an administrator), the scope of an invite with history, and the permanent-invite warning. `use-invite-creation.ts` holds the create flow that the invite window and the Invites tab share: the options, and the warning before a permanent invite. The guild settings dialogs are in `src/components/`. |
 | `src/components/ui/` | shadcn and local primitives (dialog, tooltip, avatar, window strip, title bar) |
 | `src/components/*.tsx` | Server icon rail, channel sidebar, member list, voice panel, guild and channel dialogs, sign-in screen |
 | `src/stores/` | Zustand stores. `prefsStore`, `navStore`, `takusenStore` (session) and part of `voiceStore` (mute, deafen) persist to `localStorage`. `cryptoStore` is memory only. |
 | `src/services/` | `hachiman.ts`, `CryptoService`, `ds-transport`, `message-decrypt`, `voice-e2ee`, `MessagesService`, `VoiceService`, `InviteService`, `UploadService`, `AdminActionService`, `TakusenService`, `SoundService` |
 | `src/hooks/` | `use-hachiman` (derived channel and voice lists), `use-member`, `use-sign-in`, `use-recommended-region`, `use-mic-level`, `use-action`, `use-draft`, `use-decrypted-blob`, `use-membership-timeline` and others |
-| `src/lib/` | Pure helpers: `sounds`, `chime`, `stream-quality`, `connection-quality`, `mentions`, `model`, `role-ink`, `format-bytes`, `attachments` (upload id order), `blob-url-cache`, `admin-payload`, `client-version`, `utils` |
+| `src/lib/` | Pure helpers: `sounds`, `chime`, `stream-quality`, `connection-quality`, `mentions`, `model`, `role-ink`, `format-bytes`, `attachments` (upload id order), `blob-url-cache`, `invite-link` (re-export of `@hachiman/client/invite-link`), `admin-payload`, `client-version`, `utils` |
 | `src/shared/` | `IPlatformService.ts`, `PlatformContext.tsx`, `takusen-env.ts` |
 | `src/dev/preview/` | Preview mode: fixture, REST and voice stubs, the crypto stub |
 | `src/assets/` | `main.css` and the bundled fonts |
@@ -265,8 +267,11 @@ A `pages` channel shows the chat in the center and the pages panel on the right,
 | `components/docs/page-links.ts`, `page-picker.tsx` | Links with the target `hachiman:page/<id>`, shown with the current title. Slash menu items "Link to page" and "New sub-page". |
 | `components/docs/page-media.tsx`, `services/docs/media.ts` | Drop or paste a file: encrypt, upload, claim, then insert an `hm_media` node that holds the pointer. Shown through `use-decrypted-blob`. A copy puts only the upload id on the clipboard, never the file key. |
 | `services/docs/DocsService.ts` | The page tree per channel, title encryption, the `PAGE_*` events, into `docsStore`. |
+| `services/docs/titles.ts` | Pure title rules: the node of a page from its decrypt result, and the merge into the stored node (a decrypted title stays while a newer envelope is pending). `createPageTitles` owns the titles that wait for keys: it decrypts and stores titles, retries the pending ones, and does one group catch-up per channel when a title is of an epoch that the Worker did not apply yet. `DocsService` only wires it. |
 | `services/docs/page-tree.ts` | Pure tree helpers: depth-first rows, path, subtree, positions. A drop is usually one PATCH (the midpoint between the new neighbours). |
-| `services/docs/DocProvider.ts` | One `Y.Doc` and awareness per open page: load the snapshot and updates, batch local updates (100 ms), encrypt and post, apply remote updates, fill `seq` gaps, post snapshots. `DocAwareness.ts` relays awareness through gateway op 5. |
+| `services/docs/DocProvider.ts` | One `Y.Doc` and awareness per open page: load the snapshot and updates, batch local updates (100 ms), encrypt and post, apply remote updates, fill `seq` gaps, post snapshots. An idle page gets its snapshot pointer re-wrapped instead. A page that waits for keys (for its snapshot or for an update) retries slowly and reads the state again, so a newer snapshot opens it. `DocAwareness.ts` relays awareness through gateway op 5. |
+| `services/docs/envelopes.ts` | The snapshot pointer of a page: is it stale (another group or an older epoch), open it (decrypt it as a `doc_snapshot` of the page, parse it, and make sure that it names the upload of the row), and re-wrap it in the current epoch. `DocProvider` and `rewrap.ts` both use it, so the reader and the re-wrapper accept the same pointers. |
+| `services/docs/rewrap.ts` | The re-wrap pass for new members (contract §12.20 "Access by new members"). The Worker event `usersAdded` starts it: at once and after the epoch grace on the committer, after 12 to 20 s on the other members. Per pages channel of the group, it reads the page heads, re-wraps stale snapshot pointers and titles, and loads a closed page with updates after a stale snapshot (or with no snapshot) into a headless provider, to post a full snapshot. Only the committer's second pass also loads the pages with updates after a current snapshot. |
 
 ```mermaid
 flowchart LR
@@ -279,6 +284,12 @@ flowchart LR
   Provider --> GW[GatewayClient<br/>op 5]
   hachiman.ts -- PAGE_* / DOC_* events --> DocsService
   hachiman.ts -- DOC_UPDATE / DOC_AWARENESS --> Provider
+  hachiman.ts -- usersAdded --> DocsService
+  DocsService --> Rewrap[rewrap.ts<br/>page heads, re-wrap]
+  Rewrap --> REST
+  Rewrap --> Crypto
+  Provider --> Envelopes[envelopes.ts<br/>snapshot pointer]
+  Rewrap --> Envelopes
 ```
 
 ## Conventions

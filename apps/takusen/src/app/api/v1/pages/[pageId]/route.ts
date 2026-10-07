@@ -1,7 +1,8 @@
 /**
- * PATCH  /api/v1/pages/:pageId { parentId?, position?, titleEnvelope? } +
+ * PATCH  /api/v1/pages/:pageId { parentId?, position?, titleEnvelope?, ifUpdatedAt? } +
  *        X-Hachiman-Device — SEND_MESSAGES. A move into the own subtree is
- *        400 PageCycle (§4 Pages).
+ *        400 PageCycle. An `ifUpdatedAt` that differs from the page `updatedAt`
+ *        is 409 PageConflict (§4 Pages).
  * DELETE /api/v1/pages/:pageId — SEND_MESSAGES. Deletes the subtree and the
  *        page uploads (rows in the transaction, objects after commit).
  */

@@ -2,8 +2,12 @@
 // Constants only: electron-vite inlines this module into each bundle, so the
 // sandboxed preload never loads a main-process module at runtime.
 
-/** main → renderer: `takusen://invite/<code>` deep link; payload is the code. */
-export const INVITE_CODE_CHANNEL = "hachiman:invite-code";
+/**
+ * main → renderer: `takusen://invite/<code>[#k=<key>]` deep link; payload is the
+ * link that main checked and rebuilt (main/deep-link-route.ts). The renderer
+ * parses it with the shared UI's parseInviteLink.
+ */
+export const INVITE_LINK_CHANNEL = "hachiman:invite-link";
 /** main → renderer: `app.hachiman://oauth-callback?…`; payload is the raw URL. */
 export const OAUTH_CALLBACK_CHANNEL = "hachiman:oauth-callback";
 /** renderer → main (invoke): open an http(s) URL in the system browser. */

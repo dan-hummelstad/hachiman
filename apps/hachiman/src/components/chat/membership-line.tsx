@@ -49,6 +49,13 @@ export function MembershipLine({
         return <>{who} joined with a new device.</>
       case 'resynced':
         return <>{who} renewed the keys of a device.</>
+      case 'invite_with_history':
+        return (
+          <>
+            {actor ?? 'Someone'} made an invite that includes history. A person who has its link can
+            read the history here.
+          </>
+        )
     }
   })()
   return (

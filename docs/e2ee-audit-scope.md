@@ -56,11 +56,11 @@ Line counts are from 2026-10-02 on branch `e2ee`. Test files are not in the coun
 | `identity/recovery.ts` | 116 | Recovery key text form, `K_backup`, `key_id` |
 | `identity/device-message.ts` | 92 | HPKE device messages |
 | `identity/safety.ts` | 56 | Safety numbers |
-| `mls/index.ts` | 639 | ts-mls wrapper: create, commit, join, exporter |
-| `mls/service.ts` | 1157 | GroupService: handshakes, pending Removes, batches, fork alert |
-| `mls/policy.ts` | 209 | The §12.7.3 policy table on the client |
+| `mls/index.ts` | 687 | ts-mls wrapper: create, commit, join, exporter, the `authenticated_data` of an external commit (`externalCommitAuth`, `joinExternal`) |
+| `mls/service.ts` | 1390 | GroupService: handshakes, pending Removes, batches, fork alert, the `InviteAuth` check before an external commit is applied (`inviteJoinKey`), and the invite join of the redeemer (`joinOrRequest`) |
+| `mls/policy.ts` | 215 | The §12.7.3 policy table on the client, with the invite join of a user without a leaf (`inviteJoinKey`, §12.11.4) |
 | `mls/wire.ts` | 450 | MLS framing, group ids, leaf chains, context extensions |
-| `mls/ds.ts` | 509 | `DsModule`: `checkCommit`, inspectors, verifiers (runs in Takusen) |
+| `mls/ds.ts` | 538 | `DsModule`: `checkCommit`, inspectors, verifiers (runs in Takusen), `verifyInviteAuth`, `authenticatedData` in the inspection |
 | `mls/history.ts` | 110 | History bundles (§12.11.2) |
 | `envelope/codec.ts` | 440 | Envelope, content and plaintext codecs and limits |
 | `envelope/index.ts` | 174 | `K_msg`, seal, open |
@@ -73,6 +73,8 @@ Line counts are from 2026-10-02 on branch `e2ee`. Test files are not in the coun
 | `kt/index.ts` | 183 | KT codecs, RFC 6962 / RFC 9162 Merkle math |
 | `kt/client.ts` | 205 | Tree-head pinning, consistency, inclusion, gossip |
 | `admin/index.ts` | 348 | Admin action codecs, sign, verify, hash, replay |
+| `invites/codec.ts`, `invites/keys.ts`, `invites/record.ts` | 417 | Invites with history (§12.11.4): record, bundle and auth codecs, the keys from the seed, the HPKE bundle seal, the signatures |
+| `invites/service.ts` | 637 | The record checks against the admin state (§12.16), the scope from the own descriptors and the group ids, bundles after own commits, redemption and its key limits, the later fetches after a join, the seed wipe, the `InviteAuth` of an invite join (made by the redeemer, checked by members) |
 | `franking/index.ts` | 71 | Franking tag, constant-time compare |
 | `store/index.ts` | 353 | Encrypted IndexedDB store, AAD |
 | `store/serialize.ts` | 79 | Store record encoding |
@@ -85,7 +87,7 @@ Line counts are from 2026-10-02 on branch `e2ee`. Test files are not in the coun
 
 | File | Lines | What to examine |
 |---|---|---|
-| `lib/mls/commits.ts` | 328 | §12.7.3 checks 1 to 11 around `checkCommit` |
+| `lib/mls/commits.ts` | 365 | §12.7.3 checks 1 to 11 around `checkCommit`, and the `InviteAuth` rule of an external join into a `channel` group (§12.11.4) |
 | `lib/mls/batches.ts` | 280 | Batch scheduler (§12.7.5) |
 | `lib/mls/membership.ts` | 305 | Remove proposals on permission changes |
 | `lib/mls/readers.ts` | 100 | `channelReaders` |
@@ -130,6 +132,12 @@ Line counts are from 2026-10-02 on branch `e2ee`. Test files are not in the coun
 | `apps/hachiman-electron/src/main/secure-storage.ts` | 259 | `safeStorage` wrap key, Linux backend refusal |
 | `apps/hachiman-electron/src/main/csp-policy.ts` | 64 | CSP rules |
 | `apps/hachiman-browser/src/platforms/browser/secure-storage.ts` | 180 | Non-extractable IndexedDB wrap key |
+| `apps/hachiman/src/services/InviteService.ts` | 276 | Custody of the invite seed, the exception to "no key outside the Worker" (§12.17): the in-memory key maps, the `sessionStorage` entry across the browser sign-in redirect and its removal at start-up, the hand-off to `redeemInvite`, the revoke when a creation bundle fails |
+| `pkgs/hachiman-client/src/invite-link.ts` | 68 | `parseInviteLink`, `parseInviteKeyFragment`: the `#k=` format check that fails closed (43 canonical base64url characters). The one link grammar: the shared UI re-exports it (`apps/hachiman/src/lib/invite-link.ts`), and Electron main and the Takusen page use it |
+| `apps/hachiman/src/components/join-server-modal.tsx`, `invite-dialog.tsx` | 413 | The seed in component state only; the link shows once; a join without a crypto Worker needs consent |
+| `apps/hachiman-electron/src/main/deep-link-route.ts` | 43 | Deep link check in main: rebuilds the link from the URL parts, checks it with `parseInviteLink`, drops a link with another fragment |
+| `apps/hachiman-browser/src/platforms/browser/launch-url.ts` | 33 | The load URL: every `/invite` path resets to `/`, so the seed leaves the address bar and the history entry |
+| `apps/takusen/src/app/invite/[code]/open-invite-buttons.tsx`, `src/lib/invite-fragment.ts` | 84 | The Takusen page script that reads `#k=`, forwards only a well-formed key to both hosts, and strips the fragment (see L-17) |
 
 ## 4. Invariants to check
 
@@ -233,6 +241,7 @@ Each invariant has an ID, so that an auditor can refer to it. "Tested by" names 
 - **L-14 Revoked-device signatures.** A revoked device can still sign envelopes for epochs before the Remove that the client processed (§12.8.5 step 4). The server sets the order and `created_at` of such rows.
 - **L-15 KT freshness.** An inclusion proof shows that a key object is in the log, not that it is the newest entry of the user. The DS can serve an old DSK cert or hide a revocation entry from contacts (§12.14). A client that pinned `ktRequired: false` checks no proofs until it stores its first head.
 - **L-16 Fork alert.** The AEAD failure count uses unauthenticated headers. A server can trigger a resync, but the rate limit allows at most one per group in 10 minutes, with exponential backoff (§12.8.7).
+- **L-17 Invite links with history.** The link is a bearer secret: anyone who gets the full link (`#k=<seed>`) can join and read the history of the scope until the invite expires, its uses end, or an administrator revokes it (§12.11.4). A clicked link opens the Takusen page `/invite/<code>` in a browser, and Takusen serves the script that reads the fragment. Thus a hostile Takusen can read the seed in both hosts, the Electron host too (§11 "Invite links", §12.17 "Browser host"). Only a link that the user pastes into the Electron app does not go through Takusen. The seed also crosses the UI thread of the app as text (§12.17 "Exception: the invite seed").
 
 ## 6. Fuzz and property tests
 
@@ -249,6 +258,7 @@ All targets run on every `test` command with a small budget. A longer run uses t
 | KT proofs and codecs | `src/kt/kt.fuzz.spec.ts` | K-1, K-2, S-4, canonical bytes |
 | Admin actions | `src/admin/admin.fuzz.spec.ts` | S-3, G-1, canonical bytes |
 | Identity, link, backup codecs | `src/identity/codec.fuzz.spec.ts` | `CodecError` only, canonical bytes |
+| Invite record, bundle and auth codecs | `src/invites/codec.fuzz.spec.ts` | `CodecError` only, canonical bytes |
 | DS module | `src/mls/ds.fuzz.spec.ts` | `checkCommit` never throws, S-6, inspectors, verifiers |
 | `decodeB64url` (Go) | `cmd/hachiman-media/e2ee_fuzz_test.go` `FuzzDecodeB64url` | Strict §12.2 |
 | Commit header (Go) | `FuzzParseCommitHeader` | Canonical prefix |

@@ -7,9 +7,11 @@
  *   runs one scheduler step for each group with work (lib/mls/batches.ts).
  * - Once a day it deletes handshakes and inbox items older than 30 days,
  *   expired link sessions, join requests older than 7 days, group epochs
- *   beyond the newest 8 and unreferenced page media (lib/page-media-sweep.ts),
- *   and it starts suite upgrades.
+ *   beyond the newest 8, unreferenced page media (lib/page-media-sweep.ts)
+ *   and the bundles of ended invites (lib/invite-history.ts), and it starts
+ *   suite upgrades.
  */
+import { sweepInviteBundles, type InviteHistoryStore } from '../lib/invite-history'
 import { fromB64, toB64 } from '../lib/mls/bytes'
 import { JOIN_REQUEST_RETENTION_MS } from '../lib/mls/config'
 import type { DsDeps } from '../lib/mls/context'
@@ -32,6 +34,8 @@ export interface MlsSchedulerOptions {
   logger?: (msg: string) => void
   /** The page media sweep and the object delete. Unset: no page media sweep. */
   pageMedia?: { repo: PageMediaSweepRepo; deleteObjects: (keys: string[]) => Promise<void> }
+  /** The invite bundle sweep. Unset: no invite bundle sweep. */
+  inviteBundles?: Pick<InviteHistoryStore, 'deleteStaleBundles'>
 }
 
 export interface SweepResult {
@@ -41,6 +45,7 @@ export interface SweepResult {
   joinRequests: number
   epochs: number
   pageMedia: number
+  inviteBundles: number
   upgrades: number
 }
 
@@ -102,6 +107,7 @@ export class MlsScheduler {
       joinRequests: await repo.deleteJoinRequestsBefore(new Date(now.getTime() - JOIN_REQUEST_RETENTION_MS)),
       epochs: await repo.pruneAllGroupEpochs(GROUP_STATE_EPOCHS_KEPT),
       pageMedia: this.opts.pageMedia ? await sweepPageMedia(this.opts.pageMedia.repo, now, this.opts.pageMedia.deleteObjects) : 0,
+      inviteBundles: this.opts.inviteBundles ? await sweepInviteBundles(this.opts.inviteBundles, now) : 0,
       upgrades: 0,
     }
     if (deps.config.suites.length > 1) {

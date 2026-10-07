@@ -1,4 +1,8 @@
-import { takusenService, type IPlatformService } from "@hachiman/hachiman";
+import {
+  parseInviteLink,
+  takusenService,
+  type IPlatformService,
+} from "@hachiman/hachiman";
 import type { SecureStorageFailureCode } from "../../shared/ipc";
 
 // Thin adapter over the preload bridge (src/preload/index.ts). All privileged
@@ -18,7 +22,12 @@ export const platformService: IPlatformService = {
         console.error("[platform] could not open the sign-in page", e),
       );
   },
-  onInviteCode: (cb) => window.hachiman.onInviteCode(cb),
+  // Main sends a checked link; parse it again here, so the seam gets one shape.
+  onInviteLink: (cb) =>
+    window.hachiman.onInviteLink((raw) => {
+      const link = parseInviteLink(raw);
+      if (link) cb(link);
+    }),
   onOAuthCallback: (cb) => window.hachiman.onOAuthCallback(cb),
   probeRegions: (targets) => window.hachiman.probeRegions(targets),
   getScreenSources: () => window.hachiman.getScreenSources(),

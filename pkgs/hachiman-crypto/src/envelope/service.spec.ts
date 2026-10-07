@@ -158,6 +158,9 @@ function makeGroups(world: World, self: Device, view: View): GroupService {
     resyncAll: unimplemented,
     exportHistoryKeys: unimplemented,
     importHistoryKeys: unimplemented,
+    descriptor: unimplemented,
+    appendTimeline: unimplemented,
+    attachInvites: unimplemented,
     sendState(channelId) {
       const groupId = world.channelGroup.get(channelId)!
       const epoch = world.current.get(toB64url(groupId))!

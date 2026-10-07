@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { KeyRound, Link2, ShieldAlert, TriangleAlert, X } from 'lucide-react'
+import { History, KeyRound, Link2, ShieldAlert, TriangleAlert, X } from 'lucide-react'
 import type { CryptoEvents } from '@hachiman/crypto'
 import { Button } from '@/components/ui/button'
 import { useUserName } from '@/components/security/use-user-name'
@@ -7,8 +7,14 @@ import { openUserSettings } from '@/components/user-settings'
 import { cn } from '@/lib/utils'
 import { hachiman } from '@/services/hachiman'
 import { useChannelStore } from '@/stores/channelStore'
-import { dismissForkAlert, dismissKeyChange, useCryptoStore } from '@/stores/cryptoStore'
+import {
+  dismissForkAlert,
+  dismissInviteHistoryFailure,
+  dismissKeyChange,
+  useCryptoStore
+} from '@/stores/cryptoStore'
 import { openDialog, useDialogStore } from '@/stores/dialogStore'
+import { useGuildStore } from '@/stores/guildStore'
 
 /**
  * Security notices in the corner of the shell, while the identity of this device is ready:
@@ -16,6 +22,7 @@ import { openDialog, useDialogStore } from '@/stores/dialogStore'
  *   blocking 'keyChange' dialog whenever no other dialog is open;
  * - fork alerts (§12.8.7) and key transparency alerts (§12.14);
  * - a link request from a new device of the user (§12.5, DEVICE_LINK);
+ * - the history of an invite that did not open after the join (§12.11.4);
  * - no recovery key on a primary device.
  */
 export function SecurityNotices(): React.JSX.Element | null {
@@ -26,6 +33,7 @@ export function SecurityNotices(): React.JSX.Element | null {
 function Notices(): React.JSX.Element {
   const keyChanges = useCryptoStore((s) => s.keyChanges)
   const forkAlerts = useCryptoStore((s) => s.forkAlerts)
+  const inviteFailures = useCryptoStore((s) => s.inviteHistoryFailures)
   const ktAlertCount = useCryptoStore((s) => s.ktAlerts.length)
   const noRecovery = useCryptoStore(
     (s) => s.status?.primary === true && s.status.recoveryConfigured === false
@@ -64,6 +72,8 @@ function Notices(): React.JSX.Element {
     notices.push(<KeyChangeNotice key={`key:${k.userId}`} change={k} />)
   }
   for (const f of forkAlerts) notices.push(<ForkNotice key={`fork:${f.groupId}`} alert={f} />)
+  for (const g of inviteFailures)
+    notices.push(<InviteHistoryNotice key={`invite:${g}`} guildId={g} />)
   if (ktAlertCount > 0)
     notices.push(
       <Notice
@@ -141,6 +151,17 @@ function ForkNotice({ alert }: { alert: CryptoEvents['forkAlert'] }): React.JSX.
       icon={<TriangleAlert />}
       text={`The encryption of ${channelName ? `#${channelName}` : 'a conversation'} got out of step. Hachiman repairs it now. Some messages can show late.`}
       onDismiss={() => dismissForkAlert(alert.groupId)}
+    />
+  )
+}
+
+function InviteHistoryNotice({ guildId }: { guildId: string }): React.JSX.Element {
+  const guildName = useGuildStore((s) => s.guilds.get(guildId)?.name ?? null)
+  return (
+    <Notice
+      icon={<History />}
+      text={`Hachiman could not open the history of ${guildName ?? 'the guild'} from the invite. You are a member, but you see the earlier messages only when a member shares them.`}
+      onDismiss={() => dismissInviteHistoryFailure(guildId)}
     />
   )
 }

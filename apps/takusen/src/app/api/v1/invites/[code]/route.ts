@@ -4,19 +4,20 @@
  * POST   /api/v1/invites/:code — accept: join the guild and return its
  *        GuildFull. Idempotent for existing members (no use consumed, no events).
  * DELETE /api/v1/invites/:code — revoke; MANAGE_GUILD on the invite's guild.
+ *        The revoke deletes the bundles of the invite (§12.11.4) in the same
+ *        transaction. The first revoke publishes INVITE_DELETE to the guild.
  */
-import { eq } from 'drizzle-orm'
 import { Permissions } from '@hachiman/client/permissions'
 import { NextResponse, type NextRequest } from 'next/server'
 
-import { db } from '@/db/client'
-import { invites } from '@/db/schema'
 import { errorResponse, noContent } from '@/lib/api-helpers'
 import { requireUser } from '@/lib/auth-helpers'
 import { NotFoundError } from '@/lib/errors'
 import { publishToGuild, publishToUser } from '@/lib/events'
 import { actorDeviceId, loadGuildAccess, requirePermission } from '@/lib/guild-access'
 import { loadGuildFull, loadMember } from '@/lib/guilds'
+import { drizzleInviteHistoryStore } from '@/lib/invite-history'
+import { publishInviteDeletes } from '@/lib/invite-limits'
 import { acceptInvite, getInviteByCode, previewInvite } from '@/lib/invites'
 
 interface RouteContext {
@@ -57,7 +58,8 @@ export async function DELETE(_req: NextRequest, ctx: RouteContext): Promise<Next
     if (!invite) throw new NotFoundError('Unknown invite')
     const access = await loadGuildAccess(invite.guildId, session.user.id)
     requirePermission(access.permissions, Permissions.MANAGE_GUILD)
-    await db.update(invites).set({ revoked: true }).where(eq(invites.id, invite.id))
+    const revoked = await drizzleInviteHistoryStore().transaction((s) => s.revokeInvites([invite.id]))
+    await publishInviteDeletes(invite.guildId, revoked)
     return noContent()
   } catch (err) {
     return errorResponse(err)

@@ -13,6 +13,8 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto'
 
 import { decodeDocEnvelope, decodeEnvelope, encodeDocHeader, encodeEnvelope, encodeHeader } from '../../../../../pkgs/hachiman-crypto/src/envelope/codec'
 import { identity, verifyDeviceCert, verifyDskCert } from '../../../../../pkgs/hachiman-crypto/src/identity/index'
+import { inviteRecordView, readSignedInviteRecord } from '../../../../../pkgs/hachiman-crypto/src/invites/codec'
+import { verifyInviteAuth, verifyInviteRecordSignature } from '../../../../../pkgs/hachiman-crypto/src/invites/record'
 import { kt } from '../../../../../pkgs/hachiman-crypto/src/kt/index'
 
 import { bytesEqual, fromB64, Reader, toB64 } from './bytes'
@@ -56,6 +58,8 @@ export interface FakeCommitRest {
   /** External commit: the new leaf, and the own leaf that a resync removes. */
   external?: { leaf: FakeLeaf; resyncOf: number | null }
   descriptor?: GroupDescriptor | null
+  /** b64: the MLS authenticated_data (an InviteAuth, §12.11.4). */
+  authenticatedData?: string
 }
 
 function afterGroupContext(bytes: Uint8Array): Uint8Array {
@@ -306,6 +310,7 @@ export class FakeDs implements DsModule {
         changedLeaves: changedLeaves.map((l) => l.leafIndex),
         removedLeaves,
         descriptorChanged: JSON.stringify(descriptor) !== JSON.stringify(prevGi.descriptor),
+        authenticatedData: rest.authenticatedData ? fromB64(rest.authenticatedData)! : new Uint8Array(0),
       },
     }
   }
@@ -380,6 +385,24 @@ export class FakeDs implements DsModule {
   }
   adminActionHash(): never {
     throw new Error('not used by the DS tests')
+  }
+  /** The real pure check (§12.11.4). */
+  verifyInviteRecord(signedRecord: Uint8Array, creatorCertificate: Uint8Array) {
+    try {
+      const rec = verifyInviteRecordSignature(signedRecord, identity.decodeDeviceCertificate(creatorCertificate))
+      return rec === null ? null : inviteRecordView(rec)
+    } catch {
+      return null
+    }
+  }
+  /** The real decode (§12.11.4). */
+  parseInviteRecord(signedRecord: Uint8Array) {
+    return inviteRecordView(readSignedInviteRecord(signedRecord))
+  }
+  /** The real pure check (§12.11.4). */
+  verifyInviteAuth(input: { authenticatedData: Uint8Array; groupId: Uint8Array; leafSignatureKey: Uint8Array }) {
+    const v = verifyInviteAuth({ auth: input.authenticatedData, groupId: input.groupId, leafSignatureKey: input.leafSignatureKey })
+    return v === null ? null : { keyId: v.keyId, signedRecord: v.signedRecord, record: inviteRecordView(v.record) }
   }
   parseEnvelopeHeader(envelope: Uint8Array) {
     return decodeEnvelope(envelope).header

@@ -1,12 +1,13 @@
 import { describe, expect, it } from 'vitest'
 
-import type { CryptoEvents, EncryptedMessage } from '../api'
+import type { CryptoEvents, EncryptedMessage, InvitePort } from '../api'
 import { admin } from '../admin/index'
 import { createAdminService } from '../admin/service'
 import { fromB64url, toB64url } from '../codec'
 import { DsError } from '../identity/test-helpers'
 import { FakeMlsDs, leafGeneration, type Client } from './fake-ds'
 import { mls } from './index'
+import { createGroupService } from './service'
 import { keyPackage, makeDevice, makeUser } from './test-helpers'
 
 async function world(names: string[]): Promise<{ ds: FakeMlsDs; c: Record<string, Client> }> {
@@ -15,6 +16,11 @@ async function world(names: string[]): Promise<{ ds: FakeMlsDs; c: Record<string
   for (const n of names) c[n] = await ds.client(ds.uuid())
   await ds.flush()
   return { ds, c }
+}
+
+/** An InvitePort that records the hooks and gives no invite join. */
+function testPort(hooks: Partial<Pick<InvitePort, 'ownCommit' | 'joined'>>): InvitePort {
+  return { authFor: () => Promise.resolve(null), checkJoin: () => Promise.resolve('test'), ownCommit: () => undefined, joined: () => undefined, ...hooks }
 }
 
 async function epochOf(c: Client, gid: string): Promise<number | null> {
@@ -141,12 +147,15 @@ describe('GroupService', () => {
     const gid = ds.allocate('public_set', { guildId, channelId: null }, alice.deviceId)
     await ds.flush()
     alice.online = false
+    const joins: number[] = []
+    bob.groups.attachInvites(testPort({ joined: (e) => joins.push(e.epoch) }))
     await bob.groups.ensureChannelGroup(general)
     const req = [...ds.joinRequests.values()].find((r) => r.deviceId === bob.deviceId)!
     ds.groups.get(gid)!.pending = []
     ds.joinUpdate(req.id, 'external_commit')
     await ds.flush()
     expect(await epochOf(bob, gid)).toBe(1)
+    expect(joins).toEqual([1])
     alice.online = true
     await alice.groups.sync()
     expect(await secretOf(alice, gid)).toBe(await secretOf(bob, gid))
@@ -532,4 +541,180 @@ describe('GroupService', () => {
     expect(ds.groups.get(gid)!.handshakes.map((h) => h.kind)).toEqual(['commit'])
     expect(await secretOf(bob, gid)).toBe(await secretOf(alice, gid))
   }, 120_000)
+
+  it('InvitePort.ownCommit fires after each own accepted commit, never after a commit of another device; joined after a Welcome', async () => {
+    const { ds, c } = await world(['alice', 'bob', 'carol'])
+    const { alice, bob, carol } = c as Record<'alice' | 'bob' | 'carol', Client>
+    const seen: { device: string; gid: string; epoch: number }[] = []
+    const joins: { device: string; gid: string; epoch: number }[] = []
+    const record = (list: typeof seen, x: Client) => (e: { groupId: Uint8Array; epoch: number }) => {
+      list.push({ device: x.deviceId, gid: toB64url(e.groupId), epoch: e.epoch })
+    }
+    for (const x of [alice, bob]) x.groups.attachInvites(testPort({ ownCommit: record(seen, x), joined: record(joins, x) }))
+    // A later attachInvites replaces the port.
+    const replaced: unknown[] = []
+    carol.groups.attachInvites(testPort({ joined: (e) => replaced.push(e) }))
+    carol.groups.attachInvites(testPort({ joined: record(joins, carol) }))
+    // The batch commit of the Adds.
+    const { channelId, gid } = await channelGroup(ds, [alice, bob, carol])
+    expect(seen).toEqual([{ device: alice.deviceId, gid, epoch: 1 }])
+    expect(replaced).toEqual([])
+    expect(joins).toEqual([
+      { device: bob.deviceId, gid, epoch: 1 },
+      { device: carol.deviceId, gid, epoch: 1 },
+    ])
+    // A commit before a send, and an external commit (resync).
+    ds.channels.get(channelId)!.readers.delete(carol.userId)
+    await ds.queueRemove(gid, carol.deviceId)
+    await ds.flush()
+    await bob.groups.sendState(channelId)
+    await ds.flush()
+    await alice.groups.resyncAll('fork')
+    await ds.flush()
+    expect(seen).toEqual([
+      { device: alice.deviceId, gid, epoch: 1 },
+      { device: bob.deviceId, gid, epoch: 2 },
+      { device: alice.deviceId, gid, epoch: 3 },
+    ])
+    // A resync is no join.
+    expect(joins).toHaveLength(2)
+    expect(await bob.groups.descriptor(fromB64url(gid))).toMatchObject({ kind: 'channel', channelId })
+    expect(await carol.groups.descriptor(fromB64url(gid))).toBeNull()
+  }, 120_000)
+
+  it('the secret from the MLS state replaces an imported secret of the epoch that the device enters', async () => {
+    const { ds, c } = await world(['alice', 'bob'])
+    const { alice, bob } = c as Record<'alice' | 'bob', Client>
+    const { channelId, gid } = await channelGroup(ds, [alice, bob])
+    // A bundle that any member can sign (§12.11.4) gave bob a wrong secret for the next epoch.
+    await bob.groups.importHistoryKeys([{ groupId: fromB64url(gid), epoch: 2, secret: new Uint8Array(32).fill(7) }], 'bundle')
+    await alice.groups.resyncAll('fork')
+    await ds.flush()
+    expect(await epochOf(bob, gid)).toBe(2)
+    expect(await secretOf(bob, gid)).toBe(await secretOf(alice, gid))
+    expect(bob.of<CryptoEvents['epochKeysAvailable']>('epochKeysAvailable').filter((e) => e.groupId === gid)).toEqual([
+      { groupId: gid, epochs: [2] },
+      { groupId: gid, epochs: [2] },
+    ])
+    expect(toB64url((await bob.groups.sendState(channelId)).epochSecret)).toBe(await secretOf(alice, gid))
+  }, 120_000)
+
+  it('a load outside the lock does not cache a handle that a locked caller removed meanwhile', async () => {
+    const { ds, c } = await world(['alice', 'bob', 'carol'])
+    const { alice, bob, carol } = c as Record<'alice' | 'bob' | 'carol', Client>
+    const { channelId, gid } = await channelGroup(ds, [alice, bob, carol])
+    // A new service on carol's store (no cached handle). Its first restore waits for the gate.
+    let open!: () => void
+    const gate = new Promise<void>((resolve) => (open = resolve))
+    let first = true
+    const restore = async (state: Uint8Array) => {
+      const h = await mls.restore(state)
+      if (first) {
+        first = false
+        await gate
+      }
+      return h
+    }
+    const svc = createGroupService(carol.ctx, carol.identity, { mls: { ...mls, restore } })
+    carol.groups = svc
+    const pending = svc.descriptor(fromB64url(gid))
+    // alice removes carol. The locked path restores, processes the commit and deletes the state.
+    ds.channels.get(channelId)!.readers.delete(carol.userId)
+    await ds.queueRemove(gid, carol.deviceId)
+    await ds.flush()
+    await alice.groups.sendState(channelId)
+    await ds.flush()
+    expect((await carol.store.get('groups', gid))!.state.length).toBe(0)
+    open()
+    expect(await pending).toBeNull()
+    expect(await svc.currentEpoch(fromB64url(gid))).toBeNull()
+  }, 120_000)
+
+  describe('usersAdded (§12.20 "Access by new members")', () => {
+    type UsersAdded = CryptoEvents['usersAdded']
+
+    it('fires on the committer and on the members for a new user, never on the joiner', async () => {
+      const { ds, c } = await world(['alice', 'bob', 'carol'])
+      const { alice, bob, carol } = c as Record<'alice' | 'bob' | 'carol', Client>
+      const { guildId, channelId, gid: channel } = await channelGroup(ds, [alice, bob])
+      expect(alice.of<UsersAdded>('usersAdded')).toEqual([{ groupId: channel, kind: 'channel', guildId, channelId, epoch: 1, userIds: [bob.userId], byMe: true }])
+      expect(bob.of('usersAdded')).toEqual([])
+
+      ds.guilds.get(guildId)!.add(carol.userId)
+      const general = ds.channel(guildId, [alice.userId, bob.userId, carol.userId])
+      const gid = ds.allocate('public_set', { guildId, channelId: null }, alice.deviceId)
+      await ds.flush()
+      await bob.groups.ensureChannelGroup(general)
+      await ds.flush()
+      ds.batch(gid, alice.deviceId)
+      await ds.flush()
+      await carol.groups.ensureChannelGroup(general)
+      await ds.flush()
+      ds.batch(gid, bob.deviceId)
+      await ds.flush()
+      const added = (x: Client) => x.of<UsersAdded>('usersAdded').filter((e) => e.groupId === gid)
+      expect(added(alice)).toEqual([
+        { groupId: gid, kind: 'public_set', guildId, channelId: null, epoch: 1, userIds: [bob.userId], byMe: true },
+        { groupId: gid, kind: 'public_set', guildId, channelId: null, epoch: 2, userIds: [carol.userId], byMe: false },
+      ])
+      expect(added(bob)).toEqual([{ groupId: gid, kind: 'public_set', guildId, channelId: null, epoch: 2, userIds: [carol.userId], byMe: true }])
+      expect(carol.of('usersAdded')).toEqual([])
+
+      // A resync and a new device of a member add no new user.
+      const count = () => [alice, bob, carol].map((x) => x.of('usersAdded').length)
+      const before = count()
+      await bob.groups.resyncAll('fork')
+      await ds.flush()
+      const alice2 = await ds.client(alice.userId, { recoveryKey: (alice as Client & { recoveryKey: string }).recoveryKey })
+      await ds.flush()
+      await alice2.groups.ensureChannelGroup(general)
+      await ds.flush()
+      ds.batch(gid, carol.deviceId)
+      await ds.flush()
+      expect(await epochOf(alice2, gid)).toBe(4)
+      expect(count()).toEqual(before)
+      expect(alice2.of('usersAdded')).toEqual([])
+    }, 120_000)
+
+    it('fires on a member that processes an external join later', async () => {
+      const { ds, c } = await world(['alice', 'bob'])
+      const { alice, bob } = c as Record<'alice' | 'bob', Client>
+      const guildId = ds.guild([alice.userId, bob.userId])
+      const general = ds.channel(guildId, [alice.userId, bob.userId])
+      const gid = ds.allocate('public_set', { guildId, channelId: null }, alice.deviceId)
+      await ds.flush()
+      alice.online = false
+      await bob.groups.ensureChannelGroup(general)
+      const req = [...ds.joinRequests.values()].find((r) => r.deviceId === bob.deviceId)!
+      ds.groups.get(gid)!.pending = []
+      ds.joinUpdate(req.id, 'external_commit')
+      await ds.flush()
+      alice.online = true
+      await alice.groups.sync()
+      expect(alice.of<UsersAdded>('usersAdded')).toEqual([{ groupId: gid, kind: 'public_set', guildId, channelId: null, epoch: 1, userIds: [bob.userId], byMe: false }])
+      expect(bob.of('usersAdded')).toEqual([])
+    }, 120_000)
+
+    it('fires once when the committer adopts its own Add commit after a lost response', async () => {
+      const { ds, c } = await world(['alice', 'bob'])
+      const { alice, bob } = c as Record<'alice' | 'bob', Client>
+      const guildId = ds.guild([alice.userId, bob.userId])
+      const general = ds.channel(guildId, [alice.userId, bob.userId])
+      const gid = ds.allocate('public_set', { guildId, channelId: null }, alice.deviceId)
+      await ds.flush()
+      await bob.groups.ensureChannelGroup(general)
+      await ds.flush()
+      // The DS stores the commit, but the response never reaches alice: the stream adopts it.
+      const post = alice.transport.postCommit.bind(alice.transport)
+      alice.transport.postCommit = async (g, body) => {
+        await post(g, body)
+        throw new DsError('Timeout')
+      }
+      ds.batch(gid, alice.deviceId)
+      await ds.flush()
+      alice.transport.postCommit = post
+      expect(await epochOf(alice, gid)).toBe(1)
+      expect(alice.of<UsersAdded>('usersAdded')).toEqual([{ groupId: gid, kind: 'public_set', guildId, channelId: null, epoch: 1, userIds: [bob.userId], byMe: true }])
+    }, 120_000)
+  })
 })

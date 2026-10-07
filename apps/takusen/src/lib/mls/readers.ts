@@ -4,7 +4,7 @@
  * It uses the §2 algorithm of `@hachiman/client/permissions`, so Takusen and
  * the clients compute the same sets.
  */
-import { computeChannelPermissions, has, Permissions } from '@hachiman/client/permissions'
+import { computeBasePermissions, computeChannelPermissions, has, Permissions } from '@hachiman/client/permissions'
 
 import { hasTextGroup } from '@/lib/channel-types'
 
@@ -87,6 +87,12 @@ export async function readersOfGroup(repo: MlsRepo, group: Pick<GroupRow, 'kind'
 export async function groupReadersWith(repo: MlsRepo, groupId: Uint8Array): Promise<Set<string>> {
   const group = await repo.getGroup(groupId)
   return group ? readersOfGroup(repo, group) : new Set()
+}
+
+/** A guild member whose base permissions (§2) have `bit`. False for a non-member. */
+export function hasGuildPermission(data: GuildPermissionData, userId: string, bit: number): boolean {
+  const roles = data.members.get(userId)
+  return roles !== undefined && has(computeBasePermissions(data.guild, { user: { id: userId }, roles }, data.roles), bit)
 }
 
 /** The caller's permissions in a guild channel (null for DMs and unknown channels). */

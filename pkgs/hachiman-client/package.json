@@ -9,6 +9,7 @@
     ".": "./src/index.ts",
     "./permissions": "./src/permissions.ts",
     "./files": "./src/files.ts",
+    "./invite-link": "./src/invite-link.ts",
     "./types": "./src/types.ts"
   },
   "scripts": {

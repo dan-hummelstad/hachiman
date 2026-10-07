@@ -3,9 +3,13 @@
  * An in-memory delivery service for the GroupService specs. It adds the §12.7 MLS routes to the
  * identity FakeDs: compare-and-set on the epoch, the handshake stream with `seq`, DS proposals
  * that go into the stream before a batch uses them (§12.7.4), Welcome delivery through the device
- * inbox, join requests, and DsModule.checkCommit on every upload. Not part of the package exports.
+ * inbox, join requests, and DsModule.checkCommit on every upload. It also stores invite records and
+ * invite bundles (§12.11.4, §12.12), and applies the external commit rule of Takusen with its
+ * InviteAuth check (§12.7.3). Not part of the package exports.
  */
 import type {
+  AdminPermissionModel,
+  CommitInspection,
   CryptoGatewayEvent,
   DsSigner,
   DsTransport,
@@ -21,12 +25,14 @@ import type {
   WireMlsGroup,
 } from '../api'
 import { encode, fromB64url, toB64url } from '../codec'
-import { WIRE_VERSION, type CipherSuiteId, type GroupKindName, type HistoryVisibilityName } from '../constants'
+import { INVITE_AUTH_WINDOW_MS, WIRE_VERSION, type CipherSuiteId, type GroupKindName, type HistoryVisibilityName } from '../constants'
 import { randomBytes } from '../identity/bytes'
 import { identity } from '../identity/index'
 import { DsError, FakeDs, MemoryStore, testPermissions } from '../identity/test-helpers'
 import { createIdentityService } from '../identity/service'
 import { createMessageService } from '../envelope/service'
+import { readSignedInviteRecord } from '../invites/codec'
+import { createInviteService, type InviteServiceExt } from '../invites/service'
 import { ds } from './ds'
 import { mls } from './index'
 import { createGroupService, type GroupServiceExt } from './service'
@@ -65,12 +71,28 @@ interface Group {
   expiredBefore: number
 }
 
+/** An invite with history (§4, §12.12): the record that the route stored, and its bundles. */
+interface Invite {
+  id: string
+  code: string
+  guildId: string
+  keyId: string
+  record: string
+  expiresAtMs: number
+  revoked: boolean
+  bundles: { groupId: string; epoch: number; blob: string; senderDevice: string; senderUser: string }[]
+  /** The users who joined the guild with the invite, and when (ms). */
+  joined: Map<string, number>
+}
+
 export interface Client {
   userId: string
   deviceId: string
   identity: IdentityService
   groups: GroupServiceExt
   messages: MessageService
+  /** Null unless the client was made with `invitePermissions`. */
+  invites: InviteServiceExt | null
   ctx: EngineContext
   store: MemoryStore
   transport: DsTransport & { deviceId: string | null }
@@ -91,6 +113,7 @@ export class FakeMlsDs {
   inbox = new Map<string, WireInboxItem[]>()
   joinRequests = new Map<string, WireJoinRequest & { userId: string }>()
   clients = new Map<string, Client>()
+  invites = new Map<string, Invite>()
   /** Rewrites the `next` hashes of published handshakes (fork tests). */
   tamperNext: ((h: WireHandshake) => WireHandshake['next']) | null = null
   /** The wait between automatic resync attempts of every client (GroupServiceDeps.sleep). */
@@ -112,8 +135,11 @@ export class FakeMlsDs {
 
   // MARK: - clients
 
-  /** `adminPermissions`: the GroupService also replays signed admin actions (§12.16), as in the Worker. */
-  async client(userId: string, opts: { recoveryKey?: string; store?: MemoryStore; adminPermissions?: boolean } = {}): Promise<Client & { recoveryKey: string | null }> {
+  /**
+   * `adminPermissions`: the GroupService also replays signed admin actions (§12.16), as in the Worker.
+   * `invitePermissions`: the client gets an InviteService with these §2 rules.
+   */
+  async client(userId: string, opts: { recoveryKey?: string; store?: MemoryStore; adminPermissions?: boolean; invitePermissions?: AdminPermissionModel } = {}): Promise<Client & { recoveryKey: string | null }> {
     const store = opts.store ?? new MemoryStore()
     const restart = opts.store !== undefined
     const transport = this.transport(userId)
@@ -131,6 +157,7 @@ export class FakeMlsDs {
     const identity = createIdentityService(ctx, { mls, adminPermissions: testPermissions })
     const groups = createGroupService(ctx, identity, { sleep: (ms) => this.sleep(ms), ...(opts.adminPermissions === true ? { adminPermissions: testPermissions } : {}) })
     const messages = createMessageService(ctx, identity, groups)
+    const invites = opts.invitePermissions === undefined ? null : createInviteService(ctx, identity, groups, opts.invitePermissions)
     const loaded = await identity.load({ userId, wrapKey: {} as CryptoKey, platform: 'electron', clientVersion: '1.0.0', deviceName: 'test', origin: ctx.origin })
     let recoveryKey: string | null = null
     if (restart) transport.deviceId = loaded!.deviceId
@@ -143,6 +170,7 @@ export class FakeMlsDs {
       identity,
       groups,
       messages,
+      invites,
       ctx,
       store,
       transport,
@@ -155,6 +183,7 @@ export class FakeMlsDs {
     const route = async (e: CryptoGatewayEvent): Promise<void> => {
       if (!c.online) return
       if (e.t.startsWith('MLS_') || e.t === 'DEVICE_INBOX') await groups.onGatewayEvent(e)
+      else if (e.t === 'INVITE_DELETE') await invites?.onGatewayEvent(e)
       else await identity.onGatewayEvent(e)
     }
     this.id.subscribe(deviceId, route)
@@ -170,9 +199,14 @@ export class FakeMlsDs {
       for (let next = this.queue.shift(); next !== undefined; next = this.queue.shift()) {
         n++
         const c = this.clients.get(next.deviceId)
-        if (c?.online) await c.groups.onGatewayEvent(next.event)
+        if (!c?.online) continue
+        if (next.event.t === 'INVITE_DELETE') await c.invites?.onGatewayEvent(next.event)
+        else await c.groups.onGatewayEvent(next.event)
       }
-      for (const c of this.clients.values()) await c.groups.idle()
+      for (const c of this.clients.values()) {
+        await c.groups.idle()
+        await c.invites?.idle()
+      }
       quiet = n === 0 && this.queue.length === 0 ? quiet + 1 : 0
     }
   }
@@ -335,6 +369,15 @@ export class FakeMlsDs {
         throw new DsError('IllegalMembership')
       }
     }
+    // The external commit rule (§12.7.3): in channel and dm, a user without a leaf joins only with
+    // a valid InviteAuth (channel).
+    if (insp.sender.type === 'new_member_commit' && g.kind !== 'public_set' && !g.roster.some((r) => r.userId === caller.userId)) {
+      const why = this.inviteJoinRefusal(g, caller, insp)
+      if (why !== null) {
+        this.log.push(`IllegalAdd: ${why}`)
+        throw new DsError('IllegalAdd')
+      }
+    }
     this.onCommit?.(caller.id)
     const external = insp.sender.type === 'new_member_commit'
     const gi = decodeGroupInfoMessage(groupInfo)
@@ -363,6 +406,46 @@ export class FakeMlsDs {
     for (const p of g.pending) if (p.kind === 'remove') p.leafIndex = g.roster.find((r) => r.deviceId === p.deviceId)?.leafIndex ?? p.leafIndex
     await this.signPending(g)
     return { epoch: epoch + 1, seq: h.seq }
+  }
+
+  /** Takusen's InviteAuth check of an external join (commits.ts, §12.11.4). Null when it allows the join. */
+  private inviteJoinRefusal(g: Group, caller: { id: string; userId: string }, insp: CommitInspection): string | null {
+    const leaf = insp.next.roster.find((r) => r.deviceId === caller.id)
+    if (g.kind !== 'channel' || leaf === undefined || insp.authenticatedData.length === 0) return 'no leaf of the user'
+    const v = ds.verifyInviteAuth({ authenticatedData: insp.authenticatedData, groupId: fromB64url(g.groupId), leafSignatureKey: leaf.signatureKey })
+    if (v === null) return 'the InviteAuth does not verify'
+    const inv = [...this.invites.values()].find((i) => i.keyId === toB64url(v.keyId))
+    if (inv === undefined || inv.revoked || inv.guildId !== g.guildId || inv.record !== toB64url(v.signedRecord)) return 'unknown invite'
+    if (inv.expiresAtMs !== 0 && inv.expiresAtMs <= this.id.now) return 'the invite expired'
+    if (!v.record.channelIds.includes(g.channelId!)) return 'the channel is not in the scope'
+    const joinedAt = inv.joined.get(caller.userId)
+    if (joinedAt === undefined || this.id.now - joinedAt > INVITE_AUTH_WINDOW_MS) return 'not joined with the invite'
+    return null
+  }
+
+  // MARK: - invites with history (the parts of Takusen outside the DS, §4)
+
+  /** POST /guilds/:id/invites with a record. Like Takusen, it does not check the admin state. */
+  createInvite(guildId: string, record: string): { inviteId: string; code: string } {
+    const rec = readSignedInviteRecord(fromB64url(record))
+    const inv: Invite = { id: this.uuid(), code: this.uuid().slice(0, 8).toUpperCase(), guildId, keyId: toB64url(rec.signPublic), record, expiresAtMs: rec.expiresAtMs, revoked: false, bundles: [], joined: new Map() }
+    this.invites.set(inv.id, inv)
+    return { inviteId: inv.id, code: inv.code }
+  }
+
+  /** POST /invites/:code: the user joins the guild with the invite. */
+  acceptInvite(code: string, userId: string): void {
+    const inv = [...this.invites.values()].find((i) => i.code === code)!
+    this.guilds.get(inv.guildId)!.add(userId)
+    inv.joined.set(userId, this.id.now)
+  }
+
+  /** DELETE /invites/:code: revoke, delete the bundles, INVITE_DELETE to the guild. */
+  revokeInvite(inviteId: string): void {
+    const inv = this.invites.get(inviteId)!
+    inv.revoked = true
+    inv.bundles = []
+    this.publish(this.activeDevices(this.guilds.get(inv.guildId) ?? []), { t: 'INVITE_DELETE', d: { guildId: inv.guildId, code: inv.code, inviteId } })
   }
 
   /** MLS_JOIN_UPDATE for a join request (the scheduler finds no online member, §12.7.5 step 7). */
@@ -506,6 +589,34 @@ export class FakeMlsDs {
       async getHistoryBundles(groupId: string, epoch: number) {
         caller()
         return group(groupId).bundles.filter((b) => b.epoch === epoch).map((b) => ({ ...b, groupId }))
+      },
+      async inviteRecords(guildId: string) {
+        caller()
+        if (self.guilds.get(guildId)?.has(userId) !== true) throw new DsError('UnknownGuild')
+        return [...self.invites.values()]
+          .filter((i) => i.guildId === guildId && !i.revoked && (i.expiresAtMs === 0 || i.expiresAtMs > self.id.now))
+          .map((i) => {
+            const newest = new Map<string, number>()
+            for (const b of i.bundles) newest.set(b.groupId, Math.max(newest.get(b.groupId) ?? -1, b.epoch))
+            return { inviteId: i.id, keyId: i.keyId, record: i.record, expiresAt: i.expiresAtMs === 0 ? null : new Date(i.expiresAtMs).toISOString(), bundled: [...newest].map(([groupId, epoch]) => ({ groupId, epoch })) }
+          })
+      },
+      async postInviteBundle(inviteId: string, body: { groupId: string; epoch: number; blob: string }) {
+        const c = caller()
+        const inv = self.invites.get(inviteId)
+        if (inv === undefined || inv.revoked) throw new DsError('UnknownInvite')
+        const g = group(body.groupId)
+        if (!self.readersOf(g).has(userId) || g.guildId !== inv.guildId) throw new DsError('UnknownGroup')
+        // The scope of the stored record (§12.12): public_set, or a channel that the record names.
+        const scope = readSignedInviteRecord(fromB64url(inv.record)).channelIds
+        if (g.kind !== 'public_set' && !(g.kind === 'channel' && scope.includes(g.channelId!))) throw new DsError('ValidationError')
+        inv.bundles.push({ ...body, senderDevice: c.id, senderUser: userId })
+      },
+      async inviteBundles(code: string) {
+        caller()
+        const inv = [...self.invites.values()].find((i) => i.code === code)
+        if (inv === undefined || inv.revoked || !inv.joined.has(userId)) throw new DsError('UnknownInvite')
+        return { inviteId: inv.id, record: inv.record, bundles: inv.bundles.map(({ groupId, epoch, blob, senderDevice }) => ({ groupId, epoch, blob, senderDevice })) }
       },
       async channelReaders(channelId: string) {
         return [...(self.channels.get(channelId)?.readers ?? [])]

@@ -1,16 +1,21 @@
 import { useId } from 'react'
 import { Field } from '@/components/ui/field'
 import { NativeSelect } from '@/components/ui/native-select'
-import { INVITE_EXPIRY, INVITE_MAX_USES } from '@/components/settings/invites'
+import { INVITE_MAX_USES, inviteExpiryChoices } from '@/components/settings/invites'
 import type { InviteOptionsValue } from '@/services/InviteService'
 
-/** "Expire after" + "Max uses" selects for a new invite. Two Fields; the parent lays them out. */
+/**
+ * "Expire after" + "Max uses" selects for a new invite. Two Fields; the parent lays them out.
+ * Only an administrator gets choices above 24 hours, and "Permanent".
+ */
 export function InviteOptions({
   value,
-  onChange
+  onChange,
+  isAdmin
 }: {
   value: InviteOptionsValue
   onChange: (value: InviteOptionsValue) => void
+  isAdmin: boolean
 }): React.JSX.Element {
   const id = useId()
   return (
@@ -21,7 +26,7 @@ export function InviteOptions({
           value={value.expiry}
           onChange={(e) => onChange({ ...value, expiry: Number(e.target.value) })}
         >
-          {INVITE_EXPIRY.map((o) => (
+          {inviteExpiryChoices(isAdmin).map((o) => (
             <option key={o.seconds} value={o.seconds}>
               {o.label}
             </option>

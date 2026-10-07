@@ -1,22 +1,23 @@
-import { parseInviteCode, type IPlatformService } from "@hachiman/hachiman";
+import type { InviteLink, IPlatformService } from "@hachiman/hachiman";
+import { launchRoute } from "./launch-url";
 import { createBrowserSecureStorage } from "./secure-storage";
 
 /**
  * Listener set that buffers values emitted before anyone subscribes: the page's
  * own URL is read at startup, long before the UI mounts its effects.
  */
-function buffered(): {
-  emit(v: string): void;
-  subscribe(cb: (v: string) => void): () => void;
+function buffered<T>(): {
+  emit(v: T): void;
+  subscribe(cb: (v: T) => void): () => void;
 } {
-  const subs = new Set<(v: string) => void>();
-  const pending: string[] = [];
+  const subs = new Set<(v: T) => void>();
+  const pending: T[] = [];
   return {
-    emit(v: string): void {
+    emit(v: T): void {
       if (subs.size === 0) pending.push(v);
       else subs.forEach((cb) => cb(v));
     },
-    subscribe(cb: (v: string) => void): () => void {
+    subscribe(cb: (v: T) => void): () => void {
       subs.add(cb);
       pending.splice(0).forEach((v) => cb(v));
       return () => void subs.delete(cb);
@@ -24,25 +25,22 @@ function buffered(): {
   };
 }
 
-const inviteCodes = buffered();
-const oauthCallbacks = buffered();
+const inviteLinks = buffered<InviteLink>();
+const oauthCallbacks = buffered<string>();
 
 /**
  * Consume the load URL's deep-link routes, then reset to `/` so a reload neither
  * re-redeems the single-use OAuth code nor re-opens the invite:
  *  - `/oauth/callback?code=…&state=…` → onOAuthCallback(full URL)
- *  - `/invite/<code>`                  → onInviteCode(code)
+ *  - `/invite/<code>[#k=<key>]`        → onInviteLink({ code, key })
+ * The reset also removes the key of an invite with history from the address
+ * bar and the history entry. A link with a malformed key opens nothing.
  */
 export function consumeLaunchUrl(loc: Location = window.location): void {
-  const path = loc.pathname.replace(/\/+$/, "");
-  const invite = parseInviteCode(loc.href);
-  if (path === "/oauth/callback" && /[?&](code|error)=/.test(loc.search)) {
-    oauthCallbacks.emit(loc.href);
-  } else if (invite) {
-    inviteCodes.emit(invite);
-  } else {
-    return;
-  }
+  const route = launchRoute(loc);
+  if (route === null) return;
+  if (route.kind === "oauth") oauthCallbacks.emit(route.url);
+  else if (route.link !== null) inviteLinks.emit(route.link);
   window.history.replaceState(null, "", "/");
 }
 
@@ -55,7 +53,7 @@ export const platformService: IPlatformService = {
     `${window.location.origin}/oauth/callback`,
   // Same-tab redirect, so the OAuth callback lands in this app instance.
   beginOAuth: (url) => window.location.assign(url),
-  onInviteCode: inviteCodes.subscribe,
+  onInviteLink: inviteLinks.subscribe,
   onOAuthCallback: oauthCallbacks.subscribe,
   // Browsers can't open raw sockets, so there's no honest RTT to measure.
   probeRegions: async () => [],

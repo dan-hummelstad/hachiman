@@ -93,6 +93,7 @@ export const RateLimits = {
   linkMessages: { bucket: 'linkmsg', limit: 30, userLimit: 90, windowSec: 60 },
   linkSessions: { bucket: 'linksess', limit: 5, windowSec: 3600 },
   backups: { bucket: 'backup', limit: 60, userLimit: 120, windowSec: 3600 },
+  inviteBundles: { bucket: 'invbundle', limit: 120, userLimit: 360, windowSec: 60 },
   /** Per user, not per device. */
   reports: { bucket: 'report', limit: 10, windowSec: 3600 },
 } as const

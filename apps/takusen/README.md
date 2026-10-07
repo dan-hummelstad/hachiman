@@ -71,7 +71,7 @@ flowchart TB
   OA["lib/oidc-adapter.ts"]
   OI["lib/oidc-interaction.ts"]
   GA["lib/guild-access.ts<br/>permissions"]
-  GL["lib/guilds.ts, invites.ts"]
+  GL["lib/guilds.ts, invites.ts,<br/>invite-limits.ts,<br/>invite-history.ts"]
   WIRE["lib/wire.ts<br/>row to wire shape"]
   UP["lib/uploads.ts<br/>claims"]
   FI["lib/files.ts<br/>pure helpers"]
@@ -131,7 +131,7 @@ flowchart TB
 | `src/app/(dashboard)/` | Signed-in dashboard: `dashboard`, `account` and `admin` pages. |
 | `src/app/(marketing)/page.tsx` | Landing page at `/`. |
 | `src/app/oidc/interaction/[uid]/` | OIDC login and consent screen. It is a page, not an API route, so it can read the Auth.js session. |
-| `src/app/invite/[code]/` | Public invite preview page. It links to `HACHIMAN_WEB_URL`. |
+| `src/app/invite/[code]/` | Public invite preview page. It links to `HACHIMAN_WEB_URL` and to `takusen://invite/<code>`. The client component `open-invite-buttons.tsx` adds the `#k=` key of an invite with history to both links, and removes it from the address bar (contract §11 "Invite links"). `src/lib/invite-fragment.ts` makes the decision, and its test covers it. |
 | `src/app/oauth/electron-bridge/` | Hands the OIDC callback to the `app.hachiman://oauth-callback` deep link. |
 | `src/app/api/oidc/[...path]/` | Adapts Next.js requests to the panva `oidc-provider` callback. |
 | `src/app/api/auth/[...nextauth]/` | Auth.js handlers for the dashboard cookie session. |
@@ -145,6 +145,8 @@ flowchart TB
 | `src/lib/oidc-interaction.ts` | Bridges `next/headers` to the panva interaction API. |
 | `src/lib/guild-access.ts` | Loads membership, roles and overwrites, and computes permissions with `@hachiman/client/permissions`. Also `publishToChannel()`. |
 | `src/lib/guilds.ts`, `invites.ts` | Guild read models and invite logic. |
+| `src/lib/invite-limits.ts` | Invite limits (contract §4): only an administrator makes an invite that is permanent, lasts longer than 24 hours, or has history. A route that takes ADMINISTRATOR away revokes the permanent invites and the invites with history of that user in its transaction, and publishes `INVITE_DELETE`. |
+| `src/lib/invite-history.ts` | Invites with history (contract §12.11.4, §12.12): the record checks of `POST /guilds/:id/invites`, the member list of records, and the store of the sealed bundles (only for the groups in the scope of the record) with its caps (1 MiB per sender user other than the creator, 4 MiB per invite) and its sweep. The storage seam `InviteHistoryStore` has a Drizzle and an in-memory implementation (`invite-history.in-memory.ts`). `invite-history.conformance.ts` runs on both. |
 | `src/lib/wire.ts` | Converts DB rows to wire shapes (contract §1). No DB access. |
 | `src/lib/events.ts` | Redis client and the `publishToGuild()` / `publishToUser()` publishers (contract §5). |
 | `src/lib/uploads.ts` | Upload claims (image or attachment) and attachment row deletion. |
@@ -159,9 +161,9 @@ flowchart TB
 | `src/grpc/media-nodes.ts` | `RegisterMediaNode` and `MediaNodeHeartbeat` handlers. |
 | `src/grpc/placement.ts` | `PlaceMediaSession` handler: least-loaded fresh node in the region. |
 | `src/grpc/repo.ts`, `repo.in-memory.ts` | `MediaNodesRepo`: Drizzle implementation and the test implementation. |
-| `src/grpc/mls-scheduler.ts` | The MLS batch scheduler (a timer and `takusen:mls_wakeup`) and the daily DS sweeps: old handshakes, inbox items, link sessions, join requests, group epochs, and suite upgrades. Contract §12.7.5, §12.7.9, §12.15. |
+| `src/grpc/mls-scheduler.ts` | The MLS batch scheduler (a timer and `takusen:mls_wakeup`) and the daily DS sweeps: old handshakes, inbox items, link sessions, join requests, group epochs, page media, the bundles of ended invites, and suite upgrades. Contract §12.7.5, §12.7.9, §12.11.4, §12.15. |
 | `src/grpc/kt-heads.ts` | The 10 s timer that signs key transparency tree heads and publishes `KT_TREE_HEAD`. Only this process signs heads. Contract §12.14. |
-| `src/app/api/v1/devices/`, `mls/`, `backups/`, `kt/` | The E2EE routes of contract §12.12. `users/[id]/keys`, `master-key`, `device-signing-key` and `channels/[id]/mls-group` are E2EE routes too. Each one is a thin `dsRoute()` wrapper around `lib/mls`. |
+| `src/app/api/v1/devices/`, `mls/`, `backups/`, `kt/` | The E2EE routes of contract §12.12. `users/[id]/keys`, `master-key`, `device-signing-key` and `channels/[id]/mls-group` are E2EE routes too. Each one is a thin `dsRoute()` wrapper around `lib/mls`. The invite history routes (`guilds/[id]/invite-records`, `invite-records/`, `invites/[code]/bundles`) call `lib/invite-history.ts`. |
 | `src/lib/mls/` | The delivery service. See "The delivery service" below. |
 | `src/lib/errors.ts`, `api-helpers.ts` | Domain errors and `ApiError(code, status, message?, extra?, retryAfterSec?)`. `errorResponse()` maps them to `{ error, message?, ...extra }` and sets `Retry-After`. |
 
@@ -202,7 +204,7 @@ Contract §12.7 and §12.18. The DS orders and checks the MLS handshakes of the 
 | `readers.ts` | `channelReaders`, `isPublicChannel`, `groupReaders` (§12.6). The one Takusen implementation, on `@hachiman/client/permissions`. |
 | `device-auth.ts`, `device-binding.ts` | `requireDevice`: the `X-Hachiman-Device` check of the D routes. The first device that an OIDC grant names is bound to that grant (Redis `takusen:grant_device:{grantId}`). After that, the bearer token can claim only that device. A revoked device's grants and tokens are deleted after the commit. |
 | `membership.ts` | `onMembershipChange` and `wakeScheduler`, the seams for the content routes. They queue Removes and Adds, allocate and retire groups, and move channels between groups. |
-| `commits.ts` | The commit upload: `DsModule.checkCommit` for checks 2-7, then the database checks, the policy table, the compare-and-set on the epoch, and the writes (§12.7.3). |
+| `commits.ts` | The commit upload: `DsModule.checkCommit` for checks 2-7, then the database checks, the policy table, the compare-and-set on the epoch, and the writes (§12.7.3). The policy takes the external join of a user without a leaf into a `channel` group only with a valid `InviteAuth` of a redeemer: the stored record of the invite, the scope, the invite state and the 24 h after the guild join with the invite (§12.11.4, `MlsRepo.getInviteByKeyId`, `inviteJoinedBy`). |
 | `proposals.ts` | One signed DS proposal per pending item and epoch, appended to the handshake stream before a batch uses it (§12.7.4). |
 | `batches.ts` | The scheduler step: committer choice, batch assignment, timeout, decline, the `external_commit` and `waiting` fallbacks (§12.7.5, §12.7.7). |
 | `groups.ts`, `reconcile.ts`, `joins.ts`, `key-packages.ts` | Group allocation and `POST /mls/groups` checks, Add and Remove queueing, join requests, key package upload and claim. |
@@ -229,13 +231,15 @@ Contract §4 Pages and §12.20. A `pages` channel holds a tree of pages. The con
 | File | What |
 |---|---|
 | `repo.ts`, `repo.drizzle.ts`, `repo.in-memory.ts` | `DocsRepo`, the storage seam. `repo.conformance.ts` is one suite for both implementations. Change the two implementations in the same commit. |
-| `service.ts` | Create, move (cycle check), delete; the update log (`seq` from `doc_pages.latest_seq` under a row lock); the snapshot compare-and-set; media claims; the guild quota (`guilds.page_storage_bytes`). |
+| `service.ts` | Create, move (cycle check), delete; the update log (`seq` from `doc_pages.latest_seq` under a row lock); the snapshot compare-and-set and the pointer re-wrap (the same `baseSeq` and `uploadId` in a newer epoch: the row changes in place, with no claim, quota change or delete); the title compare-and-set (`ifUpdatedAt`, 409 `PageConflict`); the page heads (`GET /channels/:id/pages/heads`); media claims; the guild quota (`guilds.page_storage_bytes`). |
 | `access.ts`, `wire.ts`, `config.ts` | The channel and permission checks of the routes, the zod bodies and wire shapes, and the limits. |
 | `../mls/envelopes.ts` | `acceptDocEnvelope`: the page envelope header checks. It shares the group, epoch and sender checks with `acceptEnvelope`. |
 | `../page-media-sweep.ts` | The daily sweep of page media that no kept snapshot lists. |
 | `../channel-types.ts` | `TEXT_GROUP_TYPES`: `text` and `pages` use a text MLS group. |
 
 Storage: Postgres holds rows of bounded size (the tree, update envelopes up to 32 KiB, pointer envelopes). The snapshot bytes and page media are encrypted S3 objects in `uploads` (purposes `page_snapshot` and `page_media`, column `page_id`). A page keeps at most two snapshots. `DOC_UPDATE` is published to `guild:{id}` after the commit, as other events are.
+
+A new member of the group of a pages channel cannot open the envelopes of older epochs. The members re-wrap the newest snapshot pointer and the title of each page in the new epoch (contract §12.20 "Access by new members"). Takusen stores the header group and epoch of each snapshot, so the re-wrap rule needs no schema change. The heads route decodes only the header of each title envelope.
 
 ## Conventions
 
@@ -274,7 +278,7 @@ pnpm -F @hachiman/takusen start:grpc   # gRPC process (production)
 pnpm -F @hachiman/takusen typecheck    # tsgo
 pnpm -F @hachiman/takusen test         # every src/**/*.test.ts on node --test with the tsx loader, no DB, no Redis
 pnpm -F @hachiman/takusen test:canary  # the E2EE canary against a running test deployment (below)
-pnpm -F @hachiman/takusen test:pg      # the MlsRepo conformance suite on Postgres; needs TAKUSEN_PG_TEST_URL (below)
+pnpm -F @hachiman/takusen test:pg      # the src/**/*.pg.test.ts suites on Postgres; need TAKUSEN_PG_TEST_URL (below)
 pnpm -F @hachiman/takusen lint
 pnpm -F @hachiman/takusen format
 
@@ -285,7 +289,7 @@ pnpm -F @hachiman/takusen db:studio
 pnpm -F @hachiman/takusen sessions:revoke  # sign out all users
 ```
 
-The MlsRepo conformance suite (`src/lib/mls/repo.conformance.ts`) is one test suite for both MlsRepo implementations. `pnpm test` runs it on `InMemoryMlsRepo` (`repo.in-memory.test.ts`). `repo.drizzle.pg.test.ts` runs it on `drizzleMlsRepo` and a real Postgres, but only when `TAKUSEN_PG_TEST_URL` is set. Otherwise it skips, so `pnpm test` needs no database. Use a separate test database. The suite refuses the database `takusen`, because it writes rows that it does not delete. To run it against the Docker Postgres (use the user of your container):
+The MlsRepo conformance suite (`src/lib/mls/repo.conformance.ts`) is one test suite for both MlsRepo implementations. `pnpm test` runs it on `InMemoryMlsRepo` (`repo.in-memory.test.ts`). `repo.drizzle.pg.test.ts` runs it on `drizzleMlsRepo` and a real Postgres, but only when `TAKUSEN_PG_TEST_URL` is set. Otherwise it skips, so `pnpm test` needs no database. Use a separate test database. The suite refuses the database `takusen`, because it writes rows that it does not delete. `src/lib/invite-limits.pg.test.ts` uses the same rules for the SQL of the invite limits (the revoke of admin invites and `createInvite`), and `src/lib/invite-history.pg.test.ts` runs the InviteHistoryStore conformance suite on `drizzleInviteHistoryStore`. `test:pg` runs all three. To run them against the Docker Postgres (use the user of your container):
 
 ```bash
 docker exec hachiman-postgres psql -U takusen -d postgres -c 'CREATE DATABASE hachiman_e2ee_test'   # once

@@ -180,7 +180,7 @@ If a selector returns a fresh array/object literal, React shows the warning "get
 
 - Decrypt before store. Every ciphertext `Message` goes through the crypto Worker (`services/message-decrypt.ts`). Only the result goes into `messagesStore`. Never store or show an envelope as text.
 - Attachments show as object URLs of decrypted blobs (`hooks/use-decrypted-blob.ts`, `lib/blob-url-cache.ts`). Never set the `src` of an attachment to a file URL. Avatars, icons and banners stay plaintext.
-- `cryptoStore` holds status, alerts and metadata only. It never holds key material or a recovery key.
+- `cryptoStore` holds status, alerts and metadata only. It never holds key material, a recovery key or an invite seed.
 - The voice UI shows call participants from the MLS tree (`components/voice/call-roster.ts`), not from the server roster.
 - Pages: every page title, Yjs update, snapshot pointer and awareness frame is a page envelope (§12.20) from `encryptDoc`. `docsStore` holds the page tree and presence, never a `Y.Doc`. The `Y.Doc` stays in `DocProvider`. A page media node holds its pointer (with the file key) inside the `Y.Doc`, and shows through `use-decrypted-blob`.
 
@@ -202,7 +202,7 @@ Browser-safe only (`fetch`, `WebSocket`, `RTCPeerConnection`): no Node imports, 
 
 Contract §12 of `docs/gateway-protocol.md` is normative for E2EE. `src/api.ts` (types and module interfaces) and `src/constants.ts` change together with §12, in the same change. `docs/e2ee-plan.md` gives the reasons. The package README has the module map.
 
-- **No private key outside the crypto Worker.** All key material lives in the Worker (`src/worker/`). The UI thread gets only status, decrypted content and attachment pointers. Do not add a `CryptoApi` method that returns a key, and do not export engine modules from `src/index.ts`. The one exception is the SFrame exporter secret of a call. The crypto Worker sends it to the transform Worker on a `MessagePort` that the UI thread does not read.
+- **No private key outside the crypto Worker.** All key material lives in the Worker (`src/worker/`). The UI thread gets only status, decrypted content and attachment pointers. Do not add a `CryptoApi` method that returns a key, except the recovery key and the invite seed (contract §12.17, below). Do not export engine modules from `src/index.ts`. The SFrame exporter secret of a call does not reach the UI thread either: the crypto Worker sends it to the transform Worker on a `MessagePort` that the UI thread does not read. The invite seed of an invite with history crosses the UI thread as opaque base64url text: `prepareHistoryInvite` returns it once, and `redeemInvite` takes it. The UI keeps it only in component state or an in-memory map and in the link fragment `#k=`. It never goes into a Zustand store or `localStorage`, and into `sessionStorage` only across the browser sign-in redirect.
 - The Worker never calls `fetch`. It calls `DsTransport`, and the main thread does the REST call (`apps/hachiman/src/services/ds-transport.ts`).
 - Only `src/worker/` imports `@hachiman/client` (`@hachiman/client/permissions`). `src/admin/` gets the permission rules through `AdminPermissionModel`.
 - `src/mls/ds.ts` is the Node entry for Takusen. Its import graph uses only `globalThis.crypto`. It must not import `src/attachments`, `src/store`, `src/worker`, `src/bridge` or `src/media`.
@@ -234,7 +234,7 @@ For changes to the voice stack (`pkg/media/sfu.go`, `pkg/media/ssrc_pool.go`, `c
 
 - `csp.ts` + `csp-policy.ts` — CSP built from the `VITE_` URLs. The browser host sends the same policy (`apps/hachiman-browser/csp.ts`).
 - `secure-storage.ts` — the per-user wrap key for `IPlatformService.secureStorage`, sealed with Electron `safeStorage`. It fails closed without an OS keystore.
-- `protocol-handler.ts` — deep links `takusen://invite/<code>` and `app.hachiman://oauth-callback`, single-instance lock
+- `protocol-handler.ts` + `deep-link-route.ts` — deep links `takusen://invite/<code>[#k=<key>]` and `app.hachiman://oauth-callback`, single-instance lock
 - `renderer-protocol.ts` + `renderer-path.ts` — packaged renderer on `hachiman://app/`
 - `region-probe.ts` + `probe-target-guard.ts` — TCP RTT probe to each region's `probeHost`, with an SSRF guard
 - `screen-share.ts` — desktopCapturer sources + display-media handler
@@ -248,6 +248,7 @@ Two processes:
 - The Next.js app (`pnpm dev`) — OIDC provider (`src/lib/oidc-provider.ts`, panva `oidc-provider`), next-auth dashboard sign-in, dashboard UI, REST API (`src/app/api/v1`), and the public `GET /api/regions` for the Electron region probe. Every REST mutation publishes its gateway event to Redis after the DB commit (`src/lib/events.ts`).
 - Files: `POST /api/v1/uploads` streams the raw body to S3 (`src/lib/storage.ts`), and `GET /api/v1/files/:uploadId/:filename` streams it back with Range support. A message, avatar, icon or banner then claims the upload ids (`src/lib/uploads.ts`). Deletes go through `deleteAttachmentRows` so that objects do not leak. Clients never talk to S3. With E2EE, the bytes are opaque ciphertext blobs.
 - Pages (contract §4 Pages, §12.20) live in `src/lib/docs/`: the page tree, the update log with a per-page `seq`, and the snapshot compare-and-set. The storage seam is `DocsRepo`, with a Drizzle and an in-memory implementation. Snapshot bytes and page media are encrypted S3 objects in `uploads` (purposes `page_snapshot` and `page_media`, column `page_id`). Postgres holds only the pointers. `guilds.page_storage_bytes` is the quota. `lib/page-media-sweep.ts` deletes unreferenced page media in the daily DS sweep. `lib/channel-types.ts` `TEXT_GROUP_TYPES` lists the types that use a text MLS group (`text`, `pages`).
+- Invites with history (contract §12.11.4) live in `src/lib/invite-history.ts`: the record checks, the record list for members, and the sealed bundles (table `invite_bundles`, 4 MiB per invite, swept daily). The storage seam is `InviteHistoryStore`, with a Drizzle and an in-memory implementation. `invite-history.conformance.ts` runs on both, so change them together.
 - The E2EE delivery service (DS, contract §12.7, §12.12, §12.18) lives in `src/lib/mls/`. It holds devices, key packages, MLS groups, handshakes, envelopes, the device inbox and key transparency (KT). The storage seam is `MlsRepo` (`lib/mls/repo.ts`), with a Drizzle and an in-memory implementation, as `MediaNodesRepo`. Other Takusen code calls only the exports that §12.18 lists. A route that changes membership calls `onMembershipChange` inside its transaction.
 - A standalone gRPC server (`pnpm dev:grpc`) — implements the media-plane RPCs (`RegisterMediaNode`, `MediaNodeHeartbeat`, `PlaceMediaSession`) that hachiman-media and hachiman-gateway consume. It also runs the MLS batch scheduler, the KT tree-head timer and the daily DS sweeps. It is a separate process because Next has no clean "after listen" hook. A colocated gRPC port would flap on every dev file-watcher restart.
 
@@ -283,7 +284,7 @@ These files predate the Discord-style refactor and target the deleted Mumble/pro
 - Do not edit `*.pb.go` by hand. Regenerate with `go generate`.
 - Do not change a wire shape without an update to `docs/gateway-protocol.md` in the same change.
 - Do not change `pkgs/hachiman-crypto/src/api.ts` or `constants.ts` without the matching update to contract §12.
-- Do not let a private key or an MLS secret reach the UI thread. The crypto Worker sends only the SFrame exporter secret, and only to the transform Worker.
+- Do not let a private key or an MLS secret reach the UI thread. The crypto Worker sends only the SFrame exporter secret, and only to the transform Worker. The invite seed also crosses the UI thread, as the recovery key does (contract §12.17): opaque text in component state and the link fragment, never in a store or `localStorage`.
 - Do not import `@hachiman/crypto` from `@hachiman/client`.
 - Do not nest `TooltipProvider`s. There is already one at the App root.
 - Do not add features beyond what the task requires. The UI is in active flux toward a Discord-like layout, and unrelated refactors create merge churn.

@@ -12,6 +12,7 @@ import { CLIENT_CAPABILITIES, CLIENT_VERSION } from '@/lib/client-version'
 import { cryptoService } from '@/services/CryptoService'
 import { createDsTransport } from '@/services/ds-transport'
 import { docsService } from '@/services/docs/DocsService'
+import { redeemWaitingInvites, resetInvites } from '@/services/InviteService'
 import { messagesService } from '@/services/MessagesService'
 import { takusenService } from '@/services/TakusenService'
 import { messageSound, playSound, startSounds } from '@/services/SoundService'
@@ -109,14 +110,17 @@ const onUpdate = (e: GatewayDispatch): void => {
       messagesService.onNewSession(selectedChannelId())
       useUserStore.setState({ status: hachiman.cache.presences.get(e.d.user.id) ?? 'online' })
       cryptoService.sync()
-      return syncAll()
+      syncAll()
+      return redeemWaitingInvites()
     }
     case 'RESUMED':
       docsService.onReady(false)
       cryptoService.sync()
       return syncAll()
     case 'GUILD_CREATE':
-      return syncAll()
+      syncAll()
+      // A joined invite with history waits for the members of its guild (§12.11.4).
+      return redeemWaitingInvites()
     case 'CHANNEL_CREATE':
     case 'CHANNEL_UPDATE':
     case 'CHANNEL_DELETE':
@@ -194,6 +198,8 @@ function forwardCryptoEvents(): void {
   hachiman.on('USER_KEYS_UPDATE', (d) => fwd({ t: 'USER_KEYS_UPDATE', d }))
   hachiman.on('KEY_PACKAGES_LOW', (d) => fwd({ t: 'KEY_PACKAGES_LOW', d }))
   hachiman.on('KT_TREE_HEAD', (d) => fwd({ t: 'KT_TREE_HEAD', d }))
+  // A revoked invite with history: the Worker sends no more bundles for it (§12.11.4).
+  hachiman.on('INVITE_DELETE', (d) => fwd({ t: 'INVITE_DELETE', d }))
 }
 
 /** Gateway close 4012 or 4013 (§12.13): the client does not reconnect. 4013 also signs out. */
@@ -258,11 +264,16 @@ export function startHachiman(host?: IPlatformService): void {
     void messagesService.retryGroup(groupId)
     docsService.retry()
   })
+  // This device joined a group: the page titles of that group decrypt now.
+  cryptoService.on('membership', (e) => docsService.onMembership(e))
+  // A new user in a text group: re-wrap the pages of its pages channels (§12.20).
+  cryptoService.on('usersAdded', (e) => docsService.onUsersAdded(e))
   cryptoService.on('status', (s) => {
     if (s.state !== 'ready') return
     // Setup or linking finished: catch up and decrypt what waited.
     if (hachiman.gateway.state === 'ready') cryptoService.sync()
     messagesService.retryAll()
+    redeemWaitingInvites()
   })
   voiceService.start()
   startSounds()
@@ -281,6 +292,7 @@ export function startHachiman(host?: IPlatformService): void {
     cryptoService.stop()
     messagesService.reset()
     docsService.reset()
+    resetInvites()
     clearDecryptedBlobs()
     resetUserStore()
     resetGuildStore()

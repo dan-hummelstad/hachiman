@@ -52,15 +52,28 @@ export interface DocsService {
  * updates, fill seq gaps, post snapshots. DocsService routes the gateway events to it.
  */
 export interface DocProvider extends Omit<DocHandle, 'close'> {
+  /**
+   * A PAGE_UPDATE of this page. A title re-wrap follows the pointer re-wrap of its page
+   * (rewrap.ts), so a page that waits for a key loads again (§12.20 "The new member"). This
+   * includes status 'waiting', and a page that shows its content but stopped at an update without
+   * a key. Any other page ignores it.
+   */
+  pageChanged(): void
   /** A DOC_UPDATE for this page (ciphertext). Fills a seq gap from REST first. */
   receiveUpdate(d: Pick<DocUpdate, 'seq' | 'groupId' | 'epoch' | 'senderDevice' | 'envelope'>): void
   /** A DOC_AWARENESS for this page (ciphertext). Frames of this device are ignored. */
   receiveAwareness(d: { deviceId: string; envelope: string }): void
   /**
    * After READY or RESUMED, and when new epoch keys arrive: re-reads the tail with
-   * GET /pages/:pageId/updates?after=, or loads again when the page did not load yet.
+   * GET /pages/:pageId/updates?after=, or loads again when the page did not load yet or stopped
+   * at an update without a key (a newer snapshot can cover it).
    */
   resync(): Promise<void>
+  /**
+   * Waits for the load, then for the snapshot that the rules call for (none when the page is
+   * current, waits for keys or is read-only). The re-wrap pass uses it on a page that is not open.
+   */
+  snapshotIfNeeded(): Promise<void>
   /** The gateway left 'ready': status 'offline' until the next resync. */
   markOffline(): void
   destroy(): void

@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as Y from 'yjs'
-import type { DocSnapshot, DocUpdate } from '@hachiman/client'
+import { RestError, type DocSnapshot, type DocUpdate } from '@hachiman/client'
 import type { DocDecryptResult, EncryptDocInput } from '@hachiman/crypto'
-import { AWARENESS_MS, awarenessClientIds } from './DocAwareness'
+import { AWARENESS_MS, HEARTBEAT_MS, awarenessClientIds } from './DocAwareness'
 import { BATCH_MS, SNAPSHOT_EVERY, createDocProvider, type DocProviderDeps } from './DocProvider'
 import type { DocProvider } from './types'
 
@@ -56,7 +56,10 @@ function fakeCrypto(epoch: { current: number }) {
   return api
 }
 
-/** A fake Takusen: the update log, the newest snapshot and the uploaded blobs. */
+/**
+ * A fake Takusen: the update log, the newest snapshot and the uploaded blobs. Snapshots follow the
+ * §4 Pages compare-and-set: a baseSeq above the newest one, or a re-wrap of the newest one.
+ */
 // eslint-disable-next-line @typescript-eslint/explicit-function-return-type -- the fake is its own type
 function fakeServer(epoch: { current: number }) {
   const updates: DocUpdate[] = []
@@ -94,6 +97,20 @@ function fakeServer(epoch: { current: number }) {
         _pageId: string,
         body: { baseSeq: number; uploadId: string; envelope: string; mediaUploadIds: string[] }
       ) => {
+        const conflict = new RestError(409, 'SnapshotConflict', undefined, {
+          baseSeq: snapshot?.baseSeq ?? 0
+        })
+        if (snapshot && body.baseSeq === snapshot.baseSeq) {
+          if (body.uploadId !== snapshot.uploadId || epoch.current <= snapshot.epoch) throw conflict
+          snapshot = {
+            ...snapshot,
+            epoch: epoch.current,
+            senderDevice: 'd-1',
+            envelope: body.envelope
+          }
+          return snapshot
+        }
+        if (body.baseSeq < (snapshot?.baseSeq ?? 1)) throw conflict
         snapshot = {
           pageId: PAGE,
           baseSeq: body.baseSeq,
@@ -139,7 +156,10 @@ interface Harness {
   open(): DocProvider
 }
 
-function harness(): Harness {
+function harness(
+  opts: Partial<DocProviderDeps> = {},
+  providerOpts: { headless?: boolean } = {}
+): Harness {
   const epoch = { current: 1 }
   const crypto = fakeCrypto(epoch)
   const server = fakeServer(epoch)
@@ -154,7 +174,8 @@ function harness(): Harness {
     online: () => true,
     setPresence: (_p, peers) => presence.push(peers),
     collectMediaUploadIds: () => [],
-    random: () => 0
+    random: () => 0,
+    ...opts
   }
   return {
     crypto,
@@ -163,7 +184,7 @@ function harness(): Harness {
     sent,
     presence,
     open: () => {
-      const p = createDocProvider(CHANNEL, PAGE, deps)
+      const p = createDocProvider(CHANNEL, PAGE, deps, providerOpts)
       providers.push(p)
       return p
     }
@@ -186,6 +207,45 @@ async function remoteEdit(h: Harness, text: string, epoch = h.epoch.current): Pr
   const u = row(h.server.updates.length + 1, out.envelope, epoch)
   h.server.updates.push(u)
   return u
+}
+
+/** A snapshot of the updates up to `baseSeq` that this device can read: blob, pointer and row. */
+function readableSnapshot(h: Harness, baseSeq: number, uploadId: string): DocSnapshot {
+  const parts = h.server.updates
+    .filter((u) => u.seq <= baseSeq)
+    .map((u) => h.crypto.sealed.get(u.envelope)?.input.bytes as Uint8Array)
+  h.server.blobs.set(uploadId, new Blob([Y.mergeUpdates(parts) as Uint8Array<ArrayBuffer>]))
+  const envelope = `env-${uploadId}`
+  const pointer = { uploadId, fileKey: 'fk', sha256: 'sha', size: 1 }
+  h.crypto.sealed.set(envelope, {
+    input: {
+      channelId: CHANNEL,
+      pageId: PAGE,
+      kind: 'doc_snapshot',
+      bytes: new TextEncoder().encode(JSON.stringify(pointer))
+    },
+    epoch: h.epoch.current
+  })
+  return {
+    pageId: PAGE,
+    baseSeq,
+    uploadId,
+    key: `${uploadId}/blob`,
+    size: 1,
+    groupId: 'g-1',
+    epoch: h.epoch.current,
+    senderDevice: 'd-2',
+    envelope,
+    mediaUploadIds: [],
+    createdAt: ''
+  }
+}
+
+/** A readable snapshot of seq 1, and an update after it without a key (the old epoch, late). */
+async function lateUpdate(h: Harness): Promise<void> {
+  await remoteEdit(h, 'a')
+  h.server.snapshot = readableSnapshot(h, 1, 'up-x')
+  h.crypto.pending.add((await remoteEdit(h, 'b')).envelope)
 }
 
 const providers: DocProvider[] = []
@@ -319,21 +379,33 @@ describe('DocProvider', () => {
     expect(h.server.snapshot?.baseSeq).toBe(1)
   })
 
-  it('re-encrypts an idle page with an empty update first', async () => {
+  it('re-wraps the pointer of an idle page: no update and no upload', async () => {
     const h = harness()
     await remoteEdit(h, 'old', 1)
     h.epoch.current = 2
-    h.open()
+    const p = h.open()
     await settle()
-    h.server.postPageSnapshot.mockClear()
     // The snapshot is of epoch 2; epoch 3 makes it stale with no update after it.
     expect(h.server.snapshot?.epoch).toBe(2)
+    h.server.postPageSnapshot.mockClear()
     h.epoch.current = 3
     const q = h.open()
     await settle()
     expect(q.status).toBe('ready')
-    expect(h.server.updates).toHaveLength(2)
-    expect(h.server.snapshot?.baseSeq).toBe(2)
+    expect(h.server.updates).toHaveLength(1)
+    expect(h.server.uploadSnapshot).toHaveBeenCalledTimes(1)
+    expect(h.server.postPageSnapshot).toHaveBeenCalledTimes(1)
+    expect(h.server.snapshot).toMatchObject({ baseSeq: 1, uploadId: 'up-1', epoch: 3 })
+    // The same pointer bytes, in a new envelope of epoch 3.
+    const env = h.server.snapshot?.envelope as string
+    expect(h.crypto.sealed.get(env)?.epoch).toBe(3)
+    const first = [...h.crypto.sealed.values()].find((x) => x.input.kind === 'doc_snapshot')
+    expect(h.crypto.sealed.get(env)?.input.bytes).toEqual(first?.input.bytes)
+    // The first provider learns the epoch from the gateway (resync): another member was first.
+    await p.resync()
+    await settle(2000)
+    expect(h.server.postPageSnapshot).toHaveBeenCalledTimes(2)
+    expect(h.server.snapshot?.envelope).toBe(env)
   })
 
   it('waits when the snapshot has no key on this device', async () => {
@@ -381,6 +453,237 @@ describe('DocProvider', () => {
     await settle()
     expect(q.status).toBe('ready')
     expect(q.doc.getText('t').toString()).toBe('S')
+  })
+
+  it('a waiting page retries on its own, with a growing wait', async () => {
+    const h = harness()
+    h.server.snapshot = {
+      pageId: PAGE,
+      baseSeq: 1,
+      uploadId: 'up-x',
+      key: 'up-x/blob',
+      size: 1,
+      groupId: 'g-1',
+      epoch: 1,
+      senderDevice: 'd-2',
+      envelope: 'env-locked',
+      mediaUploadIds: [],
+      createdAt: ''
+    }
+    h.crypto.pending.add('env-locked')
+    const q = h.open()
+    await settle()
+    expect(q.status).toBe('waiting')
+    const reads = (): number => h.server.getPageState.mock.calls.length
+    expect(reads()).toBe(1)
+    await settle(10_000)
+    expect(reads()).toBe(2)
+    // The second wait is twice the first.
+    await settle(10_000)
+    expect(reads()).toBe(2)
+    await settle(10_000)
+    expect(reads()).toBe(3)
+    // A member re-wrapped the pointer: the next retry opens the page.
+    h.crypto.pending.clear()
+    h.crypto.sealed.set('env-locked', {
+      input: {
+        channelId: CHANNEL,
+        pageId: PAGE,
+        kind: 'doc_snapshot',
+        bytes: new TextEncoder().encode(
+          JSON.stringify({ uploadId: 'up-x', fileKey: 'fk', sha256: 'sha', size: 1 })
+        )
+      },
+      epoch: 1
+    })
+    h.server.blobs.set(
+      'up-x',
+      new Blob([Y.encodeStateAsUpdate(new Y.Doc()) as Uint8Array<ArrayBuffer>])
+    )
+    await settle(40_000)
+    expect(q.status).toBe('ready')
+  })
+
+  it('a page that waits for an update after its snapshot opens when a newer snapshot covers it', async () => {
+    const h = harness()
+    await lateUpdate(h)
+    const q = h.open()
+    await settle()
+    expect(q.status).toBe('waiting')
+    const reads = (): number => h.server.getPageState.mock.calls.length
+    expect(reads()).toBe(1)
+    // Each retry loads the state again and arms the next one, twice the last wait.
+    await settle(10_000)
+    expect(reads()).toBe(2)
+    expect(q.status).toBe('waiting')
+    await settle(19_999)
+    expect(reads()).toBe(2)
+    await settle(1)
+    expect(reads()).toBe(3)
+    // The snapshot that the page has already is not read again.
+    expect(h.server.fetchBlob).toHaveBeenCalledTimes(1)
+    // A member posts a snapshot that covers the update: the next retry opens the page.
+    h.server.snapshot = readableSnapshot(h, 2, 'up-y')
+    await settle(40_000)
+    expect(q.status).toBe('ready')
+    expect(q.doc.getText('t').toString()).toHaveLength(2)
+    // The drain goes on after the covered seq.
+    q.receiveUpdate(await remoteEdit(h, 'c'))
+    await settle()
+    expect(q.doc.getText('t').toString()).toHaveLength(3)
+  })
+
+  it('a nudge while a retry is due does not make the next wait longer', async () => {
+    const h = harness()
+    await lateUpdate(h)
+    const q = h.open()
+    await settle()
+    const reads = (): number => h.server.getPageState.mock.calls.length
+    await settle(5_000)
+    // PAGE_UPDATE, new epoch keys, RESUMED: each one loads the state again.
+    await q.resync()
+    await q.resync()
+    await q.resync()
+    expect(reads()).toBe(4)
+    await settle(5_000)
+    expect(reads()).toBe(5)
+    // Twice the first wait.
+    await settle(20_000)
+    expect(reads()).toBe(6)
+  })
+
+  it('a ready page with an update without a key loads again when a snapshot covers it', async () => {
+    const h = harness()
+    await remoteEdit(h, 'a')
+    const q = h.open()
+    await settle()
+    expect(q.status).toBe('ready')
+    const late = await remoteEdit(h, 'b')
+    h.crypto.pending.add(late.envelope)
+    q.receiveUpdate(late)
+    q.receiveUpdate(await remoteEdit(h, 'c'))
+    await settle()
+    // The page shows what it has, and the updates after the one without a key wait.
+    expect(q.status).toBe('ready')
+    expect(q.doc.getText('t').toString()).toBe('a')
+    // PAGE_UPDATE loads it again. The retry that is due keeps its time.
+    const reads = (): number => h.server.getPageState.mock.calls.length
+    const before = reads()
+    q.pageChanged()
+    await settle()
+    expect(reads()).toBe(before + 1)
+    h.server.snapshot = readableSnapshot(h, 2, 'up-y')
+    await settle(10_000)
+    expect(q.status).toBe('ready')
+    expect(q.doc.getText('t').toString()).toHaveLength(3)
+    // Caught up: PAGE_UPDATE changes nothing.
+    const after = reads()
+    q.pageChanged()
+    await settle()
+    expect(reads()).toBe(after)
+  })
+
+  it('a loaded page skips a newer snapshot that does not open, and stays usable', async () => {
+    const h = harness()
+    await remoteEdit(h, 'a')
+    const q = h.open()
+    await settle()
+    const late = await remoteEdit(h, 'b')
+    h.crypto.pending.add(late.envelope)
+    q.receiveUpdate(late)
+    await settle()
+    expect(q.status).toBe('ready')
+    // A newer snapshot whose pointer names another upload than its row.
+    h.server.snapshot = { ...readableSnapshot(h, 2, 'up-y'), uploadId: 'up-other' }
+    const reads = (): number => h.server.getPageState.mock.calls.length
+    await q.resync()
+    expect(reads()).toBe(2)
+    expect(q.status).toBe('ready')
+    expect(h.server.fetchBlob).not.toHaveBeenCalled()
+    // Local edits still go out.
+    q.doc.getText('t').insert(0, 'x')
+    await settle(BATCH_MS)
+    expect(h.server.postPageUpdate).toHaveBeenCalledTimes(1)
+    // No fast retry: the first slow retry is 10 s after the update without a key.
+    await settle(9_000)
+    expect(reads()).toBe(2)
+    await settle(1_000)
+    expect(reads()).toBe(3)
+    expect(q.status).toBe('ready')
+    // It still waits for the key: PAGE_UPDATE loads it again.
+    q.pageChanged()
+    await settle()
+    expect(reads()).toBe(4)
+  })
+
+  it('a ready page that waits for no key ignores pageChanged', async () => {
+    const h = harness()
+    await remoteEdit(h, 'a')
+    const q = h.open()
+    await settle()
+    expect(q.status).toBe('ready')
+    const reads = h.server.getPageState.mock.calls.length
+    q.pageChanged()
+    await settle()
+    expect(h.server.getPageState).toHaveBeenCalledTimes(reads)
+    expect(h.server.getPageUpdates).not.toHaveBeenCalled()
+  })
+
+  it('the reload of a page that waits for a key backs off when the snapshot blob fails', async () => {
+    const h = harness()
+    await lateUpdate(h)
+    const q = h.open()
+    await settle()
+    expect(q.status).toBe('waiting')
+    h.server.snapshot = readableSnapshot(h, 2, 'up-y')
+    h.server.fetchBlob.mockRejectedValue(new Error('network'))
+    const reads = (): number => h.server.getPageState.mock.calls.length
+    await settle(10_000)
+    expect(reads()).toBe(2)
+    expect(h.server.fetchBlob).toHaveBeenCalledTimes(2)
+    // Twice the last wait, not the 2 s retry of a failed sync.
+    await settle(19_999)
+    expect(reads()).toBe(2)
+    await settle(1)
+    expect(reads()).toBe(3)
+    expect(q.status).toBe('waiting')
+  })
+
+  it('a headless provider sends no awareness and snapshots without the jitter', async () => {
+    const h = harness({ random: () => 1 }, { headless: true })
+    await remoteEdit(h, 'old', 1)
+    h.epoch.current = 2
+    const p = h.open()
+    let done = false
+    void p.snapshotIfNeeded().then(() => (done = true))
+    await settle()
+    expect(done).toBe(true)
+    expect(h.server.postPageSnapshot).toHaveBeenCalledTimes(1)
+    p.destroy()
+    await settle(HEARTBEAT_MS)
+    expect(h.sent).toEqual([])
+    const kinds = h.crypto.encryptDoc.mock.calls.map(([input]) => input.kind)
+    expect(kinds).not.toContain('doc_awareness')
+  })
+
+  it('snapshotIfNeeded resolves after the snapshot that the rules call for', async () => {
+    const h = harness()
+    await remoteEdit(h, 'old', 1)
+    h.epoch.current = 2
+    const p = h.open()
+    let done = false
+    const run = p.snapshotIfNeeded().then(() => (done = true))
+    await settle()
+    await run
+    expect(done).toBe(true)
+    expect(h.server.snapshot).toMatchObject({ baseSeq: 1, epoch: 2 })
+    // A current page needs none.
+    h.server.postPageSnapshot.mockClear()
+    const q = h.open()
+    const again = q.snapshotIfNeeded()
+    await settle()
+    await again
+    expect(h.server.postPageSnapshot).not.toHaveBeenCalled()
   })
 
   it('throttles awareness to one frame per 100 ms, and renews it every 15 s', async () => {

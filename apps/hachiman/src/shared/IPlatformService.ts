@@ -1,5 +1,9 @@
 // Shared UI ↔ host seam. Contract: docs/gateway-protocol.md §11.
 
+import type { InviteLink } from '../lib/invite-link'
+
+export type { InviteLink }
+
 export interface RegionProbeTarget {
   region: string
   host: string
@@ -37,8 +41,12 @@ export interface IPlatformService {
   readonly oauthRedirectUri: string
   /** Send the user to the OAuth authorization page. Browser: same-tab redirect. Electron: system browser. */
   beginOAuth(url: string): void
-  /** Invite links (`takusen://invite/<code>` or `https://<takusen>/invite/<code>`) → code. Returns unsubscribe. */
-  onInviteCode(cb: (code: string) => void): () => void
+  /**
+   * Invite links (`takusen://invite/<code>` or `https://<takusen>/invite/<code>`, with
+   * `#k=<key>` for an invite with history) → code and key (`parseInviteLink`). The host drops a
+   * link that does not parse, and removes the link from its address bar. Returns unsubscribe.
+   */
+  onInviteLink(cb: (link: InviteLink) => void): () => void
   /** OAuth redirect URLs delivered by the host (Electron custom scheme / browser callback route). */
   onOAuthCallback(cb: (url: string) => void): () => void
   /** Electron: TCP-connect RTT probe from main. Browser: resolves []. */

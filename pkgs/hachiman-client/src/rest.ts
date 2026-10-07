@@ -24,7 +24,9 @@ import type {
   InboxItem,
   InboxKind,
   Invite,
+  InviteBundles,
   InvitePreview,
+  InviteRecord,
   JoinRequest,
   KtConsistencyProof,
   KtEntry,
@@ -37,6 +39,7 @@ import type {
   Message,
   MlsGroup,
   Page,
+  PageHead,
   PageState,
   ProposalRejection,
   RevocationReason,
@@ -175,8 +178,13 @@ export interface RolePosition {
   position: number
 }
 export interface CreateInviteBody {
+  /** 1–86400; an administrator also 0 (permanent) or up to 604800 (§4). */
   maxAgeSeconds?: Opt<number>
   maxUses?: Opt<number>
+  /** Required with `maxAgeSeconds: 0`: the user accepted the permanent-invite warning. */
+  acknowledgedPermanent?: Opt<boolean>
+  /** An invite with history: the encoded SignedInviteRecord (§12.11.4). ADMINISTRATOR only. */
+  record?: Opt<B64url>
 }
 export interface CreatePageBody {
   /** A new UUID that the client chooses: the title envelope binds it (§12.20). */
@@ -189,6 +197,8 @@ export interface UpdatePageBody {
   parentId?: Opt<string | null>
   position?: Opt<number>
   titleEnvelope?: Opt<B64url>
+  /** Compare-and-set on `Page.updatedAt`: 409 PageConflict when the page changed. */
+  ifUpdatedAt?: Opt<string>
 }
 export interface PostSnapshotBody {
   baseSeq: number
@@ -322,6 +332,8 @@ export class RestClient {
   // MARK: - Pages (§4 Pages)
 
   getPages = (channelId: string) => this.req<Page[]>('GET', `/channels/${e(channelId)}/pages`)
+  /** Per page: the title epoch and the newest snapshot, without the update log. */
+  getPageHeads = (channelId: string) => this.req<PageHead[]>('GET', `/channels/${e(channelId)}/pages/heads`)
   createPage = (channelId: string, body: CreatePageBody) =>
     this.req<Page>('POST', `/channels/${e(channelId)}/pages`, body)
   updatePage = (pageId: string, body: UpdatePageBody) => this.req<Page>('PATCH', `/pages/${e(pageId)}`, body)
@@ -502,6 +514,16 @@ export class RestClient {
     )
   getAdminActions = (guildId: string, after: number, limit?: number) =>
     this.req<AdminAction[]>('GET', `/guilds/${e(guildId)}/admin-actions${query({ after, limit })}`)
+
+  // MARK: - Invites with history (§12.11.4)
+
+  /** Member only. The active invites with history of the guild. */
+  inviteRecords = (guildId: string) => this.req<InviteRecord[]>('GET', `/guilds/${e(guildId)}/invite-records`)
+  /** `blob`: an encoded InviteBundle. 204. */
+  postInviteBundle = (inviteId: string, body: { groupId: B64url; epoch: number; blob: B64url }) =>
+    this.req<undefined>('POST', `/invite-records/${e(inviteId)}/bundles`, body)
+  /** Only for the redeemer, during 1 h after its join with the invite. Else 404 UnknownInvite. */
+  inviteBundles = (code: string) => this.req<InviteBundles>('GET', `/invites/${e(code)}/bundles`)
   report = (body: { messageId: string; content: B64url; frankingKey: B64url; reason: string }) =>
     this.req<{ id: string; verified: boolean }>('POST', '/reports', body)
 

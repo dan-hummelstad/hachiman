@@ -26,12 +26,13 @@ import { equalBytes } from '../identity/bytes'
 import { signWithLabel, verifyWithLabel } from '../sign'
 
 /**
- * The §2 bits that the replay checks. `admin.spec.ts` compares them with
- * `@hachiman/client/permissions`, so the two cannot drift.
+ * The §2 bits that the replay and the invite scope check (§12.11.4) use. `admin.spec.ts` compares
+ * them with `@hachiman/client/permissions`, so the two cannot drift.
  */
 export const AdminBits = {
   ADMINISTRATOR: 1 << 3,
   MANAGE_CHANNELS: 1 << 4,
+  VIEW_CHANNEL: 1 << 10,
   MANAGE_ROLES: 1 << 28,
 } as const
 /** §2 DEFAULT_EVERYONE: the @everyone role that POST /guilds creates, before any signed action. */

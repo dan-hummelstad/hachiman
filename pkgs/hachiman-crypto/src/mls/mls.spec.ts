@@ -4,7 +4,7 @@ import type { GroupDescriptor, MlsGroupHandle, ProposalPolicy } from '../api'
 import { fromB64url } from '../codec'
 import { ExporterLabel } from '../constants'
 import { ds } from './ds'
-import { contextOf, messageSecret, mls, proposalRefOf } from './index'
+import { contextOf, externalCommitAuth, messageSecret, mls, proposalRefOf } from './index'
 import { decodePublicMessage, normalizeExternalSender } from './wire'
 import { dsSigner, keyPackage, makeDevice, makeUser, policy, recertify, rotateDsk, uuid, type TestDevice, type TestUser } from './test-helpers'
 
@@ -229,6 +229,39 @@ describe('MlsModule', () => {
     expect(await mls.processHandshake(g.handle, fromB64url(ext.request.commit), p)).toMatchObject({ result: 'rejected', reason: 'external_join_without_leaf' })
     const own = await mls.joinExternal({ groupInfo: g.groupInfo, ratchetTree: g.ratchetTree, keyPackage: await keyPackage(a2), resync: false, policy: p })
     expect((await mls.processHandshake(g.handle, fromB64url(own.request.commit), p)).result).toBe('applied')
+  }, 60_000)
+
+  it('accepts an external join of a user without a leaf into a channel group only for the leaf key of an accepted InviteAuth (§12.11.4)', async () => {
+    const a = makeDevice(makeUser())
+    const m = makeDevice(makeUser())
+    const g = await newGroup('channel', a)
+    const p = policy({ kind: 'channel', users: users(a, m), dsKey: g.signer.publicKey })
+    const auth = te.encode('an InviteAuth')
+    const ext = await mls.joinExternal({ groupInfo: g.groupInfo, ratchetTree: g.ratchetTree, keyPackage: await keyPackage(m), resync: false, policy: p, authenticatedData: auth })
+    const commit = fromB64url(ext.request.commit)
+    expect(externalCommitAuth(commit)).toEqual({ authenticatedData: auth, leafSignatureKey: m.sig.publicKey })
+    const plain = await mls.joinExternal({ groupInfo: g.groupInfo, ratchetTree: g.ratchetTree, keyPackage: await keyPackage(m), resync: false, policy: p })
+    expect(externalCommitAuth(fromB64url(plain.request.commit))).toBeNull()
+    expect(externalCommitAuth(g.groupInfo)).toBeNull()
+
+    // No key, or the key of another leaf: the old rule.
+    expect(await mls.processHandshake(g.handle, commit, p)).toMatchObject({ result: 'rejected', reason: 'external_join_without_leaf' })
+    expect(await mls.processHandshake(g.handle, commit, { ...p, inviteJoinKey: makeDevice(m.user).sig.publicKey })).toMatchObject({ result: 'rejected', reason: 'external_join_without_leaf' })
+    // The key, but the user does not read the channel (REST readers, or the admin chain).
+    const notReader = policy({ kind: 'channel', users: users(a, m), dsKey: g.signer.publicKey, readers: [a.user.userId] })
+    expect(await mls.processHandshake(g.handle, commit, { ...notReader, inviteJoinKey: m.sig.publicKey })).toMatchObject({ result: 'rejected', reason: 'not_reader' })
+    const notAdminReader = policy({ kind: 'channel', users: users(a, m), dsKey: g.signer.publicKey, adminReaders: [a.user.userId] })
+    expect(await mls.processHandshake(g.handle, commit, { ...notAdminReader, inviteJoinKey: m.sig.publicKey })).toMatchObject({ result: 'rejected', reason: 'not_admin_reader' })
+    // The key of the new leaf, and a reader: applied.
+    const ok = await mls.processHandshake(g.handle, commit, { ...p, inviteJoinKey: m.sig.publicKey })
+    expect(ok.result).toBe('applied')
+    if (ok.result === 'applied') expect(await messageSecret(ok.handle)).toEqual(await messageSecret(ext.next))
+
+    // A dm group never takes it.
+    const dm = await newGroup('dm', a)
+    const pd = policy({ kind: 'dm', users: users(a, m), dsKey: dm.signer.publicKey })
+    const dmExt = await mls.joinExternal({ groupInfo: dm.groupInfo, ratchetTree: dm.ratchetTree, keyPackage: await keyPackage(m), resync: false, policy: pd, authenticatedData: auth })
+    expect(await mls.processHandshake(dm.handle, fromB64url(dmExt.request.commit), { ...pd, inviteJoinKey: m.sig.publicKey })).toMatchObject({ result: 'rejected', reason: 'external_join_without_leaf' })
   }, 60_000)
 
   it('rejects every DS proposal and external commit in a voice group', async () => {

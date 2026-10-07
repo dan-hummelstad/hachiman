@@ -65,6 +65,9 @@ export type DsRest = Pick<
   | 'ktConsistency'
   | 'ktEntries'
   | 'getAdminActions'
+  | 'inviteRecords'
+  | 'postInviteBundle'
+  | 'inviteBundles'
 >
 
 export type DsCache = Pick<HachimanCache, 'user' | 'channels' | 'guilds' | 'roles' | 'members'>
@@ -158,6 +161,10 @@ export function createDsTransport(rest: DsRest, cache: DsCache): DsTransport {
     ktEntries: (query) => call(() => rest.ktEntries({ userId: query.userId, after: query.after })),
 
     adminActions: (guildId, after) => call(() => rest.getAdminActions(guildId, after)),
+
+    inviteRecords: (guildId) => call(() => rest.inviteRecords(guildId)),
+    postInviteBundle: (inviteId, body) => call(() => rest.postInviteBundle(inviteId, body)),
+    inviteBundles: (code) => call(() => rest.inviteBundles(code)),
 
     channelReaders: (channelId) => Promise.resolve(channelReaders(cache, channelId)),
     guildMembers: (guildId) => Promise.resolve([...(cache.members.get(guildId)?.keys() ?? [])])

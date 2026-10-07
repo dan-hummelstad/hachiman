@@ -248,9 +248,38 @@ describe('RestClient fetch routes', () => {
     expect(last().headers).not.toHaveProperty('X-Hachiman-Device')
   })
 
+  it('createInvite sends maxAgeSeconds 0 and acknowledgedPermanent as given', async () => {
+    await rest.createInvite('g1', { maxAgeSeconds: 0, maxUses: 5, acknowledgedPermanent: true })
+    expect(last()).toMatchObject({
+      url: 'http://api/v1/guilds/g1/invites',
+      method: 'POST',
+      body: { maxAgeSeconds: 0, maxUses: 5, acknowledgedPermanent: true },
+    })
+    await rest.createInvite('g1', { maxAgeSeconds: 3600 })
+    expect(last().body).toEqual({ maxAgeSeconds: 3600 })
+    await rest.createInvite('g1', { maxAgeSeconds: 3600, maxUses: 1, record: 'UkVD' })
+    expect(last().body).toEqual({ maxAgeSeconds: 3600, maxUses: 1, record: 'UkVD' })
+  })
+
+  it('the invite history routes use the §12.12 paths and bodies', async () => {
+    await rest.inviteRecords('g1')
+    expect(last()).toMatchObject({ url: 'http://api/v1/guilds/g1/invite-records', method: 'GET' })
+    await rest.postInviteBundle('i1', { groupId: 'R1', epoch: 4, blob: 'QkxC' })
+    expect(last()).toMatchObject({
+      url: 'http://api/v1/invite-records/i1/bundles',
+      method: 'POST',
+      body: { groupId: 'R1', epoch: 4, blob: 'QkxC' },
+    })
+    await rest.inviteBundles('ABCD2345')
+    expect(last()).toMatchObject({ url: 'http://api/v1/invites/ABCD2345/bundles', method: 'GET' })
+    expect(last().headers['Authorization']).toBe('Bearer tok')
+  })
+
   it('the page routes use the §4 Pages paths and bodies', async () => {
     await rest.getPages('c1')
     expect(last()).toMatchObject({ url: 'http://api/v1/channels/c1/pages', method: 'GET' })
+    await rest.getPageHeads('c1')
+    expect(last()).toMatchObject({ url: 'http://api/v1/channels/c1/pages/heads', method: 'GET' })
     await rest.createPage('c1', { id: 'p1', parentId: null, position: 0, titleEnvelope: 'T' })
     expect(last()).toMatchObject({
       url: 'http://api/v1/channels/c1/pages',
@@ -259,6 +288,8 @@ describe('RestClient fetch routes', () => {
     })
     await rest.updatePage('p1', { parentId: 'p0' })
     expect(last()).toMatchObject({ url: 'http://api/v1/pages/p1', method: 'PATCH', body: { parentId: 'p0' } })
+    await rest.updatePage('p1', { titleEnvelope: 'T2', ifUpdatedAt: '2026-10-06T10:00:00.000Z' })
+    expect(last()).toMatchObject({ method: 'PATCH', body: { titleEnvelope: 'T2', ifUpdatedAt: '2026-10-06T10:00:00.000Z' } })
     await rest.getPageState('p1')
     expect(last()).toMatchObject({ url: 'http://api/v1/pages/p1/state', method: 'GET' })
     await rest.getPageUpdates('p1', { after: 7, limit: 50 })

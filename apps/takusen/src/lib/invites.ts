@@ -5,17 +5,24 @@
  * one use — idempotently for existing members.
  */
 import { and, count, eq } from 'drizzle-orm'
+import { Permissions } from '@hachiman/client/permissions'
 import type { InvitePreview } from '@hachiman/client/types'
 
-import { db } from '@/db/client'
+import { db, type Database } from '@/db/client'
 import { guildMembers, guilds, invites, type InviteRow } from '@/db/schema'
 import {
   InviteExhaustedError,
   InviteExpiredError,
   InviteRevokedError,
+  MissingPermissionsError,
   NotFoundError,
+  ValidationError,
 } from '@/lib/errors'
 import { membershipChanged, membershipTransaction, MembershipTriggers } from '@/lib/guilds'
+import { drizzleInviteHistoryStore, inviteUsability } from '@/lib/invite-history'
+import { needsAdministrator } from '@/lib/invite-limits'
+import { hasGuildPermission } from '@/lib/mls/readers'
+import { drizzleMlsRepo } from '@/lib/mls/repo.drizzle'
 
 // RFC 4648 base32 minus the ambiguous {0, O, I, 1}. 8 chars ≈ 1.1e12 codes;
 // the unique index on `code` catches the rare collision (createInvite retries).
@@ -38,9 +45,14 @@ function normalizeCode(code: string): string | null {
 }
 
 function assertUsable(invite: InviteRow): void {
-  if (invite.revoked) throw new InviteRevokedError()
-  if (invite.expiresAt && invite.expiresAt.getTime() <= Date.now()) throw new InviteExpiredError()
-  if (invite.maxUses !== null && invite.uses >= invite.maxUses) throw new InviteExhaustedError()
+  switch (inviteUsability(invite, new Date())) {
+    case 'revoked':
+      throw new InviteRevokedError()
+    case 'expired':
+      throw new InviteExpiredError()
+    case 'exhausted':
+      throw new InviteExhaustedError()
+  }
 }
 
 export async function getInviteByCode(code: string): Promise<InviteRow | null> {
@@ -69,6 +81,7 @@ export async function previewInvite(code: string): Promise<InvitePreview> {
     guild,
     memberCount: n,
     expiresAt: invite.expiresAt ? invite.expiresAt.toISOString() : null,
+    hasHistory: invite.record !== null,
   }
 }
 
@@ -92,8 +105,9 @@ export async function getInvitePreview(code: string): Promise<InvitePreview | nu
 /**
  * Join the invite's guild. Existing members get `joined: false` and consume
  * no use (even if the invite has since expired). The row lock serialises
- * concurrent accepts so `maxUses` can't be overshot. A join tells the DS in
- * the same transaction (`guild_member_added`, §12.18).
+ * concurrent accepts so `maxUses` can't be overshot. The membership row names
+ * the invite, and the last use sets `exhausted_at` (§12.11.4). A join tells
+ * the DS in the same transaction (`guild_member_added`, §12.18).
  */
 export async function acceptInvite(
   code: string,
@@ -115,32 +129,61 @@ export async function acceptInvite(
       .where(and(eq(guildMembers.guildId, invite.guildId), eq(guildMembers.userId, userId)))
     if (existing) return { guildId: invite.guildId, joined: false }
     assertUsable(invite)
-    await tx.insert(guildMembers).values({ guildId: invite.guildId, userId })
-    await tx
-      .update(invites)
-      .set({ uses: invite.uses + 1 })
-      .where(eq(invites.id, invite.id))
+    await drizzleInviteHistoryStore(tx).joinWithInvite(invite, userId, new Date())
     await membershipChanged(tx, MembershipTriggers.memberJoined(invite.guildId, userId), actorDeviceId)
     return { guildId: invite.guildId, joined: true }
   })
 }
 
-export async function createInvite(opts: {
-  guildId: string
-  createdBy: string
-  expiresAt: Date | null
-  maxUses: number | null
-}): Promise<InviteRow> {
-  for (let attempt = 0; ; attempt++) {
-    try {
-      const [row] = await db
-        .insert(invites)
-        .values({ ...opts, code: generateInviteCode() })
-        .returning()
-      return row
-    } catch (err) {
-      // 23505 unique_violation: code collision — retry with a fresh code.
-      if ((err as { code?: string }).code !== '23505' || attempt >= 2) throw err
+/**
+ * Makes an invite in one transaction. An invite that needs ADMINISTRATOR
+ * (`needsAdministrator`) is a permanent invite (contract §4 "Invite limits"),
+ * or an invite with history (§12.11.4) with its record and key id. Only for
+ * such an invite, the transaction holds the guild row and the creator's
+ * membership row FOR SHARE, and checks ADMINISTRATOR again inside it. A role
+ * or member-role change locks the guild row FOR UPDATE, and a removal deletes
+ * the membership row. Thus a concurrent demotion either comes first (403 here)
+ * or waits and then revokes this invite. A key id that another invite has
+ * gives 400.
+ */
+export async function createInvite(
+  opts: {
+    guildId: string
+    createdBy: string
+    expiresAt: Date | null
+    maxUses: number | null
+    history?: { record: Uint8Array; keyId: Uint8Array } | undefined
+  },
+  database: Database = db,
+): Promise<InviteRow> {
+  const { history, ...values } = opts
+  return database.transaction(async (tx) => {
+    if (needsAdministrator({ expiresAt: opts.expiresAt, record: history?.record ?? null })) {
+      await tx.select({ id: guilds.id }).from(guilds).where(eq(guilds.id, opts.guildId)).for('share')
+      const [member] = await tx
+        .select({ userId: guildMembers.userId })
+        .from(guildMembers)
+        .where(and(eq(guildMembers.guildId, opts.guildId), eq(guildMembers.userId, opts.createdBy)))
+        .for('share')
+      // Check only a membership row that this transaction locked: the next read can see a join that committed after the lock.
+      const data = member ? await drizzleMlsRepo(tx).getGuildPermissionData(opts.guildId) : null
+      if (!data || !hasGuildPermission(data, opts.createdBy, Permissions.ADMINISTRATOR)) {
+        throw new MissingPermissionsError('Only an administrator can make this invite')
+      }
     }
-  }
+    // A unique violation would abort the transaction: skip the conflict, then retry a code collision.
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const [row] = await tx
+        .insert(invites)
+        .values({ ...values, ...history, code: generateInviteCode() })
+        .onConflictDoNothing()
+        .returning()
+      if (row) return row
+      if (history) {
+        const [taken] = await tx.select({ id: invites.id }).from(invites).where(eq(invites.keyId, history.keyId)).limit(1)
+        if (taken) throw new ValidationError('Another invite has this key id')
+      }
+    }
+    throw new Error('Could not allocate an invite code')
+  })
 }

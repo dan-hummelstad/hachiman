@@ -47,8 +47,10 @@ import {
   type CipherSuiteId,
 } from '../constants'
 import { admin as adminModule } from '../admin/index'
+import { dsCodeOf, reportError as emitError } from '../errors'
 import { createKtClient } from '../kt/client'
 import { kt as ktModule } from '../kt/index'
+import { importEpochSecrets, markEpochSecretsBackedUp } from '../mls/epoch-secrets'
 import { DEVICE_PROOF_NONCE_BYTES, deviceProofMessage, type DeviceProof, type DeviceProofInput } from '../device-proof'
 import { generateEd25519 } from '../sign'
 import { equalBytes } from './bytes'
@@ -105,12 +107,6 @@ interface VerifiedKeys {
 }
 
 const groupKey = (groupId: Uint8Array): string => toB64url(groupId)
-const epochKey = (groupId: Uint8Array, epoch: number): string => `${groupKey(groupId)}:${epoch}`
-
-function transportCode(e: unknown): string | undefined {
-  if (typeof e === 'object' && e !== null && 'dsCode' in e && typeof e.dsCode === 'string') return e.dsCode
-  return undefined
-}
 
 export const createIdentityService: CreateIdentityService = (ctx, deps) => {
   const { store, transport } = ctx
@@ -318,7 +314,7 @@ export const createIdentityService: CreateIdentityService = (ctx, deps) => {
         await transport.putMasterKey({ record: toB64url(identity.encodeMasterKeyRecord(master!.record)), dskCert: toB64url(identity.encodeDskCert(dsk!.cert)) })
         break
       } catch (e) {
-        if (mode !== 'reset' || transportCode(e) !== 'MasterKeyExists' || tries >= RESET_GENERATION_PROBES) throw e
+        if (mode !== 'reset' || dsCodeOf(e) !== 'MasterKeyExists' || tries >= RESET_GENERATION_PROBES) throw e
         await fresh(master!.record.generation + 1)
       }
     }
@@ -386,7 +382,7 @@ export const createIdentityService: CreateIdentityService = (ctx, deps) => {
         (async () => {
           const b = identity.openBackup(bk, fromB64url((await transport.getBackup(h.id)).blob))
           if (b.kind !== BackupKind.HISTORY) throw new CryptoError('Malformed', 'history backup of another kind')
-          await importHistory(identity.decodeHistoryBatch(b.plaintext), true)
+          await importEpochSecrets(ctx, identity.decodeHistoryBatch(b.plaintext), true)
         })(),
       )
     }
@@ -417,7 +413,7 @@ export const createIdentityService: CreateIdentityService = (ctx, deps) => {
     for (const b of batches) {
       await transport.postHistoryBackup({ keyId: toB64url(bk.keyId), groupId: toB64url(b.groupId), epochFrom: b.epochFrom, epochTo: b.epochTo, blob: toB64url(b.blob) })
     }
-    await markBackedUp(secrets.map((x) => x.value))
+    await markEpochSecretsBackedUp(store, secrets.map((x) => x.value))
     await saveRow({ ...requireRow(), recoveryKeyId: bk.keyId, backupKey: bk, pendingRecoveryKey: null })
     emitStatus()
     return { recoveryKey: text }
@@ -434,27 +430,6 @@ export const createIdentityService: CreateIdentityService = (ctx, deps) => {
       }
     }
     return out
-  }
-
-  async function markBackedUp(entries: readonly HistoryKeyEntry[]): Promise<void> {
-    for (const e of entries) await store.put('epochSecrets', epochKey(e.groupId, e.epoch), { groupId: e.groupId, epoch: e.epoch, secret: e.secret, backedUp: true })
-  }
-
-  /**
-   * Stores the keys this device lacks, then emits epochKeysAvailable (as GroupService does) so
-   * the messages that are pending on them decrypt again. A recovery restore imports after the
-   * device is ready, so those messages are already pending.
-   */
-  async function importHistory(entries: readonly HistoryKeyEntry[], backedUp: boolean): Promise<void> {
-    const added = new Map<string, number[]>()
-    for (const e of entries) {
-      const key = epochKey(e.groupId, e.epoch)
-      if ((await store.get('epochSecrets', key)) !== undefined) continue
-      await store.put('epochSecrets', key, { groupId: e.groupId, epoch: e.epoch, secret: e.secret, backedUp })
-      const gid = groupKey(e.groupId)
-      added.set(gid, [...(added.get(gid) ?? []), e.epoch])
-    }
-    for (const [groupId, epochs] of added) ctx.emit('epochKeysAvailable', { groupId, epochs: epochs.sort((a, b) => a - b) })
   }
 
   async function exportHistory(): Promise<HistoryKeyEntry[]> {
@@ -477,7 +452,7 @@ export const createIdentityService: CreateIdentityService = (ctx, deps) => {
       for (const b of historyBatches(g.keys.map((k) => ({ groupId: g.groupId, ...k })))) {
         const blob = identity.sealBackup(bk, BackupKind.HISTORY, identity.encodeHistoryBatch(b.entries))
         await transport.postHistoryBackup({ keyId: toB64url(bk.keyId), groupId: gk, epochFrom: b.epochFrom, epochTo: b.epochTo, blob: toB64url(blob) })
-        await markBackedUp(b.entries)
+        await markEpochSecretsBackedUp(store, b.entries)
         uploaded++
       }
       lastHistoryBackup.set(gk, now)
@@ -536,7 +511,7 @@ export const createIdentityService: CreateIdentityService = (ctx, deps) => {
     } catch (e) {
       // 404: no shared guild or DM any more (a former member whose leaf waits for its Remove).
       // No keys, as for a user without a master key: a new leaf of the user fails the chain check.
-      if (transportCode(e) === 'NotFound') return null
+      if (dsCodeOf(e) === 'NotFound') return null
       throw e
     }
     if (wire.userId !== userId) throw new CryptoError('InvalidChain', 'the DS answered for another user')
@@ -1124,9 +1099,7 @@ export const createIdentityService: CreateIdentityService = (ctx, deps) => {
   // MARK: - gateway events
 
   function reportError(e: unknown): void {
-    const code = e instanceof CryptoError ? e.code : 'Transport'
-    const dsCode = transportCode(e)
-    ctx.emit('error', { code, message: e instanceof Error ? e.message : String(e), dsCode })
+    emitError(ctx, e)
   }
 
   /**
@@ -1216,7 +1189,7 @@ export const createIdentityService: CreateIdentityService = (ctx, deps) => {
     async completeNewDevice(r, history) {
       // Keys first: 'ready' opens the app, which decrypts the open channel at once.
       const row = await pinDs(r)
-      await importHistory(history, true)
+      await importEpochSecrets(ctx, history, true)
       await becomeReady(row)
       await bestEffort(replenishKeyPackages())
     },

@@ -2,7 +2,9 @@
  * PATCH  /api/v1/guilds/:id/roles/:roleId { name?, color?, permissions? } — MANAGE_ROLES + hierarchy.
  * DELETE /api/v1/guilds/:id/roles/:roleId — MANAGE_ROLES + hierarchy; never @everyone.
  * A permissions change and a delete take X-Hachiman-Signed-Action (role_update /
- * role_delete, §12.16). Both tell the DS in the same transaction (§12.18).
+ * role_delete, §12.16). Both tell the DS in the same transaction (§12.18), and
+ * revoke the permanent invites and the invites with history of users who lost
+ * ADMINISTRATOR (§4).
  */
 import { and, eq } from 'drizzle-orm'
 import { Permissions } from '@hachiman/client/permissions'
@@ -25,6 +27,7 @@ import {
 } from '@/lib/guild-access'
 import { colorSchema, nameSchema, permissionsSchema } from '@/lib/guild-schemas'
 import { loadChannels, membershipChanged, membershipTransaction, MembershipTriggers } from '@/lib/guilds'
+import { publishInviteDeletes, revokeAdminInvitesOfNonAdmins, type RevokedInvite } from '@/lib/invite-limits'
 import { toRole } from '@/lib/wire'
 
 interface RouteContext {
@@ -60,7 +63,7 @@ export async function PATCH(req: NextRequest, ctx: RouteContext): Promise<NextRe
     if (body.permissions !== undefined) requireGrantable(access, body.permissions ^ current.permissions)
     const actor = await actorDeviceId(req, session.user.id)
 
-    const row = await membershipTransaction(async (tx) => {
+    const { row, revoked } = await membershipTransaction(async (tx) => {
       if (body.permissions !== undefined) {
         await enforceAdminAction(tx, req, { guildId: id, ownerId: access.guild.ownerId, userId: session.user.id }, {
           type: 2,
@@ -69,19 +72,25 @@ export async function PATCH(req: NextRequest, ctx: RouteContext): Promise<NextRe
           position: current.position,
         })
       }
-      if (Object.keys(body).length === 0) return current
+      if (Object.keys(body).length === 0) return { row: current, revoked: [] }
       const [updated] = await tx
         .update(roles)
         .set(body)
         .where(and(eq(roles.id, roleId), eq(roles.guildId, id)))
         .returning()
-      if (body.permissions !== undefined && body.permissions !== current.permissions) {
-        await membershipChanged(tx, MembershipTriggers.roleChanged(id, roleId), actor)
+      let revoked: RevokedInvite[] = []
+      if (body.permissions !== undefined) {
+        // `current` was read before the transaction, so a concurrent grant can hide a demotion.
+        revoked = await revokeAdminInvitesOfNonAdmins(tx, id)
+        if (body.permissions !== current.permissions) {
+          await membershipChanged(tx, MembershipTriggers.roleChanged(id, roleId), actor)
+        }
       }
-      return updated!
+      return { row: updated!, revoked }
     })
     const role = toRole(row)
     await publishToGuild(id, 'GUILD_ROLE_UPDATE', { guildId: id, role })
+    await publishInviteDeletes(id, revoked)
     return NextResponse.json(role)
   } catch (err) {
     return errorResponse(err)
@@ -98,21 +107,23 @@ export async function DELETE(req: NextRequest, ctx: RouteContext): Promise<NextR
     const actor = await actorDeviceId(req, session.user.id)
 
     // Overwrites target roles polymorphically (no FK), so clear them here.
-    const touched = await membershipTransaction(async (tx) => {
+    const { touched, revoked } = await membershipTransaction(async (tx) => {
       await enforceAdminAction(tx, req, { guildId: id, ownerId: access.guild.ownerId, userId: session.user.id }, { type: 3, roleId })
       const rows = await tx
         .delete(permissionOverwrites)
         .where(eq(permissionOverwrites.targetId, roleId))
         .returning({ channelId: permissionOverwrites.channelId })
       await tx.delete(roles).where(and(eq(roles.id, roleId), eq(roles.guildId, id)))
+      const revoked = await revokeAdminInvitesOfNonAdmins(tx, id)
       await membershipChanged(tx, MembershipTriggers.roleDeleted(id, roleId), actor)
-      return rows.map((r) => r.channelId)
+      return { touched: rows.map((r) => r.channelId), revoked }
     })
 
     await publishToGuild(id, 'GUILD_ROLE_DELETE', { guildId: id, roleId })
     for (const channel of await loadChannels(touched)) {
       await publishToGuild(id, 'CHANNEL_UPDATE', channel, channel.id)
     }
+    await publishInviteDeletes(id, revoked)
     return noContent()
   } catch (err) {
     return errorResponse(err)

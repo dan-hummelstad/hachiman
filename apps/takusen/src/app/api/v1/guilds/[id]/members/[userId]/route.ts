@@ -5,7 +5,8 @@
  *        A roles change takes X-Hachiman-Signed-Action (member_roles, §12.16).
  * DELETE /api/v1/guilds/:id/members/:userId — kick: KICK_MEMBERS, not the
  *        owner, and (unless owner/admin) the target's top role must be below ours.
- * Both tell the DS in the same transaction (§12.18).
+ * Both tell the DS in the same transaction (§12.18), and revoke the permanent
+ * invites and the invites with history of users who lost ADMINISTRATOR (§4).
  */
 import { and, eq, inArray } from 'drizzle-orm'
 import { highestRolePosition, Permissions } from '@hachiman/client/permissions'
@@ -27,6 +28,7 @@ import {
 } from '@/lib/guild-access'
 import { assertId } from '@/lib/ids'
 import { loadMember, membershipChanged, membershipTransaction, MembershipTriggers, removeMember } from '@/lib/guilds'
+import { publishInviteDeletes, revokeAdminInvitesOfNonAdmins, type RevokedInvite } from '@/lib/invite-limits'
 
 interface RouteContext {
   params: Promise<{ id: string; userId: string }>
@@ -74,7 +76,7 @@ export async function PATCH(req: NextRequest, ctx: RouteContext): Promise<NextRe
     }
 
     const actor = await actorDeviceId(req, session.user.id)
-    await membershipTransaction(async (tx) => {
+    const revoked = await membershipTransaction(async (tx) => {
       if (body.roles !== undefined) {
         await enforceAdminAction(tx, req, { guildId: id, ownerId: access.guild.ownerId, userId: session.user.id }, {
           type: 7,
@@ -96,11 +98,16 @@ export async function PATCH(req: NextRequest, ctx: RouteContext): Promise<NextRe
       if (toAdd.length > 0) {
         await tx.insert(memberRoles).values(toAdd.map((roleId) => ({ guildId: id, userId, roleId })))
       }
+      // Only a removed role can take ADMINISTRATOR away.
+      const revoked: RevokedInvite[] = toRemove.length > 0 ? await revokeAdminInvitesOfNonAdmins(tx, id) : []
       if (toAdd.length > 0 || toRemove.length > 0) {
         await membershipChanged(tx, MembershipTriggers.memberRolesEdited(id, userId), actor)
       }
+      return revoked
     })
 
+    // Before the reload: a kick after the commit makes loadMember throw.
+    await publishInviteDeletes(id, revoked)
     const member = await loadMember(id, userId)
     await publishToGuild(id, 'GUILD_MEMBER_UPDATE', member)
     return NextResponse.json(member)

@@ -83,8 +83,9 @@ interface Message {
   nonce?: string                   // echoed from the create request, never stored
 }
 
-interface Invite { code: string; guildId: string; createdBy: string; expiresAt: string | null; maxUses: number | null; uses: number; createdAt: string }
-interface InvitePreview { code: string; guild: Pick<Guild, 'id' | 'name' | 'icon'>; memberCount: number; expiresAt: string | null }
+interface Invite { id: string; code: string; guildId: string; createdBy: string; expiresAt: string | null; maxUses: number | null; uses: number; createdAt: string
+  hasHistory: boolean }            // the invite has a signed record: an invite with history (§12.11.4)
+interface InvitePreview { code: string; guild: Pick<Guild, 'id' | 'name' | 'icon'>; memberCount: number; expiresAt: string | null; hasHistory: boolean }
 
 interface Presence { userId: string; status: PresenceStatus }
 
@@ -114,6 +115,11 @@ interface DocSnapshot {
   mediaUploadIds: string[]; createdAt: string
 }
 interface PageState { snapshot: DocSnapshot | null; updates: DocUpdate[] /* after snapshot.baseSeq (or 0), at most 500 */; latestSeq: number }
+interface PageHead {               // GET /channels/:id/pages/heads: the data of a re-wrap pass (§12.20)
+  pageId: string; latestSeq: number
+  title: { groupId: string; epoch: number } | null   // from the header of titleEnvelope. null when the header does not decode
+  snapshot: DocSnapshot | null     // the newest snapshot
+}
 
 interface GuildFull extends Guild {  // READY + GUILD_CREATE
   channels: Channel[]              // only channels the user can VIEW
@@ -189,14 +195,14 @@ New/changed tables (all ids `uuid` defaultRandom, timestamps `timestamptz` defau
 |---|---|---|
 | `guilds` | id, owner_id → users (cascade), name, icon null, banner null, region → regions.code (set null), page_storage_bytes bigint (mode number) default 0, created_at | replaces virtual_servers. icon/banner hold file keys. `page_storage_bytes`: the page quota count (§4 Pages) |
 | `uploads` | id, uploader_id → users (cascade), key unique, filename null (null for blobs), size bigint (mode number), content_type, encrypted bool default false, message_id null → messages (cascade), position int default 0, purpose `upload_purpose` enum ('attachment','image','page_snapshot','page_media') null, page_id null → doc_pages (cascade), last_referenced_at null, created_at | index (message_id); index (page_id); CHECK `uploads_attachment_has_message`: `(purpose IS NOT DISTINCT FROM 'attachment') = (message_id IS NOT NULL)`; CHECK `uploads_page_media_has_page`: `purpose IS DISTINCT FROM 'page_media' OR page_id IS NOT NULL`; CHECK `uploads_page_id_is_page_purpose`: `page_id IS NULL OR purpose IN ('page_snapshot','page_media')`. One row per stored object. The first claim sets purpose, and purpose never changes. message_id is set when a message claims it, together with purpose. A `page_snapshot` upload has its purpose from the upload on, and page_id from the snapshot claim (§4 Pages) |
-| `guild_members` | guild_id → guilds (cascade), user_id → users (cascade), nick null, joined_at | PK (guild_id, user_id) |
+| `guild_members` | guild_id → guilds (cascade), user_id → users (cascade), nick null, joined_at, invite_id null → invites (set null) | PK (guild_id, user_id); index (invite_id) where not null. `invite_id`: the invite of the join (§4 accept). The redeemer of an invite with history gets its bundles with it (§12.11.4) |
 | `channels` | id, guild_id null → guilds (cascade), type `channel_type` enum, name null, topic null, parent_id null → channels (set null), position int default 0, owner_id null → users (set null), mls_group_id bytea null → mls_groups (set null), created_at | index (guild_id) |
 | `messages` | id, channel_id → channels (cascade), author_id → users (cascade), group_id bytea → mls_groups (cascade), epoch bigint, sender_device uuid null → devices (set null), client_msg_id bytea, envelope bytea, franking_tag bytea, size int, created_at, edited_at null | index (channel_id, created_at desc, id desc); unique (channel_id, client_msg_id). No `content` column (§12.8) |
 | `roles` | id, guild_id → guilds (cascade), name, color int default 0, position int default 0, permissions bigint (mode number) | @everyone row has id = guild_id |
 | `member_roles` | guild_id, user_id, role_id → roles (cascade) | PK (user_id, role_id); FK (guild_id,user_id) → guild_members (cascade) |
 | `permission_overwrites` | channel_id → channels (cascade), target_id uuid, target_type `overwrite_type` enum ('role','member'), allow bigint, deny bigint | PK (channel_id, target_id) |
 | `dm_participants` | channel_id → channels (cascade), user_id → users (cascade) | PK (channel_id, user_id); index (user_id) |
-| `invites` | id, code unique, guild_id → guilds (cascade), created_by → users (cascade), expires_at null, max_uses null, uses int default 0, revoked bool default false, created_at | replaces invite_codes |
+| `invites` | id, code unique, guild_id → guilds (cascade), created_by → users (cascade), expires_at null, max_uses null, uses int default 0, revoked bool default false, record bytea null, key_id bytea null, exhausted_at null, created_at | index (guild_id); unique (key_id). Replaces invite_codes. `record` and `key_id`: the `SignedInviteRecord` of an invite with history and its `sign_public` (§12.11.4). The accept of the last use sets `exhausted_at` |
 
 Pages tables (§4 Pages, §12.20). The server sees the tree and the timestamps. Titles, edits and snapshot pointers are envelopes:
 
@@ -204,7 +210,7 @@ Pages tables (§4 Pages, §12.20). The server sees the tree and the timestamps. 
 |---|---|---|
 | `doc_pages` | id uuid PK (no default: the client chooses it), channel_id → channels (cascade), parent_id null → doc_pages (cascade), position int default 0, title_envelope bytea, created_by null → users (set null), latest_seq bigint default 0, created_at, updated_at | index (channel_id); index (parent_id). `latest_seq` is the highest `doc_updates.seq` of the page |
 | `doc_updates` | page_id → doc_pages (cascade), seq bigint, group_id bytea → mls_groups (cascade), epoch bigint, sender_device null → devices (set null), envelope bytea, created_at | PK (page_id, seq). One doc_update envelope (one encrypted Yjs update) per row |
-| `doc_snapshots` | page_id → doc_pages (cascade), base_seq bigint, upload_id unique → uploads (cascade), group_id bytea → mls_groups (cascade), epoch bigint, sender_device null → devices (set null), envelope bytea, media_upload_ids uuid[] default '{}', created_at | PK (page_id, base_seq). The bytes are the S3 object of `upload_id`. `envelope` is the doc_snapshot pointer envelope |
+| `doc_snapshots` | page_id → doc_pages (cascade), base_seq bigint, upload_id unique → uploads (cascade), group_id bytea → mls_groups (cascade), epoch bigint, sender_device null → devices (set null), envelope bytea, media_upload_ids uuid[] default '{}', created_at | PK (page_id, base_seq). The bytes are the S3 object of `upload_id`. `envelope` is the doc_snapshot pointer envelope. A re-wrap (§4 Pages) replaces `envelope`, `group_id`, `epoch` and `sender_device` in place |
 
 E2EE tables (§12). `bytea` columns hold the binary objects of §12 as they are. Enums: `device_status` ('pending','active','revoked'), `device_platform` ('electron','browser'), `revoke_reason` ('user','lost','password_reset','compromised','signed_out'), `mls_group_kind` ('public_set','channel','dm'), `mls_group_status` ('pending','active','retired'), `history_visibility` ('joined','shared'), `handshake_kind` ('commit','external_commit','proposal'), `pending_op` ('add','remove'), `pending_status` ('queued','assigned','rejected'), `join_status` ('queued','committed','rejected','external_commit','waiting'), `inbox_kind` ('welcome','dsk_transfer','history_keys'), `backup_kind` ('identity','history').
 
@@ -225,6 +231,7 @@ E2EE tables (§12). `bytea` columns hold the binary objects of §12 as they are.
 | `device_inbox` | id, seq bigint identity, device_id → devices (cascade), kind `inbox_kind`, sender_device null → devices (set null), body bytea, size int, created_at, expires_at | index (device_id, seq) |
 | `key_backups` | id, user_id → users (cascade), key_id bytea, kind `backup_kind`, group_id bytea null, epoch_from bigint null, epoch_to bigint null, blob bytea, size int, created_at | index (user_id); unique (user_id) where kind = 'identity' |
 | `history_bundles` | id, group_id → mls_groups (cascade), epoch bigint, sender_device → devices (cascade), blob bytea, created_at | unique (group_id, epoch, sender_device) |
+| `invite_bundles` | id, invite_id → invites (cascade), group_id bytea, epoch int, sender_device uuid (no FK), sender_user uuid (no FK), blob bytea, size int, created_at | index (invite_id, created_at). The sealed `InviteBundle`s of an invite with history (§12.11.4). At most `INVITE_BUNDLES_MAX_BYTES` per invite, and at most 1 MiB per sender user other than the creator, for all devices of that user together: the oldest go first |
 | `device_link_sessions` | id, user_id → users (cascade), new_device_id → devices (cascade), offer bytea, created_at, expires_at | |
 | `device_link_messages` | session_id → device_link_sessions (cascade), seq int, from_device → devices (cascade), body bytea, created_at | PK (session_id, seq) |
 | `kt_entries` | idx bigint PK (leaf index from 0), user_id uuid (no FK: the log is append-only), type smallint, entry bytea, leaf_hash bytea, created_at | index (user_id, idx) |
@@ -259,8 +266,15 @@ Implemented extras (Discord semantics):
 - Role create/edit and overwrite PUT may only grant bits the caller holds (owner/ADMINISTRATOR exempt).
 - Deleting a role deletes its overwrites (+ CHANNEL_UPDATE).
 - New roles insert at position 1 (others shift, GUILD_ROLE_UPDATE each).
-- Invite defaults: `maxAgeSeconds` 86400, `maxUses` unlimited, 0 = never/unlimited.
-- Revoke = soft (`revoked`).
+- Invite limits (`apps/takusen/src/lib/invite-limits.ts`):
+  - `maxAgeSeconds` has the default 86400. A user without ADMINISTRATOR can send 1 to 86400. Takusen rejects 0 and larger values from this user with 403 `MissingPermissions`.
+  - A user with ADMINISTRATOR can send 1 to 604800, or 0. 0 makes a permanent invite (`expiresAt: null`). A permanent invite needs `acknowledgedPermanent: true`, else 400 `ValidationError`. The 403 check runs before the 400 check. A value above 604800 gets 400 `ValidationError` for every user.
+  - `maxUses` is 0 to 100. The default 0 means no limit.
+  - An invite with history (body `record`, §12.11.4) needs ADMINISTRATOR, else 403 `MissingPermissions` before the other checks, and an active `X-Hachiman-Device`. `record` is the base64url `SignedInviteRecord`, at most 16 KiB. Takusen verifies it with `DsModule.verifyInviteRecord` under the certificate of the device (§12.18). Then it requires all of these, else 400 `ValidationError`: `guild_id`, `creator_user_id` and `creator_device_id` are the guild, the caller and the device of the request. `max_uses` is `maxUses`. `expires_at_ms` is 0 when `maxAgeSeconds` is 0. Else it is not 0, and it differs by at most 5 minutes from now + `maxAgeSeconds`. `channel_ids` has at most 500 ids, and each id is a channel of the guild. A channel id does not name its guild, so a redeemer cannot check the guild of a channel group that it does not hold (§12.11.4 "Scope"). No other invite has the key id (`sign_public`). Takusen stores `record` and `key_id`. Takusen does not check the admin state of the record: members do (§12.16). The creator device sends the first bundles with the `id` of the returned `Invite` (`POST /invite-records/:inviteId/bundles`, §12.12).
+  - Takusen makes a permanent invite and an invite with history in a transaction. The transaction locks the guild row and the membership row of the creator (`FOR SHARE`), and checks ADMINISTRATOR again. Thus a role or member change at the same time cannot leave such an invite of a user without ADMINISTRATOR.
+- Accept: the membership row of a new member names the invite (`guild_members.invite_id`). The accept of the last use sets `invites.exhausted_at`.
+- Revoke = soft (`revoked`). The revoke deletes the bundles of the invite (§12.11.4) in the same transaction. Only the first revoke publishes `INVITE_DELETE`. A revoke stops new joins at once, because the accept locks the invite row. Members who joined already stay members.
+- Revoke on loss of ADMINISTRATOR: a role permissions edit, a role delete, a member-role edit that removes a role, a kick and a leave revoke the permanent invites and the invites with history whose creator no longer has ADMINISTRATOR or is no longer a member, and delete their bundles. This occurs in the transaction of the change, before the DS change. Takusen checks every creator in the guild, because one role change can demote many users. After the commit, Takusen publishes `INVITE_DELETE` → guild for each revoked invite. The first such change in a guild also revokes the permanent invites that users without ADMINISTRATOR made before these limits existed.
 - `GET /guilds/:id` reads voice states/presences from Redis.
 - Next route folders for `/users/@me` live under `users/[id]`, and `/devices/@me/...` lives under `devices/[id]/...` (`@x` is a parallel-route slot in Next). The `[id]` handlers accept `@me`.
 - CORS (`apps/takusen/src/lib/cors.ts`): `Access-Control-Allow-Headers` is `Authorization, Content-Type, X-Requested-With, X-Hachiman-Device, X-Hachiman-Device-Ts, X-Hachiman-Device-Nonce, X-Hachiman-Device-Sig, X-Hachiman-Signed-Action`. `Access-Control-Expose-Headers` is `Retry-After`.
@@ -286,17 +300,17 @@ Implemented extras (Discord semantics):
 | DELETE `/channels/:id/messages/:mid` | author or MANAGE_MESSAGES | 204 | `MESSAGE_DELETE {id, channelId, guildId}` |
 | POST `/channels/:id/typing` | SEND_MESSAGES | 204 | `TYPING_START {channelId, guildId, userId, timestamp}` |
 | GET `/guilds/:id/members` | member | `Member[]` | — |
-| PATCH `/guilds/:id/members/:userId` `{nick?, roles?}` | nick: self→CHANGE_NICKNAME, other→MANAGE_NICKNAMES; roles→MANAGE_ROLES + hierarchy | `Member` | `GUILD_MEMBER_UPDATE` |
-| DELETE `/guilds/:id/members/:userId` | KICK_MEMBERS (not owner) | 204 | `GUILD_MEMBER_REMOVE {guildId, user}` → guild; `GUILD_DELETE {id}` → user:{kicked} |
+| PATCH `/guilds/:id/members/:userId` `{nick?, roles?}` | nick: self→CHANGE_NICKNAME, other→MANAGE_NICKNAMES; roles→MANAGE_ROLES + hierarchy | `Member` | `GUILD_MEMBER_UPDATE`; `INVITE_DELETE` → guild for each revoked invite (Invite limits) |
+| DELETE `/guilds/:id/members/:userId` | KICK_MEMBERS (not owner) | 204 | `GUILD_MEMBER_REMOVE {guildId, user}` → guild; `GUILD_DELETE {id}` → user:{kicked}; `INVITE_DELETE` → guild for each revoked invite (Invite limits) |
 | DELETE `/users/@me/guilds/:id` | member, not owner | 204 | same as kick |
 | GET `/guilds/:id/roles` | member | `Role[]` | — |
 | POST `/guilds/:id/roles` `{name, color?, permissions?}` | MANAGE_ROLES | `Role` | `GUILD_ROLE_CREATE {guildId, role}` |
 | PATCH `/guilds/:id/roles` `[{id, position}]` | MANAGE_ROLES | `Role[]` | `GUILD_ROLE_UPDATE` per changed role |
-| PATCH `/guilds/:id/roles/:roleId` `{name?, color?, permissions?}` | MANAGE_ROLES + hierarchy | `Role` | `GUILD_ROLE_UPDATE` |
-| DELETE `/guilds/:id/roles/:roleId` | MANAGE_ROLES + hierarchy, not @everyone | 204 | `GUILD_ROLE_DELETE {guildId, roleId}` |
-| GET `/guilds/:id/invites` | MANAGE_GUILD | `Invite[]` | — |
-| POST `/guilds/:id/invites` `{maxAgeSeconds?, maxUses?}` | CREATE_INSTANT_INVITE | `Invite` | — |
-| DELETE `/invites/:code` | MANAGE_GUILD | 204 | — |
+| PATCH `/guilds/:id/roles/:roleId` `{name?, color?, permissions?}` | MANAGE_ROLES + hierarchy | `Role` | `GUILD_ROLE_UPDATE`; `INVITE_DELETE` → guild for each revoked invite (Invite limits) |
+| DELETE `/guilds/:id/roles/:roleId` | MANAGE_ROLES + hierarchy, not @everyone | 204 | `GUILD_ROLE_DELETE {guildId, roleId}`; `INVITE_DELETE` → guild for each revoked invite (Invite limits) |
+| GET `/guilds/:id/invites` | MANAGE_GUILD | `Invite[]`: the invites that are not revoked (expired ones too), permanent first, then newest first | — |
+| POST `/guilds/:id/invites` `{maxAgeSeconds?, maxUses?, acknowledgedPermanent?, record?}` | CREATE_INSTANT_INVITE; ADMINISTRATOR for `maxAgeSeconds` 0 or above 86400, and for `record` (with `X-Hachiman-Device`) (Invite limits) | `Invite` | — |
+| DELETE `/invites/:code` | MANAGE_GUILD | 204. Deletes the bundles of the invite | `INVITE_DELETE {guildId, code, inviteId}` → guild (first revoke only) |
 | GET `/invites/:code` | **public** | `InvitePreview` (non-consuming) | — |
 | POST `/invites/:code` | auth | `GuildFull` (idempotent if already a member — no use consumed) | `GUILD_MEMBER_ADD` → guild; `GUILD_CREATE` → user:{me} |
 | GET `/users/@me/channels` | auth | `Channel[]` (DMs) | — |
@@ -307,7 +321,7 @@ Implemented extras (Discord semantics):
 | POST `/uploads?filename=<name>` raw body | auth | `{id, key, size}` (201): a plaintext profile image | — |
 | GET `/files/:uploadId/:filename` | **public** | file bytes (`/files/{uploadId}/blob` for blobs) | — |
 
-The E2EE routes (devices, keys, MLS, inbox, backups, linking, key transparency, reports) are in §12.12. In Phase 4, the role, overwrite and member-role routes and the channel `historyVisibility` change also take the header `X-Hachiman-Signed-Action` (§12.16). The header is necessary only when the request changes signed state: a role PATCH only with `permissions`, a member PATCH only with `roles`. A signed `role_create` names the role id, and `POST /guilds/:id/roles` creates the role with that id. The guild `publicHistoryVisibility` has no admin action type and is not signed.
+The E2EE routes (devices, keys, MLS, inbox, backups, linking, key transparency, reports, invites with history) are in §12.12. In Phase 4, the role, overwrite and member-role routes and the channel `historyVisibility` change also take the header `X-Hachiman-Signed-Action` (§12.16). The header is necessary only when the request changes signed state: a role PATCH only with `permissions`, a member PATCH only with `roles`. A signed `role_create` names the role id, and `POST /guilds/:id/roles` creates the role with that id. The guild `publicHistoryVisibility` has no admin action type and is not signed.
 
 ### Files
 
@@ -383,28 +397,32 @@ Every route needs VIEW_CHANNEL on the channel of the page (a page that the calle
 | Method + path | | Body | Returns | Publishes |
 |---|---|---|---|---|
 | GET `/channels/:id/pages` | | — | `Page[]` (all pages of the channel, any order) | — |
+| GET `/channels/:id/pages/heads` | | — | `PageHead[]` (all pages of the channel, any order) | — |
 | POST `/channels/:id/pages` | W D | `{id, parentId: string \| null, position, titleEnvelope}` | `Page` (201). 409 `PageExists` when `id` is taken | `PAGE_CREATE` |
-| PATCH `/pages/:pageId` | W D | `{parentId?, position?, titleEnvelope?}` | `Page` | `PAGE_UPDATE` |
+| PATCH `/pages/:pageId` | W D | `{parentId?, position?, titleEnvelope?, ifUpdatedAt?: string}` | `Page`. 409 `PageConflict` when `ifUpdatedAt` is not the `updatedAt` of the page | `PAGE_UPDATE` |
 | DELETE `/pages/:pageId` | W | — | 204 | `PAGE_DELETE` |
 | GET `/pages/:pageId/state` | | — | `PageState` | — |
 | GET `/pages/:pageId/updates?after=&limit=` | | — | `{updates: DocUpdate[], latestSeq}`, `seq > after` ascending. `limit` ≤ 500 (default 200) | — |
 | POST `/pages/:pageId/updates` | W D | `{envelope}` | `{seq}` (201) | `DOC_UPDATE` |
-| POST `/pages/:pageId/snapshots` | W D | `{baseSeq, uploadId, envelope, mediaUploadIds: string[]}` | `DocSnapshot` (201). 409 `SnapshotConflict {baseSeq}` | — |
+| POST `/pages/:pageId/snapshots` | W D | `{baseSeq, uploadId, envelope, mediaUploadIds: string[]}` | `DocSnapshot` (201), also for a re-wrap. 409 `SnapshotConflict {baseSeq}` | — |
 | POST `/pages/:pageId/media` | W | `{uploadIds: string[]}` (1 to 20) | 204. 413 `StorageQuotaExceeded` | — |
 
 - **Channel type.** The page routes need a channel of type `pages`, else 400 `NotPagesChannel`. A new pages channel has no page. The client that creates the channel then creates one root page ("Untitled"), because only a client can encrypt the title.
 - **Create.** `id` is a new UUID that the client chooses, because the title envelope binds the page id (§12.20). `parentId` is null or a page of the same channel, else 400 `ValidationError`.
 - **Envelope checks.** Takusen decodes only the header (§12.20 "Server checks"). `titleEnvelope` needs kind `doc_title`, the updates route kind `doc_update`, the snapshots route kind `doc_snapshot`, else 400 `InvalidEnvelope`. The other checks and codes are those of §12.8.4: 413 `EnvelopeTooLarge`, 409 `GroupPending`, 409 `StaleEpoch {epoch}`, 403 `NotMember`, 400 `InvalidEnvelope`.
 - **Move.** A PATCH that sets `parentId` to the page itself or to a page of its subtree gives 400 `PageCycle`. A `parentId` of another channel gives 400 `ValidationError`. Takusen sets `updated_at` on every PATCH. Takusen does not renumber siblings: the client sends the positions it wants.
+- **Compare-and-set.** With `ifUpdatedAt` (an ISO 8601 time, as `Page.updatedAt`), Takusen locks the page row and compares the two times to the millisecond. When they differ, it gives 409 `PageConflict` and changes nothing. A title re-wrap (§12.20) sends it, so that it does not undo a rename that came in between.
+- **Heads.** `GET /channels/:id/pages/heads` gives, for each page, `latest_seq`, the group and the epoch from the header of the title envelope (Takusen decodes the header only), and the newest snapshot. A re-wrap pass reads it instead of the state of each page.
 - **Delete.** Deletes the page and its subtree in one transaction. It deletes the upload rows of these pages (`deletePageUploadRows`), then (best effort) their objects, and subtracts their bytes from `guilds.page_storage_bytes`. `PAGE_DELETE.ids` lists the page and every page of its subtree. A channel delete and a guild delete also delete the page uploads with `deleteAttachmentRows`.
 - **Updates.** `POST /pages/:pageId/updates` locks the page row, sets `latest_seq = latest_seq + 1` and inserts the row with that `seq` in one transaction. Thus `seq` has no gaps, also when two senders post at the same time. After the commit, Takusen publishes `DOC_UPDATE`.
 - **State.** `GET /pages/:pageId/state` gives the newest snapshot and the first 500 updates after its `baseSeq` (after 0 without a snapshot). The client reads the rest with `GET /pages/:pageId/updates`, downloads the snapshot blob from `/files/{uploadId}/blob` and decrypts it (§12.9).
 - **Snapshots.** The client uploads the encrypted state with `POST /uploads?kind=page_snapshot` and then posts the snapshot. `?kind=page_snapshot` is `?kind=blob` with two differences: the cap is `TAKUSEN_MAX_PAGE_SNAPSHOT_BYTES` (`Limits.maxPageSnapshotBytes`, default 104857600 = 100 MiB), and the row gets `purpose = 'page_snapshot'` at once, so no message can claim it. In one transaction, the snapshot route:
-  1. Locks the page row. It checks that `baseSeq` is above the `base_seq` of the newest snapshot (0 when there is none) and not above `latest_seq`. Else 409 `SnapshotConflict` with the current `baseSeq`. The upload of the loser stays unclaimed.
+  1. Locks the page row. A `baseSeq` equal to the `base_seq` of the newest snapshot is a re-wrap (below). Else it checks that `baseSeq` is above the `base_seq` of the newest snapshot (0 when there is none) and not above `latest_seq`. Else 409 `SnapshotConflict` with the current `baseSeq`. The upload of the loser stays unclaimed.
   2. Claims the upload: it must be of the caller, `encrypted`, `purpose = 'page_snapshot'` and `page_id` null, else 400 `UnknownUpload`. The claim sets `page_id` and adds the size to `guilds.page_storage_bytes` (quota, below).
   3. Inserts the row. `mediaUploadIds` (at most 1000, else 400 `ValidationError`) is stored as given: the server cannot read the page.
   4. Keeps the previous snapshot and the updates after its `base_seq`. It deletes the older snapshot rows, the updates with `seq <=` the `base_seq` of the previous snapshot, and the upload rows of the deleted snapshots (`deletePageUploadRows`, objects after the commit). Thus a page has at most two snapshot objects.
-- **When a client posts a snapshot.** When more than 200 updates follow the newest snapshot, or when the newest snapshot has an epoch below the current epoch of the group. The second rule lets a member who joined in a later epoch read the page (§12.20 "Access by new members").
+- **Re-wrap.** A re-wrap posts the pointer of the newest snapshot again, in a newer epoch (§12.20 "Access by new members"). The blob does not change, so the client uploads nothing. The route accepts it when `baseSeq` and `uploadId` are those of the newest snapshot, the envelope passes the checks above, and the envelope is of another group than the row (the channel has a new group) or of a higher epoch. Else 409 `SnapshotConflict` with the current `baseSeq`: another member was first. Takusen replaces `envelope`, `group_id`, `epoch` and `sender_device` of the row in place. It claims no upload, changes no quota and deletes nothing. It keeps the stored `media_upload_ids` and ignores the body list, so a re-wrap cannot drop a media reference. The caller does not need to be the uploader.
+- **When a client posts a snapshot.** When more than 200 updates follow the newest snapshot, or when the newest snapshot or an update after it has an epoch below the current epoch of the group. The second rule lets a member who joined in a later epoch read the page (§12.20 "Access by new members"). When no update follows the newest snapshot, the client re-wraps its pointer instead of a new snapshot.
 - **Media.** A page image, video or file is a §12.9 blob from `POST /uploads?kind=blob`. `POST /pages/:pageId/media` claims each id: the upload must be of the caller and `encrypted`, with purpose null (a new claim: it sets `purpose = 'page_media'` and `page_id`, and adds the size to the quota) or `page_media` of this page (a refresh). Else 400 `UnknownUpload`. Every claim sets `last_referenced_at = now()`. The client claims again each time it inserts the media into the page.
 - **Quota.** `guilds.page_storage_bytes` counts the blob bytes of the `page_snapshot` and `page_media` uploads of the guild. A claim that takes it above `TAKUSEN_GUILD_PAGE_STORAGE_BYTES` (default 10737418240 = 10 GiB, 0 = no limit) gives 413 `StorageQuotaExceeded`, and nothing of the request is stored. Each claim and each delete changes the count in its transaction, with the guild row locked.
 - **Media sweep.** The daily sweep of the gRPC process deletes a `page_media` upload (in one transaction the row and its bytes from the quota, then the object) when all three are true: no snapshot of its page lists it in `media_upload_ids`, its `created_at` is more than 30 days ago, and its `last_referenced_at` is more than 30 days ago. The 30 days are the window for undo and restore.
@@ -557,6 +575,7 @@ Dispatch events:
 | USER_UPDATE | `User` — the current user changed (to user:{me} only). Other users see the change through GUILD_MEMBER_UPDATE. `// ponytail:` DM recipients stay stale until the next READY |
 | GUILD_ROLE_CREATE / GUILD_ROLE_UPDATE | `{ guildId, role: Role }` |
 | GUILD_ROLE_DELETE | `{ guildId, roleId }` |
+| INVITE_DELETE | `{ guildId, code, inviteId }` — an invite was revoked (§4): by `DELETE /invites/:code`, or because its creator lost ADMINISTRATOR. To every member of the guild. The crypto Worker also gets it (§12.13) |
 | PRESENCE_UPDATE | `{ userId, status }` (published to guild:{g} for every guild of the user, and user:{p} for DM partners) |
 | VOICE_STATE_UPDATE | `VoiceState` (`channelId: null` = left) |
 | VOICE_SERVER_UPDATE | `{ guildId, channelId, endpoint, token, iceServers: RTCIceServer[], expiresAt }` — to the requesting session only |
@@ -761,11 +780,11 @@ export class RestClient {
   getMessages(channelId, { before?, limit? }); editMessage(...); deleteMessage(...); triggerTyping(channelId)
   getMembers(guildId); updateMember(guildId, userId, body, opts?); kickMember(guildId, userId); leaveGuild(guildId)
   getRoles(guildId); createRole(guildId, body, opts?); reorderRoles(guildId, positions, opts?); updateRole(guildId, roleId, body, opts?); deleteRole(guildId, roleId, opts?)
-  getInvites(guildId); createInvite(guildId, body); deleteInvite(code); previewInvite(code); acceptInvite(code)
+  getInvites(guildId); createInvite(guildId, { maxAgeSeconds?, maxUses?, acknowledgedPermanent?, record? }); deleteInvite(code); previewInvite(code); acceptInvite(code)
   getDmChannels(); openDm(recipientIds); getUser(id)
   updateMe({ avatar? }); getLimits()
   // §4 Pages
-  getPages(channelId); createPage(channelId, { id, parentId, position, titleEnvelope }); updatePage(pageId, { parentId?, position?, titleEnvelope? }); deletePage(pageId)
+  getPages(channelId); getPageHeads(channelId); createPage(channelId, { id, parentId, position, titleEnvelope }); updatePage(pageId, { parentId?, position?, titleEnvelope?, ifUpdatedAt? }); deletePage(pageId)
   getPageState(pageId); getPageUpdates(pageId, { after, limit? }); postPageUpdate(pageId, { envelope })
   postPageSnapshot(pageId, { baseSeq, uploadId, envelope, mediaUploadIds }); claimPageMedia(pageId, uploadIds)
   sendMessage(channelId, { envelope, nonce?, attachments?: string[] /* upload ids */ }); editMessage(channelId, messageId, { envelope })
@@ -787,6 +806,7 @@ export class RestClient {
   postHistoryBundle(groupId, body); getHistoryBundles(groupId, epoch)
   createLinkSession(body); listLinkSessions(); postLinkMessage(id, body); getLinkMessages(id, after); deleteLinkSession(id)
   ktTreeHead(); ktInclusion(index, treeSize); ktConsistency(from, to); ktEntries(query); getAdminActions(guildId, after); report(body)
+  inviteRecords(guildId); postInviteBundle(inviteId, { groupId, epoch, blob }); inviteBundles(code)
 }
 export const EMBEDDABLE: { image: readonly string[]; video: readonly string[]; audio: readonly string[] }   // src/files.ts
 export function embedKind(contentType: string): 'image' | 'video' | 'audio' | 'file'   // ignores MIME parameters (`; codecs=...`) and case
@@ -882,10 +902,11 @@ export class HachimanClient extends TypedEventEmitter<HachimanClientEvents> {
   //         plus every gateway event re-emitted after the cache is updated
   // The cache keeps Message as ciphertext. The shared UI decrypts with @hachiman/crypto before messagesStore.upsert.
   // PAGE_* and DOC_* are not cached. The shared UI (services/docs) keeps the page tree and the Yjs docs.
+  // INVITE_DELETE is not cached. The invite list of the guild settings removes the revoked invite.
 }
 ```
 
-`types.ts` also exports the §12.12 shapes (`Device`, `UserKeys`, `DsInfo`, `MlsGroup`, `GroupState`, `CreateGroupRequest`, `CommitRequest`, `Handshake`, `JoinRequest`, `InboxItem`, `BackupIndex`, `HistoryBundle`, `LinkSession`, `LinkMessage`, `KtTreeHead`, `KtInclusionProof`, `KtConsistencyProof`, `KtEntry`, `AdminAction`), the §12.13 events in `GatewayEvents`, and `VoiceE2eeServerOp` / `VoiceE2eeClientOp` (§8). The shapes are structurally equal to the `Wire*` types and the voice op types of `@hachiman/crypto` (`src/api.ts`). The shared UI typechecks the two against each other where it joins them.
+`types.ts` also exports the §12.12 shapes (`Device`, `UserKeys`, `DsInfo`, `MlsGroup`, `GroupState`, `CreateGroupRequest`, `CommitRequest`, `Handshake`, `JoinRequest`, `InboxItem`, `BackupIndex`, `HistoryBundle`, `LinkSession`, `LinkMessage`, `KtTreeHead`, `KtInclusionProof`, `KtConsistencyProof`, `KtEntry`, `AdminAction`, `InviteRecord`, `InviteBundles`), the §12.13 events in `GatewayEvents`, and `VoiceE2eeServerOp` / `VoiceE2eeClientOp` (§8). The shapes are structurally equal to the `Wire*` types and the voice op types of `@hachiman/crypto` (`src/api.ts`). The shared UI typechecks the two against each other where it joins them.
 
 `setSelfVoice` is the only place that sets self mute and deafen. The rules follow Discord:
 - Deafen mutes the outgoing audio and all remote playback. Op 4 then sends `selfMute: true`.
@@ -910,8 +931,8 @@ export interface IPlatformService {
   readonly oauthRedirectUri: string
   /** Opens the OAuth authorization page. Browser: same-tab redirect. Electron: system browser. */
   beginOAuth(url: string): void
-  /** Invite links (`takusen://invite/<code>` or `https://<takusen>/invite/<code>`) → code. Returns unsubscribe. */
-  onInviteCode(cb: (code: string) => void): () => void
+  /** Invite links (`takusen://invite/<code>` or `https://<takusen>/invite/<code>`, `#k=<key>` with history) → code and key. Returns unsubscribe. */
+  onInviteLink(cb: (link: InviteLink) => void): () => void
   /** OAuth redirect URLs delivered by the host (Electron custom scheme / browser callback route). */
   onOAuthCallback(cb: (url: string) => void): () => void
   /** Electron: TCP-connect RTT probe from main. Browser: resolves []. */
@@ -948,6 +969,17 @@ export interface ISecureStorage {
 // The values are CryptoErrorCode values of @hachiman/crypto, so the UI handles them like crypto errors.
 export type SecureStorageErrorCode = 'SecureStorageUnavailable' | 'StoreCorrupt' | 'Malformed'
 export function secureStorageErrorCode(e: unknown): SecureStorageErrorCode | null
+
+// @hachiman/client/invite-link: the one invite link grammar. The hosts import it as @hachiman/hachiman/invite-link
+// (a re-export). The root of @hachiman/hachiman exports parseInviteLink and parseInviteCode too.
+export interface InviteLink {
+  code: string
+  key: string | null   // the invite seed of an invite with history (§12.11.4): 43 canonical base64url characters
+}
+export function parseInviteLink(input: string): InviteLink | null
+export function parseInviteCode(input: string): string | null
+export function parseInviteKeyFragment(fragment: string): { key: string | null } | null  // fragment without '#'; '' → key null
+export function inviteKeyFragment(key: string): string  // '#k=' + key
 ```
 
 `secureStorage` (§12.17):
@@ -969,6 +1001,19 @@ Each host declares its title bar. The Electron main process hides the native tit
 `VITE_HACHIMAN_OIDC_REDIRECT` replaces the default URI on either host.
 
 When the user starts sign-in from an invite dialog, the pending PKCE flow also keeps the invite code. After the callback, the UI opens the invite dialog again. It does this also when sign-in fails. The browser host needs this step: the redirect loads the page again, and the host removed `/invite/<code>` from the URL at start-up. When the callback fails, the UI shows the cause and tells the user to sign in again. The sign-in screen and the invite dialog show this message.
+
+The key of an invite with history does not go into the pending flow, because the Takusen store keeps the flow in `localStorage`. In the browser host, the UI keeps the key in `sessionStorage` (`hachiman-invite-key:<code>`, this tab only) during the redirect, and moves it back into memory at the callback. At start-up, after the callback of the load URL, the UI deletes every other `hachiman-invite-key:` entry. Thus a sign-in that did not finish (the user left the sign-in page, for example) leaves no key. The Electron renderer keeps the key in memory.
+
+Invite links:
+- The forms are `takusen://invite/<code>`, `https://<Takusen issuer origin>/invite/<code>`, the web client path `/invite/<code>`, and a bare code. The link of an invite with history ends in `#k=<key>` (§12.11.4). `parseInviteLink` reads all of them.
+- **Fail closed.** A link with a fragment other than `k=` and 43 base64url characters gives null, and the host drops the link. The last character must be canonical (one of `AEIMQUYcgkosw048`): 32 bytes use only 4 bits of it, and the crypto Worker refuses other bits. Thus a damaged link cannot join without the history by accident.
+- Browser host: it reads `/invite/<code>[#k=<key>]` at start-up (`src/platforms/browser/launch-url.ts`). Then it replaces the URL with `/`, also when the link does not parse. This also removes the key from the address bar and the history entry.
+- Electron: the main process checks the deep link (`apps/hachiman-electron/src/main/deep-link-route.ts`). It rebuilds the link from the URL parts, checks it with `parseInviteLink`, and sends it on the IPC channel `hachiman:invite-link`. The renderer parses the link again.
+- The Takusen page `/invite/<code>` links to `${HACHIMAN_WEB_URL}/invite/<code>` and to `takusen://invite/<code>`. A browser does not send the fragment to the server. Thus a script on the page adds the fragment to both links. It forwards only a well-formed `#k=` (`src/lib/invite-fragment.ts`, with `parseInviteKeyFragment`), and it removes any fragment from the address bar with `history.replaceState`. **Residual risk:** Takusen serves this script, so a hostile Takusen can read the key in either host (§12.17 "Browser host").
+- The shared UI keeps the key only in memory (`InviteService`) and in component state, never in a store (§12.17). The join window says "This invite includes history" when the preview has `hasHistory` and the link has a key. When the link has no key, it tells the user to open the full link. A pasted link with a key also opens the join window. When the join window closes without a join, also when another window takes its place, the UI forgets the key.
+- The join of an invite with history uses the invite, but the redemption needs the crypto Worker of this window. When the Worker cannot start (`LockHeld`: Hachiman runs in another tab, or another start error, or a fatal state), the join window shows a warning, and the user must select "Join without the history" before the join.
+- After `POST /invites/:code`, the UI calls `redeemInvite` when the crypto Worker is ready and the client cache has this user in the members of the guild. It tries at once, when the status becomes ready, and on `READY` and `GUILD_CREATE`. `GroupPending` makes it wait for the next of these. A `Transport` error other than 404 `UnknownInvite` (a network error, a 5xx, a 429) makes it try again after 5 s, then after a wait that doubles up to 5 min, while the next try comes before `INVITE_BUNDLE_FETCH_WINDOW_MS` after the join. Another failure, or the end of that window, loses only the history: the user stays a member, and a security notice tells the user. The notice holds the guild id only.
+- The invite window of an administrator has the switch "Include history" (off by default), with the scope: the text and pages channels that @everyone can view, from the REST roles, with each `joined` channel marked. Switching it on sets one use. The window then calls `prepareHistoryInvite`, `POST /guilds/:id/invites` with the record, and `sendInviteBundles`. `sendInviteBundles` fails when a bundle post fails. When it fails, the window revokes the invite. When it sends no bundle (`groups` 0: this device holds no group of the scope, for example because the channels have no messages yet), the window keeps the invite and shows a warning: the link then gives only the history that other members send at their commits (§12.11.4). The link shows once: the invite list cannot copy the link of an invite with history (`hasHistory`).
 
 Screen share source selection:
 - Browser: `getScreenSources` gives null. `getDisplayMedia` then shows the picker of the browser.
@@ -1010,7 +1055,7 @@ The packaged Electron app does not load the renderer from `file://`. A `file://`
 - The middleware is the only source of CORS headers under `/api/*`, `/api/oidc` included. It answers all preflights. The OIDC route removes the CORS headers and the `Vary` header that the OIDC provider sets.
 - On the token, userinfo and revocation endpoints, the OIDC provider also examines the origin with the same allowlist. It rejects a different origin with a 400 response.
 
-Deep link scheme: `takusen://invite/<code>` (replaces `takusen://join#<signed payload>`). OAuth callback scheme unchanged (`app.hachiman://oauth-callback`).
+Deep link scheme: `takusen://invite/<code>[#k=<base64url invite seed>]` (replaces `takusen://join#<signed payload>`). OAuth callback scheme unchanged (`app.hachiman://oauth-callback`).
 
 ## 12. End-to-end encryption
 
@@ -1053,7 +1098,7 @@ struct {
 SignWithLabel(key, Label, Content) = Ed25519.sign(key, encode(SignContent))
 ```
 
-The labels are `MasterKey`, `DeviceSigningKey`, `DeviceCertificate`, `DeviceRevocation`, `Envelope`, `HistoryBundle`, `DeviceMessage`, `AdminAction` and `TreeHead`.
+The labels are `MasterKey`, `DeviceSigningKey`, `DeviceCertificate`, `DeviceRevocation`, `Envelope`, `HistoryBundle`, `DeviceMessage`, `AdminAction`, `TreeHead`, `DocEnvelope` (§12.20), `InviteRecord`, `InviteBundle` and `InviteAuth` (§12.11.4).
 
 ### 12.3 Crypto constants
 
@@ -1070,11 +1115,11 @@ The labels are `MasterKey`, `DeviceSigningKey`, `DeviceCertificate`, `DeviceRevo
 | Envelope AEAD | AES-256-GCM, 16-byte tag |
 | Attachment AEAD | AES-256-GCM STREAM, 64 KiB segments |
 | SFrame suite | `AES_128_GCM_SHA256_128` (0x0004), full 16-byte tag |
-| Device message HPKE | RFC 9180 base mode: DHKEM(X25519, HKDF-SHA256) 0x0020, HKDF-SHA256 0x0001, AES-128-GCM 0x0001 |
+| Device message and invite bundle HPKE | RFC 9180 base mode: DHKEM(X25519, HKDF-SHA256) 0x0020, HKDF-SHA256 0x0001, AES-128-GCM 0x0001. Invite bundles use the info `hachiman invite bundle v1` (§12.11.4) |
 | Leaf extension `DEVICE_CHAIN` | 0xF1A0 (private range) |
 | Group context extension `GROUP_DESCRIPTOR` | 0xF1A1 (private range) |
 
-HKDF info strings: `hachiman msg key v1`, `hachiman franking v1`, `hachiman backup key v1`, `hachiman backup id v1`, `hachiman link sas v1`, `hachiman link key v1`, `hachiman sealed v1`.
+HKDF info strings: `hachiman msg key v1`, `hachiman doc key v1`, `hachiman franking v1`, `hachiman backup key v1`, `hachiman backup id v1`, `hachiman link sas v1`, `hachiman link key v1`, `hachiman sealed v1`, `hachiman invite hpke v1`, `hachiman invite sign v1`.
 
 ### 12.4 Identity
 
@@ -1405,7 +1450,7 @@ All handshakes are PublicMessage. A client uploads a commit with `POST /mls/grou
 6. **Proposal references.** Each proposal by reference is a DS proposal that Takusen published for this epoch (`mls_pending.proposal_ref` with `proposal_epoch` = epoch). Members cannot reference their own proposals (the policy rejects Update, PSK and ReInit proposals by reference). Else 400 `InvalidCommit`.
 7. **New and changed leaves.** Every leaf that is new or changed in the uploaded tree (not byte-equal to the leaf of `previous` at the same index) has a valid credential identity and a valid chain (signatures only). Its device is registered, belongs to the user and is not revoked.
 8. **Unchanged leaves** are not checked again, with one exception. A leaf whose device is revoked or deleted, whose user is deleted, or whose user is not a reader, is allowed only while a Remove for its leaf index is queued (`mls_pending`). Else 403 `IllegalMembership`. The non-reader case is necessary for the external-commit fallback of §12.7.5 step 7: an external commit cannot carry the Remove. A new or changed leaf of a non-reader always gives 403 `IllegalMembership`.
-9. The next roster passes the policy (below). Else 403 `IllegalMembership` (a user who must not be a member) or 403 `IllegalRemove` / `IllegalAdd`.
+9. The next roster passes the policy (below). Else 403 `IllegalMembership` (a user who must not be a member) or 403 `IllegalRemove` / `IllegalAdd`. An external commit of a user without a leaf into a `channel` group passes only with a valid `InviteAuth` in its `authenticated_data` (§12.11.4 "Join authorization"). Else 403 `IllegalAdd`.
 10. Compare-and-set: `UPDATE mls_groups SET epoch = E + 1, … WHERE group_id = $1 AND epoch = E`. Zero rows gives 409 `EpochConflict`.
 11. In the same transaction: append the handshake (next `seq`), store GroupInfo and tree for epoch + 1 (keep 8 epochs), replace the DS roster, write the Welcome to the inbox of each new device, and delete the pending items that the commit applied.
 
@@ -1417,13 +1462,15 @@ After the commit, Takusen publishes `MLS_HANDSHAKE` (§12.13) and wakes the sche
 |---|---|---|---|---|
 | DS (external sender) proposals | Add and Remove | Remove only | Remove only | none (no external sender) |
 | Adds by value | reader devices | reader devices | participant devices | only key packages whose identity is a roster `pending` entry |
-| External commit (join) | any reader device | only a user who already has a leaf (own new device) | the same as `channel` | rejected |
+| External commit (join) | any reader device | only a user who already has a leaf (own new device), or a reader device with a valid `InviteAuth` (§12.11.4) | only a user who already has a leaf (own new device) | rejected |
 | External commit (resync of own leaf) | yes | yes | yes | rejected |
 | Member Removes by value | own devices, non-readers, revoked devices | the same | the same | only leaves whose device is in `departed` |
 | GroupContextExtensions | `history_visibility` only (§12.6), MANAGE_GUILD | `history_visibility` only, MANAGE_CHANNELS | rejected (DMs stay `joined`) | rejected |
 | Other proposal types (PSK, ReInit, Update by reference) | rejected | rejected | rejected | rejected |
 
 Clients reject a DS Add proposal in any group except `public_set`. Clients reject every Add whose key package fails the chain check, and every Add of a user who is not a reader in their own permission computation. For a DM, the readers are the participants of the channel.
+
+**Invite joins and older clients.** A client checks the `InviteAuth` of an external commit itself (§12.11.4). A client without this rule (a version before invites with history) rejects a valid invite join: it raises a fork alert (`commit_rejected`) and resyncs its own leaf (§12.7.9). This is detection only, and the joiner stays in the tree. To stop these alerts, set `GATEWAY_MIN_CLIENT_VERSION` to the first version with the rule.
 
 #### 12.7.4 Proposals and pending Removes
 
@@ -1445,7 +1492,7 @@ The scheduler runs in the Takusen gRPC process (`apps/takusen/src/grpc/main.ts`)
 6. If the deadline passes without an accepted commit, the scheduler marks the device as timed out and sends the batch to the next online device. A device that cannot commit (for example, it is not caught up) calls `POST /mls/batches/:id/decline` to skip the wait. A decline sets the deadline of the batch to now, so the declining device is in the cooldown too. A second decline of the same batch gives 410 `BatchExpired`.
 7. When no member device is online:
    - A queued Add in `public_set` gets `MLS_JOIN_UPDATE` status `external_commit`. The joiner joins by external commit.
-   - A queued Add in another kind gets status `waiting`. It stays queued.
+   - A queued Add in another kind gets status `waiting`. It stays queued. A redeemer of an invite with history does not wait for a `channel` group of the scope: it joins by external commit with an `InviteAuth` (§12.11.4).
    - A queued Remove stays queued. The next member that sends must commit it (§12.7.4).
 8. Any accepted commit, with or without a batch id, removes the pending items that it applied. A live batch for an older epoch is cancelled and made again on the next tick.
 
@@ -1480,6 +1527,7 @@ The scheduler runs in the Takusen gRPC process (`apps/takusen/src/grpc/main.ts`)
 - Takusen checks that the user reads the group. It queues an Add (`public_set`: as a DS proposal, other kinds: by value). Statuses: `queued`, `committed`, `rejected`, `external_commit`, `waiting`. Takusen publishes `MLS_JOIN_UPDATE` to `device:{id}` on each change.
 - In `channel` and `dm` groups, when the user already has a leaf in the group, Takusen sets the status `external_commit` at once, and the new device joins by external commit. A join request of a user without a leaf stays queued for a member to commit.
 - `GroupService.sync()` posts a join request for each group of `GET /mls/groups` with `member = false`, except `public_set` groups. A `public_set` join waits for the first open of a public channel (`ensureChannelGroup`).
+- **Invite joins.** For a `channel` group whose channel a redeemed invite with history names, `sync()` and `ensureChannelGroup` first join by external commit with an `InviteAuth`, with no join request (§12.11.4). When the device cannot make the `InviteAuth`, or the DS refuses the commit, they post the join request.
 - A `public_set` group has at most `TAKUSEN_PUBLIC_SET_MAX_MEMBERS` leaves (default `PUBLIC_SET_MAX_MEMBERS`, 500). Above the cap, a join request gets 403 `GroupFull`. There is no plaintext fallback. The Phase 3 load test (`docs/e2ee-load-test.md`) set this value: at 500 leaves, a full batch of Adds takes the committer 0.43 s (deadline 5 s), and a join by Welcome takes 2.2 s (budget 10 s). The Welcome join time grows about with the square of the leaves. Fewer Adds per `public_set` batch and an empty commit with a path after each join would allow a higher cap. Both are contract changes that are not made yet (`docs/e2ee-load-test.md`, "How to increase the cap").
 
 #### 12.7.9 Retention and catch-up
@@ -1489,7 +1537,7 @@ The scheduler runs in the Takusen gRPC process (`apps/takusen/src/grpc/main.ts`)
 - A client that is further behind gets 410 `HandshakesExpired`. It resyncs by external commit and gets the missed history keys from its own devices (`history_keys` device message) or from its backup.
 - A client buffers envelopes of an epoch that it has not reached (store table `buffered`). `MessageService` writes the table. `GroupService` drains it after it fetches the handshakes, and emits `epochKeysAvailable`. The UI then calls `decryptMessages` again.
 - **Rejected commits.** A client that rejects a commit that the DS accepted stops the group and resyncs automatically (§12.8.7, `commit_rejected`).
-- **Own commits after a crash.** Before a client posts a commit, it stores the next state in the store table `pendingCommits` (key: group id, with the epoch). When the DS accepts, the client adopts the state and deletes the row. When the client sees a commit in the stream with `senderDevice` = itself and the stored epoch, it adopts the stored state, because ts-mls cannot process its own commit. When no stored state matches, the client resyncs by external commit. On 409, it deletes the row.
+- **Own commits after a crash.** Before a client posts a commit, it stores the next state in the store table `pendingCommits` (key: group id, with the epoch). When the DS accepts, the client adopts the state and deletes the row. When the client sees a commit in the stream with `senderDevice` = itself and the stored epoch, it adopts the stored state, because ts-mls cannot process its own commit. When no stored state matches, the client resyncs by external commit. On 409, it deletes the row. It also deletes the row when the DS refuses an external commit with a code of the §12.7.3 checks (for example 403 `IllegalAdd`): the DS did not store that commit. After a network error or a 5xx, the row stays, because the DS can have accepted the commit.
 
 ### 12.8 Message envelopes
 
@@ -1703,6 +1751,10 @@ nonce               = sframe_salt XOR uint96(CTR)
 
 A client keeps `S_e` of every epoch that it was a member of (store table `epochSecrets`), so it can decrypt history again after a reload. A leaked device store exposes the history of that device.
 
+- An import (`importHistoryKeys`: an own device, a backup, a history or invite bundle) never replaces a stored secret.
+- The secret that a device derives from its own MLS state of an epoch replaces a stored secret of that epoch that differs, and the device emits `epochKeysAvailable`. Thus a wrong imported key (any member can sign an invite bundle, §12.11.4) stops working in each epoch that the device enters. A send always uses the secret from the MLS state.
+- An import reads and writes in one store transaction. After an upload, a backup (§12.11.3) marks a row as backed up only when the row still has the uploaded secret. Thus a secret that the MLS state replaced during the upload stays not backed up, and the next backup uploads it.
+
 #### 12.11.2 History bundles
 
 When the group descriptor says `shared`, the committer of a commit that added a device of a new user sends a history bundle in the new epoch. When the committer does not send it, the next `MLS_BATCH_ASSIGN` for the group lists the epoch in `historyBundleEpochs`.
@@ -1771,6 +1823,143 @@ struct {
 - A client uploads a history blob per group when it has 64 epochs without a backup, and at most every 24 h.
 - Limits: 64 KiB for the identity blob, 1 MiB per history blob, 256 MiB per user.
 - A recovery key rotation uploads all blobs again under the new key and then deletes the old ones.
+
+#### 12.11.4 Invites with history
+
+An administrator can make an invite that carries history. The link of the invite holds a secret seed. Member devices seal epoch secrets to the keys of the seed. A user who has the full link reads the history of the scope with no member online. The server stores the signed record and the sealed bundles. It never gets the seed. `pkgs/hachiman-crypto/src/invites/` holds the codecs, the keys and the signatures.
+
+**Seed and keys.** The creator device makes 32 random bytes, the `invite_seed` (`INVITE_SEED_BYTES`). Two key pairs come from the seed:
+
+```
+hpke_priv = HKDF-SHA256(salt = "", IKM = invite_seed, info = "hachiman invite hpke v1", 32)   // X25519: hpke_public = X25519(hpke_priv)
+sign_priv = HKDF-SHA256(salt = "", IKM = invite_seed, info = "hachiman invite sign v1", 32)   // the Ed25519 seed of the key pair: sign_public
+```
+
+- The derivation does not use the RFC 9180 `DeriveKeyPair`.
+- `sign_public` is the **invite key id** (`keyId`, base64url on a JSON wire).
+- Test vector: `invite_seed` = bytes 0x00, 0x01, … 0x1f. `hpke_public` = `f2e52868376523060a03d6ddcbaee000ddffe9f0fe3fec04a5d139a432c19873`. `sign_public` = `249ff29357de4ced21fd2e49eaca9944bb1957c2ef0b9b30e79220fef2c75d86`.
+- The link is `https://<Takusen issuer origin>/invite/<code>#k=<base64url(invite_seed)>` (43 characters, no padding). `parseInviteKeyFragment` of `@hachiman/client/invite-link` checks the fragment. A browser does not send the fragment to the server. A script of the Takusen page hands it on to the app (§11 "Invite links").
+
+**Record.** The creator device signs the record. The client sends it in the body of `POST /guilds/:id/invites` (§12.12).
+
+```
+struct {
+  uint8  version = 1;
+  opaque guild_id[16];
+  opaque hpke_public[32];          // X25519
+  opaque sign_public[32];          // Ed25519, the invite key id
+  opaque channel_ids<V>;           // the scope: 16 bytes each, strictly ascending, 0 to 500
+  uint64 admin_chain_seq;          // the seq of the admin state that the creator used (§12.16)
+  uint64 expires_at_ms;            // 0 = permanent
+  uint32 max_uses;                 // 0 = no limit
+  opaque creator_user_id[16];
+  opaque creator_device_id[16];
+} InviteRecord;
+
+struct {
+  opaque record<V>;                // encode(InviteRecord)
+  opaque signature<V>;             // SignWithLabel(creator device MLS signature key, "InviteRecord", record)
+} SignedInviteRecord;
+```
+
+- The record has no invite code, because Takusen makes the code after the creator signs the record. The key id identifies the invite in all crypto objects.
+- `channel_ids` are the text and pages channels that @everyone can view at creation, at most 500 (`INVITE_MAX_SCOPE_CHANNELS`). The order is the unsigned byte order of the 16-byte ids. A decoder rejects ids out of order and duplicate ids.
+- A member accepts a record only after the checks of §12.16 ("Invite records").
+
+**Scope.** Each member decides from its own MLS-authenticated group descriptor (§12.6), never from REST data:
+- The `public_set` group of the guild is in the scope of each invite with history of that guild. Each channel of `public_set` is visible to @everyone (§12.6).
+- A `channel` group is in the scope when its descriptor `channel_id` is in `channel_ids` and @everyone still has VIEW_CHANNEL on that channel in the current admin state (§12.16).
+- A `dm` group is never in the scope.
+- The redeemer holds the state of few groups. It decides from the group id of the bundle: the group id names the kind and the scope of the descriptor, and every member checks that it does (§12.6). The `public_set` group id must name the guild of the record. A `channel` group id must name a channel of `channel_ids` that @everyone still views. A channel id does not name its guild. Thus, in a group that the redeemer holds, the descriptor must also be in the scope, as for a member. For a group that it does not hold, the redeemer relies on Takusen: Takusen accepts only a record whose `channel_ids` are channels of its guild (§4 "Invite limits"), and refuses a bundle for a group of another guild (§12.12). The creator device does not check this: its admin state has no list of the channels of the guild. **Residual risk:** an administrator and a server that act together can give the redeemer wrong secrets for the channel group of another guild that the redeemer does not hold yet. When it joins that group later, an import never replaces these secrets (§12.11.1).
+
+**Bundles.**
+
+```
+struct {
+  uint8  version = 1;
+  opaque sign_public[32];          // the invite key id
+  opaque group_id<V>;
+  HistoryKey keys<V>;              // §12.11.2: S_e, strictly ascending epochs, 1 to 4096 keys
+  opaque sender_user_id[16];
+  opaque sender_device_id[16];
+} InviteBundleTBS;
+
+struct {
+  opaque tbs<V>;                   // encode(InviteBundleTBS)
+  opaque signature<V>;             // SignWithLabel(sender device MLS signature key, "InviteBundle", tbs)
+} InviteBundleContent;
+
+struct {
+  uint8  version = 1;
+  opaque enc[32];
+  opaque ciphertext<V>;            // HPKE base mode, §12.3 suite: Seal(pkR = hpke_public, info = "hachiman invite bundle v1",
+                                   //   aad = sign_public ‖ group_id, pt = encode(InviteBundleContent))
+} InviteBundle;
+```
+
+- The AAD and the signed TBS bind a bundle to one invite and one group. A server cannot move a bundle to another invite or to another group.
+- Limits: 640 KiB for one bundle (`INVITE_BUNDLE_MAX_BYTES`). Takusen keeps at most 4 MiB of bundles per invite (`INVITE_BUNDLES_MAX_BYTES`) and deletes the oldest bundles above that. One sender user keeps at most 1 MiB of them, for all its devices together, unless it is the creator (§12.12). The redeemer gets the bundles only during 1 h after its guild join with the invite (`INVITE_BUNDLE_FETCH_WINDOW_MS`).
+
+**Member devices.** The invite service of the crypto Worker (`src/invites/service.ts`) sends the bundles. Before each bundle, the device checks the record (§12.16) and decides the scope of the group from its own descriptor.
+- **At creation.** After `POST /guilds/:id/invites`, the creator device sends one bundle for each scope group that it holds. The bundle has the stored epoch secrets of the group, at most `HISTORY_BUNDLE_MAX_EPOCHS` (the newest).
+- **After each own commit.** The DS accepted a commit of this device in a scope group: a batch commit, a commit before a send, an own external commit (join or resync), or a commit that the device adopted after a crash. Then the device sends one bundle for each active invite of the guild (`GET /guilds/:id/invite-records`). The device keeps that list for 60 s, and `INVITE_DELETE` deletes it. The bundle has the secret of the new epoch. It also has the stored secrets of the epochs that are above the newest of two values and below the new epoch: `bundled` of the group in the list, and the newest epoch that this device sent for the group. Thus a bundle fills the epochs of a committer that sent no bundle (an old client).
+- The device always sends the new epoch, also when `bundled` already has it: any reader can raise `bundled` with a bundle that does not open (§12.12). The device does not send an epoch again after it sent it.
+- **Revoke.** `INVITE_DELETE` goes to the crypto Worker (§12.13). A device that has a row for the invite (it accepted the record before) marks the row revoked, and deletes the seed of a redeemer. Then it sends no more bundles for the invite, also when a server lists the invite again. A device with no row keeps nothing: it relies on Takusen, which lists the invite no more and deletes its bundles in the revoke transaction (§4). A server that ignores a revoke can as well not send `INVITE_DELETE`, so a mark on more devices adds no protection.
+- **Timeline.** When a device accepts a record for the first time, it adds the event `invite_with_history` (actor: the creator, no subjects, `inviteKeyId`: the invite key id) to the membership timeline of each scope group that it holds. The key id keeps two invites of one epoch apart.
+- After an own commit, a failure for one invite does not stop the others. The device reports it as an `error` event. At creation, the first failure stops `sendInviteBundles` (**API** below).
+
+**Redeemer checks.** The redeemer runs these steps after `POST /invites/:code` (§4 accept). Before that join, it shares no guild with the creator, so it cannot get the keys of the creator (`GET /users/:id/keys`) or the admin chain of the guild. The client calls `redeemInvite` when the guild members are in its cache: the check needs the creator in `guildMembers`. While `guildMembers` does not have the redeemer itself, `redeemInvite` fails with `GroupPending`, and the client tries again after `GUILD_CREATE`. The redeemer gets `GET /invites/:code/bundles` and derives the two key pairs from the seed. It accepts the record only when `sign_public` and `hpke_public` of the record are the derived keys, and the record passes the checks of §12.16 (with the expiry grace of the redeemer). Thus the record, the seed and the bundles are bound: a server cannot give another record. For each bundle, the redeemer first requires that the group is in the scope (above: from the group id, and from the descriptor of a group that it holds). Then it opens the HPKE ciphertext with the AAD of the invite and the group, and requires all of these:
+- `sign_public` of the TBS is the derived `sign_public`, and `group_id` of the TBS is the group of the AAD.
+- The certificate of the sender device has a valid chain (§12.4), the device is not revoked, the trust of the sender is not `changed`, and the certificate names the sender ids of the TBS.
+- The sender user is a guild member (`guildMembers`).
+- The signature verifies under the MLS key of that certificate.
+
+A bundle that fails a check is dropped alone. Any member reads `public_set` and can sign a bundle with wrong keys. A reader of a private channel can sign one for the group of that channel, but Takusen refuses a group outside the scope of the record (§12.12), and the redeemer drops it. Thus the redeemer limits the keys of each bundle that passes:
+- It keeps only the epochs up to the bundle `epoch`. Takusen accepted that `epoch` only when it was not above the epoch of the group (§12.12). Thus a member alone cannot set the keys of a later epoch. A server that gives a wrong `epoch` can, and §12.11.1 limits that.
+- In a group that the redeemer already holds, it keeps only the epochs below its current epoch. It gets the other secrets from its MLS state.
+- When two bundles give a secret for one epoch, the bundle of the creator device wins, then the first bundle (the bundles come oldest first). A later bundle never replaces it.
+
+The redeemer imports the keys that stay (`importHistoryKeys`, source `bundle`). Keys from an invite bundle give `membershipVerified` false, as keys from a history bundle (§12.11.2). **Residual risk:** a member can post a wrong secret for an epoch of a scope group that has no earlier stored bundle. These cases give such an epoch:
+- The committer of the epoch did not post its bundle yet.
+- An old client committed the epoch, or a member whose record list predates the invite. Their commits send no bundle, so the epoch waits for the bundle of a later commit.
+- A cap of Takusen deleted the bundle of the committer (§12.12). Takusen accepts any epoch up to the epoch of the group, so a member can post wrong keys for a past epoch.
+- A server that lies gives the bundles in another order.
+
+The secret from the MLS state replaces a wrong one in each epoch that the redeemer enters (§12.11.1), so its sends and the later epochs stay correct. For the earlier epochs, the wrong secret has these effects:
+- The redeemer cannot read the messages of that epoch. Each decrypt with the wrong secret is an AEAD failure. These failures count toward the fork alert and the automatic resync (§12.8.7), so a member can cause false fork alerts on the redeemer.
+- The redeemer shares an imported secret as its own: in its backups (§12.11.3), in the history keys for its own new devices, in the history bundles that it sends (§12.11.2), and in the bundles of later invites. Thus a wrong secret can reach other devices and users. An import never replaces a stored secret, so a later import of the right secret does not repair a device that got the wrong one first.
+
+**Later bundles.** At the redemption, some epochs can have no bundle yet: the epoch of a commit just before the redemption, of a commit between the redemption and the MLS join of the redeemer, or of a commit that sent no bundle (above). The bundle of a later commit fills them. Often that is the bundle of the commit that adds the redeemer, which comes after the redemption. Thus the redeemer gets `GET /invites/:code/bundles` again, with the same checks, 10 s after the redemption and 10 s after each own MLS join of a scope group (a Welcome, or an own external commit that is not a resync). A new cause in these 10 s moves the fetch. The redeemer keeps the invite code in its row for this. It fetches again only during `INVITE_BUNDLE_FETCH_WINDOW_MS` after the redemption, while it keeps the seed, and while the invite is not revoked. In a group with the history visibility `joined`, the redeemer cannot read an epoch that no bundle gives in that time.
+
+The redeemer keeps the seed in its store for `INVITE_AUTH_WINDOW_MS` after the redemption (for the join authorization below), then deletes it: a timer at that time, and a check at each start of the Worker. `INVITE_DELETE` also deletes it (above).
+
+**Join authorization.**
+
+```
+struct {
+  uint8  version = 1;
+  opaque signed_record<V>;         // SignedInviteRecord
+  opaque signature<V>;             // SignWithLabel(invite sign key, "InviteAuth",
+                                   //   encode(struct { opaque group_id<V>; opaque leaf_signature_key<V>; }))
+} InviteAuth;
+```
+
+- The redeemer puts `InviteAuth` in the MLS `authenticated_data` of its external commit into a `channel` group of the scope. The FramedContent signature of the new leaf covers it. Nothing stays in the tree.
+- The signature binds the group and the leaf key, so nobody can use it for another group or another leaf. Only a holder of the seed can sign it.
+- The signature does not cover `signed_record`. A verifier checks the record separately: a member with the checks of §12.16, Takusen by a byte compare with the record that it stored for the invite. The signature key is `sign_public` of that record.
+- A join with `InviteAuth` must come in the 24 h after the guild join of the redeemer with the invite (`INVITE_AUTH_WINDOW_MS`).
+- **Why.** A user without a leaf gets into a `channel` group only by the Add of a member (§12.7.3). With no member online, the redeemer would wait. Most channels of a scope are in `public_set`, which any reader joins by external commit. A `channel` group is in the scope when @everyone views the channel but an overwrite hides it from a role (§12.6).
+- **Redeemer.** After the import, `redeemInvite` syncs the groups (`GroupService.sync`). `sync()` and `ensureChannelGroup` take a `channel` group without state and with `member = false` (§12.7.8): when a redeemed invite of the guild names the channel, the device makes the `InviteAuth` for the group and its own MLS key, and joins by external commit at once. It does this only while it keeps the seed, the invite is not revoked, the record passes the checks of §12.16 now (with the expiry), and @everyone still views the channel in `S`. Else, or when the DS refuses the commit, the device posts a join request (§12.7.8). After a refusal with 403 `IllegalAdd` (for example a revoke that the device did not get, or a later guild join with another invite), the device does not try the `InviteAuth` for that group again until the Worker starts again. A resync does not carry the `InviteAuth`.
+- **Takusen** accepts the external commit of a user without a leaf into a `channel` group only when all of these are true (§12.7.3 check 9). Else 403 `IllegalAdd`. It does not check the admin state of the record.
+  - `DsModule.verifyInviteAuth` verifies the `InviteAuth` for the group and the key of the new leaf.
+  - The invite with `key_id` = `sign_public` is of the guild of the group, and its stored record is byte-equal to `signed_record`.
+  - The invite is not revoked and not expired. `exhausted_at` does not matter: the redeemer itself used the last use.
+  - `channel_ids` of the record has the channel of the group.
+  - The caller joined the guild with this invite (`guild_members.invite_id`), at most `INVITE_AUTH_WINDOW_MS` ago.
+- **Members** check the `InviteAuth` before they apply the commit (`ProposalPolicy.inviteJoinKey`, `InvitePort.checkJoin`): the signature for the group and the new leaf key, the record with the checks of §12.16 without the expiry, the revoke mark of the device, and the scope (the channel of the descriptor is in `channel_ids`, and @everyone still views it in `S`). A member can process the commit long after the upload, and Takusen checked the expiry at the upload. The joiner must also be a reader (`channelReaders`, and `adminReaders` when the device has them). A failed fetch during the check (keys, guild members, admin chain) is not a verdict: the member does not apply the commit and processes it again at the next catch-up. The first check of a record adds the timeline event `invite_with_history` (above). The member gets the invite id for its row from `GET /guilds/:id/invite-records`, so that `INVITE_DELETE` marks the row.
+- **A member that rejects the join only detects it.** It raises a fork alert (`commit_rejected`) and resyncs its own leaf, and the joiner stays in the tree (§12.7.9). The check of Takusen keeps a user without the seed out. A member rejects a valid join when it got a revoke of the invite or a demotion of the creator after the upload, and when it is an older client (§12.7.3 "Invite joins and older clients").
+
+**API.** `CryptoApi.prepareHistoryInvite` makes the seed and signs the record. `CryptoApi.sendInviteBundles` sends the bundles of the creator device after `POST /guilds/:id/invites`. It rejects with the error of the first post that fails, so that the caller can revoke the invite. It returns the number of groups that it sent: 0 when the device holds no group of the scope. `CryptoApi.redeemInvite` runs after `POST /invites/:code`: it checks the record, opens the bundles and imports the keys. The Worker calls the routes through `DsTransport.inviteRecords`, `DsTransport.postInviteBundle` and `DsTransport.inviteBundles` (§12.12).
 
 ### 12.12 REST routes (Takusen, base `/api/v1`)
 
@@ -1878,6 +2067,19 @@ CORS (§4) allows the request headers `X-Hachiman-Device` and `X-Hachiman-Signed
 | GET `/guilds/:id/admin-actions?after=&limit=` | | — | `AdminAction[]` with `seq > after`, ascending (member only). `after` default -1 (from the genesis). `limit` default 100, at most 1000 |
 | POST `/reports` | D | `{messageId, content, frankingKey, reason}` | `{id, verified}` (201) |
 
+**Invites with history** (§12.11.4). Takusen stores the records and the sealed bundles. It cannot open a bundle. The record of an invite comes with `POST /guilds/:id/invites` (§4 "Invite limits").
+
+| Method + path | D | Body | Returns |
+|---|---|---|---|
+| GET `/guilds/:id/invite-records` | | — | `InviteRecord[]` (member only): the invites of the guild with a record that are not revoked, expired or exhausted |
+| POST `/invite-records/:inviteId/bundles` | D | `{groupId, epoch, blob}` (`blob`: an `InviteBundle`, at most 640 KiB) | 204 |
+| GET `/invites/:code/bundles` | | — | `InviteBundles` |
+
+- `GET /guilds/:id/invite-records`: `bundled` gives the newest stored bundle epoch of each group of the invite. A member device sends only the epochs after it. `bundled` is only a hint: any reader of the group can raise it with a bundle that does not open. Thus the device that made the commit of an epoch always sends the bundle of that epoch, also when `bundled` already has the epoch.
+- `POST /invite-records/:inviteId/bundles`: the caller reads the group (else 404 `UnknownGroup`), and `epoch` is not above the epoch of the group (else 400 `ValidationError`). The group is of the guild of the invite, and the invite is active and has a record, else 404 `UnknownInvite`. The group is in the scope of the stored record (`DsModule.parseInviteRecord`), else 400 `ValidationError`: the `public_set` group, or a `channel` group whose channel is in `channel_ids`. Without this check, a reader of a private channel could post wrong keys for its group. Members also check that @everyone still views the channel, and the redeemer checks the scope again (§12.11.4). Takusen locks the invite row (`FOR NO KEY UPDATE`), so a revoke cannot leave a bundle behind, and two posts cannot pass the caps together. After the insert, Takusen deletes the oldest bundles of the sender user until they are at most 1 MiB together (`INVITE_BUNDLES_SENDER_MAX_BYTES` in `lib/invite-history.ts`), unless the caller is the creator of the invite. The share counts the bundles of all devices of the user, also of revoked devices. Thus more devices, or a new device, do not give more space. Every member reads `public_set`, so without this share one member could push the bundles of the creator out of the cap. Then Takusen deletes the oldest bundles of the invite until they are at most 4 MiB together (`INVITE_BUNDLES_MAX_BYTES`). **Residual risk:** members who act together can still push the bundles of the creator out. Four users always can, and fewer users can when the creation bundles are large.
+- `GET /invites/:code/bundles`: only for a member whose membership row names the invite (`guild_members.invite_id`, §4 accept), during 1 h after the join (`INVITE_BUNDLE_FETCH_WINDOW_MS`), and only while the invite is not revoked. An exhausted or expired invite still gives its bundles in that hour. Every other case is 404 `UnknownInvite`. The bundles come oldest first.
+- Retention: a revoke deletes the bundles of the invite (§4). The daily sweep of the gRPC process deletes the bundles of revoked invites, and of invites that expired or were exhausted more than 1 h before.
+
 **Wire shapes.** These are the TS types in `pkgs/hachiman-crypto/src/api.ts` (`Wire*`). `@hachiman/client` exports the same shapes without the `Wire` prefix (§10).
 
 ```ts
@@ -1912,9 +2114,11 @@ interface KtInclusionProof { leafIndex; treeSize; auditPath: string[] }
 interface KtConsistencyProof { from; to; proof: string[] }
 interface KtEntry { index; userId; type: 1 | 2 | 3 | 4; entry; createdAt }
 interface AdminAction { guildId; seq; action; createdAt }
+interface InviteRecord { inviteId; keyId /* sign_public */; record /* SignedInviteRecord */; expiresAt: string | null; bundled: { groupId; epoch }[] }
+interface InviteBundles { inviteId; record /* SignedInviteRecord */; bundles: { groupId; epoch; blob /* InviteBundle */; senderDevice }[] }
 ```
 
-**Rate limits** (per device unless noted): key package upload 10/min, commits 30/min, join requests 30/min, inbox posts 60/min, link messages 30/min, link sessions 5/hour per user, reports 10/hour per user, backups 60/hour. Each per-device limit also has a per-user limit for all devices of the user together: key package upload 30/min, commits 90/min, join requests 90/min, inbox posts 180/min, link messages 90/min, backups 120/hour. Thus a user cannot get more requests with more devices. A request must be in both limits.
+**Rate limits** (per device unless noted): key package upload 10/min, commits 30/min, join requests 30/min, inbox posts 60/min, link messages 30/min, link sessions 5/hour per user, reports 10/hour per user, backups 60/hour, invite bundle posts 120/min. Each per-device limit also has a per-user limit for all devices of the user together: key package upload 30/min, commits 90/min, join requests 90/min, inbox posts 180/min, link messages 90/min, backups 120/hour, invite bundle posts 360/min. Thus a user cannot get more requests with more devices. A request must be in both limits.
 
 ### 12.13 Gateway
 
@@ -1951,6 +2155,7 @@ RESUME runs checks 1, 3 and 4 only (the session passed check 2 at IDENTIFY). A R
 | USER_KEYS_UPDATE | `{ userId, kind: 'device_added' \| 'device_revoked' \| 'master_key_changed' \| 'dsk_rotated', deviceId: string \| null }` | user:{owner}, guild:{g} for each guild of the owner, user:{p} for DM partners |
 | KEY_PACKAGES_LOW | `{ deviceId, cipherSuite, remaining }` | device:{id} |
 | KT_TREE_HEAD | `KtTreeHead` | user:{owner} of each entry that the head covers for the first time. The gRPC process publishes it after it signs the head (Phase 4) |
+| INVITE_DELETE | `{ guildId, code, inviteId }` (§6). The shared UI also gives it to the crypto Worker: the Worker marks the invite revoked and sends no more bundles for it (§12.11.4) | guild:{g} |
 
 ### 12.14 Key transparency (Phase 4)
 
@@ -2039,6 +2244,14 @@ Payloads: genesis `{opaque owner_id[16]}`. Role: `{opaque role_id[16]; uint64 pe
 - `@hachiman/crypto` holds the codecs, `sign`, `verify`, `hash` and `replay` (`AdminActionModule`, `src/admin/`). Takusen verifies with `DsModule.verifyAdminAction`. The client signs with `CryptoApi.signAdminAction(guildId, type, payload)`, which fetches the chain head and fills `seq` and `prev_hash`.
 - **Client check.** A client replays the chain from genesis. Each action needs a valid signature, a valid actor chain, and an actor that had the permission in the state before the action (§2 rules, owner from genesis). Before a client commits an Add in a `channel` group, it checks that the replayed state gives the joiner VIEW_CHANNEL (`ProposalPolicy.adminReaders`). The replay applies the §2 rules through `@hachiman/client/permissions`, so each language keeps one permission implementation. The replay accepts actions from an actor device that was revoked later: it does not check revocations. `// ponytail:` the Phase 4 audit must decide if an action of a device that is now revoked stays valid.
 - **No genesis: fail closed.** Every guild is created with E2EE, so the owner genesis action must be present. A device that has no cached admin state can get an empty chain from the DS. The device does not fall back to the unsigned REST readers for its own commits. When the device has no verified genesis for the guild, it does not commit an Add in a `channel` group. It rejects each Add of the batch (`policy`) and reports `admin_chain_missing` (`error` event). The device still processes commits of other devices with the unsigned REST state, and the UI timeline shows "A added B". `public_set` groups do not use the admin chain (§12.11.2).
+- **Invite records.** A device checks a `SignedInviteRecord` (§12.11.4) against its current verified admin state `S` of the guild (`adminState`). It does not replay a historic state. It accepts the record only when all of these are true:
+  - `guild_id` is the guild of the check: for a member, the guild of the record list (`inviteRecords(guildId)`); for a redeemer, the guild of the record that the seed binds, which is the guild that it joined with the invite (the admin chain is for members only). `S` and the scope groups come from that guild only.
+  - `S` exists (a guild with no verified genesis fails closed), and `admin_chain_seq` ≤ `S.seq`.
+  - The creator has ADMINISTRATOR in `S`, and the creator is a guild member.
+  - The certificate of the creator device has a valid chain (§12.4, key transparency on first contact, §12.14). The device is not revoked, and the trust of the creator is not `changed`. The signature verifies under the MLS key of the certificate, and the certificate names `creator_user_id` and `creator_device_id`.
+  - `expires_at_ms` is 0 or in the future, and the device did not get a revoke of the invite. The redeemer also accepts a record that expired less than `INVITE_BUNDLE_FETCH_WINDOW_MS` ago: Takusen gives the bundles of an expired invite for 1 h after the join (§12.12).
+- A device runs these checks before each bundle that it sends, and the redeemer before it imports bundles. The redeemer runs them before it joins with an `InviteAuth`, and a member before it applies such a join, without the expiry (§12.11.4 "Join authorization"). The signature check is cached per key id and `S.seq`. The other checks run each time.
+- **Invite scope.** A scope channel counts only while @everyone has VIEW_CHANNEL on it in `S`: the @everyone role and the @everyone overwrite only, with no other role and no member overwrite (`AdminPermissionModel.everyoneChannelPermissions`). The signed `channel_ids` limit the scope, and a later role or overwrite change can only remove channels from it. A creator who loses ADMINISTRATOR stops the invite on the next check. The "at `admin_chain_seq`" state adds nothing: an administrator could sign a new record now.
 
 **Message franking.**
 
@@ -2054,9 +2267,11 @@ franking_tag = HMAC-SHA256(franking_key, "hachiman franking v1" ‖ channel_id(1
 
 - **DsTransport adapter.** The main thread implements `DsTransport` over `RestClient`. It maps 404 `UnknownGroup` from `GET /channels/:id/mls-group` to `null` (`getGroupForChannel`).
 - **Worker.** All key material lives in the `@hachiman/crypto` Worker. The UI thread never holds private keys. The UI holds decrypted content and attachment pointers.
+- **Exception: the invite seed** (§12.11.4). It crosses the UI thread as opaque base64url text, as the recovery key does. `prepareHistoryInvite` returns it once, and `redeemInvite` takes it. The UI keeps it only in component state or in an in-memory map, and puts it only in the link fragment `#k=`. It never goes into a Zustand store or `localStorage`. Only the browser sign-in redirect keeps it in `sessionStorage`, until the sign-in callback. The next start-up deletes a key that no callback used (§11). The creator Worker does not store the seed.
 - **One tab per device.** The bridge takes the Web Lock `hachiman-crypto:{origin}:{userId}`. A second tab gets `CryptoError` `LockHeld` and shows "open in another tab". Two Workers on one store would fork the group state.
 - **Store.** IndexedDB, one database per (origin, user). Each record is AES-256-GCM under the non-extractable wrap key from `IPlatformService.secureStorage` (§11), with a random 12-byte nonce. The AAD is `encode(struct { opaque table<V>; opaque key<V>; })`, so the AAD is injective. The wrap key is used directly. There is no HKDF step, because a non-extractable AES-GCM key cannot be an HKDF input.
-- **Browser host.** The browser host shows the label "trusts the server's code", because a hostile server can send hostile JavaScript. The Electron host is the strong client. `CryptoStatus.hostTrust` gives the value.
+- **Store table `invites`** (key: the invite key id). The records that the device accepted, the newest epoch that it sent per group (`bundled`), the revoke flag, and for a redeemer the invite code and the seed. The seed stays until `INVITE_AUTH_WINDOW_MS` after the redemption, or until `INVITE_DELETE`. The device deletes the row 30 days after the expiry of the invite (`HANDSHAKE_RETENTION_MS`: Takusen keeps handshakes for 30 days, §12.7.9). Until then, an invite join that the DS accepted before the expiry can come in the handshake stream: the row keeps the revoke mark, and the timeline event of the record goes only once into each group. The table came with database version 2: an upgrade adds the table and keeps the other records.
+- **Browser host.** The browser host shows the label "trusts the server's code", because a hostile server can send hostile JavaScript. The Electron host is the strong client. `CryptoStatus.hostTrust` gives the value. One exception applies to both hosts: a clicked invite link opens the Takusen page `/invite/<code>` in a browser, and a script of that page reads the invite seed (§11). Only a link that the user pastes into the Electron app does not go through Takusen.
 - **CSP.** Electron (rules in `apps/hachiman-electron/src/main/csp-policy.ts`, applied by `csp.ts`, §11) adds `worker-src 'self'`, and `blob:` to `img-src` and `media-src` (decrypted attachments are object URLs). It does not add `blob:` to `script-src` or `worker-src`. The browser host sends the same policy. ts-mls, @noble and @hpke are pure TypeScript on WebCrypto, so the hosts do not add `'wasm-unsafe-eval'`. Both hosts build the crypto Worker and the transform Worker with Vite (`new Worker(new URL(…, import.meta.url), { type: 'module' })`).
 - **Light clients.** Deferred until ts-mls supports partial trees: joining with a membership proof, and processing commits without the full ratchet tree (IETF MLS light clients draft). The condition is testable: the `smoke.spec.ts` case "needs the full ratchet tree to join" fails when support exists. Until then, every member holds the full tree, and the Phase 3 load test measures its size.
 - **Later:** search (a local index), sender-made link previews, content-free push.
@@ -2116,6 +2331,9 @@ export class ApiError extends Error {
 - **Outbox per transaction.** `onMembershipChange` records its events and wakeups in an outbox keyed by the transaction handle. `wakeScheduler(tx)` publishes only that outbox. `discardMembershipWork(tx)` drops it. Each route that calls `onMembershipChange` calls one of the two.
 - An edit passes `rowClientMsgId`: the edit header must repeat that `client_msg_id` (§12.8.6), and the uniqueness check is skipped.
 - `DsModule.checkCommit` takes `masterKeys(userId)`: the current raw 32-byte master public key of the user, or null. `DsModule.verifyMasterKeyRecord(record, prev)` takes as `prev` the encoded previous `MasterKeyRecord` (not a public key), or null.
+- `DsModule.verifyInviteRecord(signedRecord, creatorCertificate)` decodes a `SignedInviteRecord` (§12.11.4) and verifies its signature under the encoded `DeviceCertificate` of the creator device. The certificate must name the creator ids of the record. It returns the record as `InviteRecordView` (ids as text, keys as base64url, `keyId` = `sign_public`), or null. Takusen does not check the admin state of the record: members do (§12.16).
+- `DsModule.parseInviteRecord(signedRecord)` decodes a `SignedInviteRecord` without the signature check and returns the `InviteRecordView`. It throws `CryptoError` `Malformed`. Takusen uses it only for a record that it verified before it stored it: the scope check of a bundle post (§12.12).
+- `DsModule.checkCommit` returns `authenticatedData`: the `authenticated_data` of the commit, which the commit signature covers (empty for most commits). `DsModule.verifyInviteAuth({ authenticatedData, groupId, leafSignatureKey })` decodes an `InviteAuth` (§12.11.4) and verifies its signature for the group and the new leaf key under `sign_public` of its record. It returns `{ keyId, signedRecord, record }` (`record` as `InviteRecordView`), or null. It does not verify the creator signature of the record: Takusen compares `signedRecord` with the stored record of the invite (`MlsRepo.getInviteByKeyId`, `MlsRepo.inviteJoinedBy`).
 - The scheduler, the KT tree-head timer and the daily sweeps run in `apps/takusen/src/grpc/main.ts`. The gRPC process subscribes to `takusen:mls_wakeup`. The payload on that channel is raw JSON `{ groupId }` (base64url), not a `{t, d}` event envelope.
 - Takusen imports `@hachiman/crypto/ds` as TypeScript source. Other code can import the pure entry points `@hachiman/crypto/admin` (§12.16, Takusen uses it), `@hachiman/crypto/franking`, `@hachiman/crypto/constants` and `@hachiman/crypto/codec`. They use no Worker-only or ts-mls code. `apps/takusen/next.config.ts` lists `@hachiman/crypto` in `transpilePackages`. The import graph of `src/mls/ds.ts` uses only `globalThis.crypto` and excludes `src/attachments`, `src/store`, `src/worker`, `src/bridge` and `src/media`.
 
@@ -2159,13 +2377,15 @@ export class ApiError extends Error {
 | `BackupTooLarge` | 413 | a backup limit of §12.11.3 |
 | `WrongBackupKey` | 409 | the `keyId` differs from the stored backup key id |
 | `LinkExpired` | 410 | the link session is gone |
+| `UnknownInvite` | 404 | an invite bundle route (§12.12) for an unknown invite, or one that the caller may not use |
 | `InvalidAdminAction` | 400 | the action does not decode, verify or match the request |
 | `AdminActionConflict` | 409 | `seq` or `prev_hash` does not continue the chain |
 | `RateLimited` | 429 | a §12.12 rate limit. Header `Retry-After` |
 | `NotPagesChannel` | 400 | a page route on a channel that is not of type `pages` (§4 Pages) |
 | `PageExists` | 409 | `POST /channels/:id/pages` with an `id` that is taken |
 | `PageCycle` | 400 | a page move into its own subtree |
-| `SnapshotConflict` | 409 | the snapshot `baseSeq` is not above the current one, or above `latest_seq`. Body: `{error, baseSeq}` (the current one) |
+| `SnapshotConflict` | 409 | the snapshot `baseSeq` is not above the current one, or above `latest_seq`. A re-wrap with another `uploadId`, or not in a newer epoch (§4 Pages). Body: `{error, baseSeq}` (the current one) |
+| `PageConflict` | 409 | `PATCH /pages/:pageId` with an `ifUpdatedAt` that is not the `updatedAt` of the page |
 | `StorageQuotaExceeded` | 413 | a page upload claim above `TAKUSEN_GUILD_PAGE_STORAGE_BYTES` |
 
 **Client error codes.** The `@hachiman/crypto` Worker rejects with `CryptoError` (`CryptoErrorCode` in `src/api.ts`). `dsCode` holds the REST code above when the cause was a DS response. Two codes have no REST cause:
@@ -2234,6 +2454,18 @@ The labels differ, so `K_doc` never equals a `K_msg`. Each envelope has its own 
 
 An `ok` result has `{ id, kind, bytes, sender }`: the body bytes and the `DecryptedSender`. The UI thread gets decrypted content only, never a key.
 
-**Access by new members.** A member that joined in epoch N has no `S_e` for older epochs when the group is `joined`. Thus a member posts a new snapshot when the newest snapshot has an epoch below the current epoch (§4 Pages). The new member then needs only that snapshot and the updates after it. Until a member posts it, the new member's client shows "Waiting for a member to share this page".
+**Access by new members.** A member that joined in epoch N has no `S_e` for older epochs when the group is `joined`. Thus the members encrypt the current state of each page again in the current epoch. The new member then needs only the newest snapshot and the updates after it. It does not get the edit history before the snapshot. The snapshot blob has its own `fileKey`, so a member re-wraps the small pointer envelope, not the blob.
+- **Trigger.** `GroupService` emits the Worker event `usersAdded { groupId, kind, guildId, channelId, epoch, userIds, byMe }` after a commit in a `public_set` or `channel` group that adds a leaf of a user that had no leaf before (an Add, or an external commit join). It emits it for a commit of another device (`byMe: false`), for an own batch commit (`byMe: true`) and for an own commit that it adopts from the stream (§12.7.9). It does not emit it for an own join, a Welcome, a create, a resync or a new device of a member. The UI finds the pages channels of the group (`Channel.mlsGroupId`, type `pages`) in which the user has VIEW_CHANNEL and SEND_MESSAGES.
+- **Who and when.** The committer runs the pass at once, and again after `ADD_ONLY_EPOCH_GRACE_MS` + 2 s, because a member can still post in the old epoch for that time (§12.8.4). Every other member that processes the commit runs the pass after a random 12 to 20 s. When no member is online (an external commit join), the first member that processes the commit runs it. One pass per group runs at a time. A pass skips the pages that are current, and Takusen accepts one re-wrap per page and epoch.
+- **The pass**, for each pages channel: `ensureChannelGroup` gives the current group and epoch, and `GET /channels/:id/pages/heads` (§4 Pages) gives the pages. For each page:
+  1. An open page resyncs, and its provider does step 2 or 3 for it.
+  2. Updates after the newest snapshot (`latestSeq` above the snapshot `baseSeq`, 0 without a snapshot), and no snapshot or a snapshot of an older epoch or group: the client loads the page without showing it and posts a full snapshot when the snapshot or an update after it is of an older epoch or group. An update of the old epoch can follow a snapshot of the current epoch only inside the epoch grace. Thus only the second pass of the committer also loads a page whose snapshot is of the current epoch. In an external commit join no member commits, and step 1 on the open pages does this work.
+  3. No update after the newest snapshot, and the snapshot is of an older epoch or group: a pointer re-wrap. The client decrypts the pointer, and continues only when the result is `ok` and the pointer `uploadId` is the `uploadId` of the row. It encrypts the same bytes again and posts them with the same `baseSeq` and `uploadId` (§4 Pages "Re-wrap"). 409 `SnapshotConflict` means that another member was first.
+  4. A title envelope of an older epoch or group (from the heads): the client decrypts the title, encrypts the same bytes again and sends `PATCH /pages/:pageId { titleEnvelope, ifUpdatedAt }` with the `updatedAt` that it read with `GET /channels/:id/pages`. The client reads the page list first, then the heads again, and re-wraps only the titles that are still of an older epoch or group. Thus a rename before the second heads read gives a current title, and a rename after the list read gives 409 `PageConflict`, which skips the page.
+- **Verified content only.** The re-wrapper signs each envelope as its sender. Thus it re-wraps only a pointer or a title that is `ok` on its device. A `pending` or `failed` result is skipped.
+- **The new member.** Until a member re-wraps a page, the client of the new member shows "Waiting for a member to share this page". A waiting page loads again after a random 10 to 30 s, then after twice the last wait, at most every 5 min. A `PAGE_UPDATE` of the page (for example a title re-wrap) also makes it load again, and does not make the next wait longer. A load reads the state (`GET /pages/:pageId/state`) again, so a newer snapshot that covers an update without a key opens the page. A page that already shows its content and gets an update without a key (an update of the old epoch inside the epoch grace) stays open and retries the same way. A page that shows its content and finds a newer snapshot that does not open (a failed decrypt, or a pointer of another `uploadId`) skips that snapshot and keeps its content and status. When the snapshot blob of such a reload fails, the next load also uses the slow retry.
+- **Titles of the new member.** A title re-wrap can come before the device of the new member joins the group. The title then stays `pending` `group_unknown`. Doc envelopes do not go into the `buffered` table, so no `epochKeysAvailable` follows the join. Thus the client decrypts its pending titles again when the Worker reports a `membership` event that names this device (a Welcome, an own external join or a create).
+- **The other members.** A re-wrapped title is of the new epoch. A member whose Worker did not apply the commit yet gets `pending` `epoch_ahead` for it. Doc envelopes do not go into the `buffered` table, so no `epochKeysAvailable` follows. Thus the client calls `ensureChannelGroup` once for the channel (it fetches the handshakes) and then decrypts the pending titles again. Until a title decrypts, the client shows the title that it decrypted before. A channel that is still ahead after this gets no new catch-up until a decrypt of its titles finds none ahead, or until READY or RESUMED. Thus a title that stays ahead does not cause a loop.
+- A removed member gets no new envelope, because the re-wrap is in an epoch without its leaf.
 
-**Residual risk.** The server can withhold updates, or serve an older title envelope (a rollback of a rename). It cannot forge, change or move an envelope to another page or channel, because the header is the AAD and the sender signs it. A replayed update does no harm, because Yjs ignores an update that it already has. A member who can edit can damage a page. The previous snapshot (§4 Pages) is the recovery path.
+**Residual risk.** The server can withhold updates, or serve an older title envelope (a rollback of a rename). It cannot forge, change or move an envelope to another page or channel, because the header is the AAD and the sender signs it. A replayed update does no harm, because Yjs ignores an update that it already has. A member who can edit can damage a page. This includes a re-wrap with a false pointer for the `uploadId` of the newest snapshot: the page then does not open until a member posts a new snapshot. The previous snapshot (§4 Pages) is the recovery path. A re-wrap does not change the blob. Thus a removed member that kept an old `fileKey` can open that blob when the server gives it the blob.

@@ -69,6 +69,9 @@ const CRYPTO_API_METHOD_SET = {
   backupNow: true,
   ktSelfCheck: true,
   signAdminAction: true,
+  prepareHistoryInvite: true,
+  sendInviteBundles: true,
+  redeemInvite: true,
   proveDevice: true,
   voiceStart: true,
   voiceHandle: true,
@@ -122,6 +125,9 @@ const DS_TRANSPORT_METHOD_SET = {
   ktConsistency: true,
   ktEntries: true,
   adminActions: true,
+  inviteRecords: true,
+  postInviteBundle: true,
+  inviteBundles: true,
   channelReaders: true,
   guildMembers: true,
 } as const satisfies Record<keyof DsTransport, true>
@@ -137,6 +143,7 @@ const CRYPTO_EVENT_SET = {
   epochKeysAvailable: true,
   ktAlert: true,
   voiceRoster: true,
+  usersAdded: true,
   error: true,
 } as const satisfies Record<keyof CryptoEvents, true>
 export const CRYPTO_EVENTS = Object.keys(CRYPTO_EVENT_SET) as (keyof CryptoEvents)[]
