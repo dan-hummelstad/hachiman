@@ -14,6 +14,7 @@ import { ErrorText } from '@/components/ui/field'
 import { IconButton } from '@/components/ui/icon-button'
 import { Input } from '@/components/ui/input'
 import { RoleChip } from '@/components/ui/role-chip'
+import { SystemTag } from '@/components/ui/system-tag'
 import { useAction, type Action } from '@/hooks/use-action'
 import { usePermissions, useRoleCeiling } from '@/hooks/use-hachiman'
 import { useMemberView } from '@/hooks/use-member'
@@ -25,7 +26,7 @@ import { hachiman } from '@/services/hachiman'
 import { useGuildStore } from '@/stores/guildStore'
 import { useUserStore } from '@/stores/userStore'
 
-const GRID = 'grid grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)_7rem] gap-3 px-2'
+const GRID = 'grid grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)_5rem] gap-3 px-3.5'
 
 /**
  * Members table with nick + roles. Per-row actions are gated like the server (contract §4):
@@ -62,27 +63,25 @@ export function GuildMembersTab({ guild }: { guild: Guild }): React.JSX.Element 
 
   return (
     <div className={cn('grid gap-3', ROLE_INK_SCOPE)}>
-      <div className="flex items-center gap-3">
-        <span className="text-muted-foreground flex-1 text-xs tabular-nums">
-          {sorted.length} {sorted.length === 1 ? 'member' : 'members'}
-        </span>
-        <div className="relative w-56">
-          <Search className="text-muted-foreground pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2" />
+      <div className="flex items-center justify-end">
+        <div className="relative w-64">
+          <Search className="text-text-tertiary pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2" />
           <Input
             aria-label="Search members"
             placeholder="Search members"
-            className="h-8 pl-7"
+            className="h-10 pl-9"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
         </div>
       </div>
       <ErrorText>{action.error}</ErrorText>
-      <div role="table" aria-label="Members" className="border-y">
-        <div
-          role="row"
-          className={`text-muted-foreground border-b py-1.5 text-xs font-semibold ${GRID}`}
-        >
+      <div
+        role="table"
+        aria-label="Members"
+        className="bg-surface-panel border-line-hairline border"
+      >
+        <div role="row" className={`section-label border-line-hairline border-b py-2.5 ${GRID}`}>
           <span role="columnheader">Name</span>
           <span role="columnheader">Roles</span>
           <span role="columnheader" className="sr-only">
@@ -98,6 +97,7 @@ export function GuildMembersTab({ guild }: { guild: Guild }): React.JSX.Element 
               member={m}
               roles={roles}
               isOwner={isOwner}
+              isSelf={isSelf}
               canNick={has(
                 perms,
                 isSelf ? Permissions.CHANGE_NICKNAME : Permissions.MANAGE_NICKNAMES
@@ -109,7 +109,7 @@ export function GuildMembersTab({ guild }: { guild: Guild }): React.JSX.Element 
           )
         })}
         {shown.length === 0 && (
-          <p className="text-muted-foreground px-2 py-6 text-center text-sm">
+          <p className="text-text-tertiary px-2 py-6 text-center text-sm">
             No members match “{query.trim()}”.
           </p>
         )}
@@ -134,6 +134,7 @@ function MemberRow(props: {
   member: Member
   roles: Map<string, Role> | undefined
   isOwner: boolean
+  isSelf: boolean
   canNick: boolean
   /** Roles I may add/remove on this member; empty = no role editing. */
   assignable: Role[]
@@ -141,7 +142,7 @@ function MemberRow(props: {
   onKick?: () => void
   run: Action['run']
 }): React.JSX.Element {
-  const { member, roles, isOwner, canNick, assignable, onKick, run } = props
+  const { member, roles, isOwner, isSelf, canNick, assignable, onKick, run } = props
   const { guildId } = member
   const id = member.user.id
   const { name, ink } = useMemberView(guildId, id)
@@ -161,10 +162,7 @@ function MemberRow(props: {
   const canRemove = (r: Role): boolean => assignable.some((a) => a.id === r.id)
 
   return (
-    <div
-      role="row"
-      className={`group hover:bg-accent/50 items-center border-b py-2 last:border-b-0 ${GRID}`}
-    >
+    <div role="row" className={`group hover:bg-surface-hover items-center py-2 ${GRID}`}>
       <div role="cell" className="flex min-w-0 items-center gap-2.5">
         <UserAvatar name={name} avatar={member.user.avatar} color={ink} />
         {nick !== null ? (
@@ -189,7 +187,10 @@ function MemberRow(props: {
               <span className="truncate font-medium" style={ink ? { color: ink } : undefined}>
                 {name}
               </span>
-              {isOwner && <Crown aria-label="Owner" className="text-primary size-3.5 shrink-0" />}
+              {isSelf && <SystemTag kind="you" />}
+              {isOwner && (
+                <Crown aria-label="Owner" className="text-feature-event-text size-3.5 shrink-0" />
+              )}
               {canNick && (
                 <IconButton
                   size="sm"
@@ -202,7 +203,7 @@ function MemberRow(props: {
               )}
             </span>
             {member.nick && (
-              <span className="text-muted-foreground truncate font-mono text-xs">
+              <span className="text-text-tertiary truncate font-mono text-xs">
                 {member.user.username}
               </span>
             )}
@@ -223,7 +224,11 @@ function MemberRow(props: {
         {assignable.length > 0 && (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <IconButton size="sm" label={`Edit roles for ${name}`}>
+              <IconButton
+                size="sm"
+                label={`Edit roles for ${name}`}
+                className="rounded-check border-line-strong border"
+              >
                 <Plus />
               </IconButton>
             </DropdownMenuTrigger>
@@ -252,9 +257,9 @@ function MemberRow(props: {
       <div role="cell" className="flex justify-end">
         {onKick && (
           <Button
-            variant="ghost"
+            variant="quiet"
             size="sm"
-            className="text-muted-foreground hover:text-destructive"
+            className="text-text-tertiary hover:bg-feature-danger/15 hover:text-feature-danger-text"
             onClick={onKick}
           >
             Kick

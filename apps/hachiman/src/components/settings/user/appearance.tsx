@@ -8,7 +8,7 @@ const THEMES: { value: Theme; label: string }[] = [
   { value: 'system', label: 'Match system' }
 ]
 
-/** User settings → Appearance: theme + message display, each previewed. */
+/** User settings → Appearance (H5): theme and message display, each a small preview. */
 export function AppearanceSection(): React.JSX.Element {
   const theme = usePrefsStore((s) => s.theme)
   const setTheme = usePrefsStore((s) => s.setTheme)
@@ -34,7 +34,7 @@ export function AppearanceSection(): React.JSX.Element {
       </section>
       <section>
         <SectionHeading>Message display</SectionHeading>
-        <div role="radiogroup" aria-label="Message display" className="grid gap-3">
+        <div role="radiogroup" aria-label="Message display" className="grid grid-cols-2 gap-3">
           {(['cozy', 'compact'] as MessageDisplay[]).map((d) => (
             <OptionCard
               key={d}
@@ -43,8 +43,8 @@ export function AppearanceSection(): React.JSX.Element {
               label={d === 'cozy' ? 'Cozy' : 'Compact'}
               hint={
                 d === 'cozy'
-                  ? 'Avatars and names above each group of messages.'
-                  : 'One line per message, like an IRC log.'
+                  ? 'Avatars and names above each group'
+                  : 'One line per message, like an IRC log'
               }
             >
               <TranscriptPreview display={d} />
@@ -70,28 +70,26 @@ function OptionCard(props: {
       aria-checked={props.checked}
       onClick={props.onSelect}
       className={cn(
-        'bg-card grid gap-3 border p-3 text-left',
+        'rounded-option bg-surface-panel grid gap-3 border p-2.5 text-left transition-colors outline-none focus-visible:outline-2 focus-visible:outline-line-focus',
         props.checked
-          ? 'border-primary outline-primary outline-1 outline-solid'
-          : 'hover:border-muted-foreground'
+          ? 'border-accent-primary bg-accent-tint/40'
+          : 'border-line-hairline hover:border-line-strong'
       )}
     >
       {props.children}
-      <span className="flex items-center gap-2">
+      <span className="flex items-center gap-2.5 px-1">
         <span
           aria-hidden
           className={cn(
-            'flex size-4 shrink-0 items-center justify-center border',
-            props.checked ? 'border-primary' : 'border-input'
+            'rounded-pill flex size-5 shrink-0 items-center justify-center border-2',
+            props.checked ? 'border-accent-primary bg-accent-primary' : 'border-line-strong'
           )}
         >
-          {props.checked && <span className="bg-primary size-2" />}
+          {props.checked && <span className="size-2 rounded-full bg-white" />}
         </span>
         <span className="grid">
-          <span className="text-sm font-medium">{props.label}</span>
-          {props.hint && (
-            <span className="text-muted-foreground text-xs leading-4">{props.hint}</span>
-          )}
+          <span className="text-label">{props.label}</span>
+          {props.hint && <span className="text-meta text-text-tertiary">{props.hint}</span>}
         </span>
       </span>
     </button>
@@ -121,7 +119,10 @@ function MiniChrome({
 
 function ThemeSwatch({ value }: { value: Theme }): React.JSX.Element {
   return (
-    <span aria-hidden className="relative block h-16 overflow-hidden border">
+    <span
+      aria-hidden
+      className="rounded-control border-line-hairline relative block h-20 overflow-hidden border"
+    >
       {value === 'system' ? (
         <>
           <MiniChrome scheme="light" className="absolute inset-0" />
@@ -147,7 +148,7 @@ function TranscriptPreview({ display }: { display: MessageDisplay }): React.JSX.
   return (
     <span
       aria-hidden
-      className="bg-background block border px-3 py-2 font-mono text-[13px] leading-[22px]"
+      className="rounded-control bg-surface-window border-line-hairline block h-[92px] overflow-hidden border px-3 py-2 font-mono text-[13px] leading-[22px]"
     >
       {display === 'compact'
         ? SAMPLE.map((m, i) => (
