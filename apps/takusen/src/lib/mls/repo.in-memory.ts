@@ -172,7 +172,7 @@ export class InMemoryMlsRepo implements MlsRepo {
   }
   addChannel(c: Omit<ChannelInfo, 'id' | 'mlsGroupId'> & { id?: string }): string {
     const id = c.id ?? randomUUID()
-    this.s.channels.set(id, { id, guildId: c.guildId, type: c.type, mlsGroupId: null })
+    this.s.channels.set(id, { id, guildId: c.guildId, type: c.type, mlsGroupId: null, parentId: c.parentId ?? null })
     return id
   }
   setOverwrites(channelId: string, ows: OverwriteInfo[]): void {
@@ -229,7 +229,9 @@ export class InMemoryMlsRepo implements MlsRepo {
 
   async getChannel(channelId: string): Promise<ChannelInfo | null> {
     const c = this.s.channels.get(channelId)
-    return c ? { ...c } : null
+    if (!c) return null
+    if (c.type !== 'thread') return { ...c }
+    return { ...c, mlsGroupId: (c.parentId && this.s.channels.get(c.parentId)?.mlsGroupId) || null }
   }
   async listGuildTextChannels(guildId: string): Promise<ChannelInfo[]> {
     return [...this.s.channels.values()].filter((c) => c.guildId === guildId && hasTextGroup(c.type)).map((c) => ({ ...c }))
@@ -242,7 +244,9 @@ export class InMemoryMlsRepo implements MlsRepo {
     return { guild: { ...guild }, roles, members: new Map(this.s.guildMembers.get(guildId) ?? []) }
   }
   async getChannelOverwrites(channelId: string): Promise<OverwriteInfo[]> {
-    return [...(this.s.overwrites.get(channelId) ?? [])]
+    const c = this.s.channels.get(channelId)
+    const target = c?.type === 'thread' ? c.parentId : channelId
+    return target ? [...(this.s.overwrites.get(target) ?? [])] : []
   }
   async getDmParticipants(channelId: string): Promise<string[]> {
     return [...(this.s.dmParticipants.get(channelId) ?? [])]

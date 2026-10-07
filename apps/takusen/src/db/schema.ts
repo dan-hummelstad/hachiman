@@ -47,7 +47,7 @@ export * from './schema-guild-data'
 // Enums
 // ---------------------------------------------------------------------------
 export const userRoleEnum = pgEnum('user_role', ['user', 'admin'])
-export const channelTypeEnum = pgEnum('channel_type', ['text', 'voice', 'category', 'dm', 'group_dm', 'pages'])
+export const channelTypeEnum = pgEnum('channel_type', ['text', 'voice', 'category', 'dm', 'group_dm', 'pages', 'thread'])
 export const overwriteTypeEnum = pgEnum('overwrite_type', ['role', 'member'])
 export const uploadPurposeEnum = pgEnum('upload_purpose', ['attachment', 'image', 'page_snapshot', 'page_media'])
 
@@ -254,11 +254,13 @@ export const channels = pgTable(
     ownerId: uuid('owner_id').references(() => users.id, { onDelete: 'set null' }),
     // The current MLS group of a text, pages, dm or group_dm channel (§12.6).
     mlsGroupId: bytea('mls_group_id').references((): AnyPgColumn => mlsGroups.groupId, { onDelete: 'set null' }),
+    // A thread: the message in the parent channel that starts the thread (an id only).
+    threadStartMessageId: uuid('thread_start_message_id').references((): AnyPgColumn => messages.id, { onDelete: 'set null' }),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
       .notNull()
       .defaultNow(),
   },
-  (table) => [index('channels_guild_id_idx').on(table.guildId)],
+  (table) => [index('channels_guild_id_idx').on(table.guildId), index('channels_parent_id_idx').on(table.parentId)],
 )
 
 export const messages = pgTable(

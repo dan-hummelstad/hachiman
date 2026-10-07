@@ -61,11 +61,17 @@ export type JoinStatus = JoinRequestRow['status']
 export type RevokeReason = RevocationRow['reason']
 
 /** A channel as the DS sees it. */
+/**
+ * A thread has no group of its own (§12.6): `mlsGroupId` is the group of its
+ * parent, and `getChannelOverwrites` gives the overwrites of the parent.
+ */
 export interface ChannelInfo {
   id: string
   guildId: string | null
-  type: 'text' | 'voice' | 'category' | 'dm' | 'group_dm' | 'pages'
+  type: 'text' | 'voice' | 'category' | 'dm' | 'group_dm' | 'pages' | 'thread'
   mlsGroupId: Uint8Array | null
+  /** The parent channel of a thread (else null or absent). */
+  parentId?: string | null
 }
 
 export interface OverwriteInfo {

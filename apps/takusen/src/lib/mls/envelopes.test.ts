@@ -135,6 +135,21 @@ describe('envelope checks (§12.8.4)', () => {
     await rejects(accept(s.w, input(s.w, s, { channel: crypto.randomUUID() })), 'InvalidEnvelope', 400)
   })
 
+  test('a thread takes envelopes of the group of its parent, and no other group (§12.6)', async () => {
+    const s = await world()
+    // The repo resolves any thread to the group of its parent; Takusen routes allow only a text parent.
+    const threadId = s.w.repo.addChannel({ guildId: null, type: 'thread', parentId: s.channelId })
+    const inThread = (over: Parameters<typeof input>[2] = {}) => input(s.w, s, { channel: threadId, ...over }, { channelId: threadId })
+    const r = await accept(s.w, inThread())
+    assert.deepEqual(r.groupId, s.groupId)
+    await rejects(accept(s.w, inThread({ groupId: new Uint8Array(randomBytes(22)) })), 'InvalidEnvelope', 400)
+    // The envelope names the parent channel, not the thread.
+    await rejects(accept(s.w, input(s.w, s, {}, { channelId: threadId })), 'InvalidEnvelope', 400)
+    // A thread without a parent has no group.
+    const orphan = s.w.repo.addChannel({ guildId: null, type: 'thread' })
+    await rejects(accept(s.w, input(s.w, s, { channel: orphan }, { channelId: orphan })), 'GroupPending', 409)
+  })
+
   test('a group that is not active yet gives 409 GroupPending', async () => {
     const w = await newWorld()
     const alice = w.repo.addUser()

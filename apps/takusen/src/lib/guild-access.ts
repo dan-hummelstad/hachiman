@@ -123,6 +123,7 @@ export interface ChannelAccess {
   channel: ChannelRow
   /** null for DMs. */
   guild: GuildAccess | null
+  /** The overwrites that decide `permissions`: those of the parent for a thread. */
   overwrites: PermissionOverwriteRow[]
   /** DM participants (empty for guild channels). */
   participantIds: string[]
@@ -145,11 +146,14 @@ export async function loadChannelAccess(channelId: string, userId: string): Prom
     return { channel, guild: null, overwrites: [], participantIds, permissions: DM_PERMISSIONS }
   }
 
+  // §2: a thread has the permissions of its parent channel.
+  const permissionSource = channel.type === 'thread' ? channel.parentId : channelId
+  if (!permissionSource) throw new NotFoundError('Unknown channel')
   const guild = await loadGuildAccess(channel.guildId, userId)
   const overwrites = await db
     .select()
     .from(permissionOverwrites)
-    .where(eq(permissionOverwrites.channelId, channelId))
+    .where(eq(permissionOverwrites.channelId, permissionSource))
   const permissions = computeChannelPermissions(
     guild.guild,
     { user: { id: userId }, roles: guild.roleIds },
@@ -160,7 +164,11 @@ export async function loadChannelAccess(channelId: string, userId: string): Prom
   return { channel, guild, overwrites, participantIds: [], permissions }
 }
 
-/** Guild channel → `guild:{id}` scoped by channelId; DM → every participant's `user:{id}`. */
+/**
+ * Guild channel → `guild:{id}` scoped by channelId (by the parent for a thread,
+ * so the gateway filters it without the thread in its view, §5); DM → every
+ * participant's `user:{id}`.
+ */
 export async function publishToChannel<T extends GatewayEventName>(
   access: Pick<ChannelAccess, 'channel' | 'participantIds'>,
   t: T,
@@ -168,7 +176,7 @@ export async function publishToChannel<T extends GatewayEventName>(
 ): Promise<void> {
   const { channel } = access
   if (channel.guildId !== null) {
-    await publishToGuild(channel.guildId, t, d, channel.id)
+    await publishToGuild(channel.guildId, t, d, (channel.type === 'thread' && channel.parentId) || channel.id)
     return
   }
   await Promise.all(access.participantIds.map((id) => publishToUser(id, t, d)))

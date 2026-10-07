@@ -120,6 +120,19 @@ export function effectivePermissions({
     : computeBasePermissions(guild, member, roles)
 }
 
+/**
+ * The channel whose overwrites decide the permissions of `channel` (contract §2):
+ * the parent text channel for a thread, else the channel itself. A thread whose
+ * parent is not known returns null: the caller grants nothing.
+ */
+export function permissionChannel<C extends Pick<Channel, 'type' | 'parentId'>>(
+  channel: C,
+  lookup: (id: string) => C | undefined,
+): C | null {
+  if (channel.type !== 'thread') return channel
+  return channel.parentId !== null ? (lookup(channel.parentId) ?? null) : null
+}
+
 /** Highest role position the member holds (0 = only @everyone). */
 export function highestRolePosition(
   member: Pick<Member, 'roles'>,

@@ -45,6 +45,7 @@ import {
   toUser,
   type GroupVisibility,
   type UserLike,
+  withParentGroups,
 } from '@/lib/wire'
 
 // MARK: - DS membership seam (§12.18)
@@ -326,10 +327,13 @@ export async function listMembers(guildId: string): Promise<Member[]> {
 /** Guild channels by id, with their overwrites, in the given id order. */
 export async function loadChannels(ids: string[]): Promise<Channel[]> {
   if (ids.length === 0) return []
-  const [rows, overwrites] = await Promise.all([
+  const [own, overwrites] = await Promise.all([
     db.select().from(channels).where(inArray(channels.id, ids)),
     db.select().from(permissionOverwrites).where(inArray(permissionOverwrites.channelId, ids)),
   ])
+  const parentIds = own.flatMap((c) => (c.type === 'thread' && c.parentId ? [c.parentId] : []))
+  const parents = parentIds.length > 0 ? await db.select().from(channels).where(inArray(channels.id, parentIds)) : []
+  const rows = withParentGroups(own, parents)
   const groups = await groupVisibility(rows.map((c) => c.mlsGroupId))
   const byId = new Map(rows.map((c) => [c.id, toChannel(c, overwrites, groups)]))
   return ids.flatMap((id) => byId.get(id) ?? [])

@@ -136,6 +136,12 @@ export interface UpdateChannelBody {
   /** Only for a channel with its own group (§4). */
   historyVisibility?: Opt<HistoryVisibility>
 }
+/** POST /channels/:id/threads (§4 Threads). */
+export interface CreateThreadBody {
+  name: string
+  /** A message in the parent channel that starts the thread. */
+  startMessageId?: Opt<string | null>
+}
 export interface ChannelPosition {
   id: string
   position: number
@@ -287,6 +293,11 @@ export class RestClient {
   updateChannel = (id: string, body: UpdateChannelBody, opts: SignedActionOptions = {}) =>
     this.req<Channel>('PATCH', `/channels/${e(id)}`, body, opts)
   deleteChannel = (id: string) => this.req<undefined>('DELETE', `/channels/${e(id)}`)
+  /** Rename or delete a thread with updateChannel / deleteChannel. */
+  createThread = (parentId: string, body: CreateThreadBody) =>
+    this.req<Channel>('POST', `/channels/${e(parentId)}/threads`, body)
+  /** The 50 most recently active threads of a channel, newest activity first. */
+  listThreads = (parentId: string) => this.req<Channel[]>('GET', `/channels/${e(parentId)}/threads`)
   putOverwrite = (channelId: string, targetId: string, body: OverwriteBody, opts: SignedActionOptions = {}) =>
     this.req<undefined>('PUT', `/channels/${e(channelId)}/permissions/${e(targetId)}`, body, opts)
   deleteOverwrite = (channelId: string, targetId: string, opts: SignedActionOptions = {}) =>

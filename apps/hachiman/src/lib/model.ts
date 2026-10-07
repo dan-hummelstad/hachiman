@@ -18,7 +18,8 @@ const TYPE_ORDER: Record<Channel['type'], number> = {
   voice: 1,
   category: 2,
   dm: 0,
-  group_dm: 0
+  group_dm: 0,
+  thread: 0
 }
 
 /** The channel types of the create dialog and the category menu, in this order. */

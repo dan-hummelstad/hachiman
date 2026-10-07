@@ -55,6 +55,7 @@ type Channel struct {
 	PermissionOverwrites []permissions.Overwrite `json:"permissionOverwrites"`
 	Recipients           []User                  `json:"recipients,omitempty"`
 	OwnerID              *string                 `json:"ownerId,omitempty"`
+	ThreadStartMessageID *string                 `json:"threadStartMessageId,omitempty"`
 }
 
 type Member struct {
@@ -157,6 +158,9 @@ type readyData struct {
 }
 
 // usernameSQL implements contract §1: displayName ?? name ?? email local part.
+// readyThreadCap is the number of threads per guild in READY (contract §5).
+const readyThreadCap = 50
+
 const usernameSQL = `COALESCE(NULLIF(u.display_name, ''), NULLIF(u.name, ''), split_part(u.email, '@', 1))`
 
 func iso(t time.Time) string { return t.UTC().Format(time.RFC3339Nano) }
@@ -205,13 +209,27 @@ func pgLoader(db *pgxpool.Pool) func(ctx context.Context, userID, onlyGuild stri
 
 			chans := map[string]*Channel{}
 			var order []*Channel
+			// Threads: only the readyThreadCap most recently active of each guild.
 			rows, _ = db.Query(ctx, `
-				SELECT id::text, guild_id::text, type::text, name, topic, parent_id::text, position
-				FROM channels WHERE guild_id = ANY($1::uuid[]) ORDER BY position, created_at`, ids)
+				SELECT id::text, guild_id::text, type::text, name, topic, parent_id::text, position,
+				       thread_start_message_id::text, owner_id::text
+				FROM channels WHERE guild_id = ANY($1::uuid[]) AND (type <> 'thread' OR id IN (
+					SELECT id FROM (
+						SELECT t.id, row_number() OVER (PARTITION BY t.guild_id ORDER BY COALESCE(
+							(SELECT max(m.created_at) FROM messages m WHERE m.channel_id = t.id), t.created_at) DESC) AS n
+						FROM channels t WHERE t.type = 'thread' AND t.guild_id = ANY($1::uuid[])
+					) r WHERE r.n <= $2))
+				ORDER BY position, created_at`, ids, readyThreadCap)
 			if err := forEach(rows, func() error {
 				c := &Channel{PermissionOverwrites: []permissions.Overwrite{}}
-				if err := rows.Scan(&c.ID, &c.GuildID, &c.Type, &c.Name, &c.Topic, &c.ParentID, &c.Position); err != nil {
+				var owner *string
+				if err := rows.Scan(&c.ID, &c.GuildID, &c.Type, &c.Name, &c.Topic, &c.ParentID, &c.Position, &c.ThreadStartMessageID, &owner); err != nil {
 					return err
+				}
+				if c.Type == "thread" {
+					c.OwnerID = owner
+				} else {
+					c.ThreadStartMessageID = nil
 				}
 				chans[c.ID] = c
 				order = append(order, c)

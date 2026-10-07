@@ -4,7 +4,7 @@
  * here so it is unit-testable; the loaders live in `guilds.ts`.
  */
 import { z } from 'zod'
-import { computeChannelPermissions, Permissions } from '@hachiman/client/permissions'
+import { computeChannelPermissions, permissionChannel, Permissions } from '@hachiman/client/permissions'
 import type {
   Attachment,
   Channel,
@@ -112,7 +112,21 @@ export function toChannel(c: ChannelRow, overwrites: PermissionOverwriteRow[], g
     position: c.position,
     permissionOverwrites: overwrites.filter((o) => o.channelId === c.id).map(toOverwrite),
     ...groupFields(c, groups),
+    ...(c.type === 'thread' ? { ownerId: c.ownerId, threadStartMessageId: c.threadStartMessageId } : {}),
   }
+}
+
+/**
+ * §12.6: a thread has no group of its own. Its row gets the `mlsGroupId` of its
+ * parent (from `parents`, by id) before `toChannel`. Other rows stay the same.
+ */
+export function withParentGroups(rows: ChannelRow[], parents: Iterable<ChannelRow> = rows): ChannelRow[] {
+  if (!rows.some((c) => c.type === 'thread')) return rows
+  const byId = new Map<string, ChannelRow>()
+  for (const p of parents) byId.set(p.id, p)
+  return rows.map((c) =>
+    c.type === 'thread' ? { ...c, mlsGroupId: (c.parentId && byId.get(c.parentId)?.mlsGroupId) || null } : c,
+  )
 }
 
 /** DM / group DM as seen by one viewer: `recipients` excludes the viewer. */
@@ -213,13 +227,16 @@ export function assembleGuildFull(input: GuildFullInput): GuildFull {
   const roleMap = new Map(roles.map((r) => [r.id, r]))
   const guild = toGuild(input.guild, input.publicHistoryVisibility ?? DEFAULT_PUBLIC_HISTORY_VISIBILITY)
   const viewer = members.find((m) => m.user.id === input.viewerId)
-  const channels = input.channels
-    .map((c) => toChannel(c, input.overwrites, input.groups))
-    .filter(
-      (c) =>
-        viewer !== undefined &&
-        (computeChannelPermissions(guild, viewer, roleMap, c) & Permissions.VIEW_CHANNEL) !== 0,
+  const all = withParentGroups(input.channels).map((c) => toChannel(c, input.overwrites, input.groups))
+  const byId = new Map(all.map((c) => [c.id, c]))
+  const channels = all.filter((c) => {
+    const source = permissionChannel(c, (id) => byId.get(id))
+    return (
+      viewer !== undefined &&
+      source !== null &&
+      (computeChannelPermissions(guild, viewer, roleMap, source) & Permissions.VIEW_CHANNEL) !== 0
     )
+  })
   return {
     ...guild,
     channels,

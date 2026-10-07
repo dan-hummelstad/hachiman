@@ -568,6 +568,17 @@ export function stubRest(): void {
       dispatch({ t: 'CHANNEL_CREATE', d: c })
       return c
     },
+    createThread: (parentId, body) => {
+      const guildId = cache.channels.get(parentId)?.guildId ?? null
+      const c = channel(guildId, nextId('c-thread'), 'thread', body.name, 0, {
+        parentId,
+        threadStartMessageId: body.startMessageId ?? null
+      })
+      dispatch({ t: 'CHANNEL_CREATE', d: c })
+      return c
+    },
+    listThreads: (parentId) =>
+      [...cache.channels.values()].filter((c) => c.type === 'thread' && c.parentId === parentId),
     reorderChannels: () => undefined,
     updateChannel: (id, body) => {
       const c = { ...must(cache.channels.get(id), 'channel'), ...body }

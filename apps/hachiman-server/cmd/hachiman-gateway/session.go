@@ -32,7 +32,15 @@ type guildState struct {
 	channels            map[string]*Channel
 }
 
+// perms computes with the overwrites of the parent for a thread (contract §2).
+// A thread whose parent is unknown grants nothing.
 func (gs *guildState) perms(userID string, ch *Channel) int64 {
+	if ch.Type == "thread" {
+		if ch.ParentID == nil || gs.channels[*ch.ParentID] == nil {
+			return 0
+		}
+		ch = gs.channels[*ch.ParentID]
+	}
 	return permissions.ComputeChannel(gs.id, gs.ownerID, userID, gs.myRoles, gs.roles, ch.PermissionOverwrites)
 }
 
@@ -478,7 +486,8 @@ func (s *session) onEvent(ev busEvent) {
 			return
 		}
 		was := gs.canView(me, ch.ID)
-		gs.channels[ch.ID] = &ch
+		// An overwrite change on a parent also shows or hides its threads.
+		s.withThreadDiff(gs, ch.ID, func() { gs.channels[ch.ID] = &ch })
 		now := gs.canView(me, ch.ID)
 		switch {
 		case now && !was:
@@ -612,6 +621,27 @@ func (s *session) withVisibilityDiff(gs *guildState, mutate func()) {
 	}
 	for id := range before {
 		if !after[id] {
+			s.dispatch("CHANNEL_DELETE", gs.channels[id])
+		}
+	}
+}
+
+// withThreadDiff is withVisibilityDiff for the threads of one parent channel.
+func (s *session) withThreadDiff(gs *guildState, parentID string, mutate func()) {
+	var threads []string
+	before := map[string]bool{}
+	for id, ch := range gs.channels {
+		if ch.Type == "thread" && ch.ParentID != nil && *ch.ParentID == parentID {
+			threads = append(threads, id)
+			before[id] = gs.canView(s.user.ID, id)
+		}
+	}
+	mutate()
+	for _, id := range threads {
+		switch now := gs.canView(s.user.ID, id); {
+		case now && !before[id]:
+			s.dispatch("CHANNEL_CREATE", gs.channels[id])
+		case !now && before[id]:
 			s.dispatch("CHANNEL_DELETE", gs.channels[id])
 		}
 	}
