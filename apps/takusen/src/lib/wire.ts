@@ -90,6 +90,7 @@ export function toRole(r: RoleRow): Role {
     guildId: r.guildId,
     name: r.name,
     color: r.color,
+    hoist: r.hoist,
     position: r.position,
     permissions: r.permissions,
   }

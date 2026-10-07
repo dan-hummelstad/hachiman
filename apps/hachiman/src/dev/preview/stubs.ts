@@ -10,6 +10,7 @@ import {
   type Attachment,
   type DocUpdate,
   type GatewayDispatch,
+  type GuildEventWithMe,
   type GuildFull,
   type Invite,
   type Message,
@@ -359,7 +360,77 @@ export function stubRest(): void {
   const pageGuild = (p: Page): string =>
     must(cache.channels.get(p.channelId)?.guildId ?? undefined, 'guild')
 
+  // Pins, guild events and blocks (§4): in memory, echoed back as their gateway events.
+  const events = new Map<string, GuildEventWithMe>()
+  const blocks = new Set<string>()
+  const eventOf = (id: string): GuildEventWithMe => {
+    const ev = events.get(id)
+    if (!ev) throw new RestError(404, 'NotFound')
+    return ev
+  }
+  const pinsChanged = (channelId: string): undefined => {
+    const guildId = cache.channels.get(channelId)?.guildId ?? null
+    dispatch({ t: 'CHANNEL_PINS_UPDATE', d: { channelId, guildId } })
+    return undefined
+  }
+  const setBlock = (userId: string, blocked: boolean): undefined => {
+    if (blocked) blocks.add(userId)
+    else blocks.delete(userId)
+    dispatch({ t: 'USER_BLOCK_UPDATE', d: { userId, blocked } })
+    return undefined
+  }
+
   const impl: RestStubs = {
+    // As getMessages: the fixture history lives in the store as decrypted rows, not as ciphertext.
+    getPins: () => [],
+    pinMessage: (channelId) => pinsChanged(channelId),
+    unpinMessage: (channelId) => pinsChanged(channelId),
+    getGuildEvents: (guildId) => [...events.values()].filter((e) => e.guildId === guildId),
+    createGuildEvent: (guildId, body) => {
+      const ev: GuildEventWithMe = {
+        id: nextId('ev'),
+        guildId,
+        channelId: body.channelId ?? null,
+        title: body.title,
+        startsAt: body.startsAt,
+        endsAt: body.endsAt ?? null,
+        createdBy: ME.id,
+        createdAt: new Date().toISOString(),
+        rsvpCount: 0,
+        me: false
+      }
+      events.set(ev.id, ev)
+      dispatch({ t: 'GUILD_EVENT_CREATE', d: ev })
+      return ev
+    },
+    updateGuildEvent: (eventId, body) => {
+      const ev = { ...eventOf(eventId), ...body } as GuildEventWithMe
+      events.set(eventId, ev)
+      dispatch({ t: 'GUILD_EVENT_UPDATE', d: ev })
+      return ev
+    },
+    deleteGuildEvent: (eventId) => {
+      const { guildId } = eventOf(eventId)
+      events.delete(eventId)
+      dispatch({ t: 'GUILD_EVENT_DELETE', d: { id: eventId, guildId } })
+    },
+    setEventRsvp: (eventId, going) => {
+      const ev = eventOf(eventId)
+      if (ev.me === going) return
+      const next = { ...ev, me: going, rsvpCount: ev.rsvpCount + (going ? 1 : -1) }
+      events.set(eventId, next)
+      dispatch({
+        t: 'GUILD_EVENT_RSVP',
+        d: { eventId, guildId: ev.guildId, userId: ME.id, going, rsvpCount: next.rsvpCount }
+      })
+    },
+    getBlocks: () =>
+      [...blocks].map((id) => ({
+        user: Object.values(U).find((x) => x.id === id) ?? user(id, 'someone'),
+        createdAt: new Date().toISOString()
+      })),
+    blockUser: (userId) => setBlock(userId, true),
+    unblockUser: (userId) => setBlock(userId, false),
     getPages: (channelId) => [...pages.values()].filter((p) => p.channelId === channelId),
     // No snapshots, and the stub envelopes have no header: nothing for a re-wrap pass to do.
     getPageHeads: (channelId) =>

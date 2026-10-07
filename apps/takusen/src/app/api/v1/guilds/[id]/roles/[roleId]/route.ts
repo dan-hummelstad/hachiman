@@ -1,8 +1,8 @@
 /**
- * PATCH  /api/v1/guilds/:id/roles/:roleId { name?, color?, permissions? } — MANAGE_ROLES + hierarchy.
+ * PATCH  /api/v1/guilds/:id/roles/:roleId { name?, color?, hoist?, permissions? } — MANAGE_ROLES + hierarchy.
  * DELETE /api/v1/guilds/:id/roles/:roleId — MANAGE_ROLES + hierarchy; never @everyone.
  * A permissions change and a delete take X-Hachiman-Signed-Action (role_update /
- * role_delete, §12.16). Both tell the DS in the same transaction (§12.18), and
+ * role_delete, §12.16). A PATCH of only name, color or hoist takes none. Both tell the DS in the same transaction (§12.18), and
  * revoke the permanent invites and the invites with history of users who lost
  * ADMINISTRATOR (§4).
  */
@@ -37,6 +37,7 @@ interface RouteContext {
 const updateRoleSchema = z.object({
   name: nameSchema.optional(),
   color: colorSchema.optional(),
+  hoist: z.boolean().optional(),
   permissions: permissionsSchema.optional(),
 })
 

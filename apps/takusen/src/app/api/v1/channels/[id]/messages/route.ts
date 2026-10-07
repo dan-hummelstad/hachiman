@@ -8,6 +8,7 @@
  *      is not empty, plus the envelope checks of §12.8.4. `attachments` lists,
  *      per pointer, the file id and then its thumbnail id (at most 20 ids).
  *      `nonce` is echoed in the response and MESSAGE_CREATE, never stored.
+ *      In a 1:1 DM, a block in either direction gives 403 `Blocked`.
  */
 import { and, desc, eq, sql } from 'drizzle-orm'
 import { Permissions } from '@hachiman/client/permissions'
@@ -17,6 +18,7 @@ import { db } from '@/db/client'
 import { messages, users } from '@/db/schema'
 import { errorResponse, parseBody } from '@/lib/api-helpers'
 import { requireUser } from '@/lib/auth-helpers'
+import { assertNotBlocked } from '@/lib/blocks'
 import { ValidationError } from '@/lib/errors'
 import { toAttachment } from '@/lib/files'
 import { loadChannelAccess, publishToChannel, requirePermission } from '@/lib/guild-access'
@@ -84,6 +86,7 @@ export async function POST(req: NextRequest, ctx: RouteContext): Promise<NextRes
     if (access.channel.type === 'voice' || access.channel.type === 'category') {
       throw new ValidationError(`Cannot send messages in a ${access.channel.type} channel`)
     }
+    if (access.channel.type === 'dm') await assertNotBlocked(userId, access.participantIds.filter((p) => p !== userId))
     const device = await requireDevice(req, userId)
     const body = await parseBody(req, createMessageSchema)
     if (body.attachments.length > 0) requirePermission(access.permissions, Permissions.ATTACH_FILES)

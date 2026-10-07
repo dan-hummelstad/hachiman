@@ -26,6 +26,7 @@ const (
 	ChangeNickname      = 1 << 26
 	ManageNicknames     = 1 << 27
 	ManageRoles         = 1 << 28
+	ManageEvents        = 1 << 29
 )
 
 // ByName maps the TS constant names to their values; the sync test walks it.
@@ -48,6 +49,7 @@ var ByName = map[string]int64{
 	"CHANGE_NICKNAME":       ChangeNickname,
 	"MANAGE_NICKNAMES":      ManageNicknames,
 	"MANAGE_ROLES":          ManageRoles,
+	"MANAGE_EVENTS":         ManageEvents,
 }
 
 // All is the OR of every defined bit.

@@ -60,7 +60,9 @@ const emptyCache = (): HachimanCache => ({
   presences: new Map(),
   customStatuses: new Map(),
   voiceStates: new Map(),
-  readStates: new Map()
+  readStates: new Map(),
+  events: new Map(),
+  blocks: new Set()
 })
 
 afterEach(() => {
@@ -257,6 +259,7 @@ describe('channelReaders', () => {
     guildId: 'g-1',
     name: id,
     color: 0,
+    hoist: false,
     position: id === 'g-1' ? 0 : 1,
     permissions
   })

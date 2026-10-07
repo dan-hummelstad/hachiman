@@ -9,6 +9,7 @@ import type {
   GatewayDevice,
   VoiceStateUpdateRequest,
   Guild,
+  GuildEventWithMe,
   GuildFull,
   Member,
   PresenceStatus,
@@ -87,6 +88,10 @@ export interface HachimanCache {
   voiceStates: Map<string, Map<string, VoiceState>>
   /** channelId → read state, from READY and READ_STATE_UPDATE (§1 ReadState). */
   readStates: Map<string, ReadState>
+  /** guildId → eventId → event. Filled by `fetchGuildEvents`, then kept by the GUILD_EVENT_* events. */
+  events: Map<string, Map<string, GuildEventWithMe>>
+  /** The user ids the current user blocked. Filled by `fetchBlocks`, then kept by USER_BLOCK_UPDATE. */
+  blocks: Set<string>
 }
 
 const VOICE_SERVER_TIMEOUT_MS = 15_000
@@ -132,6 +137,8 @@ export class HachimanClient extends TypedEventEmitter<HachimanClientEvents> {
     customStatuses: new Map(),
     voiceStates: new Map(),
     readStates: new Map(),
+    events: new Map(),
+    blocks: new Set(),
   }
 
   private _voice: VoiceConnection | null = null
@@ -405,6 +412,21 @@ export class HachimanClient extends TypedEventEmitter<HachimanClientEvents> {
     for (const p of g.presences) this.setPresence(p)
   }
 
+  /** Loads the upcoming and ongoing events of a guild into `cache.events`. */
+  async fetchGuildEvents(guildId: string): Promise<GuildEventWithMe[]> {
+    const events = await this.rest.getGuildEvents(guildId)
+    this.cache.events.set(guildId, new Map(events.map(ev => [ev.id, ev])))
+    return events
+  }
+
+  /** Loads the blocked user ids into `cache.blocks`. */
+  async fetchBlocks(): Promise<Set<string>> {
+    const blocks = await this.rest.getBlocks()
+    this.cache.blocks.clear()
+    for (const b of blocks) this.cache.blocks.add(b.user.id)
+    return this.cache.blocks
+  }
+
   private removeGuild(guildId: string): void {
     const c = this.cache
     c.guilds.delete(guildId)
@@ -416,6 +438,7 @@ export class HachimanClient extends TypedEventEmitter<HachimanClientEvents> {
     c.roles.delete(guildId)
     c.members.delete(guildId)
     c.voiceStates.delete(guildId)
+    c.events.delete(guildId)
     if (this.voiceTarget?.guildId === guildId) {
       this.voiceTarget = null
       this.dropVoice()
@@ -438,7 +461,7 @@ export class HachimanClient extends TypedEventEmitter<HachimanClientEvents> {
         this.voiceTarget = null
         this.dropVoice()
         c.user = e.d.user
-        for (const m of Object.values(c)) if (m instanceof Map) m.clear()
+        for (const m of Object.values(c)) if (m instanceof Map || m instanceof Set) m.clear()
         for (const g of e.d.guilds) this.ingestGuild(g)
         for (const ch of e.d.privateChannels) c.channels.set(ch.id, ch)
         for (const p of e.d.presences) this.setPresence(p)
@@ -504,6 +527,29 @@ export class HachimanClient extends TypedEventEmitter<HachimanClientEvents> {
         for (const states of c.voiceStates.values()) states.delete(e.d.userId)
         if (e.d.channelId) sub(c.voiceStates, e.d.guildId).set(e.d.userId, e.d)
         break
+      case 'GUILD_EVENT_CREATE':
+      case 'GUILD_EVENT_UPDATE': {
+        const events = c.events.get(e.d.guildId)
+        // Not loaded yet: fetchGuildEvents gets the full list later.
+        if (events) events.set(e.d.id, { ...e.d, me: events.get(e.d.id)?.me ?? false })
+        break
+      }
+      case 'GUILD_EVENT_DELETE':
+        c.events.get(e.d.guildId)?.delete(e.d.id)
+        break
+      case 'GUILD_EVENT_RSVP': {
+        const events = c.events.get(e.d.guildId)
+        const ev = events?.get(e.d.eventId)
+        if (events && ev) {
+          const me = e.d.userId === c.user?.id ? e.d.going : ev.me
+          events.set(ev.id, { ...ev, rsvpCount: e.d.rsvpCount, me })
+        }
+        break
+      }
+      case 'USER_BLOCK_UPDATE':
+        if (e.d.blocked) c.blocks.add(e.d.userId)
+        else c.blocks.delete(e.d.userId)
+        break
       case 'RESUMED':
       case 'MESSAGE_CREATE':
       case 'MESSAGE_UPDATE':
@@ -525,7 +571,8 @@ export class HachimanClient extends TypedEventEmitter<HachimanClientEvents> {
       case 'DOC_UPDATE':
       case 'DOC_AWARENESS':
       case 'INVITE_DELETE':
-        break // not cached; consumers (the crypto Worker for the §12.13 events, the shared UI DocsService for pages, the invite list) handle the re-emitted event
+      case 'CHANNEL_PINS_UPDATE':
+        break // not cached; consumers (the crypto Worker for the §12.13 events, the shared UI DocsService for pages, the invite list, the pins popover) handle the re-emitted event
     }
   }
 }

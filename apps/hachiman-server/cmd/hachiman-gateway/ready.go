@@ -39,6 +39,7 @@ type Role struct {
 	GuildID     string `json:"guildId"`
 	Name        string `json:"name"`
 	Color       int    `json:"color"`
+	Hoist       bool   `json:"hoist"`
 	Position    int    `json:"position"`
 	Permissions int64  `json:"permissions"`
 }
@@ -189,11 +190,11 @@ func pgLoader(db *pgxpool.Pool) func(ctx context.Context, userID, onlyGuild stri
 
 		if len(ids) > 0 {
 			rows, _ = db.Query(ctx, `
-				SELECT id::text, guild_id::text, name, color, position, permissions
+				SELECT id::text, guild_id::text, name, color, hoist, position, permissions
 				FROM roles WHERE guild_id = ANY($1::uuid[]) ORDER BY position`, ids)
 			if err := forEach(rows, func() error {
 				var r Role
-				if err := rows.Scan(&r.ID, &r.GuildID, &r.Name, &r.Color, &r.Position, &r.Permissions); err != nil {
+				if err := rows.Scan(&r.ID, &r.GuildID, &r.Name, &r.Color, &r.Hoist, &r.Position, &r.Permissions); err != nil {
 					return err
 				}
 				byID[r.GuildID].Roles = append(byID[r.GuildID].Roles, r)

@@ -1,6 +1,6 @@
 /**
  * GET   /api/v1/guilds/:id/roles — Role[] by position (member).
- * POST  /api/v1/guilds/:id/roles { name, color?, permissions? } — MANAGE_ROLES.
+ * POST  /api/v1/guilds/:id/roles { name, color?, hoist?, permissions? } — MANAGE_ROLES.
  *       New roles go in at position 1 (just above @everyone), Discord-style,
  *       shifting the others up so the creator can still manage it.
  * PATCH /api/v1/guilds/:id/roles [{ id, position }] — MANAGE_ROLES + hierarchy.
@@ -39,6 +39,7 @@ interface RouteContext {
 const createRoleSchema = z.object({
   name: nameSchema,
   color: colorSchema.optional(),
+  hoist: z.boolean().optional(),
   permissions: permissionsSchema.optional(),
 })
 
@@ -91,7 +92,7 @@ export async function POST(req: NextRequest, ctx: RouteContext): Promise<NextRes
         .returning()
       const [created] = await tx
         .insert(roles)
-        .values({ id: roleId, guildId: id, name: body.name, color: body.color ?? 0, position: 1, permissions })
+        .values({ id: roleId, guildId: id, name: body.name, color: body.color ?? 0, hoist: body.hoist ?? false, position: 1, permissions })
         .returning()
       await membershipChanged(tx, MembershipTriggers.roleChanged(id, roleId), actor)
       return { created: created!, shifted }
