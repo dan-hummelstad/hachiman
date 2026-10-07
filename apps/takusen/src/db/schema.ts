@@ -259,8 +259,16 @@ export const channels = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
       .notNull()
       .defaultNow(),
+    // A thread: the time of its last message, else created_at. It orders the thread lists (§4 Threads, §5 READY).
+    lastActivityAt: timestamp('last_activity_at', { withTimezone: true, mode: 'date' })
+      .notNull()
+      .defaultNow(),
   },
-  (table) => [index('channels_guild_id_idx').on(table.guildId), index('channels_parent_id_idx').on(table.parentId)],
+  (table) => [
+    index('channels_guild_id_idx').on(table.guildId),
+    index('channels_parent_activity_idx').on(table.parentId, table.lastActivityAt),
+    index('channels_guild_thread_activity_idx').on(table.guildId, table.lastActivityAt).where(sql`${table.type} = 'thread'`),
+  ],
 )
 
 export const messages = pgTable(

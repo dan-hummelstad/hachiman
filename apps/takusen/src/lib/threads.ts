@@ -8,7 +8,10 @@ import { has, Permissions } from '@hachiman/client/permissions'
 import { THREAD_PARENT_TYPE } from '@/lib/channel-types'
 import { MissingPermissionsError, ValidationError } from '@/lib/errors'
 
-/** The most threads that GET /channels/:id/threads returns. */
+/**
+ * The most threads that GET /channels/:id/threads returns, and that GuildFull
+ * (REST and READY, readyThreadCap in the gateway) carries per guild.
+ */
 export const THREAD_LIST_MAX = 50
 
 /**

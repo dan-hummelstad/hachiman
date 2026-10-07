@@ -36,6 +36,13 @@
       "when": 1791360371804,
       "tag": "0004_threads",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1791365152568,
+      "tag": "0005_thread_activity",
+      "breakpoints": true
     }
   ]
 }

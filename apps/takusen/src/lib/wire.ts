@@ -8,6 +8,7 @@ import { computeChannelPermissions, permissionChannel, Permissions } from '@hach
 import type {
   Attachment,
   Channel,
+  CustomStatus,
   Guild,
   GuildFull,
   HistoryVisibility,
@@ -115,6 +116,26 @@ export function toChannel(c: ChannelRow, overwrites: PermissionOverwriteRow[], g
     ...groupFields(c, groups),
     ...(c.type === 'thread' ? { ownerId: c.ownerId, threadStartMessageId: c.threadStartMessageId } : {}),
   }
+}
+
+/**
+ * A stored `custom_status:{userId}` value (§5), as the gateway reads it: null
+ * for a missing, malformed, empty or expired one.
+ */
+export function parseCustomStatus(raw: string | null, now: Date = new Date()): CustomStatus | null {
+  if (!raw) return null
+  let v: unknown
+  try {
+    v = JSON.parse(raw)
+  } catch {
+    return null
+  }
+  if (typeof v !== 'object' || v === null) return null
+  const { text, expiresAt } = v as { text?: unknown; expiresAt?: unknown }
+  if (typeof text !== 'string' || text === '') return null
+  if (expiresAt === null || expiresAt === undefined) return { text, expiresAt: null }
+  if (typeof expiresAt !== 'string' || !(Date.parse(expiresAt) > now.getTime())) return null
+  return { text, expiresAt }
 }
 
 /** DM / group DM as seen by one viewer: `recipients` excludes the viewer. */

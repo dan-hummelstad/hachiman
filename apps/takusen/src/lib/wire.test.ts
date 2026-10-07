@@ -12,6 +12,7 @@ import { DEFAULT_EVERYONE, Permissions } from '@hachiman/client/permissions'
 
 import type { ChannelRow, GuildMemberRow, MessageRow, PermissionOverwriteRow, RoleRow } from '@/db/schema'
 import {
+  parseCustomStatus,
   assembleGuildFull,
   createMessageSchema,
   DEFAULT_PUBLIC_HISTORY_VISIBILITY,
@@ -67,6 +68,7 @@ function channel(id: string, name: string): ChannelRow {
     mlsGroupId: null,
     threadStartMessageId: null,
     createdAt: T,
+    lastActivityAt: T,
   }
 }
 function role(id: string, position: number, permissions: number): RoleRow {
@@ -317,3 +319,14 @@ if (failures.length > 0) {
   process.exit(1)
 }
 console.log(`wire.test: ${passed} passed`)
+
+test('parseCustomStatus reads the stored value as the gateway does', () => {
+  const now = new Date('2026-10-07T12:00:00Z')
+  assert.deepEqual(parseCustomStatus('{"text":"brb","expiresAt":null}', now), { text: 'brb', expiresAt: null })
+  assert.deepEqual(parseCustomStatus('{"text":"brb"}', now), { text: 'brb', expiresAt: null })
+  assert.deepEqual(parseCustomStatus('{"text":"brb","expiresAt":"2026-10-07T13:00:00Z"}', now), { text: 'brb', expiresAt: '2026-10-07T13:00:00Z' })
+  assert.equal(parseCustomStatus('{"text":"brb","expiresAt":"2026-10-07T11:00:00Z"}', now), null)
+  assert.equal(parseCustomStatus('{"text":""}', now), null)
+  assert.equal(parseCustomStatus('not json', now), null)
+  assert.equal(parseCustomStatus(null, now), null)
+})
