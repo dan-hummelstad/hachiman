@@ -16,18 +16,12 @@ import { useComposerStore } from '@/stores/composerStore'
 import { openDialog } from '@/stores/dialogStore'
 import { useUserStore } from '@/stores/userStore'
 import { MessageAttachments } from './attachments/message-attachments'
-import {
-  mentionsUser,
-  messageMentionsMe,
-  tokenize,
-  type MentionToken,
-  type Token
-} from '@/lib/mentions'
-import { TextWithChannelRefs } from './channel-ref'
+import { messageMentionsMe, tokenize, type Token } from '@/lib/mentions'
 import { decryptText } from './decrypt-text'
 import { formatFull, formatTime } from './format'
 import { useMessageMoreItems } from './message-more-items'
 import { MessageToolbar } from './message-toolbar'
+import { MessageTokens } from './message-tokens'
 import { PageActivityRow, PageLinkCard } from './page-cards'
 import { ReactionChips } from './reactions'
 import { ReplyQuote } from './reply-quote'
@@ -323,23 +317,7 @@ function MessageBody({
             message.failed ? 'text-feature-danger-text' : 'text-text-primary'
           )}
         >
-          {tokens.map((t, i) =>
-            t.kind === 'text' ? (
-              <TextWithChannelRefs key={i} text={t.value} guildId={message.guildId} />
-            ) : t.kind === 'link' ? (
-              <a
-                key={i}
-                href={t.value}
-                target="_blank"
-                rel="noreferrer noopener"
-                className="text-accent-text underline-offset-2 hover:underline"
-              >
-                {t.value}
-              </a>
-            ) : (
-              <Mention key={i} token={t} guildId={message.guildId} />
-            )
-          )}
+          <MessageTokens tokens={tokens} guildId={message.guildId} />
           {message.editedAt && (
             <span className="text-text-tertiary ml-1.5 text-[11px] select-none">(edited)</span>
           )}
@@ -379,31 +357,6 @@ function MessageBody({
         </div>
       )}
     </>
-  )
-}
-
-/** `@name`, highlighted when it's me. `<@id>` renders as the member's display name when known. */
-function Mention({
-  token,
-  guildId
-}: {
-  token: MentionToken
-  guildId: string | null
-}): React.JSX.Element {
-  const me = useUserStore((s) => s.me)
-  const byId = 'userId' in token
-  const fallback = byId && me?.id === token.userId ? me : undefined
-  const { member, name } = useMemberView(guildId, byId ? token.userId : '', fallback)
-  const isMe = !!me && mentionsUser(token, me)
-  return (
-    <span
-      className={cn(
-        'rounded-check px-1 font-semibold',
-        isMe ? 'bg-feature-event/20 text-feature-event-text' : 'bg-accent-tint text-accent-text'
-      )}
-    >
-      {byId && (member || fallback) ? `@${name}` : token.value}
-    </span>
   )
 }
 

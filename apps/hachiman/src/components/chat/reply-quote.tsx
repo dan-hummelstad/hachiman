@@ -2,7 +2,8 @@ import { UserAvatar } from '@/components/shell/user-avatar'
 import { useMemberView } from '@/hooks/use-member'
 import { cn } from '@/lib/utils'
 import { replyPreviewOf, useReplyTarget, type ChatMessage } from '@/stores/messagesStore'
-import { quoteText, scrollToMessage } from './transcript-actions'
+import { quoteText } from './message-summary'
+import { scrollToMessage } from './transcript-actions'
 
 /**
  * The one-line quote above a reply (N11, B1): a link curve from the avatar column, the small
