@@ -1,4 +1,4 @@
-import { FolderPlus, LogOut, Plus, Settings, Trash2, UserPlus } from 'lucide-react'
+import { CalendarHeart, FolderPlus, LogOut, Plus, Settings, Trash2, UserPlus } from 'lucide-react'
 import { Permissions, has } from '@hachiman/client'
 import { useIsGuildOwner, usePermissions } from '@/hooks/use-hachiman'
 import { openDialog } from '@/stores/dialogStore'
@@ -44,6 +44,11 @@ export function GuildMenuItems({
             <FolderPlus /> Create category
           </Item>
         </>
+      )}
+      {has(perms, Permissions.MANAGE_EVENTS) && (
+        <Item onSelect={() => openDialog({ kind: 'guildEvent', guildId, eventId: null })}>
+          <CalendarHeart /> Create event
+        </Item>
       )}
       <Separator />
       <Item variant="destructive" onSelect={() => openDialog({ kind: 'removeGuild', guildId })}>

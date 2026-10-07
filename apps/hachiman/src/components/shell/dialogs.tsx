@@ -3,6 +3,7 @@ import { CircleAlert, Trash2 } from 'lucide-react'
 import { AddServerDialog } from '@/components/add-server-dialog'
 import { ChannelSettingsDialog } from '@/components/channel-settings-dialog'
 import { CreateChannelDialog } from '@/components/create-channel-dialog'
+import { EventDialog } from '@/components/events/event-dialog'
 import { GuildSettingsDialog } from '@/components/guild-settings-dialog'
 import { InviteDialog } from '@/components/invite-dialog'
 import { JoinServerModal } from '@/components/join-server-modal'
@@ -33,6 +34,7 @@ const DIALOGS: Record<AnyDialogKind, () => React.JSX.Element> = {
   createChannel: CreateChannelDialog,
   deleteChannel: DeleteChannelDialog,
   userSettings: UserSettings,
+  guildEvent: EventDialog,
   // E2EE (§12.4, §12.5, §12.10, §12.11)
   securitySetup: SecuritySetupDialog,
   recoveryKey: RecoveryKeyDialog,

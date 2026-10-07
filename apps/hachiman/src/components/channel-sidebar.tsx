@@ -43,6 +43,7 @@ import { IconButton } from '@/components/ui/icon-button'
 import { SystemTag } from '@/components/ui/system-tag'
 import { useChannelAccess } from '@/lib/channel-access'
 import { MentionCount, UnreadPip } from '@/components/shell/unread-marks'
+import { EventRow } from '@/components/events/event-row'
 import { GuildHeader } from '@/components/shell/guild-header'
 import { PinToTabsMenuItem } from '@/components/shell/tab-bar'
 import { UserAvatar } from '@/components/shell/user-avatar'
@@ -90,6 +91,7 @@ export function GuildChannelList({ guildId }: { guildId: string }): React.JSX.El
   return (
     <>
       <GuildHeader guildId={guildId} />
+      <EventRow guildId={guildId} />
       {/* Full sidebar width (its padding is 10), so the unread pip sits at the window edge. */}
       <div className="-mx-2.5 mt-2 min-h-0 flex-1 overflow-y-auto px-2.5 pb-2">
         <GuildChannels guildId={guildId} />

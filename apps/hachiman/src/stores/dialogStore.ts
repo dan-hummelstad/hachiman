@@ -20,6 +20,8 @@ type AppDialog =
   | { kind: 'removeGuild'; guildId: string }
   | { kind: 'invite'; guildId: string }
   | { kind: 'userSettings' }
+  /** Create (eventId null) or edit a guild event (N14). */
+  | { kind: 'guildEvent'; guildId: string; eventId: string | null }
 
 /**
  * The E2EE dialogs (§12.4, §12.5, §12.10, §12.11). No payload holds a secret: a dialog that shows
