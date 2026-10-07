@@ -23,6 +23,7 @@ import {
 import { fromB64url, STUB_MARKER, toB64url, type KindedContent } from '@hachiman/crypto'
 import { hachiman } from '@/services/hachiman'
 import { messagesService } from '@/services/MessagesService'
+import { useCryptoStore } from '@/stores/cryptoStore'
 import { useMessageStore, type ChatMessage } from '@/stores/messagesStore'
 import {
   DAY,
@@ -840,11 +841,31 @@ function fixtureEvents(): GuildEventWithMe[] {
   ]
 }
 
+/** Runs `fn` once the (stub) crypto client is ready, so the fixtures decrypt on the first try. */
+function whenCryptoReady(fn: () => void): void {
+  if (useCryptoStore.getState().phase === 'ready') return fn()
+  const stop = useCryptoStore.subscribe((s) => {
+    if (s.phase !== 'ready') return
+    stop()
+    fn()
+  })
+}
+
 /** Seeds the Arc feature fixtures. Call after the history is in the store. */
 export function seedFeatureFixtures(): void {
+  whenCryptoReady(seedEncryptedFixtures)
+  seedPlainFixtures()
+}
+
+/** The #general row that gets the reactions, the reply and the "Bracket seeding" thread. */
+function reactionTarget(): ChatMessage | undefined {
   const rows = generalRows()
-  const target =
-    rows.find((m) => m.content.startsWith('scrim moved to thursday')) ?? rows[rows.length - 1]
+  return rows.find((m) => m.content.startsWith('scrim moved to thursday')) ?? rows.at(-1)
+}
+
+/** The reactions, the reply and the page activity row: stub envelopes through the decrypt path. */
+function seedEncryptedFixtures(): void {
+  const target = reactionTarget()
   if (target) {
     const base = Date.parse(target.createdAt)
     const event = (author: User, minutes: number, body: KindedContent<string>): Message => {
@@ -913,7 +934,10 @@ export function seedFeatureFixtures(): void {
     }
   ])
   useMessageStore.getState().setHasMore(pagesId, false)
+}
 
+/** Custom statuses and threads: plaintext metadata, dispatched as gateway events. */
+function seedPlainFixtures(): void {
   // Custom statuses (N16). My own status echoes as the gateway would.
   const statuses: [string, string][] = [
     [U.yuki.id, '5am, watching the VOD'],
@@ -947,7 +971,7 @@ export function seedFeatureFixtures(): void {
         parentId: G1C.general,
         ownerId: ME.id,
         mlsGroupId: groupOf(G1C.general),
-        threadStartMessageId: i === 0 ? (target?.id ?? null) : null
+        threadStartMessageId: i === 0 ? (reactionTarget()?.id ?? null) : null
       })
     })
     useMessageStore.getState().setHasMore(id, false)
