@@ -531,6 +531,46 @@ export interface MessageContent {
   sentAtMs: number
 }
 
+/** Kind 'reaction' (§12.8.1). The receiver folds it into the target message. */
+export interface ReactionContent {
+  /** The client_msg_id of the message in the same channel that the reaction is on. */
+  target: ClientMsgIdB64
+  /** 1 to MAX_REACTION_EMOJI_LENGTH UTF-16 code units, no control characters. */
+  emoji: string
+  /** True: the sender takes back this emoji on the target. */
+  remove: boolean
+  /** Sender wall clock, Unix ms. Orders the reaction events of one sender. */
+  sentAtMs: number
+}
+
+/** Kind 'page_activity' (§12.8.1, §12.20): the sender edited a page. */
+export interface PageActivityContent {
+  /** A lowercase UUID. */
+  pageId: string
+  /** 1 to MAX_PAGE_ACTIVITY_CHANGES. */
+  changes: number
+  /** Sender wall clock, Unix ms. Display only. */
+  sentAtMs: number
+}
+
+/** The EnvelopeContent kinds (§12.8.1). */
+export type EnvelopeKindName = 'message' | 'edit' | 'reaction' | 'page_activity'
+
+/**
+ * The kind, edit_of and content of an envelope, with edit_of as E. Only 'edit' has an edit_of.
+ * 'message' and 'edit' share a variant so that a receiver can report a kind/edit_of mismatch (§12.8.5 step 7).
+ */
+export type KindedContent<E> =
+  | { kind: 'message' | 'edit'; editOf: E | null; content: MessageContent }
+  | { kind: 'reaction'; editOf: null; content: ReactionContent }
+  | { kind: 'page_activity'; editOf: null; content: PageActivityContent }
+
+/** KindedContent without sentAtMs: the Worker sets it on send. */
+export type KindedContentInput<E> =
+  | { kind: 'message' | 'edit'; editOf: E | null; content: Omit<MessageContent, 'sentAtMs'> }
+  | { kind: 'reaction'; editOf: null; content: Omit<ReactionContent, 'sentAtMs'> }
+  | { kind: 'page_activity'; editOf: null; content: Omit<PageActivityContent, 'sentAtMs'> }
+
 export type SenderTrust = 'verified' | 'tofu' | 'changed' | 'unknown'
 
 export interface DecryptedSender {
@@ -544,7 +584,10 @@ export interface DecryptedSender {
 
 /** One code per §12.8.5 step. */
 export type DecryptFailure =
-  /** Step 1, 3, 7: the header or plaintext does not decode, breaks a limit, or has a bad kind/edit_of. */
+  /**
+   * Step 1, 3, 7: the header or plaintext does not decode, breaks a limit, or has a bad kind/edit_of.
+   * Also an unknown kind: an older client gives this for a kind that it does not know.
+   */
   | 'malformed'
   /** Step 1: header channel_id differs from the row. */
   | 'wrong_channel'
@@ -556,7 +599,7 @@ export type DecryptFailure =
   | 'aead'
   /** Step 4: no certificate, or the chain check failed. */
   | 'invalid_chain'
-  /** Step 1: header sender_device_id differs from the row. Step 4 (kind 1): the certificate user is not the author. */
+  /** Step 1: header sender_device_id differs from the row. Step 4 (every kind but 2): the certificate user is not the author. */
   | 'device_mismatch'
   /** Step 4 (kind 2): the certificate user is not the author of the original. */
   | 'edit_not_author'
@@ -569,17 +612,19 @@ export type DecryptFailure =
   /** Step 10: sent_at_ms below the newest version this client accepted (rollback). */
   | 'stale_edit'
 
+/**
+ * A decrypted message. Narrow on `kind` before you read `content`: 'reaction' and 'page_activity'
+ * are not chat rows. For kind 'edit', `editOf` is the client_msg_id of the original.
+ */
+export type DecryptedMessage = {
+  status: 'ok'
+  messageId: MessageId
+  clientMsgId: ClientMsgIdB64
+  sender: DecryptedSender
+} & KindedContent<ClientMsgIdB64>
+
 export type DecryptResult =
-  | {
-      status: 'ok'
-      messageId: MessageId
-      clientMsgId: ClientMsgIdB64
-      kind: 'message' | 'edit'
-      /** For kind 'edit': the client_msg_id of the original. */
-      editOf: ClientMsgIdB64 | null
-      content: MessageContent
-      sender: DecryptedSender
-    }
+  | DecryptedMessage
   /**
    * Step 2. epoch_ahead: buffered until the handshakes arrive. group_unknown: this device
    * never held the group and has no bundle or backup key (a Welcome can still come).
@@ -589,13 +634,11 @@ export type DecryptResult =
   | { status: 'pending'; messageId: MessageId; reason: 'epoch_ahead' | 'group_unknown' | 'no_history_key' | 'transport' }
   | { status: 'failed'; messageId: MessageId; reason: DecryptFailure }
 
-export interface EncryptMessageInput {
-  channelId: ChannelId
-  kind: 'message' | 'edit'
-  /** For kind 'edit': the original's client_msg_id. The content must keep its attachments. */
-  editOf: ClientMsgIdB64 | null
-  content: Omit<MessageContent, 'sentAtMs'>
-}
+/**
+ * For kind 'edit', `editOf` is the original's client_msg_id, and the content must keep its attachments.
+ * 'reaction' and 'page_activity' are new messages with a new client_msg_id and no attachments.
+ */
+export type EncryptMessageInput = { channelId: ChannelId } & KindedContentInput<ClientMsgIdB64>
 
 export interface EncryptMessageOutput {
   envelope: B64url
@@ -680,6 +723,11 @@ export interface TrustInfo {
   masterKeyGeneration: number | null
   /** ISO time of the last unacknowledged key change, or null. */
   changedAt: string | null
+  /**
+   * ISO time when this device marked the user verified (setVerified or a matching verifyQr), or
+   * null: not verified, or verified before the store kept the time. A master key change clears it.
+   */
+  verifiedAt: string | null
 }
 
 export interface SasEmoji {
@@ -1691,11 +1739,8 @@ export interface DsModule {
 
 // MARK: 4.5 envelope (src/envelope, §12.8)
 
-export interface EnvelopeSealInput {
+export type EnvelopeSealInput = KindedContent<Uint8Array> & {
   header: Omit<EnvelopeHeader, 'salt' | 'frankingTag'>
-  kind: 'message' | 'edit'
-  editOf: Uint8Array | null
-  content: MessageContent
   /** S_e of the header epoch. */
   epochSecret: Uint8Array
   /** The sender's MLS signature private key. */
@@ -1704,11 +1749,8 @@ export interface EnvelopeSealInput {
   ktTreeHead: Uint8Array | null
 }
 
-export interface EnvelopeOpenResult {
+export type EnvelopeOpenResult = KindedContent<Uint8Array> & {
   header: EnvelopeHeader
-  kind: 'message' | 'edit'
-  editOf: Uint8Array | null
-  content: MessageContent
   frankingKey: Uint8Array
   ktTreeHead: Uint8Array | null
   /** The encoded EnvelopeContent, for franking reports. */
@@ -1730,10 +1772,10 @@ export interface EnvelopeModule {
   open(
     envelope: Uint8Array,
     epochSecret: Uint8Array,
-    senderKey: (header: EnvelopeHeader, kind: 'message' | 'edit') => Promise<{ signatureKey: Uint8Array } | { failure: DecryptFailure }>,
+    senderKey: (header: EnvelopeHeader, kind: EnvelopeKindName) => Promise<{ signatureKey: Uint8Array } | { failure: DecryptFailure }>,
   ): Promise<EnvelopeOpenResult | { failure: DecryptFailure }>
-  encodeContent(kind: 'message' | 'edit', editOf: Uint8Array | null, content: MessageContent, ktTreeHead: Uint8Array | null): Uint8Array
-  decodeContent(b: Uint8Array): { kind: 'message' | 'edit'; editOf: Uint8Array | null; content: MessageContent; ktTreeHead: Uint8Array | null }
+  encodeContent(content: KindedContent<Uint8Array>, ktTreeHead: Uint8Array | null): Uint8Array
+  decodeContent(b: Uint8Array): KindedContent<Uint8Array> & { ktTreeHead: Uint8Array | null }
 }
 
 // MARK: 4.6 attachments (src/attachments, §12.9)
@@ -1828,6 +1870,8 @@ export interface StoreSchema {
     changedAtMs: number | null
     /** trust 'changed': the master key that the DS serves now. It replaces the pin only on acknowledgement. */
     candidate?: { masterKey: Uint8Array; generation: number } | null
+    /** When this device verified the pinned master key (TrustInfo.verifiedAt). Absent in older records: read as null. */
+    verifiedAtMs?: number | null
   }
   /** Key: 'self'. */
   kt: { treeHead: Uint8Array | null; lastSelfCheckMs: number; lastSelfIndex: number }

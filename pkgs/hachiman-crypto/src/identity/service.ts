@@ -599,7 +599,7 @@ export const createIdentityService: CreateIdentityService = (ctx, deps) => {
       const cand = c.candidate ?? null
       if (c.trust === 'changed' && cand !== null && equalBytes(cand.masterKey, master.publicKey) && cand.generation === master.generation) return true
       ctx.emit('keyChange', { userId, severity: c.trust === 'verified' ? 'blocking' : 'notice' })
-      await store.put('contacts', userId, { ...c, trust: 'changed', changedAtMs: ctx.now(), candidate: { masterKey: master.publicKey, generation: master.generation } })
+      await store.put('contacts', userId, { ...c, trust: 'changed', changedAtMs: ctx.now(), candidate: { masterKey: master.publicKey, generation: master.generation }, verifiedAtMs: null })
       return true
     }
     if (dskGen < c.dskGeneration) {
@@ -614,11 +614,12 @@ export const createIdentityService: CreateIdentityService = (ctx, deps) => {
   /** Makes the candidate of a key change the pin. The next fetch checks the user's keys against it. */
   async function adoptCandidate(c: StoreSchema['contacts'], trust: 'tofu' | 'verified'): Promise<StoreSchema['contacts']> {
     const cand = c.candidate ?? null
+    const verifiedAtMs = trust === 'verified' ? ctx.now() : null
     // A new master starts its own DSK generations: the rule 9 record of the old one does not apply.
     const next: StoreSchema['contacts'] =
       cand === null
-        ? { ...c, trust, changedAtMs: null, candidate: null }
-        : { ...c, masterKey: cand.masterKey, generation: cand.generation, dskGeneration: 0, trust, changedAtMs: null, candidate: null }
+        ? { ...c, trust, changedAtMs: null, candidate: null, verifiedAtMs }
+        : { ...c, masterKey: cand.masterKey, generation: cand.generation, dskGeneration: 0, trust, changedAtMs: null, candidate: null, verifiedAtMs }
     await store.put('contacts', c.userId, next)
     keyCache.delete(c.userId)
     return next
@@ -709,7 +710,7 @@ export const createIdentityService: CreateIdentityService = (ctx, deps) => {
 
   async function trustInfo(userId: UserId): Promise<TrustInfo> {
     if (self !== null && userId === self.userId) {
-      return { userId, state: 'verified', masterKeyGeneration: self.chain.master.generation, changedAt: null }
+      return { userId, state: 'verified', masterKeyGeneration: self.chain.master.generation, changedAt: null, verifiedAt: null }
     }
     const c = await store.get('contacts', userId)
     return {
@@ -717,6 +718,7 @@ export const createIdentityService: CreateIdentityService = (ctx, deps) => {
       state: c?.trust ?? 'unknown',
       masterKeyGeneration: c?.generation ?? null,
       changedAt: c?.changedAtMs == null ? null : new Date(c.changedAtMs).toISOString(),
+      verifiedAt: c?.trust !== 'verified' || c.verifiedAtMs == null ? null : new Date(c.verifiedAtMs).toISOString(),
     }
   }
 
@@ -1274,7 +1276,7 @@ export const createIdentityService: CreateIdentityService = (ctx, deps) => {
       const c = await requireContact(userId)
       if (verified) await adoptCandidate(c, 'verified')
       // A pending key change stays pending: only an acknowledgement or a verification ends it.
-      else if (c.trust !== 'changed') await store.put('contacts', userId, { ...c, trust: 'tofu' })
+      else if (c.trust !== 'changed') await store.put('contacts', userId, { ...c, trust: 'tofu', verifiedAtMs: null })
       return trustInfo(userId)
     },
     async acknowledgeKeyChange(userId) {

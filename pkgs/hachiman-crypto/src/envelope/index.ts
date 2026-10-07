@@ -7,9 +7,9 @@
 import { hkdf } from '@noble/hashes/hkdf.js'
 import { sha256 } from '@noble/hashes/sha2.js'
 
-import type { DecryptFailure, EnvelopeHeader, EnvelopeModule, EnvelopeOpenResult, EnvelopeSealInput } from '../api'
+import type { DecryptFailure, EnvelopeHeader, EnvelopeModule, EnvelopeOpenResult, EnvelopeSealInput, KindedContent } from '../api'
 import { CryptoError } from '../api'
-import { Writer } from '../codec'
+import { Writer, toB64url } from '../codec'
 import { DOC_SALT_LENGTH, EXPORTER_LENGTH, FRANKING_KEY_LENGTH, HkdfInfo, MESSAGE_SALT_LENGTH, SignLabel } from '../constants'
 import { frankingTagSync, verifyFrankingSync } from '../franking'
 import { signWithLabel, verifyWithLabel } from '../sign'
@@ -154,7 +154,7 @@ const MESSAGE_SCHEME: EnvelopeScheme<EnvelopeHeader, EnvelopePlaintext> = {
  * Seals already-encoded content bytes. `seal` is the normal entry. Tests call this directly to
  * build envelopes that break the kind/edit_of rule, which only receivers check (step 7).
  */
-export async function sealContentBytes(input: Omit<EnvelopeSealInput, 'kind' | 'editOf' | 'content' | 'ktTreeHead'>, contentBytes: Uint8Array): Promise<Uint8Array> {
+export async function sealContentBytes(input: Pick<EnvelopeSealInput, 'header' | 'epochSecret' | 'signatureKey'>, contentBytes: Uint8Array): Promise<Uint8Array> {
   const salt = randomBytes(MESSAGE_SALT_LENGTH)
   const frankingKey = randomBytes(FRANKING_KEY_LENGTH)
   const frankingTag = frankingTagSync({ frankingKey, channelId: input.header.channelId, clientMsgId: input.header.clientMsgId, content: contentBytes })
@@ -166,6 +166,32 @@ function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
   if (a.length !== b.length) return false
   for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false
   return true
+}
+
+/** Copies only the kind fields, so no extra field of the input leaks into the result. */
+function contentOf(c: KindedContent<Uint8Array>, ktTreeHead: Uint8Array | null): EnvelopeContent {
+  switch (c.kind) {
+    case 'message':
+    case 'edit':
+      return { kind: c.kind, editOf: c.editOf, content: c.content, ktTreeHead }
+    case 'reaction':
+      return { kind: c.kind, editOf: null, content: c.content, ktTreeHead }
+    case 'page_activity':
+      return { kind: c.kind, editOf: null, content: c.content, ktTreeHead }
+  }
+}
+
+function kindRuleHolds(c: KindedContent<Uint8Array>, clientMsgId: Uint8Array): boolean {
+  switch (c.kind) {
+    case 'message':
+      return c.editOf === null
+    case 'edit':
+      return c.editOf !== null && sameBytes(c.editOf, clientMsgId)
+    case 'reaction':
+      return c.editOf === null && c.content.target !== toB64url(clientMsgId)
+    case 'page_activity':
+      return c.editOf === null
+  }
 }
 
 export const envelope: EnvelopeModule = {
@@ -190,8 +216,7 @@ export const envelope: EnvelopeModule = {
         throw new CryptoError('Malformed', 'an edit keeps the client_msg_id of the original, and edit_of repeats it')
       }
     }
-    const content: EnvelopeContent = { kind: input.kind, editOf: input.editOf, content: input.content, ktTreeHead: input.ktTreeHead }
-    return sealContentBytes(input, encodeContent(content))
+    return sealContentBytes(input, encodeContent(contentOf(input, input.ktTreeHead)))
   },
 
   async open(bytes, epochSecret, senderKey): Promise<EnvelopeOpenResult | { failure: DecryptFailure }> {
@@ -209,24 +234,20 @@ export const envelope: EnvelopeModule = {
     })
     if (!frankingOk) return { failure: 'bad_franking' }
 
-    // Step 7: kind 1 has no edit_of; kind 2 has edit_of = header client_msg_id.
-    if (opened.kind === 'message' ? opened.editOf !== null : opened.editOf === null || !sameBytes(opened.editOf, header.clientMsgId)) {
-      return { failure: 'malformed' }
-    }
+    // Step 7: kind 2 has edit_of = header client_msg_id, no other kind has an edit_of.
+    // A reaction is never on its own client_msg_id.
+    if (!kindRuleHolds(opened, header.clientMsgId)) return { failure: 'malformed' }
 
     return {
+      ...contentOf(opened, opened.ktTreeHead),
       header,
-      kind: opened.kind,
-      editOf: opened.editOf,
-      content: opened.content,
       frankingKey: opened.frankingKey,
-      ktTreeHead: opened.ktTreeHead,
       contentBytes: opened.contentBytes,
     }
   },
 
-  encodeContent(kind, editOf, content, ktTreeHead) {
-    return encodeContent({ kind, editOf, content, ktTreeHead })
+  encodeContent(content, ktTreeHead) {
+    return encodeContent(contentOf(content, ktTreeHead))
   },
 
   decodeContent(b) {

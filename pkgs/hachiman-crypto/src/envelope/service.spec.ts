@@ -337,11 +337,13 @@ function setup() {
   return { world, g1, alice: peer(world, alice), alice2: peer(world, alice2), bob: peer(world, bob), carol: peer(world, carol) }
 }
 
-function msg(text = 'hi', over: Partial<EncryptMessageInput['content']> = {}): EncryptMessageInput {
+type MsgInput = Extract<EncryptMessageInput, { kind: 'message' | 'edit' }>
+
+function msg(text = 'hi', over: Partial<MsgInput['content']> = {}): MsgInput {
   return { channelId: CHANNEL, kind: 'message', editOf: null, content: { text, mentions: [], attachments: [], replyTo: null, ...over } }
 }
 
-function edit(of: string, text: string, over: Partial<EncryptMessageInput['content']> = {}): EncryptMessageInput {
+function edit(of: string, text: string, over: Partial<MsgInput['content']> = {}): MsgInput {
   return { channelId: CHANNEL, kind: 'edit', editOf: of, content: { text, mentions: [], attachments: [], replyTo: null, ...over } }
 }
 
@@ -364,8 +366,7 @@ describe('MessageService', () => {
     expect(out.epoch).toBe(5)
     const r = await one(carol, row(out, alice.dev))
     expect(r.status).toBe('ok')
-    if (r.status !== 'ok') return
-    expect(r.kind).toBe('message')
+    if (r.status !== 'ok' || r.kind !== 'message') throw new Error('not a message')
     expect(r.content.text).toBe('hello')
     expect(r.content.mentions).toEqual([{ type: 'user', id: CAROL }])
     expect(r.content.sentAtMs).toBe(alice.clock.now)
@@ -500,8 +501,7 @@ describe('MessageService', () => {
     expect(e.clientMsgId).toBe(out.clientMsgId)
     const r = await one(carol, patched(orig, e, alice2.dev))
     expect(r.status).toBe('ok')
-    if (r.status !== 'ok') return
-    expect(r.kind).toBe('edit')
+    if (r.status !== 'ok' || r.kind !== 'edit') throw new Error('not an edit')
     expect(r.editOf).toBe(out.clientMsgId)
     expect(r.content.text).toBe('v2')
     expect(r.sender.deviceId).toBe(ALICE_DEV2)
@@ -594,7 +594,7 @@ describe('MessageService', () => {
     const e = await alice.svc.encryptMessage(edit(out.clientMsgId, 'v2'))
     expect(e.groupId).toBe(toB64url(g2))
     const r = await one(carol, patched(orig, e, alice.dev))
-    expect(r.status === 'ok' && r.content.text).toBe('v2')
+    expect(r.status === 'ok' && r.kind === 'edit' && r.content.text).toBe('v2')
   })
 
   it('step 2: epoch ahead is pending and buffered; group_unknown and no_history_key', async () => {
@@ -649,6 +649,40 @@ describe('MessageService', () => {
     await expect(alice.svc.encryptMessage(edit(toB64url(bytes(15, 0)), 'x'))).rejects.toBeInstanceOf(CryptoError)
   })
 
+  it('encrypts and decrypts a reaction and a page activity (kinds 3 and 4)', async () => {
+    const { alice, carol } = setup()
+    const target = (await alice.svc.encryptMessage(msg('react to me'))).clientMsgId
+    const out = await alice.svc.encryptMessage({ channelId: CHANNEL, kind: 'reaction', editOf: null, content: { target, emoji: '🔥', remove: false } })
+    expect(out.clientMsgId).not.toBe(target)
+    const r = await one(carol, row(out, alice.dev))
+    if (r.status !== 'ok' || r.kind !== 'reaction') throw new Error(reason(r))
+    expect(r.content).toEqual({ target, emoji: '🔥', remove: false, sentAtMs: alice.clock.now })
+    expect(r.editOf).toBeNull()
+
+    const pageId = uuid(500)
+    const pa = await alice.svc.encryptMessage({ channelId: CHANNEL, kind: 'page_activity', editOf: null, content: { pageId, changes: 3 } })
+    const p = await one(carol, row(pa, alice.dev))
+    if (p.status !== 'ok' || p.kind !== 'page_activity') throw new Error(reason(p))
+    expect(p.content).toEqual({ pageId, changes: 3, sentAtMs: alice.clock.now })
+  })
+
+  it('kinds 3 and 4: no editOf, no attachments on the row, never edited, author checked', async () => {
+    const { alice, bob, carol } = setup()
+    const target = toB64url(bytes(16, 0x42))
+    const react = { channelId: CHANNEL, kind: 'reaction', editOf: null, content: { target, emoji: '👍', remove: true } } as const
+    const bad = { ...react, editOf: target } as unknown as EncryptMessageInput
+    await expect(alice.svc.encryptMessage(bad)).rejects.toMatchObject({ code: 'Malformed' })
+    await expect(alice.svc.encryptMessage({ ...react, content: { ...react.content, emoji: 'x\u0000' } })).rejects.toMatchObject({ code: 'Malformed' })
+    await expect(alice.svc.encryptMessage({ channelId: CHANNEL, kind: 'page_activity', editOf: null, content: { pageId: uuid(5), changes: 0 } })).rejects.toMatchObject({ code: 'Malformed' })
+
+    const out = await alice.svc.encryptMessage(react)
+    expect(reason(await one(carol, row(out, alice.dev, CHANNEL, [{ id: uuid(900), size: 10 }])))).toBe('failed:attachments_mismatch')
+    expect(reason(await one(carol, { ...row(out, alice.dev), editedAt: '2026-10-02T00:01:00Z' }))).toBe('failed:malformed')
+    // Bob's reaction, attributed to Alice by the server.
+    const forged = await bob.svc.encryptMessage(react)
+    expect(reason(await one(carol, { ...row(forged, bob.dev), authorId: ALICE }))).toBe('failed:device_mismatch')
+  })
+
   it('buildReport opens a message that franking verifies', async () => {
     const { alice, carol } = setup()
     const out = await alice.svc.encryptMessage(msg('report me'))
@@ -663,7 +697,8 @@ describe('MessageService', () => {
       content: fromB64url(rep.content),
     })
     expect(ok).toBe(true)
-    expect(envelope.decodeContent(fromB64url(rep.content)).content.text).toBe('report me')
+    const reported = envelope.decodeContent(fromB64url(rep.content))
+    expect(reported.kind === 'message' && reported.content.text).toBe('report me')
     await expect(carol.svc.buildReport({ ...m, channelId: OTHER_CHANNEL })).rejects.toMatchObject({ code: 'Malformed' })
   })
 

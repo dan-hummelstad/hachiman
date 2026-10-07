@@ -16,7 +16,7 @@ import type {
   DocEnvelopeKindName,
   EncryptedDocItem,
   EncryptedMessage,
-  MessageContent,
+  KindedContent,
   UserId,
   WireMlsGroup,
 } from '../api'
@@ -25,14 +25,11 @@ import { GROUP_ID_LENGTH } from '../constants'
 
 export const STUB_MARKER = 'hachiman dev stub: NOT ENCRYPTED'
 
-interface StubEnvelope {
+type StubEnvelope = {
   marker: typeof STUB_MARKER
   channelId: string
   clientMsgId: string
-  kind: 'message' | 'edit'
-  editOf: string | null
-  content: MessageContent
-}
+} & KindedContent<string>
 
 interface StubDocEnvelope {
   marker: typeof STUB_MARKER
@@ -86,13 +83,13 @@ export const createCryptoStub: CreateCryptoStub = () => {
     const e = parseEnvelope(m.envelope)
     if (e === null) return { status: 'failed', messageId: m.id, reason: 'malformed' }
     if (e.channelId !== m.channelId) return { status: 'failed', messageId: m.id, reason: 'wrong_channel' }
+    const { kind, editOf, content } = e
+    const body = { kind, editOf, content } as KindedContent<string>
     return {
+      ...body,
       status: 'ok',
       messageId: m.id,
       clientMsgId: e.clientMsgId,
-      kind: e.kind,
-      editOf: e.editOf,
-      content: e.content,
       sender: { userId: m.authorId, deviceId: m.senderDevice ?? deviceId, leafIndex: 0, trust: 'unknown', membershipVerified: false },
     }
   }
@@ -143,12 +140,12 @@ export const createCryptoStub: CreateCryptoStub = () => {
     revokeDevice: ok,
     renameDevice: ok,
 
-    getTrust: (u) => Promise.resolve({ userId: u, state: 'unknown', masterKeyGeneration: null, changedAt: null }),
+    getTrust: (u) => Promise.resolve({ userId: u, state: 'unknown', masterKeyGeneration: null, changedAt: null, verifiedAt: null }),
     listContactDevices: () => Promise.resolve([]),
     getSafetyNumber: () => Promise.resolve({ digits: '0'.repeat(60), groups: Array.from({ length: 12 }, () => '00000'), qrPayload: '' }),
     verifyQr: () => Promise.resolve({ userId: '', match: false }),
-    setVerified: (u) => Promise.resolve({ userId: u, state: 'unknown', masterKeyGeneration: null, changedAt: null }),
-    acknowledgeKeyChange: (u) => Promise.resolve({ userId: u, state: 'unknown', masterKeyGeneration: null, changedAt: null }),
+    setVerified: (u) => Promise.resolve({ userId: u, state: 'unknown', masterKeyGeneration: null, changedAt: null, verifiedAt: null }),
+    acknowledgeKeyChange: (u) => Promise.resolve({ userId: u, state: 'unknown', masterKeyGeneration: null, changedAt: null, verifiedAt: null }),
     getEpochCode: () => Promise.resolve('0'.repeat(30)),
 
     sync: ok,
@@ -158,7 +155,8 @@ export const createCryptoStub: CreateCryptoStub = () => {
 
     encryptMessage(input) {
       const clientMsgId = input.kind === 'edit' && input.editOf !== null ? input.editOf : stubId()
-      const env: StubEnvelope = { marker: STUB_MARKER, channelId: input.channelId, clientMsgId, kind: input.kind, editOf: input.editOf, content: { ...input.content, sentAtMs: Date.now() } }
+      const body = { kind: input.kind, editOf: input.editOf, content: { ...input.content, sentAtMs: Date.now() } } as KindedContent<string>
+      const env: StubEnvelope = { ...body, marker: STUB_MARKER, channelId: input.channelId, clientMsgId }
       return Promise.resolve({ envelope: toB64url(utf8(JSON.stringify(env))), clientMsgId, groupId, epoch: 0 })
     },
     decryptMessages: (ms) => Promise.resolve(ms.map(decryptOne)),

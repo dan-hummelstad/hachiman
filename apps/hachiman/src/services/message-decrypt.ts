@@ -98,6 +98,8 @@ export function rowFor(
 ): ChatMessage | null {
   const shows = existing?.decrypt.status === 'ok' && !existing.pending ? existing : undefined
   if (r.status === 'ok') {
+    // Reactions and page activity are not chat rows. Their UI (N10, N21) is not built yet.
+    if (r.kind === 'reaction' || r.kind === 'page_activity') return null
     const c = r.content
     return {
       ...baseRow(m),

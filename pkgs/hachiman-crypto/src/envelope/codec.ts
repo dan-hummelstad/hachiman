@@ -11,6 +11,8 @@ import type {
   DocEnvelopeKindName,
   DocSnapshotPointer,
   EnvelopeHeader,
+  EnvelopeKindName,
+  KindedContent,
   Mention,
   MentionKind,
   MessageContent,
@@ -30,7 +32,10 @@ import {
   GROUP_ID_LENGTH,
   MAX_ATTACHMENTS_PER_MESSAGE,
   MAX_MESSAGE_UPLOAD_IDS,
+  MAX_PAGE_ACTIVITY_CHANGES,
   MAX_PAGE_TITLE_BYTES,
+  MAX_REACTION_EMOJI_BYTES,
+  MAX_REACTION_EMOJI_LENGTH,
   MAX_TEXT_BYTES,
   MESSAGE_SALT_LENGTH,
   MentionType,
@@ -52,7 +57,7 @@ const MIME_RE = /^[a-z0-9][a-z0-9!#$&^_.+-]*\/[a-z0-9][a-z0-9!#$&^_.+-]*$/
 /** Printable ASCII. */
 const BLURHASH_RE = /^[\x20-\x7e]+$/
 
-export type EnvelopeKindName = 'message' | 'edit'
+export type { EnvelopeKindName }
 
 /** The decoded `Envelope` struct, or a `DocEnvelope` with H = DocEnvelopeHeader. */
 export interface Envelope<H = EnvelopeHeader> {
@@ -63,15 +68,10 @@ export interface Envelope<H = EnvelopeHeader> {
 }
 
 /** The decoded `EnvelopeContent` struct. */
-export interface EnvelopeContent {
-  kind: EnvelopeKindName
-  editOf: Uint8Array | null
-  content: MessageContent
-  ktTreeHead: Uint8Array | null
-}
+export type EnvelopeContent = KindedContent<Uint8Array> & { ktTreeHead: Uint8Array | null }
 
 /** The decoded `EnvelopePlaintext` struct. */
-export interface EnvelopePlaintext extends EnvelopeContent {
+export type EnvelopePlaintext = EnvelopeContent & {
   /** The exact encode(EnvelopeContent) bytes from the plaintext (signed and franked). */
   contentBytes: Uint8Array
   frankingKey: Uint8Array
@@ -352,39 +352,116 @@ function checkContentLimits(content: Pick<MessageContent, 'text' | 'mentions' | 
   if (textBytes === 0 && content.attachments.length === 0) malformed('a message needs text or an attachment')
 }
 
+const KIND_BYTE: Record<EnvelopeKindName, number> = {
+  message: EnvelopeKind.MESSAGE,
+  edit: EnvelopeKind.EDIT,
+  reaction: EnvelopeKind.REACTION,
+  page_activity: EnvelopeKind.PAGE_ACTIVITY,
+}
+
+/** Control characters (Cc) and lone surrogates (Cs). */
+const EMOJI_FORBIDDEN_RE = /[\p{Cc}\p{Cs}]/u
+
+function checkEmoji(emoji: string): void {
+  if (emoji.length === 0) malformed('reaction emoji is empty')
+  if (emoji.length > MAX_REACTION_EMOJI_LENGTH) tooLarge(`reaction emoji longer than ${MAX_REACTION_EMOJI_LENGTH} UTF-16 units`)
+  if (EMOJI_FORBIDDEN_RE.test(emoji)) malformed('reaction emoji has a control character or a lone surrogate')
+}
+
+function checkChanges(changes: number): void {
+  if (!Number.isInteger(changes) || changes < 1 || changes > MAX_PAGE_ACTIVITY_CHANGES) malformed(`page_activity changes must be 1 to ${MAX_PAGE_ACTIVITY_CHANGES}`)
+}
+
+function writeMessageBody(w: Writer, editOf: Uint8Array | null, content: MessageContent): void {
+  const text = utf8Bytes(content.text)
+  checkContentLimits(content, text.length)
+  if (editOf !== null) checkLength(editOf, CLIENT_MSG_ID_LENGTH, 'edit_of')
+  const replyTo = content.replyTo === null ? null : bytesOf(content.replyTo, CLIENT_MSG_ID_LENGTH, 'reply_to')
+  w.optional(editOf, (w2, v) => w2.fixed(v, CLIENT_MSG_ID_LENGTH))
+    .opaque(text)
+    .vector(content.mentions, writeMention)
+    .vector(content.attachments, writePointer)
+    .optional(replyTo, (w2, v) => w2.fixed(v, CLIENT_MSG_ID_LENGTH))
+}
+
 function writeContent(w: Writer, c: EnvelopeContent, checkKind: boolean): void {
+  const kind = KIND_BYTE[c.kind] as number | undefined
+  if (kind === undefined) malformed('unknown envelope kind')
   if (checkKind) {
     if (c.kind === 'message' && c.editOf !== null) malformed('kind message has no edit_of')
     if (c.kind === 'edit' && c.editOf === null) malformed('kind edit needs edit_of')
   }
-  const text = utf8Bytes(c.content.text)
-  checkContentLimits(c.content, text.length)
   checkSize(c.content.sentAtMs, 'sent_at_ms')
-  if (c.editOf !== null) checkLength(c.editOf, CLIENT_MSG_ID_LENGTH, 'edit_of')
-  const replyTo = c.content.replyTo === null ? null : bytesOf(c.content.replyTo, CLIENT_MSG_ID_LENGTH, 'reply_to')
-  w.u8(c.kind === 'message' ? EnvelopeKind.MESSAGE : EnvelopeKind.EDIT)
-    .optional(c.editOf, (w2, v) => w2.fixed(v, CLIENT_MSG_ID_LENGTH))
-    .opaque(text)
-    .vector(c.content.mentions, writeMention)
-    .vector(c.content.attachments, writePointer)
-    .optional(replyTo, (w2, v) => w2.fixed(v, CLIENT_MSG_ID_LENGTH))
-    .u64(c.content.sentAtMs)
-    .optional(c.ktTreeHead, (w2, v) => w2.opaque(v))
+  w.u8(kind)
+  switch (c.kind) {
+    case 'message':
+    case 'edit':
+      writeMessageBody(w, c.editOf, c.content)
+      break
+    case 'reaction':
+      if (c.editOf !== null) malformed('kind reaction has no edit_of')
+      checkEmoji(c.content.emoji)
+      w.fixed(bytesOf(c.content.target, CLIENT_MSG_ID_LENGTH, 'target'), CLIENT_MSG_ID_LENGTH)
+        .utf8(c.content.emoji)
+        .u8(c.content.remove ? 1 : 0)
+      break
+    case 'page_activity':
+      if (c.editOf !== null) malformed('kind page_activity has no edit_of')
+      checkChanges(c.content.changes)
+      w.fixed(uuidToBytes(c.content.pageId), 16).u32(c.content.changes)
+      break
+  }
+  w.u64(c.content.sentAtMs).optional(c.ktTreeHead, (w2, v) => w2.opaque(v))
 }
 
-function readContent(r: Reader): EnvelopeContent {
-  const kindByte = r.u8()
-  if (kindByte !== EnvelopeKind.MESSAGE && kindByte !== EnvelopeKind.EDIT) malformed(`unknown envelope kind ${kindByte}`)
+function readMessageBody(r: Reader): { editOf: Uint8Array | null; content: Omit<MessageContent, 'sentAtMs'> } {
   const editOf = r.optional((r2) => r2.fixed(CLIENT_MSG_ID_LENGTH))
   const text = r.utf8(MAX_TEXT_BYTES)
   const mentions = r.vector(readMention, MAX_MENTIONS)
   const attachments = r.vector(readPointer, MAX_ATTACHMENTS_PER_MESSAGE)
   const replyTo = r.optional((r2) => toB64url(r2.fixed(CLIENT_MSG_ID_LENGTH)))
-  const sentAtMs = r.u64n()
-  const ktTreeHead = r.optional((r2) => r2.opaque())
-  const content: MessageContent = { text, mentions, attachments, replyTo, sentAtMs }
+  const content = { text, mentions, attachments, replyTo }
   checkContentLimits(content, utf8Bytes(text).length)
-  return { kind: kindByte === EnvelopeKind.MESSAGE ? 'message' : 'edit', editOf, content, ktTreeHead }
+  return { editOf, content }
+}
+
+/** Kinds 3 and 4 have no edit_of on the wire. An unknown kind byte is 'malformed'. */
+function readContent(r: Reader): EnvelopeContent {
+  const kindByte = r.u8()
+  switch (kindByte) {
+    case EnvelopeKind.MESSAGE:
+    case EnvelopeKind.EDIT: {
+      const { editOf, content } = readMessageBody(r)
+      const sentAtMs = r.u64n()
+      const ktTreeHead = r.optional((r2) => r2.opaque())
+      return { kind: kindByte === EnvelopeKind.MESSAGE ? 'message' : 'edit', editOf, content: { ...content, sentAtMs }, ktTreeHead }
+    }
+    case EnvelopeKind.REACTION: {
+      const target = toB64url(r.fixed(CLIENT_MSG_ID_LENGTH))
+      const emoji = r.utf8(MAX_REACTION_EMOJI_BYTES)
+      checkEmoji(emoji)
+      const removeByte = r.u8()
+      if (removeByte > 1) malformed('reaction remove must be 0 or 1')
+      const sentAtMs = r.u64n()
+      const ktTreeHead = r.optional((r2) => r2.opaque())
+      return { kind: 'reaction', editOf: null, content: { target, emoji, remove: removeByte === 1, sentAtMs }, ktTreeHead }
+    }
+    case EnvelopeKind.PAGE_ACTIVITY: {
+      const pageId = bytesToUuid(r.fixed(16))
+      const changes = r.u32()
+      checkChanges(changes)
+      const sentAtMs = r.u64n()
+      const ktTreeHead = r.optional((r2) => r2.opaque())
+      return { kind: 'page_activity', editOf: null, content: { pageId, changes, sentAtMs }, ktTreeHead }
+    }
+    default:
+      return malformed(`unknown envelope kind ${kindByte}`)
+  }
+}
+
+/** The attachment pointers of a content: none for kinds 3 and 4. */
+export function attachmentsOf(c: KindedContent<unknown>): readonly AttachmentPointer[] {
+  return c.kind === 'message' || c.kind === 'edit' ? c.content.attachments : []
 }
 
 /** Rejects a kind/edit_of mismatch. */
