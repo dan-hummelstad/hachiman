@@ -4,11 +4,13 @@ import type {
   Attachment,
   B64url,
   BackupIndex,
+  BlockedUser,
   Channel,
   CipherSuiteId,
   CommitRequest,
   CommitResult,
   CreateGroupRequest,
+  CreateGuildEventRequest,
   Device,
   DevicePlatform,
   DeviceProver,
@@ -17,6 +19,7 @@ import type {
   DsInfo,
   GroupState,
   Guild,
+  GuildEventWithMe,
   GuildFull,
   HandshakePage,
   HistoryBundle,
@@ -44,6 +47,7 @@ import type {
   ProposalRejection,
   RevocationReason,
   Role,
+  UpdateGuildEventRequest,
   User,
   UserKeys,
 } from './types'
@@ -166,11 +170,14 @@ export interface UpdateMemberBody {
 export interface CreateRoleBody {
   name: string
   color?: Opt<number>
+  hoist?: Opt<boolean>
   permissions?: Opt<number>
 }
 export interface UpdateRoleBody {
   name?: Opt<string>
   color?: Opt<number>
+  /** No X-Hachiman-Signed-Action needed for name, color or hoist alone (§12.16). */
+  hoist?: Opt<boolean>
   permissions?: Opt<number>
 }
 export interface RolePosition {
@@ -301,6 +308,14 @@ export class RestClient {
   ackMessage = (channelId: string, messageId: string) =>
     this.req<undefined>('POST', `/channels/${e(channelId)}/ack`, { messageId })
 
+  /** Ciphertext Messages, newest pin first. Decrypt them as any other message. */
+  getPins = (channelId: string) => this.req<Message[]>('GET', `/channels/${e(channelId)}/pins`)
+  /** 400 TooManyPins past 50 pins in the channel. */
+  pinMessage = (channelId: string, messageId: string) =>
+    this.req<undefined>('PUT', `/channels/${e(channelId)}/pins/${e(messageId)}`)
+  unpinMessage = (channelId: string, messageId: string) =>
+    this.req<undefined>('DELETE', `/channels/${e(channelId)}/pins/${e(messageId)}`)
+
   getMembers = (guildId: string) => this.req<Member[]>('GET', `/guilds/${e(guildId)}/members`)
   updateMember = (guildId: string, userId: string, body: UpdateMemberBody, opts: SignedActionOptions = {}) =>
     this.req<Member>('PATCH', `/guilds/${e(guildId)}/members/${e(userId)}`, body, opts)
@@ -318,6 +333,16 @@ export class RestClient {
   deleteRole = (guildId: string, roleId: string, opts: SignedActionOptions = {}) =>
     this.req<undefined>('DELETE', `/guilds/${e(guildId)}/roles/${e(roleId)}`, undefined, opts)
 
+  getGuildEvents = (guildId: string) => this.req<GuildEventWithMe[]>('GET', `/guilds/${e(guildId)}/events`)
+  createGuildEvent = (guildId: string, body: CreateGuildEventRequest) =>
+    this.req<GuildEventWithMe>('POST', `/guilds/${e(guildId)}/events`, body)
+  updateGuildEvent = (eventId: string, body: UpdateGuildEventRequest) =>
+    this.req<GuildEventWithMe>('PATCH', `/events/${e(eventId)}`, body)
+  deleteGuildEvent = (eventId: string) => this.req<undefined>('DELETE', `/events/${e(eventId)}`)
+  /** `going` true: PUT, false: DELETE /events/:id/rsvp. */
+  setEventRsvp = (eventId: string, going: boolean) =>
+    this.req<undefined>(going ? 'PUT' : 'DELETE', `/events/${e(eventId)}/rsvp`)
+
   getInvites = (guildId: string) => this.req<Invite[]>('GET', `/guilds/${e(guildId)}/invites`)
   createInvite = (guildId: string, body: CreateInviteBody = {}) =>
     this.req<Invite>('POST', `/guilds/${e(guildId)}/invites`, body)
@@ -328,7 +353,12 @@ export class RestClient {
   acceptInvite = (code: string) => this.req<GuildFull>('POST', `/invites/${e(code)}`)
 
   getDmChannels = () => this.req<Channel[]>('GET', '/users/@me/channels')
+  /** 403 Blocked when a block exists between the caller and a recipient. */
   openDm = (recipientIds: string[]) => this.req<Channel>('POST', '/users/@me/channels', { recipientIds })
+
+  getBlocks = () => this.req<BlockedUser[]>('GET', '/users/@me/blocks')
+  blockUser = (userId: string) => this.req<undefined>('PUT', `/users/@me/blocks/${e(userId)}`)
+  unblockUser = (userId: string) => this.req<undefined>('DELETE', `/users/@me/blocks/${e(userId)}`)
 
   getLimits = () => this.req<Limits>('GET', '/limits')
 

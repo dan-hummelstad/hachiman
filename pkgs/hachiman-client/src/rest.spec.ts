@@ -275,6 +275,29 @@ describe('RestClient fetch routes', () => {
     expect(last().headers['Authorization']).toBe('Bearer tok')
   })
 
+  it('the pin, guild event, RSVP, block and role hoist routes use the §4 paths and bodies', async () => {
+    const expectCall = async (p: Promise<unknown>, method: string, path: string, body?: unknown) => {
+      await p
+      expect(last()).toMatchObject({ url: `http://api/v1${path}`, method })
+      expect(last().body).toEqual(body)
+    }
+    await expectCall(rest.getPins('c1'), 'GET', '/channels/c1/pins')
+    await expectCall(rest.pinMessage('c1', 'm1'), 'PUT', '/channels/c1/pins/m1')
+    await expectCall(rest.unpinMessage('c1', 'm1'), 'DELETE', '/channels/c1/pins/m1')
+    await expectCall(rest.getGuildEvents('g1'), 'GET', '/guilds/g1/events')
+    const ev = { title: 'Scrims', startsAt: '2026-10-08T21:00:00.000Z', channelId: 'v1' }
+    await expectCall(rest.createGuildEvent('g1', ev), 'POST', '/guilds/g1/events', ev)
+    await expectCall(rest.updateGuildEvent('e1', { endsAt: null }), 'PATCH', '/events/e1', { endsAt: null })
+    await expectCall(rest.deleteGuildEvent('e1'), 'DELETE', '/events/e1')
+    await expectCall(rest.setEventRsvp('e1', true), 'PUT', '/events/e1/rsvp')
+    await expectCall(rest.setEventRsvp('e1', false), 'DELETE', '/events/e1/rsvp')
+    await expectCall(rest.getBlocks(), 'GET', '/users/@me/blocks')
+    await expectCall(rest.blockUser('u2'), 'PUT', '/users/@me/blocks/u2')
+    await expectCall(rest.unblockUser('u2'), 'DELETE', '/users/@me/blocks/u2')
+    await expectCall(rest.updateRole('g1', 'r1', { hoist: true }), 'PATCH', '/guilds/g1/roles/r1', { hoist: true })
+    expect(last().headers['X-Hachiman-Signed-Action']).toBeUndefined()
+  })
+
   it('the page routes use the §4 Pages paths and bodies', async () => {
     await rest.getPages('c1')
     expect(last()).toMatchObject({ url: 'http://api/v1/channels/c1/pages', method: 'GET' })

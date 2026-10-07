@@ -304,6 +304,58 @@ describe('HachimanClient cache', () => {
     expect(ws.sent.at(-1)).toEqual({ op: 3, d: { customStatus: null } })
   })
 
+  it('guild events: fetch fills the cache, the GUILD_EVENT_* events keep it, me follows own RSVPs', async () => {
+    const ev = {
+      id: 'e1',
+      guildId: 'g',
+      channelId: null,
+      title: 'Scrims',
+      startsAt: '2026-10-08T21:00:00.000Z',
+      endsAt: null,
+      createdBy: 'bob',
+      createdAt: '',
+      rsvpCount: 1,
+    }
+    vi.spyOn(client.rest, 'getGuildEvents').mockResolvedValue([{ ...ev, me: false }])
+    await client.fetchGuildEvents('g')
+    const events = () => client.cache.events.get('g')
+    expect(events()?.get('e1')?.rsvpCount).toBe(1)
+
+    dispatch('GUILD_EVENT_RSVP', { eventId: 'e1', guildId: 'g', userId: 'me', going: true, rsvpCount: 2 })
+    expect(events()?.get('e1')).toMatchObject({ rsvpCount: 2, me: true })
+    dispatch('GUILD_EVENT_RSVP', { eventId: 'e1', guildId: 'g', userId: 'bob', going: false, rsvpCount: 1 })
+    expect(events()?.get('e1')).toMatchObject({ rsvpCount: 1, me: true })
+    dispatch('GUILD_EVENT_UPDATE', { ...ev, title: 'Finals' })
+    expect(events()?.get('e1')).toMatchObject({ title: 'Finals', me: true })
+    dispatch('GUILD_EVENT_CREATE', { ...ev, id: 'e2', rsvpCount: 0 })
+    expect(events()?.get('e2')?.me).toBe(false)
+    dispatch('GUILD_EVENT_DELETE', { id: 'e1', guildId: 'g' })
+    expect([...(events()?.keys() ?? [])]).toEqual(['e2'])
+    // Not loaded for this guild: nothing to keep.
+    dispatch('GUILD_EVENT_CREATE', { ...ev, guildId: 'other' })
+    expect(client.cache.events.has('other')).toBe(false)
+    dispatch('GUILD_DELETE', { id: 'g' })
+    expect(client.cache.events.has('g')).toBe(false)
+  })
+
+  it('blocks: fetch fills the set, USER_BLOCK_UPDATE keeps it, READY clears it', async () => {
+    vi.spyOn(client.rest, 'getBlocks').mockResolvedValue([{ user: bob, createdAt: '' }])
+    await client.fetchBlocks()
+    expect([...client.cache.blocks]).toEqual(['bob'])
+    dispatch('USER_BLOCK_UPDATE', { userId: 'bob', blocked: false })
+    dispatch('USER_BLOCK_UPDATE', { userId: 'carol', blocked: true })
+    expect([...client.cache.blocks]).toEqual(['carol'])
+    dispatch('READY', readyPayload)
+    expect(client.cache.blocks.size).toBe(0)
+  })
+
+  it('re-emits CHANNEL_PINS_UPDATE without caching pins', () => {
+    const pins = vi.fn()
+    client.on('CHANNEL_PINS_UPDATE', pins)
+    dispatch('CHANNEL_PINS_UPDATE', { channelId: 'general', guildId: 'g' })
+    expect(pins).toHaveBeenCalledWith({ channelId: 'general', guildId: 'g' })
+  })
+
   it('roles, presence, voice state and guild delete', () => {
     dispatch('GUILD_ROLE_CREATE', {
       guildId: 'g',

@@ -60,7 +60,9 @@ const emptyCache = (): HachimanCache => ({
   presences: new Map(),
   customStatuses: new Map(),
   voiceStates: new Map(),
-  readStates: new Map()
+  readStates: new Map(),
+  events: new Map(),
+  blocks: new Set()
 })
 
 afterEach(() => {

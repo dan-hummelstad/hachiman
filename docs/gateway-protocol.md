@@ -69,6 +69,19 @@ interface Channel {
 
 interface Member { guildId: string; user: User; nick: string | null; roles: string[] /* excludes @everyone */; joinedAt: string }
 
+// A scheduled guild event (§4 Pins, guild events and blocks). Plaintext metadata, like a channel topic (§12.1).
+interface GuildEvent {
+  id: string; guildId: string
+  channelId: string | null         // an optional voice channel of the guild
+  title: string                    // 1–100 characters
+  startsAt: string; endsAt: string | null
+  createdBy: string | null; createdAt: string
+  rsvpCount: number                // members who are going
+}
+interface GuildEventWithMe extends GuildEvent { me: boolean }   // GET /guilds/:id/events: true when the caller is going
+
+interface BlockedUser { user: User; createdAt: string }         // GET /users/@me/blocks
+
 // The server never sees content. The client decrypts `envelope` (§12.8).
 interface Message {
   id: string; channelId: string; guildId: string | null
@@ -175,6 +188,7 @@ A Go test (`pkg/permissions/sync_test.go`) parses the TS file and fails if any n
 | CHANGE_NICKNAME | 1 << 26 |
 | MANAGE_NICKNAMES | 1 << 27 |
 | MANAGE_ROLES | 1 << 28 |
+| MANAGE_EVENTS | 1 << 29 |
 
 `DEFAULT_EVERYONE = VIEW_CHANNEL | SEND_MESSAGES | ATTACH_FILES | READ_MESSAGE_HISTORY | CONNECT | SPEAK | CREATE_INSTANT_INVITE | CHANGE_NICKNAME`.
 `ALL` = OR of every bit above.
@@ -229,6 +243,15 @@ Pages tables (§4 Pages, §12.20). The server sees the tree and the timestamps. 
 | `doc_pages` | id uuid PK (no default: the client chooses it), channel_id → channels (cascade), parent_id null → doc_pages (cascade), position int default 0, title_envelope bytea, created_by null → users (set null), latest_seq bigint default 0, created_at, updated_at | index (channel_id); index (parent_id). `latest_seq` is the highest `doc_updates.seq` of the page |
 | `doc_updates` | page_id → doc_pages (cascade), seq bigint, group_id bytea → mls_groups (cascade), epoch bigint, sender_device null → devices (set null), envelope bytea, created_at | PK (page_id, seq). One doc_update envelope (one encrypted Yjs update) per row |
 | `doc_snapshots` | page_id → doc_pages (cascade), base_seq bigint, upload_id unique → uploads (cascade), group_id bytea → mls_groups (cascade), epoch bigint, sender_device null → devices (set null), envelope bytea, media_upload_ids uuid[] default '{}', created_at | PK (page_id, base_seq). The bytes are the S3 object of `upload_id`. `envelope` is the doc_snapshot pointer envelope. A re-wrap (§4 Pages) replaces `envelope`, `group_id`, `epoch` and `sender_device` in place |
+
+Pins, guild events and blocks (§4 Pins, guild events and blocks, `apps/takusen/src/db/schema-guild-data.ts`):
+
+| Table | Columns | Notes |
+|---|---|---|
+| `channel_pins` | channel_id → channels (cascade), message_id → messages (cascade), pinned_by null → users (set null), pinned_at | PK (channel_id, message_id). The server learns which message ids are pinned, not their content |
+| `guild_events` | id, guild_id → guilds (cascade), channel_id null → channels (set null), title, starts_at, ends_at null, created_by null → users (set null), created_at | index (guild_id, starts_at). Plaintext metadata (§12.1) |
+| `guild_event_rsvps` | event_id → guild_events (cascade), user_id → users (cascade), created_at | PK (event_id, user_id). One row per member who is going |
+| `user_blocks` | user_id → users (cascade), blocked_user_id → users (cascade), created_at | PK (user_id, blocked_user_id); index (blocked_user_id) |
 
 E2EE tables (§12). `bytea` columns hold the binary objects of §12 as they are. Enums: `device_status` ('pending','active','revoked'), `device_platform` ('electron','browser'), `revoke_reason` ('user','lost','password_reset','compromised','signed_out'), `mls_group_kind` ('public_set','channel','dm'), `mls_group_status` ('pending','active','retired'), `history_visibility` ('joined','shared'), `handshake_kind` ('commit','external_commit','proposal'), `pending_op` ('add','remove'), `pending_status` ('queued','assigned','rejected'), `join_status` ('queued','committed','rejected','external_commit','waiting'), `inbox_kind` ('welcome','dsk_transfer','history_keys'), `backup_kind` ('identity','history').
 
@@ -333,7 +356,7 @@ Implemented extras (Discord semantics):
 | GET `/invites/:code` | **public** | `InvitePreview` (non-consuming) | — |
 | POST `/invites/:code` | auth | `GuildFull` (idempotent if already a member — no use consumed) | `GUILD_MEMBER_ADD` → guild; `GUILD_CREATE` → user:{me} |
 | GET `/users/@me/channels` | auth | `Channel[]` (DMs) | — |
-| POST `/users/@me/channels` `{recipientIds: string[]}` | auth; recipients must share a guild with me | `Channel` (1 recipient → reuse existing `dm`; ≥2 → new `group_dm`, max 10) | `CHANNEL_CREATE` → user:{each participant} |
+| POST `/users/@me/channels` `{recipientIds: string[]}` | auth; recipients must share a guild with me; no block either way (403 `Blocked`, Pins, guild events and blocks) | `Channel` (1 recipient → reuse existing `dm`; ≥2 → new `group_dm`, max 10) | `CHANNEL_CREATE` → user:{each participant} |
 | GET `/limits` | auth | `Limits` | — |
 | POST `/uploads?kind=blob` raw body | auth | `Attachment` (201): an encrypted attachment or thumbnail blob | — |
 | POST `/uploads?kind=page_snapshot` raw body | auth | `Attachment` (201): an encrypted page snapshot blob (§4 Pages) | — |
@@ -341,6 +364,29 @@ Implemented extras (Discord semantics):
 | GET `/files/:uploadId/:filename` | **public** | file bytes (`/files/{uploadId}/blob` for blobs) | — |
 
 The E2EE routes (devices, keys, MLS, inbox, backups, linking, key transparency, reports, invites with history) are in §12.12. In Phase 4, the role, overwrite and member-role routes and the channel `historyVisibility` change also take the header `X-Hachiman-Signed-Action` (§12.16). The header is necessary only when the request changes signed state: a role PATCH only with `permissions`, a member PATCH only with `roles`. A signed `role_create` names the role id, and `POST /guilds/:id/roles` creates the role with that id. The guild `publicHistoryVisibility` has no admin action type and is not signed.
+
+### Pins, guild events and blocks
+
+| Method + path | Permission | Returns | Publishes |
+|---|---|---|---|
+| GET `/channels/:id/pins` | VIEW_CHANNEL + READ_MESSAGE_HISTORY | `Message[]` (ciphertext), newest pin first | — |
+| PUT `/channels/:id/pins/:messageId` | MANAGE_MESSAGES (DM, group DM: any participant). The message must be in the channel (404). At most 50 pins per channel, else 400 `TooManyPins` | 204 | `CHANNEL_PINS_UPDATE {channelId, guildId}` to the viewers of the channel (DM: each participant) |
+| DELETE `/channels/:id/pins/:messageId` | same as PUT | 204 | `CHANNEL_PINS_UPDATE` |
+| GET `/guilds/:id/events` | member | `GuildEventWithMe[]`: the upcoming and ongoing events, soonest first, at most 100 | — |
+| POST `/guilds/:id/events` `{title, startsAt, endsAt?, channelId?}` | MANAGE_EVENTS | `GuildEventWithMe` | `GUILD_EVENT_CREATE` `GuildEvent` → guild |
+| PATCH `/events/:id` `{title?, startsAt?, endsAt?, channelId?}` | MANAGE_EVENTS in the event's guild | `GuildEventWithMe` | `GUILD_EVENT_UPDATE` `GuildEvent` → guild |
+| DELETE `/events/:id` | MANAGE_EVENTS | 204 | `GUILD_EVENT_DELETE {id, guildId}` → guild |
+| PUT `/events/:id/rsvp` | member | 204 | `GUILD_EVENT_RSVP {eventId, guildId, userId, going: true, rsvpCount}` → guild |
+| DELETE `/events/:id/rsvp` | member | 204 | `GUILD_EVENT_RSVP` with `going: false` |
+| GET `/users/@me/blocks` | auth | `BlockedUser[]`, newest first | — |
+| PUT `/users/@me/blocks/:userId` | auth; not yourself (400), a known user (404) | 204 | `USER_BLOCK_UPDATE {userId, blocked: true}` → user:{me} only |
+| DELETE `/users/@me/blocks/:userId` | auth | 204 | `USER_BLOCK_UPDATE {userId, blocked: false}` → user:{me} only |
+
+- A repeated PUT or DELETE (pin, RSVP, block) changes nothing and publishes nothing.
+- The pin PUT locks the channel row, so concurrent pins cannot pass the limit. A message delete removes its pin (cascade) and publishes only `MESSAGE_DELETE`.
+- Event rules (400 `ValidationError`): `title` is 1 to 100 characters after trim. `startsAt` and `endsAt` are ISO 8601 times with an offset. A create needs `startsAt` in the future. A PATCH that sets `startsAt` needs it in the future. `endsAt`, when not null, is after `startsAt` (a PATCH checks the merged times). `channelId`, when not null, is a voice channel of the guild. A channel delete sets `channelId` to null and publishes no event update.
+- The list holds an event while `endsAt` is in the future, or, with no `endsAt`, until 6 h after `startsAt`. READY does not carry events: the client fetches the list (§10 `fetchGuildEvents`).
+- A block in either direction refuses `POST /users/@me/channels` with a blocked recipient (a new DM, a group DM, or the reuse of an existing DM) and `POST /channels/:id/messages` in a 1:1 `dm` with 403 `Blocked`. Group DMs that exist and guild channels are not affected: the client hides the messages of blocked users there. The blocked user is not told.
 
 ### Files
 
@@ -604,6 +650,11 @@ Dispatch events:
 | PAGE_DELETE | `{ id, channelId, guildId, ids: string[] }` (`ids`: the page and its subtree) |
 | DOC_UPDATE | `DocUpdate & { channelId, guildId }` (ephemeral, above) |
 | DOC_AWARENESS | `{ channelId, guildId, pageId, userId, deviceId, envelope }` (ephemeral, above) |
+| CHANNEL_PINS_UPDATE | `{ channelId, guildId }` (`guildId` null in a DM). Bus envelope with `channelId`: VIEW_CHANNEL filtered like a message. The client refetches `GET /channels/:id/pins` |
+| GUILD_EVENT_CREATE / GUILD_EVENT_UPDATE | `GuildEvent` (no `me`) — to every member of the guild |
+| GUILD_EVENT_DELETE | `{ id, guildId }` |
+| GUILD_EVENT_RSVP | `{ eventId, guildId, userId, going, rsvpCount }` |
+| USER_BLOCK_UPDATE | `{ userId, blocked }` — to user:{me} only (the blocker's sessions) |
 | MLS_HANDSHAKE, MLS_GROUP_UPDATE, MLS_BATCH_ASSIGN, MLS_JOIN_UPDATE, DEVICE_INBOX, DEVICE_LINK, USER_KEYS_UPDATE, KEY_PACKAGES_LOW, KT_TREE_HEAD | §12.13 |
 
 Detached sessions: when a socket closes with any code but 1000, the session stays resumable for 60 s. Events keep buffering,
@@ -808,6 +859,11 @@ export class RestClient {
   getRoles(guildId); createRole(guildId, body, opts?); reorderRoles(guildId, positions, opts?); updateRole(guildId, roleId, body, opts?); deleteRole(guildId, roleId, opts?)
   getInvites(guildId); createInvite(guildId, { maxAgeSeconds?, maxUses?, acknowledgedPermanent?, record? }); deleteInvite(code); previewInvite(code); acceptInvite(code)
   getDmChannels(); openDm(recipientIds); getUser(id)
+  // §4 Pins, guild events and blocks
+  getPins(channelId); pinMessage(channelId, messageId); unpinMessage(channelId, messageId)
+  getGuildEvents(guildId); createGuildEvent(guildId, { title, startsAt, endsAt?, channelId? }); updateGuildEvent(eventId, body); deleteGuildEvent(eventId)
+  setEventRsvp(eventId, going: boolean)   // PUT or DELETE /events/:id/rsvp
+  getBlocks(); blockUser(userId); unblockUser(userId)
   updateMe({ avatar? }); getLimits()
   // §4 Pages
   getPages(channelId); getPageHeads(channelId); createPage(channelId, { id, parentId, position, titleEnvelope }); updatePage(pageId, { parentId?, position?, titleEnvelope?, ifUpdatedAt? }); deletePage(pageId)
@@ -913,7 +969,12 @@ export class HachimanClient extends TypedEventEmitter<HachimanClientEvents> {
     customStatuses: Map<string, CustomStatus>    // userId → custom status of an online user; check expiresAt when showing it
     voiceStates: Map<string, Map<string, VoiceState>>  // guildId → userId → state
     readStates: Map<string, ReadState>           // channelId → state. From READY. READ_STATE_UPDATE sets lastReadMessageId and unreadCount 0
+    events: Map<string, Map<string, GuildEventWithMe>>  // guildId → eventId; filled by fetchGuildEvents, kept by GUILD_EVENT_*
+    blocks: Set<string>                          // blocked user ids; filled by fetchBlocks, kept by USER_BLOCK_UPDATE
   }
+  fetchGuildEvents(guildId): Promise<GuildEventWithMe[]>   // GUILD_EVENT_* for a guild that was not fetched do not fill the cache
+  fetchBlocks(): Promise<Set<string>>
+  // Pins are not cached: CHANNEL_PINS_UPDATE is re-emitted only.
   connect(): void; disconnect(): void
   permissionsFor(channelId: string): number      // for the current user
   guildPermissions(guildId: string): number
@@ -1099,6 +1160,7 @@ This section is normative for E2EE. `docs/e2ee-plan.md` gives the reasons. `pkgs
 - There is no migration from plaintext data.
 - Avatars, guild icons and banners stay plaintext. They are public profile data.
 - Metadata stays visible to the server: membership, sender, time, sizes, typing, presence, voice state and speaking state.
+- Plaintext like a channel topic: guild event titles, times, voice channel and RSVPs (§4 Pins, guild events and blocks), the pinned message ids of a channel (not their content), and user blocks.
 - Each device is a separate MLS member. One device has one MLS signature key for all of its groups.
 - The library is ts-mls 1.6.4 (pure TypeScript, MIT). No one has audited it. The Phase 4 audit covers it (`docs/e2ee-plan.md`, Implementation notes).
 
@@ -2459,6 +2521,8 @@ export class ApiError extends Error {
 | `SnapshotConflict` | 409 | the snapshot `baseSeq` is not above the current one, or above `latest_seq`. A re-wrap with another `uploadId`, or not in a newer epoch (§4 Pages). Body: `{error, baseSeq}` (the current one) |
 | `PageConflict` | 409 | `PATCH /pages/:pageId` with an `ifUpdatedAt` that is not the `updatedAt` of the page |
 | `StorageQuotaExceeded` | 413 | a page upload claim above `TAKUSEN_GUILD_PAGE_STORAGE_BYTES` |
+| `TooManyPins` | 400 | a pin past 50 pins in the channel (§4 Pins, guild events and blocks) |
+| `Blocked` | 403 | a DM open or a 1:1 DM message with a block in either direction (§4 Pins, guild events and blocks) |
 
 **Client error codes.** The `@hachiman/crypto` Worker rejects with `CryptoError` (`CryptoErrorCode` in `src/api.ts`). `dsCode` holds the REST code above when the cause was a DS response. Two codes have no REST cause:
 - `LockHeld`: the Web Lock refused the store, because it is open in another tab (§12.17).

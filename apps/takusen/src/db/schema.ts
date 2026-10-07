@@ -8,6 +8,7 @@
  *  - roles, memberRoles, permissionOverwrites       — Discord-style permissions
  *  - dmParticipants, invites, uploads
  *  - docPages, docUpdates, docSnapshots             — pages channels (§3 "Pages tables", schema-pages.ts)
+ *  - channelPins, guildEvents, guildEventRsvps, userBlocks — schema-guild-data.ts
  *  - oidcClients, oidcAdapterPayloads, passwordResetTokens
  *  - the E2EE tables (§3 "E2EE tables", §12): devices and keys, the MLS delivery
  *    service, the device inbox, backups, device linking, key transparency,
@@ -40,6 +41,7 @@ import { docPages } from './schema-pages'
 
 export { bytea } from './columns'
 export * from './schema-pages'
+export * from './schema-guild-data'
 
 // ---------------------------------------------------------------------------
 // Enums

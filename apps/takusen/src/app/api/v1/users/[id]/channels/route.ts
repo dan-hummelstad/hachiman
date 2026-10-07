@@ -4,6 +4,7 @@
  *      reuses an existing one) or create a group DM (2–9 recipients, ≤ 10
  *      participants). Every recipient must share a guild with the caller.
  *      A new DM gets its dm group in the same transaction (`dm_created`, §12.18).
+ *      A block between the caller and any recipient gives 403 `Blocked`.
  */
 import { and, count, eq, inArray, sql } from 'drizzle-orm'
 import { alias } from 'drizzle-orm/pg-core'
@@ -15,6 +16,7 @@ import { channels, dmParticipants, guildMembers, users } from '@/db/schema'
 import { errorResponse, parseBody, requireMe } from '@/lib/api-helpers'
 import { requireUser } from '@/lib/auth-helpers'
 import { MissingPermissionsError, ValidationError } from '@/lib/errors'
+import { assertNotBlocked } from '@/lib/blocks'
 import { publishToUser } from '@/lib/events'
 import { actorDeviceId } from '@/lib/guild-access'
 import { groupVisibility, membershipChanged, membershipTransaction, MembershipTriggers, userColumns } from '@/lib/guilds'
@@ -84,6 +86,7 @@ export async function POST(req: NextRequest, ctx: RouteContext): Promise<NextRes
     if (shared.length !== recipientIds.length) {
       throw new MissingPermissionsError('Recipients must share a guild with you')
     }
+    await assertNotBlocked(me, recipientIds)
 
     const participantIds = [me, ...recipientIds]
     const actor = await actorDeviceId(req, me)

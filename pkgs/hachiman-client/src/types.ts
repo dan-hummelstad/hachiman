@@ -144,6 +144,42 @@ export interface CustomStatus {
   expiresAt: string | null
 }
 
+/**
+ * A scheduled guild event (§4 "Guild events"). Plaintext metadata, like a channel topic.
+ * `channelId` is an optional voice channel of the guild. `rsvpCount` counts the "going" members.
+ */
+export interface GuildEvent {
+  id: string
+  guildId: string
+  channelId: string | null
+  title: string
+  startsAt: string
+  endsAt: string | null
+  createdBy: string | null
+  createdAt: string
+  rsvpCount: number
+}
+
+/** `GET /guilds/:id/events` adds `me`: true when the caller is going. */
+export interface GuildEventWithMe extends GuildEvent {
+  me: boolean
+}
+
+export interface CreateGuildEventRequest {
+  title: string
+  startsAt: string
+  endsAt?: string | null
+  channelId?: string | null
+}
+
+export type UpdateGuildEventRequest = Partial<CreateGuildEventRequest>
+
+/** One entry of `GET /users/@me/blocks`. */
+export interface BlockedUser {
+  user: User
+  createdAt: string
+}
+
 export interface Presence {
   userId: string
   status: PresenceStatus
@@ -698,6 +734,14 @@ export interface GatewayEvents {
   DOC_UPDATE: DocUpdate & { channelId: string; guildId: string }
   /** Ephemeral. `userId` and `deviceId` are the sending session's. Every viewing session gets it, the sender's included. */
   DOC_AWARENESS: DocAwarenessRequest & { guildId: string; userId: string; deviceId: string }
+  /** The pin set of a channel changed. To the viewers of the channel (DM: the participants). Refetch GET /channels/:id/pins. */
+  CHANNEL_PINS_UPDATE: { channelId: string; guildId: string | null }
+  GUILD_EVENT_CREATE: GuildEvent
+  GUILD_EVENT_UPDATE: GuildEvent
+  GUILD_EVENT_DELETE: { id: string; guildId: string }
+  GUILD_EVENT_RSVP: { eventId: string; guildId: string; userId: string; going: boolean; rsvpCount: number }
+  /** The current user blocked or unblocked `userId`. To the user's own sessions only. */
+  USER_BLOCK_UPDATE: { userId: string; blocked: boolean }
 }
 export type GatewayEventName = keyof GatewayEvents
 
