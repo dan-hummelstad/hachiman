@@ -91,7 +91,10 @@ export function AppearanceSection(): React.JSX.Element {
   )
 }
 
-/** Miniature of the app chrome, drawn with the real tokens of `scheme`. */
+/**
+ * Miniature of the Arc window in `scheme`, drawn with its real tokens: the sidebar on the
+ * wallpaper, then the content card.
+ */
 function MiniChrome({
   scheme,
   className
@@ -100,13 +103,15 @@ function MiniChrome({
   className?: string
 }): React.JSX.Element {
   return (
-    <span className={cn(scheme, 'bg-background flex h-full', className)}>
-      <span className="bg-rail w-[14%]" />
-      <span className="bg-sidebar w-[30%] border-r" />
-      <span className="flex flex-1 flex-col gap-1 p-1.5">
-        <span className="bg-foreground/60 h-1 w-3/4" />
-        <span className="bg-foreground/35 h-1 w-1/2" />
-        <span className="bg-primary h-1 w-2/3" />
+    <span className={cn(scheme, 'bg-surface-window flex h-full', className)}>
+      <span className="flex w-[28%] shrink-0 flex-col gap-1 p-1.5">
+        <span className="bg-text-tertiary/50 h-1 w-3/4" />
+        <span className="bg-accent-primary h-1 w-2/3" />
+        <span className="bg-text-tertiary/35 h-1 w-1/2" />
+      </span>
+      <span className="bg-surface-content border-line-hairline my-1 mr-1 flex flex-1 flex-col gap-1 border p-1.5">
+        <span className="bg-text-primary/60 h-1 w-3/4" />
+        <span className="bg-text-primary/35 h-1 w-1/2" />
       </span>
     </span>
   )
@@ -190,7 +195,7 @@ function TranscriptPreview({ display }: { display: MessageDisplay }): React.JSX.
       {display === 'compact'
         ? SAMPLE.map((m, i) => (
             <span key={i} className="flex gap-3 whitespace-nowrap">
-              <span className="text-muted-foreground w-10 shrink-0 text-xs leading-5 tabular-nums">
+              <span className="text-text-secondary w-10 shrink-0 text-xs leading-5 tabular-nums">
                 {m.time}
               </span>
               <span className={cn('w-14 shrink-0 text-right font-semibold', m.ink)}>
@@ -203,7 +208,7 @@ function TranscriptPreview({ display }: { display: MessageDisplay }): React.JSX.
             <span key={i} className={cn('flex gap-3', i > 0 && 'mt-1.5')}>
               <span
                 className={cn(
-                  'bg-accent mt-0.5 flex size-6 shrink-0 items-center justify-center text-[11px] font-semibold',
+                  'bg-surface-hover mt-0.5 flex size-6 shrink-0 items-center justify-center text-[11px] font-semibold',
                   m.ink
                 )}
               >
@@ -212,7 +217,7 @@ function TranscriptPreview({ display }: { display: MessageDisplay }): React.JSX.
               <span className="grid min-w-0 leading-[17px]">
                 <span className="flex items-baseline gap-2">
                   <span className={cn('font-semibold', m.ink)}>{m.author}</span>
-                  <span className="text-muted-foreground text-[11px] tabular-nums">{m.time}</span>
+                  <span className="text-text-secondary text-[11px] tabular-nums">{m.time}</span>
                 </span>
                 <span className="truncate">{m.text}</span>
               </span>

@@ -27,14 +27,14 @@ export function RoleChip({
       <span
         aria-hidden
         className="size-2 shrink-0"
-        style={{ background: role.color ? hexColor(role.color) : 'var(--muted-foreground)' }}
+        style={{ background: role.color ? hexColor(role.color) : 'var(--text-secondary)' }}
       />
       {role.name}
       {onRemove && (
         <button
           type="button"
           aria-label={removeLabel ?? `Remove ${role.name}`}
-          className="text-muted-foreground hover:text-foreground"
+          className="text-text-secondary hover:text-text-primary"
           onClick={onRemove}
         >
           <X className="size-3" />
