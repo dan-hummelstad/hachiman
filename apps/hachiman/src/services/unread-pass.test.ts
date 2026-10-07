@@ -1,6 +1,6 @@
 import type { Message } from '@hachiman/client'
 import { describe, expect, it, vi } from 'vitest'
-import { mentionPass, PASS_CHANNELS, unreadTail } from '@/services/unread-pass'
+import { mentionPass, PASS_CHANNELS, PASS_CONCURRENCY, unreadTail } from '@/services/unread-pass'
 import type { ChatMessage } from '@/stores/messagesStore'
 import type { ChannelUnread } from '@/stores/unreadStore'
 
@@ -68,6 +68,24 @@ describe('restart mention pass', () => {
     const found = await mentionPass(order, { ...deps, fetchLatest })
     expect(fetchLatest).toHaveBeenCalledTimes(PASS_CHANNELS)
     expect(found.size).toBe(PASS_CHANNELS - 1)
+  })
+
+  it('fetches a few channels at the same time and keeps the order', async () => {
+    let running = 0
+    let peak = 0
+    const fetchLatest = vi.fn(async (channelId: string) => {
+      peak = Math.max(peak, ++running)
+      await new Promise((r) => setTimeout(r, channelId === 'c0' ? 5 : 1))
+      running--
+      return [msg(channelId, `${channelId}-1`, '@me')]
+    })
+    const order = Array.from({ length: 10 }, (_, i): [string, ChannelUnread] => [
+      `c${i}`,
+      entry(null, 1)
+    ])
+    const found = await mentionPass(order, { ...deps, fetchLatest })
+    expect(peak).toBe(PASS_CONCURRENCY)
+    expect([...found.keys()]).toEqual(order.map(([id]) => id))
   })
 
   it('takes the messages after the read point, else the newest unread ones', () => {

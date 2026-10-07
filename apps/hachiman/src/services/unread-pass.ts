@@ -11,6 +11,8 @@ import type { ChatMessage } from '@/stores/messagesStore'
 export const PASS_CHANNELS = 20
 /** At most this many messages per channel. */
 export const PASS_MESSAGES = 50
+/** At most this many channels at the same time. */
+export const PASS_CONCURRENCY = 4
 
 export interface PassDeps {
   /** The newest `limit` messages of the channel, oldest first. */
@@ -42,19 +44,30 @@ export async function mentionPass(
 ): Promise<Map<string, string[]>> {
   const out = new Map<string, string[]>()
   const picked = order.filter(([, c]) => c.unread > 0).slice(0, PASS_CHANNELS)
-  for (const [channelId, c] of picked) {
-    try {
-      const page = await deps.fetchLatest(channelId, PASS_MESSAGES)
-      const tail = unreadTail(page, c.lastReadId, c.unread)
-      if (tail.length === 0) continue
-      const rows = await deps.decrypt(tail)
-      const ids = rows
-        .filter((r) => r.decrypt.status === 'ok' && deps.mentionsMe(r))
-        .map((r) => r.id)
-      if (ids.length > 0) out.set(channelId, ids)
-    } catch (e) {
-      console.warn('[unread] mention pass failed for a channel', e)
+  const found: (string[] | null)[] = picked.map(() => null)
+  let next = 0
+  const worker = async (): Promise<void> => {
+    while (next < picked.length) {
+      const i = next++
+      const [channelId, c] = picked[i]
+      try {
+        const page = await deps.fetchLatest(channelId, PASS_MESSAGES)
+        const tail = unreadTail(page, c.lastReadId, c.unread)
+        if (tail.length === 0) continue
+        const rows = await deps.decrypt(tail)
+        found[i] = rows
+          .filter((r) => r.decrypt.status === 'ok' && deps.mentionsMe(r))
+          .map((r) => r.id)
+      } catch (e) {
+        console.warn('[unread] mention pass failed for a channel', e)
+      }
     }
   }
+  await Promise.all(Array.from({ length: Math.min(PASS_CONCURRENCY, picked.length) }, worker))
+  // In `order`, whatever finished first.
+  picked.forEach(([channelId], i) => {
+    const ids = found[i]
+    if (ids && ids.length > 0) out.set(channelId, ids)
+  })
   return out
 }
