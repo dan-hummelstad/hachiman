@@ -2,8 +2,8 @@ import { UserAvatar } from '@/components/shell/user-avatar'
 import { useMemberView } from '@/hooks/use-member'
 import { cn } from '@/lib/utils'
 import { replyPreviewOf, useReplyTarget, type ChatMessage } from '@/stores/messagesStore'
+import { highlightRow } from '@/lib/navigation'
 import { quoteText } from './message-summary'
-import { scrollToMessage } from './transcript-actions'
 
 /**
  * The one-line quote above a reply (N11, B1): a link curve from the avatar column, the small
@@ -64,7 +64,7 @@ function QuoteLine({
   return (
     <button
       type="button"
-      onClick={() => scrollToMessage(target.id)}
+      onClick={() => highlightRow(target.id)}
       aria-label={`Replying to ${name}. Go to the message`}
       className="focus-visible:outline-line-focus group/quote flex min-w-0 cursor-pointer items-center gap-1.5 outline-none focus-visible:outline-2"
     >

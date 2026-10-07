@@ -1,10 +1,12 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowDown } from 'lucide-react'
 import type { Channel } from '@hachiman/client'
+import { highlightRow, jumpStep } from '@/lib/navigation'
 import { cn } from '@/lib/utils'
 import { messagesService } from '@/services/MessagesService'
 import { unreadService } from '@/services/UnreadService'
 import { useMessageStore, type ChatMessage } from '@/stores/messagesStore'
+import { useNavStore } from '@/stores/navStore'
 import { usePrefsStore } from '@/stores/prefsStore'
 import { useFirstUnreadId } from '@/stores/unreadStore'
 import { useUserStore } from '@/stores/userStore'
@@ -56,6 +58,22 @@ export function Transcript({
   useEffect(() => {
     messagesService.ensureLoaded(channelId)
   }, [channelId])
+
+  // A jump from pins, the inbox or a thread start (lib/navigation): show the row once it renders.
+  const jumpId = useNavStore((s) =>
+    s.pendingJump?.channelId === channelId ? s.pendingJump.messageId : null
+  )
+  useEffect(() => {
+    if (jumpId === null) return
+    const step = jumpStep(
+      jumpId,
+      messages.map((m) => m.id),
+      hasMore !== undefined
+    )
+    if (step === 'wait') return
+    if (step === 'show') highlightRow(jumpId)
+    useNavStore.getState().setPendingJump(null)
+  }, [jumpId, messages, hasMore])
 
   const jumpToPresent = useCallback((smooth = true): void => {
     scroller.current?.scrollTo({ top: 0, behavior: smooth ? 'smooth' : 'auto' })

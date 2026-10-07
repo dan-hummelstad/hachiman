@@ -42,6 +42,9 @@ interface NavState {
   past: View[]
   /** Forward history, the next one last. In memory only. */
   future: View[]
+  /** A message row to scroll to once its transcript renders it (lib/navigation). In memory only. */
+  pendingJump: { channelId: string; messageId: string } | null
+  setPendingJump: (jump: { channelId: string; messageId: string } | null) => void
   selectGuild: (guildKey: string) => void
   /** Select a channel in `guildKey` (default: the current one). null clears that guild's selection. */
   selectChannel: (channelId: string | null, guildKey?: string) => void
@@ -63,6 +66,8 @@ export const useNavStore = create<NavState>()(
         settings: null,
         past: [],
         future: [],
+        pendingJump: null,
+        setPendingJump: (pendingJump) => set({ pendingJump }),
         selectGuild: (guildKey) => set({ guildKey, settings: null }),
         selectChannel: (channelId, guildKey) =>
           set((s) => {

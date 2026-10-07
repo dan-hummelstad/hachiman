@@ -8,7 +8,7 @@ import { useAction } from '@/hooks/use-action'
 import { pinsService } from '@/services/guild-features'
 import { usePinCount, usePins } from '@/stores/pinsStore'
 import { EmptyLine, HeaderCountButton, HeaderPopoverFrame } from './header-count-button'
-import { jumpToMessage } from './jump'
+import { jumpToMessage } from '@/lib/navigation'
 import { MessagePreview } from './message-preview'
 import { useCanPin } from './use-can-pin'
 

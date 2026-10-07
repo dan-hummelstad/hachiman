@@ -7,7 +7,7 @@ import {
   HeaderCountButton,
   HeaderPopoverFrame
 } from '@/components/pins/header-count-button'
-import { openChannelView } from '@/components/pins/jump'
+import { openChannelView } from '@/lib/navigation'
 import { Button } from '@/components/ui/button'
 import { ErrorText } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'

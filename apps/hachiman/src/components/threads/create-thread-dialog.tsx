@@ -1,6 +1,6 @@
 import { MessagesSquare } from 'lucide-react'
 import type { Channel } from '@hachiman/client'
-import { openChannelView } from '@/components/pins/jump'
+import { openChannelView } from '@/lib/navigation'
 import { ModalWindow } from '@/components/ui/modal-window'
 import { useDialogSubject } from '@/hooks/use-dialog-subject'
 import { useChannelStore } from '@/stores/channelStore'
