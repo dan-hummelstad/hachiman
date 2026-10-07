@@ -529,10 +529,16 @@ function generalHistory(): ChatMessage[] {
     }),
     m(U.juniper, at(t, 11, 42), 'in lounge, bring snacks'),
     m(ME, at(t, 11, 44), 'bracket is up, link in #lfg'),
-    m(ME, at(t, 11, 45), 'also pinned the strat doc again so it stops 404ing', {
-      pending: true,
-      nonce: 'n-pending'
-    }),
+    // The page link of PAGE.playbook (fixture-pages.ts imports this file, so the id is literal).
+    m(
+      ME,
+      at(t, 11, 45),
+      'also pinned the strat doc again so it stops 404ing\n[Scrim playbook](hachiman:page/9e3a4d6c-7f5b-4a8c-9d0e-2f3a4b5c6d7e)',
+      {
+        pending: true,
+        nonce: 'n-pending'
+      }
+    ),
     m(ME, at(t, 11, 46), 'did that send?', {
       pending: true,
       failed: true,
@@ -543,7 +549,7 @@ function generalHistory(): ChatMessage[] {
   // Juni replies to marlowe's customs call (B1).
   const customs = list.find((x) => x.content.startsWith('ok who is around'))
   const snacks = list.find((x) => x.content === 'in lounge, bring snacks')
-  if (customs && snacks) snacks.replyTo = customs.id
+  if (customs && snacks) snacks.replyTo = customs.clientMsgId
   return list
 }
 

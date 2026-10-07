@@ -1,11 +1,12 @@
 import { useState } from 'react'
-import { Download, FileIcon, LoaderCircle, Music, Play } from 'lucide-react'
+import { Download, FileIcon, LoaderCircle, Play } from 'lucide-react'
 import { embedKind } from '@hachiman/client'
 import type { AttachmentPointer } from '@hachiman/crypto'
 import { useAction } from '@/hooks/use-action'
 import { downloadAttachment, useDecryptedBlob } from '@/hooks/use-decrypted-blob'
 import { cn } from '@/lib/utils'
 import { formatBytes } from '@/lib/format-bytes'
+import { AudioCard } from './audio-card'
 import { EMBED_MAX, embedBox } from './format'
 import { Lightbox } from './lightbox'
 
@@ -16,7 +17,8 @@ import { Lightbox } from './lightbox'
  *
  * Every file is decrypted (§12.9): the name, MIME type and dimensions come from the pointer in
  * the envelope, and the bytes from `/files/{uploadId}/blob` through the crypto Worker. Images
- * show their thumbnail inline. Video, audio and other files decrypt only when the user asks.
+ * show their thumbnail inline. Audio decrypts for its waveform; video and other files decrypt only
+ * when the user asks.
  */
 export function MessageAttachments({
   attachments
@@ -197,47 +199,6 @@ function VideoEmbed({ video }: { video: AttachmentPointer }): React.JSX.Element 
 
 /** Square attachment card on the panel surface. */
 const CARD = 'bg-surface-panel border-line-hairline flex max-w-full flex-col border'
-
-/**
- * Audio: a play button in front of the name. The file decrypts on the first play, and the native
- * player takes over inside the card. The waveform comes with feature plan N24.
- */
-function AudioCard({ audio }: { audio: AttachmentPointer }): React.JSX.Element {
-  const [started, setStarted] = useState(false)
-  const { url, error } = useDecryptedBlob(started ? audio : null)
-  const play = (
-    <button
-      type="button"
-      aria-label={`Play ${audio.name}`}
-      disabled={started && !error}
-      onClick={() => setStarted(true)}
-      className={cn(
-        'rounded-control bg-accent-primary text-text-on-accent hover:bg-accent-primary/90 flex size-9 shrink-0 items-center justify-center disabled:opacity-70',
-        FOCUS
-      )}
-    >
-      {started && !error ? (
-        <LoaderCircle className="size-4 animate-spin" />
-      ) : (
-        <Play className="size-4 fill-current" />
-      )}
-    </button>
-  )
-  return (
-    <div className={cn(CARD, 'gap-2 px-3 py-2.5')} style={{ width: EMBED_MAX.width }}>
-      <FileHeader file={audio} lead={url ? <FileGlyph icon={Music} /> : play} />
-      {url ? (
-        <audio src={url} controls autoPlay className="h-9 w-full" />
-      ) : (
-        error && (
-          <p className="text-feature-danger-text text-xs" title={error}>
-            Unable to decrypt this file.
-          </p>
-        )
-      )}
-    </div>
-  )
-}
 
 function FileCard({ file }: { file: AttachmentPointer }): React.JSX.Element {
   return (

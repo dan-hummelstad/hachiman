@@ -1,5 +1,5 @@
-import { useRef, useState } from 'react'
-import { CircleAlert, ImagePlus, Lock, Plus } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { CircleAlert, ImagePlus, Lock, Plus, X } from 'lucide-react'
 import type { AttachmentPointer } from '@hachiman/crypto'
 import { IconButton } from '@/components/ui/icon-button'
 import { cn } from '@/lib/utils'
@@ -20,6 +20,8 @@ interface ComposerProps {
   uploads: Uploads
   /** ATTACH_FILES: shows the attach buttons and accepts pasted files. */
   canAttach: boolean
+  /** The message that the next send answers (N11): "Replying to <name>" with ✕ above the input. */
+  reply?: { name: string; onCancel: () => void }
   onSend: (text: string, attachments: AttachmentPointer[]) => void
   onTyping: () => void
 }
@@ -38,12 +40,19 @@ export function Composer({
   paused,
   uploads,
   canAttach,
+  reply,
   onSend,
   onTyping
 }: ComposerProps): React.JSX.Element {
   const [text, setText] = useState('')
   const picker = useRef<HTMLInputElement>(null)
   const imagePicker = useRef<HTMLInputElement>(null)
+  const input = useRef<HTMLTextAreaElement>(null)
+  const replying = reply !== undefined
+  // Reply moves the focus here, so that the answer can be typed at once.
+  useEffect(() => {
+    if (replying) input.current?.focus()
+  }, [replying])
 
   if (disabledReason) {
     return (
@@ -103,6 +112,21 @@ export function Composer({
           paused && 'opacity-60'
         )}
       >
+        {reply && (
+          <div className="border-line-hairline text-text-secondary flex h-9 items-center gap-2 border-b pr-1.5 pl-4 text-[13px]">
+            <span className="min-w-0 flex-1 truncate">
+              Replying to <span className="text-text-primary font-semibold">{reply.name}</span>
+            </span>
+            <IconButton
+              label="Cancel reply"
+              size="sm"
+              className="text-text-tertiary hover:bg-surface-hover hover:text-text-primary rounded-full"
+              onClick={reply.onCancel}
+            >
+              <X />
+            </IconButton>
+          </div>
+        )}
         <UploadTray items={uploads.items} onRemove={uploads.remove} />
         <div className="flex min-h-[52px] items-end gap-1 px-2.5 py-2.5">
           {attach && (
@@ -118,6 +142,7 @@ export function Composer({
             </>
           )}
           <textarea
+            ref={input}
             aria-label={paused ? paused.placeholder : placeholder}
             placeholder={paused ? paused.placeholder : placeholder}
             disabled={!!paused}
@@ -127,7 +152,12 @@ export function Composer({
               setText(e.target.value)
               if (e.target.value) onTyping()
             }}
-            onKeyDown={(e) => submitOnEnter(e, send)}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape' && reply) {
+                e.preventDefault()
+                reply.onCancel()
+              } else submitOnEnter(e, send)
+            }}
             onPaste={(e) => {
               const files = [...e.clipboardData.files]
               if (!attach || files.length === 0) return

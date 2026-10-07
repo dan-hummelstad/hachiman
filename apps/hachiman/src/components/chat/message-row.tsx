@@ -1,5 +1,5 @@
 import { memo, useMemo, useState } from 'react'
-import { CircleAlert, RotateCw } from 'lucide-react'
+import { CircleAlert, EyeOff, RotateCw } from 'lucide-react'
 import type { DecryptFailure } from '@hachiman/crypto'
 import { UserAvatar } from '@/components/shell/user-avatar'
 import { Button } from '@/components/ui/button'
@@ -7,10 +7,12 @@ import { ErrorText } from '@/components/ui/field'
 import { UserProfilePopover } from '@/components/user-profile-popover'
 import { useAction } from '@/hooks/use-action'
 import { useMemberView } from '@/hooks/use-member'
+import { pageLinksOf, stripPageLinks } from '@/lib/page-link-text'
 import { cn } from '@/lib/utils'
 import { messagesService } from '@/services/MessagesService'
 import type { ChatMessage } from '@/stores/messagesStore'
 import type { MessageDisplay } from '@/stores/prefsStore'
+import { useComposerStore } from '@/stores/composerStore'
 import { openDialog } from '@/stores/dialogStore'
 import { useUserStore } from '@/stores/userStore'
 import { MessageAttachments } from './attachments/message-attachments'
@@ -25,6 +27,10 @@ import { TextWithChannelRefs } from './channel-ref'
 import { decryptText } from './decrypt-text'
 import { formatFull, formatTime } from './format'
 import { MessageToolbar } from './message-toolbar'
+import { PageLinkCard } from './page-cards'
+import { ReactionChips } from './reactions'
+import { ReplyQuote } from './reply-quote'
+import { react } from './transcript-actions'
 import { submitOnEnter } from './submit-on-enter'
 
 export interface MessageRowProps {
@@ -34,23 +40,73 @@ export interface MessageRowProps {
   guildId: string | null
   canEdit: boolean
   canDelete: boolean
+  /** SEND_MESSAGES: reply and react (a reaction is a message, N10). */
+  canSend: boolean
   editing: boolean
   /** Called with this message's id to start editing, null to stop. */
   onEditingChange: (messageId: string | null) => void
 }
 
 export const MessageRow = memo(function MessageRow(props: MessageRowProps): React.JSX.Element {
-  const { message, groupStart, display, guildId, editing } = props
+  const [shown, setShown] = useState(false)
+  if (props.message.blocked && !shown) {
+    return <BlockedRow message={props.message} onShow={() => setShown(true)} />
+  }
+  return <MessageRowContent {...props} />
+})
+
+/**
+ * A message of a blocked user (N23): one collapsed line. The row still decrypted (MLS needs it);
+ * "Show" renders it in full.
+ */
+function BlockedRow({
+  message,
+  onShow
+}: {
+  message: ChatMessage
+  onShow: () => void
+}): React.JSX.Element {
+  return (
+    <div
+      className="text-text-tertiary mx-2 flex items-center gap-2 px-2.5 py-1 text-[13px] leading-5"
+      data-message-id={message.id}
+    >
+      <EyeOff className="size-3.5 shrink-0" aria-hidden />
+      <span>Blocked message</span>
+      <span aria-hidden>·</span>
+      <LinkButton onClick={onShow}>Show</LinkButton>
+    </div>
+  )
+}
+
+function MessageRowContent(props: MessageRowProps): React.JSX.Element {
+  const { message, display, guildId, editing } = props
   const { name, avatar, ink } = useMemberView(guildId, message.author.id, message.author)
   const me = useUserStore((s) => s.me)
-  const tokens = useMemo(() => tokenize(message.content), [message.content])
+  const text = useMemo(() => stripPageLinks(message.content), [message.content])
+  const pageIds = useMemo(() => pageLinksOf(message.content), [message.content])
+  const tokens = useMemo(() => tokenize(text), [text])
   const mentioned = !!me && message.author.id !== me.id && messageMentionsMe(message, me)
   const readable = message.decrypt.status === 'ok'
   const settled = !message.pending && !message.failed
+  // A reply always shows its author: the quote sits above the name.
+  const groupStart = props.groupStart || message.replyTo !== null
+  const target = message.clientMsgId
+  const canAnswer = props.canSend && settled && target !== ''
 
   const toolbar = settled && !editing && (
     <MessageToolbar
       className="absolute -top-5 right-4 z-10"
+      onReact={
+        canAnswer && readable
+          ? (emoji) => react(message.channelId, target, emoji, false)
+          : undefined
+      }
+      onReply={
+        canAnswer
+          ? () => useComposerStore.getState().setReplyTarget(message.channelId, target)
+          : undefined
+      }
       onCopy={
         readable
           ? () => void navigator.clipboard?.writeText(message.content).catch(() => {})
@@ -73,12 +129,29 @@ export const MessageRow = memo(function MessageRow(props: MessageRowProps): Reac
       {editing ? (
         <EditBox message={message} onDone={() => props.onEditingChange(null)} />
       ) : (
-        <MessageBody message={message} tokens={tokens} authorName={name} />
+        <MessageBody message={message} text={text} tokens={tokens} authorName={name} />
       )}
       {readable && message.attachments.length > 0 && (
         <MessageAttachments attachments={message.attachments} />
       )}
+      {readable && pageIds.length > 0 && (
+        <div className="flex flex-col items-start gap-1 py-1">
+          {pageIds.map((id) => (
+            <PageLinkCard key={id} pageId={id} guildId={guildId} />
+          ))}
+        </div>
+      )}
+      {readable && target !== '' && <ReactionChips channelId={message.channelId} target={target} />}
     </>
+  )
+
+  const quote = message.replyTo !== null && (
+    <ReplyQuote
+      channelId={message.channelId}
+      replyTo={message.replyTo}
+      guildId={guildId}
+      compact={display === 'compact'}
+    />
   )
 
   const profile = (trigger: React.ReactElement): React.JSX.Element => (
@@ -118,10 +191,13 @@ export const MessageRow = memo(function MessageRow(props: MessageRowProps): Reac
 
   if (display === 'compact') {
     return (
-      <div className={cn(rowClass, 'text-body flex gap-3 py-[3px]')} data-message-id={message.id}>
-        <Timestamp iso={message.createdAt} className="w-11 shrink-0 leading-[22px]" />
-        <span className="w-[14ch] shrink-0 text-right leading-[22px]">{author}</span>
-        <div className="max-w-[90ch] min-w-0 flex-1">{body}</div>
+      <div className={cn(rowClass, 'py-[3px]')} data-message-id={message.id}>
+        {quote}
+        <div className="text-body flex gap-3">
+          <Timestamp iso={message.createdAt} className="w-11 shrink-0 leading-[22px]" />
+          <span className="w-[14ch] shrink-0 text-right leading-[22px]">{author}</span>
+          <div className="max-w-[90ch] min-w-0 flex-1">{body}</div>
+        </div>
         {toolbar}
       </div>
     )
@@ -129,42 +205,45 @@ export const MessageRow = memo(function MessageRow(props: MessageRowProps): Reac
 
   return (
     <div
-      className={cn(rowClass, 'flex gap-3.5 py-0.5', groupStart && 'mt-2 pt-1.5')}
+      className={cn(rowClass, 'py-0.5', groupStart && 'mt-2 pt-1.5')}
       data-message-id={message.id}
     >
-      <div className="flex w-10 shrink-0 justify-center">
-        {groupStart ? (
-          profile(
-            // The name is the keyboard path to the same card; keep the avatar out of the tab order.
-            <button
-              type="button"
-              tabIndex={-1}
-              aria-label={name}
-              className="mt-0.5 h-fit cursor-pointer rounded-full"
-            >
-              <UserAvatar avatar={avatar} name={name} color={ink} size={40} />
-            </button>
-          )
-        ) : (
-          <Timestamp
-            iso={message.createdAt}
-            className="text-[11px] leading-[22px] opacity-0 group-hover/row:opacity-100"
-          />
-        )}
-      </div>
-      <div className="max-w-[90ch] min-w-0 flex-1">
-        {groupStart && (
-          <div className="flex items-baseline gap-2 text-[15px] leading-[22px]">
-            {author}
-            <Timestamp iso={message.createdAt} />
-          </div>
-        )}
-        {body}
+      {quote}
+      <div className="flex gap-3.5">
+        <div className="flex w-10 shrink-0 justify-center">
+          {groupStart ? (
+            profile(
+              // The name is the keyboard path to the same card; keep the avatar out of the tab order.
+              <button
+                type="button"
+                tabIndex={-1}
+                aria-label={name}
+                className="mt-0.5 h-fit cursor-pointer rounded-full"
+              >
+                <UserAvatar avatar={avatar} name={name} color={ink} size={40} />
+              </button>
+            )
+          ) : (
+            <Timestamp
+              iso={message.createdAt}
+              className="text-[11px] leading-[22px] opacity-0 group-hover/row:opacity-100"
+            />
+          )}
+        </div>
+        <div className="max-w-[90ch] min-w-0 flex-1">
+          {groupStart && (
+            <div className="flex items-baseline gap-2 text-[15px] leading-[22px]">
+              {author}
+              <Timestamp iso={message.createdAt} />
+            </div>
+          )}
+          {body}
+        </div>
       </div>
       {toolbar}
     </div>
   )
-})
+}
 
 /** `10:42` with the full date on hover. Default size `text-xs`; pass classes to adjust. */
 function Timestamp({ iso, className }: { iso: string; className?: string }): React.JSX.Element {
@@ -189,10 +268,13 @@ const IDENTITY_FAILURES: ReadonlySet<DecryptFailure> = new Set([
 
 function MessageBody({
   message,
+  text,
   tokens,
   authorName
 }: {
   message: ChatMessage
+  /** The text without its page links (they show as cards). */
+  text: string
   tokens: Token[]
   authorName: string
 }): React.JSX.Element {
@@ -221,7 +303,7 @@ function MessageBody({
     )
   }
   // An attachment-only message has no text line, unless "(edited)" needs one.
-  const showText = message.content !== '' || message.editedAt !== null
+  const showText = text !== '' || message.editedAt !== null
   return (
     <>
       {showText && (
