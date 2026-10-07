@@ -36,10 +36,8 @@ export function PageLabels({
   editable: boolean
 }): React.JSX.Element | null {
   const [labels, setLabels] = useState<string[]>(() => pageLabels(handle.doc))
-  useEffect(() => {
-    setLabels(pageLabels(handle.doc))
-    return observeLabels(handle.doc, setLabels)
-  }, [handle])
+  // The parent mounts this once per open page (keyed by page), so the first read stays valid.
+  useEffect(() => observeLabels(handle.doc, setLabels), [handle])
 
   if (labels.length === 0 && !editable) return null
   const remove = (label: string): void =>
@@ -48,10 +46,7 @@ export function PageLabels({
       labels.filter((l) => l !== label)
     )
   return (
-    <ul
-      aria-label="Labels"
-      className="flex shrink-0 flex-wrap items-center gap-1.5 px-16 pt-3"
-    >
+    <ul aria-label="Labels" className="flex shrink-0 flex-wrap items-center gap-1.5 px-16 pt-3">
       {labels.map((label) => (
         <li
           key={label}

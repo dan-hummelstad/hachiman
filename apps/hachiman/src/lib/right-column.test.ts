@@ -7,7 +7,9 @@ import {
   voiceActivity,
   type ActivitySources
 } from './member-activity'
+import { countPageLinks, guildPagesSections } from './right-column'
 import { userHue } from './user-tint'
+import type { PageNode } from '@/stores/docsStore'
 import { countWords } from './word-count'
 
 const member = (
@@ -198,5 +200,65 @@ describe('userHue', () => {
       expect(userHue(id)).toBeGreaterThanOrEqual(0)
       expect(userHue(id)).toBeLessThan(360)
     }
+  })
+})
+
+describe('countPageLinks', () => {
+  const a = '0b7c1d9e-4f2a-4c1b-9a3e-5d6f7a8b9c0d'
+  const b = '1b7c1d9e-4f2a-4c1b-9a3e-5d6f7a8b9c0d'
+  it('counts distinct linked pages', () => {
+    expect(countPageLinks([])).toBe(0)
+    expect(
+      countPageLinks([
+        `see [RFC](hachiman:page/${a}) and [Glossary](hachiman:page/${b})`,
+        `again hachiman:page/${a.toUpperCase()}`,
+        'hachiman:page/not-a-uuid'
+      ])
+    ).toBe(2)
+  })
+})
+
+describe('guildPagesSections', () => {
+  const pagesChannel = (id: string): Channel => ({ ...channel(id, 'g1', id), type: 'pages' })
+  const page = (
+    id: string,
+    channelId: string,
+    title: string,
+    parentId: string | null = null
+  ): PageNode => ({
+    id,
+    channelId,
+    parentId,
+    position: 0,
+    createdBy: null,
+    createdAt: '2026-10-01T00:00:00Z',
+    updatedAt: '2026-10-01T00:00:00Z',
+    title,
+    titleState: 'ok'
+  })
+  const channels = [pagesChannel('c1'), pagesChannel('c2'), pagesChannel('c3')]
+  const loaded = new Map([
+    ['c1', [page('p1', 'c1', 'RFC: pages'), page('p2', 'c1', 'Glossary', 'p1')]],
+    ['c2', [page('p3', 'c2', 'Scrim playbook')]]
+  ])
+  it('lists every channel in tree order, unloaded ones without pages', () => {
+    const s = guildPagesSections(channels, loaded, '')
+    expect(s.map((x) => [x.channel.id, x.pages?.map((p) => [p.page.id, p.depth])])).toEqual([
+      [
+        'c1',
+        [
+          ['p1', 0],
+          ['p2', 1]
+        ]
+      ],
+      ['c2', [['p3', 0]]],
+      ['c3', undefined]
+    ])
+  })
+  it('filters by title and leaves out channels without a match', () => {
+    const s = guildPagesSections(channels, loaded, ' gloss ')
+    expect(s.map((x) => [x.channel.id, x.pages?.map((p) => [p.page.id, p.depth])])).toEqual([
+      ['c1', [['p2', 0]]]
+    ])
   })
 })
