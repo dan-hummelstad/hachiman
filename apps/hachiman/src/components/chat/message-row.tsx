@@ -1,7 +1,6 @@
 import { memo, useMemo, useState } from 'react'
 import { CircleAlert, EyeOff, RotateCw } from 'lucide-react'
 import type { DecryptFailure } from '@hachiman/crypto'
-import { useMessageMoreItems } from '@/components/pins/message-more-items'
 import { UserAvatar } from '@/components/shell/user-avatar'
 import { Button } from '@/components/ui/button'
 import { ErrorText } from '@/components/ui/field'
@@ -27,33 +26,40 @@ import {
 import { TextWithChannelRefs } from './channel-ref'
 import { decryptText } from './decrypt-text'
 import { formatFull, formatTime } from './format'
+import { useMessageMoreItems } from './message-more-items'
 import { MessageToolbar } from './message-toolbar'
-import { PageLinkCard } from './page-cards'
+import { PageActivityRow, PageLinkCard } from './page-cards'
 import { ReactionChips } from './reactions'
 import { ReplyQuote } from './reply-quote'
 import { react } from './transcript-actions'
+import { rowKind, type RowPolicy } from './row-policy'
 import { submitOnEnter } from './submit-on-enter'
 
-export interface MessageRowProps {
+export interface TranscriptRowProps {
   message: ChatMessage
   groupStart: boolean
   display: MessageDisplay
   guildId: string | null
-  canEdit: boolean
-  canDelete: boolean
-  /** SEND_MESSAGES: reply and react (a reaction is a message, N10). */
-  canSend: boolean
+  /** The same object for every row of the channel. */
+  policy: RowPolicy
   editing: boolean
   /** Called with this message's id to start editing, null to stop. */
   onEditingChange: (messageId: string | null) => void
 }
 
-export const MessageRow = memo(function MessageRow(props: MessageRowProps): React.JSX.Element {
+/** One row of the transcript: the row that `rowKind` picks for the message. */
+export const TranscriptRow = memo(function TranscriptRow(
+  props: TranscriptRowProps
+): React.JSX.Element {
   const [shown, setShown] = useState(false)
-  if (props.message.blocked && !shown) {
-    return <BlockedRow message={props.message} onShow={() => setShown(true)} />
+  switch (rowKind(props.message, shown)) {
+    case 'blocked':
+      return <BlockedRow message={props.message} onShow={() => setShown(true)} />
+    case 'page_activity':
+      return <PageActivityRow message={props.message} />
+    case 'message':
+      return <MessageRow {...props} />
   }
-  return <MessageRowContent {...props} />
 })
 
 /**
@@ -80,8 +86,8 @@ function BlockedRow({
   )
 }
 
-function MessageRowContent(props: MessageRowProps): React.JSX.Element {
-  const { message, display, guildId, editing } = props
+function MessageRow(props: TranscriptRowProps): React.JSX.Element {
+  const { message, display, guildId, editing, policy } = props
   const { name, avatar, ink } = useMemberView(guildId, message.author.id, message.author)
   const me = useUserStore((s) => s.me)
   const text = useMemo(() => stripPageLinks(message.content), [message.content])
@@ -93,8 +99,9 @@ function MessageRowContent(props: MessageRowProps): React.JSX.Element {
   // A reply always shows its author: the quote sits above the name.
   const groupStart = props.groupStart || message.replyTo !== null
   const target = message.clientMsgId
-  const canAnswer = props.canSend && settled && target !== ''
-  const more = useMessageMoreItems(message)
+  const mine = !!me && message.author.id === me.id
+  const canAnswer = policy.canSend && settled && target !== ''
+  const more = useMessageMoreItems(message, policy)
 
   const toolbar = settled && !editing && (
     <MessageToolbar
@@ -114,9 +121,9 @@ function MessageRowContent(props: MessageRowProps): React.JSX.Element {
           ? () => void navigator.clipboard?.writeText(message.content).catch(() => {})
           : undefined
       }
-      onEdit={props.canEdit && readable ? () => props.onEditingChange(message.id) : undefined}
+      onEdit={mine && readable ? () => props.onEditingChange(message.id) : undefined}
       onDelete={
-        props.canDelete
+        mine || policy.canManage
           ? () =>
               void messagesService
                 .delete(message.channelId, message.id)

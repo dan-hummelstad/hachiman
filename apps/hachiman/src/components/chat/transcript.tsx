@@ -12,8 +12,8 @@ import { useMembershipTimeline } from '@/hooks/use-membership-timeline'
 import { ChannelIntro } from './channel-intro'
 import { buildItems, formatDay, membershipSlots } from './format'
 import { MembershipLine } from './membership-line'
-import { MessageRow } from './message-row'
-import { PageActivityRow } from './page-cards'
+import { TranscriptRow } from './message-row'
+import type { RowPolicy } from './row-policy'
 
 const EMPTY_MESSAGES: ChatMessage[] = []
 /** Distance from the bottom (px) past which "Jump to present" appears. */
@@ -28,15 +28,12 @@ const LOAD_PX = 200
  */
 export function Transcript({
   channel,
-  canManageMessages,
-  canSend,
+  policy,
   onUpload
 }: {
   channel: Channel
-  /** May delete others' messages. */
-  canManageMessages: boolean
-  /** SEND_MESSAGES: the rows offer reply and react. */
-  canSend: boolean
+  /** What I may do with the rows, the same object for every row. */
+  policy: RowPolicy
   /** ATTACH_FILES: the drop card of an empty channel offers an upload. */
   onUpload?: (files: File[]) => void
 }): React.JSX.Element {
@@ -103,33 +100,24 @@ export function Transcript({
               {hasMore === undefined ? 'Loading messages…' : 'Loading older messages…'}
             </div>
           )}
-          {items.map(({ message, newDay, groupStart }, i) => {
-            const mine = message.author.id === myId
-            return (
-              <Fragment key={message.nonce ?? message.id}>
-                {newDay && <DayDivider iso={message.createdAt} />}
-                {slots.get(i)?.map((e, j) => (
-                  <MembershipLine key={`m${j}`} event={e} channel={channel} />
-                ))}
-                {message.id === firstUnreadId && <NewDivider />}
-                {message.kind === 'page_activity' ? (
-                  <PageActivityRow message={message} />
-                ) : (
-                  <MessageRow
-                    message={message}
-                    groupStart={groupStart || message.id === firstUnreadId}
-                    display={display}
-                    guildId={channel.guildId}
-                    canEdit={mine}
-                    canDelete={mine || canManageMessages}
-                    canSend={canSend}
-                    editing={editingId === message.id}
-                    onEditingChange={setEditingId}
-                  />
-                )}
-              </Fragment>
-            )
-          })}
+          {items.map(({ message, newDay, groupStart }, i) => (
+            <Fragment key={message.nonce ?? message.id}>
+              {newDay && <DayDivider iso={message.createdAt} />}
+              {slots.get(i)?.map((e, j) => (
+                <MembershipLine key={`m${j}`} event={e} channel={channel} />
+              ))}
+              {message.id === firstUnreadId && <NewDivider />}
+              <TranscriptRow
+                message={message}
+                groupStart={groupStart || message.id === firstUnreadId}
+                display={display}
+                guildId={channel.guildId}
+                policy={policy}
+                editing={editingId === message.id}
+                onEditingChange={setEditingId}
+              />
+            </Fragment>
+          ))}
           {slots.get(items.length)?.map((e, j) => (
             <MembershipLine key={`m${j}`} event={e} channel={channel} />
           ))}

@@ -117,14 +117,14 @@ export function PageLinkCard({
 
 /**
  * A page activity row (N21.3, C1): "<author> edited <page> · n changes · <time> · View". The
- * page is in the channel of the row (a pages channel).
+ * page is in the channel of the row (a pages channel). `rowKind` shows it only for a decrypted
+ * row with `pageActivity`.
  */
-export function PageActivityRow({ message }: { message: ChatMessage }): React.JSX.Element | null {
-  const activity = message.pageActivity
+export function PageActivityRow({ message }: { message: ChatMessage }): React.JSX.Element {
+  const activity = message.pageActivity ?? { pageId: '', changes: 0 }
   const { name, avatar, ink } = useMemberView(message.guildId, message.author.id, message.author)
-  const page = usePage(activity?.pageId ?? '', message.guildId)
+  const page = usePage(activity.pageId, message.guildId)
   const guildId = message.guildId
-  if (!activity) return null
   const changes = `${activity.changes} ${activity.changes === 1 ? 'change' : 'changes'}`
   return (
     <div className="px-4 py-1" data-message-id={message.id}>
