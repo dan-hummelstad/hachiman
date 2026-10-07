@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { Headphones, Mic, Square } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { ErrorText, Field, SectionHeading } from '@/components/ui/field'
+import { ErrorText } from '@/components/ui/field'
 import { NativeSelect } from '@/components/ui/native-select'
 import { SoundSettings } from '@/components/settings/user/sounds'
 import { useMicLevel } from '@/hooks/use-mic-level'
@@ -10,7 +11,7 @@ import { usePrefsStore } from '@/stores/prefsStore'
 const canPickOutput =
   typeof HTMLMediaElement !== 'undefined' && 'setSinkId' in HTMLMediaElement.prototype
 
-/** User settings → Voice and audio: input/output device, an opt-in mic check, and sounds. */
+/** User settings → Voice and audio (H6): the devices side by side, an opt-in mic check, sounds. */
 export function VoiceSection(): React.JSX.Element {
   const inputDeviceId = usePrefsStore((s) => s.inputDeviceId)
   const outputDeviceId = usePrefsStore((s) => s.outputDeviceId)
@@ -45,11 +46,12 @@ export function VoiceSection(): React.JSX.Element {
   const unlabeled = inputs.length > 0 && inputs.every((d) => !d.label)
 
   return (
-    <div className="grid gap-8">
+    <div className="grid gap-6">
       <section className="grid grid-cols-2 gap-4">
         <DeviceSelect
           id="input-device"
           label="Input device"
+          icon={<Mic />}
           devices={inputs}
           value={inputDeviceId}
           onChange={setInputDeviceId}
@@ -58,6 +60,7 @@ export function VoiceSection(): React.JSX.Element {
         <DeviceSelect
           id="output-device"
           label="Output device"
+          icon={<Headphones />}
           devices={outputs}
           value={outputDeviceId}
           onChange={setOutputDeviceId}
@@ -67,7 +70,7 @@ export function VoiceSection(): React.JSX.Element {
         />
       </section>
       {unlabeled && (
-        <p className="text-muted-foreground text-xs leading-4">
+        <p className="text-meta text-text-tertiary">
           Device names are hidden until you allow microphone access. Use “Check microphone” below.
         </p>
       )}
@@ -85,6 +88,7 @@ export function VoiceSection(): React.JSX.Element {
 function DeviceSelect(props: {
   id: string
   label: string
+  icon: React.ReactNode
   devices: MediaDeviceInfo[]
   value: string | null
   onChange: (id: string | null) => void
@@ -92,13 +96,20 @@ function DeviceSelect(props: {
   disabled?: boolean
   hint?: string
 }): React.JSX.Element {
-  const { id, label, devices, value, onChange, fallbackLabel, disabled, hint } = props
+  const { id, label, icon, devices, value, onChange, fallbackLabel, disabled, hint } = props
   const missing = value !== null && devices.length > 0 && !devices.some((d) => d.deviceId === value)
   return (
-    <Field id={id} label={label} hint={hint}>
+    <div className="grid gap-1.5">
+      <label
+        htmlFor={id}
+        className="text-text-secondary flex items-center gap-1.5 text-xs leading-4 font-semibold [&_svg]:size-3.5"
+      >
+        {icon}
+        {label}
+      </label>
       <NativeSelect
         id={id}
-        className="w-full"
+        className="w-full [&_select]:h-10"
         value={value ?? ''}
         disabled={disabled}
         onChange={(e) => onChange(e.target.value || null)}
@@ -111,7 +122,8 @@ function DeviceSelect(props: {
         ))}
         {missing && <option value={value}>Disconnected device</option>}
       </NativeSelect>
-    </Field>
+      {hint && <p className="text-meta text-text-tertiary">{hint}</p>}
+    </div>
   )
 }
 
@@ -127,28 +139,27 @@ function MicCheck({
   const { on, toggle, error } = useMicLevel(deviceId, barRef, onOpen)
 
   return (
-    <section>
-      <SectionHeading>Microphone check</SectionHeading>
+    <section className="bg-surface-panel border-line-hairline grid gap-2 border px-3.5 py-3">
       <div className="flex items-center gap-3">
-        <Button variant={on ? 'default' : 'outline'} onClick={toggle}>
-          {on ? 'Stop checking' : 'Check microphone'}
+        <Button variant="secondary" size="lg" onClick={toggle}>
+          {on ? <Square /> : <Mic />}
+          {on ? 'Stop check' : 'Check microphone'}
         </Button>
         <span
           role="meter"
           aria-label="Microphone level"
           aria-valuemin={0}
           aria-valuemax={100}
-          className="bg-card relative h-3 flex-1 border"
+          className="bg-surface-raised relative h-2.5 flex-1 overflow-hidden"
         >
-          <span ref={barRef} className="bg-online absolute inset-y-0 left-0 w-0" />
+          <span ref={barRef} className="bg-feature-voice absolute inset-y-0 left-0 w-0" />
+          <span aria-hidden className="bg-surface-content absolute inset-y-0 left-1/4 w-0.5" />
         </span>
       </div>
-      <p className="text-muted-foreground mt-2 text-xs leading-4">
-        Speak normally. The bar should move well past the first quarter.
+      <p className="text-meta text-text-tertiary">
+        Speak normally. The bar should move well past the first quarter mark.
       </p>
-      <div className="mt-2">
-        <ErrorText>{error}</ErrorText>
-      </div>
+      <ErrorText>{error}</ErrorText>
     </section>
   )
 }

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
-import { ErrorText, SectionHeading } from '@/components/ui/field'
+import { ErrorText } from '@/components/ui/field'
 import { useAction } from '@/hooks/use-action'
 import { usePlatform } from '@/shared/PlatformContext'
 import type { UpdateCheckResult } from '@/shared/IPlatformService'
@@ -18,7 +18,7 @@ function resultText(r: UpdateCheckResult): string {
   }
 }
 
-/** User settings → Updates: a manual update check. The host shows its own restart prompt. */
+/** User settings → Updates (desktop): a manual update check. The host shows its own restart prompt. */
 export function UpdatesSection(): React.JSX.Element {
   const platform = usePlatform()
   const { run, busy, error, setError } = useAction()
@@ -34,13 +34,8 @@ export function UpdatesSection(): React.JSX.Element {
 
   return (
     <section className="grid gap-3">
-      <SectionHeading>Updates</SectionHeading>
-      <p className="text-muted-foreground text-sm">
-        Hachiman checks for a new version when it starts and every 4 hours. A new version downloads
-        in the background, then Hachiman asks to restart.
-      </p>
       <div>
-        <Button onClick={() => void check()} disabled={busy}>
+        <Button size="lg" onClick={() => void check()} disabled={busy}>
           {busy ? 'Checking…' : 'Check for updates'}
         </Button>
       </div>

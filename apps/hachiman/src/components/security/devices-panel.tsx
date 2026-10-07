@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Globe, Laptop, Link2, LogOut, Pencil, Trash2 } from 'lucide-react'
+import { Globe, KeyRound, Link2, LogOut, MonitorSmartphone, Monitor, Pencil } from 'lucide-react'
 import type { DeviceSummary, RevocationReasonName } from '@hachiman/crypto'
 import { Button } from '@/components/ui/button'
+import { Callout } from '@/components/ui/callout'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { ErrorText, Field, SectionHeading } from '@/components/ui/field'
 import { IconButton } from '@/components/ui/icon-button'
@@ -27,10 +28,14 @@ const REASONS: { value: RemoveReason; label: string }[] = [
 ]
 
 const PRIMARY_ONLY =
-  'Only a device with your security key can remove other devices: your first device, or a device that you restored with the recovery key.'
+  'Only a device with your security key can sign out other devices: your first device, or a device that you restored with the recovery key.'
 
-/** The own devices of the user from the Worker. Reloads on USER_KEYS_UPDATE for the own user. */
-function useOwnDevices(): {
+/**
+ * The own devices of the user from the Worker. Reloads on USER_KEYS_UPDATE for the own user.
+ * `enabled` false loads nothing (the Worker is not ready).
+ */
+// eslint-disable-next-line react-refresh/only-export-components
+export function useOwnDevices(enabled = true): {
   devices: DeviceSummary[] | null
   error: string | null
   reload: () => void
@@ -49,6 +54,7 @@ function useOwnDevices(): {
       )
   }, [])
   useEffect(() => {
+    if (!enabled) return undefined
     reload()
     const onKeys = ({ userId }: { userId: string }): void => {
       if (userId === hachiman.cache.user?.id) reload()
@@ -57,15 +63,32 @@ function useOwnDevices(): {
     return () => {
       hachiman.off('USER_KEYS_UPDATE', onKeys)
     }
-  }, [reload])
+  }, [reload, enabled])
   return { devices, error, reload }
 }
 
+const linkNewDevice = (): void =>
+  openDialog({ kind: 'deviceLink', role: 'existing_device', sessionId: null })
+
+/** The web-trust warning (§12.17) as a gold callout; the desktop app gets one quiet line. */
+function HostTrust(): React.JSX.Element | null {
+  const hostTrust = useCryptoStore((s) => s.status?.hostTrust ?? null)
+  if (hostTrust !== 'server_code') return <HostTrustLine />
+  return (
+    <Callout tone="caution" title="This browser trusts the server’s code">
+      The server sends the web app each time you open it. A server that someone took over could send
+      a changed app that reads your messages. Use the desktop app for the best protection.
+    </Callout>
+  )
+}
+
 /**
- * The own device list (§12.5, §12.12): rename (the REST name only), remove another device
- * (primary device only, signed by the master key), sign out of this device.
+ * The own device list (§12.5, §12.12) of H2 (settings page) and I9 (dialog): rename (the REST
+ * name only), sign out another device (primary device only, signed by the master key), sign out
+ * of this device. The page has the "Link a new device" action above the list; the dialog has it in
+ * its footer.
  */
-export function DevicesPanel(): React.JSX.Element {
+export function DevicesPanel({ variant }: { variant: 'page' | 'dialog' }): React.JSX.Element {
   const { devices, error, reload } = useOwnDevices()
   const primary = useCryptoStore((s) => s.status?.primary ?? false)
   const [removing, setRemoving] = useState<DeviceSummary | null>(null)
@@ -74,50 +97,46 @@ export function DevicesPanel(): React.JSX.Element {
   const removed = devices?.filter((d) => d.status === 'revoked') ?? []
 
   return (
-    <div className="grid gap-6">
-      <div className="grid gap-2">
-        <p className="text-muted-foreground text-xs leading-4">
-          Each device has its own keys. Messages are encrypted for each device on this list.
-        </p>
-        <HostTrustLine />
-        <div>
-          <Button
-            variant="outline"
-            onClick={() =>
-              openDialog({ kind: 'deviceLink', role: 'existing_device', sessionId: null })
-            }
-          >
-            <Link2 /> Link a new device
-          </Button>
-        </div>
-      </div>
+    <div className="grid gap-5">
+      <HostTrust />
 
       <section className="grid gap-2">
-        <SectionHeading>Your devices</SectionHeading>
+        {variant === 'page' && (
+          <div className="flex items-center justify-between gap-3">
+            <SectionHeading className="mb-0">
+              Your devices{devices && ` · ${active.length}`}
+            </SectionHeading>
+            <Button onClick={linkNewDevice}>
+              <Link2 /> Link a new device
+            </Button>
+          </div>
+        )}
         <ErrorText>{error}</ErrorText>
-        {devices === null && !error && <p className="text-muted-foreground text-sm">Loading…</p>}
-        <ul className="divide-border divide-y border">
-          {active.map((d) => (
-            <DeviceRow
-              key={d.id}
-              device={d}
-              canRemove={primary}
-              onRemove={() => setRemoving(d)}
-              onSignOut={() => setSigningOut(true)}
-              onRenamed={reload}
-            />
-          ))}
-        </ul>
-        {!primary && <p className="text-muted-foreground text-xs leading-4">{PRIMARY_ONLY}</p>}
+        {devices === null && !error && <p className="text-text-tertiary text-sm">Loading…</p>}
+        {active.length > 0 && (
+          <ul className="bg-surface-panel border-line-hairline divide-line-hairline divide-y border">
+            {active.map((d) => (
+              <DeviceRow
+                key={d.id}
+                device={d}
+                canRemove={primary}
+                onRemove={() => setRemoving(d)}
+                onSignOut={() => setSigningOut(true)}
+                onRenamed={reload}
+              />
+            ))}
+          </ul>
+        )}
+        {!primary && <p className="text-meta text-text-tertiary">{PRIMARY_ONLY}</p>}
       </section>
 
       {removed.length > 0 && (
         <section className="grid gap-2">
-          <SectionHeading>Removed devices</SectionHeading>
-          <ul className="text-muted-foreground grid gap-1 text-sm">
+          <SectionHeading className="mb-0">Signed-out devices</SectionHeading>
+          <ul className="text-text-tertiary grid gap-1 text-sm">
             {removed.map((d) => (
               <li key={d.id} className="flex items-center gap-2">
-                <PlatformIcon platform={d.platform} />
+                <PlatformIcon platform={d.platform} className="size-4" />
                 <span className="truncate">{d.name}</span>
               </li>
             ))}
@@ -157,11 +176,50 @@ export function DevicesPanel(): React.JSX.Element {
   )
 }
 
-function PlatformIcon({ platform }: { platform: DeviceSummary['platform'] }): React.JSX.Element {
+function PlatformIcon({
+  platform,
+  className
+}: {
+  platform: DeviceSummary['platform']
+  className?: string
+}): React.JSX.Element {
   return platform === 'electron' ? (
-    <Laptop aria-label="Desktop app" className="size-4 shrink-0" />
+    <Monitor aria-label="Desktop app" className={className} />
   ) : (
-    <Globe aria-label="Browser" className="size-4 shrink-0" />
+    <Globe aria-label="Browser" className={className} />
+  )
+}
+
+const DATE = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
+const RELATIVE = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' })
+
+/** "active now", "active 2 hours ago", "active yesterday". */
+function activeText(lastSeenAt: string, now: number): string {
+  const mins = Math.round((now - new Date(lastSeenAt).getTime()) / 60_000)
+  if (mins < 5) return 'active now'
+  if (mins < 60) return `active ${RELATIVE.format(-mins, 'minute')}`
+  if (mins < 1440) return `active ${RELATIVE.format(-Math.round(mins / 60), 'hour')}`
+  return `active ${RELATIVE.format(-Math.round(mins / 1440), 'day')}`
+}
+
+function Tag({
+  children,
+  tone
+}: {
+  children: React.ReactNode
+  tone: 'accent' | 'voice' | 'event'
+}): React.JSX.Element {
+  return (
+    <span
+      className={cn(
+        'rounded-check inline-flex h-[18px] shrink-0 items-center gap-1 px-1.5 text-[10.5px] font-bold [&_svg]:size-3',
+        tone === 'accent' && 'bg-accent-tint text-accent-text',
+        tone === 'voice' && 'bg-feature-voice/15 text-feature-voice-text',
+        tone === 'event' && 'bg-feature-event/15 text-feature-event-text'
+      )}
+    >
+      {children}
+    </span>
   )
 }
 
@@ -179,6 +237,7 @@ function DeviceRow({
   onRenamed: () => void
 }): React.JSX.Element {
   const [name, setName] = useState<string | null>(null) // non-null while editing
+  const [now] = useState(Date.now)
   const { run, busy, error } = useAction()
 
   const save = async (e: React.FormEvent): Promise<void> => {
@@ -194,10 +253,18 @@ function DeviceRow({
     }
   }
 
+  const meta = [
+    device.platform === 'electron' ? 'Desktop app' : 'Browser',
+    `added ${DATE.format(new Date(device.createdAt))}`,
+    device.lastSeenAt && activeText(device.lastSeenAt, now)
+  ].filter(Boolean)
+
   return (
-    <li className="grid gap-1 px-3 py-2.5">
+    <li className={cn('grid gap-1 px-4 py-3', device.current && 'bg-surface-hover/50')}>
       <div className="flex items-center gap-3">
-        <PlatformIcon platform={device.platform} />
+        <span className="rounded-control bg-surface-raised text-text-secondary flex size-10 shrink-0 items-center justify-center">
+          <PlatformIcon platform={device.platform} className="size-[18px]" />
+        </span>
         <div className="min-w-0 flex-1">
           {name !== null ? (
             <form onSubmit={(e) => void save(e)} className="flex gap-2" data-esc-local>
@@ -209,70 +276,52 @@ function DeviceRow({
                 onChange={(e) => setName(e.target.value)}
                 onKeyDown={(e) => e.key === 'Escape' && setName(null)}
               />
-              <Button type="submit" size="sm" disabled={busy}>
+              <Button type="submit" disabled={busy}>
                 Save
               </Button>
             </form>
           ) : (
-            <div className="flex min-w-0 items-center gap-2">
-              <span className="truncate text-sm font-medium">{device.name}</span>
-              {device.current && <Tag>This device</Tag>}
-              {device.primary && <Tag>Has security key</Tag>}
-              {device.status === 'pending' && <Tag tone="warn">Not linked</Tag>}
+            <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+              <span className="text-label truncate">{device.name}</span>
+              {device.current && <Tag tone="accent">This device</Tag>}
+              {device.primary && (
+                <Tag tone="voice">
+                  <KeyRound aria-hidden /> Has security key
+                </Tag>
+              )}
+              {device.status === 'pending' && <Tag tone="event">Not linked</Tag>}
             </div>
           )}
-          <p className="text-muted-foreground text-xs leading-4">
-            Added {new Date(device.createdAt).toLocaleDateString()}
-            {device.lastSeenAt && ` · Last seen ${new Date(device.lastSeenAt).toLocaleString()}`}
-          </p>
+          <p className="text-meta text-text-tertiary">{meta.join(' · ')}</p>
         </div>
         {name === null && (
-          <div className="flex shrink-0 items-center gap-1">
-            <IconButton label="Rename" size="sm" onClick={() => setName(device.name)}>
+          <div className="flex shrink-0 items-center gap-1.5">
+            <IconButton
+              label="Rename"
+              className="rounded-control border-line-hairline size-8 border"
+              onClick={() => setName(device.name)}
+            >
               <Pencil />
             </IconButton>
-            {device.current ? (
-              <Button variant="ghost" size="sm" className="text-destructive" onClick={onSignOut}>
-                <LogOut /> Sign out
-              </Button>
-            ) : (
-              <IconButton
-                label={
-                  canRemove
-                    ? 'Remove device'
-                    : 'Only a device with your security key can remove devices'
-                }
-                size="sm"
-                tone="danger"
-                disabled={!canRemove}
-                onClick={onRemove}
-              >
-                <Trash2 />
-              </IconButton>
-            )}
+            <Button
+              variant="quiet"
+              className="bg-feature-danger/10 text-feature-danger-text hover:bg-feature-danger/20"
+              disabled={!device.current && !canRemove}
+              title={device.current || canRemove ? undefined : PRIMARY_ONLY}
+              onClick={device.current ? onSignOut : onRemove}
+            >
+              <LogOut /> Sign out
+            </Button>
           </div>
         )}
       </div>
       {name !== null && (
-        <p className="text-muted-foreground text-xs leading-4">
+        <p className="text-meta text-text-tertiary pl-[52px]">
           Only you see this name. Other people see the name that the device had when it was linked.
         </p>
       )}
       <ErrorText>{error}</ErrorText>
     </li>
-  )
-}
-
-function Tag({ children, tone }: { children: React.ReactNode; tone?: 'warn' }): React.JSX.Element {
-  return (
-    <span
-      className={cn(
-        'shrink-0 border px-1.5 text-[11px] leading-4',
-        tone === 'warn' ? 'border-idle text-idle' : 'text-muted-foreground'
-      )}
-    >
-      {children}
-    </span>
   )
 }
 
@@ -289,9 +338,9 @@ function RemoveDeviceDialog({
   return (
     <ConfirmDialog
       open
-      title={`Remove ${device.name}`}
-      confirmLabel="Remove device"
-      what="remove the device"
+      title={`Sign out ${device.name}`}
+      confirmLabel="Sign out the device"
+      what="sign out the device"
       tone="danger"
       onClose={onClose}
       onConfirm={async () => {
@@ -329,13 +378,45 @@ function RemoveDeviceDialog({
   )
 }
 
-/** Dialog kind 'devices': the same list in a window. */
+/** Dialog kind 'devices' (I9): the same list in a window. */
 export function DevicesDialog(): React.JSX.Element {
   const { open, close } = useDialog('devices')
+  const { devices } = useOwnDevices(open)
+  const count = devices?.filter((d) => d.status !== 'revoked').length
   return (
-    <ModalWindow open={open} onClose={close} title="Devices" className="sm:max-w-[600px]">
-      <div className="max-h-[70vh] overflow-y-auto">
-        <DevicesPanel />
+    <ModalWindow
+      open={open}
+      onClose={close}
+      title="Devices"
+      description={
+        count === undefined
+          ? 'The devices that hold your keys'
+          : `${count} ${count === 1 ? 'device holds' : 'devices hold'} your keys`
+      }
+      icon={<MonitorSmartphone />}
+      className="sm:max-w-[620px]"
+      actions={
+        <>
+          <Button
+            className="mr-auto"
+            onClick={() => {
+              close()
+              linkNewDevice()
+            }}
+          >
+            <Link2 /> Link a new device
+          </Button>
+          <Button variant="secondary" onClick={close}>
+            Done
+          </Button>
+        </>
+      }
+    >
+      <div className="grid max-h-[70vh] gap-3 overflow-y-auto">
+        <p className="text-text-secondary text-sm">
+          Each device has its own keys. Messages are encrypted for every device on this list.
+        </p>
+        <DevicesPanel variant="dialog" />
       </div>
     </ModalWindow>
   )
