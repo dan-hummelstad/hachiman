@@ -37,7 +37,8 @@ import {
 } from './fixture'
 import { PAGE } from './fixture-pages'
 import { stubAdminActions } from './admin'
-import { dispatch, seedFeatureFixtures, stubRest, stubVoice } from './stubs'
+import { seedFeatureFixtures } from './fixture-features'
+import { dispatch, stubRest, stubVoice } from './stubs'
 import { pinTab, type TabTarget } from '@/stores/tabsStore'
 
 /** The B1 tab row (pinTab skips a tab that is already pinned). */
