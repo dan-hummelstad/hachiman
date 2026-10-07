@@ -32,16 +32,43 @@
   padding: 8px 56px 120px;
 }
 
-/* Page links (page-links.ts). The title widget shows in place of the hidden link text. */
+/* The page title (C1): the first heading is the title, in the Arc display weight. */
+.hm-page-editor .milkdown .ProseMirror h1 {
+  font-size: 32px;
+  font-weight: 800;
+  line-height: 1.2;
+  letter-spacing: -0.5px;
+}
+
+/* Page links (page-links.ts). The title widget shows in place of the hidden link text, as a
+   rounded chip with the page icon in the page colour (C1). */
 .hm-page-editor .hm-page-link {
-  color: var(--primary);
+  color: var(--feature-page-text);
   cursor: pointer;
-  text-decoration: underline;
-  text-decoration-color: color-mix(in srgb, var(--primary) 40%, transparent);
-  text-underline-offset: 3px;
+}
+.hm-page-editor span.hm-page-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 7px;
+  border-radius: var(--radius-control);
+  background: color-mix(in srgb, var(--feature-page) 14%, transparent);
+  color: var(--text-primary);
+  font-weight: 700;
+  line-height: 1.6;
+}
+.hm-page-editor span.hm-page-link:hover {
+  background: color-mix(in srgb, var(--feature-page) 24%, transparent);
 }
 .hm-page-editor span.hm-page-link::before {
-  content: '📄 ';
+  content: '';
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  background: var(--feature-page-text);
+  /* lucide file-text */
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z'/%3E%3Cpath d='M14 2v4a2 2 0 0 0 2 2h4'/%3E%3Cpath d='M10 9H8'/%3E%3Cpath d='M16 13H8'/%3E%3Cpath d='M16 17H8'/%3E%3C/svg%3E")
+    center / contain no-repeat;
 }
 .hm-page-editor .hm-page-link-raw {
   cursor: text;
