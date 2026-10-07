@@ -12,7 +12,7 @@ import { adminActionService } from '@/services/AdminActionService'
 export function HoistRow({ role, editable }: { role: Role; editable: boolean }): React.JSX.Element {
   const { run, busy, error } = useAction()
   return (
-    <div>
+    <div className="border-line-hairline bg-surface-raised/50 border px-3.5">
       <PermissionRow
         label="Show as its own group in the member list"
         hint="Online members with this role are listed under its name."

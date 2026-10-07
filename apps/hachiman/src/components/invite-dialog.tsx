@@ -130,7 +130,13 @@ export function InviteDialog(): React.JSX.Element {
   const expiryHint =
     options.expiry === 0
       ? 'This link never expires. Revoke it in Guild settings when you do not need it.'
-      : `This link expires after ${expiryLabel.replace(/^1 /, 'one ')}.`
+      : `This link expires after ${expiryLabel.replace(/^1 /, 'one ')} and can be used ${
+          options.maxUses === 0
+            ? 'any number of times'
+            : options.maxUses === 1
+              ? 'once'
+              : `${options.maxUses} times`
+        }.`
 
   return (
     <ModalWindow

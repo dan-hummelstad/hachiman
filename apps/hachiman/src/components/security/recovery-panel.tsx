@@ -125,7 +125,7 @@ export function RecoverySection(): React.JSX.Element {
       >
         <span
           className={cn(
-            'rounded-control flex size-12 shrink-0 items-center justify-center [&_svg]:size-6',
+            'flex size-12 shrink-0 items-center justify-center [&_svg]:size-6',
             configured
               ? 'bg-feature-voice/15 text-feature-voice-text'
               : 'bg-feature-event/15 text-feature-event-text'

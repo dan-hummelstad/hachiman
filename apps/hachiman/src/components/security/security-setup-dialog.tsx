@@ -19,7 +19,7 @@ export function SecuritySetupDialog(): React.JSX.Element {
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && !hold && close()}>
-      <DialogContent aria-describedby={undefined} className="sm:max-w-[560px]">
+      <DialogContent aria-describedby={undefined} className="sm:max-w-[520px]">
         <OnboardingFlow
           state={state}
           step={step}

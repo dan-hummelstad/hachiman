@@ -198,7 +198,7 @@ function ChoiceRow(props: {
       <span
         aria-hidden
         className={cn(
-          'rounded-control flex size-11 shrink-0 items-center justify-center [&_svg]:size-5',
+          'flex size-11 shrink-0 items-center justify-center [&_svg]:size-5',
           FEATURE_TILE[props.feature]
         )}
       >

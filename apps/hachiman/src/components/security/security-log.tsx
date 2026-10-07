@@ -62,7 +62,7 @@ export function SecurityLog(): React.JSX.Element {
       >
         <span
           className={cn(
-            'rounded-control flex size-9 shrink-0 items-center justify-center [&_svg]:size-5',
+            'flex size-9 shrink-0 items-center justify-center [&_svg]:size-5',
             bad
               ? 'bg-feature-danger/15 text-feature-danger-text'
               : result

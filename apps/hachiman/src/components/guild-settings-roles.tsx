@@ -196,7 +196,7 @@ function RoleSwatch({ color }: { color: number }): React.JSX.Element {
   return (
     <span
       aria-hidden
-      className="rounded-check size-2.5 shrink-0"
+      className="size-2.5 shrink-0"
       style={{ background: color ? hexColor(color) : 'var(--text-tertiary)' }}
     />
   )
@@ -316,7 +316,7 @@ function RoleEditor(props: {
                   <span className="text-label flex items-center gap-2">
                     {p.label}
                     {viaAdmin && (
-                      <span className="rounded-check bg-feature-event/15 text-feature-event-text px-1.5 text-[10px] leading-4 font-extrabold tracking-[0.6px]">
+                      <span className="bg-feature-event/15 text-feature-event-text px-1.5 text-[10px] leading-4 font-extrabold tracking-[0.6px]">
                         VIA ADMINISTRATOR
                       </span>
                     )}

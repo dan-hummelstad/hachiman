@@ -154,6 +154,7 @@ export function ScanOrPaste({
           <Textarea
             id="scan-paste"
             className="font-mono text-[12px]"
+            placeholder={`${prefix}…`}
             value={text}
             spellCheck={false}
             autoComplete="off"

@@ -1,6 +1,5 @@
 import {
   Download,
-  Hash,
   Headphones,
   KeyRound,
   LayoutGrid,
@@ -32,6 +31,7 @@ import { VoiceSection } from '@/components/settings/user/voice'
 import { UserAvatar } from '@/components/shell/user-avatar'
 import { GuildTile } from '@/components/ui/guild-tile'
 import { useIsGuildOwner, usePermissions } from '@/hooks/use-hachiman'
+import { ChannelIcon } from '@/lib/channel-icon'
 import { takusenService } from '@/services/TakusenService'
 import { usePlatform } from '@/shared/PlatformContext'
 import { useChannelStore } from '@/stores/channelStore'
@@ -258,14 +258,14 @@ export function useChannelSettingsModel(channelId: string): SettingsModel {
   const isCategory = channel?.type === 'category'
   const kind = isCategory ? 'category' : 'channel'
   const name = channel?.name ?? ''
-  const shown = isCategory ? name : `#${name}`
+  const shown = isCategory || channel?.type === 'voice' ? name : `#${name}`
   return {
     label: isCategory ? 'Category settings' : 'Channel settings',
     crumb: shown,
     header: {
       icon: (
-        <span className="rounded-control bg-surface-raised text-text-secondary flex size-9 items-center justify-center">
-          <Hash className="size-5" />
+        <span className="bg-surface-raised text-text-secondary flex size-9 items-center justify-center">
+          <ChannelIcon type={channel?.type ?? 'text'} className="size-5" />
         </span>
       ),
       name,
