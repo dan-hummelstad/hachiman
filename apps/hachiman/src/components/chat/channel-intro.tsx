@@ -3,6 +3,7 @@ import {
   CornerUpLeft,
   Lock,
   MessagesSquare,
+  Pin,
   Settings,
   ShieldQuestion,
   Upload,
@@ -22,6 +23,7 @@ import { jumpToMessage, openChannelView } from '@/components/pins/jump'
 import { useChannelStore } from '@/stores/channelStore'
 import { openDialog } from '@/stores/dialogStore'
 import { openSettings } from '@/stores/navStore'
+import { pinTab, useIsPinned, type TabTarget } from '@/stores/tabsStore'
 import { useChannelAccess } from '@/lib/channel-access'
 import { useTrustBadge } from './use-dm-trust'
 
@@ -31,8 +33,8 @@ const INTRO_BUTTON = 'border-line-hairline text-text-primary'
 /**
  * The start of a channel (shown once all history is loaded): a square icon tile, "Welcome to
  * #name", the topic and the actions this user may take. A restricted channel lists the roles that
- * can see it, and an empty channel offers the first upload. "Pin to tabs" (feature plan N1) goes
- * in front of "Invite people" when the tab bar lands.
+ * can see it, and an empty channel offers the first upload. An unpinned channel offers "Pin to
+ * tabs" (N1, B5) in front of "Invite people".
  */
 export function ChannelIntro({
   channel,
@@ -69,6 +71,8 @@ function GuildIntro({
     : channel.type === 'pages'
       ? FEATURE_TILE.page
       : FEATURE_TILE.accent
+  const tab: TabTarget = { kind: 'channel', id: channel.id, guildId: channel.guildId }
+  const pinned = useIsPinned(tab)
   const settings = (): void => openSettings({ kind: 'channel', channelId: channel.id })
   const manageAccess = (): void =>
     openSettings({ kind: 'channel', channelId: channel.id }, 'permissions')
@@ -86,8 +90,14 @@ function GuildIntro({
       {channel.topic && (
         <p className="text-body text-text-secondary mt-1.5 max-w-[70ch]">{channel.topic}</p>
       )}
-      {(canInvite || canManage) && (
+      {(!pinned || canInvite || canManage) && (
         <div className="mt-4 flex flex-wrap gap-2">
+          {!pinned && (
+            <Button variant="quiet" className={INTRO_BUTTON} onClick={() => pinTab(tab)}>
+              <Pin aria-hidden />
+              Pin to tabs
+            </Button>
+          )}
           {canInvite && (
             <Button
               variant="quiet"
