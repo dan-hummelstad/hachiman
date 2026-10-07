@@ -125,8 +125,41 @@ export function viewOf(nav: NavData, openPage: (channelId: string) => string | u
     : { kind: 'channel', guildId, channelId }
 }
 
+function sameSettingsTarget(a: SettingsTarget, b: SettingsTarget): boolean {
+  switch (a.kind) {
+    case 'user':
+      return b.kind === 'user'
+    case 'guild':
+      return b.kind === 'guild' && a.guildId === b.guildId
+    case 'channel':
+      return b.kind === 'channel' && a.channelId === b.channelId
+  }
+}
+
 export function sameView(a: View, b: View): boolean {
-  return JSON.stringify(a) === JSON.stringify(b)
+  switch (a.kind) {
+    case 'dmHome':
+      return b.kind === 'dmHome'
+    case 'dm':
+      return b.kind === 'dm' && a.channelId === b.channelId
+    case 'guild':
+      return b.kind === 'guild' && a.guildId === b.guildId
+    case 'channel':
+      return b.kind === 'channel' && a.guildId === b.guildId && a.channelId === b.channelId
+    case 'page':
+      return (
+        b.kind === 'page' &&
+        a.guildId === b.guildId &&
+        a.channelId === b.channelId &&
+        a.pageId === b.pageId
+      )
+    case 'settings':
+      return (
+        b.kind === 'settings' &&
+        a.settings.section === b.settings.section &&
+        sameSettingsTarget(a.settings.target, b.settings.target)
+      )
+  }
 }
 
 /** The view the shell shows now. */
@@ -205,6 +238,15 @@ function applyView(view: View): void {
   }
 }
 
+/** The history after the shown view went from `from` to `to`. */
+function commit(from: View, to: View): void {
+  useNavStore.setState((s) =>
+    from.kind === 'settings' && to.kind !== 'settings'
+      ? leaveSettings(s.past, to)
+      : pushHistory(s.past, from)
+  )
+}
+
 /** Every change of the shown view (from any entry point) is a navigation. */
 function record(): void {
   if (applying) return
@@ -212,14 +254,19 @@ function record(): void {
   if (sameView(view, lastView)) return
   const from = lastView
   lastView = view
-  useNavStore.setState((s) =>
-    from.kind === 'settings' && view.kind !== 'settings'
-      ? leaveSettings(s.past, view)
-      : pushHistory(s.past, from)
-  )
+  commit(from, view)
 }
-useNavStore.subscribe(record)
-useDocsStore.subscribe(record)
+
+let historyStarted = false
+
+/** Idempotent: from here on, every change of the shown view goes on the history (startHachiman). */
+export function startNavHistory(): void {
+  if (historyStarted) return
+  historyStarted = true
+  lastView = currentView()
+  useNavStore.subscribe(record)
+  useDocsStore.subscribe(record)
+}
 
 /** Applies `view` as one change: the store updates in between are not navigations. */
 function applyQuietly(view: View): void {
@@ -236,13 +283,7 @@ function applyQuietly(view: View): void {
 export function navigate(view: View): void {
   const from = currentView()
   applyQuietly(view)
-  if (sameView(from, lastView)) return
-  const to = lastView
-  useNavStore.setState((s) =>
-    from.kind === 'settings' && to.kind !== 'settings'
-      ? leaveSettings(s.past, to)
-      : pushHistory(s.past, from)
-  )
+  if (!sameView(from, lastView)) commit(from, lastView)
 }
 
 function step(dir: 'back' | 'forward', exists: (v: View) => boolean): boolean {

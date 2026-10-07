@@ -24,6 +24,7 @@ import { resetMessagesStore, useMessageStore } from '@/stores/messagesStore'
 import { closeAllDialogs } from '@/stores/dialogStore'
 import {
   clearHistory,
+  startNavHistory,
   DM_HOME,
   forgetGuild,
   openChannel,
@@ -302,6 +303,7 @@ export function startHachiman(host?: IPlatformService): void {
     if (hachiman.gateway.state === 'ready') cryptoService.sync()
     features.cryptoReady()
   })
+  startNavHistory()
   voiceService.start()
   startSounds()
   // Back online: reconnect now instead of after the remaining backoff (up to 30 s).

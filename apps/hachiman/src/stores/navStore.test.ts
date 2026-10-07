@@ -15,6 +15,8 @@ import {
   pushHistory,
   selectGuild,
   setSettingsSection,
+  sameView,
+  startNavHistory,
   stepHistory,
   useNavStore,
   type View
@@ -23,6 +25,7 @@ import {
 const ch = (channelId: string, guildId = 'g1'): View => ({ kind: 'channel', guildId, channelId })
 
 beforeEach(() => {
+  startNavHistory()
   useNavStore.setState({ guildKey: DM_HOME, channelByGuild: {}, settings: null })
   useDocsStore.setState({ openPageByChannel: new Map() })
   clearHistory()
@@ -167,5 +170,16 @@ describe('settings view', () => {
   it('a section change without a settings view does nothing', () => {
     setSettingsSection('roles')
     expect(useNavStore.getState().settings).toBeNull()
+  })
+})
+
+describe('sameView', () => {
+  it('compares by fields, not by key order', () => {
+    expect(sameView(ch('a'), { channelId: 'a', guildId: 'g1', kind: 'channel' } as View)).toBe(true)
+    expect(sameView(ch('a'), ch('b'))).toBe(false)
+    const s1: View = { kind: 'settings', settings: { target: { kind: 'user' }, section: null } }
+    const s2: View = { kind: 'settings', settings: { section: null, target: { kind: 'user' } } }
+    expect(sameView(s1, s2)).toBe(true)
+    expect(sameView(s1, { kind: 'dmHome' })).toBe(false)
   })
 })
