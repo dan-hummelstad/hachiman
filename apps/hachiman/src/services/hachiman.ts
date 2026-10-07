@@ -16,6 +16,7 @@ import { redeemWaitingInvites, resetInvites } from '@/services/InviteService'
 import { messagesService } from '@/services/MessagesService'
 import { takusenService } from '@/services/TakusenService'
 import { messageSound, playSound, startSounds } from '@/services/SoundService'
+import { unreadService } from '@/services/UnreadService'
 import { createVoiceE2ee } from '@/services/voice-e2ee'
 import { voiceService } from '@/services/VoiceService'
 import type { IPlatformService } from '@/shared/IPlatformService'
@@ -24,7 +25,16 @@ import { currentDeviceId, setCryptoFatal, useCryptoStore } from '@/stores/crypto
 import { resetGuildStore, useGuildStore } from '@/stores/guildStore'
 import { resetMessagesStore, useMessageStore } from '@/stores/messagesStore'
 import { closeAllDialogs } from '@/stores/dialogStore'
-import { DM_HOME, forgetGuild, openChannel, selectedChannelId } from '@/stores/navStore'
+import { useDocsStore } from '@/stores/docsStore'
+import {
+  clearHistory,
+  DM_HOME,
+  forgetGuild,
+  openChannel,
+  selectedChannelId
+} from '@/stores/navStore'
+import { notifyPrefs, usePrefsStore } from '@/stores/prefsStore'
+import { loadTabs, pruneTabs, type TabTarget } from '@/stores/tabsStore'
 import { useTakusenStore } from '@/stores/takusenStore'
 import { resetUserStore, useUserStore } from '@/stores/userStore'
 import { resetVoiceMirror, useVoiceStore } from '@/stores/voiceStore'
@@ -91,6 +101,26 @@ function syncVoiceStates(): void {
   useVoiceStore.setState({ voiceStates: copy2(hachiman.cache.voiceStates) })
 }
 
+/** A tab's target is still there: its channel is in the cache, and its page (once loaded). */
+function tabExists(t: TabTarget): boolean {
+  if (!hachiman.cache.channels.has(t.id)) return false
+  if (t.kind !== 'page') return true
+  const pages = useDocsStore.getState().pagesByChannel.get(t.id)
+  return pages === undefined || pages.some((p) => p.id === t.pageId)
+}
+
+/** The account whose tabs and per-account preferences apply (null = signed out). */
+function setAccount(userId: string | null): void {
+  usePrefsStore.getState().setAccountId(userId)
+  loadTabs(userId)
+}
+
+/** Channels went away: drop their tabs and read states. */
+function onChannelsGone(): void {
+  pruneTabs(tabExists)
+  unreadService.onChannelsChanged()
+}
+
 function syncAll(): void {
   useUserStore.setState({ me: hachiman.cache.user })
   syncGuilds()
@@ -104,13 +134,17 @@ const onUpdate = (e: GatewayDispatch): void => {
     case 'GUILD_DELETE':
       // Left / kicked / deleted: drop the selection and its remembered channel.
       forgetGuild(e.d.id)
-      return syncAll()
+      syncAll()
+      return onChannelsGone()
     case 'READY': {
       docsService.onReady(true)
       messagesService.onNewSession(selectedChannelId())
       useUserStore.setState({ status: hachiman.cache.presences.get(e.d.user.id) ?? 'online' })
       cryptoService.sync()
       syncAll()
+      setAccount(e.d.user.id)
+      pruneTabs(tabExists)
+      unreadService.onReady()
       return redeemWaitingInvites()
     }
     case 'RESUMED':
@@ -125,7 +159,9 @@ const onUpdate = (e: GatewayDispatch): void => {
     case 'CHANNEL_UPDATE':
     case 'CHANNEL_DELETE':
       if (e.t === 'CHANNEL_DELETE') docsService.onChannelDelete(e.d.id)
-      return syncChannels()
+      syncChannels()
+      if (e.t === 'CHANNEL_DELETE') onChannelsGone()
+      return
     case 'VOICE_STATE_UPDATE':
       return syncVoiceStates()
     case 'USER_UPDATE':
@@ -166,11 +202,12 @@ const onMessageUpdate = (m: Message): void => {
 const onMessageCreate = async (m: Message): Promise<void> => {
   const [row] = await messagesService.ingest([m])
   useMessageStore.getState().setTyping(m.channelId, m.author.id, null)
+  unreadService.onMessageCreate(m, row)
   const me = hachiman.cache.user
   if (!me || row?.decrypt.status !== 'ok') return
   const viewing = selectedChannelId() === m.channelId && document.hasFocus()
   const myRoles = m.guildId ? (hachiman.cache.members.get(m.guildId)?.get(me.id)?.roles ?? []) : []
-  const sound = messageSound(row, me, viewing, myRoles)
+  const sound = messageSound(row, me, viewing, myRoles, notifyPrefs())
   if (sound) playSound(sound)
 }
 
@@ -249,6 +286,7 @@ export function startHachiman(host?: IPlatformService): void {
     useMessageStore.getState().remove(d.channelId, d.id)
   })
   hachiman.on('TYPING_START', onTyping)
+  hachiman.on('READ_STATE_UPDATE', (d) => unreadService.onReadStateUpdate(d))
   hachiman.on('fatal', onFatal)
   // 4004: the gateway rejected the token before its expiry. A refresh that fails signs out.
   hachiman.gateway.on('close', ({ code }) => {
@@ -268,20 +306,27 @@ export function startHachiman(host?: IPlatformService): void {
   cryptoService.on('membership', (e) => docsService.onMembership(e))
   // A new user in a text group: re-wrap the pages of its pages channels (§12.20).
   cryptoService.on('usersAdded', (e) => docsService.onUsersAdded(e))
+  // A deleted page closes its tabs.
+  useDocsStore.subscribe((s, p) => {
+    if (s.pagesByChannel !== p.pagesByChannel) pruneTabs(tabExists)
+  })
   cryptoService.on('status', (s) => {
     if (s.state !== 'ready') return
+    unreadService.onCryptoReady()
     // Setup or linking finished: catch up and decrypt what waited.
     if (hachiman.gateway.state === 'ready') cryptoService.sync()
     messagesService.retryAll()
     redeemWaitingInvites()
   })
   voiceService.start()
+  unreadService.start()
   startSounds()
   // Back online: reconnect now instead of after the remaining backoff (up to 30 s).
   window.addEventListener('online', () => hachiman.gateway.retryNow())
 
   const apply = (signedIn: boolean): void => {
     if (signedIn) {
+      setAccount(useTakusenStore.getState().session?.user.id ?? null)
       startCrypto()
       hachiman.connect()
       return
@@ -299,6 +344,9 @@ export function startHachiman(host?: IPlatformService): void {
     resetChannelStore()
     resetVoiceMirror()
     resetMessagesStore()
+    unreadService.reset()
+    setAccount(null)
+    clearHistory()
     closeAllDialogs() // open dialogs belong to the session that just ended
   }
   let signedIn = useTakusenStore.getState().session !== null
