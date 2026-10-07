@@ -1,12 +1,16 @@
 import { useMemo } from 'react'
-import { Plus } from 'lucide-react'
+import { Plus, Star, StarOff } from 'lucide-react'
 import { DndContext, closestCenter, type DragEndEvent } from '@dnd-kit/core'
 import { SortableContext, rectSortingStrategy } from '@dnd-kit/sortable'
 import type { Channel } from '@hachiman/client'
-import { FavouriteDmItem } from '@/components/channel-sidebar'
 import { UserAvatar } from '@/components/shell/user-avatar'
 import { UnreadMark } from '@/components/ui/unread-mark'
-import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from '@/components/ui/context-menu'
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger
+} from '@/components/ui/context-menu'
 import { IconButton } from '@/components/ui/icon-button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { favouriteMove, favouriteTiles } from '@/lib/favourite-dms'
@@ -18,6 +22,7 @@ import { DM_HOME, navigate, useNavStore } from '@/stores/navStore'
 import { useFavouriteDms, usePrefsStore } from '@/stores/prefsStore'
 import { useChannelUnread } from '@/stores/unreadStore'
 import { useDragSensors, useSortableRow } from '@/hooks/use-sortable-row'
+import { openDmHome } from '@/components/sidebar/sidebar-row'
 
 /** The open tile (E2): an opaque accent wash, so the presence cutout can match it. */
 const OPEN_BG = 'bg-[color-mix(in_oklab,var(--accent-primary)_17%,var(--surface-raised))]'
@@ -26,9 +31,10 @@ const OPEN_BG = 'bg-[color-mix(in_oklab,var(--accent-primary)_17%,var(--surface-
  * The favourite DMs at the sidebar top (N6, kit "SIDEBAR · TOP"): the "Direct messages" label
  * with "+" (the DM home, where a conversation starts), then one 46px tile per favourite with
  * presence and the mention count (N7). Drag to reorder; right click to remove. With no favourites
- * only the label shows.
+ * only the label shows. In the DM space the label row is left out (`label` false): the space header
+ * there says "Direct messages" and has "New message".
  */
-export function FavouriteDms(): React.JSX.Element {
+export function FavouriteDms({ label = true }: { label?: boolean }): React.JSX.Element | null {
   const ids = useFavouriteDms()
   const channels = useChannelStore((s) => s.channels)
   const tiles = useMemo(() => favouriteTiles(ids, channels), [ids, channels])
@@ -41,19 +47,22 @@ export function FavouriteDms(): React.JSX.Element {
     if (m) usePrefsStore.getState().moveFavouriteDm(m.from, m.to)
   }
 
+  if (!label && tiles.length === 0) return null
   return (
     <section aria-label="Favourite direct messages" className="flex flex-col gap-1.5">
-      <div className="flex h-6 items-center pr-0.5 pl-1">
-        <h2 className="section-label flex-1">Direct messages</h2>
-        <IconButton
-          size="sm"
-          label="New message"
-          onClick={() => navigate({ kind: 'dmHome' })}
-          className="text-text-tertiary rounded-control"
-        >
-          <Plus />
-        </IconButton>
-      </div>
+      {label && (
+        <div className="flex h-6 items-center pr-0.5 pl-1">
+          <h2 className="section-label flex-1">Direct messages</h2>
+          <IconButton
+            size="sm"
+            label="New message"
+            onClick={openDmHome}
+            className="text-text-tertiary rounded-control"
+          >
+            <Plus />
+          </IconButton>
+        </div>
+      )}
       {tiles.length > 0 && (
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
           <SortableContext items={tiles.map((c) => c.id)} strategy={rectSortingStrategy}>
@@ -154,5 +163,23 @@ function GroupAvatars({ channel }: { channel: Channel }): React.JSX.Element {
         />
       )}
     </span>
+  )
+}
+
+/** "Add to favourites" or "Remove from favourites" (N6), for a DM row's or tile's menu. */
+export function FavouriteDmItem({
+  channelId,
+  favourite
+}: {
+  channelId: string
+  favourite: boolean
+}): React.JSX.Element {
+  return (
+    <ContextMenuItem
+      onSelect={() => usePrefsStore.getState().setFavouriteDm(channelId, !favourite)}
+    >
+      {favourite ? <StarOff /> : <Star />}
+      {favourite ? 'Remove from favourites' : 'Add to favourites'}
+    </ContextMenuItem>
   )
 }

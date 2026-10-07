@@ -1,6 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { DmSpace, GuildChannelList } from '@/components/channel-sidebar'
 import { ChatBody } from '@/components/chat/chat-body'
 import { HomePane } from '@/components/home-pane'
 import { InboxButton } from '@/components/inbox/inbox-button'
@@ -18,6 +17,8 @@ import { useSidebarView } from '@/components/shell/sidebar-state'
 import { TabBar } from '@/components/shell/tab-bar'
 import { useSidebarReveal } from '@/components/shell/use-sidebar-reveal'
 import { SpaceBar } from '@/components/shell/space-bar'
+import { DmSpace } from '@/components/sidebar/dm-space'
+import { GuildChannelList } from '@/components/sidebar/guild-channels'
 import { useGuildTint } from '@/components/shell/use-guild-tint'
 import { VoiceDock } from '@/components/voice-connected-panel'
 import { VoiceRoom } from '@/components/voice/voice-room'
@@ -131,7 +132,7 @@ export function Shell(): React.JSX.Element {
           top={
             <>
               <SwitcherField />
-              <FavouriteDms />
+              <FavouriteDms label={settings !== null || selectedGuildId !== null} />
             </>
           }
           middle={
