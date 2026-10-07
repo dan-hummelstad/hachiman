@@ -5,10 +5,10 @@ import {
   useChannelSettingsModel,
   useGuildSettingsModel,
   useUserSettingsModel,
-  type SettingsModel,
-  type SettingsTarget
+  type SettingsModel
 } from '@/components/settings/settings-model'
 import { cn } from '@/lib/utils'
+import type { SettingsTarget } from '@/stores/navStore'
 
 interface SettingsPageProps {
   target: SettingsTarget

@@ -4,6 +4,9 @@ import { ChatBody } from '@/components/chat/chat-body'
 import { HomePane } from '@/components/home-pane'
 import { InboxButton } from '@/components/inbox/inbox-button'
 import { RightColumn } from '@/components/people/right-column'
+import { SettingsNav } from '@/components/settings/settings-nav'
+import { SettingsPage } from '@/components/settings/settings-page'
+import { useSettingsMode } from '@/components/settings/use-settings-mode'
 import { ChannelPane, NoChannelPane } from '@/components/shell/channel-pane'
 import { FavouriteDms } from '@/components/shell/favourite-dms'
 import { QuickSwitcher, SwitcherField } from '@/components/shell/quick-switcher'
@@ -27,7 +30,13 @@ import { isGuildChannel } from '@/lib/model'
 import { cn } from '@/lib/utils'
 import { useChannelStore } from '@/stores/channelStore'
 import { useVoiceStore } from '@/stores/voiceStore'
-import { selectChannel, useSelectedChannelId, useSelectedGuildId } from '@/stores/navStore'
+import {
+  closeSettings,
+  selectChannel,
+  setSettingsSection,
+  useSelectedChannelId,
+  useSelectedGuildId
+} from '@/stores/navStore'
 
 /** The window wallpaper, tinted by the guild (N4). */
 const WALLPAPER = cn(
@@ -46,6 +55,9 @@ const WALLPAPER = cn(
  * over it from the left edge, and the voice dock floats in the card's bottom-left corner. The
  * card then sets `--dock-inset` (the dock width and its gap) and the footers in the pane shift
  * right by it, so the composer is not covered.
+ *
+ * Settings (Phase 7): the sidebar middle shows the settings list and the card shows the settings
+ * page, in place of the channel list, the pane and the right column. Nothing covers the window.
  */
 export function Shell(): React.JSX.Element {
   const selectedGuildId = useSelectedGuildId()
@@ -68,6 +80,7 @@ export function Shell(): React.JSX.Element {
   const floatDock = tucked && inVoice
   // Kept while the sidebar is revealed: the revealed sidebar slides over, nothing moves.
   const dockInset = hidden && inVoice
+  const settings = useSettingsMode()
   const sidebarRef = useRef<HTMLDivElement>(null)
   useSidebarReveal(sidebarRef)
   useSidebarShortcut()
@@ -119,7 +132,20 @@ export function Shell(): React.JSX.Element {
               <FavouriteDms />
             </>
           }
-          middle={selectedGuildId ? <GuildChannelList guildId={selectedGuildId} /> : <DmSpace />}
+          middle={
+            settings ? (
+              <SettingsNav
+                target={settings.target}
+                section={settings.section}
+                onSelect={setSettingsSection}
+                onBack={closeSettings}
+              />
+            ) : selectedGuildId ? (
+              <GuildChannelList guildId={selectedGuildId} />
+            ) : (
+              <DmSpace />
+            )
+          }
           foot={
             <>
               {!tucked && <VoiceDock />}
@@ -138,28 +164,38 @@ export function Shell(): React.JSX.Element {
             dockInset && '[&_main_footer]:pl-[calc(var(--dock-inset)+16px)]'
           )}
         >
-          <main className="flex min-h-0 min-w-0 flex-1 flex-col">
-            {selectedGuildId === null && !selectedChannel ? (
-              <HomePane />
-            ) : selectedChannel ? (
-              <ChannelPane
-                channel={selectedChannel}
-                side={isPages ? 'pages' : 'members'}
-                sideOpen={sideOpen}
-                onToggleSide={toggleSide}
-              >
-                {/* The single gate: voice channels carry no messages (no history, typing, composer). */}
-                {selectedChannel.type === 'voice' && isGuildChannel(selectedChannel) ? (
-                  <VoiceRoom key={selectedChannel.id} channel={selectedChannel} />
-                ) : (
-                  <ChatBody channel={selectedChannel} />
-                )}
-              </ChannelPane>
-            ) : (
-              <NoChannelPane />
-            )}
-          </main>
-          {sideOpen && selectedChannel && <RightColumn channel={selectedChannel} />}
+          {settings ? (
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+              <SettingsPage
+                target={settings.target}
+                section={settings.section}
+                onClose={closeSettings}
+              />
+            </div>
+          ) : (
+            <main className="flex min-h-0 min-w-0 flex-1 flex-col">
+              {selectedGuildId === null && !selectedChannel ? (
+                <HomePane />
+              ) : selectedChannel ? (
+                <ChannelPane
+                  channel={selectedChannel}
+                  side={isPages ? 'pages' : 'members'}
+                  sideOpen={sideOpen}
+                  onToggleSide={toggleSide}
+                >
+                  {/* The single gate: voice channels carry no messages (no history, typing, composer). */}
+                  {selectedChannel.type === 'voice' && isGuildChannel(selectedChannel) ? (
+                    <VoiceRoom key={selectedChannel.id} channel={selectedChannel} />
+                  ) : (
+                    <ChatBody channel={selectedChannel} />
+                  )}
+                </ChannelPane>
+              ) : (
+                <NoChannelPane />
+              )}
+            </main>
+          )}
+          {!settings && sideOpen && selectedChannel && <RightColumn channel={selectedChannel} />}
           {floatDock && (
             <div className="bg-surface-window absolute bottom-2 left-2 z-20 w-[264px] shadow-xl">
               <VoiceDock />

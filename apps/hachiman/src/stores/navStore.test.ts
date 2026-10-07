@@ -3,6 +3,7 @@ import { useDocsStore } from '@/stores/docsStore'
 import {
   back,
   clearHistory,
+  closeSettings,
   currentView,
   DM_HOME,
   forward,
@@ -10,7 +11,10 @@ import {
   navigate,
   openChannel,
   openSettings,
+  forgetGuild,
   pushHistory,
+  selectGuild,
+  setSettingsSection,
   stepHistory,
   useNavStore,
   type View
@@ -95,5 +99,64 @@ describe('navStore history', () => {
     openChannel('g1', 'c')
     expect(back((v) => !(v.kind === 'channel' && v.channelId === 'gone'))).toBe(true)
     expect(currentView()).toEqual(ch('a'))
+  })
+})
+
+describe('settings view', () => {
+  const guildSettings = (section: string | null): View => ({
+    kind: 'settings',
+    settings: { target: { kind: 'guild', guildId: 'g1' }, section }
+  })
+
+  it('opens in front of the channel and closes back to it', () => {
+    openChannel('g1', 'a')
+    openSettings({ kind: 'channel', channelId: 'a' }, 'permissions')
+    expect(currentView()).toEqual({
+      kind: 'settings',
+      settings: { target: { kind: 'channel', channelId: 'a' }, section: 'permissions' }
+    })
+    closeSettings()
+    expect(useNavStore.getState().settings).toBeNull()
+    expect(currentView()).toEqual(ch('a'))
+  })
+
+  it('section changes are history entries; back returns to the channel', () => {
+    openChannel('g1', 'a')
+    openSettings({ kind: 'guild', guildId: 'g1' })
+    setSettingsSection('roles')
+    expect(currentView()).toEqual(guildSettings('roles'))
+    expect(back()).toBe(true)
+    expect(currentView()).toEqual(guildSettings(null))
+    expect(back()).toBe(true)
+    expect(currentView()).toEqual(ch('a'))
+    expect(forward()).toBe(true)
+    expect(currentView()).toEqual(guildSettings(null))
+  })
+
+  it('closing records the settings view, so back reopens it', () => {
+    openChannel('g1', 'a')
+    openSettings({ kind: 'user' }, 'appearance')
+    closeSettings()
+    expect(back()).toBe(true)
+    expect(useNavStore.getState().settings).toEqual({
+      target: { kind: 'user' },
+      section: 'appearance'
+    })
+  })
+
+  it('a navigation elsewhere or leaving the guild closes it', () => {
+    openChannel('g1', 'a')
+    openSettings({ kind: 'user' })
+    selectGuild('g2')
+    expect(useNavStore.getState().settings).toBeNull()
+    openSettings({ kind: 'guild', guildId: 'g2' })
+    forgetGuild('g2')
+    expect(useNavStore.getState().settings).toBeNull()
+    expect(useNavStore.getState().guildKey).toBe(DM_HOME)
+  })
+
+  it('a section change without a settings view does nothing', () => {
+    setSettingsSection('roles')
+    expect(useNavStore.getState().settings).toBeNull()
   })
 })

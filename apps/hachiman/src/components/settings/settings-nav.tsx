@@ -6,13 +6,12 @@ import {
   useUserSettingsModel,
   isVisible,
   resolveSection,
-  type SettingsModel,
-  type SettingsTarget
+  type SettingsModel
 } from '@/components/settings/settings-model'
 import { useOwnDevices } from '@/components/security/devices-panel'
 import { cn } from '@/lib/utils'
 import { useChannelStore } from '@/stores/channelStore'
-import { useSelectedChannelId } from '@/stores/navStore'
+import { useSelectedChannelId, type SettingsTarget } from '@/stores/navStore'
 import { useCryptoStore } from '@/stores/cryptoStore'
 
 interface SettingsNavProps {

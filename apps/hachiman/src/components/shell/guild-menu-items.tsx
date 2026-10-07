@@ -11,6 +11,7 @@ import {
 import { Permissions, has } from '@hachiman/client'
 import { useIsGuildOwner, usePermissions } from '@/hooks/use-hachiman'
 import { openDialog } from '@/stores/dialogStore'
+import { openSettings } from '@/stores/navStore'
 
 /** The item/separator API shared by the Radix ContextMenu and DropdownMenu wrappers. */
 interface MenuPrimitives {
@@ -35,7 +36,7 @@ export function GuildMenuItems({
 
   return (
     <>
-      <Item onSelect={() => openDialog({ kind: 'guildSettings', guildId })}>
+      <Item onSelect={() => openSettings({ kind: 'guild', guildId })}>
         <Settings /> Guild settings
       </Item>
       {has(perms, Permissions.CREATE_INSTANT_INVITE) && (

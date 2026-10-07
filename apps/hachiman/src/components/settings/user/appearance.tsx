@@ -1,6 +1,13 @@
 import { SectionHeading } from '@/components/ui/field'
+import { Keycap } from '@/components/ui/keycap'
+import { MOD_KEY } from '@/lib/mod-key'
 import { cn } from '@/lib/utils'
-import { usePrefsStore, type MessageDisplay, type Theme } from '@/stores/prefsStore'
+import {
+  usePrefsStore,
+  type MessageDisplay,
+  type SidebarMode,
+  type Theme
+} from '@/stores/prefsStore'
 
 const THEMES: { value: Theme; label: string }[] = [
   { value: 'dark', label: 'Dark' },
@@ -8,12 +15,14 @@ const THEMES: { value: Theme; label: string }[] = [
   { value: 'system', label: 'Match system' }
 ]
 
-/** User settings → Appearance (H5): theme and message display, each a small preview. */
+/** User settings → Appearance (H5): theme, sidebar (N3) and message display, each a small preview. */
 export function AppearanceSection(): React.JSX.Element {
   const theme = usePrefsStore((s) => s.theme)
   const setTheme = usePrefsStore((s) => s.setTheme)
   const messageDisplay = usePrefsStore((s) => s.messageDisplay)
   const setMessageDisplay = usePrefsStore((s) => s.setMessageDisplay)
+  const sidebar = usePrefsStore((s) => s.sidebar)
+  const setSidebar = usePrefsStore((s) => s.setSidebar)
 
   return (
     <div className="grid gap-8">
@@ -28,6 +37,31 @@ export function AppearanceSection(): React.JSX.Element {
               label={t.label}
             >
               <ThemeSwatch value={t.value} />
+            </OptionCard>
+          ))}
+        </div>
+      </section>
+      <section>
+        <SectionHeading>Sidebar</SectionHeading>
+        <div role="radiogroup" aria-label="Sidebar" className="grid grid-cols-2 gap-3">
+          {(['docked', 'undocked'] as SidebarMode[]).map((m) => (
+            <OptionCard
+              key={m}
+              checked={sidebar === m}
+              onSelect={() => setSidebar(m)}
+              label={m === 'docked' ? 'Docked' : 'Undocked'}
+              hint={
+                m === 'docked' ? (
+                  'Part of the window, always visible'
+                ) : (
+                  <>
+                    Slides out at the left edge ·{' '}
+                    <Keycap className="h-4 bg-transparent px-0.5">{MOD_KEY}S</Keycap>
+                  </>
+                )
+              }
+            >
+              <SidebarPreview mode={m} />
             </OptionCard>
           ))}
         </div>
@@ -60,7 +94,7 @@ function OptionCard(props: {
   checked: boolean
   onSelect: () => void
   label: string
-  hint?: string
+  hint?: React.ReactNode
   children: React.ReactNode
 }): React.JSX.Element {
   return (
@@ -133,6 +167,41 @@ function ThemeSwatch({ value }: { value: Theme }): React.JSX.Element {
         </>
       ) : (
         <MiniChrome scheme={value} />
+      )}
+    </span>
+  )
+}
+
+/** The window with the sidebar docked beside the content, or slid out over it from the left edge. */
+function SidebarPreview({ mode }: { mode: SidebarMode }): React.JSX.Element {
+  const lines = (
+    <span className="flex flex-col gap-1.5 p-2">
+      <span className="bg-text-tertiary/50 h-1 w-3/4" />
+      <span className="bg-text-tertiary/35 h-1 w-1/2" />
+      <span className="bg-accent-primary h-1 w-2/3" />
+      <span className="bg-text-tertiary/35 h-1 w-3/5" />
+    </span>
+  )
+  return (
+    <span
+      aria-hidden
+      className="rounded-control border-line-hairline bg-surface-window relative flex h-20 overflow-hidden border"
+    >
+      {mode === 'docked' ? (
+        <>
+          <span className="w-[28%] shrink-0">{lines}</span>
+          <span className="bg-surface-content border-line-hairline my-1 mr-1 flex-1 border">
+            {lines}
+          </span>
+        </>
+      ) : (
+        <>
+          <span className="bg-accent-primary absolute inset-y-1 left-0 z-10 w-0.5" />
+          <span className="bg-surface-content border-line-hairline m-1 flex-1 border">{lines}</span>
+          <span className="bg-surface-raised border-line-strong absolute inset-y-2 left-1 w-[28%] border shadow-lg">
+            {lines}
+          </span>
+        </>
       )}
     </span>
   )

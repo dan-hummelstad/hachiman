@@ -3,7 +3,6 @@ import { History, KeyRound, Link2, ShieldAlert, TriangleAlert, X } from 'lucide-
 import type { CryptoEvents } from '@hachiman/crypto'
 import { Button } from '@/components/ui/button'
 import { useUserName } from '@/components/security/use-user-name'
-import { openUserSettings } from '@/components/user-settings'
 import { cn } from '@/lib/utils'
 import { hachiman } from '@/services/hachiman'
 import { useChannelStore } from '@/stores/channelStore'
@@ -14,6 +13,7 @@ import {
   useCryptoStore
 } from '@/stores/cryptoStore'
 import { openDialog, useDialogStore } from '@/stores/dialogStore'
+import { openSettings } from '@/stores/navStore'
 import { useGuildStore } from '@/stores/guildStore'
 
 /**
@@ -82,7 +82,7 @@ function Notices(): React.JSX.Element {
         icon={<ShieldAlert />}
         text="The security check found a key change for your account that you did not make."
         action="Open the security log"
-        onAction={() => openUserSettings('securityLog')}
+        onAction={() => openSettings({ kind: 'user' }, 'securityLog')}
       />
     )
   if (noRecovery && !hidden.has('recovery'))

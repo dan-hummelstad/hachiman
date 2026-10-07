@@ -67,7 +67,7 @@ import { voiceService } from '@/services/VoiceService'
 import { openDialog } from '@/stores/dialogStore'
 import { useGuildStore } from '@/stores/guildStore'
 import { useMessageStore, type ChatMessage } from '@/stores/messagesStore'
-import { selectChannel, useSelectedChannelId } from '@/stores/navStore'
+import { openSettings, selectChannel, useSelectedChannelId } from '@/stores/navStore'
 import { useFavouriteDms, useNotifyPrefs, usePrefsStore } from '@/stores/prefsStore'
 import { useChannelUnread, useDmUnread } from '@/stores/unreadStore'
 import { useUserStore } from '@/stores/userStore'
@@ -199,7 +199,7 @@ function ChannelManageItems({
 }): React.JSX.Element {
   return (
     <>
-      <ContextMenuItem onSelect={() => openDialog({ kind: 'channelSettings', channelId })}>
+      <ContextMenuItem onSelect={() => openSettings({ kind: 'channel', channelId })}>
         <Settings /> Edit {noun}
       </ContextMenuItem>
       <ContextMenuSeparator />
@@ -383,7 +383,7 @@ function ChannelRow({
                 <IconButton
                   size="sm"
                   label="Channel settings"
-                  onClick={() => openDialog({ kind: 'channelSettings', channelId: channel.id })}
+                  onClick={() => openSettings({ kind: 'channel', channelId: channel.id })}
                   className="rounded-control"
                 >
                   <Settings />

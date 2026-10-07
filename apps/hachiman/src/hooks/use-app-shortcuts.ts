@@ -22,9 +22,9 @@ export function viewExists(view: View): boolean {
       return pages === undefined || pages.some((p) => p.id === view.pageId)
     }
     case 'settings': {
-      const scope = view.settings.scope
-      if (scope.kind === 'guild') return useGuildStore.getState().guilds.has(scope.guildId)
-      if (scope.kind === 'channel') return channels.has(scope.channelId)
+      const target = view.settings.target
+      if (target.kind === 'guild') return useGuildStore.getState().guilds.has(target.guildId)
+      if (target.kind === 'channel') return channels.has(target.channelId)
       return true
     }
   }

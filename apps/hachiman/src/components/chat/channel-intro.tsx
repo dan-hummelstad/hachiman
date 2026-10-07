@@ -10,6 +10,7 @@ import { usePresence } from '@/hooks/use-member'
 import { channelLabel, hexColor } from '@/lib/model'
 import { cn } from '@/lib/utils'
 import { openDialog } from '@/stores/dialogStore'
+import { openSettings } from '@/stores/navStore'
 import { useChannelAccess } from '@/lib/channel-access'
 import { useTrustBadge } from './use-dm-trust'
 
@@ -56,7 +57,9 @@ function GuildIntro({
     : channel.type === 'pages'
       ? FEATURE_TILE.page
       : FEATURE_TILE.accent
-  const settings = (): void => openDialog({ kind: 'channelSettings', channelId: channel.id })
+  const settings = (): void => openSettings({ kind: 'channel', channelId: channel.id })
+  const manageAccess = (): void =>
+    openSettings({ kind: 'channel', channelId: channel.id }, 'permissions')
 
   return (
     <div className="px-5 pt-10 pb-4">
@@ -95,7 +98,7 @@ function GuildIntro({
         <RestrictedCard
           name={name}
           roles={access.viewers}
-          onManage={canManage ? settings : undefined}
+          onManage={canManage ? manageAccess : undefined}
         />
       )}
       {empty && !access.restricted && onUpload && <DropCard name={name} onUpload={onUpload} />}
