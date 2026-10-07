@@ -38,7 +38,37 @@ export interface ChatMessage extends Omit<Message, 'envelope' | 'attachments' | 
   failed?: boolean
   /** Why the send failed, in words for the user. */
   sendError?: string
+  /** Absent: 'message'. 'page_activity': "edited <page> · n changes" (N21), see `pageActivity`. */
+  kind?: 'message' | 'page_activity'
+  /** Set on kind 'page_activity'. The page is in this (pages) channel. */
+  pageActivity?: { pageId: string; changes: number }
+  /** The author is blocked (N23): the row decrypts, the UI hides it behind "Blocked message". */
+  blocked?: boolean
 }
+
+/**
+ * One decrypted reaction message (N10, §12.8.1 kind 'reaction'). It never becomes a row: the
+ * store folds it into `reactions` of its target.
+ */
+export interface ReactionEvent {
+  /** The id of the reaction message itself (a delete of that message takes the event back). */
+  messageId: string
+  /** The client_msg_id of the target message in the same channel. */
+  target: string
+  /** The verified sender user. */
+  userId: string
+  emoji: string
+  remove: boolean
+  /** Sender clock: orders the events of one sender. */
+  sentAtMs: number
+  createdAt: string
+}
+
+/** emoji → the users who reacted with it. Emojis in the order of their oldest reaction. */
+export type ReactionMap = ReadonlyMap<string, ReadonlySet<string>>
+
+/** (user, emoji) → the newest event of that pair. */
+type ReactionLog = Map<string, ReactionEvent>
 
 interface MessagesState {
   /** channelId → messages, oldest first. */
@@ -47,6 +77,15 @@ interface MessagesState {
   hasMore: Map<string, boolean>
   /** channelId → userId → typing-expiry (ms epoch). */
   typing: Map<string, Map<string, number>>
+  /** channelId → target client_msg_id → (user, emoji) → the newest reaction event. */
+  reactionLog: Map<string, Map<string, ReactionLog>>
+  /**
+   * channelId → target client_msg_id → the folded reactions. Kept by client_msg_id, so a
+   * reaction whose target is not loaded yet shows once the target loads.
+   */
+  reactions: Map<string, Map<string, ReactionMap>>
+  /** The blocked user ids (N23): rows of these authors get `blocked: true`. */
+  blockedUsers: ReadonlySet<string>
   /** Merge server messages by id; a message whose nonce matches a pending row replaces it. */
   upsert: (channelId: string, messages: ChatMessage[]) => void
   addPending: (message: ChatMessage) => void
@@ -54,17 +93,77 @@ interface MessagesState {
   remove: (channelId: string, messageId: string) => void
   setHasMore: (channelId: string, hasMore: boolean) => void
   setTyping: (channelId: string, userId: string, until: number | null) => void
+  /** Folds decrypted reaction messages. A row with the id of a reaction (a placeholder) goes away. */
+  applyReactions: (channelId: string, events: ReactionEvent[]) => void
+  /** Sets the blocked users and marks the stored rows again. */
+  setBlockedUsers: (userIds: ReadonlySet<string>) => void
 }
 
 const byTime = (a: ChatMessage, b: ChatMessage): number =>
   a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id)
 
-type MessagesData = Pick<MessagesState, 'byChannel' | 'hasMore' | 'typing'>
+const reactionKey = (e: Pick<ReactionEvent, 'userId' | 'emoji'>): string =>
+  `${e.userId}\u0000${e.emoji}`
+
+/** True when `a` comes after `b` in sender order (ties: server order). */
+const isNewer = (a: ReactionEvent, b: ReactionEvent): boolean =>
+  a.sentAtMs !== b.sentAtMs
+    ? a.sentAtMs > b.sentAtMs
+    : a.createdAt !== b.createdAt
+      ? a.createdAt > b.createdAt
+      : a.messageId > b.messageId
+
+/** The reactions of one target from its newest event per (user, emoji). Removes drop out. */
+export function foldReactions(log: Iterable<ReactionEvent>): ReactionMap {
+  const adds = [...log].filter((e) => !e.remove).sort((a, b) => (isNewer(a, b) ? 1 : -1))
+  const out = new Map<string, Set<string>>()
+  for (const e of adds) {
+    let users = out.get(e.emoji)
+    if (!users) out.set(e.emoji, (users = new Set()))
+    users.add(e.userId)
+  }
+  return out
+}
+
+const withBlocked = (m: ChatMessage, blocked: ReadonlySet<string>): ChatMessage => {
+  if (blocked.size === 0 && m.blocked === undefined) return m
+  const is = blocked.has(m.author.id)
+  if (is === (m.blocked === true)) return m
+  if (is) return { ...m, blocked: true }
+  const rest = { ...m }
+  delete rest.blocked
+  return rest
+}
+
+/** `reactions` with the targets of one channel folded again from `logs`. */
+function refold(
+  reactions: MessagesState['reactions'],
+  channelId: string,
+  logs: Map<string, ReactionLog>,
+  targets: Iterable<string>
+): MessagesState['reactions'] {
+  const byTarget = new Map(reactions.get(channelId))
+  for (const t of targets) {
+    const log = logs.get(t)
+    const folded = log ? foldReactions(log.values()) : null
+    if (folded && folded.size > 0) byTarget.set(t, folded)
+    else byTarget.delete(t)
+  }
+  return new Map(reactions).set(channelId, byTarget)
+}
+
+type MessagesData = Pick<
+  MessagesState,
+  'byChannel' | 'hasMore' | 'typing' | 'reactionLog' | 'reactions' | 'blockedUsers'
+>
 
 const initialMessagesState = (): MessagesData => ({
   byChannel: new Map(),
   hasMore: new Map(),
-  typing: new Map()
+  typing: new Map(),
+  reactionLog: new Map(),
+  reactions: new Map(),
+  blockedUsers: new Set()
 })
 
 export const useMessageStore = create<MessagesState>()(
@@ -74,7 +173,8 @@ export const useMessageStore = create<MessagesState>()(
       set((s) => {
         if (incoming.length === 0) return {}
         const list = [...(s.byChannel.get(channelId) ?? [])]
-        for (const m of incoming) {
+        for (const raw of incoming) {
+          const m = withBlocked(raw, s.blockedUsers)
           const i = list.findIndex((x) => x.id === m.id || (m.nonce && x.nonce === m.nonce))
           if (i >= 0) list[i] = m
           else list.push(m)
@@ -84,7 +184,10 @@ export const useMessageStore = create<MessagesState>()(
       }),
     addPending: (message) =>
       set((s) => {
-        const list = [...(s.byChannel.get(message.channelId) ?? []), message]
+        const list = [
+          ...(s.byChannel.get(message.channelId) ?? []),
+          withBlocked(message, s.blockedUsers)
+        ]
         return { byChannel: new Map(s.byChannel).set(message.channelId, list) }
       }),
     markFailed: (channelId, nonce, sendError) =>
@@ -98,14 +201,27 @@ export const useMessageStore = create<MessagesState>()(
       }),
     remove: (channelId, messageId) =>
       set((s) => {
+        const out: Partial<MessagesData> = {}
         const list = s.byChannel.get(channelId)
-        if (!list) return {}
-        return {
-          byChannel: new Map(s.byChannel).set(
+        if (list)
+          out.byChannel = new Map(s.byChannel).set(
             channelId,
             list.filter((m) => m.id !== messageId)
           )
+        // A deleted reaction message takes its event back.
+        const logs = s.reactionLog.get(channelId)
+        for (const [target, log] of logs ?? []) {
+          for (const [key, e] of log) {
+            if (e.messageId !== messageId) continue
+            const nextLog = new Map(log)
+            nextLog.delete(key)
+            const nextLogs = new Map(logs).set(target, nextLog)
+            out.reactionLog = new Map(s.reactionLog).set(channelId, nextLogs)
+            out.reactions = refold(s.reactions, channelId, nextLogs, [target])
+            return out
+          }
         }
+        return out
       }),
     setHasMore: (channelId, hasMore) =>
       set((s) => ({ hasMore: new Map(s.hasMore).set(channelId, hasMore) })),
@@ -117,9 +233,88 @@ export const useMessageStore = create<MessagesState>()(
           users.delete(userId)
         } else users.set(userId, until)
         return { typing: new Map(s.typing).set(channelId, users) }
+      }),
+    applyReactions: (channelId, events) =>
+      set((s) => {
+        if (events.length === 0) return {}
+        const logs = new Map(s.reactionLog.get(channelId))
+        const touched = new Set<string>()
+        for (const e of events) {
+          const prev = logs.get(e.target)?.get(reactionKey(e))
+          if (prev && !isNewer(e, prev)) continue
+          logs.set(e.target, new Map(logs.get(e.target)).set(reactionKey(e), e))
+          touched.add(e.target)
+        }
+        const out: Partial<MessagesData> = {}
+        const ids = new Set(events.map((e) => e.messageId))
+        const list = s.byChannel.get(channelId)
+        if (list?.some((m) => ids.has(m.id)))
+          out.byChannel = new Map(s.byChannel).set(
+            channelId,
+            list.filter((m) => !ids.has(m.id))
+          )
+        if (touched.size > 0) {
+          out.reactionLog = new Map(s.reactionLog).set(channelId, logs)
+          out.reactions = refold(s.reactions, channelId, logs, touched)
+        }
+        return out
+      }),
+    setBlockedUsers: (userIds) =>
+      set((s) => {
+        const byChannel = new Map<string, ChatMessage[]>()
+        for (const [id, list] of s.byChannel)
+          byChannel.set(
+            id,
+            list.map((m) => withBlocked(m, userIds))
+          )
+        return { blockedUsers: userIds, byChannel }
       })
   }))
 )
+
+const EMPTY_REACTIONS: ReactionMap = new Map()
+
+/** The reactions on a message, by its client_msg_id. A stable empty map when it has none. */
+export function useReactions(channelId: string, clientMsgId: string): ReactionMap {
+  return useMessageStore((s) => s.reactions.get(channelId)?.get(clientMsgId) ?? EMPTY_REACTIONS)
+}
+
+/**
+ * The reply preview of a row (N11): 'ok' with the target row, 'encrypted' when the target did not
+ * decrypt ("Encrypted message"), or 'missing' when it is not loaded ("Original message not loaded").
+ */
+export type ReplyPreview =
+  | { status: 'ok'; message: ChatMessage }
+  | { status: 'encrypted'; message: ChatMessage }
+  | { status: 'missing' }
+
+const MISSING: ReplyPreview = { status: 'missing' }
+
+export function replyPreviewOf(
+  list: readonly ChatMessage[] | undefined,
+  replyTo: string
+): ReplyPreview {
+  const target = list?.find((m) => m.clientMsgId === replyTo && m.kind !== 'page_activity')
+  if (!target) return MISSING
+  return target.decrypt.status === 'ok'
+    ? { status: 'ok', message: target }
+    : { status: 'encrypted', message: target }
+}
+
+/**
+ * The target row of a reply (`replyTo` is a client_msg_id), or null when it is not loaded. The
+ * selector returns the stored row itself, so the preview re-renders only when that row changes.
+ * Pass the result to `replyPreviewOf([row], replyTo)` for the status, or read `decrypt` directly.
+ */
+export function useReplyTarget(channelId: string, replyTo: string | null): ChatMessage | null {
+  return useMessageStore((s) =>
+    replyTo === null
+      ? null
+      : (s.byChannel
+          .get(channelId)
+          ?.find((m) => m.clientMsgId === replyTo && m.kind !== 'page_activity') ?? null)
+  )
+}
 
 let epoch = 0
 /** Bumped by every reset, so requests started before a sign-out can drop their late results. */
@@ -132,7 +327,8 @@ export function resetMessagesStore(): void {
 
 /**
  * A new gateway session (READY) has a gap: events between the sessions are lost. Drops the
- * loaded history, so the next load fetches the latest page. Unsent rows stay.
+ * loaded history, so the next load fetches the latest page. Unsent rows stay. The reactions go
+ * with the history: the next load folds them again.
  */
 export function dropHistory(): void {
   epoch++
@@ -142,6 +338,12 @@ export function dropHistory(): void {
       const unsent = list.filter((m) => m.pending)
       if (unsent.length > 0) byChannel.set(id, unsent)
     }
-    return { byChannel, hasMore: new Map(), typing: new Map() }
+    return {
+      byChannel,
+      hasMore: new Map(),
+      typing: new Map(),
+      reactionLog: new Map(),
+      reactions: new Map()
+    }
   })
 }

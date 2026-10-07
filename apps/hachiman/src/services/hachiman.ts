@@ -3,6 +3,7 @@ import {
   type GatewayDevice,
   type GatewayDispatch,
   type GatewayEvents,
+  type GuildEventWithMe,
   type Message,
   type PresenceStatus
 } from '@hachiman/client'
@@ -12,6 +13,7 @@ import { CLIENT_CAPABILITIES, CLIENT_VERSION } from '@/lib/client-version'
 import { cryptoService } from '@/services/CryptoService'
 import { createDsTransport } from '@/services/ds-transport'
 import { docsService } from '@/services/docs/DocsService'
+import { blockService, eventsService, pinsService } from '@/services/guild-features'
 import { redeemWaitingInvites, resetInvites } from '@/services/InviteService'
 import { messagesService } from '@/services/MessagesService'
 import { takusenService } from '@/services/TakusenService'
@@ -21,6 +23,9 @@ import { createVoiceE2ee } from '@/services/voice-e2ee'
 import { voiceService } from '@/services/VoiceService'
 import type { IPlatformService } from '@/shared/IPlatformService'
 import { resetChannelStore, useChannelStore } from '@/stores/channelStore'
+import { resetComposerStore } from '@/stores/composerStore'
+import { byStart, resetEventsStore, useEventsStore } from '@/stores/eventsStore'
+import { resetThreadsStore } from '@/stores/threadsStore'
 import { currentDeviceId, setCryptoFatal, useCryptoStore } from '@/stores/cryptoStore'
 import { resetGuildStore, useGuildStore } from '@/stores/guildStore'
 import { resetMessagesStore, useMessageStore } from '@/stores/messagesStore'
@@ -31,7 +36,8 @@ import {
   DM_HOME,
   forgetGuild,
   openChannel,
-  selectedChannelId
+  selectedChannelId,
+  useNavStore
 } from '@/stores/navStore'
 import { notifyPrefs, usePrefsStore } from '@/stores/prefsStore'
 import { loadTabs, pruneTabs, type TabTarget } from '@/stores/tabsStore'
@@ -90,7 +96,25 @@ function syncGuilds(): void {
 }
 
 function syncPresences(): void {
-  useGuildStore.setState({ presences: new Map(hachiman.cache.presences) })
+  useGuildStore.setState({
+    presences: new Map(hachiman.cache.presences),
+    customStatuses: new Map(hachiman.cache.customStatuses)
+  })
+}
+
+/** cache.events → eventsStore, each guild earliest start first. */
+export function syncEvents(): void {
+  const byGuild = new Map<string, GuildEventWithMe[]>()
+  for (const [guildId, events] of hachiman.cache.events)
+    byGuild.set(guildId, [...events.values()].sort(byStart))
+  useEventsStore.setState({ byGuild })
+}
+
+/** cache.blocks → userStore, and the `blocked` flag of the message rows. */
+export function syncBlocks(): void {
+  const blocks = new Set(hachiman.cache.blocks)
+  useUserStore.setState({ blocks })
+  useMessageStore.getState().setBlockedUsers(blocks)
 }
 
 function syncChannels(): void {
@@ -127,6 +151,7 @@ function syncAll(): void {
   syncPresences()
   syncChannels()
   syncVoiceStates()
+  syncEvents()
 }
 
 const onUpdate = (e: GatewayDispatch): void => {
@@ -145,6 +170,8 @@ const onUpdate = (e: GatewayDispatch): void => {
       setAccount(e.d.user.id)
       pruneTabs(tabExists)
       unreadService.onReady()
+      void blockService.load()
+      loadSelectedGuildEvents()
       return redeemWaitingInvites()
     }
     case 'RESUMED':
@@ -178,7 +205,23 @@ const onUpdate = (e: GatewayDispatch): void => {
       // The raw event keeps 'offline' (Invisible) for me; the cache drops it.
       if (e.d.userId === hachiman.cache.user?.id) useUserStore.setState({ status: e.d.status })
       return syncPresences()
+    case 'GUILD_EVENT_CREATE':
+    case 'GUILD_EVENT_UPDATE':
+    case 'GUILD_EVENT_DELETE':
+    case 'GUILD_EVENT_RSVP':
+      return syncEvents()
+    case 'USER_BLOCK_UPDATE':
+      return syncBlocks()
+    case 'CHANNEL_PINS_UPDATE':
+      return pinsService.onPinsUpdate(e.d.channelId)
   }
+}
+
+/** The events of the selected guild load on READY and on every guild switch (N14). */
+function loadSelectedGuildEvents(): void {
+  const { guildKey } = useNavStore.getState()
+  if (guildKey !== DM_HOME && hachiman.cache.guilds.has(guildKey))
+    eventsService.ensureLoaded(guildKey)
 }
 
 /** Set my presence: shown immediately, then confirmed by the PRESENCE_UPDATE echo. */
@@ -204,7 +247,7 @@ const onMessageCreate = async (m: Message): Promise<void> => {
   useMessageStore.getState().setTyping(m.channelId, m.author.id, null)
   unreadService.onMessageCreate(m, row)
   const me = hachiman.cache.user
-  if (!me || row?.decrypt.status !== 'ok') return
+  if (!me || row?.decrypt.status !== 'ok' || row.kind === 'page_activity' || row.blocked) return
   const viewing = selectedChannelId() === m.channelId && document.hasFocus()
   const myRoles = m.guildId ? (hachiman.cache.members.get(m.guildId)?.get(me.id)?.roles ?? []) : []
   const sound = messageSound(row, me, viewing, myRoles, notifyPrefs())
@@ -300,6 +343,7 @@ export function startHachiman(host?: IPlatformService): void {
   forwardCryptoEvents()
   cryptoService.on('epochKeysAvailable', ({ groupId }) => {
     void messagesService.retryGroup(groupId)
+    pinsService.retryGroup(groupId)
     docsService.retry()
   })
   // This device joined a group: the page titles of that group decrypt now.
@@ -316,7 +360,13 @@ export function startHachiman(host?: IPlatformService): void {
     // Setup or linking finished: catch up and decrypt what waited.
     if (hachiman.gateway.state === 'ready') cryptoService.sync()
     messagesService.retryAll()
+    pinsService.retryAll()
     redeemWaitingInvites()
+  })
+  // A guild switch loads the events of that guild (N14).
+  useNavStore.subscribe((s, prev) => {
+    if (s.guildKey !== prev.guildKey && hachiman.gateway.state === 'ready')
+      loadSelectedGuildEvents()
   })
   voiceService.start()
   unreadService.start()
@@ -336,6 +386,8 @@ export function startHachiman(host?: IPlatformService): void {
     hachiman.disconnect()
     cryptoService.stop()
     messagesService.reset()
+    pinsService.reset()
+    eventsService.reset()
     docsService.reset()
     resetInvites()
     clearDecryptedBlobs()
@@ -347,6 +399,9 @@ export function startHachiman(host?: IPlatformService): void {
     unreadService.reset()
     setAccount(null)
     clearHistory()
+    resetEventsStore()
+    resetThreadsStore()
+    resetComposerStore()
     closeAllDialogs() // open dialogs belong to the session that just ended
   }
   let signedIn = useTakusenStore.getState().session !== null

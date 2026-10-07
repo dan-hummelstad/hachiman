@@ -58,7 +58,8 @@ const decryptor = createMessageDecryptor({
       .getState()
       .byChannel.get(channelId)
       ?.find((m) => m.id === messageId),
-  upsert: (channelId, rows) => useMessageStore.getState().upsert(channelId, rows)
+  upsert: (channelId, rows) => useMessageStore.getState().upsert(channelId, rows),
+  reactions: (channelId, events) => useMessageStore.getState().applyReactions(channelId, events)
 })
 
 async function fetchOlder(channelId: string): Promise<void> {
@@ -199,12 +200,13 @@ export const messagesService = {
   /**
    * Optimistic send: a pending row keyed by nonce, replaced by the decrypted echo (REST response
    * or MESSAGE_CREATE). `attachments` are finished encrypted uploads; the pending row renders
-   * them already.
+   * them already. `replyTo` is the client_msg_id of the message that this one answers (N11).
    */
   async send(
     channelId: string,
     content: string,
-    attachments: AttachmentPointer[] = []
+    attachments: AttachmentPointer[] = [],
+    replyTo: string | null = null
   ): Promise<void> {
     const text = content.trim()
     const me = useUserStore.getState().me
@@ -224,7 +226,7 @@ export const messagesService = {
       content: text,
       mentions,
       attachments,
-      replyTo: null,
+      replyTo,
       sender: null,
       decrypt: { status: 'ok' },
       createdAt: new Date().toISOString(),
@@ -233,7 +235,7 @@ export const messagesService = {
     })
     playSound('messageSent')
     lastTyping = { channelId: '', at: 0 }
-    const body: Omit<MessageContent, 'sentAtMs'> = { text, mentions, attachments, replyTo: null }
+    const body: Omit<MessageContent, 'sentAtMs'> = { text, mentions, attachments, replyTo }
     try {
       const ids = uploadIdsOf(attachments)
       const sent = await sealAndPost(
@@ -259,7 +261,67 @@ export const messagesService = {
    */
   async retry(message: ChatMessage): Promise<void> {
     messagesService.discard(message)
-    await messagesService.send(message.channelId, message.content, message.attachments)
+    await messagesService.send(
+      message.channelId,
+      message.content,
+      message.attachments,
+      message.replyTo
+    )
+  },
+
+  /**
+   * Adds (`remove` false) or takes back one emoji on a message (N10): a new message of kind
+   * 'reaction'. The store shows it at once; a failed send takes it back and rejects with an Error
+   * whose message is for the user.
+   */
+  async react(
+    channelId: string,
+    targetClientMsgId: string,
+    emoji: string,
+    remove = false
+  ): Promise<void> {
+    const me = useUserStore.getState().me
+    if (!me || !targetClientMsgId || !emoji) return
+    const nonce = crypto.randomUUID()
+    const store = useMessageStore.getState()
+    // Optimistic: the echo has a later sentAtMs, so it replaces this event in the fold.
+    store.applyReactions(channelId, [
+      {
+        messageId: nonce,
+        target: targetClientMsgId,
+        userId: me.id,
+        emoji,
+        remove,
+        sentAtMs: Date.now(),
+        createdAt: new Date().toISOString()
+      }
+    ])
+    try {
+      const sent = await sealAndPost(
+        channelId,
+        {
+          channelId,
+          kind: 'reaction',
+          editOf: null,
+          content: { target: targetClientMsgId, emoji, remove }
+        },
+        (envelope) => hachiman.rest.sendMessage(channelId, { envelope, nonce })
+      )
+      await decryptor.ingest([sent])
+    } catch (err) {
+      useMessageStore.getState().remove(channelId, nonce)
+      throw new Error(sendErrorText(err), { cause: err })
+    }
+  },
+
+  /** Posts "edited a page" (N21) into the pages channel of the page. */
+  async postPageActivity(channelId: string, pageId: string, changes: number): Promise<void> {
+    const sent = await sealAndPost(
+      channelId,
+      { channelId, kind: 'page_activity', editOf: null, content: { pageId, changes } },
+      (envelope) => hachiman.rest.sendMessage(channelId, { envelope, nonce: crypto.randomUUID() })
+    )
+    await decryptor.ingest([sent])
   },
 
   /** Drop a failed optimistic message locally (it never reached the server). */
