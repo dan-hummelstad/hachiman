@@ -9,6 +9,7 @@ import { AsyncLocalStorage } from 'node:async_hooks'
 import { randomUUID } from 'node:crypto'
 
 import { hasTextGroup } from '@/lib/channel-types'
+import { sourceChannelId } from '@/lib/threads'
 
 import type {
   BackupMeta,
@@ -170,7 +171,7 @@ export class InMemoryMlsRepo implements MlsRepo {
     this.addGuildMember(guildId, userId)
     this.s.inviteJoins.push({ guildId, userId, inviteId, joinedAt })
   }
-  addChannel(c: Omit<ChannelInfo, 'id' | 'mlsGroupId'> & { id?: string }): string {
+  addChannel(c: Omit<ChannelInfo, 'id' | 'mlsGroupId' | 'parentId'> & { id?: string; parentId?: string | null }): string {
     const id = c.id ?? randomUUID()
     this.s.channels.set(id, { id, guildId: c.guildId, type: c.type, mlsGroupId: null, parentId: c.parentId ?? null })
     return id
@@ -245,8 +246,8 @@ export class InMemoryMlsRepo implements MlsRepo {
   }
   async getChannelOverwrites(channelId: string): Promise<OverwriteInfo[]> {
     const c = this.s.channels.get(channelId)
-    const target = c?.type === 'thread' ? c.parentId : channelId
-    return target ? [...(this.s.overwrites.get(target) ?? [])] : []
+    const source = c ? sourceChannelId(c) : null
+    return source ? [...(this.s.overwrites.get(source) ?? [])] : []
   }
   async getDmParticipants(channelId: string): Promise<string[]> {
     return [...(this.s.dmParticipants.get(channelId) ?? [])]

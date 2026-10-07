@@ -63,8 +63,8 @@ interface Channel {
   permissionOverwrites: PermissionOverwrite[]   // [] for DMs and threads
   recipients?: User[]              // dm / group_dm only: every participant except the viewer
   ownerId?: string | null          // group_dm: the owner. thread: the creator
-  mlsGroupId: string | null        // text, pages, dm, group_dm: the current MLS group (base64url, §12.6). thread: the group of the parent. null: no group yet, or voice/category
-  historyVisibility: 'joined' | 'shared' | null   // text, pages, dm, group_dm, thread: the effective value (§12.6). null for voice/category
+  mlsGroupId: string | null        // text, pages, dm, group_dm: the current MLS group (base64url, §12.6). null: no group yet, or voice/category/thread. A thread uses the group of its parent: read it from the parent channel or GET /channels/:threadId/mls-group
+  historyVisibility: 'joined' | 'shared' | null   // text, pages, dm, group_dm: the effective value (§12.6). null for voice/category/thread (a thread has the value of its parent)
   threadStartMessageId?: string | null   // thread only: the message of the parent that starts the thread, or null
 }
 
@@ -1477,7 +1477,7 @@ The recipient checks that the sender device belongs to the same user and has a v
 
 **Public channel.** A guild text or pages channel is public when the guild `@everyone` role permissions, with the channel `@everyone` overwrite applied, include VIEW_CHANNEL, and no role or member overwrite on the channel denies VIEW_CHANNEL. All public channels of a guild share the `public_set` group. Each other guild text or pages channel has its own `channel` group. Voice channels have no text group. Takusen tests the two types with one helper, `hasTextGroup(type)`.
 
-**Thread.** A thread has no group. It uses the current group of its parent text channel: the `public_set` group or the `channel` group. The DS resolves the thread to its parent at read time (`MlsRepo.getChannel` gives the `mlsGroupId` of the parent, `getChannelOverwrites` the overwrites of the parent), so a group change of the parent applies to its threads at once. `channelReaders(threadId)` is `channelReaders(parentId)`. A message envelope of a thread names the thread in `channelId` and the group of the parent in `groupId` (§12.8.4). `GET /channels/:threadId/mls-group` gives the group of the parent.
+**Thread.** A thread has no group. It uses the current group of its parent text channel: the `public_set` group or the `channel` group. The DS resolves the thread to its parent at read time (`MlsRepo.getChannel` gives the `mlsGroupId` of the parent, `getChannelOverwrites` the overwrites of the parent), so a group change of the parent applies to its threads at once. `channelReaders(threadId)` is `channelReaders(parentId)`. A message envelope of a thread names the thread in `channelId` and the group of the parent in `groupId` (§12.8.4). `GET /channels/:threadId/mls-group` gives the group of the parent. The `Channel` of a thread has `mlsGroupId` and `historyVisibility` null (§1): a client resolves the thread to its parent, so a group change of the parent needs no `CHANNEL_UPDATE` of its threads.
 
 `channelReaders(channelId)` is the set of guild members whose `computeChannelPermissions` (§2) includes VIEW_CHANNEL. For a DM it is the set of participants. Takusen implements it once in `apps/takusen/src/lib/mls/readers.ts`. Clients compute the same set from their cache with `computeChannelPermissions`.
 

@@ -35,6 +35,7 @@ import { publishToGuild, publishToUser } from '@/lib/events'
 import { assertId } from '@/lib/ids'
 import { DEVICE_HEADER, requireDevice } from '@/lib/mls/device-auth'
 import { channelReaders, isPublicChannel } from '@/lib/mls/readers'
+import { sourceChannelId } from '@/lib/threads'
 import { toOverwrite } from '@/lib/wire'
 
 // MARK: - Readers (§12.6). The one implementation is lib/mls/readers.ts.
@@ -146,8 +147,7 @@ export async function loadChannelAccess(channelId: string, userId: string): Prom
     return { channel, guild: null, overwrites: [], participantIds, permissions: DM_PERMISSIONS }
   }
 
-  // §2: a thread has the permissions of its parent channel.
-  const permissionSource = channel.type === 'thread' ? channel.parentId : channelId
+  const permissionSource = sourceChannelId(channel)
   if (!permissionSource) throw new NotFoundError('Unknown channel')
   const guild = await loadGuildAccess(channel.guildId, userId)
   const overwrites = await db
@@ -176,7 +176,7 @@ export async function publishToChannel<T extends GatewayEventName>(
 ): Promise<void> {
   const { channel } = access
   if (channel.guildId !== null) {
-    await publishToGuild(channel.guildId, t, d, (channel.type === 'thread' && channel.parentId) || channel.id)
+    await publishToGuild(channel.guildId, t, d, sourceChannelId(channel) ?? channel.id)
     return
   }
   await Promise.all(access.participantIds.map((id) => publishToUser(id, t, d)))

@@ -13,7 +13,6 @@ import { DEFAULT_EVERYONE, Permissions } from '@hachiman/client/permissions'
 import type { ChannelRow, GuildMemberRow, MessageRow, PermissionOverwriteRow, RoleRow } from '@/db/schema'
 import {
   assembleGuildFull,
-  withParentGroups,
   createMessageSchema,
   DEFAULT_PUBLIC_HISTORY_VISIBILITY,
   editMessageSchema,
@@ -182,17 +181,14 @@ test('a thread under a private parent is visible only with the parent', () => {
   assert.deepEqual(names(assembleGuildFull(i)), ['general', 'staff', 'staff-thread', 'general-thread'])
 })
 
-test('a thread has the group of its parent, its creator and its start message', () => {
-  const rows = withParentGroups([{ ...channel(GENERAL, 'general'), mlsGroupId: GROUP }, thread(THREAD_GENERAL, 't', GENERAL)])
-  const wire = toChannel(rows[1]!, [], new Map([[GROUP_B64, 'shared' as const]]))
-  assert.equal(wire.mlsGroupId, GROUP_B64)
-  assert.equal(wire.historyVisibility, 'shared')
+test('a thread has no group fields (readers take the parent), its creator and its start message', () => {
+  const wire = toChannel({ ...thread(THREAD_GENERAL, 't', GENERAL), mlsGroupId: GROUP }, [], new Map([[GROUP_B64, 'shared' as const]]))
+  assert.equal(wire.mlsGroupId, null)
+  assert.equal(wire.historyVisibility, null)
   assert.equal(wire.ownerId, ALICE)
   assert.equal(wire.threadStartMessageId, START)
   assert.deepEqual(wire.permissionOverwrites, [])
   assert.equal('threadStartMessageId' in toChannel(channel(GENERAL, 'general'), []), false)
-  // A thread whose parent is not in the list has no group.
-  assert.equal(withParentGroups([thread(THREAD_GENERAL, 't', GENERAL)], [])[0]!.mlsGroupId, null)
 })
 
 test('voice and category channels have no group fields', () => {

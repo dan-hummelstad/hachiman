@@ -107,10 +107,10 @@ export async function claimForMessage(
   return rows.sort((a, b) => a.position - b.position)
 }
 
-export type AttachmentScope = { messageId: string } | { channelId: string } | { guildId: string }
+export type AttachmentScope = { messageId: string } | { channelIds: string[] } | { guildId: string }
 
 /**
- * Deletes the attachment rows of one message, channel or guild and returns
+ * Deletes the attachment rows of one message, some channels or a guild and returns
  * their keys. Run it in the transaction that deletes the scope, then pass the
  * keys to deleteObjects after commit: the FK cascade would drop the rows but
  * leave the objects in the bucket. A channel or guild scope also takes the
@@ -139,8 +139,8 @@ export async function deleteAttachmentRows(tx: Tx, scope: AttachmentScope): Prom
       .select({ id: channels.id })
       .from(channels)
       .where(
-        'channelId' in scope
-          ? eq(channels.id, scope.channelId)
+        'channelIds' in scope
+          ? inArray(channels.id, scope.channelIds)
           : eq(channels.guildId, scope.guildId),
       )
       .for('update')

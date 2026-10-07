@@ -11,6 +11,15 @@ import { MissingPermissionsError, ValidationError } from '@/lib/errors'
 /** The most threads that GET /channels/:id/threads returns. */
 export const THREAD_LIST_MAX = 50
 
+/**
+ * The channel whose permissions and MLS group a channel uses (§2, §12.6): the
+ * parent for a thread, else the channel itself. A thread without a parent gives
+ * null: the caller grants nothing.
+ */
+export function sourceChannelId(c: { id: string; type: string; parentId: string | null }): string | null {
+  return c.type === 'thread' ? c.parentId : c.id
+}
+
 /** POST /channels/:id/threads: a guild text channel, and SEND_MESSAGES on it. */
 export function assertCanCreateThread(parent: { type: string; guildId: string | null }, permissions: number): void {
   if (parent.guildId === null || parent.type !== THREAD_PARENT_TYPE) {
