@@ -3,8 +3,8 @@
  * the result goes into messagesStore. No envelope is ever stored as text.
  *
  * - 'ok': the decrypted row replaces the row of that id (an edit replaces the content). Kind
- *   'reaction' is no row: it goes to `deps.reactions` (N10). Kind 'page_activity' is a row of
- *   kind 'page_activity' (N21).
+ *   'reaction' is no row: it goes to `deps.reactions` (N10). Kind 'page_activity' is no row
+ *   either: page edits do not show in the chat.
  * - 'pending': a placeholder row. The ciphertext waits here, and `retryGroup` decrypts it again
  *   when the Worker emits epochKeysAvailable. A row that already shows content keeps it.
  * - A rejected call (the Worker is not there, or a Worker transport error) and a 'pending'
@@ -106,15 +106,7 @@ export function rowFor(
   const shows = existing?.decrypt.status === 'ok' && !existing.pending ? existing : undefined
   if (r.status === 'ok') {
     // A reaction is not a row: `reactionOf` routes it to the store fold (N10).
-    if (r.kind === 'reaction') return null
-    if (r.kind === 'page_activity')
-      return {
-        ...baseRow(m),
-        kind: 'page_activity',
-        pageActivity: { pageId: r.content.pageId, changes: r.content.changes },
-        sender: r.sender,
-        decrypt: { status: 'ok' }
-      }
+    if (r.kind === 'reaction' || r.kind === 'page_activity') return null
     const c = r.content
     return {
       ...baseRow(m),

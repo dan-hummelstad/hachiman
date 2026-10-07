@@ -83,7 +83,7 @@ flowchart LR
   FST["stores/ (feature)<br/>unread, pins, events, threads"]
   CST["stores/cryptoStore.ts<br/>phase, status, fatal, alerts,<br/>membership, voice roster"]
   SV["services/<br/>MessagesService, VoiceService,<br/>InviteService, UploadService,<br/>TakusenService, AdminActionService"]
-  FSV["services/<br/>UnreadService, guild-features<br/>(pins, events, threads, blocks),<br/>PageActivityService"]
+  FSV["services/<br/>UnreadService, guild-features<br/>(pins, events, threads, blocks)"]
   H["services/hachiman.ts<br/>singleton + event mirror"]
   HC["HachimanClient<br/>(@hachiman/client)"]
   CS["services/CryptoService.ts<br/>+ ds-transport, voice-e2ee"]
@@ -149,7 +149,7 @@ Only `services/hachiman.ts` writes the mirror stores (`guildStore`, `channelStor
 | `src/App.tsx` | App root. It holds the one `TooltipProvider`, calls `startHachiman(platform)`, and subscribes to `onOAuthCallback` and `onInviteLink`. It keeps the key of an invite link in `InviteService` memory, not in the dialog store. It shows `FatalScreen`, `Shell` inside `CryptoGate`, or `SignInScreen`, plus `Dialogs` and `SecurityNotices`. |
 | `src/index.ts` | Public exports of the package |
 | `src/components/shell/` | `Shell` and its layout (see "Shell layout" below). `Sidebar` (four slots), `SidebarControls`, the hide and reveal state (`sidebar-state.ts`, `use-sidebar-reveal.ts`), `TabBar` and `PinToTabsButton`, `QuickSwitcher` (⌘K), `FavouriteDms`, `SpaceBar`, the unread marks, the guild tint, the channel pane and its header, guild header and menus, the dialog host (`dialogs.tsx`) |
-| `src/components/chat/` | Transcript with the NEW divider, message row and toolbar, reaction chips and picker (`reactions.tsx`), reply quote, page link cards and page activity rows (`page-cards.tsx`), channel intro, composer, typing line, the "unable to decrypt" text (`decrypt-text.ts`), MLS membership lines |
+| `src/components/chat/` | Transcript with the NEW divider, message row and toolbar, reaction chips and picker (`reactions.tsx`), reply quote, page link cards (`page-cards.tsx`), channel intro, composer, typing line, the "unable to decrypt" text (`decrypt-text.ts`), MLS membership lines |
 | `src/components/chat/attachments/` | `useUploads`, upload tray, drop zone, attachment grid, audio card with waveform, lightbox |
 | `src/components/inbox/` | `InboxButton`: the Mentions and Unread popover, with "Mark read". `inbox-model.ts` builds the lists |
 | `src/components/events/` | The guild event row, the details popover with the "Going" toggle, and the create and edit dialog |
@@ -163,7 +163,7 @@ Only `services/hachiman.ts` writes the mirror stores (`guildStore`, `channelStor
 | `src/components/ui/` | shadcn and local primitives (dialog, tooltip, avatar, title bar) and the Arc primitives (badge, callout, checkbox, chip, keycap, radio card, segmented control, system tag, `feature.ts`). See `docs/ui-redesign.md` §5 |
 | `src/components/*.tsx` | Channel sidebar (`GuildChannelList`, `DmSpace`), home pane, member list, voice dock (`voice-connected-panel.tsx`), guild and channel dialogs, user profile popover, sign-in screen |
 | `src/stores/` | Zustand stores. `prefsStore` (also the sidebar mode, favourite DMs and notification levels per account), `navStore` (the view, not the history), `takusenStore` (session) and part of `voiceStore` (mute, deafen) persist to `localStorage`. `tabsStore` writes `hachiman:tabs:<userId>`. `unreadStore`, `pinsStore`, `eventsStore`, `threadsStore`, `composerStore` and `cryptoStore` are memory only. |
-| `src/services/` | `hachiman.ts`, `CryptoService`, `ds-transport`, `message-decrypt`, `voice-e2ee`, `MessagesService`, `VoiceService`, `InviteService`, `UploadService`, `AdminActionService`, `TakusenService`, `SoundService`, `UnreadService` with `unread-pass.ts`, `PinsService`, `PageActivityService`, `guild-features.ts` (`pinsService`, `eventsService`, `threadService`, `blockService`, `setCustomStatus`) |
+| `src/services/` | `hachiman.ts`, `CryptoService`, `ds-transport`, `message-decrypt`, `voice-e2ee`, `MessagesService`, `VoiceService`, `InviteService`, `UploadService`, `AdminActionService`, `TakusenService`, `SoundService`, `UnreadService` with `unread-pass.ts`, `PinsService`, `guild-features.ts` (`pinsService`, `eventsService`, `threadService`, `blockService`, `setCustomStatus`) |
 | `src/hooks/` | `use-hachiman` (derived channel and voice lists), `use-member`, `use-app-shortcuts`, `use-custom-status`, `use-elapsed`, `use-sign-in`, `use-recommended-region`, `use-mic-level`, `use-action`, `use-draft`, `use-decrypted-blob`, `use-membership-timeline` and others |
 | `src/lib/` | Pure helpers: `sidebar-reveal`, `right-column`, `quick-switcher`, `reactions`, `notify`, `guild-tint`, `active-now`, `custom-status`, `member-groups`, `channel-access`, `waveform`, `sounds`, `chime`, `stream-quality`, `connection-quality`, `mentions`, `model`, `role-ink`, `format-bytes`, `attachments` (upload id order), `blob-url-cache`, `invite-link` (re-export of `@hachiman/client/invite-link`), `admin-payload`, `client-version`, `utils` |
 | `src/shared/` | `IPlatformService.ts`, `PlatformContext.tsx`, `takusen-env.ts` |
@@ -284,18 +284,18 @@ sequenceDiagram
 ```
 
 - Mentions are counted on the client only, because the server cannot read them. The mention pass runs after READY, when the crypto Worker is ready.
-- The unread count is an upper bound. The server counts every message row, also reactions and page activity posts.
+- The unread count is an upper bound. The server counts every message row, also reactions.
 - The NEW divider uses the read state that the channel had when it opened (`unreadStore.opened`). It stays until another channel opens.
 - `useChannelUnread`, `useGuildUnread`, `useDmUnread` and `useAnyMention` apply the notification levels and the mutes of `prefsStore` (`lib/notify.ts`). The channel rows, the space bar, the tabs, the favourite DM tiles and the inbox dot read them.
 - `InboxButton` shows the mention ids of `unreadStore` and the channels with unread messages. "Mark read" calls `markRead`.
 
-## Reactions and page activity
+## Reactions
 
-A reaction and a page activity post are encrypted messages with their own envelope content kind (contract §12.8.1). The server stores them as normal message rows.
+A reaction is an encrypted message with its own envelope content kind (contract §12.8.1). The server stores it as a normal message row.
 
 - **Send a reaction.** `MessagesService.react` folds the reaction into `messagesStore` at once (`applyReactions`), encrypts a `reaction` kind with the target client_msg_id, and posts it. A failed send takes the reaction back.
 - **Receive a reaction.** `message-decrypt.ts` gives a `reaction` result to `deps.reactions`, never to a row. `messagesStore.applyReactions` keeps the newest event per (user, emoji) and target (`reactionLog`), and folds them into `reactions`. The fold is by client_msg_id, so a reaction whose target is not loaded shows when the target loads. `components/chat/reactions.tsx` shows the chips (`lib/reactions.ts`).
-- **Page activity.** `DocProvider` calls `onLocalEdit` when a local edit of a page reaches the server. `PageActivityService` counts the edits as changes (edits less than 30 s apart are one change). It posts at most one `page_activity` message per page per 10 minutes, 30 s after the first edit. `MessagesService.postPageActivity` encrypts and posts it in the pages channel of the page. The receiver shows a row of kind `page_activity` ("edited <page> · n changes") from `components/chat/page-cards.tsx`.
+- **Page edits** do not show in the chat. `message-decrypt.ts` drops a received `page_activity` kind (the protocol keeps it), and the UI does not post one.
 
 ## Voice join and screen share
 

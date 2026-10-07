@@ -9,8 +9,6 @@ import type { GatewayEvents, Page } from '@hachiman/client'
 import type { CryptoEvents } from '@hachiman/crypto'
 import { cryptoService } from '@/services/CryptoService'
 import { hachiman } from '@/services/client'
-import { messagesService } from '@/services/MessagesService'
-import { createPageActivity } from '@/services/PageActivityService'
 import { currentDeviceId } from '@/stores/cryptoStore'
 import { findPage, resetDocsStore, useDocsStore } from '@/stores/docsStore'
 import { useUserStore } from '@/stores/userStore'
@@ -36,11 +34,6 @@ export function userColor(userId: string): string {
   return `#${f(0)}${f(8)}${f(4)}`
 }
 
-/** "edited <page> · n changes" posts into the pages channel (N21). */
-const pageActivity = createPageActivity({
-  post: (channelId, pageId, changes) => messagesService.postPageActivity(channelId, pageId, changes)
-})
-
 const providerDeps: DocProviderDeps = {
   get rest() {
     return hachiman.rest
@@ -54,8 +47,7 @@ const providerDeps: DocProviderDeps = {
   },
   online: () => useUserStore.getState().gatewayState === 'ready',
   setPresence: (pageId, peers) => useDocsStore.getState().setPresence(pageId, peers),
-  collectMediaUploadIds,
-  onLocalEdit: (channelId, pageId) => pageActivity.noteEdit(channelId, pageId)
+  collectMediaUploadIds
 }
 
 interface Open {
@@ -291,7 +283,6 @@ export const docsService: DocsService & {
 
   reset() {
     generation++
-    pageActivity.reset()
     rewrapper.reset()
     titles.reset()
     for (const p of headless) p.destroy()

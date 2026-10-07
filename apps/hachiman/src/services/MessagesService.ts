@@ -321,16 +321,6 @@ export const messagesService = {
     }
   },
 
-  /** Posts "edited a page" (N21) into the pages channel of the page. */
-  async postPageActivity(channelId: string, pageId: string, changes: number): Promise<void> {
-    const sent = await sealAndPost(
-      channelId,
-      { channelId, kind: 'page_activity', editOf: null, content: { pageId, changes } },
-      (envelope) => hachiman.rest.sendMessage(channelId, { envelope, nonce: crypto.randomUUID() })
-    )
-    await decryptor.ingest([sent])
-  },
-
   /** Drop a failed optimistic message locally (it never reached the server). */
   discard(message: ChatMessage): void {
     useMessageStore.getState().remove(message.channelId, message.id)

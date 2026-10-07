@@ -276,7 +276,7 @@ flowchart LR
   CW["crypto Worker<br/>(@hachiman/crypto)"]
   MD[message-decrypt<br/>decrypt before store]
   S[MessagesService · VoiceService<br/>InviteService · UploadService<br/>AdminActionService]
-  FS[UnreadService · PageActivityService<br/>guild-features: pins, events,<br/>threads, blocks, custom status]
+  FS[UnreadService<br/>guild-features: pins, events,<br/>threads, blocks, custom status]
   SND[SoundService<br/>event chimes]
   ST[Zustand stores<br/>guild, channel, messages, voice,<br/>user, takusen, prefs, limits,<br/>nav, dialog, docs, tabs, composer,<br/>unread, pins, events, threads]
   CST[cryptoStore<br/>status, alerts, membership,<br/>voice roster]
@@ -313,7 +313,7 @@ flowchart LR
 
 `services/hachiman.ts` owns the one `HachimanClient` and copies its cache into the stores after each event. Components read stores. They write through the services or `hachiman.rest`. The gateway event that results then updates the stores.
 
-`UnreadService` keeps the read state and counts the mentions on the client, because the server cannot read them. Reactions and page activity posts are encrypted messages with their own content kind. `SoundService` plays a chime for message, voice and stream events, as `prefsStore` permits.
+`UnreadService` keeps the read state and counts the mentions on the client, because the server cannot read them. Reactions are encrypted messages with their own content kind. `SoundService` plays a chime for message, voice and stream events, as `prefsStore` permits.
 
 The shell is one sidebar (280 px) and one content card on a wallpaper that the guild tints. The top of the sidebar holds the controls, the quick switcher and the favourite DMs. Below them are the channel list (or the settings sections), the voice dock and the space bar. The space bar replaces the guild rail. A pinned tab bar runs above the content card. The right column shows the members, a page or a DM profile. The UI spec is [`docs/ui-redesign.md`](docs/ui-redesign.md).
 
