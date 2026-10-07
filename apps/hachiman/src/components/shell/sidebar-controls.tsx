@@ -1,9 +1,5 @@
 import { ArrowLeft, ArrowRight, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
-import {
-  toggleSidebar,
-  useSidebarHidden,
-  useSidebarRevealed
-} from '@/components/shell/sidebar-state'
+import { toggleSidebar, useSidebarView } from '@/components/shell/sidebar-state'
 import { Button } from '@/components/ui/button'
 import { IconButton } from '@/components/ui/icon-button'
 import { Keycap } from '@/components/ui/keycap'
@@ -19,13 +15,12 @@ const CONTROL = 'text-text-secondary hover:text-text-primary hover:bg-surface-ho
  * In the sidebar's controls row when docked or revealed, at the start of the tab bar when hidden.
  */
 export function SidebarControls(): React.JSX.Element {
-  const hidden = useSidebarHidden()
-  const revealed = useSidebarRevealed()
+  const sidebar = useSidebarView()
   const canBack = useCanGoBack()
   const canForward = useCanGoForward()
   // A revealed sidebar reads "dock": one click pins it back into the window.
-  const label = hidden ? 'Dock sidebar' : 'Hide sidebar'
-  const Icon = hidden && !revealed ? PanelLeftOpen : PanelLeftClose
+  const label = sidebar === 'docked' ? 'Hide sidebar' : 'Dock sidebar'
+  const Icon = sidebar === 'tucked' ? PanelLeftOpen : PanelLeftClose
   return (
     <div className="flex items-center gap-0.5">
       <Tooltip>

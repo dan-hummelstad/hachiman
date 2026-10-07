@@ -8,7 +8,7 @@ import {
   useSwitcher,
   type SwitcherMode
 } from '@/components/shell/switcher-state'
-import { useSidebarHidden, useSidebarRevealed } from '@/components/shell/sidebar-state'
+import { useSidebarView } from '@/components/shell/sidebar-state'
 import { FEATURE_TEXT } from '@/components/ui/feature'
 import { Keycap } from '@/components/ui/keycap'
 import { dmName } from '@/lib/model'
@@ -160,9 +160,8 @@ function SwitcherPanel({ mode }: { mode: SwitcherMode }): React.JSX.Element {
   const [index, setIndex] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const listRef = useRef<HTMLUListElement>(null)
-  const sidebarHidden = useSidebarHidden()
-  const revealed = useSidebarRevealed()
-  const anchored = mode === 'open' && (!sidebarHidden || revealed)
+  const sidebar = useSidebarView()
+  const anchored = mode === 'open' && sidebar !== 'tucked'
 
   // A snapshot when the panel opens: the lists are small and do not change while it is open.
   const [items] = useState(collectItems)

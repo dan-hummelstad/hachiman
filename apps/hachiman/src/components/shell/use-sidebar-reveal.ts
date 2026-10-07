@@ -1,10 +1,9 @@
 import { useEffect } from 'react'
 import {
-  setRevealed,
+  revealSidebar,
   toggleSidebar,
-  useSidebarHidden,
-  useSidebarRevealed,
-  useSidebarState
+  tuckSidebar,
+  useSidebarView
 } from '@/components/shell/sidebar-state'
 import { isSwitcherOpen } from '@/components/shell/switcher-state'
 import { isModKey } from '@/lib/mod-key'
@@ -30,25 +29,23 @@ export function useSidebarShortcut(): void {
  * switcher holds it. Esc hides it; a dialog closes it first.
  */
 export function useSidebarReveal(ref: React.RefObject<HTMLElement | null>): void {
-  const hidden = useSidebarHidden()
-  const revealed = useSidebarRevealed()
+  const view = useSidebarView()
 
-  // Reveal from the hot zone.
   useEffect(() => {
-    if (!hidden || revealed) return
+    if (view !== 'tucked') return
     const onMove = (e: PointerEvent): void => {
       if (!inHotZone(e.clientX) || useDialogStore.getState().dialog !== null) return
-      setRevealed(true)
+      revealSidebar()
     }
     window.addEventListener('pointermove', onMove)
     return () => window.removeEventListener('pointermove', onMove)
-  }, [hidden, revealed])
+  }, [view])
 
   // A dialog opens above everything: a revealed sidebar closes first.
   useEffect(
     () =>
       useDialogStore.subscribe((s) => {
-        if (s.dialog !== null) setRevealed(false)
+        if (s.dialog !== null) tuckSidebar()
       }),
     []
   )
@@ -56,7 +53,7 @@ export function useSidebarReveal(ref: React.RefObject<HTMLElement | null>): void
   // Hide after the pointer leaves; Esc hides.
   useEffect(() => {
     const el = ref.current
-    if (!hidden || !revealed || !el) return
+    if (view !== 'revealed' || !el) return
     // The sidebar slides in under the pointer: it counts as inside until the first leave.
     let inside = true
     let dragging = false
@@ -67,7 +64,7 @@ export function useSidebarReveal(ref: React.RefObject<HTMLElement | null>): void
       timer = setTimeout(() => {
         if (inside) return
         if (held()) schedule()
-        else setRevealed(false)
+        else tuckSidebar()
       }, HIDE_DELAY_MS)
     }
     const onEnter = (): void => {
@@ -87,7 +84,7 @@ export function useSidebarReveal(ref: React.RefObject<HTMLElement | null>): void
     const onKey = (e: KeyboardEvent): void => {
       if (e.key !== 'Escape' || e.defaultPrevented) return
       const h = holdsOf(el, dragging)
-      if (!h.menuOpen && !h.dragging && !isSwitcherOpen()) setRevealed(false)
+      if (!h.menuOpen && !h.dragging && !isSwitcherOpen()) tuckSidebar()
     }
     el.addEventListener('pointerenter', onEnter)
     el.addEventListener('pointerleave', onLeave)
@@ -102,8 +99,5 @@ export function useSidebarReveal(ref: React.RefObject<HTMLElement | null>): void
       window.removeEventListener('pointerup', onUp)
       window.removeEventListener('keydown', onKey)
     }
-  }, [ref, hidden, revealed])
+  }, [ref, view])
 }
-
-/** Whether the sidebar is out of the layout and not shown (the voice dock floats then). */
-export const useSidebarTucked = (): boolean => useSidebarState((s) => s.hidden && !s.revealed)

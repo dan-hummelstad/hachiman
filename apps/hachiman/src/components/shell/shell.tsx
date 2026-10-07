@@ -13,13 +13,9 @@ import { QuickSwitcher, SwitcherField } from '@/components/shell/quick-switcher'
 import { useSwitcherShortcut } from '@/components/shell/switcher-state'
 import { Sidebar } from '@/components/shell/sidebar'
 import { SidebarControls } from '@/components/shell/sidebar-controls'
-import { useSidebarHidden, useSidebarRevealed } from '@/components/shell/sidebar-state'
+import { useSidebarView } from '@/components/shell/sidebar-state'
 import { TabBar } from '@/components/shell/tab-bar'
-import {
-  useSidebarReveal,
-  useSidebarShortcut,
-  useSidebarTucked
-} from '@/components/shell/use-sidebar-reveal'
+import { useSidebarReveal, useSidebarShortcut } from '@/components/shell/use-sidebar-reveal'
 import { SpaceBar } from '@/components/shell/space-bar'
 import { useGuildTint } from '@/components/shell/use-guild-tint'
 import { VoiceDock } from '@/components/voice-connected-panel'
@@ -73,9 +69,9 @@ export function Shell(): React.JSX.Element {
   const sideOpen = sidePref ?? wide
   const isPages = selectedChannel?.type === 'pages'
   const toggleSide = selectedChannel ? () => setSidePref(!sideOpen) : undefined
-  const hidden = useSidebarHidden()
-  const revealed = useSidebarRevealed()
-  const tucked = useSidebarTucked()
+  const sidebar = useSidebarView()
+  const hidden = sidebar !== 'docked'
+  const tucked = sidebar === 'tucked'
   const inVoice = useVoiceStore((s) => s.channelId !== null)
   const floatDock = tucked && inVoice
   // Kept while the sidebar is revealed: the revealed sidebar slides over, nothing moves.
@@ -98,7 +94,7 @@ export function Shell(): React.JSX.Element {
       style={tint as React.CSSProperties}
       className={cn('relative flex min-h-0 flex-1', WALLPAPER)}
     >
-      {hidden && !revealed && (
+      {tucked && (
         <div
           aria-hidden
           className="from-text-tertiary/35 pointer-events-none absolute inset-y-0 left-0 z-30 w-2 bg-gradient-to-r to-transparent"
@@ -114,7 +110,7 @@ export function Shell(): React.JSX.Element {
               'absolute inset-y-0 left-0 z-40 shadow-xl transition-transform duration-150 ease-out',
               WALLPAPER
             ),
-          hidden && !revealed && '-translate-x-full shadow-none'
+          tucked && '-translate-x-full shadow-none'
         )}
       >
         <Sidebar

@@ -1,5 +1,34 @@
 import { describe, expect, it } from 'vitest'
-import { canHide, inHotZone, isTextField, startsHidden } from '@/lib/sidebar-reveal'
+import {
+  canHide,
+  initialSidebar,
+  inHotZone,
+  isTextField,
+  sidebarAfter,
+  startsHidden
+} from '@/lib/sidebar-reveal'
+
+describe('initialSidebar', () => {
+  it('tucks an undocked or narrow sidebar', () => {
+    expect(initialSidebar('docked', 1400)).toBe('docked')
+    expect(initialSidebar('undocked', 1400)).toBe('tucked')
+    expect(initialSidebar('docked', 900)).toBe('tucked')
+  })
+})
+
+describe('sidebarAfter', () => {
+  it('reveals and tucks only a hidden sidebar', () => {
+    expect(sidebarAfter('tucked', 'reveal')).toBe('revealed')
+    expect(sidebarAfter('docked', 'reveal')).toBe('docked')
+    expect(sidebarAfter('revealed', 'tuck')).toBe('tucked')
+    expect(sidebarAfter('docked', 'tuck')).toBe('docked')
+  })
+  it('docks a tucked or revealed sidebar and tucks a docked one', () => {
+    expect(sidebarAfter('docked', 'toggleDock')).toBe('tucked')
+    expect(sidebarAfter('tucked', 'toggleDock')).toBe('docked')
+    expect(sidebarAfter('revealed', 'toggleDock')).toBe('docked')
+  })
+})
 
 describe('canHide', () => {
   const none = { menuOpen: false, dragging: false, fieldFocused: false }

@@ -24,7 +24,7 @@ import { CSS } from '@dnd-kit/utilities'
 import { openSwitcher } from '@/components/shell/switcher-state'
 import { DRAG_REGION } from '@/components/shell/sidebar'
 import { SidebarControls } from '@/components/shell/sidebar-controls'
-import { useSidebarHidden } from '@/components/shell/sidebar-state'
+import { useSidebarView } from '@/components/shell/sidebar-state'
 import { UserAvatar } from '@/components/shell/user-avatar'
 import { Button } from '@/components/ui/button'
 import { ContextMenuItem } from '@/components/ui/context-menu'
@@ -63,7 +63,7 @@ const tabKey = (t: TabTarget): string => `${t.kind}:${t.id}:${t.pageId ?? ''}`
  * button and the inbox spot at the end.
  */
 export function TabBar({ inbox }: { inbox?: React.ReactNode }): React.JSX.Element {
-  const hidden = useSidebarHidden()
+  const hidden = useSidebarView() !== 'docked'
   const { insetTitleBar } = usePlatform()
   return (
     <div
