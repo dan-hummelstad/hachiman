@@ -15,10 +15,10 @@ import { channelPermissionLabels } from '@/components/settings/permission-labels
 import { SaveBar } from '@/components/settings/save-bar'
 import { useAction } from '@/hooks/use-action'
 import { displayName, hexColor, rolesByPositionDesc } from '@/lib/model'
-import { cn } from '@/lib/utils'
 import { adminActionService } from '@/services/AdminActionService'
 import { useGuildStore } from '@/stores/guildStore'
 import { selectableRowClass } from '@/components/ui/selectable-row'
+import { SegmentedControl, type SegmentedOption } from '@/components/ui/segmented-control'
 
 type Tri = 'allow' | 'inherit' | 'deny'
 
@@ -216,7 +216,14 @@ export function ChannelPermissionsPage({
                   </span>
                   <span className="text-meta text-text-tertiary">{p.hint}</span>
                 </span>
-                <TriSwitch label={p.label} value={value} onChange={(v) => setBit(p.bit, v)} />
+                <SegmentedControl
+                  iconOnly
+                  label={p.label}
+                  options={TRI}
+                  value={value}
+                  onChange={(v) => setBit(p.bit, v)}
+                  className="border-line-hairline shrink-0 border"
+                />
               </div>
             )
           })}
@@ -244,60 +251,24 @@ export function ChannelPermissionsPage({
   )
 }
 
-const TRI: { v: Tri; icon: React.ReactNode; on: string; label: string }[] = [
+/** Deny (coral), role default, allow (green). */
+const TRI: SegmentedOption<Tri>[] = [
   {
-    v: 'deny',
+    value: 'deny',
     icon: <X />,
-    on: 'bg-feature-danger/20 text-feature-danger-text',
+    selectedClassName: 'bg-feature-danger/20 text-feature-danger-text',
     label: 'Deny'
   },
   {
-    v: 'inherit',
+    value: 'inherit',
     icon: <Slash />,
-    on: 'bg-surface-hover text-text-primary',
+    selectedClassName: 'bg-surface-hover text-text-primary',
     label: 'Role default'
   },
   {
-    v: 'allow',
+    value: 'allow',
     icon: <Check />,
-    on: 'bg-feature-voice/20 text-feature-voice-text',
+    selectedClassName: 'bg-feature-voice/20 text-feature-voice-text',
     label: 'Allow'
   }
 ]
-
-/** Deny (coral), role default, allow (green), as one radio group. */
-function TriSwitch({
-  label,
-  value,
-  onChange
-}: {
-  label: string
-  value: Tri
-  onChange: (v: Tri) => void
-}): React.JSX.Element {
-  return (
-    <div
-      role="radiogroup"
-      aria-label={label}
-      className="rounded-control bg-surface-sunken border-line-hairline flex shrink-0 gap-0.5 border p-0.5"
-    >
-      {TRI.map((t) => (
-        <button
-          key={t.v}
-          type="button"
-          role="radio"
-          aria-checked={value === t.v}
-          aria-label={t.label}
-          title={t.label}
-          onClick={() => value !== t.v && onChange(t.v)}
-          className={cn(
-            'rounded-check flex h-7 w-9 items-center justify-center [&_svg]:size-4',
-            value === t.v ? t.on : 'text-text-tertiary hover:text-text-primary'
-          )}
-        >
-          {t.icon}
-        </button>
-      ))}
-    </div>
-  )
-}

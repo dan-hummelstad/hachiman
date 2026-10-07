@@ -1,6 +1,7 @@
 import { setSidebarMode } from '@/components/shell/sidebar-state'
 import { SectionHeading } from '@/components/ui/field'
 import { Keycap } from '@/components/ui/keycap'
+import { RadioCard } from '@/components/ui/radio-card'
 import { MOD_KEY } from '@/lib/mod-key'
 import { cn } from '@/lib/utils'
 import {
@@ -30,14 +31,14 @@ export function AppearanceSection(): React.JSX.Element {
         <SectionHeading>Theme</SectionHeading>
         <div role="radiogroup" aria-label="Theme" className="grid grid-cols-3 gap-3">
           {THEMES.map((t) => (
-            <OptionCard
+            <RadioCard
               key={t.value}
+              name="theme"
               checked={theme === t.value}
-              onSelect={() => setTheme(t.value)}
-              label={t.label}
-            >
-              <ThemeSwatch value={t.value} />
-            </OptionCard>
+              onChange={() => setTheme(t.value)}
+              title={t.label}
+              preview={<ThemeSwatch value={t.value} />}
+            />
           ))}
         </div>
       </section>
@@ -45,12 +46,14 @@ export function AppearanceSection(): React.JSX.Element {
         <SectionHeading>Sidebar</SectionHeading>
         <div role="radiogroup" aria-label="Sidebar" className="grid grid-cols-2 gap-3">
           {(['docked', 'undocked'] as SidebarMode[]).map((m) => (
-            <OptionCard
+            <RadioCard
               key={m}
+              name="sidebar"
               checked={sidebar === m}
-              onSelect={() => setSidebarMode(m)}
-              label={m === 'docked' ? 'Docked' : 'Undocked'}
-              hint={
+              onChange={() => setSidebarMode(m)}
+              title={m === 'docked' ? 'Docked' : 'Undocked'}
+              preview={<SidebarPreview mode={m} />}
+              description={
                 m === 'docked' ? (
                   'Part of the window, always visible'
                 ) : (
@@ -60,9 +63,7 @@ export function AppearanceSection(): React.JSX.Element {
                   </>
                 )
               }
-            >
-              <SidebarPreview mode={m} />
-            </OptionCard>
+            />
           ))}
         </div>
       </section>
@@ -70,63 +71,23 @@ export function AppearanceSection(): React.JSX.Element {
         <SectionHeading>Message display</SectionHeading>
         <div role="radiogroup" aria-label="Message display" className="grid grid-cols-2 gap-3">
           {(['cozy', 'compact'] as MessageDisplay[]).map((d) => (
-            <OptionCard
+            <RadioCard
               key={d}
+              name="message-display"
               checked={messageDisplay === d}
-              onSelect={() => setMessageDisplay(d)}
-              label={d === 'cozy' ? 'Cozy' : 'Compact'}
-              hint={
+              onChange={() => setMessageDisplay(d)}
+              title={d === 'cozy' ? 'Cozy' : 'Compact'}
+              preview={<TranscriptPreview display={d} />}
+              description={
                 d === 'cozy'
                   ? 'Avatars and names above each group'
                   : 'One line per message, like an IRC log'
               }
-            >
-              <TranscriptPreview display={d} />
-            </OptionCard>
+            />
           ))}
         </div>
       </section>
     </div>
-  )
-}
-
-function OptionCard(props: {
-  checked: boolean
-  onSelect: () => void
-  label: string
-  hint?: React.ReactNode
-  children: React.ReactNode
-}): React.JSX.Element {
-  return (
-    <button
-      type="button"
-      role="radio"
-      aria-checked={props.checked}
-      onClick={props.onSelect}
-      className={cn(
-        'rounded-option bg-surface-panel grid gap-3 border p-2.5 text-left transition-colors outline-none focus-visible:outline-2 focus-visible:outline-line-focus',
-        props.checked
-          ? 'border-accent-primary bg-accent-tint/40'
-          : 'border-line-hairline hover:border-line-strong'
-      )}
-    >
-      {props.children}
-      <span className="flex items-center gap-2.5 px-1">
-        <span
-          aria-hidden
-          className={cn(
-            'rounded-pill flex size-5 shrink-0 items-center justify-center border-2',
-            props.checked ? 'border-accent-primary bg-accent-primary' : 'border-line-strong'
-          )}
-        >
-          {props.checked && <span className="size-2 rounded-full bg-white" />}
-        </span>
-        <span className="grid">
-          <span className="text-label">{props.label}</span>
-          {props.hint && <span className="text-meta text-text-tertiary">{props.hint}</span>}
-        </span>
-      </span>
-    </button>
   )
 }
 
