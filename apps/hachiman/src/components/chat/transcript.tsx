@@ -1,12 +1,13 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowDown } from 'lucide-react'
 import type { Channel } from '@hachiman/client'
-import { channelLabel } from '@/lib/model'
+import { cn } from '@/lib/utils'
 import { messagesService } from '@/services/MessagesService'
 import { useMessageStore, type ChatMessage } from '@/stores/messagesStore'
 import { usePrefsStore } from '@/stores/prefsStore'
 import { useUserStore } from '@/stores/userStore'
 import { useMembershipTimeline } from '@/hooks/use-membership-timeline'
+import { ChannelIntro } from './channel-intro'
 import { buildItems, formatDay, membershipSlots } from './format'
 import { MembershipLine } from './membership-line'
 import { MessageRow } from './message-row'
@@ -24,11 +25,14 @@ const LOAD_PX = 200
  */
 export function Transcript({
   channel,
-  canManageMessages
+  canManageMessages,
+  onUpload
 }: {
   channel: Channel
   /** May delete others' messages. */
   canManageMessages: boolean
+  /** ATTACH_FILES: the drop card of an empty channel offers an upload. */
+  onUpload?: (files: File[]) => void
 }): React.JSX.Element {
   const channelId = channel.id
   const messages = useMessageStore((s) => s.byChannel.get(channelId) ?? EMPTY_MESSAGES)
@@ -83,11 +87,12 @@ export function Transcript({
         className="flex min-h-0 flex-1 flex-col-reverse overflow-y-auto"
         data-slot="chat-scroll"
       >
+        {/* The NEW divider (feature plan N7) goes between the rows, above the first unread. */}
         <div className="flex flex-col pt-4 pb-3">
           {hasMore === false ? (
-            <ChannelIntro channel={channel} />
+            <ChannelIntro channel={channel} empty={messages.length === 0} onUpload={onUpload} />
           ) : (
-            <div className="text-muted-foreground px-4 py-3 text-xs">
+            <div className="text-text-tertiary text-meta px-5 py-3">
               {hasMore === undefined ? 'Loading messages…' : 'Loading older messages…'}
             </div>
           )}
@@ -121,7 +126,10 @@ export function Transcript({
         <button
           type="button"
           onClick={() => jumpToPresent()}
-          className="bg-popover text-popover-foreground hover:bg-accent focus-visible:outline-ring absolute right-4 bottom-3 flex h-8 items-center gap-2 border px-3 text-xs font-medium shadow-md focus-visible:outline-2"
+          className={cn(
+            'rounded-pill bg-surface-raised border-line-hairline text-text-primary hover:bg-surface-panel absolute right-5 bottom-3 flex h-8 items-center gap-2 border px-3 text-xs font-semibold shadow-lg shadow-black/20',
+            'focus-visible:outline-line-focus outline-none focus-visible:outline-2'
+          )}
         >
           <ArrowDown className="size-3.5" />
           Jump to present
@@ -131,38 +139,15 @@ export function Transcript({
   )
 }
 
+/** The date centered on a hairline. */
 function DayDivider({ iso }: { iso: string }): React.JSX.Element {
   return (
-    <div role="separator" className="mt-5 mb-1 flex items-center gap-3 px-4 first:mt-0">
-      <div className="bg-border h-px flex-1" />
-      <span className="text-muted-foreground text-xs tabular-nums">{formatDay(iso)}</span>
-      <div className="bg-border h-px flex-1" />
-    </div>
-  )
-}
-
-function ChannelIntro({ channel }: { channel: Channel }): React.JSX.Element {
-  const { name, sigil } = channelLabel(channel)
-  return (
-    <div className="px-4 pt-8 pb-4">
-      <div className="bg-card text-muted-foreground mb-4 flex size-12 items-center justify-center border font-mono text-2xl">
-        {sigil}
-      </div>
-      <h2 className="text-xl leading-7 font-semibold">
-        {sigil === '@' ? (
-          <>
-            This is the start of your conversation with{' '}
-            <span className="font-semibold">{name}</span>.
-          </>
-        ) : (
-          <>
-            This is the start of <span className="font-semibold">#{name}</span>.
-          </>
-        )}
-      </h2>
-      {channel.topic && (
-        <p className="text-muted-foreground mt-1 max-w-[70ch] text-sm">{channel.topic}</p>
-      )}
+    <div role="separator" className="mt-5 mb-2 flex items-center gap-3 px-5 first:mt-0">
+      <div className="bg-line-hairline h-px flex-1" />
+      <span className="text-text-tertiary text-meta font-semibold tabular-nums">
+        {formatDay(iso)}
+      </span>
+      <div className="bg-line-hairline h-px flex-1" />
     </div>
   )
 }

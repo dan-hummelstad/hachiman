@@ -61,7 +61,7 @@ export function MembershipLine({
   return (
     <div
       role="note"
-      className="text-muted-foreground flex items-center gap-2 px-4 py-0.5 font-sans text-xs leading-5"
+      className="text-text-tertiary flex items-center gap-2 px-5 py-1 text-xs leading-5 font-medium"
     >
       <KeyRound className="size-3.5 shrink-0" aria-hidden />
       <span>{what}</span>
@@ -73,5 +73,5 @@ function UserName({ channel, userId }: { channel: Channel; userId: string }): Re
   const me = useUserStore((s) => s.me)
   const fallback = me?.id === userId ? me : channel.recipients?.find((u) => u.id === userId)
   const { name } = useMemberView(channel.guildId, userId, fallback ?? undefined)
-  return <span className="text-foreground font-medium">{name}</span>
+  return <span className="text-text-secondary font-semibold">{name}</span>
 }

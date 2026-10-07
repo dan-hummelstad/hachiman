@@ -48,9 +48,9 @@ export function MessageAttachments({
   )
 }
 
-const MEDIA_FRAME = 'bg-muted block max-w-full border'
+const MEDIA_FRAME = 'bg-surface-raised border-line-hairline block max-w-full border'
 const FOCUS =
-  'focus-visible:outline-ring outline-none focus-visible:outline-2 focus-visible:outline-offset-1'
+  'focus-visible:outline-line-focus outline-none focus-visible:outline-2 focus-visible:outline-offset-1'
 
 /** The thumbnail when the sender made one, else the full image. */
 const preview = (a: AttachmentPointer): Parameters<typeof useDecryptedBlob>[0] => a.thumbnail ?? a
@@ -67,7 +67,7 @@ function Unreadable({
     <span
       title={error}
       className={cn(
-        'text-muted-foreground flex size-full items-center justify-center p-2 text-xs',
+        'text-text-tertiary flex size-full items-center justify-center p-2 text-xs',
         className
       )}
     >
@@ -184,7 +184,7 @@ function VideoEmbed({ video }: { video: AttachmentPointer }): React.JSX.Element 
       {poster.url && <img src={poster.url} alt="" className="size-full object-cover" />}
       <span className="absolute inset-0 flex items-center justify-center">
         {full.error ? (
-          <Unreadable error={full.error} className="bg-background/80 size-auto" />
+          <Unreadable error={full.error} className="bg-surface-content/80 size-auto" />
         ) : started ? (
           <LoaderCircle className="size-8 animate-spin text-white" />
         ) : (
@@ -195,33 +195,45 @@ function VideoEmbed({ video }: { video: AttachmentPointer }): React.JSX.Element 
   )
 }
 
-const CARD = 'bg-card flex max-w-full flex-col border'
+/** Square attachment card on the panel surface. */
+const CARD = 'bg-surface-panel border-line-hairline flex max-w-full flex-col border'
 
+/**
+ * Audio: a play button in front of the name. The file decrypts on the first play, and the native
+ * player takes over inside the card. The waveform comes with feature plan N24.
+ */
 function AudioCard({ audio }: { audio: AttachmentPointer }): React.JSX.Element {
   const [started, setStarted] = useState(false)
   const { url, error } = useDecryptedBlob(started ? audio : null)
+  const play = (
+    <button
+      type="button"
+      aria-label={`Play ${audio.name}`}
+      disabled={started && !error}
+      onClick={() => setStarted(true)}
+      className={cn(
+        'rounded-control bg-accent-primary text-text-on-accent hover:bg-accent-primary/90 flex size-9 shrink-0 items-center justify-center disabled:opacity-70',
+        FOCUS
+      )}
+    >
+      {started && !error ? (
+        <LoaderCircle className="size-4 animate-spin" />
+      ) : (
+        <Play className="size-4 fill-current" />
+      )}
+    </button>
+  )
   return (
-    <div className={cn(CARD, 'gap-2 p-2.5')} style={{ width: EMBED_MAX.width }}>
-      <FileHeader file={audio} icon={Music} />
+    <div className={cn(CARD, 'gap-2 px-3 py-2.5')} style={{ width: EMBED_MAX.width }}>
+      <FileHeader file={audio} lead={url ? <FileGlyph icon={Music} /> : play} />
       {url ? (
         <audio src={url} controls autoPlay className="h-9 w-full" />
-      ) : error ? (
-        <p className="text-destructive text-xs" title={error}>
-          Unable to decrypt this file.
-        </p>
       ) : (
-        <button
-          type="button"
-          disabled={started}
-          onClick={() => setStarted(true)}
-          className={cn(
-            'hover:bg-accent flex h-9 items-center gap-2 border px-3 text-xs font-medium',
-            FOCUS
-          )}
-        >
-          {started ? <LoaderCircle className="size-4 animate-spin" /> : <Play className="size-4" />}
-          Play
-        </button>
+        error && (
+          <p className="text-feature-danger-text text-xs" title={error}>
+            Unable to decrypt this file.
+          </p>
+        )
       )}
     </div>
   )
@@ -229,24 +241,36 @@ function AudioCard({ audio }: { audio: AttachmentPointer }): React.JSX.Element {
 
 function FileCard({ file }: { file: AttachmentPointer }): React.JSX.Element {
   return (
-    <div className={cn(CARD, 'p-2.5')} style={{ width: EMBED_MAX.width }}>
-      <FileHeader file={file} icon={FileIcon} />
+    <div className={cn(CARD, 'px-3 py-2.5')} style={{ width: EMBED_MAX.width }}>
+      <FileHeader file={file} lead={<FileGlyph icon={FileIcon} />} />
     </div>
+  )
+}
+
+function FileGlyph({
+  icon: Icon
+}: {
+  icon: React.ComponentType<{ className?: string; strokeWidth?: number }>
+}): React.JSX.Element {
+  return (
+    <span className="bg-surface-raised text-text-secondary flex size-9 shrink-0 items-center justify-center">
+      <Icon className="size-[18px]" strokeWidth={1.5} />
+    </span>
   )
 }
 
 function FileHeader({
   file,
-  icon: Icon
+  lead
 }: {
   file: AttachmentPointer
-  icon: React.ComponentType<{ className?: string; strokeWidth?: number }>
+  lead: React.ReactNode
 }): React.JSX.Element {
   const { run, busy, error } = useAction()
   const save = (): void => void run('download the file', () => downloadAttachment(file))
   return (
-    <div className="flex min-w-0 items-center gap-2.5">
-      <Icon className="text-muted-foreground size-8 shrink-0" strokeWidth={1.25} />
+    <div className="flex min-w-0 items-center gap-3">
+      {lead}
       <div className="min-w-0 flex-1">
         <button
           type="button"
@@ -254,7 +278,7 @@ function FileHeader({
           disabled={busy}
           title={file.name}
           className={cn(
-            'text-foreground block max-w-full truncate text-left font-mono text-[13px] leading-5 underline-offset-2 hover:underline',
+            'text-text-primary block max-w-full truncate text-left text-[14px] leading-5 font-bold underline-offset-2 hover:underline',
             FOCUS
           )}
         >
@@ -262,8 +286,8 @@ function FileHeader({
         </button>
         <p
           className={cn(
-            'text-xs leading-4 tabular-nums',
-            error ? 'text-destructive' : 'text-muted-foreground'
+            'text-meta tabular-nums',
+            error ? 'text-feature-danger-text' : 'text-text-tertiary'
           )}
           title={error ?? undefined}
         >
@@ -277,7 +301,7 @@ function FileHeader({
         aria-label={`Download ${file.name}`}
         title="Download"
         className={cn(
-          'text-muted-foreground hover:bg-accent hover:text-foreground flex size-8 shrink-0 items-center justify-center',
+          'rounded-control text-text-tertiary hover:bg-surface-hover hover:text-text-primary flex size-8 shrink-0 items-center justify-center',
           FOCUS
         )}
       >

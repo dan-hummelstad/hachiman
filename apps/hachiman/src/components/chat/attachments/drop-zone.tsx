@@ -33,7 +33,7 @@ export function DropZone({
       {children}
       {enabled && over && (
         <div
-          className="bg-background/85 absolute inset-0 z-30 flex items-center justify-center p-4"
+          className="bg-surface-content/85 absolute inset-0 z-30 flex items-center justify-center p-4"
           onDragOver={(e) => {
             e.preventDefault()
             e.dataTransfer.dropEffect = 'copy'
@@ -45,10 +45,10 @@ export function DropZone({
             onFiles([...e.dataTransfer.files])
           }}
         >
-          <div className="bg-popover pointer-events-none flex flex-col items-center gap-2 border-2 border-primary px-10 py-8 text-center shadow-lg">
-            <Upload className="text-primary size-6" aria-hidden />
+          <div className="bg-surface-panel border-accent-primary pointer-events-none flex flex-col items-center gap-2 border-2 border-dashed px-10 py-8 text-center shadow-lg">
+            <Upload className="text-accent-text size-6" aria-hidden />
             <p className="text-[15px] leading-5 font-semibold">Drop files to upload</p>
-            <p className="text-muted-foreground text-sm">
+            <p className="text-text-secondary text-sm">
               They will be attached to your next message in {label}.
             </p>
           </div>

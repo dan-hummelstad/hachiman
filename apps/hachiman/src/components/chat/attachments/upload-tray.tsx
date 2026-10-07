@@ -13,7 +13,10 @@ export function UploadTray({
 }): React.JSX.Element | null {
   if (items.length === 0) return null
   return (
-    <ul aria-label="Attachments" className="flex gap-2 overflow-x-auto border-b px-3 pt-3 pb-2.5">
+    <ul
+      aria-label="Attachments"
+      className="flex gap-2 overflow-x-auto border-line-hairline border-b px-3 pt-3 pb-2.5"
+    >
       {items.map((u) => (
         <UploadTile key={u.id} upload={u} onRemove={() => onRemove(u.id)} />
       ))}
@@ -33,11 +36,11 @@ function UploadTile({
   return (
     <li
       className={cn(
-        'bg-background relative flex w-32 shrink-0 flex-col border',
-        error && 'border-destructive'
+        'bg-surface-panel border-line-hairline relative flex w-32 shrink-0 flex-col border',
+        error && 'border-feature-danger'
       )}
     >
-      <div className="bg-muted relative flex h-24 items-center justify-center overflow-hidden">
+      <div className="bg-surface-sunken relative flex h-24 items-center justify-center overflow-hidden">
         {kind === 'image' && preview ? (
           <img src={preview} alt="" className="size-full object-cover" />
         ) : kind === 'video' && preview ? (
@@ -58,10 +61,10 @@ function UploadTile({
             aria-valuemin={0}
             aria-valuemax={100}
             aria-valuenow={Math.round(progress * 100)}
-            className="bg-background/70 absolute inset-x-0 bottom-0 h-1"
+            className="bg-surface-content/70 absolute inset-x-0 bottom-0 h-1"
           >
             <div
-              className="bg-primary h-full transition-[width] duration-150"
+              className="bg-accent-primary h-full transition-[width] duration-150"
               style={{ width: `${Math.max(progress * 100, 2)}%` }}
             />
           </div>
@@ -74,7 +77,7 @@ function UploadTile({
         <p
           className={cn(
             'truncate text-[11px] leading-4 tabular-nums',
-            error ? 'text-destructive' : 'text-muted-foreground'
+            error ? 'text-feature-danger-text' : 'text-text-tertiary'
           )}
           title={error ?? undefined}
         >
@@ -90,8 +93,8 @@ function UploadTile({
         title="Remove"
         onClick={onRemove}
         className={cn(
-          'bg-popover text-muted-foreground absolute -top-2 -right-2 flex size-6 items-center justify-center border shadow-md',
-          'hover:bg-destructive hover:text-destructive-foreground focus-visible:outline-ring outline-none focus-visible:outline-2'
+          'bg-surface-raised border-line-hairline text-text-secondary absolute -top-2 -right-2 flex size-6 items-center justify-center rounded-full border shadow-md',
+          'hover:bg-feature-danger hover:text-text-on-accent focus-visible:outline-line-focus outline-none focus-visible:outline-2'
         )}
       >
         <X className="size-3.5" />
@@ -110,7 +113,7 @@ function TileGlyph({
   const Glyph = kind === 'audio' ? Music : FileIcon
   const ext = name.includes('.') ? name.split('.').pop() : undefined
   return (
-    <div className="text-muted-foreground flex flex-col items-center gap-1">
+    <div className="text-text-tertiary flex flex-col items-center gap-1">
       <Glyph className="size-7" strokeWidth={1.5} aria-hidden />
       {ext && <span className="font-mono text-[11px] leading-4 lowercase">.{ext}</span>}
     </div>

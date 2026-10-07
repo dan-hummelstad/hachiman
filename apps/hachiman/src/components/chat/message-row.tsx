@@ -1,5 +1,8 @@
 import { memo, useMemo, useState } from 'react'
+import { CircleAlert, RotateCw } from 'lucide-react'
+import type { DecryptFailure } from '@hachiman/crypto'
 import { UserAvatar } from '@/components/shell/user-avatar'
+import { Button } from '@/components/ui/button'
 import { ErrorText } from '@/components/ui/field'
 import { UserProfilePopover } from '@/components/user-profile-popover'
 import { useAction } from '@/hooks/use-action'
@@ -8,6 +11,7 @@ import { cn } from '@/lib/utils'
 import { messagesService } from '@/services/MessagesService'
 import type { ChatMessage } from '@/stores/messagesStore'
 import type { MessageDisplay } from '@/stores/prefsStore'
+import { openDialog } from '@/stores/dialogStore'
 import { useUserStore } from '@/stores/userStore'
 import { MessageAttachments } from './attachments/message-attachments'
 import {
@@ -17,6 +21,7 @@ import {
   type MentionToken,
   type Token
 } from '@/lib/mentions'
+import { TextWithChannelRefs } from './channel-ref'
 import { decryptText } from './decrypt-text'
 import { formatFull, formatTime } from './format'
 import { MessageToolbar } from './message-toolbar'
@@ -45,7 +50,7 @@ export const MessageRow = memo(function MessageRow(props: MessageRowProps): Reac
 
   const toolbar = settled && !editing && (
     <MessageToolbar
-      className="absolute -top-4 right-4 z-10"
+      className="absolute -top-5 right-4 z-10"
       onCopy={
         readable
           ? () => void navigator.clipboard?.writeText(message.content).catch(() => {})
@@ -68,7 +73,7 @@ export const MessageRow = memo(function MessageRow(props: MessageRowProps): Reac
       {editing ? (
         <EditBox message={message} onDone={() => props.onEditingChange(null)} />
       ) : (
-        <MessageBody message={message} tokens={tokens} />
+        <MessageBody message={message} tokens={tokens} authorName={name} />
       )}
       {readable && message.attachments.length > 0 && (
         <MessageAttachments attachments={message.attachments} />
@@ -92,8 +97,8 @@ export const MessageRow = memo(function MessageRow(props: MessageRowProps): Reac
       type="button"
       className={cn(
         'inline-block max-w-full cursor-pointer truncate align-top font-bold hover:underline',
-        'focus-visible:outline-ring focus-visible:outline-2',
-        !ink && 'text-foreground'
+        'focus-visible:outline-line-focus outline-none focus-visible:outline-2',
+        !ink && 'text-text-primary'
       )}
       style={ink ? { color: ink } : undefined}
     >
@@ -101,19 +106,21 @@ export const MessageRow = memo(function MessageRow(props: MessageRowProps): Reac
     </button>
   )
 
+  // A rounded hover block inside the transcript gutter (Arc: rounded is interaction).
   const rowClass = cn(
-    'group/row relative px-4',
-    !editing && 'hover:bg-accent/70',
-    editing && 'bg-accent/50',
-    mentioned && 'bg-mention shadow-[inset_2px_0_0_var(--primary)] hover:bg-mention',
-    message.pending && 'opacity-50'
+    'group/row rounded-control relative mx-2 px-2.5',
+    !editing && 'hover:bg-surface-hover',
+    editing && 'bg-surface-hover',
+    mentioned &&
+      'bg-feature-event/10 hover:bg-feature-event/15 rounded-l-none shadow-[inset_3px_0_0_var(--feature-event)]',
+    message.pending && !message.failed && 'opacity-50'
   )
 
   if (display === 'compact') {
     return (
-      <div className={cn(rowClass, 'flex gap-3 py-px')} data-message-id={message.id}>
-        <Timestamp iso={message.createdAt} className="w-10 shrink-0 leading-[22px]" />
-        <span className="w-[14ch] shrink-0 text-right text-[13.5px] leading-[22px]">{author}</span>
+      <div className={cn(rowClass, 'text-body flex gap-3 py-[3px]')} data-message-id={message.id}>
+        <Timestamp iso={message.createdAt} className="w-11 shrink-0 leading-[22px]" />
+        <span className="w-[14ch] shrink-0 text-right leading-[22px]">{author}</span>
         <div className="max-w-[90ch] min-w-0 flex-1">{body}</div>
         {toolbar}
       </div>
@@ -122,10 +129,10 @@ export const MessageRow = memo(function MessageRow(props: MessageRowProps): Reac
 
   return (
     <div
-      className={cn(rowClass, 'flex gap-3 py-px', groupStart && 'mt-3 pt-0.5')}
+      className={cn(rowClass, 'flex gap-3.5 py-0.5', groupStart && 'mt-2 pt-1.5')}
       data-message-id={message.id}
     >
-      <div className="flex w-8 shrink-0 justify-center">
+      <div className="flex w-10 shrink-0 justify-center">
         {groupStart ? (
           profile(
             // The name is the keyboard path to the same card; keep the avatar out of the tab order.
@@ -133,9 +140,9 @@ export const MessageRow = memo(function MessageRow(props: MessageRowProps): Reac
               type="button"
               tabIndex={-1}
               aria-label={name}
-              className="mt-0.5 h-fit cursor-pointer"
+              className="mt-0.5 h-fit cursor-pointer rounded-full"
             >
-              <UserAvatar avatar={avatar} name={name} color={ink} />
+              <UserAvatar avatar={avatar} name={name} color={ink} size={40} />
             </button>
           )
         ) : (
@@ -147,7 +154,7 @@ export const MessageRow = memo(function MessageRow(props: MessageRowProps): Reac
       </div>
       <div className="max-w-[90ch] min-w-0 flex-1">
         {groupStart && (
-          <div className="flex items-baseline gap-2 text-[13.5px] leading-[22px]">
+          <div className="flex items-baseline gap-2 text-[15px] leading-[22px]">
             {author}
             <Timestamp iso={message.createdAt} />
           </div>
@@ -165,31 +172,52 @@ function Timestamp({ iso, className }: { iso: string; className?: string }): Rea
     <time
       dateTime={iso}
       title={formatFull(iso)}
-      className={cn('text-muted-foreground font-sans text-xs tabular-nums', className)}
+      className={cn('text-text-tertiary text-meta tabular-nums', className)}
     >
       {formatTime(iso)}
     </time>
   )
 }
 
+/** Results that say the sender's identity did not check out: verifying the sender is the next step. */
+const IDENTITY_FAILURES: ReadonlySet<DecryptFailure> = new Set([
+  'invalid_chain',
+  'device_mismatch',
+  'edit_not_author',
+  'bad_signature'
+])
+
 function MessageBody({
   message,
-  tokens
+  tokens,
+  authorName
 }: {
   message: ChatMessage
   tokens: Token[]
+  authorName: string
 }): React.JSX.Element {
   const unreadable = decryptText(message.decrypt)
   if (unreadable) {
+    if (message.decrypt.status === 'pending')
+      return <p className="text-text-tertiary text-[13.5px] leading-[22px] italic">{unreadable}</p>
     return (
-      <p
-        className={cn(
-          'font-sans text-[13px] leading-[22px] italic',
-          message.decrypt.status === 'failed' ? 'text-destructive' : 'text-muted-foreground'
-        )}
+      <div
+        role="note"
+        className="border-feature-danger/40 bg-feature-danger/10 text-feature-danger-text my-0.5 inline-flex max-w-full items-center gap-2 border px-2.5 py-1.5 text-[13.5px] leading-5 font-semibold"
       >
-        {unreadable}
-      </p>
+        <CircleAlert className="size-4 shrink-0" aria-hidden />
+        <span className="min-w-0">{unreadable}</span>
+        {message.decrypt.status === 'failed' && IDENTITY_FAILURES.has(message.decrypt.reason) && (
+          <Button
+            variant="danger"
+            size="sm"
+            className="h-6 shrink-0 px-2 text-xs"
+            onClick={() => openDialog({ kind: 'verification', userId: message.author.id })}
+          >
+            Verify {authorName}
+          </Button>
+        )}
+      </div>
     )
   }
   // An attachment-only message has no text line, unless "(edited)" needs one.
@@ -199,20 +227,20 @@ function MessageBody({
       {showText && (
         <p
           className={cn(
-            'text-[15px] leading-[22px] break-words whitespace-pre-wrap',
-            message.failed ? 'text-destructive' : 'text-foreground'
+            'text-body break-words whitespace-pre-wrap',
+            message.failed ? 'text-feature-danger-text' : 'text-text-primary'
           )}
         >
           {tokens.map((t, i) =>
             t.kind === 'text' ? (
-              t.value
+              <TextWithChannelRefs key={i} text={t.value} guildId={message.guildId} />
             ) : t.kind === 'link' ? (
               <a
                 key={i}
                 href={t.value}
                 target="_blank"
                 rel="noreferrer noopener"
-                className="decoration-muted-foreground hover:decoration-foreground underline underline-offset-2"
+                className="text-accent-text underline-offset-2 hover:underline"
               >
                 {t.value}
               </a>
@@ -221,26 +249,41 @@ function MessageBody({
             )
           )}
           {message.editedAt && (
-            <span className="text-muted-foreground ml-1.5 font-sans text-[11px] select-none">
-              (edited)
-            </span>
+            <span className="text-text-tertiary ml-1.5 text-[11px] select-none">(edited)</span>
           )}
         </p>
       )}
       {message.sender && !message.sender.membershipVerified && (
         <p
-          className="text-muted-foreground font-sans text-[11px] leading-4 select-none"
+          className="text-text-tertiary text-[11px] leading-4 select-none"
           title="This message came from a history key backup or bundle. This device did not see the sender in the channel at that time."
         >
           Membership at that time not verified
         </p>
       )}
       {message.failed && (
-        <div className="text-muted-foreground flex items-center gap-1 pb-0.5 font-sans text-xs">
-          <span className="text-destructive">{message.sendError ?? 'Not sent.'}</span>
-          <LinkButton onClick={() => void messagesService.retry(message)}>Retry</LinkButton>
-          <span aria-hidden>/</span>
-          <LinkButton onClick={() => messagesService.discard(message)}>Delete</LinkButton>
+        <div className="flex flex-wrap items-center gap-2 py-1 text-[13px] leading-5 font-semibold">
+          <span className="text-feature-danger-text inline-flex items-center gap-1.5">
+            <CircleAlert className="size-4 shrink-0" aria-hidden />
+            {message.sendError ?? 'Not sent.'}
+          </span>
+          <Button
+            variant="danger"
+            size="sm"
+            className="h-6 px-2 text-xs"
+            onClick={() => void messagesService.retry(message)}
+          >
+            <RotateCw className="size-3.5" aria-hidden />
+            Retry
+          </Button>
+          <Button
+            variant="quiet"
+            size="sm"
+            className="text-text-secondary h-6 px-2 text-xs"
+            onClick={() => messagesService.discard(message)}
+          >
+            Delete
+          </Button>
         </div>
       )}
     </>
@@ -263,8 +306,8 @@ function Mention({
   return (
     <span
       className={cn(
-        'font-semibold',
-        isMe ? 'bg-primary/20 text-foreground px-0.5' : 'text-primary'
+        'rounded-check px-1 font-semibold',
+        isMe ? 'bg-feature-event/20 text-feature-event-text' : 'bg-accent-tint text-accent-text'
       )}
     >
       {byId && (member || fallback) ? `@${name}` : token.value}
@@ -277,7 +320,7 @@ function LinkButton(props: { onClick: () => void; children: React.ReactNode }): 
     <button
       type="button"
       onClick={props.onClick}
-      className="text-foreground focus-visible:outline-ring font-medium underline-offset-2 hover:underline focus-visible:outline-2"
+      className="text-text-primary focus-visible:outline-line-focus font-semibold underline-offset-2 outline-none hover:underline focus-visible:outline-2"
     >
       {props.children}
     </button>
@@ -315,9 +358,9 @@ function EditBox({
             onDone()
           } else submitOnEnter(e, () => void save())
         }}
-        className="bg-card focus-visible:border-ring field-sizing-content block max-h-[198px] min-h-[38px] w-full resize-none border px-3 py-2 text-[15px] leading-[22px] outline-none"
+        className="rounded-option bg-surface-raised border-line-hairline focus-visible:border-accent-primary text-body field-sizing-content block max-h-[198px] min-h-[38px] w-full resize-none border px-3 py-2 outline-none"
       />
-      <p className="text-muted-foreground pt-1 font-sans text-xs">
+      <p className="text-text-tertiary pt-1 text-xs">
         Enter to <LinkButton onClick={() => void save()}>save</LinkButton>, Esc to{' '}
         <LinkButton onClick={onDone}>cancel</LinkButton>
       </p>
