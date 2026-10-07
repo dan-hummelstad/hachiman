@@ -26,6 +26,9 @@ import { DM_HOME, navigate, useNavStore } from '@/stores/navStore'
 import { useFavouriteDms, usePrefsStore } from '@/stores/prefsStore'
 import { useChannelUnread } from '@/stores/unreadStore'
 
+/** The open tile (E2): an opaque accent wash, so the presence cutout can match it. */
+const OPEN_BG = 'bg-[color-mix(in_oklab,var(--accent-primary)_17%,var(--surface-raised))]'
+
 /**
  * The favourite DMs at the sidebar top (N6, kit "SIDEBAR · TOP"): the "Direct messages" label
  * with "+" (the DM home, where a conversation starts), then one 46px tile per favourite with
@@ -108,8 +111,10 @@ function FavouriteTile({ channel }: { channel: Channel }): React.JSX.Element {
                 aria-current={open ? 'page' : undefined}
                 onClick={() => navigate({ kind: 'dm', channelId: channel.id })}
                 className={cn(
-                  'bg-surface-raised hover:bg-surface-hover rounded-control relative flex size-[46px] items-center justify-center transition-shadow',
-                  open && 'ring-text-primary ring-offset-surface-window ring-2 ring-offset-2'
+                  'rounded-control relative flex size-[46px] items-center justify-center border transition-colors',
+                  open
+                    ? cn(OPEN_BG, 'border-accent-primary/40')
+                    : 'bg-surface-raised hover:bg-surface-hover border-transparent'
                 )}
               >
                 <span className="relative flex">
@@ -121,7 +126,7 @@ function FavouriteTile({ channel }: { channel: Channel }): React.JSX.Element {
                       avatar={other?.avatar}
                       size={28}
                       status={status}
-                      cutout="bg-surface-raised"
+                      cutout={open ? OPEN_BG : 'bg-surface-raised'}
                     />
                   )}
                   <CornerBadge badge={badge} dot={false} className="-top-1.5 -right-2" />
