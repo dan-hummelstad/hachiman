@@ -6,10 +6,11 @@ import { ErrorText } from '@/components/ui/field'
 import { cryptoErrorText, friendly } from '@/components/security/errors'
 import { CopyableCode, QrCodeView } from '@/components/security/qr-view'
 import { SasEmojiRow } from '@/components/security/sas-emoji'
-import { OptionCard, StepFrame, Warning } from '@/components/security/screen-window'
+import { OptionCard, StepFrame } from '@/components/security/screen-window'
 import { useAction } from '@/hooks/use-action'
 import { cryptoService } from '@/services/CryptoService'
 import { clearLinkState, useCryptoStore } from '@/stores/cryptoStore'
+import { Callout } from '@/components/ui/callout'
 
 /**
  * New device side of device linking (§12.5). The device shows a QR code (QR mode) or waits for
@@ -166,10 +167,10 @@ export function LinkAsNewDevice({
             </ol>
           </div>
           <CopyableCode value={session.qrPayload} label="Code text" />
-          <Warning>
+          <Callout tone="caution">
             This code is a secret for this link only. Show it only to your own device. It stops
             working after 10 minutes.
-          </Warning>
+          </Callout>
         </>
       ) : sas ? (
         <>
@@ -178,9 +179,9 @@ export function LinkAsNewDevice({
             the other device.
           </p>
           <SasEmojiRow emoji={sas.emoji} />
-          <Warning>
+          <Callout tone="caution">
             If the emoji are different, select <b>They do not match</b> on the other device.
-          </Warning>
+          </Callout>
         </>
       ) : (
         <>

@@ -5,12 +5,12 @@ import { Button } from '@/components/ui/button'
 import { ErrorText, SectionHeading } from '@/components/ui/field'
 import { useOwnDevices } from '@/components/security/devices-panel'
 import { friendly } from '@/components/security/errors'
-import { Warning } from '@/components/security/screen-window'
 import { useAction } from '@/hooks/use-action'
 import { cn } from '@/lib/utils'
 import { cryptoService } from '@/services/CryptoService'
 import { dismissKtAlerts, useCryptoStore } from '@/stores/cryptoStore'
 import { useUserStore } from '@/stores/userStore'
+import { Callout } from '@/components/ui/callout'
 
 const ENTRY_TYPE: Record<number, string> = {
   1: 'Security key',
@@ -108,10 +108,10 @@ export function SecurityLog(): React.JSX.Element {
         <section className="grid gap-2">
           <SectionHeading className="mb-0">Alerts</SectionHeading>
           {alerts.map((a, i) => (
-            <Warning key={i} tone="danger">
+            <Callout key={i} tone="danger">
               <b>{ALERT_TEXT[a.kind] ?? a.kind}</b>
               {a.detail && <span className="text-text-tertiary block">{a.detail}</span>}
-            </Warning>
+            </Callout>
           ))}
           <p className="text-meta text-text-tertiary">
             Look at your device list. Sign out each device that you do not know, then make a new

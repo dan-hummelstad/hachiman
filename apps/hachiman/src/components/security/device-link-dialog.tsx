@@ -10,11 +10,12 @@ import { cryptoErrorText, friendly } from '@/components/security/errors'
 import { LinkAsNewDevice, Waiting } from '@/components/security/link-new-device'
 import { ScanOrPaste } from '@/components/security/qr-view'
 import { SasEmojiRow } from '@/components/security/sas-emoji'
-import { StepFrame, Warning } from '@/components/security/screen-window'
+import { StepFrame } from '@/components/security/screen-window'
 import { useAction } from '@/hooks/use-action'
 import { cryptoService } from '@/services/CryptoService'
 import { clearLinkState, useCryptoStore } from '@/stores/cryptoStore'
 import { useDialog } from '@/stores/dialogStore'
+import { Callout } from '@/components/ui/callout'
 
 interface PendingSession {
   sessionId: string
@@ -196,10 +197,10 @@ function LinkFromThisDevice({
         </Button>
       }
     >
-      <Warning>
+      <Callout tone="caution">
         Link only a device that you have with you now. A linked device can read all of your
         messages.
-      </Warning>
+      </Callout>
       <SegmentedControl
         label="How to link"
         options={MODES}

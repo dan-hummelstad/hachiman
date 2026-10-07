@@ -1,7 +1,7 @@
 import { useId, useState } from 'react'
 import { Checkbox } from '@/components/ui/checkbox'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
-import { Warning } from '@/components/security/screen-window'
+import { Callout } from '@/components/ui/callout'
 
 /**
  * The warning that an administrator must accept before Takusen makes a permanent invite (contract
@@ -31,17 +31,17 @@ export function PermanentInviteConfirm({
       title="Create a permanent invite?"
       body={
         <div className="grid gap-3">
-          <Warning tone="danger">
+          <Callout tone="danger">
             A permanent invite never expires. Anyone who gets this link, now or later, can join the
             guild. A link in a public place, a forwarded message or a screenshot can let unknown
             people in. Revoke the invite when you do not need it.
-          </Warning>
+          </Callout>
           {scope && (
-            <Warning tone="danger">
+            <Callout tone="danger">
               Anyone who gets this link can also read the history and pages of these channels:{' '}
               {scope.join(', ')}. This continues until you revoke the invite. History that someone
               read before the revoke stays read.
-            </Warning>
+            </Callout>
           )}
           <label htmlFor={checkId} className="flex items-start gap-2 text-sm">
             <Checkbox

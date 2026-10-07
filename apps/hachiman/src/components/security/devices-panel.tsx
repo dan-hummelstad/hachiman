@@ -11,7 +11,6 @@ import { ModalWindow } from '@/components/ui/modal-window'
 import { NativeSelect } from '@/components/ui/native-select'
 import { cryptoErrorText, friendly } from '@/components/security/errors'
 import { HostTrustLine } from '@/components/security/host-trust'
-import { Warning } from '@/components/security/screen-window'
 import { useAction } from '@/hooks/use-action'
 import { relativeTime } from '@/lib/time-format'
 import { cn } from '@/lib/utils'
@@ -364,10 +363,10 @@ function RemoveDeviceDialog({
             </NativeSelect>
           </Field>
           {reason !== 'user' && (
-            <Warning>
+            <Callout tone="caution">
               The device keeps the messages that it already has. If someone else has it, also change
               your password.
-            </Warning>
+            </Callout>
           )}
         </div>
       }
