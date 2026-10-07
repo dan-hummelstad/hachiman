@@ -52,8 +52,9 @@ const WALLPAPER = cn(
  *
  * N3: with the sidebar hidden, the card takes the window width (inset 8), the sidebar slides in
  * over it from the left edge, and the voice dock floats in the card's bottom-left corner. The
- * card then sets `--dock-inset` (the dock width and its gap) and the composer footer shifts right
- * by it, so it is not covered. The one VoiceDock moves between the sidebar foot and the float
+ * card then sets `--dock-inset` (the dock width and its gap) and `--dock-height`: the composer
+ * footer shifts right by the inset and is at least as tall as the dock, so the transcript ends
+ * above the dock and nothing is covered. The one VoiceDock moves between the sidebar foot and the float
  * spot (useDockHost); it does not remount.
  *
  * Settings (Phase 7): the sidebar middle shows the settings list and the card shows the settings
@@ -86,6 +87,7 @@ export function Shell(): React.JSX.Element {
   const [footSlot, setFootSlot] = useState<HTMLDivElement | null>(null)
   const [floatSlot, setFloatSlot] = useState<HTMLDivElement | null>(null)
   const dockHost = useDockHost(floatDock ? floatSlot : footSlot)
+  const dockHeight = useLastHeight(floatSlot)
   useSidebarReveal(sidebarRef)
   useAppShortcuts()
 
@@ -165,6 +167,9 @@ export function Shell(): React.JSX.Element {
             hidden ? 'mx-2' : 'mr-2',
             dockInset && '[--dock-inset:calc(var(--dock-width)+8px)]'
           )}
+          style={
+            dockInset ? ({ '--dock-height': `${dockHeight}px` } as React.CSSProperties) : undefined
+          }
         >
           {settings && settingsModel ? (
             <div className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -211,6 +216,24 @@ export function Shell(): React.JSX.Element {
       {createPortal(<VoiceDock />, dockHost)}
     </div>
   )
+}
+
+/**
+ * The last non-zero height of `el`. The float slot is hidden while the sidebar is revealed, but
+ * the chat keeps its inset then (nothing moves), so the last floating height stays in use.
+ */
+function useLastHeight(el: HTMLElement | null): number {
+  const [height, setHeight] = useState(0)
+  useLayoutEffect(() => {
+    if (!el) return
+    const observer = new ResizeObserver(([entry]) => {
+      const h = entry?.borderBoxSize[0]?.blockSize ?? 0
+      if (h > 0) setHeight(Math.ceil(h))
+    })
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [el])
+  return height
 }
 
 /** A node the VoiceDock renders into, kept in `slot`: moving it keeps the dock mounted. */
