@@ -31,6 +31,8 @@ import {
   G1C,
   G2,
   G2C,
+  G3,
+  G3C,
   ME,
   QUALITY,
   U,
@@ -846,8 +848,28 @@ function fixtureEvents(): GuildEventWithMe[] {
       createdAt: new Date(now - 2 * DAY).toISOString(),
       rsvpCount: 5,
       me: true
+    },
+    {
+      id: 'ev-dogear-talk',
+      guildId: G3,
+      channelId: G3C.room,
+      title: 'Ch. 1–7 talk',
+      startsAt: nextWednesday(),
+      endsAt: null,
+      createdBy: U.juniper.id,
+      createdAt: new Date(now - 5 * DAY).toISOString(),
+      rsvpCount: 3,
+      me: false
     }
   ]
+}
+
+/** The next Wednesday 00:00 local time: a date-only event ("Wed 14"). */
+function nextWednesday(): string {
+  const d = new Date(now)
+  d.setDate(d.getDate() + ((3 - d.getDay() + 7) % 7 || 7))
+  d.setHours(0, 0, 0, 0)
+  return d.toISOString()
 }
 
 /** Runs `fn` once the (stub) crypto client is ready, so the fixtures decrypt on the first try. */
