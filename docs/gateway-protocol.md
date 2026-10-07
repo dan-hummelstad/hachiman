@@ -30,7 +30,7 @@ Conventions:
 These are the TS types exported from `@hachiman/client` (`src/types.ts`). Go mirrors them with `json:"camelCase"` tags.
 
 ```ts
-type ChannelType = 'text' | 'voice' | 'category' | 'dm' | 'group_dm' | 'pages'
+type ChannelType = 'text' | 'voice' | 'category' | 'dm' | 'group_dm' | 'pages' | 'thread'
 type PresenceStatus = 'online' | 'idle' | 'dnd' | 'offline'
 
 // avatar, icon and banner are file keys (§4 Files), not URLs. The client builds the URL with RestClient.fileUrl(key).
@@ -58,13 +58,14 @@ interface Channel {
   type: ChannelType
   name: string | null              // null for dm
   topic: string | null
-  parentId: string | null          // category id
-  position: number
-  permissionOverwrites: PermissionOverwrite[]   // [] for DMs
+  parentId: string | null          // category id. thread: the parent text channel (never null)
+  position: number                 // thread: 0
+  permissionOverwrites: PermissionOverwrite[]   // [] for DMs and threads
   recipients?: User[]              // dm / group_dm only: every participant except the viewer
-  ownerId?: string | null          // group_dm only
-  mlsGroupId: string | null        // text, pages, dm, group_dm: the current MLS group (base64url, §12.6). null: no group yet, or voice/category
-  historyVisibility: 'joined' | 'shared' | null   // text, pages, dm, group_dm: the effective value (§12.6). null for voice/category
+  ownerId?: string | null          // group_dm: the owner. thread: the creator
+  mlsGroupId: string | null        // text, pages, dm, group_dm: the current MLS group (base64url, §12.6). thread: the group of the parent. null: no group yet, or voice/category
+  historyVisibility: 'joined' | 'shared' | null   // text, pages, dm, group_dm, thread: the effective value (§12.6). null for voice/category
+  threadStartMessageId?: string | null   // thread only: the message of the parent that starts the thread, or null
 }
 
 interface Member { guildId: string; user: User; nick: string | null; roles: string[] /* excludes @everyone */; joinedAt: string }
@@ -152,7 +153,7 @@ interface ReadState {              // READY readStates; READ_STATE_UPDATE sets l
 }
 
 interface GuildFull extends Guild {  // READY + GUILD_CREATE
-  channels: Channel[]              // only channels the user can VIEW
+  channels: Channel[]              // only channels the user can VIEW. READY: at most the 50 most recently active threads of the guild
   roles: Role[]
   members: Member[]                // ponytail: full list; add lazy member chunks when guilds exceed ~1k members
   voiceStates: VoiceState[]
@@ -215,6 +216,7 @@ computeChannelPermissions(guild, member, roles, channel):
 ```
 
 Categories: overwrites are **not** inherited (Discord "synced" categories are a UI nicety — skip).
+Threads: a thread has no overwrites. Every permission check on a thread uses its parent channel: `computeChannelPermissions(…, parent)`. Takusen, the gateway and the client (`permissionChannel(channel, lookup)` in `permissions.ts`) do this. A thread whose parent is not known gives 0.
 DM channels: participants get `VIEW_CHANNEL | SEND_MESSAGES | ATTACH_FILES | READ_MESSAGE_HISTORY`, non-participants 0.
 Role hierarchy: a member may only edit/assign roles whose `position` is strictly below the highest role of that member (owner/admin exempt).
 
@@ -227,7 +229,7 @@ New/changed tables (all ids `uuid` defaultRandom, timestamps `timestamptz` defau
 | `guilds` | id, owner_id → users (cascade), name, icon null, banner null, region → regions.code (set null), page_storage_bytes bigint (mode number) default 0, created_at | replaces virtual_servers. icon/banner hold file keys. `page_storage_bytes`: the page quota count (§4 Pages) |
 | `uploads` | id, uploader_id → users (cascade), key unique, filename null (null for blobs), size bigint (mode number), content_type, encrypted bool default false, message_id null → messages (cascade), position int default 0, purpose `upload_purpose` enum ('attachment','image','page_snapshot','page_media') null, page_id null → doc_pages (cascade), last_referenced_at null, created_at | index (message_id); index (page_id); CHECK `uploads_attachment_has_message`: `(purpose IS NOT DISTINCT FROM 'attachment') = (message_id IS NOT NULL)`; CHECK `uploads_page_media_has_page`: `purpose IS DISTINCT FROM 'page_media' OR page_id IS NOT NULL`; CHECK `uploads_page_id_is_page_purpose`: `page_id IS NULL OR purpose IN ('page_snapshot','page_media')`. One row per stored object. The first claim sets purpose, and purpose never changes. message_id is set when a message claims it, together with purpose. A `page_snapshot` upload has its purpose from the upload on, and page_id from the snapshot claim (§4 Pages) |
 | `guild_members` | guild_id → guilds (cascade), user_id → users (cascade), nick null, joined_at, invite_id null → invites (set null) | PK (guild_id, user_id); index (invite_id) where not null. `invite_id`: the invite of the join (§4 accept). The redeemer of an invite with history gets its bundles with it (§12.11.4) |
-| `channels` | id, guild_id null → guilds (cascade), type `channel_type` enum, name null, topic null, parent_id null → channels (set null), position int default 0, owner_id null → users (set null), mls_group_id bytea null → mls_groups (set null), created_at | index (guild_id) |
+| `channels` | id, guild_id null → guilds (cascade), type `channel_type` enum (incl. `thread`), name null, topic null, parent_id null → channels (set null), position int default 0, owner_id null → users (set null), mls_group_id bytea null → mls_groups (set null), thread_start_message_id uuid null → messages (set null), created_at | index (guild_id); index (parent_id). A thread has `mls_group_id` null: readers take the group of the parent. `DELETE /channels/:id` deletes the threads of the channel (the FK alone sets null) |
 | `messages` | id, channel_id → channels (cascade), author_id → users (cascade), group_id bytea → mls_groups (cascade), epoch bigint, sender_device uuid null → devices (set null), client_msg_id bytea, envelope bytea, franking_tag bytea, size int, created_at, edited_at null | index (channel_id, created_at desc, id desc); unique (channel_id, client_msg_id). No `content` column (§12.8) |
 | `roles` | id, guild_id → guilds (cascade), name, color int default 0, hoist boolean default false, position int default 0, permissions bigint (mode number) | @everyone row has id = guild_id |
 | `member_roles` | guild_id, user_id, role_id → roles (cascade) | PK (user_id, role_id); FK (guild_id,user_id) → guild_members (cascade) |
@@ -331,9 +333,11 @@ Implemented extras (Discord semantics):
 | DELETE `/guilds/:id` | owner | 204 | `GUILD_DELETE {id}` → guild |
 | POST `/guilds/:id/channels` `{name, type: text\|voice\|category\|pages, parentId?, topic?}` | MANAGE_CHANNELS | `Channel` | `CHANNEL_CREATE` → guild |
 | PATCH `/guilds/:id/channels` `[{id, position, parentId?}]` | MANAGE_CHANNELS | 204 | `CHANNEL_UPDATE` per changed channel |
-| PATCH `/channels/:id` `{name?, topic?, parentId?, position?, historyVisibility?}` | MANAGE_CHANNELS. `historyVisibility` only for a channel with its own group | `Channel` | `CHANNEL_UPDATE` |
-| DELETE `/channels/:id` | MANAGE_CHANNELS | 204 | `CHANNEL_DELETE` |
-| PUT `/channels/:id/permissions/:targetId` `{type, allow, deny}` | MANAGE_ROLES | 204 | `CHANNEL_UPDATE` |
+| PATCH `/channels/:id` `{name?, topic?, parentId?, position?, historyVisibility?}` | MANAGE_CHANNELS. `historyVisibility` only for a channel with its own group. A thread: only `name`, from MANAGE_CHANNELS or the creator of the thread | `Channel` | `CHANNEL_UPDATE` |
+| DELETE `/channels/:id` | MANAGE_CHANNELS, or the creator of a thread | 204 | `CHANNEL_DELETE`. For a text channel: first one `CHANNEL_DELETE` for each of its threads, which are deleted with it |
+| POST `/channels/:id/threads` `{name, startMessageId?}` | SEND_MESSAGES on `:id`, a guild text channel (else 400). `startMessageId` must be a message of `:id` (else 400) | `Channel` (type `thread`) | `CHANNEL_CREATE` |
+| GET `/channels/:id/threads` | VIEW_CHANNEL on `:id` | `Channel[]`: at most 50 threads, newest activity first (last message, else creation) | — |
+| PUT `/channels/:id/permissions/:targetId` `{type, allow, deny}` | MANAGE_ROLES. Not on a thread (400) | 204 | `CHANNEL_UPDATE` |
 | DELETE `/channels/:id/permissions/:targetId` | MANAGE_ROLES | 204 | `CHANNEL_UPDATE` |
 | GET `/channels/:id/messages?before=<messageId>&limit=50` | VIEW_CHANNEL + READ_MESSAGE_HISTORY | `Message[]` (ciphertext) newest first, limit ≤ 100 | — |
 | POST `/channels/:id/messages` `{envelope, nonce?, attachments?: uploadId[]}` + `X-Hachiman-Device` | SEND_MESSAGES; ATTACH_FILES if attachments is not empty; envelope checks of §12.8.4. `attachments` lists, for each pointer in order, the file id and then its thumbnail id when it has one (at most 20 ids) | `Message` (with nonce) | `MESSAGE_CREATE` (with nonce) |
@@ -560,7 +564,8 @@ Channels: `guild:{guildId}`, `user:{userId}`, `device:{deviceId}`. DM events go 
 
 Envelope (JSON): `{ "t": "<EVENT_NAME>", "d": <payload>, "channelId"?: "<guild channel id>" }`.
 The publisher sets `channelId` for events scoped to one guild channel (MESSAGE_*, TYPING_START, CHANNEL_UPDATE/DELETE, PAGE_*, DOC_UPDATE, DOC_AWARENESS).
-The gateway only forwards those to sessions with VIEW_CHANNEL on it (CHANNEL_CREATE carries it too). When a CHANNEL_UPDATE changes
+For an event of a thread, `channelId` is the parent channel, so the gateway can filter it without the thread in its view.
+The gateway only forwards those to sessions with VIEW_CHANNEL on it (CHANNEL_CREATE carries it too). For a `thread` Channel, the gateway uses the overwrites of the parent (§2). A CHANNEL_UPDATE of a parent that changes its visibility also sends CHANNEL_CREATE / CHANNEL_DELETE for its threads. When a CHANNEL_UPDATE changes
 overwrites, the gateway re-evaluates visibility. It then sends CHANNEL_CREATE / CHANNEL_DELETE to sessions that gained / lost view.
 
 Other Redis keys (owned by the gateway unless noted):
@@ -632,7 +637,7 @@ Dispatch events:
 | GUILD_CREATE | `GuildFull` |
 | GUILD_UPDATE | `Guild` |
 | GUILD_DELETE | `{ id }` |
-| CHANNEL_CREATE / CHANNEL_UPDATE / CHANNEL_DELETE | `Channel` |
+| CHANNEL_CREATE / CHANNEL_UPDATE / CHANNEL_DELETE | `Channel`. Also for threads (type `thread`): there are no thread events |
 | MESSAGE_CREATE / MESSAGE_UPDATE | `Message` (ciphertext, §1) |
 | MESSAGE_DELETE | `{ id, channelId, guildId }` |
 | TYPING_START | `{ channelId, guildId, userId, timestamp }` |
@@ -840,7 +845,7 @@ Browser-safe only (fetch, WebSocket, RTCPeerConnection). No Node imports, no rxj
 
 ```ts
 export * from './types'          // §1 + gateway frame/event types (GatewayEvents map: event name → payload)
-export * from './permissions'    // Permissions, DEFAULT_EVERYONE, ALL, computeBasePermissions, computeChannelPermissions, has(perms, bit)
+export * from './permissions'    // Permissions, DEFAULT_EVERYONE, ALL, computeBasePermissions, computeChannelPermissions, has(perms, bit), permissionChannel(channel, lookup) (thread → parent, §2)
 export { TypedEventEmitter } from './typed-event-emitter'
 
 type TokenProvider = () => Promise<string>   // must return a fresh, valid Takusen access token
@@ -853,6 +858,7 @@ export class RestClient {
   // opts?: SignedActionOptions = { signedAction?: string } — the encoded AdminAction(s) for X-Hachiman-Signed-Action (§12.16, Phase 4)
   getMe(); createGuild(body); getGuild(id); updateGuild(id, body, opts?); deleteGuild(id)
   createChannel(guildId, body); reorderChannels(guildId, body); updateChannel(id, body, opts?); deleteChannel(id)
+  createThread(parentId, { name, startMessageId? }); listThreads(parentId)   // rename / delete a thread: updateChannel / deleteChannel
   putOverwrite(channelId, targetId, body, opts?); deleteOverwrite(channelId, targetId, opts?)
   getMessages(channelId, { before?, limit? }); editMessage(...); deleteMessage(...); triggerTyping(channelId); ackMessage(channelId, messageId)
   getMembers(guildId); updateMember(guildId, userId, body, opts?); kickMember(guildId, userId); leaveGuild(guildId)
@@ -1470,6 +1476,8 @@ The recipient checks that the sender device belongs to the same user and has a v
 | `voice` | 4 | room session id (16 random bytes from the media node) | connected participants | the committer of the room (§12.10) |
 
 **Public channel.** A guild text or pages channel is public when the guild `@everyone` role permissions, with the channel `@everyone` overwrite applied, include VIEW_CHANNEL, and no role or member overwrite on the channel denies VIEW_CHANNEL. All public channels of a guild share the `public_set` group. Each other guild text or pages channel has its own `channel` group. Voice channels have no text group. Takusen tests the two types with one helper, `hasTextGroup(type)`.
+
+**Thread.** A thread has no group. It uses the current group of its parent text channel: the `public_set` group or the `channel` group. The DS resolves the thread to its parent at read time (`MlsRepo.getChannel` gives the `mlsGroupId` of the parent, `getChannelOverwrites` the overwrites of the parent), so a group change of the parent applies to its threads at once. `channelReaders(threadId)` is `channelReaders(parentId)`. A message envelope of a thread names the thread in `channelId` and the group of the parent in `groupId` (§12.8.4). `GET /channels/:threadId/mls-group` gives the group of the parent.
 
 `channelReaders(channelId)` is the set of guild members whose `computeChannelPermissions` (§2) includes VIEW_CHANNEL. For a DM it is the set of participants. Takusen implements it once in `apps/takusen/src/lib/mls/readers.ts`. Clients compute the same set from their cache with `computeChannelPermissions`.
 
@@ -2415,7 +2423,7 @@ franking_tag = HMAC-SHA256(franking_key, "hachiman franking v1" ‖ channel_id(1
 The DS lives in `apps/takusen/src/lib/mls/`. The storage seam is `MlsRepo` (`lib/mls/repo.ts`) with a Drizzle and an in-memory implementation, as `MediaNodesRepo` (§9). Other Takusen code calls only these exports:
 
 ```ts
-// lib/mls/readers.ts
+// lib/mls/readers.ts — a thread id gives the result of its parent (§12.6 Thread)
 export async function channelReaders(executor: Executor, channelId: string): Promise<Set<string>>   // user ids
 export async function isPublicChannel(executor: Executor, channelId: string): Promise<boolean>      // §12.6 rule
 export async function groupReaders(executor: Executor, groupId: Uint8Array): Promise<Set<string>>

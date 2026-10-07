@@ -2,7 +2,7 @@
 // The E2EE shapes mirror the Wire* and voice op types of @hachiman/crypto (src/api.ts)
 // structurally. This file imports nothing: permissions.ts and @hachiman/crypto depend on it.
 
-export type ChannelType = 'text' | 'voice' | 'category' | 'dm' | 'group_dm' | 'pages'
+export type ChannelType = 'text' | 'voice' | 'category' | 'dm' | 'group_dm' | 'pages' | 'thread'
 export type PresenceStatus = 'online' | 'idle' | 'dnd' | 'offline'
 
 /** base64url without padding (§12.2). */
@@ -78,10 +78,12 @@ export interface Channel {
   permissionOverwrites: PermissionOverwrite[]
   recipients?: User[]
   ownerId?: string | null
-  /** text, pages, dm, group_dm: the current MLS group (§12.6). null: no group yet, or voice/category. */
+  /** text, pages, dm, group_dm: the current MLS group (§12.6). thread: the group of its parent. null: no group yet, or voice/category. */
   mlsGroupId: B64url | null
-  /** text, pages, dm, group_dm: the effective value. null for voice/category. */
+  /** text, pages, dm, group_dm, thread: the effective value. null for voice/category. */
   historyVisibility: HistoryVisibility | null
+  /** thread: the message in the parent channel that starts the thread, or null. Absent on other types. */
+  threadStartMessageId?: string | null
 }
 
 export interface Member {

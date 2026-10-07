@@ -8,8 +8,9 @@ import {
   effectivePermissions,
   has,
   Permissions as P,
+  permissionChannel,
 } from './permissions'
-import type { PermissionOverwrite } from './types'
+import type { Channel, PermissionOverwrite } from './types'
 
 const guild = { id: 'g', ownerId: 'owner' }
 const roles = new Map([
@@ -93,4 +94,15 @@ describe('effectivePermissions', () => {
   ])('%s', (_, ctx, channel, want) => {
     expect(effectivePermissions({ ...ctx, channel })).toBe(want)
   })
+})
+
+describe('permissionChannel', () => {
+  type C = Pick<Channel, 'id' | 'type' | 'parentId'>
+  const parent: C = { id: 'p', type: 'text', parentId: null }
+  const thread: C = { id: 't', type: 'thread', parentId: 'p' }
+  const lookup = (id: string): C | undefined => (id === 'p' ? parent : undefined)
+  it('a thread resolves to its parent', () => expect(permissionChannel(thread, lookup)).toBe(parent))
+  it('another type resolves to itself', () => expect(permissionChannel(parent, lookup)).toBe(parent))
+  it('a thread with an unknown parent resolves to null', () =>
+    expect(permissionChannel({ ...thread, parentId: 'x' }, lookup)).toBeNull())
 })

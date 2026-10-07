@@ -30,6 +30,7 @@ export async function assertParent(
   parentId: string | null | undefined,
   childType: string,
 ): Promise<void> {
+  if (childType === 'thread' && parentId !== undefined) throw new ValidationError('A thread cannot move to another parent')
   if (!parentId) return
   if (childType === 'category') throw new ValidationError('Categories cannot be nested')
   const [parent] = await db

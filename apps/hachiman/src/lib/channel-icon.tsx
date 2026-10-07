@@ -15,7 +15,8 @@ const ICONS: Record<ChannelType, LucideIcon> = {
   pages: FileText,
   category: Folder,
   dm: Users,
-  group_dm: Users
+  group_dm: Users,
+  thread: Hash
 }
 
 /** The glyph of a channel type: sidebar rows, the title bar and the create dialog. */

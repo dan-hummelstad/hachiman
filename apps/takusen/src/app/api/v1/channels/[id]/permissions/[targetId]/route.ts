@@ -1,6 +1,7 @@
 /**
  * PUT    /api/v1/channels/:id/permissions/:targetId { type, allow, deny } — MANAGE_ROLES.
  * DELETE /api/v1/channels/:id/permissions/:targetId — MANAGE_ROLES.
+ * Not on a thread: it has the overwrites of its parent (400).
  * `targetId` is a role of the channel's guild (type 'role') or a member (type 'member').
  * Both take X-Hachiman-Signed-Action (overwrite_put / overwrite_delete, §12.16)
  * and tell the DS in the same transaction (`overwrites_changed`, §12.18): the
@@ -47,6 +48,7 @@ async function manageOverwrites(
   const { id, targetId } = await ctx.params
   const access = await loadChannelAccess(id, userId)
   if (!access.guild) throw new MissingPermissionsError('DM channels have no overwrites')
+  if (access.channel.type === 'thread') throw new ValidationError('A thread has the overwrites of its parent')
   requirePermission(access.permissions, Permissions.MANAGE_ROLES)
   return { access, guild: access.guild, targetId: assertId(targetId, 'overwrite target') }
 }

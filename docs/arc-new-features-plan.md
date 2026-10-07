@@ -257,11 +257,15 @@ Each of these needs a design doc (like `docs/pages-channels-plan.md`) before cod
 
 **Mocks:** the sky "Bracket seeding" tab, the threads button with "3" in the header, the thread button in the hover toolbar.
 
-Design questions for the doc:
-- **Group.** A thread uses the MLS group of its parent channel (the `public_set` group for a public channel, the channel group otherwise). Public channels already share one group, so the DS supports more than one channel per group. A thread then needs no new group, no new membership, and no new key work.
-- **Shape.** A `thread` channel type with `parentId` = the text channel and the plaintext name (as channel names). Permissions come from the parent. Archive after inactivity.
-- **Start message.** The thread links the parent message by `clientMsgId` inside the first thread message's envelope, not in plaintext.
-- **Contract:** §1, §3, §4, §6 (`THREAD_CREATE`, `THREAD_UPDATE`), the gateway visibility filter, and §12.6 (the group rule).
+Design (server and client library are done, branch `arc/server-threads`; the UI is open):
+- **Shape.** A thread is a channel of type `thread`. `parentId` is a guild text channel (not pages, voice, a DM or a thread). `guildId` is the guild of the parent. The name is plaintext, 1 to 100 characters, as other channel names. `ownerId` is the creator. `permissionOverwrites` is always empty.
+- **Permissions.** A thread has the permissions of its parent for every check: VIEW_CHANNEL, SEND_MESSAGES, READ_MESSAGE_HISTORY and MANAGE_*. Takusen (`loadChannelAccess`), the DS repo, the gateway and the client (`permissionChannel`) resolve a thread to its parent. Overwrites on a thread are not allowed (400).
+- **Group.** A thread has no MLS group. It uses the current group of its parent: the `public_set` group or the `channel` group. The DS resolves this at read time, so a group change of the parent applies to its threads at once. There is no new membership and no new key work. A thread message envelope names the thread in `channelId` and the group of the parent in `groupId`.
+- **Start message.** `threadStartMessageId` is an optional plaintext id of a message in the parent. It holds no content.
+- **Routes.** `POST /channels/:id/threads { name, startMessageId? }` needs SEND_MESSAGES on the parent. `GET /channels/:id/threads` needs VIEW_CHANNEL and gives at most 50 threads, newest activity first. `PATCH /channels/:threadId` changes only the name. `PATCH` and `DELETE` need MANAGE_CHANNELS or the creator. When you delete a text channel, its threads are deleted too.
+- **Events.** There are no new events. CHANNEL_CREATE, CHANNEL_UPDATE and CHANNEL_DELETE carry threads. Bus events of a thread have the parent as `channelId` scope. READY holds at most the 50 most recently active threads of each guild.
+- **Not done.** Archive after inactivity, thread member lists, and unread counts per thread (N7).
+- **Contract:** §1, §2, §3, §4, §5, §6, §10, §12.6 (Thread) and §12.18.
 
 ### N18 Watch a stream
 

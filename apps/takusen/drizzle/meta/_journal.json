@@ -29,6 +29,13 @@
       "when": 1791360306591,
       "tag": "0003_guild_data",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1791360371804,
+      "tag": "0004_threads",
+      "breakpoints": true
     }
   ]
 }

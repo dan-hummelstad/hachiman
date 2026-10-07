@@ -23,7 +23,7 @@ export interface RepoFixtures {
   addGuild(ownerId: string, everyonePermissions?: number): Promise<string>
   addRole(guildId: string, permissions: number): Promise<string>
   addGuildMember(guildId: string, userId: string, roleIds?: string[]): Promise<void>
-  addChannel(c: { guildId: string | null; type: ChannelInfo['type'] }): Promise<string>
+  addChannel(c: { guildId: string | null; type: ChannelInfo['type']; parentId?: string }): Promise<string>
   setOverwrites(channelId: string, ows: OverwriteInfo[]): Promise<void>
   addDm(participants: string[]): Promise<string>
   addInvite(i: { guildId: string; createdBy: string; keyId: Uint8Array | null; record: Uint8Array | null; expiresAt: Date | null; revoked: boolean }): Promise<string>
@@ -95,7 +95,18 @@ export function describeMlsRepo(name: string, open: () => Promise<RepoUnderTest>
       assert.deepEqual(data.members.get(owner), [])
       assert.deepEqual(await repo.getChannelOverwrites(channelId), [{ id: member, type: 'member', allow: 0, deny: 0x400 }])
       assert.deepEqual((await repo.listGuildTextChannels(guildId)).map((c) => c.id).sort(), [channelId, pagesId].sort())
-      assert.deepEqual(await repo.getChannel(channelId), { id: channelId, guildId, type: 'text', mlsGroupId: null })
+      assert.deepEqual(await repo.getChannel(channelId), { id: channelId, guildId, type: 'text', mlsGroupId: null, parentId: null })
+      // §12.6: a thread reads the group and the overwrites of its parent, and is not a text group channel.
+      const parentId = await fx.addChannel({ guildId, type: 'text' })
+      await fx.setOverwrites(parentId, [{ id: member, type: 'member', allow: 0x800, deny: 0 }])
+      const threadId = await fx.addChannel({ guildId, type: 'thread', parentId })
+      assert.deepEqual(await repo.getChannelOverwrites(threadId), [{ id: member, type: 'member', allow: 0x800, deny: 0 }])
+      assert.ok(!(await repo.listGuildTextChannels(guildId)).some((c) => c.id === threadId))
+      const { groupId } = await group('channel', guildId, parentId)
+      await repo.setChannelGroup(parentId, groupId)
+      const thread = (await repo.getChannel(threadId))!
+      assert.deepEqual(Buffer.from(thread.mlsGroupId!), Buffer.from(groupId))
+      assert.equal(thread.parentId, parentId)
       assert.equal(await repo.getChannel(crypto.randomUUID()), null)
       assert.deepEqual(await repo.guildIdsOfUser(member), [guildId])
       assert.equal(await repo.sharesGuildOrDm(owner, member), true)

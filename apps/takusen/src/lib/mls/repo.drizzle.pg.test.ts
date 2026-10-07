@@ -56,7 +56,7 @@ describeMlsRepo(
         },
         async addChannel(c) {
           const id = randomUUID()
-          await db.insert(schema.channels).values({ id, guildId: c.guildId, type: c.type, name: 'conformance' })
+          await db.insert(schema.channels).values({ id, guildId: c.guildId, type: c.type, name: 'conformance', parentId: c.parentId ?? null })
           return id
         },
         async setOverwrites(channelId, ows) {

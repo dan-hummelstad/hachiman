@@ -1,15 +1,18 @@
 /**
  * PATCH  /api/v1/channels/:id { name?, topic?, parentId?, position?, historyVisibility? }
- *        — MANAGE_CHANNELS. `historyVisibility` only for a channel with its own
+ *        — MANAGE_CHANNELS. A thread takes only `name`, from MANAGE_CHANNELS
+ *        (on the parent) or the creator of the thread (§4 Threads). `historyVisibility` only for a channel with its own
  *        group (§12.6). It sets the value that REST mirrors. Members change the
  *        group descriptor with a GCE commit. In Phase 4 the change also takes
  *        X-Hachiman-Signed-Action (channel_history_visibility, §12.16).
- * DELETE /api/v1/channels/:id — MANAGE_CHANNELS. The DS retires the channel's
- *        groups in the same transaction. Deletes its messages' attachment rows,
- *        then (best effort) their objects.
+ * DELETE /api/v1/channels/:id — MANAGE_CHANNELS, or the creator of a thread.
+ *        The DS retires the channel's groups in the same transaction. Deletes
+ *        the threads of the channel, the attachment rows of all their messages,
+ *        then (best effort) their objects. CHANNEL_DELETE of each thread comes
+ *        before the one of the channel.
  * Guild channels only; DMs have no editable settings in v1.
  */
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import { Permissions } from '@hachiman/client/permissions'
 import { NextResponse, type NextRequest } from 'next/server'
 import { z } from 'zod'
@@ -28,10 +31,11 @@ import {
   requirePermission,
   type ChannelAccess,
 } from '@/lib/guild-access'
-import { hasTextGroup } from '@/lib/channel-types'
+import { hasTextGroup, THREAD_PARENT_TYPE } from '@/lib/channel-types'
 import { assertParent, historyVisibilitySchema, nameSchema } from '@/lib/guild-schemas'
 import { loadChannel, membershipChanged, membershipTransaction, MembershipTriggers } from '@/lib/guilds'
 import { deleteObjects } from '@/lib/storage'
+import { canManageThread } from '@/lib/threads'
 import { deleteAttachmentRows } from '@/lib/uploads'
 import { toChannel } from '@/lib/wire'
 
@@ -50,7 +54,11 @@ const updateChannelSchema = z.object({
 async function manageableChannel(channelId: string, userId: string): Promise<ChannelAccess> {
   const access = await loadChannelAccess(channelId, userId)
   if (!access.guild) throw new MissingPermissionsError('DM channels cannot be managed')
-  requirePermission(access.permissions, Permissions.MANAGE_CHANNELS)
+  if (access.channel.type === 'thread') {
+    if (!canManageThread(access.channel, userId, access.permissions)) throw new MissingPermissionsError()
+  } else {
+    requirePermission(access.permissions, Permissions.MANAGE_CHANNELS)
+  }
   return access
 }
 
@@ -60,6 +68,9 @@ export async function PATCH(req: NextRequest, ctx: RouteContext): Promise<NextRe
     const { id } = await ctx.params
     const access = await manageableChannel(id, session.user.id)
     const { historyVisibility, ...body } = await parseBody(req, updateChannelSchema)
+    if (access.channel.type === 'thread' && (body.topic !== undefined || body.position !== undefined)) {
+      throw new ValidationError('A thread takes only a name')
+    }
     await assertParent(access.channel.guildId!, body.parentId, access.channel.type)
 
     // §12.6: only a private text or pages channel has its own group.
@@ -101,13 +112,22 @@ export async function DELETE(req: NextRequest, ctx: RouteContext): Promise<NextR
     const { id } = await ctx.params
     const access = await manageableChannel(id, session.user.id)
     const actor = await actorDeviceId(req, session.user.id)
+    const threads = access.channel.type === THREAD_PARENT_TYPE
+      ? await db.select().from(channels).where(and(eq(channels.parentId, id), eq(channels.type, 'thread')))
+      : []
     const keys = await membershipTransaction(async (tx) => {
-      const keys = await deleteAttachmentRows(tx, { channelId: id })
+      const keys: string[] = []
+      for (const t of threads) {
+        keys.push(...(await deleteAttachmentRows(tx, { channelId: t.id })))
+        await tx.delete(channels).where(eq(channels.id, t.id))
+      }
+      keys.push(...(await deleteAttachmentRows(tx, { channelId: id })))
       await membershipChanged(tx, MembershipTriggers.channelDeleted(access.channel.guildId!, id), actor)
       await tx.delete(channels).where(eq(channels.id, id))
       return keys
     })
     await deleteObjects(keys)
+    for (const t of threads) await publishToChannel({ channel: t, participantIds: [] }, 'CHANNEL_DELETE', toChannel(t, []))
     await publishToChannel(access, 'CHANNEL_DELETE', toChannel(access.channel, access.overwrites))
     return noContent()
   } catch (err) {

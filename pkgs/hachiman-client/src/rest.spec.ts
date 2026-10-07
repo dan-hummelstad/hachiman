@@ -201,6 +201,14 @@ describe('RestClient fetch routes', () => {
     return c
   }
 
+  it('createThread POSTs to the parent; listThreads GETs its threads', async () => {
+    await rest.createThread('c1', { name: 'Bracket', startMessageId: 'm1' })
+    expect(last()).toMatchObject({ method: 'POST', url: 'http://api/v1/channels/c1/threads', body: { name: 'Bracket', startMessageId: 'm1' } })
+    reply = json(200, [])
+    await expect(rest.listThreads('c1')).resolves.toEqual([])
+    expect(last()).toMatchObject({ method: 'GET', url: 'http://api/v1/channels/c1/threads' })
+  })
+
   it('sends Authorization and X-Hachiman-Device on every authed request', async () => {
     await rest.getMe()
     expect(last().headers).toMatchObject({ Authorization: 'Bearer tok', 'X-Hachiman-Device': 'dev1' })

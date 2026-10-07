@@ -63,11 +63,16 @@ export function drizzleMlsRepo(x: Executor = db): MlsRepo {
 
     async getChannel(channelId) {
       const [c] = await x
-        .select({ id: channels.id, guildId: channels.guildId, type: channels.type, mlsGroupId: channels.mlsGroupId })
+        .select({ id: channels.id, guildId: channels.guildId, type: channels.type, mlsGroupId: channels.mlsGroupId, parentId: channels.parentId })
         .from(channels)
         .where(eq(channels.id, channelId))
         .limit(1)
-      return c ?? null
+      if (!c) return null
+      if (c.type !== 'thread') return { ...c, parentId: null }
+      const [parent] = c.parentId
+        ? await x.select({ mlsGroupId: channels.mlsGroupId }).from(channels).where(eq(channels.id, c.parentId)).limit(1)
+        : []
+      return { ...c, mlsGroupId: parent?.mlsGroupId ?? null }
     },
     async listGuildTextChannels(guildId) {
       return x
@@ -88,7 +93,14 @@ export function drizzleMlsRepo(x: Executor = db): MlsRepo {
       return { guild, roles: new Map(roleRows.map((r) => [r.id, r])), members }
     },
     async getChannelOverwrites(channelId) {
-      const rows = await x.select().from(permissionOverwrites).where(eq(permissionOverwrites.channelId, channelId))
+      const [thread] = await x
+        .select({ parentId: channels.parentId })
+        .from(channels)
+        .where(and(eq(channels.id, channelId), eq(channels.type, 'thread')))
+        .limit(1)
+      const target = thread ? thread.parentId : channelId
+      if (!target) return []
+      const rows = await x.select().from(permissionOverwrites).where(eq(permissionOverwrites.channelId, target))
       return rows.map((o) => ({ id: o.targetId, type: o.targetType, allow: o.allow, deny: o.deny }))
     },
     async getDmParticipants(channelId) {
