@@ -114,10 +114,13 @@ export const BATCH_MAX_ADDS = 100
 export const ENVELOPE_MAGIC = 0x4801
 /** The EnvelopeContent kind byte. A client that does not know a kind gives 'malformed' (§12.8.1). */
 export const EnvelopeKind = { MESSAGE: 1, EDIT: 2, REACTION: 3, PAGE_ACTIVITY: 4 } as const
-/** A reaction emoji: 1 to this many UTF-16 code units, no control characters (§12.8.1). */
-export const MAX_REACTION_EMOJI_LENGTH = 32
+/**
+ * A reaction emoji: 1 to this many UTF-16 code units, no control characters (§12.8.1).
+ * 72 holds a custom emoji key `name:id` (32 + 1 + 36) as well as any Unicode emoji sequence.
+ */
+export const MAX_REACTION_EMOJI_LENGTH = 72
 /** UTF-8 bytes of the longest emoji: each UTF-16 unit encodes to at most 3 bytes. */
-export const MAX_REACTION_EMOJI_BYTES = 96
+export const MAX_REACTION_EMOJI_BYTES = 216
 /** page_activity `changes`: 1 to this (§12.8.1). */
 export const MAX_PAGE_ACTIVITY_CHANGES = 10_000
 export const ENVELOPE_AEAD = 'AES-256-GCM'

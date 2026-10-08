@@ -75,7 +75,7 @@ describe('EnvelopeContent kind reaction', () => {
     expect(decodeContent(rawReaction(utf8('🎉'), 1)).content).toMatchObject({ emoji: '🎉', remove: true })
     expectMalformed(() => decodeContent(rawReaction(utf8(''), 0)))
     expectMalformed(() => decodeContent(rawReaction(utf8('a'.repeat(MAX_REACTION_EMOJI_LENGTH + 1)), 0)))
-    expectMalformed(() => decodeContent(rawReaction(utf8('😀'.repeat(17)), 0)))
+    expectMalformed(() => decodeContent(rawReaction(utf8('😀'.repeat(MAX_REACTION_EMOJI_LENGTH / 2 + 1)), 0)))
     expectMalformed(() => decodeContent(rawReaction(utf8('\u0007'), 0)))
     expectMalformed(() => decodeContent(rawReaction(utf8('\u0085'), 0)))
     expectMalformed(() => decodeContent(rawReaction(new Uint8Array([0xff, 0xfe]), 0)))

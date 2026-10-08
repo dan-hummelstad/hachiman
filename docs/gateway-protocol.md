@@ -1867,7 +1867,7 @@ struct {
 
 struct {
   opaque target[16];               // the client_msg_id of a message in the same channel
-  opaque emoji<V>;                 // UTF-8, 1 to 32 UTF-16 code units, no control character
+  opaque emoji<V>;                 // UTF-8, 1 to 72 UTF-16 code units, no control character
   uint8 remove;                    // 0 add, 1 remove
 } ReactionBody;
 
@@ -1903,13 +1903,13 @@ A message must have text or at least one attachment. `channel_id` stops the serv
 |---|---|---|---|
 | 1 | `message` | `MessageContent` | Text or at least one attachment. |
 | 2 | `edit` | `MessageContent` | §12.8.6. |
-| 3 | `reaction` | `ReactionContent { target, emoji, remove, sentAtMs }` | `emoji` has 1 to 32 UTF-16 code units (`MAX_REACTION_EMOJI_LENGTH`), at most 96 UTF-8 bytes, no control character (Unicode `Cc`) and no lone surrogate. `remove` is 0 or 1. `target` is not the header `client_msg_id`. |
+| 3 | `reaction` | `ReactionContent { target, emoji, remove, sentAtMs }` | `emoji` has 1 to 72 UTF-16 code units (`MAX_REACTION_EMOJI_LENGTH`), at most 216 UTF-8 bytes (`MAX_REACTION_EMOJI_BYTES`), a Unicode emoji or a custom emoji key `name:id` (§4 Emojis), no control character (Unicode `Cc`) and no lone surrogate. `remove` is 0 or 1. `target` is not the header `client_msg_id`. |
 | 4 | `page_activity` | `PageActivityContent { pageId, changes, sentAtMs }` | `changes` is 1 to 10000 (`MAX_PAGE_ACTIVITY_CHANGES`). `pageId` is a lowercase UUID. |
 
 - A reaction and a page activity are new messages: each has a new `client_msg_id`, no `edit_of`, no attachments and no `reply_to`. The server stores them as normal message rows and cannot tell them apart from kind 1. They count toward history pages and toward the server unread count. SEND_MESSAGES covers them.
 - A reaction is one event: user U added or removed `emoji` on `target`. The receiver folds the reactions of a channel into the target message. For each (sender user, target, emoji), the event with the highest `sent_at_ms` wins. A reaction is not a chat row and does not count as unread on the client.
 - A page activity tells the channel that the sender edited a page (§12.20). The sender sends at most one per page per 10 minutes. The client shows it as an activity line, not as a chat row.
-- **Old clients.** A client that does not know a kind gives `malformed` at step 3 (§12.8.5) and changes no state. It does not count toward the fork alert. Thus a reaction or a page activity shows as one undecryptable row on an older client, and does no other harm.
+- **Old clients.** A client that does not know a kind gives `malformed` at step 3 (§12.8.5) and changes no state. It does not count toward the fork alert. Thus a reaction or a page activity shows as one undecryptable row on an older client, and does no other harm. The same holds for a reaction emoji of more than 32 UTF-16 code units (a custom emoji key) on a client from before the limit of 72.
 
 #### 12.8.2 Message key
 
