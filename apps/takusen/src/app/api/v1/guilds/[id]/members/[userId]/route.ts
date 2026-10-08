@@ -35,9 +35,9 @@ import {
   type GuildAccess,
 } from '@/lib/guild-access'
 import { assertId } from '@/lib/ids'
-import { loadMember, membershipChanged, membershipTransaction, MembershipTriggers, removeMember } from '@/lib/guilds'
+import { loadMember, membershipChanged, membershipTransaction, MembershipTriggers, readVoiceState, removeMember } from '@/lib/guilds'
 import { publishInviteDeletes, revokeAdminInvitesOfNonAdmins, type RevokedInvite } from '@/lib/invite-limits'
-import { publishVoiceMove, readVoiceState } from '@/lib/voice-moderation'
+import { publishVoiceMove } from '@/lib/voice-moderation'
 import { toOverwrite } from '@/lib/wire'
 
 interface RouteContext {

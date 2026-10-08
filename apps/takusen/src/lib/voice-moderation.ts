@@ -7,8 +7,6 @@
  */
 import { publishJson } from '@/lib/events'
 
-export { readVoiceState } from '@/lib/guilds'
-
 /** Internal, not forwarded to clients. `channelId` null: disconnect. */
 export async function publishVoiceMove(userId: string, guildId: string, channelId: string | null): Promise<void> {
   await publishJson(`user:${userId}`, { t: 'VOICE_MOVE', d: { guildId, channelId } }, 'VOICE_MOVE')
