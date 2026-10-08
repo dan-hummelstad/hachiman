@@ -1137,7 +1137,7 @@ export class HachimanClient extends TypedEventEmitter<HachimanClientEvents> {
   // events: 'ready', 'state', 'update' (fired after any cache mutation with { t, d }), 'voice' (VoiceConnection | null),
   //         'fatal' ({ code }: the gateway closed 4012 or 4013 and does not reconnect),
   //         'voiceResync' (VoiceTarget { guildId: string | null, channelId }: media closed the call 4013; the client left voice, call joinVoice with the same target),
-  //         'voiceMoved' (VoiceTarget: a moderator moved the user; fires before 'voice' null, then 'voice' gives the new call),
+  //         'voiceMoved' (VoiceTarget, Promise<VoiceConnection>: a moderator moved the user; fires before 'voice' null, then 'voice' gives the new call, and the promise resolves to it once connected, as joinVoice does),
   //         plus every gateway event re-emitted after the cache is updated
   // The cache keeps Message as ciphertext. The shared UI decrypts with @hachiman/crypto before messagesStore.upsert.
   // PAGE_* and DOC_* are not cached. The shared UI (services/docs) keeps the page tree and the Yjs docs.

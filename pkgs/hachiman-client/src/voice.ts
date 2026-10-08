@@ -105,7 +105,6 @@ function isUploadSlot(sdp: string, index: number): boolean {
   return section !== undefined && /\r?\na=recvonly(\r?\n|$)/.test(section)
 }
 
-/** The highest `setOutputVolume` value (200 %). */
 const MAX_OUTPUT_VOLUME = 2
 
 /** The WebAudio path of one remote user above 100 %: HTMLMediaElement.volume caps at 1. */
@@ -132,14 +131,16 @@ export class VoiceConnection extends TypedEventEmitter<VoiceEvents> {
   /** m-line 2. Null until the first offer, or when media offers no screen audio slot. */
   private screenAudioTransceiver: RTCRtpTransceiver | null = null
   private screenAudioTrack: MediaStreamTrack | null = null
-  private screenAudioChain: Promise<void> = Promise.resolve()
   /** The mic Opus limit in bit/s. Null = the browser default. */
   private micBitrate: number | null = null
   /** Made once per call (§12.10.2): a new transform would start CTR at 0 again under the same key. */
   private readonly senderTransforms: Partial<Record<VoiceTrackKind, RTCRtpScriptTransform>> = {}
   /** Orders sender updates: a concurrent setParameters fails on a stale transactionId. */
-  private screenChain: Promise<void> = Promise.resolve()
-  private micChain: Promise<void> = Promise.resolve()
+  private readonly senderChains: Record<'mic' | 'screen' | 'screenAudio', Promise<void>> = {
+    mic: Promise.resolve(),
+    screen: Promise.resolve(),
+    screenAudio: Promise.resolve(),
+  }
   /** Orders e2ee ops: the delegate handles one op at a time, in arrival order. */
   private e2eeChain: Promise<void> = Promise.resolve()
   /** True after an e2ee_commit with a welcome: the next e2ee_* frame must be e2ee_ratchet_tree (§8). */
@@ -623,22 +624,28 @@ export class VoiceConnection extends TypedEventEmitter<VoiceEvents> {
     await this.micTransceiver?.sender.replaceTrack(this.muted ? null : this.micTrack)
   }
 
-  private applyScreenAudio(): Promise<void> {
-    const next = this.screenAudioChain.then(() => this.screenAudioTransceiver?.sender.replaceTrack(this.screenAudioTrack))
-    this.screenAudioChain = next.catch(() => undefined)
+  /** Runs `fn` after the earlier updates of the `key` sender. */
+  private serial(
+    key: 'mic' | 'screen' | 'screenAudio',
+    fn: () => Promise<unknown> | undefined,
+  ): Promise<void> {
+    const next = this.senderChains[key].then(fn).then(() => undefined)
+    this.senderChains[key] = next.catch(() => undefined)
     return next
+  }
+
+  private applyScreenAudio(): Promise<void> {
+    return this.serial('screenAudio', () =>
+      this.screenAudioTransceiver?.sender.replaceTrack(this.screenAudioTrack),
+    )
   }
 
   private applyScreen(): Promise<void> {
-    const next = this.screenChain.then(() => this.updateScreenSender())
-    this.screenChain = next.catch(() => undefined)
-    return next
+    return this.serial('screen', () => this.updateScreenSender())
   }
 
   private applyMicBitrate(): Promise<void> {
-    const next = this.micChain.then(() => this.updateMicSender())
-    this.micChain = next.catch(() => undefined)
-    return next
+    return this.serial('mic', () => this.updateMicSender())
   }
 
   private async updateMicSender(): Promise<void> {

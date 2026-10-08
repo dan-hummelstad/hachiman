@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { HachimanClient } from './client'
+import { HachimanClient, type VoiceTarget } from './client'
 import { VoiceConnection } from './voice'
 import { Permissions as P } from './permissions'
 import { fakeDelegate, type FakeDelegate } from './test/fake-rtc'
@@ -691,10 +691,14 @@ describe('HachimanClient E2EE wiring', () => {
     expect(client.voice).toBeNull()
     expect(ws.sent).toHaveLength(sent) // the gateway already moved or ended the call
 
+    const moved = vi.fn<(t: VoiceTarget, conn: Promise<VoiceConnection>) => void>()
+    client.on('voiceMoved', moved)
     ws.recv({ op: 0, s: 3, t: 'VOICE_SERVER_UPDATE', d: { ...server, channelId: 'vc2', moved: true } })
     await vi.advanceTimersByTimeAsync(0)
     expect(client.voice).not.toBeNull()
     expect(client.voice).not.toBe(vc)
+    expect(moved).toHaveBeenCalledWith({ guildId: 'g', channelId: 'vc2' }, expect.any(Promise))
+    await expect(moved.mock.calls[0]![1]).resolves.toBe(client.voice)
     expect(ws.sent).toHaveLength(sent) // follows without an op 4
     client.leaveVoice()
     expect(ws.sent.at(-1)).toMatchObject({ op: 4, d: { guildId: 'g', channelId: null } })

@@ -87,9 +87,10 @@ export type HachimanClientEvents = GatewayEventHandlers & {
   voiceResync: (target: VoiceTarget) => void
   /**
    * A moderator moved the user to `target` (§6 "Voice moderation"). Fires before the old call
-   * drops ('voice' null); 'voice' then gives the connection of `target`. Send no op 4 for it.
+   * drops ('voice' null); 'voice' then gives the connection of `target`, and `conn` resolves to it
+   * once it is connected, as `joinVoice` does. Send no op 4 for it.
    */
-  voiceMoved: (target: VoiceTarget) => void
+  voiceMoved: (target: VoiceTarget, conn: Promise<VoiceConnection>) => void
 }
 
 export interface HachimanCache {
@@ -254,8 +255,10 @@ export class HachimanClient extends TypedEventEmitter<HachimanClientEvents> {
     return effectivePermissions(this.guildContext(guildId))
   }
 
-  /** Joins with the current `selfVoice`; change it with `setSelfVoice` (before or during the session). */
-  /** `guildId` null: the call of a DM or group DM channel (§6 "DM calls"). */
+  /**
+   * Joins with the current `selfVoice`; change it with `setSelfVoice` (before or during the
+   * session). `guildId` null: the call of a DM or group DM channel (§6 "DM calls").
+   */
   async joinVoice(guildId: string | null, channelId: string): Promise<VoiceConnection> {
     this.cancelPendingJoin?.()
     this.dropVoice()
@@ -452,13 +455,18 @@ export class HachimanClient extends TypedEventEmitter<HachimanClientEvents> {
     if (e.t !== 'VOICE_SERVER_UPDATE' || !e.d.moved || this.cancelPendingJoin) return
     const server = e.d
     const target = { guildId: server.guildId, channelId: server.channelId }
-    this.emit('voiceMoved', target)
+    // Opens after this handler: 'voiceMoved' and the drop of the old call come first.
+    const conn = Promise.resolve().then(() => {
+      if (this.voiceTarget !== target) throw new Error('joinVoice: superseded')
+      return this.connectVoice(target, server)
+    })
+    conn.catch((err: unknown) => {
+      console.warn('HachimanClient: voice move failed', err)
+    })
+    this.emit('voiceMoved', target, conn)
     this.dropVoice()
     this.voiceTarget = target
     this.streaming = false
-    this.connectVoice(target, server).catch((err: unknown) => {
-      console.warn('HachimanClient: voice move failed', err)
-    })
   }
 
   private sendVoiceState(): void {
