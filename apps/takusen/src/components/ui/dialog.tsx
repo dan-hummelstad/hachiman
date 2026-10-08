@@ -39,7 +39,7 @@ function DialogOverlay({
     <DialogPrimitive.Overlay
       data-slot="dialog-overlay"
       className={cn(
-        "fixed inset-0 z-50 bg-black/60 duration-100 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:animate-in data-[state=open]:fade-in-0",
+        "fixed inset-0 z-50 bg-surface-scrim duration-100 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:animate-in data-[state=open]:fade-in-0",
         className
       )}
       {...props}
@@ -47,6 +47,7 @@ function DialogOverlay({
   )
 }
 
+// Kit dialog: square, strong line, card shadow; 60px head row, 22px body, footer band.
 function DialogContent({
   className,
   children,
@@ -61,7 +62,7 @@ function DialogContent({
       <DialogPrimitive.Content
         data-slot="dialog-content"
         className={cn(
-          "fixed top-[50%] left-[50%] z-50 grid w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-4 overflow-hidden border bg-background p-4 text-foreground shadow-lg duration-100 outline-none has-[[data-slot=dialog-header]]:pt-0 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:animate-in data-[state=open]:fade-in-0 sm:max-w-md",
+          "fixed top-[50%] left-[50%] z-50 grid w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-4 overflow-hidden border border-line-strong bg-surface-content p-[22px] text-[14.5px] leading-normal text-text-primary shadow-card duration-100 outline-none has-[[data-slot=dialog-header]]:pt-0 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:animate-in data-[state=open]:fade-in-0 sm:max-w-[460px]",
           className
         )}
         {...props}
@@ -70,7 +71,7 @@ function DialogContent({
         {showCloseButton && (
           <DialogPrimitive.Close
             data-slot="dialog-close"
-            className="absolute top-1 right-1 z-10 flex size-8 items-center justify-center text-muted-foreground hover:bg-destructive hover:text-destructive-foreground focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring disabled:pointer-events-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4"
+            className="absolute top-3.5 right-3.5 z-10 flex size-8 items-center justify-center rounded-control text-text-secondary hover:bg-surface-hover hover:text-text-primary focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring disabled:pointer-events-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4"
           >
             <XIcon />
             <span className="sr-only">Close</span>
@@ -85,7 +86,7 @@ function DialogHeader({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="dialog-header"
-      className={cn("-mx-4 flex flex-col gap-1 text-left", className)}
+      className={cn("-mx-[22px] flex flex-col gap-1 text-left", className)}
       {...props}
     />
   )
@@ -103,7 +104,7 @@ function DialogFooter({
     <div
       data-slot="dialog-footer"
       className={cn(
-        "-mx-4 -mb-4 flex flex-col-reverse gap-2 border-t bg-sidebar px-4 py-3 sm:flex-row sm:justify-end",
+        "-mx-[22px] -mb-[22px] flex flex-col-reverse gap-2.5 border-t border-line-hairline bg-surface-panel px-4 py-3.5 sm:flex-row sm:justify-end",
         className
       )}
       {...props}
@@ -111,7 +112,7 @@ function DialogFooter({
       {children}
       {showCloseButton && (
         <DialogPrimitive.Close asChild>
-          <Button variant="outline">Close</Button>
+          <Button variant="quiet">Close</Button>
         </DialogPrimitive.Close>
       )}
     </div>
@@ -125,7 +126,7 @@ function DialogTitle({
   return (
     <DialogPrimitive.Title
       data-slot="dialog-title"
-      className={cn("flex h-10 shrink-0 items-center gap-2 border-b bg-sidebar pr-12 pl-4 text-sm leading-5 font-semibold [&_svg]:size-4 [&_svg]:shrink-0", className)}
+      className={cn("flex h-[60px] shrink-0 items-center gap-2 border-b border-line-hairline pr-14 pl-[22px] text-base leading-5 font-extrabold [&_svg]:size-4 [&_svg]:shrink-0", className)}
       {...props}
     />
   )
@@ -138,7 +139,7 @@ function DialogDescription({
   return (
     <DialogPrimitive.Description
       data-slot="dialog-description"
-      className={cn("text-sm text-muted-foreground in-data-[slot=dialog-header]:px-4 in-data-[slot=dialog-header]:pt-3", className)}
+      className={cn("text-[14.5px] leading-normal text-text-secondary in-data-[slot=dialog-header]:px-[22px] in-data-[slot=dialog-header]:pt-4", className)}
       {...props}
     />
   )

@@ -1,7 +1,7 @@
 import { redirect } from 'next/navigation'
 import type { ReactNode } from 'react'
 
-import { WindowScreen } from '@/components/window'
+import { AuthScreen } from '@/components/auth-frame'
 import { getOptionalUser } from '@/lib/auth-helpers'
 
 export default async function AuthLayout({
@@ -13,5 +13,5 @@ export default async function AuthLayout({
   if (session) {
     redirect('/dashboard')
   }
-  return <WindowScreen>{children}</WindowScreen>
+  return <AuthScreen>{children}</AuthScreen>
 }

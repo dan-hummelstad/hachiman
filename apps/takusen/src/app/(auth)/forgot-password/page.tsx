@@ -1,4 +1,4 @@
-import { AuthFooterLink } from '../auth-link'
+import { AuthFooterLink } from '@/components/auth-frame'
 import { ForgotPasswordForm } from './forgot-password-form'
 
 export const metadata = {

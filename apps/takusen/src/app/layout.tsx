@@ -4,7 +4,7 @@ import type { ReactNode } from 'react'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { Toaster } from '@/components/ui/sonner'
 
-import { geistMono, plexSans } from './fonts'
+import { figtree, plexMono } from './fonts'
 import './globals.css'
 
 export const metadata: Metadata = {
@@ -14,8 +14,8 @@ export const metadata: Metadata = {
 
 export const viewport: Viewport = {
   themeColor: [
-    { media: '(prefers-color-scheme: dark)', color: '#22252c' },
-    { media: '(prefers-color-scheme: light)', color: '#f6f7f9' },
+    { media: '(prefers-color-scheme: dark)', color: '#15141a' },
+    { media: '(prefers-color-scheme: light)', color: '#fbf3e2' },
   ],
 }
 
@@ -46,7 +46,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`dark ${plexSans.variable} ${geistMono.variable}`}
+      className={`dark ${figtree.variable} ${plexMono.variable}`}
       suppressHydrationWarning
     >
       <head>
