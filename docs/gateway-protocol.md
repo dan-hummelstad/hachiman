@@ -422,7 +422,7 @@ The E2EE routes (devices, keys, MLS, inbox, backups, linking, key transparency, 
 - `channelId` is a text or pages channel of the guild whose current group is the `public_set` group (§12.6). Else 400 `NotPublicChannel`. Thus every member of the guild can read the envelope.
 - `envelope` is a `doc_snapshot` page envelope (§12.20) with `page_id` = `id`. Takusen checks its header as for a snapshot (`acceptDocEnvelope`: size, kind, group, channel, page, epoch, sender device and leaf) and stores `group_id`, `epoch` and `sender_device` (§12.21).
 - A delete removes the blob from storage. A guild delete removes the blobs of its sounds.
-- USE_SOUNDBOARD is not a server check: the sound plays in the sender's own microphone track (§11). The client shows the soundboard only with CONNECT, SPEAK and USE_SOUNDBOARD in the voice channel.
+- USE_SOUNDBOARD is not a server check: the client mixes the sound into the sender's own microphone track, after the noise suppression, so it is SFrame-encrypted like the voice (§12.10). Self-mute drops that track, so the client turns the soundboard off while muted. The client shows the soundboard only with CONNECT, SPEAK and USE_SOUNDBOARD in the voice channel.
 
 ### Poke
 

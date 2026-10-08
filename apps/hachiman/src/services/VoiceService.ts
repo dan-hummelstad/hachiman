@@ -31,20 +31,26 @@ const MEDIA_UNSUPPORTED = 4012
 const REJOIN_CODES = new Set([1001, 1006])
 const REJOIN_DELAY_MS = 1_000
 
-/** A captured microphone, its noise suppression and its voice-activity detector. */
+/** A captured microphone, its noise suppression, the soundboard mixer and the voice-activity detector. */
 interface MicSession {
-  /** What goes on the wire: the RNNoise output, or the raw mic when RNNoise is off. */
+  /** What goes on the wire: the mix of the (denoised) mic and the soundboard. */
   stream: MediaStream
+  /**
+   * Mixes `buffer` into the sent track after the noise suppression, so it is not suppressed, and
+   * plays it on this device too. `volume` is 0..1.
+   */
+  play(buffer: AudioBuffer, volume: number): void
   /** Releases the capture, the audio graph and the detector. */
   stop(): void
 }
 
 /**
- * Builds the send path for `raw`: with `rnnoise`, mic → RNNoise worklet → a new track; otherwise
- * the raw track. Runs local voice-activity detection on what is sent. `onSpeaking` fires on
- * changes only, and with `false` on stop. `live()` gates it, so a muted user never shows as
- * speaking. Mute stays in the client (`replaceTrack(null)` on the sender), so it works on either
- * track and keeps the SFrame sender transform.
+ * Builds the send path for `raw`: mic → (RNNoise worklet, with `rnnoise`) → mixer → a new track.
+ * The soundboard joins at the mixer. Every mode has the graph, so a sound can always be mixed in.
+ * Runs local voice-activity detection on the mix. `onSpeaking` fires on changes only, and with
+ * `false` on stop. `live()` gates it, so a muted user never shows as speaking. Mute stays in the
+ * client (`replaceTrack(null)` on the sender), so it keeps the SFrame sender transform; it also
+ * silences the soundboard, so the UI disables the soundboard while muted.
  */
 async function startMicSession(
   raw: MediaStream,
@@ -59,18 +65,18 @@ async function startMicSession(
   const analyser = audioCtx.createAnalyser()
   analyser.fftSize = 512
   const source = audioCtx.createMediaStreamSource(raw)
-  let sent = raw
+  const mixer = audioCtx.createGain()
+  const dest = audioCtx.createMediaStreamDestination()
+  dest.channelCount = 1
+  mixer.connect(dest)
+  mixer.connect(analyser)
   let denoiser: { destroy(): void } | null = null
   if (rnnoise) {
     try {
       const { createRnnoiseNode } = await import('@/lib/rnnoise')
       const node = await createRnnoiseNode(audioCtx)
-      const dest = audioCtx.createMediaStreamDestination()
-      dest.channelCount = 1
-      source.connect(node).connect(dest)
-      node.connect(analyser)
+      source.connect(node).connect(mixer)
       denoiser = node
-      sent = dest.stream
     } catch (err) {
       // Fail soft to the browser's own suppression rather than to none.
       console.warn('[voice] RNNoise unavailable, using browser noise suppression', err)
@@ -80,7 +86,8 @@ async function startMicSession(
         .catch(() => undefined)
     }
   }
-  if (!denoiser) source.connect(analyser)
+  if (!denoiser) source.connect(mixer)
+  applySink(audioCtx)
   const buf = new Float32Array(analyser.fftSize)
   let lastLoud = 0
   let speaking = false
@@ -98,16 +105,36 @@ async function startMicSession(
     report(live() && now - lastLoud < VAD_HANGOVER_MS)
   }, VAD_MS)
   return {
-    stream: sent,
+    stream: dest.stream,
+    play: (buffer, volume) => {
+      void audioCtx.resume().catch(() => undefined)
+      const node = audioCtx.createBufferSource()
+      node.buffer = buffer
+      const gain = audioCtx.createGain()
+      gain.gain.value = volume
+      node.connect(gain)
+      gain.connect(mixer)
+      // The presser hears it too. The mic itself never goes to the speakers.
+      gain.connect(audioCtx.destination)
+      node.onended = () => gain.disconnect()
+      node.start()
+    },
     stop: () => {
       clearInterval(vad)
       denoiser?.destroy()
       void audioCtx.close()
       stopTracks(raw)
-      if (sent !== raw) stopTracks(sent)
+      stopTracks(dest.stream)
       report(false)
     }
   }
+}
+
+/** Sends the local soundboard playback to the chosen output device, where the browser can. */
+function applySink(ctx: AudioContext): void {
+  const id = usePrefsStore.getState().outputDeviceId
+  const sinkable = ctx as AudioContext & { setSinkId?: (id: string) => Promise<void> }
+  if (id && sinkable.setSinkId) void sinkable.setSinkId(id).catch(() => undefined)
 }
 
 function stopTracks(stream: MediaStream): void {
@@ -350,6 +377,16 @@ class VoiceService {
     this.teardown()
     hachiman.leaveVoice()
     useVoiceStore.getState().resetSession()
+  }
+
+  /**
+   * Mixes a soundboard sound into my sent track. False when it cannot be heard: no call, no mic,
+   * or self-muted (mute drops the sent track, sound included).
+   */
+  playSoundboard(buffer: AudioBuffer, volume: number): boolean {
+    if (!this.conn || !this.mic || hachiman.selfVoice.selfMute) return false
+    this.mic.play(buffer, volume)
+    return true
   }
 
   toggleMute(): void {

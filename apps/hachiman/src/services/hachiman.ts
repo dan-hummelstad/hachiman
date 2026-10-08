@@ -11,6 +11,7 @@ import { messageContext } from '@/services/message-context'
 import { messagesService } from '@/services/MessagesService'
 import { takusenService } from '@/services/TakusenService'
 import { pokeFeature } from '@/services/poke'
+import { soundboardFeature } from '@/services/soundboard'
 import { soundFeature, startSounds } from '@/services/SoundService'
 import { tabsFeature } from '@/services/tabs-feature'
 import { unreadFeature } from '@/services/UnreadService'
@@ -126,7 +127,8 @@ features.register(
   eventsFeature,
   blocksFeature,
   tabsFeature,
-  pokeFeature
+  pokeFeature,
+  soundboardFeature
 )
 
 function syncAll(): void {

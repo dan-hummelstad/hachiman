@@ -1,4 +1,5 @@
 import {
+  AudioLines,
   Download,
   Headphones,
   Keyboard,
@@ -26,6 +27,7 @@ import { SecurityLog } from '@/components/security/security-log'
 import { ChannelOverviewPage } from '@/components/settings/channel-overview'
 import { ChannelPermissionsPage, overrideCount } from '@/components/settings/channel-permissions'
 import { GuildOverviewPage } from '@/components/settings/guild-overview'
+import { GuildSoundboardPage } from '@/components/settings/guild-soundboard'
 import { AccountSection } from '@/components/settings/user/account'
 import { AdvancedSection } from '@/components/settings/user/advanced'
 import { AppearanceSection } from '@/components/settings/user/appearance'
@@ -309,6 +311,17 @@ function useGuildSettingsModel(guildId: string | null): SettingsModel {
               description: `Links that let people join ${name}. Anyone with a link can join until it expires or runs out of uses.`,
               wide: true,
               render: () => <GuildInvitesTab guildId={guild.id} />
+            }
+          },
+          // Everyone can see and preview the sounds; MANAGE_EXPRESSIONS uploads and deletes.
+          {
+            id: 'soundboard',
+            label: 'Soundboard',
+            icon: <AudioLines />,
+            page: guild && {
+              title: 'Soundboard',
+              description: `Short sounds that members of ${name} can play in voice channels.`,
+              render: () => <GuildSoundboardPage guildId={guild.id} />
             }
           }
         ]
