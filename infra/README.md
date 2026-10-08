@@ -78,7 +78,7 @@ GHCR storage and bandwidth for container images are free at this time. GitHub gi
 
 ## Desktop builds
 
-The **Desktop** workflow builds an Apple Silicon `.dmg` and a Windows `.exe` on each push to `main` that changes the app. Download them from the newest run's artifacts (`hachiman-macos`, `hachiman-windows`). The workflow deletes the artifacts of older runs. The builds are not signed:
+The **Desktop** workflow builds an Apple Silicon `.dmg` and a Windows `.exe` on each push to `main` that changes the app. Download them from the newest release in the `hachiman-release` repository (`hachiman-macos.zip`, `hachiman-windows.zip`). The installed apps update themselves from that release when Takusen has `TAKUSEN_UPDATE_GITHUB_REPO` and `TAKUSEN_UPDATE_GITHUB_TOKEN` in `/opt/hachiman/.env` (contract §4 Desktop updates). The builds are not signed:
 
 - macOS: right-click the app and select **Open** on the first start.
 - Windows: in the SmartScreen dialog, select **More info** and then **Run anyway**.

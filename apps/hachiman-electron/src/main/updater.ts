@@ -1,5 +1,5 @@
 /**
- * Auto-update from the GitHub Actions artifacts of .github/workflows/desktop.yml, through
+ * Auto-update from the newest release of the release repository (.github/workflows/desktop.yml), through
  * Takusen (contract §4 Desktop updates): Takusen holds the GitHub token, this app holds none.
  * CI bakes the build commit into MAIN_VITE_BUILD_SHA. A build without it (dev, local
  * packaging) never checks.

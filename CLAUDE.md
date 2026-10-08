@@ -238,7 +238,7 @@ For changes to the voice stack (`pkg/media/sfu.go`, `pkg/media/ssrc_pool.go`, `c
 - `renderer-protocol.ts` + `renderer-path.ts` — packaged renderer on `hachiman://app/`
 - `region-probe.ts` + `probe-target-guard.ts` — TCP RTT probe to each region's `probeHost`, with an SSRF guard
 - `screen-share.ts` — desktopCapturer sources + display-media handler
-- `updater.ts` — auto-update from the GitHub Actions artifacts through Takusen `GET /api/desktop-update/:platform` (contract §4 Desktop updates)
+- `updater.ts` — auto-update from the newest release in `hachiman-release` through Takusen `GET /api/desktop-update/:platform` (contract §4 Desktop updates)
 
 `src/preload/index.ts` exposes `window.hachiman`. Tests are `src/main/*.test.mts` (`node --test`).
 
