@@ -98,7 +98,7 @@ describe('rpc peer', () => {
   })
 
   it('lists every CryptoApi and DsTransport method', () => {
-    expect(CRYPTO_API_METHODS).toHaveLength(48)
+    expect(CRYPTO_API_METHODS).toHaveLength(49)
     expect(DS_TRANSPORT_METHODS).toHaveLength(46)
   })
 })

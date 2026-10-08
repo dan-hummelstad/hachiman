@@ -7,7 +7,6 @@
 import {
   Permissions,
   RestError,
-  computeBasePermissions,
   has,
   type GatewayDispatch,
   type GuildSound
@@ -57,14 +56,15 @@ function inOtherGuild(soundId: string, guildId: string): boolean {
   return false
 }
 
-/** True when the sender of a pointer may manage sounds now (the cache's view). */
-function senderMayManage(guildId: string, userId: string): boolean {
-  const c = hachiman.cache
-  const guild = c.guilds.get(guildId)
-  const member = c.members.get(guildId)?.get(userId)
-  if (!guild || !member) return false
-  const perms = computeBasePermissions(guild, member, c.roles.get(guildId) ?? new Map())
-  return has(perms, Permissions.MANAGE_EXPRESSIONS)
+/**
+ * True when the sender of a pointer has MANAGE_EXPRESSIONS now in the verified admin state
+ * (§12.16, §12.21), not in the REST roles: the server must not choose who may author a pointer.
+ * A guild without a verified genesis fails closed.
+ */
+async function senderMayManage(guildId: string, userId: string): Promise<boolean> {
+  if (!hachiman.cache.members.get(guildId)?.has(userId)) return false
+  const perms = await cryptoService.client().adminGuildPermissions(guildId, userId)
+  return perms !== null && has(perms, Permissions.MANAGE_EXPRESSIONS)
 }
 
 async function openPointer(sound: GuildSound): Promise<SoundPointer> {
@@ -80,7 +80,7 @@ async function openPointer(sound: GuildSound): Promise<SoundPointer> {
   ])
   if (!res || res.status === 'pending') throw new Error('The key of this sound is not on this device yet.')
   if (res.status === 'failed') throw new Error(`This sound does not decrypt (${res.reason}).`)
-  if (!senderMayManage(sound.guildId, res.sender.userId)) throw new Error('This sound has no valid uploader.')
+  if (!(await senderMayManage(sound.guildId, res.sender.userId))) throw new Error('This sound has no valid uploader.')
   const pointer = decodeSoundPointer(res.bytes, sound.uploadId)
   if (!pointer) throw new Error('This sound is malformed.')
   return pointer

@@ -1017,6 +1017,13 @@ export interface CryptoApi {
    * (AdminActionModule.encodePayload).
    */
   signAdminAction(guildId: GuildId, type: AdminActionTypeId, payload: Uint8Array): Promise<{ header: B64url; seq: number }>
+  /**
+   * The §2 guild permissions of `userId` in the verified admin state of the guild (adminState):
+   * the owner from the genesis, the signed roles and member roles. Null when the guild has no
+   * verified genesis. The UI uses it for the checks that a malicious server must not decide, for
+   * example MANAGE_EXPRESSIONS of a sound pointer sender (§12.21).
+   */
+  adminGuildPermissions(guildId: GuildId, userId: UserId): Promise<number | null>
 
   // invites with history (§12.11.4)
   /**
@@ -2135,8 +2142,8 @@ export type DocService = Pick<CryptoApi, 'encryptDoc' | 'decryptDoc'>
 export type CreateDocService = (ctx: EngineContext, identity: IdentityService, groups: GroupService) => DocService
 
 /** src/admin/service.ts (crypto-identity, Phase 4). */
-export type AdminService = Pick<CryptoApi, 'signAdminAction'>
-export type CreateAdminService = (ctx: EngineContext, identity: IdentityService) => AdminService
+export type AdminService = Pick<CryptoApi, 'signAdminAction' | 'adminGuildPermissions'>
+export type CreateAdminService = (ctx: EngineContext, identity: IdentityService, perms: AdminPermissionModel) => AdminService
 
 /** src/invites/service.ts. Invites with history (§12.11.4). */
 export interface InviteService extends Pick<CryptoApi, 'prepareHistoryInvite' | 'sendInviteBundles' | 'redeemInvite'> {

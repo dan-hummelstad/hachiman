@@ -132,7 +132,7 @@ export function createEngine(env: EngineEnv): Engine {
       messages: createMessageService(ctx, identity, groups),
       docs: createDocService(ctx, identity, groups),
       voice: createVoiceService(ctx, identity),
-      admin: createAdminService(ctx, identity),
+      admin: createAdminService(ctx, identity, env.adminPermissions),
       invites: createInviteService(ctx, identity, groups, env.adminPermissions),
     }
     await identity.load(opts)
@@ -231,6 +231,7 @@ export function createEngine(env: EngineEnv): Engine {
     backupNow: () => s().identity.backupNow(),
     ktSelfCheck: () => s().identity.ktSelfCheck(),
     signAdminAction: (g, t, p) => s().admin.signAdminAction(g, t, p),
+    adminGuildPermissions: (g, u) => s().admin.adminGuildPermissions(g, u),
     prepareHistoryInvite: (input) => s().invites.prepareHistoryInvite(input),
     sendInviteBundles: (input) => {
       const svc = s()

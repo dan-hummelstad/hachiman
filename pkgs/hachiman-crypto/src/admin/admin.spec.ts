@@ -86,6 +86,7 @@ describe('admin codecs', () => {
     expect(AdminBits.MANAGE_CHANNELS).toBe(Permissions.MANAGE_CHANNELS)
     expect(AdminBits.VIEW_CHANNEL).toBe(Permissions.VIEW_CHANNEL)
     expect(AdminBits.MANAGE_ROLES).toBe(Permissions.MANAGE_ROLES)
+    expect(AdminBits.USE_SOUNDBOARD).toBe(Permissions.USE_SOUNDBOARD)
     expect(DEFAULT_EVERYONE_PERMISSIONS).toBe(DEFAULT_EVERYONE)
   })
 
@@ -235,6 +236,24 @@ describe('admin replay', () => {
     sameAction.add(OWNER, { type: 1, roleId: ROLE_A, permissions: Permissions.MANAGE_ROLES, position: 1 })
     sameAction.add(USER, { type: 7, userId: USER, roleIds: [ROLE_A] })
     expect(() => run(sameAction)).toThrow(/seq 2: member_roles needs MANAGE_ROLES/)
+  })
+
+  it('accepts a USE_SOUNDBOARD grant whatever the genesis of a cached state had', () => {
+    // A state cached before USE_SOUNDBOARD joined the genesis has an @everyone role without it.
+    const b = base()
+    const fresh = run(b)
+    const everyone = fresh.roles.find((r) => r.id === GUILD)!
+    const cached: AdminReplayState = { ...fresh, roles: fresh.roles.map((r) => (r.id === GUILD ? { ...r, permissions: r.permissions & ~Permissions.USE_SOUNDBOARD } : r)) }
+    // MOD lacks USE_SOUNDBOARD in the cached state, but REST gave the bit to @everyone.
+    b.add(MOD, { type: 2, roleId: GUILD, permissions: everyone.permissions, position: 0 })
+    b.add(MOD, { type: 1, roleId: '99999999-9999-4999-8999-999999999999', permissions: Permissions.USE_SOUNDBOARD, position: 1 })
+    const tail = b.actions.slice(4)
+    expect(run(b, cached, tail).seq).toBe(5)
+    expect(run(b).seq).toBe(5)
+    // The other bits stay checked.
+    const grant = base()
+    grant.add(MOD, { type: 1, roleId: '99999999-9999-4999-8999-999999999999', permissions: Permissions.USE_SOUNDBOARD | Permissions.MANAGE_EXPRESSIONS, position: 1 })
+    expect(() => run(grant)).toThrow(/grants bits/)
   })
 
   it('rejects an action for another guild', () => {
