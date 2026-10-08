@@ -21,10 +21,12 @@ export const Permissions = {
   MUTE_MEMBERS: 1 << 22,
   DEAFEN_MEMBERS: 1 << 23,
   MOVE_MEMBERS: 1 << 24,
+  USE_SOUNDBOARD: 1 << 25,
   CHANGE_NICKNAME: 1 << 26,
   MANAGE_NICKNAMES: 1 << 27,
   MANAGE_ROLES: 1 << 28,
   MANAGE_EVENTS: 1 << 29,
+  MANAGE_EXPRESSIONS: 1 << 30,
 } as const
 
 export type PermissionName = keyof typeof Permissions
@@ -40,6 +42,7 @@ export const DEFAULT_EVERYONE: number =
   Permissions.READ_MESSAGE_HISTORY |
   Permissions.CONNECT |
   Permissions.SPEAK |
+  Permissions.USE_SOUNDBOARD |
   Permissions.CREATE_INSTANT_INVITE |
   Permissions.CHANGE_NICKNAME
 

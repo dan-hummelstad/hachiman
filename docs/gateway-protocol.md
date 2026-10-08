@@ -186,12 +186,15 @@ A Go test (`pkg/permissions/sync_test.go`) parses the TS file and fails if any n
 | MUTE_MEMBERS | 1 << 22 |
 | DEAFEN_MEMBERS | 1 << 23 |
 | MOVE_MEMBERS | 1 << 24 |
+| USE_SOUNDBOARD | 1 << 25 |
 | CHANGE_NICKNAME | 1 << 26 |
 | MANAGE_NICKNAMES | 1 << 27 |
 | MANAGE_ROLES | 1 << 28 |
 | MANAGE_EVENTS | 1 << 29 |
+| MANAGE_EXPRESSIONS | 1 << 30 |
 
-`DEFAULT_EVERYONE = VIEW_CHANNEL | SEND_MESSAGES | ATTACH_FILES | READ_MESSAGE_HISTORY | CONNECT | SPEAK | CREATE_INSTANT_INVITE | CHANGE_NICKNAME`.
+`DEFAULT_EVERYONE = VIEW_CHANNEL | SEND_MESSAGES | ATTACH_FILES | READ_MESSAGE_HISTORY | CONNECT | SPEAK | USE_SOUNDBOARD | CREATE_INSTANT_INVITE | CHANGE_NICKNAME`.
+USE_SOUNDBOARD lets a member play the guild sounds in a voice call. MANAGE_EXPRESSIONS lets a member upload and delete guild sounds (§4 Soundboard). Bit 30 is the last bit below 2^31, the limit of the plain-number bitfield.
 `ALL` = OR of every bit above.
 
 Algorithm (same in both languages, with the TS names):

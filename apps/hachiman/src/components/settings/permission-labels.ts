@@ -29,12 +29,14 @@ export const PERMISSION_LABELS: readonly PermissionLabel[] = [
   p('CREATE_INSTANT_INVITE', 'Create invites', 'Create invite links.'),
   p('CHANGE_NICKNAME', 'Change nickname', 'Change their own nickname.'),
   p('MANAGE_NICKNAMES', 'Manage nicknames', "Change other members' nicknames."),
+  p('MANAGE_EXPRESSIONS', 'Manage expressions', 'Upload and delete soundboard sounds.'),
   p('VIEW_CHANNEL', 'View channels', 'See channels.'),
   p('SEND_MESSAGES', 'Send messages', 'Post in text channels.'),
   p('MANAGE_MESSAGES', 'Manage messages', "Delete other members' messages."),
   p('READ_MESSAGE_HISTORY', 'Read message history', 'See messages sent before they joined.'),
   p('CONNECT', 'Connect', 'Join voice channels.'),
   p('SPEAK', 'Speak', 'Talk in voice channels.'),
+  p('USE_SOUNDBOARD', 'Use soundboard', 'Play soundboard sounds in voice channels.'),
   p('MUTE_MEMBERS', 'Mute members', 'Mute others in voice for everyone.'),
   p('DEAFEN_MEMBERS', 'Deafen members', 'Deafen others in voice for everyone.'),
   p('MOVE_MEMBERS', 'Move members', 'Move others between voice channels.')
@@ -47,7 +49,13 @@ const TEXT_BITS: PermissionName[] = [
   'READ_MESSAGE_HISTORY',
   'CREATE_INSTANT_INVITE'
 ]
-const VOICE_BITS: PermissionName[] = ['VIEW_CHANNEL', 'CONNECT', 'SPEAK', 'CREATE_INSTANT_INVITE']
+const VOICE_BITS: PermissionName[] = [
+  'VIEW_CHANNEL',
+  'CONNECT',
+  'SPEAK',
+  'USE_SOUNDBOARD',
+  'CREATE_INSTANT_INVITE'
+]
 
 /** The bits that mean something on a channel of this type (categories: the union). */
 export function channelPermissionLabels(type: ChannelType): PermissionLabel[] {
