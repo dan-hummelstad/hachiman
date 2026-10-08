@@ -61,8 +61,16 @@ export interface IPlatformService {
   probeRegions(targets: RegionProbeTarget[]): Promise<RegionProbeResult[]>
   /** Electron: screens and windows for the in-app share picker. Browser: null (it has its own picker). */
   getScreenSources(): Promise<ScreenSource[] | null>
-  /** Electron: the listed source that the next screen share captures. Browser: no-op. */
-  selectScreenSource(id: string): Promise<void>
+  /**
+   * Electron: the listed source that the next screen share captures, with the system audio when
+   * `audio` and `screenShareAudio` are true. Browser: no-op.
+   */
+  selectScreenSource(id: string, audio: boolean): Promise<void>
+  /**
+   * The in-app share picker can capture system audio with the share (Electron on Windows). False
+   * elsewhere: Electron then shares video only, and the browser picker offers audio itself.
+   */
+  readonly screenShareAudio: boolean
   /** Electron: check for a new build now, and offer it (also one that the user put off). Browser: not-available. */
   checkForUpdate(): Promise<UpdateCheckResult>
   /** Electron: the close button hides the window to the tray (default on); main keeps the value. Browser: null. */

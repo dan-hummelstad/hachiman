@@ -100,6 +100,55 @@ describe('VoiceConnection', () => {
     expect(screen?.sender.transform).toBe(d.sendTransforms[1])
   })
 
+  it('sends screen audio on the m-line 2 slot with its own sender transform', async () => {
+    const sdp = (dir: string) => `v=0\r\nm=audio 9\r\na=recvonly\r\nm=video 9\r\na=recvonly\r\nm=audio 9\r\na=${dir}\r\n`
+    pc().transceivers.push(new FakeTransceiver())
+    const slot = pc().transceivers[2]
+    await vc.setScreenAudio(new FakeTrack('audio') as unknown as MediaStreamTrack) // before the offer: kept
+    await offer(sdp('recvonly'))
+    expect(d.sendTransforms.map(t => t.track)).toEqual(['audio', 'video', 'screen-audio'])
+    expect(slot?.sender.transform).toBe(d.sendTransforms[2])
+    expect(slot?.direction).toBe('sendrecv')
+    expect(slot?.sender.track).not.toBeNull()
+    const next = new FakeTrack('audio') as unknown as MediaStreamTrack
+    await vc.setScreenAudio(next) // "Change source"
+    expect(slot?.sender.track).toBe(next)
+    await vc.setScreenAudio(null)
+    expect(slot?.sender.track).toBeNull()
+    await offer(sdp('recvonly'))
+    expect(d.sendTransforms).toHaveLength(3)
+    expect(slot?.sender.transform).toBe(d.sendTransforms[2])
+  })
+
+  it('leaves m-line 2 alone when media offers no screen audio slot there', async () => {
+    pc().transceivers.push(new FakeTransceiver())
+    await offer('v=0\r\nm=audio 9\r\na=recvonly\r\nm=video 9\r\na=recvonly\r\nm=audio 9\r\na=sendonly\r\n')
+    expect(d.sendTransforms.map(t => t.track)).toEqual(['audio', 'video'])
+    expect(pc().transceivers[2]?.sender.transform).toBeNull()
+  })
+
+  it('plays screen share audio apart from the mic, with its own volume', async () => {
+    await offer()
+    ws.recv({ op: 'peers', d: { peers: [{ userId: 'bob', ssrc: 2 }] } })
+    const tracks = vi.fn()
+    vc.on('track', tracks)
+    pc().fireTrack('bob', 'audio')
+    const share = pc().fireTrack('screen-bob', 'audio')
+    expect(d.recvTransforms.map(t => [t.userId, t.track])).toEqual([
+      ['bob', 'audio'],
+      ['bob', 'screen-audio'],
+    ])
+    expect(share.receiver.transform).toBe(d.recvTransforms[1])
+    expect(FakeAudio.instances).toHaveLength(2)
+    expect(tracks).toHaveBeenCalledTimes(1) // level meters: the mic only
+    const [mic, screen] = FakeAudio.instances
+    vc.setScreenVolume('bob', 0.5)
+    expect(screen?.volume).toBe(0.5)
+    expect(mic?.volume).toBe(1)
+    ws.recv({ op: 'peers', d: { peers: [] } })
+    expect(screen?.srcObject).toBeNull()
+  })
+
   it('a new sender on m-line 0 fails closed instead of making a second transform', async () => {
     await offer()
     const closed = vi.fn()
@@ -263,10 +312,10 @@ describe('VoiceConnection', () => {
     vc.on('track', tracks)
     ws.recv({ op: 'peers', d: { peers: [{ userId: 'bob', ssrc: 2 }] } })
     const none = pc().fireTrack(null, 'audio')
-    const wrongAudio = pc().fireTrack('screen-bob', 'audio')
+    const noUser = pc().fireTrack('screen-', 'audio')
     const wrongVideo = pc().fireTrack('bob', 'video')
     expect(d.recvTransforms).toHaveLength(0)
-    expect([none, wrongAudio, wrongVideo].map(t => t.receiver.transform)).toEqual([null, null, null])
+    expect([none, noUser, wrongVideo].map(t => t.receiver.transform)).toEqual([null, null, null])
     expect(screens).not.toHaveBeenCalled()
     expect(tracks).not.toHaveBeenCalled()
   })

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Eye, EyeOff, LoaderCircle, Maximize, Minimize } from 'lucide-react'
+import { Eye, EyeOff, LoaderCircle, Maximize, Minimize, Volume2, VolumeX } from 'lucide-react'
 import type { VoiceState } from '@hachiman/client'
 import { UserAvatar } from '@/components/shell/user-avatar'
 import { Button } from '@/components/ui/button'
@@ -10,6 +10,7 @@ import { TILE, stageColumns } from '@/components/voice/voice-tile-styles'
 import { useMemberView } from '@/hooks/use-member'
 import { cn } from '@/lib/utils'
 import { voiceService } from '@/services/VoiceService'
+import { DEFAULT_USER_AUDIO, usePrefsStore } from '@/stores/prefsStore'
 import { useUserStore } from '@/stores/userStore'
 import { useVoiceStore } from '@/stores/voiceStore'
 
@@ -157,6 +158,7 @@ function StreamTile({
         </span>
       </TileNameTag>
       <div className="absolute top-3 right-3 flex gap-1 opacity-0 group-focus-within:opacity-100 group-hover:opacity-100">
+        {!self && <StreamAudioControl userId={userId} />}
         {!self && (
           <IconButton
             label="Stop watching"
@@ -174,6 +176,39 @@ function StreamTile({
           {fullscreen ? <Minimize /> : <Maximize />}
         </IconButton>
       </div>
+    </div>
+  )
+}
+
+/**
+ * The volume (0–200 %) and the local mute of a watched stream's audio. Only this device plays it;
+ * the value stays per user for the next streams too.
+ */
+function StreamAudioControl({ userId }: { userId: string }): React.JSX.Element {
+  const audio = usePrefsStore((s) => s.streamAudio[userId] ?? DEFAULT_USER_AUDIO)
+  const setStreamAudio = usePrefsStore((s) => s.setStreamAudio)
+  const percent = Math.round(audio.volume * 100)
+  return (
+    <div className="bg-surface-window/85 flex items-center gap-1 rounded-full pr-2">
+      <IconButton
+        label={audio.muted ? 'Unmute stream' : 'Mute stream'}
+        pressed={audio.muted}
+        className={TILE_BUTTON}
+        onClick={() => setStreamAudio(userId, { muted: !audio.muted })}
+      >
+        {audio.muted ? <VolumeX /> : <Volume2 />}
+      </IconButton>
+      <input
+        aria-label="Stream volume"
+        type="range"
+        min={0}
+        max={200}
+        step={5}
+        value={percent}
+        disabled={audio.muted}
+        onChange={(e) => setStreamAudio(userId, { volume: Number(e.target.value) / 100 })}
+        className="accent-accent-primary w-24 disabled:opacity-50"
+      />
     </div>
   )
 }

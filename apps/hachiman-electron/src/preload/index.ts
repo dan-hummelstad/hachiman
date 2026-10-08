@@ -60,9 +60,11 @@ const bridge = {
     ipcRenderer.invoke(PROBE_REGIONS_CHANNEL, targets),
   getScreenSources: (): Promise<ScreenSourceInfo[]> =>
     ipcRenderer.invoke(SCREEN_SOURCES_CHANNEL),
-  /** The listed source that the next getDisplayMedia captures. */
-  selectScreenSource: (id: string): Promise<void> =>
-    ipcRenderer.invoke(SELECT_SCREEN_SOURCE_CHANNEL, id),
+  /** The listed source that the next getDisplayMedia captures, with system audio when `audio`. */
+  selectScreenSource: (id: string, audio: boolean): Promise<void> =>
+    ipcRenderer.invoke(SELECT_SCREEN_SOURCE_CHANNEL, id, audio),
+  /** Main captures system audio with a share here (loopback, main/screen-share.ts). */
+  screenShareAudio: process.platform === "win32",
   /** Check for a desktop update now; main shows its restart prompt for a new build. */
   checkForUpdate: (): Promise<UpdateCheckResult> =>
     ipcRenderer.invoke(CHECK_FOR_UPDATE_CHANNEL),

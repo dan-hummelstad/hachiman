@@ -190,6 +190,11 @@ export const SFRAME_CIPHER_SUITE = 0x0004
 export const SFRAME_EPOCH_BITS = 4
 /** Media index = leaf_index * 2 + track. */
 export const SFrameTrack = { AUDIO: 0, VIDEO: 1 } as const
+/**
+ * Screen share audio is the audio track of the virtual leaf leaf_index + 2^32, so its key, KID,
+ * counter and replay window are never the mic's. Real leaf indexes are below 2^32.
+ */
+export const SFRAME_SCREEN_AUDIO_LEAF_OFFSET = 2 ** 32
 export const SFRAME_OLD_EPOCH_RETENTION_MS = 10_000
 export const SFRAME_REPLAY_WINDOW = 1024
 /** Clear codec prefix bytes. */

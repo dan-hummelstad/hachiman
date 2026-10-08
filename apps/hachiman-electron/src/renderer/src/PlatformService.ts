@@ -31,7 +31,9 @@ export const platformService: IPlatformService = {
   onOAuthCallback: (cb) => window.hachiman.onOAuthCallback(cb),
   probeRegions: (targets) => window.hachiman.probeRegions(targets),
   getScreenSources: () => window.hachiman.getScreenSources(),
-  selectScreenSource: (id) => window.hachiman.selectScreenSource(id),
+  selectScreenSource: (id, audio) =>
+    window.hachiman.selectScreenSource(id, audio),
+  screenShareAudio: window.hachiman.screenShareAudio,
   checkForUpdate: () => window.hachiman.checkForUpdate(),
   closeToTray: window.hachiman.closeToTray,
   setGlobalShortcuts: (shortcuts) =>

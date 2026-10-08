@@ -11,22 +11,30 @@ import (
 	"github.com/pion/webrtc/v3"
 )
 
-// screenOut is one viewer's copy of a sharer's screen. Each viewer has its
-// own track, so the SFU can stop the share for one viewer (screen_subscribe,
-// §8) without a renegotiation: the transceiver stays, only the writes stop.
+// screenOut is one viewer's copy of a sharer's screen video and screen audio.
+// Each viewer has its own tracks, so the SFU can stop the share for one
+// viewer (screen_subscribe, §8) without a renegotiation: the transceivers
+// stay, only the writes stop.
 type screenOut struct {
 	video    *webrtc.TrackLocalStaticRTP
 	videoSeq seqMap
+	audio    *webrtc.TrackLocalStaticRTP
+	audioSeq seqMap
 	// on is true while the viewer subscribes to the sharer.
 	on atomic.Bool
 }
 
 func newScreenOut(userID string) (*screenOut, error) {
-	video, err := webrtc.NewTrackLocalStaticRTP(vp8Codec, "screen-"+userID, "screen-"+userID)
+	stream := "screen-" + userID
+	video, err := webrtc.NewTrackLocalStaticRTP(vp8Codec, stream, stream)
 	if err != nil {
 		return nil, err
 	}
-	return &screenOut{video: video}, nil
+	audio, err := webrtc.NewTrackLocalStaticRTP(opusCodec, "screen-audio-"+userID, stream)
+	if err != nil {
+		return nil, err
+	}
+	return &screenOut{video: video, audio: audio}, nil
 }
 
 // set turns the forwarding on or off and reports whether it turned on.
@@ -37,6 +45,7 @@ func (o *screenOut) set(on bool) bool {
 		return false
 	}
 	o.videoSeq.resync.Store(true)
+	o.audioSeq.resync.Store(true)
 	o.on.Store(true)
 	return true
 }

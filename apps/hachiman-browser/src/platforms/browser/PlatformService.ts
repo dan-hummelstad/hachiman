@@ -59,6 +59,8 @@ export const platformService: IPlatformService = {
   probeRegions: async () => [],
   getScreenSources: async () => null,
   selectScreenSource: async () => undefined,
+  // The browser's own picker offers the audio (VoiceService asks for it).
+  screenShareAudio: false,
   // Each page load gets the deployed build.
   checkForUpdate: async () => ({
     status: "not-available",

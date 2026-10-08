@@ -72,6 +72,10 @@ interface PrefsState {
   disabledSounds: SoundEvent[]
   /** userId → local volume and mute in voice. A user at the default has no entry. */
   userAudio: Record<string, UserAudio>
+  /** userId → local volume and mute of that user's screen share audio. Default = no entry. */
+  streamAudio: Record<string, UserAudio>
+  /** "Share audio" in the in-app share picker. */
+  shareScreenAudio: boolean
   sidebar: SidebarMode
   wallpaper: WallpaperMode
   /** The gradient while `wallpaper` is `custom`. Kept when the user goes back to the guild tint. */
@@ -103,6 +107,8 @@ interface PrefsState {
   setSoundVolume: (soundVolume: number) => void
   setSoundEnabled: (event: SoundEvent, enabled: boolean) => void
   setUserAudio: (userId: string, change: Partial<UserAudio>) => void
+  setStreamAudio: (userId: string, change: Partial<UserAudio>) => void
+  setShareScreenAudio: (shareScreenAudio: boolean) => void
   setSidebar: (sidebar: SidebarMode) => void
   setWallpaper: (wallpaper: WallpaperMode) => void
   setCustomGradient: (customGradient: CustomGradient) => void
@@ -151,6 +157,8 @@ export const usePrefsStore = create<PrefsState>()(
         soundVolume: 0.7,
         disabledSounds: [],
         userAudio: {},
+        streamAudio: {},
+        shareScreenAudio: true,
         sidebar: 'docked',
         wallpaper: 'guild',
         customGradient: DEFAULT_CUSTOM_GRADIENT,
@@ -179,13 +187,10 @@ export const usePrefsStore = create<PrefsState>()(
               : [...new Set([...s.disabledSounds, event])]
           })),
         setUserAudio: (userId, change) =>
-          set((s) => {
-            const next = { ...(s.userAudio[userId] ?? DEFAULT_USER_AUDIO), ...change }
-            const userAudio = { ...s.userAudio }
-            if (next.volume === 1 && !next.muted) delete userAudio[userId]
-            else userAudio[userId] = next
-            return { userAudio }
-          }),
+          set((s) => ({ userAudio: withAudio(s.userAudio, userId, change) })),
+        setStreamAudio: (userId, change) =>
+          set((s) => ({ streamAudio: withAudio(s.streamAudio, userId, change) })),
+        setShareScreenAudio: (shareScreenAudio) => set({ shareScreenAudio }),
         setSidebar: (sidebar) => set({ sidebar }),
         setWallpaper: (wallpaper) => set({ wallpaper }),
         setCustomGradient: (customGradient) => set({ customGradient }),
@@ -273,6 +278,19 @@ export const usePrefsStore = create<PrefsState>()(
     )
   )
 )
+
+/** `map` with `change` applied to `userId`'s entry. An entry back at the default is removed. */
+function withAudio(
+  map: Record<string, UserAudio>,
+  userId: string,
+  change: Partial<UserAudio>
+): Record<string, UserAudio> {
+  const next = { ...(map[userId] ?? DEFAULT_USER_AUDIO), ...change }
+  const out = { ...map }
+  if (next.volume === 1 && !next.muted) delete out[userId]
+  else out[userId] = next
+  return out
+}
 
 type AccountSlice = Pick<PrefsState, 'accounts' | 'accountId'>
 

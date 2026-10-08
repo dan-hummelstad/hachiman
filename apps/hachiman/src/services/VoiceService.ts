@@ -167,10 +167,29 @@ function captureMic(mode: NoiseSuppression): Promise<MediaStream> {
   })
 }
 
-function captureScreen(q: StreamQuality): Promise<MediaStream> {
-  // ponytail: video only; system audio capture differs per OS and host. Add `audio: true` with a
-  // second upload slot when it matters.
-  return navigator.mediaDevices.getDisplayMedia({ video: captureConstraints(q), audio: false })
+/**
+ * Share audio as captured: no voice processing. `restrictOwnAudio` (Chromium) keeps this page's
+ * own playback, the call, out of a system audio capture, so viewers do not hear themselves. A
+ * browser that does not know a constraint ignores it.
+ */
+const SCREEN_AUDIO = {
+  echoCancellation: false,
+  noiseSuppression: false,
+  autoGainControl: false,
+  restrictOwnAudio: true
+} as MediaTrackConstraints
+
+/**
+ * `audio`: ask for the share's audio too. The browser picker offers it where it can (a tab, or
+ * the system on Windows and ChromeOS); Electron gets it from the main process (screen-share.ts).
+ */
+function captureScreen(q: StreamQuality, audio: boolean): Promise<MediaStream> {
+  return navigator.mediaDevices.getDisplayMedia({
+    video: captureConstraints(q),
+    audio: audio ? SCREEN_AUDIO : false,
+    // Chromium: offer "Also share system audio" in its picker.
+    ...(audio ? { systemAudio: 'include' } : {})
+  } as DisplayMediaStreamOptions)
 }
 
 /**
@@ -288,6 +307,7 @@ class VoiceService {
       if (s.streamQuality !== prev.streamQuality) void this.applyStreamQuality()
       if (s.userAudio !== prev.userAudio) this.applyUserAudio(prev.userAudio)
       if (s.voiceInputMode !== prev.voiceInputMode) this.applyInputGate()
+      if (s.streamAudio !== prev.streamAudio) this.applyStreamAudio(prev.streamAudio)
     })
   }
 
@@ -356,6 +376,7 @@ class VoiceService {
     conn.setScreenSubscriptions(useVoiceStore.getState().watching)
     this.applyOutputDevice()
     this.applyUserAudio()
+    this.applyStreamAudio()
     this.applyMicBitrate()
     conn.on('state', (connectionState) => {
       if (this.conn === conn) useVoiceStore.setState({ connectionState })
@@ -500,18 +521,19 @@ class VoiceService {
   }
 
   /**
-   * Opens the OS share picker, then sends the chosen screen or window. While sharing, the pick
-   * changes the source: the new track replaces the old one on the same sender (no renegotiation),
-   * then the old capture stops. Never throws.
+   * Opens the OS share picker, then sends the chosen screen or window, and its audio when the
+   * capture has one (`audio` asks for it). While sharing, the pick changes the source: the new
+   * video and audio tracks replace the old ones on the same senders (no renegotiation), then the
+   * old capture stops. Never throws.
    */
-  async startScreenShare(): Promise<void> {
+  async startScreenShare(opts: { audio?: boolean } = {}): Promise<void> {
     const conn = this.conn
     if (!conn) return
     const prev = this.screen
     const quality = usePrefsStore.getState().streamQuality
     let stream: MediaStream
     try {
-      stream = await captureScreen(quality)
+      stream = await captureScreen(quality, opts.audio ?? true)
     } catch (err) {
       console.warn('[voice] screen share cancelled or unavailable', err)
       return
@@ -529,7 +551,11 @@ class VoiceService {
     useVoiceStore.setState({ localScreen: stream })
     if (!prev) playSound('streamStart')
     try {
-      await hachiman.setScreen(track, tuneTrack(track, quality))
+      // The share's own audio is never played here: the SFU sends it to the viewers only.
+      await Promise.all([
+        hachiman.setScreen(track, tuneTrack(track, quality)),
+        conn.setScreenAudio(stream.getAudioTracks()[0] ?? null)
+      ])
     } finally {
       if (prev) stopTracks(prev)
     }
@@ -540,6 +566,7 @@ class VoiceService {
     this.releaseScreen()
     playSound('streamStop')
     void hachiman.setScreen(null)
+    void this.conn?.setScreenAudio(null)
   }
 
   /** Stops the capture only. Leaving or switching voice ends the share on the wire by itself. */
@@ -586,6 +613,18 @@ class VoiceService {
       const a = now[userId]
       if (a === prev[userId]) continue
       conn.setOutputVolume(userId, !a ? 1 : a.muted ? 0 : a.volume)
+    }
+  }
+
+  /** The local volume and mute of each user's screen share audio, as `applyUserAudio`. */
+  private applyStreamAudio(prev: Record<string, UserAudio> = {}): void {
+    const conn = this.conn
+    if (!conn) return
+    const now = usePrefsStore.getState().streamAudio
+    for (const userId of new Set([...Object.keys(prev), ...Object.keys(now)])) {
+      const a = now[userId]
+      if (a === prev[userId]) continue
+      conn.setScreenVolume(userId, !a ? 1 : a.muted ? 0 : a.volume)
     }
   }
 

@@ -899,7 +899,7 @@ E2EE (§12.10): the media node relays and orders. It never signs, proposes or co
 
 `e2ee_invalid` closes the sender with 4013 (a resync) when `transitionId` is null, when it names an unknown or resolved transition, a transition that does not include the sender, or a transition that the sender committed. When no live participant holds the group state but participants remain, the room starts a new group: a new room session id and group id, epoch null, and an empty `departed` list.
 
-**Bad commits.** For one `transitionId`, when at least two members send `e2ee_invalid`, or every other member when fewer than two other members exist, the media node closes the committer of that transition with 4014. It keeps the other members, selects a new committer and sends the roster again. The members drop the pending transition and stay in the previous epoch. A single `e2ee_invalid` while the other members send `e2ee_ready` closes only that member with 4013. Frames on m-line 0 and 1 and on every peer track are SFrame (§12.10.2).
+**Bad commits.** For one `transitionId`, when at least two members send `e2ee_invalid`, or every other member when fewer than two other members exist, the media node closes the committer of that transition with 4014. It keeps the other members, selects a new committer and sends the roster again. The members drop the pending transition and stay in the previous epoch. A single `e2ee_invalid` while the other members send `e2ee_ready` closes only that member with 4013. Frames on m-lines 0 to 2 and on every peer track are SFrame (§12.10.2).
 
 **Call end.** When a joined session closes for any reason except 4010 (kick), 4011 (replaced) or a node shutdown (1001), the media node publishes `VOICE_DISCONNECTED {sessionId, channelId, jti}` (the claims of its voice token) to `device:{deviceId}` (§5). The gateway then removes the voice state at once (§6 "Voice join"), and does not wait for the end of the gateway session. The gateway caused a kick or a replace, so those send nothing. On a shutdown the clients get 1001 and leave themselves.
 
@@ -912,25 +912,26 @@ Close codes: 4004 bad token (incl. replayed jti — clients need a fresh VOICE_S
 
 `ssrc` in `ready`/`peers` is a node-unique id from `SSRCPool`, **not** the on-wire RTP SSRC (pion v3 picks those). Map tracks by msid (below).
 Codecs: Opus (payload type 111) for audio, VP8 (payload type 96) for screen video.
-Upload slots: the recvonly transceivers at m-line 0 (mic, audio) and m-line 1 (screen, video) of the initial offer. They are stable across renegotiations.
+Upload slots: the recvonly transceivers at m-line 0 (mic, audio), m-line 1 (screen, video) and m-line 2 (screen audio, audio) of the initial offer. They are stable across renegotiations. A client finds m-line 2 to be a slot only when the offer marks it `a=recvonly`: a media node without the screen audio slot has a peer track there, and the client then sends no screen audio.
 Peer tracks ride separate sendonly transceivers. Frame order on join: `ready` → `peers` → `e2ee_roster` → `offer`.
 
-Track labeling: for each peer, the media node creates two output tracks:
+Track labeling: for each peer, the media node creates three output tracks:
 
 | Track | Stream id | Track id |
 |---|---|---|
 | Mic | `<userId>` | `audio-<userId>` |
 | Screen | `screen-<userId>` | `screen-<userId>` |
+| Screen audio | `screen-<userId>` | `screen-audio-<userId>` |
 
-Clients map remote tracks to users through `ontrack` → `event.streams[0].id`. A stream id `screen-<userId>` is the video track (SFrame track 1) of `<userId>`. Every other stream id is the user id, with the audio track (SFrame track 0).
+Clients map remote tracks to users through `ontrack` → `event.streams[0].id`. A stream id `screen-<userId>` with a video track is the screen of `<userId>` (SFrame track `video`). With an audio track it is the screen audio (SFrame track `screen-audio`). Every other stream id is the user id, with the mic (SFrame track `audio`).
 
 Screen share:
-- Every room member has a screen track for every peer (a transceiver in the SDP). Media forwards a peer's screen to a viewer only while the viewer's last `screen_subscribe` names that peer. Else the track is silent. The track is also silent until the peer shares.
-- Each (sharer, viewer) pair has its own output track on the media node. A `screen_subscribe` only starts or stops the writes to that track. No renegotiation occurs.
-- Media rewrites the RTP sequence numbers of each viewer's screen track, so they stay contiguous over the gaps while the viewer is not subscribed. Payloads stay unchanged (§12.10.2).
+- Every room member has a screen track and a screen audio track for every peer (transceivers in the SDP). Media forwards a peer's screen and screen audio to a viewer only while the viewer's last `screen_subscribe` names that peer. Else the tracks are silent. They are also silent until the peer shares.
+- Each (sharer, viewer) pair has its own output tracks on the media node. A `screen_subscribe` only starts or stops the writes to those tracks. No renegotiation occurs.
+- Media rewrites the RTP sequence numbers of each viewer's screen tracks, so they stay contiguous over the gaps while the viewer is not subscribed. Payloads stay unchanged (§12.10.2).
 - When a subscription starts, media sends a PLI to the sharer (in the 500 ms limit below), so the video starts at a keyframe.
 - The voice state field `selfStream` (§1, op 4) tells clients when a share is live. No media frame carries it.
-- To start or stop a share, the client replaces the track on its m-line 1 sender. No renegotiation occurs.
+- To start or stop a share, the client replaces the track on its m-line 1 sender, and the share audio on its m-line 2 sender. A share without audio leaves m-line 2 empty. No renegotiation occurs. Media never sends a client's own tracks back to it.
 - The sharer sets the resolution, frame rate and bitrate. All subscribed viewers get the same quality (no simulcast).
 - Media relays a viewer's PLI (picture loss indication) or FIR (full intra request) to the sharer as a PLI. Both ask for a keyframe. Media sends at most one PLI to a sharer each 500 ms. A viewer that joins or subscribes during a share also gets its first keyframe this way.
 
@@ -1060,8 +1061,8 @@ export class GatewayClient extends TypedEventEmitter<GatewayClientEvents> {
 export interface VoiceE2eeDelegate {
   start(): Promise<{ keyPackage: string }>                      // for identify
   handle(op: VoiceE2eeServerOp): Promise<VoiceE2eeClientOp[]>   // §8 e2ee_* ops. Send the result in order
-  senderTransform(track: 'audio' | 'video'): RTCRtpScriptTransform
-  receiverTransform(userId: string, track: 'audio' | 'video'): RTCRtpScriptTransform
+  senderTransform(track: 'audio' | 'video' | 'screen-audio'): RTCRtpScriptTransform   // once per call and track: m-lines 0, 1, 2
+  receiverTransform(userId: string, track: 'audio' | 'video' | 'screen-audio'): RTCRtpScriptTransform
   // The receiver of a receiverTransform result ended: its track ended, its peer left the roster, or
   // ontrack gave the receiver a new transform. The UI detaches its frame key port (voiceDetachTransform)
   releaseTransform(transform: RTCRtpScriptTransform): void
@@ -1082,6 +1083,8 @@ export class VoiceConnection extends TypedEventEmitter<VoiceEvents> {
   setOutputVolume(userId: string, volume: number): void     // local playback of one user, 0..2 (1 = unchanged); kept for the call. Above 1 a WebAudio GainNode plays the user
   setScreen(track: MediaStreamTrack | null, encoding?: { maxBitrate: number; maxFramerate: number } | null): Promise<void>   // null = stop sending
   setMicBitrate(maxBitrate: number | null): Promise<void>   // mic (m-line 0) encodings[0].maxBitrate in bit/s, null = browser default; setParameters, no renegotiation; kept for the call
+  setScreenAudio(track: MediaStreamTrack | null): Promise<void>   // the share audio on m-line 2; null = none. replaceTrack, no renegotiation; the caller owns the track
+  setScreenVolume(userId: string, volume: number): void      // local playback of one user's share audio, 0..2, as setOutputVolume
   setScreenSubscriptions(userIds: Iterable<string>): void   // §8 screen_subscribe: the users whose screen media forwards to us. Replaces the set; sent on a change and again on 'ready'. Empty at start
   getStats(): Promise<{ rttMs: number | null; jitterMs: number | null; packetLoss: number | null }>
   // events: 'state' (RTCPeerConnectionState), 'speaking' ({userId, speaking}), 'peers' ({userId, ssrc}[]),
@@ -1175,8 +1178,10 @@ export interface IPlatformService {
   probeRegions(targets: { region: string; host: string; port: number }[]): Promise<{ region: string; rttMs: number | null }[]>
   /** Electron: screens and windows for the in-app share picker. Browser: null (it has its own picker). */
   getScreenSources(): Promise<{ id: string; name: string; kind: 'screen' | 'window'; thumbnail: Blob }[] | null>
-  /** Electron: the listed source that the next screen share captures. Browser: no-op. */
-  selectScreenSource(id: string): Promise<void>
+  /** Electron: the listed source that the next screen share captures, with system audio when `audio` and screenShareAudio. Browser: no-op. */
+  selectScreenSource(id: string, audio: boolean): Promise<void>
+  /** The in-app picker can capture system audio with a share (Electron on Windows: loopback). Else false. */
+  readonly screenShareAudio: boolean
   /** Electron: check for a new build now, and offer it (also one that the user put off). Browser: not-available. */
   checkForUpdate(): Promise<UpdateCheckResult>
   /** Electron: the close button hides the window to the tray (default on); main keeps the value. Browser: null. */
@@ -1276,8 +1281,9 @@ Invite links:
 - The invite window of an administrator has the switch "Include history" (off by default), with the scope: the text and pages channels that @everyone can view, from the REST roles, with each `joined` channel marked. Switching it on sets one use. The window then calls `prepareHistoryInvite`, `POST /guilds/:id/invites` with the record, and `sendInviteBundles`. `sendInviteBundles` fails when a bundle post fails. When it fails, the window revokes the invite. When it sends no bundle (`groups` 0: this device holds no group of the scope, for example because the channels have no messages yet), the window keeps the invite and shows a warning: the link then gives only the history that other members send at their commits (§12.11.4). The link shows once: the invite list cannot copy the link of an invite with history (`hasHistory`).
 
 Screen share source selection:
-- Browser: `getScreenSources` gives null. `getDisplayMedia` then shows the picker of the browser.
+- Browser: `getScreenSources` gives null. `getDisplayMedia` then shows the picker of the browser. The UI asks for audio too, and the browser picker offers it where it can (a tab, or the system audio on some systems).
 - Electron: the UI shows its own picker with the screens and windows from `getScreenSources`. When the user picks one, the UI calls `selectScreenSource`, then `getDisplayMedia`.
+- Share audio: where `screenShareAudio` is true, the picker shows "Share audio" (default on, kept in the prefs). The main process then answers with `audio: 'loopback'` (system audio). The installed Electron supports loopback on Windows only, so on macOS and Linux the share is video only. The UI asks for the audio with `restrictOwnAudio`, so the call that the page plays is not in the capture where Chromium supports it.
 - The main process captures only the selected source. It accepts only an id from the last list, and it uses each selection one time. A new list clears a selection that no capture used.
 - Without a selection, or when the request does not come from the top frame of the app page, `getDisplayMedia` fails.
 - Thumbnails are JPEG `data:` URLs. The CSP allows `data:` images.
@@ -2029,8 +2035,10 @@ The voice ops are in §8.
 
 ```
 sframe_epoch_secret = MLS-Exporter("SFrame 1.0 Base Key", "", 32)
-media_index m       = leaf_index × 2 + track            // track 0 = audio (m-line 0), 1 = video (m-line 1)
-base_key(m)         = HKDF-Expand(sframe_epoch_secret, uint32(m), 32)            // HKDF-SHA256
+media_index m       = kid_leaf × 2 + track              // track 0 = audio, 1 = video
+kid_leaf            = leaf_index                         // mic (m-line 0, track 0) and screen (m-line 1, track 1)
+                    | leaf_index + 2^32                  // screen audio (m-line 2, track 0)
+base_key(m)         = HKDF-Expand(sframe_epoch_secret, uint32(m), 32)            // HKDF-SHA256; uint64(m) when m >= 2^32
 KID                 = (m << 4) | (epoch & 0xF)
 sframe_secret       = HKDF-Extract("", base_key(m))
 sframe_key          = HKDF-Expand(sframe_secret, "SFrame 1.0 Secret key "  ‖ uint64(KID) ‖ uint16(0x0004), 16)
@@ -2041,12 +2049,12 @@ nonce               = sframe_salt XOR uint96(CTR)
 - The SFrame header is RFC 9605 §4.3 (config byte, then KID and CTR in minimal big-endian bytes).
 - Frame on the wire: `clear prefix ‖ SFrame header ‖ ciphertext ‖ tag (16)`. AAD = `SFrame header ‖ clear prefix`. Thus the prefix is authenticated.
 - Clear prefix: Opus 0 bytes. VP8: 10 bytes for a key frame (`frame[0] & 0x01 == 0`), else 1 byte. A frame shorter than its prefix + 1 is dropped.
-- CTR is a 64-bit counter per KID. It starts at 0 and increases by 1 per frame. A new epoch gives a new key, so (key, CTR) never repeats. The KID repeats every 16 epochs, but the key does not. Audio and video have separate media indexes, so they never share a key.
+- CTR is a 64-bit counter per KID. It starts at 0 and increases by 1 per frame. A new epoch gives a new key, so (key, CTR) never repeats. The KID repeats every 16 epochs, but the key does not. The mic, the screen and the screen audio have separate media indexes, so they never share a key or a counter, also with one sender transform (and so one key ring) each. Real leaf indexes are below 2^32, so a screen audio KID never equals a mic KID, and the uint64 info of its base key never equals a uint32 one.
 - **One sender transform per (call, track).** The client makes the sender transform of each track once per call and never makes it again. `setMicrophone` and `setScreen` replace the track on the sender and keep the transform. If a sender transform or the transform Worker must be made again, the client first asks for a new epoch (an `e2ee_invalid` that makes it rejoin), so a counter that starts again at 0 uses a new key.
-- Receivers find the key by KID. The KID leaf must belong to the user of the receiver (from the msid, §8), and the KID track bit must equal the receiver track (`FrameTransformOptions.track`). Else the frame is dropped (`wrongSender`). Receivers drop a CTR that they saw in the last 1024 frames of the KID.
+- Receivers find the key by KID. The KID leaf must belong to the user of the receiver (from the msid, §8), and the KID track bit must equal the receiver track (`FrameTransformOptions.track`: `video` = 1, `audio` and `screen-audio` = 0). A `screen-audio` receiver takes only a KID leaf from 2^32 (the user's leaf is kid_leaf − 2^32), the others only one below it. Else the frame is dropped (`wrongSender`), so the SFU cannot swap the mic and the screen audio. Receivers drop a CTR that they saw in the last 1024 frames of the KID.
 - Keys of the previous epoch stay valid for 10 s after `e2ee_execute_transition`. There is no plaintext passthrough.
 - The SFU forwards RTP payloads unchanged and never parses them. It rewrites only the SSRC, the payload type and, on screen tracks, the sequence number (§8). The SSRC does not identify the sender. The KID and the leaf credential do.
-- **Client.** One transform Worker per call (`pkgs/hachiman-crypto/src/media/transform-worker.ts`), with `RTCRtpScriptTransform` on the senders of m-line 0 and 1 and on each receiver in `ontrack`. The crypto Worker sends frame keys to it over a `MessagePort` (`FrameKeyMessage` in `src/api.ts`). Each transform has its own port. `voiceAttachTransform` returns the port id. When a receiver ends (its track ends, its peer leaves, or the receiver gets a new transform), the UI calls `voiceDetachTransform(portId)`: the crypto Worker sends `close` on the port and forgets it, and the transform Worker closes the key ring and its end of the port. `voiceStop` closes every port of the call. Sender transforms stay for the whole call. There is no fallback to the legacy encoded-streams API.
+- **Client.** One transform Worker per call (`pkgs/hachiman-crypto/src/media/transform-worker.ts`), with `RTCRtpScriptTransform` on the senders of m-lines 0 to 2 and on each receiver in `ontrack`. The crypto Worker sends frame keys to it over a `MessagePort` (`FrameKeyMessage` in `src/api.ts`). Each transform has its own port. `voiceAttachTransform` returns the port id. When a receiver ends (its track ends, its peer leaves, or the receiver gets a new transform), the UI calls `voiceDetachTransform(portId)`: the crypto Worker sends `close` on the port and forgets it, and the transform Worker closes the key ring and its end of the port. `voiceStop` closes every port of the call. Sender transforms stay for the whole call. There is no fallback to the legacy encoded-streams API.
 - Speaking state stays a client op (§8). It is metadata.
 - Server-side recording is out of scope. A recorder would have to be a member.
 

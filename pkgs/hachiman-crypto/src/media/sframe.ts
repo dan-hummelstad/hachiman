@@ -10,7 +10,7 @@ import { expand, extract } from '@noble/hashes/hkdf.js'
 import { sha256 } from '@noble/hashes/sha2.js'
 
 import { CryptoError, type SFrameModule } from '../api'
-import { OPUS_PREFIX, SFRAME_CIPHER_SUITE, SFRAME_EPOCH_BITS, VP8_DELTA_PREFIX, VP8_KEYFRAME_PREFIX } from '../constants'
+import { OPUS_PREFIX, SFRAME_CIPHER_SUITE, SFRAME_EPOCH_BITS, SFRAME_SCREEN_AUDIO_LEAF_OFFSET, VP8_DELTA_PREFIX, VP8_KEYFRAME_PREFIX } from '../constants'
 import { concatBytes, utf8 } from '../identity/bytes'
 
 const TAG_LENGTH = 16
@@ -19,8 +19,12 @@ const SALT_LENGTH = 12
 const BASE_KEY_LENGTH = 32
 const MAX_U64 = 0xffff_ffff_ffff_ffffn
 const EPOCH_MASK = (1 << SFRAME_EPOCH_BITS) - 1
-/** The largest media index whose KID fits in 64 bits. Leaf indexes are uint32, so every real one fits. */
-const MAX_MEDIA_INDEX = 0xffff_ffff * 2 + 1
+/**
+ * The largest leaf in a KID: a real leaf (uint32) plus SFRAME_SCREEN_AUDIO_LEAF_OFFSET for screen
+ * audio. Its media index (below 2^34) shifted by the epoch bits fits in 64 bits.
+ */
+const MAX_KID_LEAF = SFRAME_SCREEN_AUDIO_LEAF_OFFSET * 2 - 1
+const MAX_MEDIA_INDEX = MAX_KID_LEAF * 2 + 1
 const KEY_LABEL = utf8('SFrame 1.0 Secret key ')
 const SALT_LABEL = utf8('SFrame 1.0 Secret salt ')
 
@@ -110,7 +114,7 @@ function decodeHeader(frame: Uint8Array, offset: number): { kid: bigint; ctr: bi
 }
 
 function packKid(leafIndex: number, track: 0 | 1, epoch: number): bigint {
-  if (!Number.isInteger(leafIndex) || leafIndex < 0 || leafIndex > 0xffff_ffff) throw new CryptoError('Malformed', 'leaf index out of range')
+  if (!Number.isInteger(leafIndex) || leafIndex < 0 || leafIndex > MAX_KID_LEAF) throw new CryptoError('Malformed', 'leaf index out of range')
   // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- runtime input from another Worker
   if (track !== 0 && track !== 1) throw new CryptoError('Malformed', 'track must be 0 or 1')
   if (!Number.isInteger(epoch) || epoch < 0) throw new CryptoError('Malformed', 'epoch out of range')
@@ -131,7 +135,10 @@ export function deriveKeyBytes(epochSecret: Uint8Array, mediaIndex: number, kid:
   if (!Number.isInteger(mediaIndex) || mediaIndex < 0 || mediaIndex > MAX_MEDIA_INDEX) throw new CryptoError('Malformed', 'media index out of range')
   checkU64(kid, 'KID')
   if (kid >> BigInt(SFRAME_EPOCH_BITS) !== BigInt(mediaIndex)) throw new CryptoError('Malformed', 'KID does not carry this media index')
-  const baseKey = expand(sha256, epochSecret, u32(mediaIndex), BASE_KEY_LENGTH)
+  // uint32 for the mic and video of real leaves (unchanged); uint64 from 2^32, so screen audio
+  // never shares the info bytes of another media index.
+  const info = mediaIndex < 2 ** 32 ? u32(mediaIndex) : u64(BigInt(mediaIndex))
+  const baseKey = expand(sha256, epochSecret, info, BASE_KEY_LENGTH)
   const secret = extract(sha256, baseKey, new Uint8Array(0))
   const tail = concatBytes(u64(kid), u16(SFRAME_CIPHER_SUITE))
   return {

@@ -823,7 +823,8 @@ export interface VoiceSessionStart {
 /** Options of `new RTCRtpScriptTransform(worker, options, [port])` (§12.10). */
 export interface FrameTransformOptions {
   role: 'send' | 'recv'
-  track: 'audio' | 'video'
+  /** 'screen-audio' is the audio of a screen share (§12.10.2): the KID leaf + 2^32, codec opus. */
+  track: 'audio' | 'video' | 'screen-audio'
   codec: 'opus' | 'vp8'
   /** recv only: the remote user of this receiver (from the msid). */
   userId: UserId | null
@@ -1818,13 +1819,19 @@ export interface SFrameKeyId {
 }
 
 export interface SFrameModule {
-  /** KID = (leaf * 2 + track) << SFRAME_EPOCH_BITS | (epoch & 0xF). */
+  /**
+   * KID = (leaf * 2 + track) << SFRAME_EPOCH_BITS | (epoch & 0xF). `leafIndex` is below 2^33: screen
+   * audio uses leaf + SFRAME_SCREEN_AUDIO_LEAF_OFFSET with track 0.
+   */
   packKid(leafIndex: number, track: 0 | 1, epoch: number): bigint
   unpackKid(kid: bigint): { leafIndex: number; track: 0 | 1; epochBits: number }
   /** RFC 9605 §4.3 header. */
   encodeHeader(kid: bigint, ctr: bigint): Uint8Array
   decodeHeader(frame: Uint8Array, offset: number): { kid: bigint; ctr: bigint; length: number }
-  /** base_key = HKDF-Expand(sframe_epoch_secret, uint32(media_index), 32); then RFC 9605 §4.4.2 key + salt. */
+  /**
+   * base_key = HKDF-Expand(sframe_epoch_secret, uint32(media_index), 32), or uint64(media_index) for
+   * a media index from 2^32 (screen audio); then RFC 9605 §4.4.2 key + salt.
+   */
   deriveKey(epochSecret: Uint8Array, mediaIndex: number, kid: bigint): Promise<{ key: CryptoKey; salt: Uint8Array }>
   clearPrefixLength(codec: 'opus' | 'vp8', frame: Uint8Array): number
   /** out = clear prefix || SFrame header || ciphertext || tag. AAD = header || clear prefix. */

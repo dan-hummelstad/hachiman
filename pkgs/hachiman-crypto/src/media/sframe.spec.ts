@@ -81,6 +81,23 @@ describe('SFrame key schedule (§12.10.2)', () => {
     expect(() => deriveKeyBytes(SECRET, 2, sframe.packKid(0, 0, 0))).toThrow(CryptoError)
   })
 
+  it('gives screen audio (leaf + 2^32, uint64 info) a key of its own', async () => {
+    const off = 2 ** 32
+    const kid = sframe.packKid(off + 3, 0, 1)
+    expect(sframe.unpackKid(kid)).toEqual({ leafIndex: off + 3, track: 0, epochBits: 1 })
+    expect(() => sframe.packKid(2 * off, 0, 0)).toThrow(CryptoError)
+    const m = (off + 3) * 2
+    const { key } = deriveKeyBytes(SECRET, m, kid)
+    // The info is uint64(m): with uint32 it would wrap to the mic's media index 6.
+    const baseKey = await hkdfExpand(SECRET, unhex('0000000200000006'), 32)
+    const secret = await hmac(new Uint8Array(0), baseKey)
+    const tail = new Uint8Array(10)
+    new DataView(tail.buffer).setBigUint64(0, kid)
+    tail[9] = 4
+    expect(hex(await hkdfExpand(secret, new Uint8Array([...new TextEncoder().encode('SFrame 1.0 Secret key '), ...tail]), 16))).toBe(hex(key))
+    expect(hex(key)).not.toBe(hex(deriveKeyBytes(SECRET, 6, sframe.packKid(3, 0, 1)).key))
+  })
+
   it('XORs the CTR into the low bytes of the salt', () => {
     const salt = unhex('000102030405060708090a0b')
     expect(hex(frameNonce(salt, 0n))).toBe('000102030405060708090a0b')

@@ -206,13 +206,15 @@ func (c *wsClient) offer() string {
 }
 
 // pionPeer is the test's stand-in for the browser: answers every offer,
-// uploads its mic on m-line 0 and its screen on m-line 1.
+// uploads its mic on m-line 0, its screen on m-line 1 and its screen audio
+// on m-line 2.
 type pionPeer struct {
-	pc        *webrtc.PeerConnection
-	mic       *webrtc.TrackLocalStaticRTP
-	screen    *webrtc.TrackLocalStaticRTP
-	screenSnd *webrtc.RTPSender
-	ws        *wsClient
+	pc          *webrtc.PeerConnection
+	mic         *webrtc.TrackLocalStaticRTP
+	screen      *webrtc.TrackLocalStaticRTP
+	screenAudio *webrtc.TrackLocalStaticRTP
+	screenSnd   *webrtc.RTPSender
+	ws          *wsClient
 }
 
 func newPionPeer(t *testing.T, ws *wsClient) *pionPeer {
@@ -230,8 +232,9 @@ func newPionPeer(t *testing.T, ws *wsClient) *pionPeer {
 	t.Cleanup(func() { pc.Close() })
 	mic, _ := webrtc.NewTrackLocalStaticRTP(webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeOpus, ClockRate: 48000, Channels: 2}, "mic", "mic")
 	screen, _ := webrtc.NewTrackLocalStaticRTP(webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeVP8, ClockRate: 90000}, "screen", "screen")
+	screenAudio, _ := webrtc.NewTrackLocalStaticRTP(webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeOpus, ClockRate: 48000, Channels: 2}, "screen-audio", "screen-audio")
 	// Added before the first remote offer so pion pairs them with media's
-	// recvonly m-lines 0 and 1 (the browser does the same via transceivers[0/1]).
+	// recvonly m-lines 0 to 2 (the browser does the same via transceivers[0..2]).
 	if _, err := pc.AddTrack(mic); err != nil {
 		t.Fatal(err)
 	}
@@ -239,7 +242,10 @@ func newPionPeer(t *testing.T, ws *wsClient) *pionPeer {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &pionPeer{pc: pc, mic: mic, screen: screen, screenSnd: screenSnd, ws: ws}
+	if _, err := pc.AddTrack(screenAudio); err != nil {
+		t.Fatal(err)
+	}
+	return &pionPeer{pc: pc, mic: mic, screen: screen, screenAudio: screenAudio, screenSnd: screenSnd, ws: ws}
 }
 
 func (p *pionPeer) answer(t *testing.T, sdp string) {
@@ -332,30 +338,29 @@ func TestVoice_JoinPeersRenegotiateAndRoomScoping(t *testing.T) {
 	c.quiet(200 * time.Millisecond)
 	a.quiet(200 * time.Millisecond) // the duplicate "true" was not relayed
 
-	// Media: B's mic and screen RTP reach A over real ICE/DTLS on loopback,
-	// on tracks whose stream ids are userB and screen-userB.
+	// Media: B's mic, screen and screen audio RTP reach A over real ICE/DTLS
+	// on loopback, on tracks audio-userB (stream userB), screen-userB and
+	// screen-audio-userB (stream screen-userB).
 	// The SFU forwards payload bytes unchanged (SFrame ciphertext stays
 	// opaque, §12.10.2). The bytes are arbitrary, not a valid Opus frame.
 	micPayload := []byte("sframe-ciphertext\x00\xff\x10opaque-to-the-sfu")
 	screenPayload := []byte{0x10, 0x00, 0x9d, 0x01, 0x2a, 0xde, 0xad, 0xbe, 0xef}
-	got := make(chan string, 2)
+	screenAudioPayload := []byte("screen-audio-ciphertext")
+	got := make(chan string, 3)
+	videoSSRC := make(chan uint32, 1)
 	pa.pc.OnTrack(func(tr *webrtc.TrackRemote, rcv *webrtc.RTPReceiver) {
 		pkt, _, err := tr.ReadRTP()
 		if err != nil {
 			return
 		}
-		want := micPayload
-		if tr.Kind() == webrtc.RTPCodecTypeVideo {
-			want = screenPayload
-		}
-		if !bytes.Equal(pkt.Payload, want) {
-			got <- "changed payload " + tr.StreamID()
+		want := map[string][]byte{"audio-userB": micPayload, "screen-userB": screenPayload, "screen-audio-userB": screenAudioPayload}[tr.ID()]
+		if !bytes.Equal(pkt.Payload, want) || (tr.ID() == "audio-userB") != (tr.StreamID() == "userB") {
+			got <- "changed payload or stream " + tr.ID()
 			return
 		}
-		got <- tr.StreamID()
+		got <- tr.ID()
 		if tr.Kind() == webrtc.RTPCodecTypeVideo {
-			// A viewer's keyframe request must reach the sharer.
-			_ = pa.pc.WriteRTCP([]rtcp.Packet{&rtcp.PictureLossIndication{MediaSSRC: uint32(tr.SSRC())}})
+			videoSSRC <- uint32(tr.SSRC())
 		}
 	})
 	pli := make(chan struct{}, 1)
@@ -389,31 +394,46 @@ func TestVoice_JoinPeersRenegotiateAndRoomScoping(t *testing.T) {
 			_ = pb.mic.WriteRTP(&rtp.Packet{Header: rtp.Header{Version: 2, SequenceNumber: seq, Timestamp: uint32(seq) * 960}, Payload: micPayload})
 			// A VP8 keyframe header (S=1, PID 0, P=0) is enough for pion to forward.
 			_ = pb.screen.WriteRTP(&rtp.Packet{Header: rtp.Header{Version: 2, Marker: true, SequenceNumber: seq, Timestamp: uint32(seq) * 1800}, Payload: screenPayload})
+			_ = pb.screenAudio.WriteRTP(&rtp.Packet{Header: rtp.Header{Version: 2, SequenceNumber: seq, Timestamp: uint32(seq) * 960}, Payload: screenAudioPayload})
 		}
 	}()
-	// The mic flows at once; the screen only after A subscribes to it.
+	// The mic flows at once; the screen and its audio only after A
+	// subscribes to them.
 	select {
-	case sid := <-got:
-		if sid != "userB" {
-			t.Fatalf("A received %q before it subscribed to a screen, want userB", sid)
+	case id := <-got:
+		if id != "audio-userB" {
+			t.Fatalf("A received %q before it subscribed to a screen, want audio-userB", id)
 		}
 	case <-time.After(10 * time.Second):
 		t.Fatal("A never received B's mic")
 	}
 	select {
-	case sid := <-got:
-		t.Fatalf("A received %q without screen_subscribe", sid)
+	case id := <-got:
+		t.Fatalf("A received %q without screen_subscribe", id)
 	case <-time.After(500 * time.Millisecond):
 	}
 	a.send("screen_subscribe", map[string][]string{"userIds": {"userB"}})
-	select {
-	case sid := <-got:
-		if sid != "screen-userB" {
-			t.Fatalf("A received %q, want screen-userB", sid)
+	ids := map[string]bool{}
+	for len(ids) < 2 {
+		select {
+		case id := <-got:
+			ids[id] = true
+		case <-time.After(10 * time.Second):
+			t.Fatalf("after screen_subscribe A received only %v", ids)
 		}
-	case <-time.After(10 * time.Second):
-		t.Fatal("A never received B's screen after screen_subscribe")
 	}
+	if !ids["screen-userB"] || !ids["screen-audio-userB"] {
+		t.Fatalf("after screen_subscribe A received %v, want screen-userB and screen-audio-userB", ids)
+	}
+	// The subscribe asked B for a keyframe. After the 500 ms limit, a
+	// viewer's own PLI must reach B too.
+	select {
+	case <-pli:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the subscribe sent no PLI to B")
+	}
+	time.Sleep(600 * time.Millisecond)
+	_ = pa.pc.WriteRTCP([]rtcp.Packet{&rtcp.PictureLossIndication{MediaSSRC: <-videoSSRC}})
 	select {
 	case <-pli:
 	case <-time.After(5 * time.Second):

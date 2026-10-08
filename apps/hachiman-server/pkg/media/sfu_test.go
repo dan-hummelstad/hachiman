@@ -69,11 +69,21 @@ func TestSFU_RoomScopedTracksAndHooks(t *testing.T) {
 	if got := sendingTo(c); len(got) != 0 {
 		t.Errorf("c (other room) receives %v, want nothing", got)
 	}
-	// m-lines 0 and 1 stay the sender-less recvonly mic and screen slots.
-	for i, kind := range []webrtc.RTPCodecType{webrtc.RTPCodecTypeAudio, webrtc.RTPCodecTypeVideo} {
+	// m-lines 0 to 2 stay the sender-less recvonly mic, screen and screen
+	// audio slots.
+	for i, kind := range []webrtc.RTPCodecType{webrtc.RTPCodecTypeAudio, webrtc.RTPCodecTypeVideo, webrtc.RTPCodecTypeAudio} {
 		if tr := a.PC.GetTransceivers()[i]; tr.Sender() != nil || tr.Kind() != kind {
 			t.Errorf("upload slot %d: kind %v, sender %v", i, tr.Kind(), tr.Sender())
 		}
+	}
+	ids := map[string]bool{}
+	for _, tr := range a.PC.GetTransceivers() {
+		if snd := tr.Sender(); snd != nil && snd.Track() != nil {
+			ids[snd.Track().ID()] = true
+		}
+	}
+	if len(ids) != 3 || !ids["audio-uB"] || !ids["screen-uB"] || !ids["screen-audio-uB"] {
+		t.Errorf("a's tracks of b = %v", ids)
 	}
 	if ca.reneg.Load() != 1 || ca.peers.Load() != 1 || cb.reneg.Load() != 0 || cc.reneg.Load() != 0 {
 		t.Errorf("hooks: a=%d/%d b=%d c=%d", ca.reneg.Load(), ca.peers.Load(), cb.reneg.Load(), cc.reneg.Load())
