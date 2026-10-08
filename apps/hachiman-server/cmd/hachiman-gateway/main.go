@@ -70,6 +70,7 @@ func main() {
 	g.load = pgLoader(db)
 	g.nodeURL = pgNodeURL(db)
 	g.device = pgDevice(db)
+	g.dmMembers = pgDMMembers(db)
 	g.minClientVersion = minClientVersion
 	if *turnSecret != "" && *turnURLs != "" {
 		g.turn = &coturn.CoturnRegion{Endpoints: strings.Split(*turnURLs, ","), HMACSecret: *turnSecret, CredentialTTL: *turnTTL}

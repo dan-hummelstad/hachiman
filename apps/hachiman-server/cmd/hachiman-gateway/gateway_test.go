@@ -115,6 +115,15 @@ func newHarness(t *testing.T) *harness {
 		}
 		return d, nil
 	}
+	g.dmMembers = func(ctx context.Context, channelID string) ([]string, error) {
+		switch channelID {
+		case "dm1":
+			return []string{me, "u2"}, nil
+		case "dm-others":
+			return []string{"u2", "u3"}, nil
+		}
+		return nil, errNotDM
+	}
 	g.nodeURL = func(ctx context.Context, nodeID string) (string, error) {
 		if nodeID == "node-a" {
 			return "ws://media-a/voice", nil

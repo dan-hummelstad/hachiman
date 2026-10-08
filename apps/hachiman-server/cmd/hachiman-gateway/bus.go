@@ -26,6 +26,7 @@ func kPresence(uid string) string     { return "presence:" + uid }
 func kVoice(gid string) string        { return "voice:" + gid }
 func kVoiceUser(uid string) string    { return "voice_user:" + uid }
 func kVoiceRoom(cid string) string    { return "voice_room:" + cid }
+func kVoiceDM(cid string) string      { return "voice_dm:" + cid }      // the states of one DM call
 func kUserSessions(uid string) string { return "user_sessions:" + uid } // see session.end
 func kDeviceOnline(did string) string { return "device_online:" + did } // read by the Takusen batch scheduler (§12.7.5)
 

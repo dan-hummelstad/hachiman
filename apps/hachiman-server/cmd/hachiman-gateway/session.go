@@ -362,8 +362,18 @@ func (s *session) clientGuilds(ctx context.Context, gfs []*GuildFull) []GuildFul
 		}
 		v.Roles, v.Members = nonNil(gf.Roles), nonNil(gf.Members)
 		v.Presences = s.g.presences(ctx, ids)
-		v.VoiceStates = s.g.voiceStates(ctx, gf.ID)
+		v.VoiceStates = s.g.voiceStatesAt(ctx, kVoice(gf.ID))
 		out = append(out, v)
+	}
+	return out
+}
+
+// dmVoiceStates is READY privateVoiceStates: the live states of every DM call
+// of the user. ponytail: one HGETALL per DM; pipeline it if DM lists grow large.
+func (g *Gateway) dmVoiceStates(ctx context.Context, dms []Channel) []VoiceState {
+	out := []VoiceState{}
+	for _, ch := range dms {
+		out = append(out, g.voiceStatesAt(ctx, kVoiceDM(ch.ID))...)
 	}
 	return out
 }
@@ -392,10 +402,11 @@ func (g *Gateway) presences(ctx context.Context, userIDs []string) []Presence {
 	return out
 }
 
-// voiceStates reads voice:{g}, dropping entries whose gateway session is gone.
-func (g *Gateway) voiceStates(ctx context.Context, guildID string) []VoiceState {
+// voiceStatesAt reads a voice scope hash (voice:{g} or voice_dm:{c}),
+// dropping entries whose gateway session is gone.
+func (g *Gateway) voiceStatesAt(ctx context.Context, key string) []VoiceState {
 	out := []VoiceState{}
-	all, err := g.rdb.HGetAll(ctx, kVoice(guildID)).Result()
+	all, err := g.rdb.HGetAll(ctx, key).Result()
 	if err != nil {
 		return out
 	}
@@ -651,7 +662,7 @@ func (s *session) withVisibilityDiff(gs *guildState, except string, mutate func(
 }
 
 func (s *session) dropGuild(gid string) {
-	if s.voice != nil && s.voice.GuildID == gid {
+	if s.voice != nil && s.voice.GuildID != nil && *s.voice.GuildID == gid {
 		s.leaveVoice(s.ctx)
 	}
 	delete(s.guilds, gid)

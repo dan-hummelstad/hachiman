@@ -21,7 +21,7 @@ type Claims struct {
 	// DeviceID is the gateway session's device (§12.13). The token library
 	// accepts it empty; hachiman-media requires it (E2EE roster identity).
 	DeviceID    string    `json:"deviceId"`
-	GuildID     string    `json:"guildId"`
+	GuildID     string    `json:"guildId"`   // "" for a DM or group DM call
 	ChannelID   string    `json:"channelId"` // = media room id
 	MediaNodeID string    `json:"aud"`       // must equal the verifying node's id
 	JTI         string    `json:"jti"`

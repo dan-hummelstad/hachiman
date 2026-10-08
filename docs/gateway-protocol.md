@@ -121,7 +121,8 @@ interface CustomStatus {
 }
 
 interface VoiceState {
-  guildId: string; channelId: string | null; userId: string
+  guildId: string | null           // null: a DM or group DM call (§6 "DM calls")
+  channelId: string | null; userId: string
   sessionId: string                // gateway session id
   selfMute: boolean; selfDeaf: boolean
   selfStream: boolean              // screen share is live (§8)
@@ -636,7 +637,8 @@ Other Redis keys (owned by the gateway unless noted):
 | `presence:{userId}` | string | status. TTL 90 s, refreshed on heartbeat. Absent ⇒ offline |
 | `custom_status:{userId}` | string | `CustomStatus` JSON (§1), written by op 3. No TTL without `expiresAt` (it survives sign-out), else it expires at `expiresAt`. Readers also drop a value whose `expiresAt` has passed. Sent only with a presence that is not `offline` |
 | `voice:{guildId}` | hash | userId → `VoiceState` JSON. Readers drop entries whose `session:{sessionId}` is gone |
-| `voice_user:{userId}` | string | guildId the user is in voice for (one voice session per user globally) |
+| `voice_dm:{channelId}` | hash | the same for the call of one DM or group DM channel (§6 "DM calls") |
+| `voice_user:{userId}` | string | the scope the user is in voice for (one voice session per user globally): the guildId, or `dm:{channelId}` for a DM call |
 | `voice_room:{channelId}` | string | mediaNodeId hosting that channel (sticky; SET NX, EX 24 h, deleted when the last user leaves). The endpoint comes from `media_nodes.signaling_url`. A missing node row drops the key and re-places |
 | `takusen:sessions_revoked_at` | string | Takusen-owned. Unix ms: every dashboard cookie from before it is dead (§4 Admin API, `sessions:revoke`). No TTL |
 | `takusen:sessions_revoked_at:{userId}` | string | Takusen-owned. The same cut-off for one user (admin sign-out, password change, the dashboard's "Sign out everywhere else"). No TTL. "Sign out everywhere else" first gives the current cookie a new `authTime`, then sets the cut-off to a time from before it, so the current cookie stays |
@@ -658,7 +660,7 @@ URL: `ws(s)://<host>/gateway` (dev `ws://localhost:8080/gateway`). Text frames, 
 | 1 | HEARTBEAT | C→S | last seq received or null |
 | 2 | IDENTIFY | C→S | `{ token, deviceId, capabilities: string[], clientVersion, deviceProof: { ts, nonce, sig } }` (Takusen access token, §12.13) |
 | 3 | PRESENCE_UPDATE | C→S | `{ status?, customStatus?: { text, expiresAt?: string \| null } \| null }` (below) |
-| 4 | VOICE_STATE_UPDATE | C→S | `{ guildId, channelId: string \| null, selfMute, selfDeaf, selfStream }` |
+| 4 | VOICE_STATE_UPDATE | C→S | `{ guildId: string \| null, channelId: string \| null, selfMute, selfDeaf, selfStream }`. `guildId` null: a DM call (below) |
 | 5 | DOC_AWARENESS | C→S | `{ channelId, pageId, envelope }`: a doc_awareness envelope (§12.20), base64url |
 | 6 | RESUME | C→S | `{ token, sessionId, seq, deviceId, deviceProof: { ts, nonce, sig } }` |
 | 7 | RECONNECT | S→C | null — client should reconnect + RESUME |
@@ -689,7 +691,7 @@ Dispatch events:
 
 | t | d |
 |---|---|
-| READY | `{ v: 1, sessionId, deviceId, user: User, guilds: GuildFull[], privateChannels: Channel[], presences: Presence[] /* DM partners */, readStates: ReadState[] }`. `readStates` has one entry for each text and pages channel that the user can VIEW and for each DM and group DM. The gateway reads them from Postgres in one query |
+| READY | `{ v: 1, sessionId, deviceId, user: User, guilds: GuildFull[], privateChannels: Channel[], privateVoiceStates: VoiceState[] /* the live DM calls, guildId null */, presences: Presence[] /* DM partners */, readStates: ReadState[] }`. `readStates` has one entry for each text and pages channel that the user can VIEW and for each DM and group DM. The gateway reads them from Postgres in one query |
 | RESUMED | `{}` |
 | GUILD_CREATE | `GuildFull` |
 | GUILD_UPDATE | `Guild` |
@@ -706,8 +708,9 @@ Dispatch events:
 | GUILD_ROLE_DELETE | `{ guildId, roleId }` |
 | INVITE_DELETE | `{ guildId, code, inviteId }` — an invite was revoked (§4): by `DELETE /invites/:code`, or because its creator lost ADMINISTRATOR. To every member of the guild. The crypto Worker also gets it (§12.13) |
 | PRESENCE_UPDATE | `Presence` (published to guild:{g} for every guild of the user, and user:{p} for DM partners). When a session gets GUILD_CREATE (the user joined or created a guild), the gateway also publishes the current presence to that guild:{g}, so that the members see the new member online |
-| VOICE_STATE_UPDATE | `VoiceState` (`channelId: null` = left) |
-| VOICE_SERVER_UPDATE | `{ guildId, channelId, endpoint, token, iceServers: RTCIceServer[], expiresAt }` — to the requesting session only |
+| VOICE_STATE_UPDATE | `VoiceState` (`channelId: null` = left). A guild state goes to guild:{g}, a DM call state to user:{p} of each participant |
+| VOICE_SERVER_UPDATE | `{ guildId: string \| null, channelId, endpoint, token, iceServers: RTCIceServer[], expiresAt }` — to the requesting session only |
+| CALL_RING | `{ channelId, userId /* the caller */, ringing: string[] /* user ids */, at /* RFC 3339 */ }` — a DM call started (§6 "DM calls"). To user:{p} of each user in `ringing` |
 | PAGE_CREATE / PAGE_UPDATE | `Page & { guildId }` |
 | PAGE_DELETE | `{ id, channelId, guildId, ids: string[] }` (`ids`: the page and its subtree) |
 | DOC_UPDATE | `DocUpdate & { channelId, guildId }` (ephemeral, above) |
@@ -749,7 +752,7 @@ The gateway publishes `offline` itself when a socket closes without resuming wit
 ### Voice join (gateway side)
 
 On op 4 with a `channelId`:
-1. Require channel.type == voice and CONNECT + VIEW_CHANNEL.
+1. Require channel.type == voice and CONNECT + VIEW_CHANNEL. (A DM call: "DM calls" below.)
 2. If `voice_user:{me}` names another guild, remove that voice state first (publish VOICE_STATE_UPDATE with channelId null + kick).
 3. HSET `voice:{guildId}`, SET `voice_user:{me}`, publish VOICE_STATE_UPDATE to guild.
 4. If the channel changed (not a mute, deafen or stream toggle): resolve media node = GET `voice_room:{channelId}`, else
@@ -771,6 +774,20 @@ Not in v1 (explicitly deferred): server mute/deafen (MUTE_MEMBERS / DEAFEN_MEMBE
 
 The gateway does not examine `selfStream`. It stores and publishes the value only. Any member in a voice channel can share a screen.
 
+### DM calls
+
+A `dm` or `group_dm` channel is also a voice room: a call with voice and screen share, as in a guild voice channel. Op 4 with `guildId: null` and the DM channel id joins its call. Differences from a guild join:
+1. The gateway reads the participants of the channel from Postgres (`dm_participants`, channel type `dm` or `group_dm`). The user must be a participant. There is no permission check. Else the frame is dropped (no close, no answer).
+2. The state goes in `voice_dm:{channelId}`, and `voice_user:{me}` is `dm:{channelId}`. A state in another scope (a guild, or another DM call) is removed first, as in step 2.
+3. VOICE_STATE_UPDATE goes to user:{p} of every participant (the joiner included), not to a guild. A leave reads the participants again.
+4. **Ring.** When the joiner was not in the call and no live session of another user is in it, the gateway publishes `CALL_RING { channelId, userId, ringing, at }` to user:{p} of every other participant (`ringing`). A mute, deafen or stream toggle, a device switch or a join into a call with people in it does not ring. The gateway keeps no ring state.
+5. Placement: `PlaceMediaSession{channelId, guildId: "", homeRegion: ""}` (any region). The voice token has `guildId` "" (§7). VOICE_SERVER_UPDATE has `guildId: null`.
+6. READY `privateVoiceStates` holds the live states of every DM call of the user.
+
+The client stops ringing locally (no wire message): when the user joins the call (a VOICE_STATE_UPDATE of the user in that channel, from any device), when no state is left in the call (the caller left), when the user declines, or 30 s after `at`. In a 1:1 DM, a join of the other user also stops it. `// ponytail:` a decline is local to the device. The other devices of the user ring until the timeout.
+
+`// ponytail:` a participant removed from a group DM keeps its voice state until it leaves. The gateway does not re-check membership during a call.
+
 ## 7. Voice token (PASETO v4.public, `pkg/voicetoken`)
 
 Claims:
@@ -780,7 +797,7 @@ type Claims struct {
     SessionID   string    `json:"sessionId"`   // gateway session id
     UserID      string    `json:"userId"`
     DeviceID    string    `json:"deviceId"`    // the gateway session's device (§12.13). Media gives it to members in e2ee_roster
-    GuildID     string    `json:"guildId"`
+    GuildID     string    `json:"guildId"`     // "" for a DM call (§6 "DM calls")
     ChannelID   string    `json:"channelId"`   // = media room id
     MediaNodeID string    `json:"aud"`         // must equal the verifying node's id
     JTI         string    `json:"jti"`
@@ -892,7 +909,7 @@ message PlaceMediaSessionResponse { string node_id = 1; string signaling_url = 2
 
 Heartbeat status: `dead` stays `dead`. A node with `admin_drain` stays `draining`. Else `accepting` gives `active` or `draining`. Register sets `active`, or `draining` when `admin_drain` is set.
 
-Takusen placement ignores `channel_id`/`guild_id`. It returns the least-loaded fresh node in `home_region`, or in any region when `home_region` is empty (guilds default to no region). Channel stickiness comes from the gateway key `voice_room:{channelId}`.
+Takusen placement ignores `channel_id`/`guild_id` (`guild_id` is empty for a DM call). It returns the least-loaded fresh node in `home_region`, or in any region when `home_region` is empty (guilds default to no region). Channel stickiness comes from the gateway key `voice_room:{channelId}`.
 
 Create/DeleteVirtualServer: deleted. Takusen loads the proto dynamically (`@grpc/proto-loader`), so the
 TS handler names follow the proto (`Management`, `hachiman.management.v1`).

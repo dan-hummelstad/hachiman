@@ -73,7 +73,7 @@ type Presence struct {
 }
 
 type VoiceState struct {
-	GuildID    string  `json:"guildId"`
+	GuildID    *string `json:"guildId"` // nil: a DM or group DM call (contract §6 "DM calls")
 	ChannelID  *string `json:"channelId"`
 	UserID     string  `json:"userId"`
 	SessionID  string  `json:"sessionId"`
@@ -355,6 +355,27 @@ func pgNodeURL(db *pgxpool.Pool) func(ctx context.Context, nodeID string) (strin
 }
 
 var errNodeGone = errors.New("media node not registered")
+
+func pgDMMembers(db *pgxpool.Pool) func(ctx context.Context, channelID string) ([]string, error) {
+	return func(ctx context.Context, channelID string) ([]string, error) {
+		var ids []string
+		rows, _ := db.Query(ctx, `
+			SELECT p.user_id::text FROM dm_participants p JOIN channels c ON c.id = p.channel_id
+			WHERE p.channel_id = $1::uuid AND c.type IN ('dm', 'group_dm')`, channelID)
+		err := forEach(rows, func() error {
+			var id string
+			if err := rows.Scan(&id); err != nil {
+				return err
+			}
+			ids = append(ids, id)
+			return nil
+		})
+		if err == nil && len(ids) == 0 {
+			err = errNotDM
+		}
+		return ids, err
+	}
+}
 
 // deviceRow is the part of a devices row that the IDENTIFY check needs (§12.13).
 type deviceRow struct {

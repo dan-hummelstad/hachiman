@@ -81,11 +81,12 @@ func (s *Signer) Mint(c Claims) (string, error) {
 	return t.V4Sign(s.secret, nil), nil
 }
 
-// validate checks required ids and the TTL window. Shared by Mint and Verify
-// so a token that mints always verifies (modulo time and replay).
+// validate checks required ids and the TTL window. guildId may be empty (a
+// DM call). Shared by Mint and Verify so a token that mints always verifies
+// (modulo time and replay).
 func (c *Claims) validate() error {
 	for _, f := range [][2]string{
-		{"sessionId", c.SessionID}, {"userId", c.UserID}, {"guildId", c.GuildID},
+		{"sessionId", c.SessionID}, {"userId", c.UserID},
 		{"channelId", c.ChannelID}, {"aud", c.MediaNodeID}, {"jti", c.JTI},
 	} {
 		if f[1] == "" {
