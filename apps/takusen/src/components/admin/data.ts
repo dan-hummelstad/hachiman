@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 
 import type { Page } from '@/lib/admin'
+import { apiFetch } from '@/lib/api-fetch'
 
 /**
  * Data hooks of the admin console. Every view reads and writes through /api/admin (contract §4
@@ -8,14 +9,16 @@ import type { Page } from '@/lib/admin'
  */
 
 /** Calls /api/admin`path` with the dashboard cookie. Throws the envelope's message on failure. */
-export async function adminFetch<T = void>(path: string, init?: RequestInit): Promise<T> {
-  const headers = new Headers(init?.headers)
-  if (init?.body && !headers.has('content-type')) headers.set('content-type', 'application/json')
-  const res = await fetch(`/api/admin${path}`, { ...init, headers })
-  if (res.status === 204) return undefined as T
-  const body = (await res.json().catch(() => null)) as { error?: string; message?: string } | null
-  if (!res.ok) throw new Error(body?.message ?? body?.error ?? `HTTP ${res.status}`)
-  return body as T
+export function adminFetch<T = void>(path: string, init?: RequestInit): Promise<T> {
+  return apiFetch<T>('/api/admin', path, init)
+}
+
+/** Drains a media node (placement skips it, its calls go on) or puts it back into placement. */
+export function setNodeDrain(nodeId: string, drain: boolean): Promise<void> {
+  return adminFetch(`/media-nodes/${encodeURIComponent(nodeId)}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ status: drain ? 'draining' : 'active' }),
+  })
 }
 
 export function errorText(err: unknown): string {

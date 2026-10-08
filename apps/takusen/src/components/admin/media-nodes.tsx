@@ -11,7 +11,7 @@ import { Button } from '@/components/ui/button'
 import { Panel, PanelHeader } from '@/components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { cn } from '@/lib/utils'
-import { adminFetch, errorText, useAdminData } from '@/components/admin/data'
+import { adminFetch, errorText, setNodeDrain, useAdminData } from '@/components/admin/data'
 import { Meter } from '@/components/ui/meter'
 import { PageHead } from '@/components/dashboard-shell'
 import { formatDateTime, formatRelative } from '@/lib/format'
@@ -92,10 +92,7 @@ export function AdminMediaNodesView(): React.JSX.Element {
 
   const setDrain = async (n: AdminMediaNode, drain: boolean): Promise<void> => {
     try {
-      await adminFetch(nodePath(n), {
-        method: 'PATCH',
-        body: JSON.stringify({ status: drain ? 'draining' : 'active' }),
-      })
+      await setNodeDrain(n.nodeId, drain)
       reload()
       toast.success(
         drain ? `${n.nodeId} is draining. Calls on it continue until they end.` : `${n.nodeId} takes new calls again.`,

@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button'
 import { Panel, PanelFooter, PanelHeader } from '@/components/ui/card'
 import { Field } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
+import { apiFetch } from '@/lib/api-fetch'
 
 import { updateDisplayNameAction, type AccountActionResult } from './actions'
 
@@ -24,33 +25,22 @@ function SaveButton(): React.JSX.Element {
   )
 }
 
-async function apiError(res: Response): Promise<string> {
-  const body = (await res.json().catch(() => null)) as { message?: string; error?: string } | null
-  return body?.message ?? body?.error ?? `Request failed (${res.status})`
-}
-
 /**
  * The avatar goes through the public REST API (contract §4: upload, then PATCH
  * /users/@me), which accepts the dashboard cookie. It saves at once, apart from
  * the display name form.
  */
 async function setAvatar(file: File | null): Promise<void> {
-  let avatar: string | null = null
-  if (file) {
-    const up = await fetch(`/api/v1/uploads?filename=${encodeURIComponent(file.name)}`, {
-      method: 'POST',
-      headers: { 'content-type': file.type },
-      body: file,
-    })
-    if (!up.ok) throw new Error(await apiError(up))
-    avatar = ((await up.json()) as { id: string }).id
-  }
-  const res = await fetch('/api/v1/users/@me', {
-    method: 'PATCH',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ avatar }),
-  })
-  if (!res.ok) throw new Error(await apiError(res))
+  const avatar = file
+    ? (
+        await apiFetch<{ id: string }>('/api/v1', `/uploads?filename=${encodeURIComponent(file.name)}`, {
+          method: 'POST',
+          headers: { 'content-type': file.type },
+          body: file,
+        })
+      ).id
+    : null
+  await apiFetch('/api/v1', '/users/@me', { method: 'PATCH', body: JSON.stringify({ avatar }) })
 }
 
 function AvatarRow({

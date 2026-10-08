@@ -23,7 +23,7 @@ import { Panel, PanelHeader, PanelList } from '@/components/ui/card'
 import type { AdminMediaNode, AdminOverview, AdminUser, Page } from '@/lib/admin'
 import { fileUrl } from '@/lib/file-url'
 import { cn } from '@/lib/utils'
-import { adminFetch, errorText, useAdminData } from '@/components/admin/data'
+import { adminFetch, errorText, setNodeDrain, useAdminData } from '@/components/admin/data'
 import { ConfirmAction } from '@/components/ui/confirm-dialog'
 import { Meter } from '@/components/ui/meter'
 import { formatBytes, formatDayShort, formatDuration, formatRelative, plural } from '@/lib/format'
@@ -335,10 +335,7 @@ function DrainButton({ node, onDone }: { node: AdminMediaNode; onDone: () => voi
       disabled={busy}
       onClick={() => {
         setBusy(true)
-        adminFetch(`/media-nodes/${encodeURIComponent(node.nodeId)}`, {
-          method: 'PATCH',
-          body: JSON.stringify({ status: 'draining' }),
-        })
+        setNodeDrain(node.nodeId, true)
           .then(() => {
             toast.success(`${node.nodeId} is draining.`)
             onDone()
