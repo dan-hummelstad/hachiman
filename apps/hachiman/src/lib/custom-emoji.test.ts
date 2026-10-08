@@ -27,7 +27,9 @@ describe('custom emoji keys', () => {
   it('parses a reaction key, and nothing else', () => {
     expect(parseReactionKey(`party:${ID}`)).toEqual({ name: 'party', id: ID })
     expect(parseReactionKey('👍')).toBeNull()
-    expect(parseReactionKey('party:not-an-id')).toBeNull()
+    expect(parseReactionKey('party:')).toBeNull()
+    expect(parseReactionKey('p:e-1')).toBeNull()
+    expect(parseReactionKey(`party:${'x'.repeat(37)}`)).toBeNull()
     expect(parseReactionKey(`Party:${ID}`)).toBeNull()
   })
 

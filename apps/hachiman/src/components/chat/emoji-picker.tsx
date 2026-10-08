@@ -75,7 +75,10 @@ export function EmojiPicker({
       <PopoverContent
         side={side}
         align={align}
-        className="bg-surface-raised border-line-hairline flex h-[420px] w-[360px] flex-col p-0"
+        collisionPadding={8}
+        // Never taller than the room on the chosen side: a fixed height that fits neither side
+        // makes the popper flip back and forth.
+        className="bg-surface-raised border-line-hairline flex h-[420px] max-h-(--radix-popover-content-available-height) w-[360px] flex-col p-0"
         aria-label={label}
         onOpenAutoFocus={(e) => {
           e.preventDefault()

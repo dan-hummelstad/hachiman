@@ -12,7 +12,8 @@ export const customEmojiText = (e: Pick<GuildEmoji, 'name' | 'id'>): string =>
 /** The reaction key of a custom emoji. */
 export const customReactionKey = (e: Pick<GuildEmoji, 'name' | 'id'>): string => `${e.name}:${e.id}`
 
-const REACTION_KEY = /^([a-z0-9_]{2,32}):([0-9a-f-]{36})$/
+// No Unicode emoji sequence is ASCII letters, a colon and an id, so this cannot misread one.
+const REACTION_KEY = /^([a-z0-9_]{2,32}):([\w-]{1,36})$/
 
 /** A reaction key `name:id`, or null for a Unicode emoji. */
 export function parseReactionKey(key: string): { name: string; id: string } | null {
