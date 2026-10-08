@@ -111,8 +111,8 @@ export default async function InteractionPage({ params }: PageProps) {
   const deny = denyInteractionAction.bind(null, uid)
 
   const account: SsoAccount = {
-    name: session.user.name ?? '',
-    email: session.user.email ?? '',
+    name: summary?.displayName ?? session.user.name ?? '',
+    email: summary?.email ?? session.user.email ?? '',
     avatarUrl: summary?.avatarUrl ?? null,
   }
   const accountLabel = account.name || account.email

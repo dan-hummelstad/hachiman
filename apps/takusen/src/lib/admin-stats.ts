@@ -4,6 +4,7 @@
  * (contract §4 Admin API).
  */
 import { asc, count, countDistinct, eq, gt, ilike, or, sql } from 'drizzle-orm'
+import { cache } from 'react'
 
 import { db } from '@/db/client'
 import { channels, guilds, mediaNodes, oidcAdapterPayloads, oidcClients, regions, users } from '@/db/schema'
@@ -24,7 +25,9 @@ import { liveGrantOf } from '@/lib/session-revocation'
 
 const WEEK_MS = 7 * 24 * 3600 * 1000
 
-export async function getAdminCounts(now: Date = new Date()): Promise<AdminCounts> {
+/** Cached per request: the layout and the page both read it. */
+export const getAdminCounts = cache(async (): Promise<AdminCounts> => {
+  const now = new Date()
   const [[u], [a], [unverified], [signedIn], [fresh], [g], [c], [n], [r], [o]] = await Promise.all([
     db.select({ n: count() }).from(users),
     db.select({ n: count() }).from(users).where(eq(users.role, 'admin')),
@@ -55,7 +58,7 @@ export async function getAdminCounts(now: Date = new Date()): Promise<AdminCount
     regions: r?.n ?? 0,
     oidcClients: o?.n ?? 0,
   }
-}
+})
 
 /** Per OIDC client id: the users with a live grant and the live grants. */
 export async function oidcClientActivity(): Promise<Map<string, { activeUsers: number; activeSessions: number }>> {

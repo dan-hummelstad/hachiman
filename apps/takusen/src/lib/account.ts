@@ -4,6 +4,7 @@
  * The pure parts are in account-sessions.ts.
  */
 import { and, count, eq, inArray, sql } from 'drizzle-orm'
+import { cache } from 'react'
 
 import { db } from '@/db/client'
 import { devices, guildMembers, oidcAdapterPayloads, users } from '@/db/schema'
@@ -39,8 +40,8 @@ export interface AccountSummary {
   hachiman: HachimanState
 }
 
-/** Null when the user does not exist. */
-export async function getAccountSummary(userId: string): Promise<AccountSummary | null> {
+/** Null when the user does not exist. Cached per request: the layout and the page both read it. */
+export const getAccountSummary = cache(async (userId: string): Promise<AccountSummary | null> => {
   const [[row], [guildsRow], [grantsRow], [devicesRow]] = await Promise.all([
     db.select().from(users).where(eq(users.id, userId)).limit(1),
     db.select({ n: count() }).from(guildMembers).where(eq(guildMembers.userId, userId)),
@@ -60,7 +61,7 @@ export async function getAccountSummary(userId: string): Promise<AccountSummary 
     guildCount: guildsRow?.n ?? 0,
     hachiman: (grantsRow?.n ?? 0) > 0 ? 'signed_in' : (devicesRow?.n ?? 0) > 0 ? 'signed_out' : 'never',
   }
-}
+})
 
 async function liveGrants(userId: string): Promise<GrantRow[]> {
   return db

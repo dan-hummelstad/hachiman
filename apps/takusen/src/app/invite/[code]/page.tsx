@@ -57,8 +57,8 @@ export default async function InvitePage({ params }: InvitePageProps): Promise<R
   ])
   const account: SsoAccount | null = session
     ? {
-        name: session.user.name ?? '',
-        email: session.user.email ?? '',
+        name: summary?.displayName ?? session.user.name ?? '',
+        email: summary?.email ?? session.user.email ?? '',
         avatarUrl: summary?.avatarUrl ?? null,
       }
     : null
