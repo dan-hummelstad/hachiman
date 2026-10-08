@@ -43,6 +43,10 @@ interface PrefsState {
   outputDeviceId: string | null
   /** Applies to a live call too (the mic restarts). */
   noiseSuppression: NoiseSuppression
+  /** The mic send bitrate (Opus), bit/s. Applies to a live call too. */
+  micBitrate: number
+  /** Mic capture processing (getUserMedia). A change restarts a live mic. */
+  echoCancellation: boolean
   /** Screen share capture and send quality. Applies to a live share too. */
   streamQuality: StreamQuality
   /** Notification and voice sounds (SoundService). */
@@ -65,6 +69,8 @@ interface PrefsState {
   setInputDeviceId: (inputDeviceId: string | null) => void
   setOutputDeviceId: (outputDeviceId: string | null) => void
   setNoiseSuppression: (noiseSuppression: NoiseSuppression) => void
+  setMicBitrate: (micBitrate: number) => void
+  setEchoCancellation: (echoCancellation: boolean) => void
   setStreamQuality: (streamQuality: StreamQuality) => void
   setSoundsEnabled: (soundsEnabled: boolean) => void
   setSoundVolume: (soundVolume: number) => void
@@ -98,6 +104,8 @@ export const usePrefsStore = create<PrefsState>()(
         inputDeviceId: null,
         outputDeviceId: null,
         noiseSuppression: 'rnnoise',
+        micBitrate: 64_000,
+        echoCancellation: true,
         streamQuality: { resolution: '1080p', fps: 30 },
         soundsEnabled: true,
         soundVolume: 0.7,
@@ -111,6 +119,8 @@ export const usePrefsStore = create<PrefsState>()(
         setMessageDisplay: (messageDisplay) => set({ messageDisplay }),
         setInputDeviceId: (inputDeviceId) => set({ inputDeviceId }),
         setOutputDeviceId: (outputDeviceId) => set({ outputDeviceId }),
+        setMicBitrate: (micBitrate) => set({ micBitrate }),
+        setEchoCancellation: (echoCancellation) => set({ echoCancellation }),
         setNoiseSuppression: (noiseSuppression) => set({ noiseSuppression }),
         setStreamQuality: (streamQuality) => set({ streamQuality }),
         setSoundsEnabled: (soundsEnabled) => set({ soundsEnabled }),

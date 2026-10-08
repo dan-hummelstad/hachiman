@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import { Headphones, Mic, Square } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { ErrorText } from '@/components/ui/field'
+import { ErrorText, SectionHeading } from '@/components/ui/field'
 import { NativeSelect } from '@/components/ui/native-select'
+import { Switch } from '@/components/ui/switch'
 import { SoundSettings } from '@/components/settings/user/sounds'
 import { useMicLevel } from '@/hooks/use-mic-level'
 import { errMsg } from '@/lib/utils'
@@ -81,6 +82,7 @@ export function VoiceSection(): React.JSX.Element {
       </ErrorText>
       <NoiseSuppressionSelect />
       <MicCheck deviceId={inputDeviceId} onOpen={refresh} />
+      <AudioQuality />
       <SoundSettings />
     </div>
   )
@@ -186,6 +188,52 @@ function MicCheck({
         Speak normally. The bar should move well past the first quarter mark.
       </p>
       <ErrorText>{error}</ErrorText>
+    </section>
+  )
+}
+
+/** Outgoing mic bitrates (Opus), bit/s. */
+const MIC_BITRATES = [32_000, 64_000, 96_000, 128_000]
+
+/** The mic send bitrate and the capture processing. Both apply to a live call. */
+function AudioQuality(): React.JSX.Element {
+  const micBitrate = usePrefsStore((s) => s.micBitrate)
+  const echoCancellation = usePrefsStore((s) => s.echoCancellation)
+  const setMicBitrate = usePrefsStore((s) => s.setMicBitrate)
+  const setEchoCancellation = usePrefsStore((s) => s.setEchoCancellation)
+  const id = useId()
+  return (
+    <section className="grid gap-3">
+      <SectionHeading className="mb-0">Audio quality</SectionHeading>
+      <div className="flex items-center gap-3">
+        <label htmlFor={`${id}-bitrate`} className="text-label w-40">
+          Microphone bitrate
+        </label>
+        <NativeSelect
+          id={`${id}-bitrate`}
+          value={String(micBitrate)}
+          onChange={(e) => setMicBitrate(Number(e.target.value))}
+        >
+          {MIC_BITRATES.map((b) => (
+            <option key={b} value={b}>
+              {b / 1000} kbps{b === 64_000 ? ' (default)' : ''}
+            </option>
+          ))}
+        </NativeSelect>
+      </div>
+      <p className="text-meta text-text-tertiary">
+        A higher bitrate sounds clearer and uses more upload bandwidth.
+      </p>
+      <div className="flex items-center gap-3">
+        <Switch
+          id={`${id}-echo`}
+          checked={echoCancellation}
+          onCheckedChange={setEchoCancellation}
+        />
+        <label htmlFor={`${id}-echo`} className="text-label cursor-pointer">
+          Echo cancellation
+        </label>
+      </div>
     </section>
   )
 }

@@ -153,6 +153,18 @@ describe('VoiceConnection', () => {
     expect(d.closeCount).toBe(1)
   })
 
+  it('sets the mic bitrate on the m-line 0 sender, before and after the first offer', async () => {
+    await vc.setMicBitrate(96_000)
+    await offer()
+    const mic = pc().transceivers[0]
+    expect(mic?.sender.encodings).toEqual([{ maxBitrate: 96_000 }])
+    await vc.setMicBitrate(32_000)
+    expect(mic?.sender.encodings).toEqual([{ maxBitrate: 32_000 }])
+    await vc.setMicBitrate(null)
+    expect(mic?.sender.encodings).toEqual([{}])
+    expect(pc().transceivers[1]?.sender.encodings).toEqual([{}])
+  })
+
   it('plays up to 100 % on the element and above it through a GainNode, also while deafened', async () => {
     const g = globalThis as Record<string, unknown>
     g['AudioContext'] = FakeAudioContext

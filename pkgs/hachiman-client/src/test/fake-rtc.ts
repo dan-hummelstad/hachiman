@@ -74,10 +74,13 @@ export class FakeSender {
     this.replaced.push(t)
     return Promise.resolve()
   }
+  /** What setParameters set last. */
+  encodings: Record<string, unknown>[] = [{}]
   getParameters(): { encodings: Record<string, unknown>[] } {
-    return { encodings: [{}] }
+    return { encodings: this.encodings.map(e => ({ ...e })) }
   }
-  setParameters(): Promise<void> {
+  setParameters(p: { encodings: Record<string, unknown>[] }): Promise<void> {
+    this.encodings = p.encodings
     return Promise.resolve()
   }
 }

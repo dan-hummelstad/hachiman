@@ -966,6 +966,7 @@ export class VoiceConnection extends TypedEventEmitter<VoiceEvents> {
   setOutputDevice(deviceId: string | null): Promise<void>    // null = system default
   setOutputVolume(userId: string, volume: number): void     // local playback of one user, 0..2 (1 = unchanged); kept for the call. Above 1 a WebAudio GainNode plays the user
   setScreen(track: MediaStreamTrack | null, encoding?: { maxBitrate: number; maxFramerate: number } | null): Promise<void>   // null = stop sending
+  setMicBitrate(maxBitrate: number | null): Promise<void>   // mic (m-line 0) encodings[0].maxBitrate in bit/s, null = browser default; setParameters, no renegotiation; kept for the call
   getStats(): Promise<{ rttMs: number | null; jitterMs: number | null; packetLoss: number | null }>
   // events: 'state' (RTCPeerConnectionState), 'speaking' ({userId, speaking}), 'peers' ({userId, ssrc}[]),
   //         'screen' ({userId, stream: MediaStream | null}), 'resync' ({code, reason}: media closed 4013, fires just before 'close'),

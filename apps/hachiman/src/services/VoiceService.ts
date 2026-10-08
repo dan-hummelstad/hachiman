@@ -117,7 +117,7 @@ function stopTracks(stream: MediaStream): void {
 /** With RNNoise on, the browser's suppression is off: running both double-processes the voice. */
 function micConstraints(browserNoiseSuppression: boolean): MediaTrackConstraints {
   return {
-    echoCancellation: true,
+    echoCancellation: usePrefsStore.getState().echoCancellation,
     noiseSuppression: browserNoiseSuppression,
     autoGainControl: true
   }
@@ -213,11 +213,12 @@ class VoiceService {
     })
     // Device changes from user settings apply to the live session.
     usePrefsStore.subscribe((s, prev) => {
-      if (
-        (s.inputDeviceId !== prev.inputDeviceId || s.noiseSuppression !== prev.noiseSuppression) &&
-        this.conn
-      )
-        void this.startMic()
+      const recapture =
+        s.inputDeviceId !== prev.inputDeviceId ||
+        s.echoCancellation !== prev.echoCancellation ||
+        s.noiseSuppression !== prev.noiseSuppression
+      if (recapture && this.conn) void this.startMic()
+      if (s.micBitrate !== prev.micBitrate) this.applyMicBitrate()
       if (s.outputDeviceId !== prev.outputDeviceId) this.applyOutputDevice()
       if (s.streamQuality !== prev.streamQuality) void this.applyStreamQuality()
       if (s.userAudio !== prev.userAudio) this.applyUserAudio(prev.userAudio)
@@ -263,6 +264,7 @@ class VoiceService {
       playSound('voiceJoin')
       this.applyOutputDevice()
       this.applyUserAudio()
+      this.applyMicBitrate()
       conn.on('state', (connectionState) => {
         if (this.conn === conn) useVoiceStore.setState({ connectionState })
       })
@@ -439,6 +441,10 @@ class VoiceService {
 
   private setSelfVoice(change: Partial<SelfVoice>): void {
     useVoiceStore.setState(hachiman.setSelfVoice(change))
+  }
+
+  private applyMicBitrate(): void {
+    void this.conn?.setMicBitrate(usePrefsStore.getState().micBitrate)
   }
 
   private applyOutputDevice(): void {

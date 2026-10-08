@@ -108,10 +108,13 @@ export class VoiceConnection extends TypedEventEmitter<VoiceEvents> {
   private screenTransceiver: RTCRtpTransceiver | null = null
   private screenTrack: MediaStreamTrack | null = null
   private screenEncoding: ScreenEncoding | null = null
+  /** The mic Opus limit in bit/s. Null = the browser default. */
+  private micBitrate: number | null = null
   /** Made once per call (§12.10.2): a new transform would start CTR at 0 again under the same key. */
   private readonly senderTransforms: Partial<Record<VoiceTrackKind, RTCRtpScriptTransform>> = {}
   /** Orders sender updates: a concurrent setParameters fails on a stale transactionId. */
   private screenChain: Promise<void> = Promise.resolve()
+  private micChain: Promise<void> = Promise.resolve()
   /** Orders e2ee ops: the delegate handles one op at a time, in arrival order. */
   private e2eeChain: Promise<void> = Promise.resolve()
   /** True after an e2ee_commit with a welcome: the next e2ee_* frame must be e2ee_ratchet_tree (§8). */
@@ -252,6 +255,12 @@ export class VoiceConnection extends TypedEventEmitter<VoiceEvents> {
     this.screenTrack = track
     this.screenEncoding = encoding
     await this.applyScreen()
+  }
+
+  /** The send bitrate of the mic (Opus), in bit/s. `null` = the browser default. No renegotiation. */
+  async setMicBitrate(maxBitrate: number | null): Promise<void> {
+    this.micBitrate = maxBitrate
+    await this.applyMicBitrate()
   }
 
   /** Self-mute: stop sending without releasing the mic stream. */
@@ -502,6 +511,7 @@ export class VoiceConnection extends TypedEventEmitter<VoiceEvents> {
     await pc.setLocalDescription(answer)
     // After setLocalDescription: before the first one, the sender has no encodings to limit.
     await this.applyScreen()
+    await this.applyMicBitrate()
     this.send({ op: 'answer', d: { sdp: answer.sdp ?? '' } })
     const buffered = this.localCandidates
     this.localCandidates = null
@@ -539,6 +549,25 @@ export class VoiceConnection extends TypedEventEmitter<VoiceEvents> {
     const next = this.screenChain.then(() => this.updateScreenSender())
     this.screenChain = next.catch(() => undefined)
     return next
+  }
+
+  private applyMicBitrate(): Promise<void> {
+    const next = this.micChain.then(() => this.updateMicSender())
+    this.micChain = next.catch(() => undefined)
+    return next
+  }
+
+  private async updateMicSender(): Promise<void> {
+    const sender = this.micTransceiver?.sender
+    if (!sender) return
+    const params = sender.getParameters()
+    const enc = params.encodings[0]
+    if (!enc || enc.maxBitrate === (this.micBitrate ?? undefined)) return
+    if (this.micBitrate === null) delete enc.maxBitrate
+    else enc.maxBitrate = this.micBitrate
+    await sender.setParameters(params).catch((err: unknown) => {
+      console.warn('VoiceConnection: mic setParameters failed', err)
+    })
   }
 
   private async updateScreenSender(): Promise<void> {
