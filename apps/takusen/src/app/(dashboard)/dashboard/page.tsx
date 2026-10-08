@@ -6,7 +6,7 @@ import { DashboardShell } from '@/components/dashboard-shell'
 import { getAccountSummary, listAppAccess, listHachimanSessions } from '@/lib/account'
 import { describeUserAgent, type HachimanSession } from '@/lib/account-sessions'
 import { getOptionalUser } from '@/lib/auth-helpers'
-import { hachimanLinks } from '@/lib/deployment'
+import { desktopDownloadFor, hachimanLinks } from '@/lib/deployment'
 import { formatDate, formatRelative, passwordAge, plural } from '@/lib/format'
 
 export const metadata = {
@@ -66,7 +66,7 @@ export default async function DashboardPage(): Promise<React.JSX.Element | null>
     >
       {firstVisit ? (
         <NextStepPanel
-          downloadHref={browser.os === 'Windows' ? links.download.windows : links.download.macos}
+          downloadHref={desktopDownloadFor(hdrs.get('user-agent'), links)}
           webHref={links.web}
           steps={[
             { title: 'Create your Takusen account', meta: 'Done', state: 'done' },

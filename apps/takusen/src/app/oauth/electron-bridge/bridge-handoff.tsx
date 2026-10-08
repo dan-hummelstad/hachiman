@@ -8,8 +8,8 @@ import { AuthCard, AuthFooterLink, AuthScreen } from '@/components/auth-frame'
 import { HandoffRail } from '@/components/handoff-rail'
 import { HachimanMark } from '@/components/takusen-logo'
 import { Button } from '@/components/ui/button'
+import { DESKTOP_OAUTH_CALLBACK } from '@/lib/deployment'
 
-const DEEP_LINK_SCHEME = 'app.hachiman://oauth-callback'
 
 function buildDeepLink(params: URLSearchParams): string {
   // Preserve every param Takusen handed us (code, state, iss, error,
@@ -20,7 +20,7 @@ function buildDeepLink(params: URLSearchParams): string {
   for (const [key, value] of params.entries()) {
     qs.set(key, value)
   }
-  return `${DEEP_LINK_SCHEME}?${qs.toString()}`
+  return `${DESKTOP_OAUTH_CALLBACK}?${qs.toString()}`
 }
 
 const noChanges = (): (() => void) => () => undefined

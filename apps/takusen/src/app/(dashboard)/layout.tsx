@@ -7,7 +7,7 @@ import { DashboardSidebar } from '@/components/dashboard-sidebar'
 import { getAccountSummary } from '@/lib/account'
 import { getAdminCounts } from '@/lib/admin-stats'
 import { getOptionalUser } from '@/lib/auth-helpers'
-import { hachimanLinks } from '@/lib/deployment'
+import { desktopDownloadFor, hachimanLinks } from '@/lib/deployment'
 
 export default async function DashboardLayout({
   children,
@@ -38,10 +38,12 @@ export default async function DashboardLayout({
 
   const { user } = session
   const admin = user.role === 'admin'
-  const [summary, counts] = await Promise.all([
+  const [summary, counts, hdrs] = await Promise.all([
     getAccountSummary(user.id),
     admin ? getAdminCounts() : null,
+    headers(),
   ])
+  const links = hachimanLinks()
 
   return (
     <DashboardFrame
@@ -56,7 +58,8 @@ export default async function DashboardLayout({
           }}
           counts={counts}
           hachiman={{ state: summary?.hachiman ?? 'never', guildCount: summary?.guildCount ?? 0 }}
-          links={hachimanLinks()}
+          links={links}
+          download={desktopDownloadFor(hdrs.get('user-agent'), links)}
         />
       }
     >

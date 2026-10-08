@@ -187,7 +187,7 @@ function GuildDetail({
             ))}
           </dl>
           <section className="flex flex-col gap-2">
-            <h3 className="section-label text-text-tertiary">Active invites</h3>
+            <h3 className="section-label">Active invites</h3>
             {g.invites.length === 0 ? (
               <p className="py-1 text-[13px] text-text-tertiary">No usable invites.</p>
             ) : (

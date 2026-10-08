@@ -11,7 +11,6 @@ import {
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { signOut } from 'next-auth/react'
-import { useSyncExternalStore } from 'react'
 
 import { useHideSidebar, useOpenPalette } from '@/components/dashboard-frame'
 import { isActive, navGroupsFor, type NavItem } from '@/components/dashboard-nav-items'
@@ -31,6 +30,8 @@ export interface DashboardSidebarProps {
   counts: AdminCounts | null
   hachiman: { state: HachimanState; guildCount: number }
   links: HachimanLinks
+  /** The desktop build for the visitor's OS (`desktopDownloadFor`). */
+  download: string
 }
 
 /** T3 / Sidebar (kit `b2aux0`): brand, jump-to, the nav groups, the Hachiman launcher, the user row. */
@@ -39,6 +40,7 @@ export function DashboardSidebar({
   counts,
   hachiman,
   links,
+  download,
 }: DashboardSidebarProps): React.JSX.Element {
   const pathname = usePathname() ?? ''
   const hideSidebar = useHideSidebar()
@@ -95,7 +97,7 @@ export function DashboardSidebar({
         ))}
       </nav>
 
-      <HachimanLauncher {...hachiman} links={links} />
+      <HachimanLauncher {...hachiman} links={links} download={download} />
 
       <div className="flex shrink-0 items-center gap-2.5 px-1 pt-2.5">
         <EntityAvatar src={user.avatarUrl} name={user.name} email={user.email} size={34} tone="gold" />
@@ -164,9 +166,9 @@ function HachimanLauncher({
   state,
   guildCount,
   links,
-}: DashboardSidebarProps['hachiman'] & { links: HachimanLinks }): React.JSX.Element {
+  download,
+}: DashboardSidebarProps['hachiman'] & { links: HachimanLinks; download: string }): React.JSX.Element {
   const status = LAUNCHER_STATUS[state]
-  const download = useDownloadLink(links)
   return (
     <section
       aria-label="Hachiman"
@@ -207,16 +209,4 @@ function HachimanLauncher({
       </div>
     </section>
   )
-}
-
-const noSubscribe = (): (() => void) => () => {}
-
-/** The desktop build for this OS; macOS on the server render. */
-function useDownloadLink(links: HachimanLinks): string {
-  const windows = useSyncExternalStore(
-    noSubscribe,
-    () => /windows/i.test(navigator.userAgent),
-    () => false,
-  )
-  return windows ? links.download.windows : links.download.macos
 }

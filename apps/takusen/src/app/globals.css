@@ -102,33 +102,11 @@
   --lattice: #ffffff0d;
 }
 
-/* The shadcn names that older markup uses, mapped onto the tokens above. The selector list
-   repeats `.dark` so that a nested theme scope resolves them again. */
+/* The focus ring (`outline-ring`), the type stacks, the radius and the shadows. The selector
+   list repeats `.dark` so that a nested theme scope resolves them again. */
 :root,
 .dark {
-  --rail: var(--surface-window);
-  --sidebar: var(--surface-panel);
-  --background: var(--surface-window);
-  --foreground: var(--text-primary);
-  --card: var(--surface-panel);
-  --card-foreground: var(--text-primary);
-  --popover: var(--surface-raised);
-  --popover-foreground: var(--text-primary);
-  --primary: var(--gold);
-  --primary-foreground: var(--on-gold);
-  --secondary: var(--surface-raised);
-  --secondary-foreground: var(--text-primary);
-  --muted: var(--surface-raised);
-  --muted-foreground: var(--text-secondary);
-  --accent: var(--surface-hover);
-  --accent-foreground: var(--text-primary);
-  --destructive: var(--feature-danger);
-  --destructive-foreground: var(--text-on-accent);
-  --border: var(--line-hairline);
-  --input: var(--line-strong);
   --ring: var(--gold-line);
-  --online: var(--status-online);
-  --offline: var(--status-offline);
   --font-sans: var(--font-figtree), 'Figtree', ui-sans-serif, system-ui, sans-serif;
   --font-mono: var(--font-plex-mono), 'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, monospace;
   /* The brand glyphs (託, 八). No webfont: the latin subsets carry no CJK. */
@@ -195,30 +173,7 @@
   --color-wash: var(--wash);
   --color-lattice: var(--lattice);
 
-  /* shadcn names */
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --color-card: var(--card);
-  --color-card-foreground: var(--card-foreground);
-  --color-popover: var(--popover);
-  --color-popover-foreground: var(--popover-foreground);
-  --color-primary: var(--primary);
-  --color-primary-foreground: var(--primary-foreground);
-  --color-secondary: var(--secondary);
-  --color-secondary-foreground: var(--secondary-foreground);
-  --color-muted: var(--muted);
-  --color-muted-foreground: var(--muted-foreground);
-  --color-accent: var(--accent);
-  --color-accent-foreground: var(--accent-foreground);
-  --color-destructive: var(--destructive);
-  --color-destructive-foreground: var(--destructive-foreground);
-  --color-border: var(--border);
-  --color-input: var(--input);
   --color-ring: var(--ring);
-  --color-rail: var(--rail);
-  --color-online: var(--online);
-  --color-offline: var(--offline);
-  --color-sidebar: var(--sidebar);
 
   --font-sans: var(--font-sans);
   --font-mono: var(--font-mono);
@@ -295,7 +250,7 @@
 
 @layer base {
   * {
-    @apply border-border outline-ring;
+    @apply border-line-hairline outline-ring;
   }
   html {
     color-scheme: light;
@@ -308,7 +263,7 @@
     background-color: var(--gold-tint);
   }
   body {
-    @apply bg-background text-foreground font-sans antialiased;
+    @apply bg-surface-window text-text-primary font-sans antialiased;
     font-size: 14px;
     line-height: 20px;
     font-weight: 500;

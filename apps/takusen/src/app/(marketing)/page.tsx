@@ -8,6 +8,7 @@ import {
   Security,
 } from '@/components/marketing/landing-sections'
 import { getOptionalUser } from '@/lib/auth-helpers'
+import { hachimanLinks } from '@/lib/deployment'
 import { listRegionStatus, type RegionStatus } from '@/lib/regions'
 
 async function regionStatus(): Promise<RegionStatus[] | null> {
@@ -23,9 +24,9 @@ async function regionStatus(): Promise<RegionStatus[] | null> {
 export default async function MarketingHomePage(): Promise<React.JSX.Element> {
   const [session, regions] = await Promise.all([getOptionalUser(), regionStatus()])
   const signedIn = session !== null
-  const hachimanUrl = process.env.HACHIMAN_WEB_URL ?? 'http://localhost:5173'
+  const hachiman = hachimanLinks()
   const links: NavLink[] = [
-    { label: 'Hachiman', href: hachimanUrl },
+    { label: 'Hachiman', href: hachiman.web },
     { label: 'How it works', href: '/#how-it-works' },
     { label: 'Security', href: '/#security' },
     { label: 'Regions', href: '/#regions' },
@@ -40,9 +41,9 @@ export default async function MarketingHomePage(): Promise<React.JSX.Element> {
         <Features />
         <Security />
         <Regions regions={regions} />
-        <BringYourGuild signedIn={signedIn} />
+        <BringYourGuild signedIn={signedIn} download={hachiman.download} />
       </main>
-      <LandingFooter hachimanUrl={hachimanUrl} />
+      <LandingFooter hachimanUrl={hachiman.web} />
     </div>
   )
 }

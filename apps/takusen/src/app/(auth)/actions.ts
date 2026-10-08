@@ -18,8 +18,7 @@ import {
   resetTokenEmail,
 } from '@/lib/password-reset'
 import { PASSWORD_MIN_LENGTH, passwordProblem } from '@/lib/password-strength'
-
-import { safeNext } from './handoff'
+import { safeNext } from '@/lib/safe-next'
 
 const BCRYPT_COST = 12
 

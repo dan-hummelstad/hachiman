@@ -20,6 +20,7 @@ import { drizzle } from 'drizzle-orm/postgres-js'
 import { eq } from 'drizzle-orm'
 import postgres from 'postgres'
 
+import { DESKTOP_OAUTH_CALLBACK } from '../lib/deployment'
 import { oidcClients, regions } from './schema'
 
 const HACHIMAN_CLIENT_ID = 'hachiman-client'
@@ -59,7 +60,7 @@ const REGIONS: ReadonlyArray<{
 // Override with HACHIMAN_CLIENT_REDIRECT_URIS (comma-separated) when running
 // on different ports or behind a proxy.
 const DEFAULT_REDIRECT_URIS = [
-  'app.hachiman://oauth-callback',
+  DESKTOP_OAUTH_CALLBACK,
   'http://localhost:3000/oauth/electron-bridge',
   'http://localhost:5173/oauth/callback',
   'http://localhost:5174/oauth/callback',

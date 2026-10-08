@@ -24,10 +24,6 @@ const GRANT_TYPES = 'authorization_code · refresh_token'
 const clientAuth = (c: AdminOidcClient): string =>
   c.isPublic ? 'none · public client with PKCE (S256)' : 'client_secret_basic'
 
-function Kicker({ children }: { children: React.ReactNode }): React.JSX.Element {
-  return <h3 className="text-[11.5px] leading-4 font-extrabold tracking-[0.8px] text-text-tertiary uppercase">{children}</h3>
-}
-
 function RedirectUri({ uri }: { uri: string }): React.JSX.Element {
   const kind = URI_KINDS[redirectUriKind(uri)]
   const Icon = kind.icon
@@ -66,7 +62,7 @@ function ClientCard({ client: c }: { client: AdminOidcClient }): React.JSX.Eleme
       </div>
       <div className="flex flex-col md:flex-row">
         <div className="flex min-w-0 flex-1 flex-col gap-2.5 p-5 max-md:border-b md:border-r border-line-hairline">
-          <Kicker>Redirect URIs</Kicker>
+          <h3 className="section-label">Redirect URIs</h3>
           <ul className="flex flex-col gap-2.5">
             {c.redirectUris.map((u) => (
               <RedirectUri key={u} uri={u} />
@@ -76,7 +72,7 @@ function ClientCard({ client: c }: { client: AdminOidcClient }): React.JSX.Eleme
         <dl className="flex shrink-0 flex-col gap-[18px] p-5 md:w-[340px]">
           <div className="flex flex-col gap-2.5">
             <dt>
-              <Kicker>Scopes</Kicker>
+              <h3 className="section-label">Scopes</h3>
             </dt>
             <dd className="flex flex-wrap gap-1.5">
               {c.scopes.map((s) => (
@@ -91,13 +87,13 @@ function ClientCard({ client: c }: { client: AdminOidcClient }): React.JSX.Eleme
           </div>
           <div className="flex flex-col gap-1.5">
             <dt>
-              <Kicker>Grant types</Kicker>
+              <h3 className="section-label">Grant types</h3>
             </dt>
             <dd className="font-mono text-[12.5px] text-text-secondary">{GRANT_TYPES}</dd>
           </div>
           <div className="flex flex-col gap-1.5">
             <dt>
-              <Kicker>Client auth</Kicker>
+              <h3 className="section-label">Client auth</h3>
             </dt>
             <dd className="font-mono text-[12.5px] text-text-secondary">{clientAuth(c)}</dd>
           </div>

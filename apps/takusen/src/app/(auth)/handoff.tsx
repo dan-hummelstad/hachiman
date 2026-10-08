@@ -1,15 +1,10 @@
 import { HandoffRail, type HandoffStep } from '@/components/handoff-rail'
+import { safeNext } from '@/lib/safe-next'
 
 export type SearchParam = string | string[] | undefined
 
 export function firstParam(value: SearchParam): string | undefined {
   return Array.isArray(value) ? value[0] : value
-}
-
-/** Only same-origin relative paths, so `next` cannot become an open redirect. */
-export function safeNext(value: unknown): string | undefined {
-  if (typeof value !== 'string' || !value.startsWith('/') || value.startsWith('//')) return undefined
-  return value
 }
 
 /** An OIDC interaction means an app (Hachiman) sent the visitor here and gets them back after. */

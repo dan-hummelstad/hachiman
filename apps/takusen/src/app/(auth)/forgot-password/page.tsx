@@ -1,8 +1,9 @@
 import { AuthScreen } from '@/components/auth-frame'
 import { formatDuration } from '@/lib/format'
 import { RESET_TOKEN_TTL_MS } from '@/lib/password-reset'
+import { safeNext } from '@/lib/safe-next'
 
-import { firstParam, safeNext, withNext, type SearchParam } from '../handoff'
+import { firstParam, withNext, type SearchParam } from '../handoff'
 import { ForgotPasswordForm } from './forgot-password-form'
 
 export const metadata = {
