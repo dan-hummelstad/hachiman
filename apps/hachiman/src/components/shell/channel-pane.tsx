@@ -1,6 +1,7 @@
 import {
   ChevronRight,
   FileText,
+  Hand,
   Lock,
   Megaphone,
   MessagesSquare,
@@ -29,6 +30,8 @@ import { ChannelIcon } from '@/lib/channel-icon'
 import { channelLabel, hexColor, isGuildChannel } from '@/lib/model'
 import { ROLE_INK_SCOPE } from '@/lib/role-ink'
 import { cn } from '@/lib/utils'
+import { useAction } from '@/hooks/use-action'
+import { pokeService } from '@/services/poke'
 import { useChannelStore } from '@/stores/channelStore'
 import { openDialog } from '@/stores/dialogStore'
 import { openSettings } from '@/stores/navStore'
@@ -74,6 +77,7 @@ export function ChannelPane({
         right={
           <>
             {isDm && <DmTrustChip channel={channel} />}
+            {isDm && <DmPokeButton channel={channel} />}
             {channel.type === 'voice' && isGuildChannel(channel) && (
               <VoiceHeaderExtras channel={channel} />
             )}
@@ -284,5 +288,24 @@ function DmTrustChip({ channel }: { channel: Channel }): React.JSX.Element | nul
           : () => openDialog({ kind: 'verification', userId: solo.id })
       }
     />
+  )
+}
+
+/** Pokes the other person of a 1:1 DM. A failure (a block, the rate limit) shows as the tooltip. */
+function DmPokeButton({ channel }: { channel: Channel }): React.JSX.Element | null {
+  const poke = useAction()
+  const recipients = channel.recipients ?? []
+  const solo = recipients.length === 1 ? recipients[0] : undefined
+  if (!solo) return null
+  return (
+    <IconButton
+      label={poke.error ?? `Poke ${solo.username}`}
+      tooltipSide="bottom"
+      disabled={poke.busy}
+      onClick={() => void poke.run(`poke ${solo.username}`, () => pokeService.poke(solo.id))}
+      className={HEADER_BUTTON}
+    >
+      <Hand />
+    </IconButton>
   )
 }

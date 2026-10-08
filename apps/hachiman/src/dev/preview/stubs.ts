@@ -465,6 +465,18 @@ export function stubRest(): void {
       })),
     blockUser: (userId) => setBlock(userId, true),
     unblockUser: (userId) => setBlock(userId, false),
+    // The soundboard needs real blobs and envelopes: the preview has none.
+    getGuildSounds: () => [],
+    createGuildSound: () => {
+      throw new Error('The preview has no soundboard uploads')
+    },
+    deleteGuildSound: () => undefined,
+    // The target pokes back after a second, so the toast shows in the preview.
+    poke: (userId) => {
+      const target = Object.values(U).find((x) => x.id === userId) ?? user(userId, 'someone')
+      setTimeout(() => dispatch({ t: 'POKE', d: { user: target } }), 1_000)
+      return undefined
+    },
     getPages: (channelId) => [...pages.values()].filter((p) => p.channelId === channelId),
     // No snapshots, and the stub envelopes have no header: nothing for a re-wrap pass to do.
     getPageHeads: (channelId) =>

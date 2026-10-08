@@ -17,6 +17,7 @@ export type SoundEvent =
   | 'streamStop'
   | 'userStreamStart'
   | 'userStreamStop'
+  | 'poke'
 
 /** A Cuelume cue (messages) or one of our own chimes (voice). */
 export type Sound = { cue: SoundName; opts?: PlayOptions } | Chime
@@ -56,7 +57,9 @@ export const SOUNDS: Record<SoundEvent, Sound> = {
   streamStart: { notes: seq(0.07, C5, E5, G5, C6) },
   streamStop: { notes: seq(0.07, C6, G5, E5, C5) },
   userStreamStart: { notes: seq(0.07, E5, G5, B5), gain: 0.7 },
-  userStreamStop: { notes: seq(0.07, B5, G5, E5), gain: 0.7 }
+  userStreamStop: { notes: seq(0.07, B5, G5, E5), gain: 0.7 },
+  // A playful hop: up a sixth and straight back, short and bright.
+  poke: { notes: [[E5, 0], [C6, 0.08], [E5, 0.2]], decay: 0.18, gain: 0.9 }
 }
 
 export const SOUND_EVENTS = Object.keys(SOUNDS) as SoundEvent[]

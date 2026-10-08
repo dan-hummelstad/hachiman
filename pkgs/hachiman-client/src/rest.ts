@@ -379,7 +379,7 @@ export class RestClient {
   getBlocks = () => this.req<BlockedUser[]>('GET', '/users/@me/blocks')
   blockUser = (userId: string) => this.req<undefined>('PUT', `/users/@me/blocks/${e(userId)}`)
   unblockUser = (userId: string) => this.req<undefined>('DELETE', `/users/@me/blocks/${e(userId)}`)
-  /** 204. 403 Blocked, 404 without a shared guild or DM, 429 RateLimited with `retryAfterMs`. */
+  /** 204. 403 Blocked, 404 without a shared guild or DM, 429 RateLimited (RestError.retryAfterSec). */
   poke = (userId: string) => this.req<undefined>('POST', `/users/${e(userId)}/poke`)
 
   getLimits = () => this.req<Limits>('GET', '/limits')

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Ban, MessageCircle, MicOff, MoreHorizontal, ShieldCheck, VolumeX } from 'lucide-react'
+import { Ban, Hand, MessageCircle, MicOff, MoreHorizontal, ShieldCheck, VolumeX } from 'lucide-react'
 import type { User } from '@hachiman/client'
 import { useUserBanner } from '@/components/people/use-user-banner'
 import { BlockConfirmDialog } from '@/components/people/block-dialog'
@@ -24,6 +24,7 @@ import { memberRoles } from '@/lib/model'
 import { ROLE_INK_SCOPE } from '@/lib/role-ink'
 import { cn } from '@/lib/utils'
 import { blockService } from '@/services/guild-features'
+import { pokeService } from '@/services/poke'
 import { useCryptoStore } from '@/stores/cryptoStore'
 import { openDialog } from '@/stores/dialogStore'
 import { useGuildStore } from '@/stores/guildStore'
@@ -115,6 +116,7 @@ function ProfileCard(props: {
   const dm = useOpenDm(userId)
   const blocked = useIsBlocked(userId)
   const unblock = useAction()
+  const poke = useAction()
   // The safety number needs the crypto Worker (§12.5).
   const encryption = useCryptoStore((s) => s.phase === 'ready' && s.status?.state === 'ready')
   const chips = memberRoles(member, roles)
@@ -210,6 +212,14 @@ function ProfileCard(props: {
                 </IconButton>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
+                {!blocked && (
+                  <DropdownMenuItem
+                    disabled={poke.busy}
+                    onSelect={() => void poke.run(`poke ${name}`, () => pokeService.poke(userId))}
+                  >
+                    <Hand /> Poke
+                  </DropdownMenuItem>
+                )}
                 {blocked ? (
                   <DropdownMenuItem
                     disabled={unblock.busy}
@@ -229,7 +239,7 @@ function ProfileCard(props: {
           </div>
         )}
         {blocked && !isMe && <p className="text-text-tertiary text-xs">You blocked {name}.</p>}
-        <ErrorText>{unblock.error}</ErrorText>
+        <ErrorText>{unblock.error ?? poke.error}</ErrorText>
       </div>
     </div>
   )

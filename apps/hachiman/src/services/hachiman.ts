@@ -10,6 +10,7 @@ import { redeemWaitingInvites, resetInvites } from '@/services/InviteService'
 import { messageContext } from '@/services/message-context'
 import { messagesService } from '@/services/MessagesService'
 import { takusenService } from '@/services/TakusenService'
+import { pokeFeature } from '@/services/poke'
 import { soundFeature, startSounds } from '@/services/SoundService'
 import { tabsFeature } from '@/services/tabs-feature'
 import { unreadFeature } from '@/services/UnreadService'
@@ -124,7 +125,8 @@ features.register(
   pinsFeature,
   eventsFeature,
   blocksFeature,
-  tabsFeature
+  tabsFeature,
+  pokeFeature
 )
 
 function syncAll(): void {
