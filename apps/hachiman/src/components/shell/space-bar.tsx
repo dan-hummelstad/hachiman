@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { LogOut, MessageCircle, MessageSquareText, Plus } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import { ChevronUp, LogOut, MessageCircle, MessageSquareText, Plus } from 'lucide-react'
 import type { PresenceStatus } from '@hachiman/client'
 import {
   ContextMenu,
@@ -17,6 +17,7 @@ import { GuildMenuItems } from '@/components/shell/guild-menu-items'
 import { UnreadMark } from '@/components/ui/unread-mark'
 import { useCustomStatus } from '@/hooks/use-custom-status'
 import { UserAvatar } from '@/components/shell/user-avatar'
+import { STRIP_ITEM, useIconStrip, type IconStrip } from '@/components/shell/use-icon-strip'
 import type { UnreadBadge } from '@/lib/notify'
 import { cn } from '@/lib/utils'
 import { setMyStatus } from '@/services/hachiman'
@@ -31,7 +32,7 @@ import {
   useSelectedGuildId
 } from '@/stores/navStore'
 import { useTakusenStore } from '@/stores/takusenStore'
-import { useDmUnread, useGuildUnread } from '@/stores/unreadStore'
+import { useDmUnread, useGuildUnread, useGuildsUnread } from '@/stores/unreadStore'
 import { useUserStore } from '@/stores/userStore'
 
 /** For my own status, offline is a choice: "Invisible". */
@@ -42,43 +43,90 @@ const STATUSES: PresenceStatus[] = ['online', 'idle', 'dnd', 'offline']
 const RING = 'ring-text-primary ring-offset-surface-window ring-2 ring-offset-2'
 
 /**
- * The space bar at the foot of the sidebar (40 high, icons 26): my avatar (user settings; right
- * click for status and sign out), the DM space, one icon per guild (right click for the guild
- * menu), then "+" (create or join a guild).
+ * The space bar at the top of the sidebar: one line (40 high, icons 26) of my avatar (user
+ * settings; right click for status and sign out), the DM space, one icon per guild (right click
+ * for the guild menu), then "+" (create or join a guild). When the guilds do not fit, the last
+ * place is "All spaces" (a 2x2 glyph of the guilds that do not fit): it expands the line in place
+ * into a grid of every guild and "+". The selected guild always shows in the line.
  */
 export function SpaceBar(): React.JSX.Element {
   const guilds = useGuildStore((s) => s.guilds)
+  const ids = useMemo(() => [...guilds.keys()], [guilds])
   const selected = useSelectedGuildId()
   // While user settings show, only my avatar is ringed.
   const userSettings = useNavStore((s) => s.settings?.target.kind === 'user')
   const selectedGuildId = userSettings ? undefined : selected
   const dmBadge = useDmUnread()
+  const [attach, strip] = useIconStrip({
+    ids,
+    selected: selectedGuildId,
+    size: 26,
+    gap: 10,
+    fixed: 2,
+    tail: true
+  })
 
   return (
-    <nav aria-label="Spaces" className="flex h-10 shrink-0 items-center gap-2 px-1">
+    <nav
+      ref={attach}
+      aria-label="Spaces"
+      onKeyDown={strip.onKeyDown}
+      className="flex shrink-0 flex-wrap items-center gap-2.5 px-1 py-[7px]"
+    >
       <MeButton />
-      <div className="flex min-w-0 flex-1 items-center gap-2.5 overflow-x-auto px-2 py-2 [scrollbar-width:none]">
-        <SpaceButton
-          label="Direct messages"
-          active={selectedGuildId === null}
-          onClick={() => selectGuild(DM_HOME)}
-          className="bg-surface-raised text-text-secondary"
-          badge={dmBadge}
-        >
-          <MessageCircle className="size-3.5" />
-        </SpaceButton>
-        {[...guilds.values()].map((g) => (
-          <GuildSpaceButton key={g.id} guildId={g.id} active={selectedGuildId === g.id} />
-        ))}
-      </div>
       <SpaceButton
-        label="Create or join a guild"
-        onClick={() => openDialog({ kind: 'addGuild' })}
-        className="bg-surface-hover text-text-tertiary hover:text-feature-voice"
+        label="Direct messages"
+        active={selectedGuildId === null}
+        onClick={() => selectGuild(DM_HOME)}
+        className="bg-surface-raised text-text-secondary"
+        badge={dmBadge}
       >
-        <Plus className="size-3.5" />
+        <MessageCircle className="size-3.5" />
       </SpaceButton>
+      {strip.shown.map((id) => (
+        <GuildSpaceButton key={id} guildId={id} active={selectedGuildId === id} />
+      ))}
+      {strip.tail && (
+        <SpaceButton
+          label="Create or join a guild"
+          onClick={() => openDialog({ kind: 'addGuild' })}
+          className="bg-surface-hover text-text-tertiary hover:text-feature-voice"
+        >
+          <Plus className="size-3.5" />
+        </SpaceButton>
+      )}
+      {strip.more && <AllSpacesButton strip={strip} />}
     </nav>
+  )
+}
+
+/**
+ * The last place of a full space bar: a 2x2 glyph of the guilds that do not fit, with their
+ * unread mark together. Expanded, it shows a chevron and collapses the grid.
+ */
+function AllSpacesButton({ strip }: { strip: IconStrip }): React.JSX.Element {
+  const guilds = useGuildStore((s) => s.guilds)
+  const badge = useGuildsUnread(strip.hidden)
+  return (
+    <SpaceButton
+      label={strip.expanded ? 'Show fewer spaces' : 'All spaces'}
+      badge={badge}
+      className="bg-surface-raised text-text-secondary"
+      {...strip.moreProps}
+    >
+      {strip.expanded ? (
+        <ChevronUp className="size-3.5" />
+      ) : (
+        <span aria-hidden className="grid grid-cols-2 gap-px">
+          {strip.hidden.slice(0, 4).map((id) => {
+            const g = guilds.get(id)
+            return g ? (
+              <GuildTile key={id} guild={g} className="size-2 border-0 text-[0px]" />
+            ) : null
+          })}
+        </span>
+      )}
+    </SpaceButton>
   )
 }
 
@@ -197,6 +245,7 @@ function SpaceButton({
           type="button"
           aria-label={label}
           aria-current={active ? 'page' : undefined}
+          {...STRIP_ITEM}
           className={cn(
             'flex size-[26px] shrink-0 items-center justify-center overflow-hidden rounded-full transition-shadow',
             active ? RING : 'hover:ring-line-strong hover:ring-2',
@@ -207,7 +256,7 @@ function SpaceButton({
           {children}
         </button>
       </TooltipTrigger>
-      <TooltipContent side="top">{label}</TooltipContent>
+      <TooltipContent side="bottom">{label}</TooltipContent>
     </Tooltip>
   )
   if (!badge) return button

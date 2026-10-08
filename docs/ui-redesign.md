@@ -9,7 +9,7 @@ Header of the Final frame: "Arc sidebar. Square structure. Rounded interaction."
 - **Square is structure.** Windows, panels, columns, cards, dialogs, popovers, menus, tables, banners, notices, embeds, attachments and system tags have radius 0.
 - **Rounded is interaction.** Buttons, inputs, search, the composer, tabs, toggles, checks, radios, chips, reactions, selected and hovered rows, badges and avatars are rounded.
 - **Colour marks the feature.** Accent violet marks selection and actions. Green marks voice. Amber marks events. Violet marks pages. Sky marks threads. Coral marks live and errors. Teal marks bots.
-- **One sidebar.** One sidebar (280 px) holds all items that are not content. A space bar at its foot replaces the guild rail.
+- **One sidebar.** One sidebar (280 px) holds all items that are not content. A space bar at its top replaces the guild rail.
 - **One content card.** The content sits on one card, inset 8 px from the right and bottom edges of the window, with a 1 px border. The window behind it is a wallpaper.
 - **Soft shadows only on floating surfaces.** Popovers, menus, dialogs and the revealed sidebar get `shadow-soft`. No other surface gets a shadow.
 - **Settings use the sidebar.** Settings replace the middle of the sidebar with their section list and show the page in the content card (§7). Dialogs are only for actions: create, invite, leave, delete, verify, link.
@@ -120,9 +120,9 @@ Use Lucide (`lucide-react`) with stroke 1.5. Sizes: 16 px in rows and controls, 
 | Channel and category row | 30 high, padding 0 / 8 / 0 / 10 |
 | Voice participant row | 26 high, indent 34 |
 | Event row | 38 high |
-| DM favourite tile | 46 |
+| DM favourite tile | 46, gap 7 (one line) |
 | Voice dock | about 93 high, buttons 32 |
-| Space bar | 40 high, guild icons 26 |
+| Space bar | 40 high (one line), guild icons 26, gap 10 |
 | Dialog | 500 to 640 wide |
 | Popover | 480 wide |
 | Settings page | header 76, content padding 28 |
@@ -139,9 +139,17 @@ The sidebar has four slots, top to bottom:
 | Slot | Contents |
 |---|---|
 | controls (40 high) | the sidebar toggle, back, forward, and the inbox at the right. On macOS the row starts after the traffic lights. The row is the window drag region |
-| top | the quick switcher field ("Search or jump to… ⌘K") and the favourite DMs strip |
+| top | the space bar, the quick switcher field ("Search or jump to… ⌘K") and the favourite DMs strip |
 | middle | the channel list of the guild, the DM space, or the settings sections (`SettingsNav`). It scrolls |
-| foot | the voice dock and the space bar |
+| foot | the voice dock |
+
+The space bar and the favourite DMs strip each take one line:
+
+- **Space bar.** My avatar (user settings), the DM space, the guilds in their order, then "+" (create or join a guild). When the guilds do not fit, the last place is "All spaces" in place of "+": a 2x2 glyph of the guilds that do not fit, with their unread mark together. The selected guild always shows in the line.
+- **Favourite DMs.** The favourite tiles in the user's order. When they do not fit, the last place is "All favourites": a 2x2 glyph of the DMs that do not fit, with their mention count together. The open DM always shows in the line.
+- **Expand.** A click on the last place expands the line in place into a grid of all the items (for the space bar, "+" too). The last place then shows a chevron and collapses the grid. The grid also collapses when a guild or DM opens, on Esc and on a click outside it. The arrow keys, Home and End move the focus between the items.
+
+`lib/icon-strip.ts` holds the fit rule and `components/shell/use-icon-strip.ts` the expand behaviour.
 
 The sidebar has three states:
 

@@ -14,11 +14,11 @@ export interface SidebarProps {
    * forward (N2), inbox (N8). Empty until those features land; the row keeps its height.
    */
   controls?: React.ReactNode
-  /** Top block under the controls: search (N5), favourite DMs (N6). */
+  /** Top block under the controls: the space bar, search (N5), favourite DMs (N6). */
   top?: React.ReactNode
   /** The navigation: guild channels, the DM space, or a settings section list. Scrolls. */
   middle: React.ReactNode
-  /** Foot: the voice dock and the space bar. */
+  /** Foot: the voice dock. */
   foot?: React.ReactNode
 }
 

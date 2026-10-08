@@ -184,6 +184,32 @@ export const useGuildUnread = (guildId: string): UnreadBadge => useBadgeSum(guil
 /** All DMs together (the DM home in the space bar). */
 export const useDmUnread = (): UnreadBadge => useBadgeSum(null)
 
+const guildOf = (c: Channel): string | null => c.guildId
+const dmOf = (c: Channel): string | null => (c.guildId === null ? c.id : null)
+
+/** The badge sum of the channels whose `of` key is in `keys`. */
+function useBadgeSumOf(keys: readonly string[], of: (c: Channel) => string | null): UnreadBadge {
+  const prefs = useNotifyPrefs()
+  const channels = useChannelStore((s) => s.channels)
+  const byChannel = useUnreadStore((s) => s.byChannel)
+  const key = keys.join(' ')
+  return useMemo(() => {
+    const set = new Set(key ? key.split(' ') : [])
+    return sumBadges(byChannel, channels, prefs, (c) => {
+      const k = of(c)
+      return k !== null && set.has(k)
+    })
+  }, [byChannel, channels, prefs, key, of])
+}
+
+/** The guilds behind the space bar's "more" item, together. */
+export const useGuildsUnread = (guildIds: readonly string[]): UnreadBadge =>
+  useBadgeSumOf(guildIds, guildOf)
+
+/** The DMs behind the favourite DMs' "more" tile, together. */
+export const useDmsUnread = (channelIds: readonly string[]): UnreadBadge =>
+  useBadgeSumOf(channelIds, dmOf)
+
 /** Any mention anywhere (the inbox dot, N8). */
 export const useAnyMention = (): boolean =>
   useUnreadStore((s) => [...s.byChannel.values()].some((c) => c.mentions > 0))

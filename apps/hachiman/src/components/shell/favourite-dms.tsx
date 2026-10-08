@@ -1,8 +1,9 @@
 import { useMemo } from 'react'
-import { Plus, Star, StarOff } from 'lucide-react'
+import { ChevronUp, Plus, Star, StarOff } from 'lucide-react'
 import { DndContext, closestCenter, type DragEndEvent } from '@dnd-kit/core'
 import { SortableContext, rectSortingStrategy } from '@dnd-kit/sortable'
 import type { Channel } from '@hachiman/client'
+import { STRIP_ITEM, useIconStrip, type IconStrip } from '@/components/shell/use-icon-strip'
 import { UserAvatar } from '@/components/shell/user-avatar'
 import { UnreadMark } from '@/components/ui/unread-mark'
 import {
@@ -20,7 +21,7 @@ import { useChannelStore } from '@/stores/channelStore'
 import { useGuildStore } from '@/stores/guildStore'
 import { DM_HOME, navigate, useNavStore } from '@/stores/navStore'
 import { useFavouriteDms, usePrefsStore } from '@/stores/prefsStore'
-import { useChannelUnread } from '@/stores/unreadStore'
+import { useChannelUnread, useDmsUnread } from '@/stores/unreadStore'
 import { useDragSensors, useSortableRow } from '@/hooks/use-sortable-row'
 import { openDmHome } from '@/components/sidebar/sidebar-row'
 
@@ -33,11 +34,20 @@ const OPEN_BG = 'bg-[color-mix(in_oklab,var(--accent-primary)_17%,var(--surface-
  * presence and the mention count (N7). Drag to reorder; right click to remove. With no favourites
  * only the label shows. In the DM space the label row is left out (`label` false): the space header
  * there says "Direct messages" and has "New message".
+ *
+ * The tiles take one line. When they do not fit, the last place is "All favourites" (a 2x2 glyph
+ * of the DMs that do not fit): it expands the line in place into a grid of every favourite. The
+ * open DM always shows in the line.
  */
 export function FavouriteDms({ label = true }: { label?: boolean }): React.JSX.Element | null {
   const ids = useFavouriteDms()
   const channels = useChannelStore((s) => s.channels)
   const tiles = useMemo(() => favouriteTiles(ids, channels), [ids, channels])
+  const tileIds = useMemo(() => tiles.map((c) => c.id), [tiles])
+  const openDm = useNavStore((s) =>
+    s.guildKey === DM_HOME ? (s.channelByGuild[DM_HOME] ?? null) : null
+  )
+  const [attach, strip] = useIconStrip({ ids: tileIds, selected: openDm, size: 46, gap: 7 })
   // 4px activation distance so a click is not taken as a drag.
   const sensors = useDragSensors()
 
@@ -65,11 +75,21 @@ export function FavouriteDms({ label = true }: { label?: boolean }): React.JSX.E
       )}
       {tiles.length > 0 && (
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
-          <SortableContext items={tiles.map((c) => c.id)} strategy={rectSortingStrategy}>
-            <ul className="border-line-hairline flex flex-wrap gap-[7px] border-b pb-2.5">
-              {tiles.map((c) => (
-                <FavouriteTile key={c.id} channel={c} />
-              ))}
+          <SortableContext items={strip.shown} strategy={rectSortingStrategy}>
+            <ul
+              ref={attach}
+              onKeyDown={strip.onKeyDown}
+              className="border-line-hairline flex flex-wrap gap-[7px] border-b pb-2.5"
+            >
+              {strip.shown.map((id) => {
+                const c = channels.get(id)
+                return c ? <FavouriteTile key={id} channel={c} /> : null
+              })}
+              {strip.more && (
+                <li>
+                  <AllFavouritesTile strip={strip} />
+                </li>
+              )}
             </ul>
           </SortableContext>
         </DndContext>
@@ -103,6 +123,7 @@ function FavouriteTile({ channel }: { channel: Channel }): React.JSX.Element {
                 {...listeners}
                 aria-label={name}
                 aria-current={open ? 'page' : undefined}
+                {...STRIP_ITEM}
                 onClick={() => navigate({ kind: 'dm', channelId: channel.id })}
                 className={cn(
                   'rounded-control relative flex size-[46px] items-center justify-center border transition-colors',
@@ -140,6 +161,44 @@ function FavouriteTile({ channel }: { channel: Channel }): React.JSX.Element {
         <FavouriteDmItem channelId={channel.id} favourite />
       </ContextMenuContent>
     </ContextMenu>
+  )
+}
+
+/**
+ * The last place of a full favourites line: a 2x2 glyph of the DMs that do not fit, with their
+ * mention count together. Expanded, it shows a chevron and collapses the grid.
+ */
+function AllFavouritesTile({ strip }: { strip: IconStrip }): React.JSX.Element {
+  const channels = useChannelStore((s) => s.channels)
+  const badge = useDmsUnread(strip.hidden)
+  const label = strip.expanded ? 'Show fewer favourites' : 'All favourites'
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          aria-label={label}
+          {...strip.moreProps}
+          className="rounded-control bg-surface-raised hover:bg-surface-hover text-text-secondary relative flex size-[46px] items-center justify-center transition-colors"
+        >
+          {strip.expanded ? (
+            <ChevronUp className="size-4" />
+          ) : (
+            <span aria-hidden className="grid grid-cols-2 gap-0.5">
+              {strip.hidden.slice(0, 4).map((id) => {
+                const c = channels.get(id)
+                const who = c?.recipients?.[0]
+                return c ? (
+                  <UserAvatar key={id} name={dmName(c)} avatar={who?.avatar} size={16} />
+                ) : null
+              })}
+            </span>
+          )}
+          <UnreadMark badge={badge} size="corner" dot={false} className="-top-1.5 -right-1.5" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="bottom">{label}</TooltipContent>
+    </Tooltip>
   )
 }
 

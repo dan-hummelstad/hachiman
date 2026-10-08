@@ -179,9 +179,9 @@ flowchart LR
   subgraph SB["Sidebar (280)"]
     direction TB
     CTL["controls<br/>SidebarControls: toggle, back, forward<br/>InboxButton"]
-    TOP["top<br/>SwitcherField (⌘K), FavouriteDms"]
+    TOP["top<br/>SpaceBar, SwitcherField (⌘K),<br/>FavouriteDms"]
     MID["middle<br/>GuildChannelList, DmSpace<br/>or SettingsNav"]
-    FOOT["foot<br/>VoiceDock, SpaceBar"]
+    FOOT["foot<br/>VoiceDock"]
     CTL --> TOP --> MID --> FOOT
   end
   subgraph COL["Content column"]
@@ -199,6 +199,7 @@ flowchart LR
 ```
 
 - `Sidebar` has four slots: `controls`, `top`, `middle` and `foot`. The controls row is the window drag region. With an inset title bar, it starts after the traffic lights.
+- `SpaceBar` and `FavouriteDms` each take one line (`use-icon-strip.ts`, `lib/icon-strip.ts`). When the items do not fit, the last place expands the line in place into a grid of all of them.
 - Settings use the sidebar. `SettingsNav` replaces the sidebar middle, and `SettingsPage` shows in the content card. `navStore.settings` holds the open settings view.
 - The sidebar has three states: docked, hidden and revealed (`sidebar-state.ts`, `use-sidebar-reveal.ts`, `lib/sidebar-reveal.ts`). When it is hidden, the card takes the window width, `TabBar` shows the sidebar controls, search and inbox, and the voice dock floats in the bottom-left corner of the card. The composer moves right by `--dock-inset`, so the dock does not cover it.
 - `TabBar` shows the pinned tabs of `tabsStore`. A tab lights up when its target is the open view. `PinToTabsButton` and `PinToTabsMenuItem` pin a view from the channel intro, the page header and the context menus.

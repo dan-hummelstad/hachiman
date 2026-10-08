@@ -315,7 +315,7 @@ flowchart LR
 
 `UnreadService` keeps the read state and counts the mentions on the client, because the server cannot read them. Reactions are encrypted messages with their own content kind. `SoundService` plays a chime for message, voice and stream events, as `prefsStore` permits.
 
-The shell is one sidebar (280 px) and one content card on a wallpaper that the guild tints. The top of the sidebar holds the controls, the quick switcher and the favourite DMs. Below them are the channel list (or the settings sections), the voice dock and the space bar. The space bar replaces the guild rail. A pinned tab bar runs above the content card. The right column shows the members, a page or a DM profile. The UI spec is [`docs/ui-redesign.md`](docs/ui-redesign.md).
+The shell is one sidebar (280 px) and one content card on a wallpaper that the guild tints. The top of the sidebar holds the controls, the space bar, the quick switcher and the favourite DMs. Below them are the channel list (or the settings sections) and the voice dock. The space bar replaces the guild rail. A pinned tab bar runs above the content card. The right column shows the members, a page or a DM profile. The UI spec is [`docs/ui-redesign.md`](docs/ui-redesign.md).
 
 `CryptoService` owns the one `CryptoClient`, which is the crypto Worker of the signed-in user. `services/hachiman.ts` forwards the E2EE gateway events to it. The client cache holds ciphertext. Every message goes through the Worker before it goes into `messagesStore`. `cryptoStore` mirrors the Worker events and holds no key material.
 

@@ -133,6 +133,7 @@ export function Shell(): React.JSX.Element {
           }
           top={
             <>
+              <SpaceBar />
               <SwitcherField />
               <FavouriteDms label={settings !== null || selectedGuildId !== null} />
             </>
@@ -151,12 +152,7 @@ export function Shell(): React.JSX.Element {
               <DmSpace />
             )
           }
-          foot={
-            <>
-              <div ref={setFootSlot} className="contents" />
-              <SpaceBar />
-            </>
-          }
+          foot={<div ref={setFootSlot} className="contents" />}
         />
       </div>
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
