@@ -34,6 +34,8 @@
   --feature-event-text: #b7700a;
   --feature-thread: #3db5f5;
   --feature-thread-text: #1584be;
+  --feature-page: #a87bf2;
+  --feature-page-text: #8a55e0;
   --feature-danger: #f04a5c;
   --feature-danger-text: #d93649;
   --status-online: #34c77f;
@@ -79,6 +81,8 @@
   --feature-event-text: #ffb547;
   --feature-thread: #4cc2ff;
   --feature-thread-text: #4cc2ff;
+  --feature-page: #b98cff;
+  --feature-page-text: #b98cff;
   --feature-danger: #ff5d6e;
   --feature-danger-text: #ff5d6e;
   --status-online: #3dd68c;
@@ -172,6 +176,8 @@
   --color-feature-event-text: var(--feature-event-text);
   --color-feature-thread: var(--feature-thread);
   --color-feature-thread-text: var(--feature-thread-text);
+  --color-feature-page: var(--feature-page);
+  --color-feature-page-text: var(--feature-page-text);
   --color-feature-danger: var(--feature-danger);
   --color-feature-danger-text: var(--feature-danger-text);
   --color-status-online: var(--status-online);

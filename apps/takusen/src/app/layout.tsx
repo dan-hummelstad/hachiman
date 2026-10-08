@@ -31,7 +31,7 @@ const themeScript = `
     var theme=cookie?cookie.trim().slice(6).trim():null;
     if(theme==='light'||theme==='dark'){root.classList.toggle('dark',theme==='dark');return;}
     var mq=window.matchMedia('(prefers-color-scheme: light)');
-    var apply=function(){root.classList.toggle('dark',!mq.matches);};
+    var apply=function(){if(!/(^|;)\\s*theme=/.test(document.cookie))root.classList.toggle('dark',!mq.matches);};
     apply();
     mq.addEventListener('change',apply);
   }catch(e){document.documentElement.classList.add('dark');}
