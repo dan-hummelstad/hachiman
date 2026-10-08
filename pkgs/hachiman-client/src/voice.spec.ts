@@ -153,6 +153,21 @@ describe('VoiceConnection', () => {
     expect(d.closeCount).toBe(1)
   })
 
+  it('sends screen_subscribe on a change only, and again on ready', () => {
+    const subs = () => ws.sent.filter(f => f.op === 'screen_subscribe')
+    vc.setScreenSubscriptions(new Set(['bob', 'amy']))
+    vc.setScreenSubscriptions(['amy', 'bob', 'amy'])
+    expect(subs()).toEqual([{ op: 'screen_subscribe', d: { userIds: ['amy', 'bob'] } }])
+    vc.setScreenSubscriptions([])
+    expect(subs().at(-1)).toEqual({ op: 'screen_subscribe', d: { userIds: [] } })
+    vc.setScreenSubscriptions(['cat'])
+    ws.recv({ op: 'ready', d: { sessionId: 's1', ssrc: 7 } })
+    expect(subs().slice(-2)).toEqual([
+      { op: 'screen_subscribe', d: { userIds: ['cat'] } },
+      { op: 'screen_subscribe', d: { userIds: ['cat'] } },
+    ])
+  })
+
   it('sets the mic bitrate on the m-line 0 sender, before and after the first offer', async () => {
     await vc.setMicBitrate(96_000)
     await offer()

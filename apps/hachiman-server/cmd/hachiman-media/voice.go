@@ -36,6 +36,9 @@ const (
 	readTimeout  = 60 * time.Second // extended by every pong
 	speakingRate = 10               // max speaking relays per second per conn; excess dropped
 
+	// maxScreenSubscriptions caps the userIds of one screen_subscribe.
+	maxScreenSubscriptions = 256
+
 	// defaultReadLimit fits a Welcome or a ratchet tree of a large call
 	// (MEDIA_WS_READ_LIMIT overrides it).
 	defaultReadLimit = 1 << 20
@@ -312,6 +315,14 @@ func (c *voiceConn) readLoop() {
 			}
 			if json.Unmarshal(f.D, &d) == nil {
 				c.relaySpeaking(d.Speaking)
+			}
+		case "screen_subscribe":
+			var d struct {
+				UserIDs []string `json:"userIds"`
+			}
+			// A room has far fewer sharers; a longer list is not a real client.
+			if json.Unmarshal(f.D, &d) == nil && len(d.UserIDs) <= maxScreenSubscriptions {
+				c.srv.sfu.SetScreenSubscriptions(c.client, d.UserIDs)
 			}
 		}
 	}

@@ -67,7 +67,8 @@ export type VoiceEvents = {
   track: (e: { userId: string; stream: MediaStream }) => void
   /**
    * A remote user's screen track arrived (`null` = gone). The track exists for every peer and is
-   * silent until they share; their voice state's `selfStream` says when it is live.
+   * silent until they share and `setScreenSubscriptions` names them; their voice state's
+   * `selfStream` says when it is live.
    */
   screen: (e: { userId: string; stream: MediaStream | null }) => void
   /**
@@ -127,6 +128,8 @@ export class VoiceConnection extends TypedEventEmitter<VoiceEvents> {
   /** True after an e2ee_commit with a welcome: the next e2ee_* frame must be e2ee_ratchet_tree (§8). */
   private treeDue = false
   private readonly screens = new Map<string, MediaStream>()
+  /** The users whose screen media forwards to us (§8 screen_subscribe). Sorted. */
+  private screenSubs: string[] = []
   private muted = false
   private deafened = false
   private lastSpeaking: boolean | null = null
@@ -262,6 +265,22 @@ export class VoiceConnection extends TypedEventEmitter<VoiceEvents> {
     this.screenTrack = track
     this.screenEncoding = encoding
     await this.applyScreen()
+  }
+
+  /**
+   * The users whose screen share this client receives (§8 `screen_subscribe`). It replaces the
+   * previous set. Media forwards no other screen, so an unwatched share costs no bandwidth. The
+   * set starts empty and is sent again on `ready`, so it also holds before the connect ends.
+   */
+  setScreenSubscriptions(userIds: Iterable<string>): void {
+    const next = [...new Set(userIds)].sort()
+    if (next.length === this.screenSubs.length && next.every((u, i) => u === this.screenSubs[i])) return
+    this.screenSubs = next
+    if (this.sessionId !== null) this.sendScreenSubscriptions()
+  }
+
+  private sendScreenSubscriptions(): void {
+    this.send({ op: 'screen_subscribe', d: { userIds: this.screenSubs } })
   }
 
   /** The send bitrate of the mic (Opus), in bit/s. `null` = the browser default. No renegotiation. */
@@ -418,6 +437,7 @@ export class VoiceConnection extends TypedEventEmitter<VoiceEvents> {
       case 'ready':
         this.sessionId = f.d.sessionId
         this.ssrc = f.d.ssrc
+        if (this.screenSubs.length > 0) this.sendScreenSubscriptions()
         break
       case 'offer': {
         const sdp = f.d.sdp

@@ -391,17 +391,28 @@ func TestVoice_JoinPeersRenegotiateAndRoomScoping(t *testing.T) {
 			_ = pb.screen.WriteRTP(&rtp.Packet{Header: rtp.Header{Version: 2, Marker: true, SequenceNumber: seq, Timestamp: uint32(seq) * 1800}, Payload: screenPayload})
 		}
 	}()
-	streams := map[string]bool{}
-	for len(streams) < 2 {
-		select {
-		case sid := <-got:
-			streams[sid] = true
-		case <-time.After(10 * time.Second):
-			t.Fatalf("A received only %v, want userB and screen-userB", streams)
+	// The mic flows at once; the screen only after A subscribes to it.
+	select {
+	case sid := <-got:
+		if sid != "userB" {
+			t.Fatalf("A received %q before it subscribed to a screen, want userB", sid)
 		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("A never received B's mic")
 	}
-	if !streams["userB"] || !streams["screen-userB"] {
-		t.Fatalf("A received streams %v, want userB and screen-userB", streams)
+	select {
+	case sid := <-got:
+		t.Fatalf("A received %q without screen_subscribe", sid)
+	case <-time.After(500 * time.Millisecond):
+	}
+	a.send("screen_subscribe", map[string][]string{"userIds": {"userB"}})
+	select {
+	case sid := <-got:
+		if sid != "screen-userB" {
+			t.Fatalf("A received %q, want screen-userB", sid)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("A never received B's screen after screen_subscribe")
 	}
 	select {
 	case <-pli:

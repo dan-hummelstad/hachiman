@@ -896,6 +896,7 @@ export type VoiceClientFrame =
   | { op: 'answer'; d: { sdp: string } }
   | { op: 'candidate'; d: { candidate: RTCIceCandidateInit | null } }
   | { op: 'speaking'; d: { speaking: boolean } }
+  | { op: 'screen_subscribe'; d: { userIds: string[] } }
   | VoiceE2eeClientOp
 
 export type VoiceServerFrame =

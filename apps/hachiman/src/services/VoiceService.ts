@@ -272,6 +272,10 @@ class VoiceService {
       })
       if (live.length !== s.watching.size) useVoiceStore.setState({ watching: new Set(live) })
     })
+    // Media forwards a screen only to the viewers that watch it (§8 screen_subscribe).
+    useVoiceStore.subscribe((s, prev) => {
+      if (s.watching !== prev.watching) this.conn?.setScreenSubscriptions(s.watching)
+    })
     // Device changes from user settings apply to the live session.
     usePrefsStore.subscribe((s, prev) => {
       const recapture =
@@ -348,6 +352,8 @@ class VoiceService {
 
   /** Mirrors a new call into the store and starts the mic. */
   private async wire(conn: VoiceConnection): Promise<void> {
+    // A "Watch stream" clicked while the join was in flight, or kept over a move.
+    conn.setScreenSubscriptions(useVoiceStore.getState().watching)
     this.applyOutputDevice()
     this.applyUserAudio()
     this.applyMicBitrate()
@@ -483,8 +489,8 @@ class VoiceService {
   }
 
   /**
-   * "Watch stream" / "Stop watching" for `userId`'s live share. Local only: there is no subscribe
-   * op (§8), so media still sends the video and the UI only leaves it unattached.
+   * "Watch stream" / "Stop watching" for `userId`'s live share. The store subscription above sends
+   * the new set to media (§8 screen_subscribe), so an unwatched share is not sent to this client.
    */
   setWatching(userId: string, watch: boolean): void {
     const watching = new Set(useVoiceStore.getState().watching)

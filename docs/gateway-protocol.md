@@ -882,6 +882,7 @@ JSON text frames `{ "op": string, "d": any }`. Media is always the SDP **offerer
 | peers | M→C | `{ peers: [{ userId, ssrc }] }` — full snapshot of other room members; sent on join and on every change |
 | speaking | C→M | `{ speaking: boolean }` |
 | speaking | M→C | `{ userId, speaking }` — relayed to other room members |
+| screen_subscribe | C→M | `{ userIds: string[] }` — the users whose screen share media forwards to this session. It replaces the previous set. The set is empty at join. Media keeps it for the session, also when a named user joins later or rejoins. More than 256 ids: media ignores the frame. See "Screen share" below |
 | e2ee_roster | M→C | `{ groupId, epoch: number \| null, committer: sessionId \| null, create: boolean, members: [{sessionId, userId, deviceId, leafIndex: number \| null}], pending: [{sessionId, userId, deviceId}], departed: [{sessionId, userId, deviceId, leafIndex: number \| null}] }` — to every session, on join and on every change. `create: true` tells the committer to create the group (epoch 0). `members[].leafIndex` is null for a session that a commit added and that did not send `e2ee_ready` yet. `departed[].leafIndex` is null when the session left before it reported its leaf: the committer then finds the leaf by the device id of the leaf credential |
 | e2ee_key_package | M→C | `{ sessionId, userId, deviceId, keyPackage }` — to the committer, for each pending joiner (again after a committer change) |
 | e2ee_commit | C→M | `{ epoch, commit, welcome: string \| null, added: sessionId[], removed: sessionId[] }` — `epoch` is the epoch that the commit applies to. When `welcome` is not null, the next `e2ee_*` frame from that session is `e2ee_ratchet_tree` (other ops, such as `candidate` or `speaking`, may come between) |
@@ -924,11 +925,14 @@ Track labeling: for each peer, the media node creates two output tracks:
 Clients map remote tracks to users through `ontrack` → `event.streams[0].id`. A stream id `screen-<userId>` is the video track (SFrame track 1) of `<userId>`. Every other stream id is the user id, with the audio track (SFrame track 0).
 
 Screen share:
-- Every room member receives the screen track of every peer. The track is silent until the peer shares.
+- Every room member has a screen track for every peer (a transceiver in the SDP). Media forwards a peer's screen to a viewer only while the viewer's last `screen_subscribe` names that peer. Else the track is silent. The track is also silent until the peer shares.
+- Each (sharer, viewer) pair has its own output track on the media node. A `screen_subscribe` only starts or stops the writes to that track. No renegotiation occurs.
+- Media rewrites the RTP sequence numbers of each viewer's screen track, so they stay contiguous over the gaps while the viewer is not subscribed. Payloads stay unchanged (§12.10.2).
+- When a subscription starts, media sends a PLI to the sharer (in the 500 ms limit below), so the video starts at a keyframe.
 - The voice state field `selfStream` (§1, op 4) tells clients when a share is live. No media frame carries it.
 - To start or stop a share, the client replaces the track on its m-line 1 sender. No renegotiation occurs.
-- The sharer sets the resolution, frame rate and bitrate. All viewers get the same quality (no simulcast).
-- Media relays a viewer's PLI (picture loss indication) or FIR (full intra request) to the sharer as a PLI. Both ask for a keyframe. Media sends at most one PLI to a sharer each 500 ms. A viewer that joins during a share gets its first keyframe this way.
+- The sharer sets the resolution, frame rate and bitrate. All subscribed viewers get the same quality (no simulcast).
+- Media relays a viewer's PLI (picture loss indication) or FIR (full intra request) to the sharer as a PLI. Both ask for a keyframe. Media sends at most one PLI to a sharer each 500 ms. A viewer that joins or subscribes during a share also gets its first keyframe this way.
 
 SFU keys: session = `Claims.SessionID` (string), room = `Claims.ChannelID`. Media allocates SSRCs per node from
 `SSRCPool` keyed by session string. A client receives output tracks **only** for peers in its own room.
@@ -1078,6 +1082,7 @@ export class VoiceConnection extends TypedEventEmitter<VoiceEvents> {
   setOutputVolume(userId: string, volume: number): void     // local playback of one user, 0..2 (1 = unchanged); kept for the call. Above 1 a WebAudio GainNode plays the user
   setScreen(track: MediaStreamTrack | null, encoding?: { maxBitrate: number; maxFramerate: number } | null): Promise<void>   // null = stop sending
   setMicBitrate(maxBitrate: number | null): Promise<void>   // mic (m-line 0) encodings[0].maxBitrate in bit/s, null = browser default; setParameters, no renegotiation; kept for the call
+  setScreenSubscriptions(userIds: Iterable<string>): void   // §8 screen_subscribe: the users whose screen media forwards to us. Replaces the set; sent on a change and again on 'ready'. Empty at start
   getStats(): Promise<{ rttMs: number | null; jitterMs: number | null; packetLoss: number | null }>
   // events: 'state' (RTCPeerConnectionState), 'speaking' ({userId, speaking}), 'peers' ({userId, ssrc}[]),
   //         'screen' ({userId, stream: MediaStream | null}), 'resync' ({code, reason}: media closed 4013, fires just before 'close'),
@@ -2040,7 +2045,7 @@ nonce               = sframe_salt XOR uint96(CTR)
 - **One sender transform per (call, track).** The client makes the sender transform of each track once per call and never makes it again. `setMicrophone` and `setScreen` replace the track on the sender and keep the transform. If a sender transform or the transform Worker must be made again, the client first asks for a new epoch (an `e2ee_invalid` that makes it rejoin), so a counter that starts again at 0 uses a new key.
 - Receivers find the key by KID. The KID leaf must belong to the user of the receiver (from the msid, §8), and the KID track bit must equal the receiver track (`FrameTransformOptions.track`). Else the frame is dropped (`wrongSender`). Receivers drop a CTR that they saw in the last 1024 frames of the KID.
 - Keys of the previous epoch stay valid for 10 s after `e2ee_execute_transition`. There is no plaintext passthrough.
-- The SFU forwards RTP unchanged and never parses payloads. The SSRC does not identify the sender. The KID and the leaf credential do.
+- The SFU forwards RTP payloads unchanged and never parses them. It rewrites only the SSRC, the payload type and, on screen tracks, the sequence number (§8). The SSRC does not identify the sender. The KID and the leaf credential do.
 - **Client.** One transform Worker per call (`pkgs/hachiman-crypto/src/media/transform-worker.ts`), with `RTCRtpScriptTransform` on the senders of m-line 0 and 1 and on each receiver in `ontrack`. The crypto Worker sends frame keys to it over a `MessagePort` (`FrameKeyMessage` in `src/api.ts`). Each transform has its own port. `voiceAttachTransform` returns the port id. When a receiver ends (its track ends, its peer leaves, or the receiver gets a new transform), the UI calls `voiceDetachTransform(portId)`: the crypto Worker sends `close` on the port and forgets it, and the transform Worker closes the key ring and its end of the port. `voiceStop` closes every port of the call. Sender transforms stay for the whole call. There is no fallback to the legacy encoded-streams API.
 - Speaking state stays a client op (§8). It is metadata.
 - Server-side recording is out of scope. A recorder would have to be a member.
