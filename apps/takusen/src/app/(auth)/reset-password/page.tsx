@@ -1,6 +1,6 @@
 import { Window } from '@/components/window'
 
-import { AuthFooterLink } from '../auth-link'
+import { AuthFooterLink } from '@/components/auth-frame'
 import { ResetPasswordForm } from './reset-password-form'
 
 export const metadata = {

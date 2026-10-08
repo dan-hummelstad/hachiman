@@ -1,4 +1,4 @@
-import { AuthFooterLink } from '../auth-link'
+import { AuthFooterLink } from '@/components/auth-frame'
 import { SignupForm } from './signup-form'
 
 export const metadata = {

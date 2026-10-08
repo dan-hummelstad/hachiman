@@ -3,104 +3,193 @@
 
 @custom-variant dark (&:is(.dark *));
 
-/* Tokens: the Hachiman app's (docs/ui-redesign.md §2, apps/hachiman/src/assets/main.css).
-   Square everything, one warm signal-amber accent, hard offset shadows on floating windows.
+/* Tokens: the Hachiman Arc set (apps/hachiman/src/assets/main.css) plus the Takusen golds and
+   wallpaper ("3. Takusen · Handoff rail", 01 Foundations). Gold is Takusen, violet is Hachiman.
+   Square is structure (radius 0); rounded is interaction (radius-check/control/option/pill).
    The root layout's inline script puts `dark` on <html> (the default) unless the visitor
-   prefers light. */
+   prefers light or the `theme` cookie says so. */
 :root {
-  --rail: #dfe2e7;
-  --sidebar: #e9ecf0;
-  --background: #f6f7f9;
-  --foreground: #1a1d23;
-  --card: #ffffff;
-  --card-foreground: #1a1d23;
-  --popover: #ffffff;
-  --popover-foreground: #1a1d23;
-  --primary: #c98a0b;
-  --primary-foreground: #1b1404;
-  --secondary: #dde1e7;
-  --secondary-foreground: #1a1d23;
-  --muted: #e9ecf0;
-  --muted-foreground: #5b6270;
-  --accent: #dde1e7;
-  --accent-foreground: #1a1d23;
-  --destructive: #c9303a;
-  --destructive-foreground: #ffffff;
-  --border: #cfd4db;
-  --input: #cfd4db;
-  --ring: #c98a0b;
-  --online: #1f883d;
-  --offline: #8c939e;
-  --shadow-ink: #1a1d2333;
-  --sidebar-foreground: #1a1d23;
-  --sidebar-primary: #c98a0b;
-  --sidebar-primary-foreground: #1b1404;
-  --sidebar-accent: #dde1e7;
-  --sidebar-accent-foreground: #1a1d23;
-  --sidebar-border: #cfd4db;
-  --sidebar-ring: #c98a0b;
-  --chart-1: #c98a0b;
-  --chart-2: #1f883d;
-  --chart-3: #5b6270;
-  --chart-4: #c9303a;
-  --chart-5: #9a6700;
-  --font-sans: var(--font-plex-sans), 'IBM Plex Sans', ui-sans-serif, system-ui, sans-serif;
-  --font-serif: var(--font-plex-sans), 'IBM Plex Sans', ui-sans-serif, system-ui, sans-serif;
-  --font-mono: var(--font-geist-mono), 'Geist Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+  --surface-window: #f7f7fb;
+  --surface-content: #ffffff;
+  --surface-panel: #f8f8fb;
+  --surface-raised: #f1f1f6;
+  --surface-sunken: #ffffff;
+  --surface-hover: #23204a0d;
+  --surface-selected: #6b5bf52b;
+  --surface-scrim: #16151f66;
+  --line-hairline: #e3e3ec;
+  --line-strong: #dcdce6;
+  --line-focus: #6b5bf599;
+  --text-primary: #16151f;
+  --text-secondary: #4e5066;
+  --text-tertiary: #6e7088;
+  --text-disabled: #9c9eb2;
+  --text-on-accent: #ffffff;
+  --accent-primary: #6b5bf5;
+  --accent-text: #5b4ae8;
+  --accent-tint: #6b5bf52b;
+  --feature-voice: #34c77f;
+  --feature-voice-text: #12945a;
+  --feature-event: #f5a524;
+  --feature-event-text: #b7700a;
+  --feature-thread: #3db5f5;
+  --feature-thread-text: #1584be;
+  --feature-danger: #f04a5c;
+  --feature-danger-text: #d93649;
+  --status-online: #34c77f;
+  --status-offline: #9c9eb2;
+
+  --gold: #e9ac34;
+  --gold-strong: #d9981c;
+  --on-gold: #1a1306;
+  --gold-text: #8f5b00;
+  --gold-tint: #e9ac342e;
+  --gold-line: #c8901f80;
+  --glow: #e9ac3440;
+  --glow-0: #e9ac3400;
+  --wash: #fbf3e2;
+  --shadow-ink: #2a22101f;
+  --surface-card: #fffffff5;
+  --lattice: #16151f0f;
+}
+
+.dark {
+  --surface-window: #0e0f15;
+  --surface-content: #1d1e28;
+  --surface-panel: #17181f;
+  --surface-raised: #262836;
+  --surface-sunken: #0f1016;
+  --surface-hover: #ffffff0f;
+  --surface-selected: #7b6cff2b;
+  --surface-scrim: #05060ab8;
+  --line-hairline: #2a2c3b;
+  --line-strong: #363849;
+  --line-focus: #7b6cffb3;
+  --text-primary: #f3f4fa;
+  --text-secondary: #b6b9ce;
+  --text-tertiary: #80839a;
+  --text-disabled: #5c5f76;
+  --text-on-accent: #ffffff;
+  --accent-primary: #7b6cff;
+  --accent-text: #c9c2ff;
+  --accent-tint: #7b6cff2b;
+  --feature-voice: #3dd68c;
+  --feature-voice-text: #3dd68c;
+  --feature-event: #ffb547;
+  --feature-event-text: #ffb547;
+  --feature-thread: #4cc2ff;
+  --feature-thread-text: #4cc2ff;
+  --feature-danger: #ff5d6e;
+  --feature-danger-text: #ff5d6e;
+  --status-online: #3dd68c;
+  --status-offline: #5c5f76;
+
+  --gold: #edb84a;
+  --gold-strong: #f6cd6f;
+  --on-gold: #1a1306;
+  --gold-text: #f2c766;
+  --gold-tint: #edb84a24;
+  --gold-line: #edb84a80;
+  --glow: #edb84a1f;
+  --glow-0: #edb84a00;
+  --wash: #15141a;
+  --shadow-ink: #00000099;
+  --surface-card: #1d1e28f5;
+  --lattice: #ffffff0d;
+}
+
+/* The shadcn names that older markup uses, mapped onto the tokens above. The selector list
+   repeats `.dark` so that a nested theme scope resolves them again. */
+:root,
+.dark {
+  --rail: var(--surface-window);
+  --sidebar: var(--surface-panel);
+  --background: var(--surface-window);
+  --foreground: var(--text-primary);
+  --card: var(--surface-panel);
+  --card-foreground: var(--text-primary);
+  --popover: var(--surface-raised);
+  --popover-foreground: var(--text-primary);
+  --primary: var(--gold);
+  --primary-foreground: var(--on-gold);
+  --secondary: var(--surface-raised);
+  --secondary-foreground: var(--text-primary);
+  --muted: var(--surface-raised);
+  --muted-foreground: var(--text-secondary);
+  --accent: var(--surface-hover);
+  --accent-foreground: var(--text-primary);
+  --destructive: var(--feature-danger);
+  --destructive-foreground: var(--text-on-accent);
+  --border: var(--line-hairline);
+  --input: var(--line-strong);
+  --ring: var(--gold-line);
+  --online: var(--status-online);
+  --offline: var(--status-offline);
+  --font-sans: var(--font-figtree), 'Figtree', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-plex-mono), 'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+  /* The brand glyphs (託, 八). No webfont: the latin subsets carry no CJK. */
+  --font-glyph: 'Noto Serif JP', 'Hiragino Mincho ProN', 'Yu Mincho', 'Songti SC', serif;
   --radius: 0rem;
-  --hard-shadow: 4px 4px 0 var(--shadow-ink);
+  --shadow-card: 0 24px 60px var(--shadow-ink);
+  --shadow-menu: 0 16px 40px var(--shadow-ink);
   --shadow-2xs: none;
   --shadow-xs: none;
   --shadow-sm: none;
   --shadow: none;
-  --shadow-md: var(--hard-shadow);
-  --shadow-lg: var(--hard-shadow);
-  --shadow-xl: var(--hard-shadow);
-  --shadow-2xl: var(--hard-shadow);
+  --shadow-md: var(--shadow-menu);
+  --shadow-lg: var(--shadow-menu);
+  --shadow-xl: var(--shadow-card);
+  --shadow-2xl: var(--shadow-card);
   --tracking-normal: 0em;
   --spacing: 0.25rem;
 }
 
-.dark {
-  --rail: #16181d;
-  --sidebar: #1c1f25;
-  --background: #22252c;
-  --foreground: #e6e8ec;
-  --card: #2a2e36;
-  --card-foreground: #e6e8ec;
-  --popover: #2a2e36;
-  --popover-foreground: #e6e8ec;
-  --primary: #f0b429;
-  --primary-foreground: #1b1404;
-  --secondary: #2f343d;
-  --secondary-foreground: #e6e8ec;
-  --muted: #2a2e36;
-  --muted-foreground: #99a0ac;
-  --accent: #2f343d;
-  --accent-foreground: #e6e8ec;
-  --destructive: #f2545b;
-  --destructive-foreground: #1b0d0e;
-  --border: #353a44;
-  --input: #353a44;
-  --ring: #f0b429;
-  --online: #3fb950;
-  --offline: #6e7681;
-  --shadow-ink: #000000b3;
-  --sidebar-foreground: #e6e8ec;
-  --sidebar-primary: #f0b429;
-  --sidebar-primary-foreground: #1b1404;
-  --sidebar-accent: #2f343d;
-  --sidebar-accent-foreground: #e6e8ec;
-  --sidebar-border: #353a44;
-  --sidebar-ring: #f0b429;
-  --chart-1: #f0b429;
-  --chart-2: #3fb950;
-  --chart-3: #99a0ac;
-  --chart-4: #f2545b;
-  --chart-5: #d29922;
-}
-
 @theme inline {
+  /* Arc tokens: bg-surface-content, border-line-hairline, text-text-secondary, ... */
+  --color-surface-window: var(--surface-window);
+  --color-surface-content: var(--surface-content);
+  --color-surface-panel: var(--surface-panel);
+  --color-surface-raised: var(--surface-raised);
+  --color-surface-sunken: var(--surface-sunken);
+  --color-surface-hover: var(--surface-hover);
+  --color-surface-selected: var(--surface-selected);
+  --color-surface-scrim: var(--surface-scrim);
+  --color-surface-card: var(--surface-card);
+  --color-line-hairline: var(--line-hairline);
+  --color-line-strong: var(--line-strong);
+  --color-line-focus: var(--line-focus);
+  --color-text-primary: var(--text-primary);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-tertiary: var(--text-tertiary);
+  --color-text-disabled: var(--text-disabled);
+  --color-text-on-accent: var(--text-on-accent);
+  --color-accent-primary: var(--accent-primary);
+  --color-accent-text: var(--accent-text);
+  --color-accent-tint: var(--accent-tint);
+  --color-feature-voice: var(--feature-voice);
+  --color-feature-voice-text: var(--feature-voice-text);
+  --color-feature-event: var(--feature-event);
+  --color-feature-event-text: var(--feature-event-text);
+  --color-feature-thread: var(--feature-thread);
+  --color-feature-thread-text: var(--feature-thread-text);
+  --color-feature-danger: var(--feature-danger);
+  --color-feature-danger-text: var(--feature-danger-text);
+  --color-status-online: var(--status-online);
+  --color-status-offline: var(--status-offline);
+
+  /* Takusen: bg-gold, text-on-gold, text-gold-text, bg-gold-tint, border-gold-line, bg-wash, ... */
+  --color-gold: var(--gold);
+  --color-gold-strong: var(--gold-strong);
+  --color-on-gold: var(--on-gold);
+  --color-gold-text: var(--gold-text);
+  --color-gold-tint: var(--gold-tint);
+  --color-gold-line: var(--gold-line);
+  --color-glow: var(--glow);
+  --color-glow-0: var(--glow-0);
+  --color-wash: var(--wash);
+  --color-lattice: var(--lattice);
+
+  /* shadcn names */
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -120,33 +209,55 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
-  --color-chart-1: var(--chart-1);
-  --color-chart-2: var(--chart-2);
-  --color-chart-3: var(--chart-3);
-  --color-chart-4: var(--chart-4);
-  --color-chart-5: var(--chart-5);
   --color-rail: var(--rail);
   --color-online: var(--online);
   --color-offline: var(--offline);
   --color-sidebar: var(--sidebar);
-  --color-sidebar-foreground: var(--sidebar-foreground);
-  --color-sidebar-primary: var(--sidebar-primary);
-  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
-  --color-sidebar-accent: var(--sidebar-accent);
-  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
-  --color-sidebar-border: var(--sidebar-border);
-  --color-sidebar-ring: var(--sidebar-ring);
 
   --font-sans: var(--font-sans);
   --font-mono: var(--font-mono);
-  --font-serif: var(--font-serif);
+  --font-glyph: var(--font-glyph);
 
+  /* Type scale (01 Foundations · Type): size, line height and weight in one class. */
+  --text-display: 78px;
+  --text-display--line-height: 1.05;
+  --text-display--font-weight: 800;
+  --text-display--letter-spacing: -2.6px;
+  --text-section-title: 46px;
+  --text-section-title--line-height: 1.1;
+  --text-section-title--font-weight: 800;
+  --text-section-title--letter-spacing: -1.2px;
+  --text-page-title: 28px;
+  --text-page-title--line-height: 1.2;
+  --text-page-title--font-weight: 800;
+  --text-page-title--letter-spacing: -0.4px;
+  --text-card-title: 26px;
+  --text-card-title--line-height: 1.2;
+  --text-card-title--font-weight: 800;
+  --text-card-title--letter-spacing: -0.3px;
+  --text-body: 15px;
+  --text-body--line-height: 1.5;
+  --text-body--font-weight: 500;
+  --text-label: 13.5px;
+  --text-label--line-height: 1.4;
+  --text-label--font-weight: 700;
+  --text-mono: 12.5px;
+  --text-mono--line-height: 1.4;
+  --text-mono--font-weight: 500;
+
+  /* Square is structure. Rounded is interaction. */
+  --radius-check: 5px;
+  --radius-control: 8px;
+  --radius-option: 10px;
+  --radius-pill: 999px;
   --radius-xs: var(--radius);
   --radius-sm: var(--radius);
   --radius-md: var(--radius);
   --radius-lg: var(--radius);
   --radius-xl: var(--radius);
 
+  --shadow-card: var(--shadow-card);
+  --shadow-menu: var(--shadow-menu);
   --shadow-2xs: var(--shadow-2xs);
   --shadow-xs: var(--shadow-xs);
   --shadow-sm: var(--shadow-sm);
@@ -157,13 +268,23 @@
   --shadow-2xl: var(--shadow-2xl);
 }
 
-/* Group / section label (docs/ui-redesign.md §3): 12/16, 600, muted, sentence case. */
+/* Kicker / nav category / table head: 11.5, 800, +0.8, uppercase, tertiary. */
 @utility section-label {
-  font-size: 12px;
+  font-size: 11.5px;
   line-height: 16px;
-  font-weight: 600;
-  letter-spacing: 0.01em;
-  color: var(--muted-foreground);
+  font-weight: 800;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+}
+
+/* A focused text control: gold line and a soft gold halo (kit "Input focused"). */
+@utility focus-gold {
+  outline: none;
+  border-color: var(--gold-line);
+  box-shadow:
+    0 0 0 0.5px var(--gold-line),
+    0 0 8px var(--gold-tint);
 }
 
 @layer base {
@@ -172,18 +293,19 @@
   }
   html {
     color-scheme: light;
-    background-color: var(--background);
+    background-color: var(--surface-window);
   }
   html.dark {
     color-scheme: dark;
   }
   ::selection {
-    background-color: color-mix(in srgb, var(--primary) 35%, transparent);
+    background-color: var(--gold-tint);
   }
   body {
     @apply bg-background text-foreground font-sans antialiased;
     font-size: 14px;
     line-height: 20px;
+    font-weight: 500;
   }
   :focus-visible {
     outline: 2px solid var(--ring);
@@ -198,17 +320,17 @@
     background: transparent;
   }
   ::-webkit-scrollbar-thumb {
-    background-color: var(--border);
+    background-color: var(--line-strong);
     border: 0;
-    border-radius: 0;
+    border-radius: 999px;
   }
   ::-webkit-scrollbar-thumb:hover {
-    background-color: color-mix(in srgb, var(--muted-foreground) 60%, transparent);
+    background-color: var(--text-disabled);
   }
   @supports not selector(::-webkit-scrollbar) {
     * {
       scrollbar-width: thin;
-      scrollbar-color: var(--border) transparent;
+      scrollbar-color: var(--line-strong) transparent;
     }
   }
   @media (prefers-reduced-motion: reduce) {
@@ -221,9 +343,9 @@
   }
 }
 
-/* Sonner toasts: a small square window with the hard offset shadow. */
+/* Sonner toasts: a square panel with the card shadow. */
 [data-sonner-toaster] [data-sonner-toast] {
   border-radius: 0;
-  box-shadow: var(--hard-shadow);
+  box-shadow: var(--shadow-menu);
   font-family: var(--font-sans);
 }
