@@ -201,6 +201,16 @@ class VoiceService {
     useCryptoStore.subscribe((s, prev) => {
       if (s.voice?.epoch != null && prev.voice?.epoch == null) this.resyncBackoff.reset()
     })
+    // A share that ends also ends the watching: the next share of that user starts unwatched.
+    useVoiceStore.subscribe((s) => {
+      if (s.watching.size === 0) return
+      const states = s.guildId ? s.voiceStates.get(s.guildId) : undefined
+      const live = [...s.watching].filter((id) => {
+        const vs = states?.get(id)
+        return vs?.selfStream === true && vs.channelId === s.channelId
+      })
+      if (live.length !== s.watching.size) useVoiceStore.setState({ watching: new Set(live) })
+    })
     // Device changes from user settings apply to the live session.
     usePrefsStore.subscribe((s, prev) => {
       if (
@@ -243,7 +253,8 @@ class VoiceService {
       channelId,
       localJoinedAt: Date.now(),
       connectionState: 'new',
-      screens: new Map()
+      screens: new Map(),
+      watching: new Set()
     })
     try {
       const conn = await hachiman.joinVoice(guildId, channelId)
@@ -348,6 +359,17 @@ class VoiceService {
     this.setSelfVoice(change)
     const sound = selfVoiceSound(before, hachiman.selfVoice)
     if (sound) playSound(sound)
+  }
+
+  /**
+   * "Watch stream" / "Stop watching" for `userId`'s live share. Local only: there is no subscribe
+   * op (§8), so media still sends the video and the UI only leaves it unattached.
+   */
+  setWatching(userId: string, watch: boolean): void {
+    const watching = new Set(useVoiceStore.getState().watching)
+    if (watch) watching.add(userId)
+    else watching.delete(userId)
+    useVoiceStore.setState({ watching })
   }
 
   /** Opens the OS share picker, then sends the chosen screen or window. Never throws. */
