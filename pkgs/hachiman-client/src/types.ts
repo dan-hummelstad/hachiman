@@ -176,6 +176,42 @@ export interface CreateGuildEventRequest {
 
 export type UpdateGuildEventRequest = Partial<CreateGuildEventRequest>
 
+/**
+ * A soundboard sound (§4 Soundboard). `name` and `emoji` are plaintext metadata. The clip is the
+ * encrypted blob `key`. `envelope` is the sound pointer with its file key (§12.21): the client
+ * decrypts it with `decryptDoc` (kind doc_snapshot, page id = the sound id, channel `channelId`).
+ */
+export interface GuildSound {
+  id: string
+  guildId: string
+  name: string
+  emoji: string | null
+  uploadId: string
+  /** `${uploadId}/blob`. */
+  key: string
+  /** Blob bytes. */
+  size: number
+  channelId: string
+  groupId: string
+  epoch: number
+  senderDevice: string | null
+  envelope: string
+  createdBy: string | null
+  createdAt: string
+}
+
+export interface CreateGuildSoundRequest {
+  /** Chosen by the client: the envelope binds it. */
+  id: string
+  name: string
+  emoji?: string | null
+  /** A blob from POST /uploads?kind=blob, at most SOUND_MAX_BLOB_BYTES. */
+  uploadId: string
+  /** A public text or pages channel of the guild: its group (the public_set group) seals the envelope. */
+  channelId: string
+  envelope: string
+}
+
 /** One entry of `GET /users/@me/blocks`. */
 export interface BlockedUser {
   user: User
@@ -744,6 +780,10 @@ export interface GatewayEvents {
   GUILD_EVENT_RSVP: { eventId: string; guildId: string; userId: string; going: boolean; rsvpCount: number }
   /** The current user blocked or unblocked `userId`. To the user's own sessions only. */
   USER_BLOCK_UPDATE: { userId: string; blocked: boolean }
+  /** A sound was added to or deleted from the soundboard. To every member. Refetch GET /guilds/:id/sounds. */
+  GUILD_SOUNDS_UPDATE: { guildId: string }
+  /** `user` poked the current user (POST /users/:id/poke). To the target's sessions only. No content. */
+  POKE: { user: User }
 }
 export type GatewayEventName = keyof GatewayEvents
 

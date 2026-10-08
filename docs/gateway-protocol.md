@@ -83,6 +83,16 @@ interface GuildEventWithMe extends GuildEvent { me: boolean }   // GET /guilds/:
 
 interface BlockedUser { user: User; createdAt: string }         // GET /users/@me/blocks
 
+// A soundboard sound (§4 Soundboard). name and emoji are plaintext metadata; the file key is only in `envelope` (§12.21).
+interface GuildSound {
+  id: string; guildId: string; name: string; emoji: string | null
+  uploadId: string; key: string /* `${uploadId}/blob` */; size: number /* blob bytes */
+  channelId: string                // the public text or pages channel whose group sealed `envelope`
+  groupId: string; epoch: number; senderDevice: string | null
+  envelope: string                 // doc_snapshot envelope with page_id = id: the sound pointer (§12.21)
+  createdBy: string | null; createdAt: string
+}
+
 // The server never sees content. The client decrypts `envelope` (§12.8).
 interface Message {
   id: string; channelId: string; guildId: string | null
@@ -395,7 +405,33 @@ The E2EE routes (devices, keys, MLS, inbox, backups, linking, key transparency, 
 - The pin PUT locks the channel row, so concurrent pins cannot pass the limit. A message delete removes its pin (cascade) and publishes only `MESSAGE_DELETE`.
 - Event rules (400 `ValidationError`): `title` is 1 to 100 characters after trim. `startsAt` and `endsAt` are ISO 8601 times with an offset. A create needs `startsAt` in the future. A PATCH that sets `startsAt` needs it in the future. `endsAt`, when not null, is after `startsAt` (a PATCH checks the merged times). `channelId`, when not null, is a voice channel of the guild. A channel delete sets `channelId` to null and publishes no event update.
 - The list holds an event while `endsAt` is in the future, or, with no `endsAt`, until 6 h after `startsAt`. READY does not carry events: the client fetches the list (§10 `fetchGuildEvents`).
+- A block in either direction also refuses `POST /users/:id/poke` (§4 Poke).
 - A block in either direction refuses `POST /users/@me/channels` with a blocked recipient (a new DM, a group DM, or the reuse of an existing DM) and `POST /channels/:id/messages` in a 1:1 `dm` with 403 `Blocked`. Group DMs that exist and guild channels are not affected: the client hides the messages of blocked users there. The blocked user is not told.
+
+### Soundboard
+
+| Method + path | Permission | Returns | Publishes |
+|---|---|---|---|
+| GET `/guilds/:id/sounds` | member | `GuildSound[]`, oldest first | — |
+| POST `/guilds/:id/sounds` `{id, name, emoji?, uploadId, channelId, envelope}` + `X-Hachiman-Device` | MANAGE_EXPRESSIONS | 201 `GuildSound` | `GUILD_SOUNDS_UPDATE {guildId}` → guild |
+| DELETE `/guilds/:id/sounds/:soundId` | MANAGE_EXPRESSIONS | 204 (404 for a sound of another guild) | `GUILD_SOUNDS_UPDATE {guildId}` → guild |
+
+- The client chooses `id` (a UUID): the envelope binds it. A used id gives 409.
+- `name` is 1 to 32 characters after trim, `emoji` null or 1 to 32 characters. Neither has control or bidi control characters. A guild has at most 48 sounds (400 `ValidationError`).
+- `uploadId` is an unclaimed blob of the caller (`POST /uploads?kind=blob`). The claim sets purpose `sound`. A blob above 560 KiB gives 413 `SoundTooLarge`. Else 400 `UnknownUpload`. The client limits the clip to mp3, ogg or wav, at most 512 KiB and 5 s. The server cannot check the duration.
+- `channelId` is a text or pages channel of the guild whose current group is the `public_set` group (§12.6). Else 400 `NotPublicChannel`. Thus every member of the guild can read the envelope.
+- `envelope` is a `doc_snapshot` page envelope (§12.20) with `page_id` = `id`. Takusen checks its header as for a snapshot (`acceptDocEnvelope`: size, kind, group, channel, page, epoch, sender device and leaf) and stores `group_id`, `epoch` and `sender_device` (§12.21).
+- A delete removes the blob from storage. A guild delete removes the blobs of its sounds.
+- USE_SOUNDBOARD is not a server check: the sound plays in the sender's own microphone track (§11). The client shows the soundboard only with CONNECT, SPEAK and USE_SOUNDBOARD in the voice channel.
+
+### Poke
+
+| Method + path | Permission | Returns | Publishes |
+|---|---|---|---|
+| POST `/users/:id/poke` | auth; not yourself (400). The two users share a guild, a DM or a group DM, else 404 (also for an unknown user). A block in either direction: 403 `Blocked` | 204 | `POKE {user}` → user:{target} only. `user` is the sender |
+
+- Rate limits (Redis fixed windows, 429 `RateLimited` with `Retry-After`): 1 per 10 s per sender and target, 10 per 60 s per sender.
+- A poke has no content. It is not end-to-end encrypted, as a typing event is not: it tells the target only who poked and when.
 
 ### Files
 
@@ -681,6 +717,8 @@ Dispatch events:
 | GUILD_EVENT_DELETE | `{ id, guildId }` |
 | GUILD_EVENT_RSVP | `{ eventId, guildId, userId, going, rsvpCount }` |
 | USER_BLOCK_UPDATE | `{ userId, blocked }` — to user:{me} only (the blocker's sessions) |
+| GUILD_SOUNDS_UPDATE | `{ guildId }` — to every member of the guild. The client refetches `GET /guilds/:id/sounds` |
+| POKE | `{ user: User }` — to user:{target} only. No content (§4 Poke) |
 | MLS_HANDSHAKE, MLS_GROUP_UPDATE, MLS_BATCH_ASSIGN, MLS_JOIN_UPDATE, DEVICE_INBOX, DEVICE_LINK, USER_KEYS_UPDATE, KEY_PACKAGES_LOW, KT_TREE_HEAD | §12.13 |
 
 Detached sessions: when a socket closes with any code but 1000, the session stays resumable for 60 s. Events keep buffering,
@@ -891,6 +929,9 @@ export class RestClient {
   getGuildEvents(guildId); createGuildEvent(guildId, { title, startsAt, endsAt?, channelId? }); updateGuildEvent(eventId, body); deleteGuildEvent(eventId)
   setEventRsvp(eventId, going: boolean)   // PUT or DELETE /events/:id/rsvp
   getBlocks(); blockUser(userId); unblockUser(userId)
+  // §4 Soundboard and Poke
+  getGuildSounds(guildId); createGuildSound(guildId, { id, name, emoji?, uploadId, channelId, envelope }); deleteGuildSound(guildId, soundId)
+  poke(userId)
   updateMe({ avatar? }); getLimits()
   // §4 Pages
   getPages(channelId); getPageHeads(channelId); createPage(channelId, { id, parentId, position, titleEnvelope }); updatePage(pageId, { parentId?, position?, titleEnvelope?, ifUpdatedAt? }); deletePage(pageId)
@@ -2663,3 +2704,14 @@ An `ok` result has `{ id, kind, bytes, sender }`: the body bytes and the `Decryp
 **Page activity in a channel.** An editor can tell a text channel that it edited a page. It sends a message envelope of kind 4 `page_activity { pageId, changes }` (§12.8.1) in that channel, not a page envelope. The sender sends at most one per page per 10 minutes. `changes` counts the local Yjs updates of that time (1 to 10000). The receiver shows the line only for a page that it can open, and decrypts the title with `decryptDoc` as for the page list. The server sees a normal message row.
 
 **Residual risk.** The server can withhold updates, or serve an older title envelope (a rollback of a rename). It cannot forge, change or move an envelope to another page or channel, because the header is the AAD and the sender signs it. A replayed update does no harm, because Yjs ignores an update that it already has. A member who can edit can damage a page. This includes a re-wrap with a false pointer for the `uploadId` of the newest snapshot: the page then does not open until a member posts a new snapshot. The previous snapshot (§4 Pages) is the recovery path. A re-wrap does not change the blob. Thus a removed member that kept an old `fileKey` can open that blob when the server gives it the blob.
+
+### 12.21 Sound pointers
+
+A soundboard sound (§4 Soundboard) is a clip in the §12.9 blob format with its own random file key. The pointer to the blob is a page envelope (§12.20) of kind `doc_snapshot` in the `public_set` group of the guild:
+
+- `channel_id` is a public text or pages channel of the guild (its current group is the `public_set` group). `page_id` is the sound id.
+- The body is UTF-8 JSON of `SoundPointer { uploadId, fileKey, sha256, size, mime }`: `fileKey` (32 bytes) and `sha256` (of the whole blob) base64url, `size` the plaintext bytes, `mime` `audio/mpeg`, `audio/ogg` or `audio/wav`.
+- **Send.** The uploader calls `encryptDoc({ channelId, pageId: soundId, kind: 'doc_snapshot', bytes })` and posts the envelope with the sound (§4).
+- **Receive.** A member calls `decryptDoc` with `{ id: soundId, channelId, pageId: soundId, kind: 'doc_snapshot', senderDevice, envelope }` of the `GuildSound`. It uses the pointer only when the result is `ok`, its `uploadId` is the `uploadId` of the sound, and the sender has MANAGE_EXPRESSIONS in the cache. It then decrypts the blob with `decryptAttachment`. The UI keeps the decrypted audio in memory only.
+- **Why this group.** The `public_set` group has every guild member, so one envelope serves the whole guild, and the server never sees the file key. No new crypto API or envelope kind is necessary. The page id of a sound never names a page: the page routes bind the page id of the route, so the server cannot serve a sound pointer as a page snapshot, and the decrypt check `wrong_page` refuses the reverse.
+- **Residual risk.** The envelope is of the epoch of the upload. A member who joined later reads it with the epoch secrets of a history bundle (`shared` history, the `public_set` default). With `joined` history, or a device without the bundle, the result is `pending` `no_history_key`, and the soundboard shows the sound as unavailable. No member re-wraps a sound pointer (a later change). A removed member that kept the file key can decrypt the blob when the server gives it the blob. A sound plays inside the SFrame-encrypted microphone track of the sender (§12.10), so the media node does not see it either.

@@ -1,6 +1,8 @@
 // Takusen REST client. Contract: docs/gateway-protocol.md §4 and §12.12.
 import type {
   AdminAction,
+  CreateGuildSoundRequest,
+  GuildSound,
   Attachment,
   B64url,
   BackupIndex,
@@ -354,6 +356,13 @@ export class RestClient {
   setEventRsvp = (eventId: string, going: boolean) =>
     this.req<undefined>(going ? 'PUT' : 'DELETE', `/events/${e(eventId)}/rsvp`)
 
+  getGuildSounds = (guildId: string) => this.req<GuildSound[]>('GET', `/guilds/${e(guildId)}/sounds`)
+  /** MANAGE_EXPRESSIONS. Sends X-Hachiman-Device: the server checks the envelope header (§12.21). */
+  createGuildSound = (guildId: string, body: CreateGuildSoundRequest) =>
+    this.req<GuildSound>('POST', `/guilds/${e(guildId)}/sounds`, body)
+  deleteGuildSound = (guildId: string, soundId: string) =>
+    this.req<undefined>('DELETE', `/guilds/${e(guildId)}/sounds/${e(soundId)}`)
+
   getInvites = (guildId: string) => this.req<Invite[]>('GET', `/guilds/${e(guildId)}/invites`)
   createInvite = (guildId: string, body: CreateInviteBody = {}) =>
     this.req<Invite>('POST', `/guilds/${e(guildId)}/invites`, body)
@@ -370,6 +379,8 @@ export class RestClient {
   getBlocks = () => this.req<BlockedUser[]>('GET', '/users/@me/blocks')
   blockUser = (userId: string) => this.req<undefined>('PUT', `/users/@me/blocks/${e(userId)}`)
   unblockUser = (userId: string) => this.req<undefined>('DELETE', `/users/@me/blocks/${e(userId)}`)
+  /** 204. 403 Blocked, 404 without a shared guild or DM, 429 RateLimited with `retryAfterMs`. */
+  poke = (userId: string) => this.req<undefined>('POST', `/users/${e(userId)}/poke`)
 
   getLimits = () => this.req<Limits>('GET', '/limits')
 

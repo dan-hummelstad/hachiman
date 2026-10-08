@@ -582,7 +582,9 @@ export class HachimanClient extends TypedEventEmitter<HachimanClientEvents> {
       case 'DOC_AWARENESS':
       case 'INVITE_DELETE':
       case 'CHANNEL_PINS_UPDATE':
-        break // not cached; consumers (the crypto Worker for the §12.13 events, the shared UI DocsService for pages, the invite list, the pins popover) handle the re-emitted event
+      case 'GUILD_SOUNDS_UPDATE':
+      case 'POKE':
+        break // not cached; consumers (the crypto Worker for the §12.13 events, the shared UI DocsService for pages, the invite list, the pins popover, the soundboard, the poke toast) handle the re-emitted event
     }
   }
 }
