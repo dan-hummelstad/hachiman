@@ -24,6 +24,7 @@ import { sidebarRowClass } from '@/components/sidebar/sidebar-row'
 import { SystemTag } from '@/components/ui/system-tag'
 import { UnreadMark, UnreadPip } from '@/components/ui/unread-mark'
 import { UserProfilePopover } from '@/components/user-profile-popover'
+import { ServerMark } from '@/components/voice/voice-state-badges'
 import { useElapsed } from '@/hooks/use-elapsed'
 import { useChannelOccupants, usePermissions } from '@/hooks/use-hachiman'
 import { useSpeakingMember } from '@/hooks/use-member'
@@ -239,11 +240,22 @@ function VoiceMemberRow({
             {name}
           </span>
           {state.selfStream && <SystemTag kind="live" />}
-          {state.selfMute && (
-            <MicOff aria-label="Muted" className="text-feature-danger size-3.5 shrink-0" />
+          {state.mute ? (
+            <ServerMark label="Server muted" icon={<MicOff />} />
+          ) : (
+            state.selfMute && (
+              <MicOff aria-label="Muted" className="text-feature-danger size-3.5 shrink-0" />
+            )
           )}
-          {state.selfDeaf && (
-            <HeadphoneOff aria-label="Deafened" className="text-feature-danger size-3.5 shrink-0" />
+          {state.deaf ? (
+            <ServerMark label="Server deafened" icon={<HeadphoneOff />} />
+          ) : (
+            state.selfDeaf && (
+              <HeadphoneOff
+                aria-label="Deafened"
+                className="text-feature-danger size-3.5 shrink-0"
+              />
+            )
           )}
         </button>
       </UserProfilePopover>

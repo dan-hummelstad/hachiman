@@ -77,17 +77,17 @@ export function ParticipantTile({
             </span>
             {self && <span className="text-text-tertiary font-medium">you</span>}
           </TileNameTag>
-          {state && (state.selfMute || state.selfDeaf) && (
+          {state && (state.selfMute || state.selfDeaf || state.mute || state.deaf) && (
             <span
               className={cn('absolute flex gap-1', compact ? 'top-2 right-2' : 'top-3 right-3')}
             >
-              {state.selfMute && (
-                <TileBadge label="Muted">
+              {(state.selfMute || state.mute) && (
+                <TileBadge label={state.mute ? 'Server muted' : 'Muted'} server={state.mute}>
                   <MicOff />
                 </TileBadge>
               )}
-              {state.selfDeaf && (
-                <TileBadge label="Deafened">
+              {(state.selfDeaf || state.deaf) && (
+                <TileBadge label={state.deaf ? 'Server deafened' : 'Deafened'} server={state.deaf}>
                   <HeadphoneOff />
                 </TileBadge>
               )}
@@ -111,18 +111,27 @@ export function ParticipantTile({
   )
 }
 
+/** `server`: a server mute or deafen, on a solid red tile. */
 function TileBadge({
   label,
+  server = false,
   children
 }: {
   label: string
+  server?: boolean
   children: React.ReactNode
 }): React.JSX.Element {
   return (
     <span
       role="img"
       aria-label={label}
-      className="bg-feature-danger/20 text-feature-danger-text flex size-6 items-center justify-center [&_svg]:size-3.5"
+      title={label}
+      className={cn(
+        'flex size-6 items-center justify-center [&_svg]:size-3.5',
+        server
+          ? 'bg-feature-danger text-text-on-accent'
+          : 'bg-feature-danger/20 text-feature-danger-text'
+      )}
     >
       {children}
     </span>

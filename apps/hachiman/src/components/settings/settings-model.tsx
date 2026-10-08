@@ -1,5 +1,6 @@
 import {
   AudioLines,
+  Ban,
   Download,
   Headphones,
   Keyboard,
@@ -18,6 +19,7 @@ import {
   Wrench
 } from 'lucide-react'
 import { Permissions, has } from '@hachiman/client'
+import { GuildBansTab } from '@/components/guild-settings-bans'
 import { GuildInvitesTab } from '@/components/guild-settings-invites'
 import { GuildMembersTab } from '@/components/guild-settings-members'
 import { GuildRolesTab } from '@/components/guild-settings-roles'
@@ -322,6 +324,18 @@ function useGuildSettingsModel(guildId: string | null): SettingsModel {
               title: 'Soundboard',
               description: `Short sounds that members of ${name} can play in voice channels.`,
               render: () => <GuildSoundboardPage guildId={guild.id} />
+            }
+          },
+          {
+            id: 'bans',
+            label: 'Bans',
+            icon: <Ban />,
+            visible: has(perms, Permissions.BAN_MEMBERS),
+            page: guild && {
+              title: 'Bans',
+              description: `People who cannot join ${name} with an invite. Unban to let them join again.`,
+              wide: true,
+              render: () => <GuildBansTab guildId={guild.id} />
             }
           }
         ]

@@ -1,7 +1,8 @@
-import { AudioLines, HeadphoneOff, Headphones, Mic, MicOff, PhoneOff } from 'lucide-react'
+import { AudioLines, PhoneOff } from 'lucide-react'
 import { IconButton } from '@/components/ui/icon-button'
 import { CallSecurityBanner, CallSecuritySection } from '@/components/voice/call-security'
 import { ScreenShareControls } from '@/components/voice/screen-share-controls'
+import { SelfVoiceToggles } from '@/components/voice/self-voice-toggles'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useElapsed } from '@/hooks/use-elapsed'
@@ -39,8 +40,6 @@ export function VoiceDock(): React.JSX.Element | null {
   const guildId = useVoiceStore((s) => s.guildId)
   const state = useVoiceStore((s) => s.connectionState)
   const quality = useVoiceStore((s) => s.connectionQuality)
-  const selfMute = useVoiceStore((s) => s.selfMute)
-  const selfDeaf = useVoiceStore((s) => s.selfDeaf)
   const channel = useChannelStore((s) => (channelId ? s.channels.get(channelId) : undefined))
   const channelName = channel ? channelLabel(channel).name || null : null
   const guildName = useGuildStore((s) => (guildId ? (s.guilds.get(guildId)?.name ?? null) : null))
@@ -112,22 +111,7 @@ export function VoiceDock(): React.JSX.Element | null {
           '[&>button]:rounded-control [&>button]:bg-surface-hover [&>button]:text-text-secondary [&>button]:h-8 [&>button]:w-auto [&>button]:flex-1'
         )}
       >
-        <IconButton
-          label={selfMute ? 'Unmute' : 'Mute'}
-          pressed={selfMute}
-          tone="danger"
-          onClick={() => voiceService.toggleMute()}
-        >
-          {selfMute ? <MicOff /> : <Mic />}
-        </IconButton>
-        <IconButton
-          label={selfDeaf ? 'Undeafen' : 'Deafen'}
-          pressed={selfDeaf}
-          tone="danger"
-          onClick={() => voiceService.toggleDeaf()}
-        >
-          {selfDeaf ? <HeadphoneOff /> : <Headphones />}
-        </IconButton>
+        <SelfVoiceToggles />
         <ScreenShareControls />
         <IconButton
           label="Disconnect"

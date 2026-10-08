@@ -3,6 +3,12 @@ import { Ban, Hand, MessageCircle, MicOff, MoreHorizontal, ShieldCheck, VolumeX 
 import type { User } from '@hachiman/client'
 import { useUserBanner } from '@/components/people/use-user-banner'
 import { BlockConfirmDialog } from '@/components/people/block-dialog'
+import {
+  ModerationDialogs,
+  ModerationMenuItems,
+  type ModerationDialog
+} from '@/components/people/member-moderation'
+import { useModerationRights } from '@/components/people/use-moderation-rights'
 import { CustomStatusLine } from '@/components/people/custom-status-line'
 import { UserAvatar } from '@/components/shell/user-avatar'
 import { Button } from '@/components/ui/button'
@@ -57,6 +63,9 @@ export function UserProfilePopover({
   const [open, setOpen] = useState(false)
   // The confirm window lives outside the popover, which closes when it opens.
   const [blocking, setBlocking] = useState<string | null>(null)
+  const [moderating, setModerating] = useState<{ kind: ModerationDialog; name: string } | null>(
+    null
+  )
   return (
     <>
       <Popover open={open} onOpenChange={setOpen}>
@@ -84,6 +93,10 @@ export function UserProfilePopover({
               setOpen(false)
               setBlocking(name)
             }}
+            onModerate={(kind, name) => {
+              setOpen(false)
+              setModerating({ kind, name })
+            }}
           />
         </PopoverContent>
       </Popover>
@@ -92,6 +105,13 @@ export function UserProfilePopover({
         name={blocking ?? ''}
         open={blocking !== null}
         onClose={() => setBlocking(null)}
+      />
+      <ModerationDialogs
+        guildId={guildId}
+        userId={userId}
+        name={moderating?.name ?? ''}
+        open={moderating?.kind ?? null}
+        onClose={() => setModerating(null)}
       />
     </>
   )
@@ -103,6 +123,7 @@ function ProfileCard(props: {
   user: User | undefined
   onDone: () => void
   onBlock: (name: string) => void
+  onModerate: (kind: ModerationDialog, name: string) => void
 }): React.JSX.Element {
   const { userId, guildId } = props
   const { member, name, ink } = useMemberView(guildId, userId, props.user)
@@ -117,6 +138,8 @@ function ProfileCard(props: {
   const blocked = useIsBlocked(userId)
   const unblock = useAction()
   const poke = useAction()
+  const moderate = useAction()
+  const rights = useModerationRights(guildId, userId)
   // The safety number needs the crypto Worker (§12.5).
   const encryption = useCryptoStore((s) => s.phase === 'ready' && s.status?.state === 'ready')
   const chips = memberRoles(member, roles)
@@ -153,8 +176,18 @@ function ProfileCard(props: {
           <CustomStatusLine userId={userId} className="mt-0.5" />
         </div>
 
-        {voice?.channelId && (voice.selfMute || voice.selfDeaf) && (
-          <div className="flex gap-1">
+        {voice?.channelId && (voice.selfMute || voice.selfDeaf || voice.mute || voice.deaf) && (
+          <div className="flex flex-wrap gap-1">
+            {voice.mute && (
+              <span className="bg-feature-danger text-text-on-accent flex items-center gap-1 px-1.5 py-0.5 text-xs font-semibold">
+                <MicOff className="size-3" /> Server muted
+              </span>
+            )}
+            {voice.deaf && (
+              <span className="bg-feature-danger text-text-on-accent flex items-center gap-1 px-1.5 py-0.5 text-xs font-semibold">
+                <VolumeX className="size-3" /> Server deafened
+              </span>
+            )}
             {voice.selfMute && (
               <span className="bg-feature-danger/15 text-feature-danger-text flex items-center gap-1 px-1.5 py-0.5 text-xs font-semibold">
                 <MicOff className="size-3" /> Muted
@@ -234,12 +267,23 @@ function ProfileCard(props: {
                     <Ban /> Block
                   </DropdownMenuItem>
                 )}
+                {guildId && (
+                  <ModerationMenuItems
+                    guildId={guildId}
+                    userId={userId}
+                    name={name}
+                    rights={rights}
+                    action={moderate}
+                    onDialog={(kind) => props.onModerate(kind, name)}
+                  />
+                )}
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
         )}
         {blocked && !isMe && <p className="text-text-tertiary text-xs">You blocked {name}.</p>}
         <ErrorText>{unblock.error ?? poke.error}</ErrorText>
+        <ErrorText>{moderate.error}</ErrorText>
       </div>
     </div>
   )
