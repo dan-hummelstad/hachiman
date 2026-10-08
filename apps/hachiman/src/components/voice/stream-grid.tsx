@@ -1,5 +1,5 @@
-import { useRef, useState } from 'react'
-import { Eye, EyeOff, LoaderCircle, Maximize } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { Eye, EyeOff, LoaderCircle, Maximize, Minimize } from 'lucide-react'
 import type { VoiceState } from '@hachiman/client'
 import { UserAvatar } from '@/components/shell/user-avatar'
 import { Button } from '@/components/ui/button'
@@ -93,6 +93,7 @@ function StreamTile({
 }): React.JSX.Element {
   const { name, ink, avatar } = useMemberView(guildId, userId)
   const frame = useRef<HTMLDivElement>(null)
+  const [fullscreen, toggleFullscreen] = useFullscreen(frame)
 
   if (!stream)
     return (
@@ -166,13 +167,35 @@ function StreamTile({
           </IconButton>
         )}
         <IconButton
-          label="Full screen"
+          label={fullscreen ? 'Exit full screen' : 'Full screen'}
           className={TILE_BUTTON}
-          onClick={() => void frame.current?.requestFullscreen()}
+          onClick={toggleFullscreen}
         >
-          <Maximize />
+          {fullscreen ? <Minimize /> : <Maximize />}
         </IconButton>
       </div>
     </div>
   )
+}
+
+/**
+ * Whether `frame` is the fullscreen element, and a toggle that enters or leaves it. The state
+ * follows `fullscreenchange`, so Esc and the OS controls keep the button right.
+ */
+function useFullscreen(frame: React.RefObject<HTMLElement | null>): [boolean, () => void] {
+  const [on, setOn] = useState(false)
+  useEffect(() => {
+    const sync = (): void =>
+      setOn(frame.current !== null && document.fullscreenElement === frame.current)
+    document.addEventListener('fullscreenchange', sync)
+    return () => document.removeEventListener('fullscreenchange', sync)
+  }, [frame])
+  const toggle = (): void => {
+    const el = frame.current
+    if (!el) return
+    const change =
+      document.fullscreenElement === el ? document.exitFullscreen() : el.requestFullscreen()
+    change.catch((err: unknown) => console.warn('[voice] full screen change failed', err))
+  }
+  return [on, toggle]
 }
