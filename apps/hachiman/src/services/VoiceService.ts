@@ -11,7 +11,7 @@ import { captureConstraints, tuneTrack, type StreamQuality } from '@/lib/stream-
 import { hachiman } from '@/services/client'
 import { playSound, selfVoiceSound } from '@/services/SoundService'
 import { setCryptoFatal, useCryptoStore } from '@/stores/cryptoStore'
-import { usePrefsStore, type NoiseSuppression } from '@/stores/prefsStore'
+import { usePrefsStore, type NoiseSuppression, type UserAudio } from '@/stores/prefsStore'
 import { useUserStore } from '@/stores/userStore'
 import { useVoiceStore } from '@/stores/voiceStore'
 
@@ -220,6 +220,7 @@ class VoiceService {
         void this.startMic()
       if (s.outputDeviceId !== prev.outputDeviceId) this.applyOutputDevice()
       if (s.streamQuality !== prev.streamQuality) void this.applyStreamQuality()
+      if (s.userAudio !== prev.userAudio) this.applyUserAudio(prev.userAudio)
     })
   }
 
@@ -261,6 +262,7 @@ class VoiceService {
       this.conn = conn
       playSound('voiceJoin')
       this.applyOutputDevice()
+      this.applyUserAudio()
       conn.on('state', (connectionState) => {
         if (this.conn === conn) useVoiceStore.setState({ connectionState })
       })
@@ -441,6 +443,21 @@ class VoiceService {
 
   private applyOutputDevice(): void {
     void this.conn?.setOutputDevice(usePrefsStore.getState().outputDeviceId)
+  }
+
+  /**
+   * The local volume and mute of each user (prefs) on the call. `prev` also resets the users
+   * whose entry was removed, which means the default.
+   */
+  private applyUserAudio(prev: Record<string, UserAudio> = {}): void {
+    const conn = this.conn
+    if (!conn) return
+    const now = usePrefsStore.getState().userAudio
+    for (const userId of new Set([...Object.keys(prev), ...Object.keys(now)])) {
+      const a = now[userId]
+      if (a === prev[userId]) continue
+      conn.setOutputVolume(userId, !a ? 1 : a.muted ? 0 : a.volume)
+    }
   }
 
   /** (Re)starts the mic session on the current input device. Never throws. */

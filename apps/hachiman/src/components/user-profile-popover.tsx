@@ -17,6 +17,7 @@ import { IconButton } from '@/components/ui/icon-button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { PRESENCE_LABEL, PresenceDot } from '@/components/ui/presence'
 import { RoleChip } from '@/components/ui/role-chip'
+import { UserAudioControl } from '@/components/voice/user-audio-control'
 import { useAction } from '@/hooks/use-action'
 import { useMemberView, useOpenDm, usePresence } from '@/hooks/use-member'
 import { memberRoles } from '@/lib/model'
@@ -110,6 +111,7 @@ function ProfileCard(props: {
     guildId ? s.voiceStates.get(guildId)?.get(userId) : undefined
   )
   const isMe = useUserStore((s) => s.me?.id === userId)
+  const myCall = useVoiceStore((s) => s.channelId)
   const dm = useOpenDm(userId)
   const blocked = useIsBlocked(userId)
   const unblock = useAction()
@@ -173,6 +175,10 @@ function ProfileCard(props: {
               ))}
             </div>
           </div>
+        )}
+
+        {!isMe && myCall !== null && voice?.channelId === myCall && (
+          <UserAudioControl userId={userId} />
         )}
 
         {!isMe && (

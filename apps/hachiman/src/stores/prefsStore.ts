@@ -22,6 +22,16 @@ export interface AccountPrefs extends NotifyPrefs {
   tabs?: TabTarget[]
 }
 
+/** What I hear of one other user in voice (Discord's user volume). Only this device plays it. */
+export interface UserAudio {
+  /** 0..2; 1 = unchanged. */
+  volume: number
+  /** Local mute: I do not hear the user. The user does not know. */
+  muted: boolean
+}
+
+export const DEFAULT_USER_AUDIO: UserAudio = { volume: 1, muted: false }
+
 const EMPTY_ACCOUNT: AccountPrefs = { favouriteDms: [], notify: {}, muted: [] }
 
 /** Local, per-device UI preferences. Written by the user settings overlay. */
@@ -41,6 +51,8 @@ interface PrefsState {
   soundVolume: number
   /** Sounds the user switched off one by one. Ignored while `soundsEnabled` is false. */
   disabledSounds: SoundEvent[]
+  /** userId → local volume and mute in voice. A user at the default has no entry. */
+  userAudio: Record<string, UserAudio>
   sidebar: SidebarMode
   /** Width in px of the right column while it shows a page (the user drags its edge). */
   pageColumnWidth: number
@@ -57,6 +69,7 @@ interface PrefsState {
   setSoundsEnabled: (soundsEnabled: boolean) => void
   setSoundVolume: (soundVolume: number) => void
   setSoundEnabled: (event: SoundEvent, enabled: boolean) => void
+  setUserAudio: (userId: string, change: Partial<UserAudio>) => void
   setSidebar: (sidebar: SidebarMode) => void
   setPageColumnWidth: (pageColumnWidth: number) => void
   setAccountId: (accountId: string | null) => void
@@ -89,6 +102,7 @@ export const usePrefsStore = create<PrefsState>()(
         soundsEnabled: true,
         soundVolume: 0.7,
         disabledSounds: [],
+        userAudio: {},
         sidebar: 'docked',
         pageColumnWidth: 540,
         accounts: {},
@@ -107,6 +121,14 @@ export const usePrefsStore = create<PrefsState>()(
               ? s.disabledSounds.filter((e) => e !== event)
               : [...new Set([...s.disabledSounds, event])]
           })),
+        setUserAudio: (userId, change) =>
+          set((s) => {
+            const next = { ...(s.userAudio[userId] ?? DEFAULT_USER_AUDIO), ...change }
+            const userAudio = { ...s.userAudio }
+            if (next.volume === 1 && !next.muted) delete userAudio[userId]
+            else userAudio[userId] = next
+            return { userAudio }
+          }),
         setSidebar: (sidebar) => set({ sidebar }),
         setPageColumnWidth: (pageColumnWidth) => set({ pageColumnWidth }),
         setAccountId: (accountId) => set({ accountId }),

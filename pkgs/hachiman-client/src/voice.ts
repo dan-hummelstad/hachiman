@@ -85,6 +85,15 @@ export type VoiceEvents = {
 /** Local failure codes. They never come from media. */
 const LOCAL_FAILURE = 4000
 const RESYNC = 4013
+/** The highest `setOutputVolume` value (200 %). */
+const MAX_OUTPUT_VOLUME = 2
+
+/** The WebAudio path of one remote user above 100 %: HTMLMediaElement.volume caps at 1. */
+interface Boost {
+  stream: MediaStream
+  source: MediaStreamAudioSourceNode
+  gain: GainNode
+}
 
 export class VoiceConnection extends TypedEventEmitter<VoiceEvents> {
   /** Media session id + our SSRC, from the `ready` frame. */
@@ -113,6 +122,9 @@ export class VoiceConnection extends TypedEventEmitter<VoiceEvents> {
   private lastSpeaking: boolean | null = null
   private readonly volumes = new Map<string, number>()
   private readonly audio = new Map<string, HTMLAudioElement>()
+  private readonly boosts = new Map<string, Boost>()
+  /** Made on the first volume above 100 %. */
+  private audioCtx: AudioContext | null = null
   /** '' = system default (the `setSinkId` convention). */
   private sinkId = ''
   private readonly pendingTracks = new Map<string, MediaStream>()
@@ -213,6 +225,9 @@ export class VoiceConnection extends TypedEventEmitter<VoiceEvents> {
       el.srcObject = null
     }
     this.audio.clear()
+    for (const userId of [...this.boosts.keys()]) this.dropBoost(userId)
+    void this.audioCtx?.close().catch(() => undefined)
+    this.audioCtx = null
     this.pendingTracks.clear()
     this.screens.clear()
     this.recvTransforms.clear() // e2ee.close releases them
@@ -255,13 +270,23 @@ export class VoiceConnection extends TypedEventEmitter<VoiceEvents> {
 
   setDeafened(deafened: boolean): void {
     this.deafened = deafened
-    for (const el of this.audio.values()) el.muted = deafened
+    for (const [userId, el] of this.audio) this.applyVolume(userId, el)
   }
 
   /** Route remote audio to an output device (`null` = system default). Unsupported browsers keep the default. */
   async setOutputDevice(deviceId: string | null): Promise<void> {
     this.sinkId = deviceId ?? ''
     await Promise.all([...this.audio.values()].map(el => this.applySink(el)))
+    await this.applyContextSink()
+  }
+
+  /** The boost path plays through the AudioContext. Browsers without AudioContext.setSinkId keep the default. */
+  private async applyContextSink(): Promise<void> {
+    const ctx = this.audioCtx as (AudioContext & { setSinkId?: (id: string) => Promise<void> }) | null
+    if (typeof ctx?.setSinkId !== 'function') return
+    await ctx.setSinkId(this.sinkId).catch((err: unknown) => {
+      console.warn('VoiceConnection: AudioContext setSinkId failed', err)
+    })
   }
 
   private async applySink(el: HTMLAudioElement): Promise<void> {
@@ -271,12 +296,60 @@ export class VoiceConnection extends TypedEventEmitter<VoiceEvents> {
     })
   }
 
-  // ponytail: HTMLAudioElement caps at 1.0; >100% boost needs a WebAudio GainNode per user.
+  /** The local playback volume of one user: 0..2, 1 = unchanged. It lasts for the call, also before the track arrives. */
   setOutputVolume(userId: string, volume: number): void {
-    const v = Math.min(1, Math.max(0, volume))
-    this.volumes.set(userId, v)
+    this.volumes.set(userId, Math.min(MAX_OUTPUT_VOLUME, Math.max(0, volume)))
     const el = this.audio.get(userId)
-    if (el) el.volume = v
+    if (el) this.applyVolume(userId, el)
+  }
+
+  /**
+   * Up to 1 the element plays the stream. Above 1 a GainNode plays it and the element stays
+   * muted (it stays attached: Chromium gives a WebAudio source of a remote stream no samples
+   * without one). When WebAudio fails, the element plays at 1.
+   */
+  private applyVolume(userId: string, el: HTMLAudioElement): void {
+    const v = this.volumes.get(userId) ?? 1
+    const stream = el.srcObject as MediaStream | null
+    const boost = v > 1 && stream ? this.boostFor(userId, stream) : null
+    if (!boost) this.dropBoost(userId)
+    el.volume = Math.min(1, v)
+    el.muted = this.deafened || boost !== null
+    if (boost) boost.gain.gain.value = this.deafened ? 0 : v
+  }
+
+  private boostFor(userId: string, stream: MediaStream): Boost | null {
+    const current = this.boosts.get(userId)
+    if (current?.stream === stream) return current
+    this.dropBoost(userId)
+    if (typeof AudioContext === 'undefined') return null
+    try {
+      let ctx = this.audioCtx
+      if (!ctx) {
+        ctx = new AudioContext()
+        this.audioCtx = ctx
+        void this.applyContextSink()
+      }
+      // A context made outside a user gesture starts suspended.
+      if (ctx.state === 'suspended') void ctx.resume().catch(() => undefined)
+      const source = ctx.createMediaStreamSource(stream)
+      const gain = ctx.createGain()
+      source.connect(gain).connect(ctx.destination)
+      const boost = { stream, source, gain }
+      this.boosts.set(userId, boost)
+      return boost
+    } catch (err) {
+      console.warn('VoiceConnection: volume boost unavailable', err)
+      return null
+    }
+  }
+
+  private dropBoost(userId: string): void {
+    const boost = this.boosts.get(userId)
+    if (!boost) return
+    this.boosts.delete(userId)
+    boost.source.disconnect()
+    boost.gain.disconnect()
   }
 
   async getStats(): Promise<VoiceStats> {
@@ -346,6 +419,7 @@ export class VoiceConnection extends TypedEventEmitter<VoiceEvents> {
           el.pause()
           el.srcObject = null
           this.audio.delete(userId)
+          this.dropBoost(userId)
         }
         // Tracks that arrived before their owner was in the roster.
         for (const [userId, stream] of this.pendingTracks) {
@@ -523,6 +597,7 @@ export class VoiceConnection extends TypedEventEmitter<VoiceEvents> {
       if (el?.srcObject !== stream) return
       el.pause()
       this.audio.delete(userId)
+      this.dropBoost(userId)
     }
     // Only play roster members. `ontrack` fires once per transceiver, so a track that beats its
     // `peers` snapshot is parked rather than dropped.
@@ -553,8 +628,7 @@ export class VoiceConnection extends TypedEventEmitter<VoiceEvents> {
       this.audio.set(userId, el)
     }
     el.srcObject = stream
-    el.muted = this.deafened
-    el.volume = this.volumes.get(userId) ?? 1
+    this.applyVolume(userId, el)
     void this.applySink(el)
     el.play().catch((err: unknown) => {
       console.warn('VoiceConnection: autoplay blocked', err)

@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   fakeDelegate,
+  FakeAudio,
+  FakeAudioContext,
   FakeMediaStream,
   FakeRTCPeerConnection,
   FakeTrack,
@@ -149,6 +151,42 @@ describe('VoiceConnection', () => {
     vc.close()
     expect(d.released).toHaveLength(3)
     expect(d.closeCount).toBe(1)
+  })
+
+  it('plays up to 100 % on the element and above it through a GainNode, also while deafened', async () => {
+    const g = globalThis as Record<string, unknown>
+    g['AudioContext'] = FakeAudioContext
+    try {
+      await offer()
+      vc.setOutputVolume('bob', 0.5)
+      ws.recv({ op: 'peers', d: { peers: [{ userId: 'bob', ssrc: 2 }] } })
+      pc().fireTrack('bob', 'audio')
+      const [el] = FakeAudio.instances
+      expect(el).toMatchObject({ volume: 0.5, muted: false })
+      expect(FakeAudioContext.instances).toEqual([])
+
+      vc.setOutputVolume('bob', 5)
+      const [ctx] = FakeAudioContext.instances
+      const [gain] = ctx?.gains ?? []
+      expect(el).toMatchObject({ volume: 1, muted: true })
+      expect(gain?.gain.value).toBe(2)
+
+      vc.setDeafened(true)
+      expect(gain?.gain.value).toBe(0)
+      vc.setDeafened(false)
+      expect(gain?.gain.value).toBe(2)
+
+      vc.setOutputVolume('bob', 0)
+      expect(gain?.connected).toBe(false)
+      expect(el).toMatchObject({ volume: 0, muted: false })
+
+      vc.setOutputVolume('bob', 1.5)
+      vc.close()
+      expect(ctx?.gains.every(n => !n.connected)).toBe(true)
+      expect(ctx?.closed).toBe(true)
+    } finally {
+      delete g['AudioContext']
+    }
   })
 
   it('drops tracks without msid or with a kind that does not match the msid', async () => {
