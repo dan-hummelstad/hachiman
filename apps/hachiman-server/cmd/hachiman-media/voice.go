@@ -119,13 +119,18 @@ func (s *voiceServer) kick(sessionID, channelID string) {
 	}
 }
 
-// setMuted applies a gateway `mute` op (server mute or deafen) to a joined
-// session. As for kick, a non-empty channelID must match the session's room.
-// ponytail: a session still joining misses the op; its token claim decides.
+// setMuted applies a gateway `mute` op (server mute or deafen) to a session.
+// As for kick, a non-empty channelID must match the session's room. A session
+// that is still joining keeps it in muteOverride, which identify applies.
 func (s *voiceServer) setMuted(sessionID, channelID string, muted bool) {
 	c := s.lookup(sessionID)
 	if c == nil || (channelID != "" && c.claims.ChannelID != channelID) {
 		return
+	}
+	if muted {
+		c.muteOverride.Store(2)
+	} else {
+		c.muteOverride.Store(1)
 	}
 	c.peersMu.Lock()
 	cl := c.client
@@ -165,6 +170,10 @@ type voiceConn struct {
 	// It also publishes client to hooks that fire before Join returns.
 	peersMu sync.Mutex
 	client  *media.Client
+
+	// muteOverride is the last gateway `mute` op (0 none, 1 unmuted, 2 muted).
+	// It wins over the token claim, which can be older (setMuted, identify).
+	muteOverride atomic.Int32
 
 	// Negotiation state. Media is always the offerer; at most one offer is
 	// outstanding. Changes that arrive mid-negotiation set pending and are
@@ -405,10 +414,19 @@ func (c *voiceConn) identify() bool {
 		c.close(websocket.CloseInternalServerErr, "join failed")
 		return false
 	}
-	cl.SetMuted(claims.Mute)
 	c.peersMu.Lock()
 	c.client = cl
 	c.peersMu.Unlock()
+	// After c.client is set: a concurrent setMuted either sees the client or
+	// left its override for this read.
+	switch c.muteOverride.Load() {
+	case 1:
+		cl.SetMuted(false)
+	case 2:
+		cl.SetMuted(true)
+	default:
+		cl.SetMuted(claims.Mute)
+	}
 	select { // closed (kick/replace) while joining: close already ran without the client
 	case <-c.done:
 		c.srv.sfu.Remove(cl)
@@ -446,6 +464,9 @@ func (c *voiceConn) sendPeers() {
 }
 
 func (c *voiceConn) relaySpeaking(speaking bool) {
+	if speaking && c.client != nil && c.client.Muted() {
+		return // server muted: media drops the audio, so no speaking light either
+	}
 	if speaking == c.speaking {
 		return
 	}

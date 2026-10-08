@@ -254,6 +254,17 @@ func (s *session) ownsVoice(ctx context.Context) *VoiceState {
 	return cur
 }
 
+// setVoiceIfSession: HSET KEYS[1] ARGV[1] ARGV[3] only while the state there
+// names session ARGV[2]. Returns 1 when it wrote.
+var setVoiceIfSession = redis.NewScript(`
+local cur = redis.call('HGET', KEYS[1], ARGV[1])
+if not cur then return 0 end
+local ok, st = pcall(cjson.decode, cur)
+if not ok or st.sessionId ~= ARGV[2] then return 0 end
+redis.call('HSET', KEYS[1], ARGV[1], ARGV[3])
+return 1
+`)
+
 // onVoiceMove handles the internal VOICE_MOVE {guildId, channelId} of Takusen
 // on user:{id} (§6 "Voice moderation"): a member with MOVE_MEMBERS moved the
 // user (channelId) or disconnected them (null). Only the session in that call acts.
@@ -293,8 +304,13 @@ func (s *session) applyServerVoice(ctx context.Context, gs *guildState) {
 	}
 	st := *cur
 	st.Mute, st.Deaf = gs.myMute, gs.myDeaf
-	if err := s.g.rdb.HSet(ctx, kVoice(gs.id), st.UserID, string(mustJSON(st))).Err(); err != nil {
-		slog.Warn("server voice update failed", "session", s.id, "err", err)
+	// Compare-and-set on the session: a join from another device in between
+	// must not get this session's state back.
+	ok, err := setVoiceIfSession.Run(ctx, s.g.rdb, []string{kVoice(gs.id)}, st.UserID, s.id, string(mustJSON(st))).Int()
+	if err != nil || ok != 1 {
+		if err != nil {
+			slog.Warn("server voice update failed", "session", s.id, "err", err)
+		}
 		return
 	}
 	s.voice = &st

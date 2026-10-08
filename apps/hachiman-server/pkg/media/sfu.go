@@ -105,6 +105,9 @@ type Client struct {
 // SetMuted starts or stops dropping the client's mic RTP. Safe from any goroutine.
 func (c *Client) SetMuted(muted bool) { c.muted.Store(muted) }
 
+// Muted reports whether the client's mic RTP is dropped.
+func (c *Client) Muted() bool { return c.muted.Load() }
+
 // SFU owns clients and rooms. Safe for concurrent use.
 type SFU struct {
 	api    *webrtc.API
