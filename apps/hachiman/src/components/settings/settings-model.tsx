@@ -201,7 +201,6 @@ function useUserSettingsModel(active: boolean): SettingsModel {
               render: () => <VoiceSection />
             }
           },
-          // The web app has no tray and updates on reload.
           {
             id: 'keybinds',
             label: 'Keybinds',
@@ -212,7 +211,7 @@ function useUserSettingsModel(active: boolean): SettingsModel {
               render: () => <KeybindsSection />
             }
           },
-          // The web app updates on reload.
+          // The web app has no tray and updates on reload.
           {
             id: 'updates',
             label: 'Desktop app',

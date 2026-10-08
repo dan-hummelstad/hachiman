@@ -2,6 +2,7 @@ import { useId, useRef, useState } from 'react'
 import { ChevronLeft, ChevronRight, Minus, Plus } from 'lucide-react'
 import { dialAngle, nudgeStop, sliderKey, stopAt, stopOffset } from '@/lib/gradient-pad'
 import {
+  DEFAULT_CUSTOM_GRADIENT,
   LIGHTNESS_RANGE,
   MAX_GRADIENT_STOPS,
   stopColor,
@@ -29,19 +30,8 @@ const SWATCHES: { name: string; stop: GradientStop; l: number }[] = [
   { name: 'Slate', stop: { h: 215, s: 20 }, l: 45 }
 ]
 
-/** Whole gradients, one click each. */
 const PRESETS: { name: string; gradient: CustomGradient }[] = [
-  {
-    name: 'Twilight',
-    gradient: {
-      stops: [
-        { h: 247, s: 88 },
-        { h: 201, s: 90 }
-      ],
-      lightness: 62,
-      angle: 135
-    }
-  },
+  { name: 'Twilight', gradient: DEFAULT_CUSTOM_GRADIENT },
   {
     name: 'Sunset',
     gradient: {

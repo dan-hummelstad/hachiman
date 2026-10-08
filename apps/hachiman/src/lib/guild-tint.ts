@@ -108,10 +108,18 @@ export interface CustomGradient {
   angle: number
 }
 
+export const DEFAULT_CUSTOM_GRADIENT: CustomGradient = {
+  stops: [
+    { h: 247, s: 88 },
+    { h: 201, s: 90 }
+  ],
+  lightness: 62,
+  angle: 135
+}
+
 export const MAX_GRADIENT_STOPS = 3
 export const LIGHTNESS_RANGE = [15, 90] as const
 
-/** The CSS colour of a stop at a lightness. */
 export function stopColor({ h, s }: GradientStop, lightness: number): string {
   return `hsl(${Math.round(h)} ${Math.round(s)}% ${Math.round(lightness)}%)`
 }

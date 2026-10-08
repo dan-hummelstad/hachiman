@@ -87,10 +87,11 @@ export function useIconStrip({
   }, [expanded, el])
 
   const columns = stripSlots(width, size, gap)
-  const fit = useMemo(
-    () => stripFit(ids, columns - fixed, selected, tail),
-    [ids, columns, fixed, selected, tail]
-  )
+  // Memoized, so a badge sum over `hidden` does not recount on every render.
+  const fit = useMemo(() => {
+    const f = stripFit(ids, columns - fixed, selected, tail)
+    return expanded ? { ...f, shown: [...ids], hidden: [] } : f
+  }, [ids, columns, fixed, selected, tail, expanded])
 
   const onKeyDown = (e: React.KeyboardEvent): void => {
     if (!el) return
@@ -113,8 +114,8 @@ export function useIconStrip({
   }
 
   const strip: IconStrip = {
-    shown: expanded ? [...ids] : fit.shown,
-    hidden: expanded ? [] : fit.hidden,
+    shown: fit.shown,
+    hidden: fit.hidden,
     more: expanded || fit.more,
     tail: tail && (expanded || !fit.more),
     expanded,

@@ -30,7 +30,7 @@ import { memberRoles } from '@/lib/model'
 import { ROLE_INK_SCOPE } from '@/lib/role-ink'
 import { cn } from '@/lib/utils'
 import { blockService } from '@/services/guild-features'
-import { pokeService } from '@/services/poke'
+import { usePoke } from '@/services/poke'
 import { useCryptoStore } from '@/stores/cryptoStore'
 import { openDialog } from '@/stores/dialogStore'
 import { useGuildStore } from '@/stores/guildStore'
@@ -137,7 +137,7 @@ function ProfileCard(props: {
   const dm = useOpenDm(userId)
   const blocked = useIsBlocked(userId)
   const unblock = useAction()
-  const poke = useAction()
+  const poke = usePoke()
   const moderate = useAction()
   const rights = useModerationRights(guildId, userId)
   // The safety number needs the crypto Worker (§12.5).
@@ -248,7 +248,7 @@ function ProfileCard(props: {
                 {!blocked && (
                   <DropdownMenuItem
                     disabled={poke.busy}
-                    onSelect={() => void poke.run(`poke ${name}`, () => pokeService.poke(userId))}
+                    onSelect={() => void poke.run(userId, name)}
                   >
                     <Hand /> Poke
                   </DropdownMenuItem>

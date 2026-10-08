@@ -31,8 +31,7 @@ import { ChannelIcon } from '@/lib/channel-icon'
 import { channelLabel, hexColor, isGuildChannel } from '@/lib/model'
 import { ROLE_INK_SCOPE } from '@/lib/role-ink'
 import { cn } from '@/lib/utils'
-import { useAction } from '@/hooks/use-action'
-import { pokeService } from '@/services/poke'
+import { usePoke } from '@/services/poke'
 import { useChannelStore } from '@/stores/channelStore'
 import { openDialog } from '@/stores/dialogStore'
 import { openSettings } from '@/stores/navStore'
@@ -295,7 +294,7 @@ function DmTrustChip({ channel }: { channel: Channel }): React.JSX.Element | nul
 
 /** Pokes the other person of a 1:1 DM. A failure (a block, the rate limit) shows as the tooltip. */
 function DmPokeButton({ channel }: { channel: Channel }): React.JSX.Element | null {
-  const poke = useAction()
+  const poke = usePoke()
   const recipients = channel.recipients ?? []
   const solo = recipients.length === 1 ? recipients[0] : undefined
   if (!solo) return null
@@ -304,7 +303,7 @@ function DmPokeButton({ channel }: { channel: Channel }): React.JSX.Element | nu
       label={poke.error ?? `Poke ${solo.username}`}
       tooltipSide="bottom"
       disabled={poke.busy}
-      onClick={() => void poke.run(`poke ${solo.username}`, () => pokeService.poke(solo.id))}
+      onClick={() => void poke.run(solo.id, solo.username)}
       className={HEADER_BUTTON}
     >
       <Hand />

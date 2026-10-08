@@ -26,7 +26,7 @@ import { useOpenDm, usePresence } from '@/hooks/use-member'
 import { activityLabel } from '@/lib/member-activity'
 import { cn } from '@/lib/utils'
 import { blockService } from '@/services/guild-features'
-import { pokeService } from '@/services/poke'
+import { usePoke } from '@/services/poke'
 import { useChannelStore } from '@/stores/channelStore'
 import { useGuildStore } from '@/stores/guildStore'
 import { useUserStore } from '@/stores/userStore'
@@ -140,7 +140,7 @@ function PersonRow({ user, dim }: { user: User; dim: boolean }): React.JSX.Eleme
   const custom = useCustomStatus(user.id)
   const activity = useVoiceActivity(user.id, null)
   const dm = useOpenDm(user.id)
-  const poke = useAction()
+  const poke = usePoke()
   const [confirm, setConfirm] = useState(false)
 
   return (
@@ -199,7 +199,7 @@ function PersonRow({ user, dim }: { user: User; dim: boolean }): React.JSX.Eleme
           {!dim && (
             <DropdownMenuItem
               disabled={poke.busy}
-              onSelect={() => void poke.run(`poke ${user.username}`, () => pokeService.poke(user.id))}
+              onSelect={() => void poke.run(user.id, user.username)}
             >
               <Hand /> Poke
             </DropdownMenuItem>

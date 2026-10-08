@@ -2,13 +2,14 @@
  * Poke (contract §4 Poke): POST /users/:id/poke, and the POKE event to my sessions, which shows
  * a toast with "Poke back" and plays the poke sound. A poke has no content, so it has no envelope.
  */
+import { useCallback } from 'react'
 import type { GatewayDispatch, User } from '@hachiman/client'
+import { useAction } from '@/hooks/use-action'
 import { hachiman } from '@/services/client'
 import type { ClientFeature } from '@/services/features'
 import { playSound } from '@/services/SoundService'
 import { usePokeStore } from '@/stores/pokeStore'
 
-/** A toast stays this long. */
 export const POKE_TOAST_MS = 8_000
 
 export const pokeService = {
@@ -17,13 +18,28 @@ export const pokeService = {
   dismiss: (id: number): void => usePokeStore.getState().remove(id)
 }
 
+/** A poke button: `run` pokes `userId` and resolves true when it went out, else sets `error`. */
+export function usePoke(): {
+  run: (userId: string, name: string) => Promise<boolean>
+  busy: boolean
+  error: string | null
+} {
+  const { run: runAction, busy, error } = useAction()
+  const run = useCallback(
+    async (userId: string, name: string) =>
+      (await runAction(`poke ${name}`, () => pokeService.poke(userId))).ok,
+    [runAction]
+  )
+  return { run, busy, error }
+}
+
 let nextId = 1
 
 /** Shows the toast unless I blocked the sender (the server refuses a poke across a block too). */
 export function receivePoke(user: User): void {
   if (hachiman.cache.blocks.has(user.id)) return
   const id = nextId++
-  usePokeStore.getState().add({ id, user, at: Date.now() })
+  usePokeStore.getState().add({ id, user })
   playSound('poke')
   setTimeout(() => usePokeStore.getState().remove(id), POKE_TOAST_MS)
 }

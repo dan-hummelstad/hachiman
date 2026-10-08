@@ -178,16 +178,17 @@ function DeviceSelect(props: {
 function NoiseSuppressionSelect(): React.JSX.Element {
   const value = usePrefsStore((s) => s.noiseSuppression)
   const setValue = usePrefsStore((s) => s.setNoiseSuppression)
+  const id = useId()
   return (
     <div className="grid gap-1.5">
       <label
-        htmlFor="noise-suppression"
-        className="text-text-secondary text-xs leading-4 font-semibold"
+        htmlFor={id}
+        className="text-text-secondary flex items-center gap-1.5 text-xs leading-4 font-semibold [&_svg]:size-3.5"
       >
         Noise suppression
       </label>
       <NativeSelect
-        id="noise-suppression"
+        id={id}
         className="w-full [&_select]:h-10"
         value={value}
         onChange={(e) => setValue(e.target.value as NoiseSuppression)}

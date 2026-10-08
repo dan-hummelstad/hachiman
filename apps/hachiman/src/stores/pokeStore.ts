@@ -4,7 +4,6 @@ import type { User } from '@hachiman/client'
 export interface PokeToast {
   id: number
   user: User
-  at: number
 }
 
 /** At most this many toasts show; a new poke drops the oldest. */

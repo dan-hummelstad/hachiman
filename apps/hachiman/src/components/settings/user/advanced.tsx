@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { RotateCcw, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
+import { SectionHeading } from '@/components/ui/field'
 import { clearCachedData, resetDevice } from '@/lib/local-data'
 import { usePlatform } from '@/shared/PlatformContext'
 import { useUserStore } from '@/stores/userStore'
@@ -16,7 +17,7 @@ export function AdvancedSection(): React.JSX.Element {
   return (
     <section className="grid gap-6">
       <div className="grid gap-2">
-        <h3 className="text-sm font-semibold">Clear cached data</h3>
+        <SectionHeading className="mb-0">Clear cached data</SectionHeading>
         <p className="text-meta text-text-tertiary">
           Removes the saved preferences, open tabs and caches of this app, then reloads. You stay
           signed in, and your encryption keys stay on this device.
@@ -28,7 +29,7 @@ export function AdvancedSection(): React.JSX.Element {
         </div>
       </div>
       <div className="grid gap-2">
-        <h3 className="text-sm font-semibold">Reset this device</h3>
+        <SectionHeading className="mb-0">Reset this device</SectionHeading>
         <p className="text-meta text-text-tertiary">
           Removes all the data of this app on this device, including your encryption keys, then
           reloads. You must sign in again and set up this device again.

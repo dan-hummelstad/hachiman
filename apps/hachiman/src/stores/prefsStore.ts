@@ -1,7 +1,7 @@
 import type {} from '@redux-devtools/extension'
 import { create } from 'zustand'
 import { devtools, persist } from 'zustand/middleware'
-import { isCustomGradient, type CustomGradient } from '@/lib/guild-tint'
+import { DEFAULT_CUSTOM_GRADIENT, isCustomGradient, type CustomGradient } from '@/lib/guild-tint'
 import type { StreamQuality } from '@/lib/stream-quality'
 import type { SoundEvent } from '@/lib/sounds'
 import type { NotifyLevel, NotifyPrefs } from '@/lib/notify'
@@ -18,14 +18,6 @@ export type NoiseSuppression = 'off' | 'browser' | 'rnnoise'
 /** The window wallpaper: tinted by the selected guild (N4), or the user's own gradient. */
 export type WallpaperMode = 'guild' | 'custom'
 
-export const DEFAULT_CUSTOM_GRADIENT: CustomGradient = {
-  stops: [
-    { h: 247, s: 88 },
-    { h: 201, s: 90 }
-  ],
-  lightness: 62,
-  angle: 135
-}
 /** How the mic opens in voice: on speech (VAD), or only while the push-to-talk key is held. */
 export type VoiceInputMode = 'voiceActivity' | 'pushToTalk'
 
@@ -134,7 +126,6 @@ interface PrefsState {
 }
 
 const NO_TABS: TabTarget[] = []
-/** The picker keeps this many recently used emojis. */
 export const MAX_RECENT_EMOJIS = 30
 
 /** The preferences of the signed-in account (a stable empty object when none). */

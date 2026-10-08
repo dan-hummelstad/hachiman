@@ -1,9 +1,9 @@
 import { Hand, X } from 'lucide-react'
 import { UserAvatar } from '@/components/shell/user-avatar'
 import { Button } from '@/components/ui/button'
+import { ErrorText } from '@/components/ui/field'
 import { IconButton } from '@/components/ui/icon-button'
-import { useAction } from '@/hooks/use-action'
-import { pokeService } from '@/services/poke'
+import { pokeService, usePoke } from '@/services/poke'
 import { usePokeStore, type PokeToast } from '@/stores/pokeStore'
 
 /** The poke toasts in the bottom right corner, newest at the bottom. */
@@ -24,7 +24,7 @@ export function PokeToasts(): React.JSX.Element | null {
 }
 
 function PokeToastCard({ toast }: { toast: PokeToast }): React.JSX.Element {
-  const back = useAction()
+  const back = usePoke()
   const { user } = toast
   return (
     <div className="bg-popover text-popover-foreground pointer-events-auto flex flex-col gap-2 rounded-lg border p-3 shadow-lg">
@@ -41,14 +41,12 @@ function PokeToastCard({ toast }: { toast: PokeToast }): React.JSX.Element {
         size="sm"
         disabled={back.busy}
         onClick={() =>
-          void back
-            .run(`poke ${user.username}`, () => pokeService.poke(user.id))
-            .then((r) => r.ok && pokeService.dismiss(toast.id))
+          void back.run(user.id, user.username).then((ok) => ok && pokeService.dismiss(toast.id))
         }
       >
         <Hand /> Poke back
       </Button>
-      {back.error && <p className="text-feature-danger-text text-xs">{back.error}</p>}
+      <ErrorText>{back.error}</ErrorText>
     </div>
   )
 }

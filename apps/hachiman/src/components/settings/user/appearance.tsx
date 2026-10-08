@@ -151,8 +151,8 @@ function BackgroundSection(): React.JSX.Element {
   )
 }
 
-/** The window on a wallpaper, light at the top left and dark at the bottom right. */
-function WallpaperSwatch({ light, dark }: { light: string; dark: string }): React.JSX.Element {
+/** The window, light at the top left and dark at the bottom right, on a wallpaper when given. */
+function WallpaperSwatch({ light, dark }: { light?: string; dark?: string }): React.JSX.Element {
   return (
     <span
       aria-hidden
@@ -197,22 +197,13 @@ function MiniChrome({
 }
 
 function ThemeSwatch({ value }: { value: Theme }): React.JSX.Element {
+  if (value === 'system') return <WallpaperSwatch />
   return (
     <span
       aria-hidden
       className="rounded-control border-line-hairline relative block h-20 overflow-hidden border"
     >
-      {value === 'system' ? (
-        <>
-          <MiniChrome scheme="light" className="absolute inset-0" />
-          <MiniChrome
-            scheme="dark"
-            className="absolute inset-0 [clip-path:polygon(100%_0,100%_100%,0_100%)]"
-          />
-        </>
-      ) : (
-        <MiniChrome scheme={value} />
-      )}
+      <MiniChrome scheme={value} />
     </span>
   )
 }

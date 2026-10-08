@@ -1,5 +1,5 @@
 import type {} from '@redux-devtools/extension'
-import { useMemo } from 'react'
+import { useCallback, useMemo } from 'react'
 import { create } from 'zustand'
 import { devtools } from 'zustand/middleware'
 import { useShallow } from 'zustand/react/shallow'
@@ -167,48 +167,44 @@ export function useChannelUnread(channelId: string): UnreadBadge {
   return useUnreadStore(useShallow((s) => visibleBadge(s.byChannel.get(channelId), level, muted)))
 }
 
-/** The badge sum of the channels of `guildId` (null = the DMs). */
-function useBadgeSum(guildId: string | null): UnreadBadge {
+/** The badge sum of the channels that `match` takes. `match` must be stable (memoized). */
+function useBadgeSum(match: (c: Channel) => boolean): UnreadBadge {
   const prefs = useNotifyPrefs()
   const channels = useChannelStore((s) => s.channels)
   const byChannel = useUnreadStore((s) => s.byChannel)
   return useMemo(
-    () => sumBadges(byChannel, channels, prefs, (c) => c.guildId === guildId),
-    [byChannel, channels, prefs, guildId]
+    () => sumBadges(byChannel, channels, prefs, match),
+    [byChannel, channels, prefs, match]
   )
 }
 
+const isDm = (c: Channel): boolean => c.guildId === null
+
 /** A guild's dot and mention sum (the space bar). A muted guild shows no dot. */
-export const useGuildUnread = (guildId: string): UnreadBadge => useBadgeSum(guildId)
-
-/** All DMs together (the DM home in the space bar). */
-export const useDmUnread = (): UnreadBadge => useBadgeSum(null)
-
-const guildOf = (c: Channel): string | null => c.guildId
-const dmOf = (c: Channel): string | null => (c.guildId === null ? c.id : null)
-
-/** The badge sum of the channels whose `of` key is in `keys`. */
-function useBadgeSumOf(keys: readonly string[], of: (c: Channel) => string | null): UnreadBadge {
-  const prefs = useNotifyPrefs()
-  const channels = useChannelStore((s) => s.channels)
-  const byChannel = useUnreadStore((s) => s.byChannel)
-  const key = keys.join(' ')
-  return useMemo(() => {
-    const set = new Set(key ? key.split(' ') : [])
-    return sumBadges(byChannel, channels, prefs, (c) => {
-      const k = of(c)
-      return k !== null && set.has(k)
-    })
-  }, [byChannel, channels, prefs, key, of])
+export function useGuildUnread(guildId: string): UnreadBadge {
+  return useBadgeSum(useCallback((c: Channel) => c.guildId === guildId, [guildId]))
 }
 
-/** The guilds behind the space bar's "more" item, together. */
-export const useGuildsUnread = (guildIds: readonly string[]): UnreadBadge =>
-  useBadgeSumOf(guildIds, guildOf)
+/** All DMs together (the DM home in the space bar). */
+export const useDmUnread = (): UnreadBadge => useBadgeSum(isDm)
 
-/** The DMs behind the favourite DMs' "more" tile, together. */
-export const useDmsUnread = (channelIds: readonly string[]): UnreadBadge =>
-  useBadgeSumOf(channelIds, dmOf)
+/** The guilds behind the space bar's "more" item, together. `guildIds` must be stable. */
+export function useGuildsUnread(guildIds: readonly string[]): UnreadBadge {
+  const match = useMemo(() => {
+    const ids = new Set(guildIds)
+    return (c: Channel) => c.guildId !== null && ids.has(c.guildId)
+  }, [guildIds])
+  return useBadgeSum(match)
+}
+
+/** The DMs behind the favourite DMs' "more" tile, together. `channelIds` must be stable. */
+export function useDmsUnread(channelIds: readonly string[]): UnreadBadge {
+  const match = useMemo(() => {
+    const ids = new Set(channelIds)
+    return (c: Channel) => isDm(c) && ids.has(c.id)
+  }, [channelIds])
+  return useBadgeSum(match)
+}
 
 /** Any mention anywhere (the inbox dot, N8). */
 export const useAnyMention = (): boolean =>
