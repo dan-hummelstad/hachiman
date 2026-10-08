@@ -38,6 +38,8 @@ interface ComposerProps {
   reply?: { name: string; onCancel: () => void }
   onSend: (text: string, attachments: AttachmentPointer[]) => void
   onTyping: () => void
+  /** Arrow Up in an empty input: edit my newest message. False when there is none. */
+  onEditLast?: () => boolean
 }
 
 const TOOL = 'text-text-tertiary hover:bg-surface-hover hover:text-text-primary size-8'
@@ -61,7 +63,8 @@ export function Composer({
   canAttach,
   reply,
   onSend,
-  onTyping
+  onTyping,
+  onEditLast
 }: ComposerProps): React.JSX.Element {
   const [text, setText] = useState('')
   const picker = useRef<HTMLInputElement>(null)
@@ -227,6 +230,16 @@ export function Composer({
               if (e.key === 'Escape' && reply) {
                 e.preventDefault()
                 reply.onCancel()
+              } else if (
+                e.key === 'ArrowUp' &&
+                !text &&
+                !e.shiftKey &&
+                !e.altKey &&
+                !e.ctrlKey &&
+                !e.metaKey &&
+                onEditLast?.()
+              ) {
+                e.preventDefault()
               } else submitOnEnter(e, send)
             }}
             onPaste={(e) => {
