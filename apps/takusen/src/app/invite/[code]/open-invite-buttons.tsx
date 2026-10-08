@@ -7,6 +7,8 @@
  * address bar and the history entry. A fragment of another form is not forwarded, and the page
  * tells the user (the app refuses such a link too). `lib/invite-fragment.ts` makes the decision.
  */
+import { ArrowUpRightIcon, GlobeIcon } from 'lucide-react'
+import { signOut } from 'next-auth/react'
 import { useEffect, useSyncExternalStore } from 'react'
 
 import { Button } from '@/components/ui/button'
@@ -39,19 +41,50 @@ export function OpenInviteButtons({
 
   if (fragment === null) {
     return (
-      <p className="text-sm text-destructive">
+      <p className="text-sm font-semibold text-feature-danger-text">
         This link is damaged. Ask whoever sent it for the full link again.
       </p>
     )
   }
   return (
-    <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-      <Button asChild variant="outline">
-        <a href={`${webHref}${fragment}`}>Open in browser</a>
+    <div className="flex flex-col gap-2.5">
+      <Button asChild size="lg" className="w-full">
+        <a href={`${appHref}${fragment}`}>
+          <ArrowUpRightIcon aria-hidden />
+          Open in Hachiman
+        </a>
       </Button>
-      <Button asChild>
-        <a href={`${appHref}${fragment}`}>Open in Hachiman</a>
+      <Button asChild variant="secondary" size="lg" className="w-full">
+        <a href={`${webHref}${fragment}`}>
+          <GlobeIcon aria-hidden />
+          Open in browser
+        </a>
       </Button>
     </div>
+  )
+}
+
+/**
+ * "Not you?": signs out of Takusen and reloads this invite page. The reload puts back the
+ * fragment as the page loaded it, so the `#k=` key survives the switch; a sign-out callback URL
+ * would send it to the server.
+ */
+export function NotYouButton(): React.JSX.Element {
+  return (
+    <Button
+      type="button"
+      variant="link"
+      className="ml-auto text-[13.5px] font-extrabold"
+      onClick={() => {
+        const { pathname, search } = window.location
+        const hash = loadedHash()
+        void signOut({ redirect: false }).then(() => {
+          window.history.replaceState(null, '', pathname + search + hash)
+          window.location.reload()
+        })
+      }}
+    >
+      Not you?
+    </Button>
   )
 }

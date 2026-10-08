@@ -46,7 +46,7 @@ export function ForgotPasswordForm({
         title="Check your inbox"
         lead={`${state.message ?? ''} It works for ${linkLifetime}.`}
         footer={spamNote}
-        top={<IconTile icon={MailCheckIcon} />}
+        media={<IconTile icon={MailCheckIcon} />}
       >
         <Button asChild variant="secondary" size="lg" className="w-full max-sm:h-12">
           <Link href={loginHref}>
@@ -63,7 +63,7 @@ export function ForgotPasswordForm({
       title="Forgot your password?"
       lead={`Enter the email you signed up with. We’ll send a link to choose a new password; it works for ${linkLifetime}.`}
       footer={spamNote}
-      top={
+      media={
         <div className="flex items-center justify-between gap-3">
           <IconTile icon={KeyRoundIcon} />
           <Button asChild variant="quiet" size="sm">

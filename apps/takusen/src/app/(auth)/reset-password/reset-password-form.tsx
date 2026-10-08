@@ -42,7 +42,7 @@ export function ResetPasswordForm({ token, email, loginHref }: ResetPasswordForm
   if (state?.ok) {
     return (
       <AuthCard
-        top={<IconTile icon={CircleCheckIcon} />}
+        media={<IconTile icon={CircleCheckIcon} />}
         title="Password updated"
         lead={state.message ?? 'Your password has been changed. You can now sign in.'}
       >
@@ -59,7 +59,7 @@ export function ResetPasswordForm({ token, email, loginHref }: ResetPasswordForm
 
   return (
     <AuthCard
-      top={<IconTile icon={LockKeyholeIcon} />}
+      media={<IconTile icon={LockKeyholeIcon} />}
       title="Choose a new password"
       lead={`For ${email}. Use at least ${PASSWORD_MIN_LENGTH} characters you don’t use anywhere else.`}
       footer={<CardNote icon={InfoIcon}>This signs you out of every other device.</CardNote>}
