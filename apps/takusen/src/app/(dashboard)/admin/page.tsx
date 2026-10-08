@@ -14,7 +14,7 @@ const SECTIONS = ADMIN_GROUP.items.filter((i) => !i.exact)
 
 export default function AdminPage(): React.JSX.Element {
   return (
-    <DashboardShell wide title="Admin" description="Tools for operators of this Takusen instance.">
+    <DashboardShell section="admin" crumbs={[{ label: 'Overview' }]} title="Admin" description="Tools for operators of this Takusen instance.">
       <AdminOverviewView />
       <DashboardSection title="Manage">
         <LinkRows items={SECTIONS} />

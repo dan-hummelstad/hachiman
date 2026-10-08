@@ -68,6 +68,3 @@ export function Brand({
     </span>
   )
 }
-
-/** The Takusen Brand row. Older name of `<Brand />`. */
-export const TakusenLogo = Brand

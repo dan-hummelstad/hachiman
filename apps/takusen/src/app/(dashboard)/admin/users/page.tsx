@@ -10,7 +10,8 @@ export default async function Page(): Promise<React.JSX.Element> {
   const session = await requireAdmin()
   return (
     <DashboardShell
-      wide
+      section="admin"
+      crumbs={[{ label: 'Users' }]}
       title="Users"
       description="Every account in this deployment. Grant admin, sign people out, or delete accounts."
     >
