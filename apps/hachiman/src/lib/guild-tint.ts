@@ -92,11 +92,42 @@ export function tintWallpaper(tint: string): string {
   return `linear-gradient(180deg, ${tint}, color-mix(in oklab, ${tint} 45%, var(--surface-window)))`
 }
 
-/** A user's own wallpaper (User settings → Appearance): two colours and a CSS angle in degrees. */
+/** One colour of a custom gradient: hue 0–360 and saturation 0–100. */
+export interface GradientStop {
+  h: number
+  s: number
+}
+
+/**
+ * A user's own wallpaper (User settings → Appearance): 1 to 3 stops, one lightness (0–100) for
+ * all of them, and a CSS angle in degrees.
+ */
 export interface CustomGradient {
-  from: string
-  to: string
+  stops: GradientStop[]
+  lightness: number
   angle: number
+}
+
+export const MAX_GRADIENT_STOPS = 3
+export const LIGHTNESS_RANGE = [15, 90] as const
+
+/** The CSS colour of a stop at a lightness. */
+export function stopColor({ h, s }: GradientStop, lightness: number): string {
+  return `hsl(${Math.round(h)} ${Math.round(s)}% ${Math.round(lightness)}%)`
+}
+
+/** True when `v` is a usable gradient (a stored pref can predate this shape). */
+export function isCustomGradient(v: unknown): v is CustomGradient {
+  if (typeof v !== 'object' || v === null) return false
+  const g = v as Partial<CustomGradient>
+  return (
+    Array.isArray(g.stops) &&
+    g.stops.length >= 1 &&
+    g.stops.length <= MAX_GRADIENT_STOPS &&
+    g.stops.every((st) => Number.isFinite(st?.h) && Number.isFinite(st?.s)) &&
+    Number.isFinite(g.lightness) &&
+    Number.isFinite(g.angle)
+  )
 }
 
 /**
@@ -104,10 +135,12 @@ export interface CustomGradient {
  * the theme by the same amount as a guild hue, so the text on the wallpaper keeps its contrast
  * for any colour, and one value serves both themes.
  */
-export function customWallpaper({ from, to, angle }: CustomGradient): string {
-  const wash = (color: string): string =>
-    `color-mix(in oklab, ${color} ${WASH}%, var(--surface-window))`
-  return `linear-gradient(${angle}deg, ${wash(from)}, ${wash(to)})`
+export function customWallpaper({ stops, lightness, angle }: CustomGradient): string {
+  const colors = stops.map(
+    (st) => `color-mix(in oklab, ${stopColor(st, lightness)} ${WASH}%, var(--surface-window))`
+  )
+  if (colors.length === 1) colors.push(colors[0])
+  return `linear-gradient(${Math.round(angle)}deg, ${colors.join(', ')})`
 }
 
 const ICON_SAMPLE = 32

@@ -1,14 +1,9 @@
+import { GradientPicker } from '@/components/settings/user/gradient-picker'
 import { setSidebarMode } from '@/components/shell/sidebar-state'
 import { SectionHeading } from '@/components/ui/field'
 import { Keycap } from '@/components/ui/keycap'
 import { RadioCard } from '@/components/ui/radio-card'
-import {
-  customWallpaper,
-  FALLBACK_HUES,
-  tintColors,
-  tintWallpaper,
-  type CustomGradient
-} from '@/lib/guild-tint'
+import { customWallpaper, FALLBACK_HUES, tintColors, tintWallpaper } from '@/lib/guild-tint'
 import { MOD_KEY } from '@/lib/mod-key'
 import { cn } from '@/lib/utils'
 import {
@@ -31,14 +26,6 @@ const SAMPLE_GUILD = {
   light: tintWallpaper(SAMPLE_TINT.light),
   dark: tintWallpaper(SAMPLE_TINT.dark)
 }
-
-const GRADIENT_PRESETS: { name: string; gradient: CustomGradient }[] = [
-  { name: 'Twilight', gradient: { from: '#6b5bf5', to: '#3db5f5', angle: 135 } },
-  { name: 'Sunset', gradient: { from: '#f5a524', to: '#f04a5c', angle: 160 } },
-  { name: 'Lagoon', gradient: { from: '#2dd4bf', to: '#3db5f5', angle: 120 } },
-  { name: 'Orchid', gradient: { from: '#a87bf2', to: '#ff8fc4', angle: 200 } },
-  { name: 'Meadow', gradient: { from: '#34c77f', to: '#f5d524', angle: 90 } }
-]
 
 /**
  * User settings → Appearance (H5): theme, sidebar (N3), message display and the window
@@ -150,74 +137,11 @@ function BackgroundSection(): React.JSX.Element {
         ))}
       </div>
       {wallpaper === 'custom' && (
-        <div className="mt-4 grid gap-3">
-          <div className="flex flex-wrap items-center gap-4">
-            <ColourInput
-              label="From"
-              value={gradient.from}
-              onChange={(from) => setGradient({ ...gradient, from })}
-            />
-            <ColourInput
-              label="To"
-              value={gradient.to}
-              onChange={(to) => setGradient({ ...gradient, to })}
-            />
-            <label className="text-label flex min-w-48 flex-1 items-center gap-3">
-              Angle
-              <input
-                type="range"
-                min={0}
-                max={360}
-                step={5}
-                value={gradient.angle}
-                onChange={(e) => setGradient({ ...gradient, angle: Number(e.target.value) })}
-                className="accent-accent-primary min-w-0 flex-1"
-              />
-              <span className="text-meta text-text-secondary w-9 text-right tabular-nums">
-                {gradient.angle}°
-              </span>
-            </label>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {GRADIENT_PRESETS.map((p) => (
-              <button
-                key={p.name}
-                type="button"
-                title={p.name}
-                aria-label={`${p.name} preset`}
-                onClick={() => setGradient(p.gradient)}
-                className="rounded-pill border-line-hairline hover:border-line-strong focus-visible:outline-line-focus size-8 border focus-visible:outline-2 focus-visible:outline-offset-1"
-                style={{
-                  backgroundImage: `linear-gradient(${p.gradient.angle}deg, ${p.gradient.from}, ${p.gradient.to})`
-                }}
-              />
-            ))}
-          </div>
+        <div className="rounded-option border-line-hairline mt-4 border p-4">
+          <GradientPicker value={gradient} onChange={setGradient} />
         </div>
       )}
     </section>
-  )
-}
-
-function ColourInput({
-  label,
-  value,
-  onChange
-}: {
-  label: string
-  value: string
-  onChange: (value: string) => void
-}): React.JSX.Element {
-  return (
-    <label className="text-label flex items-center gap-2">
-      {label}
-      <input
-        type="color"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="rounded-control border-line-hairline h-8 w-10 cursor-pointer border bg-transparent p-0.5"
-      />
-    </label>
   )
 }
 

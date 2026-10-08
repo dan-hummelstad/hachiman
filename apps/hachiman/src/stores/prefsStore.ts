@@ -1,7 +1,7 @@
 import type {} from '@redux-devtools/extension'
 import { create } from 'zustand'
 import { devtools, persist } from 'zustand/middleware'
-import type { CustomGradient } from '@/lib/guild-tint'
+import { isCustomGradient, type CustomGradient } from '@/lib/guild-tint'
 import type { StreamQuality } from '@/lib/stream-quality'
 import type { SoundEvent } from '@/lib/sounds'
 import type { NotifyLevel, NotifyPrefs } from '@/lib/notify'
@@ -18,8 +18,11 @@ export type NoiseSuppression = 'off' | 'browser' | 'rnnoise'
 export type WallpaperMode = 'guild' | 'custom'
 
 export const DEFAULT_CUSTOM_GRADIENT: CustomGradient = {
-  from: '#6b5bf5',
-  to: '#3db5f5',
+  stops: [
+    { h: 247, s: 88 },
+    { h: 201, s: 90 }
+  ],
+  lightness: 62,
   angle: 135
 }
 
@@ -207,6 +210,17 @@ export const usePrefsStore = create<PrefsState>()(
           const rest: Partial<PrefsState> = { ...s }
           delete rest.accountId
           return rest
+        },
+        // A stored gradient of an older shape falls back to the default.
+        merge: (persisted, current) => {
+          const p = (persisted ?? {}) as Partial<PrefsState>
+          return {
+            ...current,
+            ...p,
+            customGradient: isCustomGradient(p.customGradient)
+              ? p.customGradient
+              : current.customGradient
+          }
         }
       }
     )
