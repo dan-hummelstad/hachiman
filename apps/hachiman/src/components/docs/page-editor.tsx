@@ -6,7 +6,10 @@ import type { Ctx } from '@milkdown/kit/ctx'
 import { history } from '@milkdown/kit/plugin/history'
 import { uploadConfig } from '@milkdown/kit/plugin/upload'
 import { clearTextInCurrentBlockCommand } from '@milkdown/kit/preset/commonmark'
+import { TextSelection } from '@milkdown/kit/prose/state'
+import type { EditorView } from '@milkdown/kit/prose/view'
 import { collab, collabServiceCtx } from '@milkdown/plugin-collab'
+import { redo as yRedo, undo as yUndo } from 'y-prosemirror'
 import { insertPageLink, pageLinks } from './page-links'
 import { pageMedia } from './page-media'
 import { PagePicker } from './page-picker'
@@ -19,6 +22,50 @@ const LINK_ICON =
   '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>'
 const SUBPAGE_ICON =
   '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M9 15h6"/><path d="M12 18v-6"/></svg>'
+
+/**
+ * Editor keys that a code block (CodeMirror node view) would otherwise swallow. Its node view
+ * stops every event, so ProseMirror's keymaps never see them, and it binds Mod-z to
+ * prosemirror-history, which is removed here, so CodeMirror's own history ran instead and could
+ * not undo the block itself (e.g. a `$$` LaTeX block). This capture listener runs first:
+ * - Mod-z / Mod-Shift-z / Mod-y anywhere in the editor go to the y-prosemirror undo manager.
+ * - Backspace / Delete with the whole LaTeX source selected (or empty) removes the block.
+ */
+function editorKeyCapture(getView: () => EditorView | null): (e: KeyboardEvent) => void {
+  return (e) => {
+    const view = getView()
+    const target = e.target
+    if (!view || !view.editable || e.isComposing || !(target instanceof Node)) return
+    if (!view.dom.contains(target) || target instanceof HTMLInputElement) return
+
+    const key = e.key.toLowerCase()
+    const isRedoY = key === 'y' && !e.shiftKey
+    if ((e.metaKey || e.ctrlKey) && !e.altKey && (key === 'z' || isRedoY)) {
+      e.preventDefault()
+      e.stopPropagation()
+      if (key === 'z' && !e.shiftKey) yUndo(view.state)
+      else yRedo(view.state)
+      if (!view.dom.contains(document.activeElement)) view.focus()
+      return
+    }
+
+    if ((key !== 'backspace' && key !== 'delete') || e.metaKey || e.ctrlKey || e.altKey) return
+    const { $from, from, to } = view.state.selection
+    const block = $from.parent
+    if (block.type.name !== 'code_block' || !/^latex$/i.test(String(block.attrs.language))) return
+    if (from !== $from.start() || to !== $from.end()) return
+    e.preventDefault()
+    e.stopPropagation()
+    const at = $from.before()
+    const tr = view.state.tr.replaceWith(
+      at,
+      $from.after(),
+      view.state.schema.nodes.paragraph!.create()
+    )
+    view.dispatch(tr.setSelection(TextSelection.near(tr.doc.resolve(at + 1))).scrollIntoView())
+    view.focus()
+  }
+}
 
 export interface PageEditorProps {
   handle: DocHandle
@@ -40,8 +87,8 @@ interface PickAt {
  * The Crepe editor of one open page, bound to the page's Y.Doc and Awareness through
  * @milkdown/plugin-collab. One editor per handle: a new handle (page switch) destroys the
  * old editor first. Crepe's history plugin is removed: y-prosemirror's undo manager replaces
- * it (it undoes only local edits). Paste and drop of files upload them as encrypted page media
- * (page-media.tsx).
+ * it (it undoes only local edits), also inside code blocks (editorKeyCapture). Paste and drop
+ * of files upload them as encrypted page media (page-media.tsx).
  */
 export function PageEditor({
   handle,
@@ -63,6 +110,10 @@ export function PageEditor({
     const root = rootRef.current
     if (!root) return
     let destroyed = false
+    const onKeyDown = editorKeyCapture(() =>
+      crepeRef.current ? crepeRef.current.editor.action((ctx) => ctx.get(editorViewCtx)) : null
+    )
+    root.addEventListener('keydown', onKeyDown, true)
     const crepe = new Crepe({
       root,
       features: { [Crepe.Feature.ImageBlock]: false, [Crepe.Feature.TopBar]: false },
@@ -125,6 +176,7 @@ export function PageEditor({
 
     return () => {
       destroyed = true
+      root.removeEventListener('keydown', onKeyDown, true)
       crepeRef.current = null
       setPickAt(null)
       setMediaError(null)
