@@ -4,7 +4,8 @@ import {
   type Channel,
   type SelfVoice,
   type VoiceConnection,
-  type VoiceTarget
+  type VoiceTarget,
+  voiceScopeId
 } from '@hachiman/client'
 import { isGuildChannel } from '@/lib/model'
 import { ResyncBackoff } from '@/lib/resync-backoff'
@@ -239,7 +240,10 @@ class VoiceService {
     // A share that ends also ends the watching: the next share of that user starts unwatched.
     useVoiceStore.subscribe((s) => {
       if (s.watching.size === 0) return
-      const states = s.guildId ? s.voiceStates.get(s.guildId) : undefined
+      // voiceScopeId: the guild, or the DM channel of a DM call.
+      const states = s.channelId
+        ? s.voiceStates.get(voiceScopeId({ guildId: s.guildId, channelId: s.channelId }))
+        : undefined
       const live = [...s.watching].filter((id) => {
         const vs = states?.get(id)
         return vs?.selfStream === true && vs.channelId === s.channelId
