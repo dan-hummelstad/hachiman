@@ -112,7 +112,7 @@ function InputMode(): React.JSX.Element {
         options={INPUT_MODES}
         value={mode}
         onChange={setMode}
-        className="w-fit"
+        className="w-72"
       />
       {mode === 'pushToTalk' && (
         <p className="text-meta text-text-tertiary">
