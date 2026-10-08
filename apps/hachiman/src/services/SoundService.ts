@@ -1,5 +1,5 @@
 import { play } from 'cuelume'
-import type { SelfVoiceState, VoiceState } from '@hachiman/client'
+import { voiceScopeId, type SelfVoiceState, type VoiceState } from '@hachiman/client'
 import { isMuted, notifyLevel, shouldPing, type NotifyPrefs } from '@/lib/notify'
 import type { ChatMessage } from '@/stores/messagesStore'
 import { playChime } from '@/lib/chime'
@@ -33,7 +33,7 @@ export function startSounds(): void {
     const myChannelId = s.channelId
     if (!myChannelId || s.voiceStates === p.voiceStates) return
     if (myChannelId !== p.channelId) return
-    const scope = s.guildId ?? myChannelId // a DM call: keyed by the DM channel
+    const scope = voiceScopeId({ guildId: s.guildId, channelId: myChannelId })
     const before = p.voiceStates.get(scope)
     const after = s.voiceStates.get(scope)
     const meId = useUserStore.getState().me?.id

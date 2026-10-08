@@ -8,11 +8,12 @@ import { cn, errMsg } from '@/lib/utils'
 import { soundboardService } from '@/services/soundboard'
 import { useGuildSounds } from '@/stores/soundsStore'
 import { useVoiceStore } from '@/stores/voiceStore'
+import { useServerVoice } from '@/components/voice/use-server-voice'
 
 /**
  * The soundboard of the call (§4 Soundboard): a grid of the guild sounds. A click mixes the sound
  * into my sent track and plays it here too. Hidden without SPEAK and USE_SOUNDBOARD in the
- * channel. While I am muted the grid is off: mute drops the sent track, so nobody would hear it.
+ * channel. While I am muted (self or server) the grid is off: nobody would hear it.
  */
 export function SoundboardButton({ className }: { className?: string }): React.JSX.Element | null {
   const guildId = useVoiceStore((s) => s.guildId)
@@ -21,12 +22,14 @@ export function SoundboardButton({ className }: { className?: string }): React.J
   const allowed = has(perms, Permissions.SPEAK | Permissions.USE_SOUNDBOARD)
   const selfMute = useVoiceStore((s) => s.selfMute)
   const micActive = useVoiceStore((s) => s.micActive)
+  const server = useServerVoice()
+  const serverMuted = server.mute || server.deaf
   const sounds = useGuildSounds(guildId)
   useEffect(() => {
     if (guildId && allowed) soundboardService.ensureLoaded(guildId)
   }, [guildId, allowed])
   if (!guildId || !allowed) return null
-  const off = selfMute || !micActive
+  const off = selfMute || serverMuted || !micActive
   return (
     <Popover>
       <PopoverTrigger asChild>
@@ -38,7 +41,11 @@ export function SoundboardButton({ className }: { className?: string }): React.J
         <p className="section-label">Soundboard</p>
         {off && (
           <p className="text-text-tertiary text-xs">
-            {selfMute ? 'Unmute to play sounds.' : 'Your microphone is not on.'}
+            {serverMuted
+              ? 'A moderator muted you.'
+              : selfMute
+                ? 'Unmute to play sounds.'
+                : 'Your microphone is not on.'}
           </p>
         )}
         {sounds.length === 0 ? (

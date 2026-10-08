@@ -1,3 +1,4 @@
+import { voiceScopeId } from '@hachiman/client'
 import { keepRinging, ringOf, type IncomingRing } from '@/lib/call-ring'
 import { openChannelView } from '@/lib/navigation'
 import { hachiman } from '@/services/client'
@@ -61,7 +62,9 @@ class CallRingService {
     const myId = useUserStore.getState().me?.id
     if (!ring || !myId) return
     // The client cache, not the store mirror: CALL_RING can arrive before the mirror ran.
-    const states = hachiman.cache.voiceStates.get(ring.channelId)
+    const states = hachiman.cache.voiceStates.get(
+      voiceScopeId({ guildId: null, channelId: ring.channelId })
+    )
     const { channelId } = useVoiceStore.getState()
     const oneToOne = (hachiman.cache.channels.get(ring.channelId)?.recipients?.length ?? 0) <= 1
     if (!keepRinging(ring, states, myId, channelId, oneToOne)) this.stop()

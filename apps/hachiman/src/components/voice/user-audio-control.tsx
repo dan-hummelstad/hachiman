@@ -1,6 +1,7 @@
 import { useId } from 'react'
 import { Volume2, VolumeX } from 'lucide-react'
 import { Switch } from '@/components/ui/switch'
+import { VolumeRange } from '@/components/voice/volume-range'
 import { DEFAULT_USER_AUDIO, usePrefsStore } from '@/stores/prefsStore'
 
 /**
@@ -17,16 +18,11 @@ export function UserAudioControl({ userId }: { userId: string }): React.JSX.Elem
       <span className="section-label">User volume</span>
       <div className="flex items-center gap-2">
         <Volume2 aria-hidden className="text-text-tertiary size-4 shrink-0" />
-        <input
-          aria-label="User volume"
-          type="range"
-          min={0}
-          max={200}
-          step={5}
-          value={percent}
-          disabled={audio.muted}
-          onChange={(e) => setUserAudio(userId, { volume: Number(e.target.value) / 100 })}
-          className="accent-accent-primary min-w-0 flex-1 disabled:opacity-50"
+        <VolumeRange
+          label="User volume"
+          audio={audio}
+          onVolume={(volume) => setUserAudio(userId, { volume })}
+          className="min-w-0 flex-1"
         />
         <span className="text-meta text-text-secondary w-10 text-right tabular-nums">
           {percent}%

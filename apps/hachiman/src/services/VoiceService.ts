@@ -42,13 +42,18 @@ interface MicSession {
    * plays it on this device too. `volume` is 0..1.
    */
   play(buffer: AudioBuffer, volume: number): void
+  /** Opens or closes the mic branch before the mixer (push to talk). The soundboard is not gated. */
+  setGate(open: boolean): void
+  /** Sends the local soundboard playback to the chosen output device again. */
+  applySink(): void
   /** Releases the capture, the audio graph and the detector. */
   stop(): void
 }
 
 /**
- * Builds the send path for `raw`: mic → (RNNoise worklet, with `rnnoise`) → mixer → a new track.
- * The soundboard joins at the mixer. Every mode has the graph, so a sound can always be mixed in.
+ * Builds the send path for `raw`: mic → (RNNoise worklet, with `rnnoise`) → gate → mixer → a new
+ * track. The soundboard joins at the mixer, after the push-to-talk gate. Every mode has the graph,
+ * so a sound can always be mixed in.
  * Runs local voice-activity detection on the mix. `onSpeaking` fires on changes only, and with
  * `false` on stop. `live()` gates it, so a muted user never shows as speaking. Mute stays in the
  * client (`replaceTrack(null)` on the sender), so it keeps the SFrame sender transform; it also
@@ -68,6 +73,9 @@ async function startMicSession(
   analyser.fftSize = 512
   const source = audioCtx.createMediaStreamSource(raw)
   const mixer = audioCtx.createGain()
+  // Closed until `setGate`: no live mic before the push-to-talk state applies.
+  const gate = new GainNode(audioCtx, { gain: 0 })
+  gate.connect(mixer)
   const dest = audioCtx.createMediaStreamDestination()
   dest.channelCount = 1
   mixer.connect(dest)
@@ -77,7 +85,7 @@ async function startMicSession(
     try {
       const { createRnnoiseNode } = await import('@/lib/rnnoise')
       const node = await createRnnoiseNode(audioCtx)
-      source.connect(node).connect(mixer)
+      source.connect(node).connect(gate)
       denoiser = node
     } catch (err) {
       // Fail soft to the browser's own suppression rather than to none.
@@ -88,7 +96,7 @@ async function startMicSession(
         .catch(() => undefined)
     }
   }
-  if (!denoiser) source.connect(mixer)
+  if (!denoiser) source.connect(gate)
   applySink(audioCtx)
   const buf = new Float32Array(analyser.fftSize)
   let lastLoud = 0
@@ -121,6 +129,10 @@ async function startMicSession(
       node.onended = () => gain.disconnect()
       node.start()
     },
+    setGate: (open) => {
+      gate.gain.value = open ? 1 : 0
+    },
+    applySink: () => applySink(audioCtx),
     stop: () => {
       clearInterval(vad)
       denoiser?.destroy()
@@ -140,8 +152,24 @@ function applySink(ctx: AudioContext): void {
 }
 
 /** A DM or group DM: its call is a voice room too (§6 "DM calls"). */
-export function isDmCall(channel: Channel): boolean {
+function isDmCall(channel: Channel): boolean {
   return channel.type === 'dm' || channel.type === 'group_dm'
+}
+
+/**
+ * The local volume and mute of each user (prefs) on the call: calls `set` for each user whose
+ * entry changed from `prev` to `now`. A removed entry resets the user to the default.
+ */
+function applyVolumes(
+  prev: Record<string, UserAudio>,
+  now: Record<string, UserAudio>,
+  set: (userId: string, volume: number) => void
+): void {
+  for (const userId of new Set([...Object.keys(prev), ...Object.keys(now)])) {
+    const a = now[userId]
+    if (a === prev[userId]) continue
+    set(userId, !a ? 1 : a.muted ? 0 : a.volume)
+  }
 }
 
 function stopTracks(stream: MediaStream): void {
@@ -208,8 +236,6 @@ class VoiceService {
    * joins again once, when the gateway is ready.
    */
   private lost: VoiceTarget | null = null
-  /** Set by 'voiceMoved': the drop that follows is the move, and the next connection is the new call. */
-  private moving = false
   /** Set by media close 4013: the drop that follows rejoins this target instead of ending. */
   private resync: VoiceTarget | null = null
   /** Consecutive 4013 rejoins without keys, and the timer of the next one. */
@@ -224,19 +250,14 @@ class VoiceService {
     const { ownMute, selfDeaf } = useVoiceStore.getState()
     this.setSelfVoice({ selfMute: ownMute, selfDeaf })
     // Dropped underneath us (kicked / replaced / media drop / gateway disconnect on sign-out).
-    // Our own leave/switch clears `this.conn` first, so those don't land here.
+    // Our own leave/switch/move clears `this.conn` first, so those don't land here.
     hachiman.on('voice', (vc) => {
       if (vc) {
         vc.on('close', ({ code }) => {
           if (code === MEDIA_UNSUPPORTED) setCryptoFatal('update_required')
         })
-        if (this.moving) {
-          this.moving = false
-          this.adopt(vc)
-        }
         return
       }
-      if (this.moving) return // the old call of a move
       const resync = this.resync
       this.resync = null
       if (resync) return void this.rejoin(resync)
@@ -251,19 +272,12 @@ class VoiceService {
       setTimeout(() => this.rejoinLost(), REJOIN_DELAY_MS)
     })
     // A moderator moved me (§6 "Voice moderation"): the client follows without op 4.
-    hachiman.on('voiceMoved', ({ guildId, channelId }) => {
+    // It fires before the old call drops, so the teardown clears `this.conn` before that 'voice' null.
+    hachiman.on('voiceMoved', (target, conn) => {
       this.cancelResync()
       this.lost = null
       this.teardown()
-      this.moving = true
-      useVoiceStore.setState({
-        guildId,
-        channelId,
-        localJoinedAt: Date.now(),
-        connectionState: 'new',
-        screens: new Map(),
-        watching: new Set()
-      })
+      void this.follow(target, conn)
     })
     hachiman.on('state', (state) => {
       if (state === 'ready') this.rejoinLost()
@@ -281,7 +295,6 @@ class VoiceService {
     // A share that ends also ends the watching: the next share of that user starts unwatched.
     useVoiceStore.subscribe((s) => {
       if (s.watching.size === 0) return
-      // voiceScopeId: the guild, or the DM channel of a DM call.
       const states = s.channelId
         ? s.voiceStates.get(voiceScopeId({ guildId: s.guildId, channelId: s.channelId }))
         : undefined
@@ -303,11 +316,16 @@ class VoiceService {
         s.noiseSuppression !== prev.noiseSuppression
       if (recapture && this.conn) void this.startMic()
       if (s.micBitrate !== prev.micBitrate) this.applyMicBitrate()
-      if (s.outputDeviceId !== prev.outputDeviceId) this.applyOutputDevice()
+      if (s.outputDeviceId !== prev.outputDeviceId) {
+        this.applyOutputDevice()
+        this.mic?.applySink()
+      }
       if (s.streamQuality !== prev.streamQuality) void this.applyStreamQuality()
-      if (s.userAudio !== prev.userAudio) this.applyUserAudio(prev.userAudio)
+      if (s.userAudio !== prev.userAudio)
+        applyVolumes(prev.userAudio, s.userAudio, (id, v) => this.conn?.setOutputVolume(id, v))
       if (s.voiceInputMode !== prev.voiceInputMode) this.applyInputGate()
-      if (s.streamAudio !== prev.streamAudio) this.applyStreamAudio(prev.streamAudio)
+      if (s.streamAudio !== prev.streamAudio)
+        applyVolumes(prev.streamAudio, s.streamAudio, (id, v) => this.conn?.setScreenVolume(id, v))
     })
   }
 
@@ -342,6 +360,14 @@ class VoiceService {
   private async connect(guildId: string | null, channelId: string): Promise<void> {
     if (useVoiceStore.getState().channelId === channelId) return
     this.teardown()
+    return this.follow({ guildId, channelId }, hachiman.joinVoice(guildId, channelId))
+  }
+
+  /** Mirrors the call that `connPromise` opens for `target`: a join, or a move by a moderator. */
+  private async follow(
+    { guildId, channelId }: VoiceTarget,
+    connPromise: Promise<VoiceConnection>
+  ): Promise<void> {
     useVoiceStore.setState({
       guildId,
       channelId,
@@ -351,7 +377,7 @@ class VoiceService {
       watching: new Set()
     })
     try {
-      const conn = await hachiman.joinVoice(guildId, channelId)
+      const conn = await connPromise
       this.conn = conn
       playSound('voiceJoin')
       await this.wire(conn)
@@ -363,20 +389,14 @@ class VoiceService {
     }
   }
 
-  /** The new call of a move: the client opened it (no joinVoice here). */
-  private adopt(conn: VoiceConnection): void {
-    this.conn = conn
-    playSound('voiceJoin')
-    this.wire(conn).catch((err: unknown) => console.error('[voice] move failed', err))
-  }
-
   /** Mirrors a new call into the store and starts the mic. */
   private async wire(conn: VoiceConnection): Promise<void> {
     // A "Watch stream" clicked while the join was in flight. A move clears `watching` first.
     conn.setScreenSubscriptions(useVoiceStore.getState().watching)
     this.applyOutputDevice()
-    this.applyUserAudio()
-    this.applyStreamAudio()
+    const { userAudio, streamAudio } = usePrefsStore.getState()
+    applyVolumes({}, userAudio, (id, v) => conn.setOutputVolume(id, v))
+    applyVolumes({}, streamAudio, (id, v) => conn.setScreenVolume(id, v))
     this.applyMicBitrate()
     conn.on('state', (connectionState) => {
       if (this.conn === conn) useVoiceStore.setState({ connectionState })
@@ -458,10 +478,11 @@ class VoiceService {
 
   /**
    * Mixes a soundboard sound into my sent track. False when it cannot be heard: no call, no mic,
-   * or self-muted (mute drops the sent track, sound included).
+   * self-muted (mute drops the sent track, sound included) or server-muted. Push to talk does not
+   * gate it.
    */
   playSoundboard(buffer: AudioBuffer, volume: number): boolean {
-    if (!this.conn || !this.mic || hachiman.selfVoice.selfMute) return false
+    if (!this.conn || !this.mic || hachiman.selfVoice.selfMute || this.serverMuted()) return false
     this.mic.play(buffer, volume)
     return true
   }
@@ -492,21 +513,33 @@ class VoiceService {
     this.applyInputGate()
   }
 
-  /** Whether my mic goes out: not self-muted, and in push-to-talk mode only while the key is down. */
+  /**
+   * Whether my mic goes out: not self- or server-muted, and in push-to-talk mode only while the
+   * key is down.
+   */
   private transmitting(): boolean {
-    if (hachiman.selfVoice.selfMute) return false
+    if (hachiman.selfVoice.selfMute || this.serverMuted()) return false
+    return this.pttOpen()
+  }
+
+  private serverMuted(): boolean {
+    const server = hachiman.serverVoice
+    return server.mute || server.deaf
+  }
+
+  /** Open unless push to talk is on and its key is up. */
+  private pttOpen(): boolean {
     return usePrefsStore.getState().voiceInputMode !== 'pushToTalk' || this.pttHeld
   }
 
   /**
-   * Push to talk gates the sent track itself (`enabled`; a disabled track sends silence), not the
-   * sender. Self-mute stays with the client (`replaceTrack(null)`), so the two never race: an
-   * unmute while push to talk is idle puts back a track that carries no audio. Synchronous, so
-   * no frame of live audio goes out between a key-up and the gate.
+   * Push to talk gates the mic branch of the send graph (a gain before the mixer), not the sender
+   * and not the soundboard. Self-mute stays with the client (`replaceTrack(null)`), so the two
+   * never race: an unmute while push to talk is idle puts back a track that carries no mic audio.
+   * The gain applies at the next audio render quantum (a few ms) after a key-up.
    */
   private applyInputGate(): void {
-    const open = usePrefsStore.getState().voiceInputMode !== 'pushToTalk' || this.pttHeld
-    for (const t of this.mic?.stream.getAudioTracks() ?? []) t.enabled = open
+    this.mic?.setGate(this.pttOpen())
   }
 
   /**
@@ -599,33 +632,6 @@ class VoiceService {
 
   private applyOutputDevice(): void {
     void this.conn?.setOutputDevice(usePrefsStore.getState().outputDeviceId)
-  }
-
-  /**
-   * The local volume and mute of each user (prefs) on the call. `prev` also resets the users
-   * whose entry was removed, which means the default.
-   */
-  private applyUserAudio(prev: Record<string, UserAudio> = {}): void {
-    const conn = this.conn
-    if (!conn) return
-    const now = usePrefsStore.getState().userAudio
-    for (const userId of new Set([...Object.keys(prev), ...Object.keys(now)])) {
-      const a = now[userId]
-      if (a === prev[userId]) continue
-      conn.setOutputVolume(userId, !a ? 1 : a.muted ? 0 : a.volume)
-    }
-  }
-
-  /** The local volume and mute of each user's screen share audio, as `applyUserAudio`. */
-  private applyStreamAudio(prev: Record<string, UserAudio> = {}): void {
-    const conn = this.conn
-    if (!conn) return
-    const now = usePrefsStore.getState().streamAudio
-    for (const userId of new Set([...Object.keys(prev), ...Object.keys(now)])) {
-      const a = now[userId]
-      if (a === prev[userId]) continue
-      conn.setScreenVolume(userId, !a ? 1 : a.muted ? 0 : a.volume)
-    }
   }
 
   /** (Re)starts the mic session on the current input device. Never throws. */

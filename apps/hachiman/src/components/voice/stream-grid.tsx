@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { IconButton } from '@/components/ui/icon-button'
 import { SystemTag } from '@/components/ui/system-tag'
 import { TileNameTag } from '@/components/voice/voice-tile'
+import { VolumeRange } from '@/components/voice/volume-range'
 import { TILE, stageColumns } from '@/components/voice/voice-tile-styles'
 import { useMemberView } from '@/hooks/use-member'
 import { cn } from '@/lib/utils'
@@ -187,7 +188,6 @@ function StreamTile({
 function StreamAudioControl({ userId }: { userId: string }): React.JSX.Element {
   const audio = usePrefsStore((s) => s.streamAudio[userId] ?? DEFAULT_USER_AUDIO)
   const setStreamAudio = usePrefsStore((s) => s.setStreamAudio)
-  const percent = Math.round(audio.volume * 100)
   return (
     <div className="bg-surface-window/85 flex items-center gap-1 rounded-full pr-2">
       <IconButton
@@ -198,16 +198,11 @@ function StreamAudioControl({ userId }: { userId: string }): React.JSX.Element {
       >
         {audio.muted ? <VolumeX /> : <Volume2 />}
       </IconButton>
-      <input
-        aria-label="Stream volume"
-        type="range"
-        min={0}
-        max={200}
-        step={5}
-        value={percent}
-        disabled={audio.muted}
-        onChange={(e) => setStreamAudio(userId, { volume: Number(e.target.value) / 100 })}
-        className="accent-accent-primary w-24 disabled:opacity-50"
+      <VolumeRange
+        label="Stream volume"
+        audio={audio}
+        onVolume={(volume) => setStreamAudio(userId, { volume })}
+        className="w-24"
       />
     </div>
   )
