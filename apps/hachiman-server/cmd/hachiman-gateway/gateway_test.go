@@ -387,6 +387,38 @@ func TestViewChannelFilteringAndVisibilityChanges(t *testing.T) {
 	c.expect("MESSAGE_CREATE")
 }
 
+// Joining a guild publishes the joiner's presence to it: the members who
+// were there got only GUILD_MEMBER_ADD, so they would show the joiner offline.
+func TestGuildJoinPublishesPresence(t *testing.T) {
+	h := newHarness(t)
+	c := h.dial()
+	c.identify()
+	c.send(opPresenceUpdate, map[string]any{"status": "dnd"})
+	c.presenceUntil(func(p Presence) bool { return p.Status == "dnd" })
+
+	h.pub("user:"+me, "GUILD_DELETE", map[string]string{"id": gid}, "")
+	c.expect("GUILD_DELETE")
+	sub := h.rdb.Subscribe(context.Background(), "guild:"+gid)
+	t.Cleanup(func() { _ = sub.Close() })
+	if _, err := sub.Receive(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	h.pub("user:"+me, "GUILD_CREATE", map[string]string{"id": gid}, "")
+	c.expect("GUILD_CREATE")
+
+	select {
+	case m := <-sub.Channel():
+		var e envelope
+		var p Presence
+		if json.Unmarshal([]byte(m.Payload), &e) != nil || e.T != "PRESENCE_UPDATE" || json.Unmarshal(e.D, &p) != nil ||
+			p.UserID != me || p.Status != "dnd" {
+			t.Fatalf("guild:%s got %s, want our dnd PRESENCE_UPDATE", gid, m.Payload)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("no PRESENCE_UPDATE to the joined guild")
+	}
+}
+
 // A thread outside READY's cap is not held by the session. Its events still
 // resolve through the parent (contract §5, §6).
 func TestThreadOutsideReadyResolvesThroughParent(t *testing.T) {

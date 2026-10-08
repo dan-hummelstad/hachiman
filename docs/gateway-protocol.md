@@ -665,7 +665,7 @@ Dispatch events:
 | GUILD_ROLE_CREATE / GUILD_ROLE_UPDATE | `{ guildId, role: Role }` |
 | GUILD_ROLE_DELETE | `{ guildId, roleId }` |
 | INVITE_DELETE | `{ guildId, code, inviteId }` — an invite was revoked (§4): by `DELETE /invites/:code`, or because its creator lost ADMINISTRATOR. To every member of the guild. The crypto Worker also gets it (§12.13) |
-| PRESENCE_UPDATE | `Presence` (published to guild:{g} for every guild of the user, and user:{p} for DM partners) |
+| PRESENCE_UPDATE | `Presence` (published to guild:{g} for every guild of the user, and user:{p} for DM partners). When a session gets GUILD_CREATE (the user joined or created a guild), the gateway also publishes the current presence to that guild:{g}, so that the members see the new member online |
 | VOICE_STATE_UPDATE | `VoiceState` (`channelId: null` = left) |
 | VOICE_SERVER_UPDATE | `{ guildId, channelId, endpoint, token, iceServers: RTCIceServer[], expiresAt }` — to the requesting session only |
 | PAGE_CREATE / PAGE_UPDATE | `Page & { guildId }` |

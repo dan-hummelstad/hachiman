@@ -423,11 +423,16 @@ func (s *session) restorePresence(ctx context.Context) bool {
 	return cur == ""
 }
 
-func (s *session) publishPresence() {
+func (s *session) presence() Presence {
 	d := Presence{UserID: s.user.ID, Status: s.status}
 	if s.status != "offline" {
 		d.CustomStatus = s.g.customStatus(s.ctx, s.user.ID)
 	}
+	return d
+}
+
+func (s *session) publishPresence() {
+	d := s.presence()
 	for gid := range s.guilds {
 		s.g.publish(s.ctx, "guild:"+gid, "PRESENCE_UPDATE", d)
 	}
@@ -605,6 +610,9 @@ func (s *session) onUserEvent(e envelope) {
 		s.addGuild(full)
 		s.g.subscribe(s, gf.ID)
 		s.dispatch("GUILD_CREATE", s.clientGuilds(s.ctx, []*GuildFull{full})[0])
+		// The members who were there have no presence of ours: tell them,
+		// else we show offline to them until their next READY.
+		s.g.publish(s.ctx, "guild:"+gf.ID, "PRESENCE_UPDATE", s.presence())
 	case "GUILD_DELETE":
 		var p struct{ ID string }
 		if json.Unmarshal(e.D, &p) != nil || s.guilds[p.ID] == nil {
