@@ -1,9 +1,11 @@
 import { useEffect } from 'react'
 import { toggleSidebar } from '@/components/shell/sidebar-state'
 import { closeSwitcher, isSwitcherOpen, openSwitcher } from '@/components/shell/switcher-state'
-import { isModKey } from '@/lib/mod-key'
-import { matchShortcut, underModal } from '@/lib/shortcuts'
+import { currentKeybinds, useKeybindRuntime } from '@/hooks/use-keybinds'
+import { comboOf, hasCommandModifier, keyOf, splitCombo } from '@/lib/keybinds'
+import { inTextField, matchShortcut, underModal } from '@/lib/shortcuts'
 import { hachiman } from '@/services/hachiman'
+import { voiceService } from '@/services/VoiceService'
 import { useDialogStore } from '@/stores/dialogStore'
 import { useDocsStore } from '@/stores/docsStore'
 import { useGuildStore } from '@/stores/guildStore'
@@ -46,19 +48,34 @@ export function openTab(index: number): boolean {
   return true
 }
 
+const MODIFIERS = new Set(['Meta', 'Control', 'Alt', 'Shift'])
+
 /**
- * The app-wide keys (lib/shortcuts.ts) and the mouse back and forward buttons. One listener; no
- * key acts under a modal dialog, except ⌘K, which closes an open quick switcher. Mount once in
- * the shell.
+ * The app-wide keys (lib/shortcuts.ts, the user's keybinds) and the mouse back and forward
+ * buttons. One listener; no key acts under a modal dialog, except ⌘K, which closes an open quick
+ * switcher, and push to talk. A key without ⌘ / Ctrl / Alt does not act in a text field. Mount
+ * once in the shell.
  */
 export function useAppShortcuts(): void {
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
-      const shortcut = matchShortcut(e.key, isModKey(e))
-      if (!shortcut) return
+      const { recording, globalActive } = useKeybindRuntime.getState()
+      if (recording) return
+      const combo = comboOf(e)
+      const shortcut = matchShortcut(combo, currentKeybinds())
+      if (!combo || !shortcut) return
       if (shortcut.kind === 'switcher' && isSwitcherOpen()) {
         e.preventDefault()
         closeSwitcher()
+        return
+      }
+      if (shortcut.kind !== 'leaveSettings' && !hasCommandModifier(combo) && inTextField(e.target))
+        return
+      // The desktop host took this one as a global shortcut: it arrives from there.
+      if (globalActive.some((a) => a === shortcut.kind)) return
+      if (shortcut.kind === 'pushToTalk') {
+        e.preventDefault()
+        voiceService.setPushToTalk(true)
         return
       }
       if (underModal(e.target, useDialogStore.getState().dialog !== null)) return
@@ -79,6 +96,12 @@ export function useAppShortcuts(): void {
         case 'switcher':
           openSwitcher('open')
           break
+        case 'toggleMute':
+          if (!e.repeat) voiceService.toggleMute()
+          break
+        case 'toggleDeafen':
+          if (!e.repeat) voiceService.toggleDeaf()
+          break
         case 'leaveSettings':
           // An Esc that a menu or popover took, or that a field in [data-esc-local] uses, stays.
           if (e.defaultPrevented || useNavStore.getState().settings === null) return
@@ -88,6 +111,15 @@ export function useAppShortcuts(): void {
       }
       if (handled) e.preventDefault()
     }
+    // Push to talk ends when its key or one of its modifiers comes up, or the window loses focus.
+    const onKeyUp = (e: KeyboardEvent): void => {
+      const ptt = currentKeybinds().pushToTalk
+      if (!ptt) return
+      const { mods, key } = splitCombo(ptt)
+      if (keyOf(e) === key || (mods.length > 0 && MODIFIERS.has(e.key)))
+        voiceService.setPushToTalk(false)
+    }
+    const onBlur = (): void => voiceService.setPushToTalk(false)
     // Buttons 3 and 4: the mouse back and forward buttons.
     const onMouse = (e: MouseEvent): void => {
       if (e.button !== 3 && e.button !== 4) return
@@ -96,9 +128,13 @@ export function useAppShortcuts(): void {
       else goForward()
     }
     window.addEventListener('keydown', onKey)
+    window.addEventListener('keyup', onKeyUp)
+    window.addEventListener('blur', onBlur)
     window.addEventListener('mouseup', onMouse)
     return () => {
       window.removeEventListener('keydown', onKey)
+      window.removeEventListener('keyup', onKeyUp)
+      window.removeEventListener('blur', onBlur)
       window.removeEventListener('mouseup', onMouse)
     }
   }, [])

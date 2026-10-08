@@ -1,6 +1,7 @@
 import {
   Download,
   Headphones,
+  Keyboard,
   KeyRound,
   LayoutGrid,
   Link,
@@ -29,6 +30,7 @@ import { AccountSection } from '@/components/settings/user/account'
 import { AdvancedSection } from '@/components/settings/user/advanced'
 import { AppearanceSection } from '@/components/settings/user/appearance'
 import { CloseToTraySection } from '@/components/settings/user/tray'
+import { KeybindsSection } from '@/components/settings/user/keybinds'
 import { UpdatesSection } from '@/components/settings/user/updates'
 import { VoiceSection } from '@/components/settings/user/voice'
 import { UserAvatar } from '@/components/shell/user-avatar'
@@ -194,6 +196,17 @@ function useUserSettingsModel(active: boolean): SettingsModel {
             }
           },
           // The web app has no tray and updates on reload.
+          {
+            id: 'keybinds',
+            label: 'Keybinds',
+            icon: <Keyboard />,
+            page: {
+              title: 'Keybinds',
+              description: 'Click a key to change it, then press the new keys. Esc cancels.',
+              render: () => <KeybindsSection />
+            }
+          },
+          // The web app updates on reload.
           {
             id: 'updates',
             label: 'Desktop app',

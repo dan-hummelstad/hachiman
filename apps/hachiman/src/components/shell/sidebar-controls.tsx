@@ -5,7 +5,7 @@ import { IconButton } from '@/components/ui/icon-button'
 import { Keycap } from '@/components/ui/keycap'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { goBack, goForward } from '@/hooks/use-app-shortcuts'
-import { MOD_KEY } from '@/lib/mod-key'
+import { useKeybindLabel } from '@/hooks/use-keybinds'
 import { useCanGoBack, useCanGoForward } from '@/stores/navStore'
 
 const CONTROL = 'text-text-secondary hover:text-text-primary hover:bg-surface-hover rounded-control'
@@ -19,6 +19,7 @@ export function SidebarControls(): React.JSX.Element {
   const canBack = useCanGoBack()
   const canForward = useCanGoForward()
   // A revealed sidebar reads "dock": one click pins it back into the window.
+  const key = useKeybindLabel('sidebar')
   const label = sidebar === 'docked' ? 'Hide sidebar' : 'Dock sidebar'
   const Icon = sidebar === 'tucked' ? PanelLeftOpen : PanelLeftClose
   return (
@@ -35,7 +36,7 @@ export function SidebarControls(): React.JSX.Element {
           </Button>
         </TooltipTrigger>
         <TooltipContent side="bottom" className="flex items-center gap-2">
-          {label} <Keycap>{MOD_KEY}S</Keycap>
+          {label} {key && <Keycap>{key}</Keycap>}
         </TooltipContent>
       </Tooltip>
       <IconButton

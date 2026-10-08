@@ -6,6 +6,7 @@ import type { StreamQuality } from '@/lib/stream-quality'
 import type { SoundEvent } from '@/lib/sounds'
 import type { NotifyLevel, NotifyPrefs } from '@/lib/notify'
 import type { TabTarget } from '@/stores/tabsStore'
+import type { KeybindAction, KeybindOverrides } from '@/lib/keybinds'
 
 export type MessageDisplay = 'cozy' | 'compact'
 /** `system` follows the OS colour scheme. Applied to `<html>` by `ThemeProvider`. */
@@ -25,6 +26,8 @@ export const DEFAULT_CUSTOM_GRADIENT: CustomGradient = {
   lightness: 62,
   angle: 135
 }
+/** How the mic opens in voice: on speech (VAD), or only while the push-to-talk key is held. */
+export type VoiceInputMode = 'voiceActivity' | 'pushToTalk'
 
 /** The preferences of one account on this device (N1, N6, N9). */
 export interface AccountPrefs extends NotifyPrefs {
@@ -73,6 +76,9 @@ interface PrefsState {
   wallpaper: WallpaperMode
   /** The gradient while `wallpaper` is `custom`. Kept when the user goes back to the guild tint. */
   customGradient: CustomGradient
+  /** The user's keybind changes (lib/keybinds.ts); a missing action keeps its default. */
+  keybinds: KeybindOverrides
+  voiceInputMode: VoiceInputMode
   /** Width in px of the right column while it shows a page (the user drags its edge). */
   pageColumnWidth: number
   /** userId → that account's preferences. */
@@ -94,6 +100,11 @@ interface PrefsState {
   setSidebar: (sidebar: SidebarMode) => void
   setWallpaper: (wallpaper: WallpaperMode) => void
   setCustomGradient: (customGradient: CustomGradient) => void
+  /** `combo` null: no key. */
+  setKeybind: (action: KeybindAction, combo: string | null) => void
+  /** Back to the default key; no `action`: every action. */
+  resetKeybind: (action?: KeybindAction) => void
+  setVoiceInputMode: (voiceInputMode: VoiceInputMode) => void
   setPageColumnWidth: (pageColumnWidth: number) => void
   setAccountId: (accountId: string | null) => void
   setFavouriteDm: (channelId: string, favourite: boolean) => void
@@ -131,6 +142,8 @@ export const usePrefsStore = create<PrefsState>()(
         sidebar: 'docked',
         wallpaper: 'guild',
         customGradient: DEFAULT_CUSTOM_GRADIENT,
+        keybinds: {},
+        voiceInputMode: 'voiceActivity',
         pageColumnWidth: 540,
         accounts: {},
         accountId: null,
@@ -161,6 +174,16 @@ export const usePrefsStore = create<PrefsState>()(
         setSidebar: (sidebar) => set({ sidebar }),
         setWallpaper: (wallpaper) => set({ wallpaper }),
         setCustomGradient: (customGradient) => set({ customGradient }),
+        setKeybind: (action, combo) =>
+          set((s) => ({ keybinds: { ...s.keybinds, [action]: combo } })),
+        resetKeybind: (action) =>
+          set((s) => {
+            if (!action) return { keybinds: {} }
+            const keybinds = { ...s.keybinds }
+            delete keybinds[action]
+            return { keybinds }
+          }),
+        setVoiceInputMode: (voiceInputMode) => set({ voiceInputMode }),
         setPageColumnWidth: (pageColumnWidth) => set({ pageColumnWidth }),
         setAccountId: (accountId) => set({ accountId }),
         setFavouriteDm: (channelId, favourite) =>

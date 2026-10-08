@@ -2,12 +2,16 @@ import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import { Headphones, Mic, Square } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ErrorText, SectionHeading } from '@/components/ui/field'
+import { Keycap } from '@/components/ui/keycap'
 import { NativeSelect } from '@/components/ui/native-select'
+import { SegmentedControl } from '@/components/ui/segmented-control'
 import { Switch } from '@/components/ui/switch'
 import { SoundSettings } from '@/components/settings/user/sounds'
+import { useKeybindLabel } from '@/hooks/use-keybinds'
 import { useMicLevel } from '@/hooks/use-mic-level'
 import { errMsg } from '@/lib/utils'
-import { usePrefsStore, type NoiseSuppression } from '@/stores/prefsStore'
+import { setSettingsSection } from '@/stores/navStore'
+import { usePrefsStore, type NoiseSuppression, type VoiceInputMode } from '@/stores/prefsStore'
 
 const canPickOutput =
   typeof HTMLMediaElement !== 'undefined' && 'setSinkId' in HTMLMediaElement.prototype
@@ -81,10 +85,51 @@ export function VoiceSection(): React.JSX.Element {
           : 'This app can’t list audio devices here, so the system default is used.'}
       </ErrorText>
       <NoiseSuppressionSelect />
+      <InputMode />
       <MicCheck deviceId={inputDeviceId} onOpen={refresh} />
       <AudioQuality />
       <SoundSettings />
     </div>
+  )
+}
+
+const INPUT_MODES = [
+  { value: 'voiceActivity', label: 'Voice activity' },
+  { value: 'pushToTalk', label: 'Push to talk' }
+] as const
+
+/** Voice activity sends when you speak; push to talk only while its key is held. */
+function InputMode(): React.JSX.Element {
+  const mode = usePrefsStore((s) => s.voiceInputMode)
+  const setMode = usePrefsStore((s) => s.setVoiceInputMode)
+  const key = useKeybindLabel('pushToTalk')
+  const toKeybinds = (): void => setSettingsSection('keybinds')
+  return (
+    <section className="grid gap-2">
+      <SectionHeading className="mb-0">Input mode</SectionHeading>
+      <SegmentedControl<VoiceInputMode>
+        label="Input mode"
+        options={INPUT_MODES}
+        value={mode}
+        onChange={setMode}
+        className="w-fit"
+      />
+      {mode === 'pushToTalk' && (
+        <p className="text-meta text-text-tertiary">
+          {key ? (
+            <>
+              Hold <Keycap>{key}</Keycap> to talk.{' '}
+            </>
+          ) : (
+            'No push-to-talk key is set, so your microphone stays closed. '
+          )}
+          <Button variant="link" className="text-meta" onClick={toKeybinds}>
+            {key ? 'Change the key' : 'Set a key'}
+          </Button>
+          . Push to talk works only while the Hachiman window is focused.
+        </p>
+      )}
+    </section>
   )
 }
 

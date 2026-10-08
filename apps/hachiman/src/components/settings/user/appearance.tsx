@@ -4,7 +4,7 @@ import { SectionHeading } from '@/components/ui/field'
 import { Keycap } from '@/components/ui/keycap'
 import { RadioCard } from '@/components/ui/radio-card'
 import { customWallpaper, FALLBACK_HUES, tintColors, tintWallpaper } from '@/lib/guild-tint'
-import { MOD_KEY } from '@/lib/mod-key'
+import { useKeybindLabel } from '@/hooks/use-keybinds'
 import { cn } from '@/lib/utils'
 import {
   usePrefsStore,
@@ -37,6 +37,7 @@ export function AppearanceSection(): React.JSX.Element {
   const messageDisplay = usePrefsStore((s) => s.messageDisplay)
   const setMessageDisplay = usePrefsStore((s) => s.setMessageDisplay)
   const sidebar = usePrefsStore((s) => s.sidebar)
+  const sidebarKey = useKeybindLabel('sidebar')
 
   return (
     <div className="grid gap-8">
@@ -71,8 +72,13 @@ export function AppearanceSection(): React.JSX.Element {
                   'Part of the window, always visible'
                 ) : (
                   <>
-                    Slides out at the left edge ·{' '}
-                    <Keycap className="h-4 bg-transparent px-0.5">{MOD_KEY}S</Keycap>
+                    Slides out at the left edge
+                    {sidebarKey && (
+                      <>
+                        {' · '}
+                        <Keycap className="h-4 bg-transparent px-0.5">{sidebarKey}</Keycap>
+                      </>
+                    )}
                   </>
                 )
               }

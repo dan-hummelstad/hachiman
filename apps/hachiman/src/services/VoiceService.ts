@@ -160,6 +160,8 @@ class VoiceService {
   /** Consecutive 4013 rejoins without keys, and the timer of the next one. */
   private readonly resyncBackoff = new ResyncBackoff()
   private resyncTimer: ReturnType<typeof setTimeout> | null = null
+  /** The push-to-talk key is down (focused window only: hooks/use-app-shortcuts.ts). */
+  private pttHeld = false
 
   /** Wires the client and prefs subscriptions. `startHachiman()` calls it once. */
   start(): void {
@@ -222,6 +224,7 @@ class VoiceService {
       if (s.outputDeviceId !== prev.outputDeviceId) this.applyOutputDevice()
       if (s.streamQuality !== prev.streamQuality) void this.applyStreamQuality()
       if (s.userAudio !== prev.userAudio) this.applyUserAudio(prev.userAudio)
+      if (s.voiceInputMode !== prev.voiceInputMode) this.applyInputGate()
     })
   }
 
@@ -366,6 +369,33 @@ class VoiceService {
   }
 
   /**
+   * Push to talk: the key went down (true) or up. Only the sent track changes; no voice state
+   * goes out, so the others see no mute icon per press. The VAD still drives the speaking ring.
+   */
+  setPushToTalk(held: boolean): void {
+    if (held === this.pttHeld) return
+    this.pttHeld = held
+    this.applyInputGate()
+  }
+
+  /** Whether my mic goes out: not self-muted, and in push-to-talk mode only while the key is down. */
+  private transmitting(): boolean {
+    if (hachiman.selfVoice.selfMute) return false
+    return usePrefsStore.getState().voiceInputMode !== 'pushToTalk' || this.pttHeld
+  }
+
+  /**
+   * Push to talk gates the sent track itself (`enabled`; a disabled track sends silence), not the
+   * sender. Self-mute stays with the client (`replaceTrack(null)`), so the two never race: an
+   * unmute while push to talk is idle puts back a track that carries no audio. Synchronous, so
+   * no frame of live audio goes out between a key-up and the gate.
+   */
+  private applyInputGate(): void {
+    const open = usePrefsStore.getState().voiceInputMode !== 'pushToTalk' || this.pttHeld
+    for (const t of this.mic?.stream.getAudioTracks() ?? []) t.enabled = open
+  }
+
+  /**
    * "Watch stream" / "Stop watching" for `userId`'s live share. Local only: there is no subscribe
    * op (§8), so media still sends the video and the UI only leaves it unattached.
    */
@@ -480,12 +510,14 @@ class VoiceService {
       const mic = await startMicSession(
         stream,
         mode === 'rnnoise',
-        () => !hachiman.selfVoice.selfMute,
+        () => this.transmitting(),
         (speaking) => this.setLocalSpeaking(speaking)
       )
       // Superseded while the RNNoise worklet loaded.
       if (attempt !== this.micAttempt) return mic.stop()
       this.mic = mic
+      // Before the sender gets the track: in push-to-talk mode it starts closed.
+      this.applyInputGate()
       useVoiceStore.setState({ micActive: true })
       await conn.setMicrophone(mic.stream)
     } catch (err) {
