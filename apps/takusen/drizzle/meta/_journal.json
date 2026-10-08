@@ -85,6 +85,13 @@
       "when": 1791467212633,
       "tag": "0011_member_voice_moderation",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1791468012353,
+      "tag": "0012_guild_emojis",
+      "breakpoints": true
     }
   ]
 }

@@ -50,7 +50,7 @@ export * from './schema-channel-state'
 export const userRoleEnum = pgEnum('user_role', ['user', 'admin'])
 export const channelTypeEnum = pgEnum('channel_type', ['text', 'voice', 'category', 'dm', 'group_dm', 'pages', 'thread'])
 export const overwriteTypeEnum = pgEnum('overwrite_type', ['role', 'member'])
-export const uploadPurposeEnum = pgEnum('upload_purpose', ['attachment', 'image', 'page_snapshot', 'page_media', 'sound'])
+export const uploadPurposeEnum = pgEnum('upload_purpose', ['attachment', 'image', 'page_snapshot', 'page_media', 'sound', 'emoji'])
 
 // E2EE enums (§3).
 export const deviceStatusEnum = pgEnum('device_status', ['pending', 'active', 'revoked'])
@@ -466,6 +466,28 @@ export const uploads = pgTable(
   ],
 )
 
+// Custom guild emojis (§4 Emojis). Plaintext, like the guild icon: the image is an
+// `emoji` upload, and messages name an emoji as `<:name:id>` inside the envelope.
+export const guildEmojis = pgTable(
+  'guild_emojis',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    guildId: uuid('guild_id')
+      .notNull()
+      .references(() => guilds.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    uploadId: uuid('upload_id')
+      .notNull()
+      .unique()
+      .references(() => uploads.id, { onDelete: 'cascade' }),
+    createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [uniqueIndex('guild_emojis_guild_name_idx').on(table.guildId, table.name)],
+)
+
 // ---------------------------------------------------------------------------
 // Inferred row types — re-export for downstream consumers.
 // ---------------------------------------------------------------------------
@@ -485,6 +507,7 @@ export type DmParticipantRow = typeof dmParticipants.$inferSelect
 export type InviteRow = typeof invites.$inferSelect
 export type InviteBundleRow = typeof inviteBundles.$inferSelect
 export type UploadRow = typeof uploads.$inferSelect
+export type GuildEmojiRow = typeof guildEmojis.$inferSelect
 
 // ---------------------------------------------------------------------------
 // Media nodes — placement registry for the WebRTC SFU plane.
