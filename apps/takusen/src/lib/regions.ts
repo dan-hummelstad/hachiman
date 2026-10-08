@@ -7,7 +7,9 @@ import { asc } from 'drizzle-orm'
 import { z } from 'zod'
 
 import { db } from '@/db/client'
-import { regions, type Region } from '@/db/schema'
+import { mediaNodes, regions, type Region } from '@/db/schema'
+import { HEARTBEAT_STALE_AFTER_MS } from '@/grpc/repo'
+import { summarizeMediaNodes, toAdminMediaNode, type MediaNodeSummary } from '@/lib/admin'
 
 /**
  * Region codes are short machine identifiers (e.g. "us-east"). The
@@ -35,4 +37,22 @@ export const regionFieldsSchema = z.object({
 
 export async function listRegions(): Promise<Region[]> {
   return await db.select().from(regions).orderBy(asc(regions.displayName))
+}
+
+export interface RegionStatus {
+  code: string
+  displayName: string
+  /** The admin summary of the region's media nodes; `active` nodes are the ones placement can pick. */
+  nodes: MediaNodeSummary
+}
+
+/** Each region with its media-node summary, for the public status on the landing page. */
+export async function listRegionStatus(now = new Date()): Promise<RegionStatus[]> {
+  const [all, nodes] = await Promise.all([listRegions(), db.select().from(mediaNodes)])
+  const views = nodes.map((n) => toAdminMediaNode(n, now, HEARTBEAT_STALE_AFTER_MS))
+  return all.map((r) => ({
+    code: r.code,
+    displayName: r.displayName,
+    nodes: summarizeMediaNodes(views.filter((n) => n.region === r.code)),
+  }))
 }
