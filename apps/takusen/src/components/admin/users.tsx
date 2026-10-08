@@ -3,25 +3,22 @@
 import { KeyRoundIcon, LogOutIcon, ShieldMinusIcon, ShieldPlusIcon, Trash2Icon, UsersRoundIcon } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 
+import { EntityAvatar } from '@/components/ui/avatar'
 import { Tag } from '@/components/ui/badge'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { fileUrl } from '@/lib/file-url'
 import type { AdminCounts, AdminUser } from '@/lib/admin'
+import { adminFetch, useAdminData, useCursorPages, withParams } from '@/components/admin/data'
+import { Dot } from '@/components/ui/meter'
+import { formatDate, plural } from '@/lib/format'
 import {
-  adminFetch,
-  Dot,
-  EntityAvatar,
   FilterChips,
-  formatDate,
   IdentityCell,
   ListFrame,
   Pagination,
-  plural,
   RowMenu,
-  useAdminData,
-  useCursorPages,
   useFilterParam,
   useSearchParamState,
-  withParams,
   type RowMenuItem,
 } from './kit'
 
@@ -157,7 +154,7 @@ function UserRow({
     <TableRow>
       <TableCell>
         <IdentityCell
-          avatar={<EntityAvatar fileKey={u.avatar} name={u.displayName} email={u.email} />}
+          avatar={<EntityAvatar src={fileUrl(u.avatar)} name={u.displayName} email={u.email} />}
           name={u.displayName}
           tags={
             <>

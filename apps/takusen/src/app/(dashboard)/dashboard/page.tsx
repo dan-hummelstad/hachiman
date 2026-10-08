@@ -1,6 +1,5 @@
 import { headers } from 'next/headers'
 
-import { formatDay, passwordAge, plural, timeAgo } from '@/components/account/format'
 import { IdentityCard, NextStepPanel, SecurityPanel } from '@/components/account/overview-cards'
 import { AppsPanel, SessionsPanel, type SessionRowData } from '@/components/account/overview-panels'
 import { DashboardShell } from '@/components/dashboard-shell'
@@ -8,6 +7,7 @@ import { getAccountSummary, listAppAccess, listHachimanSessions } from '@/lib/ac
 import { describeUserAgent, type HachimanSession } from '@/lib/account-sessions'
 import { getOptionalUser } from '@/lib/auth-helpers'
 import { hachimanLinks } from '@/lib/deployment'
+import { formatDate, formatRelative, passwordAge, plural } from '@/lib/format'
 
 export const metadata = {
   title: 'Overview · Takusen',
@@ -18,7 +18,7 @@ export const metadata = {
  * registered ("Hachiman Desktop" / "Hachiman Web"), and the time of the last token.
  */
 function sessionRow(s: HachimanSession): SessionRowData {
-  const when = timeAgo(s.lastActiveAt)
+  const when = formatRelative(s.lastActiveAt)
   if (!s.device) {
     return { grantId: s.grantId, icon: 'app', title: 'Hachiman', meta: `No device set up yet · ${when}` }
   }
@@ -84,7 +84,7 @@ export default async function DashboardPage(): Promise<React.JSX.Element | null>
           email={email}
           avatarUrl={summary?.avatarUrl ?? null}
           admin={session.user.role === 'admin'}
-          memberSince={summary ? formatDay(summary.createdAt) : ''}
+          memberSince={summary ? formatDate(summary.createdAt) : ''}
         />
       )}
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_400px] xl:items-start">
@@ -104,7 +104,7 @@ export default async function DashboardPage(): Promise<React.JSX.Element | null>
             apps={apps.map((a) => ({
               clientId: a.clientId,
               sessionCount: a.sessionCount,
-              meta: `${plural(a.scopes.length, 'permission', 'permissions')} · since ${formatDay(a.since)}`,
+              meta: `${plural(a.scopes.length, 'permission', 'permissions')} · since ${formatDate(a.since)}`,
             }))}
           />
         </div>

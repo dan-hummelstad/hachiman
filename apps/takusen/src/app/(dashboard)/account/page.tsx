@@ -1,7 +1,7 @@
-import { passwordAge } from '@/components/account/format'
 import { DashboardShell } from '@/components/dashboard-shell'
 import { getAccountSummary } from '@/lib/account'
 import { requireUser } from '@/lib/auth-helpers'
+import { passwordAge } from '@/lib/format'
 
 import { PasswordPanel } from './password-panel'
 import { ProfilePanel } from './profile-panel'

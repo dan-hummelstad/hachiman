@@ -16,25 +16,18 @@ import Link from 'next/link'
 import { useState, type ReactNode } from 'react'
 import { toast } from 'sonner'
 
+import { EntityAvatar } from '@/components/ui/avatar'
 import { StatusTag } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Panel, PanelHeader, PanelList } from '@/components/ui/card'
 import type { AdminMediaNode, AdminOverview, AdminUser, Page } from '@/lib/admin'
+import { fileUrl } from '@/lib/file-url'
 import { cn } from '@/lib/utils'
-import {
-  adminFetch,
-  ConfirmAction,
-  EntityAvatar,
-  ErrorBanner,
-  errorText,
-  formatBytes,
-  formatDay,
-  formatRelative,
-  IdentityCell,
-  Meter,
-  plural,
-  useAdminData,
-} from './kit'
+import { adminFetch, errorText, useAdminData } from '@/components/admin/data'
+import { ConfirmAction } from '@/components/ui/confirm-dialog'
+import { Meter } from '@/components/ui/meter'
+import { formatBytes, formatDayShort, formatDuration, formatRelative, plural } from '@/lib/format'
+import { ErrorBanner, IdentityCell } from './kit'
 
 /**
  * F1: the state of the deployment. Five counts, what needs attention with the fix one click
@@ -128,12 +121,12 @@ export function AdminOverviewView(): React.JSX.Element {
                   >
                     <div className="min-w-0 flex-1">
                       <IdentityCell
-                        avatar={<EntityAvatar fileKey={u.avatar} name={u.displayName} email={u.email} size={30} />}
+                        avatar={<EntityAvatar src={fileUrl(u.avatar)} name={u.displayName} email={u.email} size={30} />}
                         name={u.displayName}
                         sub={u.email}
                       />
                     </div>
-                    <span className="shrink-0 text-[13px] text-text-tertiary">{formatDay(u.createdAt)}</span>
+                    <span className="shrink-0 text-[13px] text-text-tertiary">{formatDayShort(u.createdAt)}</span>
                   </Link>
                 </li>
               ))}
@@ -152,7 +145,7 @@ export function AdminOverviewView(): React.JSX.Element {
             <Fact label="Node.js" mono>
               {o.server.nodeVersion}
             </Fact>
-            <Fact label="Uptime">{uptime(o.server.uptimeSeconds)}</Fact>
+            <Fact label="Uptime">{formatDuration(o.server.uptimeSeconds)}</Fact>
           </dl>
           <div className="mt-auto flex items-center gap-3 border-t border-line-hairline px-[18px] py-3.5">
             <p className="min-w-0 flex-1 text-[13px] text-text-tertiary">
@@ -225,13 +218,6 @@ function Fact({ label, mono, children }: { label: string; mono?: boolean; childr
   )
 }
 
-function uptime(seconds: number): string {
-  const d = Math.floor(seconds / 86400)
-  const h = Math.floor((seconds % 86400) / 3600)
-  const m = Math.floor((seconds % 3600) / 60)
-  return d > 0 ? `${d}d ${h}h` : h > 0 ? `${h}h ${m}m` : `${m}m`
-}
-
 interface AttentionItem {
   key: string
   icon: LucideIcon
@@ -290,7 +276,7 @@ function NeedsAttention({
       key: 'unverified',
       icon: MailQuestionIcon,
       iconClass: 'text-text-secondary',
-      title: `${plural(unverified, 'account')} ${unverified === 1 ? "hasn't" : "haven't"} verified their email`,
+      title: `${plural(unverified, "account hasn't", "accounts haven't")} verified their email`,
       meta: 'They can sign in, but their email address is not confirmed.',
       action: (
         <Button variant="secondary" size="sm" asChild>

@@ -10,9 +10,10 @@ import { db } from '@/db/client'
 import { users } from '@/db/schema'
 import { requireUser } from '@/lib/auth-helpers'
 import { redis } from '@/lib/events'
+import { plural } from '@/lib/format'
 import { checkCurrentPassword, PASSWORD_ATTEMPTS_WINDOW_SECONDS, redisAttemptStore } from '@/lib/password-attempts'
 import { completePasswordChange } from '@/lib/password-reset'
-import { passwordProblem } from '@/lib/password-strength'
+import { PASSWORD_MIN_LENGTH, passwordProblem } from '@/lib/password-strength'
 import { revokeUserSessions } from '@/lib/session-revocation'
 
 const BCRYPT_COST = 12
@@ -42,7 +43,7 @@ function issueResult(issue: { message: string; path: (string | number)[] } | und
 
 function pauseMessage(seconds: number): string {
   const minutes = Math.ceil(seconds / 60)
-  return `Too many wrong passwords. Try again in ${minutes} ${minutes === 1 ? 'minute' : 'minutes'}.`
+  return `Too many wrong passwords. Try again in ${plural(minutes, 'minute')}.`
 }
 
 const displayNameSchema = z.object({
@@ -58,7 +59,7 @@ const changePasswordSchema = z
     currentPassword: z.string().min(1, 'Current password is required'),
     newPassword: z
       .string()
-      .min(8, 'New password must be at least 8 characters')
+      .min(PASSWORD_MIN_LENGTH, `New password must be at least ${PASSWORD_MIN_LENGTH} characters`)
       .max(128, 'New password is too long'),
     confirmPassword: z.string().min(1, 'Please confirm your new password'),
   })
@@ -119,7 +120,7 @@ export async function changePasswordAction(
     return {
       ok: false,
       field: 'currentPassword',
-      error: `That isn't your current password. ${check.attemptsLeft} ${check.attemptsLeft === 1 ? 'try' : 'tries'} left before a ${PASSWORD_ATTEMPTS_WINDOW_SECONDS / 60}-minute pause.`,
+      error: `That isn't your current password. ${plural(check.attemptsLeft, 'try', 'tries')} left before a ${PASSWORD_ATTEMPTS_WINDOW_SECONDS / 60}-minute pause.`,
       attemptsLeft: check.attemptsLeft,
     }
   }

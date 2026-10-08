@@ -7,7 +7,7 @@ import { useFormStatus } from 'react-dom'
 
 import { PROFILE_IMAGE_TYPES } from '@hachiman/client/files'
 
-import { UserAvatar } from '@/components/account/user-avatar'
+import { EntityAvatar } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import { Panel, PanelFooter, PanelHeader } from '@/components/ui/card'
 import { Field } from '@/components/ui/field'
@@ -81,7 +81,7 @@ function AvatarRow({
 
   return (
     <div className="flex flex-wrap items-center gap-3.5">
-      <UserAvatar name={name} email={email} src={avatarUrl} size={60} />
+      <EntityAvatar src={avatarUrl} name={name} email={email} size={60} tone="gold" />
       <div className="flex min-w-[180px] flex-1 flex-col gap-[3px]">
         <span className="text-sm leading-[18px] font-extrabold">Avatar</span>
         {error ? (

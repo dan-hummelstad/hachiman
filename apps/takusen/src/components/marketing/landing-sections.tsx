@@ -31,6 +31,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { plural } from '@/lib/format'
 import type { RegionStatus } from '@/lib/regions'
 import { cn } from '@/lib/utils'
 
@@ -344,7 +345,7 @@ function RegionCell({ region }: { region: RegionStatus }): React.JSX.Element {
           {live > 0 ? 'Online' : 'Offline'}
         </span>
         <span className="pb-0.5 text-[13px] leading-4 font-medium text-text-tertiary max-sm:hidden sm:pb-1.5">
-          {live > 0 ? `${live} voice ${live === 1 ? 'node' : 'nodes'}` : 'no voice nodes'}
+          {live > 0 ? plural(live, 'voice node') : 'no voice nodes'}
         </span>
       </span>
     </li>

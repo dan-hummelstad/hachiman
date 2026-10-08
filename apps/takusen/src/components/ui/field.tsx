@@ -1,3 +1,4 @@
+import { CircleAlertIcon } from 'lucide-react'
 import Link from 'next/link'
 
 import { cn } from '@/lib/utils'
@@ -17,7 +18,7 @@ export function SectionHeading({
 
 /**
  * TK / Field: label row (13.5/700) with an optional right-side link, the control, then a
- * help line (13, tertiary) or an error line (13, danger) in its place.
+ * help line (13, tertiary) or an error line (13, danger, alert icon) in its place.
  */
 export function Field({
   id,
@@ -50,9 +51,10 @@ export function Field({
       {error ? (
         <p
           id={id ? `${id}-error` : undefined}
-          className="text-[13px] leading-[1.4] font-semibold text-feature-danger-text"
+          className="flex items-start gap-1.5 text-[13px] leading-[1.4] font-semibold text-feature-danger-text"
         >
-          {error}
+          <CircleAlertIcon aria-hidden className="mt-0.5 size-3.5 shrink-0" />
+          <span>{error}</span>
         </p>
       ) : (
         hint && (

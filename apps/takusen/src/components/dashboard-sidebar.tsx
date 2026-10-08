@@ -15,14 +15,14 @@ import { useSyncExternalStore } from 'react'
 
 import { useHideSidebar, useOpenPalette } from '@/components/dashboard-frame'
 import { isActive, navGroupsFor, type NavItem } from '@/components/dashboard-nav-items'
-import { initialsFor } from '@/components/initials'
 import { Brand, HachimanMark } from '@/components/takusen-logo'
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
+import { EntityAvatar } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import type { HachimanState } from '@/lib/account'
 import type { AdminCounts } from '@/lib/admin'
 import type { HachimanLinks } from '@/lib/deployment'
+import { plural } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
 export interface DashboardSidebarProps {
@@ -98,10 +98,7 @@ export function DashboardSidebar({
       <HachimanLauncher {...hachiman} links={links} />
 
       <div className="flex shrink-0 items-center gap-2.5 px-1 pt-2.5">
-        <Avatar className="size-[34px] rounded-full">
-          {user.avatarUrl && <AvatarImage src={user.avatarUrl} alt="" />}
-          <AvatarFallback className="rounded-full">{initialsFor(user.name, user.email)}</AvatarFallback>
-        </Avatar>
+        <EntityAvatar src={user.avatarUrl} name={user.name} email={user.email} size={34} tone="gold" />
         <div className="flex min-w-0 flex-1 flex-col gap-px">
           <span className="truncate text-sm leading-[18px] font-extrabold">{user.name || user.email}</span>
           <span className="truncate text-[12.5px] leading-4 text-text-tertiary">{user.email}</span>
@@ -156,7 +153,7 @@ function NavRow({
 const LAUNCHER_STATUS: Record<HachimanState, { dot: string; label: (guilds: number) => string }> = {
   signed_in: {
     dot: 'bg-status-online',
-    label: (n) => `Signed in · ${n} ${n === 1 ? 'guild' : 'guilds'}`,
+    label: (n) => `Signed in · ${plural(n, 'guild')}`,
   },
   signed_out: { dot: 'bg-status-offline', label: () => 'Signed out' },
   never: { dot: 'bg-status-offline', label: () => 'Not opened yet' },

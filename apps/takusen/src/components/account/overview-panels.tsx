@@ -1,15 +1,16 @@
 'use client'
 
-import { AppWindowIcon, GlobeIcon, InfoIcon, LogOutIcon, MonitorIcon, SmartphoneIcon } from 'lucide-react'
-
+import { AppWindowIcon, GlobeIcon, LogOutIcon, MonitorIcon, SmartphoneIcon } from 'lucide-react'
 import { useRouter } from 'next/navigation'
+import { useTransition } from 'react'
+import { toast } from 'sonner'
 
 import { signOutEverywhereElseAction, signOutHachimanSessionAction, revokeAppAccessAction } from '@/app/(dashboard)/dashboard/actions'
-import { ConfirmButton, useResultAction } from '@/components/account/confirm-button'
-import { plural } from '@/components/account/format'
 import { Tag } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Panel, PanelHeader, PanelList } from '@/components/ui/card'
+import { ConfirmAction, orThrow } from '@/components/ui/confirm-dialog'
+import { plural } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
 export type SessionIcon = 'desktop' | 'web' | 'phone' | 'app'
@@ -62,12 +63,22 @@ export function SessionsPanel({
   sessions: SessionRowData[]
 }): React.JSX.Element {
   const router = useRouter()
-  const { pending, run } = useResultAction()
+  const [pending, start] = useTransition()
+  const signOutSession = (s: SessionRowData): void => {
+    start(async () => {
+      try {
+        await orThrow(signOutHachimanSessionAction(s.grantId))
+        toast.success(`Signed out ${s.title}`)
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : 'Something went wrong. Try again.')
+      }
+    })
+  }
   const total = sessions.length + 1
 
   return (
     <Panel aria-labelledby="sessions-title">
-      <PanelHeader title={<span id="sessions-title">Where you&apos;re signed in</span>} meta={plural(total, 'session', 'sessions')} />
+      <PanelHeader title={<span id="sessions-title">Where you&apos;re signed in</span>} meta={plural(total, 'session')} />
       <PanelList>
         <li className="flex items-center gap-3.5 rounded-control p-3">
           <DeviceTile icon={browser.mobile ? 'phone' : 'web'} />
@@ -94,7 +105,7 @@ export function SessionsPanel({
               size="sm"
               disabled={pending}
               aria-label={`Sign out ${s.title}, ${s.meta}`}
-              onClick={() => run(() => signOutHachimanSessionAction(s.grantId), `Signed out ${s.title}`)}
+              onClick={() => signOutSession(s)}
               className="group-focus-within:border-feature-danger/25 group-focus-within:bg-feature-danger/10 group-focus-within:text-feature-danger-text group-hover:border-feature-danger/25 group-hover:bg-feature-danger/10 group-hover:text-feature-danger-text [&_svg]:hidden group-focus-within:[&_svg]:block group-focus-within:[&_svg]:text-feature-danger-text group-hover:[&_svg]:block group-hover:[&_svg]:text-feature-danger-text"
             >
               <LogOutIcon aria-hidden />
@@ -103,32 +114,25 @@ export function SessionsPanel({
           </li>
         ))}
       </PanelList>
-      {sessions.length > 0 ? (
-        <div className="flex flex-wrap items-center gap-3 border-t border-line-hairline px-[18px] py-3">
-          <p className="min-w-0 flex-1 basis-[220px] text-[13px] font-medium text-text-tertiary">
-            Ends {plural(sessions.length, 'session', 'sessions')}. You stay signed in here.
-          </p>
-          <ConfirmButton
-            trigger={(open) => (
-              <Button variant="danger-soft" size="sm" onClick={open}>
-                <LogOutIcon aria-hidden />
-                Sign out everywhere else
-              </Button>
-            )}
-            title="Sign out everywhere else?"
-            body={`This ends ${plural(sessions.length, 'Hachiman session', 'Hachiman sessions')} and every other browser signed in to Takusen. Your devices and keys stay. You stay signed in here.`}
-            confirmLabel="Sign out everywhere else"
-            done="Signed out everywhere else"
-            action={signOutEverywhereElseAction}
-            onDone={() => router.refresh()}
-          />
-        </div>
-      ) : (
-        <p className="flex items-center gap-2.5 border-t border-line-hairline px-[18px] py-3.5 text-[13px] font-medium text-text-tertiary">
-          <InfoIcon aria-hidden className="size-[15px] shrink-0" />
-          Hachiman sessions show up here once you sign in to the app.
+      <div className="flex flex-wrap items-center gap-3 border-t border-line-hairline px-[18px] py-3">
+        <p className="min-w-0 flex-1 basis-[220px] text-[13px] font-medium text-text-tertiary">
+          {sessions.length > 0
+            ? `Ends ${plural(sessions.length, 'Hachiman session')} and other browsers. You stay signed in here.`
+            : 'Ends other browsers signed in to Takusen. Hachiman sessions show up here once you sign in to the app.'}
         </p>
-      )}
+        <ConfirmAction
+          label="Sign out everywhere else"
+          icon={LogOutIcon}
+          variant="danger-soft"
+          destructive
+          title="Sign out everywhere else?"
+          body={`This ends ${sessions.length > 0 ? `${plural(sessions.length, 'Hachiman session')} and ` : ''}every other browser signed in to Takusen. Your devices and keys stay. You stay signed in here.`}
+          confirmLabel="Sign out everywhere else"
+          done="Signed out everywhere else"
+          action={() => orThrow(signOutEverywhereElseAction())}
+          onDone={() => router.refresh()}
+        />
+      </div>
     </Panel>
   )
 }
@@ -164,17 +168,16 @@ export function AppsPanel({ apps }: { apps: AppRowData[] }): React.JSX.Element {
                 <span className="truncate font-mono text-[13.5px] leading-5 font-semibold">{a.clientId}</span>
                 <span className="text-[12.5px] font-medium text-text-tertiary">{a.meta}</span>
               </div>
-              <ConfirmButton
-                trigger={(open) => (
-                  <Button variant="quiet" size="sm" onClick={open} className="text-feature-danger-text hover:text-feature-danger-text">
-                    Revoke
-                  </Button>
-                )}
+              <ConfirmAction
+                label="Revoke"
+                variant="quiet"
+                destructive
+                className="text-feature-danger-text hover:text-feature-danger-text"
                 title="Revoke access?"
-                body={`${a.clientId} can no longer use your account. This ends ${plural(a.sessionCount, 'session', 'sessions')}; sign in again in the app to give it access. Your devices and keys stay.`}
+                body={`${a.clientId} can no longer use your account. This ends ${plural(a.sessionCount, 'session')}; sign in again in the app to give it access. Your devices and keys stay.`}
                 confirmLabel="Revoke access"
                 done={`Revoked access for ${a.clientId}`}
-                action={() => revokeAppAccessAction(a.clientId)}
+                action={() => orThrow(revokeAppAccessAction(a.clientId))}
               />
             </li>
           ))}

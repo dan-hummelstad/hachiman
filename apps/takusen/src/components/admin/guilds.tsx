@@ -3,24 +3,16 @@
 import { AudioLinesIcon, CastleIcon, Trash2Icon, XIcon } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 
+import { EntityAvatar } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import { Tag } from '@/components/ui/badge'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { fileUrl } from '@/lib/file-url'
 import type { AdminGuild, AdminGuildDetail, AdminInvite } from '@/lib/admin'
-import {
-  adminFetch,
-  ErrorBanner,
-  EntityAvatar,
-  formatDate,
-  IdentityCell,
-  ListFrame,
-  Pagination,
-  plural,
-  useAdminData,
-  useConfirm,
-  useCursorPages,
-  useSearchParamState,
-} from './kit'
+import { adminFetch, useAdminData, useCursorPages } from '@/components/admin/data'
+import { useConfirm } from '@/components/ui/confirm-dialog'
+import { formatDate, formatRelative, plural } from '@/lib/format'
+import { ErrorBanner, IdentityCell, ListFrame, Pagination, useSearchParamState } from './kit'
 
 const PAGE_SIZE = 50
 
@@ -84,7 +76,7 @@ export function AdminGuildsView({ total }: { total: number }): React.JSX.Element
                   >
                     <TableCell className="h-[60px]">
                       <IdentityCell
-                        avatar={<EntityAvatar fileKey={g.icon} name={g.name} size={34} />}
+                        avatar={<EntityAvatar src={fileUrl(g.icon)} name={g.name} size={34} />}
                         name={
                           // The row is the click target; the button gives keyboard and screen reader access.
                           <button
@@ -104,7 +96,7 @@ export function AdminGuildsView({ total }: { total: number }): React.JSX.Element
                     </TableCell>
                     <TableCell className="max-md:hidden">
                       <span className="flex min-w-0 items-center gap-2.5">
-                        <EntityAvatar fileKey={g.owner.avatar} name={g.owner.displayName} email={g.owner.email} size={24} />
+                        <EntityAvatar src={fileUrl(g.owner.avatar)} name={g.owner.displayName} email={g.owner.email} size={24} />
                         <span className="truncate font-semibold text-text-secondary">{g.owner.displayName}</span>
                       </span>
                     </TableCell>
@@ -155,7 +147,7 @@ function GuildDetail({
     >
       <div className="flex items-center gap-3.5 border-b border-line-hairline p-[18px]">
         {g ? (
-          <EntityAvatar fileKey={g.icon} name={g.name} size={48} />
+          <EntityAvatar src={fileUrl(g.icon)} name={g.name} size={48} />
         ) : (
           <span className="size-12 shrink-0 animate-pulse rounded-full bg-surface-raised" />
         )}
@@ -175,7 +167,7 @@ function GuildDetail({
       {g && (
         <div className="flex flex-col gap-[18px] p-[18px]">
           <IdentityCell
-            avatar={<EntityAvatar fileKey={g.owner.avatar} name={g.owner.displayName} email={g.owner.email} size={30} />}
+            avatar={<EntityAvatar src={fileUrl(g.owner.avatar)} name={g.owner.displayName} email={g.owner.email} size={30} />}
             name={g.owner.displayName}
             sub={`Owner · ${g.owner.email}`}
           />
@@ -232,7 +224,7 @@ function GuildDetail({
               onClick={() =>
                 ask({
                   title: `Delete ${g.name}?`,
-                  titleIcon: <EntityAvatar fileKey={g.icon} name={g.name} size={28} />,
+                  titleIcon: <EntityAvatar src={fileUrl(g.icon)} name={g.name} size={28} />,
                   body: `This removes ${g.name}, its ${plural(g.channelCount, 'channel')} and ${plural(g.pageCount, 'page')} for ${everyone(g.memberCount)}. Messages are end-to-end encrypted, so nobody can export them first. There is no undo.`,
                   typeToConfirm: g.name,
                   typeIcon: CastleIcon,
@@ -277,11 +269,6 @@ function everyone(members: number): string {
   return members === 1 ? 'its only member' : `all ${members} members`
 }
 
-const DAY_MS = 86_400_000
-
 function expiry(iso: string | null): string {
-  if (!iso) return 'never expires'
-  const ms = new Date(iso).getTime() - Date.now()
-  if (ms < DAY_MS) return 'expires today'
-  return `${plural(Math.floor(ms / DAY_MS), 'day')} left`
+  return iso ? `expires ${formatRelative(iso)}` : 'never expires'
 }

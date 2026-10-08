@@ -10,13 +10,14 @@ import {
 import Link from 'next/link'
 
 import { AuthCard, AuthScreen } from '@/components/auth-frame'
-import { initialsFor } from '@/components/initials'
-import { AccountChip, UserAvatar, type SsoAccount } from '@/components/sso-account'
+import { AccountChip, type SsoAccount } from '@/components/sso-account'
+import { EntityAvatar } from '@/components/ui/avatar'
 import { StatusTag } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { getAccountSummary } from '@/lib/account'
 import { getOptionalUser } from '@/lib/auth-helpers'
 import { hachimanLinks, inviteLinks } from '@/lib/deployment'
+import { formatRelative, plural } from '@/lib/format'
 import { getInviteLanding, type DeadInvite, type UsableInvite } from '@/lib/invite-landing'
 
 import { InviteCodeChip } from './invite-code-chip'
@@ -26,22 +27,6 @@ export const dynamic = 'force-dynamic'
 
 interface InvitePageProps {
   params: Promise<{ code: string }>
-}
-
-const UNITS: [Intl.RelativeTimeFormatUnit, number][] = [
-  ['day', 86_400_000],
-  ['hour', 3_600_000],
-  ['minute', 60_000],
-]
-
-/** "in 6 days" / "2 days ago", in the largest whole unit. */
-function relative(iso: string): string {
-  const diff = Date.parse(iso) - Date.now()
-  const rtf = new Intl.RelativeTimeFormat('en', { numeric: 'auto' })
-  for (const [unit, ms] of UNITS) {
-    if (Math.abs(diff) >= ms) return rtf.format(Math.trunc(diff / ms), unit)
-  }
-  return rtf.format(Math.trunc(diff / 1000), 'second')
 }
 
 // Public, non-consuming landing page. Joining happens in the app
@@ -95,17 +80,19 @@ function GuildInvite({
             style={guild.bannerUrl ? { backgroundImage: `url(${guild.bannerUrl})` } : undefined}
           />
           <span className="absolute bottom-3.5 left-5 sm:left-8">
-            <GuildIcon name={guild.name} iconUrl={guild.iconUrl} />
+            <EntityAvatar
+              src={guild.iconUrl}
+              name={guild.name}
+              tone="hachiman"
+              className="size-[60px] border-[3px] border-surface-content text-xl sm:size-[72px] sm:text-2xl"
+            />
           </span>
         </div>
       }
       media={
         invite.inviter && (
           <p className="flex items-center gap-2 text-[13.5px] leading-5 font-semibold text-text-secondary">
-            <UserAvatar
-              account={{ name: invite.inviter.displayName, email: '', avatarUrl: invite.inviter.avatarUrl }}
-              size={22}
-            />
+            <EntityAvatar src={invite.inviter.avatarUrl} name={invite.inviter.displayName} size={22} tone="hachiman" />
             <span className="min-w-0 truncate">{invite.inviter.displayName} invited you to join</span>
           </p>
         )
@@ -114,7 +101,7 @@ function GuildInvite({
         account && (
           <div className="flex w-full min-w-0 items-center gap-2 text-[13.5px] leading-5">
             <span className="font-medium text-text-tertiary">Joining as</span>
-            <UserAvatar account={account} size={20} />
+            <EntityAvatar src={account.avatarUrl} name={account.name} email={account.email} size={20} tone="hachiman" />
             <span className="min-w-0 truncate font-extrabold text-text-primary">
               {account.name || account.email}
             </span>
@@ -127,10 +114,12 @@ function GuildInvite({
         {invite.members.length > 0 && (
           <span className="flex -space-x-1.5">
             {invite.members.map((m) => (
-              <UserAvatar
+              <EntityAvatar
                 key={m.id}
-                account={{ name: m.displayName, email: '', avatarUrl: m.avatarUrl }}
+                src={m.avatarUrl}
+                name={m.displayName}
                 size={28}
+                tone="hachiman"
                 className="border-2 border-surface-content"
               />
             ))}
@@ -141,7 +130,7 @@ function GuildInvite({
           {invite.onlineCount} online
         </span>
         <span className="font-semibold text-text-tertiary">
-          {invite.memberCount} {invite.memberCount === 1 ? 'member' : 'members'}
+          {plural(invite.memberCount, 'member')}
         </span>
         {guild.region && (
           <span className="flex items-center gap-[5px] font-mono text-xs text-text-tertiary max-sm:hidden">
@@ -157,25 +146,13 @@ function GuildInvite({
         <InviteCodeChip code={invite.code} />
         {invite.expiresAt && (
           <span className="ml-auto shrink-0 text-[12.5px] font-medium text-text-tertiary">
-            Expires {relative(invite.expiresAt)}
+            Expires {formatRelative(invite.expiresAt)}
           </span>
         )}
       </div>
 
       <OpenInviteButtons webHref={links.web} appHref={links.app} />
     </AuthCard>
-  )
-}
-
-function GuildIcon({ name, iconUrl }: { name: string; iconUrl: string | null }): React.JSX.Element {
-  return (
-    <span
-      aria-hidden
-      className="flex size-[60px] items-center justify-center overflow-hidden rounded-full border-[3px] border-surface-content bg-accent-tint bg-cover bg-center text-xl font-extrabold text-accent-text sm:size-[72px] sm:text-2xl"
-      style={iconUrl ? { backgroundImage: `url(${iconUrl})` } : undefined}
-    >
-      {!iconUrl && initialsFor(name, '')}
-    </span>
   )
 }
 
@@ -189,7 +166,7 @@ const DEAD: Record<DeadInvite['status'], { title: string; tag: string }> = {
 function deadDetail(invite: DeadInvite): string {
   switch (invite.status) {
     case 'expired':
-      return invite.expiredAt ? `This one expired ${relative(invite.expiredAt)}.` : 'This one has expired.'
+      return invite.expiredAt ? `This one expired ${formatRelative(invite.expiredAt)}.` : 'This one has expired.'
     case 'revoked':
       return 'This one was revoked.'
     case 'exhausted':

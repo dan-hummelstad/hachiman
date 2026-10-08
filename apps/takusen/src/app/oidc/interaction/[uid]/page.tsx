@@ -23,7 +23,8 @@ import {
 
 import { AuthCard, AuthScreen } from '@/components/auth-frame'
 import { HandoffRail } from '@/components/handoff-rail'
-import { AccountChip, SwitchAccountButton, UserAvatar, type SsoAccount } from '@/components/sso-account'
+import { AccountChip, SwitchAccountButton, type SsoAccount } from '@/components/sso-account'
+import { EntityAvatar } from '@/components/ui/avatar'
 import { TakusenMark } from '@/components/takusen-logo'
 import { Tag } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -196,7 +197,7 @@ export default async function InteractionPage({ params }: PageProps) {
         </div>
 
         <div className="flex items-center gap-3 border border-line-hairline bg-surface-raised p-3">
-          <UserAvatar account={account} size={40} />
+          <EntityAvatar src={account.avatarUrl} name={account.name} email={account.email} size={40} tone="hachiman" />
           <div className="flex min-w-0 flex-1 flex-col gap-0.5">
             <span className="truncate text-[15px] leading-5 font-extrabold">{accountLabel}</span>
             {account.name && (

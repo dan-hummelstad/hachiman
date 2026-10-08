@@ -12,19 +12,10 @@ import { Field } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { cn } from '@/lib/utils'
-import {
-  adminFetch,
-  Dot,
-  errorText,
-  ListFrame,
-  matchesQuery,
-  PageHead,
-  plural,
-  QueryChip,
-  RowMenu,
-  useAdminData,
-  useSearchParamState,
-} from './kit'
+import { adminFetch, errorText, useAdminData } from '@/components/admin/data'
+import { Dot } from '@/components/ui/meter'
+import { plural } from '@/lib/format'
+import { ListFrame, matchesQuery, PageHead, QueryChip, RowMenu, useSearchParamState } from './kit'
 
 /** regions.probe_port's default: a probe host without a port probes 443. */
 const DEFAULT_PROBE_PORT = 443

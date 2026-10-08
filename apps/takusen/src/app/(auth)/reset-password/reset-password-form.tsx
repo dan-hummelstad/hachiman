@@ -10,9 +10,10 @@ import { Button } from '@/components/ui/button'
 import { Field } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { PasswordInput } from '@/components/ui/password-input'
+import { PasswordMeter } from '@/components/ui/password-meter'
 
 import { resetPasswordAction, type FormActionResult } from '../actions'
-import { CardNote, FormError, IconTile, PasswordMeter } from '../auth-parts'
+import { CardNote, FormError, IconTile } from '../auth-parts'
 import { PASSWORD_MIN_LENGTH } from '@/lib/password-strength'
 
 function SubmitButton({ disabled }: { disabled: boolean }): React.JSX.Element {

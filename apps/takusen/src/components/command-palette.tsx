@@ -4,7 +4,7 @@ import { CornerDownLeftIcon, LoaderCircleIcon, SearchIcon, type LucideIcon } fro
 import { useRouter } from 'next/navigation'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
-import { adminFetch } from '@/components/admin/kit'
+import { adminFetch } from '@/components/admin/data'
 import { navGroup, navGroupsFor } from '@/components/dashboard-nav-items'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import type { AdminSearchResult } from '@/lib/admin'

@@ -7,7 +7,10 @@ import { redirectUriKind, type RedirectUriKind } from '@/lib/oidc-consent'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Tag } from '@/components/ui/badge'
 import { Panel } from '@/components/ui/card'
-import { CopyButton, formatDate, ListFrame, PageHead, useAdminData } from './kit'
+import { useAdminData } from '@/components/admin/data'
+import { CopyButton } from '@/components/ui/copy-button'
+import { formatDate, plural } from '@/lib/format'
+import { ListFrame, PageHead } from './kit'
 
 const URI_KINDS: Record<RedirectUriKind, { label: string; icon: LucideIcon }> = {
   desktop: { label: 'Desktop app', icon: LaptopIcon },
@@ -54,10 +57,10 @@ function ClientCard({ client: c }: { client: AdminOidcClient }): React.JSX.Eleme
         </div>
         <div className="flex flex-col items-end gap-0.5">
           <span className="text-lg leading-6 font-extrabold text-text-primary tabular-nums">
-            {c.activeUsers} {c.activeUsers === 1 ? 'person' : 'people'}
+            {plural(c.activeUsers, 'person', 'people')}
           </span>
           <span className="text-[12.5px] text-text-tertiary tabular-nums">
-            signed in now · {c.activeSessions} {c.activeSessions === 1 ? 'session' : 'sessions'}
+            signed in now · {plural(c.activeSessions, 'session')}
           </span>
         </div>
       </div>
