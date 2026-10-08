@@ -50,7 +50,7 @@ export * from './schema-channel-state'
 export const userRoleEnum = pgEnum('user_role', ['user', 'admin'])
 export const channelTypeEnum = pgEnum('channel_type', ['text', 'voice', 'category', 'dm', 'group_dm', 'pages', 'thread'])
 export const overwriteTypeEnum = pgEnum('overwrite_type', ['role', 'member'])
-export const uploadPurposeEnum = pgEnum('upload_purpose', ['attachment', 'image', 'page_snapshot', 'page_media'])
+export const uploadPurposeEnum = pgEnum('upload_purpose', ['attachment', 'image', 'page_snapshot', 'page_media', 'sound'])
 
 // E2EE enums (§3).
 export const deviceStatusEnum = pgEnum('device_status', ['pending', 'active', 'revoked'])

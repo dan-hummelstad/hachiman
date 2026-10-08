@@ -57,6 +57,20 @@
       "when": 1791423805154,
       "tag": "0007_password_changed_at",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1791466044911,
+      "tag": "0008_guild_sounds",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1791466047999,
+      "tag": "0009_sound_permission_backfill",
+      "breakpoints": true
     }
   ]
 }
