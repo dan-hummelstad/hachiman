@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { FALLBACK_HUES, dominantHue, fallbackHue, rgbToHsl, tintColors } from './guild-tint'
+import {
+  FALLBACK_HUES,
+  customWallpaper,
+  dominantHue,
+  fallbackHue,
+  rgbToHsl,
+  tintColors
+} from './guild-tint'
 
 /** RGBA pixels: `count` copies of each colour. */
 function pixels(
@@ -73,5 +80,14 @@ describe('tintColors', () => {
       light: 'color-mix(in oklab, hsl(10 45% 91%) 30%, #e4e0fe)',
       dark: 'color-mix(in oklab, hsl(10 42% 17%) 30%, #201c46)'
     })
+  })
+})
+
+describe('customWallpaper', () => {
+  it('washes both colours over the window surface at the given angle', () => {
+    expect(customWallpaper({ from: '#ff0000', to: '#0000ff', angle: 45 })).toBe(
+      'linear-gradient(45deg, color-mix(in oklab, #ff0000 30%, var(--surface-window)), ' +
+        'color-mix(in oklab, #0000ff 30%, var(--surface-window)))'
+    )
   })
 })

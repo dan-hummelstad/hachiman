@@ -37,11 +37,11 @@ import {
   useSelectedGuildId
 } from '@/stores/navStore'
 
-/** The window wallpaper, tinted by the guild (N4). */
+/** The window wallpaper: tinted by the guild (N4), or the user's custom gradient (useGuildTint). */
 const WALLPAPER = cn(
   'bg-surface-window',
-  'bg-[linear-gradient(180deg,var(--tint-light),color-mix(in_oklab,var(--tint-light)_45%,var(--surface-window)))]',
-  'dark:bg-[linear-gradient(180deg,var(--tint-dark),color-mix(in_oklab,var(--tint-dark)_45%,var(--surface-window)))]'
+  'bg-(image:--wallpaper-light)',
+  'dark:bg-(image:--wallpaper-dark)'
 )
 
 /**

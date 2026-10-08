@@ -1,6 +1,7 @@
 import type {} from '@redux-devtools/extension'
 import { create } from 'zustand'
 import { devtools, persist } from 'zustand/middleware'
+import type { CustomGradient } from '@/lib/guild-tint'
 import type { StreamQuality } from '@/lib/stream-quality'
 import type { SoundEvent } from '@/lib/sounds'
 import type { NotifyLevel, NotifyPrefs } from '@/lib/notify'
@@ -13,6 +14,14 @@ export type Theme = 'dark' | 'light' | 'system'
 export type SidebarMode = 'docked' | 'undocked'
 /** Mic noise suppression: none, the browser's own (getUserMedia), or RNNoise in an AudioWorklet. */
 export type NoiseSuppression = 'off' | 'browser' | 'rnnoise'
+/** The window wallpaper: tinted by the selected guild (N4), or the user's own gradient. */
+export type WallpaperMode = 'guild' | 'custom'
+
+export const DEFAULT_CUSTOM_GRADIENT: CustomGradient = {
+  from: '#6b5bf5',
+  to: '#3db5f5',
+  angle: 135
+}
 
 /** The preferences of one account on this device (N1, N6, N9). */
 export interface AccountPrefs extends NotifyPrefs {
@@ -58,6 +67,9 @@ interface PrefsState {
   /** userId → local volume and mute in voice. A user at the default has no entry. */
   userAudio: Record<string, UserAudio>
   sidebar: SidebarMode
+  wallpaper: WallpaperMode
+  /** The gradient while `wallpaper` is `custom`. Kept when the user goes back to the guild tint. */
+  customGradient: CustomGradient
   /** Width in px of the right column while it shows a page (the user drags its edge). */
   pageColumnWidth: number
   /** userId → that account's preferences. */
@@ -77,6 +89,8 @@ interface PrefsState {
   setSoundEnabled: (event: SoundEvent, enabled: boolean) => void
   setUserAudio: (userId: string, change: Partial<UserAudio>) => void
   setSidebar: (sidebar: SidebarMode) => void
+  setWallpaper: (wallpaper: WallpaperMode) => void
+  setCustomGradient: (customGradient: CustomGradient) => void
   setPageColumnWidth: (pageColumnWidth: number) => void
   setAccountId: (accountId: string | null) => void
   setFavouriteDm: (channelId: string, favourite: boolean) => void
@@ -112,6 +126,8 @@ export const usePrefsStore = create<PrefsState>()(
         disabledSounds: [],
         userAudio: {},
         sidebar: 'docked',
+        wallpaper: 'guild',
+        customGradient: DEFAULT_CUSTOM_GRADIENT,
         pageColumnWidth: 540,
         accounts: {},
         accountId: null,
@@ -140,6 +156,8 @@ export const usePrefsStore = create<PrefsState>()(
             return { userAudio }
           }),
         setSidebar: (sidebar) => set({ sidebar }),
+        setWallpaper: (wallpaper) => set({ wallpaper }),
+        setCustomGradient: (customGradient) => set({ customGradient }),
         setPageColumnWidth: (pageColumnWidth) => set({ pageColumnWidth }),
         setAccountId: (accountId) => set({ accountId }),
         setFavouriteDm: (channelId, favourite) =>

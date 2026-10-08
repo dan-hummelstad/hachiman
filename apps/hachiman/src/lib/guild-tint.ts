@@ -87,6 +87,29 @@ export function tintColors(hue: number): { light: string; dark: string } {
   }
 }
 
+/** The window wallpaper of a tint colour: the tint at the top, fading into the window surface. */
+export function tintWallpaper(tint: string): string {
+  return `linear-gradient(180deg, ${tint}, color-mix(in oklab, ${tint} 45%, var(--surface-window)))`
+}
+
+/** A user's own wallpaper (User settings → Appearance): two colours and a CSS angle in degrees. */
+export interface CustomGradient {
+  from: string
+  to: string
+  angle: number
+}
+
+/**
+ * The window wallpaper of a custom gradient. Each colour is washed over the window surface of
+ * the theme by the same amount as a guild hue, so the text on the wallpaper keeps its contrast
+ * for any colour, and one value serves both themes.
+ */
+export function customWallpaper({ from, to, angle }: CustomGradient): string {
+  const wash = (color: string): string =>
+    `color-mix(in oklab, ${color} ${WASH}%, var(--surface-window))`
+  return `linear-gradient(${angle}deg, ${wash(from)}, ${wash(to)})`
+}
+
 const ICON_SAMPLE = 32
 
 /**
