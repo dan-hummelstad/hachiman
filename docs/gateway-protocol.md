@@ -184,6 +184,7 @@ A Go test (`pkg/permissions/sync_test.go`) parses the TS file and fails if any n
 |---|---|
 | CREATE_INSTANT_INVITE | 1 << 0 |
 | KICK_MEMBERS | 1 << 1 |
+| BAN_MEMBERS | 1 << 2 |
 | ADMINISTRATOR | 1 << 3 |
 | MANAGE_CHANNELS | 1 << 4 |
 | MANAGE_GUILD | 1 << 5 |

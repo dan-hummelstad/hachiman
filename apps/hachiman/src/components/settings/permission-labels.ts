@@ -26,6 +26,7 @@ export const PERMISSION_LABELS: readonly PermissionLabel[] = [
   p('MANAGE_ROLES', 'Manage roles', 'Edit roles below their highest role and channel permissions.'),
   p('MANAGE_CHANNELS', 'Manage channels', 'Create, edit, reorder and delete channels.'),
   p('KICK_MEMBERS', 'Kick members', 'Remove members from the guild.'),
+  p('BAN_MEMBERS', 'Ban members', 'Remove members and stop them from joining again.'),
   p('CREATE_INSTANT_INVITE', 'Create invites', 'Create invite links.'),
   p('CHANGE_NICKNAME', 'Change nickname', 'Change their own nickname.'),
   p('MANAGE_NICKNAMES', 'Manage nicknames', "Change other members' nicknames."),

@@ -10,6 +10,7 @@ package permissions
 const (
 	CreateInstantInvite = 1 << 0
 	KickMembers         = 1 << 1
+	BanMembers          = 1 << 2
 	Administrator       = 1 << 3
 	ManageChannels      = 1 << 4
 	ManageGuild         = 1 << 5
@@ -35,6 +36,7 @@ const (
 var ByName = map[string]int64{
 	"CREATE_INSTANT_INVITE": CreateInstantInvite,
 	"KICK_MEMBERS":          KickMembers,
+	"BAN_MEMBERS":           BanMembers,
 	"ADMINISTRATOR":         Administrator,
 	"MANAGE_CHANNELS":       ManageChannels,
 	"MANAGE_GUILD":          ManageGuild,

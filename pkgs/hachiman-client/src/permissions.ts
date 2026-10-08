@@ -8,6 +8,7 @@ import type { Channel, Guild, Member, Role } from './types'
 export const Permissions = {
   CREATE_INSTANT_INVITE: 1 << 0,
   KICK_MEMBERS: 1 << 1,
+  BAN_MEMBERS: 1 << 2,
   ADMINISTRATOR: 1 << 3,
   MANAGE_CHANNELS: 1 << 4,
   MANAGE_GUILD: 1 << 5,
