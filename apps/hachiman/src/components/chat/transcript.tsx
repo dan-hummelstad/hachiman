@@ -42,7 +42,6 @@ export function Transcript({
   policy: RowPolicy
   /** ATTACH_FILES: the drop card of an empty channel offers an upload. */
   onUpload?: (files: File[]) => void
-  /** The id of the row in edit mode, or null. */
   editingId: string | null
   onEditingChange: (messageId: string | null) => void
 }): React.JSX.Element {

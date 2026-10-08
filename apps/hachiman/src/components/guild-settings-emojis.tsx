@@ -44,9 +44,10 @@ export function GuildEmojisTab({ guildId }: { guildId: string }): React.JSX.Elem
       return setError(`${file.name} is not a PNG, GIF or WebP image.`)
     if (file.size > MAX_EMOJI_BYTES)
       return setError(`${file.name} is larger than ${formatBytes(MAX_EMOJI_BYTES)}.`)
-    let name = emojiNameFromFile(file.name)
+    const base = emojiNameFromFile(file.name)
+    let name = base
     for (let i = 2; emojis.some((x) => x.name === name); i++)
-      name = `${name.slice(0, 32 - String(i).length - 1)}_${i}`
+      name = `${base.slice(0, 32 - String(i).length - 1)}_${i}`
     await run('upload the emoji', async () => {
       const up = await uploadFile(file)
       await hachiman.rest.createGuildEmoji(guildId, { name, uploadId: up.id })

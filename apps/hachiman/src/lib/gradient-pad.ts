@@ -16,7 +16,6 @@ export function stopAt(dx: number, dy: number, radius: number): GradientStop {
   return { h: Math.round(h), s: Math.round(s) }
 }
 
-/** The offset of a stop from the pad centre. */
 export function stopOffset({ h, s }: GradientStop, radius: number): { x: number; y: number } {
   const r = (clamp(s, 0, 100) / 100) * radius
   return { x: Math.cos(h / DEG) * r, y: Math.sin(h / DEG) * r }

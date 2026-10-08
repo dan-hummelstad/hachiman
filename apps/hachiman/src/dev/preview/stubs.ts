@@ -91,9 +91,10 @@ export function stubVoice(): void {
   const sendState = (guildId: string | null, channelId: string | null): void => {
     const { selfMute, selfDeaf } = hachiman.selfVoice
     // Like the gateway (N17): joinedAt stays across mute and deafen, and resets on a move.
-    const before = hachiman.cache.voiceStates
-      .get(guildId ?? channelId ?? current?.channelId ?? '')
-      ?.get(ME.id)
+    const before =
+      channelId === null
+        ? undefined
+        : hachiman.cache.voiceStates.get(guildId ?? channelId)?.get(ME.id)
     const joinedAt =
       channelId === null
         ? undefined
