@@ -12,7 +12,8 @@ import {
   SlidersHorizontal,
   Trash2,
   User,
-  Users
+  Users,
+  Wrench
 } from 'lucide-react'
 import { Permissions, has } from '@hachiman/client'
 import { GuildInvitesTab } from '@/components/guild-settings-invites'
@@ -25,6 +26,7 @@ import { ChannelOverviewPage } from '@/components/settings/channel-overview'
 import { ChannelPermissionsPage, overrideCount } from '@/components/settings/channel-permissions'
 import { GuildOverviewPage } from '@/components/settings/guild-overview'
 import { AccountSection } from '@/components/settings/user/account'
+import { AdvancedSection } from '@/components/settings/user/advanced'
 import { AppearanceSection } from '@/components/settings/user/appearance'
 import { UpdatesSection } from '@/components/settings/user/updates'
 import { VoiceSection } from '@/components/settings/user/voice'
@@ -201,6 +203,16 @@ function useUserSettingsModel(active: boolean): SettingsModel {
               description:
                 'Hachiman checks for a new version when it starts and every 4 hours. A new version downloads in the background, then Hachiman asks to restart.',
               render: () => <UpdatesSection />
+            }
+          },
+          {
+            id: 'advanced',
+            label: 'Advanced',
+            icon: <Wrench />,
+            page: {
+              title: 'Advanced',
+              description: 'Developer tools that clear the local data of this device.',
+              render: () => <AdvancedSection />
             }
           }
         ]

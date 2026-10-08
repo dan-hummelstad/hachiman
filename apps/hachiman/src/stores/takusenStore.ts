@@ -39,6 +39,9 @@ interface TakusenState {
   clearSession: () => void
 }
 
+/** The localStorage key of the persisted sign-in. "Clear cached data" keeps it. */
+export const TAKUSEN_STORAGE_KEY = 'hachiman-takusen-storage'
+
 export const useTakusenStore = create<TakusenState>()(
   devtools(
     persist(
@@ -52,7 +55,7 @@ export const useTakusenStore = create<TakusenState>()(
         clearSession: () => set({ session: null, pendingFlow: null })
       }),
       {
-        name: 'hachiman-takusen-storage',
+        name: TAKUSEN_STORAGE_KEY,
         // `pendingFlow` is persisted so the PKCE handshake survives the browser's
         // same-tab redirect and an Electron restart between authorize and callback.
         partialize: (state) => ({ session: state.session, pendingFlow: state.pendingFlow })
