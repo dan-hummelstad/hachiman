@@ -96,15 +96,7 @@ export function DashboardShell({
       </header>
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="flex w-full max-w-[1320px] flex-col gap-7 px-4 pt-6 pb-16 md:px-10 md:pt-8">
-          {(title || actions) && (
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-end">
-              <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-                {title && <h1 className="text-page-title text-text-primary">{title}</h1>}
-                {description && <p className="text-body text-text-tertiary">{description}</p>}
-              </div>
-              {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
-            </div>
-          )}
+          {title && <PageHead title={title} description={description} actions={actions} />}
           {children}
         </div>
       </div>
@@ -112,30 +104,27 @@ export function DashboardShell({
   )
 }
 
-/** A titled block inside a dashboard page, separated from the previous one by a hairline. */
-export function DashboardSection({
+/**
+ * The page head: title, description, actions bottom-right. DashboardShell renders it from its
+ * props; a client view renders it itself when its head actions share state with the list
+ * (filter chips with counts, the Add dialog), and the page then passes DashboardShell no title.
+ */
+export function PageHead({
   title,
   description,
-  children,
-  className,
+  actions,
 }: {
-  title: string
+  title: ReactNode
   description?: ReactNode
-  children: ReactNode
-  className?: string
+  actions?: ReactNode
 }): React.JSX.Element {
   return (
-    <section
-      className={cn(
-        'flex flex-col gap-4 border-t border-line-hairline pt-6 first:border-t-0 first:pt-0',
-        className,
-      )}
-    >
-      <div className="flex flex-col gap-1">
-        <h2 className="text-[15px] leading-5 font-extrabold">{title}</h2>
-        {description && <p className="text-sm text-text-tertiary">{description}</p>}
+    <div className="flex flex-col gap-4 sm:flex-row sm:items-end">
+      <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+        <h1 className="text-page-title text-text-primary">{title}</h1>
+        {description && <p className="text-body text-text-tertiary">{description}</p>}
       </div>
-      {children}
-    </section>
+      {actions && <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div>}
+    </div>
   )
 }

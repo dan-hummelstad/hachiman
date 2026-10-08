@@ -65,32 +65,6 @@ export function matchesQuery(query: string, ...fields: (string | null | undefine
 // MARK: - Toolbar
 
 /**
- * The page head of DashboardShell (title, description, actions bottom-right), for a client view
- * whose head actions share state with the list (filter chips, the Add dialog). Pass no title
- * to DashboardShell when you use it.
- */
-export function PageHead({
-  title,
-  description,
-  actions,
-}: {
-  title: ReactNode
-  description?: ReactNode
-  actions?: ReactNode
-}): React.JSX.Element {
-  return (
-    <div className="flex flex-col gap-4 sm:flex-row sm:items-end">
-      <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-        <h1 className="text-page-title text-text-primary">{title}</h1>
-        {description && <p className="text-body text-text-tertiary">{description}</p>}
-      </div>
-      {actions && <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div>}
-    </div>
-  )
-}
-
-
-/**
  * The list search in the page head (F2, F3): writes `?query=` 250 ms after the last keystroke
  * and follows the URL when a link (⌘K) changes it. Render it as the shell's `actions`.
  */

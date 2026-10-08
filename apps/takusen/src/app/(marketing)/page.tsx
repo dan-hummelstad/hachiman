@@ -9,7 +9,7 @@ import {
 } from '@/components/marketing/landing-sections'
 import { getOptionalUser } from '@/lib/auth-helpers'
 import { hachimanLinks } from '@/lib/deployment'
-import { listRegionStatus, type RegionStatus } from '@/lib/regions'
+import { listRegionStatus, type RegionStatus } from '@/lib/region-status'
 
 async function regionStatus(): Promise<RegionStatus[] | null> {
   try {

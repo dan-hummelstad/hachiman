@@ -553,7 +553,7 @@ type AdminOverview = {
   counts: { users; admins; unverifiedUsers; signedInUsers; newUsers7d; guilds; channels; mediaNodes; regions; oidcClients;
     messages; uploads; uploadBytes }                                            // numbers
   mediaNodes: { total; active; draining; stale; sessions; capacity }            // numbers
-  regionLoad: { region; sessions: number; capacity: number; nodes: number; stale: number; draining: number }[]
+  regionLoad: { region; nodes: { total; active; draining; stale; sessions; capacity } }[]   // nodes: as mediaNodes, per region
   onlineUsers: number
   server: { version: string; nodeVersion: string; uptimeSeconds: number; maxUploadBytes: number }
 }
@@ -568,7 +568,7 @@ Behavior:
 - **Media nodes.** `stale` is true when the last heartbeat is 30 s old or older (`HEARTBEAT_STALE_AFTER_MS`). `draining` sets `media_nodes.admin_drain`. Then the status stays `draining` through heartbeats and new registrations, and placement skips the node. Sessions on the node continue. `active` clears the flag. DELETE removes the registry row and its `admin_drain` flag. A node that still runs registers again after its next heartbeat fails, and its status is then `active`. To keep a node out of placement, stop the node first.
 - **Regions.** The regions table is admin data. A region delete sets `region` to null on its guilds. Media nodes keep their region string. `db:seed` writes the four seed regions again.
 - **Live grants.** A live grant is an `oidc_adapter_payloads` row of model `Grant` that has not expired. Each Hachiman sign-in has its own grant (§12.12 "Device binding"), so the live grants of a user are its Hachiman sessions. `AdminUser.activeSessions`, `filter=signed_in`, `counts.signedInUsers` and the `AdminOidcClient` counts use them.
-- **Overview.** `counts.unverifiedUsers` counts users with neither `email_verified` nor `email_verified_at`. `counts.newUsers7d` counts users created in the last 7 days. `regionLoad` has one entry for each region of the table (in display-name order), then one for each other region that a media node names. Its `sessions`, `capacity` and `draining` follow the `mediaNodes` rules for the nodes of that region. `onlineUsers` counts the `presence:*` keys that are not `offline`. `mediaNodes.sessions` is the sum of `activeSessions` on fresh nodes, which is the number of live voice connections. `mediaNodes.capacity` is the sum of `maxSessions` on fresh `active` nodes.
+- **Overview.** `counts.unverifiedUsers` counts users with neither `email_verified` nor `email_verified_at`. `counts.newUsers7d` counts users created in the last 7 days. `regionLoad` has one entry for each region of the table (in display-name order), then one for each other region that a media node names. Its `nodes` is the `mediaNodes` summary of the nodes of that region. `onlineUsers` counts the `presence:*` keys that are not `offline`. `mediaNodes.sessions` is the sum of `activeSessions` on fresh nodes, which is the number of live voice connections. `mediaNodes.capacity` is the sum of `maxSessions` on fresh `active` nodes.
 
 `// ponytail:` a sign-out or user delete does not close open gateway connections. The user stays connected until the next reconnect fails. Add a gateway kick event if that matters.
 

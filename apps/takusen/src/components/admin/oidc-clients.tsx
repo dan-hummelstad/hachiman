@@ -10,7 +10,7 @@ import { Panel } from '@/components/ui/card'
 import { useAdminData } from '@/components/admin/data'
 import { CopyButton } from '@/components/ui/copy-button'
 import { formatDate, plural } from '@/lib/format'
-import { ListFrame, PageHead } from './kit'
+import { ListFrame } from './kit'
 
 const URI_KINDS: Record<RedirectUriKind, { label: string; icon: LucideIcon }> = {
   desktop: { label: 'Desktop app', icon: LaptopIcon },
@@ -108,11 +108,6 @@ export function AdminOidcClientsView(): React.JSX.Element {
   const clients = data ?? []
   return (
     <>
-      <PageHead
-        title="OIDC clients"
-        description="Applications that sign people in through Takusen."
-        actions={<Tag tone="neutral">Read only</Tag>}
-      />
       <Alert role="note" className="border-l-feature-thread [&>svg]:text-feature-thread-text">
         <InfoIcon />
         <AlertTitle>Managed by db:seed</AlertTitle>

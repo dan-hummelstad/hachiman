@@ -70,7 +70,7 @@ export function AdminOverviewView(): React.JSX.Element {
           icon={EarthIcon}
           label="Regions"
           value={counts.regions}
-          note={`${o.regionLoad.filter((r) => r.nodes > 0).length} with media nodes`}
+          note={`${o.regionLoad.filter((r) => r.nodes.total > 0).length} with media nodes`}
         />
         <Stat icon={AppWindowIcon} label="OIDC clients" value={counts.oidcClients} note="read only" />
       </div>
@@ -88,13 +88,13 @@ export function AdminOverviewView(): React.JSX.Element {
                   <div className="flex items-center text-[12.5px]">
                     <span className="flex-1 font-mono text-text-secondary">{r.region}</span>
                     <span className="font-bold text-text-tertiary tabular-nums">
-                      {r.sessions} / {r.capacity}
+                      {r.nodes.sessions} / {r.nodes.capacity}
                     </span>
                   </div>
                   <Meter
-                    value={r.sessions}
-                    max={r.capacity}
-                    tone={r.capacity > 0 && r.sessions / r.capacity >= 0.85 ? 'warning' : 'voice'}
+                    value={r.nodes.sessions}
+                    max={r.nodes.capacity}
+                    tone={r.nodes.capacity > 0 && r.nodes.sessions / r.nodes.capacity >= 0.85 ? 'warning' : 'voice'}
                     label={`${r.region} voice sessions`}
                   />
                 </li>

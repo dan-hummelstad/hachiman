@@ -40,7 +40,9 @@ test('plural', () => {
 
 test('passwordAge', () => {
   const created = at(-30 * DAY)
-  assert.equal(passwordAge(null, created, NOW), 'Set')
-  assert.equal(passwordAge(created, created, NOW), 'Set 30 days ago')
-  assert.equal(passwordAge(at(-12 * DAY), created, NOW), 'Changed 12 days ago')
+  assert.equal(passwordAge(null, created, { now: NOW }), 'Set')
+  assert.equal(passwordAge(created, created, { now: NOW }), 'Set 30 days ago')
+  assert.equal(passwordAge(at(-30 * DAY - 1000), created, { now: NOW }), 'Changed 30 days ago')
+  assert.equal(passwordAge(at(-12 * DAY), created, { now: NOW }), 'Changed 12 days ago')
+  assert.equal(passwordAge(at(-12 * DAY), created, { now: NOW, lowerCase: true }), 'changed 12 days ago')
 })

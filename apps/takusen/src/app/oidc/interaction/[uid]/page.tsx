@@ -29,7 +29,7 @@ import { TakusenMark } from '@/components/takusen-logo'
 import { Tag } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { auth } from '@/auth'
-import { getAccountSummary } from '@/lib/account'
+import { getViewer } from '@/lib/account'
 import { consentRequest } from '@/lib/oidc-consent'
 import { getInteraction } from '@/lib/oidc-interaction'
 
@@ -100,10 +100,11 @@ export default async function InteractionPage({ params }: PageProps) {
   }
 
   const request = consentRequest(interaction)
-  const [clientInfo, summary] = await Promise.all([
+  const [clientInfo, viewer] = await Promise.all([
     request.clientId ? describeClient(request.clientId) : null,
-    getAccountSummary(session.user.id),
+    getViewer(session),
   ])
+  if (!viewer) redirect(`/login?next=${encodeURIComponent(here)}`)
   const clientName = clientInfo?.name ?? (request.clientId || 'An unknown application')
 
   // Bind the server actions to this interaction's uid so the form can call
@@ -111,11 +112,7 @@ export default async function InteractionPage({ params }: PageProps) {
   const accept = acceptInteractionAction.bind(null, uid)
   const deny = denyInteractionAction.bind(null, uid)
 
-  const account: SsoAccount = {
-    name: summary?.displayName ?? session.user.name ?? '',
-    email: summary?.email ?? session.user.email ?? '',
-    avatarUrl: summary?.avatarUrl ?? null,
-  }
+  const account: SsoAccount = { name: viewer.displayName, email: viewer.email, avatarUrl: viewer.avatarUrl }
   const accountLabel = account.name || account.email
   const isLogin = request.prompt === 'login'
 

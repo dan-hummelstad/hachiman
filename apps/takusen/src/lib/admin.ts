@@ -215,44 +215,23 @@ export function summarizeMediaNodes(nodes: readonly AdminMediaNode[]): MediaNode
   return s
 }
 
-export interface RegionLoad {
+export interface RegionNodes {
   region: string
-  /** Sum of `activeSessions` over the fresh nodes of the region. */
-  sessions: number
-  /** Sum of `maxSessions` over the fresh `active` nodes of the region. */
-  capacity: number
-  nodes: number
-  stale: number
-  draining: number
+  nodes: MediaNodeSummary
 }
 
 /**
- * Voice load per region: every region in `regionCodes` (in that order), then
- * any other region that a node names, by code.
+ * The node summary per region: every region in `regionCodes` (in that order), then any other
+ * region that a node names, by code.
  */
-export function regionLoad(nodes: readonly AdminMediaNode[], regionCodes: readonly string[]): RegionLoad[] {
-  const byRegion = new Map<string, RegionLoad>()
-  const entry = (region: string) => {
-    let e = byRegion.get(region)
-    if (!e) {
-      e = { region, sessions: 0, capacity: 0, nodes: 0, stale: 0, draining: 0 }
-      byRegion.set(region, e)
-    }
-    return e
-  }
-  for (const code of regionCodes) entry(code)
+export function nodesByRegion(nodes: readonly AdminMediaNode[], regionCodes: readonly string[]): RegionNodes[] {
+  const byRegion = new Map<string, AdminMediaNode[]>(regionCodes.map((code) => [code, []]))
   for (const n of [...nodes].sort((a, b) => a.region.localeCompare(b.region))) {
-    const e = entry(n.region)
-    e.nodes++
-    if (n.stale) {
-      e.stale++
-      continue
-    }
-    e.sessions += n.activeSessions
-    if (n.status === 'active') e.capacity += n.maxSessions
-    else if (n.status === 'draining') e.draining++
+    const list = byRegion.get(n.region)
+    if (list) list.push(n)
+    else byRegion.set(n.region, [n])
   }
-  return [...byRegion.values()]
+  return [...byRegion].map(([region, list]) => ({ region, nodes: summarizeMediaNodes(list) }))
 }
 
 /** The badge counts of the admin sidebar, and the user facts of the overview. */
@@ -280,7 +259,7 @@ export interface AdminOverview {
   }
   mediaNodes: MediaNodeSummary
   /** Every region, then node regions that are not in the table. */
-  regionLoad: RegionLoad[]
+  regionLoad: RegionNodes[]
   /** Users with a live presence that is not offline. */
   onlineUsers: number
   server: { version: string; nodeVersion: string; uptimeSeconds: number; maxUploadBytes: number }

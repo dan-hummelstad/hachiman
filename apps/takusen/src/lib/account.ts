@@ -4,6 +4,7 @@
  * The pure parts are in account-sessions.ts.
  */
 import { and, count, eq, inArray, sql } from 'drizzle-orm'
+import type { Session } from 'next-auth'
 import { cache } from 'react'
 
 import { db } from '@/db/client'
@@ -16,6 +17,7 @@ import {
   type GrantRow,
   type HachimanSession,
 } from '@/lib/account-sessions'
+import { getOptionalUser } from '@/lib/auth-helpers'
 import { redis } from '@/lib/events'
 import { fileUrl } from '@/lib/file-url'
 import { redisDeviceBindings } from '@/lib/mls/device-binding'
@@ -62,6 +64,15 @@ export const getAccountSummary = cache(async (userId: string): Promise<AccountSu
     hachiman: (grantsRow?.n ?? 0) > 0 ? 'signed_in' : (devicesRow?.n ?? 0) > 0 ? 'signed_out' : 'never',
   }
 })
+
+/**
+ * The signed-in user's account: what every page shows as "you". Null when signed out or when
+ * the account no longer exists. `session` defaults to the cookie or bearer session.
+ */
+export async function getViewer(session?: Session | null): Promise<AccountSummary | null> {
+  const s = session === undefined ? await getOptionalUser() : session
+  return s?.user?.id ? await getAccountSummary(s.user.id) : null
+}
 
 async function liveGrants(userId: string): Promise<GrantRow[]> {
   return db

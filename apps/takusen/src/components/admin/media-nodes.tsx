@@ -13,19 +13,20 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { cn } from '@/lib/utils'
 import { adminFetch, errorText, useAdminData } from '@/components/admin/data'
 import { Meter } from '@/components/ui/meter'
+import { PageHead } from '@/components/dashboard-shell'
 import { formatDateTime, formatRelative } from '@/lib/format'
 import {
   FilterChips,
   ListFrame,
   matchesQuery,
-  PageHead,
   QueryChip,
   RowMenu,
+  useFilterParam,
   useSearchParamState,
   type RowMenuItem,
 } from './kit'
 
-type Filter = 'all' | 'healthy' | 'attention'
+const FILTERS = ['all', 'healthy', 'attention'] as const
 
 /** Heartbeats are a few seconds apart; refresh so "3 s ago" and Stale stay true. */
 const REFRESH_MS = 10_000
@@ -71,7 +72,7 @@ function LoadCell({
 export function AdminMediaNodesView(): React.JSX.Element {
   const { data, error, reload } = useAdminData<AdminMediaNode[]>('/media-nodes')
   const [query] = useSearchParamState('query')
-  const [filter, setFilter] = useState<Filter>('all')
+  const [filter, setFilter] = useFilterParam(FILTERS)
   const [now, setNow] = useState(() => Date.now())
   const router = useRouter()
 

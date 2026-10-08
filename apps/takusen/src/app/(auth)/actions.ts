@@ -122,12 +122,15 @@ export async function signupAction(
   }
 
   const passwordHash = await bcrypt.hash(password, BCRYPT_COST)
+  // One instant for both: passwordAge reads equal times as the sign-up password.
+  const now = new Date()
   await db.insert(users).values({
     email,
     displayName,
     name: displayName,
     passwordHash,
-    passwordChangedAt: new Date(),
+    createdAt: now,
+    passwordChangedAt: now,
   })
 
   try {

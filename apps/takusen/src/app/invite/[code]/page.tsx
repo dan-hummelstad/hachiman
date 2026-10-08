@@ -14,7 +14,7 @@ import { AccountChip, type SsoAccount } from '@/components/sso-account'
 import { EntityAvatar } from '@/components/ui/avatar'
 import { StatusTag } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { getAccountSummary } from '@/lib/account'
+import { getViewer } from '@/lib/account'
 import { getOptionalUser } from '@/lib/auth-helpers'
 import { hachimanLinks, inviteLinks } from '@/lib/deployment'
 import { formatRelative, plural } from '@/lib/format'
@@ -35,17 +35,9 @@ interface InvitePageProps {
 export default async function InvitePage({ params }: InvitePageProps): Promise<React.JSX.Element> {
   const { code } = await params
   const session = await getOptionalUser()
-  const viewerId = session?.user.id ?? null
-  const [landing, summary] = await Promise.all([
-    getInviteLanding(code, viewerId),
-    viewerId ? getAccountSummary(viewerId) : null,
-  ])
-  const account: SsoAccount | null = session
-    ? {
-        name: summary?.displayName ?? session.user.name ?? '',
-        email: summary?.email ?? session.user.email ?? '',
-        avatarUrl: summary?.avatarUrl ?? null,
-      }
+  const [landing, viewer] = await Promise.all([getInviteLanding(code, session?.user.id ?? null), getViewer(session)])
+  const account: SsoAccount | null = viewer
+    ? { name: viewer.displayName, email: viewer.email, avatarUrl: viewer.avatarUrl }
     : null
 
   return (

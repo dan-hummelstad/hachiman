@@ -9,7 +9,7 @@ import pkg from '../../../../../package.json'
 import { db } from '@/db/client'
 import { mediaNodes, messages, uploads } from '@/db/schema'
 import { HEARTBEAT_STALE_AFTER_MS } from '@/grpc/repo'
-import { regionLoad, summarizeMediaNodes, toAdminMediaNode, type AdminOverview } from '@/lib/admin'
+import { nodesByRegion, summarizeMediaNodes, toAdminMediaNode, type AdminOverview } from '@/lib/admin'
 import { adminCounts } from '@/lib/admin-stats'
 import { adminRoute } from '@/lib/api-helpers'
 import { redis } from '@/lib/events'
@@ -48,7 +48,7 @@ export const GET = adminRoute(async () => {
       uploadBytes: Number(up?.bytes ?? 0),
     },
     mediaNodes: summarizeMediaNodes(adminNodes),
-    regionLoad: regionLoad(adminNodes, regionRows.map((r) => r.code)),
+    regionLoad: nodesByRegion(adminNodes, regionRows.map((r) => r.code)),
     onlineUsers,
     server: {
       version: pkg.version,

@@ -33,7 +33,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import type { HachimanLinks } from '@/lib/deployment'
 import { plural } from '@/lib/format'
-import type { RegionStatus } from '@/lib/regions'
+import type { RegionStatus } from '@/lib/region-status'
 import { cn } from '@/lib/utils'
 
 // ---------------------------------------------------------------------------

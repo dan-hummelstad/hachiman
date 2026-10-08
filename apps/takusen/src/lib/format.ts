@@ -74,12 +74,16 @@ export function formatBytes(n: number): string {
 }
 
 /**
- * The password line: "Set 30 days ago" when the password is the one from
- * sign-up, "Changed 12 days ago" after a change, "Set" for accounts from
- * before the column (no date).
+ * The password line: "Set 30 days ago" for the password from sign-up (sign-up writes
+ * `passwordChangedAt` = `createdAt`), "Changed 12 days ago" after a change, "Set" for accounts
+ * from before the column (no date). `lowerCase` for the middle of a line ("changed 12 days ago").
  */
-export function passwordAge(changedAt: string | null, createdAt: string, now: number = Date.now()): string {
-  if (!changedAt) return 'Set'
-  const fromSignup = Math.abs(new Date(changedAt).getTime() - new Date(createdAt).getTime()) < MINUTE
-  return `${fromSignup ? 'Set' : 'Changed'} ${formatRelative(changedAt, now)}`
+export function passwordAge(
+  changedAt: string | null,
+  createdAt: string,
+  { lowerCase = false, now = Date.now() }: { lowerCase?: boolean; now?: number } = {},
+): string {
+  const [set, changed] = lowerCase ? ['set', 'changed'] : ['Set', 'Changed']
+  const verb = !changedAt || changedAt === createdAt ? set : changed
+  return changedAt ? `${verb} ${formatRelative(changedAt, now)}` : verb
 }

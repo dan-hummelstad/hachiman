@@ -15,7 +15,8 @@ import { cn } from '@/lib/utils'
 import { adminFetch, errorText, useAdminData } from '@/components/admin/data'
 import { Dot } from '@/components/ui/meter'
 import { plural } from '@/lib/format'
-import { ListFrame, matchesQuery, PageHead, QueryChip, RowMenu, useSearchParamState } from './kit'
+import { PageHead } from '@/components/dashboard-shell'
+import { ListFrame, matchesQuery, QueryChip, RowMenu, useSearchParamState } from './kit'
 
 /** regions.probe_port's default: a probe host without a port probes 443. */
 const DEFAULT_PROBE_PORT = 443

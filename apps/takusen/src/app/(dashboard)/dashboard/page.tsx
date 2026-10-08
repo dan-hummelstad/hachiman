@@ -3,9 +3,8 @@ import { headers } from 'next/headers'
 import { IdentityCard, NextStepPanel, SecurityPanel } from '@/components/account/overview-cards'
 import { AppsPanel, SessionsPanel, type SessionRowData } from '@/components/account/overview-panels'
 import { DashboardShell } from '@/components/dashboard-shell'
-import { getAccountSummary, listAppAccess, listHachimanSessions } from '@/lib/account'
+import { getViewer, listAppAccess, listHachimanSessions } from '@/lib/account'
 import { describeUserAgent, type HachimanSession } from '@/lib/account-sessions'
-import { getOptionalUser } from '@/lib/auth-helpers'
 import { desktopDownloadFor, hachimanLinks } from '@/lib/deployment'
 import { formatDate, formatRelative, passwordAge, plural } from '@/lib/format'
 
@@ -37,21 +36,17 @@ export default async function DashboardPage(): Promise<React.JSX.Element | null>
   // The layout sends signed-out visitors to /login. Null covers one case it does not: "Sign out
   // everywhere else" sets a new cookie, so Next re-renders this page inside the action, still
   // with the old cookie that the cut-off revoked. The client refreshes right after.
-  const session = await getOptionalUser()
-  if (!session) return null
-  const userId = session.user.id
-  const [summary, sessions, apps, hdrs] = await Promise.all([
-    getAccountSummary(userId),
-    listHachimanSessions(userId),
-    listAppAccess(userId),
+  const viewer = await getViewer()
+  if (!viewer) return null
+  const [sessions, apps, hdrs] = await Promise.all([
+    listHachimanSessions(viewer.id),
+    listAppAccess(viewer.id),
     headers(),
   ])
   const links = hachimanLinks()
   const browser = describeUserAgent(hdrs.get('user-agent'))
-  const name = summary?.displayName || session.user.name || ''
-  const email = summary?.email ?? session.user.email ?? ''
-  const firstName = name || email
-  const firstVisit = summary?.hachiman === 'never'
+  const firstName = viewer.displayName || viewer.email
+  const firstVisit = viewer.hachiman === 'never'
 
   return (
     <DashboardShell
@@ -73,18 +68,18 @@ export default async function DashboardPage(): Promise<React.JSX.Element | null>
             { title: 'Open Hachiman and sign in', meta: 'Next', state: 'next' },
             {
               title: 'Join a guild',
-              meta: summary.guildCount > 0 ? 'Done' : 'Open any invite link',
-              state: summary.guildCount > 0 ? 'done' : 'todo',
+              meta: viewer.guildCount > 0 ? 'Done' : 'Open any invite link',
+              state: viewer.guildCount > 0 ? 'done' : 'todo',
             },
           ]}
         />
       ) : (
         <IdentityCard
-          name={name}
-          email={email}
-          avatarUrl={summary?.avatarUrl ?? null}
-          admin={session.user.role === 'admin'}
-          memberSince={summary ? formatDate(summary.createdAt) : ''}
+          name={viewer.displayName}
+          email={viewer.email}
+          avatarUrl={viewer.avatarUrl}
+          admin={viewer.role === 'admin'}
+          memberSince={formatDate(viewer.createdAt)}
         />
       )}
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_400px] xl:items-start">
@@ -94,9 +89,9 @@ export default async function DashboardPage(): Promise<React.JSX.Element | null>
         />
         <div className="flex min-w-0 flex-col gap-5">
           <SecurityPanel
-            email={email}
-            emailVerified={summary?.emailVerified ?? false}
-            passwordLine={summary ? passwordAge(summary.passwordChangedAt, summary.createdAt) : 'Set'}
+            email={viewer.email}
+            emailVerified={viewer.emailVerified}
+            passwordLine={passwordAge(viewer.passwordChangedAt, viewer.createdAt)}
             showDeviceKeys={!firstVisit}
             hachimanWeb={links.web}
           />
