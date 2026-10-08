@@ -1,11 +1,12 @@
 import { useMemo } from 'react'
 import { Eye, Info, PhoneCall, PhoneOff } from 'lucide-react'
-import { Permissions, has, type VoiceState } from '@hachiman/client'
+import { Permissions, has, type Channel, type VoiceState } from '@hachiman/client'
 import { Button } from '@/components/ui/button'
 import { CallSecurityBanner } from '@/components/voice/call-security'
 import { secureUserIds } from '@/components/voice/call-roster'
 import { ScreenShareControls } from '@/components/voice/screen-share-controls'
 import { SelfVoiceToggles } from '@/components/voice/self-voice-toggles'
+import { SoundboardButton } from '@/components/voice/soundboard-button'
 import { LiveCard, StreamerName } from '@/components/voice/live-card'
 import { StreamGrid } from '@/components/voice/stream-grid'
 import { useCallParticipants, useCanJoinVoice } from '@/components/voice/use-call-security'
@@ -37,7 +38,8 @@ interface Tile {
   status: TileStatus
 }
 
-function Stage({ channel }: { channel: GuildChannel }): React.JSX.Element {
+/** The own call: a guild voice channel, or a DM call above the transcript (DmCallPanel). */
+export function Stage({ channel }: { channel: Channel }): React.JSX.Element {
   const meId = useUserStore((s) => s.me?.id ?? null)
   const occupants = useChannelOccupants(channel.guildId, channel.id)
   const participants = useCallParticipants(channel.guildId, channel.id)
@@ -90,7 +92,7 @@ const BAR_SHARE = cn(
   'aria-pressed:bg-feature-voice/15 aria-pressed:text-feature-voice-text'
 )
 
-/** The one floating control bar of the stage: mic, deafen, share, stream settings, and Leave. */
+/** The one floating control bar of the stage: mic, deafen, share, stream settings, soundboard, and Leave. */
 function ControlBar(): React.JSX.Element {
   return (
     <div className="pointer-events-none absolute inset-x-0 bottom-5 flex flex-col items-center gap-2 px-4">
@@ -103,6 +105,7 @@ function ControlBar(): React.JSX.Element {
         >
           <SelfVoiceToggles className={BAR_TOGGLE} />
           <ScreenShareControls buttonClassName={BAR_SHARE} />
+          <SoundboardButton className={BAR_BUTTON} />
         </div>
         <Button
           variant="danger"

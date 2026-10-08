@@ -30,11 +30,13 @@ import {
   roles,
   users,
 } from '@/db/schema'
+import { deleteGuildEmojiUploads, listEmojis } from '@/lib/emojis'
 import { NotFoundError } from '@/lib/errors'
 import { publishToGuild, publishToUser, redis } from '@/lib/events'
-import { publishInviteDeletes, revokeAdminInvitesOfNonAdmins } from '@/lib/invite-limits'
+import { publishInviteDeletes, revokeAdminInvitesOfNonAdmins, type RevokedInvite } from '@/lib/invite-limits'
 import { toB64 } from '@/lib/mls/bytes'
 import { discardMembershipWork, onMembershipChange, wakeScheduler, type MembershipChange } from '@/lib/mls/membership'
+import { deleteGuildSoundUploads } from '@/lib/sounds'
 import { deleteObjects } from '@/lib/storage'
 import { THREAD_LIST_MAX } from '@/lib/threads'
 import { deleteAttachmentRows } from '@/lib/uploads'
@@ -238,11 +240,12 @@ export async function loadGuildFull(guildId: string, viewerId: string): Promise<
       .from(memberRoles)
       .where(eq(memberRoles.guildId, guildId)),
   ])
-  const [voiceStates, presences, groups, publicVisibility] = await Promise.all([
+  const [voiceStates, presences, groups, publicVisibility, emojis] = await Promise.all([
     readVoiceStates(guildId),
     readPresences(members.map((m) => m.member.userId)),
     groupVisibility(channelRows.map((c) => c.mlsGroupId)),
     publicHistoryVisibility(guildId),
+    listEmojis(guildId),
   ])
   return assembleGuildFull({
     guild,
@@ -256,18 +259,32 @@ export async function loadGuildFull(guildId: string, viewerId: string): Promise<
     presences,
     groups,
     publicHistoryVisibility: publicVisibility,
+    emojis,
   })
+}
+
+/** Whether the gateway session of a voice state is still live. */
+async function voiceSessionAlive(state: VoiceState): Promise<boolean> {
+  return (await redis().exists(`session:${state.sessionId}`)) === 1
 }
 
 /** `voice:{guildId}`, minus entries whose gateway session has expired. */
 async function readVoiceStates(guildId: string): Promise<VoiceState[]> {
-  const r = redis()
-  const states = Object.values(await r.hgetall(`voice:${guildId}`)).map(
+  const states = Object.values(await redis().hgetall(`voice:${guildId}`)).map(
     (json) => JSON.parse(json) as VoiceState,
   )
   if (states.length === 0) return []
-  const alive = await Promise.all(states.map((s) => r.exists(`session:${s.sessionId}`)))
-  return states.filter((_, i) => alive[i] === 1)
+  const alive = await Promise.all(states.map(voiceSessionAlive))
+  return states.filter((_, i) => alive[i])
+}
+
+/** The live voice state of `userId` in `guildId`, or null (no state, or its gateway session is gone). */
+export async function readVoiceState(guildId: string, userId: string): Promise<VoiceState | null> {
+  const json = await redis().hget(`voice:${guildId}`, userId)
+  if (!json) return null
+  const state = JSON.parse(json) as VoiceState
+  if (!state.channelId || !(await voiceSessionAlive(state))) return null
+  return state
 }
 
 /** Online presences for `userIds` (absent key ⇒ offline, omitted), with the custom status as READY has it. */
@@ -375,17 +392,38 @@ export async function removeMember(guildId: string, userId: string, actorDeviceI
   const user = await getUserById(userId)
   if (!user) throw new NotFoundError('Unknown member')
   const revoked = await membershipTransaction(async (tx) => {
-    const deleted = await tx
-      .delete(guildMembers)
-      .where(and(eq(guildMembers.guildId, guildId), eq(guildMembers.userId, userId)))
-      .returning({ userId: guildMembers.userId })
-    if (deleted.length === 0) throw new NotFoundError('Unknown member')
-    const revoked = await revokeAdminInvitesOfNonAdmins(tx, guildId)
-    await membershipChanged(tx, MembershipTriggers.memberLeft(guildId, userId), actorDeviceId)
+    const revoked = await removeMemberIn(tx, guildId, userId, actorDeviceId)
+    if (!revoked) throw new NotFoundError('Unknown member')
     return revoked
   })
+  await publishMemberRemoved(guildId, user, revoked)
+}
+
+/**
+ * The leave, kick and ban path inside a membership transaction: deletes the
+ * membership, revokes the invites of users who lost ADMINISTRATOR and tells the
+ * DS (§12.18 `member_left`). Null when `userId` is not a member.
+ */
+export async function removeMemberIn(
+  tx: Tx,
+  guildId: string,
+  userId: string,
+  actorDeviceId: string | null,
+): Promise<RevokedInvite[] | null> {
+  const deleted = await tx
+    .delete(guildMembers)
+    .where(and(eq(guildMembers.guildId, guildId), eq(guildMembers.userId, userId)))
+    .returning({ userId: guildMembers.userId })
+  if (deleted.length === 0) return null
+  const revoked = await revokeAdminInvitesOfNonAdmins(tx, guildId)
+  await membershipChanged(tx, MembershipTriggers.memberLeft(guildId, userId), actorDeviceId)
+  return revoked
+}
+
+/** After the commit of `removeMemberIn`. The gateway then drops the guild, and its voice state, from the sessions of the user. */
+export async function publishMemberRemoved(guildId: string, user: UserLike, revoked: RevokedInvite[]): Promise<void> {
   await publishToGuild(guildId, 'GUILD_MEMBER_REMOVE', { guildId, user: toUser(user) })
-  await publishToUser(userId, 'GUILD_DELETE', { id: guildId })
+  await publishToUser(user.id, 'GUILD_DELETE', { id: guildId })
   await publishInviteDeletes(guildId, revoked)
 }
 
@@ -395,7 +433,11 @@ export async function removeMember(guildId: string, userId: string, actorDeviceI
  * same transaction (§12.18 `guild_deleted`). Throws NotFound for an unknown guild.
  */
 export async function deleteGuildRows(tx: Tx, guildId: string, actorDeviceId: string | null): Promise<string[]> {
-  const keys = await deleteAttachmentRows(tx, { guildId })
+  const keys = [
+    ...(await deleteAttachmentRows(tx, { guildId })),
+    ...(await deleteGuildEmojiUploads(tx, guildId)),
+    ...(await deleteGuildSoundUploads(tx, guildId)),
+  ]
   await membershipChanged(tx, MembershipTriggers.guildDeleted(guildId), actorDeviceId)
   const deleted = await tx.delete(guilds).where(eq(guilds.id, guildId)).returning({ id: guilds.id })
   if (deleted.length === 0) throw new NotFoundError('Unknown guild')

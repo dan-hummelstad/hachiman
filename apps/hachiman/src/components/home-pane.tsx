@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Ban, MessageCircle, MoreHorizontal, Search, SquarePen, Users } from 'lucide-react'
+import { Ban, Hand, MessageCircle, MoreHorizontal, Search, SquarePen, Users } from 'lucide-react'
 import type { User } from '@hachiman/client'
 import { ActiveNow } from '@/components/people/active-now'
 import { BlockConfirmDialog } from '@/components/people/block-dialog'
@@ -26,6 +26,7 @@ import { useOpenDm, usePresence } from '@/hooks/use-member'
 import { activityLabel } from '@/lib/member-activity'
 import { cn } from '@/lib/utils'
 import { blockService } from '@/services/guild-features'
+import { usePoke } from '@/services/poke'
 import { useChannelStore } from '@/stores/channelStore'
 import { useGuildStore } from '@/stores/guildStore'
 import { useUserStore } from '@/stores/userStore'
@@ -139,6 +140,7 @@ function PersonRow({ user, dim }: { user: User; dim: boolean }): React.JSX.Eleme
   const custom = useCustomStatus(user.id)
   const activity = useVoiceActivity(user.id, null)
   const dm = useOpenDm(user.id)
+  const poke = usePoke()
   const [confirm, setConfirm] = useState(false)
 
   return (
@@ -154,7 +156,11 @@ function PersonRow({ user, dim }: { user: User; dim: boolean }): React.JSX.Eleme
         <span className="text-text-primary truncate text-sm leading-5 font-semibold">
           {user.username}
         </span>
-        {activity && !dim ? (
+        {poke.error ? (
+          <span className="text-feature-danger-text truncate text-xs leading-4" title={poke.error}>
+            {poke.error}
+          </span>
+        ) : activity && !dim ? (
           <span className="text-feature-voice-text truncate text-xs leading-4 font-semibold">
             {activity.streaming ? `Live in ${activity.channelName}` : activityLabel(activity)}
           </span>
@@ -190,6 +196,14 @@ function PersonRow({ user, dim }: { user: User; dim: boolean }): React.JSX.Eleme
           </IconButton>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
+          {!dim && (
+            <DropdownMenuItem
+              disabled={poke.busy}
+              onSelect={() => void poke.run(user.id, user.username)}
+            >
+              <Hand /> Poke
+            </DropdownMenuItem>
+          )}
           <DropdownMenuItem variant="destructive" onSelect={() => setConfirm(true)}>
             <Ban /> Block
           </DropdownMenuItem>

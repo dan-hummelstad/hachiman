@@ -3,7 +3,9 @@ import { useAction } from '@/hooks/use-action'
 import { displayName, roleColor } from '@/lib/model'
 import { roleInk } from '@/lib/role-ink'
 import { openDmWith } from '@/services/hachiman'
+import { useChannelStore } from '@/stores/channelStore'
 import { useGuildStore } from '@/stores/guildStore'
+import { useUserStore } from '@/stores/userStore'
 import { useVoiceStore } from '@/stores/voiceStore'
 
 /** A user's presence; absent (or no user) = 'offline'. */
@@ -23,17 +25,34 @@ export function useMemberView(
 ): { member: Member | undefined; name: string; avatar: string | null; ink: string | undefined } {
   const member = useGuildStore((s) => (guildId ? s.members.get(guildId)?.get(userId) : undefined))
   const roles = useGuildStore((s) => (guildId ? s.roles.get(guildId) : undefined))
+  const known = useDmUser(guildId || user ? null : userId)
+  const who = user ?? known
   return {
     member,
-    name: displayName(member, user),
-    avatar: member?.user.avatar ?? user?.avatar ?? null,
+    name: displayName(member, who),
+    avatar: member?.user.avatar ?? who?.avatar ?? null,
     ink: roleInk(roleColor(member, roles))
   }
 }
 
+/** Me or a DM recipient with `userId` (a DM call has no guild members). Null: no lookup. */
+function useDmUser(userId: string | null): User | undefined {
+  const me = useUserStore((s) => (userId && s.me?.id === userId ? s.me : undefined))
+  const other = useChannelStore((s) => {
+    if (!userId) return undefined
+    for (const c of s.channels.values())
+      if (c.guildId === null) {
+        const u = c.recipients?.find((r) => r.id === userId)
+        if (u) return u
+      }
+    return undefined
+  })
+  return me ?? other
+}
+
 /** A member as rendered (member list, voice occupants): `useMemberView` plus whether they are speaking. */
 export function useSpeakingMember(
-  guildId: string,
+  guildId: string | null,
   userId: string
 ): ReturnType<typeof useMemberView> & { speaking: boolean } {
   const speaking = useVoiceStore((s) => s.speaking.has(userId))

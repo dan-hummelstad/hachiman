@@ -19,6 +19,7 @@ import {
   DM2,
   DM3,
   DM4,
+  EXTRA_DMS,
   G1,
   G1C,
   G2,
@@ -124,8 +125,11 @@ function previewReadStates(history: Map<string, ChatMessage[]>): {
   return { readStates, mentions }
 }
 
-/** N6 fixture: the favourite DM tiles of B1 (marlowe, yuki.h, Juni, quill, the group DM). */
-const FAVOURITE_DMS = [DM1, DM2, DM3, DM4, GDM1]
+/**
+ * N6 fixture: the favourite DM tiles of B1 (marlowe, yuki.h, Juni, quill, the group DM), then
+ * three more, so the line overflows.
+ */
+const FAVOURITE_DMS = [DM1, DM2, DM3, DM4, GDM1, ...EXTRA_DMS]
 
 /** N17 fixture: seconds since each voice participant joined. Lounge started 1:24:07 ago (B1). */
 const JOINED_AGO_S: Record<string, number> = {

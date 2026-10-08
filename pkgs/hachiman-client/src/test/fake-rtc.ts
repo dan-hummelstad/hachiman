@@ -74,10 +74,13 @@ export class FakeSender {
     this.replaced.push(t)
     return Promise.resolve()
   }
+  /** What setParameters set last. */
+  encodings: Record<string, unknown>[] = [{}]
   getParameters(): { encodings: Record<string, unknown>[] } {
-    return { encodings: [{}] }
+    return { encodings: this.encodings.map(e => ({ ...e })) }
   }
-  setParameters(): Promise<void> {
+  setParameters(p: { encodings: Record<string, unknown>[] }): Promise<void> {
+    this.encodings = p.encodings
     return Promise.resolve()
   }
 }
@@ -115,6 +118,7 @@ export class FakeMediaStream {
 }
 
 export class FakeAudio {
+  static instances: FakeAudio[] = []
   autoplay = false
   srcObject: unknown = null
   muted = false
@@ -126,6 +130,59 @@ export class FakeAudio {
   }
   pause(): void {
     this.paused = true
+  }
+  constructor() {
+    FakeAudio.instances.push(this)
+  }
+}
+
+class FakeAudioNode {
+  readonly connections: unknown[] = []
+  connected = true
+  connect<T>(n: T): T {
+    this.connections.push(n)
+    return n
+  }
+  disconnect(): void {
+    this.connected = false
+  }
+}
+
+export class FakeGainNode extends FakeAudioNode {
+  readonly gain = { value: 1 }
+}
+
+/** Installed by the tests that need the volume boost path. */
+export class FakeAudioContext {
+  static instances: FakeAudioContext[] = []
+  static nextState = 'running'
+  state = FakeAudioContext.nextState
+  closed = false
+  onstatechange: (() => void) | null = null
+  readonly destination = new FakeAudioNode()
+  readonly gains: FakeGainNode[] = []
+  constructor() {
+    FakeAudioContext.instances.push(this)
+  }
+  createMediaStreamSource(): FakeAudioNode {
+    return new FakeAudioNode()
+  }
+  createGain(): FakeGainNode {
+    const g = new FakeGainNode()
+    this.gains.push(g)
+    return g
+  }
+  resume(): Promise<void> {
+    return Promise.resolve()
+  }
+  /** The browser changes the state. */
+  setState(state: string): void {
+    this.state = state
+    this.onstatechange?.()
+  }
+  close(): Promise<void> {
+    this.closed = true
+    return Promise.resolve()
   }
 }
 
@@ -186,6 +243,9 @@ export class FakeRTCPeerConnection {
 
 export function installFakeRtc(): void {
   FakeRTCPeerConnection.instances = []
+  FakeAudio.instances = []
+  FakeAudioContext.instances = []
+  FakeAudioContext.nextState = 'running'
   transformOwner.clear()
   const g = globalThis as Record<string, unknown>
   g['RTCPeerConnection'] = FakeRTCPeerConnection

@@ -4,7 +4,7 @@ import { toB64url } from '../codec'
 import { AdminActionType } from '../constants'
 import { admin } from './index'
 
-export const createAdminService: CreateAdminService = (ctx, identity) => ({
+export const createAdminService: CreateAdminService = (ctx, identity, perms) => ({
   async signAdminAction(guildId, type: AdminActionTypeId, payload) {
     const self = identity.self()
     // adminState fetches the newest actions and verifies the chain before it gives the head.
@@ -31,5 +31,10 @@ export const createAdminService: CreateAdminService = (ctx, identity) => ({
       self.mlsSignatureKey.privateKey,
     )
     return { header: toB64url(admin.encodeAction(action)), seq: action.seq }
+  },
+
+  async adminGuildPermissions(guildId, userId) {
+    const state = await identity.adminState(guildId)
+    return state === null ? null : perms.guildPermissions(state, userId)
   },
 })

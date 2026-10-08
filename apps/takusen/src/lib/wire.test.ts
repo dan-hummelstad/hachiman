@@ -53,7 +53,7 @@ function user(id: string, displayName: string) {
   return { id, displayName, name: null, email: `${displayName}@example.com`, image: null }
 }
 function member(userId: string): GuildMemberRow {
-  return { guildId: GUILD, userId, nick: null, joinedAt: T, inviteId: null }
+  return { guildId: GUILD, userId, nick: null, joinedAt: T, inviteId: null, mute: false, deaf: false }
 }
 function channel(id: string, name: string): ChannelRow {
   return {

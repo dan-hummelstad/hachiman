@@ -138,6 +138,7 @@ Only `services/hachiman.ts` writes the mirror stores (`guildStore`, `channelStor
 - **Send.** `MessagesService` calls `ensureChannelGroup` and `encryptMessage`, then posts the envelope. `UploadService` encrypts each attachment in the Worker and uploads only the blobs. The name, MIME type and dimensions go into the envelope.
 - **Attachments** show as object URLs of decrypted blobs (`hooks/use-decrypted-blob.ts`, `lib/blob-url-cache.ts`). The cache loads each blob one time and releases a URL when no component holds it.
 - **Voice.** `voice-e2ee.ts` is the `VoiceE2eeDelegate` of `@hachiman/client`. It makes one transform Worker per call and one sender transform per track. A media close 4013 makes `VoiceService` join again. The call UI shows the participants from the MLS tree (`components/voice/call-roster.ts`).
+- **DM calls** (contract §6 "DM calls"). A DM or group DM is also a voice room: `VoiceService.join` sends op 4 with `guildId` null. `components/voice/dm-call.tsx` puts the stage above the transcript and a "Join call" banner for the others. `CallRingService` turns `CALL_RING` into `ringStore` and a looped `ring` chime, and `components/voice/incoming-call.tsx` shows Accept and Decline. `lib/call-ring.ts` decides when the ring stops.
 - **Admin actions.** `AdminActionService` signs role, overwrite, member-role and history-visibility changes (§12.16) and sends them in `X-Hachiman-Signed-Action`.
 - **Invites with history** (§12.11.4). An administrator switches on "Include history" in the invite window. `InviteService.createHistoryInvite` calls `prepareHistoryInvite`, creates the invite with the record and calls `sendInviteBundles`. The window shows the link with `#k=<key>` once, from component state. A host gives an opened link to `onInviteLink`. `App.tsx` keeps its key in a memory map of `InviteService`, and `JoinServerModal` reads it from there. After the join, `redeemWaitingInvites` calls `redeemInvite` when the Worker is ready and the guild members are in the cache (`hachiman.ts` calls it again on the ready status, `READY` and `GUILD_CREATE`). The Worker then joins each `channel` group of the scope at once, by external commit with an `InviteAuth` (no member must be online). After a transport error it tries again with a growing wait, during the fetch window. A final failure adds a security notice (`cryptoStore.inviteHistoryFailures`, guild ids only). When the Worker cannot start in this window (`LockHeld`), `JoinServerModal` asks the user to agree to a join without the history. The browser sign-in redirect keeps the key in `sessionStorage` only, and `App.tsx` deletes the keys of a sign-in that did not finish (`dropSignInInviteKeys`).
 - **cryptoStore** holds the Worker phase, `CryptoStatus`, the fatal state (4012 `update_required`, 4013 `device_revoked`), key-change, fork and KT alerts, membership events and the voice roster. It never holds key material, a recovery key or an invite seed.
@@ -179,9 +180,9 @@ flowchart LR
   subgraph SB["Sidebar (280)"]
     direction TB
     CTL["controls<br/>SidebarControls: toggle, back, forward<br/>InboxButton"]
-    TOP["top<br/>SwitcherField (⌘K), FavouriteDms"]
+    TOP["top<br/>SpaceBar, SwitcherField (⌘K),<br/>FavouriteDms"]
     MID["middle<br/>GuildChannelList, DmSpace<br/>or SettingsNav"]
-    FOOT["foot<br/>VoiceDock, SpaceBar"]
+    FOOT["foot<br/>VoiceDock"]
     CTL --> TOP --> MID --> FOOT
   end
   subgraph COL["Content column"]
@@ -199,6 +200,7 @@ flowchart LR
 ```
 
 - `Sidebar` has four slots: `controls`, `top`, `middle` and `foot`. The controls row is the window drag region. With an inset title bar, it starts after the traffic lights.
+- `SpaceBar` and `FavouriteDms` each take one line (`use-icon-strip.ts`, `lib/icon-strip.ts`). When the items do not fit, the last place expands the line in place into a grid of all of them.
 - Settings use the sidebar. `SettingsNav` replaces the sidebar middle, and `SettingsPage` shows in the content card. `navStore.settings` holds the open settings view.
 - The sidebar has three states: docked, hidden and revealed (`sidebar-state.ts`, `use-sidebar-reveal.ts`, `lib/sidebar-reveal.ts`). When it is hidden, the card takes the window width, `TabBar` shows the sidebar controls, search and inbox, and the voice dock floats in the bottom-left corner of the card. The composer moves right by `--dock-inset`, so the dock does not cover it.
 - `TabBar` shows the pinned tabs of `tabsStore`. A tab lights up when its target is the open view. `PinToTabsButton` and `PinToTabsMenuItem` pin a view from the channel intro, the page header and the context menus.

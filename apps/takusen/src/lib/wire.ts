@@ -10,6 +10,7 @@ import type {
   Channel,
   CustomStatus,
   Guild,
+  GuildEmoji,
   GuildFull,
   HistoryVisibility,
   Invite,
@@ -163,6 +164,8 @@ export function toMember(m: GuildMemberRow, user: UserLike, roleIds: string[]): 
     nick: m.nick,
     roles: roleIds.filter((id) => id !== m.guildId),
     joinedAt: m.joinedAt.toISOString(),
+    mute: m.mute,
+    deaf: m.deaf,
   }
 }
 
@@ -219,6 +222,7 @@ export interface GuildFullInput {
   /** The history visibility of the guild's groups, by base64url group id. */
   groups?: GroupVisibility
   publicHistoryVisibility?: HistoryVisibility
+  emojis?: GuildEmoji[]
 }
 
 /** Build the viewer's GuildFull: channels are filtered to those it can VIEW. */
@@ -253,6 +257,7 @@ export function assembleGuildFull(input: GuildFullInput): GuildFull {
     members,
     voiceStates: input.voiceStates,
     presences: input.presences,
+    emojis: input.emojis ?? [],
   }
 }
 

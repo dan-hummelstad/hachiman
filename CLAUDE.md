@@ -238,6 +238,7 @@ For changes to the voice stack (`pkg/media/sfu.go`, `pkg/media/ssrc_pool.go`, `c
 - `renderer-protocol.ts` + `renderer-path.ts` — packaged renderer on `hachiman://app/`
 - `region-probe.ts` + `probe-target-guard.ts` — TCP RTT probe to each region's `probeHost`, with an SSRF guard
 - `screen-share.ts` — desktopCapturer sources + display-media handler
+- `tray.ts` + `app-prefs.ts` — the tray icon and close-to-tray (setting in `<userData>/app-prefs.json`, default on). The `before-quit` flag lets Cmd+Q, the tray "Quit" and an update install really quit
 - `updater.ts` — auto-update from the newest release in `hachiman-release` through Takusen `GET /api/desktop-update/:platform` (contract §4 Desktop updates)
 
 `src/preload/index.ts` exposes `window.hachiman`. Tests are `src/main/*.test.mts` (`node --test`).

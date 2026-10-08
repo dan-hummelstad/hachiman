@@ -3,7 +3,8 @@
  *
  * - One delegate and one transform Worker per call. The delegate never makes a second Worker.
  * - One sender transform per (call, track) (§12.10.2). A second request for a track gets the
- *   same transform, so a CTR that starts again at 0 never meets the same key.
+ *   same transform, so a CTR that starts again at 0 never meets the same key. The mic and the
+ *   screen audio are separate tracks with separate keys (media indexes), never one transform.
  * - Each transform gets its own MessageChannel: one end goes to the transform Worker in the
  *   RTCRtpScriptTransform options, the other to the crypto Worker (voiceAttachTransform), which
  *   sends the frame keys on it.
@@ -41,7 +42,7 @@ export type VoiceCrypto = Pick<
 
 export interface VoiceE2eeDeps {
   crypto: VoiceCrypto
-  target: { guildId: string; channelId: string }
+  target: { guildId: string | null; channelId: string }
   /** createTransformWorker from @hachiman/crypto. Called once, here. */
   createWorker(): Worker
   /** `new RTCRtpScriptTransform(worker, options, transfer)`. */
@@ -57,7 +58,8 @@ export interface VoiceE2eeDeps {
 
 const CODEC: Record<VoiceTrackKind, FrameTransformOptions['codec']> = {
   audio: 'opus',
-  video: 'vp8'
+  video: 'vp8',
+  'screen-audio': 'opus'
 }
 
 export function createVoiceE2ee(deps: VoiceE2eeDeps): VoiceE2eeDelegate {

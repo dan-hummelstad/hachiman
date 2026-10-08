@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { FALLBACK_HUES, dominantHue, fallbackHue, rgbToHsl, tintColors } from './guild-tint'
+import {
+  FALLBACK_HUES,
+  customWallpaper,
+  dominantHue,
+  fallbackHue,
+  isCustomGradient,
+  rgbToHsl,
+  tintColors
+} from './guild-tint'
 
 /** RGBA pixels: `count` copies of each colour. */
 function pixels(
@@ -73,5 +81,40 @@ describe('tintColors', () => {
       light: 'color-mix(in oklab, hsl(10 45% 91%) 30%, #e4e0fe)',
       dark: 'color-mix(in oklab, hsl(10 42% 17%) 30%, #201c46)'
     })
+  })
+})
+
+describe('customWallpaper', () => {
+  it('washes each stop over the window surface at the given angle', () => {
+    const g = {
+      stops: [
+        { h: 0, s: 100 },
+        { h: 240, s: 50 }
+      ],
+      lightness: 60,
+      angle: 45
+    }
+    expect(customWallpaper(g)).toBe(
+      'linear-gradient(45deg, color-mix(in oklab, hsl(0 100% 60%) 30%, var(--surface-window)), ' +
+        'color-mix(in oklab, hsl(240 50% 60%) 30%, var(--surface-window)))'
+    )
+  })
+
+  it('repeats a single stop', () => {
+    const one = customWallpaper({ stops: [{ h: 10, s: 20 }], lightness: 50, angle: 0 })
+    expect(one.match(/hsl\(10 20% 50%\)/g)).toHaveLength(2)
+  })
+})
+
+describe('isCustomGradient', () => {
+  it('accepts 1 to 3 stops and rejects older or broken shapes', () => {
+    const stop = { h: 1, s: 2 }
+    expect(isCustomGradient({ stops: [stop], lightness: 50, angle: 0 })).toBe(true)
+    expect(isCustomGradient({ stops: [], lightness: 50, angle: 0 })).toBe(false)
+    expect(isCustomGradient({ stops: [stop, stop, stop, stop], lightness: 50, angle: 0 })).toBe(
+      false
+    )
+    expect(isCustomGradient({ from: '#000000', to: '#ffffff', angle: 90 })).toBe(false)
+    expect(isCustomGradient(undefined)).toBe(false)
   })
 })

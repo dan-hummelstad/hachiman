@@ -86,6 +86,8 @@ func (v *Verifier) Verify(token string) (*Claims, error) {
 	// Optional at this layer: a token from a gateway without device scope
 	// reads as "". hachiman-media rejects that at identify.
 	c.DeviceID, _ = t.GetString("deviceId")
+	// Optional: absent means not muted.
+	_ = t.Get("mute", &c.Mute)
 	if err := c.validate(); err != nil {
 		return nil, err
 	}

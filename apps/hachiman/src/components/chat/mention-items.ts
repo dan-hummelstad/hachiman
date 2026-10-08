@@ -1,11 +1,15 @@
 import { useMemo } from 'react'
 import type { Channel, Member, Role, User } from '@hachiman/client'
 import { pageHref } from '@/components/docs/page-links'
+import { useEmojiData } from '@/hooks/use-emoji-data'
 import { useGuildChannels } from '@/hooks/use-hachiman'
-import { rankItems, type RoleInsert, type Trigger } from '@/lib/mention-complete'
+import { emojiInsert, searchCustomEmoji, type EmojiPick } from '@/lib/custom-emoji'
+import { searchEmoji, withSkin } from '@/lib/emoji-data'
+import { rankItems, type Trigger } from '@/lib/mention-complete'
 import { pageTitle } from '@/services/docs/page-tree'
 import { useDocsStore, type PageNode } from '@/stores/docsStore'
 import { useGuildStore } from '@/stores/guildStore'
+import { usePrefsStore } from '@/stores/prefsStore'
 import { useUserStore } from '@/stores/userStore'
 
 export type MentionItem =
@@ -14,17 +18,17 @@ export type MentionItem =
   | { kind: 'everyone'; id: 'everyone' }
   | { kind: 'channel'; id: string; channel: Channel }
   | { kind: 'page'; id: string; page: PageNode; channelName: string }
+  /** A Unicode emoji (`id` is the emoji in the chosen skin tone) and its main shortcode. */
+  | { kind: 'emoji'; id: string; code: string; pick: EmojiPick }
+  | { kind: 'custom-emoji'; id: string; pick: Extract<EmojiPick, { kind: 'custom' }> }
 
-/** What a picked item puts into the text, and for a role its wire form for the send. */
-export function insertFor(item: MentionItem): { insert: string; role?: RoleInsert } {
+/** What a picked item puts into the text, and for a role or custom emoji its wire form for the send. */
+export function insertFor(item: MentionItem): { insert: string; wire?: string } {
   switch (item.kind) {
     case 'user':
       return { insert: `@${item.user.username}` }
     case 'role':
-      return {
-        insert: `@${item.role.name}`,
-        role: { display: `@${item.role.name}`, wire: `<@&${item.id}>` }
-      }
+      return { insert: `@${item.role.name}`, wire: `<@&${item.id}>` }
     case 'everyone':
       return { insert: '@everyone' }
     case 'channel':
@@ -32,6 +36,9 @@ export function insertFor(item: MentionItem): { insert: string; role?: RoleInser
     case 'page':
       // A page link in a message shows as the page card (page-cards.tsx).
       return { insert: `[${pageTitle(item.page)}](${pageHref(item.id)})` }
+    case 'emoji':
+    case 'custom-emoji':
+      return emojiInsert(item.pick)
   }
 }
 
@@ -52,10 +59,32 @@ export function useMentionItems(channel: Channel, trigger: Trigger | null): Ment
   const me = useUserStore((s) => s.me)
   const channels = useGuildChannels(guildId)
   const pagesByChannel = useDocsStore((s) => s.pagesByChannel)
+  const guildEmojis = useGuildStore((s) => s.emojis)
+  const skinTone = usePrefsStore((s) => s.skinTone)
+  const emojiData = useEmojiData(trigger?.char === ':')
 
   return useMemo(() => {
     if (!trigger) return NO_ITEMS
     const { char, query } = trigger
+    if (char === ':') {
+      const custom = searchCustomEmoji(guildEmojis, guildId, query, 5).map((e): MentionItem => ({
+        kind: 'custom-emoji',
+        id: e.id,
+        pick: { kind: 'custom', emoji: e }
+      }))
+      const unicode = emojiData
+        ? searchEmoji(emojiData, query.toLowerCase(), 10 - custom.length).map((e): MentionItem => {
+            const emoji = withSkin(e, skinTone)
+            return {
+              kind: 'emoji',
+              id: emoji,
+              code: e.shortcodes[0] ?? e.label,
+              pick: { kind: 'unicode', emoji }
+            }
+          })
+        : []
+      return [...custom, ...unicode]
+    }
     if (char === '@') {
       const users: MentionItem[] = guildId
         ? [...members.values()].map((m) => ({
@@ -110,5 +139,17 @@ export function useMentionItems(channel: Channel, trigger: Trigger | null): Ment
     return rankItems([...chans, ...pages], query, (i) =>
       i.kind === 'channel' ? [i.channel.name] : i.kind === 'page' ? [pageTitle(i.page)] : []
     )
-  }, [trigger, guildId, members, roles, me, channel.recipients, channels, pagesByChannel])
+  }, [
+    trigger,
+    guildId,
+    members,
+    roles,
+    me,
+    channel.recipients,
+    channels,
+    pagesByChannel,
+    guildEmojis,
+    skinTone,
+    emojiData
+  ])
 }

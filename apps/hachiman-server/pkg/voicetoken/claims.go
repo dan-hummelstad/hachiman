@@ -21,12 +21,15 @@ type Claims struct {
 	// DeviceID is the gateway session's device (§12.13). The token library
 	// accepts it empty; hachiman-media requires it (E2EE roster identity).
 	DeviceID    string    `json:"deviceId"`
-	GuildID     string    `json:"guildId"`
+	GuildID     string    `json:"guildId"`   // "" for a DM or group DM call
 	ChannelID   string    `json:"channelId"` // = media room id
 	MediaNodeID string    `json:"aud"`       // must equal the verifying node's id
 	JTI         string    `json:"jti"`
 	IssuedAt    time.Time `json:"iat"`
 	ExpiresAt   time.Time `json:"exp"` // 60–120 s after iat
+	// Mute: the member is server muted or deafened at mint time. Media drops
+	// the mic RTP of the session until a `mute` op on media:{nodeId} says otherwise.
+	Mute bool `json:"mute,omitempty"`
 }
 
 // MinTTL / MaxTTL bound exp-iat on both mint and verify. MaxClockSkew is the

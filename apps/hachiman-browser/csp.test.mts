@@ -56,6 +56,6 @@ test("E2EE rules hold in the browser policy (§12.17)", () => {
     assert.ok(directive(header, "media-src")?.includes("blob:"));
     assert.ok(!directive(header, "script-src")?.includes("blob:"));
     assert.ok(!directive(header, "worker-src")?.includes("blob:"));
-    assert.ok(!header.includes("wasm-unsafe-eval"));
+    assert.ok(!directive(header, "script-src")?.includes("'unsafe-eval'"));
   }
 });

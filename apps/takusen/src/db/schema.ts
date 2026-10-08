@@ -4,7 +4,7 @@
  * Tables:
  *  - users, accounts, sessions, verificationTokens  — Auth.js v5 Drizzle adapter shape
  *  - regions, mediaNodes                            — voice placement registry
- *  - guilds, guildMembers, channels, messages       — the chat model
+ *  - guilds, guildMembers, guildBans, channels, messages — the chat model
  *  - roles, memberRoles, permissionOverwrites       — Discord-style permissions
  *  - dmParticipants, invites, uploads
  *  - docPages, docUpdates, docSnapshots             — pages channels (§3 "Pages tables", schema-pages.ts)
@@ -50,7 +50,7 @@ export * from './schema-channel-state'
 export const userRoleEnum = pgEnum('user_role', ['user', 'admin'])
 export const channelTypeEnum = pgEnum('channel_type', ['text', 'voice', 'category', 'dm', 'group_dm', 'pages', 'thread'])
 export const overwriteTypeEnum = pgEnum('overwrite_type', ['role', 'member'])
-export const uploadPurposeEnum = pgEnum('upload_purpose', ['attachment', 'image', 'page_snapshot', 'page_media'])
+export const uploadPurposeEnum = pgEnum('upload_purpose', ['attachment', 'image', 'page_snapshot', 'page_media', 'sound', 'emoji'])
 
 // E2EE enums (§3).
 export const deviceStatusEnum = pgEnum('device_status', ['pending', 'active', 'revoked'])
@@ -201,6 +201,9 @@ export const guildMembers = pgTable(
     joinedAt: timestamp('joined_at', { withTimezone: true, mode: 'date' })
       .notNull()
       .defaultNow(),
+    // Server mute and deafen (MUTE_MEMBERS / DEAFEN_MEMBERS). They stay across calls, as in Discord.
+    mute: boolean('mute').notNull().default(false),
+    deaf: boolean('deaf').notNull().default(false),
     // The invite of the join. The redeemer of an invite with history gets its bundles (§12.11.4).
     inviteId: uuid('invite_id').references((): AnyPgColumn => invites.id, { onDelete: 'set null' }),
   },
@@ -209,6 +212,24 @@ export const guildMembers = pgTable(
     // The ON DELETE SET NULL of each deleted invite looks up its members here.
     index('guild_members_invite_idx').on(table.inviteId).where(sql`${table.inviteId} is not null`),
   ],
+)
+
+// A ban keeps the user out of the guild: the invite accept refuses them (§4 Bans).
+// No row for a member: the ban removes the membership in the same transaction.
+export const guildBans = pgTable(
+  'guild_bans',
+  {
+    guildId: uuid('guild_id')
+      .notNull()
+      .references(() => guilds.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    reason: text('reason'),
+    bannedBy: uuid('banned_by').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+  },
+  (table) => [primaryKey({ columns: [table.guildId, table.userId] })],
 )
 
 // Guild channels (guildId set) and DMs (guildId null, participants in
@@ -445,6 +466,28 @@ export const uploads = pgTable(
   ],
 )
 
+// Custom guild emojis (§4 Emojis). Plaintext, like the guild icon: the image is an
+// `emoji` upload, and messages name an emoji as `<:name:id>` inside the envelope.
+export const guildEmojis = pgTable(
+  'guild_emojis',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    guildId: uuid('guild_id')
+      .notNull()
+      .references(() => guilds.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    uploadId: uuid('upload_id')
+      .notNull()
+      .unique()
+      .references(() => uploads.id, { onDelete: 'cascade' }),
+    createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [uniqueIndex('guild_emojis_guild_name_idx').on(table.guildId, table.name)],
+)
+
 // ---------------------------------------------------------------------------
 // Inferred row types — re-export for downstream consumers.
 // ---------------------------------------------------------------------------
@@ -464,6 +507,7 @@ export type DmParticipantRow = typeof dmParticipants.$inferSelect
 export type InviteRow = typeof invites.$inferSelect
 export type InviteBundleRow = typeof inviteBundles.$inferSelect
 export type UploadRow = typeof uploads.$inferSelect
+export type GuildEmojiRow = typeof guildEmojis.$inferSelect
 
 // ---------------------------------------------------------------------------
 // Media nodes — placement registry for the WebRTC SFU plane.

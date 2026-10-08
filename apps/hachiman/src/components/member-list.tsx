@@ -161,8 +161,8 @@ function MemberRow({
 }
 
 /**
- * A member who streams. The frame shows only inside that call: SFrame keys are in the call's MLS
- * group (decision 4). Elsewhere the card shows the streamer's avatar on the live tint.
+ * A member who streams. The frame shows only inside that call (SFrame keys are in the call's MLS
+ * group, decision 4), and only while the viewer watches the share. Elsewhere the card shows the streamer's avatar on the live tint.
  */
 function StreamerCard({
   guildId,
@@ -172,7 +172,7 @@ function StreamerCard({
   const channelName = useChannelStore((s) => s.channels.get(channelId)?.name ?? 'voice')
   const inCall = useChannelOccupants(guildId, channelId).length
   const stream = useVoiceStore((s) =>
-    s.channelId === channelId ? s.screens.get(userId) : undefined
+    s.channelId === channelId && s.watching.has(userId) ? s.screens.get(userId) : undefined
   )
   return (
     <LiveCard

@@ -1,9 +1,10 @@
 /**
- * Mention completion in the composer: `@` for members, roles and everyone, `#` for channels and
- * pages. The pure parts live here; components/chat/mention-menu.tsx renders the list.
+ * Completion in the composer: `@` for members, roles and everyone, `#` for channels and pages,
+ * `:` for emojis (at least 2 characters, as Discord). The pure parts live here;
+ * components/chat/mention-menu.tsx renders the list.
  */
 
-export type TriggerChar = '@' | '#'
+export type TriggerChar = '@' | '#' | ':'
 
 /** The `@query` or `#query` that ends at the caret. `start` is the index of the trigger char. */
 export interface Trigger {
@@ -14,14 +15,19 @@ export interface Trigger {
 }
 
 // The trigger must start the text or follow a space or "(", so an email or a URL fragment
-// ("a@b", "page#x") does not open the menu. The query has no space and at most 32 chars.
-const TRIGGER = /(^|[\s(])([@#])([^\s@#]{0,32})$/u
+// ("a@b", "page#x", "http://") does not open the menu. The query has no space and at most 32 chars.
+const TRIGGER = /(^|[\s(])([@#:])([^\s@#:]{0,32})$/u
+/** An emoji query: a shortcode in the making, so ":)" or ":D" opens nothing. */
+const EMOJI_QUERY = /^[\w+-]{2,}$/
 
 export function findTrigger(text: string, caret: number): Trigger | null {
   const m = TRIGGER.exec(text.slice(0, caret))
   if (!m) return null
   const start = m.index + (m[1] ?? '').length
-  return { char: m[2] as TriggerChar, query: m[3] ?? '', start, end: caret }
+  const char = m[2] as TriggerChar
+  const query = m[3] ?? ''
+  if (char === ':' && !EMOJI_QUERY.test(query)) return null
+  return { char, query, start, end: caret }
 }
 
 /** Replace the trigger with `insert` plus one space; the caret goes after the space. */
@@ -67,20 +73,23 @@ export function rankItems<T>(
   return scored.slice(0, limit).map((s) => s.item)
 }
 
-/** A role mention as the composer shows it (`@Captain`) and as it is sent (`<@&roleId>`). */
-export interface RoleInsert {
+/**
+ * A picked insert as the composer shows it and as it is sent: a role mention (`@Captain` →
+ * `<@&roleId>`) or a custom emoji (`:party:` → `<:party:id>`).
+ */
+export interface WireInsert {
   display: string
   wire: string
 }
 
 /**
- * The text to send: each role mention that the user picked from the menu, still in the text in its
- * display form, becomes its wire form. Longer names go first, so "@Squad Leads" is not taken for
+ * The text to send: each role mention or custom emoji that the user picked, still in the text in
+ * its display form, becomes its wire form. Longer names go first, so "@Squad Leads" is not taken for
  * "@Squad". A display form must end at a word boundary.
  */
-export function toWire(text: string, roles: readonly RoleInsert[]): string {
+export function toWire(text: string, inserts: readonly WireInsert[]): string {
   let out = text
-  const sorted = [...roles].sort((a, b) => b.display.length - a.display.length)
+  const sorted = [...inserts].sort((a, b) => b.display.length - a.display.length)
   for (const r of sorted) {
     const escaped = r.display.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
     out = out.replace(new RegExp(`${escaped}(?![\\p{L}\\p{N}_])`, 'gu'), r.wire)

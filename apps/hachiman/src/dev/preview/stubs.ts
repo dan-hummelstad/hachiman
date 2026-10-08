@@ -8,6 +8,7 @@ import {
   VoiceConnection,
   blobKey,
   type Attachment,
+  type Ban,
   type DocUpdate,
   type GatewayDispatch,
   type GuildEventWithMe,
@@ -83,14 +84,17 @@ class PreviewVoiceConnection extends VoiceConnection {
  * because the stubbed join never sets the client's voice target).
  */
 export function stubVoice(): void {
-  let current: { guildId: string; channelId: string } | null = {
+  let current: { guildId: string | null; channelId: string } | null = {
     guildId: G1,
     channelId: G1C.lounge
   }
-  const sendState = (guildId: string, channelId: string | null): void => {
+  const sendState = (guildId: string | null, channelId: string | null): void => {
     const { selfMute, selfDeaf } = hachiman.selfVoice
     // Like the gateway (N17): joinedAt stays across mute and deafen, and resets on a move.
-    const before = hachiman.cache.voiceStates.get(guildId)?.get(ME.id)
+    const before =
+      channelId === null
+        ? undefined
+        : hachiman.cache.voiceStates.get(guildId ?? channelId)?.get(ME.id)
     const joinedAt =
       channelId === null
         ? undefined
@@ -320,7 +324,8 @@ export function stubRest(): void {
       roles: [role(id, id, '@everyone', 0, 0, DEFAULT_EVERYONE)],
       members: [member(id, ME, [], null, 0)],
       voiceStates: [],
-      presences: [{ userId: ME.id, status: 'online' }]
+      presences: [{ userId: ME.id, status: 'online' }],
+      emojis: []
     }
     dispatch({ t: 'GUILD_CREATE', d: g })
     return g
@@ -373,6 +378,7 @@ export function stubRest(): void {
   // Pins, guild events and blocks (§4): in memory, echoed back as their gateway events.
   const events = new Map<string, GuildEventWithMe>()
   const blocks = new Set<string>()
+  const bans = new Map<string, Ban[]>()
   const eventOf = (id: string): GuildEventWithMe => {
     const ev = events.get(id)
     if (!ev) throw new RestError(404, 'NotFound')
@@ -418,6 +424,34 @@ export function stubRest(): void {
         pinsOf(channelId).filter((id) => id !== messageId)
       )
       return pinsChanged(channelId)
+    },
+    getGuildEmojis: (guildId) => cache.emojis.get(guildId) ?? [],
+    createGuildEmoji: (guildId, body) => {
+      const emoji = {
+        id: nextId('emoji'),
+        guildId,
+        name: body.name,
+        key: body.uploadId,
+        createdBy: ME.id,
+        createdAt: new Date().toISOString()
+      }
+      const emojis = [...(cache.emojis.get(guildId) ?? []), emoji]
+      dispatch({ t: 'GUILD_EMOJIS_UPDATE', d: { guildId, emojis } })
+      return emoji
+    },
+    renameGuildEmoji: (guildId, emojiId, name) => {
+      const emojis = (cache.emojis.get(guildId) ?? []).map((e) =>
+        e.id === emojiId ? { ...e, name } : e
+      )
+      dispatch({ t: 'GUILD_EMOJIS_UPDATE', d: { guildId, emojis } })
+      return must(
+        emojis.find((e) => e.id === emojiId),
+        'emoji'
+      )
+    },
+    deleteGuildEmoji: (guildId, emojiId) => {
+      const emojis = (cache.emojis.get(guildId) ?? []).filter((e) => e.id !== emojiId)
+      dispatch({ t: 'GUILD_EMOJIS_UPDATE', d: { guildId, emojis } })
     },
     getGuildEvents: (guildId) => [...events.values()].filter((e) => e.guildId === guildId),
     createGuildEvent: (guildId, body) => {
@@ -465,6 +499,18 @@ export function stubRest(): void {
       })),
     blockUser: (userId) => setBlock(userId, true),
     unblockUser: (userId) => setBlock(userId, false),
+    // The soundboard needs real blobs and envelopes: the preview has none.
+    getGuildSounds: () => [],
+    createGuildSound: () => {
+      throw new Error('The preview has no soundboard uploads')
+    },
+    deleteGuildSound: () => undefined,
+    // The target pokes back after a second, so the toast shows in the preview.
+    poke: (userId) => {
+      const target = Object.values(U).find((x) => x.id === userId) ?? user(userId, 'someone')
+      setTimeout(() => dispatch({ t: 'POKE', d: { user: target } }), 1_000)
+      return undefined
+    },
     getPages: (channelId) => [...pages.values()].filter((p) => p.channelId === channelId),
     // No snapshots, and the stub envelopes have no header: nothing for a re-wrap pass to do.
     getPageHeads: (channelId) =>
@@ -673,13 +719,37 @@ export function stubRest(): void {
     ackMessage: () => undefined,
     getMembers: (guildId) => [...(cache.members.get(guildId)?.values() ?? [])],
     updateMember: (guildId, userId, body) => {
-      const m = { ...must(cache.members.get(guildId)?.get(userId), 'member'), ...body }
+      const { channelId, ...fields } = body
+      const m = { ...must(cache.members.get(guildId)?.get(userId), 'member'), ...fields }
       dispatch({ t: 'GUILD_MEMBER_UPDATE', d: m })
+      const vs = cache.voiceStates.get(guildId)?.get(userId)
+      if (vs) {
+        const next = { ...vs, mute: m.mute, deaf: m.deaf }
+        if (channelId !== undefined) next.channelId = channelId
+        dispatch({ t: 'VOICE_STATE_UPDATE', d: next })
+      }
       return m
     },
     kickMember: (guildId, userId) => {
       const m = cache.members.get(guildId)?.get(userId)
       if (m) dispatch({ t: 'GUILD_MEMBER_REMOVE', d: { guildId, user: m.user } })
+    },
+    getBans: (guildId) => bans.get(guildId) ?? [],
+    banMember: (guildId, userId, body) => {
+      const m = cache.members.get(guildId)?.get(userId)
+      if (!m) return
+      const list = bans.get(guildId) ?? []
+      bans.set(guildId, [
+        { user: m.user, reason: body?.reason ?? null, createdAt: new Date().toISOString() },
+        ...list
+      ])
+      dispatch({ t: 'GUILD_MEMBER_REMOVE', d: { guildId, user: m.user } })
+    },
+    unbanMember: (guildId, userId) => {
+      bans.set(
+        guildId,
+        (bans.get(guildId) ?? []).filter((b) => b.user.id !== userId)
+      )
     },
     leaveGuild: (id) => {
       dispatch({ t: 'GUILD_DELETE', d: { id } })

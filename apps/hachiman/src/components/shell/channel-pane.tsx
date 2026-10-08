@@ -1,6 +1,7 @@
 import {
   ChevronRight,
   FileText,
+  Hand,
   Lock,
   Megaphone,
   MessagesSquare,
@@ -23,12 +24,14 @@ import { UserAvatar } from '@/components/shell/user-avatar'
 import { IconButton } from '@/components/ui/icon-button'
 import { TitleBar } from '@/components/ui/title-bar'
 import { VoiceHeaderExtras, VoiceHeaderMeta } from '@/components/voice/voice-header'
+import { DmCallButton } from '@/components/voice/dm-call'
 import { usePermissions } from '@/hooks/use-hachiman'
 import { usePresence } from '@/hooks/use-member'
 import { ChannelIcon } from '@/lib/channel-icon'
 import { channelLabel, hexColor, isGuildChannel } from '@/lib/model'
 import { ROLE_INK_SCOPE } from '@/lib/role-ink'
 import { cn } from '@/lib/utils'
+import { usePoke } from '@/services/poke'
 import { useChannelStore } from '@/stores/channelStore'
 import { openDialog } from '@/stores/dialogStore'
 import { openSettings } from '@/stores/navStore'
@@ -74,6 +77,8 @@ export function ChannelPane({
         right={
           <>
             {isDm && <DmTrustChip channel={channel} />}
+            {isDm && <DmCallButton channel={channel} className={HEADER_BUTTON} />}
+            {isDm && <DmPokeButton channel={channel} />}
             {channel.type === 'voice' && isGuildChannel(channel) && (
               <VoiceHeaderExtras channel={channel} />
             )}
@@ -284,5 +289,24 @@ function DmTrustChip({ channel }: { channel: Channel }): React.JSX.Element | nul
           : () => openDialog({ kind: 'verification', userId: solo.id })
       }
     />
+  )
+}
+
+/** Pokes the other person of a 1:1 DM. A failure (a block, the rate limit) shows as the tooltip. */
+function DmPokeButton({ channel }: { channel: Channel }): React.JSX.Element | null {
+  const poke = usePoke()
+  const recipients = channel.recipients ?? []
+  const solo = recipients.length === 1 ? recipients[0] : undefined
+  if (!solo) return null
+  return (
+    <IconButton
+      label={poke.error ?? `Poke ${solo.username}`}
+      tooltipSide="bottom"
+      disabled={poke.busy}
+      onClick={() => void poke.run(solo.id, solo.username)}
+      className={HEADER_BUTTON}
+    >
+      <Hand />
+    </IconButton>
   )
 }

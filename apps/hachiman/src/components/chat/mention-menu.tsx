@@ -5,6 +5,7 @@ import { ChannelIcon } from '@/lib/channel-icon'
 import { hexColor } from '@/lib/model'
 import { cn } from '@/lib/utils'
 import { pageTitle } from '@/services/docs/page-tree'
+import { CustomEmojiImage } from './emoji'
 import type { MentionItem } from './mention-items'
 
 /**
@@ -113,6 +114,22 @@ function ItemRow({ item }: { item: MentionItem }): React.JSX.Element {
           <span className="text-text-tertiary ml-auto truncate text-[12px]">
             Page in #{item.channelName}
           </span>
+        </>
+      )
+    case 'emoji':
+      return (
+        <>
+          <span className="flex size-5 shrink-0 items-center justify-center text-[18px] leading-none">
+            {item.id}
+          </span>
+          <span className="text-text-primary truncate font-semibold">:{item.code}:</span>
+        </>
+      )
+    case 'custom-emoji':
+      return (
+        <>
+          <CustomEmojiImage emoji={item.pick.emoji} className="size-5 shrink-0" />
+          <span className="text-text-primary truncate font-semibold">:{item.pick.emoji.name}:</span>
         </>
       )
   }

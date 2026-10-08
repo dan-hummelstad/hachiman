@@ -21,13 +21,13 @@ function fakePort(): MessagePort & { messages: FrameKeyMessage[] } {
   return { messages, postMessage: (m: FrameKeyMessage) => void messages.push(structuredClone(m)), close: () => undefined } as unknown as MessagePort & { messages: FrameKeyMessage[] }
 }
 
-async function room(names: string[]) {
+async function room(names: string[], opts: { dm?: boolean } = {}) {
   const ds = await new FakeMlsDs().init()
   const clients: Record<string, Client> = {}
   for (const n of names) clients[n] = await ds.client(ds.uuid())
   await ds.flush()
   const guildId = ds.uuid()
-  const media = new FakeMedia(ds.uuid(), guildId)
+  const media = new FakeMedia(ds.uuid(), opts.dm ? null : guildId)
   const members: Record<string, Member> = {}
   const join = async (name: string): Promise<Member> => {
     const client = clients[name]!
@@ -212,7 +212,7 @@ describe('VoiceService', () => {
       return { op: 'e2ee_key_package', d: { ...op.d, keyPackage: malloryKp } }
     }
     const mallory = createVoiceService(clients['mallory']!.ctx, clients['mallory']!.identity)
-    const malloryKp = (await mallory.voiceStart({ channelId: media.channelId })).keyPackage
+    const malloryKp = (await mallory.voiceStart({ channelId: media.channelId, guildId: media.guildId })).keyPackage
     expect(keyPackageIdentity(fromB64url(malloryKp)).userId).toBe(clients['mallory']!.userId)
     await join('bob')
     expect(swapped).toBe(true)
@@ -281,5 +281,19 @@ describe('VoiceService', () => {
     const first = media.parts.get(media.sidOf(call))!.keyPackage
     const again = await bob.voiceStart({ channelId: media.channelId, guildId: media.guildId })
     expect(again.keyPackage).not.toBe(first)
+  }, 120_000)
+
+  it('runs a DM call: the descriptor holds the channel instead of a guild', async () => {
+    const { media, join, clients } = await room(['alice', 'bob'], { dm: true })
+    const alice = await join('alice')
+    const bob = await join('bob')
+    expect(media.epoch).toBe(1)
+    const users = [clients['alice']!.userId, clients['bob']!.userId].sort()
+    expect(await rosterUsers(alice)).toEqual(users)
+    expect(await rosterUsers(bob)).toEqual(users)
+    expect(ops(media, 'bob', 'e2ee_invalid')).toHaveLength(0)
+    const codes = await epochCodes([alice, bob])
+    expect(codes[0]).not.toBeNull()
+    expect(codes[0]).toBe(codes[1])
   }, 120_000)
 })

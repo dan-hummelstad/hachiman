@@ -1,6 +1,9 @@
 import {
+  AudioLines,
+  Ban,
   Download,
   Headphones,
+  Keyboard,
   KeyRound,
   LayoutGrid,
   Link,
@@ -9,12 +12,16 @@ import {
   Palette,
   ScrollText,
   Shield,
+  Smile,
   SlidersHorizontal,
   Trash2,
   User,
-  Users
+  Users,
+  Wrench
 } from 'lucide-react'
 import { Permissions, has } from '@hachiman/client'
+import { GuildBansTab } from '@/components/guild-settings-bans'
+import { GuildEmojisTab } from '@/components/guild-settings-emojis'
 import { GuildInvitesTab } from '@/components/guild-settings-invites'
 import { GuildMembersTab } from '@/components/guild-settings-members'
 import { GuildRolesTab } from '@/components/guild-settings-roles'
@@ -24,8 +31,12 @@ import { SecurityLog } from '@/components/security/security-log'
 import { ChannelOverviewPage } from '@/components/settings/channel-overview'
 import { ChannelPermissionsPage, overrideCount } from '@/components/settings/channel-permissions'
 import { GuildOverviewPage } from '@/components/settings/guild-overview'
+import { GuildSoundboardPage } from '@/components/settings/guild-soundboard'
 import { AccountSection } from '@/components/settings/user/account'
+import { AdvancedSection } from '@/components/settings/user/advanced'
 import { AppearanceSection } from '@/components/settings/user/appearance'
+import { CloseToTraySection } from '@/components/settings/user/tray'
+import { KeybindsSection } from '@/components/settings/user/keybinds'
 import { UpdatesSection } from '@/components/settings/user/updates'
 import { VoiceSection } from '@/components/settings/user/voice'
 import { UserAvatar } from '@/components/shell/user-avatar'
@@ -190,17 +201,41 @@ function useUserSettingsModel(active: boolean): SettingsModel {
               render: () => <VoiceSection />
             }
           },
-          // The web app updates on reload.
+          {
+            id: 'keybinds',
+            label: 'Keybinds',
+            icon: <Keyboard />,
+            page: {
+              title: 'Keybinds',
+              description: 'Click a key to change it, then press the new keys. Esc cancels.',
+              render: () => <KeybindsSection />
+            }
+          },
+          // The web app has no tray and updates on reload.
           {
             id: 'updates',
-            label: 'Updates',
+            label: 'Desktop app',
             icon: <Download />,
             visible: desktop,
             page: {
-              title: 'Updates',
-              description:
-                'Hachiman checks for a new version when it starts and every 4 hours. A new version downloads in the background, then Hachiman asks to restart.',
-              render: () => <UpdatesSection />
+              title: 'Desktop app',
+              description: 'What the close button does, and updates.',
+              render: () => (
+                <div className="grid gap-8">
+                  <CloseToTraySection />
+                  <UpdatesSection />
+                </div>
+              )
+            }
+          },
+          {
+            id: 'advanced',
+            label: 'Advanced',
+            icon: <Wrench />,
+            page: {
+              title: 'Advanced',
+              description: 'Developer tools that clear the local data of this device.',
+              render: () => <AdvancedSection />
             }
           }
         ]
@@ -215,6 +250,7 @@ function useGuildSettingsModel(guildId: string | null): SettingsModel {
   const guild = useGuildStore((s) => (guildId ? s.guilds.get(guildId) : undefined))
   const roleCount = useGuildStore((s) => (guildId ? (s.roles.get(guildId)?.size ?? 0) : 0))
   const memberCount = useGuildStore((s) => (guildId ? (s.members.get(guildId)?.size ?? 0) : 0))
+  const emojiCount = useGuildStore((s) => (guildId ? (s.emojis.get(guildId)?.length ?? 0) : 0))
   const isOwner = useIsGuildOwner(guildId)
   const perms = usePermissions(guildId)
   const canManage = has(perms, Permissions.MANAGE_GUILD)
@@ -256,6 +292,19 @@ function useGuildSettingsModel(guildId: string | null): SettingsModel {
               render: () => <GuildRolesTab guildId={guild.id} />
             }
           },
+          {
+            id: 'emoji',
+            label: 'Emoji',
+            icon: <Smile />,
+            count: emojiCount,
+            visible: has(perms, Permissions.MANAGE_EXPRESSIONS),
+            page: guild && {
+              title: 'Emoji',
+              description: `Custom emojis that members of ${name} can use in messages and reactions, here and in other guilds.`,
+              wide: true,
+              render: () => <GuildEmojisTab guildId={guild.id} />
+            }
+          },
           // Everyone can at least see the list and change their own nickname.
           {
             id: 'members',
@@ -279,6 +328,29 @@ function useGuildSettingsModel(guildId: string | null): SettingsModel {
               description: `Links that let people join ${name}. Anyone with a link can join until it expires or runs out of uses.`,
               wide: true,
               render: () => <GuildInvitesTab guildId={guild.id} />
+            }
+          },
+          // Everyone can see and preview the sounds; MANAGE_EXPRESSIONS uploads and deletes.
+          {
+            id: 'soundboard',
+            label: 'Soundboard',
+            icon: <AudioLines />,
+            page: guild && {
+              title: 'Soundboard',
+              description: `Short sounds that members of ${name} can play in voice channels.`,
+              render: () => <GuildSoundboardPage guildId={guild.id} />
+            }
+          },
+          {
+            id: 'bans',
+            label: 'Bans',
+            icon: <Ban />,
+            visible: has(perms, Permissions.BAN_MEMBERS),
+            page: guild && {
+              title: 'Bans',
+              description: `People who cannot join ${name} with an invite. Unban to let them join again.`,
+              wide: true,
+              render: () => <GuildBansTab guildId={guild.id} />
             }
           }
         ]

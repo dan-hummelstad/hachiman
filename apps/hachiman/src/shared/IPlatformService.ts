@@ -33,6 +33,14 @@ export type UpdateCheckResult =
   | { status: 'not-available'; reason: string }
   | { status: 'failed'; reason: string }
 
+/** One OS-wide shortcut (`IPlatformService.setGlobalShortcuts`). */
+export interface GlobalShortcut {
+  /** The UI's own name for the action; `onGlobalShortcut` gives it back. */
+  action: string
+  /** An Electron accelerator, e.g. `CommandOrControl+Shift+M`. */
+  accelerator: string
+}
+
 export interface IPlatformService {
   readonly platform: 'electron' | 'browser'
   /** The host hides the native title bar: the traffic lights sit in the sidebar's controls row (Electron on macOS). */
@@ -53,12 +61,34 @@ export interface IPlatformService {
   probeRegions(targets: RegionProbeTarget[]): Promise<RegionProbeResult[]>
   /** Electron: screens and windows for the in-app share picker. Browser: null (it has its own picker). */
   getScreenSources(): Promise<ScreenSource[] | null>
-  /** Electron: the listed source that the next screen share captures. Browser: no-op. */
-  selectScreenSource(id: string): Promise<void>
+  /**
+   * Electron: the listed source that the next screen share captures, with the system audio when
+   * `audio` and `screenShareAudio` are true. Browser: no-op.
+   */
+  selectScreenSource(id: string, audio: boolean): Promise<void>
+  /**
+   * The in-app share picker can capture system audio with the share (Electron on Windows). False
+   * elsewhere: Electron then shares video only, and the browser picker offers audio itself.
+   */
+  readonly screenShareAudio: boolean
   /** Electron: check for a new build now, and offer it (also one that the user put off). Browser: not-available. */
   checkForUpdate(): Promise<UpdateCheckResult>
+  /** Electron: the close button hides the window to the tray (default on); main keeps the value. Browser: null. */
+  readonly closeToTray: ICloseToTray | null
+  /**
+   * Electron: registers `shortcuts` with the OS in place of the previous set ([] lets all go).
+   * Resolves with the actions that the OS refused (another app holds the key). Browser: null.
+   */
+  setGlobalShortcuts(shortcuts: GlobalShortcut[]): Promise<string[] | null>
+  /** Electron: a global shortcut fired, with its action. Browser: never. Returns unsubscribe. */
+  onGlobalShortcut(cb: (action: string) => void): () => void
   /** The wrap key of the encrypted crypto store (§12.17). */
   readonly secureStorage: ISecureStorage
+}
+
+export interface ICloseToTray {
+  get(): Promise<boolean>
+  set(on: boolean): Promise<void>
 }
 
 /**

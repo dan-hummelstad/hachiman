@@ -74,7 +74,7 @@ export class FakeMedia {
 
   constructor(
     readonly channelId: ChannelId,
-    readonly guildId: GuildId,
+    readonly guildId: GuildId | null,
   ) {
     this.newGroupId()
   }

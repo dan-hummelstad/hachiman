@@ -53,8 +53,8 @@ function validOptions(o: unknown): o is FrameTransformOptions {
   const x = o as Partial<FrameTransformOptions>
   return (
     (x.role === 'send' || x.role === 'recv') &&
-    (x.track === 'audio' || x.track === 'video') &&
-    (x.codec === 'opus' || x.codec === 'vp8') &&
+    (x.track === 'audio' || x.track === 'video' || x.track === 'screen-audio') &&
+    (x.codec === (x.track === 'video' ? 'vp8' : 'opus')) &&
     (x.role === 'send' || typeof x.userId === 'string') &&
     x.port instanceof MessagePort
   )

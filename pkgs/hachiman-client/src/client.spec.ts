@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { HachimanClient } from './client'
+import { HachimanClient, type VoiceTarget } from './client'
 import { VoiceConnection } from './voice'
 import { Permissions as P } from './permissions'
 import { fakeDelegate, type FakeDelegate } from './test/fake-rtc'
@@ -14,6 +14,8 @@ const member = (user: User, roles: string[] = []): Member => ({
   nick: null,
   roles,
   joinedAt: '',
+  mute: false,
+  deaf: false,
 })
 const channel = (id: string, over: Partial<Channel> = {}): Channel => ({
   id,
@@ -53,6 +55,7 @@ const guild: GuildFull = {
     },
   ],
   members: [member(me), member(bob)],
+  emojis: [{ id: 'e1', guildId: 'g', name: 'party', key: 'u1/party.png', createdBy: 'bob', createdAt: '' }],
   voiceStates: [
     {
       guildId: 'g',
@@ -338,6 +341,17 @@ describe('HachimanClient cache', () => {
     expect(client.cache.events.has('g')).toBe(false)
   })
 
+  it('keeps the guild emojis from READY and GUILD_EMOJIS_UPDATE', () => {
+    expect(client.cache.emojis.get('g')?.map(e => e.name)).toEqual(['party'])
+    const wave = { id: 'e2', guildId: 'g', name: 'wave', key: 'u2/wave.png', createdBy: 'me', createdAt: '' }
+    dispatch('GUILD_EMOJIS_UPDATE', { guildId: 'g', emojis: [wave] })
+    expect(client.cache.emojis.get('g')).toEqual([wave])
+    dispatch('GUILD_EMOJIS_UPDATE', { guildId: 'other', emojis: [wave] })
+    expect(client.cache.emojis.has('other')).toBe(false)
+    dispatch('GUILD_DELETE', { id: 'g' })
+    expect(client.cache.emojis.has('g')).toBe(false)
+  })
+
   it('a guild events list that arrives after GUILD_DELETE or READY does not fill the cache', async () => {
     let resolve: (v: GuildEventWithMe[]) => void = () => {}
     vi.spyOn(client.rest, 'getGuildEvents').mockImplementation(
@@ -415,6 +429,36 @@ describe('HachimanClient cache', () => {
       op: 4,
       d: { selfMute: true, selfDeaf: false, selfStream: false, guildId: 'g', channelId: null },
     })
+  })
+
+  it('DM calls: states keyed by the DM channel, CALL_RING re-emitted, join and leave with guildId null', async () => {
+    const dmState = {
+      guildId: null,
+      channelId: 'dm',
+      userId: 'bob',
+      sessionId: 'x',
+      selfMute: false,
+      selfDeaf: false,
+      selfStream: false,
+    }
+    dispatch('READY', { ...readyPayload, privateVoiceStates: [dmState] })
+    expect(client.cache.voiceStates.get('dm')?.get('bob')).toEqual(dmState)
+    const rings: unknown[] = []
+    client.on('CALL_RING', (d) => rings.push(d))
+    const ring = { channelId: 'dm', userId: 'bob', ringing: ['me'], at: '2026-10-08T00:00:00Z' }
+    dispatch('CALL_RING', ring)
+    expect(rings).toEqual([ring])
+    dispatch('VOICE_STATE_UPDATE', { ...dmState, channelId: null })
+    expect(client.cache.voiceStates.get('dm')?.has('bob')).toBe(false)
+
+    const p = client.joinVoice(null, 'dm')
+    expect(ws.sent.at(-1)).toEqual({
+      op: 4,
+      d: { selfMute: false, selfDeaf: false, selfStream: false, guildId: null, channelId: 'dm' },
+    })
+    client.leaveVoice()
+    await expect(p).rejects.toThrow('superseded')
+    expect(ws.sent.at(-1)?.d).toMatchObject({ guildId: null, channelId: null })
   })
 
   describe('setSelfVoice', () => {
@@ -632,6 +676,52 @@ describe('HachimanClient E2EE wiring', () => {
     expect(resync).toHaveReturnedWith(vc) // the event fires before the client leaves voice
     expect(client.voice).toBeNull()
     expect(ws.sent.at(-1)).toMatchObject({ op: 4, d: { guildId: 'g', channelId: null } })
+  })
+
+  it('a 4010 kick drops the call without an op 4 leave; a moved VOICE_SERVER_UPDATE opens the new channel', async () => {
+    current = device
+    vi.spyOn(VoiceConnection.prototype, 'connect').mockResolvedValue()
+    client.connect()
+    const ws = await ready()
+    const join = client.joinVoice('g', 'vc')
+    ws.recv({ op: 0, s: 2, t: 'VOICE_SERVER_UPDATE', d: server })
+    const vc = await join
+    const sent = ws.sent.length
+    vc.emit('close', { code: 4010, reason: 'kicked' })
+    expect(client.voice).toBeNull()
+    expect(ws.sent).toHaveLength(sent) // the gateway already moved or ended the call
+
+    const moved = vi.fn<(t: VoiceTarget, conn: Promise<VoiceConnection>) => void>()
+    client.on('voiceMoved', moved)
+    ws.recv({ op: 0, s: 3, t: 'VOICE_SERVER_UPDATE', d: { ...server, channelId: 'vc2', moved: true } })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(client.voice).not.toBeNull()
+    expect(client.voice).not.toBe(vc)
+    expect(moved).toHaveBeenCalledWith({ guildId: 'g', channelId: 'vc2' }, expect.any(Promise))
+    await expect(moved.mock.calls[0]![1]).resolves.toBe(client.voice)
+    expect(ws.sent).toHaveLength(sent) // follows without an op 4
+    client.leaveVoice()
+    expect(ws.sent.at(-1)).toMatchObject({ op: 4, d: { guildId: 'g', channelId: null } })
+  })
+
+  it('a server mute of the current user mutes the call; a VOICE_SERVER_UPDATE without moved is ignored', async () => {
+    current = device
+    vi.spyOn(VoiceConnection.prototype, 'connect').mockResolvedValue()
+    const setMuted = vi.spyOn(VoiceConnection.prototype, 'setMuted')
+    client.connect()
+    const ws = await ready()
+    const join = client.joinVoice('g', 'vc')
+    ws.recv({ op: 0, s: 2, t: 'VOICE_SERVER_UPDATE', d: server })
+    const vc = await join
+    expect(setMuted).toHaveBeenLastCalledWith(false)
+    const state = { guildId: 'g', channelId: 'vc', userId: 'me', sessionId: 's', selfMute: false, selfDeaf: false, selfStream: false }
+    ws.recv({ op: 0, s: 3, t: 'VOICE_STATE_UPDATE', d: { ...state, mute: true } })
+    expect(setMuted).toHaveBeenLastCalledWith(true)
+    expect(client.serverVoice).toEqual({ mute: true, deaf: false })
+    ws.recv({ op: 0, s: 4, t: 'VOICE_STATE_UPDATE', d: { ...state, mute: false } })
+    expect(setMuted).toHaveBeenLastCalledWith(false)
+    ws.recv({ op: 0, s: 5, t: 'VOICE_SERVER_UPDATE', d: { ...server, channelId: 'vc2' } })
+    expect(client.voice).toBe(vc)
   })
 
   it.each([4012, 4013])('gateway close %i emits fatal and does not reconnect', async code => {

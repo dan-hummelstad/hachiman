@@ -1,6 +1,7 @@
 import { HeadphoneOff, Headphones, Mic, MicOff } from 'lucide-react'
 import { IconButton } from '@/components/ui/icon-button'
 import { voiceService } from '@/services/VoiceService'
+import { useServerVoice } from '@/components/voice/use-server-voice'
 import { useVoiceStore } from '@/stores/voiceStore'
 
 /**
@@ -10,25 +11,30 @@ import { useVoiceStore } from '@/stores/voiceStore'
 export function SelfVoiceToggles({ className }: { className?: string }): React.JSX.Element {
   const selfMute = useVoiceStore((s) => s.selfMute)
   const selfDeaf = useVoiceStore((s) => s.selfDeaf)
+  const server = useServerVoice()
+  const mute = selfMute || server.mute || server.deaf
+  const deaf = selfDeaf || server.deaf
   return (
     <>
       <IconButton
-        label={selfMute ? 'Unmute' : 'Mute'}
-        pressed={selfMute}
+        label={server.mute ? 'Server muted' : selfMute ? 'Unmute' : 'Mute'}
+        pressed={mute}
         tone="danger"
         className={className}
+        disabled={server.mute || server.deaf}
         onClick={() => voiceService.toggleMute()}
       >
-        {selfMute ? <MicOff /> : <Mic />}
+        {mute ? <MicOff /> : <Mic />}
       </IconButton>
       <IconButton
-        label={selfDeaf ? 'Undeafen' : 'Deafen'}
-        pressed={selfDeaf}
+        label={server.deaf ? 'Server deafened' : selfDeaf ? 'Undeafen' : 'Deafen'}
+        pressed={deaf}
         tone="danger"
         className={className}
+        disabled={server.deaf}
         onClick={() => voiceService.toggleDeaf()}
       >
-        {selfDeaf ? <HeadphoneOff /> : <Headphones />}
+        {deaf ? <HeadphoneOff /> : <Headphones />}
       </IconButton>
     </>
   )

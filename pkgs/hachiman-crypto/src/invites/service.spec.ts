@@ -21,7 +21,7 @@ const opts = { invitePermissions: clientPermissions }
 
 /** Signs an admin action with `actor` and stores it, as the role and overwrite routes do (§12.16). */
 async function act(ds: FakeMlsDs, actor: Client, guildId: string, payload: AdminPayload): Promise<void> {
-  const a = await createAdminService(actor.ctx, actor.identity).signAdminAction(guildId, payload.type, admin.encodePayload(payload))
+  const a = await createAdminService(actor.ctx, actor.identity, clientPermissions).signAdminAction(guildId, payload.type, admin.encodePayload(payload))
   ds.id.storeAdminAction(guildId, a.header)
 }
 

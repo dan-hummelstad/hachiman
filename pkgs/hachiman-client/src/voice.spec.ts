@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   fakeDelegate,
+  FakeAudio,
+  FakeAudioContext,
   FakeMediaStream,
   FakeRTCPeerConnection,
   FakeTrack,
@@ -98,6 +100,55 @@ describe('VoiceConnection', () => {
     expect(screen?.sender.transform).toBe(d.sendTransforms[1])
   })
 
+  it('sends screen audio on the m-line 2 slot with its own sender transform', async () => {
+    const sdp = (dir: string) => `v=0\r\nm=audio 9\r\na=recvonly\r\nm=video 9\r\na=recvonly\r\nm=audio 9\r\na=${dir}\r\n`
+    pc().transceivers.push(new FakeTransceiver())
+    const slot = pc().transceivers[2]
+    await vc.setScreenAudio(new FakeTrack('audio') as unknown as MediaStreamTrack) // before the offer: kept
+    await offer(sdp('recvonly'))
+    expect(d.sendTransforms.map(t => t.track)).toEqual(['audio', 'video', 'screen-audio'])
+    expect(slot?.sender.transform).toBe(d.sendTransforms[2])
+    expect(slot?.direction).toBe('sendrecv')
+    expect(slot?.sender.track).not.toBeNull()
+    const next = new FakeTrack('audio') as unknown as MediaStreamTrack
+    await vc.setScreenAudio(next) // "Change source"
+    expect(slot?.sender.track).toBe(next)
+    await vc.setScreenAudio(null)
+    expect(slot?.sender.track).toBeNull()
+    await offer(sdp('recvonly'))
+    expect(d.sendTransforms).toHaveLength(3)
+    expect(slot?.sender.transform).toBe(d.sendTransforms[2])
+  })
+
+  it('leaves m-line 2 alone when media offers no screen audio slot there', async () => {
+    pc().transceivers.push(new FakeTransceiver())
+    await offer('v=0\r\nm=audio 9\r\na=recvonly\r\nm=video 9\r\na=recvonly\r\nm=audio 9\r\na=sendonly\r\n')
+    expect(d.sendTransforms.map(t => t.track)).toEqual(['audio', 'video'])
+    expect(pc().transceivers[2]?.sender.transform).toBeNull()
+  })
+
+  it('plays screen share audio apart from the mic, with its own volume', async () => {
+    await offer()
+    ws.recv({ op: 'peers', d: { peers: [{ userId: 'bob', ssrc: 2 }] } })
+    const tracks = vi.fn()
+    vc.on('track', tracks)
+    pc().fireTrack('bob', 'audio')
+    const share = pc().fireTrack('screen-bob', 'audio')
+    expect(d.recvTransforms.map(t => [t.userId, t.track])).toEqual([
+      ['bob', 'audio'],
+      ['bob', 'screen-audio'],
+    ])
+    expect(share.receiver.transform).toBe(d.recvTransforms[1])
+    expect(FakeAudio.instances).toHaveLength(2)
+    expect(tracks).toHaveBeenCalledTimes(1) // level meters: the mic only
+    const [mic, screen] = FakeAudio.instances
+    vc.setScreenVolume('bob', 0.5)
+    expect(screen?.volume).toBe(0.5)
+    expect(mic?.volume).toBe(1)
+    ws.recv({ op: 'peers', d: { peers: [] } })
+    expect(screen?.srcObject).toBeNull()
+  })
+
   it('a new sender on m-line 0 fails closed instead of making a second transform', async () => {
     await offer()
     const closed = vi.fn()
@@ -151,6 +202,108 @@ describe('VoiceConnection', () => {
     expect(d.closeCount).toBe(1)
   })
 
+  it('sends screen_subscribe on a change only, and again on ready', () => {
+    const subs = () => ws.sent.filter(f => f.op === 'screen_subscribe')
+    vc.setScreenSubscriptions(new Set(['bob', 'amy']))
+    vc.setScreenSubscriptions(['amy', 'bob', 'amy'])
+    expect(subs()).toEqual([{ op: 'screen_subscribe', d: { userIds: ['amy', 'bob'] } }])
+    vc.setScreenSubscriptions([])
+    expect(subs().at(-1)).toEqual({ op: 'screen_subscribe', d: { userIds: [] } })
+    vc.setScreenSubscriptions(['cat'])
+    ws.recv({ op: 'ready', d: { sessionId: 's1', ssrc: 7 } })
+    expect(subs().slice(-2)).toEqual([
+      { op: 'screen_subscribe', d: { userIds: ['cat'] } },
+      { op: 'screen_subscribe', d: { userIds: ['cat'] } },
+    ])
+  })
+
+  it('sets the mic bitrate on the m-line 0 sender, before and after the first offer', async () => {
+    await vc.setMicBitrate(96_000)
+    await offer()
+    const mic = pc().transceivers[0]
+    expect(mic?.sender.encodings).toEqual([{ maxBitrate: 96_000 }])
+    await vc.setMicBitrate(32_000)
+    expect(mic?.sender.encodings).toEqual([{ maxBitrate: 32_000 }])
+    await vc.setMicBitrate(null)
+    expect(mic?.sender.encodings).toEqual([{}])
+    expect(pc().transceivers[1]?.sender.encodings).toEqual([{}])
+  })
+
+  it('plays up to 100 % on the element and above it through a GainNode, also while deafened', async () => {
+    const g = globalThis as Record<string, unknown>
+    g['AudioContext'] = FakeAudioContext
+    try {
+      await offer()
+      vc.setOutputVolume('bob', 0.5)
+      ws.recv({ op: 'peers', d: { peers: [{ userId: 'bob', ssrc: 2 }] } })
+      pc().fireTrack('bob', 'audio')
+      const [el] = FakeAudio.instances
+      expect(el).toMatchObject({ volume: 0.5, muted: false })
+      expect(FakeAudioContext.instances).toEqual([])
+
+      vc.setOutputVolume('bob', 5)
+      const [ctx] = FakeAudioContext.instances
+      const [gain] = ctx?.gains ?? []
+      expect(el).toMatchObject({ volume: 1, muted: true })
+      expect(gain?.gain.value).toBe(2)
+
+      vc.setDeafened(true)
+      expect(gain?.gain.value).toBe(0)
+      vc.setDeafened(false)
+      expect(gain?.gain.value).toBe(2)
+
+      vc.setOutputVolume('bob', 0)
+      expect(gain?.connected).toBe(false)
+      expect(el).toMatchObject({ volume: 0, muted: false })
+
+      vc.setOutputVolume('bob', 1.5)
+      vc.close()
+      expect(ctx?.gains.every(n => !n.connected)).toBe(true)
+      expect(ctx?.closed).toBe(true)
+    } finally {
+      delete g['AudioContext']
+    }
+  })
+
+  it('plays a boosted user on the element at 100 % while the AudioContext is not running', async () => {
+    const g = globalThis as Record<string, unknown>
+    g['AudioContext'] = FakeAudioContext
+    FakeAudioContext.nextState = 'suspended'
+    try {
+      await offer()
+      vc.setOutputVolume('bob', 1.5)
+      ws.recv({ op: 'peers', d: { peers: [{ userId: 'bob', ssrc: 2 }] } })
+      pc().fireTrack('bob', 'audio')
+      const [el] = FakeAudio.instances
+      const [ctx] = FakeAudioContext.instances
+      expect(el).toMatchObject({ volume: 1, muted: false })
+      expect(ctx?.gains[0]?.gain.value).toBe(0)
+      ctx?.setState('running')
+      expect(el).toMatchObject({ volume: 1, muted: true })
+      expect(ctx?.gains[0]?.gain.value).toBe(1.5)
+      ctx?.setState('interrupted')
+      expect(el?.muted).toBe(false)
+    } finally {
+      delete g['AudioContext']
+    }
+  })
+
+  it('does not boost on a chosen output device that the AudioContext cannot use', async () => {
+    const g = globalThis as Record<string, unknown>
+    g['AudioContext'] = FakeAudioContext // no setSinkId
+    try {
+      await offer()
+      await vc.setOutputDevice('headset')
+      vc.setOutputVolume('bob', 2)
+      ws.recv({ op: 'peers', d: { peers: [{ userId: 'bob', ssrc: 2 }] } })
+      pc().fireTrack('bob', 'audio')
+      expect(FakeAudio.instances[0]).toMatchObject({ volume: 1, muted: false })
+      expect(FakeAudioContext.instances).toEqual([])
+    } finally {
+      delete g['AudioContext']
+    }
+  })
+
   it('drops tracks without msid or with a kind that does not match the msid', async () => {
     await offer()
     const screens = vi.fn()
@@ -159,10 +312,10 @@ describe('VoiceConnection', () => {
     vc.on('track', tracks)
     ws.recv({ op: 'peers', d: { peers: [{ userId: 'bob', ssrc: 2 }] } })
     const none = pc().fireTrack(null, 'audio')
-    const wrongAudio = pc().fireTrack('screen-bob', 'audio')
+    const noUser = pc().fireTrack('screen-', 'audio')
     const wrongVideo = pc().fireTrack('bob', 'video')
     expect(d.recvTransforms).toHaveLength(0)
-    expect([none, wrongAudio, wrongVideo].map(t => t.receiver.transform)).toEqual([null, null, null])
+    expect([none, noUser, wrongVideo].map(t => t.receiver.transform)).toEqual([null, null, null])
     expect(screens).not.toHaveBeenCalled()
     expect(tracks).not.toHaveBeenCalled()
   })

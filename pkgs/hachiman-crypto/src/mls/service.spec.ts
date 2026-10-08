@@ -4,7 +4,7 @@ import type { CryptoEvents, EncryptedMessage, InvitePort } from '../api'
 import { admin } from '../admin/index'
 import { createAdminService } from '../admin/service'
 import { fromB64url, toB64url } from '../codec'
-import { DsError } from '../identity/test-helpers'
+import { DsError, testPermissions } from '../identity/test-helpers'
 import { FakeMlsDs, leafGeneration, type Client } from './fake-ds'
 import { mls } from './index'
 import { createGroupService } from './service'
@@ -267,7 +267,7 @@ describe('GroupService', () => {
     expect(alice.of<CryptoEvents['error']>('error').map((e) => e.message).join()).toContain('admin_chain_missing')
     expect(await epochOf(bob, gid)).toBeNull()
     // With the owner genesis, the replayed chain decides (testPermissions: only the owner reads).
-    const g = await createAdminService(alice.ctx, alice.identity).signAdminAction(guildId, 0, admin.encodePayload({ type: 0, ownerId: alice.userId }))
+    const g = await createAdminService(alice.ctx, alice.identity, testPermissions).signAdminAction(guildId, 0, admin.encodePayload({ type: 0, ownerId: alice.userId }))
     ds.id.storeAdminAction(guildId, g.header)
     await ds.queueAdd(gid, bob.deviceId)
     ds.batch(gid, alice.deviceId)

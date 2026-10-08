@@ -102,7 +102,6 @@ func TestMintRejectsBadInput(t *testing.T) {
 		"ttl too long":  func(c *voicetoken.Claims) { c.ExpiresAt = c.IssuedAt.Add(5 * time.Minute) },
 		"no session":    func(c *voicetoken.Claims) { c.SessionID = "" },
 		"no user":       func(c *voicetoken.Claims) { c.UserID = "" },
-		"no guild":      func(c *voicetoken.Claims) { c.GuildID = "" },
 		"no channel":    func(c *voicetoken.Claims) { c.ChannelID = "" },
 		"no aud":        func(c *voicetoken.Claims) { c.MediaNodeID = "" },
 	} {
@@ -111,6 +110,21 @@ func TestMintRejectsBadInput(t *testing.T) {
 		if _, err := s.Mint(c); err == nil {
 			t.Errorf("%s: Mint succeeded, want error", name)
 		}
+	}
+}
+
+// A DM call has no guild: the token carries guildId "" (contract §7).
+func TestMintVerifyDMCall(t *testing.T) {
+	s, v := newPair(t)
+	c := validClaims()
+	c.GuildID = ""
+	tok, err := s.Mint(c)
+	if err != nil {
+		t.Fatalf("Mint: %v", err)
+	}
+	got, err := v.Verify(tok)
+	if err != nil || got.GuildID != "" || got.ChannelID != c.ChannelID {
+		t.Fatalf("Verify = %+v, %v", got, err)
 	}
 }
 

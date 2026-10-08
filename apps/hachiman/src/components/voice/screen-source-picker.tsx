@@ -1,12 +1,14 @@
-import { useState } from 'react'
+import { useId, useState } from 'react'
 import { ScreenShare } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import { ErrorText } from '@/components/ui/field'
 import { ModalWindow } from '@/components/ui/modal-window'
 import { StreamQualityFields } from '@/components/voice/stream-quality-fields'
 import { voiceService } from '@/services/VoiceService'
 import type { ScreenSource } from '@/shared/IPlatformService'
 import { usePlatform } from '@/shared/PlatformContext'
+import { usePrefsStore } from '@/stores/prefsStore'
 
 /** Discord-style picker: screens, then windows, as thumbnails. A pick starts the share. */
 /** What the open picker shows: the sources, or why there are none. */
@@ -55,17 +57,21 @@ function PickerBody({
 }): React.JSX.Element {
   const platform = usePlatform()
   const [failed, setFailed] = useState<string | null>(null)
+  const shareAudioPref = usePrefsStore((s) => s.shareScreenAudio)
+  const setShareAudio = usePrefsStore((s) => s.setShareScreenAudio)
+  const shareAudio = platform.screenShareAudio && shareAudioPref
+  const audioId = useId()
 
   const pick = async (id: string): Promise<void> => {
     try {
-      await platform.selectScreenSource(id)
+      await platform.selectScreenSource(id, shareAudio)
     } catch (err) {
       console.warn('[voice] screen source unavailable', err)
       setFailed('That source is gone. Pick another one.')
       return
     }
     onClose()
-    void voiceService.startScreenShare()
+    void voiceService.startScreenShare({ audio: shareAudio })
   }
 
   return (
@@ -81,6 +87,18 @@ function PickerBody({
           />
         ))}
       </div>
+      {platform.screenShareAudio && (
+        <div className="flex items-center gap-2">
+          <Checkbox
+            id={audioId}
+            checked={shareAudioPref}
+            onChange={(e) => setShareAudio(e.target.checked)}
+          />
+          <label htmlFor={audioId} className="text-label cursor-pointer">
+            Share audio
+          </label>
+        </div>
+      )}
       <StreamQualityFields />
     </>
   )

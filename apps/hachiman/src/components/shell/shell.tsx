@@ -22,7 +22,10 @@ import { GuildChannelList } from '@/components/sidebar/guild-channels'
 import { useGuildTint } from '@/components/shell/use-guild-tint'
 import { VoiceDock } from '@/components/voice-connected-panel'
 import { VoiceRoom } from '@/components/voice/voice-room'
+import { DmCallPanel } from '@/components/voice/dm-call'
+import { IncomingCall } from '@/components/voice/incoming-call'
 import { useAppShortcuts } from '@/hooks/use-app-shortcuts'
+import { useGlobalShortcuts } from '@/hooks/use-global-shortcuts'
 import { useGuildChannels } from '@/hooks/use-hachiman'
 import { useMediaQuery } from '@/hooks/use-media-query'
 import { isGuildChannel } from '@/lib/model'
@@ -37,11 +40,11 @@ import {
   useSelectedGuildId
 } from '@/stores/navStore'
 
-/** The window wallpaper, tinted by the guild (N4). */
+/** The window wallpaper: tinted by the guild (N4), or the user's custom gradient (useGuildTint). */
 const WALLPAPER = cn(
   'bg-surface-window',
-  'bg-[linear-gradient(180deg,var(--tint-light),color-mix(in_oklab,var(--tint-light)_45%,var(--surface-window)))]',
-  'dark:bg-[linear-gradient(180deg,var(--tint-dark),color-mix(in_oklab,var(--tint-dark)_45%,var(--surface-window)))]'
+  'bg-(image:--wallpaper-light)',
+  'dark:bg-(image:--wallpaper-dark)'
 )
 
 /**
@@ -90,6 +93,7 @@ export function Shell(): React.JSX.Element {
   const dockHeight = useLastHeight(floatSlot)
   useSidebarReveal(sidebarRef)
   useAppShortcuts()
+  useGlobalShortcuts()
 
   // Default to the first text channel when a guild has no (valid) selection.
   useEffect(() => {
@@ -133,6 +137,7 @@ export function Shell(): React.JSX.Element {
           }
           top={
             <>
+              <SpaceBar />
               <SwitcherField />
               <FavouriteDms label={settings !== null || selectedGuildId !== null} />
             </>
@@ -151,12 +156,7 @@ export function Shell(): React.JSX.Element {
               <DmSpace />
             )
           }
-          foot={
-            <>
-              <div ref={setFootSlot} className="contents" />
-              <SpaceBar />
-            </>
-          }
+          foot={<div ref={setFootSlot} className="contents" />}
         />
       </div>
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -194,7 +194,12 @@ export function Shell(): React.JSX.Element {
                   {selectedChannel.type === 'voice' && isGuildChannel(selectedChannel) ? (
                     <VoiceRoom key={selectedChannel.id} channel={selectedChannel} />
                   ) : (
-                    <ChatBody channel={selectedChannel} />
+                    <>
+                      {selectedChannel.guildId === null && (
+                        <DmCallPanel key={selectedChannel.id} channel={selectedChannel} />
+                      )}
+                      <ChatBody channel={selectedChannel} />
+                    </>
                   )}
                 </ChannelPane>
               ) : (
@@ -213,6 +218,7 @@ export function Shell(): React.JSX.Element {
         </div>
       </div>
       <QuickSwitcher />
+      <IncomingCall />
       {createPortal(<VoiceDock />, dockHost)}
     </div>
   )

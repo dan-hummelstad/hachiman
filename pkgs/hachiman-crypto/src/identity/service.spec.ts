@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { createAdminService } from '../admin/service'
-import { admin } from '../admin/index'
+import { DEFAULT_EVERYONE_PERMISSIONS, admin } from '../admin/index'
 import type { CryptoErrorShape } from '../api'
 import { fromB64url, toB64url } from '../codec'
 import { DSK_ROTATION_GRACE_MS, LINK_SESSION_TTL_MS } from '../constants'
@@ -9,7 +9,7 @@ import { kt } from '../kt/index'
 import { decodeHistoryKeysPayload, encodeDskTransfer } from './codec'
 import { openDeviceMessage } from './device-message'
 import { identity } from './index'
-import { DsError, FakeDs, makeDevice, type TestDevice } from './test-helpers'
+import { DsError, FakeDs, makeDevice, testPermissions, type TestDevice } from './test-helpers'
 
 const ALICE = '0f8fad5b-d9cb-469f-a165-70867728950e'
 const BOB = '7c9e6679-7425-40de-944b-e07fc1f90ae7'
@@ -653,8 +653,10 @@ describe('signed admin actions', () => {
     const svc = createAdminService(
       { store: a.store, transport: a.transport, emit: () => undefined, now: () => ds.now, random: () => new Uint8Array(), origin: '', platform: 'electron', clientVersion: '1.0.0' },
       a.svc,
+      testPermissions,
     )
     expect(await a.svc.adminState(GUILD)).toBeNull()
+    expect(await svc.adminGuildPermissions(GUILD, ALICE)).toBeNull()
     await expect(svc.signAdminAction(GUILD, 1, admin.encodePayload({ type: 1, roleId: GUILD, permissions: 0, position: 1 }))).rejects.toMatchObject({ code: 'Unsupported' })
     const g = await svc.signAdminAction(GUILD, 0, admin.encodePayload({ type: 0, ownerId: ALICE }))
     expect(g.seq).toBe(0)
@@ -670,12 +672,14 @@ describe('signed admin actions', () => {
     expect(st?.seq).toBe(1)
     expect(st?.roles.map((r) => r.id)).toContain(role)
     expect((await a.store.get('adminState', GUILD))?.seq).toBe(1)
+    expect(await svc.adminGuildPermissions(GUILD, ALICE)).toBe(0x7fffffff)
+    expect(await svc.adminGuildPermissions(GUILD, BOB)).toBe(DEFAULT_EVERYONE_PERMISSIONS)
     await expect(svc.signAdminAction(GUILD, 3, new Uint8Array([1]))).rejects.toMatchObject({ code: 'Malformed' })
   })
 
   it('rejects a chain with a forged action', async () => {
     const { dev: a } = await primary()
-    const svc = createAdminService({ store: a.store, transport: a.transport, emit: () => undefined, now: () => ds.now, random: () => new Uint8Array(), origin: '', platform: 'electron', clientVersion: '1.0.0' }, a.svc)
+    const svc = createAdminService({ store: a.store, transport: a.transport, emit: () => undefined, now: () => ds.now, random: () => new Uint8Array(), origin: '', platform: 'electron', clientVersion: '1.0.0' }, a.svc, testPermissions)
     const g = await svc.signAdminAction(GUILD, 0, admin.encodePayload({ type: 0, ownerId: ALICE }))
     const forged = admin.decodeAction(fromB64url(g.header))
     ds.storeAdminAction(GUILD, toB64url(admin.encodeAction({ ...forged, timestampMs: forged.timestampMs + 1 })))

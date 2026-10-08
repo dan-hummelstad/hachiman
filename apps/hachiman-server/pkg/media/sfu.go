@@ -6,12 +6,15 @@
 // session, rooms keyed by channel id, and each member's inbound audio and
 // screen share fanned out to the other members of its room only.
 //
-// Forwarding model: every client owns two TrackLocalStaticRTPs, its mic and
-// its screen as seen by others. Both are added to each room peer's
-// PeerConnection; pion fans a WriteRTP out to every binding, rewriting SSRC /
-// payload type per receiver. The mic track's stream id is the sender's userId
-// and the screen track's is "screen-<userId>", so receivers map remote tracks
-// to users via msid. The screen track stays silent until its owner shares.
+// Forwarding model: every client owns one mic TrackLocalStaticRTP, added to
+// each room peer's PeerConnection; pion fans a WriteRTP out to every binding,
+// rewriting SSRC / payload type per receiver. The screen is per viewer: each
+// (sharer, viewer) pair has its own screen video and screen audio track
+// (screenOut), so the SFU forwards a share only to the viewers that
+// subscribed to it (screen_subscribe, contract §8). The mic track's stream id
+// is the sender's userId and both screen tracks' is "screen-<userId>", so
+// receivers map remote tracks to users via msid. A screen track stays silent
+// until its owner shares and the viewer subscribes.
 //
 // Negotiation is NOT done here: the SFU mutates senders and tells the caller
 // (Hooks.Renegotiate) which clients need a fresh offer. The caller serializes
@@ -38,6 +41,9 @@ const (
 	// keyframeReqInterval throttles PLIs to a sharer. Without it, one viewer
 	// on a lossy link makes the sharer send keyframes to the whole room.
 	keyframeReqInterval = 500 * time.Millisecond
+
+	// screenAudioSlot is the m-line of the client's screen audio upload.
+	screenAudioSlot = 2
 )
 
 var opusCodec = webrtc.RTPCodecCapability{
@@ -89,16 +95,37 @@ type Client struct {
 	Owner                     any // caller's handle (the voice conn); lets callers skip a session-id lookup
 
 	track   *webrtc.TrackLocalStaticRTP
-	screen  *webrtc.TrackLocalStaticRTP
 	senders map[string][]*webrtc.RTPSender // peer session id -> senders of peer's tracks on PC; guarded by SFU.mu
 	hooks   Hooks
+
+	// watching is the user ids whose screen this client subscribed to
+	// (screen_subscribe). Guarded by SFU.mu. It outlives peer joins, so a
+	// sharer that rejoins reaches a subscribed viewer without a new op.
+	watching map[string]bool
+	// viewers is this client's screen output per viewer session id. Written
+	// under SFU.mu and viewersMu; the forward goroutines read it under
+	// viewersMu only.
+	viewersMu sync.RWMutex
+	viewers   map[string]*screenOut
+	// fwdMu serializes the seqMap writes of the screen video [0] and screen
+	// audio [1] forward goroutines (see forwardScreen).
+	fwdMu [2]sync.Mutex
 
 	// screenSSRC is the client's inbound screen RTP SSRC (0 = none yet); the
 	// target of keyframe requests from viewers.
 	screenSSRC atomic.Uint32
 	// lastKeyframeReq is when the last PLI went to the client (unix ns).
 	lastKeyframeReq atomic.Int64
+	// muted drops the client's mic and screen audio RTP (server mute or deafen, §6 "Voice moderation").
+	muted atomic.Bool
 }
+
+// SetMuted starts or stops dropping the client's mic and screen-share audio RTP.
+// Safe from any goroutine.
+func (c *Client) SetMuted(muted bool) { c.muted.Store(muted) }
+
+// Muted reports whether the client's mic and screen-share audio RTP are dropped.
+func (c *Client) Muted() bool { return c.muted.Load() }
 
 // SFU owns clients and rooms. Safe for concurrent use.
 type SFU struct {
@@ -161,11 +188,11 @@ func (s *SFU) Join(sessionID, userID, roomID string, owner any, h Hooks) (c *Cli
 	if err != nil {
 		return nil, nil, fmt.Errorf("media: new peer connection: %w", err)
 	}
-	// Receive slots for the client's mic and screen. Media is the offerer, so
-	// without them the first offer would have no m-line for the client to send
-	// on. Added first, so they are always m-lines 0 (mic) and 1 (screen), the
-	// client's upload slots.
-	for _, kind := range []webrtc.RTPCodecType{webrtc.RTPCodecTypeAudio, webrtc.RTPCodecTypeVideo} {
+	// Receive slots for the client's mic, screen and screen audio. Media is
+	// the offerer, so without them the first offer would have no m-line for
+	// the client to send on. Added first, so they are always m-lines 0 (mic),
+	// 1 (screen) and 2 (screen audio), the client's upload slots.
+	for _, kind := range []webrtc.RTPCodecType{webrtc.RTPCodecTypeAudio, webrtc.RTPCodecTypeVideo, webrtc.RTPCodecTypeAudio} {
 		if _, err := pc.AddTransceiverFromKind(kind, webrtc.RTPTransceiverInit{Direction: webrtc.RTPTransceiverDirectionRecvonly}); err != nil {
 			_ = pc.Close()
 			return nil, nil, fmt.Errorf("media: add recv transceiver: %w", err)
@@ -176,21 +203,28 @@ func (s *SFU) Join(sessionID, userID, roomID string, owner any, h Hooks) (c *Cli
 		_ = pc.Close()
 		return nil, nil, fmt.Errorf("media: new mic track: %w", err)
 	}
-	screen, err := webrtc.NewTrackLocalStaticRTP(vp8Codec, "screen-"+userID, "screen-"+userID)
-	if err != nil {
-		_ = pc.Close()
-		return nil, nil, fmt.Errorf("media: new screen track: %w", err)
+
+	c = &Client{
+		SessionID: sessionID, UserID: userID, RoomID: roomID, PC: pc, Owner: owner, track: track,
+		senders: map[string][]*webrtc.RTPSender{}, hooks: h,
+		watching: map[string]bool{}, viewers: map[string]*screenOut{},
 	}
 
-	c = &Client{SessionID: sessionID, UserID: userID, RoomID: roomID, PC: pc, Owner: owner, track: track, screen: screen, senders: map[string][]*webrtc.RTPSender{}, hooks: h}
-
-	pc.OnTrack(func(remote *webrtc.TrackRemote, _ *webrtc.RTPReceiver) {
-		out := c.track
-		if remote.Kind() == webrtc.RTPCodecTypeVideo {
-			out = c.screen
+	pc.OnTrack(func(remote *webrtc.TrackRemote, rcv *webrtc.RTPReceiver) {
+		// By upload slot, not by kind or a saved receiver: pion can give a
+		// transceiver a new receiver in SetRemoteDescription, and a track
+		// routed into the wrong output would garble it for every peer.
+		switch uploadSlot(pc, rcv) {
+		case 0:
+			forward(remote, c.track, &c.muted)
+		case 1:
 			c.screenSSRC.Store(uint32(remote.SSRC()))
+			c.forwardScreen(remote, false)
+		case screenAudioSlot:
+			c.forwardScreen(remote, true)
+		default:
+			s.logger.Printf("media: session %s: track on no upload slot dropped", sessionID)
 		}
-		s.forward(remote, out)
 	})
 	pc.OnICECandidate(func(cand *webrtc.ICECandidate) {
 		if h.ICECandidate != nil {
@@ -271,6 +305,9 @@ func (s *SFU) removeLocked(c *Client) []*Client {
 	}
 	peers := make([]*Client, 0, len(room))
 	for _, p := range room {
+		p.viewersMu.Lock()
+		delete(p.viewers, c.SessionID)
+		p.viewersMu.Unlock()
 		for _, snd := range p.senders[c.SessionID] {
 			if err := p.PC.RemoveTrack(snd); err != nil {
 				s.logger.Printf("media: remove track %s from %s: %v", c.SessionID, p.SessionID, err)
@@ -280,6 +317,9 @@ func (s *SFU) removeLocked(c *Client) []*Client {
 		peers = append(peers, p)
 	}
 	c.senders = map[string][]*webrtc.RTPSender{}
+	c.viewersMu.Lock()
+	c.viewers = map[string]*screenOut{}
+	c.viewersMu.Unlock()
 	s.ssrcs.Release(c.SessionID)
 	return peers
 }
@@ -309,20 +349,30 @@ func (s *SFU) SessionCount() int {
 	return len(s.clients)
 }
 
-// link adds src's mic and screen tracks to dst's PeerConnection, each on a
-// fresh sendonly transceiver. Not AddTrack: pion would reuse the sender-less
-// recvonly upload transceivers (m-lines 0 and 1), and the client relies on
-// those being its exclusive upload slots. Caller holds s.mu.
+// link adds src's mic, screen and screen audio tracks to dst's
+// PeerConnection, each on a fresh sendonly transceiver. Not AddTrack: pion
+// would reuse the sender-less recvonly upload transceivers (m-lines 0 to 2),
+// and the client relies on those being its exclusive upload slots. Caller
+// holds s.mu.
 //
 // Returns false if a track couldn't be added.
 //
 // ponytail: removed peers leave stopped (inactive) m-lines behind, so SDP
 // grows with join/leave churn over a long session. Recycle stopped
 // transceivers via RTPSender.ReplaceTrack if rooms get large or long-lived.
-// ponytail: every peer receives every share at the sharer's quality; add a
-// per-viewer "watch" op (and simulcast) when room bandwidth matters.
+// The screen tracks are dst's own copies (screenOut), forwarded only while
+// dst subscribes to src (dst.watching).
+//
+// ponytail: a subscribed viewer gets the share at the sharer's quality; add
+// simulcast when viewers on slow links matter.
 func (s *SFU) link(dst, src *Client) bool {
-	for _, track := range []*webrtc.TrackLocalStaticRTP{src.track, src.screen} {
+	out, err := newScreenOut(src.UserID)
+	if err != nil {
+		s.logger.Printf("media: screen track %s -> %s: %v", src.SessionID, dst.SessionID, err)
+		return false
+	}
+	out.set(dst.watching[src.UserID])
+	for _, track := range []*webrtc.TrackLocalStaticRTP{src.track, out.video, out.audio} {
 		t, err := dst.PC.AddTransceiverFromTrack(track, webrtc.RTPTransceiverInit{Direction: webrtc.RTPTransceiverDirectionSendonly})
 		if err != nil {
 			s.logger.Printf("media: add track %s -> %s: %v", src.SessionID, dst.SessionID, err)
@@ -330,10 +380,42 @@ func (s *SFU) link(dst, src *Client) bool {
 		}
 		snd := t.Sender()
 		dst.senders[src.SessionID] = append(dst.senders[src.SessionID], snd)
-		// A viewer that joins mid-share asks for its first keyframe here.
-		go readRTCP(snd, src, track == src.screen)
+		// A viewer that joins or subscribes mid-share asks for its first
+		// keyframe here.
+		go readRTCP(snd, src, track == out.video)
 	}
+	src.viewersMu.Lock()
+	src.viewers[dst.SessionID] = out
+	src.viewersMu.Unlock()
 	return true
+}
+
+// SetScreenSubscriptions sets the user ids whose screen c receives
+// (screen_subscribe, §8) and replaces the previous set. A share that c starts
+// to receive gets a keyframe request, so its video starts without waiting for
+// the viewer's own PLI. No renegotiation: every peer's screen transceiver
+// already exists, only the forwarding changes.
+func (s *SFU) SetScreenSubscriptions(c *Client, userIDs []string) {
+	want := make(map[string]bool, len(userIDs))
+	for _, u := range userIDs {
+		want[u] = true
+	}
+	var started []*Client
+	s.mu.Lock()
+	if s.clients[c.SessionID] != c {
+		s.mu.Unlock()
+		return
+	}
+	c.watching = want
+	for _, p := range s.rooms[c.RoomID] {
+		if o := p.viewers[c.SessionID]; o != nil && o.set(want[p.UserID]) {
+			started = append(started, p)
+		}
+	}
+	s.mu.Unlock()
+	for _, p := range started {
+		p.requestKeyframe()
+	}
 }
 
 // readRTCP reads RTCP off snd until the sender is removed or the PC closes.
@@ -383,18 +465,83 @@ func (c *Client) requestKeyframe() {
 	_ = c.PC.WriteRTCP([]rtcp.Packet{&rtcp.PictureLossIndication{MediaSSRC: ssrc}})
 }
 
-// forward pumps inbound RTP into the client's matching output track, which
-// pion fans out to every room peer's PeerConnection. Runs on pion's OnTrack
-// goroutine until the PC closes.
-func (s *SFU) forward(remote *webrtc.TrackRemote, out *webrtc.TrackLocalStaticRTP) {
+// forward pumps inbound RTP into the client's mic output track, which pion
+// fans out to every room peer's PeerConnection. Runs on pion's OnTrack
+// goroutine until the PC closes. A set `muted` drops the packets (server mute).
+func forward(remote *webrtc.TrackRemote, out *webrtc.TrackLocalStaticRTP, muted *atomic.Bool) {
 	for {
 		pkt, _, err := remote.ReadRTP()
 		if err != nil {
 			return
 		}
+		if muted.Load() {
+			continue
+		}
 		// ErrClosedPipe just means no peer bindings yet; nothing to do.
 		_ = out.WriteRTP(pkt)
 	}
+}
+
+// forwardScreen pumps the client's inbound screen video (or, with audio, the
+// screen audio) to the screen output of each subscribed viewer. Runs on
+// pion's OnTrack goroutine until the PC closes. Server mute (c.muted) drops
+// the screen audio too, so a muted user cannot talk through a share.
+//
+// pion starts a new goroutine when it gives the slot a new receiver (a new
+// inbound SSRC); the old one can still hold a packet. fwdMu keeps the two from
+// writing a seqMap at once, and the resync below starts the new stream's
+// sequence numbers after the last ones the viewers got.
+func (c *Client) forwardScreen(remote *webrtc.TrackRemote, audio bool) {
+	mu := &c.fwdMu[0]
+	if audio {
+		mu = &c.fwdMu[1]
+	}
+	c.viewersMu.RLock()
+	for _, o := range c.viewers {
+		if audio {
+			o.audioSeq.resync.Store(true)
+		} else {
+			o.videoSeq.resync.Store(true)
+		}
+	}
+	c.viewersMu.RUnlock()
+	for {
+		pkt, _, err := remote.ReadRTP()
+		if err != nil {
+			return
+		}
+		if audio && c.muted.Load() {
+			continue
+		}
+		mu.Lock()
+		c.viewersMu.RLock()
+		for _, o := range c.viewers {
+			if !o.on.Load() {
+				continue
+			}
+			if audio {
+				o.audioSeq.write(o.audio, pkt)
+			} else {
+				o.videoSeq.write(o.video, pkt)
+			}
+		}
+		c.viewersMu.RUnlock()
+		mu.Unlock()
+	}
+}
+
+// uploadSlot is the index of the transceiver whose current receiver is rcv:
+// 0 to 2 are the client's upload slots (Join adds them first). -1 = none.
+func uploadSlot(pc *webrtc.PeerConnection, rcv *webrtc.RTPReceiver) int {
+	for i, t := range pc.GetTransceivers() {
+		if i > screenAudioSlot {
+			break
+		}
+		if t.Receiver() == rcv {
+			return i
+		}
+	}
+	return -1
 }
 
 func notifyLeft(peers []*Client, userID string) {

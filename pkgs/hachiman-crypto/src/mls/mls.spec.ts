@@ -53,6 +53,10 @@ describe('MlsModule', () => {
     const d: GroupDescriptor = { kind: 'voice', guildId: uuid(), channelId: null, historyVisibility: 'joined', createdByUserId: uuid() }
     expect(mls.decodeGroupDescriptor(mls.encodeGroupDescriptor(d))).toEqual(d)
     expect(() => mls.encodeGroupDescriptor({ ...d, channelId: uuid() })).toThrow()
+    // A DM call: channel_id instead of guild_id, never neither.
+    const dmCall: GroupDescriptor = { ...d, guildId: null, channelId: uuid() }
+    expect(mls.decodeGroupDescriptor(mls.encodeGroupDescriptor(dmCall))).toEqual(dmCall)
+    expect(() => mls.encodeGroupDescriptor({ ...d, guildId: null })).toThrow()
     expect(() => mls.encodeGroupDescriptor({ ...d, historyVisibility: 'shared' })).toThrow()
     expect(() => mls.encodeGroupDescriptor({ kind: 'dm', guildId: uuid(), channelId: uuid(), historyVisibility: 'joined', createdByUserId: uuid() })).toThrow()
     expect(() => mls.encodeGroupDescriptor({ kind: 'public_set', guildId: uuid(), channelId: uuid(), historyVisibility: 'shared', createdByUserId: uuid() })).toThrow()

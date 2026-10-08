@@ -1,3 +1,4 @@
+import { plainEmojiText } from '@/lib/mentions'
 import { pageLinksOf, stripPageLinks } from '@/lib/page-link-text'
 import type { ChatMessage } from '@/stores/messagesStore'
 
@@ -16,7 +17,7 @@ export interface MessageSummary {
 export function messageSummary(m: Summed): MessageSummary {
   const n = m.attachments.length
   return {
-    text: stripPageLinks(m.content),
+    text: plainEmojiText(stripPageLinks(m.content)),
     files: n === 0 ? null : n === 1 ? m.attachments[0].name : `${n} attachments`,
     pageLink: pageLinksOf(m.content).length > 0
   }

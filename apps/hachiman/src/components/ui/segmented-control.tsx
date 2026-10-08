@@ -68,7 +68,7 @@ export function SegmentedControl<T extends string>({
             tabIndex={selected ? 0 : -1}
             onClick={() => o.value !== value && onChange(o.value)}
             className={cn(
-              "rounded-control inline-flex h-7 flex-1 items-center justify-center gap-1.5 text-[13px] font-semibold transition-colors outline-none focus-visible:outline-2 focus-visible:outline-line-focus [&_svg:not([class*='size-'])]:size-4",
+              "rounded-control inline-flex h-7 flex-1 items-center whitespace-nowrap justify-center gap-1.5 text-[13px] font-semibold transition-colors outline-none focus-visible:outline-2 focus-visible:outline-line-focus [&_svg:not([class*='size-'])]:size-4",
               iconOnly ? 'w-9 px-0' : 'px-3',
               selected
                 ? (o.selectedClassName ?? 'bg-surface-raised text-text-primary')

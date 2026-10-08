@@ -1,13 +1,15 @@
 /**
- * Read states, pins, guild events and user blocks (docs/gateway-protocol.md §1
- * ReadState, §3, §4 "Pins, guild events and blocks"), re-exported by
+ * Read states, pins, guild events, user blocks and guild sounds
+ * (docs/gateway-protocol.md §1, §3, §4 "Pins, guild events and blocks",
+ * §4 "Soundboard"), re-exported by
  * schema.ts. The references into schema.ts are lazy, so the import cycle
  * between the two files is safe.
  */
 import { sql } from 'drizzle-orm'
-import { check, index, pgTable, primaryKey, text, timestamp, uuid } from 'drizzle-orm/pg-core'
+import { bigint, check, index, pgTable, primaryKey, text, timestamp, uuid, type AnyPgColumn } from 'drizzle-orm/pg-core'
 
-import { channels, guilds, messages, users } from './schema'
+import { bytea } from './columns'
+import { channels, devices, guilds, messages, uploads, users } from './schema'
 
 const createdAt = () => timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow()
 
@@ -101,4 +103,36 @@ export const userBlocks = pgTable(
   ],
 )
 
+// A soundboard sound (§4 Soundboard). The clip is an encrypted blob (upload purpose 'sound').
+// The server holds the name and emoji as plaintext metadata, like a channel name. The file key
+// is only in `envelope`: a doc_snapshot envelope (§12.20) of the public_set group of the guild,
+// sealed in channel `channel_id` with page_id = the sound id (§12.21).
+export const guildSounds = pgTable(
+  'guild_sounds',
+  {
+    // Chosen by the client: the envelope binds it.
+    id: uuid('id').primaryKey(),
+    guildId: uuid('guild_id')
+      .notNull()
+      .references(() => guilds.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    emoji: text('emoji'),
+    uploadId: uuid('upload_id')
+      .notNull()
+      .unique()
+      .references((): AnyPgColumn => uploads.id, { onDelete: 'cascade' }),
+    // The channel whose group sealed the envelope. No foreign key: the envelope stays readable
+    // with the keys of that group after the channel is gone.
+    channelId: uuid('channel_id').notNull(),
+    groupId: bytea('group_id').notNull(),
+    epoch: bigint('epoch', { mode: 'number' }).notNull(),
+    senderDevice: uuid('sender_device').references((): AnyPgColumn => devices.id, { onDelete: 'set null' }),
+    envelope: bytea('envelope').notNull(),
+    createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: createdAt(),
+  },
+  (table) => [index('guild_sounds_guild_id_idx').on(table.guildId, table.createdAt)],
+)
+
 export type GuildEventRow = typeof guildEvents.$inferSelect
+export type GuildSoundRow = typeof guildSounds.$inferSelect

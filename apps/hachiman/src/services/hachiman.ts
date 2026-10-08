@@ -1,5 +1,6 @@
 import type { GatewayDispatch, GatewayEvents, Message, PresenceStatus } from '@hachiman/client'
 import { clearDecryptedBlobs } from '@/hooks/use-decrypted-blob'
+import { emojisById } from '@/lib/custom-emoji'
 import { hachiman } from '@/services/client'
 import { cryptoService } from '@/services/CryptoService'
 import { createDsTransport } from '@/services/ds-transport'
@@ -10,10 +11,13 @@ import { redeemWaitingInvites, resetInvites } from '@/services/InviteService'
 import { messageContext } from '@/services/message-context'
 import { messagesService } from '@/services/MessagesService'
 import { takusenService } from '@/services/TakusenService'
+import { pokeFeature } from '@/services/poke'
+import { soundboardFeature } from '@/services/soundboard'
 import { soundFeature, startSounds } from '@/services/SoundService'
 import { tabsFeature } from '@/services/tabs-feature'
 import { unreadFeature } from '@/services/UnreadService'
 import { voiceService } from '@/services/VoiceService'
+import { callRingService } from '@/services/CallRingService'
 import type { IPlatformService } from '@/shared/IPlatformService'
 import { resetChannelStore, useChannelStore } from '@/stores/channelStore'
 import { resetComposerStore } from '@/stores/composerStore'
@@ -51,7 +55,9 @@ function syncGuilds(): void {
   useGuildStore.setState({
     guilds: new Map(c.guilds),
     roles: copy2(c.roles),
-    members: copy2(c.members)
+    members: copy2(c.members),
+    emojis: new Map(c.emojis),
+    emojiIndex: emojisById(c.emojis)
   })
 }
 
@@ -124,7 +130,9 @@ features.register(
   pinsFeature,
   eventsFeature,
   blocksFeature,
-  tabsFeature
+  tabsFeature,
+  pokeFeature,
+  soundboardFeature
 )
 
 function syncAll(): void {
@@ -169,6 +177,7 @@ function mirror(e: GatewayDispatch): void {
     case 'GUILD_ROLE_CREATE':
     case 'GUILD_ROLE_UPDATE':
     case 'GUILD_ROLE_DELETE':
+    case 'GUILD_EMOJIS_UPDATE':
       return syncGuilds()
     case 'PRESENCE_UPDATE':
       // The raw event keeps 'offline' (Invisible) for me; the cache drops it.
@@ -317,6 +326,7 @@ export function startHachiman(host?: IPlatformService): void {
   })
   startNavHistory()
   voiceService.start()
+  callRingService.start()
   startSounds()
   // Back online: reconnect now instead of after the remaining backoff (up to 30 s).
   window.addEventListener('online', () => hachiman.gateway.retryNow())

@@ -7,6 +7,7 @@ import { SignInScreen } from '@/components/sign-in-screen'
 import { Dialogs } from '@/components/shell/dialogs'
 import { Shell } from '@/components/shell/shell'
 import { TooltipProvider } from '@/components/ui/tooltip'
+import { PokeToasts } from '@/components/notify/poke-toasts'
 
 import { errMsg } from '@/lib/utils'
 import { startHachiman } from '@/services/hachiman'
@@ -96,6 +97,7 @@ function App(): React.JSX.Element {
       </div>
       <Dialogs />
       {signedIn && !fatal && <SecurityNotices />}
+      {signedIn && !fatal && <PokeToasts />}
     </TooltipProvider>
   )
 }

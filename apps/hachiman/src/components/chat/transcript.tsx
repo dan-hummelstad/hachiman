@@ -27,18 +27,23 @@ const LOAD_PX = 200
 /**
  * The log. A `flex-col-reverse` scroller keeps us pinned to the bottom for free and keeps the
  * view steady when older pages are prepended above. Mount it keyed by channel id: per-channel
- * view state (scroll, editing) starts fresh.
+ * view state (scroll) starts fresh. The chat body owns the editing row, so that Arrow Up in the
+ * composer can start an edit.
  */
 export function Transcript({
   channel,
   policy,
-  onUpload
+  onUpload,
+  editingId,
+  onEditingChange
 }: {
   channel: Channel
   /** What I may do with the rows, the same object for every row. */
   policy: RowPolicy
   /** ATTACH_FILES: the drop card of an empty channel offers an upload. */
   onUpload?: (files: File[]) => void
+  editingId: string | null
+  onEditingChange: (messageId: string | null) => void
 }): React.JSX.Element {
   const channelId = channel.id
   const messages = useMessageStore((s) => s.byChannel.get(channelId) ?? EMPTY_MESSAGES)
@@ -48,7 +53,6 @@ export function Transcript({
 
   const scroller = useRef<HTMLDivElement>(null)
   const [away, setAway] = useState(false)
-  const [editingId, setEditingId] = useState<string | null>(null)
 
   const items = useMemo(() => buildItems(messages), [messages])
   const firstUnreadId = useFirstUnreadId(channelId)
@@ -133,7 +137,7 @@ export function Transcript({
                 guildId={channel.guildId}
                 policy={policy}
                 editing={editingId === message.id}
-                onEditingChange={setEditingId}
+                onEditingChange={onEditingChange}
               />
             </Fragment>
           ))}

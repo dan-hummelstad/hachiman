@@ -193,13 +193,20 @@ export function parseGroupId(id: Uint8Array): GroupIdParts {
   }
 }
 
-/** The per-kind rules of §12.6: guild_id for public_set, channel and voice; channel_id for channel and dm. */
+/**
+ * The per-kind rules of §12.6: guild_id for public_set and channel; channel_id for channel and dm;
+ * exactly one of them for voice (a guild call or a DM call).
+ */
 function checkDescriptor(d: GroupDescriptor): void {
+  if (d.kind === 'voice') {
+    if ((d.guildId === null) === (d.channelId === null)) throw new CodecError('voice descriptor: exactly one of guild_id and channel_id')
+    if (d.historyVisibility !== 'joined') throw new CodecError('voice descriptor: history_visibility must be joined')
+    return
+  }
   const needsGuild = d.kind !== 'dm'
   const needsChannel = d.kind === 'channel' || d.kind === 'dm'
   if (needsGuild !== (d.guildId !== null)) throw new CodecError(`${d.kind} descriptor: guild_id must be ${needsGuild ? 'set' : 'null'}`)
   if (needsChannel !== (d.channelId !== null)) throw new CodecError(`${d.kind} descriptor: channel_id must be ${needsChannel ? 'set' : 'null'}`)
-  if (d.kind === 'voice' && d.historyVisibility !== 'joined') throw new CodecError('voice descriptor: history_visibility must be joined')
 }
 
 export function encodeGroupDescriptor(d: GroupDescriptor): Uint8Array {

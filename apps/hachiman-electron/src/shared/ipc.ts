@@ -16,11 +16,34 @@ export const OPEN_EXTERNAL_CHANNEL = "hachiman:open-external";
 export const PROBE_REGIONS_CHANNEL = "hachiman:probe-regions";
 /** renderer → main (invoke): list screens and windows for the share picker. */
 export const SCREEN_SOURCES_CHANNEL = "hachiman:screen-sources";
-/** renderer → main (invoke): the listed source that the next getDisplayMedia captures. */
+/** renderer → main (invoke, id, audio): the listed source that the next getDisplayMedia captures, and whether with system audio. */
 export const SELECT_SCREEN_SOURCE_CHANNEL = "hachiman:select-screen-source";
+/** Whether main captures system audio with a screen share (loopback is Windows only, main/screen-share.ts). */
+export function screenShareAudioSupported(platform: NodeJS.Platform): boolean {
+  return platform === "win32";
+}
 
 /** renderer → main (invoke): check for a desktop update now (updater.ts). */
 export const CHECK_FOR_UPDATE_CHANNEL = "hachiman:check-for-update";
+
+/** renderer → main (invoke): the close-to-tray setting (main/app-prefs.ts). Returns a boolean. */
+export const CLOSE_TO_TRAY_GET_CHANNEL = "hachiman:close-to-tray-get";
+/** renderer → main (invoke): set the close-to-tray setting; payload is a boolean. */
+export const CLOSE_TO_TRAY_SET_CHANNEL = "hachiman:close-to-tray-set";
+/**
+ * renderer → main (invoke): register these global shortcuts in place of the
+ * previous set (main/global-shortcuts.ts). Payload `GlobalShortcutInfo[]`;
+ * the result lists the actions that the OS refused.
+ */
+export const SET_GLOBAL_SHORTCUTS_CHANNEL = "hachiman:set-global-shortcuts";
+/** main → renderer: a global shortcut fired; payload is its action. */
+export const GLOBAL_SHORTCUT_CHANNEL = "hachiman:global-shortcut";
+
+/** Same shape as `GlobalShortcut` in `@hachiman/hachiman` (IPlatformService.ts). */
+export interface GlobalShortcutInfo {
+  action: string;
+  accelerator: string;
+}
 
 /** Same shape as `UpdateCheckResult` in `@hachiman/hachiman` (IPlatformService.ts). */
 export type UpdateCheckResult =

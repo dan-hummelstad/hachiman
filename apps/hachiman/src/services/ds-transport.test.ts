@@ -61,6 +61,7 @@ const emptyCache = (): HachimanCache => ({
   customStatuses: new Map(),
   voiceStates: new Map(),
   readStates: new Map(),
+  emojis: new Map(),
   events: new Map(),
   blocks: new Set()
 })
@@ -260,7 +261,9 @@ describe('channelReaders', () => {
     user: user(id),
     nick: null,
     roles,
-    joinedAt: ''
+    joinedAt: '',
+    mute: false,
+    deaf: false
   })
   const role = (id: string, permissions: number): Role => ({
     id,

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { FrameKeyMessage } from '../api'
-import { SFRAME_OLD_EPOCH_RETENTION_MS, SFRAME_REPLAY_WINDOW } from '../constants'
+import { SFRAME_OLD_EPOCH_RETENTION_MS, SFRAME_REPLAY_WINDOW, SFRAME_SCREEN_AUDIO_LEAF_OFFSET } from '../constants'
 import { sframe } from './sframe'
 import { FrameKeyRing, ReplayWindow } from './transform'
 
@@ -122,6 +122,33 @@ describe('FrameKeyRing', () => {
     bobSends.handle({ type: 'activate', epoch: 0 }, 0)
     expect(await bob.decrypt(await sent(bobSends, random(30)), { ...audio, userId: BOB }, 0)).toEqual({ drop: 'wrongSender' })
     expect(bob.snapshot().dropped.wrongSender).toBe(4)
+  })
+
+  it('keeps screen audio apart from the mic, also with a ring each (no shared key or counter)', async () => {
+    const screenAudio = { track: 'screen-audio', codec: 'opus' } as const
+    // The mic and the screen audio sender transforms each have their own port, so their own ring.
+    const { alice: mic, bob } = pair([{ epoch: 0, secret: s1 }], 0)
+    const { alice: share } = pair([{ epoch: 0, secret: s1 }], 0)
+    const plain = random(40)
+    const wm = await sent(mic, plain)
+    const r = await share.encrypt(plain, screenAudio)
+    if (!('frame' in r)) throw new Error(r.drop)
+    const ws = r.frame
+    const hs = header(ws)
+    expect(header(wm)).toMatchObject({ kid: sframe.packKid(0, 0, 0), ctr: 0n })
+    expect(hs).toMatchObject({ kid: sframe.packKid(SFRAME_SCREEN_AUDIO_LEAF_OFFSET, 0, 0), ctr: 0n })
+    // Same plaintext and CTR 0, different keys: different ciphertexts.
+    expect(ws.subarray(ws.length - 16)).not.toEqual(wm.subarray(wm.length - 16))
+    expect(await bob.decrypt(ws, { ...screenAudio, userId: ALICE }, 0)).toEqual({ frame: plain })
+    expect(await bob.decrypt(wm, fromAlice, 0)).toEqual({ frame: plain })
+    // The SFU cannot swap the two audio streams.
+    const ws2 = await share.encrypt(random(40), screenAudio)
+    const wm2 = await sent(mic, random(40))
+    if (!('frame' in ws2)) throw new Error(ws2.drop)
+    expect(await bob.decrypt(ws2.frame, fromAlice, 0)).toEqual({ drop: 'wrongSender' })
+    expect(await bob.decrypt(wm2, { ...screenAudio, userId: ALICE }, 0)).toEqual({ drop: 'wrongSender' })
+    // The screen audio leaf maps back to the real leaf for the sender check.
+    expect(await bob.decrypt(ws2.frame, { ...screenAudio, userId: CAROL }, 0)).toEqual({ drop: 'wrongSender' })
   })
 
   it('drops a replay and a tampered frame', async () => {

@@ -75,6 +75,8 @@ type Gateway struct {
 	load    func(ctx context.Context, userID, onlyGuild string) (*readyData, error)
 	nodeURL func(ctx context.Context, nodeID string) (string, error)
 	device  func(ctx context.Context, deviceID string) (deviceRow, error)
+	// dmMembers: the participant user ids of a dm / group_dm channel, else errNotDM.
+	dmMembers func(ctx context.Context, channelID string) ([]string, error)
 
 	minClientVersion semver
 
@@ -479,10 +481,11 @@ func (g *Gateway) identify(c *conn, raw json.RawMessage) (*session, error) {
 	announce := s.restorePresence(ctx)
 	ready := map[string]any{
 		"v": 1, "sessionId": s.id, "deviceId": s.deviceID, "user": user,
-		"guilds":          s.clientGuilds(ctx, data.Guilds),
-		"privateChannels": nonNil(data.DMs),
-		"presences":       g.presences(ctx, keys(s.dmPartners)),
-		"readStates":      s.visibleReadStates(data.ReadStates),
+		"guilds":             s.clientGuilds(ctx, data.Guilds),
+		"privateChannels":    nonNil(data.DMs),
+		"privateVoiceStates": g.dmVoiceStates(ctx, data.DMs),
+		"presences":          g.presences(ctx, keys(s.dmPartners)),
+		"readStates":         s.visibleReadStates(data.ReadStates),
 	}
 	g.addSession(s)
 	go s.run(func() bool {

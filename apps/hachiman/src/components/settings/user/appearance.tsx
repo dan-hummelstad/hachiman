@@ -1,14 +1,17 @@
+import { GradientPicker } from '@/components/settings/user/gradient-picker'
 import { setSidebarMode } from '@/components/shell/sidebar-state'
 import { SectionHeading } from '@/components/ui/field'
 import { Keycap } from '@/components/ui/keycap'
 import { RadioCard } from '@/components/ui/radio-card'
-import { MOD_KEY } from '@/lib/mod-key'
+import { customWallpaper, FALLBACK_HUES, tintColors, tintWallpaper } from '@/lib/guild-tint'
+import { useKeybindLabel } from '@/hooks/use-keybinds'
 import { cn } from '@/lib/utils'
 import {
   usePrefsStore,
   type MessageDisplay,
   type SidebarMode,
-  type Theme
+  type Theme,
+  type WallpaperMode
 } from '@/stores/prefsStore'
 
 const THEMES: { value: Theme; label: string }[] = [
@@ -17,13 +20,24 @@ const THEMES: { value: Theme; label: string }[] = [
   { value: 'system', label: 'Match system' }
 ]
 
-/** User settings → Appearance (H5): theme, sidebar (N3) and message display, each a small preview. */
+/** The guild tint preview uses the accent hue. */
+const SAMPLE_TINT = tintColors(FALLBACK_HUES[0])
+const SAMPLE_GUILD = {
+  light: tintWallpaper(SAMPLE_TINT.light),
+  dark: tintWallpaper(SAMPLE_TINT.dark)
+}
+
+/**
+ * User settings → Appearance (H5): theme, sidebar (N3), message display and the window
+ * background, each a small preview.
+ */
 export function AppearanceSection(): React.JSX.Element {
   const theme = usePrefsStore((s) => s.theme)
   const setTheme = usePrefsStore((s) => s.setTheme)
   const messageDisplay = usePrefsStore((s) => s.messageDisplay)
   const setMessageDisplay = usePrefsStore((s) => s.setMessageDisplay)
   const sidebar = usePrefsStore((s) => s.sidebar)
+  const sidebarKey = useKeybindLabel('sidebar')
 
   return (
     <div className="grid gap-8">
@@ -58,8 +72,13 @@ export function AppearanceSection(): React.JSX.Element {
                   'Part of the window, always visible'
                 ) : (
                   <>
-                    Slides out at the left edge ·{' '}
-                    <Keycap className="h-4 bg-transparent px-0.5">{MOD_KEY}S</Keycap>
+                    Slides out at the left edge
+                    {sidebarKey && (
+                      <>
+                        {' · '}
+                        <Keycap className="h-4 bg-transparent px-0.5">{sidebarKey}</Keycap>
+                      </>
+                    )}
                   </>
                 )
               }
@@ -87,7 +106,65 @@ export function AppearanceSection(): React.JSX.Element {
           ))}
         </div>
       </section>
+      <BackgroundSection />
     </div>
+  )
+}
+
+/** The window wallpaper: the guild tint (N4) or the user's own gradient, in both themes. */
+function BackgroundSection(): React.JSX.Element {
+  const wallpaper = usePrefsStore((s) => s.wallpaper)
+  const setWallpaper = usePrefsStore((s) => s.setWallpaper)
+  const gradient = usePrefsStore((s) => s.customGradient)
+  const setGradient = usePrefsStore((s) => s.setCustomGradient)
+  const custom = customWallpaper(gradient)
+
+  return (
+    <section>
+      <SectionHeading>Background</SectionHeading>
+      <div role="radiogroup" aria-label="Background" className="grid grid-cols-2 gap-3">
+        {(['guild', 'custom'] as WallpaperMode[]).map((m) => (
+          <RadioCard
+            key={m}
+            name="wallpaper"
+            checked={wallpaper === m}
+            onChange={() => setWallpaper(m)}
+            title={m === 'guild' ? 'Guild colour' : 'Custom gradient'}
+            preview={
+              <WallpaperSwatch
+                light={m === 'guild' ? SAMPLE_GUILD.light : custom}
+                dark={m === 'guild' ? SAMPLE_GUILD.dark : custom}
+              />
+            }
+            description={
+              m === 'guild' ? 'Tinted by the icon of each guild' : 'Your colours, everywhere'
+            }
+          />
+        ))}
+      </div>
+      {wallpaper === 'custom' && (
+        <div className="rounded-option border-line-hairline mt-4 border p-4">
+          <GradientPicker value={gradient} onChange={setGradient} />
+        </div>
+      )}
+    </section>
+  )
+}
+
+/** The window, light at the top left and dark at the bottom right, on a wallpaper when given. */
+function WallpaperSwatch({ light, dark }: { light?: string; dark?: string }): React.JSX.Element {
+  return (
+    <span
+      aria-hidden
+      className="rounded-control border-line-hairline relative block h-20 overflow-hidden border"
+    >
+      <MiniChrome scheme="light" className="absolute inset-0" style={{ backgroundImage: light }} />
+      <MiniChrome
+        scheme="dark"
+        className="absolute inset-0 [clip-path:polygon(100%_0,100%_100%,0_100%)]"
+        style={{ backgroundImage: dark }}
+      />
+    </span>
   )
 }
 
@@ -97,13 +174,15 @@ export function AppearanceSection(): React.JSX.Element {
  */
 function MiniChrome({
   scheme,
-  className
+  className,
+  style
 }: {
   scheme: 'dark' | 'light'
   className?: string
+  style?: React.CSSProperties
 }): React.JSX.Element {
   return (
-    <span className={cn(scheme, 'bg-surface-window flex h-full', className)}>
+    <span className={cn(scheme, 'bg-surface-window flex h-full', className)} style={style}>
       <span className="flex w-[28%] shrink-0 flex-col gap-1 p-1.5">
         <span className="bg-text-tertiary/50 h-1 w-3/4" />
         <span className="bg-accent-primary h-1 w-2/3" />
@@ -118,22 +197,13 @@ function MiniChrome({
 }
 
 function ThemeSwatch({ value }: { value: Theme }): React.JSX.Element {
+  if (value === 'system') return <WallpaperSwatch />
   return (
     <span
       aria-hidden
       className="rounded-control border-line-hairline relative block h-20 overflow-hidden border"
     >
-      {value === 'system' ? (
-        <>
-          <MiniChrome scheme="light" className="absolute inset-0" />
-          <MiniChrome
-            scheme="dark"
-            className="absolute inset-0 [clip-path:polygon(100%_0,100%_100%,0_100%)]"
-          />
-        </>
-      ) : (
-        <MiniChrome scheme={value} />
-      )}
+      <MiniChrome scheme={value} />
     </span>
   )
 }

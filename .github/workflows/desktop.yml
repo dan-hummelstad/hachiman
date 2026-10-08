@@ -1,7 +1,8 @@
 # Builds the Electron app: a .dmg on macOS (Apple Silicon) and an NSIS .exe installer on Windows.
 # Each upload replaces the previous one: the last job deletes the artifacts of older runs, so
 # only the newest hachiman-macos and hachiman-windows artifacts exist.
-# The builds are unsigned (macOS: right-click > Open on first start; Windows: SmartScreen "Run anyway").
+# The builds have no trusted signature (macOS: ad-hoc signed; open once, then Privacy & Security > Open Anyway.
+# Windows: SmartScreen "Run anyway").
 # Repository variable HACHIMAN_DOMAIN: Vite bakes the endpoints in at build time.
 # The release job publishes both builds as zip files in a GitHub release (tag desktop-<run number>)
 # in the repository <owner>/hachiman-release. The installed apps update themselves from the newest
@@ -82,7 +83,7 @@ jobs:
             --title "Desktop build ${{ github.run_number }} (${GITHUB_SHA::7})" \
             --notes "Commit: ${{ github.sha }}
 
-          Unsigned builds. macOS: right-click > Open on first start. Windows: SmartScreen > Run anyway."
+          No trusted signature. macOS: open the app once, then System Settings > Privacy & Security > Open Anyway. Windows: SmartScreen > More info > Run anyway."
 
   prune:
     needs: build

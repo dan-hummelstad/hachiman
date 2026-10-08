@@ -823,7 +823,8 @@ export interface VoiceSessionStart {
 /** Options of `new RTCRtpScriptTransform(worker, options, [port])` (§12.10). */
 export interface FrameTransformOptions {
   role: 'send' | 'recv'
-  track: 'audio' | 'video'
+  /** 'screen-audio' is the audio of a screen share (§12.10.2): the KID leaf + 2^32, codec opus. */
+  track: 'audio' | 'video' | 'screen-audio'
   codec: 'opus' | 'vp8'
   /** recv only: the remote user of this receiver (from the msid). */
   userId: UserId | null
@@ -1017,6 +1018,13 @@ export interface CryptoApi {
    * (AdminActionModule.encodePayload).
    */
   signAdminAction(guildId: GuildId, type: AdminActionTypeId, payload: Uint8Array): Promise<{ header: B64url; seq: number }>
+  /**
+   * The §2 guild permissions of `userId` in the verified admin state of the guild (adminState):
+   * the owner from the genesis, the signed roles and member roles. Null when the guild has no
+   * verified genesis. The UI uses it for the checks that a malicious server must not decide, for
+   * example MANAGE_EXPRESSIONS of a sound pointer sender (§12.21).
+   */
+  adminGuildPermissions(guildId: GuildId, userId: UserId): Promise<number | null>
 
   // invites with history (§12.11.4)
   /**
@@ -1063,11 +1071,11 @@ export interface CryptoApi {
 
   // voice (§8, §12.10)
   /**
-   * guildId: the guild of the voice channel. The creator writes it into the group descriptor and a
-   * joiner checks the descriptor against it (§12.10.1). Without it, this device does not create the
-   * group (the media node gives the create to the next joiner after 5 s).
+   * guildId: the guild of the voice channel, or null for a DM or group DM call. The creator writes
+   * the guild id (a guild call) or channelId (a DM call) into the group descriptor, and a joiner
+   * checks the descriptor against it (§12.10.1).
    */
-  voiceStart(opts: { channelId: ChannelId; guildId?: GuildId | null }): Promise<VoiceSessionStart>
+  voiceStart(opts: { channelId: ChannelId; guildId: GuildId | null }): Promise<VoiceSessionStart>
   /** One media op in, zero or more client ops out (send in order). */
   voiceHandle(handle: string, op: VoiceE2eeServerOp): Promise<VoiceE2eeClientOp[]>
   /** Gives the transform Worker a port that receives FrameKeyMessage. Returns the port id for voiceDetachTransform. */
@@ -1811,13 +1819,19 @@ export interface SFrameKeyId {
 }
 
 export interface SFrameModule {
-  /** KID = (leaf * 2 + track) << SFRAME_EPOCH_BITS | (epoch & 0xF). */
+  /**
+   * KID = (leaf * 2 + track) << SFRAME_EPOCH_BITS | (epoch & 0xF). `leafIndex` is below 2^33: screen
+   * audio uses leaf + SFRAME_SCREEN_AUDIO_LEAF_OFFSET with track 0.
+   */
   packKid(leafIndex: number, track: 0 | 1, epoch: number): bigint
   unpackKid(kid: bigint): { leafIndex: number; track: 0 | 1; epochBits: number }
   /** RFC 9605 §4.3 header. */
   encodeHeader(kid: bigint, ctr: bigint): Uint8Array
   decodeHeader(frame: Uint8Array, offset: number): { kid: bigint; ctr: bigint; length: number }
-  /** base_key = HKDF-Expand(sframe_epoch_secret, uint32(media_index), 32); then RFC 9605 §4.4.2 key + salt. */
+  /**
+   * base_key = HKDF-Expand(sframe_epoch_secret, uint32(media_index), 32), or uint64(media_index) for
+   * a media index from 2^32 (screen audio); then RFC 9605 §4.4.2 key + salt.
+   */
   deriveKey(epochSecret: Uint8Array, mediaIndex: number, kid: bigint): Promise<{ key: CryptoKey; salt: Uint8Array }>
   clearPrefixLength(codec: 'opus' | 'vp8', frame: Uint8Array): number
   /** out = clear prefix || SFrame header || ciphertext || tag. AAD = header || clear prefix. */
@@ -2135,8 +2149,8 @@ export type DocService = Pick<CryptoApi, 'encryptDoc' | 'decryptDoc'>
 export type CreateDocService = (ctx: EngineContext, identity: IdentityService, groups: GroupService) => DocService
 
 /** src/admin/service.ts (crypto-identity, Phase 4). */
-export type AdminService = Pick<CryptoApi, 'signAdminAction'>
-export type CreateAdminService = (ctx: EngineContext, identity: IdentityService) => AdminService
+export type AdminService = Pick<CryptoApi, 'signAdminAction' | 'adminGuildPermissions'>
+export type CreateAdminService = (ctx: EngineContext, identity: IdentityService, perms: AdminPermissionModel) => AdminService
 
 /** src/invites/service.ts. Invites with history (§12.11.4). */
 export interface InviteService extends Pick<CryptoApi, 'prepareHistoryInvite' | 'sendInviteBundles' | 'redeemInvite'> {

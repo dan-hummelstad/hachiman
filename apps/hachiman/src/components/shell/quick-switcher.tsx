@@ -13,6 +13,7 @@ import { FEATURE_TEXT } from '@/components/ui/feature'
 import { Keycap } from '@/components/ui/keycap'
 import { UnreadMark } from '@/components/ui/unread-mark'
 import { dmName } from '@/lib/model'
+import { useKeybindLabel } from '@/hooks/use-keybinds'
 import { MOD_KEY } from '@/lib/mod-key'
 import { rankItems, recentKeys, type SwitchItem, type SwitchKind } from '@/lib/quick-switcher'
 import { cn } from '@/lib/utils'
@@ -28,6 +29,7 @@ import { selectableRowClass } from '@/components/ui/selectable-row'
 
 /** The field at the top of the sidebar: "Search or jump to… ⌘K". */
 export function SwitcherField(): React.JSX.Element {
+  const key = useKeybindLabel('switcher')
   return (
     <button
       type="button"
@@ -36,7 +38,7 @@ export function SwitcherField(): React.JSX.Element {
     >
       <Search className="size-4 shrink-0" />
       <span className="flex-1 truncate">Search or jump to…</span>
-      <Keycap>{MOD_KEY}K</Keycap>
+      {key && <Keycap>{key}</Keycap>}
     </button>
   )
 }

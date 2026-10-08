@@ -23,7 +23,7 @@ function device(): GatewayDevice | null {
 /** One delegate and one transform Worker per call, for the channel that VoiceService joins. */
 function voiceE2ee(): ReturnType<typeof createVoiceE2ee> {
   const { guildId, channelId } = useVoiceStore.getState()
-  if (!guildId || !channelId) throw new Error('voice e2ee: no voice target')
+  if (!channelId) throw new Error('voice e2ee: no voice target')
   return createVoiceE2ee({
     crypto: cryptoService.client(),
     target: { guildId, channelId },

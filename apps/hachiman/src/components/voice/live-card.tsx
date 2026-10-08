@@ -11,7 +11,7 @@ export function StreamerName({
   userId,
   channelName
 }: {
-  guildId: string
+  guildId: string | null
   userId: string
   channelName?: string
 }): React.JSX.Element {
@@ -36,7 +36,7 @@ const FRAME = {
 /**
  * A live stream seen from outside its call (arc plan decision 4). Only members of the call hold
  * the SFrame keys (§12.10), so the card shows the streamer's avatar on the live tint. `stream`
- * (size 'sm' only) is a frame that the viewer already receives in that call.
+ * (size 'sm' only) is a share that the viewer already watches in that call.
  * - 'sm': a row for the member list; a button when `onClick` is given.
  * - 'md': a tile with the name under it (Active now).
  * - 'lg': the stage of a voice channel the viewer is not in.
@@ -50,7 +50,7 @@ export function LiveCard({
   stream,
   onClick
 }: {
-  guildId: string
+  guildId: string | null
   userId: string
   channelName: string
   /** The other people in the channel. */

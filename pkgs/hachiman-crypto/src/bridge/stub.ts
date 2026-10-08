@@ -193,6 +193,8 @@ export const createCryptoStub: CreateCryptoStub = () => {
     backupNow: () => Promise.resolve({ uploaded: 0 }),
     ktSelfCheck: () => Promise.resolve({ ok: true, treeSize: 0, unknownEntries: [] }),
     signAdminAction: () => Promise.resolve({ header: toB64url(utf8('hachiman-stub-admin-action')), seq: 0 }),
+    // Every §2 bit (1 << 0 … 1 << 30): the stub has no admin chain, and preview mode plays its sounds.
+    adminGuildPermissions: () => Promise.resolve(0x7fffffff),
     // A placeholder record and a random seed in the link format (43 base64url characters).
     prepareHistoryInvite: (input) =>
       Promise.resolve({ record: toB64url(utf8('hachiman-stub-invite-record')), linkSecret: toB64url(crypto.getRandomValues(new Uint8Array(32))), channelIds: [...input.channelIds].sort() }),

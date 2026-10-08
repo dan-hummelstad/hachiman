@@ -59,10 +59,16 @@ export const platformService: IPlatformService = {
   probeRegions: async () => [],
   getScreenSources: async () => null,
   selectScreenSource: async () => undefined,
+  // The browser's own picker offers the audio (VoiceService asks for it).
+  screenShareAudio: false,
   // Each page load gets the deployed build.
   checkForUpdate: async () => ({
     status: "not-available",
     reason: "The web app updates when you reload the page.",
   }),
+  closeToTray: null,
+  // A page cannot take keys from other apps.
+  setGlobalShortcuts: async () => null,
+  onGlobalShortcut: () => () => undefined,
   secureStorage: createBrowserSecureStorage(),
 };

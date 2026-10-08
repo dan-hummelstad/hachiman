@@ -26,6 +26,11 @@ nsis:
   uninstallDisplayName: ${productName}
   createDesktopShortcut: always
 mac:
+  # Ad-hoc signature: packaging edits the bundle, which breaks Electron's own signature, and macOS
+  # then calls the app "damaged" with no Open Anyway. Ad-hoc needs no Apple account; the hardened
+  # runtime needs a real identity, so it is off.
+  identity: '-'
+  hardenedRuntime: false
   entitlementsInherit: build/entitlements.mac.plist
   extendInfo:
     - NSCameraUsageDescription: Hachiman uses the camera to scan QR codes when you link a device or verify a contact.

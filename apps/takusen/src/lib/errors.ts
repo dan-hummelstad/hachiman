@@ -101,3 +101,11 @@ export class ApiError extends Error {
     this.hasMessage = message !== undefined
   }
 }
+
+/** Whether `err` or an error in its `cause` chain is a Postgres unique violation (23505). */
+export function isUniqueViolation(err: unknown): boolean {
+  for (let e: unknown = err; e && typeof e === 'object'; e = (e as { cause?: unknown }).cause) {
+    if ((e as { code?: string }).code === '23505') return true
+  }
+  return false
+}

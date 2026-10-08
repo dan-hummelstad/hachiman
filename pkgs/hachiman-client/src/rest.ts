@@ -1,15 +1,19 @@
 // Takusen REST client. Contract: docs/gateway-protocol.md §4 and §12.12.
 import type {
   AdminAction,
+  CreateGuildSoundRequest,
+  GuildSound,
   Attachment,
   B64url,
   BackupIndex,
+  Ban,
   BlockedUser,
   Channel,
   CipherSuiteId,
   CommitRequest,
   CommitResult,
   CreateGroupRequest,
+  CreateGuildEmojiRequest,
   CreateGuildEventRequest,
   Device,
   DevicePlatform,
@@ -19,6 +23,7 @@ import type {
   DsInfo,
   GroupState,
   Guild,
+  GuildEmoji,
   GuildEventWithMe,
   GuildFull,
   HandshakePage,
@@ -169,9 +174,19 @@ export interface UploadProgressOptions {
 export interface UploadImageOptions extends UploadProgressOptions {
   filename: string
 }
+export interface BanBody {
+  /** At most 512 characters. */
+  reason?: Opt<string | null>
+}
 export interface UpdateMemberBody {
   nick?: Opt<string | null>
   roles?: Opt<string[]>
+  /** MUTE_MEMBERS. */
+  mute?: Opt<boolean>
+  /** DEAFEN_MEMBERS. */
+  deaf?: Opt<boolean>
+  /** MOVE_MEMBERS: another voice channel of the guild, or null to disconnect. The user must be in voice in the guild. */
+  channelId?: Opt<string | null>
 }
 export interface CreateRoleBody {
   name: string
@@ -332,6 +347,13 @@ export class RestClient {
     this.req<Member>('PATCH', `/guilds/${e(guildId)}/members/${e(userId)}`, body, opts)
   kickMember = (guildId: string, userId: string) =>
     this.req<undefined>('DELETE', `/guilds/${e(guildId)}/members/${e(userId)}`)
+  /** BAN_MEMBERS. */
+  getBans = (guildId: string) => this.req<Ban[]>('GET', `/guilds/${e(guildId)}/bans`)
+  /** BAN_MEMBERS. Removes a member from the guild, and keeps the user out until `unbanMember`. */
+  banMember = (guildId: string, userId: string, body: BanBody = {}) =>
+    this.req<undefined>('PUT', `/guilds/${e(guildId)}/bans/${e(userId)}`, body)
+  unbanMember = (guildId: string, userId: string) =>
+    this.req<undefined>('DELETE', `/guilds/${e(guildId)}/bans/${e(userId)}`)
   leaveGuild = (guildId: string) => this.req<undefined>('DELETE', `/users/@me/guilds/${e(guildId)}`)
 
   getRoles = (guildId: string) => this.req<Role[]>('GET', `/guilds/${e(guildId)}/roles`)
@@ -344,6 +366,15 @@ export class RestClient {
   deleteRole = (guildId: string, roleId: string, opts: SignedActionOptions = {}) =>
     this.req<undefined>('DELETE', `/guilds/${e(guildId)}/roles/${e(roleId)}`, undefined, opts)
 
+  getGuildEmojis = (guildId: string) => this.req<GuildEmoji[]>('GET', `/guilds/${e(guildId)}/emojis`)
+  /** Needs MANAGE_EXPRESSIONS. The upload must be a PNG, GIF or WebP from `uploadImage`, at most 256 KiB. */
+  createGuildEmoji = (guildId: string, body: CreateGuildEmojiRequest) =>
+    this.req<GuildEmoji>('POST', `/guilds/${e(guildId)}/emojis`, body)
+  renameGuildEmoji = (guildId: string, emojiId: string, name: string) =>
+    this.req<GuildEmoji>('PATCH', `/guilds/${e(guildId)}/emojis/${e(emojiId)}`, { name })
+  deleteGuildEmoji = (guildId: string, emojiId: string) =>
+    this.req<undefined>('DELETE', `/guilds/${e(guildId)}/emojis/${e(emojiId)}`)
+
   getGuildEvents = (guildId: string) => this.req<GuildEventWithMe[]>('GET', `/guilds/${e(guildId)}/events`)
   createGuildEvent = (guildId: string, body: CreateGuildEventRequest) =>
     this.req<GuildEventWithMe>('POST', `/guilds/${e(guildId)}/events`, body)
@@ -353,6 +384,13 @@ export class RestClient {
   /** `going` true: PUT, false: DELETE /events/:id/rsvp. */
   setEventRsvp = (eventId: string, going: boolean) =>
     this.req<undefined>(going ? 'PUT' : 'DELETE', `/events/${e(eventId)}/rsvp`)
+
+  getGuildSounds = (guildId: string) => this.req<GuildSound[]>('GET', `/guilds/${e(guildId)}/sounds`)
+  /** MANAGE_EXPRESSIONS. Sends X-Hachiman-Device: the server checks the envelope header (§12.21). */
+  createGuildSound = (guildId: string, body: CreateGuildSoundRequest) =>
+    this.req<GuildSound>('POST', `/guilds/${e(guildId)}/sounds`, body)
+  deleteGuildSound = (guildId: string, soundId: string) =>
+    this.req<undefined>('DELETE', `/guilds/${e(guildId)}/sounds/${e(soundId)}`)
 
   getInvites = (guildId: string) => this.req<Invite[]>('GET', `/guilds/${e(guildId)}/invites`)
   createInvite = (guildId: string, body: CreateInviteBody = {}) =>
@@ -370,6 +408,8 @@ export class RestClient {
   getBlocks = () => this.req<BlockedUser[]>('GET', '/users/@me/blocks')
   blockUser = (userId: string) => this.req<undefined>('PUT', `/users/@me/blocks/${e(userId)}`)
   unblockUser = (userId: string) => this.req<undefined>('DELETE', `/users/@me/blocks/${e(userId)}`)
+  /** 204. 403 Blocked, 404 without a shared guild or DM, 429 RateLimited (RestError.retryAfterSec). */
+  poke = (userId: string) => this.req<undefined>('POST', `/users/${e(userId)}/poke`)
 
   getLimits = () => this.req<Limits>('GET', '/limits')
 

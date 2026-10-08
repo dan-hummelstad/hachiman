@@ -2,6 +2,7 @@ import {
   app,
   shell,
   BrowserWindow,
+  globalShortcut,
   ipcMain,
   safeStorage,
   systemPreferences,
@@ -12,12 +13,18 @@ import { electronApp, optimizer, is } from "@electron-toolkit/utils";
 import icon from "../../resources/icon.png?asset";
 import {
   CHECK_FOR_UPDATE_CHANNEL,
+  CLOSE_TO_TRAY_GET_CHANNEL,
+  CLOSE_TO_TRAY_SET_CHANNEL,
+  GLOBAL_SHORTCUT_CHANNEL,
   OPEN_EXTERNAL_CHANNEL,
   PROBE_REGIONS_CHANNEL,
   SECURE_STORAGE_CLEAR_CHANNEL,
   SECURE_STORAGE_GET_CHANNEL,
+  SET_GLOBAL_SHORTCUTS_CHANNEL,
 } from "../shared/ipc";
+import { createAppPrefsStore, type AppPrefsStore } from "./app-prefs";
 import { buildCsp } from "./csp";
+import { createGlobalShortcuts } from "./global-shortcuts";
 import {
   createWrapKeyStore,
   SecureStorageError,
@@ -28,6 +35,7 @@ import { flushPendingUrls, registerProtocolHandlers } from "./protocol-handler";
 import { validateProbeTargets } from "./probe-target-guard";
 import { probeRegions } from "./region-probe";
 import { registerScreenShare } from "./screen-share";
+import { createTray, revealWindow } from "./tray";
 import { checkForUpdate, startUpdater } from "./updater";
 import {
   devRenderer,
@@ -55,6 +63,25 @@ async function openExternalHttp(raw: unknown): Promise<void> {
 // Module-scoped so the protocol handler can dispatch deep links once a window
 // exists. The single-instance lock guarantees at most one main window.
 let mainWindowRef: BrowserWindow | null = null;
+
+// Set by Cmd+Q, the tray "Quit", the updater's app.quit() and every other real
+// quit, so that the close handler lets the window close.
+let quitting = false;
+app.on("before-quit", () => {
+  quitting = true;
+});
+
+// Read on first use: a window close or an IPC call, both after app.whenReady.
+let appPrefs: AppPrefsStore | null = null;
+function prefs(): AppPrefsStore {
+  appPrefs ??= createAppPrefsStore(app.getPath("userData"));
+  return appPrefs;
+}
+
+function openMainWindow(): void {
+  if (mainWindowRef) revealWindow(mainWindowRef);
+  else createWindow();
+}
 
 function createWindow(): void {
   // Create the browser window.
@@ -87,8 +114,17 @@ function createWindow(): void {
   });
   mainWindowRef = mainWindow;
 
+  // Close button with close-to-tray on: hide and keep running (./tray.ts shows it again).
+  mainWindow.on("close", (event) => {
+    if (quitting || !prefs().get().closeToTray) return;
+    event.preventDefault();
+    mainWindow.hide();
+  });
+
   mainWindow.on("closed", () => {
     if (mainWindowRef === mainWindow) mainWindowRef = null;
+    // macOS keeps the app without a window: nothing would receive the keys.
+    globalShortcuts.clear();
   });
 
   mainWindow.on("ready-to-show", () => {
@@ -171,12 +207,25 @@ function checkAppFrame(e: IpcMainInvokeEvent): void {
   if (!isAppFrame(e))
     throw new SecureStorageError("Malformed", "caller is not the app page");
 }
+function requireAppFrame(e: IpcMainInvokeEvent): void {
+  if (!isAppFrame(e)) throw new Error("caller is not the app page");
+}
 // IPC: the settings "Check for updates" button. A manual check offers a build put off with "Later" again.
 ipcMain.handle(CHECK_FOR_UPDATE_CHANNEL, (e) =>
   isAppFrame(e)
     ? checkForUpdate(true)
     : { status: "failed", reason: "caller is not the app page" },
 );
+// IPC: the "Close button minimises to tray" switch in user settings.
+ipcMain.handle(CLOSE_TO_TRAY_GET_CHANNEL, (e) => {
+  requireAppFrame(e);
+  return prefs().get().closeToTray;
+});
+ipcMain.handle(CLOSE_TO_TRAY_SET_CHANNEL, async (e, on: unknown) => {
+  requireAppFrame(e);
+  if (typeof on !== "boolean") throw new Error("closeToTray must be a boolean");
+  await prefs().set({ closeToTray: on });
+});
 ipcMain.handle(SECURE_STORAGE_GET_CHANNEL, (e, userId: unknown) =>
   toIpcResult(async () => {
     checkAppFrame(e);
@@ -189,6 +238,18 @@ ipcMain.handle(SECURE_STORAGE_CLEAR_CHANNEL, (e, userId: unknown) =>
     await wrapKeyStore().clear(userId);
   }),
 );
+
+// IPC: the keybinds that work while the app is in the background (mute,
+// deafen). Only the app page may set them; the payload is checked in
+// ./global-shortcuts.ts. A fired shortcut goes to the main window.
+const globalShortcuts = createGlobalShortcuts(globalShortcut, (action) =>
+  mainWindowRef?.webContents.send(GLOBAL_SHORTCUT_CHANNEL, action),
+);
+ipcMain.handle(SET_GLOBAL_SHORTCUTS_CHANNEL, (e, shortcuts: unknown) => {
+  requireAppFrame(e);
+  return globalShortcuts.set(shortcuts);
+});
+app.on("will-quit", () => globalShortcuts.clear());
 
 // This method will be called when Electron has finished
 // initialization and is ready to create browser windows.
@@ -215,13 +276,16 @@ app.whenReady().then(() => {
   registerScreenShare((url) => renderer.isAppUrl(url));
 
   createWindow();
+  createTray(openMainWindow);
 
   startUpdater();
 
   app.on("activate", function () {
-    // On macOS it's common to re-create a window in the app when the
-    // dock icon is clicked and there are no other windows open.
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    // macOS dock click: show the window that close-to-tray hid, or make a new one
+    // when it was closed. A window that is still loading shows itself (ready-to-show).
+    if (!mainWindowRef) createWindow();
+    else if (!mainWindowRef.webContents.isLoading())
+      revealWindow(mainWindowRef);
   });
 });
 

@@ -3,14 +3,14 @@
  * `transform-worker.ts` is the thin RTCRtpScriptTransform adapter around it.
  *
  * Sender: one CTR per KID per epoch key, from 0. The counter lives on the key entry, and an entry
- * is replaced only by a different secret, so (key, CTR) never repeats. Audio and video use
- * different media indexes, so they never share a key.
+ * is replaced only by a different secret, so (key, CTR) never repeats. Audio, video and screen
+ * audio use different media indexes, so they never share a key, even with a transform each.
  * Receiver: the key by KID; the current epoch, newer installed epochs (peers that activate first)
  * and the previous epoch for SFRAME_OLD_EPOCH_RETENTION_MS after an activate. There is no
  * plaintext passthrough: every frame without a key is dropped.
  */
 import type { FrameKeyMessage, FrameStatsMessage, FrameTransformOptions, UserId } from '../api'
-import { SFRAME_EPOCH_BITS, SFRAME_OLD_EPOCH_RETENTION_MS, SFRAME_REPLAY_WINDOW, SFrameTrack } from '../constants'
+import { SFRAME_EPOCH_BITS, SFRAME_OLD_EPOCH_RETENTION_MS, SFRAME_REPLAY_WINDOW, SFRAME_SCREEN_AUDIO_LEAF_OFFSET, SFrameTrack } from '../constants'
 import { equalBytes } from '../identity/bytes'
 import { sframe } from './sframe'
 
@@ -71,7 +71,10 @@ export type DropReason = keyof FrameStatsMessage['dropped']
 
 export type FrameResult = { frame: Uint8Array } | { drop: DropReason }
 
-const trackBit = (t: FrameTransformOptions['track']): 0 | 1 => (t === 'audio' ? SFrameTrack.AUDIO : SFrameTrack.VIDEO)
+const trackBit = (t: FrameTransformOptions['track']): 0 | 1 => (t === 'video' ? SFrameTrack.VIDEO : SFrameTrack.AUDIO)
+
+/** The KID leaf of a sender's track: screen audio is the audio of leaf + 2^32 (§12.10.2). */
+const kidLeaf = (leaf: number, t: FrameTransformOptions['track']): number => (t === 'screen-audio' ? leaf + SFRAME_SCREEN_AUDIO_LEAF_OFFSET : leaf)
 
 /** The keys of one call as one MessagePort delivers them. Every transformer on that port shares it. */
 export class FrameKeyRing {
@@ -171,12 +174,13 @@ export class FrameKeyRing {
     const e = this.active === null ? undefined : this.epochs.get(this.active)
     if (this.closed || e === undefined) return this.count({ drop: 'unknownKey' })
     const track = trackBit(opts.track)
-    const kid = sframe.packKid(e.selfLeaf, track, e.epoch)
+    const leaf = kidLeaf(e.selfLeaf, opts.track)
+    const kid = sframe.packKid(leaf, track, e.epoch)
     const ctr = e.counters.get(kid) ?? 0n
     if (ctr > MAX_CTR) return this.count({ drop: 'unknownKey' })
     // Taken before the first await, so concurrent frames never share a CTR.
     e.counters.set(kid, ctr + 1n)
-    const k = await this.keyOf(e, kid, e.selfLeaf * 2 + track)
+    const k = await this.keyOf(e, kid, leaf * 2 + track)
     try {
       const out = await sframe.encryptFrame({ frame, codec: opts.codec, kid, ctr, key: k.key, salt: k.salt })
       this.stats.encrypted++
@@ -199,7 +203,10 @@ export class FrameKeyRing {
     } catch {
       return this.count({ drop: 'authFailed' })
     }
-    if (id.track !== trackBit(opts.track)) return this.count({ drop: 'wrongSender' })
+    // The track bit and the screen-audio leaf range must both match the receiver's track.
+    const screenAudio = id.leafIndex >= SFRAME_SCREEN_AUDIO_LEAF_OFFSET
+    if (id.track !== trackBit(opts.track) || screenAudio !== (opts.track === 'screen-audio')) return this.count({ drop: 'wrongSender' })
+    const senderLeaf = screenAudio ? id.leafIndex - SFRAME_SCREEN_AUDIO_LEAF_OFFSET : id.leafIndex
     let e: EpochEntry | undefined
     for (const x of [...this.epochs.values()]) {
       if ((x.epoch & EPOCH_MASK) === id.epochBits && this.accepted(x, nowMs)) {
@@ -209,7 +216,7 @@ export class FrameKeyRing {
     }
     if (e === undefined) return this.count({ drop: 'unknownKey' })
     // The KID leaf must be a leaf of the remote user of this receiver, never the own leaf.
-    if (opts.userId === null || id.leafIndex === e.selfLeaf || e.leaves.get(id.leafIndex) !== opts.userId) return this.count({ drop: 'wrongSender' })
+    if (opts.userId === null || senderLeaf === e.selfLeaf || e.leaves.get(senderLeaf) !== opts.userId) return this.count({ drop: 'wrongSender' })
     let w = e.replay.get(kid)
     if (w?.seen(ctr)) return this.count({ drop: 'replay' })
     const entry = e

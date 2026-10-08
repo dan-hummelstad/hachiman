@@ -17,6 +17,8 @@ export type SoundEvent =
   | 'streamStop'
   | 'userStreamStart'
   | 'userStreamStop'
+  | 'poke'
+  | 'ring'
 
 /** A Cuelume cue (messages) or one of our own chimes (voice). */
 export type Sound = { cue: SoundName; opts?: PlayOptions } | Chime
@@ -38,12 +40,12 @@ const seq = (step: number, ...hz: number[]): Chime['notes'] => hz.map((f, i) => 
 
 /**
  * Discord-like sounds. Voice events are soft bell chimes: rising for on/join, the same notes
- * falling for off/leave, and my own actions louder than other people's. Messages use Cuelume: a
- * glass note when one arrives, a soft whoosh when I send one.
+ * falling for off/leave, and my own actions louder than other people's. An arriving message uses
+ * a Cuelume glass note. A sent message gets only a short, quiet high tick.
  */
 export const SOUNDS: Record<SoundEvent, Sound> = {
   message: { cue: 'ready' },
-  messageSent: { cue: 'navigate', opts: { emphasis: 'subtle' } },
+  messageSent: { notes: [[C6, 0]], decay: 0.08, gain: 0.3 },
   voiceJoin: { notes: seq(0.1, E5, A5) },
   voiceLeave: { notes: seq(0.1, A5, E5) },
   voiceDisconnect: { notes: seq(0.14, E4, C4, A3), decay: 0.55 },
@@ -56,7 +58,11 @@ export const SOUNDS: Record<SoundEvent, Sound> = {
   streamStart: { notes: seq(0.07, C5, E5, G5, C6) },
   streamStop: { notes: seq(0.07, C6, G5, E5, C5) },
   userStreamStart: { notes: seq(0.07, E5, G5, B5), gain: 0.7 },
-  userStreamStop: { notes: seq(0.07, B5, G5, E5), gain: 0.7 }
+  userStreamStop: { notes: seq(0.07, B5, G5, E5), gain: 0.7 },
+  // A playful hop: up a sixth and straight back, short and bright.
+  poke: { notes: [[E5, 0], [C6, 0.08], [E5, 0.2]], decay: 0.18, gain: 0.9 },
+  /** An incoming DM call. CallRingService repeats it while the call rings. */
+  ring: { notes: seq(0.16, E5, G5, E5, G5), decay: 0.5, gain: 0.9 }
 }
 
 export const SOUND_EVENTS = Object.keys(SOUNDS) as SoundEvent[]

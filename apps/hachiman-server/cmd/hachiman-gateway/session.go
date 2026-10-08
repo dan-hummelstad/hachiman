@@ -29,6 +29,7 @@ type guildState struct {
 	id, ownerID, region string
 	roles               map[string]int64 // role id → permissions (incl. @everyone = guild id)
 	myRoles             []string
+	myMute, myDeaf      bool
 	channels            map[string]*Channel
 }
 
@@ -316,6 +317,7 @@ func (s *session) addGuild(gf *GuildFull) {
 	for _, m := range gf.Members {
 		if m.User.ID == s.user.ID {
 			gs.myRoles = m.Roles
+			gs.myMute, gs.myDeaf = m.Mute, m.Deaf
 		}
 	}
 	s.guilds[gf.ID] = gs
@@ -360,10 +362,20 @@ func (s *session) clientGuilds(ctx context.Context, gfs []*GuildFull) []GuildFul
 		for _, m := range gf.Members {
 			ids = append(ids, m.User.ID)
 		}
-		v.Roles, v.Members = nonNil(gf.Roles), nonNil(gf.Members)
+		v.Roles, v.Members, v.Emojis = nonNil(gf.Roles), nonNil(gf.Members), nonNil(gf.Emojis)
 		v.Presences = s.g.presences(ctx, ids)
-		v.VoiceStates = s.g.voiceStates(ctx, gf.ID)
+		v.VoiceStates = s.g.voiceStatesAt(ctx, kVoice(gf.ID))
 		out = append(out, v)
+	}
+	return out
+}
+
+// dmVoiceStates is READY privateVoiceStates: the live states of every DM call
+// of the user. ponytail: one HGETALL per DM; pipeline it if DM lists grow large.
+func (g *Gateway) dmVoiceStates(ctx context.Context, dms []Channel) []VoiceState {
+	out := []VoiceState{}
+	for _, ch := range dms {
+		out = append(out, g.voiceStatesAt(ctx, kVoiceDM(ch.ID))...)
 	}
 	return out
 }
@@ -392,10 +404,11 @@ func (g *Gateway) presences(ctx context.Context, userIDs []string) []Presence {
 	return out
 }
 
-// voiceStates reads voice:{g}, dropping entries whose gateway session is gone.
-func (g *Gateway) voiceStates(ctx context.Context, guildID string) []VoiceState {
+// voiceStatesAt reads a voice scope hash (voice:{g} or voice_dm:{c}),
+// dropping entries whose gateway session is gone.
+func (g *Gateway) voiceStatesAt(ctx context.Context, key string) []VoiceState {
 	out := []VoiceState{}
-	all, err := g.rdb.HGetAll(ctx, kVoice(guildID)).Result()
+	all, err := g.rdb.HGetAll(ctx, key).Result()
 	if err != nil {
 		return out
 	}
@@ -423,11 +436,16 @@ func (s *session) restorePresence(ctx context.Context) bool {
 	return cur == ""
 }
 
-func (s *session) publishPresence() {
+func (s *session) presence() Presence {
 	d := Presence{UserID: s.user.ID, Status: s.status}
 	if s.status != "offline" {
 		d.CustomStatus = s.g.customStatus(s.ctx, s.user.ID)
 	}
+	return d
+}
+
+func (s *session) publishPresence() {
+	d := s.presence()
 	for gid := range s.guilds {
 		s.g.publish(s.ctx, "guild:"+gid, "PRESENCE_UPDATE", d)
 	}
@@ -547,6 +565,10 @@ func (s *session) onEvent(ev busEvent) {
 		s.dispatch(e.T, e.D)
 		if m.User.ID == me {
 			s.withVisibilityDiff(gs, "", func() { gs.myRoles = m.Roles })
+			if gs.myMute != m.Mute || gs.myDeaf != m.Deaf {
+				gs.myMute, gs.myDeaf = m.Mute, m.Deaf
+				s.applyServerVoice(s.ctx, gs)
+			}
 		}
 	case "GUILD_UPDATE":
 		var gd Guild
@@ -605,6 +627,9 @@ func (s *session) onUserEvent(e envelope) {
 		s.addGuild(full)
 		s.g.subscribe(s, gf.ID)
 		s.dispatch("GUILD_CREATE", s.clientGuilds(s.ctx, []*GuildFull{full})[0])
+		// The members who were there have no presence of ours: tell them,
+		// else we show offline to them until their next READY.
+		s.g.publish(s.ctx, "guild:"+gf.ID, "PRESENCE_UPDATE", s.presence())
 	case "GUILD_DELETE":
 		var p struct{ ID string }
 		if json.Unmarshal(e.D, &p) != nil || s.guilds[p.ID] == nil {
@@ -618,6 +643,8 @@ func (s *session) onUserEvent(e envelope) {
 			s.addDM(ch)
 		}
 		s.dispatch(e.T, e.D)
+	case "VOICE_MOVE":
+		s.onVoiceMove(e.D) // internal: not forwarded
 	default:
 		s.dispatch(e.T, e.D)
 	}
@@ -643,7 +670,7 @@ func (s *session) withVisibilityDiff(gs *guildState, except string, mutate func(
 }
 
 func (s *session) dropGuild(gid string) {
-	if s.voice != nil && s.voice.GuildID == gid {
+	if s.voice != nil && s.voice.GuildID != nil && *s.voice.GuildID == gid {
 		s.leaveVoice(s.ctx)
 	}
 	delete(s.guilds, gid)

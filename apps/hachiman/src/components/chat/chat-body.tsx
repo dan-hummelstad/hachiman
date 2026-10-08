@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { Ban } from 'lucide-react'
 import { Permissions, has, type Channel, type User } from '@hachiman/client'
 import { DropZone } from '@/components/chat/attachments/drop-zone'
@@ -17,7 +17,7 @@ import { ErrorText } from '@/components/ui/field'
 import { useAction } from '@/hooks/use-action'
 import { blockService } from '@/services/guild-features'
 import { useMessageStore, useReplyTarget, type ChatMessage } from '@/stores/messagesStore'
-import { useIsBlocked } from '@/stores/userStore'
+import { useIsBlocked, useUserStore } from '@/stores/userStore'
 import { useComposerStore, useReplyTargetId } from '@/stores/composerStore'
 import { rowPolicy } from './row-policy'
 import { useSendPaused } from './use-dm-trust'
@@ -57,6 +57,18 @@ function ChannelChat({ channel }: { channel: Channel }): React.JSX.Element {
   const replyTo = useReplyTargetId(channel.id)
   const replyName = useReplyName(channel, replyTo)
   const clearReply = (): void => useComposerStore.getState().clearReplyTarget(channel.id)
+  const [editingId, setEditingId] = useState<string | null>(null)
+  // Arrow Up in an empty composer edits my newest message here (as in Discord).
+  const editLast = (): boolean => {
+    const myId = useUserStore.getState().me?.id
+    const rows = useMessageStore.getState().byChannel.get(channel.id) ?? EMPTY_ROWS
+    const last = rows.findLast(
+      (m) => m.author.id === myId && !m.pending && !m.failed && m.decrypt.status === 'ok'
+    )
+    if (!last) return false
+    setEditingId(last.id)
+    return true
+  }
 
   // The read-only notice names who can post (B7); the "Follow" button (N9) goes next to it.
   const disabledReason = canSend
@@ -78,6 +90,8 @@ function ChannelChat({ channel }: { channel: Channel }): React.JSX.Element {
         channel={channel}
         policy={policy}
         onUpload={canAttach ? uploads.add : undefined}
+        editingId={editingId}
+        onEditingChange={setEditingId}
       />
       <footer className="flex min-h-[calc(var(--dock-height,0px)+8px)] shrink-0 flex-col justify-end pr-4 pl-[calc(var(--dock-inset,0px)+16px)]">
         {dmPeer && blockedPeer ? (
@@ -107,6 +121,7 @@ function ChannelChat({ channel }: { channel: Channel }): React.JSX.Element {
               uploads={uploads}
               canAttach={canAttach}
               onTyping={() => messagesService.typing(channel.id)}
+              onEditLast={editLast}
               reply={replyTo !== null ? { name: replyName, onCancel: clearReply } : undefined}
               onSend={(text, attachments) => {
                 void messagesService.send(channel.id, text, attachments, replyTo)

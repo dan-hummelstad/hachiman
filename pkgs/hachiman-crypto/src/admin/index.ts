@@ -33,10 +33,11 @@ export const AdminBits = {
   ADMINISTRATOR: 1 << 3,
   MANAGE_CHANNELS: 1 << 4,
   VIEW_CHANNEL: 1 << 10,
+  USE_SOUNDBOARD: 1 << 25,
   MANAGE_ROLES: 1 << 28,
 } as const
 /** §2 DEFAULT_EVERYONE: the @everyone role that POST /guilds creates, before any signed action. */
-export const DEFAULT_EVERYONE_PERMISSIONS = (1 << 10) | (1 << 11) | (1 << 15) | (1 << 16) | (1 << 20) | (1 << 21) | (1 << 0) | (1 << 26)
+export const DEFAULT_EVERYONE_PERMISSIONS = (1 << 10) | (1 << 11) | (1 << 15) | (1 << 16) | (1 << 20) | (1 << 21) | (1 << 0) | (1 << 26) | AdminBits.USE_SOUNDBOARD
 
 const ZERO_HASH = new Uint8Array(32)
 
@@ -164,8 +165,16 @@ const hash = (a: AdminAction): Uint8Array => sha256(encodeAction(a))
 
 const has = (perms: number, bit: number): boolean => (perms & bit) === bit
 
+/**
+ * Bits that the replay treats as held by every actor (§12.16 "Unchecked bits"). No client check
+ * reads them from the signed state, and REST stays authoritative for them. USE_SOUNDBOARD joined
+ * DEFAULT_EVERYONE after guilds had signed chains: Takusen gave it to the existing @everyone roles
+ * without a signed action, and a cached state can predate it in the genesis.
+ */
+const UNCHECKED_BITS = AdminBits.USE_SOUNDBOARD
+
 /** Bits above the actor's own may not be granted (§4 "Implemented extras"). */
-const grantsOnlyHeld = (granted: number, held: number): boolean => (granted & ~held) === 0
+const grantsOnlyHeld = (granted: number, held: number): boolean => (granted & ~(held | UNCHECKED_BITS)) === 0
 
 function cloneState(s: AdminReplayState): AdminReplayState {
   return {

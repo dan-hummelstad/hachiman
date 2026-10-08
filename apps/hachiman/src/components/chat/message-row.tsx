@@ -95,6 +95,7 @@ function MessageRow(props: TranscriptRowProps): React.JSX.Element {
   const toolbar = settled && !editing && (
     <MessageToolbar
       className="absolute -top-5 right-4 z-10"
+      guildId={guildId}
       onReact={
         canAnswer && readable
           ? (emoji) => react(message.channelId, target, emoji, false)

@@ -31,8 +31,14 @@ export const platformService: IPlatformService = {
   onOAuthCallback: (cb) => window.hachiman.onOAuthCallback(cb),
   probeRegions: (targets) => window.hachiman.probeRegions(targets),
   getScreenSources: () => window.hachiman.getScreenSources(),
-  selectScreenSource: (id) => window.hachiman.selectScreenSource(id),
+  selectScreenSource: (id, audio) =>
+    window.hachiman.selectScreenSource(id, audio),
+  screenShareAudio: window.hachiman.screenShareAudio,
   checkForUpdate: () => window.hachiman.checkForUpdate(),
+  closeToTray: window.hachiman.closeToTray,
+  setGlobalShortcuts: (shortcuts) =>
+    window.hachiman.setGlobalShortcuts(shortcuts),
+  onGlobalShortcut: (cb) => window.hachiman.onGlobalShortcut(cb),
   secureStorage: {
     backend: "os-keychain",
     // Main keeps the bytes under safeStorage (main/secure-storage.ts). The

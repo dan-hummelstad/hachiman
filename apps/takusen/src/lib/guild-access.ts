@@ -14,7 +14,7 @@ import {
   highestRolePosition,
   Permissions,
 } from '@hachiman/client/permissions'
-import type { GatewayEventName, GatewayEvents } from '@hachiman/client/types'
+import type { GatewayEventName, GatewayEvents, Member } from '@hachiman/client/types'
 
 import { db } from '@/db/client'
 import {
@@ -110,6 +110,17 @@ export function requireAbovePosition(access: GuildAccess, position: number): voi
   if (position >= highestRolePosition({ roles: access.roleIds }, access.roles)) {
     throw new MissingPermissionsError('Role is not below your highest role')
   }
+}
+
+/**
+ * Moderation of another member (kick, ban, server mute, deafen, move): never
+ * the owner, and the top role of the target must be below the caller's
+ * (owner/admin exempt). `target` null: the user is not a member, so there is no
+ * role to compare (a ban by user id).
+ */
+export function requireModeratable(access: GuildAccess, targetId: string, target: Pick<Member, 'roles'> | null): void {
+  if (targetId === access.guild.ownerId) throw new MissingPermissionsError('Cannot moderate the owner')
+  if (target) requireAbovePosition(access, highestRolePosition(target, access.roles))
 }
 
 /** Callers can only grant (or deny) permission bits they hold themselves. */

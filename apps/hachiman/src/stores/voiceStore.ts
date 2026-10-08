@@ -22,6 +22,11 @@ interface VoiceStoreState {
   localScreen: MediaStream | null
   /** userId → that peer's screen track from media. Shown while their voice state has `selfStream`. */
   screens: Map<string, MediaStream>
+  /**
+   * userIds whose live share I chose to watch ("Watch stream"). A remote share shows no video
+   * until then. VoiceService drops a user when their share ends.
+   */
+  watching: Set<string>
   /** userIds currently speaking (remote via media WS, self via local VAD). */
   speaking: Set<string>
   peers: VoicePeer[]
@@ -42,6 +47,7 @@ const SESSION_DEFAULTS = {
   micActive: false,
   localScreen: null,
   screens: new Map<string, MediaStream>(),
+  watching: new Set<string>(),
   speaking: new Set<string>(),
   peers: [],
   connectionQuality: EMPTY_CONNECTION_QUALITY
@@ -79,7 +85,8 @@ export const useVoiceStore = create<VoiceStoreState>()(
               ? { peers }
               : { peers, speaking: new Set(speaking) }
           }),
-        resetSession: () => set({ ...SESSION_DEFAULTS, speaking: new Set(), screens: new Map() })
+        resetSession: () =>
+          set({ ...SESSION_DEFAULTS, speaking: new Set(), screens: new Map(), watching: new Set() })
       }),
       {
         name: 'hachiman-voice-storage',

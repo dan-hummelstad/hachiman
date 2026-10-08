@@ -3,10 +3,12 @@ import {
   ipcMain,
   session,
   type DesktopCapturerSource,
+  type Streams,
 } from "electron";
 import {
   SCREEN_SOURCES_CHANNEL,
   SELECT_SCREEN_SOURCE_CHANNEL,
+  screenShareAudioSupported,
   type ScreenSourceInfo,
 } from "../shared/ipc";
 
@@ -25,6 +27,7 @@ export function registerScreenShare(isAppUrl: (url: string) => boolean): void {
   // One shot: the next getDisplayMedia call takes it. A new listing clears a
   // selection that no capture used.
   let selected: DesktopCapturerSource | null = null;
+  let selectedAudio = false;
 
   ipcMain.handle(
     SCREEN_SOURCES_CHANNEL,
@@ -44,18 +47,41 @@ export function registerScreenShare(isAppUrl: (url: string) => boolean): void {
     },
   );
 
-  ipcMain.handle(SELECT_SCREEN_SOURCE_CHANNEL, (_e, id: unknown) => {
-    selected = (typeof id === "string" && listed.get(id)) || null;
-    if (!selected) throw new Error("unknown screen source");
-  });
+  ipcMain.handle(
+    SELECT_SCREEN_SOURCE_CHANNEL,
+    (_e, id: unknown, audio: unknown) => {
+      selected = (typeof id === "string" && listed.get(id)) || null;
+      selectedAudio = audio === true;
+      if (!selected) throw new Error("unknown screen source");
+    },
+  );
 
   session.defaultSession.setDisplayMediaRequestHandler((request, callback) => {
     const source = selected;
+    const audio = selectedAudio && request.audioRequested;
     selected = null;
+    selectedAudio = false;
     const { frame } = request;
     const fromApp =
       frame !== null && frame.parent === null && isAppUrl(frame.url);
     // An empty answer rejects getDisplayMedia.
-    callback(source && fromApp ? { video: source } : {});
+    callback(source && fromApp ? displayStreams(source, audio) : {});
   });
+}
+
+/**
+ * The system audio comes from loopback, which this Electron supports on
+ * Windows only (electron.d.ts, `Streams.audio`). Elsewhere the share is video
+ * only, even when audio was asked for. Not `loopbackWithMute`: the sharer
+ * still hears the system. The renderer's `restrictOwnAudio` keeps the call
+ * itself out of the capture where Chromium supports it.
+ */
+export function displayStreams(
+  source: DesktopCapturerSource,
+  audio: boolean,
+  platform: NodeJS.Platform = process.platform,
+): Streams {
+  return audio && screenShareAudioSupported(platform)
+    ? { video: source, audio: "loopback" }
+    : { video: source };
 }

@@ -36,6 +36,12 @@ const (
 	readTimeout  = 60 * time.Second // extended by every pong
 	speakingRate = 10               // max speaking relays per second per conn; excess dropped
 
+	// maxScreenSubscriptions caps the userIds of one screen_subscribe.
+	maxScreenSubscriptions = 256
+	// subscribeRate caps screen_subscribe frames per second per conn; excess
+	// dropped. Each one takes the node-wide SFU lock.
+	subscribeRate = 10
+
 	// defaultReadLimit fits a Welcome or a ratchet tree of a large call
 	// (MEDIA_WS_READ_LIMIT overrides it).
 	defaultReadLimit = 1 << 20
@@ -119,6 +125,34 @@ func (s *voiceServer) kick(sessionID, channelID string) {
 	}
 }
 
+// Values of voiceConn.muteOverride.
+const (
+	muteOverrideNone int32 = iota
+	muteOverrideUnmuted
+	muteOverrideMuted
+)
+
+// setMuted applies a gateway `mute` op (server mute or deafen) to a session.
+// As for kick, a non-empty channelID must match the session's room. A session
+// that is still joining keeps it in muteOverride, which identify applies.
+func (s *voiceServer) setMuted(sessionID, channelID string, muted bool) {
+	c := s.lookup(sessionID)
+	if c == nil || (channelID != "" && c.claims.ChannelID != channelID) {
+		return
+	}
+	if muted {
+		c.muteOverride.Store(muteOverrideMuted)
+	} else {
+		c.muteOverride.Store(muteOverrideUnmuted)
+	}
+	c.peersMu.Lock()
+	cl := c.client
+	c.peersMu.Unlock()
+	if cl != nil {
+		cl.SetMuted(muted)
+	}
+}
+
 func (s *voiceServer) closeAll(code int, reason string) {
 	s.shuttingDown.Store(true)
 	s.mu.Lock()
@@ -150,6 +184,10 @@ type voiceConn struct {
 	peersMu sync.Mutex
 	client  *media.Client
 
+	// muteOverride is the last gateway `mute` op (muteOverride* consts).
+	// It wins over the token claim, which can be older (setMuted, identify).
+	muteOverride atomic.Int32
+
 	// Negotiation state. Media is always the offerer; at most one offer is
 	// outstanding. Changes that arrive mid-negotiation set pending and are
 	// folded into one follow-up offer after the answer lands, so we never
@@ -163,6 +201,10 @@ type voiceConn struct {
 	speaking    bool
 	speakWindow time.Time
 	speakCount  int
+
+	// screen_subscribe rate limit (reader goroutine only).
+	subWindow time.Time
+	subCount  int
 
 	// sigMu spans SetLocalDescription + enqueueing the offer, and the ICE
 	// hook takes it too, so server candidates never overtake their offer.
@@ -288,6 +330,14 @@ func (c *voiceConn) readLoop() {
 			if json.Unmarshal(f.D, &d) == nil {
 				c.relaySpeaking(d.Speaking)
 			}
+		case "screen_subscribe":
+			var d struct {
+				UserIDs []string `json:"userIds"`
+			}
+			// A room has far fewer sharers; a longer list is not a real client.
+			if json.Unmarshal(f.D, &d) == nil && len(d.UserIDs) <= maxScreenSubscriptions && c.allowSubscribe() {
+				c.srv.sfu.SetScreenSubscriptions(c.client, d.UserIDs)
+			}
 		}
 	}
 }
@@ -392,6 +442,16 @@ func (c *voiceConn) identify() bool {
 	c.peersMu.Lock()
 	c.client = cl
 	c.peersMu.Unlock()
+	// After c.client is set: a concurrent setMuted either sees the client or
+	// left its override for this read.
+	switch c.muteOverride.Load() {
+	case muteOverrideUnmuted:
+		cl.SetMuted(false)
+	case muteOverrideMuted:
+		cl.SetMuted(true)
+	default:
+		cl.SetMuted(claims.Mute)
+	}
 	select { // closed (kick/replace) while joining: close already ran without the client
 	case <-c.done:
 		c.srv.sfu.Remove(cl)
@@ -428,7 +488,23 @@ func (c *voiceConn) sendPeers() {
 	c.send("peers", map[string]any{"peers": peers})
 }
 
+// allowSubscribe counts a screen_subscribe against subscribeRate.
+// ponytail: a dropped frame is not replayed; honest clients send on a click only.
+func (c *voiceConn) allowSubscribe() bool {
+	if now := time.Now(); now.Sub(c.subWindow) >= time.Second {
+		c.subWindow, c.subCount = now, 0
+	}
+	if c.subCount >= subscribeRate {
+		return false
+	}
+	c.subCount++
+	return true
+}
+
 func (c *voiceConn) relaySpeaking(speaking bool) {
+	if speaking && c.client != nil && c.client.Muted() {
+		return // server muted: media drops the audio, so no speaking light either
+	}
 	if speaking == c.speaking {
 		return
 	}

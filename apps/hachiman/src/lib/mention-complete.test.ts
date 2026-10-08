@@ -56,3 +56,19 @@ describe('toWire', () => {
     expect(toWire('@Squadron', [{ display: '@Squad', wire: '<@&r1>' }])).toBe('@Squadron')
   })
 })
+
+describe('emoji completion', () => {
+  it('opens on ":" with at least 2 shortcode characters', () => {
+    expect(findTrigger('gg :jo', 6)).toEqual({ char: ':', query: 'jo', start: 3, end: 6 })
+    expect(findTrigger(':+1', 3)).toEqual({ char: ':', query: '+1', start: 0, end: 3 })
+    expect(findTrigger('gg :j', 5)).toBeNull()
+    expect(findTrigger('nice :)', 7)).toBeNull()
+    expect(findTrigger('note:jo', 7)).toBeNull()
+    expect(findTrigger('see http://x', 12)).toBeNull()
+  })
+
+  it('sends a picked custom emoji in its wire form', () => {
+    const party = { display: ':party:', wire: '<:party:e-1>' }
+    expect(toWire('yay :party: :party:', [party])).toBe('yay <:party:e-1> <:party:e-1>')
+  })
+})

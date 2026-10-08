@@ -11,6 +11,7 @@ import type {
   VoiceStateUpdateRequest,
   Guild,
   GuildEventWithMe,
+  GuildEmoji,
   GuildFull,
   Member,
   PresenceStatus,
@@ -41,6 +42,20 @@ export interface HachimanClientOptions {
   voiceE2ee: () => VoiceE2eeDelegate
 }
 
+/** A voice room: a guild voice channel, or a DM / group DM call (`guildId` null, §6 "DM calls"). */
+export interface VoiceTarget {
+  guildId: string | null
+  channelId: string
+}
+
+/**
+ * The key of a voice state in `HachimanCache.voiceStates`: the guild id, or the DM channel id of a
+ * DM call (ids are UUIDs, so the two never collide).
+ */
+export function voiceScopeId(vs: { guildId: string | null; channelId: string }): string {
+  return vs.guildId ?? vs.channelId
+}
+
 /** Self mute/deafen as sent in VOICE_STATE_UPDATE. */
 export interface SelfVoice {
   selfMute: boolean
@@ -69,7 +84,13 @@ export type HachimanClientEvents = GatewayEventHandlers & {
    * Media closed the call with 4013 (E2EE resync). The client has left voice. Call `joinVoice`
    * with the same target to rejoin.
    */
-  voiceResync: (target: { guildId: string; channelId: string }) => void
+  voiceResync: (target: VoiceTarget) => void
+  /**
+   * A moderator moved the user to `target` (§6 "Voice moderation"). Fires before the old call
+   * drops ('voice' null); 'voice' then gives the connection of `target`, and `conn` resolves to it
+   * once it is connected, as `joinVoice` does. Send no op 4 for it.
+   */
+  voiceMoved: (target: VoiceTarget, conn: Promise<VoiceConnection>) => void
 }
 
 export interface HachimanCache {
@@ -85,10 +106,12 @@ export interface HachimanCache {
   presences: Map<string, PresenceStatus>
   /** userId → custom status of an online user (§1). Check `expiresAt` when showing it. */
   customStatuses: Map<string, CustomStatus>
-  /** guildId → userId → state */
+  /** `voiceScopeId` (guild id, or DM channel id of a DM call) → userId → state */
   voiceStates: Map<string, Map<string, VoiceState>>
   /** channelId → read state, from READY and READ_STATE_UPDATE (§1 ReadState). */
   readStates: Map<string, ReadState>
+  /** guildId → custom emojis, oldest first. From READY / GUILD_CREATE, then GUILD_EMOJIS_UPDATE. */
+  emojis: Map<string, GuildEmoji[]>
   /** guildId → eventId → event. Filled by `fetchGuildEvents`, then kept by the GUILD_EVENT_* events. */
   events: Map<string, Map<string, GuildEventWithMe>>
   /** The user ids the current user blocked. Filled by `fetchBlocks`, then kept by USER_BLOCK_UPDATE. */
@@ -96,6 +119,8 @@ export interface HachimanCache {
 }
 
 const VOICE_SERVER_TIMEOUT_MS = 15_000
+/** Media close code: the gateway kicked the session (§8). The gateway already changed the voice state. */
+const VOICE_KICKED = 4010
 /** How often `connect()` checks for a device while `device()` returns null. */
 const DEVICE_POLL_MS = 250
 
@@ -138,12 +163,13 @@ export class HachimanClient extends TypedEventEmitter<HachimanClientEvents> {
     customStatuses: new Map(),
     voiceStates: new Map(),
     readStates: new Map(),
+    emojis: new Map(),
     events: new Map(),
     blocks: new Set(),
   }
 
   private _voice: VoiceConnection | null = null
-  private voiceTarget: { guildId: string; channelId: string } | null = null
+  private voiceTarget: VoiceTarget | null = null
   /** Bumped by READY: a fetch that started before it does not fill the new cache. */
   private session = 0
   /** The user's choices. The wire and media state derive from these (see `selfVoice`). */
@@ -183,6 +209,7 @@ export class HachimanClient extends TypedEventEmitter<HachimanClientEvents> {
     })
     this.gateway.on('dispatch', e => {
       this.apply(e)
+      this.followServerVoice(e)
       this.emit('update', e)
       ;(this.emit as (t: string, d: unknown) => boolean)(e.t, e.d)
       if (e.t === 'READY') this.emit('ready', e.d)
@@ -228,8 +255,11 @@ export class HachimanClient extends TypedEventEmitter<HachimanClientEvents> {
     return effectivePermissions(this.guildContext(guildId))
   }
 
-  /** Joins with the current `selfVoice`; change it with `setSelfVoice` (before or during the session). */
-  async joinVoice(guildId: string, channelId: string): Promise<VoiceConnection> {
+  /**
+   * Joins with the current `selfVoice`; change it with `setSelfVoice` (before or during the
+   * session). `guildId` null: the call of a DM or group DM channel (§6 "DM calls").
+   */
+  async joinVoice(guildId: string | null, channelId: string): Promise<VoiceConnection> {
     this.cancelPendingJoin?.()
     this.dropVoice()
     this.voiceTarget = { guildId, channelId }
@@ -258,7 +288,15 @@ export class HachimanClient extends TypedEventEmitter<HachimanClientEvents> {
       this.gateway.on('VOICE_SERVER_UPDATE', onUpdate)
       this.sendVoiceState()
     })
+    return this.connectVoice(target, server)
+  }
 
+  /** Opens the media connection of `server` for `target` (the current `voiceTarget`). */
+  private async connectVoice(
+    target: VoiceTarget,
+    server: VoiceServerUpdate,
+  ): Promise<VoiceConnection> {
+    const { guildId, channelId } = target
     let e2ee: VoiceE2eeDelegate
     try {
       e2ee = this.opts.voiceE2ee() // one delegate per call; the connection closes it
@@ -276,11 +314,20 @@ export class HachimanClient extends TypedEventEmitter<HachimanClientEvents> {
     vc.on('resync', () => {
       if (this._voice === vc) this.emit('voiceResync', { guildId, channelId })
     })
-    vc.on('close', () => {
+    vc.on('close', e => {
+      if (this._voice !== vc) return
+      if (e.code === VOICE_KICKED) {
+        // The gateway ended or moved the call (a disconnect or move by a moderator, or a join from
+        // another device). Its voice state is already right: an op 4 leave here would undo a move.
+        this.voiceTarget = null
+        this.streaming = false
+        this.dropVoice()
+        return
+      }
       // Unexpected media drop: leave on the gateway too, else it keeps a stale voice state and a
       // rejoin of the same channel looks like a no-op (no VOICE_SERVER_UPDATE).
       // ponytail: no auto-rejoin; the UI decides (joinVoice again).
-      if (this._voice === vc) this.leaveVoice()
+      this.leaveVoice()
     })
     this._voice = vc
     this.emit('voice', vc)
@@ -313,9 +360,11 @@ export class HachimanClient extends TypedEventEmitter<HachimanClientEvents> {
     const me = this.cache.user?.id
     const session = this.gateway.sessionId
     if (this.voiceTarget || !me || !session) return
-    for (const [guildId, states] of this.cache.voiceStates)
-      if (states.get(me)?.sessionId === session)
-        this.gateway.updateVoiceState({ ...this.wireVoice(), guildId, channelId: null })
+    for (const states of this.cache.voiceStates.values()) {
+      const mine = states.get(me)
+      if (mine?.sessionId === session)
+        this.gateway.updateVoiceState({ ...this.wireVoice(), guildId: mine.guildId, channelId: null })
+    }
   }
 
   /** Deafen implies mute, so `selfMute` is true while deafened even if the user never muted. */
@@ -367,10 +416,57 @@ export class HachimanClient extends TypedEventEmitter<HachimanClientEvents> {
     await vc.setScreen(track, encoding)
   }
 
+  /**
+   * Server mute and deafen of the current user in the guild of the call (§6 "Voice moderation"),
+   * from the voice state and the member. They gate the media like self mute and deafen, but the
+   * user cannot lift them, and op 4 does not carry them.
+   */
+  get serverVoice(): { mute: boolean; deaf: boolean } {
+    const me = this.cache.user?.id
+    const guildId = this.voiceTarget?.guildId
+    if (!me || !guildId) return { mute: false, deaf: false }
+    const state = this.cache.voiceStates.get(guildId)?.get(me)
+    const member = this.cache.members.get(guildId)?.get(me)
+    return { mute: !!(state?.mute ?? member?.mute), deaf: !!(state?.deaf ?? member?.deaf) }
+  }
+
   private applySelfVoice(vc: VoiceConnection): void {
     const { selfMute, selfDeaf } = this.wireVoice()
-    vc.setDeafened(selfDeaf)
-    void vc.setMuted(selfMute)
+    const server = this.serverVoice
+    vc.setDeafened(selfDeaf || server.deaf)
+    void vc.setMuted(selfMute || server.mute || server.deaf)
+  }
+
+  /**
+   * Follows the gateway when it changes the call (§6 "Voice moderation"): a server mute or deafen
+   * of the current user gates the media now, and a move (VOICE_SERVER_UPDATE with `moved`) opens
+   * the media connection of the new channel without an op 4.
+   */
+  private followServerVoice(e: GatewayDispatch): void {
+    const me = this.cache.user?.id
+    if (!me) return
+    if (
+      (e.t === 'VOICE_STATE_UPDATE' && e.d.userId === me) ||
+      (e.t === 'GUILD_MEMBER_UPDATE' && e.d.user.id === me)
+    ) {
+      if (this._voice) this.applySelfVoice(this._voice)
+      return
+    }
+    if (e.t !== 'VOICE_SERVER_UPDATE' || !e.d.moved || this.cancelPendingJoin) return
+    const server = e.d
+    const target = { guildId: server.guildId, channelId: server.channelId }
+    // Opens after this handler: 'voiceMoved' and the drop of the old call come first.
+    const conn = Promise.resolve().then(() => {
+      if (this.voiceTarget !== target) throw new Error('joinVoice: superseded')
+      return this.connectVoice(target, server)
+    })
+    conn.catch((err: unknown) => {
+      console.warn('HachimanClient: voice move failed', err)
+    })
+    this.emit('voiceMoved', target, conn)
+    this.dropVoice()
+    this.voiceTarget = target
+    this.streaming = false
   }
 
   private sendVoiceState(): void {
@@ -413,6 +509,7 @@ export class HachimanClient extends TypedEventEmitter<HachimanClientEvents> {
     c.members.set(g.id, new Map(g.members.map(m => [m.user.id, m])))
     c.voiceStates.set(g.id, new Map(g.voiceStates.filter(v => v.channelId).map(v => [v.userId, v])))
     for (const p of g.presences) this.setPresence(p)
+    c.emojis.set(g.id, g.emojis ?? [])
   }
 
   /** Loads the upcoming and ongoing events of a guild into `cache.events`. */
@@ -448,6 +545,7 @@ export class HachimanClient extends TypedEventEmitter<HachimanClientEvents> {
     c.members.delete(guildId)
     c.voiceStates.delete(guildId)
     c.events.delete(guildId)
+    c.emojis.delete(guildId)
     if (this.voiceTarget?.guildId === guildId) {
       this.voiceTarget = null
       this.dropVoice()
@@ -474,6 +572,8 @@ export class HachimanClient extends TypedEventEmitter<HachimanClientEvents> {
         for (const m of Object.values(c)) if (m instanceof Map || m instanceof Set) m.clear()
         for (const g of e.d.guilds) this.ingestGuild(g)
         for (const ch of e.d.privateChannels) c.channels.set(ch.id, ch)
+        for (const vs of e.d.privateVoiceStates ?? [])
+          if (vs.channelId) sub(c.voiceStates, voiceScopeId({ ...vs, channelId: vs.channelId })).set(vs.userId, vs)
         for (const p of e.d.presences) this.setPresence(p)
         for (const r of e.d.readStates ?? []) c.readStates.set(r.channelId, r)
         break
@@ -493,6 +593,7 @@ export class HachimanClient extends TypedEventEmitter<HachimanClientEvents> {
       case 'CHANNEL_DELETE':
         c.channels.delete(e.d.id)
         c.readStates.delete(e.d.id)
+        if (e.d.guildId === null) c.voiceStates.delete(e.d.id) // the call of a DM
         break
       case 'READ_STATE_UPDATE': {
         // The ack moved forward. Messages after it that arrived since READY are not counted here.
@@ -535,7 +636,10 @@ export class HachimanClient extends TypedEventEmitter<HachimanClientEvents> {
       case 'VOICE_STATE_UPDATE':
         // One voice session per user globally: a state anywhere replaces any other.
         for (const states of c.voiceStates.values()) states.delete(e.d.userId)
-        if (e.d.channelId) sub(c.voiceStates, e.d.guildId).set(e.d.userId, e.d)
+        if (e.d.channelId) sub(c.voiceStates, voiceScopeId({ ...e.d, channelId: e.d.channelId })).set(e.d.userId, e.d)
+        break
+      case 'GUILD_EMOJIS_UPDATE':
+        if (c.guilds.has(e.d.guildId)) c.emojis.set(e.d.guildId, e.d.emojis)
         break
       case 'GUILD_EVENT_CREATE':
       case 'GUILD_EVENT_UPDATE': {
@@ -566,6 +670,7 @@ export class HachimanClient extends TypedEventEmitter<HachimanClientEvents> {
       case 'MESSAGE_DELETE':
       case 'TYPING_START':
       case 'VOICE_SERVER_UPDATE':
+      case 'CALL_RING':
       case 'MLS_HANDSHAKE':
       case 'MLS_GROUP_UPDATE':
       case 'MLS_BATCH_ASSIGN':
@@ -582,7 +687,9 @@ export class HachimanClient extends TypedEventEmitter<HachimanClientEvents> {
       case 'DOC_AWARENESS':
       case 'INVITE_DELETE':
       case 'CHANNEL_PINS_UPDATE':
-        break // not cached; consumers (the crypto Worker for the §12.13 events, the shared UI DocsService for pages, the invite list, the pins popover) handle the re-emitted event
+      case 'GUILD_SOUNDS_UPDATE':
+      case 'POKE':
+        break // not cached; consumers (the crypto Worker for the §12.13 events, the shared UI DocsService for pages, the invite list, the pins popover, the soundboard, the poke toast) handle the re-emitted event
     }
   }
 }

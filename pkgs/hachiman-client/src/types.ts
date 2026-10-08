@@ -93,6 +93,17 @@ export interface Member {
   /** Role ids, excluding @everyone. */
   roles: string[]
   joinedAt: string
+  /** Server mute (MUTE_MEMBERS). Stays across calls. */
+  mute: boolean
+  /** Server deafen (DEAFEN_MEMBERS). Stays across calls. */
+  deaf: boolean
+}
+
+/** A guild ban (§4 Bans). The user cannot join the guild through an invite while it exists. */
+export interface Ban {
+  user: User
+  reason: string | null
+  createdAt: string
 }
 
 /** Ciphertext only. The client decrypts `envelope` (§12.8). */
@@ -162,6 +173,26 @@ export interface GuildEvent {
   rsvpCount: number
 }
 
+/**
+ * A custom guild emoji (§4 Emojis). Plaintext, like the guild icon. `key` is the file key of the
+ * image (RestClient.fileUrl). A message names it as `<:name:id>` inside its envelope.
+ */
+export interface GuildEmoji {
+  id: string
+  guildId: string
+  /** 2–32 characters of [a-z0-9_], unique in the guild. */
+  name: string
+  key: string
+  createdBy: string | null
+  createdAt: string
+}
+
+export interface CreateGuildEmojiRequest {
+  name: string
+  /** A plaintext upload from {@link RestClient.uploadImage}: PNG, GIF or WebP, at most 256 KiB. */
+  uploadId: string
+}
+
 /** `GET /guilds/:id/events` adds `me`: true when the caller is going. */
 export interface GuildEventWithMe extends GuildEvent {
   me: boolean
@@ -175,6 +206,42 @@ export interface CreateGuildEventRequest {
 }
 
 export type UpdateGuildEventRequest = Partial<CreateGuildEventRequest>
+
+/**
+ * A soundboard sound (§4 Soundboard). `name` and `emoji` are plaintext metadata. The clip is the
+ * encrypted blob `key`. `envelope` is the sound pointer with its file key (§12.21): the client
+ * decrypts it with `decryptDoc` (kind doc_snapshot, page id = the sound id, channel `channelId`).
+ */
+export interface GuildSound {
+  id: string
+  guildId: string
+  name: string
+  emoji: string | null
+  uploadId: string
+  /** `${uploadId}/blob`. */
+  key: string
+  /** Blob bytes. */
+  size: number
+  channelId: string
+  groupId: string
+  epoch: number
+  senderDevice: string | null
+  envelope: string
+  createdBy: string | null
+  createdAt: string
+}
+
+export interface CreateGuildSoundRequest {
+  /** Chosen by the client: the envelope binds it. */
+  id: string
+  name: string
+  emoji?: string | null
+  /** A blob from POST /uploads?kind=blob, at most SOUND_MAX_BLOB_BYTES. */
+  uploadId: string
+  /** A public text or pages channel of the guild: its group (the public_set group) seals the envelope. */
+  channelId: string
+  envelope: string
+}
 
 /** One entry of `GET /users/@me/blocks`. */
 export interface BlockedUser {
@@ -190,12 +257,16 @@ export interface Presence {
 }
 
 export interface VoiceState {
-  guildId: string
+  /** null: a DM or group DM call (§6 "DM calls"). */
+  guildId: string | null
   channelId: string | null
   userId: string
   sessionId: string
   selfMute: boolean
   selfDeaf: boolean
+  /** Server mute and deafen: the `mute` / `deaf` of the Member. Absent from an older gateway. */
+  mute?: boolean
+  deaf?: boolean
   selfStream: boolean
   /** RFC 3339: when this session joined the channel. Kept across mute, deafen and stream changes, reset on a move. Absent from an older gateway. */
   joinedAt?: string
@@ -286,6 +357,8 @@ export interface GuildFull extends Guild {
   members: Member[]
   voiceStates: VoiceState[]
   presences: Presence[]
+  /** The custom emojis of the guild, oldest first. */
+  emojis: GuildEmoji[]
 }
 
 // ---- E2EE REST shapes (§12.12) ----
@@ -605,6 +678,8 @@ export interface ReadyPayload {
   user: User
   guilds: GuildFull[]
   privateChannels: Channel[]
+  /** The live states of the DM calls (guildId null). Absent from an older gateway. */
+  privateVoiceStates?: VoiceState[]
   presences: Presence[]
   /** One per viewable text, pages, dm and group_dm channel (§1 ReadState). */
   readStates: ReadState[]
@@ -629,12 +704,24 @@ export interface ReadState {
 export const READ_STATE_UNREAD_CAP = 100
 
 export interface VoiceServerUpdate {
-  guildId: string
+  guildId: string | null
   channelId: string
   endpoint: string
   token: string
   iceServers: RTCIceServer[]
   expiresAt: string
+  /** true: a member with MOVE_MEMBERS moved this session to `channelId` (§6 "Voice moderation"). The client follows without an op 4. */
+  moved?: boolean
+}
+
+/** CALL_RING (§6 "DM calls"). */
+export interface CallRing {
+  channelId: string
+  /** The caller. */
+  userId: string
+  ringing: string[]
+  /** RFC 3339: when the call started ringing. */
+  at: string
 }
 
 /** Op 3 (§6). `status` absent: unchanged. `customStatus` absent: unchanged; null: clear. */
@@ -644,7 +731,8 @@ export interface PresenceUpdateRequest {
 }
 
 export interface VoiceStateUpdateRequest {
-  guildId: string
+  /** null: a DM call. */
+  guildId: string | null
   channelId: string | null
   selfMute: boolean
   selfDeaf: boolean
@@ -719,6 +807,8 @@ export interface GatewayEvents {
   PRESENCE_UPDATE: Presence
   VOICE_STATE_UPDATE: VoiceState
   VOICE_SERVER_UPDATE: VoiceServerUpdate
+  /** A DM call started (§6 "DM calls"): `userId` calls, `ringing` lists the users it rings. Stop ringing locally (30 s after `at` at the latest). */
+  CALL_RING: CallRing
   MLS_HANDSHAKE: MlsHandshakeEvent
   MLS_GROUP_UPDATE: MlsGroup
   MLS_BATCH_ASSIGN: BatchAssign
@@ -738,12 +828,18 @@ export interface GatewayEvents {
   DOC_AWARENESS: DocAwarenessRequest & { guildId: string; userId: string; deviceId: string }
   /** The pin set of a channel changed. To the viewers of the channel (DM: the participants). Refetch GET /channels/:id/pins. */
   CHANNEL_PINS_UPDATE: { channelId: string; guildId: string | null }
+  /** The full emoji list of the guild after a create, rename or delete. */
+  GUILD_EMOJIS_UPDATE: { guildId: string; emojis: GuildEmoji[] }
   GUILD_EVENT_CREATE: GuildEvent
   GUILD_EVENT_UPDATE: GuildEvent
   GUILD_EVENT_DELETE: { id: string; guildId: string }
   GUILD_EVENT_RSVP: { eventId: string; guildId: string; userId: string; going: boolean; rsvpCount: number }
   /** The current user blocked or unblocked `userId`. To the user's own sessions only. */
   USER_BLOCK_UPDATE: { userId: string; blocked: boolean }
+  /** A sound was added to or deleted from the soundboard. To every member. Refetch GET /guilds/:id/sounds. */
+  GUILD_SOUNDS_UPDATE: { guildId: string }
+  /** `user` poked the current user (POST /users/:id/poke). To the target's sessions only. No content. */
+  POKE: { user: User }
 }
 export type GatewayEventName = keyof GatewayEvents
 
@@ -800,6 +896,7 @@ export type VoiceClientFrame =
   | { op: 'answer'; d: { sdp: string } }
   | { op: 'candidate'; d: { candidate: RTCIceCandidateInit | null } }
   | { op: 'speaking'; d: { speaking: boolean } }
+  | { op: 'screen_subscribe'; d: { userIds: string[] } }
   | VoiceE2eeClientOp
 
 export type VoiceServerFrame =

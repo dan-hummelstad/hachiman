@@ -69,6 +69,7 @@ const CRYPTO_API_METHOD_SET = {
   backupNow: true,
   ktSelfCheck: true,
   signAdminAction: true,
+  adminGuildPermissions: true,
   prepareHistoryInvite: true,
   sendInviteBundles: true,
   redeemInvite: true,

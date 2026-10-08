@@ -10,6 +10,7 @@ package permissions
 const (
 	CreateInstantInvite = 1 << 0
 	KickMembers         = 1 << 1
+	BanMembers          = 1 << 2
 	Administrator       = 1 << 3
 	ManageChannels      = 1 << 4
 	ManageGuild         = 1 << 5
@@ -23,16 +24,19 @@ const (
 	MuteMembers         = 1 << 22
 	DeafenMembers       = 1 << 23
 	MoveMembers         = 1 << 24
+	UseSoundboard       = 1 << 25
 	ChangeNickname      = 1 << 26
 	ManageNicknames     = 1 << 27
 	ManageRoles         = 1 << 28
 	ManageEvents        = 1 << 29
+	ManageExpressions   = 1 << 30
 )
 
 // ByName maps the TS constant names to their values; the sync test walks it.
 var ByName = map[string]int64{
 	"CREATE_INSTANT_INVITE": CreateInstantInvite,
 	"KICK_MEMBERS":          KickMembers,
+	"BAN_MEMBERS":           BanMembers,
 	"ADMINISTRATOR":         Administrator,
 	"MANAGE_CHANNELS":       ManageChannels,
 	"MANAGE_GUILD":          ManageGuild,
@@ -46,10 +50,12 @@ var ByName = map[string]int64{
 	"MUTE_MEMBERS":          MuteMembers,
 	"DEAFEN_MEMBERS":        DeafenMembers,
 	"MOVE_MEMBERS":          MoveMembers,
+	"USE_SOUNDBOARD":        UseSoundboard,
 	"CHANGE_NICKNAME":       ChangeNickname,
 	"MANAGE_NICKNAMES":      ManageNicknames,
 	"MANAGE_ROLES":          ManageRoles,
 	"MANAGE_EVENTS":         ManageEvents,
+	"MANAGE_EXPRESSIONS":    ManageExpressions,
 }
 
 // All is the OR of every defined bit.
@@ -62,7 +68,7 @@ var All = func() int64 {
 }()
 
 const (
-	DefaultEveryone = ViewChannel | SendMessages | AttachFiles | ReadMessageHistory | Connect | Speak | CreateInstantInvite | ChangeNickname
+	DefaultEveryone = ViewChannel | SendMessages | AttachFiles | ReadMessageHistory | Connect | Speak | UseSoundboard | CreateInstantInvite | ChangeNickname
 	DM              = ViewChannel | SendMessages | AttachFiles | ReadMessageHistory
 )
 

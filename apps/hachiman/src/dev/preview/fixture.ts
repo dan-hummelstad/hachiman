@@ -1,5 +1,6 @@
 // Preview fixture: the cast of the Arc mocks (docs/arc-redesign-plan.md decision 11): three
-// guilds, four DMs and their message history, as plain wire data.
+// guilds, four DMs and their message history, as plain wire data. Six small guilds and three
+// more DMs make the space bar and the favourite DMs overflow.
 // No stores, no client: ./stubs.ts and ./index.ts wire this into the app. See ../README.md.
 import {
   DEFAULT_EVERYONE,
@@ -112,7 +113,7 @@ export function member(
   nick: string | null = null,
   daysAgo = 120
 ): Member {
-  return { guildId, user: u, nick, roles, joinedAt: joined(daysAgo) }
+  return { guildId, user: u, nick, roles, joinedAt: joined(daysAgo), mute: false, deaf: false }
 }
 
 function voice(
@@ -234,7 +235,25 @@ const guild1: GuildFull = {
     voice(G1, G1C.lounge, U.ozzy, { selfMute: true, selfDeaf: true }),
     voice(G1, G1C.ranked, U.quill, { selfStream: true })
   ],
-  presences: presencesFor(g1Members)
+  presences: presencesFor(g1Members),
+  emojis: [
+    {
+      id: 'emoji-owl',
+      guildId: G1,
+      name: 'owl',
+      key: IMG.emojiOwl,
+      createdBy: ME.id,
+      createdAt: '2026-01-10T12:00:00.000Z'
+    },
+    {
+      id: 'emoji-gg',
+      guildId: G1,
+      name: 'gg',
+      key: IMG.emojiGg,
+      createdBy: ME.id,
+      createdAt: '2026-01-11T12:00:00.000Z'
+    }
+  ]
 }
 
 // Guild 2: a dev team. I'm a plain member here (no manage perms), to show the restricted UI.
@@ -313,7 +332,8 @@ const guild2: GuildFull = {
     voice(G2, G2C.pairing, U.yuki),
     voice(G2, G2C.pairing, U.renata, { selfMute: true })
   ],
-  presences: presencesFor(g2Members)
+  presences: presencesFor(g2Members),
+  emojis: []
 }
 
 // Guild 3: a book club. Small, no categories (flat list) and no roles. juniper owns it.
@@ -353,14 +373,45 @@ const guild3: GuildFull = {
   ],
   members: g3Members,
   voiceStates: [],
-  presences: presencesFor(g3Members)
+  presences: presencesFor(g3Members),
+  emojis: []
 }
+
+// Six small guilds (one text channel, only me), so the space bar overflows into "All spaces".
+const extraGuilds: GuildFull[] = [
+  ['g-synth', 'Synth Garage'],
+  ['g-trail', 'Trail Runners'],
+  ['g-kiln', 'Kiln & Glaze'],
+  ['g-chess', 'Chess Cafe'],
+  ['g-ferment', 'Fermentation Lab'],
+  ['g-orbit', 'Orbit Watchers']
+].map(([id, name], i) => {
+  const members = [member(id, ME, [], null, 30 + i)]
+  return {
+    id,
+    name,
+    icon: null,
+    banner: null,
+    ownerId: ME.id,
+    region: null,
+    createdAt: joined(30 + i),
+    publicHistoryVisibility: 'shared',
+    roles: [role(id, id, '@everyone', 0, 0, DEFAULT_EVERYONE)],
+    channels: [channel(id, `c-${id}-general`, 'text', 'general', 0)],
+    members,
+    voiceStates: [],
+    presences: presencesFor(members),
+    emojis: []
+  }
+})
 
 export const DM1 = 'c-dm-marlowe'
 export const DM2 = 'c-dm-yuki'
 export const DM3 = 'c-dm-juni'
 export const DM4 = 'c-dm-quill'
 export const GDM1 = 'c-gdm-squad'
+/** Three more favourites, so the favourite DMs overflow into "All favourites". */
+export const EXTRA_DMS = ['c-dm-renata', 'c-dm-sable', 'c-dm-tobias']
 export const dms: Channel[] = [
   channel(null, DM1, 'dm', null, 0, { recipients: [U.marlowe] }),
   channel(null, DM2, 'dm', null, 0, { recipients: [U.yuki] }),
@@ -369,7 +420,10 @@ export const dms: Channel[] = [
   channel(null, GDM1, 'group_dm', null, 0, {
     recipients: [U.juniper, U.ozzy, U.quill],
     ownerId: U.juniper.id
-  })
+  }),
+  channel(null, EXTRA_DMS[0], 'dm', null, 0, { recipients: [U.renata] }),
+  channel(null, EXTRA_DMS[1], 'dm', null, 0, { recipients: [U.sable] }),
+  channel(null, EXTRA_DMS[2], 'dm', null, 0, { recipients: [U.tobias] })
 ]
 
 function msg(
@@ -640,7 +694,7 @@ export const READY: ReadyPayload = {
   sessionId: 'preview-session',
   user: ME,
   deviceId: 'preview-device',
-  guilds: [guild1, guild2, guild3],
+  guilds: [guild1, guild2, guild3, ...extraGuilds],
   privateChannels: dms,
   presences: Object.entries(PRESENCE).map(([userId, status]) => ({ userId, status })),
   readStates: []

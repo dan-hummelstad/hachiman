@@ -68,7 +68,12 @@ interface Channel {
   threadStartMessageId?: string | null   // thread only: the message of the parent that starts the thread, or null
 }
 
-interface Member { guildId: string; user: User; nick: string | null; roles: string[] /* excludes @everyone */; joinedAt: string }
+interface Member {
+  guildId: string; user: User; nick: string | null; roles: string[] /* excludes @everyone */; joinedAt: string
+  mute: boolean; deaf: boolean     // server mute and deafen (§6 "Voice moderation"). They stay across calls
+}
+
+interface Ban { user: User; reason: string | null; createdAt: string }   // §4 Bans
 
 // A scheduled guild event (§4 Pins, guild events and blocks). Plaintext metadata, like a channel topic (§12.1).
 interface GuildEvent {
@@ -81,7 +86,25 @@ interface GuildEvent {
 }
 interface GuildEventWithMe extends GuildEvent { me: boolean }   // GET /guilds/:id/events: true when the caller is going
 
+// A custom guild emoji (§4 Emojis). Plaintext, like the guild icon. A message names it as `<:name:id>` inside its envelope.
+interface GuildEmoji {
+  id: string; guildId: string
+  name: string                     // 2–32 characters of [a-z0-9_], unique in the guild
+  key: string                      // file key of the image (§4 Files): PNG, GIF or WebP, at most 256 KiB
+  createdBy: string | null; createdAt: string
+}
+
 interface BlockedUser { user: User; createdAt: string }         // GET /users/@me/blocks
+
+// A soundboard sound (§4 Soundboard). name and emoji are plaintext metadata; the file key is only in `envelope` (§12.21).
+interface GuildSound {
+  id: string; guildId: string; name: string; emoji: string | null
+  uploadId: string; key: string /* `${uploadId}/blob` */; size: number /* blob bytes */
+  channelId: string                // the public text or pages channel whose group sealed `envelope`
+  groupId: string; epoch: number; senderDevice: string | null
+  envelope: string                 // doc_snapshot envelope with page_id = id: the sound pointer (§12.21)
+  createdBy: string | null; createdAt: string
+}
 
 // The server never sees content. The client decrypts `envelope` (§12.8).
 interface Message {
@@ -111,9 +134,11 @@ interface CustomStatus {
 }
 
 interface VoiceState {
-  guildId: string; channelId: string | null; userId: string
+  guildId: string | null           // null: a DM or group DM call (§6 "DM calls")
+  channelId: string | null; userId: string
   sessionId: string                // gateway session id
   selfMute: boolean; selfDeaf: boolean
+  mute: boolean; deaf: boolean     // server mute and deafen: the Member values (§6 "Voice moderation")
   selfStream: boolean              // screen share is live (§8)
   joinedAt: string                 // RFC 3339: when this session joined the channel. Kept across mute, deafen and stream
                                    // changes, set again on a move to another channel or a join from another session.
@@ -158,6 +183,7 @@ interface GuildFull extends Guild {  // READY + GUILD_CREATE
   members: Member[]                // ponytail: full list; add lazy member chunks when guilds exceed ~1k members
   voiceStates: VoiceState[]
   presences: Presence[]            // online members only
+  emojis: GuildEmoji[]             // the custom emojis of the guild, oldest first
 }
 ```
 
@@ -173,6 +199,7 @@ A Go test (`pkg/permissions/sync_test.go`) parses the TS file and fails if any n
 |---|---|
 | CREATE_INSTANT_INVITE | 1 << 0 |
 | KICK_MEMBERS | 1 << 1 |
+| BAN_MEMBERS | 1 << 2 |
 | ADMINISTRATOR | 1 << 3 |
 | MANAGE_CHANNELS | 1 << 4 |
 | MANAGE_GUILD | 1 << 5 |
@@ -186,12 +213,15 @@ A Go test (`pkg/permissions/sync_test.go`) parses the TS file and fails if any n
 | MUTE_MEMBERS | 1 << 22 |
 | DEAFEN_MEMBERS | 1 << 23 |
 | MOVE_MEMBERS | 1 << 24 |
+| USE_SOUNDBOARD | 1 << 25 |
 | CHANGE_NICKNAME | 1 << 26 |
 | MANAGE_NICKNAMES | 1 << 27 |
 | MANAGE_ROLES | 1 << 28 |
 | MANAGE_EVENTS | 1 << 29 |
+| MANAGE_EXPRESSIONS | 1 << 30 |
 
-`DEFAULT_EVERYONE = VIEW_CHANNEL | SEND_MESSAGES | ATTACH_FILES | READ_MESSAGE_HISTORY | CONNECT | SPEAK | CREATE_INSTANT_INVITE | CHANGE_NICKNAME`.
+`DEFAULT_EVERYONE = VIEW_CHANNEL | SEND_MESSAGES | ATTACH_FILES | READ_MESSAGE_HISTORY | CONNECT | SPEAK | USE_SOUNDBOARD | CREATE_INSTANT_INVITE | CHANGE_NICKNAME`.
+USE_SOUNDBOARD lets a member play the guild sounds in a voice call. MANAGE_EXPRESSIONS lets a member upload and delete guild sounds (§4 Soundboard). USE_SOUNDBOARD joined DEFAULT_EVERYONE after guilds existed: migration `0009_sound_permission_backfill` sets it on the @everyone role of each existing guild without a signed action. It is not a security permission (a member with SPEAK can send any audio in its track), and the signed admin replay does not check it (§12.16 "Unchecked bits"). MANAGE_EXPRESSIONS decides which sound pointers a member trusts, so clients read it from the signed admin state (§12.21). Bit 30 is the last bit below 2^31, the limit of the plain-number bitfield.
 `ALL` = OR of every bit above.
 
 Algorithm (same in both languages, with the TS names):
@@ -227,8 +257,9 @@ New/changed tables (all ids `uuid` defaultRandom, timestamps `timestamptz` defau
 | Table | Columns | Notes |
 |---|---|---|
 | `guilds` | id, owner_id → users (cascade), name, icon null, banner null, region → regions.code (set null), page_storage_bytes bigint (mode number) default 0, created_at | replaces virtual_servers. icon/banner hold file keys. `page_storage_bytes`: the page quota count (§4 Pages) |
-| `uploads` | id, uploader_id → users (cascade), key unique, filename null (null for blobs), size bigint (mode number), content_type, encrypted bool default false, message_id null → messages (cascade), position int default 0, purpose `upload_purpose` enum ('attachment','image','page_snapshot','page_media') null, page_id null → doc_pages (cascade), last_referenced_at null, created_at | index (message_id); index (page_id); CHECK `uploads_attachment_has_message`: `(purpose IS NOT DISTINCT FROM 'attachment') = (message_id IS NOT NULL)`; CHECK `uploads_page_media_has_page`: `purpose IS DISTINCT FROM 'page_media' OR page_id IS NOT NULL`; CHECK `uploads_page_id_is_page_purpose`: `page_id IS NULL OR purpose IN ('page_snapshot','page_media')`. One row per stored object. The first claim sets purpose, and purpose never changes. message_id is set when a message claims it, together with purpose. A `page_snapshot` upload has its purpose from the upload on, and page_id from the snapshot claim (§4 Pages) |
-| `guild_members` | guild_id → guilds (cascade), user_id → users (cascade), nick null, joined_at, invite_id null → invites (set null) | PK (guild_id, user_id); index (invite_id) where not null. `invite_id`: the invite of the join (§4 accept). The redeemer of an invite with history gets its bundles with it (§12.11.4) |
+| `uploads` | id, uploader_id → users (cascade), key unique, filename null (null for blobs), size bigint (mode number), content_type, encrypted bool default false, message_id null → messages (cascade), position int default 0, purpose `upload_purpose` enum ('attachment','image','page_snapshot','page_media','sound','emoji') null, page_id null → doc_pages (cascade), last_referenced_at null, created_at | index (message_id); index (page_id); CHECK `uploads_attachment_has_message`: `(purpose IS NOT DISTINCT FROM 'attachment') = (message_id IS NOT NULL)`; CHECK `uploads_page_media_has_page`: `purpose IS DISTINCT FROM 'page_media' OR page_id IS NOT NULL`; CHECK `uploads_page_id_is_page_purpose`: `page_id IS NULL OR purpose IN ('page_snapshot','page_media')`. One row per stored object. The first claim sets purpose, and purpose never changes. message_id is set when a message claims it, together with purpose. A `page_snapshot` upload has its purpose from the upload on, and page_id from the snapshot claim (§4 Pages) |
+| `guild_members` | guild_id → guilds (cascade), user_id → users (cascade), nick null, joined_at, invite_id null → invites (set null), mute bool default false, deaf bool default false | PK (guild_id, user_id); index (invite_id) where not null. `invite_id`: the invite of the join (§4 accept). The redeemer of an invite with history gets its bundles with it (§12.11.4) |
+| `guild_bans` | guild_id → guilds (cascade), user_id → users (cascade), reason text null, banned_by null → users (set null), created_at | PK (guild_id, user_id). §4 Bans |
 | `channels` | id, guild_id null → guilds (cascade), type `channel_type` enum (incl. `thread`), name null, topic null, parent_id null → channels (set null), position int default 0, owner_id null → users (set null), mls_group_id bytea null → mls_groups (set null), thread_start_message_id uuid null → messages (set null), created_at, last_activity_at timestamptz not null default now() (a thread: set by POST /channels/:id/messages; the migration backfills the last message, else created_at) | index (guild_id); index (parent_id, last_activity_at); index (guild_id, last_activity_at) where type = 'thread'. A thread has `mls_group_id` null: readers take the group of the parent. `DELETE /channels/:id` deletes the threads of the channel (the FK alone sets null) |
 | `messages` | id, channel_id → channels (cascade), author_id → users (cascade), group_id bytea → mls_groups (cascade), epoch bigint, sender_device uuid null → devices (set null), client_msg_id bytea, envelope bytea, franking_tag bytea, size int, created_at, edited_at null | index (channel_id, created_at desc, id desc); unique (channel_id, client_msg_id). No `content` column (§12.8) |
 | `roles` | id, guild_id → guilds (cascade), name, color int default 0, hoist boolean default false, position int default 0, permissions bigint (mode number) | @everyone row has id = guild_id |
@@ -236,6 +267,7 @@ New/changed tables (all ids `uuid` defaultRandom, timestamps `timestamptz` defau
 | `permission_overwrites` | channel_id → channels (cascade), target_id uuid, target_type `overwrite_type` enum ('role','member'), allow bigint, deny bigint | PK (channel_id, target_id) |
 | `dm_participants` | channel_id → channels (cascade), user_id → users (cascade) | PK (channel_id, user_id); index (user_id) |
 | `read_states` | user_id → users (cascade), channel_id → channels (cascade), last_read_message_id uuid, last_read_created_at, updated_at | PK (user_id, channel_id). The read position is (`last_read_created_at`, `last_read_message_id`), the order of `messages`. It has no foreign key to `messages`: the position stays when that message is deleted |
+| `guild_emojis` | id, guild_id → guilds (cascade), name text, upload_id unique → uploads (cascade), created_by null → users (set null), created_at | unique (guild_id, name). A custom emoji (§4 Emojis). `upload_id` is a plaintext `emoji` upload. Migration 0010 |
 | `invites` | id, code unique, guild_id → guilds (cascade), created_by → users (cascade), expires_at null, max_uses null, uses int default 0, revoked bool default false, record bytea null, key_id bytea null, exhausted_at null, created_at | index (guild_id); unique (key_id). Replaces invite_codes. `record` and `key_id`: the `SignedInviteRecord` of an invite with history and its `sign_public` (§12.11.4). The accept of the last use sets `exhausted_at` |
 
 Pages tables (§4 Pages, §12.20). The server sees the tree and the timestamps. Titles, edits and snapshot pointers are envelopes:
@@ -254,6 +286,7 @@ Pins, guild events and blocks (§4 Pins, guild events and blocks, `apps/takusen/
 | `guild_events` | id, guild_id → guilds (cascade), channel_id null → channels (set null), title, starts_at, ends_at null, created_by null → users (set null), created_at | index (guild_id, starts_at). CHECK (ends_at is null or ends_at > starts_at). Plaintext metadata (§12.1) |
 | `guild_event_rsvps` | event_id → guild_events (cascade), user_id → users (cascade), created_at | PK (event_id, user_id). One row per member who is going |
 | `user_blocks` | user_id → users (cascade), blocked_user_id → users (cascade), created_at | PK (user_id, blocked_user_id); index (blocked_user_id) |
+| `guild_sounds` | id uuid PK (no default: the client chooses it), guild_id → guilds (cascade), name, emoji null, upload_id unique → uploads (cascade), channel_id uuid (no FK), group_id bytea (no FK), epoch bigint, sender_device null → devices (set null), envelope bytea, created_by null → users (set null), created_at | index (guild_id, created_at). Migration 0008. The soundboard (§4 Soundboard). `name` and `emoji` are plaintext metadata. The clip is the encrypted blob of `upload_id` (purpose `sound`). `envelope` is the sound pointer with the file key, sealed in the group of `channel_id` (§12.21). Migration 0009 adds USE_SOUNDBOARD to the @everyone role of every existing guild |
 
 E2EE tables (§12). `bytea` columns hold the binary objects of §12 as they are. Enums: `device_status` ('pending','active','revoked'), `device_platform` ('electron','browser'), `revoke_reason` ('user','lost','password_reset','compromised','signed_out'), `mls_group_kind` ('public_set','channel','dm'), `mls_group_status` ('pending','active','retired'), `history_visibility` ('joined','shared'), `handshake_kind` ('commit','external_commit','proposal'), `pending_op` ('add','remove'), `pending_status` ('queued','assigned','rejected'), `join_status` ('queued','committed','rejected','external_commit','waiting'), `inbox_kind` ('welcome','dsk_transfer','history_keys'), `backup_kind` ('identity','history').
 
@@ -347,9 +380,12 @@ Implemented extras (Discord semantics):
 | POST `/channels/:id/typing` | SEND_MESSAGES | 204 | `TYPING_START {channelId, guildId, userId, timestamp}` |
 | POST `/channels/:id/ack` `{messageId}` | VIEW_CHANNEL. The message must be in the channel, else 404 `NotFound`. 120 per user per 60 s, else 429 `RateLimited` | 204 | `READ_STATE_UPDATE {channelId, lastReadMessageId}` → user:{me}, only when the read state moved. The read state moves only forward in (created_at, id) order. An ack for the same or an older message changes nothing |
 | GET `/guilds/:id/members` | member | `Member[]` | — |
-| PATCH `/guilds/:id/members/:userId` `{nick?, roles?}` | nick: self→CHANGE_NICKNAME, other→MANAGE_NICKNAMES; roles→MANAGE_ROLES + hierarchy | `Member` | `GUILD_MEMBER_UPDATE`; `INVITE_DELETE` → guild for each revoked invite (Invite limits) |
+| PATCH `/guilds/:id/members/:userId` `{nick?, roles?, mute?, deaf?, channelId?: string \| null}` | nick: self→CHANGE_NICKNAME, other→MANAGE_NICKNAMES; roles→MANAGE_ROLES + hierarchy; mute→MUTE_MEMBERS; deaf→DEAFEN_MEMBERS; channelId→MOVE_MEMBERS. mute, deaf and channelId on another member: also the moderation rule of Bans. channelId: the member must be in voice in the guild (else 400); a voice channel of the guild that the caller can CONNECT to and the member can VIEW_CHANNEL and CONNECT to (else 400 / 403), or null to disconnect | `Member` | `GUILD_MEMBER_UPDATE`; `INVITE_DELETE` → guild for each revoked invite (Invite limits); channelId: the internal `VOICE_MOVE` → user (§5) |
 | DELETE `/guilds/:id/members/:userId` | KICK_MEMBERS (not owner) | 204 | `GUILD_MEMBER_REMOVE {guildId, user}` → guild; `GUILD_DELETE {id}` → user:{kicked}; `INVITE_DELETE` → guild for each revoked invite (Invite limits) |
 | DELETE `/users/@me/guilds/:id` | member, not owner | 204 | same as kick |
+| GET `/guilds/:id/bans` | BAN_MEMBERS | `Ban[]`, newest first | — |
+| PUT `/guilds/:id/bans/:userId` `{reason?: string \| null}` (at most 512 characters) | BAN_MEMBERS; not the owner, not yourself; a member target: hierarchy as kick | 204. Idempotent: a second ban keeps the first row. A user who is not a member can be banned | when the user was a member: the same events as kick |
+| DELETE `/guilds/:id/bans/:userId` | BAN_MEMBERS | 204. 404 without a ban | — |
 | GET `/guilds/:id/roles` | member | `Role[]` | — |
 | POST `/guilds/:id/roles` `{name, color?, hoist?, permissions?}` | MANAGE_ROLES | `Role` | `GUILD_ROLE_CREATE {guildId, role}` |
 | PATCH `/guilds/:id/roles` `[{id, position}]` | MANAGE_ROLES | `Role[]` | `GUILD_ROLE_UPDATE` per changed role |
@@ -359,7 +395,7 @@ Implemented extras (Discord semantics):
 | POST `/guilds/:id/invites` `{maxAgeSeconds?, maxUses?, acknowledgedPermanent?, record?}` | CREATE_INSTANT_INVITE; ADMINISTRATOR for `maxAgeSeconds` 0 or above 86400, and for `record` (with `X-Hachiman-Device`) (Invite limits) | `Invite` | — |
 | DELETE `/invites/:code` | MANAGE_GUILD | 204. Deletes the bundles of the invite | `INVITE_DELETE {guildId, code, inviteId}` → guild (first revoke only) |
 | GET `/invites/:code` | **public** | `InvitePreview` (non-consuming) | — |
-| POST `/invites/:code` | auth | `GuildFull` (idempotent if already a member — no use consumed) | `GUILD_MEMBER_ADD` → guild; `GUILD_CREATE` → user:{me} |
+| POST `/invites/:code` | auth; 403 `Banned` for a banned user (§4 Bans) | `GuildFull` (idempotent if already a member — no use consumed) | `GUILD_MEMBER_ADD` → guild; `GUILD_CREATE` → user:{me} |
 | GET `/users/@me/channels` | auth | `Channel[]` (DMs) | — |
 | POST `/users/@me/channels` `{recipientIds: string[]}` | auth; recipients must share a guild with me; no block either way (403 `Blocked`, Pins, guild events and blocks) | `Channel` (1 recipient → reuse existing `dm`; ≥2 → new `group_dm`, max 10) | `CHANNEL_CREATE` → user:{each participant} |
 | GET `/limits` | auth | `Limits` | — |
@@ -367,6 +403,8 @@ Implemented extras (Discord semantics):
 | POST `/uploads?kind=page_snapshot` raw body | auth | `Attachment` (201): an encrypted page snapshot blob (§4 Pages) | — |
 | POST `/uploads?filename=<name>` raw body | auth | `{id, key, size}` (201): a plaintext profile image | — |
 | GET `/files/:uploadId/:filename` | **public** | file bytes (`/files/{uploadId}/blob` for blobs) | — |
+
+**Bans.** A ban is a row in `guild_bans`. `PUT /guilds/:id/bans/:userId` writes the row and removes the membership in the same transaction, through the leave path: the DS gets `member_left` (§12.18), the invites of users who lost ADMINISTRATOR are revoked, and the gateway drops the guild and its voice state from the sessions of the user (`GUILD_DELETE` → user). While the row exists, the invite accept refuses the user with 403 `Banned`. There are no ban events: the Bans page of the guild settings reads `GET /guilds/:id/bans` when it opens and after each change. Kick, ban and the voice moderation (below) all use one rule: never the owner, and the top role of a member target must be below the top role of the caller (owner and ADMINISTRATOR exempt).
 
 The E2EE routes (devices, keys, MLS, inbox, backups, linking, key transparency, reports, invites with history) are in §12.12. In Phase 4, the role, overwrite and member-role routes and the channel `historyVisibility` change also take the header `X-Hachiman-Signed-Action` (§12.16). The header is necessary only when the request changes signed state: a role PATCH only with `permissions`, a member PATCH only with `roles`. A signed `role_create` names the role id, and `POST /guilds/:id/roles` creates the role with that id. The guild `publicHistoryVisibility` has no admin action type and is not signed.
 
@@ -391,7 +429,47 @@ The E2EE routes (devices, keys, MLS, inbox, backups, linking, key transparency, 
 - The pin PUT locks the channel row, so concurrent pins cannot pass the limit. A message delete removes its pin (cascade) and publishes only `MESSAGE_DELETE`.
 - Event rules (400 `ValidationError`): `title` is 1 to 100 characters after trim. `startsAt` and `endsAt` are ISO 8601 times with an offset. A create needs `startsAt` in the future. A PATCH that sets `startsAt` needs it in the future. `endsAt`, when not null, is after `startsAt` (a PATCH checks the merged times). `channelId`, when not null, is a voice channel of the guild. A channel delete sets `channelId` to null and publishes no event update.
 - The list holds an event while `endsAt` is in the future, or, with no `endsAt`, until 6 h after `startsAt`. READY does not carry events: the client fetches the list (§10 `fetchGuildEvents`).
+- A block in either direction also refuses `POST /users/:id/poke` (§4 Poke).
 - A block in either direction refuses `POST /users/@me/channels` with a blocked recipient (a new DM, a group DM, or the reuse of an existing DM) and `POST /channels/:id/messages` in a 1:1 `dm` with 403 `Blocked`. Group DMs that exist and guild channels are not affected: the client hides the messages of blocked users there. The blocked user is not told.
+
+### Soundboard
+
+| Method + path | Permission | Returns | Publishes |
+|---|---|---|---|
+| GET `/guilds/:id/sounds` | member | `GuildSound[]`, oldest first | — |
+| POST `/guilds/:id/sounds` `{id, name, emoji?, uploadId, channelId, envelope}` + `X-Hachiman-Device` | MANAGE_EXPRESSIONS | 201 `GuildSound` | `GUILD_SOUNDS_UPDATE {guildId}` → guild |
+| DELETE `/guilds/:id/sounds/:soundId` | MANAGE_EXPRESSIONS | 204 (404 for a sound of another guild) | `GUILD_SOUNDS_UPDATE {guildId}` → guild |
+
+- The client chooses `id` (a UUID): the envelope binds it. A used id gives 409.
+- `name` is 1 to 32 characters after trim, `emoji` null or 1 to 32 characters. Neither has control or bidi control characters. A guild has at most 48 sounds (400 `ValidationError`).
+- `uploadId` is an unclaimed blob of the caller (`POST /uploads?kind=blob`). The claim sets purpose `sound`. A blob above 560 KiB gives 413 `SoundTooLarge`. Else 400 `UnknownUpload`. The client limits the clip to mp3, ogg or wav, at most 512 KiB and 5 s. The server cannot check the duration.
+- `channelId` is a text or pages channel of the guild whose current group is the `public_set` group (§12.6). Else 400 `NotPublicChannel`. Thus every member of the guild can read the envelope.
+- `envelope` is a `doc_snapshot` page envelope (§12.20) with `page_id` = `id`. Takusen checks its header as for a snapshot (`acceptDocEnvelope`: size, kind, group, channel, page, epoch, sender device and leaf) and stores `group_id`, `epoch` and `sender_device` (§12.21).
+- A delete removes the blob from storage. A guild delete removes the blobs of its sounds.
+- USE_SOUNDBOARD is not a server check: the client mixes the sound into the sender's own microphone track, after the noise suppression, so it is SFrame-encrypted like the voice (§12.10). Self-mute drops that track, so the client turns the soundboard off while muted. The client shows the soundboard only with CONNECT, SPEAK and USE_SOUNDBOARD in the voice channel.
+
+### Poke
+
+| Method + path | Permission | Returns | Publishes |
+|---|---|---|---|
+| POST `/users/:id/poke` | auth; not yourself (400). The two users share a guild, a DM or a group DM, else 404 (also for an unknown user). A block in either direction: 403 `Blocked` | 204 | `POKE {user}` → user:{target} only. `user` is the sender |
+
+- Rate limits (Redis fixed windows, 429 `RateLimited` with `Retry-After`): 1 per 10 s per sender and target, 10 per 60 s per sender.
+- A poke has no content. It is not end-to-end encrypted, as a typing event is not: it tells the target only who poked and when.
+
+### Emojis
+
+Custom guild emojis (§1 `GuildEmoji`, table `guild_emojis`). Plaintext metadata and images, like the guild icon (§12.1).
+
+| Method + path | Permission | Returns | Publishes |
+|---|---|---|---|
+| GET `/guilds/:id/emojis` | member | `GuildEmoji[]`, oldest first | — |
+| POST `/guilds/:id/emojis` `{name, uploadId}` | MANAGE_EXPRESSIONS | `GuildEmoji` (201) | `GUILD_EMOJIS_UPDATE {guildId, emojis}` → guild |
+| PATCH `/guilds/:id/emojis/:emojiId` `{name}` | MANAGE_EXPRESSIONS | `GuildEmoji` | `GUILD_EMOJIS_UPDATE` → guild |
+| DELETE `/guilds/:id/emojis/:emojiId` | MANAGE_EXPRESSIONS | 204. Deletes the upload row and, after commit, the object | `GUILD_EMOJIS_UPDATE` → guild |
+
+- **Emojis.** `name` matches `^[a-z0-9_]{2,32}$` (else 400 `ValidationError`) and is unique in the guild (else 409 `Conflict`). A guild has at most 100 emojis (`MAX_GUILD_EMOJIS`), else 400 `TooManyEmojis`; the create locks the guild row, so concurrent creates cannot pass the cap. `uploadId` is an upload of the caller from `POST /uploads?filename=`, with purpose null and `encrypted = false`, else 400 `UnknownUpload`. Its type must be in `EMOJI_IMAGE_TYPES` (`image/png`, `image/gif`, `image/webp`) and its size at most `MAX_EMOJI_BYTES` (262144), else 400 `InvalidImage`. The claim sets `purpose = 'emoji'` in the transaction of the insert. A guild delete deletes the emoji uploads and their objects. The constants are in `@hachiman/client/files`.
+- **Custom emojis in messages.** The server never sees which emoji a message uses. A client writes a custom emoji into the message text as `<:name:id>` (Discord format) and into a reaction (§12.8.1 kind 3) as `name:id`. The receiver shows the image of `id` from the `emojis` of any guild it knows, else the text `:name:`.
 
 ### Files
 
@@ -414,6 +492,7 @@ only needs the Takusen origin, and the bucket can stay private.
   An avatar, icon or banner claim needs purpose null or `'image'` and `encrypted = false`, and sets `purpose = 'image'`. An `'attachment'` upload or a blob gives 400 `UnknownUpload`.
   The type must be in `PROFILE_IMAGE_TYPES` (`image/png`, `image/jpeg`, `image/gif`, `image/webp`), else 400 `InvalidImage`.
   An `'image'` upload can be claimed again as an avatar, icon or banner.
+  A custom emoji claims a plaintext upload once and sets `purpose = 'emoji'` (Emojis).
   Each claim is one conditional `UPDATE` in the same transaction as the write that uses it.
   Thus, when two claims for different purposes race for one upload, only one claim wins.
   A message create claims all ids in one transaction: one bad id gives 400 `UnknownUpload` and no message. Duplicate ids give 400 `ValidationError`. A message claims at most 20 ids (10 files, each with an optional thumbnail, §12.8.5). Thumbnails are claimed like files, so a message delete also deletes them.
@@ -455,7 +534,7 @@ Both routes are public, with no auth. `:platform` is `macos` or `windows`. Takus
 
 The app (`apps/hachiman-electron/src/main/updater.ts`) checks at start and every 4 h when it was built with `MAIN_VITE_BUILD_SHA` (CI sets the commit).
 When `sha` differs from its own, it downloads the zip, drops it unless its SHA-256 is `sha256`, unpacks it and asks to restart.
-After "Later", the timer does not ask again for that build. User settings → Updates checks at once (`IPlatformService.checkForUpdate`, IPC `hachiman:check-for-update` from the top frame of the app page only) and asks again for a build that was put off. The timer and the button share one check at a time.
+After "Later", the timer does not ask again for that build. User settings → Desktop app checks at once (`IPlatformService.checkForUpdate`, IPC `hachiman:check-for-update` from the top frame of the app page only) and asks again for a build that was put off. The timer and the button share one check at a time.
 Windows runs the NSIS installer with `/S --force-run`. macOS (unsigned builds, so no Squirrel.Mac) copies the `.app` from the dmg over its own bundle after it quits. When the install folder is not writable, it opens the dmg instead.
 
 ### Pages
@@ -596,7 +675,8 @@ Other Redis keys (owned by the gateway unless noted):
 | `presence:{userId}` | string | status. TTL 90 s, refreshed on heartbeat. Absent ⇒ offline |
 | `custom_status:{userId}` | string | `CustomStatus` JSON (§1), written by op 3. No TTL without `expiresAt` (it survives sign-out), else it expires at `expiresAt`. Readers also drop a value whose `expiresAt` has passed. Sent only with a presence that is not `offline` |
 | `voice:{guildId}` | hash | userId → `VoiceState` JSON. Readers drop entries whose `session:{sessionId}` is gone |
-| `voice_user:{userId}` | string | guildId the user is in voice for (one voice session per user globally) |
+| `voice_dm:{channelId}` | hash | the same for the call of one DM or group DM channel (§6 "DM calls") |
+| `voice_user:{userId}` | string | the scope the user is in voice for (one voice session per user globally): the guildId, or `dm:{channelId}` for a DM call |
 | `voice_room:{channelId}` | string | mediaNodeId hosting that channel (sticky; SET NX, EX 24 h, deleted when the last user leaves). The endpoint comes from `media_nodes.signaling_url`. A missing node row drops the key and re-places |
 | `takusen:sessions_revoked_at` | string | Takusen-owned. Unix ms: every dashboard cookie from before it is dead (§4 Admin API, `sessions:revoke`). No TTL |
 | `takusen:sessions_revoked_at:{userId}` | string | Takusen-owned. The same cut-off for one user (admin sign-out, password change, the dashboard's "Sign out everywhere else"). No TTL. "Sign out everywhere else" first gives the current cookie a new `authTime`, then sets the cut-off to a time from before it, so the current cookie stays |
@@ -604,7 +684,8 @@ Other Redis keys (owned by the gateway unless noted):
 | `takusen:device_nonce:{key}:{nonce}` | string | Takusen-owned. A device proof nonce that Takusen accepted (§12.12 "Device proof"). `{key}` is the base64url device MLS public key. `SET NX`, TTL 10 min |
 | `takusen:mls_wakeup` | pub/sub | Takusen-owned. Takusen → its gRPC process: `{ "groupId": "<base64url>" }` when a Remove is queued (§12.7.5) |
 | `takusen:mls_false_reject:{deviceId}` | string (counter) | Takusen-owned. The number of false `not_reader` rejection reports of a committer device (§12.12 "Batch rejections"). At 3, the batch scheduler skips the device. TTL 30 days, set again on each report |
-| `media:{nodeId}` | pub/sub | gateway → media: `{ "op": "kick", "sessionId": "...", "channelId": "..." }` — media only closes a conn whose token channelId matches (a late kick must not kill a newer connection of the same session) |
+| `media:{nodeId}` | pub/sub | gateway → media: `{ "op": "kick", "sessionId": "...", "channelId": "..." }` — media only closes a conn whose token channelId matches (a late kick must not kill a newer connection of the same session). `{ "op": "mute", "sessionId", "channelId", "mute": bool }` — server mute or deafen (§6 "Voice moderation"): media drops (or forwards again) the mic and screen share audio RTP of that session, with the same channelId check |
+| `user:{userId}` | pub/sub | Takusen → gateway, internal: the envelope `{ "t": "VOICE_MOVE", "d": { "guildId", "channelId": string \| null } }` after a PATCH of the member with `channelId` (§6 "Voice moderation"). Not forwarded to clients |
 | `device:{deviceId}` | pub/sub | media → gateway, internal: the envelope `{ "t": "VOICE_DISCONNECTED", "d": { "sessionId", "channelId", "jti" } }` when a call ends without a kick (§8 "Call end"). Not forwarded to clients |
 
 ## 6. Gateway WebSocket (`hachiman-gateway`)
@@ -618,7 +699,7 @@ URL: `ws(s)://<host>/gateway` (dev `ws://localhost:8080/gateway`). Text frames, 
 | 1 | HEARTBEAT | C→S | last seq received or null |
 | 2 | IDENTIFY | C→S | `{ token, deviceId, capabilities: string[], clientVersion, deviceProof: { ts, nonce, sig } }` (Takusen access token, §12.13) |
 | 3 | PRESENCE_UPDATE | C→S | `{ status?, customStatus?: { text, expiresAt?: string \| null } \| null }` (below) |
-| 4 | VOICE_STATE_UPDATE | C→S | `{ guildId, channelId: string \| null, selfMute, selfDeaf, selfStream }` |
+| 4 | VOICE_STATE_UPDATE | C→S | `{ guildId: string \| null, channelId: string \| null, selfMute, selfDeaf, selfStream }`. `guildId` null: a DM call (below) |
 | 5 | DOC_AWARENESS | C→S | `{ channelId, pageId, envelope }`: a doc_awareness envelope (§12.20), base64url |
 | 6 | RESUME | C→S | `{ token, sessionId, seq, deviceId, deviceProof: { ts, nonce, sig } }` |
 | 7 | RECONNECT | S→C | null — client should reconnect + RESUME |
@@ -649,7 +730,7 @@ Dispatch events:
 
 | t | d |
 |---|---|
-| READY | `{ v: 1, sessionId, deviceId, user: User, guilds: GuildFull[], privateChannels: Channel[], presences: Presence[] /* DM partners */, readStates: ReadState[] }`. `readStates` has one entry for each text and pages channel that the user can VIEW and for each DM and group DM. The gateway reads them from Postgres in one query |
+| READY | `{ v: 1, sessionId, deviceId, user: User, guilds: GuildFull[], privateChannels: Channel[], privateVoiceStates: VoiceState[] /* the live DM calls, guildId null */, presences: Presence[] /* DM partners */, readStates: ReadState[] }`. `readStates` has one entry for each text and pages channel that the user can VIEW and for each DM and group DM. The gateway reads them from Postgres in one query |
 | RESUMED | `{}` |
 | GUILD_CREATE | `GuildFull` |
 | GUILD_UPDATE | `Guild` |
@@ -665,18 +746,22 @@ Dispatch events:
 | GUILD_ROLE_CREATE / GUILD_ROLE_UPDATE | `{ guildId, role: Role }` |
 | GUILD_ROLE_DELETE | `{ guildId, roleId }` |
 | INVITE_DELETE | `{ guildId, code, inviteId }` — an invite was revoked (§4): by `DELETE /invites/:code`, or because its creator lost ADMINISTRATOR. To every member of the guild. The crypto Worker also gets it (§12.13) |
-| PRESENCE_UPDATE | `Presence` (published to guild:{g} for every guild of the user, and user:{p} for DM partners) |
-| VOICE_STATE_UPDATE | `VoiceState` (`channelId: null` = left) |
-| VOICE_SERVER_UPDATE | `{ guildId, channelId, endpoint, token, iceServers: RTCIceServer[], expiresAt }` — to the requesting session only |
+| PRESENCE_UPDATE | `Presence` (published to guild:{g} for every guild of the user, and user:{p} for DM partners). When a session gets GUILD_CREATE (the user joined or created a guild), the gateway also publishes the current presence to that guild:{g}, so that the members see the new member online |
+| VOICE_STATE_UPDATE | `VoiceState` (`channelId: null` = left). A guild state goes to guild:{g}, a DM call state to user:{p} of each participant |
+| VOICE_SERVER_UPDATE | `{ guildId: string \| null, channelId, endpoint, token, iceServers: RTCIceServer[], expiresAt, moved?: true }` — to the requesting session only. `moved`: a move by a moderator (§6 "Voice moderation"), not an answer to op 4 |
+| CALL_RING | `{ channelId, userId /* the caller */, ringing: string[] /* user ids */, at /* RFC 3339 */ }` — a DM call started (§6 "DM calls"). To user:{p} of each user in `ringing` |
 | PAGE_CREATE / PAGE_UPDATE | `Page & { guildId }` |
 | PAGE_DELETE | `{ id, channelId, guildId, ids: string[] }` (`ids`: the page and its subtree) |
 | DOC_UPDATE | `DocUpdate & { channelId, guildId }` (ephemeral, above) |
 | DOC_AWARENESS | `{ channelId, guildId, pageId, userId, deviceId, envelope }` (ephemeral, above) |
 | CHANNEL_PINS_UPDATE | `{ channelId, guildId }` (`guildId` null in a DM). Bus envelope with `channelId`: VIEW_CHANNEL filtered like a message. The client refetches `GET /channels/:id/pins` |
+| GUILD_EMOJIS_UPDATE | `{ guildId, emojis: GuildEmoji[] }` — the full list after a create, rename or delete. To every member of the guild |
 | GUILD_EVENT_CREATE / GUILD_EVENT_UPDATE | `GuildEvent` (no `me`) — to every member of the guild |
 | GUILD_EVENT_DELETE | `{ id, guildId }` |
 | GUILD_EVENT_RSVP | `{ eventId, guildId, userId, going, rsvpCount }` |
 | USER_BLOCK_UPDATE | `{ userId, blocked }` — to user:{me} only (the blocker's sessions) |
+| GUILD_SOUNDS_UPDATE | `{ guildId }` — to every member of the guild. The client refetches `GET /guilds/:id/sounds` |
+| POKE | `{ user: User }` — to user:{target} only. No content (§4 Poke) |
 | MLS_HANDSHAKE, MLS_GROUP_UPDATE, MLS_BATCH_ASSIGN, MLS_JOIN_UPDATE, DEVICE_INBOX, DEVICE_LINK, USER_KEYS_UPDATE, KEY_PACKAGES_LOW, KT_TREE_HEAD | §12.13 |
 
 Detached sessions: when a socket closes with any code but 1000, the session stays resumable for 60 s. Events keep buffering,
@@ -707,7 +792,7 @@ The gateway publishes `offline` itself when a socket closes without resuming wit
 ### Voice join (gateway side)
 
 On op 4 with a `channelId`:
-1. Require channel.type == voice and CONNECT + VIEW_CHANNEL.
+1. Require channel.type == voice and CONNECT + VIEW_CHANNEL. (A DM call: "DM calls" below.)
 2. If `voice_user:{me}` names another guild, remove that voice state first (publish VOICE_STATE_UPDATE with channelId null + kick).
 3. HSET `voice:{guildId}`, SET `voice_user:{me}`, publish VOICE_STATE_UPDATE to guild.
 4. If the channel changed (not a mute, deafen or stream toggle): resolve media node = GET `voice_room:{channelId}`, else
@@ -725,9 +810,29 @@ publish kick to `media:{nodeId}`, and DEL `voice_room:{channelId}` if HLEN of oc
 ICE servers: if TURN is configured (`--turn-secret`, `--turn-urls`), mint coturn REST credentials (`pkg/coturn`), else
 `[{ "urls": ["stun:stun.l.google.com:19302"] }]`.
 
-Not in v1 (explicitly deferred): server mute/deafen (MUTE_MEMBERS / DEAFEN_MEMBERS), moving others (MOVE_MEMBERS), camera video, a STREAM permission.
+Not in v1 (explicitly deferred): camera video, a STREAM permission.
+
+### Voice moderation
+
+Server mute and deafen are the `mute` and `deaf` of the Member (`guild_members`), set by `PATCH /guilds/:id/members/:userId` (§4). They stay across calls. The gateway keeps them for the user of each session (READY, then GUILD_MEMBER_UPDATE). Each voice state carries them as `mute` and `deaf`. The voice token of a member with either one has the claim `mute: true` (§7). When a GUILD_MEMBER_UPDATE of the user changes them, the session that holds the call of the user (its voice state names the session, and the session hash names this gateway as `owner`) writes the voice state, publishes VOICE_STATE_UPDATE and publishes `{op: "mute", sessionId, channelId, mute: mute || deaf}` to `media:{nodeId}`. The gateway writes the voice state only while it still names this session (compare-and-set), so a join from another device in between wins. The media node then drops the mic RTP of the session (m-line 0) and relays no `speaking: true` of it, until the next `mute` op. It also drops the screen share audio of the session (m-line 2), so a muted user cannot talk through a share. The screen video is not affected. The last op wins over the token claim, also for a session that is still joining when the op comes. The client also gates its media (§10). The media node does not stop the remote audio of a deafened session: the client mutes its playback.
+
+Move and disconnect: `PATCH` with `channelId` publishes the internal `VOICE_MOVE {guildId, channelId}` to `user:{userId}` (§5). The session that holds the call in that guild acts, as above. With `channelId: null` it leaves voice as for op 4 with `channelId: null` (VOICE_STATE_UPDATE null, kick). Else it runs the join steps above for the new channel with the self mute and deafen of the call, `selfStream` false, and sends VOICE_SERVER_UPDATE with `moved: true`. The client then opens the media connection of that channel without op 4. A kick (4010) from media does not make the client send an op 4 leave: the gateway already changed the voice state.
 
 The gateway does not examine `selfStream`. It stores and publishes the value only. Any member in a voice channel can share a screen.
+
+### DM calls
+
+A `dm` or `group_dm` channel is also a voice room: a call with voice and screen share, as in a guild voice channel. Op 4 with `guildId: null` and the DM channel id joins its call. Differences from a guild join:
+1. The gateway reads the participants of the channel from Postgres (`dm_participants`, channel type `dm` or `group_dm`). The user must be a participant. There is no permission check. Else the frame is dropped (no close, no answer).
+2. The state goes in `voice_dm:{channelId}`, and `voice_user:{me}` is `dm:{channelId}`. A state in another scope (a guild, or another DM call) is removed first, as in step 2.
+3. VOICE_STATE_UPDATE goes to user:{p} of every participant (the joiner included), not to a guild. A leave reads the participants again.
+4. **Ring.** When the joiner was not in the call and no live session of another user is in it, the gateway publishes `CALL_RING { channelId, userId, ringing, at }` to user:{p} of every other participant (`ringing`). A mute, deafen or stream toggle, a device switch or a join into a call with people in it does not ring. The gateway keeps no ring state.
+5. Placement: `PlaceMediaSession{channelId, guildId: "", homeRegion: ""}` (any region). The voice token has `guildId` "" (§7). VOICE_SERVER_UPDATE has `guildId: null`.
+6. READY `privateVoiceStates` holds the live states of every DM call of the user.
+
+The client stops ringing locally (no wire message): when the user joins the call (a VOICE_STATE_UPDATE of the user in that channel, from any device), when no state is left in the call (the caller left), when the user declines, or 30 s after `at`. In a 1:1 DM, a join of the other user also stops it. `// ponytail:` a decline is local to the device. The other devices of the user ring until the timeout.
+
+`// ponytail:` a participant removed from a group DM keeps its voice state until it leaves. The gateway does not re-check membership during a call.
 
 ## 7. Voice token (PASETO v4.public, `pkg/voicetoken`)
 
@@ -738,12 +843,13 @@ type Claims struct {
     SessionID   string    `json:"sessionId"`   // gateway session id
     UserID      string    `json:"userId"`
     DeviceID    string    `json:"deviceId"`    // the gateway session's device (§12.13). Media gives it to members in e2ee_roster
-    GuildID     string    `json:"guildId"`
+    GuildID     string    `json:"guildId"`     // "" for a DM call (§6 "DM calls")
     ChannelID   string    `json:"channelId"`   // = media room id
     MediaNodeID string    `json:"aud"`         // must equal the verifying node's id
     JTI         string    `json:"jti"`
     IssuedAt    time.Time `json:"iat"`
     ExpiresAt   time.Time `json:"exp"`         // 60–120 s after iat
+    Mute        bool      `json:"mute"`        // optional, only true is sent: server muted or deafened at mint time (§6 "Voice moderation")
 }
 ```
 
@@ -776,6 +882,7 @@ JSON text frames `{ "op": string, "d": any }`. Media is always the SDP **offerer
 | peers | M→C | `{ peers: [{ userId, ssrc }] }` — full snapshot of other room members; sent on join and on every change |
 | speaking | C→M | `{ speaking: boolean }` |
 | speaking | M→C | `{ userId, speaking }` — relayed to other room members |
+| screen_subscribe | C→M | `{ userIds: string[] }` — the users whose screen share media forwards to this session. It replaces the previous set. The set is empty at join. Media keeps it for the session, also when a named user joins later or rejoins. More than 256 ids, or more than 10 frames in a second: media ignores the frame. See "Screen share" below |
 | e2ee_roster | M→C | `{ groupId, epoch: number \| null, committer: sessionId \| null, create: boolean, members: [{sessionId, userId, deviceId, leafIndex: number \| null}], pending: [{sessionId, userId, deviceId}], departed: [{sessionId, userId, deviceId, leafIndex: number \| null}] }` — to every session, on join and on every change. `create: true` tells the committer to create the group (epoch 0). `members[].leafIndex` is null for a session that a commit added and that did not send `e2ee_ready` yet. `departed[].leafIndex` is null when the session left before it reported its leaf: the committer then finds the leaf by the device id of the leaf credential |
 | e2ee_key_package | M→C | `{ sessionId, userId, deviceId, keyPackage }` — to the committer, for each pending joiner (again after a committer change) |
 | e2ee_commit | C→M | `{ epoch, commit, welcome: string \| null, added: sessionId[], removed: sessionId[] }` — `epoch` is the epoch that the commit applies to. When `welcome` is not null, the next `e2ee_*` frame from that session is `e2ee_ratchet_tree` (other ops, such as `candidate` or `speaking`, may come between) |
@@ -792,7 +899,7 @@ E2EE (§12.10): the media node relays and orders. It never signs, proposes or co
 
 `e2ee_invalid` closes the sender with 4013 (a resync) when `transitionId` is null, when it names an unknown or resolved transition, a transition that does not include the sender, or a transition that the sender committed. When no live participant holds the group state but participants remain, the room starts a new group: a new room session id and group id, epoch null, and an empty `departed` list.
 
-**Bad commits.** For one `transitionId`, when at least two members send `e2ee_invalid`, or every other member when fewer than two other members exist, the media node closes the committer of that transition with 4014. It keeps the other members, selects a new committer and sends the roster again. The members drop the pending transition and stay in the previous epoch. A single `e2ee_invalid` while the other members send `e2ee_ready` closes only that member with 4013. Frames on m-line 0 and 1 and on every peer track are SFrame (§12.10.2).
+**Bad commits.** For one `transitionId`, when at least two members send `e2ee_invalid`, or every other member when fewer than two other members exist, the media node closes the committer of that transition with 4014. It keeps the other members, selects a new committer and sends the roster again. The members drop the pending transition and stay in the previous epoch. A single `e2ee_invalid` while the other members send `e2ee_ready` closes only that member with 4013. Frames on m-lines 0 to 2 and on every peer track are SFrame (§12.10.2).
 
 **Call end.** When a joined session closes for any reason except 4010 (kick), 4011 (replaced) or a node shutdown (1001), the media node publishes `VOICE_DISCONNECTED {sessionId, channelId, jti}` (the claims of its voice token) to `device:{deviceId}` (§5). The gateway then removes the voice state at once (§6 "Voice join"), and does not wait for the end of the gateway session. The gateway caused a kick or a replace, so those send nothing. On a shutdown the clients get 1001 and leave themselves.
 
@@ -805,24 +912,28 @@ Close codes: 4004 bad token (incl. replayed jti — clients need a fresh VOICE_S
 
 `ssrc` in `ready`/`peers` is a node-unique id from `SSRCPool`, **not** the on-wire RTP SSRC (pion v3 picks those). Map tracks by msid (below).
 Codecs: Opus (payload type 111) for audio, VP8 (payload type 96) for screen video.
-Upload slots: the recvonly transceivers at m-line 0 (mic, audio) and m-line 1 (screen, video) of the initial offer. They are stable across renegotiations.
+Upload slots: the recvonly transceivers at m-line 0 (mic, audio), m-line 1 (screen, video) and m-line 2 (screen audio, audio) of the initial offer. They are stable across renegotiations. A client finds m-line 2 to be a slot only when the offer marks it `a=recvonly`: a media node without the screen audio slot has a peer track there, and the client then sends no screen audio.
 Peer tracks ride separate sendonly transceivers. Frame order on join: `ready` → `peers` → `e2ee_roster` → `offer`.
 
-Track labeling: for each peer, the media node creates two output tracks:
+Track labeling: for each peer, the media node creates three output tracks:
 
 | Track | Stream id | Track id |
 |---|---|---|
 | Mic | `<userId>` | `audio-<userId>` |
 | Screen | `screen-<userId>` | `screen-<userId>` |
+| Screen audio | `screen-<userId>` | `screen-audio-<userId>` |
 
-Clients map remote tracks to users through `ontrack` → `event.streams[0].id`. A stream id `screen-<userId>` is the video track (SFrame track 1) of `<userId>`. Every other stream id is the user id, with the audio track (SFrame track 0).
+Clients map remote tracks to users through `ontrack` → `event.streams[0].id`. A stream id `screen-<userId>` with a video track is the screen of `<userId>` (SFrame track `video`). With an audio track it is the screen audio (SFrame track `screen-audio`). Every other stream id is the user id, with the mic (SFrame track `audio`).
 
 Screen share:
-- Every room member receives the screen track of every peer. The track is silent until the peer shares.
+- Every room member has a screen track and a screen audio track for every peer (transceivers in the SDP). Media forwards a peer's screen and screen audio to a viewer only while the viewer's last `screen_subscribe` names that peer. Else the tracks are silent. They are also silent until the peer shares.
+- Each (sharer, viewer) pair has its own output tracks on the media node. A `screen_subscribe` only starts or stops the writes to those tracks. No renegotiation occurs.
+- Media rewrites the RTP sequence numbers of each viewer's screen tracks, so they stay contiguous over the gaps while the viewer is not subscribed. Payloads stay unchanged (§12.10.2).
+- When a subscription starts, media sends a PLI to the sharer, so the video starts at a keyframe. The 500 ms limit below applies: a PLI that it drops is not sent later, and the viewer's own keyframe request then starts the video.
 - The voice state field `selfStream` (§1, op 4) tells clients when a share is live. No media frame carries it.
-- To start or stop a share, the client replaces the track on its m-line 1 sender. No renegotiation occurs.
-- The sharer sets the resolution, frame rate and bitrate. All viewers get the same quality (no simulcast).
-- Media relays a viewer's PLI (picture loss indication) or FIR (full intra request) to the sharer as a PLI. Both ask for a keyframe. Media sends at most one PLI to a sharer each 500 ms. A viewer that joins during a share gets its first keyframe this way.
+- To start or stop a share, the client replaces the track on its m-line 1 sender, and the share audio on its m-line 2 sender. A share without audio leaves m-line 2 empty. No renegotiation occurs. Media never sends a client's own tracks back to it.
+- The sharer sets the resolution, frame rate and bitrate. All subscribed viewers get the same quality (no simulcast).
+- Media relays a viewer's PLI (picture loss indication) or FIR (full intra request) to the sharer as a PLI. Both ask for a keyframe. Media sends at most one PLI to a sharer each 500 ms. A viewer that joins or subscribes during a share also gets its first keyframe this way.
 
 SFU keys: session = `Claims.SessionID` (string), room = `Claims.ChannelID`. Media allocates SSRCs per node from
 `SSRCPool` keyed by session string. A client receives output tracks **only** for peers in its own room.
@@ -850,7 +961,7 @@ message PlaceMediaSessionResponse { string node_id = 1; string signaling_url = 2
 
 Heartbeat status: `dead` stays `dead`. A node with `admin_drain` stays `draining`. Else `accepting` gives `active` or `draining`. Register sets `active`, or `draining` when `admin_drain` is set.
 
-Takusen placement ignores `channel_id`/`guild_id`. It returns the least-loaded fresh node in `home_region`, or in any region when `home_region` is empty (guilds default to no region). Channel stickiness comes from the gateway key `voice_room:{channelId}`.
+Takusen placement ignores `channel_id`/`guild_id` (`guild_id` is empty for a DM call). It returns the least-loaded fresh node in `home_region`, or in any region when `home_region` is empty (guilds default to no region). Channel stickiness comes from the gateway key `voice_room:{channelId}`.
 
 Create/DeleteVirtualServer: deleted. Takusen loads the proto dynamically (`@grpc/proto-loader`), so the
 TS handler names follow the proto (`Management`, `hachiman.management.v1`).
@@ -879,14 +990,19 @@ export class RestClient {
   putOverwrite(channelId, targetId, body, opts?); deleteOverwrite(channelId, targetId, opts?)
   getMessages(channelId, { before?, limit? }); editMessage(...); deleteMessage(...); triggerTyping(channelId); ackMessage(channelId, messageId)
   getMembers(guildId); updateMember(guildId, userId, body, opts?); kickMember(guildId, userId); leaveGuild(guildId)
+  getBans(guildId); banMember(guildId, userId, {reason?}?); unbanMember(guildId, userId)
   getRoles(guildId); createRole(guildId, body, opts?); reorderRoles(guildId, positions, opts?); updateRole(guildId, roleId, body, opts?); deleteRole(guildId, roleId, opts?)
   getInvites(guildId); createInvite(guildId, { maxAgeSeconds?, maxUses?, acknowledgedPermanent?, record? }); deleteInvite(code); previewInvite(code); acceptInvite(code)
   getDmChannels(); openDm(recipientIds); getUser(id)
   // §4 Pins, guild events and blocks
   getPins(channelId); pinMessage(channelId, messageId); unpinMessage(channelId, messageId)
+  getGuildEmojis(guildId); createGuildEmoji(guildId, { name, uploadId }); renameGuildEmoji(guildId, emojiId, name); deleteGuildEmoji(guildId, emojiId)
   getGuildEvents(guildId); createGuildEvent(guildId, { title, startsAt, endsAt?, channelId? }); updateGuildEvent(eventId, body); deleteGuildEvent(eventId)
   setEventRsvp(eventId, going: boolean)   // PUT or DELETE /events/:id/rsvp
   getBlocks(); blockUser(userId); unblockUser(userId)
+  // §4 Soundboard and Poke
+  getGuildSounds(guildId); createGuildSound(guildId, { id, name, emoji?, uploadId, channelId, envelope }); deleteGuildSound(guildId, soundId)
+  poke(userId)
   updateMe({ avatar? }); getLimits()
   // §4 Pages
   getPages(channelId); getPageHeads(channelId); createPage(channelId, { id, parentId, position, titleEnvelope }); updatePage(pageId, { parentId?, position?, titleEnvelope?, ifUpdatedAt? }); deletePage(pageId)
@@ -935,7 +1051,7 @@ export class GatewayClient extends TypedEventEmitter<GatewayClientEvents> {
   readonly latencyMs: number | null   // HEARTBEAT → ACK RTT
   updatePresence(status: PresenceStatus): void
   setCustomStatus(text: string, expiresAt?: string | null): void   // op 3 customStatus; an empty text sends null (clear)
-  updateVoiceState(d: { guildId: string; channelId: string | null; selfMute: boolean; selfDeaf: boolean }): void
+  updateVoiceState(d: { guildId: string | null; channelId: string | null; selfMute: boolean; selfDeaf: boolean }): void
   sendDocAwareness(d: { channelId: string; pageId: string; envelope: string }): void   // op 5. Dropped while not connected
   // events: 'state' (state), 'dispatch' ({t, d}), and each event name from §6 with its typed payload
 }
@@ -945,8 +1061,8 @@ export class GatewayClient extends TypedEventEmitter<GatewayClientEvents> {
 export interface VoiceE2eeDelegate {
   start(): Promise<{ keyPackage: string }>                      // for identify
   handle(op: VoiceE2eeServerOp): Promise<VoiceE2eeClientOp[]>   // §8 e2ee_* ops. Send the result in order
-  senderTransform(track: 'audio' | 'video'): RTCRtpScriptTransform
-  receiverTransform(userId: string, track: 'audio' | 'video'): RTCRtpScriptTransform
+  senderTransform(track: 'audio' | 'video' | 'screen-audio'): RTCRtpScriptTransform   // once per call and track: m-lines 0, 1, 2
+  receiverTransform(userId: string, track: 'audio' | 'video' | 'screen-audio'): RTCRtpScriptTransform
   // The receiver of a receiverTransform result ended: its track ended, its peer left the roster, or
   // ontrack gave the receiver a new transform. The UI detaches its frame key port (voiceDetachTransform)
   releaseTransform(transform: RTCRtpScriptTransform): void
@@ -964,8 +1080,12 @@ export class VoiceConnection extends TypedEventEmitter<VoiceEvents> {
   setSpeaking(speaking: boolean): void                       // sends op speaking
   setDeafened(deafened: boolean): void                       // mutes all remote playback locally
   setOutputDevice(deviceId: string | null): Promise<void>    // null = system default
-  setOutputVolume(userId: string, volume: number): void
+  setOutputVolume(userId: string, volume: number): void     // local playback of one user, 0..2 (1 = unchanged); kept for the call. Above 1 a WebAudio GainNode plays the user
   setScreen(track: MediaStreamTrack | null, encoding?: { maxBitrate: number; maxFramerate: number } | null): Promise<void>   // null = stop sending
+  setMicBitrate(maxBitrate: number | null): Promise<void>   // mic (m-line 0) encodings[0].maxBitrate in bit/s, null = browser default; setParameters, no renegotiation; kept for the call
+  setScreenAudio(track: MediaStreamTrack | null): Promise<void>   // the share audio on m-line 2; null = none. replaceTrack, no renegotiation; the caller owns the track
+  setScreenVolume(userId: string, volume: number): void      // local playback of one user's share audio, 0..2, as setOutputVolume
+  setScreenSubscriptions(userIds: Iterable<string>): void   // §8 screen_subscribe: the users whose screen media forwards to us. Replaces the set; sent on a change and again on 'ready'. Empty at start
   getStats(): Promise<{ rttMs: number | null; jitterMs: number | null; packetLoss: number | null }>
   // events: 'state' (RTCPeerConnectionState), 'speaking' ({userId, speaking}), 'peers' ({userId, ssrc}[]),
   //         'screen' ({userId, stream: MediaStream | null}), 'resync' ({code, reason}: media closed 4013, fires just before 'close'),
@@ -990,8 +1110,9 @@ export class HachimanClient extends TypedEventEmitter<HachimanClientEvents> {
     members: Map<string, Map<string, Member>>    // guildId → userId → Member
     presences: Map<string, PresenceStatus>       // userId → status
     customStatuses: Map<string, CustomStatus>    // userId → custom status of an online user; check expiresAt when showing it
-    voiceStates: Map<string, Map<string, VoiceState>>  // guildId → userId → state
+    voiceStates: Map<string, Map<string, VoiceState>>  // voiceScopeId → userId → state. voiceScopeId(vs) = vs.guildId ?? vs.channelId (a DM call: the DM channel id)
     readStates: Map<string, ReadState>           // channelId → state. From READY. READ_STATE_UPDATE sets lastReadMessageId and unreadCount 0
+    emojis: Map<string, GuildEmoji[]>            // guildId → custom emojis. From READY / GUILD_CREATE, replaced by GUILD_EMOJIS_UPDATE
     events: Map<string, Map<string, GuildEventWithMe>>  // guildId → eventId; filled by fetchGuildEvents, kept by GUILD_EVENT_*
     blocks: Set<string>                          // blocked user ids; filled by fetchBlocks, kept by USER_BLOCK_UPDATE
   }
@@ -1001,18 +1122,22 @@ export class HachimanClient extends TypedEventEmitter<HachimanClientEvents> {
   connect(): void; disconnect(): void
   permissionsFor(channelId: string): number      // for the current user
   guildPermissions(guildId: string): number
-  joinVoice(guildId: string, channelId: string): Promise<VoiceConnection>   // joins with the current selfVoice
+  joinVoice(guildId: string | null, channelId: string): Promise<VoiceConnection>   // joins with the current selfVoice. guildId null: a DM call (§6 "DM calls")
   leaveVoice(): void
   readonly selfVoice: SelfVoiceState             // { ownMute, selfMute, selfDeaf }
   setSelfVoice(change: Partial<SelfVoice>): SelfVoiceState   // SelfVoice = { selfMute, selfDeaf }
+  readonly serverVoice: { mute: boolean; deaf: boolean }   // server mute and deafen of the user in the guild of the call (§6 "Voice moderation"): from its VoiceState, else its Member. They gate the media as selfMute / selfDeaf do (deaf also mutes), op 4 does not carry them, and the client applies a change at once
   setCustomStatus(text: string, expiresAt?: string | null): void   // gateway.setCustomStatus; the cache changes on the PRESENCE_UPDATE echo
   setScreen(track: MediaStreamTrack | null, encoding?: ScreenEncoding | null): Promise<void>   // null = stop; sets selfStream
   readonly voice: VoiceConnection | null
+  // A media close 4010 (kick) drops the call without an op 4 leave: the gateway already ended or moved it. A VOICE_SERVER_UPDATE with
+  // `moved` while no join is pending opens the media connection of that channel (a move by a moderator), and emits 'voice'.
   // When the gateway becomes 'ready' (before the 'state' event), a voice state of this session that the client is not in
   // (a leave dropped while the socket was down, then RESUME) is left with op 4 channelId null.
   // events: 'ready', 'state', 'update' (fired after any cache mutation with { t, d }), 'voice' (VoiceConnection | null),
   //         'fatal' ({ code }: the gateway closed 4012 or 4013 and does not reconnect),
-  //         'voiceResync' ({ guildId, channelId }: media closed the call 4013; the client left voice, call joinVoice with the same target),
+  //         'voiceResync' (VoiceTarget { guildId: string | null, channelId }: media closed the call 4013; the client left voice, call joinVoice with the same target),
+  //         'voiceMoved' (VoiceTarget, Promise<VoiceConnection>: a moderator moved the user; fires before 'voice' null, then 'voice' gives the new call, and the promise resolves to it once connected, as joinVoice does),
   //         plus every gateway event re-emitted after the cache is updated
   // The cache keeps Message as ciphertext. The shared UI decrypts with @hachiman/crypto before messagesStore.upsert.
   // PAGE_* and DOC_* are not cached. The shared UI (services/docs) keeps the page tree and the Yjs docs.
@@ -1053,12 +1178,33 @@ export interface IPlatformService {
   probeRegions(targets: { region: string; host: string; port: number }[]): Promise<{ region: string; rttMs: number | null }[]>
   /** Electron: screens and windows for the in-app share picker. Browser: null (it has its own picker). */
   getScreenSources(): Promise<{ id: string; name: string; kind: 'screen' | 'window'; thumbnail: Blob }[] | null>
-  /** Electron: the listed source that the next screen share captures. Browser: no-op. */
-  selectScreenSource(id: string): Promise<void>
+  /** Electron: the listed source that the next screen share captures, with system audio when `audio` and screenShareAudio. Browser: no-op. */
+  selectScreenSource(id: string, audio: boolean): Promise<void>
+  /** The in-app picker can capture system audio with a share (Electron on Windows: loopback). Else false. */
+  readonly screenShareAudio: boolean
   /** Electron: check for a new build now, and offer it (also one that the user put off). Browser: not-available. */
   checkForUpdate(): Promise<UpdateCheckResult>
+  /** Electron: the close button hides the window to the tray (default on); main keeps the value. Browser: null. */
+  readonly closeToTray: ICloseToTray | null
+  /** Electron: registers `shortcuts` with the OS in place of the previous set ([] lets all go). Resolves with the refused actions. Browser: null. */
+  setGlobalShortcuts(shortcuts: GlobalShortcut[]): Promise<string[] | null>
+  /** Electron: a global shortcut fired, with its action. Browser: never. Returns unsubscribe. */
+  onGlobalShortcut(cb: (action: string) => void): () => void
   /** The wrap key of the encrypted crypto store (§12.17). */
   readonly secureStorage: ISecureStorage
+}
+
+// Electron: IPC `hachiman:close-to-tray-get` / `hachiman:close-to-tray-set` (a boolean), from the top
+// frame of the app page only. Main keeps the value in `<userData>/app-prefs.json`, so it applies before
+// the renderer loads. Cmd+Q, the tray menu "Quit Hachiman" and an update install still quit.
+export interface ICloseToTray {
+  get(): Promise<boolean>
+  set(on: boolean): Promise<void>
+}
+
+export interface GlobalShortcut {
+  action: string        // the UI's own name, e.g. 'toggleMute'
+  accelerator: string   // an Electron accelerator, e.g. 'CommandOrControl+Shift+M'
 }
 
 // `build` and `latest` are short commits (§4 Desktop updates).
@@ -1096,6 +1242,11 @@ export function parseInviteKeyFragment(fragment: string): { key: string | null }
 export function inviteKeyFragment(key: string): string  // '#k=' + key
 ```
 
+Global shortcuts (the user's keybinds that work while the app is in the background):
+- The shared UI sends the mute and deafen keybinds (`lib/keybinds.ts`) when they change, when the user turns the setting off (`[]`), while the Keybinds page records a key (`[]`), and on sign-out (`[]`).
+- Electron: the preload script invokes `hachiman:set-global-shortcuts`. The main process answers only the top frame of the app page. It checks the payload (`main/global-shortcuts.ts`): at most 8 entries, an action of letters and digits, and an accelerator from a short key list that holds `CommandOrControl`, `Control` or `Alt` (an F-key needs none), so a page script cannot take a typing key from other apps. It replaces every registration with `globalShortcut`, and returns the actions that the OS refused. A fired shortcut goes to the main window on `hachiman:global-shortcut` with its action. The main process lets all keys go when the main window closes and on `will-quit`.
+- `globalShortcut` has no key-up event. Push to talk therefore works only in the focused window (keydown and keyup in the renderer).
+
 `secureStorage` (§12.17):
 - Electron: the main process keeps 32 random bytes per user, encrypted with `safeStorage`, in `userData/keys/<userId>.bin`. On Linux it refuses the `basic_text` and `unknown` backends (`safeStorage.getSelectedStorageBackend()`), and `getWrapKey` rejects with `SecureStorageUnavailable`. The preload script gives the bytes to the renderer over IPC on the channels `hachiman:secure-storage-get` and `hachiman:secure-storage-clear`. The main process answers only the top frame of the app page (else `Malformed`). The renderer imports the bytes as a non-extractable `CryptoKey` and overwrites them.
 - Errors: a rejection is an `Error` whose `name` and `code` are `SecureStorageUnavailable` (no OS keystore, or no IndexedDB), `StoreCorrupt` (the stored key does not decrypt or decode) or `Malformed` (a bad user id or caller). `secureStorageErrorCode(e)` reads the code.
@@ -1130,8 +1281,9 @@ Invite links:
 - The invite window of an administrator has the switch "Include history" (off by default), with the scope: the text and pages channels that @everyone can view, from the REST roles, with each `joined` channel marked. Switching it on sets one use. The window then calls `prepareHistoryInvite`, `POST /guilds/:id/invites` with the record, and `sendInviteBundles`. `sendInviteBundles` fails when a bundle post fails. When it fails, the window revokes the invite. When it sends no bundle (`groups` 0: this device holds no group of the scope, for example because the channels have no messages yet), the window keeps the invite and shows a warning: the link then gives only the history that other members send at their commits (§12.11.4). The link shows once: the invite list cannot copy the link of an invite with history (`hasHistory`).
 
 Screen share source selection:
-- Browser: `getScreenSources` gives null. `getDisplayMedia` then shows the picker of the browser.
+- Browser: `getScreenSources` gives null. `getDisplayMedia` then shows the picker of the browser. The UI asks for audio too, and the browser picker offers it where it can (a tab, or the system audio on some systems).
 - Electron: the UI shows its own picker with the screens and windows from `getScreenSources`. When the user picks one, the UI calls `selectScreenSource`, then `getDisplayMedia`.
+- Share audio: where `screenShareAudio` is true, the picker shows "Share audio" (default on, kept in the prefs). The main process then answers with `audio: 'loopback'` (system audio). The installed Electron supports loopback on Windows only, so on macOS and Linux the share is video only. The UI asks for the audio with `restrictOwnAudio`, so the call that the page plays is not in the capture where Chromium supports it.
 - The main process captures only the selected source. It accepts only an id from the last list, and it uses each selection one time. A new list clears a selection that no capture used.
 - Without a selection, or when the request does not come from the top frame of the app page, `getDisplayMedia` fails.
 - Thumbnails are JPEG `data:` URLs. The CSP allows `data:` images.
@@ -1156,7 +1308,7 @@ The packaged Electron app does not load the renderer from `file://`. A `file://`
 - `worker-src` is `'self'` (plus the dev server origin in dev), for the crypto Worker and the transform Worker (§12.17). `img-src` and `media-src` also allow `blob:`: the local preview of a picked file, and the object URL of a decrypted attachment.
 - `connect-src` gets the origins of `VITE_TAKUSEN_OIDC_ISSUER`, `VITE_TAKUSEN_API_BASE` and `VITE_HACHIMAN_GATEWAY_URL`, plus `wss:` for the media nodes. The main process and the renderer use the same resolver (`@hachiman/hachiman/takusen-env`) and the same defaults.
 - `connect-src` also allows `ws:` when one of these endpoints, or the dev server, uses `ws:` or `http:`. Thus a local stack keeps voice in `electron-vite preview` too.
-- `script-src` is `'self'`. With the dev server only, it also allows `'unsafe-inline'`, because the React Fast Refresh preamble is an inline script.
+- `script-src` is `'self' 'wasm-unsafe-eval'`. `'wasm-unsafe-eval'` lets the RNNoise mic AudioWorklet (a built module file of the app) compile its bundled wasm. It allows no JS eval. With the dev server only, `script-src` also allows `'unsafe-inline'`, because the React Fast Refresh preamble is an inline script.
 - The policy also sets `object-src 'none'`, `form-action 'none'` and `frame-ancestors 'none'`.
 
 ### Takusen allowed origins
@@ -1521,13 +1673,13 @@ struct {
   uint8 version = 1;
   uint8 kind;
   optional<opaque> guild_id[16];
-  optional<opaque> channel_id[16];       // null for public_set and voice
+  optional<opaque> channel_id[16];       // null for public_set and a guild voice call
   uint8 history_visibility;              // 1 joined, 2 shared
   opaque created_by_user_id[16];
 } GroupDescriptor;
 ```
 
-`guild_id` is the guild for `public_set`, `channel` and `voice`, and null for `dm`. `channel_id` is the channel for `channel` and `dm`, and null for `public_set` and `voice`. A voice group has `history_visibility = joined`.
+`guild_id` is the guild for `public_set` and `channel`, and null for `dm`. `channel_id` is the channel for `channel` and `dm`, and null for `public_set`. A `voice` descriptor has exactly one of them: `guild_id` for a call in a guild voice channel, `channel_id` (the DM or group DM channel) for a DM call (§6 "DM calls"). A voice group has `history_visibility = joined`.
 
 The descriptor is authenticated by MLS. Clients read `history_visibility` from the descriptor, not from REST. A member changes it with a GroupContextExtensions (GCE) commit. Members accept that commit only from a user with MANAGE_CHANNELS on the channel (MANAGE_GUILD for `public_set`). In Phase 4, the change also needs a signed admin action (§12.16).
 
@@ -1726,7 +1878,7 @@ struct {
 
 struct {
   opaque target[16];               // the client_msg_id of a message in the same channel
-  opaque emoji<V>;                 // UTF-8, 1 to 32 UTF-16 code units, no control character
+  opaque emoji<V>;                 // UTF-8, 1 to 72 UTF-16 code units, no control character
   uint8 remove;                    // 0 add, 1 remove
 } ReactionBody;
 
@@ -1762,13 +1914,13 @@ A message must have text or at least one attachment. `channel_id` stops the serv
 |---|---|---|---|
 | 1 | `message` | `MessageContent` | Text or at least one attachment. |
 | 2 | `edit` | `MessageContent` | §12.8.6. |
-| 3 | `reaction` | `ReactionContent { target, emoji, remove, sentAtMs }` | `emoji` has 1 to 32 UTF-16 code units (`MAX_REACTION_EMOJI_LENGTH`), at most 96 UTF-8 bytes, no control character (Unicode `Cc`) and no lone surrogate. `remove` is 0 or 1. `target` is not the header `client_msg_id`. |
+| 3 | `reaction` | `ReactionContent { target, emoji, remove, sentAtMs }` | `emoji` has 1 to 72 UTF-16 code units (`MAX_REACTION_EMOJI_LENGTH`), at most 216 UTF-8 bytes (`MAX_REACTION_EMOJI_BYTES`), a Unicode emoji or a custom emoji key `name:id` (§4 Emojis), no control character (Unicode `Cc`) and no lone surrogate. `remove` is 0 or 1. `target` is not the header `client_msg_id`. |
 | 4 | `page_activity` | `PageActivityContent { pageId, changes, sentAtMs }` | `changes` is 1 to 10000 (`MAX_PAGE_ACTIVITY_CHANGES`). `pageId` is a lowercase UUID. |
 
 - A reaction and a page activity are new messages: each has a new `client_msg_id`, no `edit_of`, no attachments and no `reply_to`. The server stores them as normal message rows and cannot tell them apart from kind 1. They count toward history pages and toward the server unread count. SEND_MESSAGES covers them.
 - A reaction is one event: user U added or removed `emoji` on `target`. The receiver folds the reactions of a channel into the target message. For each (sender user, target, emoji), the event with the highest `sent_at_ms` wins. A reaction is not a chat row and does not count as unread on the client.
 - A page activity tells the channel that the sender edited a page (§12.20). The sender sends at most one per page per 10 minutes. The client shows it as an activity line, not as a chat row.
-- **Old clients.** A client that does not know a kind gives `malformed` at step 3 (§12.8.5) and changes no state. It does not count toward the fork alert. Thus a reaction or a page activity shows as one undecryptable row on an older client, and does no other harm.
+- **Old clients.** A client that does not know a kind gives `malformed` at step 3 (§12.8.5) and changes no state. It does not count toward the fork alert. Thus a reaction or a page activity shows as one undecryptable row on an older client, and does no other harm. The same holds for a reaction emoji of more than 32 UTF-16 code units (a custom emoji key) on a client from before the limit of 72.
 
 #### 12.8.2 Message key
 
@@ -1861,7 +2013,7 @@ blob        = header ‖ ciphertext_0 ‖ … ‖ ciphertext_n
 
 #### 12.10.1 Voice group and committer
 
-- Each voice room session has its own MLS group of kind `voice`. The media node chooses 16 random bytes as the room session id when the room goes from empty to not empty. The group id is `GroupId{kind 4, scope = room session id, generation 0}`. The descriptor has `guild_id` = the guild of the voice channel, `channel_id` null, `history_visibility = joined`, and no external sender. The UI passes the guild id in `CryptoApi.voiceStart({channelId, guildId})`. The creator writes it into the descriptor, and a joiner checks the descriptor against it. A device that has no guild id does not create the group. The media node then gives the create to the next joiner after 5 s.
+- Each voice room session has its own MLS group of kind `voice`. The media node chooses 16 random bytes as the room session id when the room goes from empty to not empty. The group id is `GroupId{kind 4, scope = room session id, generation 0}`. The descriptor of a guild call has `guild_id` = the guild of the voice channel and `channel_id` null. The descriptor of a DM call (§6 "DM calls") has `guild_id` null and `channel_id` = the DM or group DM channel. Both have `history_visibility = joined` and no external sender. The UI passes `CryptoApi.voiceStart({channelId, guildId})`, with `guildId` null for a DM call. The creator writes the scope into the descriptor, and a joiner rejects a Welcome whose descriptor has another `guild_id` or `channel_id` (`e2ee_invalid`).
 - The room epoch is null until the creator sends `e2ee_ready` with `transitionId: null`. The media node then sets the epoch to 0.
 - The media node has no MLS library. It signs nothing and proposes nothing. It relays key packages, Welcomes, commits and roster changes, and it orders commits.
 - **Committer.** The member session with the lowest leaf index, from the `leafIndex` values that clients report in `e2ee_ready`. The committer commits Adds for pending joiners and Removes for departed participants. If no commit arrives 5 s after the media node gave the committer work, the media node selects the next member and sends the roster again. The 5 s timer starts at the first new work, and more work does not start it again. Before the group exists, the committer is the earliest joiner (it creates the group), and the failover gives the create role to the next joiner.
@@ -1883,8 +2035,10 @@ The voice ops are in §8.
 
 ```
 sframe_epoch_secret = MLS-Exporter("SFrame 1.0 Base Key", "", 32)
-media_index m       = leaf_index × 2 + track            // track 0 = audio (m-line 0), 1 = video (m-line 1)
-base_key(m)         = HKDF-Expand(sframe_epoch_secret, uint32(m), 32)            // HKDF-SHA256
+media_index m       = kid_leaf × 2 + track              // track 0 = audio, 1 = video
+kid_leaf            = leaf_index                         // mic (m-line 0, track 0) and screen (m-line 1, track 1)
+                    | leaf_index + 2^32                  // screen audio (m-line 2, track 0)
+base_key(m)         = HKDF-Expand(sframe_epoch_secret, uint32(m), 32)            // HKDF-SHA256; uint64(m) when m >= 2^32
 KID                 = (m << 4) | (epoch & 0xF)
 sframe_secret       = HKDF-Extract("", base_key(m))
 sframe_key          = HKDF-Expand(sframe_secret, "SFrame 1.0 Secret key "  ‖ uint64(KID) ‖ uint16(0x0004), 16)
@@ -1895,12 +2049,12 @@ nonce               = sframe_salt XOR uint96(CTR)
 - The SFrame header is RFC 9605 §4.3 (config byte, then KID and CTR in minimal big-endian bytes).
 - Frame on the wire: `clear prefix ‖ SFrame header ‖ ciphertext ‖ tag (16)`. AAD = `SFrame header ‖ clear prefix`. Thus the prefix is authenticated.
 - Clear prefix: Opus 0 bytes. VP8: 10 bytes for a key frame (`frame[0] & 0x01 == 0`), else 1 byte. A frame shorter than its prefix + 1 is dropped.
-- CTR is a 64-bit counter per KID. It starts at 0 and increases by 1 per frame. A new epoch gives a new key, so (key, CTR) never repeats. The KID repeats every 16 epochs, but the key does not. Audio and video have separate media indexes, so they never share a key.
+- CTR is a 64-bit counter per KID. It starts at 0 and increases by 1 per frame. A new epoch gives a new key, so (key, CTR) never repeats. The KID repeats every 16 epochs, but the key does not. The mic, the screen and the screen audio have separate media indexes, so they never share a key or a counter, also with one sender transform (and so one key ring) each. Real leaf indexes are below 2^32, so a screen audio KID never equals a mic KID, and the uint64 info of its base key never equals a uint32 one.
 - **One sender transform per (call, track).** The client makes the sender transform of each track once per call and never makes it again. `setMicrophone` and `setScreen` replace the track on the sender and keep the transform. If a sender transform or the transform Worker must be made again, the client first asks for a new epoch (an `e2ee_invalid` that makes it rejoin), so a counter that starts again at 0 uses a new key.
-- Receivers find the key by KID. The KID leaf must belong to the user of the receiver (from the msid, §8), and the KID track bit must equal the receiver track (`FrameTransformOptions.track`). Else the frame is dropped (`wrongSender`). Receivers drop a CTR that they saw in the last 1024 frames of the KID.
+- Receivers find the key by KID. The KID leaf must belong to the user of the receiver (from the msid, §8), and the KID track bit must equal the receiver track (`FrameTransformOptions.track`: `video` = 1, `audio` and `screen-audio` = 0). A `screen-audio` receiver takes only a KID leaf from 2^32 (the user's leaf is kid_leaf − 2^32), the others only one below it. Else the frame is dropped (`wrongSender`), so the SFU cannot swap the mic and the screen audio. Receivers drop a CTR that they saw in the last 1024 frames of the KID.
 - Keys of the previous epoch stay valid for 10 s after `e2ee_execute_transition`. There is no plaintext passthrough.
-- The SFU forwards RTP unchanged and never parses payloads. The SSRC does not identify the sender. The KID and the leaf credential do.
-- **Client.** One transform Worker per call (`pkgs/hachiman-crypto/src/media/transform-worker.ts`), with `RTCRtpScriptTransform` on the senders of m-line 0 and 1 and on each receiver in `ontrack`. The crypto Worker sends frame keys to it over a `MessagePort` (`FrameKeyMessage` in `src/api.ts`). Each transform has its own port. `voiceAttachTransform` returns the port id. When a receiver ends (its track ends, its peer leaves, or the receiver gets a new transform), the UI calls `voiceDetachTransform(portId)`: the crypto Worker sends `close` on the port and forgets it, and the transform Worker closes the key ring and its end of the port. `voiceStop` closes every port of the call. Sender transforms stay for the whole call. There is no fallback to the legacy encoded-streams API.
+- The SFU forwards RTP payloads unchanged and never parses them. It rewrites only the SSRC, the payload type and, on screen tracks, the sequence number (§8). The SSRC does not identify the sender. The KID and the leaf credential do.
+- **Client.** One transform Worker per call (`pkgs/hachiman-crypto/src/media/transform-worker.ts`), with `RTCRtpScriptTransform` on the senders of m-lines 0 to 2 and on each receiver in `ontrack`. The crypto Worker sends frame keys to it over a `MessagePort` (`FrameKeyMessage` in `src/api.ts`). Each transform has its own port. `voiceAttachTransform` returns the port id. When a receiver ends (its track ends, its peer leaves, or the receiver gets a new transform), the UI calls `voiceDetachTransform(portId)`: the crypto Worker sends `close` on the port and forgets it, and the transform Worker closes the key ring and its end of the port. `voiceStop` closes every port of the call. Sender transforms stay for the whole call. There is no fallback to the legacy encoded-streams API.
 - Speaking state stays a client op (§8). It is metadata.
 - Server-side recording is out of scope. A recorder would have to be a member.
 
@@ -2402,6 +2556,8 @@ Payloads: genesis `{opaque owner_id[16]}`. Role: `{opaque role_id[16]; uint64 pe
 - The guild owner's client writes the genesis action when it creates the guild: it calls `CryptoApi.signAdminAction` after `POST /guilds` and posts the action with the first signed request, or with `PATCH /guilds/:id` and no other change.
 - `@hachiman/crypto` holds the codecs, `sign`, `verify`, `hash` and `replay` (`AdminActionModule`, `src/admin/`). Takusen verifies with `DsModule.verifyAdminAction`. The client signs with `CryptoApi.signAdminAction(guildId, type, payload)`, which fetches the chain head and fills `seq` and `prev_hash`.
 - **Client check.** A client replays the chain from genesis. Each action needs a valid signature, a valid actor chain, and an actor that had the permission in the state before the action (§2 rules, owner from genesis). Before a client commits an Add in a `channel` group, it checks that the replayed state gives the joiner VIEW_CHANNEL (`ProposalPolicy.adminReaders`). The replay applies the §2 rules through `@hachiman/client/permissions`, so each language keeps one permission implementation. The replay accepts actions from an actor device that was revoked later: it does not check revocations. `// ponytail:` the Phase 4 audit must decide if an action of a device that is now revoked stays valid.
+- **Unchecked bits.** The replay treats USE_SOUNDBOARD as a bit that every actor holds: a grant of it never fails the "grants only held bits" check. The genesis @everyone role has `DEFAULT_EVERYONE`, which includes USE_SOUNDBOARD. A state that a device cached before the bit joined `DEFAULT_EVERYONE` has an @everyone role without it, and the server gave the bit to the existing @everyone roles with no signed action (§2). Without this rule, such a cached state, or a signed @everyone `role_update` from before the change, would reject a later honest grant of the bit by a non-administrator, and the chain would fail on some devices only. No client check reads USE_SOUNDBOARD from the signed state: REST is authoritative for it. Thus the signed state and REST can disagree on this bit only. A future bit that joins `DEFAULT_EVERYONE` and that no signed check reads gets the same rule. A bit that a signed check reads must not join `DEFAULT_EVERYONE` with a server-side backfill: the guild administrators grant it with a signed `role_update`.
+- **Signed permissions in the UI.** `CryptoApi.adminGuildPermissions(guildId, userId)` returns the §2 guild permissions of a user in the verified admin state `S`, or null when the guild has no verified genesis. The UI uses it for a check that the server must not decide: the MANAGE_EXPRESSIONS of a sound pointer sender (§12.21). MANAGE_EXPRESSIONS is in the signed role payloads like every other bit, so a server cannot grant it to a user without a signed action of an actor who holds it.
 - **No genesis: fail closed.** Every guild is created with E2EE, so the owner genesis action must be present. A device that has no cached admin state can get an empty chain from the DS. The device does not fall back to the unsigned REST readers for its own commits. When the device has no verified genesis for the guild, it does not commit an Add in a `channel` group. It rejects each Add of the batch (`policy`) and reports `admin_chain_missing` (`error` event). The device still processes commits of other devices with the unsigned REST state, and the UI timeline shows "A added B". `public_set` groups do not use the admin chain (§12.11.2).
 - **Invite records.** A device checks a `SignedInviteRecord` (§12.11.4) against its current verified admin state `S` of the guild (`adminState`). It does not replay a historic state. It accepts the record only when all of these are true:
   - `guild_id` is the guild of the check: for a member, the guild of the record list (`inviteRecords(guildId)`); for a redeemer, the guild of the record that the seed binds, which is the guild that it joined with the invite (the admin chain is for members only). `S` and the scope groups come from that guild only.
@@ -2431,7 +2587,7 @@ franking_tag = HMAC-SHA256(franking_key, "hachiman franking v1" ‖ channel_id(1
 - **Store.** IndexedDB, one database per (origin, user). Each record is AES-256-GCM under the non-extractable wrap key from `IPlatformService.secureStorage` (§11), with a random 12-byte nonce. The AAD is `encode(struct { opaque table<V>; opaque key<V>; })`, so the AAD is injective. The wrap key is used directly. There is no HKDF step, because a non-extractable AES-GCM key cannot be an HKDF input.
 - **Store table `invites`** (key: the invite key id). The records that the device accepted, the newest epoch that it sent per group (`bundled`), the revoke flag, and for a redeemer the invite code and the seed. The seed stays until `INVITE_AUTH_WINDOW_MS` after the redemption, or until `INVITE_DELETE`. The device deletes the row 30 days after the expiry of the invite (`HANDSHAKE_RETENTION_MS`: Takusen keeps handshakes for 30 days, §12.7.9). Until then, an invite join that the DS accepted before the expiry can come in the handshake stream: the row keeps the revoke mark, and the timeline event of the record goes only once into each group. The table came with database version 2: an upgrade adds the table and keeps the other records.
 - **Browser host.** The browser host shows the label "trusts the server's code", because a hostile server can send hostile JavaScript. The Electron host is the strong client. `CryptoStatus.hostTrust` gives the value. One exception applies to both hosts: a clicked invite link opens the Takusen page `/invite/<code>` in a browser, and a script of that page reads the invite seed (§11). Only a link that the user pastes into the Electron app does not go through Takusen.
-- **CSP.** Electron (rules in `apps/hachiman-electron/src/main/csp-policy.ts`, applied by `csp.ts`, §11) adds `worker-src 'self'`, and `blob:` to `img-src` and `media-src` (decrypted attachments are object URLs). It does not add `blob:` to `script-src` or `worker-src`. The browser host sends the same policy. ts-mls, @noble and @hpke are pure TypeScript on WebCrypto, so the hosts do not add `'wasm-unsafe-eval'`. Both hosts build the crypto Worker and the transform Worker with Vite (`new Worker(new URL(…, import.meta.url), { type: 'module' })`).
+- **CSP.** Electron (rules in `apps/hachiman-electron/src/main/csp-policy.ts`, applied by `csp.ts`, §11) adds `worker-src 'self'`, and `blob:` to `img-src` and `media-src` (decrypted attachments are object URLs). It does not add `blob:` to `script-src` or `worker-src`. The browser host sends the same policy. ts-mls, @noble and @hpke are pure TypeScript on WebCrypto and use no wasm. `script-src` has `'wasm-unsafe-eval'` only for the RNNoise mic worklet (§11), which holds no key material. Both hosts build the crypto Worker and the transform Worker with Vite (`new Worker(new URL(…, import.meta.url), { type: 'module' })`).
 - **Light clients.** Deferred until ts-mls supports partial trees: joining with a membership proof, and processing commits without the full ratchet tree (IETF MLS light clients draft). The condition is testable: the `smoke.spec.ts` case "needs the full ratchet tree to join" fails when support exists. Until then, every member holds the full tree, and the Phase 3 load test measures its size.
 - **Later:** search (a local index), sender-made link previews, content-free push.
 
@@ -2548,6 +2704,7 @@ export class ApiError extends Error {
 | `StorageQuotaExceeded` | 413 | a page upload claim above `TAKUSEN_GUILD_PAGE_STORAGE_BYTES` |
 | `TooManyPins` | 400 | a pin past 50 pins in the channel (§4 Pins, guild events and blocks) |
 | `Blocked` | 403 | a DM open or a 1:1 DM message with a block in either direction (§4 Pins, guild events and blocks) |
+| `Banned` | 403 | `POST /invites/:code` of a user who is banned from the guild (§4 Bans) |
 
 **Client error codes.** The `@hachiman/crypto` Worker rejects with `CryptoError` (`CryptoErrorCode` in `src/api.ts`). `dsCode` holds the REST code above when the cause was a DS response. Two codes have no REST cause:
 - `LockHeld`: the Web Lock refused the store, because it is open in another tab (§12.17).
@@ -2634,3 +2791,14 @@ An `ok` result has `{ id, kind, bytes, sender }`: the body bytes and the `Decryp
 **Page activity in a channel.** An editor can tell a text channel that it edited a page. It sends a message envelope of kind 4 `page_activity { pageId, changes }` (§12.8.1) in that channel, not a page envelope. The sender sends at most one per page per 10 minutes. `changes` counts the local Yjs updates of that time (1 to 10000). The receiver shows the line only for a page that it can open, and decrypts the title with `decryptDoc` as for the page list. The server sees a normal message row.
 
 **Residual risk.** The server can withhold updates, or serve an older title envelope (a rollback of a rename). It cannot forge, change or move an envelope to another page or channel, because the header is the AAD and the sender signs it. A replayed update does no harm, because Yjs ignores an update that it already has. A member who can edit can damage a page. This includes a re-wrap with a false pointer for the `uploadId` of the newest snapshot: the page then does not open until a member posts a new snapshot. The previous snapshot (§4 Pages) is the recovery path. A re-wrap does not change the blob. Thus a removed member that kept an old `fileKey` can open that blob when the server gives it the blob.
+
+### 12.21 Sound pointers
+
+A soundboard sound (§4 Soundboard) is a clip in the §12.9 blob format with its own random file key. The pointer to the blob is a page envelope (§12.20) of kind `doc_snapshot` in the `public_set` group of the guild:
+
+- `channel_id` is a public text or pages channel of the guild (its current group is the `public_set` group). `page_id` is the sound id.
+- The body is UTF-8 JSON of `SoundPointer { uploadId, fileKey, sha256, size, mime }`: `fileKey` (32 bytes) and `sha256` (of the whole blob) base64url, `size` the plaintext bytes, `mime` `audio/mpeg`, `audio/ogg` or `audio/wav`.
+- **Send.** The uploader calls `encryptDoc({ channelId, pageId: soundId, kind: 'doc_snapshot', bytes })` and posts the envelope with the sound (§4).
+- **Receive.** A member calls `decryptDoc` with `{ id: soundId, channelId, pageId: soundId, kind: 'doc_snapshot', senderDevice, envelope }` of the `GuildSound`. It uses the pointer only when the result is `ok`, its `uploadId` is the `uploadId` of the sound, the sender is a guild member in the cache, and the sender has MANAGE_EXPRESSIONS in the verified admin state (`CryptoApi.adminGuildPermissions`, §12.16). The REST roles do not count: else a malicious server could give MANAGE_EXPRESSIONS to an account that it added to the `public_set` group, and members would play its pointers. A guild with no verified genesis fails closed: the soundboard shows the sound as unavailable. It then decrypts the blob with `decryptAttachment`. The UI keeps the decrypted audio in memory only.
+- **Why this group.** The `public_set` group has every guild member, so one envelope serves the whole guild, and the server never sees the file key. No new crypto API or envelope kind is necessary. The page id of a sound never names a page: the page routes bind the page id of the route, so the server cannot serve a sound pointer as a page snapshot, and the decrypt check `wrong_page` refuses the reverse.
+- **Residual risk.** The envelope is of the epoch of the upload. A member who joined later reads it with the epoch secrets of a history bundle (`shared` history, the `public_set` default). With `joined` history, or a device without the bundle, the result is `pending` `no_history_key`, and the soundboard shows the sound as unavailable. No member re-wraps a sound pointer (a later change). A removed member that kept the file key can decrypt the blob when the server gives it the blob. A sound plays inside the SFrame-encrypted microphone track of the sender (§12.10), so the media node does not see it either.
