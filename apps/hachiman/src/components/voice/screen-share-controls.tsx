@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ScreenShare, ScreenShareOff, SlidersHorizontal } from 'lucide-react'
+import { RefreshCw, ScreenShare, ScreenShareOff, SlidersHorizontal } from 'lucide-react'
 import { IconButton } from '@/components/ui/icon-button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { ScreenSourcePicker, type PickerState } from '@/components/voice/screen-source-picker'
@@ -9,8 +9,9 @@ import { usePlatform } from '@/shared/PlatformContext'
 import { useVoiceStore } from '@/stores/voiceStore'
 
 /**
- * Share-screen toggle plus the stream quality picker. Render only while in voice. Hosts with
- * their own source list (Electron) get the in-app picker; the browser shows its own.
+ * Share-screen toggle, "Change source" while sharing, and the stream quality picker. Render only
+ * while in voice. Hosts with their own source list (Electron) get the in-app picker; the browser
+ * shows its own. A pick while sharing swaps the source without a stop.
  * `buttonClassName` restyles both buttons, for the control bar of the stage.
  */
 export function ScreenShareControls({
@@ -48,6 +49,11 @@ export function ScreenShareControls({
       >
         {sharing ? <ScreenShareOff /> : <ScreenShare />}
       </IconButton>
+      {sharing && (
+        <IconButton label="Change source" className={buttonClassName} onClick={() => void start()}>
+          <RefreshCw />
+        </IconButton>
+      )}
       <StreamQualityPicker className={buttonClassName} />
       <ScreenSourcePicker picker={picker} onClose={() => setPicker(null)} />
     </>

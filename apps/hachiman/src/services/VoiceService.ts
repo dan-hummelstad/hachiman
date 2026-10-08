@@ -372,10 +372,15 @@ class VoiceService {
     useVoiceStore.setState({ watching })
   }
 
-  /** Opens the OS share picker, then sends the chosen screen or window. Never throws. */
+  /**
+   * Opens the OS share picker, then sends the chosen screen or window. While sharing, the pick
+   * changes the source: the new track replaces the old one on the same sender (no renegotiation),
+   * then the old capture stops. Never throws.
+   */
   async startScreenShare(): Promise<void> {
     const conn = this.conn
-    if (!conn || this.screen) return
+    if (!conn) return
+    const prev = this.screen
     const quality = usePrefsStore.getState().streamQuality
     let stream: MediaStream
     try {
@@ -384,18 +389,23 @@ class VoiceService {
       console.warn('[voice] screen share cancelled or unavailable', err)
       return
     }
-    // Left voice or switched channel while the picker was up.
-    if (this.conn !== conn || this.screen) return stopTracks(stream)
+    // Left voice, switched channel, or the share started, stopped or changed during the picker.
+    if (this.conn !== conn || this.screen !== prev) return stopTracks(stream)
     const [track] = stream.getVideoTracks()
     if (!track) return stopTracks(stream)
-    // The browser's own "Stop sharing" bar ends the track.
+    // The browser's own "Stop sharing" bar ends the track. A replaced capture is no longer
+    // `this.screen`, so its end does not stop the share.
     track.onended = () => {
       if (this.screen === stream) this.stopScreenShare()
     }
     this.screen = stream
     useVoiceStore.setState({ localScreen: stream })
-    playSound('streamStart')
-    await hachiman.setScreen(track, tuneTrack(track, quality))
+    if (!prev) playSound('streamStart')
+    try {
+      await hachiman.setScreen(track, tuneTrack(track, quality))
+    } finally {
+      if (prev) stopTracks(prev)
+    }
   }
 
   stopScreenShare(): void {
