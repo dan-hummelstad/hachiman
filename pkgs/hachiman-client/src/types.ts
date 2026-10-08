@@ -95,6 +95,13 @@ export interface Member {
   joinedAt: string
 }
 
+/** A guild ban (§4 Bans). The user cannot join the guild through an invite while it exists. */
+export interface Ban {
+  user: User
+  reason: string | null
+  createdAt: string
+}
+
 /** Ciphertext only. The client decrypts `envelope` (§12.8). */
 export interface Message {
   id: string

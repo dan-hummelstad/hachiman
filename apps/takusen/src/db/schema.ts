@@ -4,7 +4,7 @@
  * Tables:
  *  - users, accounts, sessions, verificationTokens  — Auth.js v5 Drizzle adapter shape
  *  - regions, mediaNodes                            — voice placement registry
- *  - guilds, guildMembers, channels, messages       — the chat model
+ *  - guilds, guildMembers, guildBans, channels, messages — the chat model
  *  - roles, memberRoles, permissionOverwrites       — Discord-style permissions
  *  - dmParticipants, invites, uploads
  *  - docPages, docUpdates, docSnapshots             — pages channels (§3 "Pages tables", schema-pages.ts)
@@ -209,6 +209,24 @@ export const guildMembers = pgTable(
     // The ON DELETE SET NULL of each deleted invite looks up its members here.
     index('guild_members_invite_idx').on(table.inviteId).where(sql`${table.inviteId} is not null`),
   ],
+)
+
+// A ban keeps the user out of the guild: the invite accept refuses them (§4 Bans).
+// No row for a member: the ban removes the membership in the same transaction.
+export const guildBans = pgTable(
+  'guild_bans',
+  {
+    guildId: uuid('guild_id')
+      .notNull()
+      .references(() => guilds.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    reason: text('reason'),
+    bannedBy: uuid('banned_by').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+  },
+  (table) => [primaryKey({ columns: [table.guildId, table.userId] })],
 )
 
 // Guild channels (guildId set) and DMs (guildId null, participants in

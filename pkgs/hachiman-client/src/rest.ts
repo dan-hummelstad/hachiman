@@ -6,6 +6,7 @@ import type {
   Attachment,
   B64url,
   BackupIndex,
+  Ban,
   BlockedUser,
   Channel,
   CipherSuiteId,
@@ -171,6 +172,10 @@ export interface UploadProgressOptions {
 export interface UploadImageOptions extends UploadProgressOptions {
   filename: string
 }
+export interface BanBody {
+  /** At most 512 characters. */
+  reason?: Opt<string | null>
+}
 export interface UpdateMemberBody {
   nick?: Opt<string | null>
   roles?: Opt<string[]>
@@ -334,6 +339,13 @@ export class RestClient {
     this.req<Member>('PATCH', `/guilds/${e(guildId)}/members/${e(userId)}`, body, opts)
   kickMember = (guildId: string, userId: string) =>
     this.req<undefined>('DELETE', `/guilds/${e(guildId)}/members/${e(userId)}`)
+  /** BAN_MEMBERS. */
+  getBans = (guildId: string) => this.req<Ban[]>('GET', `/guilds/${e(guildId)}/bans`)
+  /** BAN_MEMBERS. Removes a member from the guild, and keeps the user out until `unbanMember`. */
+  banMember = (guildId: string, userId: string, body: BanBody = {}) =>
+    this.req<undefined>('PUT', `/guilds/${e(guildId)}/bans/${e(userId)}`, body)
+  unbanMember = (guildId: string, userId: string) =>
+    this.req<undefined>('DELETE', `/guilds/${e(guildId)}/bans/${e(userId)}`)
   leaveGuild = (guildId: string) => this.req<undefined>('DELETE', `/users/@me/guilds/${e(guildId)}`)
 
   getRoles = (guildId: string) => this.req<Role[]>('GET', `/guilds/${e(guildId)}/roles`)

@@ -70,6 +70,8 @@ interface Channel {
 
 interface Member { guildId: string; user: User; nick: string | null; roles: string[] /* excludes @everyone */; joinedAt: string }
 
+interface Ban { user: User; reason: string | null; createdAt: string }   // §4 Bans
+
 // A scheduled guild event (§4 Pins, guild events and blocks). Plaintext metadata, like a channel topic (§12.1).
 interface GuildEvent {
   id: string; guildId: string
@@ -244,6 +246,7 @@ New/changed tables (all ids `uuid` defaultRandom, timestamps `timestamptz` defau
 | `guilds` | id, owner_id → users (cascade), name, icon null, banner null, region → regions.code (set null), page_storage_bytes bigint (mode number) default 0, created_at | replaces virtual_servers. icon/banner hold file keys. `page_storage_bytes`: the page quota count (§4 Pages) |
 | `uploads` | id, uploader_id → users (cascade), key unique, filename null (null for blobs), size bigint (mode number), content_type, encrypted bool default false, message_id null → messages (cascade), position int default 0, purpose `upload_purpose` enum ('attachment','image','page_snapshot','page_media','sound') null, page_id null → doc_pages (cascade), last_referenced_at null, created_at | index (message_id); index (page_id); CHECK `uploads_attachment_has_message`: `(purpose IS NOT DISTINCT FROM 'attachment') = (message_id IS NOT NULL)`; CHECK `uploads_page_media_has_page`: `purpose IS DISTINCT FROM 'page_media' OR page_id IS NOT NULL`; CHECK `uploads_page_id_is_page_purpose`: `page_id IS NULL OR purpose IN ('page_snapshot','page_media')`. One row per stored object. The first claim sets purpose, and purpose never changes. message_id is set when a message claims it, together with purpose. A `page_snapshot` upload has its purpose from the upload on, and page_id from the snapshot claim (§4 Pages) |
 | `guild_members` | guild_id → guilds (cascade), user_id → users (cascade), nick null, joined_at, invite_id null → invites (set null) | PK (guild_id, user_id); index (invite_id) where not null. `invite_id`: the invite of the join (§4 accept). The redeemer of an invite with history gets its bundles with it (§12.11.4) |
+| `guild_bans` | guild_id → guilds (cascade), user_id → users (cascade), reason text null, banned_by null → users (set null), created_at | PK (guild_id, user_id). §4 Bans |
 | `channels` | id, guild_id null → guilds (cascade), type `channel_type` enum (incl. `thread`), name null, topic null, parent_id null → channels (set null), position int default 0, owner_id null → users (set null), mls_group_id bytea null → mls_groups (set null), thread_start_message_id uuid null → messages (set null), created_at, last_activity_at timestamptz not null default now() (a thread: set by POST /channels/:id/messages; the migration backfills the last message, else created_at) | index (guild_id); index (parent_id, last_activity_at); index (guild_id, last_activity_at) where type = 'thread'. A thread has `mls_group_id` null: readers take the group of the parent. `DELETE /channels/:id` deletes the threads of the channel (the FK alone sets null) |
 | `messages` | id, channel_id → channels (cascade), author_id → users (cascade), group_id bytea → mls_groups (cascade), epoch bigint, sender_device uuid null → devices (set null), client_msg_id bytea, envelope bytea, franking_tag bytea, size int, created_at, edited_at null | index (channel_id, created_at desc, id desc); unique (channel_id, client_msg_id). No `content` column (§12.8) |
 | `roles` | id, guild_id → guilds (cascade), name, color int default 0, hoist boolean default false, position int default 0, permissions bigint (mode number) | @everyone row has id = guild_id |
@@ -366,6 +369,9 @@ Implemented extras (Discord semantics):
 | PATCH `/guilds/:id/members/:userId` `{nick?, roles?}` | nick: self→CHANGE_NICKNAME, other→MANAGE_NICKNAMES; roles→MANAGE_ROLES + hierarchy | `Member` | `GUILD_MEMBER_UPDATE`; `INVITE_DELETE` → guild for each revoked invite (Invite limits) |
 | DELETE `/guilds/:id/members/:userId` | KICK_MEMBERS (not owner) | 204 | `GUILD_MEMBER_REMOVE {guildId, user}` → guild; `GUILD_DELETE {id}` → user:{kicked}; `INVITE_DELETE` → guild for each revoked invite (Invite limits) |
 | DELETE `/users/@me/guilds/:id` | member, not owner | 204 | same as kick |
+| GET `/guilds/:id/bans` | BAN_MEMBERS | `Ban[]`, newest first | — |
+| PUT `/guilds/:id/bans/:userId` `{reason?: string \| null}` (at most 512 characters) | BAN_MEMBERS; not the owner, not yourself; a member target: hierarchy as kick | 204. Idempotent: a second ban keeps the first row. A user who is not a member can be banned | when the user was a member: the same events as kick |
+| DELETE `/guilds/:id/bans/:userId` | BAN_MEMBERS | 204. 404 without a ban | — |
 | GET `/guilds/:id/roles` | member | `Role[]` | — |
 | POST `/guilds/:id/roles` `{name, color?, hoist?, permissions?}` | MANAGE_ROLES | `Role` | `GUILD_ROLE_CREATE {guildId, role}` |
 | PATCH `/guilds/:id/roles` `[{id, position}]` | MANAGE_ROLES | `Role[]` | `GUILD_ROLE_UPDATE` per changed role |
@@ -375,7 +381,7 @@ Implemented extras (Discord semantics):
 | POST `/guilds/:id/invites` `{maxAgeSeconds?, maxUses?, acknowledgedPermanent?, record?}` | CREATE_INSTANT_INVITE; ADMINISTRATOR for `maxAgeSeconds` 0 or above 86400, and for `record` (with `X-Hachiman-Device`) (Invite limits) | `Invite` | — |
 | DELETE `/invites/:code` | MANAGE_GUILD | 204. Deletes the bundles of the invite | `INVITE_DELETE {guildId, code, inviteId}` → guild (first revoke only) |
 | GET `/invites/:code` | **public** | `InvitePreview` (non-consuming) | — |
-| POST `/invites/:code` | auth | `GuildFull` (idempotent if already a member — no use consumed) | `GUILD_MEMBER_ADD` → guild; `GUILD_CREATE` → user:{me} |
+| POST `/invites/:code` | auth; 403 `Banned` for a banned user (§4 Bans) | `GuildFull` (idempotent if already a member — no use consumed) | `GUILD_MEMBER_ADD` → guild; `GUILD_CREATE` → user:{me} |
 | GET `/users/@me/channels` | auth | `Channel[]` (DMs) | — |
 | POST `/users/@me/channels` `{recipientIds: string[]}` | auth; recipients must share a guild with me; no block either way (403 `Blocked`, Pins, guild events and blocks) | `Channel` (1 recipient → reuse existing `dm`; ≥2 → new `group_dm`, max 10) | `CHANNEL_CREATE` → user:{each participant} |
 | GET `/limits` | auth | `Limits` | — |
@@ -383,6 +389,8 @@ Implemented extras (Discord semantics):
 | POST `/uploads?kind=page_snapshot` raw body | auth | `Attachment` (201): an encrypted page snapshot blob (§4 Pages) | — |
 | POST `/uploads?filename=<name>` raw body | auth | `{id, key, size}` (201): a plaintext profile image | — |
 | GET `/files/:uploadId/:filename` | **public** | file bytes (`/files/{uploadId}/blob` for blobs) | — |
+
+**Bans.** A ban is a row in `guild_bans`. `PUT /guilds/:id/bans/:userId` writes the row and removes the membership in the same transaction, through the leave path: the DS gets `member_left` (§12.18), the invites of users who lost ADMINISTRATOR are revoked, and the gateway drops the guild and its voice state from the sessions of the user (`GUILD_DELETE` → user). While the row exists, the invite accept refuses the user with 403 `Banned`. There are no ban events: the Bans page of the guild settings reads `GET /guilds/:id/bans` when it opens and after each change. Kick, ban and the voice moderation (below) all use one rule: never the owner, and the top role of a member target must be below the top role of the caller (owner and ADMINISTRATOR exempt).
 
 The E2EE routes (devices, keys, MLS, inbox, backups, linking, key transparency, reports, invites with history) are in §12.12. In Phase 4, the role, overwrite and member-role routes and the channel `historyVisibility` change also take the header `X-Hachiman-Signed-Action` (§12.16). The header is necessary only when the request changes signed state: a role PATCH only with `permissions`, a member PATCH only with `roles`. A signed `role_create` names the role id, and `POST /guilds/:id/roles` creates the role with that id. The guild `publicHistoryVisibility` has no admin action type and is not signed.
 
@@ -939,6 +947,7 @@ export class RestClient {
   putOverwrite(channelId, targetId, body, opts?); deleteOverwrite(channelId, targetId, opts?)
   getMessages(channelId, { before?, limit? }); editMessage(...); deleteMessage(...); triggerTyping(channelId); ackMessage(channelId, messageId)
   getMembers(guildId); updateMember(guildId, userId, body, opts?); kickMember(guildId, userId); leaveGuild(guildId)
+  getBans(guildId); banMember(guildId, userId, {reason?}?); unbanMember(guildId, userId)
   getRoles(guildId); createRole(guildId, body, opts?); reorderRoles(guildId, positions, opts?); updateRole(guildId, roleId, body, opts?); deleteRole(guildId, roleId, opts?)
   getInvites(guildId); createInvite(guildId, { maxAgeSeconds?, maxUses?, acknowledgedPermanent?, record? }); deleteInvite(code); previewInvite(code); acceptInvite(code)
   getDmChannels(); openDm(recipientIds); getUser(id)
@@ -2638,6 +2647,7 @@ export class ApiError extends Error {
 | `StorageQuotaExceeded` | 413 | a page upload claim above `TAKUSEN_GUILD_PAGE_STORAGE_BYTES` |
 | `TooManyPins` | 400 | a pin past 50 pins in the channel (§4 Pins, guild events and blocks) |
 | `Blocked` | 403 | a DM open or a 1:1 DM message with a block in either direction (§4 Pins, guild events and blocks) |
+| `Banned` | 403 | `POST /invites/:code` of a user who is banned from the guild (§4 Bans) |
 
 **Client error codes.** The `@hachiman/crypto` Worker rejects with `CryptoError` (`CryptoErrorCode` in `src/api.ts`). `dsCode` holds the REST code above when the cause was a DS response. Two codes have no REST cause:
 - `LockHeld`: the Web Lock refused the store, because it is open in another tab (§12.17).

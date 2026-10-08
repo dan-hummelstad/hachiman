@@ -18,6 +18,7 @@ import {
   NotFoundError,
   ValidationError,
 } from '@/lib/errors'
+import { assertNotBanned } from '@/lib/bans'
 import { membershipChanged, membershipTransaction, MembershipTriggers } from '@/lib/guilds'
 import { drizzleInviteHistoryStore, inviteUsability } from '@/lib/invite-history'
 import { needsAdministrator } from '@/lib/invite-limits'
@@ -111,6 +112,7 @@ export async function acceptInvite(
       .from(guildMembers)
       .where(and(eq(guildMembers.guildId, invite.guildId), eq(guildMembers.userId, userId)))
     if (existing) return { guildId: invite.guildId, joined: false }
+    await assertNotBanned(tx, invite.guildId, userId)
     assertUsable(invite)
     await drizzleInviteHistoryStore(tx).joinWithInvite(invite, userId, new Date())
     await membershipChanged(tx, MembershipTriggers.memberJoined(invite.guildId, userId), actorDeviceId)

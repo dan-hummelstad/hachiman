@@ -71,6 +71,13 @@
       "when": 1791466047999,
       "tag": "0009_sound_permission_backfill",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1791467160230,
+      "tag": "0010_guild_bans",
+      "breakpoints": true
     }
   ]
 }

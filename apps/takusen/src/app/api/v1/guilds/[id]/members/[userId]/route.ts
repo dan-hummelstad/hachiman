@@ -9,7 +9,7 @@
  * invites and the invites with history of users who lost ADMINISTRATOR (§4).
  */
 import { and, eq, inArray } from 'drizzle-orm'
-import { highestRolePosition, Permissions } from '@hachiman/client/permissions'
+import { Permissions } from '@hachiman/client/permissions'
 import { NextResponse, type NextRequest } from 'next/server'
 import { z } from 'zod'
 
@@ -24,6 +24,7 @@ import {
   isPrivileged,
   loadGuildAccess,
   requireAbovePosition,
+  requireModeratable,
   requirePermission,
 } from '@/lib/guild-access'
 import { assertId } from '@/lib/ids'
@@ -123,12 +124,10 @@ export async function DELETE(req: NextRequest, ctx: RouteContext): Promise<NextR
     const access = await loadGuildAccess(id, session.user.id)
     const userId = assertId(rawUserId, 'member')
     requirePermission(access.permissions, Permissions.KICK_MEMBERS)
-    if (userId === access.guild.ownerId) throw new MissingPermissionsError('Cannot kick the owner')
     if (userId === session.user.id) {
       throw new ValidationError('Use DELETE /users/@me/guilds/:id to leave')
     }
-    const target = await loadMember(id, userId)
-    requireAbovePosition(access, highestRolePosition(target, access.roles))
+    requireModeratable(access, userId, await loadMember(id, userId))
     await removeMember(id, userId, await actorDeviceId(req, session.user.id))
     return noContent()
   } catch (err) {

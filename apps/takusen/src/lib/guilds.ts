@@ -32,7 +32,7 @@ import {
 } from '@/db/schema'
 import { NotFoundError } from '@/lib/errors'
 import { publishToGuild, publishToUser, redis } from '@/lib/events'
-import { publishInviteDeletes, revokeAdminInvitesOfNonAdmins } from '@/lib/invite-limits'
+import { publishInviteDeletes, revokeAdminInvitesOfNonAdmins, type RevokedInvite } from '@/lib/invite-limits'
 import { toB64 } from '@/lib/mls/bytes'
 import { discardMembershipWork, onMembershipChange, wakeScheduler, type MembershipChange } from '@/lib/mls/membership'
 import { deleteObjects } from '@/lib/storage'
@@ -375,17 +375,38 @@ export async function removeMember(guildId: string, userId: string, actorDeviceI
   const user = await getUserById(userId)
   if (!user) throw new NotFoundError('Unknown member')
   const revoked = await membershipTransaction(async (tx) => {
-    const deleted = await tx
-      .delete(guildMembers)
-      .where(and(eq(guildMembers.guildId, guildId), eq(guildMembers.userId, userId)))
-      .returning({ userId: guildMembers.userId })
-    if (deleted.length === 0) throw new NotFoundError('Unknown member')
-    const revoked = await revokeAdminInvitesOfNonAdmins(tx, guildId)
-    await membershipChanged(tx, MembershipTriggers.memberLeft(guildId, userId), actorDeviceId)
+    const revoked = await removeMemberIn(tx, guildId, userId, actorDeviceId)
+    if (!revoked) throw new NotFoundError('Unknown member')
     return revoked
   })
+  await publishMemberRemoved(guildId, user, revoked)
+}
+
+/**
+ * The leave, kick and ban path inside a membership transaction: deletes the
+ * membership, revokes the invites of users who lost ADMINISTRATOR and tells the
+ * DS (§12.18 `member_left`). Null when `userId` is not a member.
+ */
+export async function removeMemberIn(
+  tx: Tx,
+  guildId: string,
+  userId: string,
+  actorDeviceId: string | null,
+): Promise<RevokedInvite[] | null> {
+  const deleted = await tx
+    .delete(guildMembers)
+    .where(and(eq(guildMembers.guildId, guildId), eq(guildMembers.userId, userId)))
+    .returning({ userId: guildMembers.userId })
+  if (deleted.length === 0) return null
+  const revoked = await revokeAdminInvitesOfNonAdmins(tx, guildId)
+  await membershipChanged(tx, MembershipTriggers.memberLeft(guildId, userId), actorDeviceId)
+  return revoked
+}
+
+/** After the commit of `removeMemberIn`. The gateway then drops the guild, and its voice state, from the sessions of the user. */
+export async function publishMemberRemoved(guildId: string, user: UserLike, revoked: RevokedInvite[]): Promise<void> {
   await publishToGuild(guildId, 'GUILD_MEMBER_REMOVE', { guildId, user: toUser(user) })
-  await publishToUser(userId, 'GUILD_DELETE', { id: guildId })
+  await publishToUser(user.id, 'GUILD_DELETE', { id: guildId })
   await publishInviteDeletes(guildId, revoked)
 }
 
