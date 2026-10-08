@@ -35,7 +35,7 @@ export async function signOutHachimanSessionAction(grantId: string): Promise<Ses
 export async function signOutEverywhereElseAction(): Promise<SessionActionResult> {
   const session = await requireUser()
   const since = Date.now()
-  await unstable_update(RENEW_AUTH_TIME as Parameters<typeof unstable_update>[0])
+  await unstable_update(RENEW_AUTH_TIME)
   await revokeUserSessionsBefore(session.user.id, since)
   // No revalidatePath: the render in this request reads the old, now revoked cookie
   // (see dashboard/page.tsx). The client refreshes once the new cookie is set.

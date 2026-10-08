@@ -1,7 +1,7 @@
 import { DashboardShell } from '@/components/dashboard-shell'
 import { SearchField } from '@/components/admin/kit'
 import { AdminUsersView } from '@/components/admin/users'
-import { getAdminCounts } from '@/lib/admin-stats'
+import { adminCounts } from '@/lib/admin-stats'
 import { requireAdmin } from '@/lib/auth-helpers'
 
 export const metadata = {
@@ -9,7 +9,7 @@ export const metadata = {
 }
 
 export default async function Page(): Promise<React.JSX.Element> {
-  const [session, counts] = await Promise.all([requireAdmin(), getAdminCounts()])
+  const [session, counts] = await Promise.all([requireAdmin(), adminCounts()])
   return (
     <DashboardShell
       section="admin"

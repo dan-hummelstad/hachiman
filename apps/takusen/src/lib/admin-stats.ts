@@ -20,13 +20,23 @@ import {
 } from '@/lib/admin'
 import { listGuilds } from '@/lib/admin-guilds'
 import { listUsers, unverifiedUser } from '@/lib/admin-users'
+import { requireAdmin } from '@/lib/auth-helpers'
 import { listRegions } from '@/lib/regions'
 import { liveGrantOf } from '@/lib/session-revocation'
 
 const WEEK_MS = 7 * 24 * 3600 * 1000
 
+/**
+ * The counts for an admin, else it throws. Layouts do not guard the pages they wrap (Next renders
+ * them in parallel), so the guard sits here, next to the data.
+ */
+export async function adminCounts(): Promise<AdminCounts> {
+  await requireAdmin()
+  return await countsOnce()
+}
+
 /** Cached per request: the layout and the page both read it. */
-export const getAdminCounts = cache(async (): Promise<AdminCounts> => {
+const countsOnce = cache(async (): Promise<AdminCounts> => {
   const now = new Date()
   const [[u], [a], [unverified], [signedIn], [fresh], [g], [c], [n], [r], [o]] = await Promise.all([
     db.select({ n: count() }).from(users),

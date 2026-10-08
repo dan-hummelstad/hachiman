@@ -1,8 +1,9 @@
 /**
- * Wrong current passwords on the account page (Redis
- * `takusen:password_attempts:{userId}`, contract §5). After
- * `PASSWORD_ATTEMPTS_MAX` misses in a row, the form pauses for the rest of the
- * window. The window starts at the first miss. A correct password clears it.
+ * Current-password checks on the account page (Redis
+ * `takusen:password_attempts:{userId}`, contract §5). Each check reserves an
+ * attempt before the password is verified. After `PASSWORD_ATTEMPTS_MAX`
+ * checks without a correct password, the form pauses for the rest of the
+ * window. The window starts at the first check. A correct password clears it.
  */
 import type { Redis } from 'ioredis'
 
@@ -14,8 +15,8 @@ export function passwordAttemptsKey(userId: string): string {
 }
 
 export interface AttemptStore {
-  /** Counts one miss. Returns the misses and the seconds left in the window. */
-  miss(userId: string): Promise<{ misses: number; ttlSeconds: number }>
+  /** Counts one check. Returns the checks so far and the seconds left in the window. */
+  reserve(userId: string): Promise<{ misses: number; ttlSeconds: number }>
   clear(userId: string): Promise<void>
 }
 
@@ -28,16 +29,16 @@ export function attemptState(misses: number, ttlSeconds: number): AttemptState {
   return { paused: false, attemptsLeft: PASSWORD_ATTEMPTS_MAX - misses }
 }
 
-const MISS = `
+const RESERVE = `
 local n = redis.call('INCR', KEYS[1])
 if n == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]) end
 return {n, redis.call('TTL', KEYS[1])}`
 
 export function redisAttemptStore(client: Redis): AttemptStore {
   return {
-    async miss(userId) {
+    async reserve(userId) {
       const [misses, ttl] = (await client.eval(
-        MISS,
+        RESERVE,
         1,
         passwordAttemptsKey(userId),
         PASSWORD_ATTEMPTS_WINDOW_SECONDS,
@@ -63,7 +64,7 @@ export class InMemoryAttemptStore implements AttemptStore {
     }
     return row
   }
-  async miss(userId: string) {
+  async reserve(userId: string) {
     const row = this.live(userId) ?? { misses: 0, endsAt: this.now() + PASSWORD_ATTEMPTS_WINDOW_SECONDS * 1000 }
     row.misses++
     this.rows.set(userId, row)
@@ -87,7 +88,7 @@ export async function checkCurrentPassword(
   userId: string,
   verify: () => Promise<boolean>,
 ): Promise<PasswordCheckResult> {
-  const { misses, ttlSeconds } = await store.miss(userId)
+  const { misses, ttlSeconds } = await store.reserve(userId)
   if (misses > PASSWORD_ATTEMPTS_MAX) return { ok: false, ...attemptState(misses, ttlSeconds) }
   if (await verify()) {
     await store.clear(userId)

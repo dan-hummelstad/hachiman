@@ -65,9 +65,10 @@ export function OpenInviteButtons({
 }
 
 /**
- * "Not you?": signs out of Takusen and reloads this invite page. The reload puts back the
- * fragment as the page loaded it, so the `#k=` key survives the switch; a sign-out callback URL
- * would send it to the server.
+ * "Not you?": signs out of Takusen and reloads this invite page with the fragment as the page
+ * loaded it, so the `#k=` key survives the switch. signOut posts its callback URL to the server
+ * and defaults it to the address bar, which still holds the fragment until the strip effect
+ * runs; the explicit `redirectTo` keeps the key off the server whatever the order.
  */
 export function NotYouButton(): React.JSX.Element {
   return (
@@ -78,7 +79,7 @@ export function NotYouButton(): React.JSX.Element {
       onClick={() => {
         const { pathname, search } = window.location
         const hash = loadedHash()
-        void signOut({ redirect: false }).then(() => {
+        void signOut({ redirect: false, redirectTo: pathname + search }).then(() => {
           window.history.replaceState(null, '', pathname + search + hash)
           window.location.reload()
         })

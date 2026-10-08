@@ -5,9 +5,10 @@ import type { ReactNode } from 'react'
 import { DashboardFrame } from '@/components/dashboard-frame'
 import { DashboardSidebar } from '@/components/dashboard-sidebar'
 import { getAccountSummary } from '@/lib/account'
-import { getAdminCounts } from '@/lib/admin-stats'
+import { adminCounts } from '@/lib/admin-stats'
 import { getOptionalUser } from '@/lib/auth-helpers'
 import { desktopDownloadFor, hachimanLinks } from '@/lib/deployment'
+import { safeNext } from '@/lib/safe-next'
 
 export default async function DashboardLayout({
   children,
@@ -16,31 +17,15 @@ export default async function DashboardLayout({
 }): Promise<React.JSX.Element> {
   const session = await getOptionalUser()
   if (!session) {
-    // Try to preserve the requested path so we can bounce the user back here
-    // after a successful login. Next.js doesn't expose pathname directly in
-    // layouts, but the `x-pathname` / `referer` headers are usable in
-    // practice; fall back to /dashboard if neither is present.
-    const hdrs = await headers()
-    const referer = hdrs.get('referer')
-    let next: string = '/dashboard'
-    if (referer) {
-      try {
-        const url = new URL(referer)
-        if (url.pathname.startsWith('/') && !url.pathname.startsWith('//')) {
-          next = url.pathname + url.search
-        }
-      } catch {
-        // ignore — fall back to default
-      }
-    }
-    redirect(`/login?next=${encodeURIComponent(next)}`)
+    // Layouts get no pathname; the referer brings the visitor back here after sign-in.
+    redirect(`/login?next=${encodeURIComponent(nextFromReferer((await headers()).get('referer')))}`)
   }
 
   const { user } = session
   const admin = user.role === 'admin'
   const [summary, counts, hdrs] = await Promise.all([
     getAccountSummary(user.id),
-    admin ? getAdminCounts() : null,
+    admin ? adminCounts() : null,
     headers(),
   ])
   const links = hachimanLinks()
@@ -66,4 +51,14 @@ export default async function DashboardLayout({
       {children}
     </DashboardFrame>
   )
+}
+
+function nextFromReferer(referer: string | null): string {
+  if (!referer) return '/dashboard'
+  try {
+    const url = new URL(referer)
+    return safeNext(url.pathname + url.search) ?? '/dashboard'
+  } catch {
+    return '/dashboard'
+  }
 }
