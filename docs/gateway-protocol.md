@@ -997,7 +997,7 @@ export class GatewayClient extends TypedEventEmitter<GatewayClientEvents> {
   readonly latencyMs: number | null   // HEARTBEAT → ACK RTT
   updatePresence(status: PresenceStatus): void
   setCustomStatus(text: string, expiresAt?: string | null): void   // op 3 customStatus; an empty text sends null (clear)
-  updateVoiceState(d: { guildId: string; channelId: string | null; selfMute: boolean; selfDeaf: boolean }): void
+  updateVoiceState(d: { guildId: string | null; channelId: string | null; selfMute: boolean; selfDeaf: boolean }): void
   sendDocAwareness(d: { channelId: string; pageId: string; envelope: string }): void   // op 5. Dropped while not connected
   // events: 'state' (state), 'dispatch' ({t, d}), and each event name from §6 with its typed payload
 }
@@ -1053,7 +1053,7 @@ export class HachimanClient extends TypedEventEmitter<HachimanClientEvents> {
     members: Map<string, Map<string, Member>>    // guildId → userId → Member
     presences: Map<string, PresenceStatus>       // userId → status
     customStatuses: Map<string, CustomStatus>    // userId → custom status of an online user; check expiresAt when showing it
-    voiceStates: Map<string, Map<string, VoiceState>>  // guildId → userId → state
+    voiceStates: Map<string, Map<string, VoiceState>>  // voiceScopeId → userId → state. voiceScopeId(vs) = vs.guildId ?? vs.channelId (a DM call: the DM channel id)
     readStates: Map<string, ReadState>           // channelId → state. From READY. READ_STATE_UPDATE sets lastReadMessageId and unreadCount 0
     events: Map<string, Map<string, GuildEventWithMe>>  // guildId → eventId; filled by fetchGuildEvents, kept by GUILD_EVENT_*
     blocks: Set<string>                          // blocked user ids; filled by fetchBlocks, kept by USER_BLOCK_UPDATE
@@ -1064,7 +1064,7 @@ export class HachimanClient extends TypedEventEmitter<HachimanClientEvents> {
   connect(): void; disconnect(): void
   permissionsFor(channelId: string): number      // for the current user
   guildPermissions(guildId: string): number
-  joinVoice(guildId: string, channelId: string): Promise<VoiceConnection>   // joins with the current selfVoice
+  joinVoice(guildId: string | null, channelId: string): Promise<VoiceConnection>   // joins with the current selfVoice. guildId null: a DM call (§6 "DM calls")
   leaveVoice(): void
   readonly selfVoice: SelfVoiceState             // { ownMute, selfMute, selfDeaf }
   setSelfVoice(change: Partial<SelfVoice>): SelfVoiceState   // SelfVoice = { selfMute, selfDeaf }
@@ -1075,7 +1075,7 @@ export class HachimanClient extends TypedEventEmitter<HachimanClientEvents> {
   // (a leave dropped while the socket was down, then RESUME) is left with op 4 channelId null.
   // events: 'ready', 'state', 'update' (fired after any cache mutation with { t, d }), 'voice' (VoiceConnection | null),
   //         'fatal' ({ code }: the gateway closed 4012 or 4013 and does not reconnect),
-  //         'voiceResync' ({ guildId, channelId }: media closed the call 4013; the client left voice, call joinVoice with the same target),
+  //         'voiceResync' (VoiceTarget { guildId: string | null, channelId }: media closed the call 4013; the client left voice, call joinVoice with the same target),
   //         plus every gateway event re-emitted after the cache is updated
   // The cache keeps Message as ciphertext. The shared UI decrypts with @hachiman/crypto before messagesStore.upsert.
   // PAGE_* and DOC_* are not cached. The shared UI (services/docs) keeps the page tree and the Yjs docs.

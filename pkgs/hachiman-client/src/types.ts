@@ -226,7 +226,8 @@ export interface Presence {
 }
 
 export interface VoiceState {
-  guildId: string
+  /** null: a DM or group DM call (§6 "DM calls"). */
+  guildId: string | null
   channelId: string | null
   userId: string
   sessionId: string
@@ -641,6 +642,8 @@ export interface ReadyPayload {
   user: User
   guilds: GuildFull[]
   privateChannels: Channel[]
+  /** The live states of the DM calls (guildId null). Absent from an older gateway. */
+  privateVoiceStates?: VoiceState[]
   presences: Presence[]
   /** One per viewable text, pages, dm and group_dm channel (§1 ReadState). */
   readStates: ReadState[]
@@ -665,12 +668,22 @@ export interface ReadState {
 export const READ_STATE_UNREAD_CAP = 100
 
 export interface VoiceServerUpdate {
-  guildId: string
+  guildId: string | null
   channelId: string
   endpoint: string
   token: string
   iceServers: RTCIceServer[]
   expiresAt: string
+}
+
+/** CALL_RING (§6 "DM calls"). */
+export interface CallRing {
+  channelId: string
+  /** The caller. */
+  userId: string
+  ringing: string[]
+  /** RFC 3339: when the call started ringing. */
+  at: string
 }
 
 /** Op 3 (§6). `status` absent: unchanged. `customStatus` absent: unchanged; null: clear. */
@@ -680,7 +693,8 @@ export interface PresenceUpdateRequest {
 }
 
 export interface VoiceStateUpdateRequest {
-  guildId: string
+  /** null: a DM call. */
+  guildId: string | null
   channelId: string | null
   selfMute: boolean
   selfDeaf: boolean
@@ -755,6 +769,8 @@ export interface GatewayEvents {
   PRESENCE_UPDATE: Presence
   VOICE_STATE_UPDATE: VoiceState
   VOICE_SERVER_UPDATE: VoiceServerUpdate
+  /** A DM call started (§6 "DM calls"): `userId` calls, `ringing` lists the users it rings. Stop ringing locally (30 s after `at` at the latest). */
+  CALL_RING: CallRing
   MLS_HANDSHAKE: MlsHandshakeEvent
   MLS_GROUP_UPDATE: MlsGroup
   MLS_BATCH_ASSIGN: BatchAssign

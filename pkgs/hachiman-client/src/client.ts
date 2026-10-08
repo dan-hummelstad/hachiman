@@ -41,6 +41,20 @@ export interface HachimanClientOptions {
   voiceE2ee: () => VoiceE2eeDelegate
 }
 
+/** A voice room: a guild voice channel, or a DM / group DM call (`guildId` null, §6 "DM calls"). */
+export interface VoiceTarget {
+  guildId: string | null
+  channelId: string
+}
+
+/**
+ * The key of a voice state in `HachimanCache.voiceStates`: the guild id, or the DM channel id of a
+ * DM call (ids are UUIDs, so the two never collide).
+ */
+export function voiceScopeId(vs: { guildId: string | null; channelId: string }): string {
+  return vs.guildId ?? vs.channelId
+}
+
 /** Self mute/deafen as sent in VOICE_STATE_UPDATE. */
 export interface SelfVoice {
   selfMute: boolean
@@ -69,7 +83,7 @@ export type HachimanClientEvents = GatewayEventHandlers & {
    * Media closed the call with 4013 (E2EE resync). The client has left voice. Call `joinVoice`
    * with the same target to rejoin.
    */
-  voiceResync: (target: { guildId: string; channelId: string }) => void
+  voiceResync: (target: VoiceTarget) => void
 }
 
 export interface HachimanCache {
@@ -85,7 +99,7 @@ export interface HachimanCache {
   presences: Map<string, PresenceStatus>
   /** userId → custom status of an online user (§1). Check `expiresAt` when showing it. */
   customStatuses: Map<string, CustomStatus>
-  /** guildId → userId → state */
+  /** `voiceScopeId` (guild id, or DM channel id of a DM call) → userId → state */
   voiceStates: Map<string, Map<string, VoiceState>>
   /** channelId → read state, from READY and READ_STATE_UPDATE (§1 ReadState). */
   readStates: Map<string, ReadState>
@@ -143,7 +157,7 @@ export class HachimanClient extends TypedEventEmitter<HachimanClientEvents> {
   }
 
   private _voice: VoiceConnection | null = null
-  private voiceTarget: { guildId: string; channelId: string } | null = null
+  private voiceTarget: VoiceTarget | null = null
   /** Bumped by READY: a fetch that started before it does not fill the new cache. */
   private session = 0
   /** The user's choices. The wire and media state derive from these (see `selfVoice`). */
@@ -229,7 +243,8 @@ export class HachimanClient extends TypedEventEmitter<HachimanClientEvents> {
   }
 
   /** Joins with the current `selfVoice`; change it with `setSelfVoice` (before or during the session). */
-  async joinVoice(guildId: string, channelId: string): Promise<VoiceConnection> {
+  /** `guildId` null: the call of a DM or group DM channel (§6 "DM calls"). */
+  async joinVoice(guildId: string | null, channelId: string): Promise<VoiceConnection> {
     this.cancelPendingJoin?.()
     this.dropVoice()
     this.voiceTarget = { guildId, channelId }
@@ -313,9 +328,11 @@ export class HachimanClient extends TypedEventEmitter<HachimanClientEvents> {
     const me = this.cache.user?.id
     const session = this.gateway.sessionId
     if (this.voiceTarget || !me || !session) return
-    for (const [guildId, states] of this.cache.voiceStates)
-      if (states.get(me)?.sessionId === session)
-        this.gateway.updateVoiceState({ ...this.wireVoice(), guildId, channelId: null })
+    for (const states of this.cache.voiceStates.values()) {
+      const mine = states.get(me)
+      if (mine?.sessionId === session)
+        this.gateway.updateVoiceState({ ...this.wireVoice(), guildId: mine.guildId, channelId: null })
+    }
   }
 
   /** Deafen implies mute, so `selfMute` is true while deafened even if the user never muted. */
@@ -474,6 +491,8 @@ export class HachimanClient extends TypedEventEmitter<HachimanClientEvents> {
         for (const m of Object.values(c)) if (m instanceof Map || m instanceof Set) m.clear()
         for (const g of e.d.guilds) this.ingestGuild(g)
         for (const ch of e.d.privateChannels) c.channels.set(ch.id, ch)
+        for (const vs of e.d.privateVoiceStates ?? [])
+          if (vs.channelId) sub(c.voiceStates, voiceScopeId({ ...vs, channelId: vs.channelId })).set(vs.userId, vs)
         for (const p of e.d.presences) this.setPresence(p)
         for (const r of e.d.readStates ?? []) c.readStates.set(r.channelId, r)
         break
@@ -493,6 +512,7 @@ export class HachimanClient extends TypedEventEmitter<HachimanClientEvents> {
       case 'CHANNEL_DELETE':
         c.channels.delete(e.d.id)
         c.readStates.delete(e.d.id)
+        if (e.d.guildId === null) c.voiceStates.delete(e.d.id) // the call of a DM
         break
       case 'READ_STATE_UPDATE': {
         // The ack moved forward. Messages after it that arrived since READY are not counted here.
@@ -535,7 +555,7 @@ export class HachimanClient extends TypedEventEmitter<HachimanClientEvents> {
       case 'VOICE_STATE_UPDATE':
         // One voice session per user globally: a state anywhere replaces any other.
         for (const states of c.voiceStates.values()) states.delete(e.d.userId)
-        if (e.d.channelId) sub(c.voiceStates, e.d.guildId).set(e.d.userId, e.d)
+        if (e.d.channelId) sub(c.voiceStates, voiceScopeId({ ...e.d, channelId: e.d.channelId })).set(e.d.userId, e.d)
         break
       case 'GUILD_EVENT_CREATE':
       case 'GUILD_EVENT_UPDATE': {
@@ -566,6 +586,7 @@ export class HachimanClient extends TypedEventEmitter<HachimanClientEvents> {
       case 'MESSAGE_DELETE':
       case 'TYPING_START':
       case 'VOICE_SERVER_UPDATE':
+      case 'CALL_RING':
       case 'MLS_HANDSHAKE':
       case 'MLS_GROUP_UPDATE':
       case 'MLS_BATCH_ASSIGN':

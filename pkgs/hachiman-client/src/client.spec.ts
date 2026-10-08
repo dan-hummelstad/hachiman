@@ -417,6 +417,36 @@ describe('HachimanClient cache', () => {
     })
   })
 
+  it('DM calls: states keyed by the DM channel, CALL_RING re-emitted, join and leave with guildId null', async () => {
+    const dmState = {
+      guildId: null,
+      channelId: 'dm',
+      userId: 'bob',
+      sessionId: 'x',
+      selfMute: false,
+      selfDeaf: false,
+      selfStream: false,
+    }
+    dispatch('READY', { ...readyPayload, privateVoiceStates: [dmState] })
+    expect(client.cache.voiceStates.get('dm')?.get('bob')).toEqual(dmState)
+    const rings: unknown[] = []
+    client.on('CALL_RING', (d) => rings.push(d))
+    const ring = { channelId: 'dm', userId: 'bob', ringing: ['me'], at: '2026-10-08T00:00:00Z' }
+    dispatch('CALL_RING', ring)
+    expect(rings).toEqual([ring])
+    dispatch('VOICE_STATE_UPDATE', { ...dmState, channelId: null })
+    expect(client.cache.voiceStates.get('dm')?.has('bob')).toBe(false)
+
+    const p = client.joinVoice(null, 'dm')
+    expect(ws.sent.at(-1)).toEqual({
+      op: 4,
+      d: { selfMute: false, selfDeaf: false, selfStream: false, guildId: null, channelId: 'dm' },
+    })
+    client.leaveVoice()
+    await expect(p).rejects.toThrow('superseded')
+    expect(ws.sent.at(-1)?.d).toMatchObject({ guildId: null, channelId: null })
+  })
+
   describe('setSelfVoice', () => {
     const voiceFrames = () => ws.sent.filter(f => f.op === 4)
     // Keeps a join pending (no VOICE_SERVER_UPDATE), so the client is "in voice" on the gateway.
