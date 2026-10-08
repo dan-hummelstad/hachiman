@@ -30,7 +30,11 @@ export const PERMISSION_LABELS: readonly PermissionLabel[] = [
   p('CREATE_INSTANT_INVITE', 'Create invites', 'Create invite links.'),
   p('CHANGE_NICKNAME', 'Change nickname', 'Change their own nickname.'),
   p('MANAGE_NICKNAMES', 'Manage nicknames', "Change other members' nicknames."),
-  p('MANAGE_EXPRESSIONS', 'Manage expressions', 'Upload and delete soundboard sounds.'),
+  p(
+    'MANAGE_EXPRESSIONS',
+    'Manage expressions',
+    'Upload, rename and delete custom emojis and soundboard sounds.'
+  ),
   p('VIEW_CHANNEL', 'View channels', 'See channels.'),
   p('SEND_MESSAGES', 'Send messages', 'Post in text channels.'),
   p('MANAGE_MESSAGES', 'Manage messages', "Delete other members' messages."),

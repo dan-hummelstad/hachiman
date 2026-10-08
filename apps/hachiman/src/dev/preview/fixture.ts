@@ -400,7 +400,8 @@ const extraGuilds: GuildFull[] = [
     channels: [channel(id, `c-${id}-general`, 'text', 'general', 0)],
     members,
     voiceStates: [],
-    presences: presencesFor(members)
+    presences: presencesFor(members),
+    emojis: []
   }
 })
 
