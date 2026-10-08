@@ -2,8 +2,12 @@ import { headers } from 'next/headers'
 import { redirect } from 'next/navigation'
 import type { ReactNode } from 'react'
 
-import { DashboardNav } from '@/components/dashboard-nav'
+import { DashboardFrame } from '@/components/dashboard-frame'
+import { DashboardSidebar } from '@/components/dashboard-sidebar'
+import { getAccountSummary } from '@/lib/account'
+import { getAdminCounts } from '@/lib/admin-stats'
 import { getOptionalUser } from '@/lib/auth-helpers'
+import { hachimanLinks } from '@/lib/deployment'
 
 export default async function DashboardLayout({
   children,
@@ -33,15 +37,30 @@ export default async function DashboardLayout({
   }
 
   const { user } = session
+  const admin = user.role === 'admin'
+  const [summary, counts] = await Promise.all([
+    getAccountSummary(user.id),
+    admin ? getAdminCounts() : null,
+  ])
 
   return (
-    <div className="flex min-h-dvh flex-col bg-background text-foreground md:flex-row">
-      <DashboardNav
-        name={user.name ?? ''}
-        email={user.email ?? ''}
-        role={user.role}
-      />
-      <main className="flex min-w-0 flex-[1_1_800px]">{children}</main>
-    </div>
+    <DashboardFrame
+      admin={admin}
+      sidebar={
+        <DashboardSidebar
+          user={{
+            name: user.name ?? '',
+            email: user.email ?? '',
+            role: user.role,
+            avatarUrl: summary?.avatarUrl ?? null,
+          }}
+          counts={counts}
+          hachiman={{ state: summary?.hachiman ?? 'never', guildCount: summary?.guildCount ?? 0 }}
+          links={hachimanLinks()}
+        />
+      }
+    >
+      {children}
+    </DashboardFrame>
   )
 }

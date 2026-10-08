@@ -22,7 +22,7 @@ export default async function AccountPage(): Promise<React.JSX.Element> {
   })
 
   return (
-    <DashboardShell title="Account" description="Update your profile and security settings.">
+    <DashboardShell section="account" crumbs={[{ label: 'Account' }]} title="Account" description="Update your profile and security settings.">
       <DashboardSection
         title="Profile"
         description="Your display name is shown to other users."

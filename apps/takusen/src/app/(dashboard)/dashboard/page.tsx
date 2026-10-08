@@ -20,6 +20,8 @@ export default async function DashboardPage(): Promise<React.JSX.Element> {
 
   return (
     <DashboardShell
+      section="account"
+      crumbs={[{ label: 'Overview' }]}
       title={`Welcome back, ${displayName}`}
       description="Your Takusen account. Guilds are managed in the Hachiman app."
     >

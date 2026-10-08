@@ -7,7 +7,7 @@ export const metadata = {
 
 export default function Page(): React.JSX.Element {
   return (
-    <DashboardShell wide title="Guilds" description="Every guild in this deployment. Deleting one removes it for all of its members.">
+    <DashboardShell section="admin" crumbs={[{ label: 'Guilds' }]} title="Guilds" description="Every guild in this deployment. Deleting one removes it for all of its members.">
       <AdminGuildsView />
     </DashboardShell>
   )

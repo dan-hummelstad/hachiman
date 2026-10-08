@@ -7,7 +7,7 @@ export const metadata = {
 
 export default function Page(): React.JSX.Element {
   return (
-    <DashboardShell wide title="OIDC clients" description="Applications that sign users in through Takusen. Read only; db:seed manages them.">
+    <DashboardShell section="admin" crumbs={[{ label: 'OIDC clients' }]} title="OIDC clients" description="Applications that sign users in through Takusen. Read only; db:seed manages them.">
       <AdminOidcClientsView />
     </DashboardShell>
   )
