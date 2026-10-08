@@ -24,9 +24,10 @@ const vs = (
 const states = (...list: VoiceState[]): Map<string, Map<string, VoiceState>> => {
   const out = new Map<string, Map<string, VoiceState>>()
   for (const s of list) {
-    const g = out.get(s.guildId) ?? new Map<string, VoiceState>()
+    const key = s.guildId ?? s.channelId ?? ''
+    const g = out.get(key) ?? new Map<string, VoiceState>()
     g.set(s.userId, s)
-    out.set(s.guildId, g)
+    out.set(key, g)
   }
   return out
 }

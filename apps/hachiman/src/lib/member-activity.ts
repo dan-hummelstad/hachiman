@@ -17,7 +17,7 @@ export interface VoiceActivity {
 }
 
 export interface ActivitySources {
-  /** guildId → userId → state. The viewer gets states only for guilds it is a member of. */
+  /** voiceScopeId → userId → state. The viewer gets states only for its guilds and DM calls. */
   voiceStates: ReadonlyMap<string, ReadonlyMap<string, VoiceState>>
   channels: ReadonlyMap<string, Channel>
   guilds: ReadonlyMap<string, Guild>
@@ -42,13 +42,14 @@ export function voiceActivity(
     for (const [guildId, states] of src.voiceStates) {
       if (guildId === contextGuildId) continue
       const s = states.get(userId)
-      if (s?.channelId) {
+      if (s?.channelId && s.guildId !== null) {
         state = s
         break
       }
     }
   }
-  if (!state?.channelId) return null
+  // A DM call shows in the DM itself (the call banner), not as guild voice activity.
+  if (!state?.channelId || state.guildId === null) return null
   const channel = src.channels.get(state.channelId)
   if (!channel) return null
   const withMe = src.myChannelId === state.channelId

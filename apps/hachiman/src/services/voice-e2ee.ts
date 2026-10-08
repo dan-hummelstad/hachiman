@@ -41,7 +41,7 @@ export type VoiceCrypto = Pick<
 
 export interface VoiceE2eeDeps {
   crypto: VoiceCrypto
-  target: { guildId: string; channelId: string }
+  target: { guildId: string | null; channelId: string }
   /** createTransformWorker from @hachiman/crypto. Called once, here. */
   createWorker(): Worker
   /** `new RTCRtpScriptTransform(worker, options, transfer)`. */

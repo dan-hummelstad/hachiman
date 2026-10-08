@@ -22,6 +22,8 @@ import { GuildChannelList } from '@/components/sidebar/guild-channels'
 import { useGuildTint } from '@/components/shell/use-guild-tint'
 import { VoiceDock } from '@/components/voice-connected-panel'
 import { VoiceRoom } from '@/components/voice/voice-room'
+import { DmCallPanel } from '@/components/voice/dm-call'
+import { IncomingCall } from '@/components/voice/incoming-call'
 import { useAppShortcuts } from '@/hooks/use-app-shortcuts'
 import { useGlobalShortcuts } from '@/hooks/use-global-shortcuts'
 import { useGuildChannels } from '@/hooks/use-hachiman'
@@ -192,7 +194,12 @@ export function Shell(): React.JSX.Element {
                   {selectedChannel.type === 'voice' && isGuildChannel(selectedChannel) ? (
                     <VoiceRoom key={selectedChannel.id} channel={selectedChannel} />
                   ) : (
-                    <ChatBody channel={selectedChannel} />
+                    <>
+                      {selectedChannel.guildId === null && (
+                        <DmCallPanel key={selectedChannel.id} channel={selectedChannel} />
+                      )}
+                      <ChatBody channel={selectedChannel} />
+                    </>
                   )}
                 </ChannelPane>
               ) : (
@@ -211,6 +218,7 @@ export function Shell(): React.JSX.Element {
         </div>
       </div>
       <QuickSwitcher />
+      <IncomingCall />
       {createPortal(<VoiceDock />, dockHost)}
     </div>
   )

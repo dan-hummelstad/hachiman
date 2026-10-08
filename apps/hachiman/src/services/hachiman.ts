@@ -16,6 +16,7 @@ import { soundFeature, startSounds } from '@/services/SoundService'
 import { tabsFeature } from '@/services/tabs-feature'
 import { unreadFeature } from '@/services/UnreadService'
 import { voiceService } from '@/services/VoiceService'
+import { callRingService } from '@/services/CallRingService'
 import type { IPlatformService } from '@/shared/IPlatformService'
 import { resetChannelStore, useChannelStore } from '@/stores/channelStore'
 import { resetComposerStore } from '@/stores/composerStore'
@@ -321,6 +322,7 @@ export function startHachiman(host?: IPlatformService): void {
   })
   startNavHistory()
   voiceService.start()
+  callRingService.start()
   startSounds()
   // Back online: reconnect now instead of after the remaining backoff (up to 30 s).
   window.addEventListener('online', () => hachiman.gateway.retryNow())

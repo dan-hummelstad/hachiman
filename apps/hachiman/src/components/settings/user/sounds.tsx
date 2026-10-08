@@ -24,7 +24,8 @@ const SOUND_LABELS: Record<SoundEvent, string> = {
   streamStop: 'You stop sharing',
   userStreamStart: 'Someone starts sharing',
   userStreamStop: 'Someone stops sharing',
-  poke: 'Someone pokes you'
+  poke: 'Someone pokes you',
+  ring: 'Incoming call'
 }
 
 const SOUND_HINTS: Partial<Record<SoundEvent, string>> = { message: 'DMs and mentions' }

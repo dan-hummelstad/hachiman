@@ -50,9 +50,12 @@ export function useViewableChannels(guildId: string, type: Channel['type']): Cha
 
 const EMPTY_VOICE_STATES: VoiceState[] = []
 
-/** Voice states of the users in one channel (join order); a stable empty array when none. */
+/**
+ * Voice states of the users in one channel (join order); a stable empty array when none. `guildId`
+ * null: the call of a DM or group DM (its states are keyed by the channel id, `voiceScopeId`).
+ */
 export function useChannelOccupants(guildId: string | null, channelId: string): VoiceState[] {
-  const states = useVoiceStore((s) => (guildId ? s.voiceStates.get(guildId) : undefined))
+  const states = useVoiceStore((s) => s.voiceStates.get(guildId ?? channelId))
   return useMemo(() => {
     const list: VoiceState[] = []
     for (const vs of states?.values() ?? []) if (vs.channelId === channelId) list.push(vs)

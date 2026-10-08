@@ -33,7 +33,7 @@ export function VerifyCallDialog(): React.JSX.Element {
     channelId ? (s.channels.get(channelId)?.name ?? null) : null
   )
   const guildName = useGuildStore((s) => (guildId ? (s.guilds.get(guildId)?.name ?? null) : null))
-  const participants = useCallParticipants(guildId ?? '', channelId ?? '')
+  const participants = useCallParticipants(guildId, channelId ?? '')
   const people = participants?.filter((p) => p.status !== 'leaving').length ?? 0
   const subtitle = [channelName, guildName, `${people} ${people === 1 ? 'person' : 'people'}`]
     .filter((part) => part !== null)

@@ -48,7 +48,7 @@ export function ParticipantTile({
   self,
   compact
 }: {
-  guildId: string
+  guildId: string | null
   userId: string
   state: VoiceState | null
   status: TileStatus

@@ -28,7 +28,7 @@ export function StreamGrid({
   occupants,
   secure
 }: {
-  guildId: string
+  guildId: string | null
   occupants: VoiceState[]
   secure: ReadonlySet<string> | null
 }): React.JSX.Element | null {
@@ -81,7 +81,7 @@ function StreamTile({
   focused,
   onToggleFocus
 }: {
-  guildId: string
+  guildId: string | null
   userId: string
   /** Null: the user has no leaf in the call group yet. */
   stream: MediaStream | null

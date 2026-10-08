@@ -38,7 +38,10 @@ export function useCallSecurity(): { kind: CallSecurityKind; epoch: number | nul
  * The participants of the own call in `channelId`, from the MLS tree (§12.10.1). Null when this
  * client is not in that call: then only the gateway voice states are known, and no tree.
  */
-export function useCallParticipants(guildId: string, channelId: string): CallParticipant[] | null {
+export function useCallParticipants(
+  guildId: string | null,
+  channelId: string
+): CallParticipant[] | null {
   const here = useVoiceStore((s) => s.channelId === channelId)
   const occupants = useChannelOccupants(guildId, channelId)
   const peers = useVoiceStore((s) => s.peers)
@@ -80,7 +83,9 @@ export function useEpochCode(): string | null {
 }
 
 /** Whether "Join" may start a call in `channelId` (canJoinVoice): Active now, the room, the DM profile. */
-export function useCanJoinVoice(guildId: string, channelId: string): boolean {
-  const canConnect = has(usePermissions(guildId, channelId), Permissions.CONNECT)
+export function useCanJoinVoice(guildId: string | null, channelId: string): boolean {
+  // A DM call needs no permission: the gateway checks that the user is a participant.
+  const canConnect =
+    has(usePermissions(guildId, channelId), Permissions.CONNECT) || guildId === null
   return canJoinVoice(canConnect, useCallSecurity().kind)
 }

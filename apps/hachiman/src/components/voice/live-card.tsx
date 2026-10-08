@@ -11,7 +11,7 @@ export function StreamerName({
   userId,
   channelName
 }: {
-  guildId: string
+  guildId: string | null
   userId: string
   channelName?: string
 }): React.JSX.Element {
@@ -50,7 +50,7 @@ export function LiveCard({
   stream,
   onClick
 }: {
-  guildId: string
+  guildId: string | null
   userId: string
   channelName: string
   /** The other people in the channel. */

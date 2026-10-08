@@ -83,14 +83,16 @@ class PreviewVoiceConnection extends VoiceConnection {
  * because the stubbed join never sets the client's voice target).
  */
 export function stubVoice(): void {
-  let current: { guildId: string; channelId: string } | null = {
+  let current: { guildId: string | null; channelId: string } | null = {
     guildId: G1,
     channelId: G1C.lounge
   }
-  const sendState = (guildId: string, channelId: string | null): void => {
+  const sendState = (guildId: string | null, channelId: string | null): void => {
     const { selfMute, selfDeaf } = hachiman.selfVoice
     // Like the gateway (N17): joinedAt stays across mute and deafen, and resets on a move.
-    const before = hachiman.cache.voiceStates.get(guildId)?.get(ME.id)
+    const before = hachiman.cache.voiceStates
+      .get(guildId ?? channelId ?? current?.channelId ?? '')
+      ?.get(ME.id)
     const joinedAt =
       channelId === null
         ? undefined

@@ -24,6 +24,7 @@ import { UserAvatar } from '@/components/shell/user-avatar'
 import { IconButton } from '@/components/ui/icon-button'
 import { TitleBar } from '@/components/ui/title-bar'
 import { VoiceHeaderExtras, VoiceHeaderMeta } from '@/components/voice/voice-header'
+import { DmCallButton } from '@/components/voice/dm-call'
 import { usePermissions } from '@/hooks/use-hachiman'
 import { usePresence } from '@/hooks/use-member'
 import { ChannelIcon } from '@/lib/channel-icon'
@@ -77,6 +78,7 @@ export function ChannelPane({
         right={
           <>
             {isDm && <DmTrustChip channel={channel} />}
+            {isDm && <DmCallButton channel={channel} className={HEADER_BUTTON} />}
             {isDm && <DmPokeButton channel={channel} />}
             {channel.type === 'voice' && isGuildChannel(channel) && (
               <VoiceHeaderExtras channel={channel} />

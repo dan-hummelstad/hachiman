@@ -5,6 +5,7 @@ import { ScreenShareControls } from '@/components/voice/screen-share-controls'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useElapsed } from '@/hooks/use-elapsed'
+import { channelLabel } from '@/lib/model'
 import { cn } from '@/lib/utils'
 import { voiceService } from '@/services/VoiceService'
 import { useChannelStore } from '@/stores/channelStore'
@@ -40,9 +41,8 @@ export function VoiceDock(): React.JSX.Element | null {
   const quality = useVoiceStore((s) => s.connectionQuality)
   const selfMute = useVoiceStore((s) => s.selfMute)
   const selfDeaf = useVoiceStore((s) => s.selfDeaf)
-  const channelName = useChannelStore((s) =>
-    channelId ? (s.channels.get(channelId)?.name ?? null) : null
-  )
+  const channel = useChannelStore((s) => (channelId ? s.channels.get(channelId) : undefined))
+  const channelName = channel ? channelLabel(channel).name || null : null
   const guildName = useGuildStore((s) => (guildId ? (s.guilds.get(guildId)?.name ?? null) : null))
   if (!channelId) return null
 
@@ -160,8 +160,8 @@ function CallTimer({ channelId }: { channelId: string }): React.JSX.Element {
 function useMyJoinedAt(channelId: string): number | null {
   const myId = useUserStore((s) => s.me?.id)
   const joinedAt = useVoiceStore((s) => {
-    if (!myId || !s.guildId) return undefined
-    const vs = s.voiceStates.get(s.guildId)?.get(myId)
+    if (!myId || !s.channelId) return undefined
+    const vs = s.voiceStates.get(s.guildId ?? s.channelId)?.get(myId)
     return vs?.channelId === channelId ? vs.joinedAt : undefined
   })
   const t = joinedAt ? Date.parse(joinedAt) : NaN

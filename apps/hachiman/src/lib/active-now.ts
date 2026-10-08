@@ -39,8 +39,8 @@ export function activeCalls(
   for (const [channelId, states] of byChannel) {
     const channel = channels.get(channelId)
     const guildId = states[0].guildId
-    const guild = guilds.get(guildId)
-    if (!channel || !guild) continue
+    const guild = guildId ? guilds.get(guildId) : undefined // DM calls show in the DM, not here
+    if (!channel || !guild || !guildId) continue
     const withMe = channelId === myChannelId
     if (!withMe && states.every((s) => s.userId === myId)) continue
     const ordered = [...states].sort((a, b) => joinTime(a) - joinTime(b))

@@ -31,10 +31,11 @@ export function previewSound(event: SoundEvent): void {
 export function startSounds(): void {
   useVoiceStore.subscribe((s, p) => {
     const myChannelId = s.channelId
-    if (!myChannelId || !s.guildId || s.voiceStates === p.voiceStates) return
+    if (!myChannelId || s.voiceStates === p.voiceStates) return
     if (myChannelId !== p.channelId) return
-    const before = p.voiceStates.get(s.guildId)
-    const after = s.voiceStates.get(s.guildId)
+    const scope = s.guildId ?? myChannelId // a DM call: keyed by the DM channel
+    const before = p.voiceStates.get(scope)
+    const after = s.voiceStates.get(scope)
     const meId = useUserStore.getState().me?.id
     for (const userId of new Set([...(before?.keys() ?? []), ...(after?.keys() ?? [])])) {
       if (userId === meId) continue

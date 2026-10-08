@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import { Eye, Info, PhoneCall, PhoneOff } from 'lucide-react'
-import { Permissions, has, type VoiceState } from '@hachiman/client'
+import { Permissions, has, type Channel, type VoiceState } from '@hachiman/client'
 import { Button } from '@/components/ui/button'
 import { CallSecurityBanner } from '@/components/voice/call-security'
 import { secureUserIds } from '@/components/voice/call-roster'
@@ -38,7 +38,8 @@ interface Tile {
   status: TileStatus
 }
 
-function Stage({ channel }: { channel: GuildChannel }): React.JSX.Element {
+/** The own call: a guild voice channel, or a DM call above the transcript (DmCallPanel). */
+export function Stage({ channel }: { channel: Channel }): React.JSX.Element {
   const meId = useUserStore((s) => s.me?.id ?? null)
   const occupants = useChannelOccupants(channel.guildId, channel.id)
   const participants = useCallParticipants(channel.guildId, channel.id)

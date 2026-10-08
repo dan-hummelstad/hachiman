@@ -3,7 +3,8 @@ import {
   has,
   type Channel,
   type SelfVoice,
-  type VoiceConnection
+  type VoiceConnection,
+  type VoiceTarget
 } from '@hachiman/client'
 import { isGuildChannel } from '@/lib/model'
 import { ResyncBackoff } from '@/lib/resync-backoff'
@@ -137,6 +138,11 @@ function applySink(ctx: AudioContext): void {
   if (id && sinkable.setSinkId) void sinkable.setSinkId(id).catch(() => undefined)
 }
 
+/** A DM or group DM: its call is a voice room too (§6 "DM calls"). */
+export function isDmCall(channel: Channel): boolean {
+  return channel.type === 'dm' || channel.type === 'group_dm'
+}
+
 function stopTracks(stream: MediaStream): void {
   stream.getTracks().forEach((t) => t.stop())
 }
@@ -181,9 +187,9 @@ class VoiceService {
    * The call that dropped without the user leaving (network, media node, new gateway session). It
    * joins again once, when the gateway is ready.
    */
-  private lost: { guildId: string; channelId: string } | null = null
+  private lost: VoiceTarget | null = null
   /** Set by media close 4013: the drop that follows rejoins this target instead of ending. */
-  private resync: { guildId: string; channelId: string } | null = null
+  private resync: VoiceTarget | null = null
   /** Consecutive 4013 rejoins without keys, and the timer of the next one. */
   private readonly resyncBackoff = new ResyncBackoff()
   private resyncTimer: ReturnType<typeof setTimeout> | null = null
@@ -213,7 +219,7 @@ class VoiceService {
       const { guildId, channelId } = useVoiceStore.getState()
       playSound('voiceDisconnect')
       this.endSession()
-      if (!guildId || !channelId || (code !== null && !REJOIN_CODES.has(code))) return
+      if (!channelId || (code !== null && !REJOIN_CODES.has(code))) return
       this.lost = { guildId, channelId }
       setTimeout(() => this.rejoinLost(), REJOIN_DELAY_MS)
     })
@@ -256,10 +262,12 @@ class VoiceService {
   }
 
   /**
-   * Join a guild voice channel if I may CONNECT there; otherwise a no-op. `muted` ("Watch
-   * stream", N18) turns self-mute on before the join, so no audio goes out from the start.
+   * Join a guild voice channel if I may CONNECT there, or the call of a DM / group DM (§6 "DM
+   * calls"); otherwise a no-op. `muted` ("Watch stream", N18) turns self-mute on before the join,
+   * so no audio goes out from the start.
    */
   join(channel: Channel, opts: { muted?: boolean } = {}): Promise<void> {
+    if (isDmCall(channel)) return this.joinVoice(null, channel.id, opts)
     if (
       channel.type !== 'voice' ||
       !isGuildChannel(channel) ||
@@ -270,14 +278,18 @@ class VoiceService {
   }
 
   /** A join by the user. It cancels a waiting automatic rejoin. */
-  joinVoice(guildId: string, channelId: string, opts: { muted?: boolean } = {}): Promise<void> {
+  joinVoice(
+    guildId: string | null,
+    channelId: string,
+    opts: { muted?: boolean } = {}
+  ): Promise<void> {
     this.cancelResync()
     this.lost = null
     if (opts.muted) this.setSelfVoice({ selfMute: true })
     return this.connect(guildId, channelId)
   }
 
-  private async connect(guildId: string, channelId: string): Promise<void> {
+  private async connect(guildId: string | null, channelId: string): Promise<void> {
     if (useVoiceStore.getState().channelId === channelId) return
     this.teardown()
     useVoiceStore.setState({
@@ -326,7 +338,7 @@ class VoiceService {
    * The automatic rejoin after 4013, with backoff (ResyncBackoff). The banner flag stays up until
    * the new call connects. When no attempt is left, the client stays out and shows the failure.
    */
-  private rejoin(target: { guildId: string; channelId: string }): void {
+  private rejoin(target: VoiceTarget): void {
     this.endSession()
     const delay = this.resyncBackoff.next()
     if (delay === null) {
