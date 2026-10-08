@@ -33,8 +33,9 @@ test("packaged: connect-src follows the env plus wss:, no ws:", () => {
 });
 
 test("packaged: script-src has no 'unsafe-inline'", () => {
-  assert.deepEqual(directive(buildCsp(PROD_ENV), "script-src"), ["'self'"]);
-  assert.deepEqual(directive(buildCsp({}), "script-src"), ["'self'"]);
+  const scripts = ["'self'", "'wasm-unsafe-eval'"];
+  assert.deepEqual(directive(buildCsp(PROD_ENV), "script-src"), scripts);
+  assert.deepEqual(directive(buildCsp({}), "script-src"), scripts);
 });
 
 test("img-src and media-src allow only the Takusen API origin and blob: previews", () => {
@@ -79,7 +80,11 @@ test("defaults (local stack, e.g. electron-vite preview) allow ws: without a dev
 
 test("dev server: inline scripts (Fast Refresh preamble) and ws: (HMR) allowed", () => {
   const csp = buildCsp(PROD_ENV, { devServerUrl: "http://localhost:5173/" });
-  assert.deepEqual(directive(csp, "script-src"), ["'self'", "'unsafe-inline'"]);
+  assert.deepEqual(directive(csp, "script-src"), [
+    "'self'",
+    "'wasm-unsafe-eval'",
+    "'unsafe-inline'",
+  ]);
   assert.ok(directive(csp, "connect-src").includes("ws:"));
 });
 
@@ -93,7 +98,7 @@ test("worker-src allows only the app's own module Workers (§12.17)", () => {
   ]);
 });
 
-test("E2EE: blob: only for images and media, never for scripts or Workers; no wasm or eval", () => {
+test("E2EE: blob: only for images and media, never for scripts or Workers; wasm only, no eval", () => {
   const dev = { devServerUrl: "http://localhost:5174/" };
   for (const csp of [
     buildCsp(PROD_ENV),
@@ -109,7 +114,9 @@ test("E2EE: blob: only for images and media, never for scripts or Workers; no wa
       assert.ok(!values.includes("data:"), `${name} has no data:`);
       assert.ok(!values.includes("*"), `${name} has no wildcard`);
     }
-    assert.ok(!csp.includes("wasm-unsafe-eval"));
-    assert.ok(!csp.includes("unsafe-eval"));
+    // The RNNoise worklet compiles wasm; JS eval stays blocked.
+    assert.ok(directive(csp, "script-src").includes("'wasm-unsafe-eval'"));
+    assert.ok(!directive(csp, "script-src").includes("'unsafe-eval'"));
+    assert.ok(!directive(csp, "worker-src").includes("'wasm-unsafe-eval'"));
   }
 });

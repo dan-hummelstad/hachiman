@@ -31,8 +31,8 @@ export function cspFromEndpoints(
   // and the object URL of a decrypted E2EE attachment (§12.17).
   const files = `'self' blob: ${new URL(takusen.apiBase).origin}`;
   // The crypto Worker and the voice transform Worker are built module files of the app
-  // (§12.17). Never blob: here or in script-src, and no 'wasm-unsafe-eval': the crypto
-  // code is plain TypeScript on WebCrypto.
+  // (§12.17). Never blob: here or in script-src. The crypto code is plain TypeScript on
+  // WebCrypto and needs no wasm.
   const workers = devServerUrl
     ? `'self' ${new URL(devServerUrl).origin}`
     : "'self'";
@@ -46,8 +46,12 @@ export function cspFromEndpoints(
   if (all.some((u) => u.protocol === "ws:" || u.protocol === "http:")) {
     connect.add("ws:");
   }
-  // Dev only: @vitejs/plugin-react injects an inline Fast Refresh preamble.
-  const scripts = devServerUrl ? "'self' 'unsafe-inline'" : "'self'";
+  // 'wasm-unsafe-eval' lets the RNNoise mic AudioWorklet (a built module file of the app,
+  // loaded under script-src) compile its bundled wasm. It allows wasm compilation only, not
+  // JS eval. Dev only: @vitejs/plugin-react injects an inline Fast Refresh preamble.
+  const scripts = devServerUrl
+    ? "'self' 'wasm-unsafe-eval' 'unsafe-inline'"
+    : "'self' 'wasm-unsafe-eval'";
   // 'unsafe-inline' styles stay: Radix (popover, tooltip, dialog positions) and the UI set
   // inline style attributes, which a nonce or hash cannot allow. Inline styles run no script
   // (audit scope L-12).

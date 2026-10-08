@@ -11,7 +11,7 @@ import { captureConstraints, tuneTrack, type StreamQuality } from '@/lib/stream-
 import { hachiman } from '@/services/client'
 import { playSound, selfVoiceSound } from '@/services/SoundService'
 import { setCryptoFatal, useCryptoStore } from '@/stores/cryptoStore'
-import { usePrefsStore } from '@/stores/prefsStore'
+import { usePrefsStore, type NoiseSuppression } from '@/stores/prefsStore'
 import { useUserStore } from '@/stores/userStore'
 import { useVoiceStore } from '@/stores/voiceStore'
 
@@ -19,6 +19,8 @@ const STATS_MS = 2_000
 const VAD_MS = 50
 const VAD_THRESHOLD = 0.02 // RMS
 const VAD_HANGOVER_MS = 300
+/** RNNoise works on 48 kHz frames. */
+const RNNOISE_SAMPLE_RATE = 48_000
 /** Media close codes (§8). */
 const MEDIA_UNSUPPORTED = 4012
 /**
@@ -29,24 +31,56 @@ const MEDIA_UNSUPPORTED = 4012
 const REJOIN_CODES = new Set([1001, 1006])
 const REJOIN_DELAY_MS = 1_000
 
-/** A captured microphone plus its voice-activity detector. `stop()` releases both. */
+/** A captured microphone, its noise suppression and its voice-activity detector. */
 interface MicSession {
+  /** What goes on the wire: the RNNoise output, or the raw mic when RNNoise is off. */
+  stream: MediaStream
+  /** Releases the capture, the audio graph and the detector. */
   stop(): void
 }
 
 /**
- * Runs local voice-activity detection on `stream`. `onSpeaking` fires on changes only, and with
- * `false` on stop. `live()` gates it, so a muted user never shows as speaking.
+ * Builds the send path for `raw`: with `rnnoise`, mic → RNNoise worklet → a new track; otherwise
+ * the raw track. Runs local voice-activity detection on what is sent. `onSpeaking` fires on
+ * changes only, and with `false` on stop. `live()` gates it, so a muted user never shows as
+ * speaking. Mute stays in the client (`replaceTrack(null)` on the sender), so it works on either
+ * track and keeps the SFrame sender transform.
  */
-function startMicSession(
-  stream: MediaStream,
+async function startMicSession(
+  raw: MediaStream,
+  rnnoise: boolean,
   live: () => boolean,
   onSpeaking: (speaking: boolean) => void
-): MicSession {
-  const audioCtx = new AudioContext()
+): Promise<MicSession> {
+  const audioCtx = new AudioContext(rnnoise ? { sampleRate: RNNOISE_SAMPLE_RATE } : undefined)
+  // A context made without a recent user gesture (an automatic rejoin) can start suspended, and a
+  // suspended graph sends silence.
+  void audioCtx.resume().catch(() => undefined)
   const analyser = audioCtx.createAnalyser()
   analyser.fftSize = 512
-  audioCtx.createMediaStreamSource(stream).connect(analyser)
+  const source = audioCtx.createMediaStreamSource(raw)
+  let sent = raw
+  let denoiser: { destroy(): void } | null = null
+  if (rnnoise) {
+    try {
+      const { createRnnoiseNode } = await import('@/lib/rnnoise')
+      const node = await createRnnoiseNode(audioCtx)
+      const dest = audioCtx.createMediaStreamDestination()
+      dest.channelCount = 1
+      source.connect(node).connect(dest)
+      node.connect(analyser)
+      denoiser = node
+      sent = dest.stream
+    } catch (err) {
+      // Fail soft to the browser's own suppression rather than to none.
+      console.warn('[voice] RNNoise unavailable, using browser noise suppression', err)
+      const [track] = raw.getAudioTracks()
+      await track
+        ?.applyConstraints({ ...micConstraints(true), deviceId: track.getSettings().deviceId })
+        .catch(() => undefined)
+    }
+  }
+  if (!denoiser) source.connect(analyser)
   const buf = new Float32Array(analyser.fftSize)
   let lastLoud = 0
   let speaking = false
@@ -64,10 +98,13 @@ function startMicSession(
     report(live() && now - lastLoud < VAD_HANGOVER_MS)
   }, VAD_MS)
   return {
+    stream: sent,
     stop: () => {
       clearInterval(vad)
+      denoiser?.destroy()
       void audioCtx.close()
-      stopTracks(stream)
+      stopTracks(raw)
+      if (sent !== raw) stopTracks(sent)
       report(false)
     }
   }
@@ -77,13 +114,20 @@ function stopTracks(stream: MediaStream): void {
   stream.getTracks().forEach((t) => t.stop())
 }
 
-function captureMic(): Promise<MediaStream> {
+/** With RNNoise on, the browser's suppression is off: running both double-processes the voice. */
+function micConstraints(browserNoiseSuppression: boolean): MediaTrackConstraints {
+  return {
+    echoCancellation: true,
+    noiseSuppression: browserNoiseSuppression,
+    autoGainControl: true
+  }
+}
+
+function captureMic(mode: NoiseSuppression): Promise<MediaStream> {
   const deviceId = usePrefsStore.getState().inputDeviceId
   return navigator.mediaDevices.getUserMedia({
     audio: {
-      echoCancellation: true,
-      noiseSuppression: true,
-      autoGainControl: true,
+      ...micConstraints(mode === 'browser'),
       ...(deviceId ? { deviceId: { ideal: deviceId } } : {})
     }
   })
@@ -159,7 +203,11 @@ class VoiceService {
     })
     // Device changes from user settings apply to the live session.
     usePrefsStore.subscribe((s, prev) => {
-      if (s.inputDeviceId !== prev.inputDeviceId && this.conn) void this.startMic()
+      if (
+        (s.inputDeviceId !== prev.inputDeviceId || s.noiseSuppression !== prev.noiseSuppression) &&
+        this.conn
+      )
+        void this.startMic()
       if (s.outputDeviceId !== prev.outputDeviceId) this.applyOutputDevice()
       if (s.streamQuality !== prev.streamQuality) void this.applyStreamQuality()
     })
@@ -370,16 +418,21 @@ class VoiceService {
     if (!conn) return
     const attempt = this.micAttempt
     try {
-      const stream = await captureMic()
+      const mode = usePrefsStore.getState().noiseSuppression
+      const stream = await captureMic(mode)
       // A stop, restart or teardown happened while the permission prompt was up.
       if (attempt !== this.micAttempt) return stopTracks(stream)
-      this.mic = startMicSession(
+      const mic = await startMicSession(
         stream,
+        mode === 'rnnoise',
         () => !hachiman.selfVoice.selfMute,
         (speaking) => this.setLocalSpeaking(speaking)
       )
+      // Superseded while the RNNoise worklet loaded.
+      if (attempt !== this.micAttempt) return mic.stop()
+      this.mic = mic
       useVoiceStore.setState({ micActive: true })
-      await conn.setMicrophone(stream)
+      await conn.setMicrophone(mic.stream)
     } catch (err) {
       console.warn('[voice] microphone unavailable', err)
       if (attempt === this.micAttempt) this.stopMic()

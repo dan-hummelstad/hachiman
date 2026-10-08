@@ -13,3 +13,9 @@ interface ImportMetaEnv {
 interface ImportMeta {
   readonly env: ImportMetaEnv
 }
+
+// Vite `?url` imports: the URL of the emitted asset (the RNNoise worklet and wasm).
+declare module '*?url' {
+  const url: string
+  export default url
+}

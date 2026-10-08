@@ -6,7 +6,7 @@ import { NativeSelect } from '@/components/ui/native-select'
 import { SoundSettings } from '@/components/settings/user/sounds'
 import { useMicLevel } from '@/hooks/use-mic-level'
 import { errMsg } from '@/lib/utils'
-import { usePrefsStore } from '@/stores/prefsStore'
+import { usePrefsStore, type NoiseSuppression } from '@/stores/prefsStore'
 
 const canPickOutput =
   typeof HTMLMediaElement !== 'undefined' && 'setSinkId' in HTMLMediaElement.prototype
@@ -79,6 +79,7 @@ export function VoiceSection(): React.JSX.Element {
           ? error
           : 'This app can’t list audio devices here, so the system default is used.'}
       </ErrorText>
+      <NoiseSuppressionSelect />
       <MicCheck deviceId={inputDeviceId} onOpen={refresh} />
       <SoundSettings />
     </div>
@@ -123,6 +124,31 @@ function DeviceSelect(props: {
         {missing && <option value={value}>Disconnected device</option>}
       </NativeSelect>
       {hint && <p className="text-meta text-text-tertiary">{hint}</p>}
+    </div>
+  )
+}
+
+function NoiseSuppressionSelect(): React.JSX.Element {
+  const value = usePrefsStore((s) => s.noiseSuppression)
+  const setValue = usePrefsStore((s) => s.setNoiseSuppression)
+  return (
+    <div className="grid gap-1.5">
+      <label
+        htmlFor="noise-suppression"
+        className="text-text-secondary text-xs leading-4 font-semibold"
+      >
+        Noise suppression
+      </label>
+      <NativeSelect
+        id="noise-suppression"
+        className="w-full [&_select]:h-10"
+        value={value}
+        onChange={(e) => setValue(e.target.value as NoiseSuppression)}
+      >
+        <option value="off">Off</option>
+        <option value="browser">Standard (browser)</option>
+        <option value="rnnoise">Enhanced (RNNoise)</option>
+      </NativeSelect>
     </div>
   )
 }

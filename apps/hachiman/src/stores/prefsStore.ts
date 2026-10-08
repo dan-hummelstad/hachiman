@@ -11,6 +11,8 @@ export type MessageDisplay = 'cozy' | 'compact'
 export type Theme = 'dark' | 'light' | 'system'
 /** N3: the sidebar docked beside the content, or hidden and shown on hover. */
 export type SidebarMode = 'docked' | 'undocked'
+/** Mic noise suppression: none, the browser's own (getUserMedia), or RNNoise in an AudioWorklet. */
+export type NoiseSuppression = 'off' | 'browser' | 'rnnoise'
 
 /** The preferences of one account on this device (N1, N6, N9). */
 export interface AccountPrefs extends NotifyPrefs {
@@ -29,6 +31,8 @@ interface PrefsState {
   /** `MediaDeviceInfo.deviceId`; null = the system default. */
   inputDeviceId: string | null
   outputDeviceId: string | null
+  /** Applies to a live call too (the mic restarts). */
+  noiseSuppression: NoiseSuppression
   /** Screen share capture and send quality. Applies to a live share too. */
   streamQuality: StreamQuality
   /** Notification and voice sounds (SoundService). */
@@ -48,6 +52,7 @@ interface PrefsState {
   setMessageDisplay: (messageDisplay: MessageDisplay) => void
   setInputDeviceId: (inputDeviceId: string | null) => void
   setOutputDeviceId: (outputDeviceId: string | null) => void
+  setNoiseSuppression: (noiseSuppression: NoiseSuppression) => void
   setStreamQuality: (streamQuality: StreamQuality) => void
   setSoundsEnabled: (soundsEnabled: boolean) => void
   setSoundVolume: (soundVolume: number) => void
@@ -79,6 +84,7 @@ export const usePrefsStore = create<PrefsState>()(
         messageDisplay: 'cozy',
         inputDeviceId: null,
         outputDeviceId: null,
+        noiseSuppression: 'rnnoise',
         streamQuality: { resolution: '1080p', fps: 30 },
         soundsEnabled: true,
         soundVolume: 0.7,
@@ -91,6 +97,7 @@ export const usePrefsStore = create<PrefsState>()(
         setMessageDisplay: (messageDisplay) => set({ messageDisplay }),
         setInputDeviceId: (inputDeviceId) => set({ inputDeviceId }),
         setOutputDeviceId: (outputDeviceId) => set({ outputDeviceId }),
+        setNoiseSuppression: (noiseSuppression) => set({ noiseSuppression }),
         setStreamQuality: (streamQuality) => set({ streamQuality }),
         setSoundsEnabled: (soundsEnabled) => set({ soundsEnabled }),
         setSoundVolume: (soundVolume) => set({ soundVolume }),
