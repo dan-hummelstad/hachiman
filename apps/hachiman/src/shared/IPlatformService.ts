@@ -57,8 +57,15 @@ export interface IPlatformService {
   selectScreenSource(id: string): Promise<void>
   /** Electron: check for a new build now, and offer it (also one that the user put off). Browser: not-available. */
   checkForUpdate(): Promise<UpdateCheckResult>
+  /** Electron: the close button hides the window to the tray (default on); main keeps the value. Browser: null. */
+  readonly closeToTray: ICloseToTray | null
   /** The wrap key of the encrypted crypto store (§12.17). */
   readonly secureStorage: ISecureStorage
+}
+
+export interface ICloseToTray {
+  get(): Promise<boolean>
+  set(on: boolean): Promise<void>
 }
 
 /**

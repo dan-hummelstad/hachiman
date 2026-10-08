@@ -455,7 +455,7 @@ Both routes are public, with no auth. `:platform` is `macos` or `windows`. Takus
 
 The app (`apps/hachiman-electron/src/main/updater.ts`) checks at start and every 4 h when it was built with `MAIN_VITE_BUILD_SHA` (CI sets the commit).
 When `sha` differs from its own, it downloads the zip, drops it unless its SHA-256 is `sha256`, unpacks it and asks to restart.
-After "Later", the timer does not ask again for that build. User settings → Updates checks at once (`IPlatformService.checkForUpdate`, IPC `hachiman:check-for-update` from the top frame of the app page only) and asks again for a build that was put off. The timer and the button share one check at a time.
+After "Later", the timer does not ask again for that build. User settings → Desktop app checks at once (`IPlatformService.checkForUpdate`, IPC `hachiman:check-for-update` from the top frame of the app page only) and asks again for a build that was put off. The timer and the button share one check at a time.
 Windows runs the NSIS installer with `/S --force-run`. macOS (unsigned builds, so no Squirrel.Mac) copies the `.app` from the dmg over its own bundle after it quits. When the install folder is not writable, it opens the dmg instead.
 
 ### Pages
@@ -1058,8 +1058,18 @@ export interface IPlatformService {
   selectScreenSource(id: string): Promise<void>
   /** Electron: check for a new build now, and offer it (also one that the user put off). Browser: not-available. */
   checkForUpdate(): Promise<UpdateCheckResult>
+  /** Electron: the close button hides the window to the tray (default on); main keeps the value. Browser: null. */
+  readonly closeToTray: ICloseToTray | null
   /** The wrap key of the encrypted crypto store (§12.17). */
   readonly secureStorage: ISecureStorage
+}
+
+// Electron: IPC `hachiman:close-to-tray-get` / `hachiman:close-to-tray-set` (a boolean), from the top
+// frame of the app page only. Main keeps the value in `<userData>/app-prefs.json`, so it applies before
+// the renderer loads. Cmd+Q, the tray menu "Quit Hachiman" and an update install still quit.
+export interface ICloseToTray {
+  get(): Promise<boolean>
+  set(on: boolean): Promise<void>
 }
 
 // `build` and `latest` are short commits (§4 Desktop updates).

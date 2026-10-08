@@ -64,5 +64,6 @@ export const platformService: IPlatformService = {
     status: "not-available",
     reason: "The web app updates when you reload the page.",
   }),
+  closeToTray: null,
   secureStorage: createBrowserSecureStorage(),
 };

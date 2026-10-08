@@ -28,6 +28,7 @@ import { GuildOverviewPage } from '@/components/settings/guild-overview'
 import { AccountSection } from '@/components/settings/user/account'
 import { AdvancedSection } from '@/components/settings/user/advanced'
 import { AppearanceSection } from '@/components/settings/user/appearance'
+import { CloseToTraySection } from '@/components/settings/user/tray'
 import { UpdatesSection } from '@/components/settings/user/updates'
 import { VoiceSection } from '@/components/settings/user/voice'
 import { UserAvatar } from '@/components/shell/user-avatar'
@@ -192,17 +193,21 @@ function useUserSettingsModel(active: boolean): SettingsModel {
               render: () => <VoiceSection />
             }
           },
-          // The web app updates on reload.
+          // The web app has no tray and updates on reload.
           {
             id: 'updates',
-            label: 'Updates',
+            label: 'Desktop app',
             icon: <Download />,
             visible: desktop,
             page: {
-              title: 'Updates',
-              description:
-                'Hachiman checks for a new version when it starts and every 4 hours. A new version downloads in the background, then Hachiman asks to restart.',
-              render: () => <UpdatesSection />
+              title: 'Desktop app',
+              description: 'What the close button does, and updates.',
+              render: () => (
+                <div className="grid gap-8">
+                  <CloseToTraySection />
+                  <UpdatesSection />
+                </div>
+              )
             }
           },
           {

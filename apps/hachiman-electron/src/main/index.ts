@@ -12,11 +12,14 @@ import { electronApp, optimizer, is } from "@electron-toolkit/utils";
 import icon from "../../resources/icon.png?asset";
 import {
   CHECK_FOR_UPDATE_CHANNEL,
+  CLOSE_TO_TRAY_GET_CHANNEL,
+  CLOSE_TO_TRAY_SET_CHANNEL,
   OPEN_EXTERNAL_CHANNEL,
   PROBE_REGIONS_CHANNEL,
   SECURE_STORAGE_CLEAR_CHANNEL,
   SECURE_STORAGE_GET_CHANNEL,
 } from "../shared/ipc";
+import { createAppPrefsStore, type AppPrefsStore } from "./app-prefs";
 import { buildCsp } from "./csp";
 import {
   createWrapKeyStore,
@@ -28,6 +31,7 @@ import { flushPendingUrls, registerProtocolHandlers } from "./protocol-handler";
 import { validateProbeTargets } from "./probe-target-guard";
 import { probeRegions } from "./region-probe";
 import { registerScreenShare } from "./screen-share";
+import { createTray, revealWindow } from "./tray";
 import { checkForUpdate, startUpdater } from "./updater";
 import {
   devRenderer,
@@ -55,6 +59,26 @@ async function openExternalHttp(raw: unknown): Promise<void> {
 // Module-scoped so the protocol handler can dispatch deep links once a window
 // exists. The single-instance lock guarantees at most one main window.
 let mainWindowRef: BrowserWindow | null = null;
+
+// Set by Cmd+Q, the tray "Quit", the updater's app.quit() and every other real
+// quit, so that the close handler lets the window close.
+let quitting = false;
+app.on("before-quit", () => {
+  quitting = true;
+});
+
+// Read on first use: a window close or an IPC call, both after app.whenReady.
+let appPrefs: AppPrefsStore | null = null;
+function prefs(): AppPrefsStore {
+  appPrefs ??= createAppPrefsStore(app.getPath("userData"));
+  return appPrefs;
+}
+
+/** Tray "Open Hachiman": show the hidden window, or make one when it was closed. */
+function openMainWindow(): void {
+  if (mainWindowRef) revealWindow(mainWindowRef);
+  else createWindow();
+}
 
 function createWindow(): void {
   // Create the browser window.
@@ -86,6 +110,13 @@ function createWindow(): void {
     },
   });
   mainWindowRef = mainWindow;
+
+  // Close button with close-to-tray on: hide and keep running (./tray.ts shows it again).
+  mainWindow.on("close", (event) => {
+    if (quitting || !prefs().get().closeToTray) return;
+    event.preventDefault();
+    mainWindow.hide();
+  });
 
   mainWindow.on("closed", () => {
     if (mainWindowRef === mainWindow) mainWindowRef = null;
@@ -177,6 +208,16 @@ ipcMain.handle(CHECK_FOR_UPDATE_CHANNEL, (e) =>
     ? checkForUpdate(true)
     : { status: "failed", reason: "caller is not the app page" },
 );
+// IPC: the "Close button minimises to tray" switch in user settings.
+ipcMain.handle(CLOSE_TO_TRAY_GET_CHANNEL, (e) => {
+  checkAppFrame(e);
+  return prefs().get().closeToTray;
+});
+ipcMain.handle(CLOSE_TO_TRAY_SET_CHANNEL, async (e, on: unknown) => {
+  checkAppFrame(e);
+  if (typeof on !== "boolean") throw new Error("closeToTray must be a boolean");
+  await prefs().set({ closeToTray: on });
+});
 ipcMain.handle(SECURE_STORAGE_GET_CHANNEL, (e, userId: unknown) =>
   toIpcResult(async () => {
     checkAppFrame(e);
@@ -215,13 +256,16 @@ app.whenReady().then(() => {
   registerScreenShare((url) => renderer.isAppUrl(url));
 
   createWindow();
+  createTray(openMainWindow);
 
   startUpdater();
 
   app.on("activate", function () {
-    // On macOS it's common to re-create a window in the app when the
-    // dock icon is clicked and there are no other windows open.
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    // macOS dock click: show the window that close-to-tray hid, or make a new one
+    // when it was closed. A window that is still loading shows itself (ready-to-show).
+    if (!mainWindowRef) createWindow();
+    else if (!mainWindowRef.webContents.isLoading())
+      revealWindow(mainWindowRef);
   });
 });
 

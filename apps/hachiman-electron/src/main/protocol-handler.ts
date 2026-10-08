@@ -13,6 +13,7 @@ import { BrowserWindow, type App } from "electron";
 import path from "path";
 import { INVITE_LINK_CHANNEL, OAUTH_CALLBACK_CHANNEL } from "../shared/ipc";
 import { INVITE_SCHEME, OAUTH_SCHEME, routeDeepLink } from "./deep-link-route";
+import { revealWindow } from "./tray";
 
 type Delivery = { channel: string; payload: string };
 
@@ -51,12 +52,16 @@ export function registerProtocolHandlers(
       pending.push(d);
       return;
     }
-    if (win.isMinimized()) win.restore();
-    win.focus();
+    revealWindow(win);
     win.webContents.send(d.channel, d.payload);
   };
 
-  electronApp.on("second-instance", (_event, argv) => argv.forEach(dispatch));
+  // A second launch, with or without a link, shows the window (also one hidden to the tray).
+  electronApp.on("second-instance", (_event, argv) => {
+    const win = getMainWindow();
+    if (win) revealWindow(win);
+    argv.forEach(dispatch);
+  });
   electronApp.on("open-url", (event, url) => {
     event.preventDefault();
     dispatch(url);

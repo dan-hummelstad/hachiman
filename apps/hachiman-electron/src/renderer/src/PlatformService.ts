@@ -33,6 +33,7 @@ export const platformService: IPlatformService = {
   getScreenSources: () => window.hachiman.getScreenSources(),
   selectScreenSource: (id) => window.hachiman.selectScreenSource(id),
   checkForUpdate: () => window.hachiman.checkForUpdate(),
+  closeToTray: window.hachiman.closeToTray,
   secureStorage: {
     backend: "os-keychain",
     // Main keeps the bytes under safeStorage (main/secure-storage.ts). The

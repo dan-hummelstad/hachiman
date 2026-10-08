@@ -114,12 +114,14 @@ The preload buffers the two main → renderer channels until the UI subscribes. 
 | `src/main/region-probe.ts` | TCP connect RTT: 3 samples per target, minimum wins, 2 s timeout, 8 sockets at a time |
 | `src/main/probe-target-guard.ts` | SSRF guard for `hachiman:probe-regions` |
 | `src/main/screen-share.ts` | Lists sources with `desktopCapturer`, keeps the selected source, and answers `setDisplayMediaRequestHandler` |
-| `src/main/updater.ts` | At start and every 4 h, asks Takusen for the newest desktop build (contract §4 Desktop updates). When its commit differs from `MAIN_VITE_BUILD_SHA`, downloads the release zip, checks its SHA-256, and installs it on restart: NSIS `/S` on Windows, a bundle swap from the dmg on macOS. User settings → Updates runs the same check at once (`hachiman:check-for-update`) |
+| `src/main/updater.ts` | At start and every 4 h, asks Takusen for the newest desktop build (contract §4 Desktop updates). When its commit differs from `MAIN_VITE_BUILD_SHA`, downloads the release zip, checks its SHA-256, and installs it on restart: NSIS `/S` on Windows, a bundle swap from the dmg on macOS. User settings → Desktop app runs the same check at once (`hachiman:check-for-update`) |
+| `src/main/tray.ts` | The tray icon (`resources/trayTemplate.png` on macOS, the app icon elsewhere) with "Open Hachiman" and "Quit Hachiman". With close-to-tray on, the close button hides the window. Cmd+Q, the tray "Quit" and an update install still quit (`before-quit`). A dock click, a second launch and a deep link show the window again. |
+| `src/main/app-prefs.ts` | `<userData>/app-prefs.json`: the close-to-tray setting (default on), read before the renderer loads. User settings → Desktop app sets it (`hachiman:close-to-tray-get` / `-set`). It has no Electron imports, so `node --test` can load it. |
 | `src/preload/index.ts` | `window.hachiman` (the only renderer surface). `window.d.ts` types it for the renderer. |
 | `src/shared/ipc.ts` | IPC channel names, `ScreenSourceInfo` and `SecureStorageResult`. Constants and types only. |
 | `src/renderer/src/PlatformService.ts` | `IPlatformService` adapter over `window.hachiman` |
 | `src/renderer/src/main.tsx` | Renders `PlatformProvider` + `ThemeProvider` + `App` |
-| `src/main/*.test.mts` | `csp`, `secure-storage`, `probe-target-guard`, `renderer-path` and `deep-link-route` unit tests (`node --test`) |
+| `src/main/*.test.mts` | `csp`, `secure-storage`, `probe-target-guard`, `renderer-path`, `deep-link-route` and `app-prefs` unit tests (`node --test`) |
 
 ## OAuth sign-in
 

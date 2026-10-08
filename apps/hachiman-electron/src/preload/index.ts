@@ -1,6 +1,8 @@
 import { contextBridge, ipcRenderer } from "electron";
 import {
   CHECK_FOR_UPDATE_CHANNEL,
+  CLOSE_TO_TRAY_GET_CHANNEL,
+  CLOSE_TO_TRAY_SET_CHANNEL,
   INVITE_LINK_CHANNEL,
   OAUTH_CALLBACK_CHANNEL,
   OPEN_EXTERNAL_CHANNEL,
@@ -61,6 +63,12 @@ const bridge = {
   /** Check for a desktop update now; main shows its restart prompt for a new build. */
   checkForUpdate: (): Promise<UpdateCheckResult> =>
     ipcRenderer.invoke(CHECK_FOR_UPDATE_CHANNEL),
+  /** The close button hides the window to the tray (main/app-prefs.ts keeps the value). */
+  closeToTray: {
+    get: (): Promise<boolean> => ipcRenderer.invoke(CLOSE_TO_TRAY_GET_CHANNEL),
+    set: (on: boolean): Promise<void> =>
+      ipcRenderer.invoke(CLOSE_TO_TRAY_SET_CHANNEL, on),
+  },
   /** Wrap key of the crypto store (main validates the userId). The caller zeroes `value`. */
   secureStorage: {
     getWrapKeyBytes: (

@@ -22,6 +22,11 @@ export const SELECT_SCREEN_SOURCE_CHANNEL = "hachiman:select-screen-source";
 /** renderer → main (invoke): check for a desktop update now (updater.ts). */
 export const CHECK_FOR_UPDATE_CHANNEL = "hachiman:check-for-update";
 
+/** renderer → main (invoke): the close-to-tray setting (main/app-prefs.ts). Returns a boolean. */
+export const CLOSE_TO_TRAY_GET_CHANNEL = "hachiman:close-to-tray-get";
+/** renderer → main (invoke): set the close-to-tray setting; payload is a boolean. */
+export const CLOSE_TO_TRAY_SET_CHANNEL = "hachiman:close-to-tray-set";
+
 /** Same shape as `UpdateCheckResult` in `@hachiman/hachiman` (IPlatformService.ts). */
 export type UpdateCheckResult =
   | { status: "up-to-date"; build: string }
