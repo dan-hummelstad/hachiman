@@ -25,11 +25,14 @@ export const TRUST_LINKS = [
  */
 export function AuthScreen({
   rail,
+  topBarEnd,
   children,
   className,
   promise = true,
 }: {
   rail?: ReactNode
+  /** The end of the top bar, in place of Help (the account chip on a signed-in page). */
+  topBarEnd?: ReactNode
   children: ReactNode
   /** Show the "Takusen never sees your Hachiman messages." line in the trust footer. */
   promise?: boolean
@@ -37,7 +40,7 @@ export function AuthScreen({
   className?: string
 }): React.JSX.Element {
   return (
-    <div className="relative isolate flex min-h-dvh flex-col overflow-hidden bg-[linear-gradient(180deg,var(--wash)_0%,var(--surface-window)_60%)]">
+    <div className="relative isolate flex min-h-dvh flex-col overflow-clip bg-[linear-gradient(180deg,var(--wash)_0%,var(--surface-window)_60%)]">
       <div
         aria-hidden
         className="pointer-events-none absolute -top-[300px] left-1/2 -z-10 size-[700px] -translate-x-1/2 rounded-full bg-[radial-gradient(closest-side,var(--glow),var(--glow-0))]"
@@ -46,12 +49,16 @@ export function AuthScreen({
         <Link href="/" aria-label="Takusen home" className="rounded-control">
           <Brand />
         </Link>
-        <Button asChild variant="quiet" className="ml-auto max-sm:size-8 max-sm:px-0">
-          <Link href={TRUST_LINKS[0].href}>
-            <LifeBuoyIcon aria-hidden className="size-[15px] max-sm:size-4" />
-            <span className="max-sm:sr-only">Help</span>
-          </Link>
-        </Button>
+        {topBarEnd ? (
+          <div className="ml-auto">{topBarEnd}</div>
+        ) : (
+          <Button asChild variant="quiet" className="ml-auto max-sm:size-8 max-sm:px-0">
+            <Link href={TRUST_LINKS[0].href}>
+              <LifeBuoyIcon aria-hidden className="size-[15px] max-sm:size-4" />
+              <span className="max-sm:sr-only">Help</span>
+            </Link>
+          </Button>
+        )}
       </header>
       <main
         className={cn(
@@ -96,24 +103,29 @@ export function TrustFooter({ promise = true }: { promise?: boolean }): React.JS
  * optional footer band ("New to Takusen? Create an account"). Use `<AuthFooterLink>` there.
  */
 export function AuthCard({
-  top,
   title,
   lead,
+  banner,
+  media,
   children,
   footer,
   as: Heading = 'h1',
   className,
   bodyClassName,
+  footerClassName,
 }: {
-  /** Row above the title, e.g. the icon tile of a recovery page. */
-  top?: ReactNode
   title: ReactNode
   lead?: ReactNode
+  /** Full-bleed band above the body (the guild banner of an invite). */
+  banner?: ReactNode
+  /** Above the title, inside the body (marks, a status tile). */
+  media?: ReactNode
   children?: ReactNode
   footer?: ReactNode
   as?: 'h1' | 'h2'
   className?: string
   bodyClassName?: string
+  footerClassName?: string
 }): React.JSX.Element {
   const titleId = useId()
   return (
@@ -124,13 +136,14 @@ export function AuthCard({
         className,
       )}
     >
+      {banner}
       <div
         className={cn(
           'flex flex-col gap-[18px] px-5 py-6 sm:gap-[22px] sm:px-9 sm:pt-8 sm:pb-[30px]',
           bodyClassName,
         )}
       >
-        {top}
+        {media}
         <div className="flex flex-col gap-2">
           <Heading id={titleId} className="text-card-title">
             {title}
@@ -140,7 +153,12 @@ export function AuthCard({
         {children}
       </div>
       {footer && (
-        <div className="flex flex-wrap items-center gap-x-1.5 border-t border-line-hairline bg-surface-panel px-5 py-3.5 text-sm sm:px-9 sm:py-4">
+        <div
+          className={cn(
+            'flex flex-wrap items-center gap-x-1.5 border-t border-line-hairline bg-surface-panel px-5 py-3.5 text-sm sm:px-9 sm:py-4',
+            footerClassName,
+          )}
+        >
           {footer}
         </div>
       )}

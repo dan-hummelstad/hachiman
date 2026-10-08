@@ -29,7 +29,7 @@ export default async function ResetPasswordPage({
         <ResetPasswordForm token={token} email={email} loginHref={withNext('/login', next)} />
       ) : (
         <AuthCard
-          top={<IconTile icon={LinkIcon} />}
+          media={<IconTile icon={LinkIcon} />}
           title="This link doesn’t work"
           lead={
             token

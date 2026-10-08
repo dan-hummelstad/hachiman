@@ -85,23 +85,6 @@ export async function previewInvite(code: string): Promise<InvitePreview> {
   }
 }
 
-/** For the `/invite/[code]` page: null when the invite is unknown or no longer usable. */
-export async function getInvitePreview(code: string): Promise<InvitePreview | null> {
-  try {
-    return await previewInvite(code)
-  } catch (err) {
-    if (
-      err instanceof NotFoundError ||
-      err instanceof InviteExpiredError ||
-      err instanceof InviteRevokedError ||
-      err instanceof InviteExhaustedError
-    ) {
-      return null
-    }
-    throw err
-  }
-}
-
 /**
  * Join the invite's guild. Existing members get `joined: false` and consume
  * no use (even if the invite has since expired). The row lock serialises
