@@ -188,15 +188,10 @@ func (s *SFU) Join(sessionID, userID, roomID string, owner any, h Hooks) (c *Cli
 	// the offerer, so without them the first offer would have no m-line for
 	// the client to send on. Added first, so they are always m-lines 0 (mic),
 	// 1 (screen) and 2 (screen audio), the client's upload slots.
-	var screenAudioRecv *webrtc.RTPReceiver
-	for i, kind := range []webrtc.RTPCodecType{webrtc.RTPCodecTypeAudio, webrtc.RTPCodecTypeVideo, webrtc.RTPCodecTypeAudio} {
-		t, err := pc.AddTransceiverFromKind(kind, webrtc.RTPTransceiverInit{Direction: webrtc.RTPTransceiverDirectionRecvonly})
-		if err != nil {
+	for _, kind := range []webrtc.RTPCodecType{webrtc.RTPCodecTypeAudio, webrtc.RTPCodecTypeVideo, webrtc.RTPCodecTypeAudio} {
+		if _, err := pc.AddTransceiverFromKind(kind, webrtc.RTPTransceiverInit{Direction: webrtc.RTPTransceiverDirectionRecvonly}); err != nil {
 			_ = pc.Close()
 			return nil, nil, fmt.Errorf("media: add recv transceiver: %w", err)
-		}
-		if i == screenAudioSlot {
-			screenAudioRecv = t.Receiver()
 		}
 	}
 	track, err := webrtc.NewTrackLocalStaticRTP(opusCodec, "audio-"+userID, userID)
@@ -212,14 +207,19 @@ func (s *SFU) Join(sessionID, userID, roomID string, owner any, h Hooks) (c *Cli
 	}
 
 	pc.OnTrack(func(remote *webrtc.TrackRemote, rcv *webrtc.RTPReceiver) {
-		switch {
-		case remote.Kind() == webrtc.RTPCodecTypeVideo:
+		// By upload slot, not by kind or a saved receiver: pion can give a
+		// transceiver a new receiver in SetRemoteDescription, and a track
+		// routed into the wrong output would garble it for every peer.
+		switch uploadSlot(pc, rcv) {
+		case 0:
+			forward(remote, c.track, &c.muted)
+		case 1:
 			c.screenSSRC.Store(uint32(remote.SSRC()))
 			c.forwardScreen(remote, false)
-		case rcv == screenAudioRecv:
+		case screenAudioSlot:
 			c.forwardScreen(remote, true)
 		default:
-			forward(remote, c.track, &c.muted)
+			s.logger.Printf("media: session %s: track on no upload slot dropped", sessionID)
 		}
 	})
 	pc.OnICECandidate(func(cand *webrtc.ICECandidate) {
@@ -501,6 +501,20 @@ func (c *Client) forwardScreen(remote *webrtc.TrackRemote, audio bool) {
 		}
 		c.viewersMu.RUnlock()
 	}
+}
+
+// uploadSlot is the index of the transceiver whose current receiver is rcv:
+// 0 to 2 are the client's upload slots (Join adds them first). -1 = none.
+func uploadSlot(pc *webrtc.PeerConnection, rcv *webrtc.RTPReceiver) int {
+	for i, t := range pc.GetTransceivers() {
+		if i > screenAudioSlot {
+			break
+		}
+		if t.Receiver() == rcv {
+			return i
+		}
+	}
+	return -1
 }
 
 func notifyLeft(peers []*Client, userID string) {

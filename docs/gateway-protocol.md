@@ -929,7 +929,7 @@ Screen share:
 - Every room member has a screen track and a screen audio track for every peer (transceivers in the SDP). Media forwards a peer's screen and screen audio to a viewer only while the viewer's last `screen_subscribe` names that peer. Else the tracks are silent. They are also silent until the peer shares.
 - Each (sharer, viewer) pair has its own output tracks on the media node. A `screen_subscribe` only starts or stops the writes to those tracks. No renegotiation occurs.
 - Media rewrites the RTP sequence numbers of each viewer's screen tracks, so they stay contiguous over the gaps while the viewer is not subscribed. Payloads stay unchanged (§12.10.2).
-- When a subscription starts, media sends a PLI to the sharer (in the 500 ms limit below), so the video starts at a keyframe.
+- When a subscription starts, media sends a PLI to the sharer, so the video starts at a keyframe. The 500 ms limit below applies: a PLI that it drops is not sent later, and the viewer's own keyframe request then starts the video.
 - The voice state field `selfStream` (§1, op 4) tells clients when a share is live. No media frame carries it.
 - To start or stop a share, the client replaces the track on its m-line 1 sender, and the share audio on its m-line 2 sender. A share without audio leaves m-line 2 empty. No renegotiation occurs. Media never sends a client's own tracks back to it.
 - The sharer sets the resolution, frame rate and bitrate. All subscribed viewers get the same quality (no simulcast).
