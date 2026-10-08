@@ -271,7 +271,7 @@ async function readVoiceStates(guildId: string): Promise<VoiceState[]> {
 }
 
 /** Online presences for `userIds` (absent key ⇒ offline, omitted), with the custom status as READY has it. */
-async function readPresences(userIds: string[]): Promise<Presence[]> {
+export async function readPresences(userIds: string[]): Promise<Presence[]> {
   if (userIds.length === 0) return []
   const [statuses, customs] = await Promise.all([
     redis().mget(userIds.map((id) => `presence:${id}`)),

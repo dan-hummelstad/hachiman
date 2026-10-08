@@ -111,8 +111,13 @@ export interface AdminUser {
   /** Avatar upload key, or null. */
   avatar: string | null
   emailVerified: boolean
+  /** Live OIDC grants: one per Hachiman sign-in. */
+  activeSessions: number
   createdAt: string
 }
+
+/** `unverified`: no verified email. `signed_in`: at least one live Hachiman session. */
+export type AdminUserFilter = 'unverified' | 'signed_in'
 
 export interface AdminGuild {
   id: string
@@ -120,9 +125,32 @@ export interface AdminGuild {
   /** Icon upload key, or null. */
   icon: string | null
   region: string | null
-  owner: { id: string; email: string; displayName: string }
+  owner: { id: string; email: string; displayName: string; avatar: string | null }
   memberCount: number
+  channelCount: number
   createdAt: string
+}
+
+export interface AdminInvite {
+  code: string
+  uses: number
+  maxUses: number | null
+  expiresAt: string | null
+  /** An invite with history (§12.11.4). */
+  hasHistory: boolean
+  createdBy: { id: string; displayName: string }
+  createdAt: string
+}
+
+export interface AdminGuildDetail extends AdminGuild {
+  /** Banner upload key, or null. */
+  banner: string | null
+  /** Members with a presence that is not offline. */
+  onlineCount: number
+  /** Pages in the guild's pages channels. */
+  pageCount: number
+  /** Usable invites only, newest first. */
+  invites: AdminInvite[]
 }
 
 export interface AdminMediaNode {
@@ -187,17 +215,72 @@ export function summarizeMediaNodes(nodes: readonly AdminMediaNode[]): MediaNode
   return s
 }
 
+export interface RegionLoad {
+  region: string
+  /** Sum of `activeSessions` over the fresh nodes of the region. */
+  sessions: number
+  /** Sum of `maxSessions` over the fresh `active` nodes of the region. */
+  capacity: number
+  nodes: number
+  stale: number
+  draining: number
+}
+
+/**
+ * Voice load per region: every region in `regionCodes` (in that order), then
+ * any other region that a node names, by code.
+ */
+export function regionLoad(nodes: readonly AdminMediaNode[], regionCodes: readonly string[]): RegionLoad[] {
+  const byRegion = new Map<string, RegionLoad>()
+  const entry = (region: string) => {
+    let e = byRegion.get(region)
+    if (!e) {
+      e = { region, sessions: 0, capacity: 0, nodes: 0, stale: 0, draining: 0 }
+      byRegion.set(region, e)
+    }
+    return e
+  }
+  for (const code of regionCodes) entry(code)
+  for (const n of [...nodes].sort((a, b) => a.region.localeCompare(b.region))) {
+    const e = entry(n.region)
+    e.nodes++
+    if (n.stale) {
+      e.stale++
+      continue
+    }
+    e.sessions += n.activeSessions
+    if (n.status === 'active') e.capacity += n.maxSessions
+    else if (n.status === 'draining') e.draining++
+  }
+  return [...byRegion.values()]
+}
+
+/** The badge counts of the admin sidebar, and the user facts of the overview. */
+export interface AdminCounts {
+  users: number
+  admins: number
+  /** Users with no verified email. */
+  unverifiedUsers: number
+  /** Users with at least one live Hachiman session (OIDC grant). */
+  signedInUsers: number
+  /** Users created in the last 7 days. */
+  newUsers7d: number
+  guilds: number
+  channels: number
+  mediaNodes: number
+  regions: number
+  oidcClients: number
+}
+
 export interface AdminOverview {
-  counts: {
-    users: number
-    admins: number
-    guilds: number
-    channels: number
+  counts: AdminCounts & {
     messages: number
     uploads: number
     uploadBytes: number
   }
   mediaNodes: MediaNodeSummary
+  /** Every region, then node regions that are not in the table. */
+  regionLoad: RegionLoad[]
   /** Users with a live presence that is not offline. */
   onlineUsers: number
   server: { version: string; nodeVersion: string; uptimeSeconds: number; maxUploadBytes: number }
@@ -209,6 +292,10 @@ export interface AdminOidcClient {
   isPublic: boolean
   redirectUris: string[]
   scopes: string[]
+  /** Users with a live grant of the client. */
+  activeUsers: number
+  /** Live grants of the client: one per sign-in. */
+  activeSessions: number
   createdAt: string
 }
 
@@ -219,10 +306,12 @@ export interface AdminRegion {
   lon: number | null
   probeHost: string | null
   probePort: number
+  /** Guilds homed in the region. */
+  guildCount: number
   createdAt: string
 }
 
-export function toAdminRegion(r: Region): AdminRegion {
+export function toAdminRegion(r: Region, guildCount: number): AdminRegion {
   return {
     code: r.code,
     displayName: r.displayName,
@@ -230,6 +319,16 @@ export function toAdminRegion(r: Region): AdminRegion {
     lon: r.lon,
     probeHost: r.probeHost,
     probePort: r.probePort,
+    guildCount,
     createdAt: r.createdAt.toISOString(),
   }
 }
+
+export interface AdminSearchResult {
+  users: AdminUser[]
+  guilds: AdminGuild[]
+  mediaNodes: AdminMediaNode[]
+  regions: AdminRegion[]
+}
+
+export const ADMIN_SEARCH_LIMIT = 5

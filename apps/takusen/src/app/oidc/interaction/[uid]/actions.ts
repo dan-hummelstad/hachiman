@@ -123,10 +123,12 @@ export async function denyInteractionAction(uid: string): Promise<void> {
 export async function describeClient(clientId: string): Promise<{
   name: string
   knownScopes: string[]
+  isPublic: boolean
 } | null> {
   const row = await db
     .select({
       scopes: oidcClients.scopes,
+      isPublic: oidcClients.isPublic,
     })
     .from(oidcClients)
     .where(eq(oidcClients.clientId, clientId))
@@ -137,5 +139,6 @@ export async function describeClient(clientId: string): Promise<{
   return {
     name: clientId,
     knownScopes: row.scopes,
+    isPublic: row.isPublic,
   }
 }

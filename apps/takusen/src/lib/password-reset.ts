@@ -88,7 +88,7 @@ export const drizzlePasswordResetPorts: PasswordResetPorts<Tx> = {
     return row?.userId ?? null
   },
   async setPassword(tx, userId, passwordHash, now) {
-    await tx.update(users).set({ passwordHash, updatedAt: now }).where(eq(users.id, userId))
+    await tx.update(users).set({ passwordHash, passwordChangedAt: now, updatedAt: now }).where(eq(users.id, userId))
   },
   membership: (tx, change) => membershipChanged(tx, change, null),
   afterCommit: (tx) => wakeAfterCommit(tx),

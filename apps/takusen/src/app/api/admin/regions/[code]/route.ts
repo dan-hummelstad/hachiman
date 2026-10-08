@@ -11,6 +11,7 @@ import { NextResponse } from 'next/server'
 import { db } from '@/db/client'
 import { guilds, regions } from '@/db/schema'
 import { toAdminRegion } from '@/lib/admin'
+import { regionGuildCount } from '@/lib/admin-stats'
 import { adminRoute, noContent, parseBody } from '@/lib/api-helpers'
 import { NotFoundError } from '@/lib/errors'
 import { publishToGuild } from '@/lib/events'
@@ -27,7 +28,7 @@ export const PATCH = adminRoute<{ code: string }>(async ({ req, params: { code }
       ? await db.select().from(regions).where(eq(regions.code, code)).limit(1)
       : await db.update(regions).set(changes).where(eq(regions.code, code)).returning()
   if (!row) throw new NotFoundError('Unknown region')
-  return NextResponse.json(toAdminRegion(row))
+  return NextResponse.json(toAdminRegion(row, await regionGuildCount(code)))
 })
 
 export const DELETE = adminRoute<{ code: string }>(async ({ params: { code } }) => {

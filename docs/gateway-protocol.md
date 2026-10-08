@@ -287,7 +287,8 @@ Added: `media_nodes.admin_drain` boolean default false (set by the admin API, se
 Dropped column: `oidc_clients.virtual_server_id`. Dropped tables: `virtual_servers`, `islands`, `servers`,
 `server_domain_verifications`, `user_servers`, `invite_codes`. Dropped enums: `island_status`, `virtual_server_status`.
 `users.image` holds the avatar file key (Credentials is the only Auth.js provider, so nothing else writes it).
-Kept unchanged: `users`, `accounts`, `sessions`, `verification_tokens`, `password_reset_tokens`,
+Added: `users.password_changed_at` timestamptz null (migration 0007). Sign-up, the password change and the password reset set it. Null for accounts from before the column.
+Kept unchanged: `users` (except `password_changed_at`), `accounts`, `sessions`, `verification_tokens`, `password_reset_tokens`,
 `oidc_adapter_payloads`, `oidc_clients` (minus the column), `regions`, `media_nodes`.
 
 Migration (one time, in the Discord-style refactor; since then each schema change adds a new migration, see `CLAUDE.md`):
@@ -510,13 +511,16 @@ Base `/api/admin`. Only deployment admins (`users.role = 'admin'`) can use it. T
 | Method + path | Body | Returns | Publishes |
 |---|---|---|---|
 | GET `/overview` | — | `AdminOverview` | — |
-| GET `/users?query=&role=user\|admin&cursor=&limit=` | — | `Page<AdminUser>`. `query` matches the email or the display name | — |
+| GET `/search?query=` | — | `AdminSearchResult`: at most 5 of each kind. Users match the email or the display name, guilds the name, media nodes the node id or the region, regions the code or the display name. An empty query gives empty lists | — |
+| GET `/users?query=&role=user\|admin&filter=unverified\|signed_in&cursor=&limit=` | — | `Page<AdminUser>`. `query` matches the email or the display name. `filter=unverified`: no verified email. `filter=signed_in`: at least one live Hachiman session | — |
 | PATCH `/users/:id` | `{role?: 'user'\|'admin', displayName?}` (1–64 characters) | `AdminUser` | a new `displayName` publishes `USER_UPDATE` → user:{id} and `GUILD_MEMBER_UPDATE` → guild:{g} for each guild of the user |
 | DELETE `/users/:id` | — | 204 | `GUILD_DELETE` → each owned guild; `GUILD_MEMBER_REMOVE` → each other guild; `GUILD_UPDATE` → each guild that lost its icon or banner |
 | POST `/users/:id/sign-out` | — | 204 | — |
 | POST `/users/:id/reset-keys` | — | 204 | the DS events of a password reset (§12.4 "Password reset") |
 | GET `/guilds?query=&cursor=&limit=` | — | `Page<AdminGuild>`. `query` matches the guild name | — |
+| GET `/guilds/:id` | — | `AdminGuildDetail` | — |
 | DELETE `/guilds/:id` | — | 204 | `GUILD_DELETE {id}` → guild (the same delete as the owner delete) |
+| DELETE `/guilds/:id/invites/:code` | — | 204. 404 if the guild has no such invite | `INVITE_DELETE` → guild (the same revoke as `DELETE /api/v1/invites/:code`, without the `MANAGE_GUILD` check) |
 | GET `/media-nodes` | — | `AdminMediaNode[]`, sorted by region, then by node id | — |
 | PATCH `/media-nodes/:nodeId` | `{status: 'active'\|'draining'}` | `AdminMediaNode` | — |
 | DELETE `/media-nodes/:nodeId` | — | 204 | — |
@@ -530,15 +534,26 @@ Base `/api/admin`. Only deployment admins (`users.role = 'admin'`) can use it. T
 The shapes are in `apps/takusen/src/lib/admin.ts`:
 
 ```ts
-type AdminUser = { id; email; displayName; role: 'user' | 'admin'; avatar: string | null; emailVerified: boolean; createdAt }
-type AdminGuild = { id; name; icon: string | null; region: string | null; owner: { id; email; displayName }; memberCount: number; createdAt }
+type AdminUser = { id; email; displayName; role: 'user' | 'admin'; avatar: string | null; emailVerified: boolean;
+  activeSessions: number; createdAt }   // activeSessions: live OIDC grants of the user (one per Hachiman sign-in)
+type AdminGuild = { id; name; icon: string | null; region: string | null; owner: { id; email; displayName; avatar: string | null };
+  memberCount: number; channelCount: number; createdAt }   // channelCount leaves out categories and threads
+type AdminInvite = { code; uses: number; maxUses: number | null; expiresAt: string | null; hasHistory: boolean;
+  createdBy: { id; displayName }; createdAt }
+type AdminGuildDetail = AdminGuild & { banner: string | null; onlineCount: number; pageCount: number; invites: AdminInvite[] }
+  // onlineCount: members with a presence that is not offline. invites: the usable ones, newest first
 type AdminMediaNode = { nodeId; region; status: string; adminDrain: boolean; stale: boolean; signalingUrl; version;
   activeSessions: number; maxSessions: number; cpuFraction: number; lastHeartbeatAt }
-type AdminRegion = { code; displayName; lat: number | null; lon: number | null; probeHost: string | null; probePort: number; createdAt }
-type AdminOidcClient = { id; clientId; isPublic: boolean; redirectUris: string[]; scopes: string[]; createdAt }
+type AdminRegion = { code; displayName; lat: number | null; lon: number | null; probeHost: string | null; probePort: number;
+  guildCount: number; createdAt }   // guildCount: guilds homed in the region
+type AdminOidcClient = { id; clientId; isPublic: boolean; redirectUris: string[]; scopes: string[];
+  activeUsers: number; activeSessions: number; createdAt }   // users with a live grant of the client; its live grants
+type AdminSearchResult = { users: AdminUser[]; guilds: AdminGuild[]; mediaNodes: AdminMediaNode[]; regions: AdminRegion[] }
 type AdminOverview = {
-  counts: { users; admins; guilds; channels; messages; uploads; uploadBytes }   // numbers
+  counts: { users; admins; unverifiedUsers; signedInUsers; newUsers7d; guilds; channels; mediaNodes; regions; oidcClients;
+    messages; uploads; uploadBytes }                                            // numbers
   mediaNodes: { total; active; draining; stale; sessions; capacity }            // numbers
+  regionLoad: { region; sessions: number; capacity: number; nodes: number; stale: number; draining: number }[]
   onlineUsers: number
   server: { version: string; nodeVersion: string; uptimeSeconds: number; maxUploadBytes: number }
 }
@@ -552,7 +567,8 @@ Behavior:
 - **Revoke-all.** Takusen sets `takusen:sessions_revoked_at` and deletes all `oidc_adapter_payloads` rows. This signs out every user, the caller included. `pnpm sessions:revoke` does the same.
 - **Media nodes.** `stale` is true when the last heartbeat is 30 s old or older (`HEARTBEAT_STALE_AFTER_MS`). `draining` sets `media_nodes.admin_drain`. Then the status stays `draining` through heartbeats and new registrations, and placement skips the node. Sessions on the node continue. `active` clears the flag. DELETE removes the registry row and its `admin_drain` flag. A node that still runs registers again after its next heartbeat fails, and its status is then `active`. To keep a node out of placement, stop the node first.
 - **Regions.** The regions table is admin data. A region delete sets `region` to null on its guilds. Media nodes keep their region string. `db:seed` writes the four seed regions again.
-- **Overview.** `onlineUsers` counts the `presence:*` keys that are not `offline`. `mediaNodes.sessions` is the sum of `activeSessions` on fresh nodes, which is the number of live voice connections. `mediaNodes.capacity` is the sum of `maxSessions` on fresh `active` nodes.
+- **Live grants.** A live grant is an `oidc_adapter_payloads` row of model `Grant` that has not expired. Each Hachiman sign-in has its own grant (§12.12 "Device binding"), so the live grants of a user are its Hachiman sessions. `AdminUser.activeSessions`, `filter=signed_in`, `counts.signedInUsers` and the `AdminOidcClient` counts use them.
+- **Overview.** `counts.unverifiedUsers` counts users with neither `email_verified` nor `email_verified_at`. `counts.newUsers7d` counts users created in the last 7 days. `regionLoad` has one entry for each region of the table (in display-name order), then one for each other region that a media node names. Its `sessions`, `capacity` and `draining` follow the `mediaNodes` rules for the nodes of that region. `onlineUsers` counts the `presence:*` keys that are not `offline`. `mediaNodes.sessions` is the sum of `activeSessions` on fresh nodes, which is the number of live voice connections. `mediaNodes.capacity` is the sum of `maxSessions` on fresh `active` nodes.
 
 `// ponytail:` a sign-out or user delete does not close open gateway connections. The user stays connected until the next reconnect fails. Add a gateway kick event if that matters.
 
@@ -583,7 +599,8 @@ Other Redis keys (owned by the gateway unless noted):
 | `voice_user:{userId}` | string | guildId the user is in voice for (one voice session per user globally) |
 | `voice_room:{channelId}` | string | mediaNodeId hosting that channel (sticky; SET NX, EX 24 h, deleted when the last user leaves). The endpoint comes from `media_nodes.signaling_url`. A missing node row drops the key and re-places |
 | `takusen:sessions_revoked_at` | string | Takusen-owned. Unix ms: every dashboard cookie from before it is dead (§4 Admin API, `sessions:revoke`). No TTL |
-| `takusen:sessions_revoked_at:{userId}` | string | Takusen-owned. The same cut-off for one user (admin sign-out). No TTL |
+| `takusen:sessions_revoked_at:{userId}` | string | Takusen-owned. The same cut-off for one user (admin sign-out, password change, the dashboard's "Sign out everywhere else"). No TTL. "Sign out everywhere else" first gives the current cookie a new `authTime`, then sets the cut-off to a time from before it, so the current cookie stays |
+| `takusen:password_attempts:{userId}` | string (counter) | Takusen-owned. Wrong current passwords on the dashboard password change. TTL 15 min from the first miss. At 5, the form refuses until the key expires. A correct password deletes it |
 | `takusen:device_nonce:{key}:{nonce}` | string | Takusen-owned. A device proof nonce that Takusen accepted (§12.12 "Device proof"). `{key}` is the base64url device MLS public key. `SET NX`, TTL 10 min |
 | `takusen:mls_wakeup` | pub/sub | Takusen-owned. Takusen → its gRPC process: `{ "groupId": "<base64url>" }` when a Remove is queued (§12.7.5) |
 | `takusen:mls_false_reject:{deviceId}` | string (counter) | Takusen-owned. The number of false `not_reader` rejection reports of a committer device (§12.12 "Batch rejections"). At 3, the batch scheduler skips the device. TTL 30 days, set again on each report |
