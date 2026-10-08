@@ -27,9 +27,12 @@ export function AuthScreen({
   rail,
   children,
   className,
+  promise = true,
 }: {
   rail?: ReactNode
   children: ReactNode
+  /** Show the "Takusen never sees your Hachiman messages." line in the trust footer. */
+  promise?: boolean
   /** Classes for the content column (width). Default fits a 440px card. */
   className?: string
 }): React.JSX.Element {
@@ -58,20 +61,22 @@ export function AuthScreen({
       >
         {rail}
         {children}
-        <TrustFooter />
+        <TrustFooter promise={promise} />
       </main>
     </div>
   )
 }
 
 /** "Takusen never sees your Hachiman messages." and the Help · Privacy · Terms · Status row. */
-export function TrustFooter(): React.JSX.Element {
+export function TrustFooter({ promise = true }: { promise?: boolean }): React.JSX.Element {
   return (
     <footer className="flex flex-col items-center gap-3.5 pt-1 text-[13px] leading-4 font-semibold text-text-tertiary">
-      <p className="flex items-center gap-2 text-center">
-        <LockIcon aria-hidden className="size-3.5 shrink-0 text-feature-voice-text" />
-        Takusen never sees your Hachiman messages.
-      </p>
+      {promise && (
+        <p className="flex items-center gap-2 text-center">
+          <LockIcon aria-hidden className="size-3.5 shrink-0 text-feature-voice-text" />
+          Takusen never sees your Hachiman messages.
+        </p>
+      )}
       <nav aria-label="Takusen" className="flex items-center gap-3.5">
         {TRUST_LINKS.map((l, i) => (
           <Fragment key={l.label}>
@@ -91,6 +96,7 @@ export function TrustFooter(): React.JSX.Element {
  * optional footer band ("New to Takusen? Create an account"). Use `<AuthFooterLink>` there.
  */
 export function AuthCard({
+  top,
   title,
   lead,
   children,
@@ -99,6 +105,8 @@ export function AuthCard({
   className,
   bodyClassName,
 }: {
+  /** Row above the title, e.g. the icon tile of a recovery page. */
+  top?: ReactNode
   title: ReactNode
   lead?: ReactNode
   children?: ReactNode
@@ -122,6 +130,7 @@ export function AuthCard({
           bodyClassName,
         )}
       >
+        {top}
         <div className="flex flex-col gap-2">
           <Heading id={titleId} className="text-card-title">
             {title}

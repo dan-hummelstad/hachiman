@@ -29,10 +29,23 @@ export function hashResetToken(token: string): string {
   return createHash('sha256').update(token).digest('hex')
 }
 
-export function buildResetUrl(baseUrl: string, token: string): string {
+/** `next` carries an app sign-in (OIDC interaction) through the email round trip. */
+export function buildResetUrl(baseUrl: string, token: string, next?: string): string {
   const url = new URL('/reset-password', baseUrl)
   url.searchParams.set('token', token)
+  if (next) url.searchParams.set('next', next)
   return url.toString()
+}
+
+/** The address a live reset token belongs to, without consuming it; null when bad or expired. */
+export async function resetTokenEmail(tokenHash: string, now: Date): Promise<string | null> {
+  const [row] = await db
+    .select({ email: users.email })
+    .from(passwordResetTokens)
+    .innerJoin(users, eq(users.id, passwordResetTokens.userId))
+    .where(and(eq(passwordResetTokens.tokenHash, tokenHash), gt(passwordResetTokens.expiresAt, now)))
+    .limit(1)
+  return row?.email ?? null
 }
 
 // MARK: - Reset
