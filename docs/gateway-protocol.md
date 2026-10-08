@@ -444,14 +444,14 @@ Kept outside `/api/v1`: `GET /api/regions`, `GET /api/desktop-update/*` (below),
 
 ### Desktop updates
 
-The Electron app updates itself from the GitHub Actions artifacts `hachiman-macos` and `hachiman-windows` of `.github/workflows/desktop.yml`.
-An artifact download always needs a GitHub token, so Takusen holds it (`TAKUSEN_UPDATE_GITHUB_REPO`, `TAKUSEN_UPDATE_GITHUB_TOKEN`: a fine-grained token with read-only "Actions" on that repo) and the app holds none.
-Both routes are public, with no auth. `:platform` is `macos` or `windows`. Takusen uses the newest unexpired artifact of a `main` run that has a `sha256:` digest, and caches the list for 60 s.
+The Electron app updates itself from the assets `hachiman-macos.zip` and `hachiman-windows.zip` of the newest release in the release repository (`<owner>/hachiman-release`), which `.github/workflows/desktop.yml` publishes.
+The release repository can be private, so Takusen holds a GitHub token (`TAKUSEN_UPDATE_GITHUB_REPO`, `TAKUSEN_UPDATE_GITHUB_TOKEN`: a fine-grained token with read-only "Contents" on that repo) and the app holds none.
+Both routes are public, with no auth. `:platform` is `macos` or `windows`. Takusen reads `releases/latest`: the build commit is the line `Commit: <sha>` of the release notes, and the asset must have a `sha256:` digest. Takusen caches the result for 60 s.
 
 | Method + path | Returns |
 |---|---|
 | GET `/api/desktop-update/:platform` | `{sha, sha256}`: the commit of the build and the hex SHA-256 of its zip. 404 `NotFound` when updates are not configured or there is no build. 502 `UpstreamUnavailable` when GitHub fails |
-| GET `/api/desktop-update/:platform/download` | 302 to GitHub's signed zip URL (valid for about a minute). 404 and 502 as above |
+| GET `/api/desktop-update/:platform/download` | 302 to GitHub's signed asset URL (valid for about a minute). 404 and 502 as above |
 
 The app (`apps/hachiman-electron/src/main/updater.ts`) checks at start and every 4 h when it was built with `MAIN_VITE_BUILD_SHA` (CI sets the commit).
 When `sha` differs from its own, it downloads the zip, drops it unless its SHA-256 is `sha256`, unpacks it and asks to restart.

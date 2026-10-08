@@ -1,43 +1,38 @@
 /**
- * Desktop app updates (contract §4 Desktop updates). The builds are the GitHub Actions artifacts
- * of .github/workflows/desktop.yml. Downloading an artifact always needs a GitHub token, so
- * Takusen holds it (TAKUSEN_UPDATE_GITHUB_TOKEN, read-only "Actions" on the repo) and the desktop
- * app holds no secret: it asks Takusen for the newest build and gets a redirect to GitHub's
- * short-lived signed zip URL.
+ * Desktop app updates (contract §4 Desktop updates). The builds are the zip assets of the newest
+ * release in the release repository, which .github/workflows/desktop.yml publishes. Takusen holds
+ * a GitHub token (TAKUSEN_UPDATE_GITHUB_TOKEN, read-only "Contents" on that repo), so the repo can
+ * be private and the desktop app holds no secret: it asks Takusen for the newest build and gets a
+ * redirect to GitHub's short-lived signed asset URL.
  */
-const ARTIFACTS = { macos: 'hachiman-macos', windows: 'hachiman-windows' } as const
-export type DesktopPlatform = keyof typeof ARTIFACTS
+const ASSETS = { macos: 'hachiman-macos.zip', windows: 'hachiman-windows.zip' } as const
+export type DesktopPlatform = keyof typeof ASSETS
 
 export function isDesktopPlatform(p: string): p is DesktopPlatform {
-  return Object.hasOwn(ARTIFACTS, p)
+  return Object.hasOwn(ASSETS, p)
 }
 
-/** The fields of a GitHub Actions artifact (REST `GET /repos/{repo}/actions/artifacts`) that Takusen reads. */
-export interface Artifact {
-  name: string
-  expired: boolean
-  created_at: string
-  archive_download_url: string
-  /** `sha256:<hex>` of the zip (upload-artifact v4). */
-  digest?: string | null
-  workflow_run?: { head_sha?: string; head_branch?: string } | null
+/** The fields of a GitHub release (REST `GET /repos/{repo}/releases/latest`) that Takusen reads. */
+export interface Release {
+  /** The release notes. The workflow writes the source commit as a line `Commit: <sha>`. */
+  body?: string | null
+  assets: { name: string; url: string; digest?: string | null }[]
 }
 
 export interface DesktopBuild {
   /** The commit the build is from. The app compares it with its own. */
   sha: string
-  /** Hex SHA-256 of the artifact zip. */
+  /** Hex SHA-256 of the zip. */
   sha256: string
-  archiveUrl: string
+  /** The REST URL of the asset. */
+  assetUrl: string
 }
 
-export function newestBuild(artifacts: Artifact[], name: string): DesktopBuild | null {
-  const a = artifacts
-    .filter((a) => a.name === name && !a.expired && a.workflow_run?.head_branch === 'main')
-    .sort((x, y) => y.created_at.localeCompare(x.created_at))[0]
-  const sha = a?.workflow_run?.head_sha
-  if (!a || !sha || !a.digest?.startsWith('sha256:')) return null
-  return { sha, sha256: a.digest.slice('sha256:'.length), archiveUrl: a.archive_download_url }
+export function releaseBuild(release: Release, name: string): DesktopBuild | null {
+  const sha = /^Commit: ([0-9a-f]{40})$/m.exec(release.body ?? '')?.[1]
+  const asset = release.assets.find((a) => a.name === name)
+  if (!sha || !asset?.digest?.startsWith('sha256:')) return null
+  return { sha, sha256: asset.digest.slice('sha256:'.length), assetUrl: asset.url }
 }
 
 // ponytail: per-process 60 s cache keeps the app checks inside GitHub's 5000/h token limit.
@@ -50,10 +45,10 @@ function config(): { repo: string; token: string } | null {
   return repo && token ? { repo, token } : null
 }
 
-function github(url: string, token: string): Promise<Response> {
+function github(url: string, token: string, accept = 'application/vnd.github+json'): Promise<Response> {
   return fetch(url, {
-    headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' },
-    // The zip URL redirects to a signed blob URL. Takusen passes it on and never follows it.
+    headers: { Authorization: `Bearer ${token}`, Accept: accept, 'X-GitHub-Api-Version': '2022-11-28' },
+    // The asset download redirects to a signed blob URL. Takusen passes it on and never follows it.
     redirect: 'manual',
     cache: 'no-store',
   })
@@ -65,11 +60,10 @@ export async function latestDesktopBuild(platform: DesktopPlatform): Promise<Des
   if (!cfg) return null
   const hit = cache.get(platform)
   if (hit && Date.now() - hit.at < CACHE_MS) return hit.build
-  const name = ARTIFACTS[platform]
-  const res = await github(`https://api.github.com/repos/${cfg.repo}/actions/artifacts?name=${name}&per_page=20`, cfg.token)
-  if (!res.ok) throw new Error(`GitHub artifact list: HTTP ${res.status}`)
-  const { artifacts } = (await res.json()) as { artifacts: Artifact[] }
-  const build = newestBuild(artifacts, name)
+  const res = await github(`https://api.github.com/repos/${cfg.repo}/releases/latest`, cfg.token)
+  // 404: the repo has no release yet.
+  if (!res.ok && res.status !== 404) throw new Error(`GitHub latest release: HTTP ${res.status}`)
+  const build = res.ok ? releaseBuild((await res.json()) as Release, ASSETS[platform]) : null
   cache.set(platform, { at: Date.now(), build })
   return build
 }
@@ -79,8 +73,8 @@ export async function desktopBuildZipUrl(platform: DesktopPlatform): Promise<str
   const cfg = config()
   const build = cfg && (await latestDesktopBuild(platform))
   if (!cfg || !build) return null
-  const res = await github(build.archiveUrl, cfg.token)
+  const res = await github(build.assetUrl, cfg.token, 'application/octet-stream')
   const location = res.headers.get('location')
-  if (res.status !== 302 || !location) throw new Error(`GitHub artifact zip: HTTP ${res.status}`)
+  if (res.status !== 302 || !location) throw new Error(`GitHub release asset: HTTP ${res.status}`)
   return location
 }

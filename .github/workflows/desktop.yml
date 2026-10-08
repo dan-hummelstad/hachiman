@@ -3,8 +3,10 @@
 # only the newest hachiman-macos and hachiman-windows artifacts exist.
 # The builds are unsigned (macOS: right-click > Open on first start; Windows: SmartScreen "Run anyway").
 # Repository variable HACHIMAN_DOMAIN: Vite bakes the endpoints in at build time.
-# The installed apps update themselves from these artifacts through Takusen (contract §4 Desktop updates).
-# The release job also publishes both builds as zip files in a GitHub release (tag desktop-<run number>).
+# The release job publishes both builds as zip files in a GitHub release (tag desktop-<run number>)
+# in the repository <owner>/hachiman-release. The installed apps update themselves from the newest
+# release through Takusen (contract §4 Desktop updates), which reads the "Commit:" line of the notes. Secret HACHIMAN_RELEASE_TOKEN: a fine-grained token with
+# Contents: read and write on that repository only. The repository needs at least one commit.
 name: Desktop
 on:
   push:
@@ -63,8 +65,7 @@ jobs:
   release:
     needs: build
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
+    permissions: {}
     steps:
       - uses: actions/download-artifact@v4
         with:
@@ -74,13 +75,14 @@ jobs:
         run: for d in hachiman-macos hachiman-windows; do (cd "$d" && zip -q -r "../$d.zip" .); done
       - name: Create the release
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.HACHIMAN_RELEASE_TOKEN }}
         run: |
           gh release create "desktop-${{ github.run_number }}" dist/*.zip \
-            --repo "${{ github.repository }}" \
-            --target "${{ github.sha }}" \
+            --repo "${{ github.repository_owner }}/hachiman-release" \
             --title "Desktop build ${{ github.run_number }} (${GITHUB_SHA::7})" \
-            --notes "Unsigned builds of ${{ github.sha }}. macOS: right-click > Open on first start. Windows: SmartScreen > Run anyway."
+            --notes "Commit: ${{ github.sha }}
+
+          Unsigned builds. macOS: right-click > Open on first start. Windows: SmartScreen > Run anyway."
 
   prune:
     needs: build
