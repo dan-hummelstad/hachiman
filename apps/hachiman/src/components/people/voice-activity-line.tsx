@@ -3,7 +3,7 @@ import { activityLabel, type VoiceActivity } from '@/lib/member-activity'
 import { cn } from '@/lib/utils'
 
 /**
- * "In Lounge" / "Speaking in Lounge · Guild" with the voice icon (activityLabel). The caller
+ * "In Lounge" / "In Lounge · Guild" with the voice icon (activityLabel). The caller
  * gives the size and color; the icon follows the text size.
  */
 export function VoiceActivityLine({

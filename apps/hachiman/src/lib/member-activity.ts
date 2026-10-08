@@ -65,8 +65,8 @@ export function voiceActivity(
   }
 }
 
-/** "Speaking in Lounge", "In Lounge", with " · Guild" for a channel of another guild. */
+/** "In Lounge", with " · Guild" for a channel of another guild. */
 export function activityLabel(a: VoiceActivity): string {
   const where = a.otherGuildName ? `${a.channelName} · ${a.otherGuildName}` : a.channelName
-  return `${a.speaking ? 'Speaking in' : 'In'} ${where}`
+  return `In ${where}`
 }

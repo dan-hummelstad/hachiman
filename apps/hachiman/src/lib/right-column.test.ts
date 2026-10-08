@@ -152,10 +152,11 @@ describe('voiceActivity', () => {
   })
 
   it('reports speaking only in the own call', () => {
-    expect(activityLabel(voiceActivity('u1', 'g1', src())!)).toBe('In Lounge')
+    expect(voiceActivity('u1', 'g1', src())!.speaking).toBe(false)
     const mine = voiceActivity('u1', 'g1', src({ myChannelId: 'lounge' }))!
     expect(mine.withMe).toBe(true)
-    expect(activityLabel(mine)).toBe('Speaking in Lounge')
+    expect(mine.speaking).toBe(true)
+    expect(activityLabel(mine)).toBe('In Lounge')
   })
   it('names the guild of a channel in another (shared) guild', () => {
     const a = voiceActivity('u2', 'g1', src())!
