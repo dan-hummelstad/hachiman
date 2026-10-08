@@ -174,9 +174,9 @@ sequenceDiagram
   participant P as Committer (another member)
 
   C->>G: op 4 VOICE_STATE_UPDATE {guildId, channelId, selfMute, selfDeaf, selfStream}
-  G->>G: check CONNECT + VIEW_CHANNEL
-  G->>R: HSET voice:{guildId}, SET voice_user:{userId}
-  G->>R: PUBLISH guild:{id} VOICE_STATE_UPDATE
+  G->>G: check CONNECT + VIEW_CHANNEL (a DM call: the user is a participant)
+  G->>R: HSET voice:{guildId} (a DM call: voice_dm:{channelId}), SET voice_user:{userId}
+  G->>R: PUBLISH guild:{id} VOICE_STATE_UPDATE (a DM call: user:{p}, and CALL_RING to the others when the call starts)
   Note over G: Only mute / deaf / stream changed: stop here
   G->>R: GET voice_room:{channelId}
   alt no node yet
