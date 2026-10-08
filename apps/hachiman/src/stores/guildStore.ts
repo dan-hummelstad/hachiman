@@ -1,7 +1,14 @@
 import type {} from '@redux-devtools/extension'
 import { create } from 'zustand'
 import { devtools } from 'zustand/middleware'
-import type { CustomStatus, Guild, GuildEmoji, Member, PresenceStatus, Role } from '@hachiman/client'
+import type {
+  CustomStatus,
+  Guild,
+  GuildEmoji,
+  Member,
+  PresenceStatus,
+  Role
+} from '@hachiman/client'
 
 /** Mirror of the HachimanClient guild caches. Written only by services/hachiman.ts. */
 interface GuildState {

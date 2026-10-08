@@ -3,7 +3,7 @@ import { CircleAlert, ImagePlus, Lock, Plus, Smile, X } from 'lucide-react'
 import type { Channel } from '@hachiman/client'
 import type { AttachmentPointer } from '@hachiman/crypto'
 import { IconButton } from '@/components/ui/icon-button'
-import { customEmojiText } from '@/lib/custom-emoji'
+import { customEmojiText, reactionKeyOf, type EmojiPick } from '@/lib/custom-emoji'
 import { emojiDataNow, replaceShortcodes } from '@/lib/emoji-data'
 import {
   applyCompletion,
@@ -17,7 +17,7 @@ import { usePrefsStore } from '@/stores/prefsStore'
 import { UploadTray } from './attachments/upload-tray'
 import type { Uploads } from './attachments/use-uploads'
 import { insertFor, useMentionItems, type MentionItem } from './mention-items'
-import { EmojiPicker, reactionKeyOf, type EmojiPick } from './emoji-picker'
+import { EmojiPicker } from './emoji-picker'
 import { MentionMenu } from './mention-menu'
 import { submitOnEnter } from './submit-on-enter'
 
@@ -145,7 +145,10 @@ export function Composer({
     const to = el?.selectionEnd ?? from
     let insert: string = pick.kind === 'unicode' ? pick.emoji : `:${pick.emoji.name}:`
     if (pick.kind === 'custom') {
-      pickedRoles.current = [...pickedRoles.current, { display: insert, wire: customEmojiText(pick.emoji) }]
+      pickedRoles.current = [
+        ...pickedRoles.current,
+        { display: insert, wire: customEmojiText(pick.emoji) }
+      ]
     }
     const before = text.slice(0, from)
     const pad = before && !/\s$/.test(before) ? ' ' : ''

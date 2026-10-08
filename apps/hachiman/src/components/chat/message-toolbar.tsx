@@ -8,7 +8,8 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { IconButton } from '@/components/ui/icon-button'
 import { cn } from '@/lib/utils'
-import { EmojiPicker, reactionKeyOf } from './emoji-picker'
+import { reactionKeyOf } from '@/lib/custom-emoji'
+import { EmojiPicker } from './emoji-picker'
 
 /** Rounded 28px icon buttons with 16px icons. */
 const BUTTON = 'text-text-secondary hover:bg-surface-hover hover:text-text-primary size-7'

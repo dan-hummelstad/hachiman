@@ -439,7 +439,9 @@ export function stubRest(): void {
       return emoji
     },
     renameGuildEmoji: (guildId, emojiId, name) => {
-      const emojis = (cache.emojis.get(guildId) ?? []).map((e) => (e.id === emojiId ? { ...e, name } : e))
+      const emojis = (cache.emojis.get(guildId) ?? []).map((e) =>
+        e.id === emojiId ? { ...e, name } : e
+      )
       dispatch({ t: 'GUILD_EMOJIS_UPDATE', d: { guildId, emojis } })
       return must(
         emojis.find((e) => e.id === emojiId),

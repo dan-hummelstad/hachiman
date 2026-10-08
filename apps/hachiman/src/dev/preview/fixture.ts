@@ -237,8 +237,22 @@ const guild1: GuildFull = {
   ],
   presences: presencesFor(g1Members),
   emojis: [
-    { id: 'emoji-owl', guildId: G1, name: 'owl', key: IMG.emojiOwl, createdBy: ME.id, createdAt: '2026-01-10T12:00:00.000Z' },
-    { id: 'emoji-gg', guildId: G1, name: 'gg', key: IMG.emojiGg, createdBy: ME.id, createdAt: '2026-01-11T12:00:00.000Z' }
+    {
+      id: 'emoji-owl',
+      guildId: G1,
+      name: 'owl',
+      key: IMG.emojiOwl,
+      createdBy: ME.id,
+      createdAt: '2026-01-10T12:00:00.000Z'
+    },
+    {
+      id: 'emoji-gg',
+      guildId: G1,
+      name: 'gg',
+      key: IMG.emojiGg,
+      createdBy: ME.id,
+      createdAt: '2026-01-11T12:00:00.000Z'
+    }
   ]
 }
 

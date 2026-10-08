@@ -4,7 +4,7 @@ import type { Guild, GuildEmoji } from '@hachiman/client'
 import { GuildTile } from '@/components/ui/guild-tile'
 import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover'
 import { useEmojiData } from '@/hooks/use-emoji-data'
-import { customReactionKey, parseReactionKey } from '@/lib/custom-emoji'
+import { parseReactionKey, reactionKeyOf, type EmojiPick } from '@/lib/custom-emoji'
 import {
   EMOJI_GROUPS,
   SKIN_TONES,
@@ -17,13 +17,6 @@ import { cn } from '@/lib/utils'
 import { useGuildStore } from '@/stores/guildStore'
 import { usePrefsStore } from '@/stores/prefsStore'
 import { CustomEmojiImage } from './emoji'
-
-/** What the picker hands back: a Unicode emoji (in the chosen skin tone) or a custom guild emoji. */
-export type EmojiPick = { kind: 'unicode'; emoji: string } | { kind: 'custom'; emoji: GuildEmoji }
-
-/** The reaction key of a pick (contract §4 Emojis): the emoji itself, or `name:id`. */
-export const reactionKeyOf = (pick: EmojiPick): string =>
-  pick.kind === 'unicode' ? pick.emoji : customReactionKey(pick.emoji)
 
 const COLS = 8
 const FOCUS = 'focus-visible:outline-line-focus outline-none focus-visible:outline-2'
@@ -112,7 +105,8 @@ function useSections(data: EmojiData | null, guildId: string | null, tone: numbe
     const out: Section[] = []
     const recentCells = recent.flatMap((key): Cell[] => {
       const custom = parseReactionKey(key)
-      if (!custom) return [{ kind: 'unicode', key, emoji: key, base: data?.byEmoji.get(key) ?? null }]
+      if (!custom)
+        return [{ kind: 'unicode', key, emoji: key, base: data?.byEmoji.get(key) ?? null }]
       const e = index.get(custom.id)
       return e ? [customCell(e)] : []
     })
@@ -211,7 +205,15 @@ function PickerPanel({
     const at = cells.indexOf(document.activeElement as HTMLElement)
     if (at < 0) return
     const step =
-      e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : e.key === 'ArrowDown' ? COLS : e.key === 'ArrowUp' ? -COLS : 0
+      e.key === 'ArrowRight'
+        ? 1
+        : e.key === 'ArrowLeft'
+          ? -1
+          : e.key === 'ArrowDown'
+            ? COLS
+            : e.key === 'ArrowUp'
+              ? -COLS
+              : 0
     if (step === 0) return
     e.preventDefault()
     const next = at + step
@@ -270,7 +272,10 @@ function PickerPanel({
             aria-label={`Skin tone: ${SKIN_TONES[tone]?.label ?? 'Default'}`}
             aria-expanded={tones}
             onClick={() => setTones((v) => !v)}
-            className={cn('rounded-control hover:bg-surface-hover flex size-8 items-center justify-center text-[18px]', FOCUS)}
+            className={cn(
+              'rounded-control hover:bg-surface-hover flex size-8 items-center justify-center text-[18px]',
+              FOCUS
+            )}
           >
             {SKIN_TONES[tone]?.swatch}
           </button>
@@ -305,7 +310,10 @@ function PickerPanel({
         </div>
       </div>
       {results === null && (
-        <nav aria-label="Emoji categories" className="border-line-hairline flex gap-0.5 overflow-x-auto border-b px-2 py-1">
+        <nav
+          aria-label="Emoji categories"
+          className="border-line-hairline flex gap-0.5 overflow-x-auto border-b px-2 py-1"
+        >
           {sections.map((s) => (
             <button
               key={s.id}
@@ -313,7 +321,9 @@ function PickerPanel({
               title={s.label}
               aria-label={s.label}
               onClick={() =>
-                body.current?.querySelector(`[data-section="${s.id}"]`)?.scrollIntoView({ block: 'start' })
+                body.current
+                  ?.querySelector(`[data-section="${s.id}"]`)
+                  ?.scrollIntoView({ block: 'start' })
               }
               className={cn(
                 'rounded-control text-text-tertiary hover:bg-surface-hover hover:text-text-primary flex size-8 shrink-0 items-center justify-center',
@@ -337,7 +347,12 @@ function PickerPanel({
         ) : (
           <>
             {sections.map((s) => (
-              <section key={s.id} data-section={s.id} aria-label={s.label} className="[content-visibility:auto]">
+              <section
+                key={s.id}
+                data-section={s.id}
+                aria-label={s.label}
+                className="[content-visibility:auto]"
+              >
                 <h3 className="bg-surface-raised text-text-tertiary sticky top-0 z-[1] px-3 pt-2 pb-1 text-[11px] font-extrabold tracking-[0.4px] uppercase">
                   {s.label}
                 </h3>
@@ -350,13 +365,22 @@ function PickerPanel({
           </>
         )}
       </div>
-      <div className="border-line-hairline flex h-11 shrink-0 items-center gap-2 border-t px-3" aria-live="polite">
+      <div
+        className="border-line-hairline flex h-11 shrink-0 items-center gap-2 border-t px-3"
+        aria-live="polite"
+      >
         {hover ? (
           <>
             <span className="flex size-7 items-center justify-center text-[22px] leading-none">
-              {hover.kind === 'unicode' ? hover.emoji : <CustomEmojiImage emoji={hover.emoji} className="size-6" />}
+              {hover.kind === 'unicode' ? (
+                hover.emoji
+              ) : (
+                <CustomEmojiImage emoji={hover.emoji} className="size-6" />
+              )}
             </span>
-            <span className="text-text-primary min-w-0 truncate text-[13px] font-semibold">{cellCode(hover)}</span>
+            <span className="text-text-primary min-w-0 truncate text-[13px] font-semibold">
+              {cellCode(hover)}
+            </span>
           </>
         ) : (
           <span className="text-text-tertiary text-[12.5px]">Pick an emoji</span>

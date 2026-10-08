@@ -204,7 +204,10 @@ export const usePrefsStore = create<PrefsState>()(
         setAccountId: (accountId) => set({ accountId }),
         addRecentEmoji: (key) =>
           set((s) => ({
-            recentEmojis: [key, ...s.recentEmojis.filter((k) => k !== key)].slice(0, MAX_RECENT_EMOJIS)
+            recentEmojis: [key, ...s.recentEmojis.filter((k) => k !== key)].slice(
+              0,
+              MAX_RECENT_EMOJIS
+            )
           })),
         setSkinTone: (skinTone) => set({ skinTone }),
         setFavouriteDm: (channelId, favourite) =>

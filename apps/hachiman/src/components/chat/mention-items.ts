@@ -84,9 +84,11 @@ export function useMentionItems(channel: Channel, trigger: Trigger | null): Ment
         .slice(0, 5)
         .map((e): MentionItem => ({ kind: 'custom-emoji', id: e.id, emoji: e }))
       const unicode = emojiData
-        ? searchEmoji(emojiData, q, 10 - custom.length).map(
-            (e): MentionItem => ({ kind: 'emoji', id: withSkin(e, skinTone), code: e.shortcodes[0] ?? e.label })
-          )
+        ? searchEmoji(emojiData, q, 10 - custom.length).map((e): MentionItem => ({
+            kind: 'emoji',
+            id: withSkin(e, skinTone),
+            code: e.shortcodes[0] ?? e.label
+          }))
         : []
       return [...custom, ...unicode]
     }

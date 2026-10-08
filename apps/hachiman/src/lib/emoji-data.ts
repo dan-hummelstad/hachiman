@@ -69,7 +69,10 @@ interface RawEmoji {
 }
 
 /** Builds the lookup tables from the emojibase files. Exported for tests. */
-export function buildEmojiData(raw: readonly RawEmoji[], shortcodes: Record<string, string | string[]>): EmojiData {
+export function buildEmojiData(
+  raw: readonly RawEmoji[],
+  shortcodes: Record<string, string | string[]>
+): EmojiData {
   const emojis: UnicodeEmoji[] = []
   const byEmoji = new Map<string, UnicodeEmoji>()
   const byShortcode = new Map<string, UnicodeEmoji>()
@@ -147,7 +150,11 @@ function rank(e: UnicodeEmoji, query: string): number {
 
 /** The emojis that match `query` (name, shortcode or tag), best match first. */
 export function searchEmoji(data: EmojiData, query: string, limit = 80): UnicodeEmoji[] {
-  const q = query.trim().toLowerCase().replace(/^:|:$/g, '').replace(/[\s_]+/g, '_')
+  const q = query
+    .trim()
+    .toLowerCase()
+    .replace(/^:|:$/g, '')
+    .replace(/[\s_]+/g, '_')
   if (!q) return []
   const plain = q.replace(/_/g, ' ')
   const scored: { e: UnicodeEmoji; r: number; i: number }[] = []

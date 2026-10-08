@@ -12,6 +12,7 @@ import {
   Palette,
   ScrollText,
   Shield,
+  Smile,
   SlidersHorizontal,
   Trash2,
   User,
@@ -20,6 +21,7 @@ import {
 } from 'lucide-react'
 import { Permissions, has } from '@hachiman/client'
 import { GuildBansTab } from '@/components/guild-settings-bans'
+import { GuildEmojisTab } from '@/components/guild-settings-emojis'
 import { GuildInvitesTab } from '@/components/guild-settings-invites'
 import { GuildMembersTab } from '@/components/guild-settings-members'
 import { GuildRolesTab } from '@/components/guild-settings-roles'
@@ -249,6 +251,7 @@ function useGuildSettingsModel(guildId: string | null): SettingsModel {
   const guild = useGuildStore((s) => (guildId ? s.guilds.get(guildId) : undefined))
   const roleCount = useGuildStore((s) => (guildId ? (s.roles.get(guildId)?.size ?? 0) : 0))
   const memberCount = useGuildStore((s) => (guildId ? (s.members.get(guildId)?.size ?? 0) : 0))
+  const emojiCount = useGuildStore((s) => (guildId ? (s.emojis.get(guildId)?.length ?? 0) : 0))
   const isOwner = useIsGuildOwner(guildId)
   const perms = usePermissions(guildId)
   const canManage = has(perms, Permissions.MANAGE_GUILD)
@@ -288,6 +291,19 @@ function useGuildSettingsModel(guildId: string | null): SettingsModel {
                 'Members take the colour of their highest role. Drag to change the order.',
               wide: true,
               render: () => <GuildRolesTab guildId={guild.id} />
+            }
+          },
+          {
+            id: 'emoji',
+            label: 'Emoji',
+            icon: <Smile />,
+            count: emojiCount,
+            visible: has(perms, Permissions.MANAGE_EXPRESSIONS),
+            page: guild && {
+              title: 'Emoji',
+              description: `Custom emojis that members of ${name} can use in messages and reactions, here and in other guilds.`,
+              wide: true,
+              render: () => <GuildEmojisTab guildId={guild.id} />
             }
           },
           // Everyone can at least see the list and change their own nickname.

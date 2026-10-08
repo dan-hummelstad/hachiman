@@ -44,9 +44,3 @@ export function ReactionEmoji({
   if (emoji) return <CustomEmojiImage emoji={emoji} className={cn('size-[1.2em]', className)} />
   return <span className={cn('text-[12px]', className)}>{`:${custom.name}:`}</span>
 }
-
-/** The plain name of a reaction key, for labels: the emoji itself or `:name:`. */
-export function reactionLabel(value: string): string {
-  const custom = parseReactionKey(value)
-  return custom ? `:${custom.name}:` : value
-}

@@ -9,10 +9,7 @@ export type MentionToken = { kind: 'mention'; value: string } & (
 export type EmojiToken = { kind: 'emoji'; value: string; name: string; id: string }
 
 export type Token =
-  | { kind: 'text'; value: string }
-  | { kind: 'link'; value: string }
-  | MentionToken
-  | EmojiToken
+  { kind: 'text'; value: string } | { kind: 'link'; value: string } | MentionToken | EmojiToken
 
 // link | <@&roleId> | <@id> | @username (ends on a word char, so "@kestrel." stops before the dot)
 // | <:name:id> (a custom emoji; Discord's animated <a:name:id> too)
