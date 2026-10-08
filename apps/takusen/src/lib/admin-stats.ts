@@ -75,8 +75,7 @@ export async function oidcClientActivity(): Promise<Map<string, { activeUsers: n
   return new Map(rows.map((r) => [r.clientId, { activeUsers: r.activeUsers, activeSessions: r.activeSessions }]))
 }
 
-/** Guilds per region code. */
-export async function guildsPerRegion(): Promise<Map<string, number>> {
+async function guildsPerRegion(): Promise<Map<string, number>> {
   const rows = await db
     .select({ region: guilds.region, n: count() })
     .from(guilds)

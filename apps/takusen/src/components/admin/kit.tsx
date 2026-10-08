@@ -128,7 +128,7 @@ export function SearchField({
   )
 }
 
-export interface FilterOption<V extends string> {
+interface FilterOption<V extends string> {
   value: V
   label: string
   /** Shown after the label; omit while unknown. */
@@ -265,7 +265,7 @@ export function ErrorBanner({ message, onRetry }: { message: string; onRetry?: (
 }
 
 /** Empty list: a square panel with an icon tile, a line and an optional action. */
-export function EmptyState({
+function EmptyState({
   icon: Icon = InboxIcon,
   title,
   body,
@@ -298,7 +298,7 @@ export function EmptyState({
 }
 
 /** Placeholder rows while the first page loads: the table's 56px rhythm, no layout jump. */
-export function LoadingRows({ rows = 4, className }: { rows?: number; className?: string }): React.JSX.Element {
+function LoadingRows({ rows = 4, className }: { rows?: number; className?: string }): React.JSX.Element {
   return (
     <div
       aria-busy

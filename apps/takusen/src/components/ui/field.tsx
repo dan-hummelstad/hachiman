@@ -3,19 +3,6 @@ import Link from 'next/link'
 
 import { cn } from '@/lib/utils'
 
-/** Kicker above a group (nav category, settings section): the `section-label` type style. */
-export function SectionHeading({
-  children,
-  className,
-  as: Heading = 'h2',
-}: {
-  children: React.ReactNode
-  className?: string
-  as?: 'h2' | 'h3'
-}): React.JSX.Element {
-  return <Heading className={cn('section-label mb-2', className)}>{children}</Heading>
-}
-
 /**
  * TK / Field: label row (13.5/700) with an optional right-side link, the control, then a
  * help line (13, tertiary) or an error line (13, danger, alert icon) in its place.

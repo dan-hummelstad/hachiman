@@ -46,7 +46,7 @@ export interface ConfirmSpec {
  * name, Cancel + the action. Shows the API error inside; on success it closes, toasts `done`
  * and calls `onDone`.
  */
-export function ConfirmDialog({
+function ConfirmDialog({
   open,
   onOpenChange,
   spec,
