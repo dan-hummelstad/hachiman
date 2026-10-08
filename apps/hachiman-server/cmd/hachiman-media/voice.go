@@ -38,6 +38,9 @@ const (
 
 	// maxScreenSubscriptions caps the userIds of one screen_subscribe.
 	maxScreenSubscriptions = 256
+	// subscribeRate caps screen_subscribe frames per second per conn; excess
+	// dropped. Each one takes the node-wide SFU lock.
+	subscribeRate = 10
 
 	// defaultReadLimit fits a Welcome or a ratchet tree of a large call
 	// (MEDIA_WS_READ_LIMIT overrides it).
@@ -192,6 +195,10 @@ type voiceConn struct {
 	speakWindow time.Time
 	speakCount  int
 
+	// screen_subscribe rate limit (reader goroutine only).
+	subWindow time.Time
+	subCount  int
+
 	// sigMu spans SetLocalDescription + enqueueing the offer, and the ICE
 	// hook takes it too, so server candidates never overtake their offer.
 	sigMu sync.Mutex
@@ -321,7 +328,7 @@ func (c *voiceConn) readLoop() {
 				UserIDs []string `json:"userIds"`
 			}
 			// A room has far fewer sharers; a longer list is not a real client.
-			if json.Unmarshal(f.D, &d) == nil && len(d.UserIDs) <= maxScreenSubscriptions {
+			if json.Unmarshal(f.D, &d) == nil && len(d.UserIDs) <= maxScreenSubscriptions && c.allowSubscribe() {
 				c.srv.sfu.SetScreenSubscriptions(c.client, d.UserIDs)
 			}
 		}
@@ -472,6 +479,19 @@ func (c *voiceConn) sendPeers() {
 		peers = append(peers, peerInfo{UserID: p.UserID, SSRC: p.SSRC})
 	}
 	c.send("peers", map[string]any{"peers": peers})
+}
+
+// allowSubscribe counts a screen_subscribe against subscribeRate.
+// ponytail: a dropped frame is not replayed; honest clients send on a click only.
+func (c *voiceConn) allowSubscribe() bool {
+	if now := time.Now(); now.Sub(c.subWindow) >= time.Second {
+		c.subWindow, c.subCount = now, 0
+	}
+	if c.subCount >= subscribeRate {
+		return false
+	}
+	c.subCount++
+	return true
 }
 
 func (c *voiceConn) relaySpeaking(speaking bool) {

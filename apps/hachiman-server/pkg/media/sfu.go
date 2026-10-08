@@ -107,13 +107,16 @@ type Client struct {
 	// viewersMu only.
 	viewersMu sync.RWMutex
 	viewers   map[string]*screenOut
+	// fwdMu serializes the seqMap writes of the screen video [0] and screen
+	// audio [1] forward goroutines (see forwardScreen).
+	fwdMu [2]sync.Mutex
 
 	// screenSSRC is the client's inbound screen RTP SSRC (0 = none yet); the
 	// target of keyframe requests from viewers.
 	screenSSRC atomic.Uint32
 	// lastKeyframeReq is when the last PLI went to the client (unix ns).
 	lastKeyframeReq atomic.Int64
-	// muted drops the client's mic RTP (server mute or deafen, §6 "Voice moderation").
+	// muted drops the client's mic and screen audio RTP (server mute or deafen, §6 "Voice moderation").
 	muted atomic.Bool
 }
 
@@ -480,14 +483,36 @@ func forward(remote *webrtc.TrackRemote, out *webrtc.TrackLocalStaticRTP, muted 
 
 // forwardScreen pumps the client's inbound screen video (or, with audio, the
 // screen audio) to the screen output of each subscribed viewer. Runs on
-// pion's OnTrack goroutine until the PC closes; it is the only writer of the
-// viewers' seqMaps of that stream.
+// pion's OnTrack goroutine until the PC closes. Server mute (c.muted) drops
+// the screen audio too, so a muted user cannot talk through a share.
+//
+// pion starts a new goroutine when it gives the slot a new receiver (a new
+// inbound SSRC); the old one can still hold a packet. fwdMu keeps the two from
+// writing a seqMap at once, and the resync below starts the new stream's
+// sequence numbers after the last ones the viewers got.
 func (c *Client) forwardScreen(remote *webrtc.TrackRemote, audio bool) {
+	mu := &c.fwdMu[0]
+	if audio {
+		mu = &c.fwdMu[1]
+	}
+	c.viewersMu.RLock()
+	for _, o := range c.viewers {
+		if audio {
+			o.audioSeq.resync.Store(true)
+		} else {
+			o.videoSeq.resync.Store(true)
+		}
+	}
+	c.viewersMu.RUnlock()
 	for {
 		pkt, _, err := remote.ReadRTP()
 		if err != nil {
 			return
 		}
+		if audio && c.muted.Load() {
+			continue
+		}
+		mu.Lock()
 		c.viewersMu.RLock()
 		for _, o := range c.viewers {
 			if !o.on.Load() {
@@ -500,6 +525,7 @@ func (c *Client) forwardScreen(remote *webrtc.TrackRemote, audio bool) {
 			}
 		}
 		c.viewersMu.RUnlock()
+		mu.Unlock()
 	}
 }
 

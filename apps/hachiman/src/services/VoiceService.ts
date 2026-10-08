@@ -372,7 +372,7 @@ class VoiceService {
 
   /** Mirrors a new call into the store and starts the mic. */
   private async wire(conn: VoiceConnection): Promise<void> {
-    // A "Watch stream" clicked while the join was in flight, or kept over a move.
+    // A "Watch stream" clicked while the join was in flight. A move clears `watching` first.
     conn.setScreenSubscriptions(useVoiceStore.getState().watching)
     this.applyOutputDevice()
     this.applyUserAudio()

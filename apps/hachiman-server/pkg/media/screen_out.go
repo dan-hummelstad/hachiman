@@ -54,8 +54,8 @@ func (o *screenOut) set(on bool) bool {
 // contiguous over the gaps while the viewer is unsubscribed. Without it a
 // viewer that subscribes again sees a jump of thousands of packets, and its
 // NACK logic asks for all of them. SFrame does not use the RTP sequence
-// number (§12.10.2), so the rewrite does not touch the E2EE. Only the forward
-// goroutine of the stream calls write.
+// number (§12.10.2), so the rewrite does not touch the E2EE. write runs only
+// under the stream's Client.fwdMu.
 type seqMap struct {
 	// resync is set when the forwarding starts again.
 	resync  atomic.Bool
