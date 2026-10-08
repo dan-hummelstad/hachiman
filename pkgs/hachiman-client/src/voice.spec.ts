@@ -201,6 +201,45 @@ describe('VoiceConnection', () => {
     }
   })
 
+  it('plays a boosted user on the element at 100 % while the AudioContext is not running', async () => {
+    const g = globalThis as Record<string, unknown>
+    g['AudioContext'] = FakeAudioContext
+    FakeAudioContext.nextState = 'suspended'
+    try {
+      await offer()
+      vc.setOutputVolume('bob', 1.5)
+      ws.recv({ op: 'peers', d: { peers: [{ userId: 'bob', ssrc: 2 }] } })
+      pc().fireTrack('bob', 'audio')
+      const [el] = FakeAudio.instances
+      const [ctx] = FakeAudioContext.instances
+      expect(el).toMatchObject({ volume: 1, muted: false })
+      expect(ctx?.gains[0]?.gain.value).toBe(0)
+      ctx?.setState('running')
+      expect(el).toMatchObject({ volume: 1, muted: true })
+      expect(ctx?.gains[0]?.gain.value).toBe(1.5)
+      ctx?.setState('interrupted')
+      expect(el?.muted).toBe(false)
+    } finally {
+      delete g['AudioContext']
+    }
+  })
+
+  it('does not boost on a chosen output device that the AudioContext cannot use', async () => {
+    const g = globalThis as Record<string, unknown>
+    g['AudioContext'] = FakeAudioContext // no setSinkId
+    try {
+      await offer()
+      await vc.setOutputDevice('headset')
+      vc.setOutputVolume('bob', 2)
+      ws.recv({ op: 'peers', d: { peers: [{ userId: 'bob', ssrc: 2 }] } })
+      pc().fireTrack('bob', 'audio')
+      expect(FakeAudio.instances[0]).toMatchObject({ volume: 1, muted: false })
+      expect(FakeAudioContext.instances).toEqual([])
+    } finally {
+      delete g['AudioContext']
+    }
+  })
+
   it('drops tracks without msid or with a kind that does not match the msid', async () => {
     await offer()
     const screens = vi.fn()

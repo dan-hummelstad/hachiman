@@ -85,12 +85,19 @@ export type VoiceEvents = {
 /** Local failure codes. They never come from media. */
 const LOCAL_FAILURE = 4000
 const RESYNC = 4013
+type SinkAudioContext = AudioContext & { setSinkId: (id: string) => Promise<void> }
+
+/** AudioContext.setSinkId: Chromium only. */
+const contextHasSink = (): boolean =>
+  typeof AudioContext !== 'undefined' && 'setSinkId' in AudioContext.prototype
+
 /** The highest `setOutputVolume` value (200 %). */
 const MAX_OUTPUT_VOLUME = 2
 
 /** The WebAudio path of one remote user above 100 %: HTMLMediaElement.volume caps at 1. */
 interface Boost {
-  stream: MediaStream
+  /** A source node stays on the track it was made with, also when the stream gets a new one. */
+  track: MediaStreamTrack
   source: MediaStreamAudioSourceNode
   gain: GainNode
 }
@@ -286,13 +293,15 @@ export class VoiceConnection extends TypedEventEmitter<VoiceEvents> {
   async setOutputDevice(deviceId: string | null): Promise<void> {
     this.sinkId = deviceId ?? ''
     await Promise.all([...this.audio.values()].map(el => this.applySink(el)))
+    // Without AudioContext.setSinkId a boost can only play on the default device.
+    for (const [userId, el] of this.audio) this.applyVolume(userId, el)
     await this.applyContextSink()
   }
 
-  /** The boost path plays through the AudioContext. Browsers without AudioContext.setSinkId keep the default. */
+  /** The boost path plays through the AudioContext. */
   private async applyContextSink(): Promise<void> {
-    const ctx = this.audioCtx as (AudioContext & { setSinkId?: (id: string) => Promise<void> }) | null
-    if (typeof ctx?.setSinkId !== 'function') return
+    const ctx = this.audioCtx as SinkAudioContext | null
+    if (!ctx || !contextHasSink()) return
     await ctx.setSinkId(this.sinkId).catch((err: unknown) => {
       console.warn('VoiceConnection: AudioContext setSinkId failed', err)
     })
@@ -315,28 +324,37 @@ export class VoiceConnection extends TypedEventEmitter<VoiceEvents> {
   /**
    * Up to 1 the element plays the stream. Above 1 a GainNode plays it and the element stays
    * muted (it stays attached: Chromium gives a WebAudio source of a remote stream no samples
-   * without one). When WebAudio fails, the element plays at 1.
+   * without one). The element plays at 1 instead while the AudioContext does not run, when
+   * WebAudio fails, or when the chosen output device cannot be set on the AudioContext.
    */
   private applyVolume(userId: string, el: HTMLAudioElement): void {
     const v = this.volumes.get(userId) ?? 1
     const stream = el.srcObject as MediaStream | null
-    const boost = v > 1 && stream ? this.boostFor(userId, stream) : null
+    const track = stream?.getAudioTracks()[0]
+    const boost = v > 1 && stream && track ? this.boostFor(userId, stream, track) : null
     if (!boost) this.dropBoost(userId)
+    const live = boost !== null && this.audioCtx?.state === 'running'
     el.volume = Math.min(1, v)
-    el.muted = this.deafened || boost !== null
-    if (boost) boost.gain.gain.value = this.deafened ? 0 : v
+    el.muted = this.deafened || live
+    if (boost) boost.gain.gain.value = this.deafened || !live ? 0 : v
   }
 
-  private boostFor(userId: string, stream: MediaStream): Boost | null {
+  private boostFor(userId: string, stream: MediaStream, track: MediaStreamTrack): Boost | null {
     const current = this.boosts.get(userId)
-    if (current?.stream === stream) return current
+    if (current?.track === track) return current
     this.dropBoost(userId)
-    if (typeof AudioContext === 'undefined') return null
+    if (typeof AudioContext === 'undefined' || (this.sinkId !== '' && !contextHasSink())) return null
     try {
       let ctx = this.audioCtx
       if (!ctx) {
-        ctx = new AudioContext()
-        this.audioCtx = ctx
+        const made = new AudioContext()
+        ctx = made
+        this.audioCtx = made
+        // Suspended, interrupted or running again: each user switches between the paths.
+        made.onstatechange = () => {
+          if (this.audioCtx !== made) return
+          for (const [id, el] of this.audio) this.applyVolume(id, el)
+        }
         void this.applyContextSink()
       }
       // A context made outside a user gesture starts suspended.
@@ -344,7 +362,7 @@ export class VoiceConnection extends TypedEventEmitter<VoiceEvents> {
       const source = ctx.createMediaStreamSource(stream)
       const gain = ctx.createGain()
       source.connect(gain).connect(ctx.destination)
-      const boost = { stream, source, gain }
+      const boost = { track, source, gain }
       this.boosts.set(userId, boost)
       return boost
     } catch (err) {
