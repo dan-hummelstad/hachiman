@@ -36,7 +36,7 @@ export const AdminBits = {
   MANAGE_ROLES: 1 << 28,
 } as const
 /** §2 DEFAULT_EVERYONE: the @everyone role that POST /guilds creates, before any signed action. */
-export const DEFAULT_EVERYONE_PERMISSIONS = (1 << 10) | (1 << 11) | (1 << 15) | (1 << 16) | (1 << 20) | (1 << 21) | (1 << 0) | (1 << 26)
+export const DEFAULT_EVERYONE_PERMISSIONS = (1 << 10) | (1 << 11) | (1 << 15) | (1 << 16) | (1 << 20) | (1 << 21) | (1 << 0) | (1 << 26) | (1 << 25)
 
 const ZERO_HASH = new Uint8Array(32)
 
