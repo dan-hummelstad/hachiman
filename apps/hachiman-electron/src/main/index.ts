@@ -78,7 +78,6 @@ function prefs(): AppPrefsStore {
   return appPrefs;
 }
 
-/** Tray "Open Hachiman": show the hidden window, or make one when it was closed. */
 function openMainWindow(): void {
   if (mainWindowRef) revealWindow(mainWindowRef);
   else createWindow();
@@ -208,6 +207,9 @@ function checkAppFrame(e: IpcMainInvokeEvent): void {
   if (!isAppFrame(e))
     throw new SecureStorageError("Malformed", "caller is not the app page");
 }
+function requireAppFrame(e: IpcMainInvokeEvent): void {
+  if (!isAppFrame(e)) throw new Error("caller is not the app page");
+}
 // IPC: the settings "Check for updates" button. A manual check offers a build put off with "Later" again.
 ipcMain.handle(CHECK_FOR_UPDATE_CHANNEL, (e) =>
   isAppFrame(e)
@@ -216,11 +218,11 @@ ipcMain.handle(CHECK_FOR_UPDATE_CHANNEL, (e) =>
 );
 // IPC: the "Close button minimises to tray" switch in user settings.
 ipcMain.handle(CLOSE_TO_TRAY_GET_CHANNEL, (e) => {
-  checkAppFrame(e);
+  requireAppFrame(e);
   return prefs().get().closeToTray;
 });
 ipcMain.handle(CLOSE_TO_TRAY_SET_CHANNEL, async (e, on: unknown) => {
-  checkAppFrame(e);
+  requireAppFrame(e);
   if (typeof on !== "boolean") throw new Error("closeToTray must be a boolean");
   await prefs().set({ closeToTray: on });
 });
@@ -244,7 +246,7 @@ const globalShortcuts = createGlobalShortcuts(globalShortcut, (action) =>
   mainWindowRef?.webContents.send(GLOBAL_SHORTCUT_CHANNEL, action),
 );
 ipcMain.handle(SET_GLOBAL_SHORTCUTS_CHANNEL, (e, shortcuts: unknown) => {
-  if (!isAppFrame(e)) throw new Error("caller is not the app page");
+  requireAppFrame(e);
   return globalShortcuts.set(shortcuts);
 });
 app.on("will-quit", () => globalShortcuts.clear());

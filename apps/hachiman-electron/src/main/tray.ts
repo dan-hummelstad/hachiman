@@ -10,7 +10,6 @@ import templateIcon from "../../resources/trayTemplate.png?asset";
 // Module-scoped so that GC does not remove the icon.
 let tray: Tray | null = null;
 
-/** Shows, restores and focuses a window that is hidden or minimised. */
 export function revealWindow(win: BrowserWindow): void {
   if (win.isMinimized()) win.restore();
   win.show();

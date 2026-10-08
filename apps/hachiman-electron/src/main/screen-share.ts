@@ -8,6 +8,7 @@ import {
 import {
   SCREEN_SOURCES_CHANNEL,
   SELECT_SCREEN_SOURCE_CHANNEL,
+  screenShareAudioSupported,
   type ScreenSourceInfo,
 } from "../shared/ipc";
 
@@ -80,7 +81,7 @@ export function displayStreams(
   audio: boolean,
   platform: NodeJS.Platform = process.platform,
 ): Streams {
-  return audio && platform === "win32"
+  return audio && screenShareAudioSupported(platform)
     ? { video: source, audio: "loopback" }
     : { video: source };
 }

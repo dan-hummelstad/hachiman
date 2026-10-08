@@ -18,6 +18,10 @@ export const PROBE_REGIONS_CHANNEL = "hachiman:probe-regions";
 export const SCREEN_SOURCES_CHANNEL = "hachiman:screen-sources";
 /** renderer → main (invoke, id, audio): the listed source that the next getDisplayMedia captures, and whether with system audio. */
 export const SELECT_SCREEN_SOURCE_CHANNEL = "hachiman:select-screen-source";
+/** Whether main captures system audio with a screen share (loopback is Windows only, main/screen-share.ts). */
+export function screenShareAudioSupported(platform: NodeJS.Platform): boolean {
+  return platform === "win32";
+}
 
 /** renderer → main (invoke): check for a desktop update now (updater.ts). */
 export const CHECK_FOR_UPDATE_CHANNEL = "hachiman:check-for-update";

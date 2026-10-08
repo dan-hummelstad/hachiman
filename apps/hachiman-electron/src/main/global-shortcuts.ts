@@ -19,7 +19,6 @@ const KEY =
   /^(?:[A-Z0-9]|[[\]`\-=\\;',./]|F(?:[1-9]|1[0-9]|2[0-4])|Space|Enter|Tab|Backspace|Delete|Insert|Home|End|PageUp|PageDown|Up|Down|Left|Right|num[0-9]|numadd|numsub|nummult|numdiv|numdec)$/;
 const ACTION = /^[A-Za-z][A-Za-z0-9]{0,31}$/;
 
-/** Whether `accelerator` is one that the app may register. */
 export function isAllowedAccelerator(accelerator: string): boolean {
   const parts = accelerator.split("+");
   // A `+` key would split into empty parts; it is not allowed.

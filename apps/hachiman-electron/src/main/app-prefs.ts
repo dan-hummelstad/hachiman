@@ -13,7 +13,6 @@ export interface AppPrefs {
 
 export const DEFAULT_APP_PREFS: AppPrefs = { closeToTray: true };
 
-/** Keeps each known field of the right type, and the default for the others. */
 export function parseAppPrefs(raw: unknown): AppPrefs {
   const o =
     typeof raw === "object" && raw !== null

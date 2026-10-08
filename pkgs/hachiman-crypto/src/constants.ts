@@ -120,7 +120,7 @@ export const EnvelopeKind = { MESSAGE: 1, EDIT: 2, REACTION: 3, PAGE_ACTIVITY: 4
  */
 export const MAX_REACTION_EMOJI_LENGTH = 72
 /** UTF-8 bytes of the longest emoji: each UTF-16 unit encodes to at most 3 bytes. */
-export const MAX_REACTION_EMOJI_BYTES = 216
+export const MAX_REACTION_EMOJI_BYTES = MAX_REACTION_EMOJI_LENGTH * 3
 /** page_activity `changes`: 1 to this (§12.8.1). */
 export const MAX_PAGE_ACTIVITY_CHANGES = 10_000
 export const ENVELOPE_AEAD = 'AES-256-GCM'

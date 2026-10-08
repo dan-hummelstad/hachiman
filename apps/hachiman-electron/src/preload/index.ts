@@ -9,6 +9,7 @@ import {
   OPEN_EXTERNAL_CHANNEL,
   PROBE_REGIONS_CHANNEL,
   SCREEN_SOURCES_CHANNEL,
+  screenShareAudioSupported,
   SECURE_STORAGE_CLEAR_CHANNEL,
   SECURE_STORAGE_GET_CHANNEL,
   SELECT_SCREEN_SOURCE_CHANNEL,
@@ -64,7 +65,7 @@ const bridge = {
   selectScreenSource: (id: string, audio: boolean): Promise<void> =>
     ipcRenderer.invoke(SELECT_SCREEN_SOURCE_CHANNEL, id, audio),
   /** Main captures system audio with a share here (loopback, main/screen-share.ts). */
-  screenShareAudio: process.platform === "win32",
+  screenShareAudio: screenShareAudioSupported(process.platform),
   /** Check for a desktop update now; main shows its restart prompt for a new build. */
   checkForUpdate: (): Promise<UpdateCheckResult> =>
     ipcRenderer.invoke(CHECK_FOR_UPDATE_CHANNEL),

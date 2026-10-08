@@ -29,7 +29,7 @@ type guildState struct {
 	id, ownerID, region string
 	roles               map[string]int64 // role id → permissions (incl. @everyone = guild id)
 	myRoles             []string
-	myMute, myDeaf      bool // server mute and deafen of the user (Member.mute / deaf)
+	myMute, myDeaf      bool
 	channels            map[string]*Channel
 }
 
