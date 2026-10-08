@@ -150,7 +150,6 @@ export function ChannelRow({
                 selected ? 'hidden' : 'flex group-hover/row:hidden group-focus-within/row:hidden'
               )}
             >
-              {channel.type === 'pages' && <SystemTag kind="page" />}
               {(readOnly || restricted) && (
                 <Lock aria-label={lockLabel} className="text-text-tertiary size-3.5" />
               )}
