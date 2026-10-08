@@ -38,12 +38,12 @@ const seq = (step: number, ...hz: number[]): Chime['notes'] => hz.map((f, i) => 
 
 /**
  * Discord-like sounds. Voice events are soft bell chimes: rising for on/join, the same notes
- * falling for off/leave, and my own actions louder than other people's. Messages use Cuelume: a
- * glass note when one arrives, a soft whoosh when I send one.
+ * falling for off/leave, and my own actions louder than other people's. An arriving message uses
+ * a Cuelume glass note. A sent message gets only a short, quiet high tick.
  */
 export const SOUNDS: Record<SoundEvent, Sound> = {
   message: { cue: 'ready' },
-  messageSent: { cue: 'navigate', opts: { emphasis: 'subtle' } },
+  messageSent: { notes: [[C6, 0]], decay: 0.08, gain: 0.3 },
   voiceJoin: { notes: seq(0.1, E5, A5) },
   voiceLeave: { notes: seq(0.1, A5, E5) },
   voiceDisconnect: { notes: seq(0.14, E4, C4, A3), decay: 0.55 },
