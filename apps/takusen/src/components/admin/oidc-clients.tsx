@@ -1,49 +1,134 @@
 'use client'
 
+import { GlobeIcon, InfoIcon, LaptopIcon, LinkIcon, MonitorIcon, type LucideIcon } from 'lucide-react'
+
 import type { AdminOidcClient } from '@/lib/admin'
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { formatDate, ListFrame, useAdminData } from './kit'
+import { redirectUriKind, type RedirectUriKind } from '@/lib/oidc-consent'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { Tag } from '@/components/ui/badge'
+import { Panel } from '@/components/ui/card'
+import { formatDate, useAdminData } from './kit'
+import { CopyButton, ListState, PageHead } from './kit-b'
+
+const URI_KINDS: Record<RedirectUriKind, { label: string; icon: LucideIcon }> = {
+  desktop: { label: 'Desktop app', icon: LaptopIcon },
+  desktop_bridge: { label: 'Desktop bridge', icon: MonitorIcon },
+  web: { label: 'Web client', icon: GlobeIcon },
+  other: { label: 'Other', icon: LinkIcon },
+}
+
+/** lib/oidc-adapter.ts gives every client these; only the auth method depends on isPublic. */
+const GRANT_TYPES = 'authorization_code · refresh_token'
+const clientAuth = (c: AdminOidcClient): string =>
+  c.isPublic ? 'none · public client with PKCE (S256)' : 'client_secret_basic'
+
+function Kicker({ children }: { children: React.ReactNode }): React.JSX.Element {
+  return <h3 className="text-[11.5px] leading-4 font-extrabold tracking-[0.8px] text-text-tertiary uppercase">{children}</h3>
+}
+
+function RedirectUri({ uri }: { uri: string }): React.JSX.Element {
+  const kind = URI_KINDS[redirectUriKind(uri)]
+  const Icon = kind.icon
+  return (
+    <li className="flex h-11 items-center gap-2.5 border border-line-hairline bg-surface-sunken pr-1.5 pl-3">
+      <Icon aria-hidden className="size-[15px] shrink-0 text-text-tertiary" />
+      <span className="min-w-0 flex-1 truncate font-mono text-[12.5px] text-text-primary" title={uri}>
+        {uri}
+      </span>
+      <span className="shrink-0 text-xs text-text-tertiary max-sm:hidden">{kind.label}</span>
+      <CopyButton value={uri} label={`Copy ${uri}`} />
+    </li>
+  )
+}
+
+function ClientCard({ client: c }: { client: AdminOidcClient }): React.JSX.Element {
+  return (
+    <Panel aria-label={c.clientId}>
+      <div className="flex flex-wrap items-center gap-4 border-b border-line-hairline p-5">
+        <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+          <div className="flex flex-wrap items-center gap-2.5">
+            <h2 className="font-mono text-lg leading-6 font-semibold text-text-primary">{c.clientId}</h2>
+            <Tag tone="neutral">{c.isPublic ? 'Public' : 'Confidential'}</Tag>
+            <Tag tone="info">PKCE</Tag>
+          </div>
+          <p className="text-[13px] text-text-tertiary">Created {formatDate(c.createdAt)}</p>
+        </div>
+        <div className="flex flex-col items-end gap-0.5">
+          <span className="text-lg leading-6 font-extrabold text-text-primary tabular-nums">
+            {c.activeUsers} {c.activeUsers === 1 ? 'person' : 'people'}
+          </span>
+          <span className="text-[12.5px] text-text-tertiary tabular-nums">
+            signed in now · {c.activeSessions} {c.activeSessions === 1 ? 'session' : 'sessions'}
+          </span>
+        </div>
+      </div>
+      <div className="flex flex-col md:flex-row">
+        <div className="flex min-w-0 flex-1 flex-col gap-2.5 p-5 max-md:border-b md:border-r border-line-hairline">
+          <Kicker>Redirect URIs</Kicker>
+          <ul className="flex flex-col gap-2.5">
+            {c.redirectUris.map((u) => (
+              <RedirectUri key={u} uri={u} />
+            ))}
+          </ul>
+        </div>
+        <dl className="flex shrink-0 flex-col gap-[18px] p-5 md:w-[340px]">
+          <div className="flex flex-col gap-2.5">
+            <dt>
+              <Kicker>Scopes</Kicker>
+            </dt>
+            <dd className="flex flex-wrap gap-1.5">
+              {c.scopes.map((s) => (
+                <span
+                  key={s}
+                  className="inline-flex h-6 items-center border border-line-hairline bg-surface-raised px-2 font-mono text-xs text-text-secondary"
+                >
+                  {s}
+                </span>
+              ))}
+            </dd>
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <dt>
+              <Kicker>Grant types</Kicker>
+            </dt>
+            <dd className="font-mono text-[12.5px] text-text-secondary">{GRANT_TYPES}</dd>
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <dt>
+              <Kicker>Client auth</Kicker>
+            </dt>
+            <dd className="font-mono text-[12.5px] text-text-secondary">{clientAuth(c)}</dd>
+          </div>
+        </dl>
+      </div>
+    </Panel>
+  )
+}
 
 export function AdminOidcClientsView(): React.JSX.Element {
   const { data, error } = useAdminData<AdminOidcClient[]>('/oidc-clients')
   const clients = data ?? []
   return (
-    <ListFrame
-      error={error}
-      empty="No OIDC clients. `pnpm -F @hachiman/takusen db:seed` adds the Hachiman client."
-      isEmpty={clients.length === 0}
-      loading={data === null && !error}
-    >
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Client ID</TableHead>
-            <TableHead>Type</TableHead>
-            <TableHead>Redirect URIs</TableHead>
-            <TableHead>Scopes</TableHead>
-            <TableHead>Created</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {clients.map((c) => (
-            <TableRow key={c.id}>
-              <TableCell className="font-mono text-[13px] align-top">{c.clientId}</TableCell>
-              <TableCell className="align-top">{c.isPublic ? 'Public (PKCE)' : 'Confidential'}</TableCell>
-              <TableCell className="align-top">
-                <ul className="font-mono text-xs leading-5">
-                  {c.redirectUris.map((u) => (
-                    <li key={u}>{u}</li>
-                  ))}
-                </ul>
-              </TableCell>
-              <TableCell className="align-top text-xs">{c.scopes.join(' ')}</TableCell>
-              <TableCell className="align-top text-xs text-muted-foreground tabular-nums">
-                {formatDate(c.createdAt)}
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    </ListFrame>
+    <>
+      <PageHead
+        title="OIDC clients"
+        description="Applications that sign people in through Takusen."
+        actions={<Tag tone="neutral">Read only</Tag>}
+      />
+      <Alert role="note" className="border-l-feature-thread [&>svg]:text-feature-thread-text">
+        <InfoIcon />
+        <AlertTitle>Managed by db:seed</AlertTitle>
+        <AlertDescription>Clients are read only here. Change the seed and redeploy to add or edit one.</AlertDescription>
+      </Alert>
+      <ListState
+        error={error}
+        loading={data === null && !error}
+        empty={clients.length > 0 ? null : 'No OIDC clients. `pnpm -F @hachiman/takusen db:seed` adds the Hachiman client.'}
+      >
+        {clients.map((c) => (
+          <ClientCard key={c.id} client={c} />
+        ))}
+      </ListState>
+    </>
   )
 }

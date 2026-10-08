@@ -7,7 +7,7 @@ export const metadata = {
 
 export default function Page(): React.JSX.Element {
   return (
-    <DashboardShell section="admin" crumbs={[{ label: 'Regions' }]} title="Regions" description="Voice regions that guilds can choose. Media nodes register into one of these.">
+    <DashboardShell section="admin" crumbs={[{ label: 'Regions' }]}>
       <AdminRegionsView />
     </DashboardShell>
   )

@@ -7,7 +7,7 @@ export const metadata = {
 
 export default function Page(): React.JSX.Element {
   return (
-    <DashboardShell section="admin" crumbs={[{ label: 'Media nodes' }]} title="Media nodes" description="Registered SFU nodes, their load and last heartbeat. Drain a node before you stop it.">
+    <DashboardShell section="admin" crumbs={[{ label: 'Media nodes' }]}>
       <AdminMediaNodesView />
     </DashboardShell>
   )

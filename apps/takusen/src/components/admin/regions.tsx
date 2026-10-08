@@ -1,92 +1,173 @@
 'use client'
 
+import { PencilIcon, PlusIcon, Trash2Icon } from 'lucide-react'
+import { useRouter } from 'next/navigation'
 import { useState, type FormEvent } from 'react'
 import { toast } from 'sonner'
 
-import type { AdminRegion } from '@/lib/admin'
+import type { AdminMediaNode, AdminRegion } from '@/lib/admin'
 import { Button } from '@/components/ui/button'
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { DropdownMenuItem } from '@/components/ui/dropdown-menu'
 import { Field } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { adminFetch, ConfirmAction, errorText, ListFrame, useAdminData } from './kit'
+import { cn } from '@/lib/utils'
+import { adminFetch, errorText, useAdminData } from './kit'
+import { ConfirmDialog, ListState, matchesQuery, PageHead, QueryChip, RowMenu, useListQuery } from './kit-b'
+
+/** regions.probe_port's default: a probe host without a port probes 443. */
+const DEFAULT_PROBE_PORT = 443
+const MAX_DOTS = 8
+
+const plural = (n: number, one: string, many: string): string => `${n} ${n === 1 ? one : many}`
+
+/** Same colours as the node status tags: healthy green, draining blue, stale amber. */
+function nodeDotClass(n: AdminMediaNode): string {
+  if (n.stale) return 'bg-feature-event'
+  if (n.adminDrain || n.status === 'draining') return 'bg-feature-thread'
+  return n.status === 'active' ? 'bg-status-online' : 'bg-status-offline'
+}
+
+function RegionNodes({ nodes }: { nodes: AdminMediaNode[] }): React.JSX.Element {
+  if (nodes.length === 0) return <span className="text-[13.5px] text-text-tertiary">No nodes</span>
+  return (
+    <span className="inline-flex items-center gap-2.5">
+      <span className="inline-flex items-center gap-1" aria-hidden>
+        {nodes.slice(0, MAX_DOTS).map((n) => (
+          <span key={n.nodeId} title={n.nodeId} className={cn('size-2 rounded-full', nodeDotClass(n))} />
+        ))}
+      </span>
+      <span className="text-[13.5px] text-text-secondary">{plural(nodes.length, 'node', 'nodes')}</span>
+    </span>
+  )
+}
 
 export function AdminRegionsView(): React.JSX.Element {
   const { data, error, reload } = useAdminData<AdminRegion[]>('/regions')
+  // Only for the node dots; the region list works without it.
+  const nodesData = useAdminData<AdminMediaNode[]>('/media-nodes').data
+  const { query, clear } = useListQuery()
   const [editing, setEditing] = useState<AdminRegion | 'new' | null>(null)
-  const regions = data ?? []
+  const [deleting, setDeleting] = useState<AdminRegion | null>(null)
+  const router = useRouter()
+  // The sidebar badge counts regions on the server.
+  const changed = (): void => {
+    reload()
+    router.refresh()
+  }
+
+  const regions = (data ?? []).filter((r) => matchesQuery(query, r.code, r.displayName, r.probeHost))
+  const nodesOf = (code: string): AdminMediaNode[] => (nodesData ?? []).filter((n) => n.region === code)
 
   return (
-    <div className="flex flex-col gap-4">
-      <Button className="self-start" onClick={() => setEditing('new')}>
-        Add region
-      </Button>
-      <ListFrame
+    <>
+      <PageHead
+        title="Regions"
+        description="Voice regions guilds can choose. Media nodes register into one of these."
+        actions={
+          <>
+            {query && <QueryChip query={query} onClear={clear} />}
+            <Button className="h-[38px]" onClick={() => setEditing('new')}>
+              <PlusIcon />
+              Add region
+            </Button>
+          </>
+        }
+      />
+      <ListState
         error={error}
-        empty="No regions. Add one so guilds can pick where their voice runs."
-        isEmpty={regions.length === 0}
         loading={data === null && !error}
+        empty={
+          regions.length > 0
+            ? null
+            : data?.length
+              ? 'No region matches this filter.'
+              : 'No regions. Add one so guilds can pick where their voice runs.'
+        }
       >
-        <Table>
+        <Table className="table-fixed min-w-[900px]">
           <TableHeader>
             <TableRow>
               <TableHead>Region</TableHead>
-              <TableHead>Code</TableHead>
-              <TableHead>Probe</TableHead>
-              <TableHead>Location</TableHead>
-              <TableHead className="text-right">Actions</TableHead>
+              <TableHead className="w-[286px]">Probe</TableHead>
+              <TableHead className="w-[186px]">Location</TableHead>
+              <TableHead className="w-[136px]">Nodes</TableHead>
+              <TableHead className="w-[86px] text-right">Guilds</TableHead>
+              <TableHead className="w-[126px]">
+                <span className="sr-only">Actions</span>
+              </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {regions.map((r) => (
-              <TableRow key={r.code}>
-                <TableCell className="font-medium">{r.displayName}</TableCell>
-                <TableCell className="font-mono text-[13px]">{r.code}</TableCell>
-                <TableCell className="font-mono text-[13px] text-muted-foreground">
-                  {r.probeHost ? `${r.probeHost}:${r.probePort}` : '—'}
+              <TableRow key={r.code} className="[&>td]:h-[62px]">
+                <TableCell>
+                  <div className="flex min-w-0 flex-col gap-[3px]">
+                    <span className="truncate text-[14.5px] font-extrabold text-text-primary">{r.displayName}</span>
+                    <span className="font-mono text-xs text-text-tertiary">{r.code}</span>
+                  </div>
                 </TableCell>
-                <TableCell className="text-xs text-muted-foreground tabular-nums">
-                  {r.lat !== null && r.lon !== null ? `${r.lat}, ${r.lon}` : '—'}
+                <TableCell className="truncate font-mono text-[12.5px] text-text-secondary">
+                  {r.probeHost ? `${r.probeHost}:${r.probePort}` : <span className="text-text-disabled">—</span>}
+                </TableCell>
+                <TableCell className="font-mono text-[12.5px] text-text-tertiary tabular-nums">
+                  {r.lat !== null && r.lon !== null ? `${r.lat}, ${r.lon}` : <span className="text-text-disabled">—</span>}
                 </TableCell>
                 <TableCell>
-                  <div className="flex justify-end gap-1.5">
-                    <Button variant="outline" size="sm" onClick={() => setEditing(r)}>
+                  <RegionNodes nodes={nodesOf(r.code)} />
+                </TableCell>
+                <TableCell
+                  className={cn(
+                    'text-right text-sm font-bold tabular-nums',
+                    r.guildCount === 0 ? 'text-text-tertiary' : 'text-text-primary',
+                  )}
+                >
+                  {r.guildCount}
+                </TableCell>
+                <TableCell>
+                  <div className="flex items-center justify-end gap-2.5">
+                    <Button variant="secondary" size="sm" className="h-[30px]" onClick={() => setEditing(r)}>
+                      <PencilIcon />
                       Edit
                     </Button>
-                    <ConfirmAction
-                      destructive
-                      label="Delete"
-                      title={`Delete ${r.displayName}?`}
-                      body="Guilds that use this region switch to automatic placement."
-                      confirmLabel="Delete region"
-                      done="Region deleted."
-                      action={() =>
-                        adminFetch(`/regions/${encodeURIComponent(r.code)}`, { method: 'DELETE' })
-                      }
-                      onDone={reload}
-                    />
+                    <RowMenu label={`Actions for ${r.displayName}`}>
+                      <DropdownMenuItem variant="destructive" onSelect={() => setDeleting(r)}>
+                        <Trash2Icon />
+                        Delete region
+                      </DropdownMenuItem>
+                    </RowMenu>
                   </div>
                 </TableCell>
               </TableRow>
             ))}
           </TableBody>
         </Table>
-      </ListFrame>
+      </ListState>
       <RegionDialog
         region={editing}
         onClose={() => setEditing(null)}
         onSaved={() => {
           setEditing(null)
-          reload()
+          changed()
         }}
       />
-    </div>
+      <ConfirmDialog
+        open={deleting !== null}
+        onOpenChange={(o) => !o && setDeleting(null)}
+        title={`Delete ${deleting?.displayName ?? 'region'}?`}
+        body={
+          deleting && deleting.guildCount > 0
+            ? `${plural(deleting.guildCount, 'guild uses', 'guilds use')} this region. They switch to automatic placement.`
+            : 'No guild uses this region. This cannot be undone.'
+        }
+        confirmLabel="Delete region"
+        done="Region deleted."
+        destructive
+        action={() => adminFetch(`/regions/${encodeURIComponent(deleting!.code)}`, { method: 'DELETE' })}
+        onDone={changed}
+      />
+    </>
   )
 }
 
@@ -104,15 +185,9 @@ function RegionDialog({
   const [busy, setBusy] = useState(false)
   return (
     <Dialog open={region !== null} onOpenChange={(o) => !o && !busy && onClose()}>
-      <DialogContent>
+      <DialogContent className="sm:max-w-[500px]">
         {region !== null && (
-          <RegionForm
-            region={region}
-            busy={busy}
-            setBusy={setBusy}
-            onCancel={onClose}
-            onSaved={onSaved}
-          />
+          <RegionForm region={region} busy={busy} setBusy={setBusy} onCancel={onClose} onSaved={onSaved} />
         )}
       </DialogContent>
     </Dialog>
@@ -122,6 +197,14 @@ function RegionDialog({
 /** An empty field means "not set" (null); numbers are parsed here, the API validates ranges. */
 const optNumber = (v: FormDataEntryValue | null): number | null =>
   v === null || String(v).trim() === '' ? null : Number(v)
+
+/** "host" or "host:port" from the one probe field; an IPv6 literal needs brackets for a port. */
+function parseProbe(value: string): { probeHost: string | null; probePort?: number } {
+  const v = value.trim()
+  if (!v) return { probeHost: null }
+  const m = /^(\[[^\]]+\]|[^:]+):(\d{1,5})$/.exec(v)
+  return m ? { probeHost: m[1], probePort: Number(m[2]) } : { probeHost: v, probePort: DEFAULT_PROBE_PORT }
+}
 
 function RegionForm({
   region,
@@ -143,14 +226,11 @@ function RegionForm({
   const submit = async (e: FormEvent<HTMLFormElement>): Promise<void> => {
     e.preventDefault()
     const f = new FormData(e.currentTarget)
-    const probeHost = String(f.get('probeHost') ?? '').trim()
-    const probePort = optNumber(f.get('probePort'))
     const fields = {
       displayName: String(f.get('displayName') ?? ''),
       lat: optNumber(f.get('lat')),
       lon: optNumber(f.get('lon')),
-      probeHost: probeHost || null,
-      ...(probePort !== null ? { probePort } : {}),
+      ...parseProbe(String(f.get('probe') ?? '')),
     }
     setBusy(true)
     setError(null)
@@ -178,50 +258,70 @@ function RegionForm({
       <DialogHeader>
         <DialogTitle>{isNew ? 'Add region' : `Edit ${r!.displayName}`}</DialogTitle>
       </DialogHeader>
-      <div className="grid items-start gap-3 sm:grid-cols-2">
-        <Field id="region-name" label="Name">
-          <Input id="region-name" name="displayName" required defaultValue={r?.displayName} />
-        </Field>
-        <Field id="region-code" label="Code" hint={isNew ? 'Lowercase, e.g. eu-west.' : 'The code cannot change.'}>
+      <Field id="region-name" label="Name">
+        <Input id="region-name" name="displayName" required autoFocus defaultValue={r?.displayName} />
+      </Field>
+      <div className="grid items-start gap-3 sm:grid-cols-[170px_1fr]">
+        <Field id="region-code" label="Code" hint={isNew ? 'Guilds and nodes use this.' : 'The code cannot change.'}>
           <Input
             id="region-code"
             name="code"
             required={isNew}
             disabled={!isNew}
             defaultValue={r?.code}
-            className="font-mono"
+            placeholder="sa-east"
+            aria-describedby="region-code-hint"
+            className="font-mono text-sm"
           />
         </Field>
-        <Field id="region-probe-host" label="Probe host" hint="Clients measure latency to it.">
-          <Input id="region-probe-host" name="probeHost" defaultValue={r?.probeHost ?? ''} />
-        </Field>
-        <Field id="region-probe-port" label="Probe port">
+        <Field id="region-probe" label="Probe host" hint="The desktop app measures latency to it.">
           <Input
-            id="region-probe-port"
-            name="probePort"
-            type="number"
-            min={1}
-            max={65535}
-            defaultValue={r?.probePort}
+            id="region-probe"
+            name="probe"
+            defaultValue={r?.probeHost ? `${r.probeHost}:${r.probePort}` : ''}
+            placeholder="host:443"
+            aria-describedby="region-probe-hint"
+            className="font-mono text-[13px]"
           />
         </Field>
+      </div>
+      <div className="grid items-start gap-3 sm:grid-cols-2">
         <Field id="region-lat" label="Latitude">
-          <Input id="region-lat" name="lat" type="number" step="any" defaultValue={r?.lat ?? ''} />
+          <Input
+            id="region-lat"
+            name="lat"
+            type="number"
+            step="any"
+            min={-90}
+            max={90}
+            defaultValue={r?.lat ?? ''}
+            className="font-mono text-sm"
+          />
         </Field>
         <Field id="region-lon" label="Longitude">
-          <Input id="region-lon" name="lon" type="number" step="any" defaultValue={r?.lon ?? ''} />
+          <Input
+            id="region-lon"
+            name="lon"
+            type="number"
+            step="any"
+            min={-180}
+            max={180}
+            defaultValue={r?.lon ?? ''}
+            className="font-mono text-sm"
+          />
         </Field>
       </div>
       {error && (
-        <p role="alert" className="text-xs text-destructive">
+        <p role="alert" className="text-[13px] font-semibold text-feature-danger-text">
           {error}
         </p>
       )}
       <DialogFooter>
-        <Button type="button" variant="ghost" disabled={busy} onClick={onCancel}>
+        <Button type="button" variant="quiet" disabled={busy} onClick={onCancel}>
           Cancel
         </Button>
         <Button type="submit" disabled={busy}>
+          {isNew ? <PlusIcon /> : null}
           {isNew ? 'Add region' : 'Save'}
         </Button>
       </DialogFooter>
