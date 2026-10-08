@@ -120,10 +120,11 @@ type Client struct {
 	muted atomic.Bool
 }
 
-// SetMuted starts or stops dropping the client's mic RTP. Safe from any goroutine.
+// SetMuted starts or stops dropping the client's mic and screen-share audio RTP.
+// Safe from any goroutine.
 func (c *Client) SetMuted(muted bool) { c.muted.Store(muted) }
 
-// Muted reports whether the client's mic RTP is dropped.
+// Muted reports whether the client's mic and screen-share audio RTP are dropped.
 func (c *Client) Muted() bool { return c.muted.Load() }
 
 // SFU owns clients and rooms. Safe for concurrent use.

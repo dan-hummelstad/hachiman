@@ -125,6 +125,13 @@ func (s *voiceServer) kick(sessionID, channelID string) {
 	}
 }
 
+// Values of voiceConn.muteOverride.
+const (
+	muteOverrideNone int32 = iota
+	muteOverrideUnmuted
+	muteOverrideMuted
+)
+
 // setMuted applies a gateway `mute` op (server mute or deafen) to a session.
 // As for kick, a non-empty channelID must match the session's room. A session
 // that is still joining keeps it in muteOverride, which identify applies.
@@ -134,9 +141,9 @@ func (s *voiceServer) setMuted(sessionID, channelID string, muted bool) {
 		return
 	}
 	if muted {
-		c.muteOverride.Store(2)
+		c.muteOverride.Store(muteOverrideMuted)
 	} else {
-		c.muteOverride.Store(1)
+		c.muteOverride.Store(muteOverrideUnmuted)
 	}
 	c.peersMu.Lock()
 	cl := c.client
@@ -177,7 +184,7 @@ type voiceConn struct {
 	peersMu sync.Mutex
 	client  *media.Client
 
-	// muteOverride is the last gateway `mute` op (0 none, 1 unmuted, 2 muted).
+	// muteOverride is the last gateway `mute` op (muteOverride* consts).
 	// It wins over the token claim, which can be older (setMuted, identify).
 	muteOverride atomic.Int32
 
@@ -438,9 +445,9 @@ func (c *voiceConn) identify() bool {
 	// After c.client is set: a concurrent setMuted either sees the client or
 	// left its override for this read.
 	switch c.muteOverride.Load() {
-	case 1:
+	case muteOverrideUnmuted:
 		cl.SetMuted(false)
-	case 2:
+	case muteOverrideMuted:
 		cl.SetMuted(true)
 	default:
 		cl.SetMuted(claims.Mute)
