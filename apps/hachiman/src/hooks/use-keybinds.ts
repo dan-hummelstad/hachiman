@@ -30,11 +30,8 @@ export const currentKeybinds = (): Keybinds => resolveKeybinds(usePrefsStore.get
 
 /** The key of `action` as the keyboard prints it (`⌘K`), or null when it has none. */
 export function useKeybindLabel(action: KeybindAction): string | null {
-  const combo = usePrefsStore((s) =>
-    action in s.keybinds ? (s.keybinds[action] ?? null) : undefined
-  )
-  return useMemo(() => {
-    const c = combo === undefined ? resolveKeybinds({})[action] : combo
-    return c ? formatCombo(c) : null
-  }, [action, combo])
+  return usePrefsStore((s) => {
+    const combo = resolveKeybinds(s.keybinds)[action]
+    return combo ? formatCombo(combo) : null
+  })
 }

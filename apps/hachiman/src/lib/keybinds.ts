@@ -42,18 +42,13 @@ export const KEYBINDS: readonly KeybindSpec[] = [
 ]
 
 /** Keys that cannot be rebound. Shown read-only; a rebind to one of them is refused. */
-export const FIXED_KEYBINDS: readonly { label: string; keys: string; combos: string[] }[] = [
+export const FIXED_KEYBINDS: readonly { label: string; combos: string[] }[] = [
   {
     label: 'Open pinned tab 1–9',
-    keys: 'Mod+1 … Mod+9',
     combos: Array.from({ length: 9 }, (_, i) => `Mod+Digit${i + 1}`)
   },
-  { label: 'Close settings', keys: 'Escape', combos: ['Escape'] },
-  {
-    label: 'Edit your last message (empty message field)',
-    keys: 'ArrowUp',
-    combos: ['ArrowUp']
-  }
+  { label: 'Close settings', combos: ['Escape'] },
+  { label: 'Edit your last message (empty message field)', combos: ['ArrowUp'] }
 ]
 
 /** The user's changes: an action → its combo, or null for no key. A missing action keeps its default. */
@@ -71,7 +66,16 @@ export type KeyEventLike = Pick<
   'key' | 'code' | 'metaKey' | 'ctrlKey' | 'altKey' | 'shiftKey'
 >
 
-const MODIFIER_KEYS = new Set(['Meta', 'Control', 'Alt', 'Shift', 'AltGraph', 'CapsLock', 'OS'])
+/** The `KeyboardEvent.key` of a modifier. */
+export const MODIFIER_KEYS = new Set([
+  'Meta',
+  'Control',
+  'Alt',
+  'Shift',
+  'AltGraph',
+  'CapsLock',
+  'OS'
+])
 
 /** The key part of a press: a letter by its layout (so ⌘K follows Dvorak), any other key by its position. */
 export function keyOf(e: Pick<KeyboardEvent, 'key' | 'code'>): string {
@@ -103,7 +107,7 @@ export function hasCommandModifier(combo: string): boolean {
   return mods.some((m) => m !== 'Shift') || /^F\d{1,2}$/.test(key)
 }
 
-const KEY_LABELS: Record<string, string> = {
+const PUNCTUATION: Record<string, string> = {
   BracketLeft: '[',
   BracketRight: ']',
   Backquote: '`',
@@ -116,8 +120,12 @@ const KEY_LABELS: Record<string, string> = {
   Period: '.',
   Slash: '/',
   Space: 'Space',
+  Enter: 'Enter'
+}
+
+const KEY_LABELS: Record<string, string> = {
+  ...PUNCTUATION,
   Escape: 'Esc',
-  Enter: 'Enter',
   ArrowUp: '↑',
   ArrowDown: '↓',
   ArrowLeft: '←',
@@ -139,7 +147,6 @@ export function formatCombo(combo: string, mac = IS_MAC): string {
   return [...mods.map((m) => pcMods[m]), keyLabel(key)].join('+')
 }
 
-/** The actions that `combo` triggers. */
 export function actionsFor(combo: string, binds: Keybinds): KeybindAction[] {
   return KEYBINDS.filter((k) => binds[k.id] === combo).map((k) => k.id)
 }
@@ -150,19 +157,7 @@ export function reservedBy(combo: string): string | null {
 }
 
 const ACCELERATOR_KEYS: Record<string, string> = {
-  BracketLeft: '[',
-  BracketRight: ']',
-  Backquote: '`',
-  Minus: '-',
-  Equal: '=',
-  Backslash: '\\',
-  Semicolon: ';',
-  Quote: "'",
-  Comma: ',',
-  Period: '.',
-  Slash: '/',
-  Space: 'Space',
-  Enter: 'Enter',
+  ...PUNCTUATION,
   Tab: 'Tab',
   Backspace: 'Backspace',
   Delete: 'Delete',

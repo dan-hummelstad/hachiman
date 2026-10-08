@@ -1,3 +1,4 @@
+import { isTextField } from '@/lib/text-field'
 import type { SidebarMode } from '@/stores/prefsStore'
 
 /** N3: the hot zone at the left edge of the window that reveals a hidden sidebar. */
@@ -48,20 +49,6 @@ export function sidebarAfter(view: SidebarView, action: SidebarAction): SidebarV
     case 'toggleDock':
       return view === 'docked' ? 'tucked' : 'docked'
   }
-}
-
-/** Whether `el` takes text: an input, a textarea or a contenteditable element. */
-export function isTextField(el: Element | null): boolean {
-  if (!el) return false
-  const tag = el.tagName
-  if (tag === 'TEXTAREA') return true
-  if (tag === 'INPUT') {
-    const type = (el as HTMLInputElement).type
-    return !['button', 'checkbox', 'radio', 'range', 'submit', 'reset', 'color', 'file'].includes(
-      type
-    )
-  }
-  return (el as HTMLElement).isContentEditable === true
 }
 
 /** The holds of a revealed sidebar `root` now. `dragging` comes from the caller's pointer state. */

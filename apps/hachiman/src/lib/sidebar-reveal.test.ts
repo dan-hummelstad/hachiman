@@ -3,7 +3,6 @@ import {
   canHide,
   initialSidebar,
   inHotZone,
-  isTextField,
   sidebarAfter,
   startsHidden
 } from '@/lib/sidebar-reveal'
@@ -55,18 +54,5 @@ describe('startsHidden', () => {
     expect(startsHidden('undocked', 1400)).toBe(true)
     expect(startsHidden('docked', 1099)).toBe(true)
     expect(startsHidden('docked', 1100)).toBe(false)
-  })
-})
-
-describe('isTextField', () => {
-  const el = (tagName: string, extra: Record<string, unknown> = {}): Element =>
-    ({ tagName, ...extra }) as unknown as Element
-  it('takes inputs, textareas and contenteditable', () => {
-    expect(isTextField(null)).toBe(false)
-    expect(isTextField(el('TEXTAREA'))).toBe(true)
-    expect(isTextField(el('INPUT', { type: 'text' }))).toBe(true)
-    expect(isTextField(el('INPUT', { type: 'checkbox' }))).toBe(false)
-    expect(isTextField(el('DIV', { isContentEditable: true }))).toBe(true)
-    expect(isTextField(el('BUTTON'))).toBe(false)
   })
 })

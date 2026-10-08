@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { resolveKeybinds } from '@/lib/keybinds'
-import { inTextField, matchShortcut, underModal } from '@/lib/shortcuts'
+import { matchShortcut, underModal } from '@/lib/shortcuts'
 
 const defaults = resolveKeybinds({})
 
@@ -39,10 +39,5 @@ describe('underModal', () => {
     expect(underModal(at(true), false)).toBe(true)
     expect(underModal(at(false), false)).toBe(false)
     expect(underModal(null, false)).toBe(false)
-  })
-  it('inTextField reads the closest field', () => {
-    expect(inTextField(at(true))).toBe(true)
-    expect(inTextField(at(false))).toBe(false)
-    expect(inTextField(null)).toBe(false)
   })
 })

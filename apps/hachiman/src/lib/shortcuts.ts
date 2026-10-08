@@ -23,11 +23,3 @@ export function underModal(target: EventTarget | null, dialogOpen: boolean): boo
   const el = target as Element | null
   return el?.closest?.('[data-slot="dialog-content"], [role="alertdialog"]') != null
 }
-
-/** Whether a key press types into a field: a key without ⌘ / Ctrl / Alt then stays with the field. */
-export function inTextField(target: EventTarget | null): boolean {
-  const el = target as Element | null
-  return (
-    el?.closest?.('input, textarea, select, [contenteditable=""], [contenteditable="true"]') != null
-  )
-}

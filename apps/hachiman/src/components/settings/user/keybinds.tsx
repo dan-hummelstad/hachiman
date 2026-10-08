@@ -73,10 +73,8 @@ export function KeybindsSection(): React.JSX.Element {
             <div key={f.label} className="flex min-h-11 items-center gap-3 px-3.5 py-2">
               <span className="text-label flex-1">{f.label}</span>
               <Keycap>
-                {f.keys
-                  .split(' … ')
-                  .map((c) => formatCombo(c))
-                  .join(' … ')}
+                {formatCombo(f.combos[0])}
+                {f.combos.length > 1 && ` … ${formatCombo(f.combos[f.combos.length - 1])}`}
               </Keycap>
             </div>
           ))}
@@ -185,7 +183,10 @@ function GlobalKeybinds({ binds }: { binds: Keybinds }): React.JSX.Element {
   const setOn = usePrefsStore((s) => s.setGlobalKeybinds)
   const failed = useKeybindRuntime((s) => s.globalFailed)
   const global = KEYBINDS.filter((k) => k.global)
-  const local = global.filter((k) => binds[k.id] && !toAccelerator(binds[k.id] as string))
+  const local = global.filter((k) => {
+    const combo = binds[k.id]
+    return combo !== null && !toAccelerator(combo)
+  })
   return (
     <section className="grid gap-3">
       <SectionHeading className="mb-0">In the background</SectionHeading>

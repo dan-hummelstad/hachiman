@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 import { useKeybindRuntime } from '@/hooks/use-keybinds'
+import { runVoiceToggle } from '@/hooks/use-app-shortcuts'
 import { KEYBINDS, resolveKeybinds, toAccelerator, type KeybindAction } from '@/lib/keybinds'
-import { voiceService } from '@/services/VoiceService'
 import { usePlatform } from '@/shared/PlatformContext'
 import type { GlobalShortcut } from '@/shared/IPlatformService'
 import { usePrefsStore } from '@/stores/prefsStore'
@@ -17,18 +17,11 @@ export function useGlobalShortcuts(): void {
   const enabled = usePrefsStore((s) => s.globalKeybinds)
   const recording = useKeybindRuntime((s) => s.recording)
 
-  useEffect(
-    () =>
-      platform.onGlobalShortcut((action) => {
-        if (action === 'toggleMute') voiceService.toggleMute()
-        else if (action === 'toggleDeafen') voiceService.toggleDeaf()
-      }),
-    [platform]
-  )
+  useEffect(() => platform.onGlobalShortcut(runVoiceToggle), [platform])
 
   useEffect(() => {
     const binds = resolveKeybinds(overrides)
-    const list: GlobalShortcut[] = []
+    const list: (GlobalShortcut & { action: KeybindAction })[] = []
     if (enabled && !recording)
       for (const k of KEYBINDS) {
         const combo = k.global ? binds[k.id] : null
@@ -39,11 +32,9 @@ export function useGlobalShortcuts(): void {
     platform.setGlobalShortcuts(list).then(
       (refused) => {
         if (!live) return
-        const failed = (refused ?? []) as KeybindAction[]
-        const active =
-          refused === null
-            ? []
-            : list.map((s) => s.action as KeybindAction).filter((a) => !failed.includes(a))
+        const actions = refused === null ? [] : list.map((s) => s.action)
+        const failed = actions.filter((a) => refused?.includes(a))
+        const active = actions.filter((a) => !failed.includes(a))
         useKeybindRuntime.setState({ globalActive: active, globalFailed: failed })
       },
       (e: unknown) => {

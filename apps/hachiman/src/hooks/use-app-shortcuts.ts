@@ -2,8 +2,9 @@ import { useEffect } from 'react'
 import { toggleSidebar } from '@/components/shell/sidebar-state'
 import { closeSwitcher, isSwitcherOpen, openSwitcher } from '@/components/shell/switcher-state'
 import { currentKeybinds, useKeybindRuntime } from '@/hooks/use-keybinds'
-import { comboOf, hasCommandModifier, keyOf, splitCombo } from '@/lib/keybinds'
-import { inTextField, matchShortcut, underModal } from '@/lib/shortcuts'
+import { MODIFIER_KEYS, comboOf, hasCommandModifier, keyOf, splitCombo } from '@/lib/keybinds'
+import { matchShortcut, underModal } from '@/lib/shortcuts'
+import { isTextField } from '@/lib/text-field'
 import { hachiman } from '@/services/hachiman'
 import { voiceService } from '@/services/VoiceService'
 import { useDialogStore } from '@/stores/dialogStore'
@@ -48,7 +49,11 @@ export function openTab(index: number): boolean {
   return true
 }
 
-const MODIFIERS = new Set(['Meta', 'Control', 'Alt', 'Shift'])
+/** Runs the mute or deafen keybind `action`, from the window or from a global shortcut. */
+export function runVoiceToggle(action: string): void {
+  if (action === 'toggleMute') voiceService.toggleMute()
+  else if (action === 'toggleDeafen') voiceService.toggleDeaf()
+}
 
 /**
  * The app-wide keys (lib/shortcuts.ts, the user's keybinds) and the mouse back and forward
@@ -69,8 +74,8 @@ export function useAppShortcuts(): void {
         closeSwitcher()
         return
       }
-      if (shortcut.kind !== 'leaveSettings' && !hasCommandModifier(combo) && inTextField(e.target))
-        return
+      const inField = isTextField(e.target as Element | null)
+      if (shortcut.kind !== 'leaveSettings' && !hasCommandModifier(combo) && inField) return
       // The desktop host took this one as a global shortcut: it arrives from there.
       if (globalActive.some((a) => a === shortcut.kind)) return
       if (shortcut.kind === 'pushToTalk') {
@@ -97,10 +102,8 @@ export function useAppShortcuts(): void {
           openSwitcher('open')
           break
         case 'toggleMute':
-          if (!e.repeat) voiceService.toggleMute()
-          break
         case 'toggleDeafen':
-          if (!e.repeat) voiceService.toggleDeaf()
+          if (!e.repeat) runVoiceToggle(shortcut.kind)
           break
         case 'leaveSettings':
           // An Esc that a menu or popover took, or that a field in [data-esc-local] uses, stays.
@@ -116,7 +119,7 @@ export function useAppShortcuts(): void {
       const ptt = currentKeybinds().pushToTalk
       if (!ptt) return
       const { mods, key } = splitCombo(ptt)
-      if (keyOf(e) === key || (mods.length > 0 && MODIFIERS.has(e.key)))
+      if (keyOf(e) === key || (mods.length > 0 && MODIFIER_KEYS.has(e.key)))
         voiceService.setPushToTalk(false)
     }
     const onBlur = (): void => voiceService.setPushToTalk(false)
