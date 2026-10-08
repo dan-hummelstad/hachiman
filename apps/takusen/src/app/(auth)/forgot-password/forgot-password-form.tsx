@@ -1,60 +1,97 @@
 'use client'
 
-import { useActionState, useEffect, type ReactNode } from 'react'
+import { ArrowLeftIcon, InboxIcon, KeyRoundIcon, MailCheckIcon, MailIcon, SendIcon } from 'lucide-react'
+import Link from 'next/link'
+import { useActionState } from 'react'
 import { useFormStatus } from 'react-dom'
-import { toast } from 'sonner'
 
-import { Window } from '@/components/window'
-import { Alert, AlertDescription } from '@/components/ui/alert'
+import { AuthCard } from '@/components/auth-frame'
 import { Button } from '@/components/ui/button'
 import { Field } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 
 import { requestPasswordResetAction, type FormActionResult } from '../actions'
+import { CardNote, FormError, IconTile } from '../auth-parts'
 
 function SubmitButton(): React.JSX.Element {
   const { pending } = useFormStatus()
   return (
-    <Button type="submit" size="lg" className="w-full" disabled={pending}>
+    <Button type="submit" size="lg" className="w-full max-sm:h-12" disabled={pending}>
+      <SendIcon aria-hidden />
       {pending ? 'Sending…' : 'Send reset link'}
     </Button>
   )
 }
 
-export function ForgotPasswordForm({ footer }: { footer?: ReactNode }): React.JSX.Element {
+const spamNote = <CardNote icon={InboxIcon}>No email after a minute? Check spam, then try again.</CardNote>
+
+export function ForgotPasswordForm({
+  next,
+  loginHref,
+  linkLifetime,
+}: {
+  next?: string
+  loginHref: string
+  linkLifetime: string
+}): React.JSX.Element {
   const [state, formAction] = useActionState<FormActionResult | undefined, FormData>(
     requestPasswordResetAction,
     undefined,
   )
 
-  // Surface the generic confirmation as a toast (anti-enumeration).
-  useEffect(() => {
-    if (state?.ok && state.message) {
-      toast.success('Check your inbox', { description: state.message })
-    }
-  }, [state])
+  // The same confirmation whether or not the address has an account (anti-enumeration).
+  if (state?.ok) {
+    return (
+      <AuthCard
+        title="Check your inbox"
+        lead={`${state.message ?? ''} It works for ${linkLifetime}.`}
+        footer={spamNote}
+        top={<IconTile icon={MailCheckIcon} />}
+      >
+        <Button asChild variant="secondary" size="lg" className="w-full max-sm:h-12">
+          <Link href={loginHref}>
+            <ArrowLeftIcon aria-hidden />
+            Back to sign in
+          </Link>
+        </Button>
+      </AuthCard>
+    )
+  }
 
   return (
-    <Window title="Reset your password" footer={footer}>
-      <p className="text-sm text-muted-foreground">
-        Enter your email and we&apos;ll send a link to set a new password.
-      </p>
-      <form action={formAction} className="flex flex-col gap-4">
-        {state?.error && (
-          <Alert variant="destructive">
-            <AlertDescription>{state.error}</AlertDescription>
-          </Alert>
-        )}
-        {state?.ok && state.message && (
-          <Alert>
-            <AlertDescription>{state.message}</AlertDescription>
-          </Alert>
-        )}
+    <AuthCard
+      title="Forgot your password?"
+      lead={`Enter the email you signed up with. We’ll send a link to choose a new password; it works for ${linkLifetime}.`}
+      footer={spamNote}
+      top={
+        <div className="flex items-center justify-between gap-3">
+          <IconTile icon={KeyRoundIcon} />
+          <Button asChild variant="quiet" size="sm">
+            <Link href={loginHref}>
+              <ArrowLeftIcon aria-hidden />
+              Back to sign in
+            </Link>
+          </Button>
+        </div>
+      }
+    >
+      <form action={formAction} className="flex flex-col gap-[22px] max-sm:gap-[18px]">
+        {state?.error && <FormError>{state.error}</FormError>}
+        {next && <input type="hidden" name="next" value={next} />}
         <Field id="email" label="Email">
-          <Input id="email" name="email" type="email" autoComplete="email" required />
+          <Input
+            id="email"
+            name="email"
+            type="email"
+            autoComplete="email"
+            placeholder="you@example.com"
+            leading={<MailIcon aria-hidden />}
+            required
+            autoFocus
+          />
         </Field>
         <SubmitButton />
       </form>
-    </Window>
+    </AuthCard>
   )
 }

@@ -15,8 +15,11 @@ import {
   drizzlePasswordResetPorts,
   generateResetToken,
   hashResetToken,
+  resetTokenEmail,
 } from '@/lib/password-reset'
-import { passwordProblem } from '@/lib/password-strength'
+import { PASSWORD_MIN_LENGTH, passwordProblem } from '@/lib/password-strength'
+
+import { safeNext } from './handoff'
 
 const BCRYPT_COST = 12
 
@@ -40,7 +43,7 @@ const emailField = z
 
 const passwordField = z
   .string()
-  .min(8, 'Password must be at least 8 characters')
+  .min(PASSWORD_MIN_LENGTH, `Password must be at least ${PASSWORD_MIN_LENGTH} characters`)
   .max(128, 'Password is too long')
 
 const signupSchema = z.object({
@@ -62,10 +65,13 @@ const requestResetSchema = z.object({
   email: emailField,
 })
 
-const resetSchema = z.object({
-  token: z.string().min(1, 'Reset token is missing'),
-  password: passwordField,
-})
+const resetSchema = z
+  .object({
+    token: z.string().min(1, 'Reset token is missing'),
+    password: passwordField,
+    confirm: z.string(),
+  })
+  .refine((v) => v.password === v.confirm, { message: 'Passwords do not match', path: ['confirm'] })
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -82,14 +88,12 @@ function isRedirectError(error: unknown): boolean {
 }
 
 function safeNextPath(value: FormDataEntryValue | null): string {
-  if (typeof value !== 'string') return '/dashboard'
-  // Only accept same-origin relative paths to prevent open redirects.
-  if (!value.startsWith('/') || value.startsWith('//')) return '/dashboard'
-  return value
+  return safeNext(value) ?? '/dashboard'
 }
 
 // ---------------------------------------------------------------------------
-// signupAction — create a new user + immediately sign them in.
+// signupAction — create a new user + immediately sign them in, then redirect
+// to `next` (or /dashboard).
 // ---------------------------------------------------------------------------
 export async function signupAction(
   _prev: FormActionResult | undefined,
@@ -108,6 +112,7 @@ export async function signupAction(
   const { displayName, email, password } = parsed.data
   const weak = passwordProblem(password, email)
   if (weak) return { ok: false, error: weak }
+  const next = safeNextPath(formData.get('next'))
 
   const existing = await db.query.users.findFirst({
     where: eq(users.email, email),
@@ -131,7 +136,7 @@ export async function signupAction(
       email,
       password,
       redirect: true,
-      redirectTo: '/dashboard',
+      redirectTo: next,
     })
   } catch (error) {
     if (isRedirectError(error)) throw error
@@ -201,6 +206,7 @@ export async function requestPasswordResetAction(
   }
 
   const { email } = parsed.data
+  const next = safeNext(formData.get('next'))
   const message =
     'If an account exists for that address, a password reset link has been sent.'
 
@@ -224,7 +230,7 @@ export async function requestPasswordResetAction(
   })
 
   const baseUrl = process.env.NEXTAUTH_URL ?? 'http://localhost:3000'
-  const resetUrl = buildResetUrl(baseUrl, token)
+  const resetUrl = buildResetUrl(baseUrl, token, next)
   // No email transport wired up yet — log to the server console so a dev can
   // grab the URL during local testing.
   console.info(
@@ -245,6 +251,7 @@ export async function resetPasswordAction(
   const parsed = resetSchema.safeParse({
     token: formData.get('token'),
     password: formData.get('password'),
+    confirm: formData.get('confirm'),
   })
   if (!parsed.success) {
     const issue = parsed.error.issues[0]
@@ -252,9 +259,16 @@ export async function resetPasswordAction(
   }
 
   const { token, password } = parsed.data
+  const tokenHash = hashResetToken(token)
+  const email = await resetTokenEmail(tokenHash, new Date())
+  if (!email) {
+    return { ok: false, error: 'This reset link has expired or is invalid' }
+  }
+  const weak = passwordProblem(password, email)
+  if (weak) return { ok: false, error: weak }
   const passwordHash = await bcrypt.hash(password, BCRYPT_COST)
   const userId = await completePasswordReset(drizzlePasswordResetPorts, {
-    tokenHash: hashResetToken(token),
+    tokenHash,
     passwordHash,
     now: new Date(),
   })
@@ -264,6 +278,6 @@ export async function resetPasswordAction(
 
   return {
     ok: true,
-    message: 'Password updated. All devices are signed out. You can now sign in.',
+    message: 'Every device is signed out. Sign in with your new password.',
   }
 }

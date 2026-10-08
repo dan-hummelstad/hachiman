@@ -1,9 +1,9 @@
 import { redirect } from 'next/navigation'
 import type { ReactNode } from 'react'
 
-import { AuthScreen } from '@/components/auth-frame'
 import { getOptionalUser } from '@/lib/auth-helpers'
 
+// Each page renders its own AuthScreen: only the page knows whether an app sent the visitor.
 export default async function AuthLayout({
   children,
 }: {
@@ -13,5 +13,5 @@ export default async function AuthLayout({
   if (session) {
     redirect('/dashboard')
   }
-  return <AuthScreen>{children}</AuthScreen>
+  return <>{children}</>
 }

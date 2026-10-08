@@ -1,22 +1,24 @@
 'use client'
 
+import { CircleCheckIcon, InfoIcon, LockKeyholeIcon } from 'lucide-react'
 import Link from 'next/link'
-import { useActionState, useEffect } from 'react'
+import { useActionState, useState } from 'react'
 import { useFormStatus } from 'react-dom'
-import { toast } from 'sonner'
 
-import { Window } from '@/components/window'
-import { Alert, AlertDescription } from '@/components/ui/alert'
+import { AuthCard } from '@/components/auth-frame'
 import { Button } from '@/components/ui/button'
 import { Field } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
+import { PasswordInput } from '@/components/ui/password-input'
 
 import { resetPasswordAction, type FormActionResult } from '../actions'
+import { CardNote, FormError, IconTile, PasswordMeter } from '../auth-parts'
+import { PASSWORD_MIN_LENGTH } from '@/lib/password-strength'
 
-function SubmitButton(): React.JSX.Element {
+function SubmitButton({ disabled }: { disabled: boolean }): React.JSX.Element {
   const { pending } = useFormStatus()
   return (
-    <Button type="submit" size="lg" className="w-full" disabled={pending}>
+    <Button type="submit" size="lg" className="w-full max-sm:h-12" disabled={pending || disabled}>
       {pending ? 'Updating…' : 'Set new password'}
     </Button>
   )
@@ -24,55 +26,93 @@ function SubmitButton(): React.JSX.Element {
 
 export interface ResetPasswordFormProps {
   token: string
+  /** The account the link belongs to, named in the lead. */
+  email: string
+  loginHref: string
 }
 
-export function ResetPasswordForm({ token }: ResetPasswordFormProps): React.JSX.Element {
+export function ResetPasswordForm({ token, email, loginHref }: ResetPasswordFormProps): React.JSX.Element {
   const [state, formAction] = useActionState<FormActionResult | undefined, FormData>(
     resetPasswordAction,
     undefined,
   )
-
-  useEffect(() => {
-    if (state?.ok && state.message) {
-      toast.success('Password updated', { description: state.message })
-    }
-  }, [state])
+  const [password, setPassword] = useState('')
+  const [confirm, setConfirm] = useState('')
 
   if (state?.ok) {
     return (
-      <Window title="Password updated">
-        <p className="text-sm text-muted-foreground">
-          {state.message ?? 'Your password has been changed. You can now sign in.'}
-        </p>
-        <Button asChild size="lg" className="w-full">
-          <Link href="/login">Go to sign in</Link>
+      <AuthCard
+        top={<IconTile icon={CircleCheckIcon} />}
+        title="Password updated"
+        lead={state.message ?? 'Your password has been changed. You can now sign in.'}
+      >
+        <Button asChild size="lg" className="w-full max-sm:h-12">
+          <Link href={loginHref}>Go to sign in</Link>
         </Button>
-      </Window>
+      </AuthCard>
     )
   }
 
+  const matches = confirm.length > 0 && confirm === password
+  // Say "do not match" only once the confirmation is as long as the password, not mid-typing.
+  const mismatch = confirm.length >= password.length && confirm.length > 0 && !matches
+
   return (
-    <Window title="Choose a new password">
-      <p className="text-sm text-muted-foreground">Pick something at least 8 characters long.</p>
-      <form action={formAction} className="flex flex-col gap-4">
-        {state?.error && (
-          <Alert variant="destructive">
-            <AlertDescription>{state.error}</AlertDescription>
-          </Alert>
-        )}
+    <AuthCard
+      top={<IconTile icon={LockKeyholeIcon} />}
+      title="Choose a new password"
+      lead={`For ${email}. Use at least ${PASSWORD_MIN_LENGTH} characters you don’t use anywhere else.`}
+      footer={<CardNote icon={InfoIcon}>This signs you out of every other device.</CardNote>}
+    >
+      <form action={formAction} className="flex flex-col gap-[22px] max-sm:gap-[18px]">
+        {state?.error && <FormError>{state.error}</FormError>}
         <input type="hidden" name="token" value={token} />
-        <Field id="password" label="New password">
-          <Input
-            id="password"
-            name="password"
-            type="password"
-            autoComplete="new-password"
-            required
-            minLength={8}
-          />
-        </Field>
-        <SubmitButton />
+        <div className="flex flex-col gap-4 max-sm:gap-3.5">
+          <Field id="password" label="New password">
+            <PasswordInput
+              id="password"
+              name="password"
+              autoComplete="new-password"
+              aria-describedby="password-meter"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+              minLength={PASSWORD_MIN_LENGTH}
+              autoFocus
+            />
+            <PasswordMeter id="password-meter" password={password} email={email} common />
+          </Field>
+          <Field
+            id="confirm"
+            label="Confirm new password"
+            error={mismatch ? 'Passwords do not match.' : undefined}
+            hint={
+              matches ? <span className="text-feature-voice-text">Passwords match.</span> : undefined
+            }
+          >
+            <Input
+              id="confirm"
+              name="confirm"
+              type="password"
+              autoComplete="new-password"
+              leading={<LockKeyholeIcon aria-hidden />}
+              trailing={
+                matches ? (
+                  <span className="flex text-feature-voice-text">
+                    <CircleCheckIcon aria-hidden />
+                  </span>
+                ) : undefined
+              }
+              aria-invalid={mismatch || undefined}
+              aria-describedby={mismatch ? 'confirm-error' : matches ? 'confirm-hint' : undefined}
+              value={confirm}
+              onChange={(e) => setConfirm(e.target.value)}
+              required
+            />
+          </Field>
+        </div>
+        <SubmitButton disabled={!matches} />
       </form>
-    </Window>
+    </AuthCard>
   )
 }
