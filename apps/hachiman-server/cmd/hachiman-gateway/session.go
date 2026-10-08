@@ -362,7 +362,7 @@ func (s *session) clientGuilds(ctx context.Context, gfs []*GuildFull) []GuildFul
 		for _, m := range gf.Members {
 			ids = append(ids, m.User.ID)
 		}
-		v.Roles, v.Members = nonNil(gf.Roles), nonNil(gf.Members)
+		v.Roles, v.Members, v.Emojis = nonNil(gf.Roles), nonNil(gf.Members), nonNil(gf.Emojis)
 		v.Presences = s.g.presences(ctx, ids)
 		v.VoiceStates = s.g.voiceStatesAt(ctx, kVoice(gf.ID))
 		out = append(out, v)

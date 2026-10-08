@@ -6,7 +6,9 @@ import { attachmentUrl } from './attachments'
 export const IMG = {
   nightOwlsIcon: 'preview/night-owls-icon.svg',
   nightOwlsBanner: 'preview/night-owls-banner.svg',
-  latticeIcon: 'preview/lattice-icon.svg'
+  latticeIcon: 'preview/lattice-icon.svg',
+  emojiOwl: 'preview/emoji-owl.svg',
+  emojiGg: 'preview/emoji-gg.svg'
 } as const
 
 export const avatarKey = (username: string): string => `preview/avatar-${username}.svg`
@@ -64,6 +66,16 @@ const STATIC: Record<string, string> = {
       ) +
       `<circle cx="186" cy="52" r="20" fill="#f0b429"/><circle cx="196" cy="45" r="17" fill="#141a33"/>` +
       `<path d="M0 135V96l30-14 26 10 34-22 40 20 30-12 40 16 40-8v49z" fill="#0d1124"/>`
+  ),
+  [IMG.emojiOwl]: svg(
+    8,
+    8,
+    '<rect x="1" y="1" width="6" height="6" fill="#8a5a2b"/><rect x="2" y="2" width="2" height="2" fill="#f0b429"/><rect x="4" y="2" width="2" height="2" fill="#f0b429"/><rect x="3" y="4" width="2" height="1" fill="#e5534b"/>'
+  ),
+  [IMG.emojiGg]: svg(
+    8,
+    8,
+    '<rect width="8" height="8" rx="1" fill="#3fb950"/><rect x="1" y="2" width="2" height="4" fill="#fff"/><rect x="5" y="2" width="2" height="4" fill="#fff"/>'
   ),
   [IMG.latticeIcon]: svg(
     10,

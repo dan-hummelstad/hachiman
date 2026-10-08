@@ -12,6 +12,14 @@ export const DEFAULT_LIMITS: Limits = {
 /** Avatar, guild icon and guild banner uploads must be one of these. */
 export const PROFILE_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'] as const
 
+/** Custom guild emoji images (§4 Emojis): these types, at most MAX_EMOJI_BYTES. */
+export const EMOJI_IMAGE_TYPES = ['image/png', 'image/gif', 'image/webp'] as const
+export const MAX_EMOJI_BYTES = 256 * 1024
+/** A custom emoji name: 2 to 32 characters of [a-z0-9_]. */
+export const EMOJI_NAME_RE = /^[a-z0-9_]{2,32}$/
+/** The most custom emojis per guild. */
+export const MAX_GUILD_EMOJIS = 100
+
 /** File key of an encrypted blob (§4 Files). Give it to RestClient.fileUrl or fetchBlob. */
 export const blobKey = (uploadId: string): string => `${uploadId}/blob`
 

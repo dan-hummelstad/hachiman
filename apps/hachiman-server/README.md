@@ -182,7 +182,7 @@ If the device lookup itself fails, the gateway closes with 4000, and the client 
 - **Threads.** READY carries at most 50 threads per guild (`readyThreadCap`), the most recently active ones. A thread gets the permissions of its parent channel. A thread with an unknown parent gets no permissions.
 - **Roles.** Each role carries `hoist` (`roles.hoist`).
 - **Custom status.** Op 3 takes `customStatus` beside `status`. An absent field keeps its value, and `customStatus: null` clears it. `sanitizeCustomStatus` removes control characters, trims the text, and refuses a text over 64 characters or an `expiresAt` that is not RFC 3339. The gateway writes Redis `custom_status:{userId}`: no TTL without `expiresAt`, else it expires at `expiresAt`. `PRESENCE_UPDATE` and the READY presences carry it, but only with a presence that is not `offline`.
-- **Events from Takusen.** `READ_STATE_UPDATE` and `USER_BLOCK_UPDATE` come on `user:{id}`. `CHANNEL_PINS_UPDATE` comes with a `channelId`, so the VIEW_CHANNEL filter applies. `GUILD_EVENT_*` come on `guild:{id}`. The gateway does not cache them.
+- **Events from Takusen.** `READ_STATE_UPDATE` and `USER_BLOCK_UPDATE` come on `user:{id}`. `CHANNEL_PINS_UPDATE` comes with a `channelId`, so the VIEW_CHANNEL filter applies. `GUILD_EVENT_*` and `GUILD_EMOJIS_UPDATE` come on `guild:{id}`. The gateway does not cache them.
 - **Call start.** Each voice state carries `joinedAt` (RFC 3339). The gateway sets it on a join and on a channel move, and keeps it across mute, deafen and stream changes. The call start of a channel is the oldest `joinedAt` of its states.
 
 ### Pages relay

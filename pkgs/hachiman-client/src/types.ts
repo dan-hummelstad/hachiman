@@ -173,6 +173,26 @@ export interface GuildEvent {
   rsvpCount: number
 }
 
+/**
+ * A custom guild emoji (§4 Emojis). Plaintext, like the guild icon. `key` is the file key of the
+ * image (RestClient.fileUrl). A message names it as `<:name:id>` inside its envelope.
+ */
+export interface GuildEmoji {
+  id: string
+  guildId: string
+  /** 2–32 characters of [a-z0-9_], unique in the guild. */
+  name: string
+  key: string
+  createdBy: string | null
+  createdAt: string
+}
+
+export interface CreateGuildEmojiRequest {
+  name: string
+  /** A plaintext upload from {@link RestClient.uploadImage}: PNG, GIF or WebP, at most 256 KiB. */
+  uploadId: string
+}
+
 /** `GET /guilds/:id/events` adds `me`: true when the caller is going. */
 export interface GuildEventWithMe extends GuildEvent {
   me: boolean
@@ -337,6 +357,8 @@ export interface GuildFull extends Guild {
   members: Member[]
   voiceStates: VoiceState[]
   presences: Presence[]
+  /** The custom emojis of the guild, oldest first. */
+  emojis: GuildEmoji[]
 }
 
 // ---- E2EE REST shapes (§12.12) ----
@@ -806,6 +828,8 @@ export interface GatewayEvents {
   DOC_AWARENESS: DocAwarenessRequest & { guildId: string; userId: string; deviceId: string }
   /** The pin set of a channel changed. To the viewers of the channel (DM: the participants). Refetch GET /channels/:id/pins. */
   CHANNEL_PINS_UPDATE: { channelId: string; guildId: string | null }
+  /** The full emoji list of the guild after a create, rename or delete. */
+  GUILD_EMOJIS_UPDATE: { guildId: string; emojis: GuildEmoji[] }
   GUILD_EVENT_CREATE: GuildEvent
   GUILD_EVENT_UPDATE: GuildEvent
   GUILD_EVENT_DELETE: { id: string; guildId: string }

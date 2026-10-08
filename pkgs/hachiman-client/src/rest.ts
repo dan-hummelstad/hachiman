@@ -13,6 +13,7 @@ import type {
   CommitRequest,
   CommitResult,
   CreateGroupRequest,
+  CreateGuildEmojiRequest,
   CreateGuildEventRequest,
   Device,
   DevicePlatform,
@@ -22,6 +23,7 @@ import type {
   DsInfo,
   GroupState,
   Guild,
+  GuildEmoji,
   GuildEventWithMe,
   GuildFull,
   HandshakePage,
@@ -363,6 +365,15 @@ export class RestClient {
     this.req<Role>('PATCH', `/guilds/${e(guildId)}/roles/${e(roleId)}`, body, opts)
   deleteRole = (guildId: string, roleId: string, opts: SignedActionOptions = {}) =>
     this.req<undefined>('DELETE', `/guilds/${e(guildId)}/roles/${e(roleId)}`, undefined, opts)
+
+  getGuildEmojis = (guildId: string) => this.req<GuildEmoji[]>('GET', `/guilds/${e(guildId)}/emojis`)
+  /** Needs MANAGE_EXPRESSIONS. The upload must be a PNG, GIF or WebP from `uploadImage`, at most 256 KiB. */
+  createGuildEmoji = (guildId: string, body: CreateGuildEmojiRequest) =>
+    this.req<GuildEmoji>('POST', `/guilds/${e(guildId)}/emojis`, body)
+  renameGuildEmoji = (guildId: string, emojiId: string, name: string) =>
+    this.req<GuildEmoji>('PATCH', `/guilds/${e(guildId)}/emojis/${e(emojiId)}`, { name })
+  deleteGuildEmoji = (guildId: string, emojiId: string) =>
+    this.req<undefined>('DELETE', `/guilds/${e(guildId)}/emojis/${e(emojiId)}`)
 
   getGuildEvents = (guildId: string) => this.req<GuildEventWithMe[]>('GET', `/guilds/${e(guildId)}/events`)
   createGuildEvent = (guildId: string, body: CreateGuildEventRequest) =>

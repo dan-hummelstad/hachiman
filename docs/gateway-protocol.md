@@ -86,6 +86,14 @@ interface GuildEvent {
 }
 interface GuildEventWithMe extends GuildEvent { me: boolean }   // GET /guilds/:id/events: true when the caller is going
 
+// A custom guild emoji (§4 Emojis). Plaintext, like the guild icon. A message names it as `<:name:id>` inside its envelope.
+interface GuildEmoji {
+  id: string; guildId: string
+  name: string                     // 2–32 characters of [a-z0-9_], unique in the guild
+  key: string                      // file key of the image (§4 Files): PNG, GIF or WebP, at most 256 KiB
+  createdBy: string | null; createdAt: string
+}
+
 interface BlockedUser { user: User; createdAt: string }         // GET /users/@me/blocks
 
 // A soundboard sound (§4 Soundboard). name and emoji are plaintext metadata; the file key is only in `envelope` (§12.21).
@@ -175,6 +183,7 @@ interface GuildFull extends Guild {  // READY + GUILD_CREATE
   members: Member[]                // ponytail: full list; add lazy member chunks when guilds exceed ~1k members
   voiceStates: VoiceState[]
   presences: Presence[]            // online members only
+  emojis: GuildEmoji[]             // the custom emojis of the guild, oldest first
 }
 ```
 
@@ -448,6 +457,20 @@ The E2EE routes (devices, keys, MLS, inbox, backups, linking, key transparency, 
 - Rate limits (Redis fixed windows, 429 `RateLimited` with `Retry-After`): 1 per 10 s per sender and target, 10 per 60 s per sender.
 - A poke has no content. It is not end-to-end encrypted, as a typing event is not: it tells the target only who poked and when.
 
+### Emojis
+
+Custom guild emojis (§1 `GuildEmoji`, table `guild_emojis`). Plaintext metadata and images, like the guild icon (§12.1).
+
+| Method + path | Permission | Returns | Publishes |
+|---|---|---|---|
+| GET `/guilds/:id/emojis` | member | `GuildEmoji[]`, oldest first | — |
+| POST `/guilds/:id/emojis` `{name, uploadId}` | MANAGE_EXPRESSIONS | `GuildEmoji` (201) | `GUILD_EMOJIS_UPDATE {guildId, emojis}` → guild |
+| PATCH `/guilds/:id/emojis/:emojiId` `{name}` | MANAGE_EXPRESSIONS | `GuildEmoji` | `GUILD_EMOJIS_UPDATE` → guild |
+| DELETE `/guilds/:id/emojis/:emojiId` | MANAGE_EXPRESSIONS | 204. Deletes the upload row and, after commit, the object | `GUILD_EMOJIS_UPDATE` → guild |
+
+- **Emojis.** `name` matches `^[a-z0-9_]{2,32}$` (else 400 `ValidationError`) and is unique in the guild (else 409 `Conflict`). A guild has at most 100 emojis (`MAX_GUILD_EMOJIS`), else 400 `TooManyEmojis`; the create locks the guild row, so concurrent creates cannot pass the cap. `uploadId` is an upload of the caller from `POST /uploads?filename=`, with purpose null and `encrypted = false`, else 400 `UnknownUpload`. Its type must be in `EMOJI_IMAGE_TYPES` (`image/png`, `image/gif`, `image/webp`) and its size at most `MAX_EMOJI_BYTES` (262144), else 400 `InvalidImage`. The claim sets `purpose = 'emoji'` in the transaction of the insert. A guild delete deletes the emoji uploads and their objects. The constants are in `@hachiman/client/files`.
+- **Custom emojis in messages.** The server never sees which emoji a message uses. A client writes a custom emoji into the message text as `<:name:id>` (Discord format) and into a reaction (§12.8.1 kind 3) as `name:id`. The receiver shows the image of `id` from the `emojis` of any guild it knows, else the text `:name:`.
+
 ### Files
 
 Takusen owns blob storage. Clients never talk to S3: uploads and downloads go through Takusen, so the host CSP
@@ -469,6 +492,7 @@ only needs the Takusen origin, and the bucket can stay private.
   An avatar, icon or banner claim needs purpose null or `'image'` and `encrypted = false`, and sets `purpose = 'image'`. An `'attachment'` upload or a blob gives 400 `UnknownUpload`.
   The type must be in `PROFILE_IMAGE_TYPES` (`image/png`, `image/jpeg`, `image/gif`, `image/webp`), else 400 `InvalidImage`.
   An `'image'` upload can be claimed again as an avatar, icon or banner.
+  A custom emoji claims a plaintext upload once and sets `purpose = 'emoji'` (Emojis).
   Each claim is one conditional `UPDATE` in the same transaction as the write that uses it.
   Thus, when two claims for different purposes race for one upload, only one claim wins.
   A message create claims all ids in one transaction: one bad id gives 400 `UnknownUpload` and no message. Duplicate ids give 400 `ValidationError`. A message claims at most 20 ids (10 files, each with an optional thumbnail, §12.8.5). Thumbnails are claimed like files, so a message delete also deletes them.
@@ -731,6 +755,7 @@ Dispatch events:
 | DOC_UPDATE | `DocUpdate & { channelId, guildId }` (ephemeral, above) |
 | DOC_AWARENESS | `{ channelId, guildId, pageId, userId, deviceId, envelope }` (ephemeral, above) |
 | CHANNEL_PINS_UPDATE | `{ channelId, guildId }` (`guildId` null in a DM). Bus envelope with `channelId`: VIEW_CHANNEL filtered like a message. The client refetches `GET /channels/:id/pins` |
+| GUILD_EMOJIS_UPDATE | `{ guildId, emojis: GuildEmoji[] }` — the full list after a create, rename or delete. To every member of the guild |
 | GUILD_EVENT_CREATE / GUILD_EVENT_UPDATE | `GuildEvent` (no `me`) — to every member of the guild |
 | GUILD_EVENT_DELETE | `{ id, guildId }` |
 | GUILD_EVENT_RSVP | `{ eventId, guildId, userId, going, rsvpCount }` |
@@ -966,6 +991,7 @@ export class RestClient {
   getDmChannels(); openDm(recipientIds); getUser(id)
   // §4 Pins, guild events and blocks
   getPins(channelId); pinMessage(channelId, messageId); unpinMessage(channelId, messageId)
+  getGuildEmojis(guildId); createGuildEmoji(guildId, { name, uploadId }); renameGuildEmoji(guildId, emojiId, name); deleteGuildEmoji(guildId, emojiId)
   getGuildEvents(guildId); createGuildEvent(guildId, { title, startsAt, endsAt?, channelId? }); updateGuildEvent(eventId, body); deleteGuildEvent(eventId)
   setEventRsvp(eventId, going: boolean)   // PUT or DELETE /events/:id/rsvp
   getBlocks(); blockUser(userId); unblockUser(userId)
@@ -1078,6 +1104,7 @@ export class HachimanClient extends TypedEventEmitter<HachimanClientEvents> {
     customStatuses: Map<string, CustomStatus>    // userId → custom status of an online user; check expiresAt when showing it
     voiceStates: Map<string, Map<string, VoiceState>>  // voiceScopeId → userId → state. voiceScopeId(vs) = vs.guildId ?? vs.channelId (a DM call: the DM channel id)
     readStates: Map<string, ReadState>           // channelId → state. From READY. READ_STATE_UPDATE sets lastReadMessageId and unreadCount 0
+    emojis: Map<string, GuildEmoji[]>            // guildId → custom emojis. From READY / GUILD_CREATE, replaced by GUILD_EMOJIS_UPDATE
     events: Map<string, Map<string, GuildEventWithMe>>  // guildId → eventId; filled by fetchGuildEvents, kept by GUILD_EVENT_*
     blocks: Set<string>                          // blocked user ids; filled by fetchBlocks, kept by USER_BLOCK_UPDATE
   }

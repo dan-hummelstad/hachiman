@@ -235,7 +235,11 @@ const guild1: GuildFull = {
     voice(G1, G1C.lounge, U.ozzy, { selfMute: true, selfDeaf: true }),
     voice(G1, G1C.ranked, U.quill, { selfStream: true })
   ],
-  presences: presencesFor(g1Members)
+  presences: presencesFor(g1Members),
+  emojis: [
+    { id: 'emoji-owl', guildId: G1, name: 'owl', key: IMG.emojiOwl, createdBy: ME.id, createdAt: '2026-01-10T12:00:00.000Z' },
+    { id: 'emoji-gg', guildId: G1, name: 'gg', key: IMG.emojiGg, createdBy: ME.id, createdAt: '2026-01-11T12:00:00.000Z' }
+  ]
 }
 
 // Guild 2: a dev team. I'm a plain member here (no manage perms), to show the restricted UI.
@@ -314,7 +318,8 @@ const guild2: GuildFull = {
     voice(G2, G2C.pairing, U.yuki),
     voice(G2, G2C.pairing, U.renata, { selfMute: true })
   ],
-  presences: presencesFor(g2Members)
+  presences: presencesFor(g2Members),
+  emojis: []
 }
 
 // Guild 3: a book club. Small, no categories (flat list) and no roles. juniper owns it.
@@ -354,7 +359,8 @@ const guild3: GuildFull = {
   ],
   members: g3Members,
   voiceStates: [],
-  presences: presencesFor(g3Members)
+  presences: presencesFor(g3Members),
+  emojis: []
 }
 
 // Six small guilds (one text channel, only me), so the space bar overflows into "All spaces".

@@ -55,6 +55,7 @@ const guild: GuildFull = {
     },
   ],
   members: [member(me), member(bob)],
+  emojis: [{ id: 'e1', guildId: 'g', name: 'party', key: 'u1/party.png', createdBy: 'bob', createdAt: '' }],
   voiceStates: [
     {
       guildId: 'g',
@@ -338,6 +339,17 @@ describe('HachimanClient cache', () => {
     expect(client.cache.events.has('other')).toBe(false)
     dispatch('GUILD_DELETE', { id: 'g' })
     expect(client.cache.events.has('g')).toBe(false)
+  })
+
+  it('keeps the guild emojis from READY and GUILD_EMOJIS_UPDATE', () => {
+    expect(client.cache.emojis.get('g')?.map(e => e.name)).toEqual(['party'])
+    const wave = { id: 'e2', guildId: 'g', name: 'wave', key: 'u2/wave.png', createdBy: 'me', createdAt: '' }
+    dispatch('GUILD_EMOJIS_UPDATE', { guildId: 'g', emojis: [wave] })
+    expect(client.cache.emojis.get('g')).toEqual([wave])
+    dispatch('GUILD_EMOJIS_UPDATE', { guildId: 'other', emojis: [wave] })
+    expect(client.cache.emojis.has('other')).toBe(false)
+    dispatch('GUILD_DELETE', { id: 'g' })
+    expect(client.cache.emojis.has('g')).toBe(false)
   })
 
   it('a guild events list that arrives after GUILD_DELETE or READY does not fill the cache', async () => {

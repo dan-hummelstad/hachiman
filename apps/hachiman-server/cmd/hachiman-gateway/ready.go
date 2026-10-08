@@ -87,6 +87,16 @@ type VoiceState struct {
 	JoinedAt   string  `json:"joinedAt"` // set on join and on a channel move (contract §1)
 }
 
+// GuildEmoji is contract §1 GuildEmoji: a custom emoji of the guild.
+type GuildEmoji struct {
+	ID        string  `json:"id"`
+	GuildID   string  `json:"guildId"`
+	Name      string  `json:"name"`
+	Key       string  `json:"key"`
+	CreatedBy *string `json:"createdBy"`
+	CreatedAt string  `json:"createdAt"`
+}
+
 type GuildFull struct {
 	Guild
 	Channels    []Channel    `json:"channels"`
@@ -94,6 +104,7 @@ type GuildFull struct {
 	Members     []Member     `json:"members"`
 	VoiceStates []VoiceState `json:"voiceStates"`
 	Presences   []Presence   `json:"presences"`
+	Emojis      []GuildEmoji `json:"emojis"`
 }
 
 // ReadState is contract §1 ReadState, as READY sends it.
@@ -183,7 +194,7 @@ func pgLoader(db *pgxpool.Pool) func(ctx context.Context, userID, onlyGuild stri
 			FROM guilds g JOIN guild_members m ON m.guild_id = g.id
 			WHERE m.user_id = $1::uuid AND ($2 = '' OR g.id::text = $2)`, userID, onlyGuild)
 		if err := forEach(rows, func() error {
-			gf := &GuildFull{Channels: []Channel{}, Roles: []Role{}, Members: []Member{}}
+			gf := &GuildFull{Channels: []Channel{}, Roles: []Role{}, Members: []Member{}, Emojis: []GuildEmoji{}}
 			var created time.Time
 			if err := rows.Scan(&gf.ID, &gf.Name, &gf.Icon, &gf.Banner, &gf.OwnerID, &gf.Region, &created); err != nil {
 				return err
@@ -281,6 +292,23 @@ func pgLoader(db *pgxpool.Pool) func(ctx context.Context, userID, onlyGuild stri
 				return nil
 			}); err != nil {
 				return nil, fmt.Errorf("members: %w", err)
+			}
+
+			rows, _ = db.Query(ctx, `
+				SELECT e.id::text, e.guild_id::text, e.name, u.key, e.created_by::text, e.created_at
+				FROM guild_emojis e JOIN uploads u ON u.id = e.upload_id
+				WHERE e.guild_id = ANY($1::uuid[]) ORDER BY e.created_at, e.id`, ids)
+			if err := forEach(rows, func() error {
+				var e GuildEmoji
+				var created time.Time
+				if err := rows.Scan(&e.ID, &e.GuildID, &e.Name, &e.Key, &e.CreatedBy, &created); err != nil {
+					return err
+				}
+				e.CreatedAt = iso(created)
+				byID[e.GuildID].Emojis = append(byID[e.GuildID].Emojis, e)
+				return nil
+			}); err != nil {
+				return nil, fmt.Errorf("emojis: %w", err)
 			}
 		}
 

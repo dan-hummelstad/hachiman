@@ -323,7 +323,8 @@ export function stubRest(): void {
       roles: [role(id, id, '@everyone', 0, 0, DEFAULT_EVERYONE)],
       members: [member(id, ME, [], null, 0)],
       voiceStates: [],
-      presences: [{ userId: ME.id, status: 'online' }]
+      presences: [{ userId: ME.id, status: 'online' }],
+      emojis: []
     }
     dispatch({ t: 'GUILD_CREATE', d: g })
     return g
@@ -422,6 +423,32 @@ export function stubRest(): void {
         pinsOf(channelId).filter((id) => id !== messageId)
       )
       return pinsChanged(channelId)
+    },
+    getGuildEmojis: (guildId) => cache.emojis.get(guildId) ?? [],
+    createGuildEmoji: (guildId, body) => {
+      const emoji = {
+        id: nextId('emoji'),
+        guildId,
+        name: body.name,
+        key: body.uploadId,
+        createdBy: ME.id,
+        createdAt: new Date().toISOString()
+      }
+      const emojis = [...(cache.emojis.get(guildId) ?? []), emoji]
+      dispatch({ t: 'GUILD_EMOJIS_UPDATE', d: { guildId, emojis } })
+      return emoji
+    },
+    renameGuildEmoji: (guildId, emojiId, name) => {
+      const emojis = (cache.emojis.get(guildId) ?? []).map((e) => (e.id === emojiId ? { ...e, name } : e))
+      dispatch({ t: 'GUILD_EMOJIS_UPDATE', d: { guildId, emojis } })
+      return must(
+        emojis.find((e) => e.id === emojiId),
+        'emoji'
+      )
+    },
+    deleteGuildEmoji: (guildId, emojiId) => {
+      const emojis = (cache.emojis.get(guildId) ?? []).filter((e) => e.id !== emojiId)
+      dispatch({ t: 'GUILD_EMOJIS_UPDATE', d: { guildId, emojis } })
     },
     getGuildEvents: (guildId) => [...events.values()].filter((e) => e.guildId === guildId),
     createGuildEvent: (guildId, body) => {

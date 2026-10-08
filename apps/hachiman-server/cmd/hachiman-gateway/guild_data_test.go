@@ -34,6 +34,12 @@ func TestPinsEventsAndBlocksDispatch(t *testing.T) {
 	h.pub("guild:"+gid, "GUILD_EVENT_DELETE", map[string]string{"id": "e1", "guildId": gid}, "")
 	c.expect("GUILD_EVENT_DELETE")
 
+	emojis := map[string]any{"guildId": gid, "emojis": []map[string]any{{"id": "x1", "guildId": gid, "name": "party", "key": "u1/party.png", "createdBy": me, "createdAt": "2026-10-08T21:00:00Z"}}}
+	h.pub("guild:"+gid, "GUILD_EMOJIS_UPDATE", emojis, "")
+	if f := c.expect("GUILD_EMOJIS_UPDATE"); !strings.Contains(string(f.D), `"name":"party"`) {
+		t.Fatalf("GUILD_EMOJIS_UPDATE %s", f.D)
+	}
+
 	h.pub("user:"+me, "USER_BLOCK_UPDATE", map[string]any{"userId": "u2", "blocked": true}, "")
 	if f := c.expect("USER_BLOCK_UPDATE"); !strings.Contains(string(f.D), `"blocked":true`) {
 		t.Fatalf("USER_BLOCK_UPDATE %s", f.D)

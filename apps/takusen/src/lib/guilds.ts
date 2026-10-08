@@ -30,6 +30,7 @@ import {
   roles,
   users,
 } from '@/db/schema'
+import { deleteGuildEmojiUploads, listEmojis } from '@/lib/emojis'
 import { NotFoundError } from '@/lib/errors'
 import { publishToGuild, publishToUser, redis } from '@/lib/events'
 import { publishInviteDeletes, revokeAdminInvitesOfNonAdmins, type RevokedInvite } from '@/lib/invite-limits'
@@ -238,11 +239,12 @@ export async function loadGuildFull(guildId: string, viewerId: string): Promise<
       .from(memberRoles)
       .where(eq(memberRoles.guildId, guildId)),
   ])
-  const [voiceStates, presences, groups, publicVisibility] = await Promise.all([
+  const [voiceStates, presences, groups, publicVisibility, emojis] = await Promise.all([
     readVoiceStates(guildId),
     readPresences(members.map((m) => m.member.userId)),
     groupVisibility(channelRows.map((c) => c.mlsGroupId)),
     publicHistoryVisibility(guildId),
+    listEmojis(guildId),
   ])
   return assembleGuildFull({
     guild,
@@ -256,6 +258,7 @@ export async function loadGuildFull(guildId: string, viewerId: string): Promise<
     presences,
     groups,
     publicHistoryVisibility: publicVisibility,
+    emojis,
   })
 }
 
@@ -416,7 +419,7 @@ export async function publishMemberRemoved(guildId: string, user: UserLike, revo
  * same transaction (§12.18 `guild_deleted`). Throws NotFound for an unknown guild.
  */
 export async function deleteGuildRows(tx: Tx, guildId: string, actorDeviceId: string | null): Promise<string[]> {
-  const keys = await deleteAttachmentRows(tx, { guildId })
+  const keys = [...(await deleteAttachmentRows(tx, { guildId })), ...(await deleteGuildEmojiUploads(tx, guildId))]
   await membershipChanged(tx, MembershipTriggers.guildDeleted(guildId), actorDeviceId)
   const deleted = await tx.delete(guilds).where(eq(guilds.id, guildId)).returning({ id: guilds.id })
   if (deleted.length === 0) throw new NotFoundError('Unknown guild')

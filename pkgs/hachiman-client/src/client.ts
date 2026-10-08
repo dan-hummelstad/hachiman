@@ -11,6 +11,7 @@ import type {
   VoiceStateUpdateRequest,
   Guild,
   GuildEventWithMe,
+  GuildEmoji,
   GuildFull,
   Member,
   PresenceStatus,
@@ -108,6 +109,8 @@ export interface HachimanCache {
   voiceStates: Map<string, Map<string, VoiceState>>
   /** channelId → read state, from READY and READ_STATE_UPDATE (§1 ReadState). */
   readStates: Map<string, ReadState>
+  /** guildId → custom emojis, oldest first. From READY / GUILD_CREATE, then GUILD_EMOJIS_UPDATE. */
+  emojis: Map<string, GuildEmoji[]>
   /** guildId → eventId → event. Filled by `fetchGuildEvents`, then kept by the GUILD_EVENT_* events. */
   events: Map<string, Map<string, GuildEventWithMe>>
   /** The user ids the current user blocked. Filled by `fetchBlocks`, then kept by USER_BLOCK_UPDATE. */
@@ -159,6 +162,7 @@ export class HachimanClient extends TypedEventEmitter<HachimanClientEvents> {
     customStatuses: new Map(),
     voiceStates: new Map(),
     readStates: new Map(),
+    emojis: new Map(),
     events: new Map(),
     blocks: new Set(),
   }
@@ -497,6 +501,7 @@ export class HachimanClient extends TypedEventEmitter<HachimanClientEvents> {
     c.members.set(g.id, new Map(g.members.map(m => [m.user.id, m])))
     c.voiceStates.set(g.id, new Map(g.voiceStates.filter(v => v.channelId).map(v => [v.userId, v])))
     for (const p of g.presences) this.setPresence(p)
+    c.emojis.set(g.id, g.emojis ?? [])
   }
 
   /** Loads the upcoming and ongoing events of a guild into `cache.events`. */
@@ -532,6 +537,7 @@ export class HachimanClient extends TypedEventEmitter<HachimanClientEvents> {
     c.members.delete(guildId)
     c.voiceStates.delete(guildId)
     c.events.delete(guildId)
+    c.emojis.delete(guildId)
     if (this.voiceTarget?.guildId === guildId) {
       this.voiceTarget = null
       this.dropVoice()
@@ -623,6 +629,9 @@ export class HachimanClient extends TypedEventEmitter<HachimanClientEvents> {
         // One voice session per user globally: a state anywhere replaces any other.
         for (const states of c.voiceStates.values()) states.delete(e.d.userId)
         if (e.d.channelId) sub(c.voiceStates, voiceScopeId({ ...e.d, channelId: e.d.channelId })).set(e.d.userId, e.d)
+        break
+      case 'GUILD_EMOJIS_UPDATE':
+        if (c.guilds.has(e.d.guildId)) c.emojis.set(e.d.guildId, e.d.emojis)
         break
       case 'GUILD_EVENT_CREATE':
       case 'GUILD_EVENT_UPDATE': {
