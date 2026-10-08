@@ -15,7 +15,6 @@ import { getUserById } from '@/lib/guilds'
 import { redisRateLimiter, type RateLimiter } from '@/lib/mls/context'
 import { toUser } from '@/lib/wire'
 
-/** One poke per sender → target per 10 s, and 10 pokes per sender per minute. */
 export const PokeLimits = {
   pair: { bucket: 'poke', limit: 1, windowSec: 10 },
   sender: { bucket: 'pokes', limit: 10, windowSec: 60 },

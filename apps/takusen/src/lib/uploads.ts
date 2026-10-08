@@ -11,7 +11,7 @@ import { PROFILE_IMAGE_TYPES } from '@hachiman/client/files'
 import type { Attachment } from '@hachiman/client/types'
 
 import { db, type Database, type Tx } from '@/db/client'
-import { channels, docPages, guilds, guildSounds, messages, uploads, type UploadRow } from '@/db/schema'
+import { channels, docPages, guilds, messages, uploads, type UploadRow } from '@/db/schema'
 import { InvalidImageError, UnknownUploadError, ValidationError } from '@/lib/errors'
 import { toAttachment } from '@/lib/files'
 import { MESSAGE_MAX_UPLOAD_IDS } from '@/lib/wire'
@@ -116,13 +116,11 @@ export type AttachmentScope = { messageId: string } | { channelIds: string[] } |
  * leave the objects in the bucket. A channel or guild scope also takes the
  * page uploads (page_snapshot, page_media) of its pages through
  * deleteUploadsOfPages, which gives their bytes back to
- * guilds.page_storage_bytes (§4 Pages). A guild scope also takes the sound
- * uploads of the guild (§4 Soundboard).
+ * guilds.page_storage_bytes (§4 Pages).
  */
 export async function deleteAttachmentRows(tx: Tx, scope: AttachmentScope): Promise<string[]> {
   let inScope
   let pageKeys: string[] = []
-  let soundKeys: string[] = []
   if ('messageId' in scope) {
     inScope = eq(uploads.messageId, scope.messageId)
   } else {
@@ -136,8 +134,6 @@ export async function deleteAttachmentRows(tx: Tx, scope: AttachmentScope): Prom
         .from(guilds)
         .where(eq(guilds.id, scope.guildId))
         .for('update')
-      const sounds = tx.select({ id: guildSounds.uploadId }).from(guildSounds).where(eq(guildSounds.guildId, scope.guildId))
-      soundKeys = (await tx.delete(uploads).where(inArray(uploads.id, sounds)).returning({ key: uploads.key })).map((r) => r.key)
     }
     const locked = await tx
       .select({ id: channels.id })
@@ -148,7 +144,7 @@ export async function deleteAttachmentRows(tx: Tx, scope: AttachmentScope): Prom
           : eq(channels.guildId, scope.guildId),
       )
       .for('update')
-    if (locked.length === 0) return soundKeys
+    if (locked.length === 0) return []
     const channelIds = locked.map((c) => c.id)
     pageKeys = (await deleteUploadsOfPages(tx, inArray(docPages.channelId, channelIds))).map((r) => r.key)
     inScope = inArray(
@@ -160,7 +156,7 @@ export async function deleteAttachmentRows(tx: Tx, scope: AttachmentScope): Prom
     )
   }
   const rows = await tx.delete(uploads).where(inScope).returning({ key: uploads.key })
-  return [...soundKeys, ...pageKeys, ...rows.map((r) => r.key)]
+  return [...pageKeys, ...rows.map((r) => r.key)]
 }
 
 /**

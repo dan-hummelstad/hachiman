@@ -15,19 +15,13 @@ import { toUser } from '@/lib/wire'
 
 export const BAN_REASON_MAX = 512
 
-/** 403 `Banned`: the invite accept of a banned user. */
-export function bannedError(): ApiError {
-  return new ApiError('Banned', 403, 'You are banned from this guild')
-}
-
-/** Throws 403 `Banned` when `userId` is banned from `guildId`. */
 export async function assertNotBanned(tx: Tx, guildId: string, userId: string): Promise<void> {
   const [row] = await tx
     .select({ userId: guildBans.userId })
     .from(guildBans)
     .where(and(eq(guildBans.guildId, guildId), eq(guildBans.userId, userId)))
     .limit(1)
-  if (row) throw bannedError()
+  if (row) throw new ApiError('Banned', 403, 'You are banned from this guild')
 }
 
 /**
@@ -54,7 +48,6 @@ export async function banUser(opts: {
   if (revoked) await publishMemberRemoved(opts.guildId, user, revoked)
 }
 
-/** 404 when there is no such ban. */
 export async function unbanUser(guildId: string, userId: string): Promise<void> {
   const deleted = await db
     .delete(guildBans)

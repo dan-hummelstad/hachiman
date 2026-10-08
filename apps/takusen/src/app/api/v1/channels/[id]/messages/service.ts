@@ -9,7 +9,7 @@ import { eq } from 'drizzle-orm'
 
 import type { Tx } from '@/db/client'
 import { messages, type MessageRow, type UploadRow } from '@/db/schema'
-import { ApiError, MissingPermissionsError } from '@/lib/errors'
+import { ApiError, isUniqueViolation, MissingPermissionsError } from '@/lib/errors'
 import type { AcceptedEnvelope, EnvelopeInput } from '@/lib/mls/envelopes'
 import { claimForMessage, deleteAttachmentRows } from '@/lib/uploads'
 import { messageEditPatch, messageInsertValues, type CreateMessageBody } from '@/lib/wire'
@@ -63,13 +63,6 @@ export async function editMessage(
     rowClientMsgId: input.row.clientMsgId,
   })
   return store.update(input.row.id, messageEditPatch(input.envelope, accepted, input.now))
-}
-
-function isUniqueViolation(err: unknown): boolean {
-  for (let e: unknown = err; e && typeof e === 'object'; e = (e as { cause?: unknown }).cause) {
-    if ((e as { code?: string }).code === '23505') return true
-  }
-  return false
 }
 
 export function drizzleMessageStore(tx: Tx): MessageStore {

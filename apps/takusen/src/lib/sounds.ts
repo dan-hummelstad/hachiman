@@ -3,13 +3,13 @@
  * name and emoji as plaintext metadata and the clip as an encrypted blob. The file key is only
  * in the envelope: a doc_snapshot envelope of the public_set group, with the sound id as page id.
  */
-import { and, asc, count, eq, isNull, type SQL } from 'drizzle-orm'
+import { and, asc, count, eq, inArray, isNull, type SQL } from 'drizzle-orm'
 import type { GuildSound } from '@hachiman/client/types'
 import { z } from 'zod'
 
 import { db, type Tx } from '@/db/client'
-import { channels, guildSounds, mlsGroups, uploads, type GuildSoundRow } from '@/db/schema'
-import { ApiError, ConflictError, UnknownUploadError, ValidationError } from '@/lib/errors'
+import { channels, guilds, guildSounds, mlsGroups, uploads, type GuildSoundRow } from '@/db/schema'
+import { ApiError, NotFoundError, UnknownUploadError, ValidationError } from '@/lib/errors'
 import { blobKey } from '@/lib/files'
 import { toB64 } from '@/lib/mls/bytes'
 import { envelopeField } from '@/lib/wire'
@@ -81,15 +81,14 @@ export async function assertSoundChannel(tx: Tx, guildId: string, channelId: str
   }
 }
 
-/** 400 when the guild has MAX_GUILD_SOUNDS. Locks nothing: two racing creates can pass one over. */
+/**
+ * 400 when the guild has MAX_GUILD_SOUNDS. The guild row lock orders concurrent creates, so the
+ * count cannot pass MAX_GUILD_SOUNDS.
+ */
 export async function assertSoundRoom(tx: Tx, guildId: string): Promise<void> {
+  await tx.select({ id: guilds.id }).from(guilds).where(eq(guilds.id, guildId)).for('update')
   const [row] = await tx.select({ n: count() }).from(guildSounds).where(eq(guildSounds.guildId, guildId))
   if ((row?.n ?? 0) >= MAX_GUILD_SOUNDS) throw new ValidationError(`A guild has at most ${MAX_GUILD_SOUNDS} sounds`)
-}
-
-export async function assertNewSoundId(tx: Tx, id: string): Promise<void> {
-  const [row] = await tx.select({ id: guildSounds.id }).from(guildSounds).where(eq(guildSounds.id, id)).limit(1)
-  if (row) throw new ConflictError('The sound id exists')
 }
 
 /**
@@ -109,7 +108,7 @@ export async function claimSoundUpload(tx: Tx, uploadId: string, userId: string)
 
 /**
  * Deletes one sound with its upload row (the sound row cascades) and returns the object key.
- * Pass it to deleteObjects after commit. Null when the guild has no such sound.
+ * Pass it to deleteObjects after commit. Throws NotFound when the guild has no such sound.
  */
 export async function deleteSound(tx: Tx, guildId: string, soundId: string): Promise<string | null> {
   const [sound] = await tx
@@ -117,7 +116,21 @@ export async function deleteSound(tx: Tx, guildId: string, soundId: string): Pro
     .from(guildSounds)
     .where(and(eq(guildSounds.id, soundId), eq(guildSounds.guildId, guildId)))
     .limit(1)
-  if (!sound) return null
+  if (!sound) throw new NotFoundError('Unknown sound')
   const [row] = await tx.delete(uploads).where(eq(uploads.id, sound.uploadId)).returning({ key: uploads.key })
   return row?.key ?? null
+}
+
+/** Guild delete: removes the sound uploads of the guild in `tx` and returns their keys. */
+export async function deleteGuildSoundUploads(tx: Tx, guildId: string): Promise<string[]> {
+  const rows = await tx
+    .delete(uploads)
+    .where(
+      inArray(
+        uploads.id,
+        tx.select({ id: guildSounds.uploadId }).from(guildSounds).where(eq(guildSounds.guildId, guildId)),
+      ),
+    )
+    .returning({ key: uploads.key })
+  return rows.map((r) => r.key)
 }

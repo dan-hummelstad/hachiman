@@ -11,7 +11,7 @@ import { z } from 'zod'
 
 import { db, type Database, type Tx } from '@/db/client'
 import { guildEmojis, guilds, uploads, type GuildEmojiRow, type UploadRow } from '@/db/schema'
-import { ApiError, ConflictError, InvalidImageError, NotFoundError, UnknownUploadError } from '@/lib/errors'
+import { ApiError, ConflictError, InvalidImageError, isUniqueViolation, NotFoundError, UnknownUploadError } from '@/lib/errors'
 import { publishToGuild } from '@/lib/events'
 
 const name = z.string().regex(EMOJI_NAME_RE, 'name must be 2 to 32 characters of a-z, 0-9 and _')
@@ -30,7 +30,6 @@ export function toGuildEmoji(row: GuildEmojiRow, key: string): GuildEmoji {
   }
 }
 
-/** The emojis of a guild with their file keys, oldest first. */
 export async function listEmojis(guildId: string, executor: Database | Tx = db): Promise<GuildEmoji[]> {
   const rows = await executor
     .select({ emoji: guildEmojis, key: uploads.key })
@@ -56,7 +55,6 @@ export function emojiClaimError(row: EmojiClaimView | null, userId: string): Err
   return null
 }
 
-/** Claims the caller's upload as an emoji image in `tx` and returns its key. */
 async function claimEmojiImage(tx: Tx, uploadId: string, userId: string): Promise<string> {
   const mine = and(eq(uploads.id, uploadId), eq(uploads.uploaderId, userId))
   // The SQL form of emojiClaimError: keep the two in step.
@@ -86,13 +84,6 @@ async function claimEmojiImage(tx: Tx, uploadId: string, userId: string): Promis
     .where(mine)
     .limit(1)
   throw emojiClaimError(row ?? null, userId) ?? new UnknownUploadError()
-}
-
-function isUniqueViolation(err: unknown): boolean {
-  for (let e: unknown = err; e && typeof e === 'object'; e = (e as { cause?: unknown }).cause) {
-    if ((e as { code?: string }).code === '23505') return true
-  }
-  return false
 }
 
 const nameTaken = () => new ConflictError('An emoji with this name exists in the guild')
@@ -161,7 +152,6 @@ export async function deleteEmoji(guildId: string, emojiId: string): Promise<{ k
     const row = await loadEmoji(tx, guildId, emojiId)
     // The upload delete cascades to the emoji row.
     const [gone] = await tx.delete(uploads).where(eq(uploads.id, row.uploadId)).returning({ key: uploads.key })
-    await tx.delete(guildEmojis).where(eq(guildEmojis.id, emojiId))
     return { key: gone?.key ?? null, emojis: await listEmojis(guildId, tx) }
   })
 }

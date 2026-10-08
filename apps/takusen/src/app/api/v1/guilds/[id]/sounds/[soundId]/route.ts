@@ -8,7 +8,6 @@ import { type NextRequest, type NextResponse } from 'next/server'
 import { db } from '@/db/client'
 import { errorResponse, noContent } from '@/lib/api-helpers'
 import { requireUser } from '@/lib/auth-helpers'
-import { NotFoundError } from '@/lib/errors'
 import { publishToGuild } from '@/lib/events'
 import { loadGuildAccess, requirePermission } from '@/lib/guild-access'
 import { assertId } from '@/lib/ids'
@@ -27,8 +26,7 @@ export async function DELETE(_req: NextRequest, ctx: RouteContext): Promise<Next
     const access = await loadGuildAccess(guildId, session.user.id)
     requirePermission(access.permissions, Permissions.MANAGE_EXPRESSIONS)
     const key = await db.transaction((tx) => deleteSound(tx, guildId, soundId))
-    if (key === null) throw new NotFoundError('Unknown sound')
-    await deleteObjects([key])
+    if (key) await deleteObjects([key])
     await publishToGuild(guildId, 'GUILD_SOUNDS_UPDATE', { guildId })
     return noContent()
   } catch (err) {

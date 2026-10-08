@@ -12,12 +12,12 @@ import { db } from '@/db/client'
 import { guildSounds } from '@/db/schema'
 import { errorResponse, parseBody } from '@/lib/api-helpers'
 import { requireUser } from '@/lib/auth-helpers'
+import { ConflictError, isUniqueViolation } from '@/lib/errors'
 import { publishToGuild } from '@/lib/events'
 import { loadGuildAccess, requirePermission } from '@/lib/guild-access'
 import { requireDevice } from '@/lib/mls/device-auth'
 import { acceptDocEnvelope } from '@/lib/mls/envelopes'
 import {
-  assertNewSoundId,
   assertSoundChannel,
   assertSoundRoom,
   claimSoundUpload,
@@ -52,7 +52,6 @@ export async function POST(req: NextRequest, ctx: RouteContext): Promise<NextRes
     const body = await parseBody(req, createSoundSchema)
     const sound = await db.transaction(async (tx) => {
       await assertSoundChannel(tx, guildId, body.channelId)
-      await assertNewSoundId(tx, body.id)
       await assertSoundRoom(tx, guildId)
       const accepted = await acceptDocEnvelope(tx, {
         channelId: body.channelId,
@@ -63,23 +62,28 @@ export async function POST(req: NextRequest, ctx: RouteContext): Promise<NextRes
         kind: 'doc_snapshot',
       })
       const size = await claimSoundUpload(tx, body.uploadId, userId)
-      const [row] = await tx
-        .insert(guildSounds)
-        .values({
-          id: body.id,
-          guildId,
-          name: body.name,
-          emoji: body.emoji ?? null,
-          uploadId: body.uploadId,
-          channelId: body.channelId,
-          groupId: accepted.groupId,
-          epoch: accepted.epoch,
-          senderDevice: accepted.senderDeviceId,
-          envelope: body.envelope,
-          createdBy: userId,
-        })
-        .returning()
-      return toGuildSound(row!, size)
+      try {
+        const [row] = await tx
+          .insert(guildSounds)
+          .values({
+            id: body.id,
+            guildId,
+            name: body.name,
+            emoji: body.emoji ?? null,
+            uploadId: body.uploadId,
+            channelId: body.channelId,
+            groupId: accepted.groupId,
+            epoch: accepted.epoch,
+            senderDevice: accepted.senderDeviceId,
+            envelope: body.envelope,
+            createdBy: userId,
+          })
+          .returning()
+        return toGuildSound(row!, size)
+      } catch (err) {
+        if (isUniqueViolation(err)) throw new ConflictError('The sound id exists')
+        throw err
+      }
     })
     await publishToGuild(guildId, 'GUILD_SOUNDS_UPDATE', { guildId })
     return NextResponse.json(sound, { status: 201 })

@@ -36,6 +36,7 @@ import { publishToGuild, publishToUser, redis } from '@/lib/events'
 import { publishInviteDeletes, revokeAdminInvitesOfNonAdmins, type RevokedInvite } from '@/lib/invite-limits'
 import { toB64 } from '@/lib/mls/bytes'
 import { discardMembershipWork, onMembershipChange, wakeScheduler, type MembershipChange } from '@/lib/mls/membership'
+import { deleteGuildSoundUploads } from '@/lib/sounds'
 import { deleteObjects } from '@/lib/storage'
 import { THREAD_LIST_MAX } from '@/lib/threads'
 import { deleteAttachmentRows } from '@/lib/uploads'
@@ -262,15 +263,28 @@ export async function loadGuildFull(guildId: string, viewerId: string): Promise<
   })
 }
 
+/** Whether the gateway session of a voice state is still live. */
+async function voiceSessionAlive(state: VoiceState): Promise<boolean> {
+  return (await redis().exists(`session:${state.sessionId}`)) === 1
+}
+
 /** `voice:{guildId}`, minus entries whose gateway session has expired. */
 async function readVoiceStates(guildId: string): Promise<VoiceState[]> {
-  const r = redis()
-  const states = Object.values(await r.hgetall(`voice:${guildId}`)).map(
+  const states = Object.values(await redis().hgetall(`voice:${guildId}`)).map(
     (json) => JSON.parse(json) as VoiceState,
   )
   if (states.length === 0) return []
-  const alive = await Promise.all(states.map((s) => r.exists(`session:${s.sessionId}`)))
-  return states.filter((_, i) => alive[i] === 1)
+  const alive = await Promise.all(states.map(voiceSessionAlive))
+  return states.filter((_, i) => alive[i])
+}
+
+/** The live voice state of `userId` in `guildId`, or null (no state, or its gateway session is gone). */
+export async function readVoiceState(guildId: string, userId: string): Promise<VoiceState | null> {
+  const json = await redis().hget(`voice:${guildId}`, userId)
+  if (!json) return null
+  const state = JSON.parse(json) as VoiceState
+  if (!state.channelId || !(await voiceSessionAlive(state))) return null
+  return state
 }
 
 /** Online presences for `userIds` (absent key ⇒ offline, omitted), with the custom status as READY has it. */
@@ -419,7 +433,11 @@ export async function publishMemberRemoved(guildId: string, user: UserLike, revo
  * same transaction (§12.18 `guild_deleted`). Throws NotFound for an unknown guild.
  */
 export async function deleteGuildRows(tx: Tx, guildId: string, actorDeviceId: string | null): Promise<string[]> {
-  const keys = [...(await deleteAttachmentRows(tx, { guildId })), ...(await deleteGuildEmojiUploads(tx, guildId))]
+  const keys = [
+    ...(await deleteAttachmentRows(tx, { guildId })),
+    ...(await deleteGuildEmojiUploads(tx, guildId)),
+    ...(await deleteGuildSoundUploads(tx, guildId)),
+  ]
   await membershipChanged(tx, MembershipTriggers.guildDeleted(guildId), actorDeviceId)
   const deleted = await tx.delete(guilds).where(eq(guilds.id, guildId)).returning({ id: guilds.id })
   if (deleted.length === 0) throw new NotFoundError('Unknown guild')
