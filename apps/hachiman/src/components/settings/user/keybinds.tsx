@@ -1,9 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useId, useState } from 'react'
 import { RotateCcw, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Callout } from '@/components/ui/callout'
 import { ErrorText, SectionHeading } from '@/components/ui/field'
 import { IconButton } from '@/components/ui/icon-button'
 import { Keycap } from '@/components/ui/keycap'
+import { Switch } from '@/components/ui/switch'
 import { useKeybindRuntime, useKeybinds } from '@/hooks/use-keybinds'
 import {
   FIXED_KEYBINDS,
@@ -12,11 +14,14 @@ import {
   comboOf,
   formatCombo,
   reservedBy,
+  toAccelerator,
   type KeybindAction,
   type KeybindSpec,
   type Keybinds
 } from '@/lib/keybinds'
+import { MOD_KEY } from '@/lib/mod-key'
 import { cn } from '@/lib/utils'
+import { usePlatform } from '@/shared/PlatformContext'
 import { usePrefsStore } from '@/stores/prefsStore'
 
 const GROUPS = ['Navigation', 'Voice'] as const
@@ -27,9 +32,10 @@ export function KeybindsSection(): React.JSX.Element {
   const binds = useKeybinds()
   const overrides = usePrefsStore((s) => s.keybinds)
   const resetKeybind = usePrefsStore((s) => s.resetKeybind)
+  const desktop = usePlatform().platform === 'electron'
   const [recording, setRecording] = useState<KeybindAction | null>(null)
 
-  // No keybind acts while a combo is recorded.
+  // No keybind acts while a combo is recorded, and the global ones are let go (use-global-shortcuts).
   useEffect(() => {
     useKeybindRuntime.setState({ recording: recording !== null })
     return () => useKeybindRuntime.setState({ recording: false })
@@ -59,6 +65,7 @@ export function KeybindsSection(): React.JSX.Element {
           )}
         </section>
       ))}
+      {desktop && <GlobalKeybinds binds={binds} />}
       <section>
         <SectionHeading>Fixed keys</SectionHeading>
         <div className="border-line-hairline divide-line-hairline divide-y border">
@@ -168,5 +175,38 @@ function KeybindRow({
       )}
       <ErrorText>{error}</ErrorText>
     </div>
+  )
+}
+
+/** Desktop: the global switch, and the keys that cannot be global or that another app holds. */
+function GlobalKeybinds({ binds }: { binds: Keybinds }): React.JSX.Element {
+  const id = useId()
+  const on = usePrefsStore((s) => s.globalKeybinds)
+  const setOn = usePrefsStore((s) => s.setGlobalKeybinds)
+  const failed = useKeybindRuntime((s) => s.globalFailed)
+  const global = KEYBINDS.filter((k) => k.global)
+  const local = global.filter((k) => binds[k.id] && !toAccelerator(binds[k.id] as string))
+  return (
+    <section className="grid gap-3">
+      <SectionHeading className="mb-0">In the background</SectionHeading>
+      <div className="flex items-center gap-3">
+        <Switch id={id} checked={on} onCheckedChange={setOn} />
+        <label htmlFor={id} className="text-label cursor-pointer">
+          The mute and deafen keys also work while Hachiman is in the background
+        </label>
+      </div>
+      {on && local.length > 0 && (
+        <Callout tone="info">
+          {local.map((k) => k.label).join(', ')}: a key without {MOD_KEY.trim()} or Alt works only
+          in the Hachiman window.
+        </Callout>
+      )}
+      {on && failed.length > 0 && (
+        <Callout tone="caution">
+          Another app holds the key for {failed.map((a) => LABEL.get(a)).join(', ')}. It works only
+          in the Hachiman window. Pick another key, or free it in the other app.
+        </Callout>
+      )}
+    </section>
   )
 }

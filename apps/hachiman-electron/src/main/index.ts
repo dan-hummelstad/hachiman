@@ -2,6 +2,7 @@ import {
   app,
   shell,
   BrowserWindow,
+  globalShortcut,
   ipcMain,
   safeStorage,
   systemPreferences,
@@ -14,13 +15,16 @@ import {
   CHECK_FOR_UPDATE_CHANNEL,
   CLOSE_TO_TRAY_GET_CHANNEL,
   CLOSE_TO_TRAY_SET_CHANNEL,
+  GLOBAL_SHORTCUT_CHANNEL,
   OPEN_EXTERNAL_CHANNEL,
   PROBE_REGIONS_CHANNEL,
   SECURE_STORAGE_CLEAR_CHANNEL,
   SECURE_STORAGE_GET_CHANNEL,
+  SET_GLOBAL_SHORTCUTS_CHANNEL,
 } from "../shared/ipc";
 import { createAppPrefsStore, type AppPrefsStore } from "./app-prefs";
 import { buildCsp } from "./csp";
+import { createGlobalShortcuts } from "./global-shortcuts";
 import {
   createWrapKeyStore,
   SecureStorageError,
@@ -120,6 +124,8 @@ function createWindow(): void {
 
   mainWindow.on("closed", () => {
     if (mainWindowRef === mainWindow) mainWindowRef = null;
+    // macOS keeps the app without a window: nothing would receive the keys.
+    globalShortcuts.clear();
   });
 
   mainWindow.on("ready-to-show", () => {
@@ -230,6 +236,18 @@ ipcMain.handle(SECURE_STORAGE_CLEAR_CHANNEL, (e, userId: unknown) =>
     await wrapKeyStore().clear(userId);
   }),
 );
+
+// IPC: the keybinds that work while the app is in the background (mute,
+// deafen). Only the app page may set them; the payload is checked in
+// ./global-shortcuts.ts. A fired shortcut goes to the main window.
+const globalShortcuts = createGlobalShortcuts(globalShortcut, (action) =>
+  mainWindowRef?.webContents.send(GLOBAL_SHORTCUT_CHANNEL, action),
+);
+ipcMain.handle(SET_GLOBAL_SHORTCUTS_CHANNEL, (e, shortcuts: unknown) => {
+  if (!isAppFrame(e)) throw new Error("caller is not the app page");
+  return globalShortcuts.set(shortcuts);
+});
+app.on("will-quit", () => globalShortcuts.clear());
 
 // This method will be called when Electron has finished
 // initialization and is ready to create browser windows.

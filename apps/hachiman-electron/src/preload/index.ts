@@ -3,6 +3,7 @@ import {
   CHECK_FOR_UPDATE_CHANNEL,
   CLOSE_TO_TRAY_GET_CHANNEL,
   CLOSE_TO_TRAY_SET_CHANNEL,
+  GLOBAL_SHORTCUT_CHANNEL,
   INVITE_LINK_CHANNEL,
   OAUTH_CALLBACK_CHANNEL,
   OPEN_EXTERNAL_CHANNEL,
@@ -11,6 +12,8 @@ import {
   SECURE_STORAGE_CLEAR_CHANNEL,
   SECURE_STORAGE_GET_CHANNEL,
   SELECT_SCREEN_SOURCE_CHANNEL,
+  SET_GLOBAL_SHORTCUTS_CHANNEL,
+  type GlobalShortcutInfo,
   type ScreenSourceInfo,
   type SecureStorageResult,
   type UpdateCheckResult,
@@ -68,6 +71,18 @@ const bridge = {
     get: (): Promise<boolean> => ipcRenderer.invoke(CLOSE_TO_TRAY_GET_CHANNEL),
     set: (on: boolean): Promise<void> =>
       ipcRenderer.invoke(CLOSE_TO_TRAY_SET_CHANNEL, on),
+  },
+  /** Register OS-wide shortcuts in place of the previous set; resolves with the refused actions. */
+  setGlobalShortcuts: (shortcuts: GlobalShortcutInfo[]): Promise<string[]> =>
+    ipcRenderer.invoke(SET_GLOBAL_SHORTCUTS_CHANNEL, shortcuts),
+  /** A global shortcut fired, with its action. Not buffered: a press before the UI listens is moot. */
+  onGlobalShortcut: (cb: (action: string) => void): (() => void) => {
+    const listener = (_e: unknown, action: unknown): void => {
+      if (typeof action === "string") cb(action);
+    };
+    ipcRenderer.on(GLOBAL_SHORTCUT_CHANNEL, listener);
+    return () =>
+      void ipcRenderer.removeListener(GLOBAL_SHORTCUT_CHANNEL, listener);
   },
   /** Wrap key of the crypto store (main validates the userId). The caller zeroes `value`. */
   secureStorage: {

@@ -26,6 +26,20 @@ export const CHECK_FOR_UPDATE_CHANNEL = "hachiman:check-for-update";
 export const CLOSE_TO_TRAY_GET_CHANNEL = "hachiman:close-to-tray-get";
 /** renderer → main (invoke): set the close-to-tray setting; payload is a boolean. */
 export const CLOSE_TO_TRAY_SET_CHANNEL = "hachiman:close-to-tray-set";
+/**
+ * renderer → main (invoke): register these global shortcuts in place of the
+ * previous set (main/global-shortcuts.ts). Payload `GlobalShortcutInfo[]`;
+ * the result lists the actions that the OS refused.
+ */
+export const SET_GLOBAL_SHORTCUTS_CHANNEL = "hachiman:set-global-shortcuts";
+/** main → renderer: a global shortcut fired; payload is its action. */
+export const GLOBAL_SHORTCUT_CHANNEL = "hachiman:global-shortcut";
+
+/** Same shape as `GlobalShortcut` in `@hachiman/hachiman` (IPlatformService.ts). */
+export interface GlobalShortcutInfo {
+  action: string;
+  accelerator: string;
+}
 
 /** Same shape as `UpdateCheckResult` in `@hachiman/hachiman` (IPlatformService.ts). */
 export type UpdateCheckResult =

@@ -1060,6 +1060,10 @@ export interface IPlatformService {
   checkForUpdate(): Promise<UpdateCheckResult>
   /** Electron: the close button hides the window to the tray (default on); main keeps the value. Browser: null. */
   readonly closeToTray: ICloseToTray | null
+  /** Electron: registers `shortcuts` with the OS in place of the previous set ([] lets all go). Resolves with the refused actions. Browser: null. */
+  setGlobalShortcuts(shortcuts: GlobalShortcut[]): Promise<string[] | null>
+  /** Electron: a global shortcut fired, with its action. Browser: never. Returns unsubscribe. */
+  onGlobalShortcut(cb: (action: string) => void): () => void
   /** The wrap key of the encrypted crypto store (§12.17). */
   readonly secureStorage: ISecureStorage
 }
@@ -1070,6 +1074,11 @@ export interface IPlatformService {
 export interface ICloseToTray {
   get(): Promise<boolean>
   set(on: boolean): Promise<void>
+}
+
+export interface GlobalShortcut {
+  action: string        // the UI's own name, e.g. 'toggleMute'
+  accelerator: string   // an Electron accelerator, e.g. 'CommandOrControl+Shift+M'
 }
 
 // `build` and `latest` are short commits (§4 Desktop updates).
@@ -1106,6 +1115,11 @@ export function parseInviteCode(input: string): string | null
 export function parseInviteKeyFragment(fragment: string): { key: string | null } | null  // fragment without '#'; '' → key null
 export function inviteKeyFragment(key: string): string  // '#k=' + key
 ```
+
+Global shortcuts (the user's keybinds that work while the app is in the background):
+- The shared UI sends the mute and deafen keybinds (`lib/keybinds.ts`) when they change, when the user turns the setting off (`[]`), while the Keybinds page records a key (`[]`), and on sign-out (`[]`).
+- Electron: the preload script invokes `hachiman:set-global-shortcuts`. The main process answers only the top frame of the app page. It checks the payload (`main/global-shortcuts.ts`): at most 8 entries, an action of letters and digits, and an accelerator from a short key list that holds `CommandOrControl`, `Control` or `Alt` (an F-key needs none), so a page script cannot take a typing key from other apps. It replaces every registration with `globalShortcut`, and returns the actions that the OS refused. A fired shortcut goes to the main window on `hachiman:global-shortcut` with its action. The main process lets all keys go when the main window closes and on `will-quit`.
+- `globalShortcut` has no key-up event. Push to talk therefore works only in the focused window (keydown and keyup in the renderer).
 
 `secureStorage` (§12.17):
 - Electron: the main process keeps 32 random bytes per user, encrypted with `safeStorage`, in `userData/keys/<userId>.bin`. On Linux it refuses the `basic_text` and `unknown` backends (`safeStorage.getSelectedStorageBackend()`), and `getWrapKey` rejects with `SecureStorageUnavailable`. The preload script gives the bytes to the renderer over IPC on the channels `hachiman:secure-storage-get` and `hachiman:secure-storage-clear`. The main process answers only the top frame of the app page (else `Malformed`). The renderer imports the bytes as a non-extractable `CryptoKey` and overwrites them.

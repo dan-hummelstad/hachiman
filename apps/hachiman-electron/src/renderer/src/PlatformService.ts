@@ -34,6 +34,9 @@ export const platformService: IPlatformService = {
   selectScreenSource: (id) => window.hachiman.selectScreenSource(id),
   checkForUpdate: () => window.hachiman.checkForUpdate(),
   closeToTray: window.hachiman.closeToTray,
+  setGlobalShortcuts: (shortcuts) =>
+    window.hachiman.setGlobalShortcuts(shortcuts),
+  onGlobalShortcut: (cb) => window.hachiman.onGlobalShortcut(cb),
   secureStorage: {
     backend: "os-keychain",
     // Main keeps the bytes under safeStorage (main/secure-storage.ts). The

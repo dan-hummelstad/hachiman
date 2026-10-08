@@ -33,6 +33,14 @@ export type UpdateCheckResult =
   | { status: 'not-available'; reason: string }
   | { status: 'failed'; reason: string }
 
+/** One OS-wide shortcut (`IPlatformService.setGlobalShortcuts`). */
+export interface GlobalShortcut {
+  /** The UI's own name for the action; `onGlobalShortcut` gives it back. */
+  action: string
+  /** An Electron accelerator, e.g. `CommandOrControl+Shift+M`. */
+  accelerator: string
+}
+
 export interface IPlatformService {
   readonly platform: 'electron' | 'browser'
   /** The host hides the native title bar: the traffic lights sit in the sidebar's controls row (Electron on macOS). */
@@ -59,6 +67,13 @@ export interface IPlatformService {
   checkForUpdate(): Promise<UpdateCheckResult>
   /** Electron: the close button hides the window to the tray (default on); main keeps the value. Browser: null. */
   readonly closeToTray: ICloseToTray | null
+  /**
+   * Electron: registers `shortcuts` with the OS in place of the previous set ([] lets all go).
+   * Resolves with the actions that the OS refused (another app holds the key). Browser: null.
+   */
+  setGlobalShortcuts(shortcuts: GlobalShortcut[]): Promise<string[] | null>
+  /** Electron: a global shortcut fired, with its action. Browser: never. Returns unsubscribe. */
+  onGlobalShortcut(cb: (action: string) => void): () => void
   /** The wrap key of the encrypted crypto store (§12.17). */
   readonly secureStorage: ISecureStorage
 }

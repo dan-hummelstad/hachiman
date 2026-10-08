@@ -79,6 +79,8 @@ interface PrefsState {
   /** The user's keybind changes (lib/keybinds.ts); a missing action keeps its default. */
   keybinds: KeybindOverrides
   voiceInputMode: VoiceInputMode
+  /** Desktop: the keybinds marked `global` also work while Hachiman is in the background. */
+  globalKeybinds: boolean
   /** Width in px of the right column while it shows a page (the user drags its edge). */
   pageColumnWidth: number
   /** userId → that account's preferences. */
@@ -105,6 +107,7 @@ interface PrefsState {
   /** Back to the default key; no `action`: every action. */
   resetKeybind: (action?: KeybindAction) => void
   setVoiceInputMode: (voiceInputMode: VoiceInputMode) => void
+  setGlobalKeybinds: (globalKeybinds: boolean) => void
   setPageColumnWidth: (pageColumnWidth: number) => void
   setAccountId: (accountId: string | null) => void
   setFavouriteDm: (channelId: string, favourite: boolean) => void
@@ -144,6 +147,7 @@ export const usePrefsStore = create<PrefsState>()(
         customGradient: DEFAULT_CUSTOM_GRADIENT,
         keybinds: {},
         voiceInputMode: 'voiceActivity',
+        globalKeybinds: true,
         pageColumnWidth: 540,
         accounts: {},
         accountId: null,
@@ -184,6 +188,7 @@ export const usePrefsStore = create<PrefsState>()(
             return { keybinds }
           }),
         setVoiceInputMode: (voiceInputMode) => set({ voiceInputMode }),
+        setGlobalKeybinds: (globalKeybinds) => set({ globalKeybinds }),
         setPageColumnWidth: (pageColumnWidth) => set({ pageColumnWidth }),
         setAccountId: (accountId) => set({ accountId }),
         setFavouriteDm: (channelId, favourite) =>

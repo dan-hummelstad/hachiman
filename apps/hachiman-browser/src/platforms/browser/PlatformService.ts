@@ -65,5 +65,8 @@ export const platformService: IPlatformService = {
     reason: "The web app updates when you reload the page.",
   }),
   closeToTray: null,
+  // A page cannot take keys from other apps.
+  setGlobalShortcuts: async () => null,
+  onGlobalShortcut: () => () => undefined,
   secureStorage: createBrowserSecureStorage(),
 };

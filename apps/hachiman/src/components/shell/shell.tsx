@@ -23,6 +23,7 @@ import { useGuildTint } from '@/components/shell/use-guild-tint'
 import { VoiceDock } from '@/components/voice-connected-panel'
 import { VoiceRoom } from '@/components/voice/voice-room'
 import { useAppShortcuts } from '@/hooks/use-app-shortcuts'
+import { useGlobalShortcuts } from '@/hooks/use-global-shortcuts'
 import { useGuildChannels } from '@/hooks/use-hachiman'
 import { useMediaQuery } from '@/hooks/use-media-query'
 import { isGuildChannel } from '@/lib/model'
@@ -90,6 +91,7 @@ export function Shell(): React.JSX.Element {
   const dockHeight = useLastHeight(floatSlot)
   useSidebarReveal(sidebarRef)
   useAppShortcuts()
+  useGlobalShortcuts()
 
   // Default to the first text channel when a guild has no (valid) selection.
   useEffect(() => {
