@@ -1,6 +1,6 @@
 'use client'
 
-import { PencilIcon, PlusIcon, Trash2Icon } from 'lucide-react'
+import { GlobeIcon, PencilIcon, PlusIcon, Trash2Icon } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { useState, type FormEvent } from 'react'
 import { toast } from 'sonner'
@@ -8,25 +8,33 @@ import { toast } from 'sonner'
 import type { AdminMediaNode, AdminRegion } from '@/lib/admin'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { DropdownMenuItem } from '@/components/ui/dropdown-menu'
 import { Field } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { cn } from '@/lib/utils'
-import { adminFetch, errorText, useAdminData } from './kit'
-import { ConfirmDialog, ListState, matchesQuery, PageHead, QueryChip, RowMenu, useListQuery } from './kit-b'
+import {
+  adminFetch,
+  Dot,
+  errorText,
+  ListFrame,
+  matchesQuery,
+  PageHead,
+  plural,
+  QueryChip,
+  RowMenu,
+  useAdminData,
+  useSearchParamState,
+} from './kit'
 
 /** regions.probe_port's default: a probe host without a port probes 443. */
 const DEFAULT_PROBE_PORT = 443
 const MAX_DOTS = 8
 
-const plural = (n: number, one: string, many: string): string => `${n} ${n === 1 ? one : many}`
-
 /** Same colours as the node status tags: healthy green, draining blue, stale amber. */
-function nodeDotClass(n: AdminMediaNode): string {
-  if (n.stale) return 'bg-feature-event'
-  if (n.adminDrain || n.status === 'draining') return 'bg-feature-thread'
-  return n.status === 'active' ? 'bg-status-online' : 'bg-status-offline'
+function nodeTone(n: AdminMediaNode): 'warning' | 'info' | 'online' | 'offline' {
+  if (n.stale) return 'warning'
+  if (n.adminDrain || n.status === 'draining') return 'info'
+  return n.status === 'active' ? 'online' : 'offline'
 }
 
 function RegionNodes({ nodes }: { nodes: AdminMediaNode[] }): React.JSX.Element {
@@ -35,7 +43,7 @@ function RegionNodes({ nodes }: { nodes: AdminMediaNode[] }): React.JSX.Element 
     <span className="inline-flex items-center gap-2.5">
       <span className="inline-flex items-center gap-1" aria-hidden>
         {nodes.slice(0, MAX_DOTS).map((n) => (
-          <span key={n.nodeId} title={n.nodeId} className={cn('size-2 rounded-full', nodeDotClass(n))} />
+          <Dot key={n.nodeId} tone={nodeTone(n)} title={n.nodeId} className="size-2" />
         ))}
       </span>
       <span className="text-[13.5px] text-text-secondary">{plural(nodes.length, 'node', 'nodes')}</span>
@@ -47,9 +55,8 @@ export function AdminRegionsView(): React.JSX.Element {
   const { data, error, reload } = useAdminData<AdminRegion[]>('/regions')
   // Only for the node dots; the region list works without it.
   const nodesData = useAdminData<AdminMediaNode[]>('/media-nodes').data
-  const { query, clear } = useListQuery()
+  const [query] = useSearchParamState('query')
   const [editing, setEditing] = useState<AdminRegion | 'new' | null>(null)
-  const [deleting, setDeleting] = useState<AdminRegion | null>(null)
   const router = useRouter()
   // The sidebar badge counts regions on the server.
   const changed = (): void => {
@@ -67,7 +74,7 @@ export function AdminRegionsView(): React.JSX.Element {
         description="Voice regions guilds can choose. Media nodes register into one of these."
         actions={
           <>
-            {query && <QueryChip query={query} onClear={clear} />}
+            <QueryChip />
             <Button className="h-[38px]" onClick={() => setEditing('new')}>
               <PlusIcon />
               Add region
@@ -75,16 +82,14 @@ export function AdminRegionsView(): React.JSX.Element {
           </>
         }
       />
-      <ListState
+      <ListFrame
         error={error}
+        onRetry={reload}
         loading={data === null && !error}
-        empty={
-          regions.length > 0
-            ? null
-            : data?.length
-              ? 'No region matches this filter.'
-              : 'No regions. Add one so guilds can pick where their voice runs.'
-        }
+        isEmpty={regions.length === 0}
+        empty={data?.length ? 'No region matches this filter.' : 'No regions.'}
+        emptyBody={data?.length ? undefined : 'Add one so guilds can pick where their voice runs.'}
+        emptyIcon={GlobeIcon}
       >
         <Table className="table-fixed min-w-[900px]">
           <TableHeader>
@@ -131,19 +136,35 @@ export function AdminRegionsView(): React.JSX.Element {
                       <PencilIcon />
                       Edit
                     </Button>
-                    <RowMenu label={`Actions for ${r.displayName}`}>
-                      <DropdownMenuItem variant="destructive" onSelect={() => setDeleting(r)}>
-                        <Trash2Icon />
-                        Delete region
-                      </DropdownMenuItem>
-                    </RowMenu>
+                    <RowMenu
+                      label={`Actions for ${r.displayName}`}
+                      items={[
+                        {
+                          label: 'Delete region',
+                          icon: Trash2Icon,
+                          destructive: true,
+                          confirm: {
+                            title: `Delete ${r.displayName}?`,
+                            body:
+                              r.guildCount > 0
+                                ? `${plural(r.guildCount, 'guild uses', 'guilds use')} this region. They switch to automatic placement.`
+                                : 'No guild uses this region. This cannot be undone.',
+                            confirmLabel: 'Delete region',
+                            done: 'Region deleted.',
+                            destructive: true,
+                            action: () => adminFetch(`/regions/${encodeURIComponent(r.code)}`, { method: 'DELETE' }),
+                            onDone: changed,
+                          },
+                        },
+                      ]}
+                    />
                   </div>
                 </TableCell>
               </TableRow>
             ))}
           </TableBody>
         </Table>
-      </ListState>
+      </ListFrame>
       <RegionDialog
         region={editing}
         onClose={() => setEditing(null)}
@@ -151,21 +172,6 @@ export function AdminRegionsView(): React.JSX.Element {
           setEditing(null)
           changed()
         }}
-      />
-      <ConfirmDialog
-        open={deleting !== null}
-        onOpenChange={(o) => !o && setDeleting(null)}
-        title={`Delete ${deleting?.displayName ?? 'region'}?`}
-        body={
-          deleting && deleting.guildCount > 0
-            ? `${plural(deleting.guildCount, 'guild uses', 'guilds use')} this region. They switch to automatic placement.`
-            : 'No guild uses this region. This cannot be undone.'
-        }
-        confirmLabel="Delete region"
-        done="Region deleted."
-        destructive
-        action={() => adminFetch(`/regions/${encodeURIComponent(deleting!.code)}`, { method: 'DELETE' })}
-        onDone={changed}
       />
     </>
   )

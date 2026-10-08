@@ -1,6 +1,17 @@
 'use client'
 
-import { AlertTriangleIcon, CircleCheckIcon, EllipsisIcon, InboxIcon, RotateCwIcon, SearchIcon, type LucideIcon } from 'lucide-react'
+import {
+  AlertTriangleIcon,
+  CheckIcon,
+  CircleCheckIcon,
+  CopyIcon,
+  EllipsisIcon,
+  InboxIcon,
+  RotateCwIcon,
+  SearchIcon,
+  XIcon,
+  type LucideIcon,
+} from 'lucide-react'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { toast } from 'sonner'
@@ -167,7 +178,40 @@ export function useSearchParamState(name: string): [string, (value: string | nul
   return [value, set]
 }
 
+/** Case-insensitive substring match of `query` against any of the fields, for lists the API does not search. */
+export function matchesQuery(query: string, ...fields: (string | null | undefined)[]): boolean {
+  const q = query.trim().toLowerCase()
+  if (!q) return true
+  return fields.some((f) => f?.toLowerCase().includes(q))
+}
+
 // MARK: - Toolbar
+
+/**
+ * The page head of DashboardShell (title, description, actions bottom-right), for a client view
+ * whose head actions share state with the list (filter chips, the Add dialog). Pass no title
+ * to DashboardShell when you use it.
+ */
+export function PageHead({
+  title,
+  description,
+  actions,
+}: {
+  title: ReactNode
+  description?: ReactNode
+  actions?: ReactNode
+}): React.JSX.Element {
+  return (
+    <div className="flex flex-col gap-4 sm:flex-row sm:items-end">
+      <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+        <h1 className="text-page-title text-text-primary">{title}</h1>
+        {description && <p className="text-body text-text-tertiary">{description}</p>}
+      </div>
+      {actions && <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div>}
+    </div>
+  )
+}
+
 
 /**
  * The list search in the page head (F2, F3): writes `?query=` 250 ms after the last keystroke
@@ -203,32 +247,6 @@ export function SearchField({
       onChange={(e) => setValue(e.target.value)}
       leading={<SearchIcon aria-hidden />}
       className={cn('h-[38px] w-full text-[14.5px] sm:w-80', className)}
-    />
-  )
-}
-
-/** Search input that reports its value 250 ms after the last keystroke (local state, no URL). */
-export function SearchBox({
-  label,
-  onSearch,
-}: {
-  label: string
-  onSearch: (query: string) => void
-}): React.JSX.Element {
-  const [value, setValue] = useState('')
-  useEffect(() => {
-    const t = setTimeout(() => onSearch(value.trim()), 250)
-    return () => clearTimeout(t)
-  }, [value, onSearch])
-  return (
-    <Input
-      type="search"
-      aria-label={label}
-      placeholder={label}
-      value={value}
-      onChange={(e) => setValue(e.target.value)}
-      leading={<SearchIcon aria-hidden />}
-      className="h-[38px] text-[14.5px] sm:max-w-80"
     />
   )
 }
@@ -275,6 +293,18 @@ export function useFilterParam<V extends string>(
   const first = options[0] as V
   const value = (options as readonly string[]).includes(raw) ? (raw as V) : first
   return [value, useCallback((v: V) => set(v === first ? null : v), [first, set])]
+}
+
+/** The `?query=` a ⌘K link set on a list without a search field, as a selected chip; its × clears it. */
+export function QueryChip({ param = 'query' }: { param?: string }): React.JSX.Element | null {
+  const [query, setQuery] = useSearchParamState(param)
+  if (!query.trim()) return null
+  return (
+    <Chip selected onClick={() => setQuery(null)} aria-label={`Clear filter “${query}”`} title="Clear filter">
+      <span className="max-w-40 truncate">“{query}”</span>
+      <XIcon aria-hidden />
+    </Chip>
+  )
 }
 
 // MARK: - Confirmation
@@ -472,7 +502,7 @@ export function RowMenu({ label, items }: { label: string; items: readonly RowMe
     <DropdownMenuItem
       key={i.label}
       variant={i.destructive ? 'destructive' : 'default'}
-      className="gap-2.5 data-[variant=destructive]:text-feature-danger-text data-[variant=destructive]:focus:bg-feature-danger/10 data-[variant=destructive]:focus:text-feature-danger-text"
+      className="gap-2.5"
       onSelect={() => {
         if (i.confirm) ask(i.confirm)
         else i.onSelect?.()
@@ -744,8 +774,22 @@ const DOT_TONES = {
 } as const
 
 /** 7px status dot (sessions, nodes of a region). */
-export function Dot({ tone, className }: { tone: keyof typeof DOT_TONES; className?: string }): React.JSX.Element {
-  return <span aria-hidden className={cn('inline-block size-[7px] shrink-0 rounded-full', DOT_TONES[tone], className)} />
+export function Dot({
+  tone,
+  title,
+  className,
+}: {
+  tone: keyof typeof DOT_TONES
+  title?: string
+  className?: string
+}): React.JSX.Element {
+  return (
+    <span
+      aria-hidden
+      title={title}
+      className={cn('inline-block size-[7px] shrink-0 rounded-full', DOT_TONES[tone], className)}
+    />
+  )
 }
 
 const METER_TONES = {
@@ -782,6 +826,25 @@ export function Meter({
     >
       <div className={cn('h-full', METER_TONES[tone])} style={{ width: `${pct}%` }} />
     </div>
+  )
+}
+
+/** Copies `value`; the icon turns into a check for a moment. */
+export function CopyButton({ value, label }: { value: string; label: string }): React.JSX.Element {
+  const [copied, setCopied] = useState(false)
+  const copy = (): void => {
+    navigator.clipboard.writeText(value).then(
+      () => {
+        setCopied(true)
+        setTimeout(() => setCopied(false), 1500)
+      },
+      () => toast.error('Could not copy to the clipboard.'),
+    )
+  }
+  return (
+    <Button variant="quiet" size="icon" aria-label={label} title={label} onClick={copy}>
+      {copied ? <CheckIcon className="text-feature-voice-text" /> : <CopyIcon />}
+    </Button>
   )
 }
 

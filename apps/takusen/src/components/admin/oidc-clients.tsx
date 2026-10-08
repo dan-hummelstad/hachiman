@@ -1,14 +1,13 @@
 'use client'
 
-import { GlobeIcon, InfoIcon, LaptopIcon, LinkIcon, MonitorIcon, type LucideIcon } from 'lucide-react'
+import { GlobeIcon, InfoIcon, KeySquareIcon, LaptopIcon, LinkIcon, MonitorIcon, type LucideIcon } from 'lucide-react'
 
 import type { AdminOidcClient } from '@/lib/admin'
 import { redirectUriKind, type RedirectUriKind } from '@/lib/oidc-consent'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Tag } from '@/components/ui/badge'
 import { Panel } from '@/components/ui/card'
-import { formatDate, useAdminData } from './kit'
-import { CopyButton, ListState, PageHead } from './kit-b'
+import { CopyButton, formatDate, ListFrame, PageHead, useAdminData } from './kit'
 
 const URI_KINDS: Record<RedirectUriKind, { label: string; icon: LucideIcon }> = {
   desktop: { label: 'Desktop app', icon: LaptopIcon },
@@ -106,7 +105,7 @@ function ClientCard({ client: c }: { client: AdminOidcClient }): React.JSX.Eleme
 }
 
 export function AdminOidcClientsView(): React.JSX.Element {
-  const { data, error } = useAdminData<AdminOidcClient[]>('/oidc-clients')
+  const { data, error, reload } = useAdminData<AdminOidcClient[]>('/oidc-clients')
   const clients = data ?? []
   return (
     <>
@@ -120,15 +119,21 @@ export function AdminOidcClientsView(): React.JSX.Element {
         <AlertTitle>Managed by db:seed</AlertTitle>
         <AlertDescription>Clients are read only here. Change the seed and redeploy to add or edit one.</AlertDescription>
       </Alert>
-      <ListState
+      <ListFrame
         error={error}
+        onRetry={reload}
         loading={data === null && !error}
-        empty={clients.length > 0 ? null : 'No OIDC clients. `pnpm -F @hachiman/takusen db:seed` adds the Hachiman client.'}
+        isEmpty={clients.length === 0}
+        empty="No OIDC clients."
+        emptyBody="`pnpm -F @hachiman/takusen db:seed` adds the Hachiman client."
+        emptyIcon={KeySquareIcon}
       >
-        {clients.map((c) => (
-          <ClientCard key={c.id} client={c} />
-        ))}
-      </ListState>
+        <div className="flex flex-col gap-7">
+          {clients.map((c) => (
+            <ClientCard key={c.id} client={c} />
+          ))}
+        </div>
+      </ListFrame>
     </>
   )
 }

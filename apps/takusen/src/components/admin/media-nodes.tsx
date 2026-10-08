@@ -1,6 +1,6 @@
 'use client'
 
-import { CopyIcon, PlayIcon, Trash2Icon, TriangleAlertIcon } from 'lucide-react'
+import { CopyIcon, PlayIcon, ServerIcon, Trash2Icon, TriangleAlertIcon } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
@@ -9,22 +9,24 @@ import type { AdminMediaNode } from '@/lib/admin'
 import { StatusTag } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Panel, PanelHeader } from '@/components/ui/card'
-import { Chip } from '@/components/ui/chip'
-import { DropdownMenuItem, DropdownMenuSeparator } from '@/components/ui/dropdown-menu'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { cn } from '@/lib/utils'
-import { adminFetch, errorText, formatDateTime, useAdminData } from './kit'
 import {
-  ConfirmDialog,
-  ListState,
+  adminFetch,
+  errorText,
+  FilterChips,
+  formatDateTime,
+  formatRelative,
+  ListFrame,
   matchesQuery,
   Meter,
   PageHead,
   QueryChip,
   RowMenu,
-  timeAgo,
-  useListQuery,
-} from './kit-b'
+  useAdminData,
+  useSearchParamState,
+  type RowMenuItem,
+} from './kit'
 
 type Filter = 'all' | 'healthy' | 'attention'
 
@@ -43,12 +45,37 @@ function NodeStatus({ node }: { node: AdminMediaNode }): React.JSX.Element {
 
 const nodePath = (n: AdminMediaNode): string => `/media-nodes/${encodeURIComponent(n.nodeId)}`
 
+/** The value as text over a 96×6 bar; a stale node's numbers are old, so they go grey. */
+function LoadCell({
+  label,
+  value,
+  max,
+  tone,
+  muted,
+}: {
+  label: string
+  value: number
+  max: number
+  tone: 'voice' | 'info'
+  muted: boolean
+}): React.JSX.Element {
+  return (
+    <div className="flex flex-col gap-[5px]">
+      <span
+        className={cn('text-[13px] leading-4 font-bold tabular-nums', muted ? 'text-text-tertiary' : 'text-text-primary')}
+      >
+        {label}
+      </span>
+      <Meter value={value} max={max} tone={tone} label={label} className="h-1.5 w-24" />
+    </div>
+  )
+}
+
 export function AdminMediaNodesView(): React.JSX.Element {
   const { data, error, reload } = useAdminData<AdminMediaNode[]>('/media-nodes')
-  const { query, clear } = useListQuery()
+  const [query] = useSearchParamState('query')
   const [filter, setFilter] = useState<Filter>('all')
   const [now, setNow] = useState(() => Date.now())
-  const [removing, setRemoving] = useState<AdminMediaNode | null>(null)
   const router = useRouter()
 
   useEffect(() => {
@@ -81,6 +108,37 @@ export function AdminMediaNodesView(): React.JSX.Element {
     }
   }
 
+  const nodeActions = (n: AdminMediaNode): RowMenuItem[] => [
+    ...(n.adminDrain ? [{ label: 'Resume', icon: PlayIcon, onSelect: () => void setDrain(n, false) }] : []),
+    {
+      label: 'Copy signalling URL',
+      icon: CopyIcon,
+      onSelect: () =>
+        void navigator.clipboard.writeText(n.signalingUrl).then(
+          () => toast.success('Signalling URL copied.'),
+          () => toast.error('Could not copy to the clipboard.'),
+        ),
+    },
+    {
+      label: 'Remove node',
+      icon: Trash2Icon,
+      destructive: true,
+      confirm: {
+        title: `Remove ${n.nodeId}?`,
+        body: 'Deletes the registration. A node that is still running registers again at its next heartbeat, so stop it first.',
+        confirmLabel: 'Remove node',
+        done: 'Node removed.',
+        destructive: true,
+        action: () => adminFetch(nodePath(n), { method: 'DELETE' }),
+        onDone: () => {
+          reload()
+          // The sidebar badge counts nodes on the server.
+          router.refresh()
+        },
+      },
+    },
+  ]
+
   return (
     <>
       <PageHead
@@ -88,33 +146,29 @@ export function AdminMediaNodesView(): React.JSX.Element {
         description="Registered SFU nodes, their load and last heartbeat. Drain a node before you stop it."
         actions={
           <>
-            {query && <QueryChip query={query} onClear={clear} />}
-            <Chip selected={filter === 'all'} count={matching.length} onClick={() => setFilter('all')}>
-              All
-            </Chip>
-            <Chip
-              selected={filter === 'healthy'}
-              count={matching.length - attention}
-              onClick={() => setFilter('healthy')}
-            >
-              Healthy
-            </Chip>
-            <Chip selected={filter === 'attention'} count={attention} onClick={() => setFilter('attention')}>
-              Needs attention
-            </Chip>
+            <QueryChip />
+            <FilterChips
+              label="Filter media nodes"
+              value={filter}
+              onChange={setFilter}
+              options={[
+                { value: 'all', label: 'All', count: matching.length },
+                { value: 'healthy', label: 'Healthy', count: matching.length - attention },
+                { value: 'attention', label: 'Needs attention', count: attention },
+              ]}
+            />
           </>
         }
       />
-      <ListState
+      <ListFrame
         error={error}
+        onRetry={reload}
+        // Not `loading` from useAdminData: the 10 s refresh would dim the table each time.
         loading={data === null && !error}
-        empty={
-          nodes.length > 0
-            ? null
-            : data?.length
-              ? 'No node matches this filter.'
-              : 'No media nodes have registered yet. A hachiman-media node registers itself when it starts.'
-        }
+        isEmpty={nodes.length === 0}
+        empty={data?.length ? 'No node matches this filter.' : 'No media nodes have registered yet.'}
+        emptyBody={data?.length ? undefined : 'A hachiman-media node registers itself when it starts.'}
+        emptyIcon={ServerIcon}
       >
         <Table className="table-fixed min-w-[960px]">
           <TableHeader>
@@ -151,18 +205,20 @@ export function AdminMediaNodesView(): React.JSX.Element {
                   <NodeStatus node={n} />
                 </TableCell>
                 <TableCell>
-                  <Meter
+                  <LoadCell
                     label={`${n.activeSessions} / ${n.maxSessions}`}
-                    fraction={n.maxSessions > 0 ? n.activeSessions / n.maxSessions : 0}
+                    value={n.activeSessions}
+                    max={n.maxSessions}
                     tone="voice"
                     muted={n.stale}
                   />
                 </TableCell>
                 <TableCell>
-                  <Meter
+                  <LoadCell
                     label={`${Math.round(n.cpuFraction * 100)}%`}
-                    fraction={n.cpuFraction}
-                    tone="thread"
+                    value={n.cpuFraction}
+                    max={1}
+                    tone="info"
                     muted={n.stale}
                   />
                 </TableCell>
@@ -175,7 +231,7 @@ export function AdminMediaNodesView(): React.JSX.Element {
                     )}
                   >
                     {n.stale && <TriangleAlertIcon aria-label="Stale" className="size-3.5 shrink-0" />}
-                    {timeAgo(n.lastHeartbeatAt, now)}
+                    {formatRelative(n.lastHeartbeatAt, now)}
                   </span>
                 </TableCell>
                 <TableCell>
@@ -194,37 +250,14 @@ export function AdminMediaNodesView(): React.JSX.Element {
                         Drain
                       </Button>
                     )}
-                    <RowMenu label={`Actions for ${n.nodeId}`}>
-                      {n.adminDrain && (
-                        <DropdownMenuItem onSelect={() => void setDrain(n, false)}>
-                          <PlayIcon />
-                          Resume
-                        </DropdownMenuItem>
-                      )}
-                      <DropdownMenuItem
-                        onSelect={() =>
-                          void navigator.clipboard.writeText(n.signalingUrl).then(
-                            () => toast.success('Signalling URL copied.'),
-                            () => toast.error('Could not copy to the clipboard.'),
-                          )
-                        }
-                      >
-                        <CopyIcon />
-                        Copy signalling URL
-                      </DropdownMenuItem>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuItem variant="destructive" onSelect={() => setRemoving(n)}>
-                        <Trash2Icon />
-                        Remove node
-                      </DropdownMenuItem>
-                    </RowMenu>
+                    <RowMenu label={`Actions for ${n.nodeId}`} items={nodeActions(n)} />
                   </div>
                 </TableCell>
               </TableRow>
             ))}
           </TableBody>
         </Table>
-      </ListState>
+      </ListFrame>
       <Panel>
         <PanelHeader title="Add a node" meta="nodes register themselves" as="h2" />
         <p className="max-w-[640px] p-[18px] text-[13.5px] leading-[1.5] text-text-secondary">
@@ -234,21 +267,6 @@ export function AdminMediaNodesView(): React.JSX.Element {
           registers over this deployment&apos;s management gRPC and shows up here with its first heartbeat.
         </p>
       </Panel>
-      <ConfirmDialog
-        open={removing !== null}
-        onOpenChange={(o) => !o && setRemoving(null)}
-        title={`Remove ${removing?.nodeId ?? 'node'}?`}
-        body="Deletes the registration. A node that is still running registers again at its next heartbeat, so stop it first."
-        confirmLabel="Remove node"
-        done="Node removed."
-        destructive
-        action={() => adminFetch(nodePath(removing!), { method: 'DELETE' })}
-        onDone={() => {
-          reload()
-          // The sidebar badge counts nodes on the server.
-          router.refresh()
-        }}
-      />
     </>
   )
 }
