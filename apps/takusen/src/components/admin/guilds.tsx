@@ -224,8 +224,7 @@ function GuildDetail({
           <section className="flex flex-col gap-2.5 border-t border-line-hairline pt-3.5">
             <h3 className="section-label text-feature-danger-text">Danger zone</h3>
             <p className="text-[13px] leading-5 text-text-secondary">
-              Deleting removes the guild, its channels and pages for all {plural(g.memberCount, 'member')}. There is
-              no undo.
+              Deleting removes the guild, its channels and pages for {everyone(g.memberCount)}. There is no undo.
             </p>
             <Button
               variant="danger-soft"
@@ -234,7 +233,7 @@ function GuildDetail({
                 ask({
                   title: `Delete ${g.name}?`,
                   titleIcon: <EntityAvatar fileKey={g.icon} name={g.name} size={28} />,
-                  body: `This removes ${g.name}, its ${plural(g.channelCount, 'channel')} and ${plural(g.pageCount, 'page')} for all ${plural(g.memberCount, 'member')}. Messages are end-to-end encrypted, so nobody can export them first. There is no undo.`,
+                  body: `This removes ${g.name}, its ${plural(g.channelCount, 'channel')} and ${plural(g.pageCount, 'page')} for ${everyone(g.memberCount)}. Messages are end-to-end encrypted, so nobody can export them first. There is no undo.`,
                   typeToConfirm: g.name,
                   typeIcon: CastleIcon,
                   confirmLabel: 'Delete guild',
@@ -271,6 +270,11 @@ function InviteRow({ invite: inv, onRevoke }: { invite: AdminInvite; onRevoke: (
       </Button>
     </li>
   )
+}
+
+/** "all 12 members", "its only member" */
+function everyone(members: number): string {
+  return members === 1 ? 'its only member' : `all ${members} members`
 }
 
 const DAY_MS = 86_400_000

@@ -376,7 +376,7 @@ export function ConfirmDialog({
                   onChange={(e) => setTyped(e.target.value)}
                   leading={TypeIcon && <TypeIcon aria-hidden />}
                   trailing={
-                    matches ? <CircleCheckIcon aria-label="Matches" className="text-feature-voice-text" /> : undefined
+                    matches ? <CircleCheckIcon aria-label="Matches" className="text-feature-voice-text!" /> : undefined
                   }
                   className={cn(matches && 'border-gold-line')}
                 />
@@ -726,8 +726,8 @@ export function IdentityCell({
       {avatar}
       <div className="flex min-w-0 flex-col gap-0.5">
         <div className="flex min-w-0 items-center gap-2">
-          <span className="truncate text-sm leading-[18px] font-extrabold text-text-primary">{name}</span>
-          {tags}
+          <span className="min-w-12 truncate text-sm leading-[18px] font-extrabold text-text-primary">{name}</span>
+          {tags && <span className="flex shrink-0 items-center gap-2 max-sm:hidden">{tags}</span>}
         </div>
         {sub && <span className="truncate text-[12.5px] leading-4 font-medium text-text-tertiary">{sub}</span>}
       </div>

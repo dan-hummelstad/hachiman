@@ -126,9 +126,9 @@ export function AdminUsersView({
             <TableRow>
               <TableHead>User</TableHead>
               <TableHead className="w-[146px] max-md:hidden">Role</TableHead>
-              <TableHead className="w-[166px]">Sessions</TableHead>
+              <TableHead className="w-[124px] sm:w-[166px]">Sessions</TableHead>
               <TableHead className="w-[156px] max-lg:hidden">Joined</TableHead>
-              <TableHead className="w-[64px]">
+              <TableHead className="w-[56px] sm:w-[64px]">
                 <span className="sr-only">Actions</span>
               </TableHead>
             </TableRow>
