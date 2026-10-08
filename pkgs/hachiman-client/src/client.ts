@@ -84,6 +84,11 @@ export type HachimanClientEvents = GatewayEventHandlers & {
    * with the same target to rejoin.
    */
   voiceResync: (target: VoiceTarget) => void
+  /**
+   * A moderator moved the user to `target` (§6 "Voice moderation"). Fires before the old call
+   * drops ('voice' null); 'voice' then gives the connection of `target`. Send no op 4 for it.
+   */
+  voiceMoved: (target: VoiceTarget) => void
 }
 
 export interface HachimanCache {
@@ -442,10 +447,12 @@ export class HachimanClient extends TypedEventEmitter<HachimanClientEvents> {
     }
     if (e.t !== 'VOICE_SERVER_UPDATE' || !e.d.moved || this.cancelPendingJoin) return
     const server = e.d
+    const target = { guildId: server.guildId, channelId: server.channelId }
+    this.emit('voiceMoved', target)
     this.dropVoice()
-    this.voiceTarget = { guildId: server.guildId, channelId: server.channelId }
+    this.voiceTarget = target
     this.streaming = false
-    this.connectVoice(this.voiceTarget, server).catch((err: unknown) => {
+    this.connectVoice(target, server).catch((err: unknown) => {
       console.warn('HachimanClient: voice move failed', err)
     })
   }

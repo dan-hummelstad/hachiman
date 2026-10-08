@@ -189,6 +189,8 @@ class VoiceService {
    * joins again once, when the gateway is ready.
    */
   private lost: VoiceTarget | null = null
+  /** Set by 'voiceMoved': the drop that follows is the move, and the next connection is the new call. */
+  private moving = false
   /** Set by media close 4013: the drop that follows rejoins this target instead of ending. */
   private resync: VoiceTarget | null = null
   /** Consecutive 4013 rejoins without keys, and the timer of the next one. */
@@ -209,8 +211,13 @@ class VoiceService {
         vc.on('close', ({ code }) => {
           if (code === MEDIA_UNSUPPORTED) setCryptoFatal('update_required')
         })
+        if (this.moving) {
+          this.moving = false
+          this.adopt(vc)
+        }
         return
       }
+      if (this.moving) return // the old call of a move
       const resync = this.resync
       this.resync = null
       if (resync) return void this.rejoin(resync)
@@ -223,6 +230,21 @@ class VoiceService {
       if (!channelId || (code !== null && !REJOIN_CODES.has(code))) return
       this.lost = { guildId, channelId }
       setTimeout(() => this.rejoinLost(), REJOIN_DELAY_MS)
+    })
+    // A moderator moved me (§6 "Voice moderation"): the client follows without op 4.
+    hachiman.on('voiceMoved', ({ guildId, channelId }) => {
+      this.cancelResync()
+      this.lost = null
+      this.teardown()
+      this.moving = true
+      useVoiceStore.setState({
+        guildId,
+        channelId,
+        localJoinedAt: Date.now(),
+        connectionState: 'new',
+        screens: new Map(),
+        watching: new Set()
+      })
     })
     hachiman.on('state', (state) => {
       if (state === 'ready') this.rejoinLost()
@@ -308,34 +330,46 @@ class VoiceService {
       const conn = await hachiman.joinVoice(guildId, channelId)
       this.conn = conn
       playSound('voiceJoin')
-      this.applyOutputDevice()
-      this.applyUserAudio()
-      this.applyMicBitrate()
-      conn.on('state', (connectionState) => {
-        if (this.conn === conn) useVoiceStore.setState({ connectionState })
-      })
-      conn.on('speaking', ({ userId, speaking }) =>
-        useVoiceStore.getState().setSpeaking(userId, speaking)
-      )
-      conn.on('peers', (peers) =>
-        useVoiceStore.getState().setPeers(peers, useUserStore.getState().me?.id ?? null)
-      )
-      conn.on('screen', ({ userId, stream }) => {
-        if (this.conn !== conn) return
-        const screens = new Map(useVoiceStore.getState().screens)
-        if (stream) screens.set(userId, stream)
-        else screens.delete(userId)
-        useVoiceStore.setState({ screens })
-      })
-      this.statsTimer = setInterval(() => void this.sampleStats(), STATS_MS)
-      // Captured even when muted: mute only gates the outgoing track, so unmute is instant.
-      await this.startMic()
+      await this.wire(conn)
     } catch (err) {
       if (useVoiceStore.getState().channelId !== channelId) return // superseded by another join
       console.error('[voice] join failed', err)
       playSound('voiceDisconnect')
       this.endSession()
     }
+  }
+
+  /** The new call of a move: the client opened it (no joinVoice here). */
+  private adopt(conn: VoiceConnection): void {
+    this.conn = conn
+    playSound('voiceJoin')
+    this.wire(conn).catch((err: unknown) => console.error('[voice] move failed', err))
+  }
+
+  /** Mirrors a new call into the store and starts the mic. */
+  private async wire(conn: VoiceConnection): Promise<void> {
+    this.applyOutputDevice()
+    this.applyUserAudio()
+    this.applyMicBitrate()
+    conn.on('state', (connectionState) => {
+      if (this.conn === conn) useVoiceStore.setState({ connectionState })
+    })
+    conn.on('speaking', ({ userId, speaking }) =>
+      useVoiceStore.getState().setSpeaking(userId, speaking)
+    )
+    conn.on('peers', (peers) =>
+      useVoiceStore.getState().setPeers(peers, useUserStore.getState().me?.id ?? null)
+    )
+    conn.on('screen', ({ userId, stream }) => {
+      if (this.conn !== conn) return
+      const screens = new Map(useVoiceStore.getState().screens)
+      if (stream) screens.set(userId, stream)
+      else screens.delete(userId)
+      useVoiceStore.setState({ screens })
+    })
+    this.statsTimer = setInterval(() => void this.sampleStats(), STATS_MS)
+    // Captured even when muted: mute only gates the outgoing track, so unmute is instant.
+    await this.startMic()
   }
 
   /**
