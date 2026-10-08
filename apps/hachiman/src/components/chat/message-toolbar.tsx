@@ -8,14 +8,16 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { IconButton } from '@/components/ui/icon-button'
 import { cn } from '@/lib/utils'
-import { EmojiPicker } from './reactions'
+import { EmojiPicker, reactionKeyOf } from './emoji-picker'
 
 /** Rounded 28px icon buttons with 16px icons. */
 const BUTTON = 'text-text-secondary hover:bg-surface-hover hover:text-text-primary size-7'
 
 interface MessageToolbarProps {
-  /** Adds a reaction (N10). Omitted when I can't react (not sent yet, no SEND_MESSAGES). */
+  /** Adds a reaction (N10): a Unicode emoji or a custom `name:id`. Omitted when I can't react (not sent yet, no SEND_MESSAGES). */
   onReact?: (emoji: string) => void
+  /** The guild of the message: its custom emojis come first in the picker. */
+  guildId?: string | null
   /** Makes this message the reply target of the composer (N11). */
   onReply?: () => void
   /** The text that "Copy text" copies. Omitted when the message did not decrypt. */
@@ -36,6 +38,7 @@ interface MessageToolbarProps {
  */
 export function MessageToolbar({
   onReact,
+  guildId = null,
   onReply,
   copyText,
   onEdit,
@@ -68,7 +71,13 @@ export function MessageToolbar({
       )}
     >
       {onReact && (
-        <EmojiPicker open={picking} onOpenChange={setPicking} onPick={onReact}>
+        <EmojiPicker
+          open={picking}
+          onOpenChange={setPicking}
+          guildId={guildId}
+          label="Pick a reaction"
+          onPick={(pick) => onReact(reactionKeyOf(pick))}
+        >
           <IconButton className={BUTTON} label="Add reaction" onClick={() => setPicking((v) => !v)}>
             <SmilePlus />
           </IconButton>

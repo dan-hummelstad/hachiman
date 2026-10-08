@@ -22,39 +22,3 @@ export function reactionChips(
   }
   return out
 }
-
-/** The emoji grid of the reaction picker. The app has no full emoji picker. */
-export const QUICK_EMOJI: readonly string[] = [
-  '👍',
-  '👎',
-  '❤️',
-  '😂',
-  '😮',
-  '😢',
-  '😡',
-  '🎉',
-  '🔥',
-  '👀',
-  '🙏',
-  '👏',
-  '💯',
-  '✅',
-  '❌',
-  '🤔',
-  '😎',
-  '🥳',
-  '😅',
-  '🙌',
-  '💀',
-  '🫡',
-  '🤝',
-  '⭐',
-  '🎮',
-  '🍿',
-  '☕',
-  '🚀',
-  '🐛',
-  '📌',
-  '💡',
-  '⚠️'
-]

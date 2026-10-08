@@ -1,5 +1,22 @@
 import { describe, expect, it } from 'vitest'
-import { MAX_MENTIONS, mentionsOf, messageMentionsMe, tokenize } from './mentions'
+import { MAX_MENTIONS, mentionsOf, messageMentionsMe, plainEmojiText, tokenize } from './mentions'
+
+describe('custom emoji tokens', () => {
+  it('reads <:name:id> and the animated <a:name:id> as emoji tokens', () => {
+    expect(tokenize('hi <:party:e-1>!')).toEqual([
+      { kind: 'text', value: 'hi ' },
+      { kind: 'emoji', value: '<:party:e-1>', name: 'party', id: 'e-1' },
+      { kind: 'text', value: '!' }
+    ])
+    expect(tokenize('<a:dance:e-2>')).toEqual([
+      { kind: 'emoji', value: '<a:dance:e-2>', name: 'dance', id: 'e-2' }
+    ])
+  })
+
+  it('gives previews the :name: text', () => {
+    expect(plainEmojiText('gg <:party:e-1> <a:dance:e-2>')).toBe('gg :party: :dance:')
+  })
+})
 
 const me = { id: 'u-me', username: 'kestrel' }
 

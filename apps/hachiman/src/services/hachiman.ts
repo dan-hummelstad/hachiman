@@ -1,5 +1,6 @@
 import type { GatewayDispatch, GatewayEvents, Message, PresenceStatus } from '@hachiman/client'
 import { clearDecryptedBlobs } from '@/hooks/use-decrypted-blob'
+import { emojisById } from '@/lib/custom-emoji'
 import { hachiman } from '@/services/client'
 import { cryptoService } from '@/services/CryptoService'
 import { createDsTransport } from '@/services/ds-transport'
@@ -54,7 +55,9 @@ function syncGuilds(): void {
   useGuildStore.setState({
     guilds: new Map(c.guilds),
     roles: copy2(c.roles),
-    members: copy2(c.members)
+    members: copy2(c.members),
+    emojis: new Map(c.emojis),
+    emojiIndex: emojisById(c.emojis)
   })
 }
 
@@ -174,6 +177,7 @@ function mirror(e: GatewayDispatch): void {
     case 'GUILD_ROLE_CREATE':
     case 'GUILD_ROLE_UPDATE':
     case 'GUILD_ROLE_DELETE':
+    case 'GUILD_EMOJIS_UPDATE':
       return syncGuilds()
     case 'PRESENCE_UPDATE':
       // The raw event keeps 'offline' (Invisible) for me; the cache drops it.

@@ -5,22 +5,36 @@ export type MentionToken = { kind: 'mention'; value: string } & (
   { userId: string } | { username: string } | { roleId: string }
 )
 
-export type Token = { kind: 'text'; value: string } | { kind: 'link'; value: string } | MentionToken
+/** A custom guild emoji `<:name:id>` (contract §4 Emojis). */
+export type EmojiToken = { kind: 'emoji'; value: string; name: string; id: string }
+
+export type Token =
+  | { kind: 'text'; value: string }
+  | { kind: 'link'; value: string }
+  | MentionToken
+  | EmojiToken
 
 // link | <@&roleId> | <@id> | @username (ends on a word char, so "@kestrel." stops before the dot)
-const TOKEN_RE = /(https?:\/\/[^\s<>]+[^\s<>.,;:!?'")\]])|<@&([\w-]+)>|<@([\w-]+)>|@([\w.-]*\w)/g
+// | <:name:id> (a custom emoji; Discord's animated <a:name:id> too)
+const TOKEN_RE =
+  /(https?:\/\/[^\s<>]+[^\s<>.,;:!?'")\]])|<@&([\w-]+)>|<@([\w-]+)>|@([\w.-]*\w)|<a?:(\w{2,32}):([\w-]+)>/g
+
+/** `<:name:id>` anywhere in a text → `:name:`, for one-line previews. */
+export const plainEmojiText = (text: string): string =>
+  text.replace(/<a?:(\w{2,32}):[\w-]+>/g, ':$1:')
 
 /** Split a message body into plain text, mentions and links. The one mention parser. */
 export function tokenize(content: string): Token[] {
   const out: Token[] = []
   let last = 0
   for (const m of content.matchAll(TOKEN_RE)) {
-    const [value, link, roleId, userId, username] = m
+    const [value, link, roleId, userId, username, emojiName, emojiId] = m
     const i = m.index
     // An "@" glued to a word (e.g. an email) isn't a mention.
     if (username && i > 0 && /\w/.test(content[i - 1])) continue
     if (i > last) out.push({ kind: 'text', value: content.slice(last, i) })
     if (link) out.push({ kind: 'link', value })
+    else if (emojiName && emojiId) out.push({ kind: 'emoji', value, name: emojiName, id: emojiId })
     else if (roleId) out.push({ kind: 'mention', value, roleId })
     else if (userId) out.push({ kind: 'mention', value, userId })
     else out.push({ kind: 'mention', value, username })

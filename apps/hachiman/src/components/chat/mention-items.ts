@@ -1,11 +1,15 @@
 import { useMemo } from 'react'
-import type { Channel, Member, Role, User } from '@hachiman/client'
+import type { Channel, GuildEmoji, Member, Role, User } from '@hachiman/client'
 import { pageHref } from '@/components/docs/page-links'
+import { useEmojiData } from '@/hooks/use-emoji-data'
 import { useGuildChannels } from '@/hooks/use-hachiman'
+import { customEmojiText } from '@/lib/custom-emoji'
+import { searchEmoji, withSkin } from '@/lib/emoji-data'
 import { rankItems, type RoleInsert, type Trigger } from '@/lib/mention-complete'
 import { pageTitle } from '@/services/docs/page-tree'
 import { useDocsStore, type PageNode } from '@/stores/docsStore'
 import { useGuildStore } from '@/stores/guildStore'
+import { usePrefsStore } from '@/stores/prefsStore'
 import { useUserStore } from '@/stores/userStore'
 
 export type MentionItem =
@@ -14,8 +18,11 @@ export type MentionItem =
   | { kind: 'everyone'; id: 'everyone' }
   | { kind: 'channel'; id: string; channel: Channel }
   | { kind: 'page'; id: string; page: PageNode; channelName: string }
+  /** A Unicode emoji (`id` is the emoji in the chosen skin tone) and its main shortcode. */
+  | { kind: 'emoji'; id: string; code: string }
+  | { kind: 'custom-emoji'; id: string; emoji: GuildEmoji }
 
-/** What a picked item puts into the text, and for a role its wire form for the send. */
+/** What a picked item puts into the text, and for a role or custom emoji its wire form for the send. */
 export function insertFor(item: MentionItem): { insert: string; role?: RoleInsert } {
   switch (item.kind) {
     case 'user':
@@ -32,6 +39,13 @@ export function insertFor(item: MentionItem): { insert: string; role?: RoleInser
     case 'page':
       // A page link in a message shows as the page card (page-cards.tsx).
       return { insert: `[${pageTitle(item.page)}](${pageHref(item.id)})` }
+    case 'emoji':
+      return { insert: item.id }
+    case 'custom-emoji':
+      return {
+        insert: `:${item.emoji.name}:`,
+        role: { display: `:${item.emoji.name}:`, wire: customEmojiText(item.emoji) }
+      }
   }
 }
 
@@ -52,10 +66,30 @@ export function useMentionItems(channel: Channel, trigger: Trigger | null): Ment
   const me = useUserStore((s) => s.me)
   const channels = useGuildChannels(guildId)
   const pagesByChannel = useDocsStore((s) => s.pagesByChannel)
+  const guildEmojis = useGuildStore((s) => s.emojis)
+  const skinTone = usePrefsStore((s) => s.skinTone)
+  const emojiData = useEmojiData(trigger?.char === ':')
 
   return useMemo(() => {
     if (!trigger) return NO_ITEMS
     const { char, query } = trigger
+    if (char === ':') {
+      const q = query.toLowerCase()
+      // The guild of the channel first, then the other guilds.
+      const custom = [...guildEmojis.entries()]
+        .sort(([a], [b]) => (a === guildId ? -1 : b === guildId ? 1 : 0))
+        .flatMap(([, list]) => list)
+        .filter((e) => e.name.includes(q))
+        .sort((a, b) => Number(!a.name.startsWith(q)) - Number(!b.name.startsWith(q)))
+        .slice(0, 5)
+        .map((e): MentionItem => ({ kind: 'custom-emoji', id: e.id, emoji: e }))
+      const unicode = emojiData
+        ? searchEmoji(emojiData, q, 10 - custom.length).map(
+            (e): MentionItem => ({ kind: 'emoji', id: withSkin(e, skinTone), code: e.shortcodes[0] ?? e.label })
+          )
+        : []
+      return [...custom, ...unicode]
+    }
     if (char === '@') {
       const users: MentionItem[] = guildId
         ? [...members.values()].map((m) => ({
@@ -110,5 +144,17 @@ export function useMentionItems(channel: Channel, trigger: Trigger | null): Ment
     return rankItems([...chans, ...pages], query, (i) =>
       i.kind === 'channel' ? [i.channel.name] : i.kind === 'page' ? [pageTitle(i.page)] : []
     )
-  }, [trigger, guildId, members, roles, me, channel.recipients, channels, pagesByChannel])
+  }, [
+    trigger,
+    guildId,
+    members,
+    roles,
+    me,
+    channel.recipients,
+    channels,
+    pagesByChannel,
+    guildEmojis,
+    skinTone,
+    emojiData
+  ])
 }

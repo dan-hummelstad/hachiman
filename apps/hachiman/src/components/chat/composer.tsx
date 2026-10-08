@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
-import { CircleAlert, ImagePlus, Lock, Plus, X } from 'lucide-react'
+import { CircleAlert, ImagePlus, Lock, Plus, Smile, X } from 'lucide-react'
 import type { Channel } from '@hachiman/client'
 import type { AttachmentPointer } from '@hachiman/crypto'
 import { IconButton } from '@/components/ui/icon-button'
+import { customEmojiText } from '@/lib/custom-emoji'
+import { emojiDataNow, replaceShortcodes } from '@/lib/emoji-data'
 import {
   applyCompletion,
   findTrigger,
@@ -11,9 +13,11 @@ import {
   type Trigger
 } from '@/lib/mention-complete'
 import { cn } from '@/lib/utils'
+import { usePrefsStore } from '@/stores/prefsStore'
 import { UploadTray } from './attachments/upload-tray'
 import type { Uploads } from './attachments/use-uploads'
 import { insertFor, useMentionItems, type MentionItem } from './mention-items'
+import { EmojiPicker, reactionKeyOf, type EmojiPick } from './emoji-picker'
 import { MentionMenu } from './mention-menu'
 import { submitOnEnter } from './submit-on-enter'
 
@@ -47,11 +51,13 @@ const TOOL = 'text-text-tertiary hover:bg-surface-hover hover:text-text-primary 
 /**
  * Rounded input bar on the raised surface: "+" on the left, the E2EE chip and the image button on
  * the right. Enter sends, Shift+Enter adds a newline, grows to about 8 lines. Pending attachments
- * sit in a tray above the text; sending waits until they all finished uploading. The emoji and
- * sticker buttons of the mocks have no feature yet and are not rendered.
+ * sit in a tray above the text; sending waits until they all finished uploading. The smiley opens
+ * the emoji picker. The sticker button of the mocks has no feature yet and is not rendered.
  *
- * `@` and `#` open suggestions (mention-menu.tsx): members, roles, @everyone, channels, pages.
- * A picked role shows as `@Name` and is sent as `<@&roleId>` (lib/mention-complete `toWire`).
+ * `@`, `#` and `:` open suggestions (mention-menu.tsx): members, roles, @everyone, channels, pages
+ * and emojis. A picked role shows as `@Name` and is sent as `<@&roleId>`, a picked custom emoji
+ * shows as `:name:` and is sent as `<:name:id>` (lib/mention-complete `toWire`). A typed
+ * `:shortcode:` of a Unicode emoji is sent as the emoji.
  */
 export function Composer({
   channel,
@@ -72,7 +78,10 @@ export function Composer({
   const input = useRef<HTMLTextAreaElement>(null)
   const [trigger, setTrigger] = useState<Trigger | null>(null)
   const [active, setActive] = useState(0)
+  /** Picked roles and custom emojis: their display forms become wire forms on send. */
   const pickedRoles = useRef<RoleInsert[]>([])
+  const [emojiOpen, setEmojiOpen] = useState(false)
+  const addRecentEmoji = usePrefsStore((s) => s.addRecentEmoji)
   const items = useMentionItems(channel, trigger)
   const menuOpen = items.length > 0
   const replying = reply !== undefined
@@ -99,7 +108,9 @@ export function Composer({
     if (uploads.busy) return uploads.setNotices(['Wait for the uploads to finish, then send.'])
     if (uploads.failed) return uploads.setNotices(['Remove the failed uploads to send.'])
     if (!text.trim() && uploads.items.length === 0) return
-    onSend(toWire(text, pickedRoles.current), uploads.take())
+    const wire = toWire(text, pickedRoles.current)
+    const data = emojiDataNow()
+    onSend(data ? replaceShortcodes(wire, data) : wire, uploads.take())
     setText('')
     setTrigger(null)
     pickedRoles.current = []
@@ -119,9 +130,32 @@ export function Composer({
     const { insert, role } = insertFor(item)
     const done = applyCompletion(text, trigger, insert)
     if (role) pickedRoles.current = [...pickedRoles.current, role]
+    if (item.kind === 'emoji') addRecentEmoji(item.id)
+    else if (item.kind === 'custom-emoji')
+      addRecentEmoji(reactionKeyOf({ kind: 'custom', emoji: item.emoji }))
     setText(done.text)
     setTrigger(null)
     requestAnimationFrame(() => input.current?.setSelectionRange(done.caret, done.caret))
+  }
+
+  /** Puts a picked emoji at the caret (or over the selection), with a space after it. */
+  const insertEmoji = (pick: EmojiPick): void => {
+    const el = input.current
+    const from = el?.selectionStart ?? text.length
+    const to = el?.selectionEnd ?? from
+    let insert: string = pick.kind === 'unicode' ? pick.emoji : `:${pick.emoji.name}:`
+    if (pick.kind === 'custom') {
+      pickedRoles.current = [...pickedRoles.current, { display: insert, wire: customEmojiText(pick.emoji) }]
+    }
+    const before = text.slice(0, from)
+    const pad = before && !/\s$/.test(before) ? ' ' : ''
+    insert = `${pad}${insert} `
+    const caret = from + insert.length
+    setText(`${before}${insert}${text.slice(to)}`)
+    requestAnimationFrame(() => {
+      input.current?.focus()
+      input.current?.setSelectionRange(caret, caret)
+    })
   }
 
   /** The menu's keys: arrows move, Enter or Tab picks, Escape closes. True when handled. */
@@ -260,6 +294,23 @@ export function Composer({
             <Lock className="size-3" aria-hidden />
             E2EE
           </span>
+          {!paused && (
+            <EmojiPicker
+              open={emojiOpen}
+              onOpenChange={setEmojiOpen}
+              guildId={channel.guildId}
+              onPick={insertEmoji}
+            >
+              <IconButton
+                label="Emoji"
+                className={TOOL}
+                pressed={emojiOpen}
+                onClick={() => setEmojiOpen((v) => !v)}
+              >
+                <Smile className="size-[18px]" />
+              </IconButton>
+            </EmojiPicker>
+          )}
           {attach && (
             <>
               <IconButton

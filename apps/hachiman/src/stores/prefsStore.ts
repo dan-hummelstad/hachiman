@@ -83,6 +83,10 @@ interface PrefsState {
   globalKeybinds: boolean
   /** Width in px of the right column while it shows a page (the user drags its edge). */
   pageColumnWidth: number
+  /** The emoji picker's recently used emojis, newest first: Unicode emojis and custom `name:id` keys. */
+  recentEmojis: string[]
+  /** The picker's skin tone: 0 the default, 1 to 5 light to dark. */
+  skinTone: number
   /** userId → that account's preferences. */
   accounts: Record<string, AccountPrefs>
   /** The signed-in user id. Not persisted: services/hachiman.ts sets it. */
@@ -110,6 +114,9 @@ interface PrefsState {
   setGlobalKeybinds: (globalKeybinds: boolean) => void
   setPageColumnWidth: (pageColumnWidth: number) => void
   setAccountId: (accountId: string | null) => void
+  /** Moves `key` to the front of `recentEmojis`. */
+  addRecentEmoji: (key: string) => void
+  setSkinTone: (skinTone: number) => void
   setFavouriteDm: (channelId: string, favourite: boolean) => void
   /** Reorders the favourite tiles. */
   moveFavouriteDm: (from: number, to: number) => void
@@ -121,6 +128,8 @@ interface PrefsState {
 }
 
 const NO_TABS: TabTarget[] = []
+/** The picker keeps this many recently used emojis. */
+export const MAX_RECENT_EMOJIS = 30
 
 /** The preferences of the signed-in account (a stable empty object when none). */
 export const accountPrefs = (s: Pick<PrefsState, 'accounts' | 'accountId'>): AccountPrefs =>
@@ -149,6 +158,8 @@ export const usePrefsStore = create<PrefsState>()(
         voiceInputMode: 'voiceActivity',
         globalKeybinds: true,
         pageColumnWidth: 540,
+        recentEmojis: [],
+        skinTone: 0,
         accounts: {},
         accountId: null,
         setTheme: (theme) => set({ theme }),
@@ -191,6 +202,11 @@ export const usePrefsStore = create<PrefsState>()(
         setGlobalKeybinds: (globalKeybinds) => set({ globalKeybinds }),
         setPageColumnWidth: (pageColumnWidth) => set({ pageColumnWidth }),
         setAccountId: (accountId) => set({ accountId }),
+        addRecentEmoji: (key) =>
+          set((s) => ({
+            recentEmojis: [key, ...s.recentEmojis.filter((k) => k !== key)].slice(0, MAX_RECENT_EMOJIS)
+          })),
+        setSkinTone: (skinTone) => set({ skinTone }),
         setFavouriteDm: (channelId, favourite) =>
           set((s) =>
             updateAccount(s, (a) => {

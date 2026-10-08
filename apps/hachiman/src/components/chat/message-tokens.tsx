@@ -5,8 +5,9 @@ import { cn } from '@/lib/utils'
 import { useGuildStore } from '@/stores/guildStore'
 import { useUserStore } from '@/stores/userStore'
 import { TextWithChannelRefs } from './channel-ref'
+import { InlineCustomEmoji } from './emoji'
 
-/** The tokens of a message text: text with channel refs, links and mentions (lib/mentions). */
+/** The tokens of a message text: text with channel refs, links, mentions and custom emojis (lib/mentions). */
 export function MessageTokens({
   tokens,
   guildId
@@ -29,6 +30,8 @@ export function MessageTokens({
           >
             {t.value}
           </a>
+        ) : t.kind === 'emoji' ? (
+          <InlineCustomEmoji key={i} id={t.id} name={t.name} />
         ) : 'roleId' in t ? (
           <RoleMention key={i} roleId={t.roleId} raw={t.value} guildId={guildId} />
         ) : (
