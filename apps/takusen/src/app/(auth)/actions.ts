@@ -90,10 +90,6 @@ function safeNextPath(value: FormDataEntryValue | null): string {
   return safeNext(value) ?? '/dashboard'
 }
 
-// ---------------------------------------------------------------------------
-// signupAction — create a new user + immediately sign them in, then redirect
-// to `next` (or /dashboard).
-// ---------------------------------------------------------------------------
 export async function signupAction(
   _prev: FormActionResult | undefined,
   formData: FormData,
