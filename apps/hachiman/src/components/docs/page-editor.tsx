@@ -67,6 +67,12 @@ export function PageEditor({
       root,
       features: { [Crepe.Feature.ImageBlock]: false, [Crepe.Feature.TopBar]: false },
       featureConfigs: {
+        // Crepe's default CodeMirror theme is oneDark: light grey text (#abb2bf) that, on the
+        // light theme, sits on our light code surface and reads as disabled. null keeps it out
+        // (Crepe fills only undefined options), so code and LaTeX source use the page ink.
+        [Crepe.Feature.CodeMirror]: document.documentElement.classList.contains('dark')
+          ? {}
+          : { theme: null as never },
         [Crepe.Feature.Placeholder]: { text: 'Type / for blocks and page links', mode: 'block' },
         [Crepe.Feature.BlockEdit]: {
           advancedGroup: { image: null },
