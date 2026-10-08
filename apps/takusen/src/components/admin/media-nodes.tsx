@@ -11,24 +11,22 @@ import { Button } from '@/components/ui/button'
 import { Panel, PanelHeader } from '@/components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { cn } from '@/lib/utils'
+import { adminFetch, errorText, setNodeDrain, useAdminData } from '@/components/admin/data'
+import { Meter } from '@/components/ui/meter'
+import { PageHead } from '@/components/dashboard-shell'
+import { formatDateTime, formatRelative } from '@/lib/format'
 import {
-  adminFetch,
-  errorText,
   FilterChips,
-  formatDateTime,
-  formatRelative,
   ListFrame,
   matchesQuery,
-  Meter,
-  PageHead,
   QueryChip,
   RowMenu,
-  useAdminData,
+  useFilterParam,
   useSearchParamState,
   type RowMenuItem,
 } from './kit'
 
-type Filter = 'all' | 'healthy' | 'attention'
+const FILTERS = ['all', 'healthy', 'attention'] as const
 
 /** Heartbeats are a few seconds apart; refresh so "3 s ago" and Stale stay true. */
 const REFRESH_MS = 10_000
@@ -74,7 +72,7 @@ function LoadCell({
 export function AdminMediaNodesView(): React.JSX.Element {
   const { data, error, reload } = useAdminData<AdminMediaNode[]>('/media-nodes')
   const [query] = useSearchParamState('query')
-  const [filter, setFilter] = useState<Filter>('all')
+  const [filter, setFilter] = useFilterParam(FILTERS)
   const [now, setNow] = useState(() => Date.now())
   const router = useRouter()
 
@@ -94,10 +92,7 @@ export function AdminMediaNodesView(): React.JSX.Element {
 
   const setDrain = async (n: AdminMediaNode, drain: boolean): Promise<void> => {
     try {
-      await adminFetch(nodePath(n), {
-        method: 'PATCH',
-        body: JSON.stringify({ status: drain ? 'draining' : 'active' }),
-      })
+      await setNodeDrain(n.nodeId, drain)
       reload()
       toast.success(
         drain ? `${n.nodeId} is draining. Calls on it continue until they end.` : `${n.nodeId} takes new calls again.`,

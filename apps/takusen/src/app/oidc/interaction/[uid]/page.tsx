@@ -23,12 +23,13 @@ import {
 
 import { AuthCard, AuthScreen } from '@/components/auth-frame'
 import { HandoffRail } from '@/components/handoff-rail'
-import { AccountChip, SwitchAccountButton, UserAvatar, type SsoAccount } from '@/components/sso-account'
+import { AccountChip, SwitchAccountButton, type SsoAccount } from '@/components/sso-account'
+import { EntityAvatar } from '@/components/ui/avatar'
 import { TakusenMark } from '@/components/takusen-logo'
 import { Tag } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { auth } from '@/auth'
-import { getAccountSummary } from '@/lib/account'
+import { getViewer } from '@/lib/account'
 import { consentRequest } from '@/lib/oidc-consent'
 import { getInteraction } from '@/lib/oidc-interaction'
 
@@ -99,10 +100,11 @@ export default async function InteractionPage({ params }: PageProps) {
   }
 
   const request = consentRequest(interaction)
-  const [clientInfo, summary] = await Promise.all([
+  const [clientInfo, viewer] = await Promise.all([
     request.clientId ? describeClient(request.clientId) : null,
-    getAccountSummary(session.user.id),
+    getViewer(session),
   ])
+  if (!viewer) redirect(`/login?next=${encodeURIComponent(here)}`)
   const clientName = clientInfo?.name ?? (request.clientId || 'An unknown application')
 
   // Bind the server actions to this interaction's uid so the form can call
@@ -110,11 +112,7 @@ export default async function InteractionPage({ params }: PageProps) {
   const accept = acceptInteractionAction.bind(null, uid)
   const deny = denyInteractionAction.bind(null, uid)
 
-  const account: SsoAccount = {
-    name: session.user.name ?? '',
-    email: session.user.email ?? '',
-    avatarUrl: summary?.avatarUrl ?? null,
-  }
+  const account: SsoAccount = { name: viewer.displayName, email: viewer.email, avatarUrl: viewer.avatarUrl }
   const accountLabel = account.name || account.email
   const isLogin = request.prompt === 'login'
 
@@ -196,7 +194,7 @@ export default async function InteractionPage({ params }: PageProps) {
         </div>
 
         <div className="flex items-center gap-3 border border-line-hairline bg-surface-raised p-3">
-          <UserAvatar account={account} size={40} />
+          <EntityAvatar src={account.avatarUrl} name={account.name} email={account.email} size={40} tone="hachiman" />
           <div className="flex min-w-0 flex-1 flex-col gap-0.5">
             <span className="truncate text-[15px] leading-5 font-extrabold">{accountLabel}</span>
             {account.name && (

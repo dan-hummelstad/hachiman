@@ -31,7 +31,9 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import type { RegionStatus } from '@/lib/regions'
+import type { HachimanLinks } from '@/lib/deployment'
+import { plural } from '@/lib/format'
+import type { RegionStatus } from '@/lib/region-status'
 import { cn } from '@/lib/utils'
 
 // ---------------------------------------------------------------------------
@@ -344,7 +346,7 @@ function RegionCell({ region }: { region: RegionStatus }): React.JSX.Element {
           {live > 0 ? 'Online' : 'Offline'}
         </span>
         <span className="pb-0.5 text-[13px] leading-4 font-medium text-text-tertiary max-sm:hidden sm:pb-1.5">
-          {live > 0 ? `${live} voice ${live === 1 ? 'node' : 'nodes'}` : 'no voice nodes'}
+          {live > 0 ? plural(live, 'voice node') : 'no voice nodes'}
         </span>
       </span>
     </li>
@@ -384,7 +386,7 @@ export function Regions({ regions }: { regions: RegionStatus[] | null }): React.
 // ---------------------------------------------------------------------------
 
 /** The two desktop builds (contract §4 Desktop updates): Takusen redirects to the newest zip. */
-function DownloadButton(): React.JSX.Element {
+function DownloadButton({ download }: { download: HachimanLinks['download'] }): React.JSX.Element {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -396,19 +398,23 @@ function DownloadButton(): React.JSX.Element {
       <DropdownMenuContent align="end" className="min-w-48">
         {/* Plain links: the routes answer with a redirect to the zip, not with a page. */}
         <DropdownMenuItem asChild>
-          {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
-          <a href="/api/desktop-update/macos/download">macOS</a>
+          <a href={download.macos}>macOS</a>
         </DropdownMenuItem>
         <DropdownMenuItem asChild>
-          {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
-          <a href="/api/desktop-update/windows/download">Windows</a>
+          <a href={download.windows}>Windows</a>
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   )
 }
 
-export function BringYourGuild({ signedIn }: { signedIn: boolean }): React.JSX.Element {
+export function BringYourGuild({
+  signedIn,
+  download,
+}: {
+  signedIn: boolean
+  download: HachimanLinks['download']
+}): React.JSX.Element {
   return (
     <section id="download" aria-labelledby="cta-title" className="scroll-mt-4">
       <Container className="pt-2 pb-9 sm:pt-0 sm:pb-24">
@@ -438,7 +444,7 @@ export function BringYourGuild({ signedIn }: { signedIn: boolean }): React.JSX.E
                 {signedIn ? 'Open dashboard' : 'Create an account'}
               </Link>
             </Button>
-            <DownloadButton />
+            <DownloadButton download={download} />
           </div>
         </div>
       </Container>

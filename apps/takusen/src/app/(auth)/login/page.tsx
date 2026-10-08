@@ -1,6 +1,7 @@
 import { AuthFooterLink, AuthScreen } from '@/components/auth-frame'
+import { safeNext } from '@/lib/safe-next'
 
-import { AppRail, firstParam, fromApp, safeNext, withNext, type SearchParam } from '../handoff'
+import { AppRail, firstParam, fromApp, withNext, type SearchParam } from '../handoff'
 import { LoginForm } from './login-form'
 
 export const metadata = {

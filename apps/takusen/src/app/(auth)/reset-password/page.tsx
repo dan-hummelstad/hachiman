@@ -4,9 +4,10 @@ import Link from 'next/link'
 import { AuthCard, AuthScreen } from '@/components/auth-frame'
 import { Button } from '@/components/ui/button'
 import { hashResetToken, resetTokenEmail } from '@/lib/password-reset'
+import { safeNext } from '@/lib/safe-next'
 
 import { IconTile } from '../auth-parts'
-import { firstParam, safeNext, withNext, type SearchParam } from '../handoff'
+import { firstParam, withNext, type SearchParam } from '../handoff'
 import { ResetPasswordForm } from './reset-password-form'
 
 export const metadata = {

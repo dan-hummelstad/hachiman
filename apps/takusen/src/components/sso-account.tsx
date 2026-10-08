@@ -4,8 +4,7 @@ import { ArrowLeftRightIcon, ChevronDownIcon, LogOutIcon, UserRoundIcon } from '
 import Link from 'next/link'
 import { signOut } from 'next-auth/react'
 
-import { initialsFor } from '@/components/initials'
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
+import { EntityAvatar } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -14,36 +13,12 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { cn } from '@/lib/utils'
 
 /** The signed-in Takusen account on an SSO page (consent, invite). */
 export interface SsoAccount {
   name: string
   email: string
   avatarUrl: string | null
-}
-
-/** Round avatar: the uploaded image, else initials. `size` is the side in px. */
-export function UserAvatar({
-  account,
-  size,
-  className,
-}: {
-  account: Pick<SsoAccount, 'name' | 'email' | 'avatarUrl'>
-  size: number
-  className?: string
-}): React.JSX.Element {
-  return (
-    <Avatar className={cn('rounded-full', className)} style={{ width: size, height: size }}>
-      {account.avatarUrl && <AvatarImage src={account.avatarUrl} alt="" />}
-      <AvatarFallback
-        className="bg-accent-tint font-extrabold text-accent-text"
-        style={{ fontSize: Math.max(9, Math.round(size * 0.38)) }}
-      >
-        {initialsFor(account.name, account.email)}
-      </AvatarFallback>
-    </Avatar>
-  )
 }
 
 /** Top bar account chip of a signed-in SSO page: avatar and name; the menu opens the account or signs out. */
@@ -57,7 +32,14 @@ export function AccountChip({ account }: { account: SsoAccount }): React.JSX.Ele
           aria-label={`Account: ${label}`}
           className="flex h-[38px] items-center gap-2 rounded-pill border border-line-hairline bg-surface-hover pr-3 pl-[5px] text-sm font-extrabold text-text-primary transition-colors hover:bg-surface-raised focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring max-sm:size-[38px] max-sm:border-0 max-sm:bg-transparent max-sm:p-0"
         >
-          <UserAvatar account={account} size={28} className="max-sm:size-8!" />
+          <EntityAvatar
+            src={account.avatarUrl}
+            name={account.name}
+            email={account.email}
+            size={28}
+            tone="hachiman"
+            className="max-sm:size-8!"
+          />
           <span className="max-w-40 truncate max-sm:hidden">{label}</span>
           <ChevronDownIcon aria-hidden className="size-[15px] text-text-tertiary max-sm:hidden" />
         </button>

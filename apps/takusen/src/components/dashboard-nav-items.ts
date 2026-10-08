@@ -102,8 +102,6 @@ export const NAV_GROUPS: NavGroup[] = [
   },
 ]
 
-export const ADMIN_GROUP = NAV_GROUPS.find((g) => g.adminOnly)!
-
 export function navGroup(section: NavSection): NavGroup {
   return NAV_GROUPS.find((g) => g.section === section)!
 }

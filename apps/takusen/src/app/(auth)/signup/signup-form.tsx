@@ -10,9 +10,10 @@ import { Button } from '@/components/ui/button'
 import { Field } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { PasswordInput } from '@/components/ui/password-input'
+import { PasswordMeter } from '@/components/ui/password-meter'
 
 import { signupAction, type FormActionResult } from '../actions'
-import { FormError, PasswordMeter } from '../auth-parts'
+import { FormError } from '../auth-parts'
 import { PASSWORD_MIN_LENGTH } from '@/lib/password-strength'
 
 function SubmitButton(): React.JSX.Element {

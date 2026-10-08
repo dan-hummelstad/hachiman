@@ -7,11 +7,12 @@ import { useFormStatus } from 'react-dom'
 
 import { PROFILE_IMAGE_TYPES } from '@hachiman/client/files'
 
-import { UserAvatar } from '@/components/account/user-avatar'
+import { EntityAvatar } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import { Panel, PanelFooter, PanelHeader } from '@/components/ui/card'
 import { Field } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
+import { apiFetch } from '@/lib/api-fetch'
 
 import { updateDisplayNameAction, type AccountActionResult } from './actions'
 
@@ -24,33 +25,22 @@ function SaveButton(): React.JSX.Element {
   )
 }
 
-async function apiError(res: Response): Promise<string> {
-  const body = (await res.json().catch(() => null)) as { message?: string; error?: string } | null
-  return body?.message ?? body?.error ?? `Request failed (${res.status})`
-}
-
 /**
  * The avatar goes through the public REST API (contract §4: upload, then PATCH
  * /users/@me), which accepts the dashboard cookie. It saves at once, apart from
  * the display name form.
  */
 async function setAvatar(file: File | null): Promise<void> {
-  let avatar: string | null = null
-  if (file) {
-    const up = await fetch(`/api/v1/uploads?filename=${encodeURIComponent(file.name)}`, {
-      method: 'POST',
-      headers: { 'content-type': file.type },
-      body: file,
-    })
-    if (!up.ok) throw new Error(await apiError(up))
-    avatar = ((await up.json()) as { id: string }).id
-  }
-  const res = await fetch('/api/v1/users/@me', {
-    method: 'PATCH',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ avatar }),
-  })
-  if (!res.ok) throw new Error(await apiError(res))
+  const avatar = file
+    ? (
+        await apiFetch<{ id: string }>('/api/v1', `/uploads?filename=${encodeURIComponent(file.name)}`, {
+          method: 'POST',
+          headers: { 'content-type': file.type },
+          body: file,
+        })
+      ).id
+    : null
+  await apiFetch('/api/v1', '/users/@me', { method: 'PATCH', body: JSON.stringify({ avatar }) })
 }
 
 function AvatarRow({
@@ -81,7 +71,7 @@ function AvatarRow({
 
   return (
     <div className="flex flex-wrap items-center gap-3.5">
-      <UserAvatar name={name} email={email} src={avatarUrl} size={60} />
+      <EntityAvatar src={avatarUrl} name={name} email={email} size={60} tone="gold" />
       <div className="flex min-w-[180px] flex-1 flex-col gap-[3px]">
         <span className="text-sm leading-[18px] font-extrabold">Avatar</span>
         {error ? (

@@ -15,7 +15,7 @@ import {
   encodeCursor,
   likePattern,
   parseListQuery,
-  regionLoad,
+  nodesByRegion,
   summarizeMediaNodes,
   toAdminMediaNode,
   toPage,
@@ -129,17 +129,18 @@ test('summary counts fresh nodes by status and stale ones apart', () => {
   })
 })
 
-test('region load: table regions first, then node-only regions; stale nodes add no load', () => {
+test('nodes by region: table regions first, then node-only regions; stale nodes add no load', () => {
   const nodes = [
     { ...node('a', 'active', 1_000, 5), region: 'eu-west' },
     { ...node('b', 'draining', 1_000, 2), region: 'eu-west' },
     { ...node('c', 'active', 60_000, 9), region: 'eu-west' },
     { ...node('d', 'active', 1_000, 1), region: 'zz-lab' },
   ].map((n) => toAdminMediaNode(n, NOW, 30_000))
-  assert.deepEqual(regionLoad(nodes, ['us-east', 'eu-west']), [
-    { region: 'us-east', sessions: 0, capacity: 0, nodes: 0, stale: 0, draining: 0 },
-    { region: 'eu-west', sessions: 7, capacity: 100, nodes: 3, stale: 1, draining: 1 },
-    { region: 'zz-lab', sessions: 1, capacity: 100, nodes: 1, stale: 0, draining: 0 },
+  const none = { total: 0, active: 0, draining: 0, stale: 0, sessions: 0, capacity: 0 }
+  assert.deepEqual(nodesByRegion(nodes, ['us-east', 'eu-west']), [
+    { region: 'us-east', nodes: none },
+    { region: 'eu-west', nodes: { total: 3, active: 1, draining: 1, stale: 1, sessions: 7, capacity: 100 } },
+    { region: 'zz-lab', nodes: { total: 1, active: 1, draining: 0, stale: 0, sessions: 1, capacity: 100 } },
   ])
 })
 

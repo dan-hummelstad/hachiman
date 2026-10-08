@@ -4,6 +4,8 @@
  * The pure parts are in account-sessions.ts.
  */
 import { and, count, eq, inArray, sql } from 'drizzle-orm'
+import type { Session } from 'next-auth'
+import { cache } from 'react'
 
 import { db } from '@/db/client'
 import { devices, guildMembers, oidcAdapterPayloads, users } from '@/db/schema'
@@ -15,6 +17,7 @@ import {
   type GrantRow,
   type HachimanSession,
 } from '@/lib/account-sessions'
+import { getOptionalUser } from '@/lib/auth-helpers'
 import { redis } from '@/lib/events'
 import { fileUrl } from '@/lib/file-url'
 import { redisDeviceBindings } from '@/lib/mls/device-binding'
@@ -39,8 +42,8 @@ export interface AccountSummary {
   hachiman: HachimanState
 }
 
-/** Null when the user does not exist. */
-export async function getAccountSummary(userId: string): Promise<AccountSummary | null> {
+/** Null when the user does not exist. Cached per request: the layout and the page both read it. */
+export const getAccountSummary = cache(async (userId: string): Promise<AccountSummary | null> => {
   const [[row], [guildsRow], [grantsRow], [devicesRow]] = await Promise.all([
     db.select().from(users).where(eq(users.id, userId)).limit(1),
     db.select({ n: count() }).from(guildMembers).where(eq(guildMembers.userId, userId)),
@@ -60,6 +63,15 @@ export async function getAccountSummary(userId: string): Promise<AccountSummary 
     guildCount: guildsRow?.n ?? 0,
     hachiman: (grantsRow?.n ?? 0) > 0 ? 'signed_in' : (devicesRow?.n ?? 0) > 0 ? 'signed_out' : 'never',
   }
+})
+
+/**
+ * The signed-in user's account: what every page shows as "you". Null when signed out or when
+ * the account no longer exists. `session` defaults to the cookie or bearer session.
+ */
+export async function getViewer(session?: Session | null): Promise<AccountSummary | null> {
+  const s = session === undefined ? await getOptionalUser() : session
+  return s?.user?.id ? await getAccountSummary(s.user.id) : null
 }
 
 async function liveGrants(userId: string): Promise<GrantRow[]> {

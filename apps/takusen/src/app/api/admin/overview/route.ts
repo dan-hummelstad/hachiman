@@ -9,8 +9,8 @@ import pkg from '../../../../../package.json'
 import { db } from '@/db/client'
 import { mediaNodes, messages, uploads } from '@/db/schema'
 import { HEARTBEAT_STALE_AFTER_MS } from '@/grpc/repo'
-import { regionLoad, summarizeMediaNodes, toAdminMediaNode, type AdminOverview } from '@/lib/admin'
-import { getAdminCounts } from '@/lib/admin-stats'
+import { nodesByRegion, summarizeMediaNodes, toAdminMediaNode, type AdminOverview } from '@/lib/admin'
+import { adminCounts } from '@/lib/admin-stats'
 import { adminRoute } from '@/lib/api-helpers'
 import { redis } from '@/lib/events'
 import { getLimits } from '@/lib/files'
@@ -29,7 +29,7 @@ async function countOnlineUsers(): Promise<number> {
 
 export const GET = adminRoute(async () => {
   const [counts, [m], [up], nodes, regionRows, onlineUsers] = await Promise.all([
-    getAdminCounts(),
+    adminCounts(),
     db.select({ n: count() }).from(messages),
     db
       .select({ n: count(), bytes: sql<string>`coalesce(sum(${uploads.size}), 0)::text` })
@@ -48,7 +48,7 @@ export const GET = adminRoute(async () => {
       uploadBytes: Number(up?.bytes ?? 0),
     },
     mediaNodes: summarizeMediaNodes(adminNodes),
-    regionLoad: regionLoad(adminNodes, regionRows.map((r) => r.code)),
+    regionLoad: nodesByRegion(adminNodes, regionRows.map((r) => r.code)),
     onlineUsers,
     server: {
       version: pkg.version,

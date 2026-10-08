@@ -29,6 +29,8 @@ declare module 'next-auth' {
       id: string
       role: 'user' | 'admin'
     } & DefaultSession['user']
+    /** Only in `unstable_update(RENEW_AUTH_TIME)`; never on a session read. */
+    renewAuthTime?: true
   }
   interface User {
     role?: 'user' | 'admin'
@@ -40,8 +42,12 @@ declare module 'next-auth' {
 // so the rest of the module doesn't depend on the (transitively-installed)
 // `@auth/core` package's module identity.
 
-/** `unstable_update(RENEW_AUTH_TIME)` gives the current cookie a new `authTime` (session-revocation.ts `revokeOtherSessions`). */
-export const RENEW_AUTH_TIME = { renewAuthTime: true }
+/**
+ * `unstable_update(RENEW_AUTH_TIME)` gives the current cookie a new `authTime`: "Sign out
+ * everywhere else" (dashboard/actions.ts) calls it, then session-revocation.ts
+ * `revokeUserSessionsBefore`.
+ */
+export const RENEW_AUTH_TIME = { renewAuthTime: true } as const
 
 export const { handlers, auth, signIn, signOut, unstable_update } = NextAuth({
   adapter: DrizzleAdapter(db, {

@@ -1,8 +1,9 @@
 /**
- * Wrong current passwords on the account page (Redis
- * `takusen:password_attempts:{userId}`, contract §5). After
- * `PASSWORD_ATTEMPTS_MAX` misses in a row, the form pauses for the rest of the
- * window. The window starts at the first miss. A correct password clears it.
+ * Current-password checks on the account page (Redis
+ * `takusen:password_attempts:{userId}`, contract §5). Each check reserves an
+ * attempt before the password is verified. After `PASSWORD_ATTEMPTS_MAX`
+ * checks without a correct password, the form pauses for the rest of the
+ * window. The window starts at the first check. A correct password clears it.
  */
 import type { Redis } from 'ioredis'
 
@@ -14,10 +15,8 @@ export function passwordAttemptsKey(userId: string): string {
 }
 
 export interface AttemptStore {
-  /** Misses so far and the seconds until the window ends (0 when there is none). */
-  read(userId: string): Promise<{ misses: number; ttlSeconds: number }>
-  /** Counts one miss. Returns the misses and the seconds left in the window. */
-  miss(userId: string): Promise<{ misses: number; ttlSeconds: number }>
+  /** Counts one check. Returns the checks so far and the seconds left in the window. */
+  reserve(userId: string): Promise<{ misses: number; ttlSeconds: number }>
   clear(userId: string): Promise<void>
 }
 
@@ -30,21 +29,16 @@ export function attemptState(misses: number, ttlSeconds: number): AttemptState {
   return { paused: false, attemptsLeft: PASSWORD_ATTEMPTS_MAX - misses }
 }
 
-const MISS = `
+const RESERVE = `
 local n = redis.call('INCR', KEYS[1])
 if n == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]) end
 return {n, redis.call('TTL', KEYS[1])}`
 
 export function redisAttemptStore(client: Redis): AttemptStore {
   return {
-    async read(userId) {
-      const key = passwordAttemptsKey(userId)
-      const [misses, ttl] = await Promise.all([client.get(key), client.ttl(key)])
-      return { misses: Number(misses ?? 0), ttlSeconds: Math.max(0, ttl) }
-    },
-    async miss(userId) {
+    async reserve(userId) {
       const [misses, ttl] = (await client.eval(
-        MISS,
+        RESERVE,
         1,
         passwordAttemptsKey(userId),
         PASSWORD_ATTEMPTS_WINDOW_SECONDS,
@@ -70,17 +64,11 @@ export class InMemoryAttemptStore implements AttemptStore {
     }
     return row
   }
-  async read(userId: string) {
-    const row = this.live(userId)
-    return row
-      ? { misses: row.misses, ttlSeconds: Math.ceil((row.endsAt - this.now()) / 1000) }
-      : { misses: 0, ttlSeconds: 0 }
-  }
-  async miss(userId: string) {
+  async reserve(userId: string) {
     const row = this.live(userId) ?? { misses: 0, endsAt: this.now() + PASSWORD_ATTEMPTS_WINDOW_SECONDS * 1000 }
     row.misses++
     this.rows.set(userId, row)
-    return this.read(userId)
+    return { misses: row.misses, ttlSeconds: Math.ceil((row.endsAt - this.now()) / 1000) }
   }
   async clear(userId: string) {
     this.rows.delete(userId)
@@ -90,21 +78,21 @@ export class InMemoryAttemptStore implements AttemptStore {
 export type PasswordCheckResult = { ok: true } | ({ ok: false } & AttemptState)
 
 /**
- * Checks the current password unless the user is paused. `verify` runs only
- * when the user may try. A miss after the last try returns the pause.
+ * Checks the current password unless the user is paused. The attempt is
+ * counted before `verify` runs, so parallel requests cannot pass the limit.
+ * A correct password clears the count. A miss after the last try returns the
+ * pause.
  */
 export async function checkCurrentPassword(
   store: AttemptStore,
   userId: string,
   verify: () => Promise<boolean>,
 ): Promise<PasswordCheckResult> {
-  const before = await store.read(userId)
-  const state = attemptState(before.misses, before.ttlSeconds)
-  if (state.paused) return { ok: false, ...state }
+  const { misses, ttlSeconds } = await store.reserve(userId)
+  if (misses > PASSWORD_ATTEMPTS_MAX) return { ok: false, ...attemptState(misses, ttlSeconds) }
   if (await verify()) {
-    if (before.misses > 0) await store.clear(userId)
+    await store.clear(userId)
     return { ok: true }
   }
-  const after = await store.miss(userId)
-  return { ok: false, ...attemptState(after.misses, after.ttlSeconds) }
+  return { ok: false, ...attemptState(misses, ttlSeconds) }
 }

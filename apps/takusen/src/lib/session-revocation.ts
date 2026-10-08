@@ -57,13 +57,18 @@ export async function revokeUserSessions(userId: string): Promise<number> {
   return await revokeUserSessionsBefore(userId, Date.now())
 }
 
+/** Sets the key to ARGV[1] unless it holds a later cut-off: an earlier "sign out everywhere else" must not revive cookies a later revoke ended. */
+const RAISE_CUT_OFF = `
+local cur = tonumber(redis.call('GET', KEYS[1]) or '0') or 0
+if tonumber(ARGV[1]) > cur then redis.call('SET', KEYS[1], ARGV[1]) end`
+
 /**
  * As revokeUserSessions, but a dashboard cookie whose `authTime` is `since`
  * or later stays. "Sign out everywhere else" renews the current cookie first
  * (auth.ts `RENEW_AUTH_TIME`), then calls this with a time from before it.
  */
 export async function revokeUserSessionsBefore(userId: string, since: number): Promise<number> {
-  await redis().set(userSessionsRevokedAtKey(userId), String(since))
+  await redis().eval(RAISE_CUT_OFF, 1, userSessionsRevokedAtKey(userId), since)
   return await deleteUserOidcRows(db, userId)
 }
 

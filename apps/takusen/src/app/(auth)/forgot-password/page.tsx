@@ -1,18 +1,13 @@
 import { AuthScreen } from '@/components/auth-frame'
+import { formatDuration } from '@/lib/format'
 import { RESET_TOKEN_TTL_MS } from '@/lib/password-reset'
+import { safeNext } from '@/lib/safe-next'
 
-import { firstParam, safeNext, withNext, type SearchParam } from '../handoff'
+import { firstParam, withNext, type SearchParam } from '../handoff'
 import { ForgotPasswordForm } from './forgot-password-form'
 
 export const metadata = {
   title: 'Forgot password · Takusen',
-}
-
-function formatTtl(ms: number): string {
-  const minutes = Math.round(ms / 60_000)
-  if (minutes < 60 || minutes % 60 !== 0) return `${minutes} minutes`
-  const hours = minutes / 60
-  return hours === 1 ? 'an hour' : `${hours} hours`
 }
 
 export default async function ForgotPasswordPage({
@@ -24,7 +19,7 @@ export default async function ForgotPasswordPage({
 
   return (
     <AuthScreen promise={false}>
-      <ForgotPasswordForm next={next} loginHref={withNext('/login', next)} linkLifetime={formatTtl(RESET_TOKEN_TTL_MS)} />
+      <ForgotPasswordForm next={next} loginHref={withNext('/login', next)} linkLifetime={formatDuration(RESET_TOKEN_TTL_MS / 1000)} />
     </AuthScreen>
   )
 }

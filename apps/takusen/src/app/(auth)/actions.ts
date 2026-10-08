@@ -18,8 +18,7 @@ import {
   resetTokenEmail,
 } from '@/lib/password-reset'
 import { PASSWORD_MIN_LENGTH, passwordProblem } from '@/lib/password-strength'
-
-import { safeNext } from './handoff'
+import { safeNext } from '@/lib/safe-next'
 
 const BCRYPT_COST = 12
 
@@ -91,10 +90,6 @@ function safeNextPath(value: FormDataEntryValue | null): string {
   return safeNext(value) ?? '/dashboard'
 }
 
-// ---------------------------------------------------------------------------
-// signupAction — create a new user + immediately sign them in, then redirect
-// to `next` (or /dashboard).
-// ---------------------------------------------------------------------------
 export async function signupAction(
   _prev: FormActionResult | undefined,
   formData: FormData,
@@ -123,12 +118,15 @@ export async function signupAction(
   }
 
   const passwordHash = await bcrypt.hash(password, BCRYPT_COST)
+  // One instant for both: passwordAge reads equal times as the sign-up password.
+  const now = new Date()
   await db.insert(users).values({
     email,
     displayName,
     name: displayName,
     passwordHash,
-    passwordChangedAt: new Date(),
+    createdAt: now,
+    passwordChangedAt: now,
   })
 
   try {

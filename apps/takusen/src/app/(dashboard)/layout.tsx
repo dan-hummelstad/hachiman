@@ -4,44 +4,25 @@ import type { ReactNode } from 'react'
 
 import { DashboardFrame } from '@/components/dashboard-frame'
 import { DashboardSidebar } from '@/components/dashboard-sidebar'
-import { getAccountSummary } from '@/lib/account'
-import { getAdminCounts } from '@/lib/admin-stats'
-import { getOptionalUser } from '@/lib/auth-helpers'
-import { hachimanLinks } from '@/lib/deployment'
+import { getViewer } from '@/lib/account'
+import { adminCounts } from '@/lib/admin-stats'
+import { desktopDownloadFor, hachimanLinks } from '@/lib/deployment'
+import { safeNext } from '@/lib/safe-next'
 
 export default async function DashboardLayout({
   children,
 }: {
   children: ReactNode
 }): Promise<React.JSX.Element> {
-  const session = await getOptionalUser()
-  if (!session) {
-    // Try to preserve the requested path so we can bounce the user back here
-    // after a successful login. Next.js doesn't expose pathname directly in
-    // layouts, but the `x-pathname` / `referer` headers are usable in
-    // practice; fall back to /dashboard if neither is present.
-    const hdrs = await headers()
-    const referer = hdrs.get('referer')
-    let next: string = '/dashboard'
-    if (referer) {
-      try {
-        const url = new URL(referer)
-        if (url.pathname.startsWith('/') && !url.pathname.startsWith('//')) {
-          next = url.pathname + url.search
-        }
-      } catch {
-        // ignore — fall back to default
-      }
-    }
-    redirect(`/login?next=${encodeURIComponent(next)}`)
+  const viewer = await getViewer()
+  if (!viewer) {
+    // Layouts get no pathname; the referer brings the visitor back here after sign-in.
+    redirect(`/login?next=${encodeURIComponent(nextFromReferer((await headers()).get('referer')))}`)
   }
 
-  const { user } = session
-  const admin = user.role === 'admin'
-  const [summary, counts] = await Promise.all([
-    getAccountSummary(user.id),
-    admin ? getAdminCounts() : null,
-  ])
+  const admin = viewer.role === 'admin'
+  const [counts, hdrs] = await Promise.all([admin ? adminCounts() : null, headers()])
+  const links = hachimanLinks()
 
   return (
     <DashboardFrame
@@ -49,18 +30,29 @@ export default async function DashboardLayout({
       sidebar={
         <DashboardSidebar
           user={{
-            name: user.name ?? '',
-            email: user.email ?? '',
-            role: user.role,
-            avatarUrl: summary?.avatarUrl ?? null,
+            name: viewer.displayName,
+            email: viewer.email,
+            role: viewer.role,
+            avatarUrl: viewer.avatarUrl,
           }}
           counts={counts}
-          hachiman={{ state: summary?.hachiman ?? 'never', guildCount: summary?.guildCount ?? 0 }}
-          links={hachimanLinks()}
+          hachiman={{ state: viewer.hachiman, guildCount: viewer.guildCount }}
+          links={links}
+          download={desktopDownloadFor(hdrs.get('user-agent'), links)}
         />
       }
     >
       {children}
     </DashboardFrame>
   )
+}
+
+function nextFromReferer(referer: string | null): string {
+  if (!referer) return '/dashboard'
+  try {
+    const url = new URL(referer)
+    return safeNext(url.pathname + url.search) ?? '/dashboard'
+  } catch {
+    return '/dashboard'
+  }
 }

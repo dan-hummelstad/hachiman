@@ -11,7 +11,7 @@ import {
 } from 'lucide-react'
 import Link from 'next/link'
 
-import { UserAvatar } from '@/components/account/user-avatar'
+import { EntityAvatar } from '@/components/ui/avatar'
 import { HachimanMark } from '@/components/takusen-logo'
 import { Tag } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -37,7 +37,7 @@ export function IdentityCard({
       aria-label="Your profile"
       className="flex flex-wrap items-center gap-[18px] border border-line-hairline bg-surface-panel p-5"
     >
-      <UserAvatar name={name} email={email} src={avatarUrl} size={64} />
+      <EntityAvatar src={avatarUrl} name={name} email={email} size={64} tone="gold" />
       <div className="flex min-w-0 flex-1 basis-[220px] flex-col gap-1">
         <div className="flex min-w-0 items-center gap-2.5">
           <span className="truncate text-[22px] leading-7 font-extrabold">{name || email}</span>

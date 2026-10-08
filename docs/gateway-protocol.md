@@ -553,7 +553,7 @@ type AdminOverview = {
   counts: { users; admins; unverifiedUsers; signedInUsers; newUsers7d; guilds; channels; mediaNodes; regions; oidcClients;
     messages; uploads; uploadBytes }                                            // numbers
   mediaNodes: { total; active; draining; stale; sessions; capacity }            // numbers
-  regionLoad: { region; sessions: number; capacity: number; nodes: number; stale: number; draining: number }[]
+  regionLoad: { region; nodes: { total; active; draining; stale; sessions; capacity } }[]   // nodes: as mediaNodes, per region
   onlineUsers: number
   server: { version: string; nodeVersion: string; uptimeSeconds: number; maxUploadBytes: number }
 }
@@ -568,7 +568,7 @@ Behavior:
 - **Media nodes.** `stale` is true when the last heartbeat is 30 s old or older (`HEARTBEAT_STALE_AFTER_MS`). `draining` sets `media_nodes.admin_drain`. Then the status stays `draining` through heartbeats and new registrations, and placement skips the node. Sessions on the node continue. `active` clears the flag. DELETE removes the registry row and its `admin_drain` flag. A node that still runs registers again after its next heartbeat fails, and its status is then `active`. To keep a node out of placement, stop the node first.
 - **Regions.** The regions table is admin data. A region delete sets `region` to null on its guilds. Media nodes keep their region string. `db:seed` writes the four seed regions again.
 - **Live grants.** A live grant is an `oidc_adapter_payloads` row of model `Grant` that has not expired. Each Hachiman sign-in has its own grant (§12.12 "Device binding"), so the live grants of a user are its Hachiman sessions. `AdminUser.activeSessions`, `filter=signed_in`, `counts.signedInUsers` and the `AdminOidcClient` counts use them.
-- **Overview.** `counts.unverifiedUsers` counts users with neither `email_verified` nor `email_verified_at`. `counts.newUsers7d` counts users created in the last 7 days. `regionLoad` has one entry for each region of the table (in display-name order), then one for each other region that a media node names. Its `sessions`, `capacity` and `draining` follow the `mediaNodes` rules for the nodes of that region. `onlineUsers` counts the `presence:*` keys that are not `offline`. `mediaNodes.sessions` is the sum of `activeSessions` on fresh nodes, which is the number of live voice connections. `mediaNodes.capacity` is the sum of `maxSessions` on fresh `active` nodes.
+- **Overview.** `counts.unverifiedUsers` counts users with neither `email_verified` nor `email_verified_at`. `counts.newUsers7d` counts users created in the last 7 days. `regionLoad` has one entry for each region of the table (in display-name order), then one for each other region that a media node names. Its `nodes` is the `mediaNodes` summary of the nodes of that region. `onlineUsers` counts the `presence:*` keys that are not `offline`. `mediaNodes.sessions` is the sum of `activeSessions` on fresh nodes, which is the number of live voice connections. `mediaNodes.capacity` is the sum of `maxSessions` on fresh `active` nodes.
 
 `// ponytail:` a sign-out or user delete does not close open gateway connections. The user stays connected until the next reconnect fails. Add a gateway kick event if that matters.
 
@@ -600,7 +600,7 @@ Other Redis keys (owned by the gateway unless noted):
 | `voice_room:{channelId}` | string | mediaNodeId hosting that channel (sticky; SET NX, EX 24 h, deleted when the last user leaves). The endpoint comes from `media_nodes.signaling_url`. A missing node row drops the key and re-places |
 | `takusen:sessions_revoked_at` | string | Takusen-owned. Unix ms: every dashboard cookie from before it is dead (§4 Admin API, `sessions:revoke`). No TTL |
 | `takusen:sessions_revoked_at:{userId}` | string | Takusen-owned. The same cut-off for one user (admin sign-out, password change, the dashboard's "Sign out everywhere else"). No TTL. "Sign out everywhere else" first gives the current cookie a new `authTime`, then sets the cut-off to a time from before it, so the current cookie stays |
-| `takusen:password_attempts:{userId}` | string (counter) | Takusen-owned. Wrong current passwords on the dashboard password change. TTL 15 min from the first miss. At 5, the form refuses until the key expires. A correct password deletes it |
+| `takusen:password_attempts:{userId}` | string (counter) | Takusen-owned. Current-password checks on the dashboard password change. Takusen increments it before it checks the password, so parallel checks cannot go past the limit. TTL 15 min from the first check. After 5 checks without a correct password, the form refuses until the key expires. A correct password deletes it |
 | `takusen:device_nonce:{key}:{nonce}` | string | Takusen-owned. A device proof nonce that Takusen accepted (§12.12 "Device proof"). `{key}` is the base64url device MLS public key. `SET NX`, TTL 10 min |
 | `takusen:mls_wakeup` | pub/sub | Takusen-owned. Takusen → its gRPC process: `{ "groupId": "<base64url>" }` when a Remove is queued (§12.7.5) |
 | `takusen:mls_false_reject:{deviceId}` | string (counter) | Takusen-owned. The number of false `not_reader` rejection reports of a committer device (§12.12 "Batch rejections"). At 3, the batch scheduler skips the device. TTL 30 days, set again on each report |

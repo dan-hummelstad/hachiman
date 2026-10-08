@@ -4,6 +4,7 @@
  * (contract §4 Admin API).
  */
 import { asc, count, countDistinct, eq, gt, ilike, or, sql } from 'drizzle-orm'
+import { cache } from 'react'
 
 import { db } from '@/db/client'
 import { channels, guilds, mediaNodes, oidcAdapterPayloads, oidcClients, regions, users } from '@/db/schema'
@@ -19,12 +20,24 @@ import {
 } from '@/lib/admin'
 import { listGuilds } from '@/lib/admin-guilds'
 import { listUsers, unverifiedUser } from '@/lib/admin-users'
+import { requireAdmin } from '@/lib/auth-helpers'
 import { listRegions } from '@/lib/regions'
 import { liveGrantOf } from '@/lib/session-revocation'
 
 const WEEK_MS = 7 * 24 * 3600 * 1000
 
-export async function getAdminCounts(now: Date = new Date()): Promise<AdminCounts> {
+/**
+ * The counts for an admin, else it throws. Layouts do not guard the pages they wrap (Next renders
+ * them in parallel), so the guard sits here, next to the data.
+ */
+export async function adminCounts(): Promise<AdminCounts> {
+  await requireAdmin()
+  return await countsOnce()
+}
+
+/** Cached per request: the layout and the page both read it. */
+const countsOnce = cache(async (): Promise<AdminCounts> => {
+  const now = new Date()
   const [[u], [a], [unverified], [signedIn], [fresh], [g], [c], [n], [r], [o]] = await Promise.all([
     db.select({ n: count() }).from(users),
     db.select({ n: count() }).from(users).where(eq(users.role, 'admin')),
@@ -55,7 +68,7 @@ export async function getAdminCounts(now: Date = new Date()): Promise<AdminCount
     regions: r?.n ?? 0,
     oidcClients: o?.n ?? 0,
   }
-}
+})
 
 /** Per OIDC client id: the users with a live grant and the live grants. */
 export async function oidcClientActivity(): Promise<Map<string, { activeUsers: number; activeSessions: number }>> {
@@ -72,8 +85,7 @@ export async function oidcClientActivity(): Promise<Map<string, { activeUsers: n
   return new Map(rows.map((r) => [r.clientId, { activeUsers: r.activeUsers, activeSessions: r.activeSessions }]))
 }
 
-/** Guilds per region code. */
-export async function guildsPerRegion(): Promise<Map<string, number>> {
+async function guildsPerRegion(): Promise<Map<string, number>> {
   const rows = await db
     .select({ region: guilds.region, n: count() })
     .from(guilds)

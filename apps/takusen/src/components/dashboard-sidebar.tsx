@@ -11,18 +11,17 @@ import {
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { signOut } from 'next-auth/react'
-import { useSyncExternalStore } from 'react'
 
 import { useHideSidebar, useOpenPalette } from '@/components/dashboard-frame'
 import { isActive, navGroupsFor, type NavItem } from '@/components/dashboard-nav-items'
-import { initialsFor } from '@/components/initials'
 import { Brand, HachimanMark } from '@/components/takusen-logo'
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
+import { EntityAvatar } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import type { HachimanState } from '@/lib/account'
 import type { AdminCounts } from '@/lib/admin'
 import type { HachimanLinks } from '@/lib/deployment'
+import { plural } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
 export interface DashboardSidebarProps {
@@ -31,6 +30,8 @@ export interface DashboardSidebarProps {
   counts: AdminCounts | null
   hachiman: { state: HachimanState; guildCount: number }
   links: HachimanLinks
+  /** The desktop build for the visitor's OS (`desktopDownloadFor`). */
+  download: string
 }
 
 /** T3 / Sidebar (kit `b2aux0`): brand, jump-to, the nav groups, the Hachiman launcher, the user row. */
@@ -39,6 +40,7 @@ export function DashboardSidebar({
   counts,
   hachiman,
   links,
+  download,
 }: DashboardSidebarProps): React.JSX.Element {
   const pathname = usePathname() ?? ''
   const hideSidebar = useHideSidebar()
@@ -95,13 +97,10 @@ export function DashboardSidebar({
         ))}
       </nav>
 
-      <HachimanLauncher {...hachiman} links={links} />
+      <HachimanLauncher {...hachiman} links={links} download={download} />
 
       <div className="flex shrink-0 items-center gap-2.5 px-1 pt-2.5">
-        <Avatar className="size-[34px] rounded-full">
-          {user.avatarUrl && <AvatarImage src={user.avatarUrl} alt="" />}
-          <AvatarFallback className="rounded-full">{initialsFor(user.name, user.email)}</AvatarFallback>
-        </Avatar>
+        <EntityAvatar src={user.avatarUrl} name={user.name} email={user.email} size={34} tone="gold" />
         <div className="flex min-w-0 flex-1 flex-col gap-px">
           <span className="truncate text-sm leading-[18px] font-extrabold">{user.name || user.email}</span>
           <span className="truncate text-[12.5px] leading-4 text-text-tertiary">{user.email}</span>
@@ -156,7 +155,7 @@ function NavRow({
 const LAUNCHER_STATUS: Record<HachimanState, { dot: string; label: (guilds: number) => string }> = {
   signed_in: {
     dot: 'bg-status-online',
-    label: (n) => `Signed in · ${n} ${n === 1 ? 'guild' : 'guilds'}`,
+    label: (n) => `Signed in · ${plural(n, 'guild')}`,
   },
   signed_out: { dot: 'bg-status-offline', label: () => 'Signed out' },
   never: { dot: 'bg-status-offline', label: () => 'Not opened yet' },
@@ -167,9 +166,9 @@ function HachimanLauncher({
   state,
   guildCount,
   links,
-}: DashboardSidebarProps['hachiman'] & { links: HachimanLinks }): React.JSX.Element {
+  download,
+}: DashboardSidebarProps['hachiman'] & { links: HachimanLinks; download: string }): React.JSX.Element {
   const status = LAUNCHER_STATUS[state]
-  const download = useDownloadLink(links)
   return (
     <section
       aria-label="Hachiman"
@@ -210,16 +209,4 @@ function HachimanLauncher({
       </div>
     </section>
   )
-}
-
-const noSubscribe = (): (() => void) => () => {}
-
-/** The desktop build for this OS; macOS on the server render. */
-function useDownloadLink(links: HachimanLinks): string {
-  const windows = useSyncExternalStore(
-    noSubscribe,
-    () => /windows/i.test(navigator.userAgent),
-    () => false,
-  )
-  return windows ? links.download.windows : links.download.macos
 }

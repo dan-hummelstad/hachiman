@@ -90,4 +90,4 @@ function Badge({
   )
 }
 
-export { Badge, badgeVariants, StatusTag, Tag, tagVariants }
+export { Badge, StatusTag, Tag }

@@ -29,6 +29,11 @@ export function deploymentInfo(env: Env = process.env): DeploymentInfo {
   return { name, tag }
 }
 
+/** The desktop app's deep-link scheme (contract §11). */
+export const DESKTOP_DEEP_LINK = 'takusen://'
+/** The desktop app's OAuth redirect: a reverse-DNS custom scheme (RFC 8252). */
+export const DESKTOP_OAUTH_CALLBACK = 'app.hachiman://oauth-callback'
+
 export interface HachimanLinks {
   /** The web app origin (`HACHIMAN_WEB_URL`). */
   web: string
@@ -41,7 +46,7 @@ export interface HachimanLinks {
 export function hachimanLinks(env: Env = process.env): HachimanLinks {
   return {
     web: (env.HACHIMAN_WEB_URL ?? 'http://localhost:5173').replace(/\/+$/, ''),
-    app: 'takusen://',
+    app: DESKTOP_DEEP_LINK,
     download: { macos: '/api/desktop-update/macos/download', windows: '/api/desktop-update/windows/download' },
   }
 }
@@ -49,5 +54,10 @@ export function hachimanLinks(env: Env = process.env): HachimanLinks {
 /** The invite in the web app and in the desktop app. */
 export function inviteLinks(code: string, env: Env = process.env): { web: string; app: string } {
   const encoded = encodeURIComponent(code)
-  return { web: `${hachimanLinks(env).web}/invite/${encoded}`, app: `takusen://invite/${encoded}` }
+  return { web: `${hachimanLinks(env).web}/invite/${encoded}`, app: `${DESKTOP_DEEP_LINK}invite/${encoded}` }
+}
+
+/** The desktop build for the visitor's OS, from the User-Agent header: Windows on Windows, else macOS. */
+export function desktopDownloadFor(userAgent: string | null, links: HachimanLinks): string {
+  return userAgent && /windows/i.test(userAgent) ? links.download.windows : links.download.macos
 }

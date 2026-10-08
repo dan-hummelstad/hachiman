@@ -4,27 +4,19 @@ import { CircleAlertIcon, CircleCheckIcon, InfoIcon } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { startTransition, useActionState, useState } from 'react'
 
-import { PasswordStrengthMeter } from '@/components/account/password-strength-meter'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Panel, PanelFooter, PanelHeader } from '@/components/ui/card'
 import { Field } from '@/components/ui/field'
 import { PasswordInput } from '@/components/ui/password-input'
+import { PasswordMeter } from '@/components/ui/password-meter'
+import { PASSWORD_MIN_LENGTH } from '@/lib/password-strength'
 
 import { changePasswordAction, type AccountActionResult, type AccountField } from './actions'
 
 type PasswordField = Exclude<AccountField, 'displayName'>
 
 const EMPTY: Record<PasswordField, string> = { currentPassword: '', newPassword: '', confirmPassword: '' }
-
-function ErrorLine({ children }: { children: React.ReactNode }): React.JSX.Element {
-  return (
-    <span className="flex items-start gap-1.5 text-[12.5px] font-semibold">
-      <CircleAlertIcon aria-hidden className="mt-px size-3.5 shrink-0" />
-      {children}
-    </span>
-  )
-}
 
 /**
  * E2 / E4 Password. The inputs are controlled and the form is submitted by hand, so a wrong
@@ -82,7 +74,7 @@ export function PasswordPanel({ email, changed }: { email: string; changed: stri
           <Field
             id="currentPassword"
             label="Current password"
-            error={fieldError('currentPassword') && <ErrorLine>{fieldError('currentPassword')}</ErrorLine>}
+            error={fieldError('currentPassword')}
           >
             <PasswordInput
               {...bind('currentPassword')}
@@ -98,23 +90,23 @@ export function PasswordPanel({ email, changed }: { email: string; changed: stri
           <Field
             id="newPassword"
             label="New password"
-            error={fieldError('newPassword') && <ErrorLine>{fieldError('newPassword')}</ErrorLine>}
+            error={fieldError('newPassword')}
           >
-            <PasswordInput {...bind('newPassword')} autoComplete="new-password" required minLength={8} />
+            <PasswordInput {...bind('newPassword')} autoComplete="new-password" required minLength={PASSWORD_MIN_LENGTH} />
             {values.newPassword && (
-              <PasswordStrengthMeter password={values.newPassword} email={email} />
+              <PasswordMeter id="newPassword-meter" password={values.newPassword} email={email} common />
             )}
           </Field>
           <Field
             id="confirmPassword"
             label="Confirm new password"
-            error={fieldError('confirmPassword') && <ErrorLine>{fieldError('confirmPassword')}</ErrorLine>}
+            error={fieldError('confirmPassword')}
           >
             <PasswordInput
               {...bind('confirmPassword')}
               autoComplete="new-password"
               required
-              minLength={8}
+              minLength={PASSWORD_MIN_LENGTH}
               trailing={
                 confirmMatches ? (
                   <CircleCheckIcon aria-label="Passwords match" className="text-feature-voice-text!" />

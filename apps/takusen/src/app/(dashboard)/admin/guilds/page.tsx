@@ -1,14 +1,14 @@
 import { DashboardShell } from '@/components/dashboard-shell'
 import { SearchField } from '@/components/admin/kit'
 import { AdminGuildsView } from '@/components/admin/guilds'
-import { getAdminCounts } from '@/lib/admin-stats'
+import { adminCounts } from '@/lib/admin-stats'
 
 export const metadata = {
   title: 'Guilds · Takusen',
 }
 
 export default async function Page(): Promise<React.JSX.Element> {
-  const counts = await getAdminCounts()
+  const counts = await adminCounts()
   return (
     <DashboardShell
       section="admin"
