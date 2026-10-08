@@ -78,6 +78,13 @@
       "when": 1791467160230,
       "tag": "0010_guild_bans",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1791467212633,
+      "tag": "0011_member_voice_moderation",
+      "breakpoints": true
     }
   ]
 }

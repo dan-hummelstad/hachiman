@@ -113,7 +113,7 @@ export function member(
   nick: string | null = null,
   daysAgo = 120
 ): Member {
-  return { guildId, user: u, nick, roles, joinedAt: joined(daysAgo) }
+  return { guildId, user: u, nick, roles, joinedAt: joined(daysAgo), mute: false, deaf: false }
 }
 
 function voice(

@@ -29,6 +29,7 @@ type guildState struct {
 	id, ownerID, region string
 	roles               map[string]int64 // role id → permissions (incl. @everyone = guild id)
 	myRoles             []string
+	myMute, myDeaf      bool // server mute and deafen of the user (Member.mute / deaf)
 	channels            map[string]*Channel
 }
 
@@ -316,6 +317,7 @@ func (s *session) addGuild(gf *GuildFull) {
 	for _, m := range gf.Members {
 		if m.User.ID == s.user.ID {
 			gs.myRoles = m.Roles
+			gs.myMute, gs.myDeaf = m.Mute, m.Deaf
 		}
 	}
 	s.guilds[gf.ID] = gs
@@ -563,6 +565,10 @@ func (s *session) onEvent(ev busEvent) {
 		s.dispatch(e.T, e.D)
 		if m.User.ID == me {
 			s.withVisibilityDiff(gs, "", func() { gs.myRoles = m.Roles })
+			if gs.myMute != m.Mute || gs.myDeaf != m.Deaf {
+				gs.myMute, gs.myDeaf = m.Mute, m.Deaf
+				s.applyServerVoice(s.ctx, gs)
+			}
 		}
 	case "GUILD_UPDATE":
 		var gd Guild
@@ -637,6 +643,8 @@ func (s *session) onUserEvent(e envelope) {
 			s.addDM(ch)
 		}
 		s.dispatch(e.T, e.D)
+	case "VOICE_MOVE":
+		s.onVoiceMove(e.D) // internal: not forwarded
 	default:
 		s.dispatch(e.T, e.D)
 	}

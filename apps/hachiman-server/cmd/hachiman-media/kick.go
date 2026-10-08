@@ -29,7 +29,8 @@ func publishVoiceDisconnected(rdb *redis.Client, c *voicetoken.Claims, logger *l
 }
 
 // runKickSubscriber listens on media:{nodeId} for gateway kicks
-// (`{"op":"kick","sessionId":...,"channelId":...}`) until ctx ends. The first subscribe is
+// (`{"op":"kick","sessionId":...,"channelId":...}`) and server mutes
+// (`{"op":"mute","sessionId":...,"channelId":...,"mute":bool}`) until ctx ends. The first subscribe is
 // retried with backoff; after that go-redis' PubSub reconnects on its own.
 func runKickSubscriber(ctx context.Context, rdb *redis.Client, nodeID string, srv *voiceServer, logger *log.Logger) {
 	channel := "media:" + nodeID
@@ -56,10 +57,15 @@ func runKickSubscriber(ctx context.Context, rdb *redis.Client, nodeID string, sr
 			var m struct {
 				Op        string `json:"op"`
 				SessionID string `json:"sessionId"`
-				ChannelID string `json:"channelId"` // optional: only kick if the session is in this room
+				ChannelID string `json:"channelId"` // optional: only act if the session is in this room
+				Mute      bool   `json:"mute"`
 			}
-			if err := json.Unmarshal([]byte(msg.Payload), &m); err != nil || m.Op != "kick" || m.SessionID == "" {
+			if err := json.Unmarshal([]byte(msg.Payload), &m); err != nil || m.SessionID == "" || (m.Op != "kick" && m.Op != "mute") {
 				logger.Printf("redis: ignoring %s message %q", channel, msg.Payload)
+				continue
+			}
+			if m.Op == "mute" {
+				srv.setMuted(m.SessionID, m.ChannelID, m.Mute)
 				continue
 			}
 			srv.kick(m.SessionID, m.ChannelID)

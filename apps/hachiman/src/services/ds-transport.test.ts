@@ -260,7 +260,9 @@ describe('channelReaders', () => {
     user: user(id),
     nick: null,
     roles,
-    joinedAt: ''
+    joinedAt: '',
+    mute: false,
+    deaf: false
   })
   const role = (id: string, permissions: number): Role => ({
     id,

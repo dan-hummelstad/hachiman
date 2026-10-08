@@ -163,6 +163,8 @@ export function toMember(m: GuildMemberRow, user: UserLike, roleIds: string[]): 
     nick: m.nick,
     roles: roleIds.filter((id) => id !== m.guildId),
     joinedAt: m.joinedAt.toISOString(),
+    mute: m.mute,
+    deaf: m.deaf,
   }
 }
 

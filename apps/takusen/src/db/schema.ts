@@ -201,6 +201,9 @@ export const guildMembers = pgTable(
     joinedAt: timestamp('joined_at', { withTimezone: true, mode: 'date' })
       .notNull()
       .defaultNow(),
+    // Server mute and deafen (MUTE_MEMBERS / DEAFEN_MEMBERS). They stay across calls, as in Discord.
+    mute: boolean('mute').notNull().default(false),
+    deaf: boolean('deaf').notNull().default(false),
     // The invite of the join. The redeemer of an invite with history gets its bundles (§12.11.4).
     inviteId: uuid('invite_id').references((): AnyPgColumn => invites.id, { onDelete: 'set null' }),
   },

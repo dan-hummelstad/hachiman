@@ -98,7 +98,12 @@ type Client struct {
 	screenSSRC atomic.Uint32
 	// lastKeyframeReq is when the last PLI went to the client (unix ns).
 	lastKeyframeReq atomic.Int64
+	// muted drops the client's mic RTP (server mute or deafen, §6 "Voice moderation").
+	muted atomic.Bool
 }
+
+// SetMuted starts or stops dropping the client's mic RTP. Safe from any goroutine.
+func (c *Client) SetMuted(muted bool) { c.muted.Store(muted) }
 
 // SFU owns clients and rooms. Safe for concurrent use.
 type SFU struct {
@@ -185,12 +190,12 @@ func (s *SFU) Join(sessionID, userID, roomID string, owner any, h Hooks) (c *Cli
 	c = &Client{SessionID: sessionID, UserID: userID, RoomID: roomID, PC: pc, Owner: owner, track: track, screen: screen, senders: map[string][]*webrtc.RTPSender{}, hooks: h}
 
 	pc.OnTrack(func(remote *webrtc.TrackRemote, _ *webrtc.RTPReceiver) {
-		out := c.track
+		out, muted := c.track, &c.muted
 		if remote.Kind() == webrtc.RTPCodecTypeVideo {
-			out = c.screen
+			out, muted = c.screen, nil
 			c.screenSSRC.Store(uint32(remote.SSRC()))
 		}
-		s.forward(remote, out)
+		s.forward(remote, out, muted)
 	})
 	pc.OnICECandidate(func(cand *webrtc.ICECandidate) {
 		if h.ICECandidate != nil {
@@ -385,12 +390,15 @@ func (c *Client) requestKeyframe() {
 
 // forward pumps inbound RTP into the client's matching output track, which
 // pion fans out to every room peer's PeerConnection. Runs on pion's OnTrack
-// goroutine until the PC closes.
-func (s *SFU) forward(remote *webrtc.TrackRemote, out *webrtc.TrackLocalStaticRTP) {
+// goroutine until the PC closes. A set `muted` drops the packets (server mute).
+func (s *SFU) forward(remote *webrtc.TrackRemote, out *webrtc.TrackLocalStaticRTP, muted *atomic.Bool) {
 	for {
 		pkt, _, err := remote.ReadRTP()
 		if err != nil {
 			return
+		}
+		if muted != nil && muted.Load() {
+			continue
 		}
 		// ErrClosedPipe just means no peer bindings yet; nothing to do.
 		_ = out.WriteRTP(pkt)

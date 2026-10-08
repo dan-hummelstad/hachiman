@@ -110,6 +110,8 @@ export interface HachimanCache {
 }
 
 const VOICE_SERVER_TIMEOUT_MS = 15_000
+/** Media close code: the gateway kicked the session (§8). The gateway already changed the voice state. */
+const VOICE_KICKED = 4010
 /** How often `connect()` checks for a device while `device()` returns null. */
 const DEVICE_POLL_MS = 250
 
@@ -197,6 +199,7 @@ export class HachimanClient extends TypedEventEmitter<HachimanClientEvents> {
     })
     this.gateway.on('dispatch', e => {
       this.apply(e)
+      this.followServerVoice(e)
       this.emit('update', e)
       ;(this.emit as (t: string, d: unknown) => boolean)(e.t, e.d)
       if (e.t === 'READY') this.emit('ready', e.d)
@@ -273,7 +276,15 @@ export class HachimanClient extends TypedEventEmitter<HachimanClientEvents> {
       this.gateway.on('VOICE_SERVER_UPDATE', onUpdate)
       this.sendVoiceState()
     })
+    return this.connectVoice(target, server)
+  }
 
+  /** Opens the media connection of `server` for `target` (the current `voiceTarget`). */
+  private async connectVoice(
+    target: VoiceTarget,
+    server: VoiceServerUpdate,
+  ): Promise<VoiceConnection> {
+    const { guildId, channelId } = target
     let e2ee: VoiceE2eeDelegate
     try {
       e2ee = this.opts.voiceE2ee() // one delegate per call; the connection closes it
@@ -291,11 +302,20 @@ export class HachimanClient extends TypedEventEmitter<HachimanClientEvents> {
     vc.on('resync', () => {
       if (this._voice === vc) this.emit('voiceResync', { guildId, channelId })
     })
-    vc.on('close', () => {
+    vc.on('close', e => {
+      if (this._voice !== vc) return
+      if (e.code === VOICE_KICKED) {
+        // The gateway ended or moved the call (a disconnect or move by a moderator, or a join from
+        // another device). Its voice state is already right: an op 4 leave here would undo a move.
+        this.voiceTarget = null
+        this.streaming = false
+        this.dropVoice()
+        return
+      }
       // Unexpected media drop: leave on the gateway too, else it keeps a stale voice state and a
       // rejoin of the same channel looks like a no-op (no VOICE_SERVER_UPDATE).
       // ponytail: no auto-rejoin; the UI decides (joinVoice again).
-      if (this._voice === vc) this.leaveVoice()
+      this.leaveVoice()
     })
     this._voice = vc
     this.emit('voice', vc)
@@ -384,10 +404,50 @@ export class HachimanClient extends TypedEventEmitter<HachimanClientEvents> {
     await vc.setScreen(track, encoding)
   }
 
+  /**
+   * Server mute and deafen of the current user in the guild of the call (§6 "Voice moderation"),
+   * from the voice state and the member. They gate the media like self mute and deafen, but the
+   * user cannot lift them, and op 4 does not carry them.
+   */
+  get serverVoice(): { mute: boolean; deaf: boolean } {
+    const me = this.cache.user?.id
+    const guildId = this.voiceTarget?.guildId
+    if (!me || !guildId) return { mute: false, deaf: false }
+    const state = this.cache.voiceStates.get(guildId)?.get(me)
+    const member = this.cache.members.get(guildId)?.get(me)
+    return { mute: !!(state?.mute ?? member?.mute), deaf: !!(state?.deaf ?? member?.deaf) }
+  }
+
   private applySelfVoice(vc: VoiceConnection): void {
     const { selfMute, selfDeaf } = this.wireVoice()
-    vc.setDeafened(selfDeaf)
-    void vc.setMuted(selfMute)
+    const server = this.serverVoice
+    vc.setDeafened(selfDeaf || server.deaf)
+    void vc.setMuted(selfMute || server.mute || server.deaf)
+  }
+
+  /**
+   * Follows the gateway when it changes the call (§6 "Voice moderation"): a server mute or deafen
+   * of the current user gates the media now, and a move (VOICE_SERVER_UPDATE with `moved`) opens
+   * the media connection of the new channel without an op 4.
+   */
+  private followServerVoice(e: GatewayDispatch): void {
+    const me = this.cache.user?.id
+    if (!me) return
+    if (
+      (e.t === 'VOICE_STATE_UPDATE' && e.d.userId === me) ||
+      (e.t === 'GUILD_MEMBER_UPDATE' && e.d.user.id === me)
+    ) {
+      if (this._voice) this.applySelfVoice(this._voice)
+      return
+    }
+    if (e.t !== 'VOICE_SERVER_UPDATE' || !e.d.moved || this.cancelPendingJoin) return
+    const server = e.d
+    this.dropVoice()
+    this.voiceTarget = { guildId: server.guildId, channelId: server.channelId }
+    this.streaming = false
+    this.connectVoice(this.voiceTarget, server).catch((err: unknown) => {
+      console.warn('HachimanClient: voice move failed', err)
+    })
   }
 
   private sendVoiceState(): void {

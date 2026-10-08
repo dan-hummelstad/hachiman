@@ -14,6 +14,8 @@ const member = (user: User, roles: string[] = []): Member => ({
   nick: null,
   roles,
   joinedAt: '',
+  mute: false,
+  deaf: false,
 })
 const channel = (id: string, over: Partial<Channel> = {}): Channel => ({
   id,
@@ -662,6 +664,48 @@ describe('HachimanClient E2EE wiring', () => {
     expect(resync).toHaveReturnedWith(vc) // the event fires before the client leaves voice
     expect(client.voice).toBeNull()
     expect(ws.sent.at(-1)).toMatchObject({ op: 4, d: { guildId: 'g', channelId: null } })
+  })
+
+  it('a 4010 kick drops the call without an op 4 leave; a moved VOICE_SERVER_UPDATE opens the new channel', async () => {
+    current = device
+    vi.spyOn(VoiceConnection.prototype, 'connect').mockResolvedValue()
+    client.connect()
+    const ws = await ready()
+    const join = client.joinVoice('g', 'vc')
+    ws.recv({ op: 0, s: 2, t: 'VOICE_SERVER_UPDATE', d: server })
+    const vc = await join
+    const sent = ws.sent.length
+    vc.emit('close', { code: 4010, reason: 'kicked' })
+    expect(client.voice).toBeNull()
+    expect(ws.sent).toHaveLength(sent) // the gateway already moved or ended the call
+
+    ws.recv({ op: 0, s: 3, t: 'VOICE_SERVER_UPDATE', d: { ...server, channelId: 'vc2', moved: true } })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(client.voice).not.toBeNull()
+    expect(client.voice).not.toBe(vc)
+    expect(ws.sent).toHaveLength(sent) // follows without an op 4
+    client.leaveVoice()
+    expect(ws.sent.at(-1)).toMatchObject({ op: 4, d: { guildId: 'g', channelId: null } })
+  })
+
+  it('a server mute of the current user mutes the call; a VOICE_SERVER_UPDATE without moved is ignored', async () => {
+    current = device
+    vi.spyOn(VoiceConnection.prototype, 'connect').mockResolvedValue()
+    const setMuted = vi.spyOn(VoiceConnection.prototype, 'setMuted')
+    client.connect()
+    const ws = await ready()
+    const join = client.joinVoice('g', 'vc')
+    ws.recv({ op: 0, s: 2, t: 'VOICE_SERVER_UPDATE', d: server })
+    const vc = await join
+    expect(setMuted).toHaveBeenLastCalledWith(false)
+    const state = { guildId: 'g', channelId: 'vc', userId: 'me', sessionId: 's', selfMute: false, selfDeaf: false, selfStream: false }
+    ws.recv({ op: 0, s: 3, t: 'VOICE_STATE_UPDATE', d: { ...state, mute: true } })
+    expect(setMuted).toHaveBeenLastCalledWith(true)
+    expect(client.serverVoice).toEqual({ mute: true, deaf: false })
+    ws.recv({ op: 0, s: 4, t: 'VOICE_STATE_UPDATE', d: { ...state, mute: false } })
+    expect(setMuted).toHaveBeenLastCalledWith(false)
+    ws.recv({ op: 0, s: 5, t: 'VOICE_SERVER_UPDATE', d: { ...server, channelId: 'vc2' } })
+    expect(client.voice).toBe(vc)
   })
 
   it.each([4012, 4013])('gateway close %i emits fatal and does not reconnect', async code => {

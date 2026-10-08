@@ -17,7 +17,9 @@ const member = (
   user: { id, username, avatar: null },
   nick,
   roles,
-  joinedAt: '2026-10-01T00:00:00Z'
+  joinedAt: '2026-10-01T00:00:00Z',
+  mute: false,
+  deaf: false
 })
 
 describe('groupMembers', () => {

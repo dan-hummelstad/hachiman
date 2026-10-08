@@ -179,6 +179,12 @@ export interface BanBody {
 export interface UpdateMemberBody {
   nick?: Opt<string | null>
   roles?: Opt<string[]>
+  /** MUTE_MEMBERS. */
+  mute?: Opt<boolean>
+  /** DEAFEN_MEMBERS. */
+  deaf?: Opt<boolean>
+  /** MOVE_MEMBERS: another voice channel of the guild, or null to disconnect. The user must be in voice in the guild. */
+  channelId?: Opt<string | null>
 }
 export interface CreateRoleBody {
   name: string

@@ -27,6 +27,9 @@ type Claims struct {
 	JTI         string    `json:"jti"`
 	IssuedAt    time.Time `json:"iat"`
 	ExpiresAt   time.Time `json:"exp"` // 60–120 s after iat
+	// Mute: the member is server muted or deafened at mint time. Media drops
+	// the mic RTP of the session until a `mute` op on media:{nodeId} says otherwise.
+	Mute bool `json:"mute,omitempty"`
 }
 
 // MinTTL / MaxTTL bound exp-iat on both mint and verify. MaxClockSkew is the

@@ -669,6 +669,88 @@ func TestVoiceDisconnectedFromMedia(t *testing.T) {
 	}
 }
 
+// Voice moderation (§6): a server mute from GUILD_MEMBER_UPDATE rewrites the
+// voice state and tells media; VOICE_MOVE moves (VOICE_SERVER_UPDATE with
+// moved) or disconnects, and never reaches the client.
+func TestVoiceModeration(t *testing.T) {
+	h := newHarness(t)
+	h.g.load = func(ctx context.Context, userID, onlyGuild string) (*readyData, error) {
+		d := fixture()
+		d.Guilds[0].Channels = append(d.Guilds[0].Channels, Channel{ID: "voice2", GuildID: ptr(gid), Type: "voice", Name: ptr("Stage"), PermissionOverwrites: []permissions.Overwrite{}})
+		return d, nil
+	}
+	ctx := context.Background()
+	h.mr.Set(kVoiceRoom("voice"), "node-a")
+	h.mr.Set(kVoiceRoom("voice2"), "node-a")
+	media := h.rdb.Subscribe(ctx, "media:node-a")
+	defer media.Close()
+	if _, err := media.Receive(ctx); err != nil {
+		t.Fatal(err)
+	}
+	c := h.dial()
+	sid := c.identify()
+	c.send(opVoiceState, map[string]any{"guildId": gid, "channelId": "voice"})
+	c.expect("VOICE_SERVER_UPDATE")
+
+	h.pub("guild:"+gid, "GUILD_MEMBER_UPDATE", Member{GuildID: gid, User: User{ID: me}, Roles: []string{}, Mute: true}, "")
+	for {
+		f := c.next()
+		if f.T == "VOICE_STATE_UPDATE" && strings.Contains(string(f.D), `"mute":true`) {
+			break
+		}
+	}
+	select {
+	case m := <-media.Channel():
+		var op map[string]any
+		_ = json.Unmarshal([]byte(m.Payload), &op)
+		if op["op"] != "mute" || op["sessionId"] != sid || op["channelId"] != "voice" || op["mute"] != true {
+			t.Errorf("media payload %s", m.Payload)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("no media mute op")
+	}
+
+	h.pub("user:"+me, "VOICE_MOVE", map[string]any{"guildId": gid, "channelId": "voice2"}, "")
+	for {
+		f := c.next()
+		if f.T == "VOICE_MOVE" {
+			t.Fatal("internal event reached the client")
+		}
+		if f.T == "VOICE_SERVER_UPDATE" {
+			var vsu struct {
+				ChannelID string
+				Moved     bool
+				Token     string
+			}
+			_ = json.Unmarshal(f.D, &vsu)
+			if vsu.ChannelID != "voice2" || !vsu.Moved {
+				t.Fatalf("bad move VOICE_SERVER_UPDATE %s", f.D)
+			}
+			v, _ := voicetoken.NewVerifier(h.g.signer.PublicKeyHex(), "node-a")
+			if cl, err := v.Verify(vsu.Token); err != nil || !cl.Mute {
+				t.Fatalf("token of a server-muted member: %v %+v", err, cl)
+			}
+			break
+		}
+	}
+	var st VoiceState
+	_ = json.Unmarshal([]byte(h.mr.HGet(kVoice(gid), me)), &st)
+	if st.ChannelID == nil || *st.ChannelID != "voice2" || !st.Mute {
+		t.Fatalf("voice state after move %+v", st)
+	}
+
+	h.pub("user:"+me, "VOICE_MOVE", map[string]any{"guildId": gid, "channelId": nil}, "")
+	for {
+		f := c.next()
+		if f.T == "VOICE_STATE_UPDATE" && strings.Contains(string(f.D), `"channelId":null`) {
+			break
+		}
+	}
+	if h.mr.Exists(kVoiceUser(me)) || h.mr.HGet(kVoice(gid), me) != "" {
+		t.Error("voice keys survived a disconnect")
+	}
+}
+
 func TestVoiceRejectsHiddenAndNonVoiceChannels(t *testing.T) {
 	h := newHarness(t)
 	c := h.dial()

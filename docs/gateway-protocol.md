@@ -68,7 +68,10 @@ interface Channel {
   threadStartMessageId?: string | null   // thread only: the message of the parent that starts the thread, or null
 }
 
-interface Member { guildId: string; user: User; nick: string | null; roles: string[] /* excludes @everyone */; joinedAt: string }
+interface Member {
+  guildId: string; user: User; nick: string | null; roles: string[] /* excludes @everyone */; joinedAt: string
+  mute: boolean; deaf: boolean     // server mute and deafen (§6 "Voice moderation"). They stay across calls
+}
 
 interface Ban { user: User; reason: string | null; createdAt: string }   // §4 Bans
 
@@ -127,6 +130,7 @@ interface VoiceState {
   channelId: string | null; userId: string
   sessionId: string                // gateway session id
   selfMute: boolean; selfDeaf: boolean
+  mute: boolean; deaf: boolean     // server mute and deafen: the Member values (§6 "Voice moderation")
   selfStream: boolean              // screen share is live (§8)
   joinedAt: string                 // RFC 3339: when this session joined the channel. Kept across mute, deafen and stream
                                    // changes, set again on a move to another channel or a join from another session.
@@ -245,7 +249,7 @@ New/changed tables (all ids `uuid` defaultRandom, timestamps `timestamptz` defau
 |---|---|---|
 | `guilds` | id, owner_id → users (cascade), name, icon null, banner null, region → regions.code (set null), page_storage_bytes bigint (mode number) default 0, created_at | replaces virtual_servers. icon/banner hold file keys. `page_storage_bytes`: the page quota count (§4 Pages) |
 | `uploads` | id, uploader_id → users (cascade), key unique, filename null (null for blobs), size bigint (mode number), content_type, encrypted bool default false, message_id null → messages (cascade), position int default 0, purpose `upload_purpose` enum ('attachment','image','page_snapshot','page_media','sound') null, page_id null → doc_pages (cascade), last_referenced_at null, created_at | index (message_id); index (page_id); CHECK `uploads_attachment_has_message`: `(purpose IS NOT DISTINCT FROM 'attachment') = (message_id IS NOT NULL)`; CHECK `uploads_page_media_has_page`: `purpose IS DISTINCT FROM 'page_media' OR page_id IS NOT NULL`; CHECK `uploads_page_id_is_page_purpose`: `page_id IS NULL OR purpose IN ('page_snapshot','page_media')`. One row per stored object. The first claim sets purpose, and purpose never changes. message_id is set when a message claims it, together with purpose. A `page_snapshot` upload has its purpose from the upload on, and page_id from the snapshot claim (§4 Pages) |
-| `guild_members` | guild_id → guilds (cascade), user_id → users (cascade), nick null, joined_at, invite_id null → invites (set null) | PK (guild_id, user_id); index (invite_id) where not null. `invite_id`: the invite of the join (§4 accept). The redeemer of an invite with history gets its bundles with it (§12.11.4) |
+| `guild_members` | guild_id → guilds (cascade), user_id → users (cascade), nick null, joined_at, invite_id null → invites (set null), mute bool default false, deaf bool default false | PK (guild_id, user_id); index (invite_id) where not null. `invite_id`: the invite of the join (§4 accept). The redeemer of an invite with history gets its bundles with it (§12.11.4) |
 | `guild_bans` | guild_id → guilds (cascade), user_id → users (cascade), reason text null, banned_by null → users (set null), created_at | PK (guild_id, user_id). §4 Bans |
 | `channels` | id, guild_id null → guilds (cascade), type `channel_type` enum (incl. `thread`), name null, topic null, parent_id null → channels (set null), position int default 0, owner_id null → users (set null), mls_group_id bytea null → mls_groups (set null), thread_start_message_id uuid null → messages (set null), created_at, last_activity_at timestamptz not null default now() (a thread: set by POST /channels/:id/messages; the migration backfills the last message, else created_at) | index (guild_id); index (parent_id, last_activity_at); index (guild_id, last_activity_at) where type = 'thread'. A thread has `mls_group_id` null: readers take the group of the parent. `DELETE /channels/:id` deletes the threads of the channel (the FK alone sets null) |
 | `messages` | id, channel_id → channels (cascade), author_id → users (cascade), group_id bytea → mls_groups (cascade), epoch bigint, sender_device uuid null → devices (set null), client_msg_id bytea, envelope bytea, franking_tag bytea, size int, created_at, edited_at null | index (channel_id, created_at desc, id desc); unique (channel_id, client_msg_id). No `content` column (§12.8) |
@@ -366,7 +370,7 @@ Implemented extras (Discord semantics):
 | POST `/channels/:id/typing` | SEND_MESSAGES | 204 | `TYPING_START {channelId, guildId, userId, timestamp}` |
 | POST `/channels/:id/ack` `{messageId}` | VIEW_CHANNEL. The message must be in the channel, else 404 `NotFound`. 120 per user per 60 s, else 429 `RateLimited` | 204 | `READ_STATE_UPDATE {channelId, lastReadMessageId}` → user:{me}, only when the read state moved. The read state moves only forward in (created_at, id) order. An ack for the same or an older message changes nothing |
 | GET `/guilds/:id/members` | member | `Member[]` | — |
-| PATCH `/guilds/:id/members/:userId` `{nick?, roles?}` | nick: self→CHANGE_NICKNAME, other→MANAGE_NICKNAMES; roles→MANAGE_ROLES + hierarchy | `Member` | `GUILD_MEMBER_UPDATE`; `INVITE_DELETE` → guild for each revoked invite (Invite limits) |
+| PATCH `/guilds/:id/members/:userId` `{nick?, roles?, mute?, deaf?, channelId?: string \| null}` | nick: self→CHANGE_NICKNAME, other→MANAGE_NICKNAMES; roles→MANAGE_ROLES + hierarchy; mute→MUTE_MEMBERS; deaf→DEAFEN_MEMBERS; channelId→MOVE_MEMBERS. mute, deaf and channelId on another member: also the moderation rule of Bans. channelId: the member must be in voice in the guild (else 400); a voice channel of the guild that the caller can CONNECT to and the member can VIEW_CHANNEL and CONNECT to (else 400 / 403), or null to disconnect | `Member` | `GUILD_MEMBER_UPDATE`; `INVITE_DELETE` → guild for each revoked invite (Invite limits); channelId: the internal `VOICE_MOVE` → user (§5) |
 | DELETE `/guilds/:id/members/:userId` | KICK_MEMBERS (not owner) | 204 | `GUILD_MEMBER_REMOVE {guildId, user}` → guild; `GUILD_DELETE {id}` → user:{kicked}; `INVITE_DELETE` → guild for each revoked invite (Invite limits) |
 | DELETE `/users/@me/guilds/:id` | member, not owner | 204 | same as kick |
 | GET `/guilds/:id/bans` | BAN_MEMBERS | `Ban[]`, newest first | — |
@@ -655,7 +659,8 @@ Other Redis keys (owned by the gateway unless noted):
 | `takusen:device_nonce:{key}:{nonce}` | string | Takusen-owned. A device proof nonce that Takusen accepted (§12.12 "Device proof"). `{key}` is the base64url device MLS public key. `SET NX`, TTL 10 min |
 | `takusen:mls_wakeup` | pub/sub | Takusen-owned. Takusen → its gRPC process: `{ "groupId": "<base64url>" }` when a Remove is queued (§12.7.5) |
 | `takusen:mls_false_reject:{deviceId}` | string (counter) | Takusen-owned. The number of false `not_reader` rejection reports of a committer device (§12.12 "Batch rejections"). At 3, the batch scheduler skips the device. TTL 30 days, set again on each report |
-| `media:{nodeId}` | pub/sub | gateway → media: `{ "op": "kick", "sessionId": "...", "channelId": "..." }` — media only closes a conn whose token channelId matches (a late kick must not kill a newer connection of the same session) |
+| `media:{nodeId}` | pub/sub | gateway → media: `{ "op": "kick", "sessionId": "...", "channelId": "..." }` — media only closes a conn whose token channelId matches (a late kick must not kill a newer connection of the same session). `{ "op": "mute", "sessionId", "channelId", "mute": bool }` — server mute or deafen (§6 "Voice moderation"): media drops (or forwards again) the mic RTP of that session, with the same channelId check |
+| `user:{userId}` | pub/sub | Takusen → gateway, internal: the envelope `{ "t": "VOICE_MOVE", "d": { "guildId", "channelId": string \| null } }` after a PATCH of the member with `channelId` (§6 "Voice moderation"). Not forwarded to clients |
 | `device:{deviceId}` | pub/sub | media → gateway, internal: the envelope `{ "t": "VOICE_DISCONNECTED", "d": { "sessionId", "channelId", "jti" } }` when a call ends without a kick (§8 "Call end"). Not forwarded to clients |
 
 ## 6. Gateway WebSocket (`hachiman-gateway`)
@@ -718,7 +723,7 @@ Dispatch events:
 | INVITE_DELETE | `{ guildId, code, inviteId }` — an invite was revoked (§4): by `DELETE /invites/:code`, or because its creator lost ADMINISTRATOR. To every member of the guild. The crypto Worker also gets it (§12.13) |
 | PRESENCE_UPDATE | `Presence` (published to guild:{g} for every guild of the user, and user:{p} for DM partners). When a session gets GUILD_CREATE (the user joined or created a guild), the gateway also publishes the current presence to that guild:{g}, so that the members see the new member online |
 | VOICE_STATE_UPDATE | `VoiceState` (`channelId: null` = left). A guild state goes to guild:{g}, a DM call state to user:{p} of each participant |
-| VOICE_SERVER_UPDATE | `{ guildId: string \| null, channelId, endpoint, token, iceServers: RTCIceServer[], expiresAt }` — to the requesting session only |
+| VOICE_SERVER_UPDATE | `{ guildId: string \| null, channelId, endpoint, token, iceServers: RTCIceServer[], expiresAt, moved?: true }` — to the requesting session only. `moved`: a move by a moderator (§6 "Voice moderation"), not an answer to op 4 |
 | CALL_RING | `{ channelId, userId /* the caller */, ringing: string[] /* user ids */, at /* RFC 3339 */ }` — a DM call started (§6 "DM calls"). To user:{p} of each user in `ringing` |
 | PAGE_CREATE / PAGE_UPDATE | `Page & { guildId }` |
 | PAGE_DELETE | `{ id, channelId, guildId, ids: string[] }` (`ids`: the page and its subtree) |
@@ -779,7 +784,13 @@ publish kick to `media:{nodeId}`, and DEL `voice_room:{channelId}` if HLEN of oc
 ICE servers: if TURN is configured (`--turn-secret`, `--turn-urls`), mint coturn REST credentials (`pkg/coturn`), else
 `[{ "urls": ["stun:stun.l.google.com:19302"] }]`.
 
-Not in v1 (explicitly deferred): server mute/deafen (MUTE_MEMBERS / DEAFEN_MEMBERS), moving others (MOVE_MEMBERS), camera video, a STREAM permission.
+Not in v1 (explicitly deferred): camera video, a STREAM permission.
+
+### Voice moderation
+
+Server mute and deafen are the `mute` and `deaf` of the Member (`guild_members`), set by `PATCH /guilds/:id/members/:userId` (§4). They stay across calls. The gateway keeps them for the user of each session (READY, then GUILD_MEMBER_UPDATE). Each voice state carries them as `mute` and `deaf`. The voice token of a member with either one has the claim `mute: true` (§7). When a GUILD_MEMBER_UPDATE of the user changes them, the session that holds the call of the user (its voice state names the session, and the session hash names this gateway as `owner`) writes the voice state, publishes VOICE_STATE_UPDATE and publishes `{op: "mute", sessionId, channelId, mute: mute || deaf}` to `media:{nodeId}`. The media node then drops the mic RTP of the session (m-line 0) until the next `mute` op. A session that is still joining when the op comes keeps the value of its token claim. The client also gates its media (§10). The media node does not stop the remote audio of a deafened session: the client mutes its playback.
+
+Move and disconnect: `PATCH` with `channelId` publishes the internal `VOICE_MOVE {guildId, channelId}` to `user:{userId}` (§5). The session that holds the call in that guild acts, as above. With `channelId: null` it leaves voice as for op 4 with `channelId: null` (VOICE_STATE_UPDATE null, kick). Else it runs the join steps above for the new channel with the self mute and deafen of the call, `selfStream` false, and sends VOICE_SERVER_UPDATE with `moved: true`. The client then opens the media connection of that channel without op 4. A kick (4010) from media does not make the client send an op 4 leave: the gateway already changed the voice state.
 
 The gateway does not examine `selfStream`. It stores and publishes the value only. Any member in a voice channel can share a screen.
 
@@ -812,6 +823,7 @@ type Claims struct {
     JTI         string    `json:"jti"`
     IssuedAt    time.Time `json:"iat"`
     ExpiresAt   time.Time `json:"exp"`         // 60–120 s after iat
+    Mute        bool      `json:"mute"`        // optional, only true is sent: server muted or deafened at mint time (§6 "Voice moderation")
 }
 ```
 
@@ -1078,9 +1090,12 @@ export class HachimanClient extends TypedEventEmitter<HachimanClientEvents> {
   leaveVoice(): void
   readonly selfVoice: SelfVoiceState             // { ownMute, selfMute, selfDeaf }
   setSelfVoice(change: Partial<SelfVoice>): SelfVoiceState   // SelfVoice = { selfMute, selfDeaf }
+  readonly serverVoice: { mute: boolean; deaf: boolean }   // server mute and deafen of the user in the guild of the call (§6 "Voice moderation"): from its VoiceState, else its Member. They gate the media as selfMute / selfDeaf do (deaf also mutes), op 4 does not carry them, and the client applies a change at once
   setCustomStatus(text: string, expiresAt?: string | null): void   // gateway.setCustomStatus; the cache changes on the PRESENCE_UPDATE echo
   setScreen(track: MediaStreamTrack | null, encoding?: ScreenEncoding | null): Promise<void>   // null = stop; sets selfStream
   readonly voice: VoiceConnection | null
+  // A media close 4010 (kick) drops the call without an op 4 leave: the gateway already ended or moved it. A VOICE_SERVER_UPDATE with
+  // `moved` while no join is pending opens the media connection of that channel (a move by a moderator), and emits 'voice'.
   // When the gateway becomes 'ready' (before the 'state' event), a voice state of this session that the client is not in
   // (a leave dropped while the socket was down, then RESUME) is left with op 4 channelId null.
   // events: 'ready', 'state', 'update' (fired after any cache mutation with { t, d }), 'voice' (VoiceConnection | null),

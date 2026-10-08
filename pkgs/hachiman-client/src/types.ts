@@ -93,6 +93,10 @@ export interface Member {
   /** Role ids, excluding @everyone. */
   roles: string[]
   joinedAt: string
+  /** Server mute (MUTE_MEMBERS). Stays across calls. */
+  mute: boolean
+  /** Server deafen (DEAFEN_MEMBERS). Stays across calls. */
+  deaf: boolean
 }
 
 /** A guild ban (§4 Bans). The user cannot join the guild through an invite while it exists. */
@@ -240,6 +244,9 @@ export interface VoiceState {
   sessionId: string
   selfMute: boolean
   selfDeaf: boolean
+  /** Server mute and deafen: the `mute` / `deaf` of the Member. Absent from an older gateway. */
+  mute?: boolean
+  deaf?: boolean
   selfStream: boolean
   /** RFC 3339: when this session joined the channel. Kept across mute, deafen and stream changes, reset on a move. Absent from an older gateway. */
   joinedAt?: string
@@ -681,6 +688,8 @@ export interface VoiceServerUpdate {
   token: string
   iceServers: RTCIceServer[]
   expiresAt: string
+  /** true: a member with MOVE_MEMBERS moved this session to `channelId` (§6 "Voice moderation"). The client follows without an op 4. */
+  moved?: boolean
 }
 
 /** CALL_RING (§6 "DM calls"). */

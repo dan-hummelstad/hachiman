@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"slices"
 	"strings"
 	"time"
@@ -27,6 +28,8 @@ type voiceRequest struct {
 	SelfMute   bool    `json:"selfMute"`
 	SelfDeaf   bool    `json:"selfDeaf"`
 	SelfStream bool    `json:"selfStream"`
+	// moved: a VOICE_MOVE by a moderator, not op 4. VOICE_SERVER_UPDATE then says so.
+	moved bool
 }
 
 var stunOnly = []coturn.ICEServer{{URLs: []string{"stun:stun.l.google.com:19302"}}}
@@ -95,6 +98,8 @@ func (s *session) onVoice(ctx context.Context, req voiceRequest) error {
 		sc      voiceScope
 		region  string
 		members []string // DM call: every participant, me included
+		// The server mute and deafen of a guild member (§6 "Voice moderation"); a DM call has none.
+		serverMute, serverDeaf bool
 	)
 	if req.GuildID != nil {
 		gs := s.guilds[*req.GuildID]
@@ -109,6 +114,7 @@ func (s *session) onVoice(ctx context.Context, req voiceRequest) error {
 			return fmt.Errorf("missing CONNECT on %s", chID)
 		}
 		sc, region = voiceScope{guildID: gs.id}, gs.region
+		serverMute, serverDeaf = gs.myMute, gs.myDeaf
 	} else {
 		ms, err := s.g.dmMembers(ctx, chID)
 		if err != nil {
@@ -132,7 +138,7 @@ func (s *session) onVoice(ctx context.Context, req voiceRequest) error {
 	if !moved && prev.JoinedAt != "" {
 		joinedAt = prev.JoinedAt // mute/deaf/stream toggle keeps the call timer
 	}
-	st := VoiceState{GuildID: sc.guildPtr(), ChannelID: &chID, UserID: me, SessionID: s.id, SelfMute: req.SelfMute, SelfDeaf: req.SelfDeaf, SelfStream: req.SelfStream, JoinedAt: joinedAt}
+	st := VoiceState{GuildID: sc.guildPtr(), ChannelID: &chID, UserID: me, SessionID: s.id, SelfMute: req.SelfMute, SelfDeaf: req.SelfDeaf, Mute: serverMute, Deaf: serverDeaf, SelfStream: req.SelfStream, JoinedAt: joinedAt}
 	if _, err := s.g.rdb.TxPipelined(ctx, func(p redis.Pipeliner) error {
 		p.HSet(ctx, sc.key(), me, string(mustJSON(st)))
 		p.Set(ctx, kVoiceUser(me), sc.userValue(), 0)
@@ -166,6 +172,7 @@ func (s *session) onVoice(ctx context.Context, req voiceRequest) error {
 	claims := voicetoken.Claims{
 		SessionID: s.id, UserID: me, DeviceID: s.deviceID, GuildID: sc.guildID, ChannelID: chID, MediaNodeID: nodeID,
 		JTI: randomToken(), IssuedAt: now, ExpiresAt: now.Add(voicetoken.DefaultTTL),
+		Mute: serverMute || serverDeaf,
 	}
 	// In the session hash, which outlives a RESUME (VOICE_DISCONNECTED names it).
 	s.g.rdb.HSet(ctx, kSession(s.id), "voiceJti", claims.JTI)
@@ -177,10 +184,14 @@ func (s *session) onVoice(ctx context.Context, req voiceRequest) error {
 	if s.g.turn != nil {
 		ice = s.g.turn.Mint(me, now)
 	}
-	s.dispatch("VOICE_SERVER_UPDATE", map[string]any{
+	vsu := map[string]any{
 		"guildId": sc.guildPtr(), "channelId": chID, "endpoint": endpoint, "token": token,
 		"iceServers": ice, "expiresAt": iso(claims.ExpiresAt),
-	})
+	}
+	if req.moved {
+		vsu["moved"] = true
+	}
+	s.dispatch("VOICE_SERVER_UPDATE", vsu)
 	return nil
 }
 
@@ -223,6 +234,75 @@ func (g *Gateway) roomEmpty(ctx context.Context, key, channelID, me string) bool
 		}
 	}
 	return true
+}
+
+// ownsVoice returns the user's current voice state when this session object
+// holds that call: the state names this session, and this object owns the
+// session (after a RESUME on another node, the old object lives on until its
+// grace ends, with the same id).
+func (s *session) ownsVoice(ctx context.Context) *VoiceState {
+	if s.voice == nil {
+		return nil
+	}
+	cur := s.g.currentVoice(ctx, s.user.ID)
+	if cur == nil || cur.SessionID != s.id || cur.ChannelID == nil {
+		return nil
+	}
+	if owner, _ := s.g.rdb.HGet(ctx, kSession(s.id), "owner").Result(); owner != s.owner {
+		return nil
+	}
+	return cur
+}
+
+// onVoiceMove handles the internal VOICE_MOVE {guildId, channelId} of Takusen
+// on user:{id} (§6 "Voice moderation"): a member with MOVE_MEMBERS moved the
+// user (channelId) or disconnected them (null). Only the session in that call acts.
+func (s *session) onVoiceMove(raw json.RawMessage) {
+	var d struct {
+		GuildID   string  `json:"guildId"`
+		ChannelID *string `json:"channelId"`
+	}
+	if json.Unmarshal(raw, &d) != nil {
+		return
+	}
+	cur := s.ownsVoice(s.ctx)
+	if cur == nil || cur.GuildID == nil || *cur.GuildID != d.GuildID {
+		return
+	}
+	if d.ChannelID == nil {
+		s.leaveVoice(s.ctx)
+		return
+	}
+	if *cur.ChannelID == *d.ChannelID {
+		return
+	}
+	// A screen share does not move with the user, as for a move by op 4.
+	req := voiceRequest{GuildID: &d.GuildID, ChannelID: d.ChannelID, SelfMute: cur.SelfMute, SelfDeaf: cur.SelfDeaf, moved: true}
+	if err := s.onVoice(s.ctx, req); err != nil {
+		slog.Warn("voice move failed", "session", s.id, "err", err)
+	}
+}
+
+// applyServerVoice writes a changed server mute or deafen of the user into
+// the voice state of this session's call in gs, and tells the media node to
+// drop or forward the mic RTP (§6 "Voice moderation").
+func (s *session) applyServerVoice(ctx context.Context, gs *guildState) {
+	cur := s.ownsVoice(ctx)
+	if cur == nil || cur.GuildID == nil || *cur.GuildID != gs.id {
+		return
+	}
+	st := *cur
+	st.Mute, st.Deaf = gs.myMute, gs.myDeaf
+	if err := s.g.rdb.HSet(ctx, kVoice(gs.id), st.UserID, string(mustJSON(st))).Err(); err != nil {
+		slog.Warn("server voice update failed", "session", s.id, "err", err)
+		return
+	}
+	s.voice = &st
+	s.g.publishVoice(ctx, voiceScope{guildID: gs.id}, nil, st)
+	if node, _ := s.g.rdb.Get(ctx, kVoiceRoom(*st.ChannelID)).Result(); node != "" {
+		b, _ := json.Marshal(map[string]any{"op": "mute", "sessionId": s.id, "channelId": *st.ChannelID, "mute": st.Mute || st.Deaf})
+		s.g.rdb.Publish(ctx, "media:"+node, b)
+	}
 }
 
 // leaveVoice drops this session's voice state. Another device's voice

@@ -8,6 +8,7 @@ import {
   VoiceConnection,
   blobKey,
   type Attachment,
+  type Ban,
   type DocUpdate,
   type GatewayDispatch,
   type GuildEventWithMe,
@@ -375,6 +376,7 @@ export function stubRest(): void {
   // Pins, guild events and blocks (§4): in memory, echoed back as their gateway events.
   const events = new Map<string, GuildEventWithMe>()
   const blocks = new Set<string>()
+  const bans = new Map<string, Ban[]>()
   const eventOf = (id: string): GuildEventWithMe => {
     const ev = events.get(id)
     if (!ev) throw new RestError(404, 'NotFound')
@@ -687,13 +689,37 @@ export function stubRest(): void {
     ackMessage: () => undefined,
     getMembers: (guildId) => [...(cache.members.get(guildId)?.values() ?? [])],
     updateMember: (guildId, userId, body) => {
-      const m = { ...must(cache.members.get(guildId)?.get(userId), 'member'), ...body }
+      const { channelId, ...fields } = body
+      const m = { ...must(cache.members.get(guildId)?.get(userId), 'member'), ...fields }
       dispatch({ t: 'GUILD_MEMBER_UPDATE', d: m })
+      const vs = cache.voiceStates.get(guildId)?.get(userId)
+      if (vs) {
+        const next = { ...vs, mute: m.mute, deaf: m.deaf }
+        if (channelId !== undefined) next.channelId = channelId
+        dispatch({ t: 'VOICE_STATE_UPDATE', d: next })
+      }
       return m
     },
     kickMember: (guildId, userId) => {
       const m = cache.members.get(guildId)?.get(userId)
       if (m) dispatch({ t: 'GUILD_MEMBER_REMOVE', d: { guildId, user: m.user } })
+    },
+    getBans: (guildId) => bans.get(guildId) ?? [],
+    banMember: (guildId, userId, body) => {
+      const m = cache.members.get(guildId)?.get(userId)
+      if (!m) return
+      const list = bans.get(guildId) ?? []
+      bans.set(guildId, [
+        { user: m.user, reason: body?.reason ?? null, createdAt: new Date().toISOString() },
+        ...list
+      ])
+      dispatch({ t: 'GUILD_MEMBER_REMOVE', d: { guildId, user: m.user } })
+    },
+    unbanMember: (guildId, userId) => {
+      bans.set(
+        guildId,
+        (bans.get(guildId) ?? []).filter((b) => b.user.id !== userId)
+      )
     },
     leaveGuild: (id) => {
       dispatch({ t: 'GUILD_DELETE', d: { id } })

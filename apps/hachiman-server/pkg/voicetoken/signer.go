@@ -78,6 +78,9 @@ func (s *Signer) Mint(c Claims) (string, error) {
 	t.SetString("deviceId", c.DeviceID)
 	t.SetString("guildId", c.GuildID)
 	t.SetString("channelId", c.ChannelID)
+	if c.Mute {
+		_ = t.Set("mute", true) // a bool always marshals
+	}
 	return t.V4Sign(s.secret, nil), nil
 }
 

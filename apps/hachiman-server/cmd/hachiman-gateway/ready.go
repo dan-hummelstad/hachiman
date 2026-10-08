@@ -64,6 +64,8 @@ type Member struct {
 	Nick     *string  `json:"nick"`
 	Roles    []string `json:"roles"`
 	JoinedAt string   `json:"joinedAt"`
+	Mute     bool     `json:"mute"` // server mute (MUTE_MEMBERS)
+	Deaf     bool     `json:"deaf"` // server deafen (DEAFEN_MEMBERS)
 }
 
 type Presence struct {
@@ -79,6 +81,8 @@ type VoiceState struct {
 	SessionID  string  `json:"sessionId"`
 	SelfMute   bool    `json:"selfMute"`
 	SelfDeaf   bool    `json:"selfDeaf"`
+	Mute       bool    `json:"mute"` // the Member's server mute and deafen (§6 "Voice moderation")
+	Deaf       bool    `json:"deaf"`
 	SelfStream bool    `json:"selfStream"`
 	JoinedAt   string  `json:"joinedAt"` // set on join and on a channel move (contract §1)
 }
@@ -259,17 +263,17 @@ func pgLoader(db *pgxpool.Pool) func(ctx context.Context, userID, onlyGuild stri
 			}
 
 			rows, _ = db.Query(ctx, `
-				SELECT m.guild_id::text, m.nick, m.joined_at, u.id::text, `+usernameSQL+`, u.image,
+				SELECT m.guild_id::text, m.nick, m.joined_at, m.mute, m.deaf, u.id::text, `+usernameSQL+`, u.image,
 				       COALESCE(array_agg(mr.role_id::text) FILTER (WHERE mr.role_id IS NOT NULL), '{}')
 				FROM guild_members m
 				JOIN users u ON u.id = m.user_id
 				LEFT JOIN member_roles mr ON mr.guild_id = m.guild_id AND mr.user_id = m.user_id
 				WHERE m.guild_id = ANY($1::uuid[])
-				GROUP BY m.guild_id, m.user_id, m.nick, m.joined_at, u.id`, ids)
+				GROUP BY m.guild_id, m.user_id, m.nick, m.joined_at, m.mute, m.deaf, u.id`, ids)
 			if err := forEach(rows, func() error {
 				var m Member
 				var joined time.Time
-				if err := rows.Scan(&m.GuildID, &m.Nick, &joined, &m.User.ID, &m.User.Username, &m.User.Avatar, &m.Roles); err != nil {
+				if err := rows.Scan(&m.GuildID, &m.Nick, &joined, &m.Mute, &m.Deaf, &m.User.ID, &m.User.Username, &m.User.Avatar, &m.Roles); err != nil {
 					return err
 				}
 				m.JoinedAt = iso(joined)

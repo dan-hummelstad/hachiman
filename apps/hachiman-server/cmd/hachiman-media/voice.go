@@ -119,6 +119,22 @@ func (s *voiceServer) kick(sessionID, channelID string) {
 	}
 }
 
+// setMuted applies a gateway `mute` op (server mute or deafen) to a joined
+// session. As for kick, a non-empty channelID must match the session's room.
+// ponytail: a session still joining misses the op; its token claim decides.
+func (s *voiceServer) setMuted(sessionID, channelID string, muted bool) {
+	c := s.lookup(sessionID)
+	if c == nil || (channelID != "" && c.claims.ChannelID != channelID) {
+		return
+	}
+	c.peersMu.Lock()
+	cl := c.client
+	c.peersMu.Unlock()
+	if cl != nil {
+		cl.SetMuted(muted)
+	}
+}
+
 func (s *voiceServer) closeAll(code int, reason string) {
 	s.shuttingDown.Store(true)
 	s.mu.Lock()
@@ -389,6 +405,7 @@ func (c *voiceConn) identify() bool {
 		c.close(websocket.CloseInternalServerErr, "join failed")
 		return false
 	}
+	cl.SetMuted(claims.Mute)
 	c.peersMu.Lock()
 	c.client = cl
 	c.peersMu.Unlock()
