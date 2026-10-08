@@ -77,7 +77,7 @@ export function rankItems<T>(
  * A picked insert as the composer shows it and as it is sent: a role mention (`@Captain` →
  * `<@&roleId>`) or a custom emoji (`:party:` → `<:party:id>`).
  */
-export interface RoleInsert {
+export interface WireInsert {
   display: string
   wire: string
 }
@@ -87,9 +87,9 @@ export interface RoleInsert {
  * its display form, becomes its wire form. Longer names go first, so "@Squad Leads" is not taken for
  * "@Squad". A display form must end at a word boundary.
  */
-export function toWire(text: string, roles: readonly RoleInsert[]): string {
+export function toWire(text: string, inserts: readonly WireInsert[]): string {
   let out = text
-  const sorted = [...roles].sort((a, b) => b.display.length - a.display.length)
+  const sorted = [...inserts].sort((a, b) => b.display.length - a.display.length)
   for (const r of sorted) {
     const escaped = r.display.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
     out = out.replace(new RegExp(`${escaped}(?![\\p{L}\\p{N}_])`, 'gu'), r.wire)

@@ -1,10 +1,23 @@
 import { useMemo, useRef, useState } from 'react'
 import { Clock, Search } from 'lucide-react'
-import type { Guild, GuildEmoji } from '@hachiman/client'
+import type { GuildEmoji } from '@hachiman/client'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger
+} from '@/components/ui/dropdown-menu'
 import { GuildTile } from '@/components/ui/guild-tile'
 import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover'
 import { useEmojiData } from '@/hooks/use-emoji-data'
-import { parseReactionKey, reactionKeyOf, type EmojiPick } from '@/lib/custom-emoji'
+import {
+  currentGuildFirst,
+  parseReactionKey,
+  reactionKeyOf,
+  searchCustomEmoji,
+  type EmojiPick
+} from '@/lib/custom-emoji'
 import {
   EMOJI_GROUPS,
   SKIN_TONES,
@@ -22,24 +35,29 @@ const COLS = 8
 const FOCUS = 'focus-visible:outline-line-focus outline-none focus-visible:outline-2'
 const NO_EMOJIS: readonly GuildEmoji[] = []
 
-/** One cell of the grid. */
-type Cell =
-  | { kind: 'unicode'; key: string; emoji: string; base: UnicodeEmoji | null }
-  | { kind: 'custom'; key: string; emoji: GuildEmoji }
+interface Cell {
+  key: string
+  pick: EmojiPick
+  /** The Unicode emoji data of a Unicode pick, when known. */
+  base: UnicodeEmoji | null
+}
 
 interface Section {
   id: string
   label: string
-  /** The category tab. */
   tab: React.ReactNode
   cells: Cell[]
 }
 
 const unicodeCell = (e: UnicodeEmoji, tone: number): Cell => {
   const emoji = withSkin(e, tone)
-  return { kind: 'unicode', key: emoji, emoji, base: e }
+  return { key: emoji, pick: { kind: 'unicode', emoji }, base: e }
 }
-const customCell = (e: GuildEmoji): Cell => ({ kind: 'custom', key: e.id, emoji: e })
+const customCell = (e: GuildEmoji): Cell => ({
+  key: e.id,
+  pick: { kind: 'custom', emoji: e },
+  base: null
+})
 
 /**
  * The emoji picker in a popover anchored to `children` (the button that opens it): search by name,
@@ -109,7 +127,9 @@ function useSections(data: EmojiData | null, guildId: string | null, tone: numbe
     const recentCells = recent.flatMap((key): Cell[] => {
       const custom = parseReactionKey(key)
       if (!custom)
-        return [{ kind: 'unicode', key, emoji: key, base: data?.byEmoji.get(key) ?? null }]
+        return [
+          { key, pick: { kind: 'unicode', emoji: key }, base: data?.byEmoji.get(key) ?? null }
+        ]
       const e = index.get(custom.id)
       return e ? [customCell(e)] : []
     })
@@ -120,9 +140,7 @@ function useSections(data: EmojiData | null, guildId: string | null, tone: numbe
         tab: <Clock className="size-[18px]" />,
         cells: recentCells
       })
-    const order = [...guilds.values()].sort((a, b) =>
-      a.id === guildId ? -1 : b.id === guildId ? 1 : 0
-    )
+    const order = [...guilds.values()].sort((a, b) => currentGuildFirst(guildId, a.id, b.id))
     for (const g of order) {
       const list = emojis.get(g.id) ?? NO_EMOJIS
       if (list.length === 0) continue
@@ -149,24 +167,6 @@ function useSections(data: EmojiData | null, guildId: string | null, tone: numbe
   }, [data, guildId, tone, emojis, guilds, index, recent])
 }
 
-/** Custom emojis whose names match `query`, the current guild first. */
-function searchCustom(
-  emojis: ReadonlyMap<string, readonly GuildEmoji[]>,
-  guilds: ReadonlyMap<string, Guild>,
-  guildId: string | null,
-  query: string
-): GuildEmoji[] {
-  const q = query.trim().toLowerCase().replace(/^:|:$/g, '')
-  if (!q) return []
-  const all = [...emojis.entries()]
-    .filter(([g]) => guilds.has(g))
-    .sort(([a], [b]) => (a === guildId ? -1 : b === guildId ? 1 : 0))
-    .flatMap(([, list]) => list)
-  const starts = all.filter((e) => e.name.startsWith(q))
-  const contains = all.filter((e) => !e.name.startsWith(q) && e.name.includes(q))
-  return [...starts, ...contains].slice(0, 40)
-}
-
 function PickerPanel({
   guildId,
   onPick
@@ -179,27 +179,21 @@ function PickerPanel({
   const setTone = usePrefsStore((s) => s.setSkinTone)
   const addRecent = usePrefsStore((s) => s.addRecentEmoji)
   const emojis = useGuildStore((s) => s.emojis)
-  const guilds = useGuildStore((s) => s.guilds)
   const [query, setQuery] = useState('')
   const [hover, setHover] = useState<Cell | null>(null)
-  const [tones, setTones] = useState(false)
   const body = useRef<HTMLDivElement>(null)
   const sections = useSections(data, guildId, tone)
 
   const results = useMemo((): Cell[] | null => {
     if (!query.trim()) return null
-    const custom = searchCustom(emojis, guilds, guildId, query).map(customCell)
+    const custom = searchCustomEmoji(emojis, guildId, query, 40).map(customCell)
     const unicode = data ? searchEmoji(data, query).map((e) => unicodeCell(e, tone)) : []
     return [...custom, ...unicode]
-  }, [query, emojis, guilds, guildId, data, tone])
+  }, [query, emojis, guildId, data, tone])
 
   const pick = (cell: Cell): void => {
-    const p: EmojiPick =
-      cell.kind === 'unicode'
-        ? { kind: 'unicode', emoji: cell.emoji }
-        : { kind: 'custom', emoji: cell.emoji }
-    addRecent(reactionKeyOf(p))
-    onPick(p)
+    addRecent(reactionKeyOf(cell.pick))
+    onPick(cell.pick)
   }
 
   /** Arrow keys move between the cells; Enter and Space pick (the buttons' own click). */
@@ -241,7 +235,11 @@ function PickerPanel({
             FOCUS
           )}
         >
-          {c.kind === 'unicode' ? c.emoji : <CustomEmojiImage emoji={c.emoji} className="size-7" />}
+          {c.pick.kind === 'unicode' ? (
+            c.pick.emoji
+          ) : (
+            <CustomEmojiImage emoji={c.pick.emoji} className="size-7" />
+          )}
         </button>
       ))}
     </div>
@@ -269,48 +267,34 @@ function PickerPanel({
             className="placeholder:text-text-tertiary text-text-primary min-w-0 flex-1 bg-transparent text-[14px] outline-none"
           />
         </label>
-        <div className="relative">
-          <button
-            type="button"
-            aria-label={`Skin tone: ${SKIN_TONES[tone]?.label ?? 'Default'}`}
-            aria-expanded={tones}
-            onClick={() => setTones((v) => !v)}
-            className={cn(
-              'rounded-control hover:bg-surface-hover flex size-8 items-center justify-center text-[18px]',
-              FOCUS
-            )}
-          >
-            {SKIN_TONES[tone]?.swatch}
-          </button>
-          {tones && (
-            <div
-              role="radiogroup"
-              aria-label="Skin tone"
-              className="bg-surface-raised border-line-hairline absolute top-full right-0 z-10 mt-1 flex flex-col border p-1 shadow-lg"
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              aria-label={`Skin tone: ${SKIN_TONES[tone]?.label ?? 'Default'}`}
+              className={cn(
+                'rounded-control hover:bg-surface-hover flex size-8 items-center justify-center text-[18px]',
+                FOCUS
+              )}
             >
+              {SKIN_TONES[tone]?.swatch}
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" aria-label="Skin tone" className="min-w-0">
+            <DropdownMenuRadioGroup value={String(tone)} onValueChange={(v) => setTone(Number(v))}>
               {SKIN_TONES.map((t, i) => (
-                <button
+                <DropdownMenuRadioItem
                   key={t.label}
-                  type="button"
-                  role="radio"
-                  aria-checked={i === tone}
+                  value={String(i)}
                   aria-label={t.label}
-                  onClick={() => {
-                    setTone(i)
-                    setTones(false)
-                  }}
-                  className={cn(
-                    'rounded-control hover:bg-surface-hover flex size-8 items-center justify-center text-[18px]',
-                    i === tone && 'bg-surface-selected',
-                    FOCUS
-                  )}
+                  className="text-[18px]"
                 >
                   {t.swatch}
-                </button>
+                </DropdownMenuRadioItem>
               ))}
-            </div>
-          )}
-        </div>
+            </DropdownMenuRadioGroup>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
       {results === null && (
         <nav
@@ -375,10 +359,10 @@ function PickerPanel({
         {hover ? (
           <>
             <span className="flex size-7 items-center justify-center text-[22px] leading-none">
-              {hover.kind === 'unicode' ? (
-                hover.emoji
+              {hover.pick.kind === 'unicode' ? (
+                hover.pick.emoji
               ) : (
-                <CustomEmojiImage emoji={hover.emoji} className="size-6" />
+                <CustomEmojiImage emoji={hover.pick.emoji} className="size-6" />
               )}
             </span>
             <span className="text-text-primary min-w-0 truncate text-[13px] font-semibold">
@@ -393,15 +377,14 @@ function PickerPanel({
   )
 }
 
-/** The accessible name of a cell. */
 function cellName(c: Cell): string {
-  if (c.kind === 'custom') return `:${c.emoji.name}:`
-  return c.base?.label ?? c.emoji
+  if (c.pick.kind === 'custom') return `:${c.pick.emoji.name}:`
+  return c.base?.label ?? c.pick.emoji
 }
 
 /** The footer text of a cell: its shortcode (custom: `:name:`), else its label. */
 function cellCode(c: Cell): string {
-  if (c.kind === 'custom') return `:${c.emoji.name}:`
+  if (c.pick.kind === 'custom') return `:${c.pick.emoji.name}:`
   const sc = c.base?.shortcodes[0]
-  return sc ? `:${sc}:` : (c.base?.label ?? c.emoji)
+  return sc ? `:${sc}:` : (c.base?.label ?? c.pick.emoji)
 }

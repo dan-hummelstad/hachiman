@@ -128,8 +128,8 @@ function ItemRow({ item }: { item: MentionItem }): React.JSX.Element {
     case 'custom-emoji':
       return (
         <>
-          <CustomEmojiImage emoji={item.emoji} className="size-5 shrink-0" />
-          <span className="text-text-primary truncate font-semibold">:{item.emoji.name}:</span>
+          <CustomEmojiImage emoji={item.pick.emoji} className="size-5 shrink-0" />
+          <span className="text-text-primary truncate font-semibold">:{item.pick.emoji.name}:</span>
         </>
       )
   }

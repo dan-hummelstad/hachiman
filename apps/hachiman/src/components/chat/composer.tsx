@@ -3,13 +3,13 @@ import { CircleAlert, ImagePlus, Lock, Plus, Smile, X } from 'lucide-react'
 import type { Channel } from '@hachiman/client'
 import type { AttachmentPointer } from '@hachiman/crypto'
 import { IconButton } from '@/components/ui/icon-button'
-import { customEmojiText, reactionKeyOf, type EmojiPick } from '@/lib/custom-emoji'
+import { emojiInsert, reactionKeyOf, type EmojiPick } from '@/lib/custom-emoji'
 import { emojiDataNow, replaceShortcodes } from '@/lib/emoji-data'
 import {
   applyCompletion,
   findTrigger,
   toWire,
-  type RoleInsert,
+  type WireInsert,
   type Trigger
 } from '@/lib/mention-complete'
 import { cn } from '@/lib/utils'
@@ -79,7 +79,7 @@ export function Composer({
   const [trigger, setTrigger] = useState<Trigger | null>(null)
   const [active, setActive] = useState(0)
   /** Picked roles and custom emojis: their display forms become wire forms on send. */
-  const pickedRoles = useRef<RoleInsert[]>([])
+  const pickedInserts = useRef<WireInsert[]>([])
   const [emojiOpen, setEmojiOpen] = useState(false)
   const addRecentEmoji = usePrefsStore((s) => s.addRecentEmoji)
   const items = useMentionItems(channel, trigger)
@@ -108,12 +108,12 @@ export function Composer({
     if (uploads.busy) return uploads.setNotices(['Wait for the uploads to finish, then send.'])
     if (uploads.failed) return uploads.setNotices(['Remove the failed uploads to send.'])
     if (!text.trim() && uploads.items.length === 0) return
-    const wire = toWire(text, pickedRoles.current)
+    const wire = toWire(text, pickedInserts.current)
     const data = emojiDataNow()
     onSend(data ? replaceShortcodes(wire, data) : wire, uploads.take())
     setText('')
     setTrigger(null)
-    pickedRoles.current = []
+    pickedInserts.current = []
   }
 
   /** The trigger at the caret after a change or a caret move; a new trigger starts at the top. */
@@ -127,12 +127,11 @@ export function Composer({
 
   const pick = (item: MentionItem): void => {
     if (!trigger) return
-    const { insert, role } = insertFor(item)
+    const { insert, wire } = insertFor(item)
     const done = applyCompletion(text, trigger, insert)
-    if (role) pickedRoles.current = [...pickedRoles.current, role]
-    if (item.kind === 'emoji') addRecentEmoji(item.id)
-    else if (item.kind === 'custom-emoji')
-      addRecentEmoji(reactionKeyOf({ kind: 'custom', emoji: item.emoji }))
+    if (wire) pickedInserts.current = [...pickedInserts.current, { display: insert, wire }]
+    if (item.kind === 'emoji' || item.kind === 'custom-emoji')
+      addRecentEmoji(reactionKeyOf(item.pick))
     setText(done.text)
     setTrigger(null)
     requestAnimationFrame(() => input.current?.setSelectionRange(done.caret, done.caret))
@@ -143,16 +142,11 @@ export function Composer({
     const el = input.current
     const from = el?.selectionStart ?? text.length
     const to = el?.selectionEnd ?? from
-    let insert: string = pick.kind === 'unicode' ? pick.emoji : `:${pick.emoji.name}:`
-    if (pick.kind === 'custom') {
-      pickedRoles.current = [
-        ...pickedRoles.current,
-        { display: insert, wire: customEmojiText(pick.emoji) }
-      ]
-    }
+    const { insert: display, wire } = emojiInsert(pick)
+    if (wire) pickedInserts.current = [...pickedInserts.current, { display, wire }]
     const before = text.slice(0, from)
     const pad = before && !/\s$/.test(before) ? ' ' : ''
-    insert = `${pad}${insert} `
+    const insert = `${pad}${display} `
     const caret = from + insert.length
     setText(`${before}${insert}${text.slice(to)}`)
     requestAnimationFrame(() => {
@@ -273,10 +267,9 @@ export function Composer({
                 !e.shiftKey &&
                 !e.altKey &&
                 !e.ctrlKey &&
-                !e.metaKey &&
-                onEditLast?.()
+                !e.metaKey
               ) {
-                e.preventDefault()
+                if (onEditLast?.()) e.preventDefault()
               } else submitOnEnter(e, send)
             }}
             onPaste={(e) => {

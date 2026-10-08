@@ -1,11 +1,11 @@
 import { useMemo } from 'react'
-import type { Channel, GuildEmoji, Member, Role, User } from '@hachiman/client'
+import type { Channel, Member, Role, User } from '@hachiman/client'
 import { pageHref } from '@/components/docs/page-links'
 import { useEmojiData } from '@/hooks/use-emoji-data'
 import { useGuildChannels } from '@/hooks/use-hachiman'
-import { customEmojiText } from '@/lib/custom-emoji'
+import { emojiInsert, searchCustomEmoji, type EmojiPick } from '@/lib/custom-emoji'
 import { searchEmoji, withSkin } from '@/lib/emoji-data'
-import { rankItems, type RoleInsert, type Trigger } from '@/lib/mention-complete'
+import { rankItems, type Trigger } from '@/lib/mention-complete'
 import { pageTitle } from '@/services/docs/page-tree'
 import { useDocsStore, type PageNode } from '@/stores/docsStore'
 import { useGuildStore } from '@/stores/guildStore'
@@ -19,19 +19,16 @@ export type MentionItem =
   | { kind: 'channel'; id: string; channel: Channel }
   | { kind: 'page'; id: string; page: PageNode; channelName: string }
   /** A Unicode emoji (`id` is the emoji in the chosen skin tone) and its main shortcode. */
-  | { kind: 'emoji'; id: string; code: string }
-  | { kind: 'custom-emoji'; id: string; emoji: GuildEmoji }
+  | { kind: 'emoji'; id: string; code: string; pick: EmojiPick }
+  | { kind: 'custom-emoji'; id: string; pick: Extract<EmojiPick, { kind: 'custom' }> }
 
 /** What a picked item puts into the text, and for a role or custom emoji its wire form for the send. */
-export function insertFor(item: MentionItem): { insert: string; role?: RoleInsert } {
+export function insertFor(item: MentionItem): { insert: string; wire?: string } {
   switch (item.kind) {
     case 'user':
       return { insert: `@${item.user.username}` }
     case 'role':
-      return {
-        insert: `@${item.role.name}`,
-        role: { display: `@${item.role.name}`, wire: `<@&${item.id}>` }
-      }
+      return { insert: `@${item.role.name}`, wire: `<@&${item.id}>` }
     case 'everyone':
       return { insert: '@everyone' }
     case 'channel':
@@ -40,12 +37,8 @@ export function insertFor(item: MentionItem): { insert: string; role?: RoleInser
       // A page link in a message shows as the page card (page-cards.tsx).
       return { insert: `[${pageTitle(item.page)}](${pageHref(item.id)})` }
     case 'emoji':
-      return { insert: item.id }
     case 'custom-emoji':
-      return {
-        insert: `:${item.emoji.name}:`,
-        role: { display: `:${item.emoji.name}:`, wire: customEmojiText(item.emoji) }
-      }
+      return emojiInsert(item.pick)
   }
 }
 
@@ -74,21 +67,21 @@ export function useMentionItems(channel: Channel, trigger: Trigger | null): Ment
     if (!trigger) return NO_ITEMS
     const { char, query } = trigger
     if (char === ':') {
-      const q = query.toLowerCase()
-      // The guild of the channel first, then the other guilds.
-      const custom = [...guildEmojis.entries()]
-        .sort(([a], [b]) => (a === guildId ? -1 : b === guildId ? 1 : 0))
-        .flatMap(([, list]) => list)
-        .filter((e) => e.name.includes(q))
-        .sort((a, b) => Number(!a.name.startsWith(q)) - Number(!b.name.startsWith(q)))
-        .slice(0, 5)
-        .map((e): MentionItem => ({ kind: 'custom-emoji', id: e.id, emoji: e }))
+      const custom = searchCustomEmoji(guildEmojis, guildId, query, 5).map((e): MentionItem => ({
+        kind: 'custom-emoji',
+        id: e.id,
+        pick: { kind: 'custom', emoji: e }
+      }))
       const unicode = emojiData
-        ? searchEmoji(emojiData, q, 10 - custom.length).map((e): MentionItem => ({
-            kind: 'emoji',
-            id: withSkin(e, skinTone),
-            code: e.shortcodes[0] ?? e.label
-          }))
+        ? searchEmoji(emojiData, query.toLowerCase(), 10 - custom.length).map((e): MentionItem => {
+            const emoji = withSkin(e, skinTone)
+            return {
+              kind: 'emoji',
+              id: emoji,
+              code: e.shortcodes[0] ?? e.label,
+              pick: { kind: 'unicode', emoji }
+            }
+          })
         : []
       return [...custom, ...unicode]
     }
