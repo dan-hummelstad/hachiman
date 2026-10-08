@@ -8,7 +8,7 @@
  * POST /api/admin/sessions/revoke-all; one user with
  * POST /api/admin/users/:id/sign-out.
  */
-import { and, eq, inArray, or, sql } from 'drizzle-orm'
+import { and, eq, inArray, isNull, or, sql, type SQL, type SQLWrapper } from 'drizzle-orm'
 
 import { db, type Tx } from '@/db/client'
 import { oidcAdapterPayloads, users } from '@/db/schema'
@@ -36,12 +36,34 @@ export async function liveSessionRole(
 }
 
 /**
+ * The live `Grant` rows: one per Hachiman sign-in (oidc-provider.ts
+ * `loadExistingGrant`). With `accountId` (a user id or a column of the outer
+ * query), only that account's.
+ */
+export function liveGrantOf(accountId?: string | SQLWrapper): SQL {
+  return and(
+    eq(oidcAdapterPayloads.model, 'Grant'),
+    accountId === undefined ? undefined : sql`${oidcAdapterPayloads.payload}->>'accountId' = ${accountId}::text`,
+    or(isNull(oidcAdapterPayloads.expiresAt), sql`${oidcAdapterPayloads.expiresAt} > now()`),
+  ) as SQL
+}
+
+/**
  * Signs one user out everywhere: kills their dashboard cookies and deletes
  * their OIDC sessions, grants, codes and access/refresh tokens. Returns the
  * number of OIDC rows deleted.
  */
 export async function revokeUserSessions(userId: string): Promise<number> {
-  await redis().set(userSessionsRevokedAtKey(userId), String(Date.now()))
+  return await revokeUserSessionsBefore(userId, Date.now())
+}
+
+/**
+ * As revokeUserSessions, but a dashboard cookie whose `authTime` is `since`
+ * or later stays. "Sign out everywhere else" renews the current cookie first
+ * (auth.ts `RENEW_AUTH_TIME`), then calls this with a time from before it.
+ */
+export async function revokeUserSessionsBefore(userId: string, since: number): Promise<number> {
+  await redis().set(userSessionsRevokedAtKey(userId), String(since))
   return await deleteUserOidcRows(db, userId)
 }
 

@@ -3,10 +3,10 @@
  * Role changes and deletes lock the admin rows, so two admins who demote or
  * delete each other at the same time cannot leave the deployment without one.
  */
-import { and, desc, eq, ilike, inArray, or, sql, type SQL } from 'drizzle-orm'
+import { and, desc, eq, exists, ilike, inArray, isNull, or, sql, type SQL, type SQLWrapper } from 'drizzle-orm'
 
 import { db, type Tx } from '@/db/client'
-import { guildMembers, guilds, uploads, users, type User } from '@/db/schema'
+import { guildMembers, guilds, oidcAdapterPayloads, uploads, users, type User } from '@/db/schema'
 import {
   afterCursor,
   assertAdminChange,
@@ -14,6 +14,7 @@ import {
   likePattern,
   toPage,
   type AdminUser,
+  type AdminUserFilter,
   type ListQuery,
   type Page,
   type UserRole,
@@ -22,7 +23,7 @@ import { ForbiddenError } from '@/lib/auth-helpers'
 import { NotFoundError } from '@/lib/errors'
 import { publishToGuild } from '@/lib/events'
 import { deleteGuildRows, membershipChanged, membershipTransaction, MembershipTriggers, publicHistoryVisibility, publishUserUpdate } from '@/lib/guilds'
-import { deleteUserOidcRows } from '@/lib/session-revocation'
+import { deleteUserOidcRows, liveGrantOf } from '@/lib/session-revocation'
 import { deleteObjects } from '@/lib/storage'
 import { releasePageStorage } from '@/lib/uploads'
 import { toGuild, toUser } from '@/lib/wire'
@@ -45,7 +46,7 @@ type AdminUserRow = Pick<
   'id' | 'email' | 'displayName' | 'role' | 'image' | 'emailVerified' | 'emailVerifiedAt' | 'createdAt'
 >
 
-function toAdminUser(u: AdminUserRow): AdminUser {
+function toAdminUser(u: AdminUserRow, activeSessions: number): AdminUser {
   return {
     id: u.id,
     email: u.email,
@@ -53,13 +54,28 @@ function toAdminUser(u: AdminUserRow): AdminUser {
     role: u.role,
     avatar: u.image,
     emailVerified: u.emailVerified !== null || u.emailVerifiedAt !== null,
+    activeSessions,
     createdAt: u.createdAt.toISOString(),
   }
 }
 
-/** Newest first. `query` matches email or display name; `role` filters. */
-export async function listUsers(q: ListQuery, role?: UserRole): Promise<Page<AdminUser>> {
-  const where: (SQL | undefined)[] = [role ? eq(users.role, role) : undefined]
+function liveGrantsOf(accountId: string | SQLWrapper) {
+  return db.select({ one: sql`1` }).from(oidcAdapterPayloads).where(liveGrantOf(accountId))
+}
+
+export const unverifiedUser = and(isNull(users.emailVerified), isNull(users.emailVerifiedAt))
+
+async function activeSessionsOf(id: string): Promise<number> {
+  const [row] = await db.select({ n: sql<number>`count(*)::int` }).from(liveGrantsOf(id).as('g'))
+  return row?.n ?? 0
+}
+
+/** Newest first. `query` matches email or display name; `role` and `filter` narrow the list. */
+export async function listUsers(q: ListQuery, role?: UserRole, filter?: AdminUserFilter): Promise<Page<AdminUser>> {
+  const where: (SQL | undefined)[] = [
+    role ? eq(users.role, role) : undefined,
+    filter === 'unverified' ? unverifiedUser : filter === 'signed_in' ? exists(liveGrantsOf(users.id)) : undefined,
+  ]
   if (q.query) {
     const pattern = likePattern(q.query)
     where.push(or(ilike(users.email, pattern), ilike(users.displayName, pattern)))
@@ -68,12 +84,15 @@ export async function listUsers(q: ListQuery, role?: UserRole): Promise<Page<Adm
     where.push(afterCursor(users.createdAt, users.id, q.cursor))
   }
   const rows = await db
-    .select(adminUserColumns)
+    .select({
+      ...adminUserColumns,
+      activeSessions: sql<number>`(SELECT count(*)::int FROM (${liveGrantsOf(users.id)}) g)`,
+    })
     .from(users)
     .where(and(...where))
     .orderBy(desc(users.createdAt), desc(users.id))
     .limit(q.limit + 1)
-  return toPage(rows, q.limit, toAdminUser)
+  return toPage(rows, q.limit, (r) => toAdminUser(r, r.activeSessions))
 }
 
 /** Row-locks the admin rows until `tx` ends; the actor must be one of them. */
@@ -120,7 +139,7 @@ export async function updateUser(actorId: string, id: string, input: UpdateUserI
     return updated
   })
   if (input.displayName !== undefined) await publishUserUpdate(toUser(row))
-  return toAdminUser(row)
+  return toAdminUser(row, await activeSessionsOf(row.id))
 }
 
 /**

@@ -9,15 +9,40 @@ import { signIn } from '@/auth'
 import { db } from '@/db/client'
 import { users } from '@/db/schema'
 import { requireUser } from '@/lib/auth-helpers'
+import { redis } from '@/lib/events'
+import { checkCurrentPassword, PASSWORD_ATTEMPTS_WINDOW_SECONDS, redisAttemptStore } from '@/lib/password-attempts'
 import { completePasswordChange } from '@/lib/password-reset'
+import { passwordProblem } from '@/lib/password-strength'
 import { revokeUserSessions } from '@/lib/session-revocation'
 
 const BCRYPT_COST = 12
+
+export type AccountField = 'displayName' | 'currentPassword' | 'newPassword' | 'confirmPassword'
 
 export interface AccountActionResult {
   ok: boolean
   error?: string
   message?: string
+  /** The input that caused `error`, when one did. */
+  field?: AccountField
+  /** A wrong current password: the tries left before the pause. */
+  attemptsLeft?: number
+  /** Too many wrong current passwords: seconds until the next try. */
+  retryAfterSeconds?: number
+}
+
+function issueResult(issue: { message: string; path: (string | number)[] } | undefined): AccountActionResult {
+  const field = issue?.path[0]
+  return {
+    ok: false,
+    error: issue?.message ?? 'Invalid input',
+    ...(typeof field === 'string' ? { field: field as AccountField } : {}),
+  }
+}
+
+function pauseMessage(seconds: number): string {
+  const minutes = Math.ceil(seconds / 60)
+  return `Too many wrong passwords. Try again in ${minutes} ${minutes === 1 ? 'minute' : 'minutes'}.`
 }
 
 const displayNameSchema = z.object({
@@ -50,10 +75,7 @@ export async function updateDisplayNameAction(
   const parsed = displayNameSchema.safeParse({
     displayName: formData.get('displayName'),
   })
-  if (!parsed.success) {
-    const issue = parsed.error.issues[0]
-    return { ok: false, error: issue?.message ?? 'Invalid input' }
-  }
+  if (!parsed.success) return issueResult(parsed.error.issues[0])
   const { displayName } = parsed.data
   await db
     .update(users)
@@ -73,10 +95,7 @@ export async function changePasswordAction(
     newPassword: formData.get('newPassword'),
     confirmPassword: formData.get('confirmPassword'),
   })
-  if (!parsed.success) {
-    const issue = parsed.error.issues[0]
-    return { ok: false, error: issue?.message ?? 'Invalid input' }
-  }
+  if (!parsed.success) return issueResult(parsed.error.issues[0])
 
   const row = await db.query.users.findFirst({
     where: eq(users.id, session.user.id),
@@ -89,10 +108,23 @@ export async function changePasswordAction(
     }
   }
 
-  const ok = await bcrypt.compare(parsed.data.currentPassword, row.passwordHash)
-  if (!ok) {
-    return { ok: false, error: 'Current password is incorrect' }
+  const passwordHash = row.passwordHash
+  const check = await checkCurrentPassword(redisAttemptStore(redis()), session.user.id, () =>
+    bcrypt.compare(parsed.data.currentPassword, passwordHash),
+  )
+  if (!check.ok) {
+    if (check.paused) {
+      return { ok: false, field: 'currentPassword', error: pauseMessage(check.retryAfterSeconds), retryAfterSeconds: check.retryAfterSeconds }
+    }
+    return {
+      ok: false,
+      field: 'currentPassword',
+      error: `That isn't your current password. ${check.attemptsLeft} ${check.attemptsLeft === 1 ? 'try' : 'tries'} left before a ${PASSWORD_ATTEMPTS_WINDOW_SECONDS / 60}-minute pause.`,
+      attemptsLeft: check.attemptsLeft,
+    }
   }
+  const weak = passwordProblem(parsed.data.newPassword, row.email)
+  if (weak) return { ok: false, field: 'newPassword', error: weak }
 
   // Other sessions are revoked. The devices stay (§12.18): a password change
   // is not a reset. This browser gets a new cookie after the cut-off.
@@ -101,7 +133,8 @@ export async function changePasswordAction(
   await completePasswordChange(
     {
       async setPassword(userId, passwordHash) {
-        await db.update(users).set({ passwordHash, updatedAt: new Date() }).where(eq(users.id, userId))
+        const now = new Date()
+        await db.update(users).set({ passwordHash, passwordChangedAt: now, updatedAt: now }).where(eq(users.id, userId))
       },
       async revokeSessions(userId) {
         await revokeUserSessions(userId)

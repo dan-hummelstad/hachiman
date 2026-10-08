@@ -40,7 +40,10 @@ declare module 'next-auth' {
 // so the rest of the module doesn't depend on the (transitively-installed)
 // `@auth/core` package's module identity.
 
-export const { handlers, auth, signIn, signOut } = NextAuth({
+/** `unstable_update(RENEW_AUTH_TIME)` gives the current cookie a new `authTime` (session-revocation.ts `revokeOtherSessions`). */
+export const RENEW_AUTH_TIME = { renewAuthTime: true }
+
+export const { handlers, auth, signIn, signOut, unstable_update } = NextAuth({
   adapter: DrizzleAdapter(db, {
     usersTable: users,
     accountsTable: accounts,
@@ -78,7 +81,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     }),
   ],
   callbacks: {
-    async jwt({ token, user }) {
+    async jwt({ token, user, trigger, session }) {
       const claims = token as { role?: 'user' | 'admin'; authTime?: number }
       if (user) {
         token.sub = user.id
@@ -91,6 +94,10 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       const role = token.sub ? await liveSessionRole(token.sub, claims.authTime ?? 0) : null
       if (!role) return null
       claims.role = role
+      // Only a live cookie gets here, and a later cut-off still ends it.
+      if (trigger === 'update' && (session as { renewAuthTime?: unknown } | undefined)?.renewAuthTime === true) {
+        claims.authTime = Date.now()
+      }
       return token
     },
     async session({ session, token }) {

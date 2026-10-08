@@ -84,6 +84,8 @@ export const users = pgTable('users', {
   emailVerified: timestamp('email_verified', { withTimezone: true, mode: 'date' }),
   emailVerifiedAt: timestamp('email_verified_at', { withTimezone: true, mode: 'date' }),
   passwordHash: text('password_hash'),
+  // Null for accounts from before the column: the dashboard then shows no date.
+  passwordChangedAt: timestamp('password_changed_at', { withTimezone: true, mode: 'date' }),
   displayName: text('display_name').notNull(),
   role: userRoleEnum('role').notNull().default('user'),
   createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })

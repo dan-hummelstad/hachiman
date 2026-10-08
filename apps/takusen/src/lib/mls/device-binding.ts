@@ -30,6 +30,8 @@ export interface DeviceBindings {
   rebind(grantId: string, from: string, to: string): Promise<boolean>
   /** The grants bound to the device. */
   grantsOf(deviceId: string): Promise<string[]>
+  /** The device bound to each grant, or null. */
+  devicesOf(grantIds: readonly string[]): Promise<(string | null)[]>
   /** Drops every binding of the device. */
   forget(deviceId: string): Promise<void>
 }
@@ -69,6 +71,9 @@ export function redisDeviceBindings(client: Redis): DeviceBindings {
     async grantsOf(deviceId) {
       return client.smembers(DEVICE_KEY + deviceId)
     },
+    async devicesOf(grantIds) {
+      return grantIds.length === 0 ? [] : client.mget(grantIds.map((g) => GRANT_KEY + g))
+    },
     async forget(deviceId) {
       const grants = await client.smembers(DEVICE_KEY + deviceId)
       for (const g of grants) {
@@ -96,6 +101,9 @@ export class InMemoryDeviceBindings implements DeviceBindings {
   }
   async grantsOf(deviceId: string): Promise<string[]> {
     return [...this.byGrant].filter(([, d]) => d === deviceId).map(([g]) => g)
+  }
+  async devicesOf(grantIds: readonly string[]): Promise<(string | null)[]> {
+    return grantIds.map((g) => this.byGrant.get(g) ?? null)
   }
   async forget(deviceId: string): Promise<void> {
     for (const [g, d] of this.byGrant) if (d === deviceId) this.byGrant.delete(g)

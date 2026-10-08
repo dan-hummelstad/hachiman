@@ -16,6 +16,7 @@ import {
   generateResetToken,
   hashResetToken,
 } from '@/lib/password-reset'
+import { passwordProblem } from '@/lib/password-strength'
 
 const BCRYPT_COST = 12
 
@@ -105,6 +106,8 @@ export async function signupAction(
   }
 
   const { displayName, email, password } = parsed.data
+  const weak = passwordProblem(password, email)
+  if (weak) return { ok: false, error: weak }
 
   const existing = await db.query.users.findFirst({
     where: eq(users.email, email),
@@ -120,6 +123,7 @@ export async function signupAction(
     displayName,
     name: displayName,
     passwordHash,
+    passwordChangedAt: new Date(),
   })
 
   try {
