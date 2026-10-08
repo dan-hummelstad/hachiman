@@ -38,7 +38,26 @@ describe('checkCurrentPassword', () => {
     const store = new InMemoryAttemptStore(() => 0)
     await checkCurrentPassword(store, 'u', async () => false)
     assert.deepEqual(await checkCurrentPassword(store, 'u', async () => true), { ok: true })
-    assert.deepEqual(await store.read('u'), { misses: 0, ttlSeconds: 0 })
+    assert.deepEqual(await checkCurrentPassword(store, 'u', async () => false), {
+      ok: false,
+      paused: false,
+      attemptsLeft: PASSWORD_ATTEMPTS_MAX - 1,
+    })
+  })
+
+  test('parallel wrong attempts cannot pass the limit', async () => {
+    const store = new InMemoryAttemptStore(() => 0)
+    let verifies = 0
+    const slowWrong = async () => {
+      verifies++
+      await new Promise((resolve) => setTimeout(resolve, 5))
+      return false
+    }
+    const results = await Promise.all(
+      Array.from({ length: PASSWORD_ATTEMPTS_MAX * 3 }, () => checkCurrentPassword(store, 'u', slowWrong)),
+    )
+    assert.equal(verifies, PASSWORD_ATTEMPTS_MAX)
+    assert.equal(results.filter((r) => !r.ok && r.paused).length, PASSWORD_ATTEMPTS_MAX * 2 + 1)
   })
 
   test('users do not share a counter', async () => {
