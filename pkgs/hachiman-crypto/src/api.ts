@@ -1063,11 +1063,11 @@ export interface CryptoApi {
 
   // voice (§8, §12.10)
   /**
-   * guildId: the guild of the voice channel. The creator writes it into the group descriptor and a
-   * joiner checks the descriptor against it (§12.10.1). Without it, this device does not create the
-   * group (the media node gives the create to the next joiner after 5 s).
+   * guildId: the guild of the voice channel, or null for a DM or group DM call. The creator writes
+   * the guild id (a guild call) or channelId (a DM call) into the group descriptor, and a joiner
+   * checks the descriptor against it (§12.10.1).
    */
-  voiceStart(opts: { channelId: ChannelId; guildId?: GuildId | null }): Promise<VoiceSessionStart>
+  voiceStart(opts: { channelId: ChannelId; guildId: GuildId | null }): Promise<VoiceSessionStart>
   /** One media op in, zero or more client ops out (send in order). */
   voiceHandle(handle: string, op: VoiceE2eeServerOp): Promise<VoiceE2eeClientOp[]>
   /** Gives the transform Worker a port that receives FrameKeyMessage. Returns the port id for voiceDetachTransform. */

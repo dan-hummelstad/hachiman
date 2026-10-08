@@ -232,6 +232,11 @@ export const createVoiceService = ((ctx: EngineContext, identity: IdentityServic
     return t.prev === null
   }
 
+  /** The descriptor scope (§12.10.1): the guild of a guild call, the channel of a DM call. */
+  function voiceScope(c: Call): { guildId: GuildId | null; channelId: ChannelId | null } {
+    return c.guildId !== null ? { guildId: c.guildId, channelId: null } : { guildId: null, channelId: c.channelId }
+  }
+
   function ownSession(c: Call, d: RosterData): string | null {
     const self = identity.self().deviceId
     const live = [...d.members, ...d.pending].filter((e) => e.deviceId === self)
@@ -266,14 +271,9 @@ export const createVoiceService = ((ctx: EngineContext, identity: IdentityServic
 
   async function create(c: Call, gid: Uint8Array, handle: string): Promise<VoiceE2eeClientOp[]> {
     const self = identity.self()
-    if (c.guildId === null) {
-      // No commit: after 5 s the media node gives the create to the next joiner.
-      ctx.emit('error', { code: 'Unsupported', message: 'voiceStart needs the guild id of the voice channel to create the group' })
-      return []
-    }
     const r = await mls.createGroup({
       groupId: gid,
-      descriptor: { kind: 'voice', guildId: c.guildId, channelId: null, historyVisibility: 'joined', createdByUserId: self.userId },
+      descriptor: { kind: 'voice', ...voiceScope(c), historyVisibility: 'joined', createdByUserId: self.userId },
       dsExternalSender: null,
       cipherSuite: DEFAULT_CIPHER_SUITE,
       keyPackage: c.keyPackage,
@@ -418,8 +418,9 @@ export const createVoiceService = ((ctx: EngineContext, identity: IdentityServic
     const desc = contextOf(h).descriptor
     if (!equalBytes(h.groupId, c.groupId)) return [invalid(d.transitionId, 'welcome: another group', null)]
     if (h.epoch !== d.epoch) return [invalid(d.transitionId, 'welcome: epoch', null)]
-    if (desc?.kind !== 'voice' || desc.channelId !== null || desc.historyVisibility !== 'joined') return [invalid(d.transitionId, 'welcome: descriptor', null)]
-    if (c.guildId !== null && desc.guildId !== c.guildId) return [invalid(d.transitionId, 'welcome: another guild', null)]
+    if (desc?.kind !== 'voice' || desc.historyVisibility !== 'joined') return [invalid(d.transitionId, 'welcome: descriptor', null)]
+    const want = voiceScope(c)
+    if (desc.guildId !== want.guildId || desc.channelId !== want.channelId) return [invalid(d.transitionId, 'welcome: another call', null)]
     c.transition = { id: d.transitionId, epoch: d.epoch, prev: null, next: h }
     c.group = h
     await installKeys(c, h)
@@ -487,7 +488,7 @@ export const createVoiceService = ((ctx: EngineContext, identity: IdentityServic
       const handle = toB64url(ctx.random(16))
       calls.set(handle, {
         channelId: opts.channelId,
-        guildId: opts.guildId ?? null,
+        guildId: opts.guildId,
         keyPackage: { publicPackage: kp.publicPackage, privatePackage: kp.privatePackage },
         keyPackageUsed: false,
         groupId: null,

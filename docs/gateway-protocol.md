@@ -1608,13 +1608,13 @@ struct {
   uint8 version = 1;
   uint8 kind;
   optional<opaque> guild_id[16];
-  optional<opaque> channel_id[16];       // null for public_set and voice
+  optional<opaque> channel_id[16];       // null for public_set and a guild voice call
   uint8 history_visibility;              // 1 joined, 2 shared
   opaque created_by_user_id[16];
 } GroupDescriptor;
 ```
 
-`guild_id` is the guild for `public_set`, `channel` and `voice`, and null for `dm`. `channel_id` is the channel for `channel` and `dm`, and null for `public_set` and `voice`. A voice group has `history_visibility = joined`.
+`guild_id` is the guild for `public_set` and `channel`, and null for `dm`. `channel_id` is the channel for `channel` and `dm`, and null for `public_set`. A `voice` descriptor has exactly one of them: `guild_id` for a call in a guild voice channel, `channel_id` (the DM or group DM channel) for a DM call (§6 "DM calls"). A voice group has `history_visibility = joined`.
 
 The descriptor is authenticated by MLS. Clients read `history_visibility` from the descriptor, not from REST. A member changes it with a GroupContextExtensions (GCE) commit. Members accept that commit only from a user with MANAGE_CHANNELS on the channel (MANAGE_GUILD for `public_set`). In Phase 4, the change also needs a signed admin action (§12.16).
 
@@ -1948,7 +1948,7 @@ blob        = header ‖ ciphertext_0 ‖ … ‖ ciphertext_n
 
 #### 12.10.1 Voice group and committer
 
-- Each voice room session has its own MLS group of kind `voice`. The media node chooses 16 random bytes as the room session id when the room goes from empty to not empty. The group id is `GroupId{kind 4, scope = room session id, generation 0}`. The descriptor has `guild_id` = the guild of the voice channel, `channel_id` null, `history_visibility = joined`, and no external sender. The UI passes the guild id in `CryptoApi.voiceStart({channelId, guildId})`. The creator writes it into the descriptor, and a joiner checks the descriptor against it. A device that has no guild id does not create the group. The media node then gives the create to the next joiner after 5 s.
+- Each voice room session has its own MLS group of kind `voice`. The media node chooses 16 random bytes as the room session id when the room goes from empty to not empty. The group id is `GroupId{kind 4, scope = room session id, generation 0}`. The descriptor of a guild call has `guild_id` = the guild of the voice channel and `channel_id` null. The descriptor of a DM call (§6 "DM calls") has `guild_id` null and `channel_id` = the DM or group DM channel. Both have `history_visibility = joined` and no external sender. The UI passes `CryptoApi.voiceStart({channelId, guildId})`, with `guildId` null for a DM call. The creator writes the scope into the descriptor, and a joiner rejects a Welcome whose descriptor has another `guild_id` or `channel_id` (`e2ee_invalid`).
 - The room epoch is null until the creator sends `e2ee_ready` with `transitionId: null`. The media node then sets the epoch to 0.
 - The media node has no MLS library. It signs nothing and proposes nothing. It relays key packages, Welcomes, commits and roster changes, and it orders commits.
 - **Committer.** The member session with the lowest leaf index, from the `leafIndex` values that clients report in `e2ee_ready`. The committer commits Adds for pending joiners and Removes for departed participants. If no commit arrives 5 s after the media node gave the committer work, the media node selects the next member and sends the roster again. The 5 s timer starts at the first new work, and more work does not start it again. Before the group exists, the committer is the earliest joiner (it creates the group), and the failover gives the create role to the next joiner.
