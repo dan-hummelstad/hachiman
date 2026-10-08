@@ -1,14 +1,10 @@
-import { eq } from 'drizzle-orm'
-
-import { DashboardSection, DashboardShell } from '@/components/dashboard-shell'
-import { Field } from '@/components/ui/field'
-import { Input } from '@/components/ui/input'
-import { db } from '@/db/client'
-import { users } from '@/db/schema'
+import { passwordAge } from '@/components/account/format'
+import { DashboardShell } from '@/components/dashboard-shell'
+import { getAccountSummary } from '@/lib/account'
 import { requireUser } from '@/lib/auth-helpers'
 
-import { ChangePasswordForm } from './change-password-form'
-import { DisplayNameForm } from './display-name-form'
+import { PasswordPanel } from './password-panel'
+import { ProfilePanel } from './profile-panel'
 
 export const metadata = {
   title: 'Account · Takusen',
@@ -16,39 +12,26 @@ export const metadata = {
 
 export default async function AccountPage(): Promise<React.JSX.Element> {
   const session = await requireUser()
-  const user = await db.query.users.findFirst({
-    where: eq(users.id, session.user.id),
-    columns: { displayName: true, email: true },
-  })
+  const summary = await getAccountSummary(session.user.id)
+  const email = summary?.email ?? session.user.email ?? ''
+  const age = summary?.passwordChangedAt ? passwordAge(summary.passwordChangedAt, summary.createdAt) : null
 
   return (
-    <DashboardShell section="account" crumbs={[{ label: 'Account' }]} title="Account" description="Update your profile and security settings.">
-      <DashboardSection
-        title="Profile"
-        description="Your display name is shown to other users."
-      >
-        <div className="flex max-w-[420px] flex-col gap-5">
-          <Field id="account-email" label="Email" hint="Email address is currently not editable.">
-            <Input
-              id="account-email"
-              type="email"
-              value={user?.email ?? ''}
-              readOnly
-              disabled
-            />
-          </Field>
-          <DisplayNameForm initialDisplayName={user?.displayName ?? ''} />
-        </div>
-      </DashboardSection>
-
-      <DashboardSection
-        title="Change password"
-        description="Use a unique password at least 8 characters long."
-      >
-        <div className="max-w-[420px]">
-          <ChangePasswordForm />
-        </div>
-      </DashboardSection>
+    <DashboardShell
+      section="account"
+      crumbs={[{ label: 'Account' }]}
+      title="Account"
+      description="Your profile and password. Devices and encryption keys are managed in Hachiman."
+    >
+      <div className="grid gap-5 xl:grid-cols-2 xl:items-start">
+        <ProfilePanel
+          displayName={summary?.displayName ?? session.user.name ?? ''}
+          email={email}
+          avatarUrl={summary?.avatarUrl ?? null}
+        />
+        {/* "changed 12 days ago": the head meta is lower case. */}
+        <PasswordPanel email={email} changed={age && age.charAt(0).toLowerCase() + age.slice(1)} />
+      </div>
     </DashboardShell>
   )
 }

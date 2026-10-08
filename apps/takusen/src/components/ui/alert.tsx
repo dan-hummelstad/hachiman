@@ -14,6 +14,7 @@ const alertVariants = cva(
         warning: "border-l-feature-event [&>svg]:text-feature-event-text",
         destructive: "border-l-feature-danger [&>svg]:text-feature-danger-text",
         success: "border-l-feature-voice [&>svg]:text-feature-voice-text",
+        info: "border-l-feature-thread [&>svg]:text-feature-thread-text",
       },
     },
     defaultVariants: {

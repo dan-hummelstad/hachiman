@@ -37,7 +37,8 @@ export async function signOutEverywhereElseAction(): Promise<SessionActionResult
   const since = Date.now()
   await unstable_update(RENEW_AUTH_TIME as Parameters<typeof unstable_update>[0])
   await revokeUserSessionsBefore(session.user.id, since)
-  revalidatePath('/dashboard')
+  // No revalidatePath: the render in this request reads the old, now revoked cookie
+  // (see dashboard/page.tsx). The client refreshes once the new cookie is set.
   return { ok: true }
 }
 
