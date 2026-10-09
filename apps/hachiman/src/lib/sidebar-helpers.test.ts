@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Channel } from '@hachiman/client'
 import { callStartedAt } from './call-timer'
-import { dragged, orderedIds, recentDms, rowSlice } from './sidebar-tiles'
+import { orderedIds, recentDms, rowSlice } from './sidebar-tiles'
 import { formatClock } from './time-format'
 
 describe('callStartedAt (N17)', () => {
@@ -74,13 +74,5 @@ describe('sidebar tile rows', () => {
       cluster: true
     })
     expect(rowSlice(['a'], true)).toEqual({ tiles: ['a'], hidden: [], cluster: true })
-  })
-
-  it('moves a dragged guild onto the place of the target', () => {
-    const order = ['a', 'b', 'c', 'd']
-    expect(dragged(order, 'd', 'a')).toEqual(['d', 'a', 'b', 'c'])
-    expect(dragged(order, 'a', 'c')).toEqual(['b', 'c', 'a', 'd'])
-    expect(dragged(order, 'a', 'a')).toBeNull()
-    expect(dragged(order, 'x', 'a')).toBeNull()
   })
 })

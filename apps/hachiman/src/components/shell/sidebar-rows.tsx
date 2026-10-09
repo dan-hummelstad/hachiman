@@ -16,13 +16,13 @@ import { GuildTile } from '@/components/ui/guild-tile'
 import { UnreadMark } from '@/components/ui/unread-mark'
 import { useDmChannels } from '@/hooks/use-hachiman'
 import { dmName } from '@/lib/model'
-import { dragged, orderedIds, recentDms, rowSlice, tileSurface } from '@/lib/sidebar-tiles'
+import { orderedIds, recentDms, rowSlice, tileSurface } from '@/lib/sidebar-tiles'
 import { cn } from '@/lib/utils'
 import { openDialog } from '@/stores/dialogStore'
 import { useChannelStore } from '@/stores/channelStore'
 import { useGuildStore } from '@/stores/guildStore'
 import { DM_HOME, navigate, selectGuild, useNavStore, useSelectedGuildId } from '@/stores/navStore'
-import { useGuildOrder, usePrefsStore } from '@/stores/prefsStore'
+import { moved, useGuildOrder, usePrefsStore } from '@/stores/prefsStore'
 import {
   useChannelUnread,
   useDmsUnread,
@@ -30,8 +30,6 @@ import {
   useGuildsUnread,
   useUnreadStore
 } from '@/stores/unreadStore'
-
-const NO_BADGE = { unread: false, mentions: 0 }
 
 /**
  * The two tile rows of the sidebar top, under search (docs/ui-redesign.md §7): recent DMs, then
@@ -76,10 +74,18 @@ function DmRow(): React.JSX.Element {
           lit={here && (openDm === null || !row.tiles.includes(openDm))}
           badge={badge}
           onClick={openDmHome}
-          stack={row.hidden.slice(0, 3).map((id) => {
+          stack={row.hidden.slice(0, 3).flatMap((id) => {
             const c = channels.get(id)
-            const who = c?.recipients?.[0]
-            return c ? <UserAvatar name={dmName(c)} avatar={who?.avatar} size={18} /> : null
+            return c
+              ? [
+                  <UserAvatar
+                    key={id}
+                    name={dmName(c)}
+                    avatar={c.recipients?.[0]?.avatar}
+                    size={18}
+                  />
+                ]
+              : []
           })}
           fallback={<MessageCircle className="size-4" />}
         />
@@ -118,7 +124,6 @@ function DmTile({ channelId, lit }: { channelId: string; lit: boolean }): React.
   )
 }
 
-/** Two stacked avatars for a group DM: the first two recipients, offset diagonally. */
 function GroupAvatars({ channel, lit }: { channel: Channel; lit: boolean }): React.JSX.Element {
   const [a, b] = channel.recipients ?? []
   return (
@@ -161,8 +166,7 @@ function GuildRow(): React.JSX.Element {
     setOpen(false)
   }
   const onMove = (fromId: string, toId: string): void => {
-    const next = dragged(ids, fromId, toId)
-    if (next) usePrefsStore.getState().setGuildOrder(next)
+    usePrefsStore.getState().setGuildOrder(moved(ids, ids.indexOf(fromId), ids.indexOf(toId)))
   }
   const n = row.hidden.length
 
@@ -179,12 +183,14 @@ function GuildRow(): React.JSX.Element {
           <ClusterTile
             label={expanded ? 'Show fewer guilds' : `${n} more ${n === 1 ? 'guild' : 'guilds'}`}
             lit={!expanded && current !== null && row.hidden.includes(current)}
-            badge={expanded ? NO_BADGE : badge}
+            badge={badge}
             expanded={expanded}
             onClick={() => setOpen(!expanded)}
-            stack={row.hidden.slice(0, 3).map((id) => {
+            stack={row.hidden.slice(0, 3).flatMap((id) => {
               const g = guilds.get(id)
-              return g ? <GuildTile guild={g} className="size-[18px] border-0 text-[7px]" /> : null
+              return g
+                ? [<GuildTile key={id} guild={g} className="size-[18px] border-0 text-[7px]" />]
+                : []
             })}
           />
         )

@@ -41,14 +41,3 @@ export function rowSlice(
     return { tiles: [...ids], hidden: [], cluster: false }
   return { tiles: ids.slice(0, ROW_TILES), hidden: ids.slice(ROW_TILES), cluster: true }
 }
-
-/** `order` after a drag of `fromId` onto `toId`, or null when nothing moves. */
-export function dragged(order: readonly string[], fromId: string, toId: string): string[] | null {
-  const from = order.indexOf(fromId)
-  const to = order.indexOf(toId)
-  if (from < 0 || to < 0 || from === to) return null
-  const out = [...order]
-  out.splice(from, 1)
-  out.splice(to, 0, fromId)
-  return out
-}

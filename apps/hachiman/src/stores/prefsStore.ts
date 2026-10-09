@@ -115,7 +115,6 @@ interface PrefsState {
   /** Moves `key` to the front of `recentEmojis`. */
   addRecentEmoji: (key: string) => void
   setSkinTone: (skinTone: number) => void
-  /** Replaces the guild order of the signed-in account. */
   setGuildOrder: (guildOrder: string[]) => void
   /** null clears the level of `id` (channel or guild): it follows its parent or the default. */
   setNotifyLevel: (id: string, level: NotifyLevel | null) => void

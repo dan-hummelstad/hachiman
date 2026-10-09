@@ -166,7 +166,6 @@ export function ClusterTile({
   onClick: () => void
   /** Up to three 18px icons of the ids behind the tile. */
   stack: React.ReactNode[]
-  /** Shown when `stack` is empty. */
   fallback?: React.ReactNode
 }): React.JSX.Element {
   return (
