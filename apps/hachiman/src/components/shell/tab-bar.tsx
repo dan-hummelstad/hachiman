@@ -15,7 +15,7 @@ import { DndContext, closestCenter, type DragEndEvent } from '@dnd-kit/core'
 import { SortableContext, horizontalListSortingStrategy } from '@dnd-kit/sortable'
 import { openSwitcher } from '@/components/shell/switcher-state'
 import { DRAG_REGION } from '@/components/shell/sidebar'
-import { SidebarControls } from '@/components/shell/sidebar-controls'
+import { SidebarControls, SidebarToggle } from '@/components/shell/sidebar-controls'
 import { useSidebarView } from '@/components/shell/sidebar-state'
 import { UserAvatar } from '@/components/shell/user-avatar'
 import { Button } from '@/components/ui/button'
@@ -27,6 +27,7 @@ import { cn } from '@/lib/utils'
 import { docsService } from '@/services/docs/DocsService'
 import { hachiman } from '@/services/hachiman'
 import { usePlatform } from '@/shared/PlatformContext'
+import { useSidebarSide } from '@/stores/prefsStore'
 import { useChannelStore } from '@/stores/channelStore'
 import { useDocsStore } from '@/stores/docsStore'
 import { useGuildStore } from '@/stores/guildStore'
@@ -54,20 +55,24 @@ const tabKey = (t: TabTarget): string => `${t.kind}:${t.id}:${t.pageId ?? ''}`
 /**
  * The tab row (N1, 48 high, the window drag region): with a hidden sidebar the sidebar controls
  * first (N3), then the pin glyph, the pinned tabs, "+", and with a hidden sidebar the search
- * button and the inbox spot at the end.
+ * button and the inbox spot at the end. A hidden sidebar on the right has its toggle last.
  */
 export function TabBar({ inbox }: { inbox?: React.ReactNode }): React.JSX.Element {
   const hidden = useSidebarView() !== 'docked'
+  // The tab bar starts the window when the sidebar is hidden or on the right: it then clears the
+  // traffic lights.
+  const right = useSidebarSide() === 'right'
+  const first = hidden || right
   const { insetTitleBar } = usePlatform()
   return (
     <div
       className={cn(
         'flex h-12 shrink-0 items-center gap-1 pr-2',
-        hidden ? (insetTitleBar ? 'pl-[78px]' : 'pl-2') : 'pl-0',
+        first ? (insetTitleBar ? 'pl-[78px]' : 'pl-2') : 'pl-0',
         DRAG_REGION
       )}
     >
-      {hidden && <SidebarControls />}
+      {hidden && <SidebarControls toggle={!right} />}
       <PinCurrent />
       <Tabs />
       <Button
@@ -93,6 +98,7 @@ export function TabBar({ inbox }: { inbox?: React.ReactNode }): React.JSX.Elemen
             <Search className="size-4" />
           </IconButton>
           {inbox}
+          {right && <SidebarToggle />}
         </div>
       )}
     </div>

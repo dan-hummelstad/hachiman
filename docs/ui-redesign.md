@@ -150,16 +150,18 @@ Both rows sit under search and have one layout (`TileRow`, `components/shell/til
 
 `lib/sidebar-tiles.ts` holds the order and slice rules. `components/shell/sidebar-rows.tsx` builds the two rows.
 
+The sidebar sits on the left or the right edge of the window (Appearance → Sidebar side, default left). The rules below say "the sidebar's edge" for that side.
+
 The sidebar has three states:
 
 - **Docked.** The sidebar sits beside the content column.
-- **Hidden.** The content card takes the window width (inset 8). The sidebar controls move to the start of the tab bar. Search and the inbox move to its end. A faint 8 px strip marks the hot zone at the left edge. The voice dock floats in the bottom-left corner of the content card, and the composer moves right to clear it.
+- **Hidden.** The content card takes the window width (inset 8). The sidebar controls move to the start of the tab bar. Search and the inbox move to its end. A faint 8 px strip marks the hot zone at the sidebar's edge. The voice dock floats in the bottom-left corner of the content card on either side (on the right it would cover the members column), and the composer moves right to clear it.
 - **Revealed.** A hidden sidebar slides in over the content with a soft shadow. Nothing in the content moves.
 
 | Rule | Value |
 |---|---|
 | Toggle | ⌘S (Ctrl S) or the sidebar button. `prefsStore.sidebar` keeps the choice (`docked` or `undocked`) |
-| Reveal | the pointer in the left 8 px of the window. The sidebar slides in over 150 ms |
+| Reveal | the pointer in the 8 px of the window at the sidebar's edge. The sidebar slides in over 150 ms |
 | Hide | 300 ms after the pointer leaves. Not while a menu, a drag, a focused text field in the sidebar or the quick switcher holds it |
 | Esc | hides a revealed sidebar |
 | Dialogs | open above everything. A revealed sidebar closes first |

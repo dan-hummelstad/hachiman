@@ -1,5 +1,6 @@
 import { cn } from '@/lib/utils'
 import { usePlatform } from '@/shared/PlatformContext'
+import { useSidebarSide } from '@/stores/prefsStore'
 
 /**
  * The window drag region of a frameless host (Electron on macOS, decision 9). Buttons, links and
@@ -28,17 +29,18 @@ export interface SidebarProps {
  */
 export function Sidebar({ controls, top, middle, foot }: SidebarProps): React.JSX.Element {
   const { insetTitleBar } = usePlatform()
+  const left = useSidebarSide() === 'left'
   return (
     <aside
       aria-label="Sidebar"
       className="text-text-primary flex h-full min-h-0 w-[280px] shrink-0 flex-col gap-2 px-2.5 pt-1.5 pb-2"
     >
-      {/* With an inset title bar the traffic lights sit at the left of this row
-          (trafficLightPosition x 16, y 18), and the controls start after them. */}
+      {/* With an inset title bar and the sidebar on the left, the traffic lights sit at the left
+          of this row (trafficLightPosition x 16, y 18), and the controls start after them. */}
       <div
         className={cn(
           'flex h-9 shrink-0 items-center gap-1',
-          insetTitleBar && 'pl-[72px]',
+          insetTitleBar && left && 'pl-[72px]',
           DRAG_REGION
         )}
       >

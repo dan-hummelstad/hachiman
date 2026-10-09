@@ -31,6 +31,7 @@ import { useMediaQuery } from '@/hooks/use-media-query'
 import { isGuildChannel } from '@/lib/model'
 import { cn } from '@/lib/utils'
 import { useChannelStore } from '@/stores/channelStore'
+import { useSidebarSide } from '@/stores/prefsStore'
 import { useVoiceStore } from '@/stores/voiceStore'
 import {
   closeSettings,
@@ -54,7 +55,8 @@ const WALLPAPER = cn(
  * right column (RightColumn: members 252, the page 540 in a pages channel, a DM profile).
  *
  * N3: with the sidebar hidden, the card takes the window width (inset 8), the sidebar slides in
- * over it from the left edge, and the voice dock floats in the card's bottom-left corner. The
+ * over it from its edge (`sidebarSide`, left by default), and the voice dock floats in the card's
+ * bottom-left corner on either side (on the right it would cover the members column). The
  * card then sets `--dock-inset` (the dock width and its gap) and `--dock-height`: the composer
  * footer shifts right by the inset and is at least as tall as the dock, so the transcript ends
  * above the dock and nothing is covered. The one VoiceDock moves between the sidebar foot and the float
@@ -80,6 +82,7 @@ export function Shell(): React.JSX.Element {
   const sidebar = useSidebarView()
   const hidden = sidebar !== 'docked'
   const tucked = sidebar === 'tucked'
+  const right = useSidebarSide() === 'right'
   const inVoice = useVoiceStore((s) => s.channelId !== null)
   const floatDock = tucked && inVoice
   // Kept while the sidebar is revealed: the revealed sidebar slides over, nothing moves.
@@ -105,12 +108,19 @@ export function Shell(): React.JSX.Element {
   return (
     <div
       style={tint as React.CSSProperties}
-      className={cn('relative flex min-h-0 flex-1 [--dock-width:264px]', WALLPAPER)}
+      className={cn(
+        'relative flex min-h-0 flex-1 [--dock-width:264px]',
+        right && 'flex-row-reverse',
+        WALLPAPER
+      )}
     >
       {tucked && (
         <div
           aria-hidden
-          className="from-text-tertiary/35 pointer-events-none absolute inset-y-0 left-0 z-30 w-2 bg-gradient-to-r to-transparent"
+          className={cn(
+            'from-text-tertiary/35 pointer-events-none absolute inset-y-0 z-30 w-2 to-transparent',
+            right ? 'right-0 bg-gradient-to-l' : 'left-0 bg-gradient-to-r'
+          )}
         />
       )}
       <div
@@ -120,10 +130,11 @@ export function Shell(): React.JSX.Element {
           'flex min-h-0',
           hidden &&
             cn(
-              'absolute inset-y-0 left-0 z-40 shadow-xl transition-transform duration-150 ease-out',
+              'absolute inset-y-0 z-40 shadow-xl transition-transform duration-150 ease-out',
+              right ? 'right-0' : 'left-0',
               WALLPAPER
             ),
-          tucked && '-translate-x-full shadow-none'
+          tucked && cn('shadow-none', right ? 'translate-x-full' : '-translate-x-full')
         )}
       >
         <Sidebar
@@ -164,7 +175,7 @@ export function Shell(): React.JSX.Element {
         <div
           className={cn(
             'border-line-hairline bg-surface-content relative mb-2 flex min-h-0 flex-1 border',
-            hidden ? 'mx-2' : 'mr-2',
+            hidden ? 'mx-2' : right ? 'ml-2' : 'mr-2',
             dockInset && '[--dock-inset:calc(var(--dock-width)+8px)]'
           )}
           style={

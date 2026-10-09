@@ -13,6 +13,8 @@ export type MessageDisplay = 'cozy' | 'compact'
 export type Theme = 'dark' | 'light' | 'system'
 /** N3: the sidebar docked beside the content, or hidden and shown on hover. */
 export type SidebarMode = 'docked' | 'undocked'
+/** The window edge the sidebar sits on, and slides in from when hidden. */
+export type SidebarSide = 'left' | 'right'
 /** Mic noise suppression: none, the browser's own (getUserMedia), or RNNoise in an AudioWorklet. */
 export type NoiseSuppression = 'off' | 'browser' | 'rnnoise'
 /** The window wallpaper: tinted by the selected guild (N4), or the user's own gradient. */
@@ -69,6 +71,7 @@ interface PrefsState {
   /** "Share audio" in the in-app share picker. */
   shareScreenAudio: boolean
   sidebar: SidebarMode
+  sidebarSide: SidebarSide
   wallpaper: WallpaperMode
   /** The gradient while `wallpaper` is `custom`. Kept when the user goes back to the guild tint. */
   customGradient: CustomGradient
@@ -102,6 +105,7 @@ interface PrefsState {
   setStreamAudio: (userId: string, change: Partial<UserAudio>) => void
   setShareScreenAudio: (shareScreenAudio: boolean) => void
   setSidebar: (sidebar: SidebarMode) => void
+  setSidebarSide: (sidebarSide: SidebarSide) => void
   setWallpaper: (wallpaper: WallpaperMode) => void
   setCustomGradient: (customGradient: CustomGradient) => void
   /** `combo` null: no key. */
@@ -149,6 +153,7 @@ export const usePrefsStore = create<PrefsState>()(
         streamAudio: {},
         shareScreenAudio: true,
         sidebar: 'docked',
+        sidebarSide: 'left',
         wallpaper: 'guild',
         customGradient: DEFAULT_CUSTOM_GRADIENT,
         keybinds: {},
@@ -181,6 +186,7 @@ export const usePrefsStore = create<PrefsState>()(
           set((s) => ({ streamAudio: withAudio(s.streamAudio, userId, change) })),
         setShareScreenAudio: (shareScreenAudio) => set({ shareScreenAudio }),
         setSidebar: (sidebar) => set({ sidebar }),
+        setSidebarSide: (sidebarSide) => set({ sidebarSide }),
         setWallpaper: (wallpaper) => set({ wallpaper }),
         setCustomGradient: (customGradient) => set({ customGradient }),
         setKeybind: (action, combo) =>
@@ -290,6 +296,7 @@ export function moved<T>(list: readonly T[], from: number, to: number): T[] {
 }
 
 export const useSidebarMode = (): SidebarMode => usePrefsStore((s) => s.sidebar)
+export const useSidebarSide = (): SidebarSide => usePrefsStore((s) => s.sidebarSide)
 const NO_ORDER: string[] = []
 /** The guild order of the signed-in account (a stable empty list when none). */
 export const useGuildOrder = (): string[] =>
