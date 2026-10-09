@@ -23,8 +23,8 @@ export type VoiceInputMode = 'voiceActivity' | 'pushToTalk'
 
 /** The preferences of one account on this device (N1, N6, N9). */
 export interface AccountPrefs extends NotifyPrefs {
-  /** DM channel ids, in tile order. */
-  favouriteDms: string[]
+  /** Guild ids in the order the user set (the guild row). Guilds not in it follow, in READY order. */
+  guildOrder?: string[]
   /** The pinned tabs (N1), in tab order. Absent in data stored before tabs moved here. */
   tabs?: TabTarget[]
 }
@@ -39,7 +39,7 @@ export interface UserAudio {
 
 export const DEFAULT_USER_AUDIO: UserAudio = { volume: 1, muted: false }
 
-const EMPTY_ACCOUNT: AccountPrefs = { favouriteDms: [], notify: {}, muted: [] }
+const EMPTY_ACCOUNT: AccountPrefs = { notify: {}, muted: [] }
 
 /** Local, per-device UI preferences. Written by the user settings overlay. */
 interface PrefsState {
@@ -115,9 +115,7 @@ interface PrefsState {
   /** Moves `key` to the front of `recentEmojis`. */
   addRecentEmoji: (key: string) => void
   setSkinTone: (skinTone: number) => void
-  setFavouriteDm: (channelId: string, favourite: boolean) => void
-  /** Reorders the favourite tiles. */
-  moveFavouriteDm: (from: number, to: number) => void
+  setGuildOrder: (guildOrder: string[]) => void
   /** null clears the level of `id` (channel or guild): it follows its parent or the default. */
   setNotifyLevel: (id: string, level: NotifyLevel | null) => void
   setMuted: (id: string, muted: boolean) => void
@@ -206,21 +204,7 @@ export const usePrefsStore = create<PrefsState>()(
             )
           })),
         setSkinTone: (skinTone) => set({ skinTone }),
-        setFavouriteDm: (channelId, favourite) =>
-          set((s) =>
-            updateAccount(s, (a) => {
-              const has = a.favouriteDms.includes(channelId)
-              if (has === favourite) return a
-              const favouriteDms = favourite
-                ? [...a.favouriteDms, channelId]
-                : a.favouriteDms.filter((id) => id !== channelId)
-              return { ...a, favouriteDms }
-            })
-          ),
-        moveFavouriteDm: (from, to) =>
-          set((s) =>
-            updateAccount(s, (a) => ({ ...a, favouriteDms: moved(a.favouriteDms, from, to) }))
-          ),
+        setGuildOrder: (guildOrder) => set((s) => updateAccount(s, (a) => ({ ...a, guildOrder }))),
         setNotifyLevel: (id, level) =>
           set((s) =>
             updateAccount(s, (a) => {
@@ -306,7 +290,10 @@ export function moved<T>(list: readonly T[], from: number, to: number): T[] {
 }
 
 export const useSidebarMode = (): SidebarMode => usePrefsStore((s) => s.sidebar)
-export const useFavouriteDms = (): string[] => usePrefsStore((s) => accountPrefs(s).favouriteDms)
+const NO_ORDER: string[] = []
+/** The guild order of the signed-in account (a stable empty list when none). */
+export const useGuildOrder = (): string[] =>
+  usePrefsStore((s) => accountPrefs(s).guildOrder ?? NO_ORDER)
 /** The pinned tabs of the signed-in account (a stable empty list when none). */
 export const accountTabs = (s: Pick<PrefsState, 'accounts' | 'accountId'>): TabTarget[] =>
   accountPrefs(s).tabs ?? NO_TABS

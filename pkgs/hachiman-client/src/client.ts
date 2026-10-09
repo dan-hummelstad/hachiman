@@ -603,6 +603,7 @@ export class HachimanClient extends TypedEventEmitter<HachimanClientEvents> {
           lastReadMessageId: e.d.lastReadMessageId,
           unreadCount: 0,
           lastMessageId: prev?.lastMessageId ?? e.d.lastReadMessageId,
+          lastMessageAt: prev?.lastMessageAt ?? null,
         })
         break
       }

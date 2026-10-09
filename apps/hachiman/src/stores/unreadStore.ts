@@ -36,12 +36,18 @@ export interface OpenedSnapshot {
 interface UnreadState {
   byChannel: Map<string, ChannelUnread>
   opened: OpenedSnapshot | null
+  /** channelId → the time (ms) of its newest message: READY `lastMessageAt`, then MESSAGE_CREATE. */
+  lastAt: Map<string, number>
 }
 
 const EMPTY: ChannelUnread = { lastReadId: null, unread: 0, mentions: 0, mentionIds: [] }
 const EMPTY_IDS: string[] = []
 
-const initialUnreadState = (): UnreadState => ({ byChannel: new Map(), opened: null })
+const initialUnreadState = (): UnreadState => ({
+  byChannel: new Map(),
+  opened: null,
+  lastAt: new Map()
+})
 
 export const useUnreadStore = create<UnreadState>()(devtools(initialUnreadState))
 
@@ -64,6 +70,24 @@ export function fromReadStates(readStates: readonly ReadState[]): Map<string, Ch
   }
   return out
 }
+
+/** READY: the time of the newest message of each channel that has one. */
+export function lastAtFromReadStates(readStates: readonly ReadState[]): Map<string, number> {
+  const out = new Map<string, number>()
+  for (const r of readStates) {
+    const at = r.lastMessageAt ? Date.parse(r.lastMessageAt) : NaN
+    if (!Number.isNaN(at)) out.set(r.channelId, at)
+  }
+  return out
+}
+
+/** A new message at `at` (ms): the channel's last activity moves forward, never back. */
+export const bumpLastAt = (
+  m: Map<string, number>,
+  channelId: string,
+  at: number
+): Map<string, number> =>
+  Number.isNaN(at) || (m.get(channelId) ?? -Infinity) >= at ? m : new Map(m).set(channelId, at)
 
 function patch(
   m: Map<string, ChannelUnread>,
@@ -180,15 +204,15 @@ function useBadgeSum(match: (c: Channel) => boolean): UnreadBadge {
 
 const isDm = (c: Channel): boolean => c.guildId === null
 
-/** A guild's dot and mention sum (the space bar). A muted guild shows no dot. */
+/** A guild's dot and mention sum (the guild row). A muted guild shows no dot. */
 export function useGuildUnread(guildId: string): UnreadBadge {
   return useBadgeSum(useCallback((c: Channel) => c.guildId === guildId, [guildId]))
 }
 
-/** All DMs together (the DM home in the space bar). */
+/** All DMs together (the People row of the DM home). */
 export const useDmUnread = (): UnreadBadge => useBadgeSum(isDm)
 
-/** The guilds behind the space bar's "more" item, together. `guildIds` must be stable. */
+/** The guilds behind the guild row's cluster tile, together. `guildIds` must be stable. */
 export function useGuildsUnread(guildIds: readonly string[]): UnreadBadge {
   const match = useMemo(() => {
     const ids = new Set(guildIds)
@@ -197,7 +221,7 @@ export function useGuildsUnread(guildIds: readonly string[]): UnreadBadge {
   return useBadgeSum(match)
 }
 
-/** The DMs behind the favourite DMs' "more" tile, together. `channelIds` must be stable. */
+/** The DMs behind the DM row's cluster tile, together. `channelIds` must be stable. */
 export function useDmsUnread(channelIds: readonly string[]): UnreadBadge {
   const match = useMemo(() => {
     const ids = new Set(channelIds)

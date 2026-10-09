@@ -1,8 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Channel } from '@hachiman/client'
-import { moved } from '@/stores/prefsStore'
 import { callStartedAt } from './call-timer'
-import { favouriteMove, favouriteTiles } from './favourite-dms'
+import { orderedIds, recentDms, rowSlice } from './sidebar-tiles'
 import { formatClock } from './time-format'
 
 describe('callStartedAt (N17)', () => {
@@ -35,28 +34,45 @@ describe('callStartedAt (N17)', () => {
 const ch = (id: string, guildId: string | null = null): Channel =>
   ({ id, guildId, type: guildId === null ? 'dm' : 'text', name: null }) as Channel
 
-describe('favourite DMs (N6)', () => {
-  const channels = new Map(
-    [ch('a'), ch('b'), ch('c'), ch('g', 'guild')].map((c) => [c.id, c] as const)
-  )
-
-  it('keeps the stored order and drops unknown and guild channels', () => {
-    const tiles = favouriteTiles(['c', 'gone', 'a', 'g'], channels)
-    expect(tiles.map((c) => c.id)).toEqual(['c', 'a'])
+describe('sidebar tile rows', () => {
+  it('orders DMs by the newest message; a DM with none follows in place', () => {
+    const dms = [ch('a'), ch('b'), ch('c'), ch('d')]
+    const lastAt = new Map([
+      ['a', 100],
+      ['c', 300],
+      ['b', 200]
+    ])
+    expect(recentDms(dms, lastAt)).toEqual(['c', 'b', 'a', 'd'])
+    // A new message in a: it moves to the front, the rest shift right.
+    expect(recentDms(dms, new Map(lastAt).set('a', 400))).toEqual(['a', 'c', 'b', 'd'])
   })
 
-  it('maps a tile drag to indexes of the stored list', () => {
-    const ids = ['c', 'gone', 'a', 'b']
-    expect(favouriteMove(ids, 'b', 'c')).toEqual({ from: 3, to: 0 })
-    expect(favouriteMove(ids, 'c', 'c')).toBeNull()
-    expect(favouriteMove(ids, 'x', 'c')).toBeNull()
-    const m = favouriteMove(ids, 'b', 'c')!
-    expect(moved(ids, m.from, m.to)).toEqual(['b', 'c', 'gone', 'a'])
+  it('keeps the user order of guilds; a new guild follows', () => {
+    expect(orderedIds(['g1', 'g2', 'g3', 'g4'], ['g3', 'gone', 'g1'])).toEqual([
+      'g3',
+      'g1',
+      'g2',
+      'g4'
+    ])
   })
 
-  it('moves forward too', () => {
-    const ids = ['a', 'b', 'c']
-    const m = favouriteMove(ids, 'a', 'c')!
-    expect(moved(ids, m.from, m.to)).toEqual(['b', 'c', 'a'])
+  it('shows four tiles and clusters the rest', () => {
+    const ids = ['a', 'b', 'c', 'd', 'e', 'f']
+    expect(rowSlice(ids, false)).toEqual({
+      tiles: ['a', 'b', 'c', 'd'],
+      hidden: ['e', 'f'],
+      cluster: true
+    })
+  })
+
+  it('shows up to five guilds with no cluster; the DM row always has one', () => {
+    const five = ['a', 'b', 'c', 'd', 'e']
+    expect(rowSlice(five, false)).toEqual({ tiles: five, hidden: [], cluster: false })
+    expect(rowSlice(five, true)).toEqual({
+      tiles: ['a', 'b', 'c', 'd'],
+      hidden: ['e'],
+      cluster: true
+    })
+    expect(rowSlice(['a'], true)).toEqual({ tiles: ['a'], hidden: [], cluster: true })
   })
 })

@@ -10,11 +10,11 @@ export const DRAG_REGION =
 
 export interface SidebarProps {
   /**
-   * Controls row (40px, right of the macOS traffic lights): sidebar toggle (N3), back and
-   * forward (N2), inbox (N8). Empty until those features land; the row keeps its height.
+   * Controls row (36px, right of the macOS traffic lights): sidebar toggle (N3), back and
+   * forward (N2), then inbox (N8) and my avatar on the right.
    */
   controls?: React.ReactNode
-  /** Top block under the controls: the space bar, search (N5), favourite DMs (N6). */
+  /** Top block under the controls: search (N5), then the recent DM and guild rows (N6). */
   top?: React.ReactNode
   /** The navigation: guild channels, the DM space, or a settings section list. Scrolls. */
   middle: React.ReactNode
@@ -37,7 +37,7 @@ export function Sidebar({ controls, top, middle, foot }: SidebarProps): React.JS
           (trafficLightPosition x 16, y 18), and the controls start after them. */}
       <div
         className={cn(
-          'flex h-10 shrink-0 items-center gap-1',
+          'flex h-9 shrink-0 items-center gap-1',
           insetTitleBar && 'pl-[72px]',
           DRAG_REGION
         )}

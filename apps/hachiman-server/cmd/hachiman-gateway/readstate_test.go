@@ -22,7 +22,7 @@ func readStateFixture() *readyData {
 	d.DMs = []Channel{{ID: "dm1", Type: "dm", PermissionOverwrites: []permissions.Overwrite{}, Recipients: []User{{ID: "u2", Username: "u2"}}}}
 	ids, guildOf := readStateChannels(d)
 	for _, id := range ids {
-		d.ReadStates = append(d.ReadStates, ReadState{ChannelID: id, LastReadMessageID: ptr("m-" + id), UnreadCount: 2, LastMessageID: ptr("n-" + id), guildID: guildOf[id]})
+		d.ReadStates = append(d.ReadStates, ReadState{ChannelID: id, LastReadMessageID: ptr("m-" + id), UnreadCount: 2, LastMessageID: ptr("n-" + id), LastMessageAt: ptr("2026-10-09T10:00:00Z"), guildID: guildOf[id]})
 	}
 	return d
 }
@@ -59,7 +59,7 @@ func TestReadyReadStatesHideInvisibleChannels(t *testing.T) {
 	if got := strings.Join(ids, ","); got != "text,pages,dm1" {
 		t.Errorf("READY readStates %s, want text,pages,dm1 (no read state for a channel without VIEW_CHANNEL)", got)
 	}
-	want := map[string]any{"channelId": "text", "lastReadMessageId": "m-text", "unreadCount": float64(2), "lastMessageId": "n-text"}
+	want := map[string]any{"channelId": "text", "lastReadMessageId": "m-text", "unreadCount": float64(2), "lastMessageId": "n-text", "lastMessageAt": "2026-10-09T10:00:00Z"}
 	for k, v := range want {
 		if r.ReadStates[0][k] != v {
 			t.Errorf("readStates[0].%s = %v, want %v", k, r.ReadStates[0][k], v)

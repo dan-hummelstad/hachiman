@@ -175,6 +175,7 @@ interface ReadState {              // READY readStates; READ_STATE_UPDATE sets l
   lastReadMessageId: string | null // null: the user did not ack this channel
   unreadCount: number              // messages after lastReadMessageId from other authors, at most 100. 0 when lastReadMessageId is null
   lastMessageId: string | null     // the newest message of the channel. null: no messages
+  lastMessageAt: string | null     // createdAt of lastMessageId (ISO 8601). The client orders DMs by it
 }
 
 interface GuildFull extends Guild {  // READY + GUILD_CREATE

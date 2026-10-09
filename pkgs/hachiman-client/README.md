@@ -129,7 +129,7 @@ These parts carry metadata only. The server never sees the content of a message,
 
 | Part | REST (`RestClient`) | Gateway event | Cache (`HachimanClient.cache`) |
 |---|---|---|---|
-| Read state (§1 `ReadState`) | `ackMessage(channelId, messageId)` | `READ_STATE_UPDATE` (to `user:{id}`). READY carries `readStates` (`unreadCount` capped at 100, `lastMessageId`) | `readStates`. A channel delete or a guild leave drops its rows |
+| Read state (§1 `ReadState`) | `ackMessage(channelId, messageId)` | `READ_STATE_UPDATE` (to `user:{id}`). READY carries `readStates` (`unreadCount` capped at 100, `lastMessageId`, `lastMessageAt`) | `readStates`. A channel delete or a guild leave drops its rows |
 | Pins | `getPins`, `pinMessage`, `unpinMessage` | `CHANNEL_PINS_UPDATE` | not cached. The shared UI loads the pins again |
 | Custom emojis | `getGuildEmojis`, `createGuildEmoji`, `renameGuildEmoji`, `deleteGuildEmoji` | `GUILD_EMOJIS_UPDATE` | `emojis` (guild id to the list). READY and GUILD_CREATE fill it |
 | Guild events | `getGuildEvents`, `createGuildEvent`, `updateGuildEvent`, `deleteGuildEvent`, `setEventRsvp` | `GUILD_EVENT_CREATE`, `GUILD_EVENT_UPDATE`, `GUILD_EVENT_DELETE`, `GUILD_EVENT_RSVP` | `events` (guild id to events, each with `me`). `fetchGuildEvents` fills it |

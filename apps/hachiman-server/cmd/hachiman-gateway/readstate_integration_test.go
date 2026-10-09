@@ -71,7 +71,7 @@ func TestIntegrationReadStates(t *testing.T) {
 		r.LastMessageID == nil || *r.LastMessageID != ids["m5"] || r.guildID == nil || *r.guildID != guild {
 		t.Errorf("text read state %+v", r)
 	}
-	if r := got[dm]; r.LastReadMessageID != nil || r.UnreadCount != 0 || r.LastMessageID == nil || *r.LastMessageID != ids["d1"] || r.guildID != nil {
+	if r := got[dm]; r.LastReadMessageID != nil || r.UnreadCount != 0 || r.LastMessageID == nil || *r.LastMessageID != ids["d1"] || r.LastMessageAt == nil || r.guildID != nil {
 		t.Errorf("dm read state %+v", r)
 	}
 }
