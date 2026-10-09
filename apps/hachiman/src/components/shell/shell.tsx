@@ -9,14 +9,14 @@ import { SettingsNav } from '@/components/settings/settings-nav'
 import { SettingsPage } from '@/components/settings/settings-page'
 import { useSettingsMode } from '@/components/settings/use-settings-mode'
 import { ChannelPane, NoChannelPane } from '@/components/shell/channel-pane'
-import { FavouriteDms } from '@/components/shell/favourite-dms'
 import { QuickSwitcher, SwitcherField } from '@/components/shell/quick-switcher'
+import { MeButton } from '@/components/shell/me-button'
 import { Sidebar } from '@/components/shell/sidebar'
 import { SidebarControls } from '@/components/shell/sidebar-controls'
+import { SidebarRows } from '@/components/shell/sidebar-rows'
 import { useSidebarView } from '@/components/shell/sidebar-state'
 import { TabBar } from '@/components/shell/tab-bar'
 import { useSidebarReveal } from '@/components/shell/use-sidebar-reveal'
-import { SpaceBar } from '@/components/shell/space-bar'
 import { DmSpace } from '@/components/sidebar/dm-space'
 import { GuildChannelList } from '@/components/sidebar/guild-channels'
 import { useGuildTint } from '@/components/shell/use-guild-tint'
@@ -130,16 +130,16 @@ export function Shell(): React.JSX.Element {
           controls={
             <>
               <SidebarControls />
-              <div className="ml-auto">
+              <div className="ml-auto flex items-center gap-1">
                 <InboxButton />
+                <MeButton />
               </div>
             </>
           }
           top={
             <>
-              <SpaceBar />
               <SwitcherField />
-              <FavouriteDms label={settings !== null || selectedGuildId !== null} />
+              <SidebarRows />
             </>
           }
           middle={

@@ -4,18 +4,44 @@ import { shouldPing, visibleBadge, type NotifyPrefs } from '@/lib/notify'
 import {
   addMentions,
   addUnread,
+  bumpLastAt,
   firstUnreadId,
   fromReadStates,
   keepChannels,
+  lastAtFromReadStates,
   markReadTo,
   sumBadges
 } from '@/stores/unreadStore'
 
 const ready = fromReadStates([
-  { channelId: 'lfg', lastReadMessageId: 'm1', unreadCount: 2, lastMessageId: 'm3' },
-  { channelId: 'news', lastReadMessageId: null, unreadCount: 0, lastMessageId: 'n9' },
-  { channelId: 'quiet', lastReadMessageId: 'q1', unreadCount: 0, lastMessageId: 'q1' },
-  { channelId: 'dm', lastReadMessageId: null, unreadCount: 0, lastMessageId: null }
+  {
+    channelId: 'lfg',
+    lastReadMessageId: 'm1',
+    unreadCount: 2,
+    lastMessageId: 'm3',
+    lastMessageAt: null
+  },
+  {
+    channelId: 'news',
+    lastReadMessageId: null,
+    unreadCount: 0,
+    lastMessageId: 'n9',
+    lastMessageAt: null
+  },
+  {
+    channelId: 'quiet',
+    lastReadMessageId: 'q1',
+    unreadCount: 0,
+    lastMessageId: 'q1',
+    lastMessageAt: null
+  },
+  {
+    channelId: 'dm',
+    lastReadMessageId: null,
+    unreadCount: 0,
+    lastMessageId: null,
+    lastMessageAt: null
+  }
 ])
 
 const channel = (id: string, guildId: string | null): Channel =>
@@ -99,5 +125,29 @@ describe('unread reducers', () => {
     expect(firstUnreadId(rows, { lastReadId: 'old', unread: 1 })).toBe('c')
     expect(firstUnreadId(rows, { lastReadId: null, unread: 9 })).toBe('a')
     expect(firstUnreadId(rows, null)).toBeNull()
+  })
+
+  it('last activity: READY lastMessageAt, then only forward', () => {
+    const m = lastAtFromReadStates([
+      {
+        channelId: 'a',
+        lastReadMessageId: null,
+        unreadCount: 0,
+        lastMessageId: 'x',
+        lastMessageAt: '2026-10-09T10:00:00Z'
+      },
+      {
+        channelId: 'b',
+        lastReadMessageId: null,
+        unreadCount: 0,
+        lastMessageId: null,
+        lastMessageAt: null
+      }
+    ])
+    expect([...m]).toEqual([['a', Date.parse('2026-10-09T10:00:00Z')]])
+    const later = Date.parse('2026-10-09T10:00:00.5Z')
+    expect(bumpLastAt(m, 'a', later).get('a')).toBe(later)
+    expect(bumpLastAt(m, 'a', 0)).toBe(m)
+    expect(bumpLastAt(m, 'b', NaN)).toBe(m)
   })
 })

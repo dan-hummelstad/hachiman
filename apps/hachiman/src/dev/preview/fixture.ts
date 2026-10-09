@@ -1,6 +1,6 @@
 // Preview fixture: the cast of the Arc mocks (docs/arc-redesign-plan.md decision 11): three
 // guilds, four DMs and their message history, as plain wire data. Six small guilds and three
-// more DMs make the space bar and the favourite DMs overflow.
+// more DMs fill the cluster tiles of the sidebar top.
 // No stores, no client: ./stubs.ts and ./index.ts wire this into the app. See ../README.md.
 import {
   DEFAULT_EVERYONE,
@@ -377,7 +377,7 @@ const guild3: GuildFull = {
   emojis: []
 }
 
-// Six small guilds (one text channel, only me), so the space bar overflows into "All spaces".
+// Six small guilds (one text channel, only me), so the guild row has a cluster tile.
 const extraGuilds: GuildFull[] = [
   ['g-synth', 'Synth Garage'],
   ['g-trail', 'Trail Runners'],
@@ -410,7 +410,7 @@ export const DM2 = 'c-dm-yuki'
 export const DM3 = 'c-dm-juni'
 export const DM4 = 'c-dm-quill'
 export const GDM1 = 'c-gdm-squad'
-/** Three more favourites, so the favourite DMs overflow into "All favourites". */
+/** Three more DMs (no messages), so the DM row has a cluster tile. */
 export const EXTRA_DMS = ['c-dm-renata', 'c-dm-sable', 'c-dm-tobias']
 export const dms: Channel[] = [
   channel(null, DM1, 'dm', null, 0, { recipients: [U.marlowe] }),

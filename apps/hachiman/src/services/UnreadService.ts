@@ -15,8 +15,10 @@ import { selectedChannelId, useNavStore } from '@/stores/navStore'
 import {
   addMentions,
   addUnread,
+  bumpLastAt,
   fromReadStates,
   keepChannels,
+  lastAtFromReadStates,
   markReadTo,
   resetUnreadStore,
   useUnreadStore,
@@ -106,9 +108,11 @@ export const unreadService = {
   onReady(): void {
     unreadService.start()
     session++
+    const readStates = [...hachiman.cache.readStates.values()]
     useUnreadStore.setState({
-      byChannel: fromReadStates([...hachiman.cache.readStates.values()]),
-      opened: null
+      byChannel: fromReadStates(readStates),
+      opened: null,
+      lastAt: lastAtFromReadStates(readStates)
     })
     snapshotOpened()
     void runPass()
@@ -120,10 +124,13 @@ export const unreadService = {
   },
 
   /**
-   * MESSAGE_CREATE. A notification (services/message-context.ts) counts unless its channel is open
+   * MESSAGE_CREATE: the channel's last activity (the DM order). A notification (services/message-context.ts) counts unless its channel is open
    * and the window has focus.
    */
-  onMessageCreate(m: Pick<Message, 'id' | 'channelId'>, ctx: MessageContext): void {
+  onMessageCreate(m: Pick<Message, 'id' | 'channelId' | 'createdAt'>, ctx: MessageContext): void {
+    useUnreadStore.setState((s) => ({
+      lastAt: bumpLastAt(s.lastAt, m.channelId, Date.parse(m.createdAt))
+    }))
     if (!ctx.isNotification || ctx.viewing) return
     useUnreadStore.setState((s) => {
       const byChannel = addUnread(s.byChannel, m.channelId)

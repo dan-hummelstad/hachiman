@@ -16,17 +16,12 @@ import { useVoiceStore } from '@/stores/voiceStore'
 import {
   DAY,
   DM1,
-  DM2,
-  DM3,
-  DM4,
-  EXTRA_DMS,
   G1,
   G1C,
   G2,
   G2C,
   G3,
   G3C,
-  GDM1,
   MEMBER_COUNT,
   ME,
   QUALITY,
@@ -77,13 +72,15 @@ function isolatePersistence(): void {
 
 /**
  * N7 fixture: #general 3 unread from marlowe's mention on (the B1 NEW divider), #lfg 1 unread
- * with a mention, Dog-ear Club 3 mentions, the marlowe DM 2.
+ * with a mention, Dog-ear Club 3 mentions, the marlowe DM 2, and Chess Cafe 1 (a guild in the
+ * cluster tile).
  */
 const UNREAD: { channelId: string; unread: number; mentions: number }[] = [
   { channelId: G1C.general, unread: 3, mentions: 1 },
   { channelId: G1C.lfg, unread: 1, mentions: 1 },
   { channelId: G3C.reading, unread: 3, mentions: 3 },
-  { channelId: DM1, unread: 2, mentions: 2 }
+  { channelId: DM1, unread: 2, mentions: 2 },
+  { channelId: 'c-g-chess-general', unread: 1, mentions: 1 }
 ]
 
 /**
@@ -96,16 +93,22 @@ function previewReadStates(history: Map<string, ChatMessage[]>): {
 } {
   const ids = [
     ...READY.guilds.flatMap((g) => g.channels.filter((c) => c.type === 'text').map((c) => c.id)),
-    DM1,
-    DM2
+    ...READY.privateChannels.map((c) => c.id)
   ]
   const mentions: [string, string[]][] = []
   const readStates = ids.map((channelId): ReadState => {
     const list = history.get(channelId) ?? []
     const last = list[list.length - 1]?.id ?? null
+    const lastAt = list[list.length - 1]?.createdAt ?? null
     const spec = UNREAD.find((u) => u.channelId === channelId)
     if (!spec) {
-      return { channelId, lastReadMessageId: last, unreadCount: 0, lastMessageId: last }
+      return {
+        channelId,
+        lastReadMessageId: last,
+        unreadCount: 0,
+        lastMessageId: last,
+        lastMessageAt: lastAt
+      }
     }
     // The unread ones are the last `unread` messages from others: my own never count.
     const theirs = list.filter((m) => m.author.id !== ME.id)
@@ -120,16 +123,16 @@ function previewReadStates(history: Map<string, ChatMessage[]>): {
       .map((m) => m.id)
     while (found.length < spec.mentions) found.push(`${channelId}-mention-${found.length}`)
     mentions.push([channelId, found])
-    return { channelId, lastReadMessageId: readTo, unreadCount: spec.unread, lastMessageId: last }
+    return {
+      channelId,
+      lastReadMessageId: readTo,
+      unreadCount: spec.unread,
+      lastMessageId: last,
+      lastMessageAt: lastAt
+    }
   })
   return { readStates, mentions }
 }
-
-/**
- * N6 fixture: the favourite DM tiles of B1 (marlowe, yuki.h, Juni, quill, the group DM), then
- * three more, so the line overflows.
- */
-const FAVOURITE_DMS = [DM1, DM2, DM3, DM4, GDM1, ...EXTRA_DMS]
 
 /** N17 fixture: seconds since each voice participant joined. Lounge started 1:24:07 ago (B1). */
 const JOINED_AGO_S: Record<string, number> = {
@@ -201,15 +204,6 @@ export function startPreview(opts: PreviewOptions = {}): void {
   hachiman.gateway.emit('state', 'ready')
   const unread = previewReadStates(history)
   dispatch({ t: 'READY', d: { ...withJoinedAt(READY), readStates: unread.readStates } })
-  usePrefsStore.setState((s) => ({
-    accounts: {
-      ...s.accounts,
-      [ME.id]: {
-        ...(s.accounts[ME.id] ?? { notify: {}, muted: [] }),
-        favouriteDms: FAVOURITE_DMS
-      }
-    }
-  }))
   useUnreadStore.setState((s) => ({
     byChannel: unread.mentions.reduce((m, [id, ids]) => addMentions(m, id, ids), s.byChannel)
   }))

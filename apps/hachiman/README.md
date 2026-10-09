@@ -149,7 +149,7 @@ Only `services/hachiman.ts` writes the mirror stores (`guildStore`, `channelStor
 |---|---|
 | `src/App.tsx` | App root. It holds the one `TooltipProvider`, calls `startHachiman(platform)`, and subscribes to `onOAuthCallback` and `onInviteLink`. It keeps the key of an invite link in `InviteService` memory, not in the dialog store. It shows `FatalScreen`, `Shell` inside `CryptoGate`, or `SignInScreen`, plus `Dialogs` and `SecurityNotices`. |
 | `src/index.ts` | Public exports of the package |
-| `src/components/shell/` | `Shell` and its layout (see "Shell layout" below). `Sidebar` (four slots), `SidebarControls`, the hide and reveal state (`sidebar-state.ts`, `use-sidebar-reveal.ts`), `TabBar` and `PinToTabsButton`, `QuickSwitcher` (⌘K), `FavouriteDms`, `SpaceBar`, the unread marks, the guild tint, the channel pane and its header, guild header and menus, the dialog host (`dialogs.tsx`) |
+| `src/components/shell/` | `Shell` and its layout (see "Shell layout" below). `Sidebar` (four slots), `SidebarControls`, the hide and reveal state (`sidebar-state.ts`, `use-sidebar-reveal.ts`), `TabBar` and `PinToTabsButton`, `QuickSwitcher` (⌘K), `SidebarRows` and `TileRow`, `MeButton`, the unread marks, the guild tint, the channel pane and its header, guild header and menus, the dialog host (`dialogs.tsx`) |
 | `src/components/chat/` | Transcript with the NEW divider, message row and toolbar, reaction chips and picker (`reactions.tsx`), reply quote, page link cards (`page-cards.tsx`), channel intro, composer, typing line, the "unable to decrypt" text (`decrypt-text.ts`), MLS membership lines |
 | `src/components/chat/attachments/` | `useUploads`, upload tray, drop zone, attachment grid, audio card with waveform, lightbox |
 | `src/components/inbox/` | `InboxButton`: the Mentions and Unread popover, with "Mark read". `inbox-model.ts` builds the lists |
@@ -163,7 +163,7 @@ Only `services/hachiman.ts` writes the mirror stores (`guildStore`, `channelStor
 | `src/components/settings/` | Settings in the sidebar: `SettingsNav` (the section list in the sidebar middle) and `SettingsPage` (the page in the content card). `settings-model.tsx` holds the sections of the user, guild and channel settings. `SaveBar`, the guild and channel overview and permissions pages, the role hoist row. `user/` holds account, appearance, voice and sounds. `invites.ts`, `invite-options.tsx`, `invite-history-option.tsx` and `permanent-invite-confirm.tsx` hold the invite choices (more than 24 hours, permanent and "Include history" only for an administrator), the scope of an invite with history, and the permanent-invite warning. `use-invite-creation.ts` holds the create flow that the invite window and the Invites tab share: the options, and the warning before a permanent invite. The guild settings dialogs are in `src/components/`. |
 | `src/components/ui/` | shadcn and local primitives (dialog, tooltip, avatar, title bar) and the Arc primitives (badge, callout, checkbox, chip, keycap, radio card, segmented control, system tag, `feature.ts`). See `docs/ui-redesign.md` §5 |
 | `src/components/*.tsx` | Channel sidebar (`GuildChannelList`, `DmSpace`), home pane, member list, voice dock (`voice-connected-panel.tsx`), guild and channel dialogs, user profile popover, sign-in screen |
-| `src/stores/` | Zustand stores. `prefsStore` (also the sidebar mode, favourite DMs and notification levels per account), `navStore` (the view, not the history), `takusenStore` (session) and part of `voiceStore` (mute, deafen) persist to `localStorage`. `tabsStore` writes `hachiman:tabs:<userId>`. `unreadStore`, `pinsStore`, `eventsStore`, `threadsStore`, `composerStore` and `cryptoStore` are memory only. |
+| `src/stores/` | Zustand stores. `prefsStore` (also the sidebar mode, the guild order and notification levels per account), `navStore` (the view, not the history), `takusenStore` (session) and part of `voiceStore` (mute, deafen) persist to `localStorage`. `tabsStore` writes `hachiman:tabs:<userId>`. `unreadStore`, `pinsStore`, `eventsStore`, `threadsStore`, `composerStore` and `cryptoStore` are memory only. |
 | `src/services/` | `hachiman.ts`, `CryptoService`, `ds-transport`, `message-decrypt`, `voice-e2ee`, `MessagesService`, `VoiceService`, `InviteService`, `UploadService`, `AdminActionService`, `TakusenService`, `SoundService`, `UnreadService` with `unread-pass.ts`, `PinsService`, `guild-features.ts` (`pinsService`, `eventsService`, `threadService`, `blockService`, `setCustomStatus`) |
 | `src/hooks/` | `use-hachiman` (derived channel and voice lists), `use-member`, `use-app-shortcuts`, `use-custom-status`, `use-elapsed`, `use-sign-in`, `use-recommended-region`, `use-mic-level`, `use-action`, `use-draft`, `use-decrypted-blob`, `use-membership-timeline` and others |
 | `src/lib/` | Pure helpers: `sidebar-reveal`, `right-column`, `quick-switcher`, `reactions`, `notify`, `guild-tint`, `active-now`, `custom-status`, `member-groups`, `channel-access`, `waveform`, `sounds`, `chime`, `stream-quality`, `connection-quality`, `mentions`, `model`, `role-ink`, `format-bytes`, `attachments` (upload id order), `blob-url-cache`, `invite-link` (re-export of `@hachiman/client/invite-link`), `admin-payload`, `client-version`, `utils` |
@@ -179,8 +179,8 @@ Only `services/hachiman.ts` writes the mirror stores (`guildStore`, `channelStor
 flowchart LR
   subgraph SB["Sidebar (280)"]
     direction TB
-    CTL["controls<br/>SidebarControls: toggle, back, forward<br/>InboxButton"]
-    TOP["top<br/>SpaceBar, SwitcherField (⌘K),<br/>FavouriteDms"]
+    CTL["controls<br/>SidebarControls: toggle, back, forward<br/>InboxButton, MeButton"]
+    TOP["top<br/>SwitcherField (⌘K),<br/>SidebarRows: DM row, guild row"]
     MID["middle<br/>GuildChannelList, DmSpace<br/>or SettingsNav"]
     FOOT["foot<br/>VoiceDock"]
     CTL --> TOP --> MID --> FOOT
@@ -200,7 +200,7 @@ flowchart LR
 ```
 
 - `Sidebar` has four slots: `controls`, `top`, `middle` and `foot`. The controls row is the window drag region. With an inset title bar, it starts after the traffic lights.
-- `SpaceBar` and `FavouriteDms` each take one line (`use-icon-strip.ts`, `lib/icon-strip.ts`). When the items do not fit, the last place expands the line in place into a grid of all of them.
+- `SidebarRows` shows two `TileRow`s: the four most recent DMs and the first four guilds, each with a fifth cluster tile (`lib/sidebar-tiles.ts`). The DM cluster opens the DM home. The guild cluster opens a grid of every guild, five a line.
 - Settings use the sidebar. `SettingsNav` replaces the sidebar middle, and `SettingsPage` shows in the content card. `navStore.settings` holds the open settings view.
 - The sidebar has three states: docked, hidden and revealed (`sidebar-state.ts`, `use-sidebar-reveal.ts`, `lib/sidebar-reveal.ts`). When it is hidden, the card takes the window width, `TabBar` shows the sidebar controls, search and inbox, and the voice dock floats in the bottom-left corner of the card. The composer moves right by `--dock-inset`, so the dock does not cover it.
 - `TabBar` shows the pinned tabs of `tabsStore`. A tab lights up when its target is the open view. `PinToTabsButton` and `PinToTabsMenuItem` pin a view from the channel intro, the page header and the context menus.
@@ -288,7 +288,7 @@ sequenceDiagram
 - Mentions are counted on the client only, because the server cannot read them. The mention pass runs after READY, when the crypto Worker is ready.
 - The unread count is an upper bound. The server counts every message row, also reactions.
 - The NEW divider uses the read state that the channel had when it opened (`unreadStore.opened`). It stays until another channel opens.
-- `useChannelUnread`, `useGuildUnread`, `useDmUnread` and `useAnyMention` apply the notification levels and the mutes of `prefsStore` (`lib/notify.ts`). The channel rows, the space bar, the tabs, the favourite DM tiles and the inbox dot read them.
+- `useChannelUnread`, `useGuildUnread`, `useDmUnread` and `useAnyMention` apply the notification levels and the mutes of `prefsStore` (`lib/notify.ts`). The channel rows, the sidebar tile rows, the tabs and the inbox dot read them.
 - `InboxButton` shows the mention ids of `unreadStore` and the channels with unread messages. "Mark read" calls `markRead`.
 
 ## Reactions

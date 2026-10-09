@@ -1,6 +1,5 @@
 import { MessageCircle, SquarePen, Users } from 'lucide-react'
 import type { Channel, VoiceState } from '@hachiman/client'
-import { FavouriteDmItem } from '@/components/shell/favourite-dms'
 import { PinToTabsMenuItem } from '@/components/shell/tab-bar'
 import { UserAvatar } from '@/components/shell/user-avatar'
 import { openDmHome, sidebarRowClass } from '@/components/sidebar/sidebar-row'
@@ -15,7 +14,6 @@ import { cn } from '@/lib/utils'
 import { useGuildStore } from '@/stores/guildStore'
 import { useMessageStore, type ChatMessage } from '@/stores/messagesStore'
 import { selectChannel, useSelectedChannelId } from '@/stores/navStore'
-import { useFavouriteDms } from '@/stores/prefsStore'
 import { useChannelUnread, useDmUnread } from '@/stores/unreadStore'
 import { useVoiceStore } from '@/stores/voiceStore'
 
@@ -93,7 +91,6 @@ function DmRow({ channel, selected }: { channel: Channel; selected: boolean }): 
   )
   const badge = useChannelUnread(channel.id)
   const unread = badge.unread && !selected
-  const favourite = useFavouriteDms().includes(channel.id)
 
   return (
     <ContextMenu>
@@ -138,7 +135,6 @@ function DmRow({ channel, selected }: { channel: Channel; selected: boolean }): 
         </li>
       </ContextMenuTrigger>
       <ContextMenuContent>
-        <FavouriteDmItem channelId={channel.id} favourite={favourite} />
         <PinToTabsMenuItem view={{ kind: 'dm', channelId: channel.id }} />
       </ContextMenuContent>
     </ContextMenu>

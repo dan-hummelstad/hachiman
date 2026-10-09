@@ -120,9 +120,8 @@ Use Lucide (`lucide-react`) with stroke 1.5. Sizes: 16 px in rows and controls, 
 | Channel and category row | 30 high, padding 0 / 8 / 0 / 10 |
 | Voice participant row | 26 high, indent 34 |
 | Event row | 38 high |
-| DM favourite tile | 46, gap 7 (one line) |
+| Sidebar tile (DM and guild rows) | 5 a line, gap 6, 46 high (about 47 wide), radius 8, icon 28 |
 | Voice dock | about 93 high, buttons 32 |
-| Space bar | 40 high (one line), guild icons 26, gap 10 |
 | Dialog | 500 to 640 wide |
 | Popover | 480 wide |
 | Settings page | header 76, content padding 28 |
@@ -138,18 +137,18 @@ The sidebar has four slots, top to bottom:
 
 | Slot | Contents |
 |---|---|
-| controls (40 high) | the sidebar toggle, back, forward, and the inbox at the right. On macOS the row starts after the traffic lights. The row is the window drag region |
-| top | the space bar, the quick switcher field ("Search or jump to… ⌘K") and the favourite DMs strip |
+| controls (36 high) | the sidebar toggle, back and forward (32 buttons, radius 7), then at the right the inbox (a red dot while anything mentions me) and my avatar (24, with my status: user settings; right click for status and sign out). On macOS the row starts after the traffic lights. The row is the window drag region |
+| top | the quick switcher field ("Search or jump to… ⌘K"), then the DM row and the guild row, then a 1 px line |
 | middle | the channel list of the guild, the DM space, or the settings sections (`SettingsNav`). It scrolls |
 | foot | the voice dock |
 
-The space bar and the favourite DMs strip each take one line:
+Both rows sit under search and have one layout (`TileRow`, `components/shell/tile-row.tsx`): a header (11 px, weight 800, tertiary) with "+" at the right, then four tiles and a fifth tile that clusters the rest. A tile holds a 28 px avatar or guild icon with its presence and unread mark. The cluster tile holds up to three 18 px icons of the items behind it, stacked, and their unread mark together. The rows are always four tiles and the fifth place: nothing measures the width. Gaps: 8 under the controls, 12 from search to the DM header, 6 from a header to its tiles, 12 between the rows, 12 to the line, 8 under it.
 
-- **Space bar.** My avatar (user settings), the DM space, the guilds in their order, then "+" (create or join a guild). When the guilds do not fit, the last place is "All spaces" in place of "+": a 2x2 glyph of the guilds that do not fit, with their unread mark together. The selected guild always shows in the line.
-- **Favourite DMs.** The favourite tiles in the user's order. When they do not fit, the last place is "All favourites": a 2x2 glyph of the DMs that do not fit, with their mention count together. The open DM always shows in the line.
-- **Expand.** A click on the last place expands the line in place into a grid of all the items (for the space bar, "+" too). The last place then shows a chevron and collapses the grid. The grid also collapses when a guild or DM opens, on Esc and on a click outside it. The arrow keys, Home and End move the focus between the items.
+- **Direct messages.** The four most recent conversations, newest on the left (by the newest message: READY `ReadState.lastMessageAt`, then each MESSAGE_CREATE, in `unreadStore.lastAt`). A tile opens its conversation. When a message arrives in a DM, the DM moves to the front and the oldest of the four joins the cluster. The cluster tile ("All direct messages") is always there, also with four or fewer DMs (then a DM glyph when nothing is behind it). It opens the DM home and stays lit there and while a DM that has no tile is open. "+" starts a new message (the DM home).
+- **Guilds.** The guilds in the order the user set (`prefsStore` `guildOrder` per account; a guild not in it follows in READY order). With five or fewer guilds, all show and there is no cluster. Else the first four show, and the cluster tile ("N more guilds") holds the rest, with their unread mark. It is lit when the selected guild is one of them. A click opens the grid: every guild, five a line, with a chevron in place of the cluster (the fifth place of the first line). The grid pushes the middle of the sidebar down. Esc in the grid, the chevron or a pick folds it. Drag a guild tile onto another to reorder (folded or open). Right click: the guild menu. "+" creates or joins a guild.
+- **Keys.** The arrow keys move the focus between the tiles of a row (up and down by a line), Home and End to the first and last. The cluster tile has `aria-expanded`. Each tile has a tooltip with the full name.
 
-`lib/icon-strip.ts` holds the fit rule and `components/shell/use-icon-strip.ts` the expand behaviour.
+`lib/sidebar-tiles.ts` holds the order and slice rules. `components/shell/sidebar-rows.tsx` builds the two rows.
 
 The sidebar has three states:
 
