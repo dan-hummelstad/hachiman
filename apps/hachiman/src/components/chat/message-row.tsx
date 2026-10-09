@@ -315,14 +315,6 @@ function MessageBody({
           )}
         </p>
       )}
-      {message.sender && !message.sender.membershipVerified && (
-        <p
-          className="text-text-tertiary text-[11px] leading-4 select-none"
-          title="This message came from a history key backup or bundle. This device did not see the sender in the channel at that time."
-        >
-          Membership at that time not verified
-        </p>
-      )}
       {message.failed && (
         <div className="flex flex-wrap items-center gap-2 py-1 text-[13px] leading-5 font-semibold">
           <span className="text-feature-danger-text inline-flex items-center gap-1.5">

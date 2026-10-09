@@ -31,7 +31,7 @@ The fixture uses the cast of the Arc mocks (`docs/arc-redesign-plan.md` decision
   - a code-ish line (quill)
   - a long paragraph (petra_v)
   - one message that does not decrypt (sable, 11:20, "the signature is not valid")
-  - one message from a history bundle (marlowe, 18:02 yesterday, "Membership at that time not verified")
+  - one message from a history bundle (marlowe, 18:02 yesterday, More → Info says "membership at that time not verified")
   - a membership line before the first message of today ("kestrel added yuki.h")
   - one **pending** message and one **failed** message (the last two)
 

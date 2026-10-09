@@ -23,6 +23,8 @@ type AppDialog =
   | { kind: 'createThread'; parentId: string; startMessageId: string; name: string }
   /** N9: the notification level and mute of a guild. */
   | { kind: 'notifySettings'; guildId: string }
+  /** The sent time, encryption and delivery details of one message. */
+  | { kind: 'messageInfo'; channelId: string; messageId: string }
 
 /**
  * The E2EE dialogs (§12.4, §12.5, §12.10, §12.11). No payload holds a secret: a dialog that shows
