@@ -698,6 +698,8 @@ export interface ReadState {
   unreadCount: number
   /** The newest message of the channel, null when it has none. READY only. */
   lastMessageId: string | null
+  /** The createdAt of `lastMessageId`, null with it. The DM order (most recent first). READY only. */
+  lastMessageAt: string | null
 }
 
 /** The highest `unreadCount` in READY. */

@@ -78,8 +78,8 @@ const readyPayload: ReadyPayload = {
   privateChannels: [channel('dm', { guildId: null, type: 'dm', name: null })],
   presences: [],
   readStates: [
-    { channelId: 'general', lastReadMessageId: 'm1', unreadCount: 3, lastMessageId: 'm4' },
-    { channelId: 'dm', lastReadMessageId: null, unreadCount: 0, lastMessageId: null },
+    { channelId: 'general', lastReadMessageId: 'm1', unreadCount: 3, lastMessageId: 'm4', lastMessageAt: null },
+    { channelId: 'dm', lastReadMessageId: null, unreadCount: 0, lastMessageId: null, lastMessageAt: null },
   ],
 }
 
@@ -146,11 +146,11 @@ describe('HachimanClient cache', () => {
 
   it('READY fills readStates and READ_STATE_UPDATE moves the read state forward', () => {
     const r = client.cache.readStates
-    expect(r.get('general')).toEqual({ channelId: 'general', lastReadMessageId: 'm1', unreadCount: 3, lastMessageId: 'm4' })
+    expect(r.get('general')).toEqual({ channelId: 'general', lastReadMessageId: 'm1', unreadCount: 3, lastMessageId: 'm4', lastMessageAt: null })
     dispatch('READ_STATE_UPDATE', { channelId: 'general', lastReadMessageId: 'm4' })
-    expect(r.get('general')).toEqual({ channelId: 'general', lastReadMessageId: 'm4', unreadCount: 0, lastMessageId: 'm4' })
+    expect(r.get('general')).toEqual({ channelId: 'general', lastReadMessageId: 'm4', unreadCount: 0, lastMessageId: 'm4', lastMessageAt: null })
     dispatch('READ_STATE_UPDATE', { channelId: 'dm', lastReadMessageId: 'd1' })
-    expect(r.get('dm')).toEqual({ channelId: 'dm', lastReadMessageId: 'd1', unreadCount: 0, lastMessageId: 'd1' })
+    expect(r.get('dm')).toEqual({ channelId: 'dm', lastReadMessageId: 'd1', unreadCount: 0, lastMessageId: 'd1', lastMessageAt: null })
     dispatch('CHANNEL_DELETE', channel('general'))
     expect(r.has('general')).toBe(false)
     dispatch('READY', { ...readyPayload, readStates: [] })

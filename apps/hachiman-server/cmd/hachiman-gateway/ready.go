@@ -113,6 +113,8 @@ type ReadState struct {
 	LastReadMessageID *string `json:"lastReadMessageId"`
 	UnreadCount       int     `json:"unreadCount"`
 	LastMessageID     *string `json:"lastMessageId"`
+	// LastMessageAt is the createdAt of LastMessageID (ISO 8601). The client orders DMs by it.
+	LastMessageAt *string `json:"lastMessageAt"`
 	// guildID is nil for a DM. The session filters guild channels by VIEW_CHANNEL.
 	guildID *string
 }
@@ -150,11 +152,11 @@ func readStateChannels(data *readyData) (ids []string, guildOf map[string]*strin
 // at most $3 of them. Without a read state it is 0: the client uses
 // lastMessageId to show the channel as unread.
 const readStatesSQL = `
-	SELECT ch.id::text, rs.last_read_message_id::text, lm.id::text, COALESCE(uc.n, 0)
+	SELECT ch.id::text, rs.last_read_message_id::text, lm.id::text, lm.created_at, COALESCE(uc.n, 0)
 	FROM unnest($1::uuid[]) AS ch(id)
 	LEFT JOIN read_states rs ON rs.channel_id = ch.id AND rs.user_id = $2::uuid
 	LEFT JOIN LATERAL (
-		SELECT m.id FROM messages m WHERE m.channel_id = ch.id
+		SELECT m.id, m.created_at FROM messages m WHERE m.channel_id = ch.id
 		ORDER BY m.created_at DESC, m.id DESC LIMIT 1
 	) lm ON true
 	LEFT JOIN LATERAL (
@@ -359,8 +361,13 @@ func pgLoader(db *pgxpool.Pool) func(ctx context.Context, userID, onlyGuild stri
 			rows, _ = db.Query(ctx, readStatesSQL, chIDs, userID, readStateUnreadCap)
 			if err := forEach(rows, func() error {
 				var r ReadState
-				if err := rows.Scan(&r.ChannelID, &r.LastReadMessageID, &r.LastMessageID, &r.UnreadCount); err != nil {
+				var lastAt *time.Time
+				if err := rows.Scan(&r.ChannelID, &r.LastReadMessageID, &r.LastMessageID, &lastAt, &r.UnreadCount); err != nil {
 					return err
+				}
+				if lastAt != nil {
+					at := iso(*lastAt)
+					r.LastMessageAt = &at
 				}
 				r.guildID = guildOf[r.ChannelID]
 				out.ReadStates = append(out.ReadStates, r)
