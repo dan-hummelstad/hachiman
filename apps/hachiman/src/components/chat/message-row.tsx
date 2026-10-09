@@ -106,7 +106,6 @@ function MessageRow(props: TranscriptRowProps): React.JSX.Element {
           ? () => useComposerStore.getState().setReplyTarget(message.channelId, target)
           : undefined
       }
-      copyText={readable ? message.content : undefined}
       onEdit={mine && readable ? () => props.onEditingChange(message.id) : undefined}
       onDelete={
         mine || policy.canManage
@@ -313,14 +312,6 @@ function MessageBody({
           {message.editedAt && (
             <span className="text-text-tertiary ml-1.5 text-[11px] select-none">(edited)</span>
           )}
-        </p>
-      )}
-      {message.sender && !message.sender.membershipVerified && (
-        <p
-          className="text-text-tertiary text-[11px] leading-4 select-none"
-          title="This message came from a history key backup or bundle. This device did not see the sender in the channel at that time."
-        >
-          Membership at that time not verified
         </p>
       )}
       {message.failed && (

@@ -13,6 +13,7 @@ import { RecoveryKeyDialog } from '@/components/security/recovery-panel'
 import { SecuritySetupDialog } from '@/components/security/security-setup-dialog'
 import { VerificationDialog } from '@/components/security/verification-dialog'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
+import { MessageInfoDialog } from '@/components/chat/message-info-dialog'
 import { NotifySettingsDialog } from '@/components/notify/notify-menu'
 import { CreateThreadDialog } from '@/components/threads/create-thread-dialog'
 import { VerifyCallDialog } from '@/components/voice/verify-call-dialog'
@@ -33,6 +34,7 @@ const DIALOGS: Record<AnyDialogKind, () => React.JSX.Element> = {
   guildEvent: EventDialog,
   createThread: CreateThreadDialog,
   notifySettings: NotifySettingsDialog,
+  messageInfo: MessageInfoDialog,
   // E2EE (§12.4, §12.5, §12.10, §12.11)
   securitySetup: SecuritySetupDialog,
   recoveryKey: RecoveryKeyDialog,
