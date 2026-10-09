@@ -15,7 +15,7 @@ import { DndContext, closestCenter, type DragEndEvent } from '@dnd-kit/core'
 import { SortableContext, horizontalListSortingStrategy } from '@dnd-kit/sortable'
 import { openSwitcher } from '@/components/shell/switcher-state'
 import { DRAG_REGION } from '@/components/shell/sidebar'
-import { SidebarControls } from '@/components/shell/sidebar-controls'
+import { SidebarControls, SidebarToggle } from '@/components/shell/sidebar-controls'
 import { useSidebarView } from '@/components/shell/sidebar-state'
 import { UserAvatar } from '@/components/shell/user-avatar'
 import { Button } from '@/components/ui/button'
@@ -55,7 +55,7 @@ const tabKey = (t: TabTarget): string => `${t.kind}:${t.id}:${t.pageId ?? ''}`
 /**
  * The tab row (N1, 48 high, the window drag region): with a hidden sidebar the sidebar controls
  * first (N3), then the pin glyph, the pinned tabs, "+", and with a hidden sidebar the search
- * button and the inbox spot at the end.
+ * button and the inbox spot at the end. A hidden sidebar on the right has its toggle last.
  */
 export function TabBar({ inbox }: { inbox?: React.ReactNode }): React.JSX.Element {
   const hidden = useSidebarView() !== 'docked'
@@ -72,7 +72,7 @@ export function TabBar({ inbox }: { inbox?: React.ReactNode }): React.JSX.Elemen
         DRAG_REGION
       )}
     >
-      {hidden && <SidebarControls />}
+      {hidden && <SidebarControls toggle={!right} />}
       <PinCurrent />
       <Tabs />
       <Button
@@ -98,6 +98,7 @@ export function TabBar({ inbox }: { inbox?: React.ReactNode }): React.JSX.Elemen
             <Search className="size-4" />
           </IconButton>
           {inbox}
+          {right && <SidebarToggle />}
         </div>
       )}
     </div>
