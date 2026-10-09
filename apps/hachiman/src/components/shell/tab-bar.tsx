@@ -27,6 +27,7 @@ import { cn } from '@/lib/utils'
 import { docsService } from '@/services/docs/DocsService'
 import { hachiman } from '@/services/hachiman'
 import { usePlatform } from '@/shared/PlatformContext'
+import { useSidebarSide } from '@/stores/prefsStore'
 import { useChannelStore } from '@/stores/channelStore'
 import { useDocsStore } from '@/stores/docsStore'
 import { useGuildStore } from '@/stores/guildStore'
@@ -58,12 +59,16 @@ const tabKey = (t: TabTarget): string => `${t.kind}:${t.id}:${t.pageId ?? ''}`
  */
 export function TabBar({ inbox }: { inbox?: React.ReactNode }): React.JSX.Element {
   const hidden = useSidebarView() !== 'docked'
+  // The tab bar starts the window when the sidebar is hidden or on the right: it then clears the
+  // traffic lights.
+  const right = useSidebarSide() === 'right'
+  const first = hidden || right
   const { insetTitleBar } = usePlatform()
   return (
     <div
       className={cn(
         'flex h-12 shrink-0 items-center gap-1 pr-2',
-        hidden ? (insetTitleBar ? 'pl-[78px]' : 'pl-2') : 'pl-0',
+        first ? (insetTitleBar ? 'pl-[78px]' : 'pl-2') : 'pl-0',
         DRAG_REGION
       )}
     >

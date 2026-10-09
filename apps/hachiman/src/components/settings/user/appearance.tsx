@@ -3,6 +3,7 @@ import { setSidebarMode } from '@/components/shell/sidebar-state'
 import { SectionHeading } from '@/components/ui/field'
 import { Keycap } from '@/components/ui/keycap'
 import { RadioCard } from '@/components/ui/radio-card'
+import { SegmentedControl } from '@/components/ui/segmented-control'
 import { customWallpaper, FALLBACK_HUES, tintColors, tintWallpaper } from '@/lib/guild-tint'
 import { useKeybindLabel } from '@/hooks/use-keybinds'
 import { cn } from '@/lib/utils'
@@ -10,9 +11,15 @@ import {
   usePrefsStore,
   type MessageDisplay,
   type SidebarMode,
+  type SidebarSide,
   type Theme,
   type WallpaperMode
 } from '@/stores/prefsStore'
+
+const SIDES = [
+  { value: 'left', label: 'Left side' },
+  { value: 'right', label: 'Right side' }
+] as const
 
 const THEMES: { value: Theme; label: string }[] = [
   { value: 'dark', label: 'Dark' },
@@ -37,6 +44,8 @@ export function AppearanceSection(): React.JSX.Element {
   const messageDisplay = usePrefsStore((s) => s.messageDisplay)
   const setMessageDisplay = usePrefsStore((s) => s.setMessageDisplay)
   const sidebar = usePrefsStore((s) => s.sidebar)
+  const side = usePrefsStore((s) => s.sidebarSide)
+  const setSide = usePrefsStore((s) => s.setSidebarSide)
   const sidebarKey = useKeybindLabel('sidebar')
 
   return (
@@ -66,13 +75,13 @@ export function AppearanceSection(): React.JSX.Element {
               checked={sidebar === m}
               onChange={() => setSidebarMode(m)}
               title={m === 'docked' ? 'Docked' : 'Undocked'}
-              preview={<SidebarPreview mode={m} />}
+              preview={<SidebarPreview mode={m} side={side} />}
               description={
                 m === 'docked' ? (
                   'Part of the window, always visible'
                 ) : (
                   <>
-                    Slides out at the left edge
+                    Slides out at the {side} edge
                     {sidebarKey && (
                       <>
                         {' · '}
@@ -85,6 +94,13 @@ export function AppearanceSection(): React.JSX.Element {
             />
           ))}
         </div>
+        <SegmentedControl<SidebarSide>
+          label="Sidebar side"
+          options={SIDES}
+          value={side}
+          onChange={setSide}
+          className="mt-3 w-56"
+        />
       </section>
       <section>
         <SectionHeading>Message display</SectionHeading>
@@ -208,8 +224,15 @@ function ThemeSwatch({ value }: { value: Theme }): React.JSX.Element {
   )
 }
 
-/** The window with the sidebar docked beside the content, or slid out over it from the left edge. */
-function SidebarPreview({ mode }: { mode: SidebarMode }): React.JSX.Element {
+/** The window with the sidebar docked beside the content, or slid out over it from its edge. */
+function SidebarPreview({
+  mode,
+  side
+}: {
+  mode: SidebarMode
+  side: SidebarSide
+}): React.JSX.Element {
+  const right = side === 'right'
   const lines = (
     <span className="flex flex-col gap-1.5 p-2">
       <span className="bg-text-tertiary/50 h-1 w-3/4" />
@@ -221,20 +244,38 @@ function SidebarPreview({ mode }: { mode: SidebarMode }): React.JSX.Element {
   return (
     <span
       aria-hidden
-      className="rounded-control border-line-hairline bg-surface-window relative flex h-20 overflow-hidden border"
+      className={cn(
+        'rounded-control border-line-hairline bg-surface-window relative flex h-20 overflow-hidden border',
+        right && 'flex-row-reverse'
+      )}
     >
       {mode === 'docked' ? (
         <>
           <span className="w-[28%] shrink-0">{lines}</span>
-          <span className="bg-surface-content border-line-hairline my-1 mr-1 flex-1 border">
+          <span
+            className={cn(
+              'bg-surface-content border-line-hairline my-1 flex-1 border',
+              right ? 'ml-1' : 'mr-1'
+            )}
+          >
             {lines}
           </span>
         </>
       ) : (
         <>
-          <span className="bg-accent-primary absolute inset-y-1 left-0 z-10 w-0.5" />
+          <span
+            className={cn(
+              'bg-accent-primary absolute inset-y-1 z-10 w-0.5',
+              right ? 'right-0' : 'left-0'
+            )}
+          />
           <span className="bg-surface-content border-line-hairline m-1 flex-1 border">{lines}</span>
-          <span className="bg-surface-raised border-line-strong absolute inset-y-2 left-1 w-[28%] border shadow-lg">
+          <span
+            className={cn(
+              'bg-surface-raised border-line-strong absolute inset-y-2 w-[28%] border shadow-lg',
+              right ? 'right-1' : 'left-1'
+            )}
+          >
             {lines}
           </span>
         </>

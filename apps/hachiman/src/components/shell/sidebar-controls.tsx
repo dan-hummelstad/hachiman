@@ -1,4 +1,11 @@
-import { ArrowLeft, ArrowRight, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
+import {
+  ArrowLeft,
+  ArrowRight,
+  PanelLeftClose,
+  PanelLeftOpen,
+  PanelRightClose,
+  PanelRightOpen
+} from 'lucide-react'
 import { toggleSidebar, useSidebarView } from '@/components/shell/sidebar-state'
 import { Button } from '@/components/ui/button'
 import { IconButton } from '@/components/ui/icon-button'
@@ -7,6 +14,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { goBack, goForward } from '@/hooks/use-app-shortcuts'
 import { useKeybindLabel } from '@/hooks/use-keybinds'
 import { useCanGoBack, useCanGoForward } from '@/stores/navStore'
+import { useSidebarSide } from '@/stores/prefsStore'
 
 const CONTROL = 'text-text-secondary hover:text-text-primary hover:bg-surface-hover rounded-control'
 
@@ -21,7 +29,15 @@ export function SidebarControls(): React.JSX.Element {
   // A revealed sidebar reads "dock": one click pins it back into the window.
   const key = useKeybindLabel('sidebar')
   const label = sidebar === 'docked' ? 'Hide sidebar' : 'Dock sidebar'
-  const Icon = sidebar === 'tucked' ? PanelLeftOpen : PanelLeftClose
+  const right = useSidebarSide() === 'right'
+  const tucked = sidebar === 'tucked'
+  const Icon = right
+    ? tucked
+      ? PanelRightOpen
+      : PanelRightClose
+    : tucked
+      ? PanelLeftOpen
+      : PanelLeftClose
   return (
     <div className="flex items-center gap-0.5">
       <Tooltip>

@@ -1,7 +1,7 @@
 import { isTextField } from '@/lib/text-field'
-import type { SidebarMode } from '@/stores/prefsStore'
+import type { SidebarMode, SidebarSide } from '@/stores/prefsStore'
 
-/** N3: the hot zone at the left edge of the window that reveals a hidden sidebar. */
+/** N3: the hot zone at the sidebar's edge of the window that reveals a hidden sidebar. */
 export const EDGE_PX = 8
 /** The slide-in time of a revealed sidebar. */
 export const REVEAL_MS = 150
@@ -20,8 +20,9 @@ export interface RevealHolds {
 /** Whether a revealed sidebar may hide now. */
 export const canHide = (h: RevealHolds): boolean => !h.menuOpen && !h.dragging && !h.fieldFocused
 
-/** Whether a pointer at `x` (CSS px from the left edge of the window) is in the hot zone. */
-export const inHotZone = (x: number): boolean => x >= 0 && x < EDGE_PX
+/** Whether a pointer at `x` (CSS px from the left of a `width` wide window) is in the hot zone. */
+export const inHotZone = (x: number, side: SidebarSide, width: number): boolean =>
+  side === 'left' ? x >= 0 && x < EDGE_PX : x < width && x >= width - EDGE_PX
 
 /** Whether the sidebar starts hidden: the user's choice, or a narrow window. */
 export const startsHidden = (mode: SidebarMode, windowWidth: number): boolean =>

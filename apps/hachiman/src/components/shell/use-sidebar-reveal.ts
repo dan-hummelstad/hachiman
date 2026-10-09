@@ -3,6 +3,7 @@ import { revealSidebar, tuckSidebar, useSidebarView } from '@/components/shell/s
 import { isSwitcherOpen } from '@/components/shell/switcher-state'
 import { HIDE_DELAY_MS, canHide, holdsOf, inHotZone } from '@/lib/sidebar-reveal'
 import { useDialogStore } from '@/stores/dialogStore'
+import { usePrefsStore } from '@/stores/prefsStore'
 
 /**
  * N3, the hidden sidebar: the pointer in the left 8 px reveals it; it hides 300 ms after the
@@ -15,7 +16,12 @@ export function useSidebarReveal(ref: React.RefObject<HTMLElement | null>): void
   useEffect(() => {
     if (view !== 'tucked') return
     const onMove = (e: PointerEvent): void => {
-      if (!inHotZone(e.clientX) || useDialogStore.getState().dialog !== null) return
+      const side = usePrefsStore.getState().sidebarSide
+      if (
+        !inHotZone(e.clientX, side, window.innerWidth) ||
+        useDialogStore.getState().dialog !== null
+      )
+        return
       revealSidebar()
     }
     window.addEventListener('pointermove', onMove)

@@ -41,10 +41,17 @@ describe('canHide', () => {
 
 describe('inHotZone', () => {
   it('is the left 8 px', () => {
-    expect(inHotZone(0)).toBe(true)
-    expect(inHotZone(7)).toBe(true)
-    expect(inHotZone(8)).toBe(false)
-    expect(inHotZone(-1)).toBe(false)
+    expect(inHotZone(0, 'left', 1000)).toBe(true)
+    expect(inHotZone(7, 'left', 1000)).toBe(true)
+    expect(inHotZone(8, 'left', 1000)).toBe(false)
+    expect(inHotZone(-1, 'left', 1000)).toBe(false)
+  })
+
+  it('is the right 8 px with the sidebar on the right', () => {
+    expect(inHotZone(999, 'right', 1000)).toBe(true)
+    expect(inHotZone(992, 'right', 1000)).toBe(true)
+    expect(inHotZone(991, 'right', 1000)).toBe(false)
+    expect(inHotZone(0, 'right', 1000)).toBe(false)
   })
 })
 
