@@ -90,6 +90,12 @@ func (h *harness) dial(token string) *wsClient {
 		h.t.Fatal(err)
 	}
 	h.t.Cleanup(func() { ws.Close() })
+	// Report a close frame without echoing it. The default handler writes the reply first, and
+	// when the server already reset the socket (e.g. after a read-limit close) that write error
+	// replaces the close code.
+	ws.SetCloseHandler(func(code int, text string) error {
+		return &websocket.CloseError{Code: code, Text: text}
+	})
 	c := &wsClient{t: h.t, ws: ws, frames: make(chan frame, 256), closed: make(chan error, 1)}
 	go func() {
 		for {
