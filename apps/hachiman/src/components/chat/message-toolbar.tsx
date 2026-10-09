@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useCopy } from '@/hooks/use-copy'
-import { Check, Copy, Ellipsis, Pencil, Reply, SmilePlus, Trash2 } from 'lucide-react'
+import { Ellipsis, Pencil, Reply, SmilePlus, Trash2 } from 'lucide-react'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -21,8 +20,6 @@ interface MessageToolbarProps {
   guildId?: string | null
   /** Makes this message the reply target of the composer (N11). */
   onReply?: () => void
-  /** The text that "Copy text" copies. Omitted when the message did not decrypt. */
-  copyText?: string
   /** Omitted when the message isn't mine. */
   onEdit?: () => void
   /** Omitted when I can't delete it (not mine and no MANAGE_MESSAGES). */
@@ -41,13 +38,11 @@ export function MessageToolbar({
   onReact,
   guildId = null,
   onReply,
-  copyText,
   onEdit,
   onDelete,
   more,
   className
 }: MessageToolbarProps): React.JSX.Element {
-  const { copied, copy } = useCopy({ resetMs: 1200 })
   const [armed, setArmed] = useState(false)
   const [picking, setPicking] = useState(false)
   const [moreOpen, setMoreOpen] = useState(false)
@@ -87,15 +82,6 @@ export function MessageToolbar({
       {onReply && (
         <IconButton className={BUTTON} label="Reply" onClick={onReply}>
           <Reply />
-        </IconButton>
-      )}
-      {copyText !== undefined && (
-        <IconButton
-          className={BUTTON}
-          label={copied !== null ? 'Copied' : 'Copy text'}
-          onClick={() => copy(copyText)}
-        >
-          {copied !== null ? <Check /> : <Copy />}
         </IconButton>
       )}
       {onEdit && (
