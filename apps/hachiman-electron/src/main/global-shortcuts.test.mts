@@ -30,15 +30,15 @@ test("allows accelerators with Ctrl, ⌘ or Alt, and bare F-keys", () => {
     "F13",
     "Shift+F5",
     "CommandOrControl+num0",
+    "M",
+    "Shift+M",
+    "Space",
   ])
     assert.equal(isAllowedAccelerator(a), true, a);
 });
 
-test("refuses typing keys, unknown keys and odd modifiers", () => {
+test("refuses unknown keys and odd modifiers", () => {
   for (const a of [
-    "M",
-    "Shift+M",
-    "Space",
     "Super+M",
     "CommandOrControl+CommandOrControl+M",
     "CommandOrControl+",
@@ -55,7 +55,7 @@ test("validates the payload shape", () => {
     validateGlobalShortcuts([{ action: "a b", accelerator: "F1" }]),
   );
   assert.throws(() =>
-    validateGlobalShortcuts([{ action: "mute", accelerator: "M" }]),
+    validateGlobalShortcuts([{ action: "mute", accelerator: "Super+M" }]),
   );
   assert.throws(() =>
     validateGlobalShortcuts(
@@ -86,6 +86,8 @@ test("a bad payload keeps the previous set", () => {
   const { registry, held } = fakeRegistry();
   const gs = createGlobalShortcuts(registry, () => undefined);
   gs.set([{ action: "toggleMute", accelerator: "F1" }]);
-  assert.throws(() => gs.set([{ action: "toggleMute", accelerator: "M" }]));
+  assert.throws(() =>
+    gs.set([{ action: "toggleMute", accelerator: "Super+M" }]),
+  );
   assert.deepEqual([...held.keys()], ["F1"]);
 });

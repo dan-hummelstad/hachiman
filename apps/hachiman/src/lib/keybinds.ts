@@ -101,12 +101,6 @@ export function splitCombo(combo: string): { mods: string[]; key: string } {
   return { mods: parts.slice(0, -1), key: parts[parts.length - 1] }
 }
 
-/** Whether the combo holds ⌘ / Ctrl / Alt (Shift alone still types). An F-key counts as held. */
-export function hasCommandModifier(combo: string): boolean {
-  const { mods, key } = splitCombo(combo)
-  return mods.some((m) => m !== 'Shift') || /^F\d{1,2}$/.test(key)
-}
-
 const PUNCTUATION: Record<string, string> = {
   BracketLeft: '[',
   BracketRight: ']',
@@ -178,11 +172,10 @@ const ACCELERATOR_KEYS: Record<string, string> = {
 }
 
 /**
- * The Electron accelerator of a combo, for a global shortcut. Null when the combo has no ⌘ /
- * Ctrl / Alt (it would take a typing key from every app) or a key that accelerators lack.
+ * The Electron accelerator of a combo, for a global shortcut. Null for a key that accelerators
+ * lack. A combo without a modifier is the user's choice: it takes that key from every app.
  */
 export function toAccelerator(combo: string): string | null {
-  if (!hasCommandModifier(combo)) return null
   const { mods, key } = splitCombo(combo)
   const m = /^(?:Key|Digit)(.)$/.exec(key)
   const accKey = m

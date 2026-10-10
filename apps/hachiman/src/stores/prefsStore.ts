@@ -78,6 +78,10 @@ interface PrefsState {
   /** The user's keybind changes (lib/keybinds.ts); a missing action keeps its default. */
   keybinds: KeybindOverrides
   voiceInputMode: VoiceInputMode
+  /** Voice activity: the mic opens above the learned noise floor (lib/input-sensitivity.ts). */
+  inputSensitivityAuto: boolean
+  /** Voice activity without auto: the mic opens above this level, dBFS (-100..0). */
+  inputSensitivityDb: number
   /** Desktop: the keybinds marked `global` also work while Hachiman is in the background. */
   globalKeybinds: boolean
   /** Width in px of the right column while it shows a page (the user drags its edge). */
@@ -113,6 +117,8 @@ interface PrefsState {
   /** Back to the default key; no `action`: every action. */
   resetKeybind: (action?: KeybindAction) => void
   setVoiceInputMode: (voiceInputMode: VoiceInputMode) => void
+  setInputSensitivityAuto: (inputSensitivityAuto: boolean) => void
+  setInputSensitivityDb: (inputSensitivityDb: number) => void
   setGlobalKeybinds: (globalKeybinds: boolean) => void
   setPageColumnWidth: (pageColumnWidth: number) => void
   setAccountId: (accountId: string | null) => void
@@ -158,6 +164,8 @@ export const usePrefsStore = create<PrefsState>()(
         customGradient: DEFAULT_CUSTOM_GRADIENT,
         keybinds: {},
         voiceInputMode: 'voiceActivity',
+        inputSensitivityAuto: true,
+        inputSensitivityDb: -50,
         globalKeybinds: true,
         pageColumnWidth: 540,
         recentEmojis: [],
@@ -199,6 +207,8 @@ export const usePrefsStore = create<PrefsState>()(
             return { keybinds }
           }),
         setVoiceInputMode: (voiceInputMode) => set({ voiceInputMode }),
+        setInputSensitivityAuto: (inputSensitivityAuto) => set({ inputSensitivityAuto }),
+        setInputSensitivityDb: (inputSensitivityDb) => set({ inputSensitivityDb }),
         setGlobalKeybinds: (globalKeybinds) => set({ globalKeybinds }),
         setPageColumnWidth: (pageColumnWidth) => set({ pageColumnWidth }),
         setAccountId: (accountId) => set({ accountId }),

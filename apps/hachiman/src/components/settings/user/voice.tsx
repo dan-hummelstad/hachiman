@@ -8,7 +8,7 @@ import { SegmentedControl } from '@/components/ui/segmented-control'
 import { Switch } from '@/components/ui/switch'
 import { SoundSettings } from '@/components/settings/user/sounds'
 import { useKeybindLabel } from '@/hooks/use-keybinds'
-import { useMicLevel } from '@/hooks/use-mic-level'
+import { meterPercent, useMicLevel } from '@/hooks/use-mic-level'
 import { errMsg } from '@/lib/utils'
 import { setSettingsSection } from '@/stores/navStore'
 import { usePrefsStore, type NoiseSuppression, type VoiceInputMode } from '@/stores/prefsStore'
@@ -86,6 +86,7 @@ export function VoiceSection(): React.JSX.Element {
       </ErrorText>
       <NoiseSuppressionSelect />
       <InputMode />
+      <InputSensitivity />
       <MicCheck deviceId={inputDeviceId} onOpen={refresh} />
       <AudioQuality />
       <SoundSettings />
@@ -129,6 +130,51 @@ function InputMode(): React.JSX.Element {
           . Push to talk works only while the Hachiman window is focused.
         </p>
       )}
+    </section>
+  )
+}
+
+/** Voice activity: how loud the mic must be to send, set by hand or learned from the room. */
+function InputSensitivity(): React.JSX.Element | null {
+  const mode = usePrefsStore((s) => s.voiceInputMode)
+  const auto = usePrefsStore((s) => s.inputSensitivityAuto)
+  const db = usePrefsStore((s) => s.inputSensitivityDb)
+  const setAuto = usePrefsStore((s) => s.setInputSensitivityAuto)
+  const setDb = usePrefsStore((s) => s.setInputSensitivityDb)
+  const id = useId()
+  if (mode !== 'voiceActivity') return null
+  return (
+    <section className="grid gap-3">
+      <SectionHeading className="mb-0">Input sensitivity</SectionHeading>
+      <div className="flex items-center gap-3">
+        <Switch id={id} checked={auto} onCheckedChange={setAuto} />
+        <label htmlFor={id} className="text-label cursor-pointer">
+          Automatically determine input sensitivity
+        </label>
+      </div>
+      {!auto && (
+        <div className="flex items-center gap-3">
+          <input
+            aria-label="Input sensitivity"
+            type="range"
+            min={-100}
+            max={0}
+            step={1}
+            value={db}
+            onChange={(e) => setDb(Number(e.target.value))}
+            className="accent-accent-primary flex-1"
+          />
+          <span className="text-meta text-text-secondary w-14 text-right tabular-nums">
+            {db} dB
+          </span>
+        </div>
+      )}
+      <p className="text-meta text-text-tertiary">
+        {auto
+          ? 'Hachiman learns the noise of your room and sends your voice when you speak above it.'
+          : 'Your microphone sends only when it is louder than this level.'}{' '}
+        Use “Check microphone” to see where your voice sits.
+      </p>
     </section>
   )
 }
@@ -210,7 +256,11 @@ function MicCheck({
   onOpen: () => void
 }): React.JSX.Element {
   const barRef = useRef<HTMLSpanElement>(null)
-  const { on, toggle, error } = useMicLevel(deviceId, barRef, onOpen)
+  const markRef = useRef<HTMLSpanElement>(null)
+  const { on, toggle, error } = useMicLevel(deviceId, barRef, markRef, onOpen)
+  const voiceActivity = usePrefsStore((s) => s.voiceInputMode === 'voiceActivity')
+  const auto = usePrefsStore((s) => s.inputSensitivityAuto)
+  const db = usePrefsStore((s) => s.inputSensitivityDb)
 
   return (
     <section className="bg-surface-panel border-line-hairline grid gap-2 border px-3.5 py-3">
@@ -226,12 +276,24 @@ function MicCheck({
           aria-valuemax={100}
           className="bg-surface-raised relative h-2.5 flex-1 overflow-hidden"
         >
-          <span ref={barRef} className="bg-feature-voice absolute inset-y-0 left-0 w-0" />
-          <span aria-hidden className="bg-surface-content absolute inset-y-0 left-1/4 w-0.5" />
+          <span
+            ref={barRef}
+            className="bg-text-disabled data-[open]:bg-feature-voice absolute inset-y-0 left-0 w-0"
+          />
+          {/* The threshold. Auto moves it from the hook; manual follows the slider. */}
+          <span
+            ref={markRef}
+            aria-hidden
+            hidden={!voiceActivity || (auto && !on)}
+            style={auto ? undefined : { left: `${meterPercent(db)}%` }}
+            className="bg-text-primary absolute inset-y-0 w-0.5"
+          />
         </span>
       </div>
       <p className="text-meta text-text-tertiary">
-        Speak normally. The bar should move well past the first quarter mark.
+        {voiceActivity
+          ? 'Speak normally. The bar turns green while your microphone would send.'
+          : 'Speak normally. The bar should move well into the meter.'}
       </p>
       <ErrorText>{error}</ErrorText>
     </section>

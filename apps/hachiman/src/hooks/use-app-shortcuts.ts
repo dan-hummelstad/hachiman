@@ -2,9 +2,8 @@ import { useEffect } from 'react'
 import { toggleSidebar } from '@/components/shell/sidebar-state'
 import { closeSwitcher, isSwitcherOpen, openSwitcher } from '@/components/shell/switcher-state'
 import { currentKeybinds, useKeybindRuntime } from '@/hooks/use-keybinds'
-import { MODIFIER_KEYS, comboOf, hasCommandModifier, keyOf, splitCombo } from '@/lib/keybinds'
+import { MODIFIER_KEYS, comboOf, keyOf, splitCombo } from '@/lib/keybinds'
 import { matchShortcut, underModal } from '@/lib/shortcuts'
-import { isTextField } from '@/lib/text-field'
 import { hachiman } from '@/services/hachiman'
 import { voiceService } from '@/services/VoiceService'
 import { useDialogStore } from '@/stores/dialogStore'
@@ -58,8 +57,8 @@ export function runVoiceToggle(action: string): void {
 /**
  * The app-wide keys (lib/shortcuts.ts, the user's keybinds) and the mouse back and forward
  * buttons. One listener; no key acts under a modal dialog, except ⌘K, which closes an open quick
- * switcher, and push to talk. A key without ⌘ / Ctrl / Alt does not act in a text field. Mount
- * once in the shell.
+ * switcher, and the voice keys (push to talk, mute, deafen). A key acts in a text field too, with
+ * or without a modifier: the user picked it. Mount once in the shell.
  */
 export function useAppShortcuts(): void {
   useEffect(() => {
@@ -74,13 +73,16 @@ export function useAppShortcuts(): void {
         closeSwitcher()
         return
       }
-      const inField = isTextField(e.target as Element | null)
-      if (shortcut.kind !== 'leaveSettings' && !hasCommandModifier(combo) && inField) return
       // The desktop host took this one as a global shortcut: it arrives from there.
       if (globalActive.some((a) => a === shortcut.kind)) return
       if (shortcut.kind === 'pushToTalk') {
         e.preventDefault()
         voiceService.setPushToTalk(true)
+        return
+      }
+      if (shortcut.kind === 'toggleMute' || shortcut.kind === 'toggleDeafen') {
+        e.preventDefault()
+        if (!e.repeat) runVoiceToggle(shortcut.kind)
         return
       }
       if (underModal(e.target, useDialogStore.getState().dialog !== null)) return
@@ -100,10 +102,6 @@ export function useAppShortcuts(): void {
           break
         case 'switcher':
           openSwitcher('open')
-          break
-        case 'toggleMute':
-        case 'toggleDeafen':
-          if (!e.repeat) runVoiceToggle(shortcut.kind)
           break
         case 'leaveSettings':
           // An Esc that a menu or popover took, or that a field in [data-esc-local] uses, stays.

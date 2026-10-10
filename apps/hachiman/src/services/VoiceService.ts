@@ -7,6 +7,7 @@ import {
   type VoiceTarget,
   voiceScopeId
 } from '@hachiman/client'
+import { createGate, levelDb } from '@/lib/input-sensitivity'
 import { isGuildChannel } from '@/lib/model'
 import { ResyncBackoff } from '@/lib/resync-backoff'
 import { captureConstraints, tuneTrack, type StreamQuality } from '@/lib/stream-quality'
@@ -18,9 +19,8 @@ import { useUserStore } from '@/stores/userStore'
 import { useVoiceStore } from '@/stores/voiceStore'
 
 const STATS_MS = 2_000
-const VAD_MS = 50
-const VAD_THRESHOLD = 0.02 // RMS
-const VAD_HANGOVER_MS = 300
+/** The gate opens on speech, so a short tick clips less of the first syllable. */
+const VAD_MS = 20
 /** RNNoise works on 48 kHz frames. */
 const RNNOISE_SAMPLE_RATE = 48_000
 /** Media close codes (§8). */
@@ -42,7 +42,10 @@ interface MicSession {
    * plays it on this device too. `volume` is 0..1.
    */
   play(buffer: AudioBuffer, volume: number): void
-  /** Opens or closes the mic branch before the mixer (push to talk). The soundboard is not gated. */
+  /**
+   * Push to talk: opens or closes the mic branch before the mixer. In voice activity mode the
+   * input sensitivity gate also closes it between words. The soundboard is not gated.
+   */
   setGate(open: boolean): void
   /** Sends the local soundboard playback to the chosen output device again. */
   applySink(): void
@@ -54,7 +57,8 @@ interface MicSession {
  * Builds the send path for `raw`: mic → (RNNoise worklet, with `rnnoise`) → gate → mixer → a new
  * track. The soundboard joins at the mixer, after the push-to-talk gate. Every mode has the graph,
  * so a sound can always be mixed in.
- * Runs local voice-activity detection on the mix. `onSpeaking` fires on changes only, and with
+ * Runs local voice-activity detection on the mic before the gate (lib/input-sensitivity.ts): in
+ * voice activity mode it drives the gate too. `onSpeaking` fires on changes only, and with
  * `false` on stop. `live()` gates it, so a muted user never shows as speaking. Mute stays in the
  * client (`replaceTrack(null)` on the sender), so it keeps the SFrame sender transform; it also
  * silences the soundboard, so the UI disables the soundboard while muted.
@@ -79,13 +83,13 @@ async function startMicSession(
   const dest = audioCtx.createMediaStreamDestination()
   dest.channelCount = 1
   mixer.connect(dest)
-  mixer.connect(analyser)
   let denoiser: { destroy(): void } | null = null
   if (rnnoise) {
     try {
       const { createRnnoiseNode } = await import('@/lib/rnnoise')
       const node = await createRnnoiseNode(audioCtx)
       source.connect(node).connect(gate)
+      node.connect(analyser)
       denoiser = node
     } catch (err) {
       // Fail soft to the browser's own suppression rather than to none.
@@ -96,10 +100,15 @@ async function startMicSession(
         .catch(() => undefined)
     }
   }
-  if (!denoiser) source.connect(gate)
+  if (!denoiser) {
+    source.connect(gate)
+    source.connect(analyser)
+  }
   applySink(audioCtx)
   const buf = new Float32Array(analyser.fftSize)
-  let lastLoud = 0
+  const step = createGate()
+  let pttOpen = false
+  let gateOpen = false
   let speaking = false
   const report = (next: boolean): void => {
     if (next === speaking) return
@@ -108,11 +117,18 @@ async function startMicSession(
   }
   const vad = setInterval(() => {
     analyser.getFloatTimeDomainData(buf)
-    let sum = 0
-    for (const v of buf) sum += v * v
-    const now = Date.now()
-    if (Math.sqrt(sum / buf.length) > VAD_THRESHOLD) lastLoud = now
-    report(live() && now - lastLoud < VAD_HANGOVER_MS)
+    const prefs = usePrefsStore.getState()
+    const { open } = step(levelDb(buf), Date.now(), {
+      auto: prefs.inputSensitivityAuto,
+      db: prefs.inputSensitivityDb
+    })
+    const next = pttOpen && (open || prefs.voiceInputMode === 'pushToTalk')
+    if (next !== gateOpen) {
+      gateOpen = next
+      // A short ramp, so the gate does not click.
+      gate.gain.setTargetAtTime(next ? 1 : 0, audioCtx.currentTime, 0.005)
+    }
+    report(live() && pttOpen && open)
   }, VAD_MS)
   return {
     stream: dest.stream,
@@ -130,7 +146,13 @@ async function startMicSession(
       node.start()
     },
     setGate: (open) => {
-      gate.gain.value = open ? 1 : 0
+      pttOpen = open
+      // Push to talk opens and closes at once; voice activity opens on the next tick.
+      const next = open && usePrefsStore.getState().voiceInputMode === 'pushToTalk'
+      if (next === gateOpen) return
+      gateOpen = next
+      gate.gain.cancelScheduledValues(audioCtx.currentTime)
+      gate.gain.value = next ? 1 : 0
     },
     applySink: () => applySink(audioCtx),
     stop: () => {
