@@ -42,7 +42,6 @@ function PokeToastCard({ toast }: { toast: PokeToast }): React.JSX.Element {
         disabled={back.busy || back.sent}
         onClick={() =>
           void back.run(user.id, user.username).then((ok) => {
-            // Show "Poke sent!", then close.
             if (ok) setTimeout(() => pokeService.dismiss(toast.id), POKE_SENT_MS)
           })
         }

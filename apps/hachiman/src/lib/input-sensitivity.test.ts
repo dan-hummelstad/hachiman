@@ -7,8 +7,9 @@ const run = (
   from: number,
   ms: number
 ): GateStep => {
-  let step = gate(db, from, { auto: true, db: 0 })
-  for (let t = from + 20; t <= from + ms; t += 20) step = gate(db, t, { auto: true, db: 0 })
+  let step = gate(db, from, { inputSensitivityAuto: true, inputSensitivityDb: 0 })
+  for (let t = from + 20; t <= from + ms; t += 20)
+    step = gate(db, t, { inputSensitivityAuto: true, inputSensitivityDb: 0 })
   return step
 }
 
@@ -20,7 +21,7 @@ describe('input sensitivity', () => {
 
   it('manual: opens above the threshold and holds for the hangover', () => {
     const gate = createGate()
-    const s = { auto: false, db: -50 }
+    const s = { inputSensitivityAuto: false, inputSensitivityDb: -50 }
     expect(gate(-60, 1000, s).open).toBe(false)
     expect(gate(-40, 1020, s).open).toBe(true)
     expect(gate(-60, 1020 + HANGOVER_MS - 1, s).open).toBe(true)
@@ -32,6 +33,6 @@ describe('input sensitivity', () => {
     // Steady room noise at -55 dB: after a while the gate closes on it.
     expect(run(gate, -55, 1000, 20_000).open).toBe(false)
     // Speech 20 dB above the noise opens it.
-    expect(gate(-35, 21_020, { auto: true, db: 0 }).open).toBe(true)
+    expect(gate(-35, 21_020, { inputSensitivityAuto: true, inputSensitivityDb: 0 }).open).toBe(true)
   })
 })

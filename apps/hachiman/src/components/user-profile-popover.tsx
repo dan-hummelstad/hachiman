@@ -1,15 +1,6 @@
 import { useState } from 'react'
 import { createPortal } from 'react-dom'
-import {
-  Ban,
-  Check,
-  Hand,
-  MessageCircle,
-  MicOff,
-  MoreHorizontal,
-  ShieldCheck,
-  VolumeX
-} from 'lucide-react'
+import { Ban, MessageCircle, MicOff, MoreHorizontal, ShieldCheck, VolumeX } from 'lucide-react'
 import type { User } from '@hachiman/client'
 import { useUserBanner } from '@/components/people/use-user-banner'
 import { BlockConfirmDialog } from '@/components/people/block-dialog'
@@ -28,6 +19,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu'
+import { PokeMenuItem } from '@/components/people/poke-menu-item'
 import { ErrorText } from '@/components/ui/field'
 import { IconButton } from '@/components/ui/icon-button'
 import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
@@ -268,19 +260,7 @@ function ProfileCard(props: {
                 </IconButton>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                {!blocked && (
-                  <DropdownMenuItem
-                    disabled={poke.busy || poke.sent}
-                    onSelect={(e) => {
-                      // Stay open, so the item can show "Poke sent!".
-                      e.preventDefault()
-                      void poke.run(userId, name)
-                    }}
-                  >
-                    {poke.sent ? <Check /> : <Hand />}
-                    {poke.sent ? 'Poke sent!' : 'Poke'}
-                  </DropdownMenuItem>
-                )}
+                {!blocked && <PokeMenuItem poke={poke} userId={userId} name={name} />}
                 {blocked ? (
                   <DropdownMenuItem
                     disabled={unblock.busy}

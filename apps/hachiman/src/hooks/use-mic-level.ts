@@ -1,17 +1,14 @@
 import { useEffect, useState, type RefObject } from 'react'
-import { MIN_DB, createGate, levelDb } from '@/lib/input-sensitivity'
+import { createGate, levelDb, meterPercent } from '@/lib/input-sensitivity'
 import { errMsg } from '@/lib/utils'
 import { usePrefsStore } from '@/stores/prefsStore'
-
-/** A dBFS level as a 0..100 position on the meter. */
-export const meterPercent = (db: number): number =>
-  Math.round(((Math.max(MIN_DB, Math.min(0, db)) - MIN_DB) / -MIN_DB) * 100)
 
 /**
  * Opt-in mic level meter. While on, opens `deviceId` (null = default) and writes the level to
  * `meter`'s width every frame (no re-render per frame). It runs the input sensitivity gate as a
- * call does: `marker` moves to the threshold, and `meter` gets `data-open` while the mic would send. `onOpen` runs once the mic opens, e.g. to
- * re-list devices now that labels are visible. Pass a stable `onOpen`.
+ * call does: `marker` moves to the auto threshold, and `meter` gets `data-open` while the mic
+ * would send. `onOpen` runs once the mic opens, e.g. to re-list devices now that labels are
+ * visible. Pass a stable `onOpen`.
  */
 export function useMicLevel(
   deviceId: string | null,
@@ -47,10 +44,7 @@ export function useMicLevel(
           analyser.getFloatTimeDomainData(buf)
           const db = levelDb(buf)
           const s = usePrefsStore.getState()
-          const { open, threshold } = step(db, performance.now(), {
-            auto: s.inputSensitivityAuto,
-            db: s.inputSensitivityDb
-          })
+          const { open, threshold } = step(db, performance.now(), s)
           if (bar) {
             bar.style.width = `${meterPercent(db)}%`
             bar.toggleAttribute('data-open', open || s.voiceInputMode === 'pushToTalk')

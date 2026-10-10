@@ -84,12 +84,12 @@ async function startMicSession(
   dest.channelCount = 1
   mixer.connect(dest)
   let denoiser: { destroy(): void } | null = null
+  let mic: AudioNode = source
   if (rnnoise) {
     try {
       const { createRnnoiseNode } = await import('@/lib/rnnoise')
       const node = await createRnnoiseNode(audioCtx)
-      source.connect(node).connect(gate)
-      node.connect(analyser)
+      mic = source.connect(node)
       denoiser = node
     } catch (err) {
       // Fail soft to the browser's own suppression rather than to none.
@@ -100,15 +100,27 @@ async function startMicSession(
         .catch(() => undefined)
     }
   }
-  if (!denoiser) {
-    source.connect(gate)
-    source.connect(analyser)
-  }
+  mic.connect(gate)
+  mic.connect(analyser)
   applySink(audioCtx)
   const buf = new Float32Array(analyser.fftSize)
   const step = createGate()
-  let pttOpen = false
+  /** `setGate`: false while push to talk holds the mic closed. */
+  let allowed = false
+  /** The input sensitivity gate of the last tick. */
+  let voiced = false
   let gateOpen = false
+  const want = (): boolean =>
+    allowed && (voiced || usePrefsStore.getState().voiceInputMode === 'pushToTalk')
+  // A key edge (setGate) switches at once; a voice edge ramps, so the gate does not click.
+  const setGain = (ramp: boolean): void => {
+    const next = want()
+    if (next === gateOpen) return
+    gateOpen = next
+    gate.gain.cancelScheduledValues(audioCtx.currentTime)
+    if (ramp) gate.gain.setTargetAtTime(next ? 1 : 0, audioCtx.currentTime, 0.005)
+    else gate.gain.value = next ? 1 : 0
+  }
   let speaking = false
   const report = (next: boolean): void => {
     if (next === speaking) return
@@ -117,18 +129,9 @@ async function startMicSession(
   }
   const vad = setInterval(() => {
     analyser.getFloatTimeDomainData(buf)
-    const prefs = usePrefsStore.getState()
-    const { open } = step(levelDb(buf), Date.now(), {
-      auto: prefs.inputSensitivityAuto,
-      db: prefs.inputSensitivityDb
-    })
-    const next = pttOpen && (open || prefs.voiceInputMode === 'pushToTalk')
-    if (next !== gateOpen) {
-      gateOpen = next
-      // A short ramp, so the gate does not click.
-      gate.gain.setTargetAtTime(next ? 1 : 0, audioCtx.currentTime, 0.005)
-    }
-    report(live() && pttOpen && open)
+    voiced = step(levelDb(buf), Date.now(), usePrefsStore.getState()).open
+    setGain(true)
+    report(live() && allowed && voiced)
   }, VAD_MS)
   return {
     stream: dest.stream,
@@ -146,13 +149,8 @@ async function startMicSession(
       node.start()
     },
     setGate: (open) => {
-      pttOpen = open
-      // Push to talk opens and closes at once; voice activity opens on the next tick.
-      const next = open && usePrefsStore.getState().voiceInputMode === 'pushToTalk'
-      if (next === gateOpen) return
-      gateOpen = next
-      gate.gain.cancelScheduledValues(audioCtx.currentTime)
-      gate.gain.value = next ? 1 : 0
+      allowed = open
+      setGain(false)
     },
     applySink: () => applySink(audioCtx),
     stop: () => {

@@ -57,7 +57,6 @@ export function VoiceDock(): React.JSX.Element | null {
     >
       <CallSecurityBanner className="pb-1.5" />
       <div className="flex items-center gap-2.5">
-        {/* My voice activity: lit while I speak, as the speaking ring on the call tiles. */}
         <span
           className={cn(
             'bg-feature-voice/15 text-feature-voice flex size-8 shrink-0 items-center justify-center transition-colors',

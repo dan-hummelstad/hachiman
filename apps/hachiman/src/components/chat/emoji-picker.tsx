@@ -121,12 +121,7 @@ export function EmojiPicker({
   )
 }
 
-function useSections(
-  data: EmojiData | null,
-  guildId: string | null,
-  tone: number,
-  unicodeOnly: boolean
-): Section[] {
+function useSections(data: EmojiData | null, guildId: string | null, tone: number): Section[] {
   const emojis = useGuildStore((s) => s.emojis)
   const guilds = useGuildStore((s) => s.guilds)
   const index = useGuildStore((s) => s.emojiIndex)
@@ -139,7 +134,7 @@ function useSections(
         return [
           { key, pick: { kind: 'unicode', emoji: key }, base: data?.byEmoji.get(key) ?? null }
         ]
-      const e = unicodeOnly ? undefined : index.get(custom.id)
+      const e = index.get(custom.id)
       return e ? [customCell(e)] : []
     })
     if (recentCells.length > 0)
@@ -150,7 +145,7 @@ function useSections(
         cells: recentCells
       })
     const order = [...guilds.values()].sort((a, b) => currentGuildFirst(guildId, a.id, b.id))
-    for (const g of unicodeOnly ? [] : order) {
+    for (const g of order) {
       const list = emojis.get(g.id) ?? NO_EMOJIS
       if (list.length === 0) continue
       out.push({
@@ -173,8 +168,10 @@ function useSections(
       )
     }
     return out
-  }, [data, guildId, tone, unicodeOnly, emojis, guilds, index, recent])
+  }, [data, guildId, tone, emojis, guilds, index, recent])
 }
+
+const isUnicode = (c: Cell): boolean => c.pick.kind === 'unicode'
 
 function PickerPanel({
   guildId,
@@ -193,13 +190,22 @@ function PickerPanel({
   const [query, setQuery] = useState('')
   const [hover, setHover] = useState<Cell | null>(null)
   const body = useRef<HTMLDivElement>(null)
-  const sections = useSections(data, guildId, tone, unicodeOnly)
+  const allSections = useSections(data, guildId, tone)
+  const sections = useMemo(
+    () =>
+      unicodeOnly
+        ? allSections
+            .map((s) => ({ ...s, cells: s.cells.filter(isUnicode) }))
+            .filter((s) => s.cells.length > 0)
+        : allSections,
+    [allSections, unicodeOnly]
+  )
 
   const results = useMemo((): Cell[] | null => {
     if (!query.trim()) return null
-    const custom = unicodeOnly ? [] : searchCustomEmoji(emojis, guildId, query, 40).map(customCell)
+    const custom = searchCustomEmoji(emojis, guildId, query, 40).map(customCell)
     const unicode = data ? searchEmoji(data, query).map((e) => unicodeCell(e, tone)) : []
-    return [...custom, ...unicode]
+    return unicodeOnly ? unicode : [...custom, ...unicode]
   }, [query, emojis, guildId, unicodeOnly, data, tone])
 
   const pick = (cell: Cell): void => {

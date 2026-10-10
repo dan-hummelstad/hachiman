@@ -9,6 +9,10 @@ const AUTO_MIN_DB = -80
 const AUTO_MAX_DB = -20
 const START_FLOOR_DB = -70
 
+/** A dBFS level as a 0..100 position on a level meter. */
+export const meterPercent = (db: number): number =>
+  Math.round(((Math.max(MIN_DB, Math.min(0, db)) - MIN_DB) / -MIN_DB) * 100)
+
 /** The RMS level of `buf` in dBFS, at least MIN_DB. */
 export function levelDb(buf: Float32Array): number {
   let sum = 0
@@ -17,10 +21,11 @@ export function levelDb(buf: Float32Array): number {
   return rms > 0 ? Math.max(MIN_DB, 20 * Math.log10(rms)) : MIN_DB
 }
 
+/** The prefs fields of the gate (prefsStore), so a caller passes the store state as it is. */
 export interface GateSettings {
-  auto: boolean
-  /** The manual threshold, dBFS. Ignored while `auto`. */
-  db: number
+  inputSensitivityAuto: boolean
+  /** The manual threshold, dBFS. Ignored while auto. */
+  inputSensitivityDb: number
 }
 
 export interface GateStep {
@@ -45,7 +50,7 @@ export function createGate(): (db: number, now: number, s: GateSettings) => Gate
     const dt = Math.min(1, last ? (now - last) / 1000 : 0)
     last = now
     const autoThreshold = Math.min(AUTO_MAX_DB, Math.max(AUTO_MIN_DB, floor + AUTO_MARGIN_DB))
-    const threshold = s.auto ? autoThreshold : s.db
+    const threshold = s.inputSensitivityAuto ? autoThreshold : s.inputSensitivityDb
     if (db > threshold) lastLoud = now
     const open = now - lastLoud < HANGOVER_MS
     if (db < floor) floor += (db - floor) * Math.min(1, dt * 10)
