@@ -1,5 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Ban, Hand, MessageCircle, MoreHorizontal, Search, SquarePen, Users } from 'lucide-react'
+import {
+  Ban,
+  Check,
+  Hand,
+  MessageCircle,
+  MoreHorizontal,
+  Search,
+  SquarePen,
+  Users
+} from 'lucide-react'
 import type { User } from '@hachiman/client'
 import { ActiveNow } from '@/components/people/active-now'
 import { BlockConfirmDialog } from '@/components/people/block-dialog'
@@ -198,10 +207,15 @@ function PersonRow({ user, dim }: { user: User; dim: boolean }): React.JSX.Eleme
         <DropdownMenuContent align="end">
           {!dim && (
             <DropdownMenuItem
-              disabled={poke.busy}
-              onSelect={() => void poke.run(user.id, user.username)}
+              disabled={poke.busy || poke.sent}
+              onSelect={(e) => {
+                // Stay open, so the item can show "Poke sent!".
+                e.preventDefault()
+                void poke.run(user.id, user.username)
+              }}
             >
-              <Hand /> Poke
+              {poke.sent ? <Check /> : <Hand />}
+              {poke.sent ? 'Poke sent!' : 'Poke'}
             </DropdownMenuItem>
           )}
           <DropdownMenuItem variant="destructive" onSelect={() => setConfirm(true)}>

@@ -1,13 +1,14 @@
 import { useEffect, useId, useRef, useState } from 'react'
-import { Play, Trash2, Upload } from 'lucide-react'
+import { Play, SmilePlus, Trash2, Upload, X } from 'lucide-react'
 import { Permissions, has, type GuildSound } from '@hachiman/client'
+import { EmojiPicker } from '@/components/chat/emoji-picker'
 import { Button } from '@/components/ui/button'
 import { ErrorText, Field, SectionHeading } from '@/components/ui/field'
 import { IconButton } from '@/components/ui/icon-button'
 import { Input } from '@/components/ui/input'
 import { useAction } from '@/hooks/use-action'
 import { usePermissions } from '@/hooks/use-hachiman'
-import { SOUND_ACCEPT, SOUND_EMOJI_MAX, SOUND_NAME_MAX, clipProblem } from '@/lib/soundboard'
+import { SOUND_ACCEPT, SOUND_NAME_MAX, clipProblem } from '@/lib/soundboard'
 import { soundboardService } from '@/services/soundboard'
 import { useGuildSounds } from '@/stores/soundsStore'
 
@@ -44,6 +45,7 @@ function UploadForm({ guildId }: { guildId: string }): React.JSX.Element {
   const [file, setFile] = useState<File | null>(null)
   const [name, setName] = useState('')
   const [emoji, setEmoji] = useState('')
+  const [picking, setPicking] = useState(false)
   const action = useAction()
 
   const pick = (f: File | null): void => {
@@ -54,7 +56,7 @@ function UploadForm({ guildId }: { guildId: string }): React.JSX.Element {
   const submit = async (): Promise<void> => {
     if (!file) return
     const r = await action.run('upload the sound', () =>
-      soundboardService.upload(guildId, { file, name: name.trim(), emoji: emoji.trim() || null })
+      soundboardService.upload(guildId, { file, name: name.trim(), emoji: emoji || null })
     )
     if (!r.ok) return
     setFile(null)
@@ -90,14 +92,34 @@ function UploadForm({ guildId }: { guildId: string }): React.JSX.Element {
             onChange={(e) => setName(e.target.value)}
           />
         </Field>
-        <Field id={`${id}-emoji`} label="Emoji (optional)" className="w-28">
-          <Input
-            id={`${id}-emoji`}
-            value={emoji}
-            maxLength={SOUND_EMOJI_MAX}
-            placeholder="🔊"
-            onChange={(e) => setEmoji(e.target.value)}
-          />
+        <Field id={`${id}-emoji`} label="Emoji (optional)">
+          <div className="flex items-center gap-1">
+            <EmojiPicker
+              open={picking}
+              onOpenChange={setPicking}
+              guildId={guildId}
+              label="Pick the sound's emoji"
+              side="bottom"
+              align="start"
+              unicodeOnly
+              onPick={(p) => p.kind === 'unicode' && setEmoji(p.emoji)}
+            >
+              <button
+                id={`${id}-emoji`}
+                type="button"
+                aria-label={emoji ? `Emoji: ${emoji}. Change it.` : 'Pick an emoji'}
+                onClick={() => setPicking((v) => !v)}
+                className="rounded-control border-line-hairline hover:bg-surface-hover focus-visible:outline-line-focus flex size-10 items-center justify-center border text-lg outline-none focus-visible:outline-2"
+              >
+                {emoji || <SmilePlus aria-hidden className="text-text-tertiary size-4" />}
+              </button>
+            </EmojiPicker>
+            {emoji && (
+              <IconButton label="Remove emoji" size="sm" onClick={() => setEmoji('')}>
+                <X />
+              </IconButton>
+            )}
+          </div>
         </Field>
         <Button disabled={!ready || action.busy} onClick={() => void submit()}>
           <Upload /> {action.busy ? 'Uploading…' : 'Upload'}
@@ -108,7 +130,13 @@ function UploadForm({ guildId }: { guildId: string }): React.JSX.Element {
   )
 }
 
-function SoundRow({ sound, canManage }: { sound: GuildSound; canManage: boolean }): React.JSX.Element {
+function SoundRow({
+  sound,
+  canManage
+}: {
+  sound: GuildSound
+  canManage: boolean
+}): React.JSX.Element {
   const preview = useAction()
   const remove = useAction()
   return (
@@ -117,11 +145,15 @@ function SoundRow({ sound, canManage }: { sound: GuildSound; canManage: boolean 
         <span aria-hidden className="w-6 text-center text-lg">
           {sound.emoji ?? '🔊'}
         </span>
-        <span className="text-text-primary min-w-0 flex-1 truncate text-sm font-semibold">{sound.name}</span>
+        <span className="text-text-primary min-w-0 flex-1 truncate text-sm font-semibold">
+          {sound.name}
+        </span>
         <IconButton
           label={`Preview ${sound.name}`}
           disabled={preview.busy}
-          onClick={() => void preview.run(`play ${sound.name}`, () => soundboardService.preview(sound))}
+          onClick={() =>
+            void preview.run(`play ${sound.name}`, () => soundboardService.preview(sound))
+          }
         >
           <Play />
         </IconButton>
@@ -131,7 +163,9 @@ function SoundRow({ sound, canManage }: { sound: GuildSound; canManage: boolean 
             tone="danger"
             disabled={remove.busy}
             onClick={() =>
-              void remove.run(`delete ${sound.name}`, () => soundboardService.remove(sound.guildId, sound.id))
+              void remove.run(`delete ${sound.name}`, () =>
+                soundboardService.remove(sound.guildId, sound.id)
+              )
             }
           >
             <Trash2 />

@@ -1,9 +1,9 @@
-import { Hand, X } from 'lucide-react'
+import { Check, Hand, X } from 'lucide-react'
 import { UserAvatar } from '@/components/shell/user-avatar'
 import { Button } from '@/components/ui/button'
 import { ErrorText } from '@/components/ui/field'
 import { IconButton } from '@/components/ui/icon-button'
-import { pokeService, usePoke } from '@/services/poke'
+import { POKE_SENT_MS, pokeService, usePoke } from '@/services/poke'
 import { usePokeStore, type PokeToast } from '@/stores/pokeStore'
 
 /** The poke toasts in the bottom right corner, newest at the bottom. */
@@ -39,12 +39,16 @@ function PokeToastCard({ toast }: { toast: PokeToast }): React.JSX.Element {
       </div>
       <Button
         size="sm"
-        disabled={back.busy}
+        disabled={back.busy || back.sent}
         onClick={() =>
-          void back.run(user.id, user.username).then((ok) => ok && pokeService.dismiss(toast.id))
+          void back.run(user.id, user.username).then((ok) => {
+            // Show "Poke sent!", then close.
+            if (ok) setTimeout(() => pokeService.dismiss(toast.id), POKE_SENT_MS)
+          })
         }
       >
-        <Hand /> Poke back
+        {back.sent ? <Check /> : <Hand />}
+        {back.sent ? 'Poke sent!' : 'Poke back'}
       </Button>
       <ErrorText>{back.error}</ErrorText>
     </div>

@@ -10,7 +10,6 @@ export const SOUND_MAX_SECONDS = 5
 /** Decoders round the length of a 5 s clip a little up. */
 const DURATION_SLACK_S = 0.05
 export const SOUND_NAME_MAX = 32
-export const SOUND_EMOJI_MAX = 32
 export const SOUND_ACCEPT = '.mp3,.ogg,.oga,.wav,audio/mpeg,audio/ogg,audio/wav'
 
 export type SoundMime = 'audio/mpeg' | 'audio/ogg' | 'audio/wav'

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { createPortal } from 'react-dom'
 import {
   Ban,
+  Check,
   Hand,
   MessageCircle,
   MicOff,
@@ -269,10 +270,15 @@ function ProfileCard(props: {
               <DropdownMenuContent align="end">
                 {!blocked && (
                   <DropdownMenuItem
-                    disabled={poke.busy}
-                    onSelect={() => void poke.run(userId, name)}
+                    disabled={poke.busy || poke.sent}
+                    onSelect={(e) => {
+                      // Stay open, so the item can show "Poke sent!".
+                      e.preventDefault()
+                      void poke.run(userId, name)
+                    }}
                   >
-                    <Hand /> Poke
+                    {poke.sent ? <Check /> : <Hand />}
+                    {poke.sent ? 'Poke sent!' : 'Poke'}
                   </DropdownMenuItem>
                 )}
                 {blocked ? (

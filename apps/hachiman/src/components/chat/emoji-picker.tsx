@@ -73,6 +73,7 @@ export function EmojiPicker({
   label = 'Pick an emoji',
   side = 'top',
   align = 'end',
+  unicodeOnly = false,
   children
 }: {
   open: boolean
@@ -83,6 +84,8 @@ export function EmojiPicker({
   label?: string
   side?: 'top' | 'bottom'
   align?: 'start' | 'end'
+  /** No custom emojis: for a field that holds plain text (a sound's emoji). */
+  unicodeOnly?: boolean
   children: React.ReactNode
 }): React.JSX.Element {
   return (
@@ -106,6 +109,7 @@ export function EmojiPicker({
         {open && (
           <PickerPanel
             guildId={guildId}
+            unicodeOnly={unicodeOnly}
             onPick={(pick) => {
               onPick(pick)
               onOpenChange(false)
@@ -117,7 +121,12 @@ export function EmojiPicker({
   )
 }
 
-function useSections(data: EmojiData | null, guildId: string | null, tone: number): Section[] {
+function useSections(
+  data: EmojiData | null,
+  guildId: string | null,
+  tone: number,
+  unicodeOnly: boolean
+): Section[] {
   const emojis = useGuildStore((s) => s.emojis)
   const guilds = useGuildStore((s) => s.guilds)
   const index = useGuildStore((s) => s.emojiIndex)
@@ -130,7 +139,7 @@ function useSections(data: EmojiData | null, guildId: string | null, tone: numbe
         return [
           { key, pick: { kind: 'unicode', emoji: key }, base: data?.byEmoji.get(key) ?? null }
         ]
-      const e = index.get(custom.id)
+      const e = unicodeOnly ? undefined : index.get(custom.id)
       return e ? [customCell(e)] : []
     })
     if (recentCells.length > 0)
@@ -141,7 +150,7 @@ function useSections(data: EmojiData | null, guildId: string | null, tone: numbe
         cells: recentCells
       })
     const order = [...guilds.values()].sort((a, b) => currentGuildFirst(guildId, a.id, b.id))
-    for (const g of order) {
+    for (const g of unicodeOnly ? [] : order) {
       const list = emojis.get(g.id) ?? NO_EMOJIS
       if (list.length === 0) continue
       out.push({
@@ -164,14 +173,16 @@ function useSections(data: EmojiData | null, guildId: string | null, tone: numbe
       )
     }
     return out
-  }, [data, guildId, tone, emojis, guilds, index, recent])
+  }, [data, guildId, tone, unicodeOnly, emojis, guilds, index, recent])
 }
 
 function PickerPanel({
   guildId,
+  unicodeOnly,
   onPick
 }: {
   guildId: string | null
+  unicodeOnly: boolean
   onPick: (pick: EmojiPick) => void
 }): React.JSX.Element {
   const data = useEmojiData()
@@ -182,14 +193,14 @@ function PickerPanel({
   const [query, setQuery] = useState('')
   const [hover, setHover] = useState<Cell | null>(null)
   const body = useRef<HTMLDivElement>(null)
-  const sections = useSections(data, guildId, tone)
+  const sections = useSections(data, guildId, tone, unicodeOnly)
 
   const results = useMemo((): Cell[] | null => {
     if (!query.trim()) return null
-    const custom = searchCustomEmoji(emojis, guildId, query, 40).map(customCell)
+    const custom = unicodeOnly ? [] : searchCustomEmoji(emojis, guildId, query, 40).map(customCell)
     const unicode = data ? searchEmoji(data, query).map((e) => unicodeCell(e, tone)) : []
     return [...custom, ...unicode]
-  }, [query, emojis, guildId, data, tone])
+  }, [query, emojis, guildId, unicodeOnly, data, tone])
 
   const pick = (cell: Cell): void => {
     addRecent(reactionKeyOf(cell.pick))
