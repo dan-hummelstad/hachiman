@@ -1284,7 +1284,7 @@ Invite links:
 Screen share source selection:
 - Browser: `getScreenSources` gives null. `getDisplayMedia` then shows the picker of the browser. The UI asks for audio too, and the browser picker offers it where it can (a tab, or the system audio on some systems).
 - Electron: the UI shows its own picker with the screens and windows from `getScreenSources`. When the user picks one, the UI calls `selectScreenSource`, then `getDisplayMedia`.
-- Share audio: where `screenShareAudio` is true, the picker shows "Share audio" (default on, kept in the prefs). The main process then answers with `audio: 'loopback'` (system audio). The installed Electron supports loopback on Windows only, so on macOS and Linux the share is video only. The UI asks for the audio with `restrictOwnAudio`, so the call that the page plays is not in the capture where Chromium supports it.
+- Share audio: where `screenShareAudio` is true, the picker shows "Share audio" (default on, kept in the prefs). The main process then answers with `audio: 'loopback'` (system audio). Electron supports loopback on Windows only, so on macOS and Linux the share is video only. The UI asks for the audio with `restrictOwnAudio`. Electron (43.4 and later) then captures `loopbackWithoutChrome`: the system audio without the audio of the Hachiman process tree, so the call is not in the capture (Windows 10 2004 and later).
 - The main process captures only the selected source. It accepts only an id from the last list, and it uses each selection one time. A new list clears a selection that no capture used.
 - Without a selection, or when the request does not come from the top frame of the app page, `getDisplayMedia` fails.
 - Thumbnails are JPEG `data:` URLs. The CSP allows `data:` images.

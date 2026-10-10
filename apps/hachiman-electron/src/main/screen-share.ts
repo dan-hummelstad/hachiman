@@ -70,11 +70,13 @@ export function registerScreenShare(isAppUrl: (url: string) => boolean): void {
 }
 
 /**
- * The system audio comes from loopback, which this Electron supports on
- * Windows only (electron.d.ts, `Streams.audio`). Elsewhere the share is video
- * only, even when audio was asked for. Not `loopbackWithMute`: the sharer
- * still hears the system. The renderer's `restrictOwnAudio` keeps the call
- * itself out of the capture where Chromium supports it.
+ * The system audio comes from loopback, which Electron supports on Windows
+ * only (electron.d.ts, `Streams.audio`). Elsewhere the share is video only,
+ * even when audio was asked for. Not `loopbackWithMute`: the sharer still
+ * hears the system. The renderer asks for `restrictOwnAudio`, so Electron
+ * (43.4 and later, electron/electron#52455) swaps `loopback` for
+ * `loopbackWithoutChrome`: the system audio minus the Hachiman process tree,
+ * so the call is not in the capture (Windows 10 2004 and later).
  */
 export function displayStreams(
   source: DesktopCapturerSource,
