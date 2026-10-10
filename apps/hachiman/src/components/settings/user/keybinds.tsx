@@ -19,7 +19,6 @@ import {
   type KeybindSpec,
   type Keybinds
 } from '@/lib/keybinds'
-import { MOD_KEY } from '@/lib/mod-key'
 import { cn } from '@/lib/utils'
 import { usePlatform } from '@/shared/PlatformContext'
 import { usePrefsStore } from '@/stores/prefsStore'
@@ -198,8 +197,7 @@ function GlobalKeybinds({ binds }: { binds: Keybinds }): React.JSX.Element {
       </div>
       {on && local.length > 0 && (
         <Callout tone="info">
-          {local.map((k) => k.label).join(', ')}: a key without {MOD_KEY.trim()} or Alt works only
-          in the Hachiman window.
+          {local.map((k) => k.label).join(', ')}: this key works only in the Hachiman window.
         </Callout>
       )}
       {on && failed.length > 0 && (

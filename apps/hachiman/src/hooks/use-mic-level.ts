@@ -1,14 +1,19 @@
 import { useEffect, useState, type RefObject } from 'react'
+import { createGate, levelDb, meterPercent } from '@/lib/input-sensitivity'
 import { errMsg } from '@/lib/utils'
+import { usePrefsStore } from '@/stores/prefsStore'
 
 /**
  * Opt-in mic level meter. While on, opens `deviceId` (null = default) and writes the level to
- * `meter`'s width every frame (no re-render per frame). `onOpen` runs once the mic opens, e.g. to
- * re-list devices now that labels are visible. Pass a stable `onOpen`.
+ * `meter`'s width every frame (no re-render per frame). It runs the input sensitivity gate as a
+ * call does: `marker` moves to the auto threshold, and `meter` gets `data-open` while the mic
+ * would send. `onOpen` runs once the mic opens, e.g. to re-list devices now that labels are
+ * visible. Pass a stable `onOpen`.
  */
 export function useMicLevel(
   deviceId: string | null,
   meter: RefObject<HTMLElement | null>,
+  marker: RefObject<HTMLElement | null>,
   onOpen: () => void
 ): { on: boolean; toggle: () => void; error: string | null } {
   const [on, setOn] = useState(false)
@@ -17,6 +22,7 @@ export function useMicLevel(
   useEffect(() => {
     if (!on) return
     const bar = meter.current
+    const mark = marker.current
     let stopped = false
     let raf = 0
     let stream: MediaStream | null = null
@@ -33,13 +39,17 @@ export function useMicLevel(
         analyser.fftSize = 512
         ctx.createMediaStreamSource(stream).connect(analyser)
         const buf = new Float32Array(analyser.fftSize)
+        const step = createGate()
         const tick = (): void => {
           analyser.getFloatTimeDomainData(buf)
-          let sum = 0
-          for (const v of buf) sum += v * v
-          // RMS → rough 0..1 level; speech sits around 0.02–0.2.
-          const level = Math.min(1, Math.sqrt(sum / buf.length) * 5)
-          if (bar) bar.style.width = `${Math.round(level * 100)}%`
+          const db = levelDb(buf)
+          const s = usePrefsStore.getState()
+          const { open, threshold } = step(db, performance.now(), s)
+          if (bar) {
+            bar.style.width = `${meterPercent(db)}%`
+            bar.toggleAttribute('data-open', open || s.voiceInputMode === 'pushToTalk')
+          }
+          if (mark && s.inputSensitivityAuto) mark.style.left = `${meterPercent(threshold)}%`
           raf = requestAnimationFrame(tick)
         }
         tick()
@@ -58,7 +68,7 @@ export function useMicLevel(
       void ctx?.close()
       if (bar) bar.style.width = '0%'
     }
-  }, [on, deviceId, meter, onOpen])
+  }, [on, deviceId, meter, marker, onOpen])
 
   const toggle = (): void => {
     setError(null)

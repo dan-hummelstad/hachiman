@@ -34,7 +34,10 @@ export function SettingsNav({
   const selected = resolveSection(model.groups, section)?.id
   const back = useBackLabel()
   return (
-    <nav aria-label={model.label} className="flex min-h-0 flex-col gap-1">
+    <nav
+      aria-label={model.label}
+      className="-mx-2.5 flex min-h-0 flex-col gap-1 overflow-y-auto px-2.5 pb-2 [&>*]:shrink-0"
+    >
       <button
         type="button"
         onClick={onBack}

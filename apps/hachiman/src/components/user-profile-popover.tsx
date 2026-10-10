@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { Ban, Hand, MessageCircle, MicOff, MoreHorizontal, ShieldCheck, VolumeX } from 'lucide-react'
+import { createPortal } from 'react-dom'
+import { Ban, MessageCircle, MicOff, MoreHorizontal, ShieldCheck, VolumeX } from 'lucide-react'
 import type { User } from '@hachiman/client'
 import { useUserBanner } from '@/components/people/use-user-banner'
 import { BlockConfirmDialog } from '@/components/people/block-dialog'
@@ -18,9 +19,10 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu'
+import { PokeMenuItem } from '@/components/people/poke-menu-item'
 import { ErrorText } from '@/components/ui/field'
 import { IconButton } from '@/components/ui/icon-button'
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { PRESENCE_LABEL, PresenceDot } from '@/components/ui/presence'
 import { RoleChip } from '@/components/ui/role-chip'
 import { UserAudioControl } from '@/components/voice/user-audio-control'
@@ -61,6 +63,8 @@ export function UserProfilePopover({
   side = 'left'
 }: UserProfilePopoverProps): React.JSX.Element {
   const [open, setOpen] = useState(false)
+  // Right-click opens the card at the cursor; a click opens it at the trigger.
+  const [point, setPoint] = useState<{ x: number; y: number } | null>(null)
   // The confirm window lives outside the popover, which closes when it opens.
   const [blocking, setBlocking] = useState<string | null>(null)
   const [moderating, setModerating] = useState<{ kind: ModerationDialog; name: string } | null>(
@@ -71,17 +75,28 @@ export function UserProfilePopover({
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger
           asChild
+          onClick={() => setPoint(null)}
           onContextMenu={(e) => {
             e.preventDefault()
+            setPoint({ x: e.clientX, y: e.clientY })
             setOpen(true)
           }}
         >
           {children}
         </PopoverTrigger>
+        {/* Portaled so that a transformed ancestor does not move the fixed anchor. */}
+        {point &&
+          createPortal(
+            <PopoverAnchor
+              className="pointer-events-none fixed size-0"
+              style={{ left: point.x, top: point.y }}
+            />,
+            document.body
+          )}
         <PopoverContent
-          side={side}
+          side={point ? 'right' : side}
           align="start"
-          sideOffset={8}
+          sideOffset={point ? 2 : 8}
           className={cn('w-72 p-0', ROLE_INK_SCOPE)}
         >
           <ProfileCard
@@ -245,14 +260,7 @@ function ProfileCard(props: {
                 </IconButton>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                {!blocked && (
-                  <DropdownMenuItem
-                    disabled={poke.busy}
-                    onSelect={() => void poke.run(userId, name)}
-                  >
-                    <Hand /> Poke
-                  </DropdownMenuItem>
-                )}
+                {!blocked && <PokeMenuItem poke={poke} userId={userId} name={name} />}
                 {blocked ? (
                   <DropdownMenuItem
                     disabled={unblock.busy}

@@ -3,7 +3,6 @@ import {
   actionsFor,
   comboOf,
   formatCombo,
-  hasCommandModifier,
   reservedBy,
   resolveKeybinds,
   toAccelerator,
@@ -69,9 +68,8 @@ describe('keybinds', () => {
     expect(toAccelerator('Ctrl+Alt+Digit5')).toBe('Control+Alt+5')
     expect(toAccelerator('Mod+ArrowUp')).toBe('CommandOrControl+Up')
     expect(toAccelerator('F13')).toBe('F13')
-    expect(toAccelerator('Backquote')).toBeNull()
-    expect(toAccelerator('Shift+KeyM')).toBeNull()
+    expect(toAccelerator('Backquote')).toBe('`')
+    expect(toAccelerator('Shift+KeyM')).toBe('Shift+M')
     expect(toAccelerator('Mod+IntlRo')).toBeNull()
-    expect(hasCommandModifier('Shift+F5')).toBe(true)
   })
 })

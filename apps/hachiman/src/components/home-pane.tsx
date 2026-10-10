@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Ban, Hand, MessageCircle, MoreHorizontal, Search, SquarePen, Users } from 'lucide-react'
+import { Ban, MessageCircle, MoreHorizontal, Search, SquarePen, Users } from 'lucide-react'
 import type { User } from '@hachiman/client'
 import { ActiveNow } from '@/components/people/active-now'
 import { BlockConfirmDialog } from '@/components/people/block-dialog'
@@ -15,6 +15,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu'
+import { PokeMenuItem } from '@/components/people/poke-menu-item'
 import { ErrorText } from '@/components/ui/field'
 import { IconButton } from '@/components/ui/icon-button'
 import { PRESENCE_LABEL } from '@/components/ui/presence'
@@ -196,14 +197,7 @@ function PersonRow({ user, dim }: { user: User; dim: boolean }): React.JSX.Eleme
           </IconButton>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
-          {!dim && (
-            <DropdownMenuItem
-              disabled={poke.busy}
-              onSelect={() => void poke.run(user.id, user.username)}
-            >
-              <Hand /> Poke
-            </DropdownMenuItem>
-          )}
+          {!dim && <PokeMenuItem poke={poke} userId={user.id} name={user.username} />}
           <DropdownMenuItem variant="destructive" onSelect={() => setConfirm(true)}>
             <Ban /> Block
           </DropdownMenuItem>

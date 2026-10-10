@@ -73,6 +73,7 @@ export function EmojiPicker({
   label = 'Pick an emoji',
   side = 'top',
   align = 'end',
+  unicodeOnly = false,
   children
 }: {
   open: boolean
@@ -83,6 +84,8 @@ export function EmojiPicker({
   label?: string
   side?: 'top' | 'bottom'
   align?: 'start' | 'end'
+  /** No custom emojis: for a field that holds plain text (a sound's emoji). */
+  unicodeOnly?: boolean
   children: React.ReactNode
 }): React.JSX.Element {
   return (
@@ -106,6 +109,7 @@ export function EmojiPicker({
         {open && (
           <PickerPanel
             guildId={guildId}
+            unicodeOnly={unicodeOnly}
             onPick={(pick) => {
               onPick(pick)
               onOpenChange(false)
@@ -167,11 +171,15 @@ function useSections(data: EmojiData | null, guildId: string | null, tone: numbe
   }, [data, guildId, tone, emojis, guilds, index, recent])
 }
 
+const isUnicode = (c: Cell): boolean => c.pick.kind === 'unicode'
+
 function PickerPanel({
   guildId,
+  unicodeOnly,
   onPick
 }: {
   guildId: string | null
+  unicodeOnly: boolean
   onPick: (pick: EmojiPick) => void
 }): React.JSX.Element {
   const data = useEmojiData()
@@ -182,14 +190,23 @@ function PickerPanel({
   const [query, setQuery] = useState('')
   const [hover, setHover] = useState<Cell | null>(null)
   const body = useRef<HTMLDivElement>(null)
-  const sections = useSections(data, guildId, tone)
+  const allSections = useSections(data, guildId, tone)
+  const sections = useMemo(
+    () =>
+      unicodeOnly
+        ? allSections
+            .map((s) => ({ ...s, cells: s.cells.filter(isUnicode) }))
+            .filter((s) => s.cells.length > 0)
+        : allSections,
+    [allSections, unicodeOnly]
+  )
 
   const results = useMemo((): Cell[] | null => {
     if (!query.trim()) return null
     const custom = searchCustomEmoji(emojis, guildId, query, 40).map(customCell)
     const unicode = data ? searchEmoji(data, query).map((e) => unicodeCell(e, tone)) : []
-    return [...custom, ...unicode]
-  }, [query, emojis, guildId, data, tone])
+    return unicodeOnly ? unicode : [...custom, ...unicode]
+  }, [query, emojis, guildId, unicodeOnly, data, tone])
 
   const pick = (cell: Cell): void => {
     addRecent(reactionKeyOf(cell.pick))

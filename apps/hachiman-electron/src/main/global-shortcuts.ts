@@ -4,9 +4,9 @@ import type { GlobalShortcutInfo } from "../shared/ipc.ts";
  * OS-wide shortcuts for the `hachiman:set-global-shortcuts` IPC (§11
  * `setGlobalShortcuts`). The renderer names an action and an accelerator; main
  * registers it with Electron `globalShortcut` and sends the action back when
- * it fires. The payload is untrusted: a renderer XSS must not take a typing
- * key (`A`, `Space`) from every other app. So each accelerator needs Ctrl, ⌘
- * or Alt (an F-key needs none), and only a short list of keys passes.
+ * it fires. The payload is untrusted, so only a short list of keys and
+ * modifiers passes. A key needs no modifier: the user picks the combo, and a
+ * key without one (`M`) is taken from every other app while it is bound.
  *
  * `globalShortcut` has no key-up event, so push to talk stays in the focused
  * window (the renderer's keydown/keyup).
@@ -27,8 +27,7 @@ export function isAllowedAccelerator(accelerator: string): boolean {
   const mods = parts.slice(0, -1);
   if (!KEY.test(key)) return false;
   if (new Set(mods).size !== mods.length) return false;
-  if (!mods.every((m) => MODIFIERS.has(m))) return false;
-  return /^F\d/.test(key) || mods.some((m) => m !== "Shift");
+  return mods.every((m) => MODIFIERS.has(m));
 }
 
 /** The checked payload. Throws on a bad shape, a bad action or a refused accelerator. */
