@@ -60,7 +60,7 @@ describe('soundboard rules', () => {
   })
 
   it('round-trips the pointer and refuses one for another upload', () => {
-    const p = { uploadId: 'u1', fileKey: 'k', sha256: 's', size: 10, mime: 'audio/ogg' as const }
+    const p = { uploadId: 'u1', fileKey: 'k', sha256: 's', size: 10 }
     const bytes = encodeSoundPointer(p)
     expect(decodeSoundPointer(bytes, 'u1')).toEqual(p)
     expect(decodeSoundPointer(bytes, 'u2')).toBeNull()

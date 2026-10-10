@@ -14,13 +14,16 @@ export const SOUND_ACCEPT = '.mp3,.ogg,.oga,.wav,audio/mpeg,audio/ogg,audio/wav'
 
 export type SoundMime = 'audio/mpeg' | 'audio/ogg' | 'audio/wav'
 
-/** The pointer body of the sound envelope (§12.21). `fileKey` and `sha256` are base64url. */
+/**
+ * The pointer body of the sound envelope (§12.21). `fileKey` and `sha256` are base64url. It has
+ * exactly the four fields of a snapshot pointer (§12.20), which the crypto Worker enforces. No
+ * MIME type: decodeAudioData reads the format from the bytes.
+ */
 export interface SoundPointer {
   uploadId: string
   fileKey: string
   sha256: string
   size: number
-  mime: SoundMime
 }
 
 /** The clip type from the MIME type or, when the browser gives none, the extension. */
@@ -85,7 +88,6 @@ export function decodeSoundPointer(bytes: Uint8Array, uploadId: string): SoundPo
   }
   if (typeof v !== 'object' || v === null) return null
   const p = v as Record<string, unknown>
-  const mimes: readonly string[] = ['audio/mpeg', 'audio/ogg', 'audio/wav']
   if (
     p.uploadId !== uploadId ||
     typeof p.fileKey !== 'string' ||
@@ -93,10 +95,8 @@ export function decodeSoundPointer(bytes: Uint8Array, uploadId: string): SoundPo
     typeof p.size !== 'number' ||
     !Number.isInteger(p.size) ||
     p.size < 0 ||
-    p.size > SOUND_MAX_BYTES ||
-    typeof p.mime !== 'string' ||
-    !mimes.includes(p.mime)
+    p.size > SOUND_MAX_BYTES
   )
     return null
-  return { uploadId, fileKey: p.fileKey, sha256: p.sha256, size: p.size, mime: p.mime as SoundMime }
+  return { uploadId, fileKey: p.fileKey, sha256: p.sha256, size: p.size }
 }

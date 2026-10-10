@@ -92,7 +92,8 @@ async function loadBuffer(sound: GuildSound): Promise<AudioBuffer> {
     uploadId: pointer.uploadId,
     key: pointer.fileKey,
     sha256: pointer.sha256,
-    mime: pointer.mime,
+    // The pointer has no type (§12.21); decodeAudioData reads the format from the bytes.
+    mime: 'application/octet-stream',
     size: pointer.size
   })
   return decodeContext().decodeAudioData(await blob.arrayBuffer())
@@ -191,8 +192,7 @@ export const soundboardService = {
       uploadId: upload.id,
       fileKey: enc.draft.key,
       sha256: enc.draft.sha256,
-      size: enc.draft.size,
-      mime
+      size: enc.draft.size
     })
     const create = async (): Promise<GuildSound> => {
       const out = await crypto.encryptDoc({ channelId: channel.id, pageId: id, kind: 'doc_snapshot', bytes })

@@ -6,6 +6,7 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"time"
@@ -56,6 +57,26 @@ type Channel struct {
 	Recipients           []User                  `json:"recipients,omitempty"`
 	OwnerID              *string                 `json:"ownerId,omitempty"`
 	ThreadStartMessageID *string                 `json:"threadStartMessageId,omitempty"`
+	// Contract §1 Channel: the current MLS group (base64url) and its history visibility. Null for
+	// voice, category and thread. Before the DS allocates a group: mlsGroupId null, "joined".
+	MlsGroupID        *string `json:"mlsGroupId"`
+	HistoryVisibility *string `json:"historyVisibility"`
+}
+
+// setGroup fills MlsGroupID and HistoryVisibility as Takusen's toChannel does (lib/wire.ts groupFields).
+func (c *Channel) setGroup(groupID []byte, visibility *string) {
+	if c.Type == "voice" || c.Type == "category" || c.Type == "thread" {
+		return
+	}
+	if groupID != nil {
+		id := base64.RawURLEncoding.EncodeToString(groupID)
+		c.MlsGroupID = &id
+	}
+	v := "joined"
+	if groupID != nil && visibility != nil {
+		v = *visibility
+	}
+	c.HistoryVisibility = &v
 }
 
 type Member struct {
@@ -229,20 +250,23 @@ func pgLoader(db *pgxpool.Pool) func(ctx context.Context, userID, onlyGuild stri
 			var order []*Channel
 			// Threads: only the readyThreadCap most recently active of each guild.
 			rows, _ = db.Query(ctx, `
-				SELECT id::text, guild_id::text, type::text, name, topic, parent_id::text, position,
-				       thread_start_message_id::text, owner_id::text
-				FROM channels WHERE guild_id = ANY($1::uuid[]) AND (type <> 'thread' OR id IN (
+				SELECT c.id::text, c.guild_id::text, c.type::text, c.name, c.topic, c.parent_id::text, c.position,
+				       c.thread_start_message_id::text, c.owner_id::text, c.mls_group_id, g.history_visibility::text
+				FROM channels c LEFT JOIN mls_groups g ON g.group_id = c.mls_group_id
+				WHERE c.guild_id = ANY($1::uuid[]) AND (c.type <> 'thread' OR c.id IN (
 					SELECT id FROM (
 						SELECT t.id, row_number() OVER (PARTITION BY t.guild_id ORDER BY t.last_activity_at DESC, t.id DESC) AS n
 						FROM channels t WHERE t.type = 'thread' AND t.guild_id = ANY($1::uuid[])
 					) r WHERE r.n <= $2))
-				ORDER BY position, created_at`, ids, readyThreadCap)
+				ORDER BY c.position, c.created_at`, ids, readyThreadCap)
 			if err := forEach(rows, func() error {
 				c := &Channel{PermissionOverwrites: []permissions.Overwrite{}}
-				var owner *string
-				if err := rows.Scan(&c.ID, &c.GuildID, &c.Type, &c.Name, &c.Topic, &c.ParentID, &c.Position, &c.ThreadStartMessageID, &owner); err != nil {
+				var owner, visibility *string
+				var group []byte
+				if err := rows.Scan(&c.ID, &c.GuildID, &c.Type, &c.Name, &c.Topic, &c.ParentID, &c.Position, &c.ThreadStartMessageID, &owner, &group, &visibility); err != nil {
 					return err
 				}
+				c.setGroup(group, visibility)
 				if c.Type == "thread" {
 					c.OwnerID = owner
 				} else {
@@ -321,14 +345,18 @@ func pgLoader(db *pgxpool.Pool) func(ctx context.Context, userID, onlyGuild stri
 		dms := map[string]*Channel{}
 		var dmIDs []string
 		rows, _ = db.Query(ctx, `
-			SELECT c.id::text, c.type::text, c.name, c.topic, c.owner_id::text
+			SELECT c.id::text, c.type::text, c.name, c.topic, c.owner_id::text, c.mls_group_id, g.history_visibility::text
 			FROM channels c JOIN dm_participants p ON p.channel_id = c.id
+			LEFT JOIN mls_groups g ON g.group_id = c.mls_group_id
 			WHERE p.user_id = $1::uuid ORDER BY c.created_at`, userID)
 		if err := forEach(rows, func() error {
 			c := &Channel{PermissionOverwrites: []permissions.Overwrite{}, Recipients: []User{}}
-			if err := rows.Scan(&c.ID, &c.Type, &c.Name, &c.Topic, &c.OwnerID); err != nil {
+			var visibility *string
+			var group []byte
+			if err := rows.Scan(&c.ID, &c.Type, &c.Name, &c.Topic, &c.OwnerID, &group, &visibility); err != nil {
 				return err
 			}
+			c.setGroup(group, visibility)
 			dms[c.ID] = c
 			dmIDs = append(dmIDs, c.ID)
 			return nil
