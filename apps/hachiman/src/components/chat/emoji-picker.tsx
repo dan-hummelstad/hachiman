@@ -11,6 +11,7 @@ import {
 import { GuildTile } from '@/components/ui/guild-tile'
 import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover'
 import { useEmojiData } from '@/hooks/use-emoji-data'
+import { useLayout } from '@/hooks/use-layout'
 import {
   currentGuildFirst,
   parseReactionKey,
@@ -75,7 +76,7 @@ export function EmojiPicker({
   side = 'top',
   align = 'end',
   unicodeOnly = false,
-  autoFocusSearch = true,
+  autoFocusSearch,
   children
 }: {
   open: boolean
@@ -89,12 +90,14 @@ export function EmojiPicker({
   /** No custom emojis: for a field that holds plain text (a sound's emoji). */
   unicodeOnly?: boolean
   /**
-   * Focus the search field on open (default). False keeps the phone keyboard down: the sheet
-   * itself takes the focus (the message action sheet's "More reactions", spec A3).
+   * Focus the search field on open. The default is true on the desktop layout and false on the
+   * mobile layout, where it keeps the keyboard down: the sheet itself takes the focus (spec A3).
    */
   autoFocusSearch?: boolean
   children: React.ReactNode
 }): React.JSX.Element {
+  const mobile = useLayout() === 'mobile'
+  const focusSearch = autoFocusSearch ?? !mobile
   return (
     <Popover open={open} onOpenChange={onOpenChange}>
       <PopoverAnchor asChild>
@@ -111,7 +114,7 @@ export function EmojiPicker({
         className="bg-surface-raised border-line-hairline flex h-[420px] max-h-(--radix-popover-content-available-height) w-[360px] flex-col p-0"
         aria-label={label}
         onOpenAutoFocus={(e) => {
-          if (!autoFocusSearch) return
+          if (!focusSearch) return
           e.preventDefault()
           ;(e.currentTarget as HTMLElement).querySelector('input')?.focus()
         }}
@@ -327,7 +330,7 @@ function PickerPanel({
       {results === null && (
         <nav
           aria-label="Emoji categories"
-          className="border-line-hairline mobile:overscroll-x-contain mobile:[scrollbar-width:none] mobile:[&::-webkit-scrollbar]:hidden flex shrink-0 gap-0.5 overflow-x-auto border-b px-2 py-1"
+          className="border-line-hairline mobile:overscroll-x-contain mobile:[scrollbar-width:none] mobile:[&::-webkit-scrollbar]:hidden mobile:justify-between mobile:gap-0 mobile:px-1.5 flex shrink-0 gap-0.5 overflow-x-auto border-b px-2 py-1"
         >
           {sections.map((s) => (
             <button
@@ -381,7 +384,8 @@ function PickerPanel({
         )}
       </div>
       <div
-        className="border-line-hairline flex h-11 shrink-0 items-center gap-2 border-t px-3"
+        // Touch has no hover, and a tap picks and closes: the preview line would stay empty.
+        className="border-line-hairline mobile:hidden flex h-11 shrink-0 items-center gap-2 border-t px-3"
         aria-live="polite"
       >
         {hover ? (

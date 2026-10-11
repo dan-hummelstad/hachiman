@@ -19,6 +19,7 @@ import { MessageAttachments } from './attachments/message-attachments'
 import { messageMentionsMe, tokenize, type Token } from '@/lib/mentions'
 import { decryptText } from './decrypt-text'
 import { formatFull, formatTime } from './format'
+import { holdIgnored } from './hold-target'
 import { useMessageActions } from './message-actions'
 import { MessageToolbar } from './message-toolbar'
 import { MessageTokens } from './message-tokens'
@@ -45,9 +46,6 @@ export interface TranscriptRowProps {
    */
   onActions?: (messageId: string, row: HTMLElement) => void
 }
-
-/** A hold that starts on these does not open the action sheet: they keep their own touch. */
-const HOLD_IGNORE = 'a[href], audio, video, [data-hold-ignore]'
 
 /** One row of the transcript: a blocked author's row stays collapsed until the user shows it (N23). */
 export const TranscriptRow = memo(function TranscriptRow(
@@ -272,12 +270,13 @@ function MessageRow(props: TranscriptRowProps): React.JSX.Element {
   )
 }
 
-const ignored = (e: React.SyntheticEvent): boolean =>
-  e.target instanceof Element && e.target.closest(HOLD_IGNORE) !== null
+const ignored = (e: React.SyntheticEvent<HTMLElement>): boolean =>
+  holdIgnored(e.target, e.currentTarget)
 
 /**
- * The long-press handlers of a mobile row, except on a link, a media control or a
- * `[data-hold-ignore]` part (Retry and Delete of a failed send, the reaction chips). A right-click
+ * The long-press handlers of a mobile row, except on a link, a media control, a
+ * `[data-hold-ignore]` part (Retry and Delete of a failed send, the reaction chips) or a portal
+ * (a sheet that the row opened: its events bubble through the row in React). A right-click
  * opens the sheet too (a narrow window with a mouse), unless a hold already did.
  */
 function holdHandlers(

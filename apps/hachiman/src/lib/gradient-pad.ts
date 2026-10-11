@@ -23,8 +23,9 @@ export function stopOffset({ h, s }: GradientStop, radius: number): { x: number;
 
 /**
  * The stop that a press at (dx, dy) from the pad centre grabs: the nearest stop closer than
- * `reach` (`hit`), else `fallback` (the selected stop). `grab` is the offset from the press to the
- * centre of the grabbed stop, so that a drag can keep it; it is zero for the fallback.
+ * `reach` (`hit`), else `fallback` (the selected stop). The selected stop wins a tie, so that a
+ * stop on top of another can still be grabbed. `grab` is the offset from the press to the centre
+ * of the grabbed stop, so that a drag can keep it; it is zero for the fallback.
  */
 export function pickStop(
   stops: readonly GradientStop[],
@@ -38,8 +39,10 @@ export function pickStop(
   let hit = false
   let grab = { x: 0, y: 0 }
   let best = reach
-  stops.forEach((st, j) => {
-    const o = stopOffset(st, radius)
+  const order = stops.map((_, j) => j)
+  if (fallback >= 0 && fallback < stops.length) order.unshift(...order.splice(fallback, 1))
+  for (const j of order) {
+    const o = stopOffset(stops[j], radius)
     const d = Math.hypot(o.x - dx, o.y - dy)
     if (d < best) {
       best = d
@@ -47,21 +50,38 @@ export function pickStop(
       hit = true
       grab = { x: o.x - dx, y: o.y - dy }
     }
-  })
+  }
   return { index, hit, grab }
 }
 
-/** `value` with one more stop, the hue of stop `active` turned by 120°; null at the limit. */
-export function addedStop(value: CustomGradient, active: number): CustomGradient | null {
+/** An edit of the stops: the new gradient and the stop to select. */
+export type StopEdit = { value: CustomGradient; selected: number }
+
+/**
+ * `value` with one more stop, the hue of stop `active` turned by 120°, and the new stop selected;
+ * null at the limit.
+ */
+export function addedStop(value: CustomGradient, active: number): StopEdit | null {
   if (value.stops.length >= MAX_GRADIENT_STOPS) return null
   const base = value.stops[active] ?? value.stops[0]
-  return { ...value, stops: [...value.stops, { h: (base.h + 120) % 360, s: base.s }] }
+  return {
+    value: { ...value, stops: [...value.stops, { h: (base.h + 120) % 360, s: base.s }] },
+    selected: value.stops.length
+  }
 }
 
-/** `value` without stop `active`; null when it is the last stop. */
-export function withoutStop(value: CustomGradient, active: number): CustomGradient | null {
+/** `value` without stop `active`, and the stop before it selected; null when it is the last stop. */
+export function withoutStop(value: CustomGradient, active: number): StopEdit | null {
   if (value.stops.length <= 1) return null
-  return { ...value, stops: value.stops.filter((_, j) => j !== active) }
+  return {
+    value: { ...value, stops: value.stops.filter((_, j) => j !== active) },
+    selected: Math.max(0, active - 1)
+  }
+}
+
+/** The selected stop, kept in range when the stop count drops (a preset, another device). */
+export function clampSelected(selected: number, count: number): number {
+  return Math.max(0, Math.min(selected, count - 1))
 }
 
 /** The CSS gradient angle (0° = up, clockwise) of offset (dx, dy) from the dial centre. */

@@ -7,7 +7,13 @@ import { SectionHeading } from '@/components/ui/field'
 import { Keycap } from '@/components/ui/keycap'
 import { RadioCard } from '@/components/ui/radio-card'
 import { SegmentedControl } from '@/components/ui/segmented-control'
-import { customWallpaper, FALLBACK_HUES, tintColors, tintWallpaper } from '@/lib/guild-tint'
+import {
+  customWallpaper,
+  FALLBACK_HUES,
+  tintColors,
+  tintWallpaper,
+  type CustomGradient
+} from '@/lib/guild-tint'
 import { useKeybindLabel } from '@/hooks/use-keybinds'
 import { useLayout } from '@/hooks/use-layout'
 import { cn } from '@/lib/utils'
@@ -36,6 +42,27 @@ const SAMPLE_TINT = tintColors(FALLBACK_HUES[0])
 const SAMPLE_GUILD = {
   light: tintWallpaper(SAMPLE_TINT.light),
   dark: tintWallpaper(SAMPLE_TINT.dark)
+}
+
+const WALLPAPER_TITLE: Record<WallpaperMode, string> = {
+  guild: 'Guild colour',
+  custom: 'Custom gradient'
+}
+const WALLPAPERS = Object.keys(WALLPAPER_TITLE) as WallpaperMode[]
+
+/** The background prefs of both Background sections, and the custom gradient as a wallpaper. */
+function useWallpaperPrefs(): {
+  wallpaper: WallpaperMode
+  setWallpaper: (mode: WallpaperMode) => void
+  gradient: CustomGradient
+  setGradient: (gradient: CustomGradient) => void
+  custom: string
+} {
+  const wallpaper = usePrefsStore((s) => s.wallpaper)
+  const setWallpaper = usePrefsStore((s) => s.setWallpaper)
+  const gradient = usePrefsStore((s) => s.customGradient)
+  const setGradient = usePrefsStore((s) => s.setCustomGradient)
+  return { wallpaper, setWallpaper, gradient, setGradient, custom: customWallpaper(gradient) }
 }
 
 /** User settings → Appearance: the desktop page (H5), or the phone screen (M31). */
@@ -196,15 +223,11 @@ function AppearanceMobile(): React.JSX.Element {
  * show each change live.
  */
 function BackgroundSectionMobile(): React.JSX.Element {
-  const wallpaper = usePrefsStore((s) => s.wallpaper)
-  const setWallpaper = usePrefsStore((s) => s.setWallpaper)
-  const gradient = usePrefsStore((s) => s.customGradient)
-  const setGradient = usePrefsStore((s) => s.setCustomGradient)
+  const { wallpaper, setWallpaper, gradient, setGradient, custom } = useWallpaperPrefs()
   const labelId = useId()
   const editor = useRef<HTMLDivElement>(null)
   // Only a tap on Custom scrolls the editor into view, not opening the screen with it shown.
   const reveal = useRef(false)
-  const custom = customWallpaper(gradient)
 
   useEffect(() => {
     if (wallpaper !== 'custom' || !reveal.current) return
@@ -217,7 +240,7 @@ function BackgroundSectionMobile(): React.JSX.Element {
     <section className="flex min-w-0 flex-col gap-1.5">
       <SectionLabel id={labelId}>Background</SectionLabel>
       <div role="radiogroup" aria-labelledby={labelId} className="grid grid-cols-2 gap-2.5">
-        {(['guild', 'custom'] as WallpaperMode[]).map((m) => (
+        {WALLPAPERS.map((m) => (
           <RadioCard
             key={m}
             size="mobile"
@@ -228,7 +251,7 @@ function BackgroundSectionMobile(): React.JSX.Element {
               reveal.current = m === 'custom'
               setWallpaper(m)
             }}
-            title={m === 'guild' ? 'Guild colour' : 'Custom gradient'}
+            title={WALLPAPER_TITLE[m]}
             preview={
               <PhoneSwatch
                 value="system"
@@ -250,23 +273,19 @@ function BackgroundSectionMobile(): React.JSX.Element {
 
 /** The window wallpaper: the guild tint (N4) or the user's own gradient, in both themes. */
 function BackgroundSection(): React.JSX.Element {
-  const wallpaper = usePrefsStore((s) => s.wallpaper)
-  const setWallpaper = usePrefsStore((s) => s.setWallpaper)
-  const gradient = usePrefsStore((s) => s.customGradient)
-  const setGradient = usePrefsStore((s) => s.setCustomGradient)
-  const custom = customWallpaper(gradient)
+  const { wallpaper, setWallpaper, gradient, setGradient, custom } = useWallpaperPrefs()
 
   return (
     <section>
       <SectionHeading>Background</SectionHeading>
       <div role="radiogroup" aria-label="Background" className="grid grid-cols-2 gap-3">
-        {(['guild', 'custom'] as WallpaperMode[]).map((m) => (
+        {WALLPAPERS.map((m) => (
           <RadioCard
             key={m}
             name="wallpaper"
             checked={wallpaper === m}
             onChange={() => setWallpaper(m)}
-            title={m === 'guild' ? 'Guild colour' : 'Custom gradient'}
+            title={WALLPAPER_TITLE[m]}
             preview={
               <WallpaperSwatch
                 light={m === 'guild' ? SAMPLE_GUILD.light : custom}

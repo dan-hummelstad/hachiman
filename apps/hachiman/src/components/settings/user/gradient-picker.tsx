@@ -15,6 +15,20 @@ import { usePlatform } from '@/shared/PlatformContext'
 const DIAL = 48
 const DIAL_RING = 18
 
+/**
+ * The two colour pads: a `size` square with the colour circle `inset` in from its edge, and the
+ * `reach` around a stop that grabs it. On the phone, a grabbed stop keeps its offset from the
+ * finger (so a tap selects it without moving it), a press does not take the focus, and a press
+ * off every stop moves the selected stop only as a tap, so that a swipe there scrolls the screen.
+ */
+const PAD = {
+  desktop: { size: 208, inset: 16, reach: 18, touch: false },
+  phone: { size: 240, inset: 18, reach: 24, touch: true }
+} as const
+
+/** How far a finger may move before a press off every stop stops being a tap. */
+const TAP_SLOP = 6
+
 /** Colour swatches: a hue and saturation for the selected stop, shown at a fitting lightness. */
 const SWATCHES: { name: string; stop: GradientStop; l: number }[] = [
   { name: 'Off-white', stop: { h: 40, s: 12 }, l: 94 },
@@ -84,13 +98,17 @@ function rawGradient(g: CustomGradient): string {
   return `linear-gradient(${g.angle}deg, ${colors.join(', ')})`
 }
 
+type PointerHandlers = Required<
+  Pick<
+    React.HTMLAttributes<HTMLElement>,
+    'onPointerDown' | 'onPointerMove' | 'onPointerUp' | 'onPointerCancel'
+  >
+>
+
 /** Pointer handlers that call `onPoint` on press and while the pointer stays captured. */
 function dragHandlers(
   onPoint: (e: React.PointerEvent<HTMLElement>, rect: DOMRect, start: boolean) => void
-): Pick<
-  React.HTMLAttributes<HTMLElement>,
-  'onPointerDown' | 'onPointerMove' | 'onPointerUp' | 'onPointerCancel'
-> {
+): PointerHandlers {
   return {
     onPointerDown: (e) => {
       // A second finger is not primary; a mouse always is.
@@ -124,7 +142,13 @@ export function GradientPicker({
   return (
     <div className="flex flex-wrap items-start gap-6">
       <div className="grid justify-items-center gap-2">
-        <ColourPad value={value} active={ed.active} onSelect={ed.select} onStop={ed.setStop} />
+        <ColourPad
+          variant="desktop"
+          value={value}
+          active={ed.active}
+          onSelect={ed.select}
+          onStop={ed.setStop}
+        />
         <div className="flex items-center gap-2">
           <PadButton label="Remove colour" disabled={!ed.canRemove} onClick={ed.remove}>
             <Minus />
@@ -137,11 +161,8 @@ export function GradientPicker({
       <div className="grid min-w-56 flex-1 content-start gap-4">
         <SwatchRow onPick={(stop) => ed.setStop(ed.active, stop)} />
         <div className="flex items-center gap-4">
-          <WavySlider
-            value={value.lightness}
-            onChange={(lightness) => onChange({ ...value, lightness })}
-          />
-          <AngleDial value={value.angle} onChange={(angle) => onChange({ ...value, angle })} />
+          <WavySlider value={value.lightness} onChange={ed.setLightness} />
+          <AngleDial value={value.angle} onChange={ed.setAngle} />
         </div>
         <PresetRow onPick={ed.applyPreset} />
       </div>
@@ -151,8 +172,8 @@ export function GradientPicker({
 
 /**
  * The gradient picker of the phone (M31 Background): the same parts, stacked in one column, with a
- * 240 pad, a wider reach around each stop, and a tap that selects a stop without moving it. Each
- * stop also has a hidden saturation range, since VoiceOver's swipes only send Left and Right.
+ * 240 pad (`PAD.phone`). Each stop also has a hidden saturation range, since VoiceOver's swipes
+ * only send Left and Right.
  */
 export function GradientPickerMobile({
   value,
@@ -168,20 +189,15 @@ export function GradientPickerMobile({
   return (
     <div
       data-swipe-ignore=""
-      className="border-line-hairline relative flex flex-col gap-4 border bg-white/2 p-3.5"
+      className="rounded-option border-line-hairline bg-surface-sunken/40 relative flex flex-col gap-4 border p-3.5"
     >
       <ColourPad
+        variant="phone"
         value={value}
         active={ed.active}
         onSelect={ed.select}
         onStop={ed.setStop}
-        size={240}
-        inset={18}
-        reach={24}
-        keepGrab
-        focusOnGrab={false}
         onGrab={() => platform.haptic('light')}
-        className="self-center"
       />
       {value.stops.map((st, i) => (
         <input
@@ -189,7 +205,7 @@ export function GradientPickerMobile({
           type="range"
           min={0}
           max={100}
-          step={5}
+          step={1}
           value={st.s}
           aria-label={`Colour ${i + 1} saturation`}
           aria-valuetext={`${st.s}%`}
@@ -211,68 +227,90 @@ export function GradientPickerMobile({
       </div>
       <SwatchRow onPick={(stop) => ed.setStop(ed.active, stop)} />
       <div className="flex items-center gap-4">
-        <WavySlider
-          value={value.lightness}
-          onChange={(lightness) => onChange({ ...value, lightness })}
-        />
-        <AngleDial value={value.angle} onChange={(angle) => onChange({ ...value, angle })} />
+        <WavySlider value={value.lightness} onChange={ed.setLightness} />
+        <AngleDial value={value.angle} onChange={ed.setAngle} />
       </div>
       <PresetRow onPick={ed.applyPreset} />
     </div>
   )
 }
 
-/**
- * The colour pad: a `size` square with the colour circle `inset` in from its edge. A press within
- * `reach` of a stop grabs it, elsewhere it moves the selected stop there. With `keepGrab`, the
- * grabbed stop keeps its offset from the finger, so a tap selects it without moving it.
- */
+/** The colour pad: a press within reach of a stop grabs it, elsewhere it moves the selected stop. */
 export function ColourPad({
+  variant,
   value,
   active,
   onSelect,
   onStop,
-  size = 208,
-  inset = 16,
-  reach = 18,
-  keepGrab = false,
-  focusOnGrab = true,
-  onGrab,
-  className
+  onGrab
 }: {
+  variant: keyof typeof PAD
   value: CustomGradient
   active: number
   onSelect: (i: number) => void
   onStop: (i: number, stop: GradientStop) => void
-  size?: number
-  inset?: number
-  reach?: number
-  keepGrab?: boolean
-  focusOnGrab?: boolean
   onGrab?: () => void
-  className?: string
 }): React.JSX.Element {
+  const { size, inset, reach, touch } = PAD[variant]
   // The stop that a press grabbed, and its offset from the pointer; it follows until release.
   const [drag, setDrag] = useState({ index: 0, grab: { x: 0, y: 0 } })
+  // A phone press off every stop: it moves the selected stop on release, unless it became a swipe.
+  const tap = useRef<{ id: number; x: number; y: number } | null>(null)
   const l = value.lightness
   const radius = size / 2 - inset
+  const fromCentre = (e: React.PointerEvent<HTMLElement>): { dx: number; dy: number } => {
+    const rect = e.currentTarget.getBoundingClientRect()
+    return { dx: e.clientX - rect.left - size / 2, dy: e.clientY - rect.top - size / 2 }
+  }
 
   const handlers = dragHandlers((e, rect, start) => {
     const dx = e.clientX - rect.left - size / 2
     const dy = e.clientY - rect.top - size / 2
     if (start) {
       const picked = pickStop(value.stops, dx, dy, radius, reach, active)
-      setDrag({ index: picked.index, grab: keepGrab ? picked.grab : { x: 0, y: 0 } })
+      setDrag({ index: picked.index, grab: touch ? picked.grab : { x: 0, y: 0 } })
       onSelect(picked.index)
-      onGrab?.()
-      if (focusOnGrab)
+      if (picked.hit) onGrab?.()
+      // On the phone, a press on a stop only grabs it; the drag then moves it.
+      if (!touch) {
         e.currentTarget.querySelectorAll<HTMLElement>('[role=slider]')[picked.index]?.focus()
-      // With keepGrab, a press on a stop only grabs it; the drag then moves it.
-      if (!(keepGrab && picked.hit)) onStop(picked.index, stopAt(dx, dy, radius))
+        onStop(picked.index, stopAt(dx, dy, radius))
+      }
       return
     }
     onStop(drag.index, stopAt(dx + drag.grab.x, dy + drag.grab.y, radius))
   })
+  const padHandlers: PointerHandlers = {
+    onPointerDown: (e) => {
+      tap.current = null
+      if (touch && e.isPrimary) {
+        const { dx, dy } = fromCentre(e)
+        if (!pickStop(value.stops, dx, dy, radius, reach, active).hit) {
+          tap.current = { id: e.pointerId, x: e.clientX, y: e.clientY }
+          return
+        }
+      }
+      handlers.onPointerDown(e)
+    },
+    onPointerMove: (e) => {
+      const t = tap.current
+      if (t?.id === e.pointerId && Math.hypot(e.clientX - t.x, e.clientY - t.y) > TAP_SLOP)
+        tap.current = null
+      handlers.onPointerMove(e)
+    },
+    onPointerUp: (e) => {
+      if (tap.current?.id === e.pointerId) {
+        const { dx, dy } = fromCentre(e)
+        onStop(active, stopAt(dx, dy, radius))
+      }
+      tap.current = null
+      handlers.onPointerUp(e)
+    },
+    onPointerCancel: (e) => {
+      tap.current = null
+      handlers.onPointerCancel(e)
+    }
+  }
 
   const hues = Array.from({ length: 13 }, (_, i) => `hsl(${i * 30} 85% ${l}%)`).join(', ')
 
@@ -281,11 +319,11 @@ export function ColourPad({
       role="group"
       aria-label="Gradient colours"
       className={cn(
-        'rounded-option border-line-hairline bg-surface-sunken relative shrink-0 cursor-crosshair touch-none overflow-hidden border select-none',
-        className
+        'rounded-option border-line-hairline bg-surface-sunken relative shrink-0 cursor-crosshair overflow-hidden border select-none',
+        touch ? 'touch-pan-y self-center' : 'touch-none'
       )}
       style={{ width: size, height: size }}
-      {...handlers}
+      {...padHandlers}
     >
       <span
         aria-hidden
@@ -321,6 +359,9 @@ export function ColourPad({
             }}
             className={cn(
               'focus-visible:outline-line-focus absolute -translate-x-1/2 -translate-y-1/2 rounded-full shadow-md transition-[width,height] focus-visible:outline-2 focus-visible:outline-offset-2',
+              // On the phone, a press within reach of a stop (48 across) drags it, never the screen.
+              touch &&
+                'touch-none after:absolute after:top-1/2 after:left-1/2 after:size-12 after:-translate-x-1/2 after:-translate-y-1/2 after:rounded-full',
               on
                 ? 'z-10 size-7 border-4 border-white mobile:size-8'
                 : 'size-4 border-2 border-white/85 mobile:size-5'
@@ -345,8 +386,8 @@ export function PresetRow({
         <button
           key={p.name}
           type="button"
-          title={p.name}
-          aria-label={`${p.name} preset`}
+          title={p.gradient === DEFAULT_CUSTOM_GRADIENT ? `${p.name} (default)` : p.name}
+          aria-label={`${p.name} preset${p.gradient === DEFAULT_CUSTOM_GRADIENT ? ' (default)' : ''}`}
           onClick={() => onPick(p.gradient)}
           className="rounded-pill border-line-hairline hover:border-line-strong focus-visible:outline-line-focus mobile:size-9 size-8 border focus-visible:outline-2 focus-visible:outline-offset-1"
           style={{ backgroundImage: rawGradient(p.gradient) }}
@@ -398,7 +439,7 @@ export function SwatchRow({ onPick }: { onPick: (stop: GradientStop) => void }):
       </button>
       <div
         ref={row}
-        className="flex min-w-0 flex-1 gap-2 overflow-x-auto px-0.5 py-1 [scrollbar-width:none]"
+        className="mobile:grid mobile:grid-cols-5 mobile:justify-items-center mobile:gap-y-2.5 mobile:overflow-visible flex min-w-0 flex-1 gap-2 overflow-x-auto px-0.5 py-1 [scrollbar-width:none]"
       >
         {SWATCHES.map((sw) => (
           <button

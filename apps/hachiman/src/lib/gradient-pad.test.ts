@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { DEFAULT_CUSTOM_GRADIENT, type CustomGradient } from './guild-tint'
 import {
   addedStop,
+  clampSelected,
   dialAngle,
   nudgeStop,
   pickStop,
@@ -78,6 +79,16 @@ describe('pickStop', () => {
     })
   })
 
+  it('lets the selected stop win a tie with a stop on the same spot', () => {
+    const same = [
+      { h: 90, s: 60 },
+      { h: 90, s: 60 }
+    ]
+    const o = stopOffset(same[0], 100)
+    expect(pickStop(same, o.x, o.y, 100, 24, 1).index).toBe(1)
+    expect(pickStop(same, o.x, o.y, 100, 24, 0).index).toBe(0)
+  })
+
   it('honours the reach', () => {
     expect(pickStop(stops, 70, 0, 100, 18, 1).index).toBe(1)
     expect(pickStop(stops, 70, 0, 100, 24, 1).index).toBe(0)
@@ -93,14 +104,27 @@ describe('addedStop / withoutStop', () => {
     ]
   }
 
-  it('adds a stop 120° on from the selected one, up to the limit', () => {
+  it('adds a stop 120° on from the selected one and selects it, up to the limit', () => {
     const three = addedStop(two, 0)
-    expect(three?.stops).toEqual([...two.stops, { h: 60, s: 40 }])
-    expect(three && addedStop(three, 0)).toBeNull()
+    expect(three?.value.stops).toEqual([...two.stops, { h: 60, s: 40 }])
+    expect(three?.selected).toBe(2)
+    expect(three && addedStop(three.value, 0)).toBeNull()
   })
 
-  it('removes the selected stop but never the last one', () => {
-    expect(withoutStop(two, 0)?.stops).toEqual([{ h: 10, s: 90 }])
+  it('removes the selected stop, selects the one before it, and never removes the last', () => {
+    expect(withoutStop(two, 0)).toEqual({
+      value: { ...two, stops: [{ h: 10, s: 90 }] },
+      selected: 0
+    })
+    expect(withoutStop(two, 1)?.selected).toBe(0)
+    const three = addedStop(two, 0)!.value
+    expect(withoutStop(three, 2)?.selected).toBe(1)
     expect(withoutStop({ ...two, stops: [two.stops[0]] }, 0)).toBeNull()
+  })
+
+  it('clamps the selected stop when the count drops', () => {
+    expect(clampSelected(2, 2)).toBe(1)
+    expect(clampSelected(2, 1)).toBe(0)
+    expect(clampSelected(1, 3)).toBe(1)
   })
 })

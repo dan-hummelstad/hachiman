@@ -127,8 +127,9 @@ function PopoverContent({
  * The popover as a bottom sheet (pins, threads, profile, emoji, page picker). The caller's
  * `className` styles the body (padding, flex) but not its size: the body runs to the sheet's
  * edges, takes the room the sheet gives it and scrolls. A desktop popper height would otherwise
- * decide the sheet's height (or, on iOS, collapse a `flex-1` child to 0 px). Only the focus and dismiss handlers carry over; the popper props
- * (side, align, offsets, collisions) have no meaning here.
+ * decide the sheet's height (or, on iOS, collapse a `flex-1` child to 0 px). Only the focus and
+ * dismiss handlers carry over; the popper props (side, align, offsets, collisions) have no
+ * meaning here.
  */
 function PopoverSheetContent({
   className,
