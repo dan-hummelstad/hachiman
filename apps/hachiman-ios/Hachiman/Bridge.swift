@@ -2,6 +2,27 @@ import Foundation
 import UIKit
 import WebKit
 
+/// Error of a bridge op. The JS side gets `"<code>: <message>"`.
+struct BridgeError: Error, Equatable {
+    enum Code: String {
+        case secureStorageUnavailable = "SecureStorageUnavailable"
+        case storeCorrupt = "StoreCorrupt"
+        case malformed = "Malformed"
+        case unsupported = "Unsupported"
+        case `internal` = "Internal"
+    }
+
+    let code: Code
+    let message: String
+
+    init(_ code: Code, _ message: String) {
+        self.code = code
+        self.message = message
+    }
+
+    var replyText: String { "\(code.rawValue): \(message)" }
+}
+
 /// The `hachiman` script message handler: JS calls
 /// `window.webkit.messageHandlers.hachiman.postMessage({op, ...args})` and gets the reply value,
 /// or a rejection `"<Code>: <message>"`. Native events go to `window.__hachimanNative.emit`.
@@ -149,7 +170,6 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply {
         return value
     }
 
-    /// `args.url` as an absolute http(s) URL.
     private func webURL(_ args: [String: Any]) throws(BridgeError) -> URL {
         let text = try string(args, "url")
         guard let url = URL(string: text), let scheme = url.scheme?.lowercased(),

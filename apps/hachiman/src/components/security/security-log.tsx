@@ -8,11 +8,12 @@ import { Callout } from '@/components/ui/callout'
 import { Chip } from '@/components/ui/chip'
 import { FEATURE_TILE } from '@/components/ui/feature'
 import { ErrorText, SectionHeading } from '@/components/ui/field'
-import { PlatformIcon, useOwnDevices } from '@/components/security/devices-panel'
+import { DeviceGlyph } from '@/components/security/device-tile'
 import { friendly } from '@/components/security/errors'
+import { useOwnDevices } from '@/components/security/use-own-devices'
 import { useAction } from '@/hooks/use-action'
 import { useLayout } from '@/hooks/use-layout'
-import { PLATFORM_ICON, PLATFORM_LABEL } from '@/lib/device-platform'
+import { PLATFORM_LABEL } from '@/lib/device-platform'
 import { dayStart, formatDayMonthYear } from '@/lib/time-format'
 import { cn } from '@/lib/utils'
 import { cryptoService } from '@/services/CryptoService'
@@ -216,7 +217,7 @@ function SecurityLogDesktop(): React.JSX.Element {
                   />
                 )}
                 <span className="bg-surface-raised border-line-hairline text-text-secondary flex size-9 shrink-0 items-center justify-center rounded-full border [&_svg]:size-4">
-                  <PlatformIcon platform={d.platform} />
+                  <DeviceGlyph platform={d.platform} label={PLATFORM_LABEL[d.platform]} />
                 </span>
                 <div className="grid min-w-0 flex-1 pt-1">
                   <span className="text-label">{title}</span>
@@ -347,39 +348,36 @@ function SecurityLogMobile(): React.JSX.Element {
             Key log{me && <span className="normal-case"> · {me}</span>}
           </SectionLabel>
           <ol className="flex flex-col pt-4">
-            {rows.map(({ device: d, title, meta, day }, i) => {
-              const Icon = PLATFORM_ICON[d.platform]
-              return (
-                <li key={d.id} className="flex gap-3">
-                  <span aria-hidden className="flex w-8 shrink-0 flex-col items-center">
-                    <span className="bg-surface-raised border-line-hairline text-text-secondary flex size-8 shrink-0 items-center justify-center rounded-full border [&_svg]:size-[15px]">
-                      <Icon />
+            {rows.map(({ device: d, title, meta, day }, i) => (
+              <li key={d.id} className="flex gap-3">
+                <span aria-hidden className="flex w-8 shrink-0 flex-col items-center">
+                  <span className="bg-surface-raised border-line-hairline text-text-secondary flex size-8 shrink-0 items-center justify-center rounded-full border [&_svg]:size-[15px]">
+                    <DeviceGlyph platform={d.platform} />
+                  </span>
+                  {i < rows.length - 1 && (
+                    <span className="bg-line-hairline min-h-[30px] w-0.5 flex-1" />
+                  )}
+                </span>
+                <div className="flex min-w-0 flex-1 flex-col gap-0.5 pt-[5px] pb-3">
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                    <span className="text-text-primary min-w-0 text-[14.5px] leading-5 font-bold [overflow-wrap:anywhere]">
+                      {title}
                     </span>
-                    {i < rows.length - 1 && (
-                      <span className="bg-line-hairline min-h-[30px] w-0.5 flex-1" />
+                    {yours && (
+                      <Chip tone="voice" icon={<Check />}>
+                        Yours
+                      </Chip>
                     )}
-                  </span>
-                  <div className="flex min-w-0 flex-1 flex-col gap-0.5 pt-[5px] pb-3">
-                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                      <span className="text-text-primary min-w-0 text-[14.5px] leading-5 font-bold [overflow-wrap:anywhere]">
-                        {title}
-                      </span>
-                      {yours && (
-                        <Chip tone="voice" icon={<Check />}>
-                          Yours
-                        </Chip>
-                      )}
-                    </div>
-                    <span className="text-text-tertiary text-[12.5px] leading-4 font-medium">
-                      {meta}
-                    </span>
                   </div>
-                  <span className="text-text-tertiary shrink-0 pt-[7px] text-[12.5px] leading-4 font-semibold">
-                    {day}
+                  <span className="text-text-tertiary text-[12.5px] leading-4 font-medium">
+                    {meta}
                   </span>
-                </li>
-              )
-            })}
+                </div>
+                <span className="text-text-tertiary shrink-0 pt-[7px] text-[12.5px] leading-4 font-semibold">
+                  {day}
+                </span>
+              </li>
+            ))}
           </ol>
         </section>
       )}

@@ -37,7 +37,6 @@ const down = (start: SwipeStart, e: SwipeEnv = env()): SwipeInput => ({
 const move = (x: number, t: number, y = 400): SwipeInput => ({ type: 'move', x, y, t })
 const up = (t: number): SwipeInput => ({ type: 'up', t })
 
-/** Runs `inputs` from idle and returns every step. */
 function run(...inputs: SwipeInput[]): SwipeStep[] {
   let state: SwipeState = SWIPE_IDLE
   return inputs.map((input) => {

@@ -34,7 +34,6 @@ export function pageBannerState(
   }
 }
 
-/** The banner of the page `pageId` of the pages channel `channelId`. */
 export function usePageBanner(channelId: string, pageId: string): PageBannerState {
   return useDocsStore(useShallow((s) => pageBannerState(s.pagesByChannel.get(channelId), pageId)))
 }

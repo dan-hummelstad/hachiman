@@ -22,6 +22,12 @@ export const OWN_STATUS_LABEL: Record<PresenceStatus, string> = {
   offline: 'Invisible'
 }
 
+/** The presence choices of my own status, in menu order. `offline` is "Invisible". */
+export const STATUSES: readonly PresenceStatus[] = ['online', 'idle', 'dnd', 'offline']
+
+export const isStatus = (v: string): v is PresenceStatus =>
+  (STATUSES as readonly string[]).includes(v)
+
 /** The drawn dot sizes of the mobile kit by avatar size (M8, M56, M7, M3). */
 const DOT_BY_AVATAR: Readonly<Record<number, number>> = {
   24: 9,

@@ -12,6 +12,7 @@ import {
   Undo2
 } from 'lucide-react'
 import type { PageEditorApi } from '@/components/docs/page-editor'
+import { usePageEditorFocused } from '@/components/docs/page-editor-state'
 import { TurnIntoSheet } from '@/components/docs/turn-into-sheet'
 import { clearSlash, indentItem, toggleKind, turnInto } from '@/components/docs/touch-editor'
 import { cn } from '@/lib/utils'
@@ -138,11 +139,12 @@ export function PageKeyboardToolbar({
 }): React.JSX.Element {
   const platform = usePlatform()
   const signals = useSyncExternalStore(api.subscribe, api.getSignals)
+  const focused = usePageEditorFocused()
   const [turnOpen, setTurnOpen] = useState(false)
 
   return (
     <>
-      {signals.focused && !turnOpen && (
+      {focused && !turnOpen && (
         <KeyboardToolbar label="Block tools">
           <ToolbarButton
             label="Insert a block"

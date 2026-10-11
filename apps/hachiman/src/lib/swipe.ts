@@ -39,7 +39,6 @@ export type SwipeIntent =
 
 /** The shell when a touch starts. */
 export interface SwipeEnv {
-  /** The open drawer. */
   open: DrawerSide | null
   /** A pushed screen shows: the left edge means Back, the drawers do not move. */
   pushed: boolean
@@ -51,13 +50,11 @@ export interface SwipeEnv {
   screenWidth: number
 }
 
-/** Where a touch starts. */
 export interface SwipeStart {
   x: number
   y: number
   /** In a horizontal scroller, a text field or `[data-swipe-ignore]`. */
   ignore: boolean
-  /** In the chat card. */
   inChat: boolean
 }
 

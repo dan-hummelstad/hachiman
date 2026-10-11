@@ -18,7 +18,6 @@ interface PageRow {
   channel: string
 }
 
-/** The pages of every loaded pages channel whose title holds `filter`, but `excludeId`. */
 function usePageRows(filter: string, excludeId: string | undefined): PageRow[] {
   const pagesByChannel = useDocsStore((s) => s.pagesByChannel)
   const channels = useChannelStore((s) => s.channels)

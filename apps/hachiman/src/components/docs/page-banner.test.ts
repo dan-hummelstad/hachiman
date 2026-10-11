@@ -30,14 +30,13 @@ describe('bannerView', () => {
   it('gives the editor of a top-level page Change and Remove on its banner', () => {
     expect(bannerView(state({ banner: POINTER }), true, false)).toEqual({
       show: 'image',
-      controls: true,
-      tile: true
+      controls: true
     })
   })
 
   it('shows the banner of the top-level page on a sub-page, with no controls', () => {
     const sub = state({ isRoot: false, banner: POINTER })
-    expect(bannerView(sub, true, false)).toEqual({ show: 'image', controls: false, tile: true })
+    expect(bannerView(sub, true, false)).toEqual({ show: 'image', controls: false })
   })
 
   it('shows the banner to a user who may not edit, with no controls', () => {
@@ -45,7 +44,7 @@ describe('bannerView', () => {
   })
 
   it('offers "Add banner" only to an editor on a top-level page with no banner', () => {
-    expect(bannerView(state(), true, false)).toEqual({ show: 'add', controls: false, tile: false })
+    expect(bannerView(state(), true, false)).toEqual({ show: 'add', controls: false })
     expect(bannerView(state(), false, false).show).toBe('nothing')
     expect(bannerView(state({ isRoot: false }), true, false).show).toBe('nothing')
   })
@@ -57,21 +56,12 @@ describe('bannerView', () => {
 
   it('shows nothing and no controls for an orphan', () => {
     const orphan = state({ rootId: null, isRoot: false })
-    expect(bannerView(orphan, true, false)).toEqual({
-      show: 'nothing',
-      controls: false,
-      tile: false
-    })
+    expect(bannerView(orphan, true, false)).toEqual({ show: 'nothing', controls: false })
     expect(bannerView(orphan, true, true).show).toBe('nothing')
   })
 
-  it('has no tile without a banner', () => {
-    expect(bannerView(state(), true, false).tile).toBe(false)
-    expect(bannerView(state(), false, false).tile).toBe(false)
-  })
-
   it('shows the upload preview of the top-level page, also before a banner is known', () => {
-    expect(bannerView(state(), true, true)).toEqual({ show: 'image', controls: true, tile: true })
+    expect(bannerView(state(), true, true)).toEqual({ show: 'image', controls: true })
     expect(bannerView(state({ known: false }), true, true).show).toBe('image')
   })
 })

@@ -53,7 +53,6 @@ const QUOTE_MAX = 80
 /** The VoiceOver button of a transcript row: the focus goes back to it. */
 const ACTIONS_BUTTON = '[data-slot="message-actions-button"]'
 
-/** The actions button of `row`. */
 const actionsButtonOf = (row: HTMLElement): HTMLElement | null =>
   row.querySelector<HTMLElement>(ACTIONS_BUTTON)
 

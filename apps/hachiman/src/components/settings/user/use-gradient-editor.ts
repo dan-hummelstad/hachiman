@@ -25,7 +25,6 @@ export function useGradientEditor(
 } {
   const [selected, setSelected] = useState(0)
   const active = clampSelected(selected, value.stops.length)
-  // The change that waits for the next frame, and that frame.
   const pending = useRef<CustomGradient | null>(null)
   const frame = useRef(0)
 

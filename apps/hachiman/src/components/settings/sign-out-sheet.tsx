@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { KeyRound, LogOut, MonitorSmartphone, TriangleAlert } from 'lucide-react'
 import { ListGroup, ListRow } from '@/components/mobile/list'
 import { SheetBody, SheetContent, SheetFoot, SheetHeader } from '@/components/mobile/sheet'
-import { useOwnDevices } from '@/components/security/devices-panel'
+import { useOwnDevices } from '@/components/security/use-own-devices'
 import { friendly } from '@/components/security/errors'
 import { useDeviceNoun } from '@/components/security/onboarding-steps'
 import {
@@ -172,7 +172,6 @@ function otherDevicesRow(
     : { label: 'No other device has your keys', detail: 'This is your only signed-in device' }
 }
 
-/** The look and words of the callout of each case. */
 const CALLOUT: Record<
   Exclude<SignOutCase, 'loading'>,
   { box: string; icon: string; title: string; ack?: string }
@@ -202,7 +201,6 @@ const CALLOUT: Record<
   }
 }
 
-/** The body of the callout of each case. */
 function calloutBody(c: Exclude<SignOutCase, 'loading'>, noun: string): string {
   switch (c) {
     case 'recovery':

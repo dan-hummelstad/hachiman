@@ -33,7 +33,6 @@ interface NewDeviceLink {
   busy: boolean
   error: string | null
   start: (mode: LinkMode) => Promise<void>
-  /** Stops the open session. */
   cancel: () => Promise<void>
   /** Stops the open session, then starts a new one ("Compare emoji instead", "New code"). */
   restart: (mode: LinkMode) => Promise<void>

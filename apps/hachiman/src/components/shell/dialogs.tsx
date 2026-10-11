@@ -13,7 +13,7 @@ import { RecoveryKeyDialog } from '@/components/security/recovery-panel'
 import { SecuritySetupDialog } from '@/components/security/security-setup-dialog'
 import { VerificationDialog } from '@/components/security/verification-dialog'
 import { SignOutSheet } from '@/components/settings/sign-out-sheet'
-import { StatusSheets } from '@/components/settings/status-sheet'
+import { CustomStatusSheet, StatusSheet } from '@/components/settings/status-sheet'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { MessageInfoDialog } from '@/components/chat/message-info-dialog'
 import { NotifySettingsDialog } from '@/components/notify/notify-menu'
@@ -41,6 +41,8 @@ const DIALOGS: Record<AnyDialogKind, () => React.JSX.Element> = {
   notifySettings: NotifySettingsDialog,
   messageInfo: MessageInfoDialog,
   signOut: SignOutSheet,
+  status: StatusSheet,
+  customStatus: CustomStatusSheet,
   // E2EE (§12.4, §12.5, §12.10, §12.11)
   securitySetup: SecuritySetupDialog,
   recoveryKey: RecoveryKeyDialog,
@@ -53,17 +55,13 @@ const DIALOGS: Record<AnyDialogKind, () => React.JSX.Element> = {
 
 const KINDS = Object.keys(DIALOGS) as AnyDialogKind[]
 
-/**
- * Every app-level dialog, driven by `useDialogStore`, and the status sheets of the mobile
- * settings list, which keep their own open state (`openStatusSheet`).
- */
+/** Every app-level dialog, driven by `useDialogStore`. */
 export function Dialogs(): React.JSX.Element {
   return (
     <>
       {KINDS.map((kind) => (
         <DialogSlot key={kind} kind={kind} />
       ))}
-      <StatusSheets />
     </>
   )
 }

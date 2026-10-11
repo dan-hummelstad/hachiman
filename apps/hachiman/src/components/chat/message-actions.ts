@@ -49,7 +49,6 @@ export interface MessageActionOf<I extends MessageActionId> {
 
 export type MessageAction = { [I in MessageActionId]: MessageActionOf<I> }[MessageActionId]
 
-/** The action `id` of a row's list, or undefined when the row does not offer it. */
 export function findAction<I extends MessageActionId>(
   actions: readonly MessageAction[],
   id: I
@@ -60,14 +59,12 @@ export function findAction<I extends MessageActionId>(
 /** The actions of a message's "More" menu on desktop, in menu order: pin (N13), thread (N12), info. */
 export const MORE_ACTIONS = ['pin', 'thread', 'info'] as const satisfies readonly MessageActionId[]
 
-/** Whether the row offers anything for its "More" menu. */
 export const hasMoreItems = (actions: readonly MessageAction[]): boolean =>
   MORE_ACTIONS.some((id) => findAction(actions, id) !== undefined)
 
 /** What decides which actions a row offers. */
 export interface ActionFacts {
   policy: RowPolicy
-  /** I wrote the message. */
   mine: boolean
   /** The row decrypted. */
   readable: boolean
@@ -212,7 +209,6 @@ function userName(guildId: string | null, userId: string): string | null {
 const roleName = (guildId: string | null, roleId: string): string | null =>
   (guildId ? useGuildStore.getState().roles.get(guildId)?.get(roleId)?.name : undefined) ?? null
 
-/** The clipboard text of `message` (see `plainMessageText`). */
 export function copyTextOf(message: Pick<ChatMessage, 'content' | 'guildId'>): string {
   const { guildId } = message
   return plainMessageText(message.content, {

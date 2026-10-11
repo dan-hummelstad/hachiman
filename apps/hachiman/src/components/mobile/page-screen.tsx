@@ -276,7 +276,7 @@ function PageScreenBody({
             pages={pages}
             pageId={pageId}
             onOpen={open}
-            afterTile={banner.view.tile}
+            afterTile={banner.view.show === 'image'}
           />
           {titleError !== null && <TitleError text={titleError} onDismiss={onDismissTitleError} />}
         </>

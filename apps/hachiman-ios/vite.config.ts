@@ -13,7 +13,6 @@ const hachimanSrc = resolve(__dirname, "../hachiman/src");
 // directory. Real process env still wins over the file.
 const envDir = resolve(__dirname, "../..");
 
-/** The file in the build that holds the policy for the `Content-Security-Policy` header. */
 const CSP_HEADER_FILE = "csp-header.txt";
 
 /**

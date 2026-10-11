@@ -28,7 +28,6 @@ import { useSendPaused } from './use-dm-trust'
 
 const EMPTY_ROWS: ChatMessage[] = []
 
-/** The props of the `Composer` that a chat footer renders. */
 export type ChatComposerProps = React.ComponentProps<typeof Composer>
 
 /** What the transcript and the two footers of a channel chat need (`useChannelChat`). */

@@ -30,7 +30,7 @@ import { TrustChip, useMobileKeyChange } from '@/components/people/trust-chip'
 import type { KeyChangeSeverity } from '@/components/people/trust-look'
 import { useContactSecurity } from '@/components/people/use-contact-security'
 import { invalidateTrust } from '@/components/people/use-contact-trust'
-import { PlatformIcon } from '@/components/security/devices-panel'
+import { DeviceGlyph } from '@/components/security/device-tile'
 import { CameraScan, QrCodeView, ScanOrPaste } from '@/components/security/qr-view'
 import { useScanOrPaste } from '@/components/security/use-scan-or-paste'
 import { useUserName } from '@/components/security/use-user-name'
@@ -42,6 +42,7 @@ import {
 } from '@/components/security/verification-model'
 import { useAction } from '@/hooks/use-action'
 import { useLayout } from '@/hooks/use-layout'
+import { PLATFORM_LABEL } from '@/lib/device-platform'
 import { formatShortDate } from '@/lib/time-format'
 import { cn } from '@/lib/utils'
 import { cryptoService } from '@/services/CryptoService'
@@ -542,14 +543,11 @@ function VerificationSheet({ v, open, close }: ViewProps): React.JSX.Element {
                 role="listitem"
                 className="flex min-h-[54px] items-center gap-3 px-3.5 py-3"
               >
-                {platform ? (
-                  <PlatformIcon
-                    platform={platform}
-                    className="text-text-secondary size-5 shrink-0"
-                  />
-                ) : (
-                  <MonitorSmartphone aria-hidden className="text-text-secondary size-5 shrink-0" />
-                )}
+                <DeviceGlyph
+                  platform={platform}
+                  label={platform ? PLATFORM_LABEL[platform] : undefined}
+                  className="text-text-secondary size-5 shrink-0"
+                />
                 <span className="flex min-w-0 flex-1 flex-col gap-[3px]">
                   <span className="text-text-primary truncate text-[15px] leading-[18px] font-bold">
                     {d.displayName}

@@ -149,7 +149,6 @@ export function mergeNode(stored: PageNode | undefined, next: PageNode): PageNod
 
 const WAITING_BANNER: BannerFields = { banner: null, bannerPending: true }
 
-/** The title or the banner of the node waits for keys. */
 const waits = (n: PageNode): boolean => n.titleState === 'pending' || n.bannerPending
 
 export interface PageTitlesDeps {
@@ -231,7 +230,6 @@ export function createPageTitles(deps: PageTitlesDeps): PageTitles {
   async function decryptTitles(pages: Page[]): Promise<PageNode[]> {
     if (pages.length === 0) return []
     const gen = generation
-    // One batch: the title of each page, and the banner of each page that has one.
     const items: EncryptedDocItem[] = []
     for (const p of pages) {
       const item = { channelId: p.channelId, pageId: p.id, senderDevice: null }

@@ -328,7 +328,6 @@ function GuildRow(): React.JSX.Element {
   )
 }
 
-/** The 28 px icon of a guild tile. */
 const GUILD_ICON = 28
 
 /**

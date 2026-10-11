@@ -22,7 +22,6 @@ const move = (x: number, y: number, pointerId = 1): LongPressInput => ({
 })
 const up = (pointerId = 1): LongPressInput => ({ type: 'up', pointerId })
 
-/** Runs `inputs` from idle and returns every step. */
 function run(...inputs: LongPressInput[]): LongPressStep[] {
   let state: LongPressState = LONG_PRESS_IDLE
   return inputs.map((input) => {

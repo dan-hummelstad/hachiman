@@ -99,7 +99,7 @@ describe('tabsStore', () => {
   it('on the mobile layout, a pages channel chat lights a pinned page tab of the channel', () => {
     const page2: TabTarget = { ...page, pageId: 'p2' }
     const wikiChat: View = { kind: 'channel', guildId: 'g2', channelId: 'wiki' }
-    const mobile = { pageTabOfChannel: true }
+    const mobile = true
     expect(activeIndex([general, page, page2], wikiChat, mobile)).toBe(1)
     // The channel's own tab wins.
     expect(activeIndex([page, wiki], wikiChat, mobile)).toBe(1)

@@ -310,7 +310,6 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-/* The 32 tile of a row, with an 18 icon. */
 .hm-slash-layer .milkdown-slash-menu .milkdown-icon {
   display: flex;
   flex: none;

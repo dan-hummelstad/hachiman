@@ -94,7 +94,6 @@ export function tintWallpaper(tint: string): string {
 
 /** The tint of the DM space, and of the screens before the shell (no guild). */
 export const HOME_TINT = 'var(--tint-home)'
-/** The window wallpaper of `HOME_TINT`. */
 export const HOME_WALLPAPER = tintWallpaper(HOME_TINT)
 
 /** One colour of a custom gradient: hue 0–360 and saturation 0–100. */

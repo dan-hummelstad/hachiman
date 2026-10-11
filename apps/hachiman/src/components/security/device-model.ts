@@ -17,7 +17,6 @@ export type RemoveReason = Exclude<RevocationReasonName, 'password_reset' | 'sig
 export const PRIMARY_ONLY =
   'Only a device with your security key can sign out other devices: your first device, or a device that you restored with the recovery key.'
 
-/** A device seen this recently counts as active now. */
 const ACTIVE_NOW_MS = 5 * 60_000
 
 /** "active now", "active 2 hours ago", "active yesterday". */

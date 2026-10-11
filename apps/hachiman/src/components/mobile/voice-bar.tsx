@@ -1,7 +1,7 @@
 import { AudioLines, PhoneOff } from 'lucide-react'
 import { IconButton } from '@/components/ui/icon-button'
 import { CallTimer } from '@/components/voice-connected-panel'
-import { openDmStage } from '@/components/voice/dm-call'
+import { openDmStage } from '@/components/voice/dm-stage-state'
 import { SelfVoiceToggles } from '@/components/voice/self-voice-toggles'
 import { channelLabel } from '@/lib/model'
 import { openChannelView } from '@/lib/navigation'

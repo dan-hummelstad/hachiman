@@ -125,25 +125,29 @@ export interface CreatedInvite {
   scope: string[]
   /** `copyInTap`: the copy of the link that the tap started (`copyLinkFromTap`). Else null. */
   copied: Promise<boolean> | null
+  /** An invite with history for which this device sent nothing: it holds no group of the scope. */
+  noOwnHistory: boolean
 }
 
 /**
  * The create form of the Invites page: the options, the permanent-invite gate
  * (`useInviteCreation`) and, for an administrator, "Include history" with its scope (§12.11.4).
  * `copyInTap` starts the copy of the new link inside the tap (WebKit, M55); without it, the
- * caller copies in `onCreated`.
+ * caller copies in `onCreated`. `what` names the action in the error text.
  */
 export function useInviteCreateForm({
   guildId,
   isAdmin,
   run,
   copyInTap,
+  what = 'create an invite',
   onCreated
 }: {
   guildId: string
   isAdmin: boolean
   run: Action['run']
   copyInTap: boolean
+  what?: string
   onCreated: (created: CreatedInvite) => void
 }): ReturnType<typeof useInviteCreation<CreatedInvite>> & {
   /** The channels an invite with history opens: the text and pages channels @everyone views. */
@@ -169,7 +173,7 @@ export function useInviteCreateForm({
   ): Promise<CreatedInvite> => {
     if (!history) {
       const invite = await createInvite(guildId, o, acknowledgedPermanent)
-      return { invite, key: null, scope: [], copied: null }
+      return { invite, key: null, scope: [], copied: null, noOwnHistory: false }
     }
     const made = await createHistoryInvite(
       guildId,
@@ -183,14 +187,15 @@ export function useInviteCreateForm({
       invite: made.invite,
       key: made.key,
       scope: scope.filter((c) => signed.has(c.id)).map((c) => `#${c.name ?? c.id}`),
-      copied: null
+      copied: null,
+      noOwnHistory: made.groups === 0
     }
   }
 
   const creation = useInviteCreation<CreatedInvite>({
     isAdmin,
     run,
-    what: 'create an invite',
+    what,
     // `useInviteCreation` calls `make` inside the tap of Create (or of the permanent confirm),
     // before any await, so the clipboard write starts in the gesture.
     make: copyInTap

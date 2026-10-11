@@ -236,7 +236,7 @@ export function GradientPickerMobile({
 }
 
 /** The colour pad: a press within reach of a stop grabs it, elsewhere it moves the selected stop. */
-export function ColourPad({
+function ColourPad({
   variant,
   value,
   active,
@@ -375,11 +375,7 @@ export function ColourPad({
 }
 
 /** The preset gradients; Twilight, the default, doubles as the reset. */
-export function PresetRow({
-  onPick
-}: {
-  onPick: (gradient: CustomGradient) => void
-}): React.JSX.Element {
+function PresetRow({ onPick }: { onPick: (gradient: CustomGradient) => void }): React.JSX.Element {
   return (
     <div className="flex flex-wrap gap-2">
       {PRESETS.map((p) => (
@@ -397,7 +393,7 @@ export function PresetRow({
   )
 }
 
-export function PadButton({
+function PadButton({
   label,
   disabled,
   onClick,
@@ -422,7 +418,7 @@ export function PadButton({
   )
 }
 
-export function SwatchRow({ onPick }: { onPick: (stop: GradientStop) => void }): React.JSX.Element {
+function SwatchRow({ onPick }: { onPick: (stop: GradientStop) => void }): React.JSX.Element {
   const row = useRef<HTMLDivElement>(null)
   const scroll = (by: number): void => row.current?.scrollBy({ left: by, behavior: 'smooth' })
   const chevron =
@@ -474,7 +470,7 @@ const WAVE = (() => {
 })()
 
 /** The lightness slider: a wavy track, filled up to a tall pill thumb. */
-export function WavySlider({
+function WavySlider({
   value,
   onChange
 }: {
@@ -541,7 +537,7 @@ export function WavySlider({
 }
 
 /** The angle dial: a ring of dots with a knob at the gradient angle (0° = up). */
-export function AngleDial({
+function AngleDial({
   value,
   onChange
 }: {

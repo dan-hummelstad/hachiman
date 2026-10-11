@@ -2,7 +2,6 @@ import { useState } from 'react'
 import { LogOut, MessageSquareText } from 'lucide-react'
 import { closeDrawer } from '@/components/mobile/drawer-state'
 import { CustomStatusDialog } from '@/components/people/custom-status-dialog'
-import { STATUSES } from '@/components/settings/status-sheet-state'
 import { UserAvatar } from '@/components/shell/user-avatar'
 import {
   ContextMenu,
@@ -12,7 +11,7 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger
 } from '@/components/ui/context-menu'
-import { OWN_STATUS_LABEL, PresenceDot } from '@/components/ui/presence'
+import { OWN_STATUS_LABEL, PresenceDot, STATUSES } from '@/components/ui/presence'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useCustomStatus } from '@/hooks/use-custom-status'
 import { useLayout } from '@/hooks/use-layout'

@@ -3,7 +3,6 @@ import type { Channel } from '@hachiman/client'
 import type { DrawerSide } from '@/lib/mobile-drawer'
 
 interface DrawerState {
-  /** The open drawer. */
   open: DrawerSide | null
   /** A finger drags a drawer: its side and its open share (0–1). */
   drag: { side: DrawerSide; share: number } | null

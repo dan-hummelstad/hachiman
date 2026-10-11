@@ -60,7 +60,6 @@ final class WebHost: NSObject, WKNavigationDelegate, WKUIDelegate {
         return true
     }
 
-    /// Whether a URL is a page of the app itself.
     static func isAppURL(_ url: URL?) -> Bool {
         url?.scheme == AppSchemeHandler.scheme && url?.host == AppSchemeHandler.host && url?.port == nil
     }

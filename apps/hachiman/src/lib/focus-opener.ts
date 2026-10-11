@@ -25,7 +25,6 @@ export interface OpenerCandidates<T> {
   activatedAgo: number
 }
 
-/** A fresh activation, else the focused element, else an older activation. */
 export function pickOpener<T>({ focused, activated, activatedAgo }: OpenerCandidates<T>): T | null {
   if (activated !== null && activatedAgo <= ACTIVATION_FRESH_MS) return activated
   return focused ?? activated
@@ -60,14 +59,8 @@ export function noteActivation(el: Element): void {
 function record(e: Event): void {
   const target = e.target
   if (!(target instanceof Element)) return
-  if (isTextField(target)) {
-    activated = null
-    return
-  }
-  const control = target.closest<HTMLElement>(ACTIVATABLE)
-  if (!control) return
-  activated = control
-  activatedAt = performance.now()
+  if (isTextField(target)) activated = null
+  else noteActivation(target)
 }
 
 if (typeof document !== 'undefined') {
@@ -102,7 +95,6 @@ export function setSheetOpener(sheet: Element, opener: HTMLElement | null): void
   else sheetOpeners.delete(sheet)
 }
 
-/** An element that can take the focus back: still in the page and not in an inert subtree. */
 const canTakeFocus = (el: HTMLElement | null): el is HTMLElement =>
   el !== null && el.isConnected && el.closest('[inert]') === null
 

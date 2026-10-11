@@ -204,8 +204,8 @@ test("the bridge sends {op, ...args} and parses 'Code: message' rejections", asy
 });
 
 test("toBridgeError: a string reason, and an unknown code is Internal", () => {
-  assert.equal(toBridgeError("Cancelled: closed").code, "Cancelled");
-  assert.equal(toBridgeError("Cancelled: closed").message, "closed");
+  assert.equal(toBridgeError("Malformed: bad url").code, "Malformed");
+  assert.equal(toBridgeError("Malformed: bad url").message, "bad url");
   const e = toBridgeError("Weird: thing");
   assert.equal(e.code, "Internal");
   assert.equal(e.message, "Weird: thing");

@@ -38,6 +38,10 @@ type AppDialog =
   | { kind: 'messageInfo'; channelId: string; messageId: string }
   /** Sign out of this device: the red row of the mobile settings list (M29). */
   | { kind: 'signOut' }
+  /** My status from the status chip of the mobile settings list (M29). */
+  | { kind: 'status' }
+  /** "Set a status" (N16): the status sheet opens it in its own place. */
+  | { kind: 'customStatus' }
 
 /**
  * The E2EE dialogs (§12.4, §12.5, §12.10, §12.11). No payload holds a secret: a dialog that shows

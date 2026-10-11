@@ -191,7 +191,6 @@ export function nextBlockedState(
   return { blockedUsers, blockedAt }
 }
 
-/** cache.blocks → userStore (`nextBlockedState`). */
 function syncBlocks(list?: readonly BlockedUser[], blockedNow?: string): void {
   const blocks = new Set(hachiman.cache.blocks)
   useUserStore.setState((s) => ({ blocks, ...nextBlockedState(blocks, s, list, blockedNow) }))

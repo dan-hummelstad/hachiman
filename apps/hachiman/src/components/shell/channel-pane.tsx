@@ -229,7 +229,6 @@ export function ChannelChips({ access }: { access: ChannelAccess }): React.JSX.E
   )
 }
 
-/** A small square chip of the channel header. */
 export function HeaderChip({
   title,
   children

@@ -40,7 +40,6 @@ export function filterMembers(members: Member[], query: string): Member[] {
   )
 }
 
-/** The role ids with `roleId` added, or taken out when the member has it. */
 export function toggleRole(roleIds: readonly string[], roleId: string): string[] {
   return roleIds.includes(roleId) ? roleIds.filter((id) => id !== roleId) : [...roleIds, roleId]
 }

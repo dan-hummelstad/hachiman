@@ -76,7 +76,6 @@ function createPress(latest: { current: Latest }): Press {
   const onClick = (e: Event): void => input({ type: 'click' }, e)
   const onDown = (): void => input({ type: 'cancel' })
 
-  /** The window listeners of a phase. */
   const listen = (phase: LongPressPhase): void => {
     unlisten?.()
     unlisten = null

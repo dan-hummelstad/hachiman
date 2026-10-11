@@ -314,7 +314,7 @@ describe('signalStore', () => {
     const fn = vi.fn()
     const stop = store.subscribe(fn)
     const first = store.get()
-    store.set({ kind: 'other', focused: false })
+    store.set({ kind: 'other', slash: false })
     expect(fn).not.toHaveBeenCalled()
     expect(store.get()).toBe(first)
     store.set({ kind: 'todo' })

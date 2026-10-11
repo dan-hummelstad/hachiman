@@ -1,4 +1,3 @@
-import { useLayout } from '@/hooks/use-layout'
 import { accountTabs, moved, usePrefsStore } from '@/stores/prefsStore'
 import { useCurrentView, type View } from '@/stores/navStore'
 
@@ -97,7 +96,7 @@ export function viewOfTarget(t: TabTarget): View {
 export function activeIndex(
   tabs: readonly TabTarget[],
   view: View,
-  { pageTabOfChannel = false }: { pageTabOfChannel?: boolean } = {}
+  pageTabOfChannel = false
 ): number {
   const target = targetOf(view)
   if (!target) return -1
@@ -129,12 +128,11 @@ export const moveTab = (from: number, to: number): void =>
 
 export const useTabs = (): TabTarget[] => usePrefsStore(accountTabs)
 
-/** The index of the lit tab, or -1. */
-export function useActiveTabIndex(): number {
+/** The index of the lit tab, or -1. `pageTabOfChannel` as in `activeIndex`. */
+export function useActiveTabIndex(pageTabOfChannel: boolean): number {
   const tabs = useTabs()
   const view = useCurrentView()
-  const pageTabOfChannel = useLayout() === 'mobile'
-  return activeIndex(tabs, view, { pageTabOfChannel })
+  return activeIndex(tabs, view, pageTabOfChannel)
 }
 
 /** Whether `target` is pinned (false for null). */

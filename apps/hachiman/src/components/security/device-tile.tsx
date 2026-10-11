@@ -4,16 +4,25 @@ import { FEATURE_TILE } from '@/components/ui/feature'
 import { PLATFORM_ICON } from '@/lib/device-platform'
 import { cn } from '@/lib/utils'
 
-/** The icon of the kind of app that a device runs. Null (not known): a generic device. */
+/**
+ * The icon of the kind of app that a device runs. Null (not known): a generic device. Decorative
+ * unless `label` is set.
+ */
 export function DeviceGlyph({
   platform,
+  label,
   className
 }: {
   platform: DevicePlatform | null
+  label?: string
   className?: string
 }): React.JSX.Element {
   const Icon = platform ? PLATFORM_ICON[platform] : MonitorSmartphone
-  return <Icon aria-hidden className={className} />
+  return label ? (
+    <Icon aria-label={label} className={className} />
+  ) : (
+    <Icon aria-hidden className={className} />
+  )
 }
 
 export type DeviceTileTone = 'accent' | 'event' | 'neutral'

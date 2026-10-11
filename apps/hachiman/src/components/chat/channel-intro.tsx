@@ -182,7 +182,6 @@ const MOBILE_ACTION = cn(
   'rounded-control inline-flex h-11 shrink-0 items-center gap-[7px] border pr-3.5 pl-3 text-[14px] leading-5 font-bold whitespace-nowrap select-none [&_svg]:size-4 [&_svg]:shrink-0',
   'focus-visible:outline-line-focus outline-none focus-visible:outline-2 focus-visible:outline-offset-1 disabled:opacity-50'
 )
-/** A quiet action: a light wash and edge. */
 const MOBILE_ACTION_QUIET =
   'bg-surface-hover border-fill-control text-text-primary active:bg-fill-control-strong'
 /** "Pin to tabs" as the main action of the start (M60): the accent tint. */
@@ -210,7 +209,6 @@ function MobileGuildIntro({
   const platform = usePlatform()
   const { name, access, tile, canInvite, canManage, canWritePage, tab, pinned } = intro
   const newPage = useNewPage(channel)
-  // An empty channel that I may upload to shows the drop card, unless it is restricted.
   const dropCard = empty && !access.restricted && onUpload ? onUpload : null
   const heading = useRef<HTMLHeadingElement>(null)
   const [justPinned, setJustPinned] = useState(false)

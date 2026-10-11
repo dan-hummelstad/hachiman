@@ -290,7 +290,6 @@ const CHOICE_TINT: Record<'accent' | 'voice', string> = {
     'mobile:border-feature-voice/30 mobile:bg-feature-voice/5 mobile:active:bg-feature-voice/10'
 }
 
-/** The chevron of a choice card on the mobile layout: in the feature colour. */
 const CHOICE_CHEVRON: Record<'accent' | 'voice', string> = {
   accent: 'mobile:text-accent-text',
   voice: 'mobile:text-feature-voice-text'

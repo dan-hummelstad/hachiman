@@ -1,7 +1,7 @@
 import { useEffect, useId, useState } from 'react'
 import { Check, Link2, Lock } from 'lucide-react'
 import type { InvitePreview } from '@hachiman/client'
-import { useOwnDevices } from '@/components/security/devices-panel'
+import { useOwnDevices } from '@/components/security/use-own-devices'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Button } from '@/components/ui/button'
 import { ErrorText } from '@/components/ui/field'

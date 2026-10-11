@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import { Check, Copy, History, Link2, Share, UserPlus } from 'lucide-react'
 import { useCopy } from '@/hooks/use-copy'
 import { Permissions, has, type Channel } from '@hachiman/client'
@@ -13,31 +13,22 @@ import {
   InviteHistoryScope
 } from '@/components/settings/invite-history-option'
 import { InviteOptions } from '@/components/settings/invite-options'
-import { inviteExpiryChoices, inviteScope } from '@/components/settings/invites'
+import { inviteExpiryChoices } from '@/components/settings/invites'
 import { PermanentInviteConfirm } from '@/components/settings/permanent-invite-confirm'
-import { useInviteCreation } from '@/components/settings/use-invite-creation'
+import { useInviteCreateForm, type CreatedInvite } from '@/components/settings/use-guild-invites'
 import { useAction } from '@/hooks/use-action'
 import { usePermissions } from '@/hooks/use-hachiman'
 import { useLayout } from '@/hooks/use-layout'
 import { inviteLimitsText } from '@/lib/model'
 import { cn, errMsg } from '@/lib/utils'
-import {
-  copyInviteLink,
-  createHistoryInvite,
-  createInvite,
-  inviteUrl,
-  type InviteOptionsValue
-} from '@/services/InviteService'
+import { copyInviteLink, inviteUrl, type InviteOptionsValue } from '@/services/InviteService'
 import { usePlatform } from '@/shared/PlatformContext'
-import { useChannelStore } from '@/stores/channelStore'
 import { useDialog } from '@/stores/dialogStore'
 import { useGuildStore } from '@/stores/guildStore'
 import { Callout } from '@/components/ui/callout'
 
 const optionsTag = (o: InviteOptionsValue, history: boolean): string =>
   `${o.expiry}:${o.maxUses}:${history}`
-
-const NO_CHANNELS: Channel[] = []
 
 /**
  * A created link. `tag`: the options it was made for (`optionsTag`). `key`: the seed of an invite
@@ -56,6 +47,16 @@ interface Created {
   /** An invite with history for which this device sent nothing: it holds no group of the scope. */
   noOwnHistory: boolean
 }
+
+const toCreated = (made: CreatedInvite, tag: string): Created => ({
+  tag,
+  code: made.invite.code,
+  key: made.key,
+  expiresAt: made.invite.expiresAt,
+  createdAt: Date.now(),
+  scope: made.scope,
+  noOwnHistory: made.noOwnHistory
+})
 
 /**
  * "Invite people": pick expiry / max uses, then "Create link" makes one server-side invite.
@@ -127,7 +128,7 @@ interface InviteDialogState {
   error: string | null
   copied: boolean
   /** The props of `PermanentInviteConfirm`. */
-  confirm: ReturnType<typeof useInviteCreation>['confirm']
+  confirm: ReturnType<typeof useInviteCreateForm>['confirm']
   create: () => void
   changeOptions: (o: InviteOptionsValue) => void
   changeHistory: (on: boolean) => void
@@ -142,13 +143,10 @@ interface InviteDialogState {
  */
 function useInviteDialog(guildId: string): InviteDialogState {
   const platform = usePlatform()
-  const guild = useGuildStore((s) => s.guilds.get(guildId))
-  const roles = useGuildStore((s) => s.roles.get(guildId))
-  const channels = useChannelStore((s) => s.channels)
+  const guildName = useGuildStore((s) => s.guilds.get(guildId)?.name)
   const perms = usePermissions(guildId)
   const canCreate = has(perms, Permissions.CREATE_INSTANT_INVITE)
   const isAdmin = has(perms, Permissions.ADMINISTRATOR)
-  const [includeHistory, setIncludeHistory] = useState(false)
   // Tagged (`Created.tag`) with the options it was made for, so it hides when they change.
   const [created, setCreated] = useState<Created | null>(null)
   const { run, busy, error, setError, clearError } = useAction()
@@ -162,50 +160,14 @@ function useInviteDialog(guildId: string): InviteDialogState {
     onError: (e) => setError(errMsg(e))
   })
 
-  const scope = useMemo(
-    () => (guild && roles ? inviteScope(guild, roles, channels.values()) : NO_CHANNELS),
-    [guild, roles, channels]
-  )
-  // The user can lose ADMINISTRATOR, and the last channel can leave the scope, while it is open.
-  const history = isAdmin && includeHistory && scope.length > 0
-
-  const { options, setOptions, create, confirm } = useInviteCreation({
+  const { options, setOptions, create, confirm, scope, history, setHistory } = useInviteCreateForm({
+    guildId,
     isAdmin,
     run,
+    copyInTap: false,
     what: 'create an invite link',
-    make: async (o, acknowledgedPermanent): Promise<Created> => {
-      if (!history) {
-        const inv = await createInvite(guildId, o, acknowledgedPermanent)
-        return {
-          tag: optionsTag(o, history),
-          code: inv.code,
-          key: null,
-          expiresAt: inv.expiresAt,
-          createdAt: Date.now(),
-          scope: [],
-          noOwnHistory: false
-        }
-      }
-      const made = await createHistoryInvite(
-        guildId,
-        o,
-        scope.map((c) => c.id),
-        acknowledgedPermanent
-      )
-      // The signed scope is a subset of the input, in byte order: show it in sidebar order.
-      const signed = new Set(made.channelIds)
-      return {
-        tag: optionsTag(o, history),
-        code: made.invite.code,
-        key: made.key,
-        expiresAt: made.invite.expiresAt,
-        createdAt: Date.now(),
-        scope: scope.filter((c) => signed.has(c.id)).map((c) => `#${c.name ?? c.id}`),
-        noOwnHistory: made.groups === 0
-      }
-    },
-    onCreated: (c) => {
-      setCreated(c)
+    onCreated: (made) => {
+      setCreated(toCreated(made, optionsTag(options, history)))
       resetCopied()
     }
   })
@@ -216,7 +178,7 @@ function useInviteDialog(guildId: string): InviteDialogState {
   // The `#k=` seed of a link with history may go to the share sheet (§12.17). It starts in the tap.
   const share = platform.share
   return {
-    guildName: guild?.name,
+    guildName,
     canCreate,
     isAdmin,
     scope,
@@ -234,9 +196,7 @@ function useInviteDialog(guildId: string): InviteDialogState {
       resetCopied()
     },
     changeHistory: (on: boolean): void => {
-      setIncludeHistory(on)
-      // An invite with history has one use by default (§12.11.4).
-      if (on) setOptions({ ...options, maxUses: 1 })
+      setHistory(on)
       resetCopied()
     },
     copy: (): void => {

@@ -4,7 +4,7 @@ import type { Channel } from '@hachiman/client'
 import { MessageActionSheet } from '@/components/mobile/message-action-sheet'
 import { useChatCovered } from '@/components/mobile/drawer-state'
 import { useContactTrust } from '@/components/people/use-contact-trust'
-import { useDmStageShown } from '@/components/voice/dm-call'
+import { useDmStageShown } from '@/components/voice/dm-stage-state'
 import { SystemTag } from '@/components/ui/system-tag'
 import { useLayout } from '@/hooks/use-layout'
 import { highlightRow, jumpStep } from '@/lib/navigation'
@@ -273,7 +273,6 @@ function useKeyChangeNotice(
   return { userId: peerId, changedAt: trust.changedAt }
 }
 
-/** The window has the focus and shows. */
 const seen = (): boolean => document.hasFocus() && document.visibilityState === 'visible'
 
 /**

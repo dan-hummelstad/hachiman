@@ -70,7 +70,6 @@ function VoiceMarks({
   )
 }
 
-/** The sidebar row: 26 high (36 with a 22 avatar on the mobile layout), indent 34. */
 function SidebarOccupant({
   guildId,
   state

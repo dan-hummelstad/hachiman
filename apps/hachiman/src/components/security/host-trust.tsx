@@ -67,7 +67,6 @@ export function WebTrustCallout({
   desktopAppUrl
 }: {
   devices: readonly DeviceSummary[] | null
-  /** Where "Get the desktop app" goes. */
   desktopAppUrl: string
 }): React.JSX.Element | null {
   const hostTrust = useCryptoStore((s) => s.status?.hostTrust ?? null)

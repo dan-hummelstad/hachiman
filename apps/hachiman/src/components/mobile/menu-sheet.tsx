@@ -280,7 +280,6 @@ const ROW = cn(
   "data-[variant=destructive]:border-feature-danger/20 data-[variant=destructive]:bg-feature-danger/5 data-[variant=destructive]:text-feature-danger-text data-[variant=destructive]:[&_svg:not([class*='text-'])]:text-current"
 )
 
-/** The hint and the end mark of a row, pushed to the end. */
 function RowEnd({
   hint,
   mark

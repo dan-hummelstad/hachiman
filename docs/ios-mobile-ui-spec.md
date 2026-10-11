@@ -702,7 +702,7 @@ M36 is in A5.
 - **Screens:** M39 (editing a page), M40 (insert a block).
 - **Owns:** `components/docs/page-editor.tsx` (from F2), `components/docs/page-editor.css` (from F2), `components/docs/page-picker.tsx`, `components/mobile/keyboard-toolbar.tsx` (new), `components/docs/turn-into-sheet.tsx` (new).
 - **Work:**
-  - An editor API through `onReady(api)`: run a command, undo and redo (`yUndo`, `yRedo`), insert "/", blur, and focus and block-type signals. A small plugin that marks the current block (`hm-current-block`).
+  - An editor API (`PageEditorApi`), which `PageEditor` keeps and gives to the toolbar: run a command, undo and redo (`yUndo`, `yRedo`), insert "/", blur, and the slash and block-type signals. The toolbar gets the focus from `page-editor-state.ts`. A small plugin that marks the current block (`hm-current-block`).
   - `PageKeyboardToolbar` (46), mounted by the touch editor through a portal at the visual viewport bottom while the editor has focus. Tools: "+" (inserts "/"), turn into (sheet), to-do, bullet list, numbered list, indent, undo, then hide keyboard. Every button uses `onPointerDown` with `preventDefault`, plus `onClick` and an `aria-label`. Mention is the page picker as a sheet. Comment is hidden.
   - The editor focus goes to `components/docs/page-editor-state.ts` (F2), so the page bar shows Done. The pill and foot hide while the keyboard is open.
   - Slash menu (touch): two groups, "Basic blocks" (text, heading, task list, bullets, numbers, quote, code, divider) and "In Hachiman" (New sub-page, Link to page). Width = viewport minus 24, max height = the room above the toolbar. A CSS skin with 46 rows and section labels. No per-item hints (Crepe items have only label and icon).

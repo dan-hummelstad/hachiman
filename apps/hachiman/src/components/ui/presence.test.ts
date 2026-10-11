@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { PRESENCE_OUTSET, PRESENCE_RING, presenceDotSize, presenceHole } from './presence'
+import { isStatus, PRESENCE_OUTSET, PRESENCE_RING, presenceDotSize, presenceHole } from './presence'
 
 describe('presenceDotSize', () => {
   it('takes the drawn sizes of the mobile kit', () => {
@@ -24,4 +24,9 @@ describe('presenceHole', () => {
     const c = 40 + PRESENCE_OUTSET - r
     expect(presenceHole(40)).toEqual([c, c, r + PRESENCE_RING])
   })
+})
+
+it('knows the four presence choices of my own status', () => {
+  expect(['online', 'idle', 'dnd', 'offline'].every(isStatus)).toBe(true)
+  expect(isStatus('invisible')).toBe(false)
 })

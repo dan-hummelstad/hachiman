@@ -5,8 +5,6 @@ import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import {
   PageDeleteConfirm,
   PageMoveConfirm,
-  PageRowActionsButton,
-  PageRowMenu,
   RenameInput
 } from '@/components/docs/page-tree-actions'
 import {
@@ -14,17 +12,10 @@ import {
   usePageTreeActions,
   type PageTreeActions
 } from '@/components/docs/use-page-tree-actions'
-import { ContextMenu, ContextMenuTrigger } from '@/components/ui/context-menu'
 import { ErrorText } from '@/components/ui/field'
 import { IconButton } from '@/components/ui/icon-button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import { useLayout } from '@/hooks/use-layout'
-import {
-  SORTABLE_TOUCH,
-  useDragSensors,
-  useSortableHoldMenu,
-  useSortableRow
-} from '@/hooks/use-sortable-row'
+import { useDragSensors, useSortableRow } from '@/hooks/use-sortable-row'
 import { cn } from '@/lib/utils'
 import type { PageNode } from '@/stores/docsStore'
 import { flattenPages, pageTitle, type FlatPage } from '@/services/docs/page-tree'
@@ -69,7 +60,7 @@ function PageTree({
 }: PageTreePopoverProps): React.JSX.Element {
   const rows = useMemo(() => flattenPages(pages), [pages])
   const actions = usePageTreeActions(channelId, pages)
-  // Desktop: a drag starts after 4 px. Mobile: after a hold, so a scroll of the tree drags nothing.
+  // A drag starts after 4 px, so a click is not a drag.
   const sensors = useDragSensors()
 
   const create = async (parentId: string | null): Promise<void> => {
@@ -100,7 +91,6 @@ function PageTree({
               <TreeRow
                 key={row.page.id}
                 row={row}
-                pages={pages}
                 actions={actions}
                 selected={row.page.id === openPageId}
                 canEdit={canEdit}
@@ -125,13 +115,9 @@ function PageTree({
   )
 }
 
-/**
- * One row of the popover tree. Desktop: a grip to drag and the actions on hover. Mobile layout:
- * a hold on the row drags it, or opens its hold menu when the finger does not move.
- */
+/** One row of the popover tree: a grip to drag and the actions on hover. */
 function TreeRow({
   row,
-  pages,
   actions,
   selected,
   canEdit,
@@ -139,7 +125,6 @@ function TreeRow({
   onAddChild
 }: {
   row: FlatPage
-  pages: readonly PageNode[]
   actions: PageTreeActions
   selected: boolean
   canEdit: boolean
@@ -147,27 +132,21 @@ function TreeRow({
   onAddChild: () => void
 }): React.JSX.Element {
   const { page, depth } = row
-  const mobile = useLayout() === 'mobile'
   const renaming = actions.renaming === page.id
-  const sortable = canEdit && !renaming
   const { setNodeRef, attributes, listeners, style } = useSortableRow({
     id: page.id,
-    disabled: !sortable
+    disabled: !canEdit || renaming
   })
-  const menu = useSortableHoldMenu(page.id, { sortable })
-  const holdable = mobile && canEdit
 
-  const item = (
+  return (
     <li ref={setNodeRef} style={{ ...style, paddingLeft: depth * INDENT }}>
       <div
-        {...(holdable ? { ...attributes, ...listeners, role: undefined, tabIndex: -1 } : {})}
         className={cn(
-          'group hover:bg-accent mobile:h-10 flex h-8 items-center gap-1 pr-1',
-          selected && 'bg-accent text-foreground',
-          holdable && SORTABLE_TOUCH
+          'group hover:bg-accent flex h-8 items-center gap-1 pr-1',
+          selected && 'bg-accent text-foreground'
         )}
       >
-        {canEdit && !mobile ? (
+        {canEdit ? (
           <span
             {...attributes}
             {...listeners}
@@ -190,7 +169,7 @@ function TreeRow({
           <button
             type="button"
             className={cn(
-              'mobile:h-full min-w-0 flex-1 truncate text-left text-sm',
+              'min-w-0 flex-1 truncate text-left text-sm',
               page.titleState !== 'ok' && 'text-muted-foreground italic'
             )}
             onClick={onOpen}
@@ -198,10 +177,7 @@ function TreeRow({
             {pageTitle(page)}
           </button>
         )}
-        {holdable && !renaming && (
-          <PageRowActionsButton title={pageTitle(page)} onClick={() => menu.onOpenChange(true)} />
-        )}
-        {canEdit && !renaming && !mobile && (
+        {canEdit && !renaming && (
           <span className="flex shrink-0 opacity-0 group-focus-within:opacity-100 group-hover:opacity-100">
             <IconButton label="New sub-page" size="sm" onClick={onAddChild}>
               <FilePlus />
@@ -223,20 +199,5 @@ function TreeRow({
         )}
       </div>
     </li>
-  )
-  if (!holdable) return item
-  return (
-    <ContextMenu open={menu.open} onOpenChange={menu.onOpenChange}>
-      <ContextMenuTrigger asChild longPress={menu.longPress}>
-        {item}
-      </ContextMenuTrigger>
-      <PageRowMenu
-        page={page}
-        pages={pages}
-        actions={actions}
-        close={() => menu.onOpenChange(false)}
-        onNewSubPage={onAddChild}
-      />
-    </ContextMenu>
   )
 }

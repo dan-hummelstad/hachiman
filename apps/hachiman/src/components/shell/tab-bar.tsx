@@ -17,7 +17,7 @@ import { DndContext, closestCenter, type DragEndEvent } from '@dnd-kit/core'
 import { SortableContext, horizontalListSortingStrategy } from '@dnd-kit/sortable'
 import { openSwitcher } from '@/components/shell/switcher-state'
 import { DRAG_REGION } from '@/components/shell/sidebar'
-import { TOUCH_HIT } from '@/components/sidebar/sidebar-row'
+import { TOUCH_HIT } from '@/lib/touch'
 import { SidebarControls, SidebarToggle } from '@/components/shell/sidebar-controls'
 import { useSidebarView } from '@/components/shell/sidebar-state'
 import { UserAvatar } from '@/components/shell/user-avatar'
@@ -159,7 +159,7 @@ export function Tabs({
   className?: string
 }): React.JSX.Element {
   const tabs = useTabs()
-  const active = useActiveTabIndex()
+  const active = useActiveTabIndex(useLayout() === 'mobile')
   const sensors = useDragSensors()
   const ids = tabs.map(tabKey)
   const list = useRef<HTMLDivElement>(null)

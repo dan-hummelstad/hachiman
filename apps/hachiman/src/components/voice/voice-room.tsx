@@ -176,7 +176,6 @@ function ControlBar(): React.JSX.Element {
 /** Docked buttons (M10): 52 squares, radius 8, the control fill, icon 21. */
 const DOCK_BUTTON =
   "rounded-control bg-fill-control text-text-primary size-[52px] [&_svg:not([class*='size-'])]:size-[21px]"
-/** Mute and deafen turn coral while on. */
 const DOCK_TOGGLE = cn(
   DOCK_BUTTON,
   'aria-pressed:bg-feature-danger/15 aria-pressed:text-feature-danger-text'

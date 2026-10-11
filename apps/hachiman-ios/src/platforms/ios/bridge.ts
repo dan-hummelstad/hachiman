@@ -10,23 +10,16 @@
  */
 import type { Appearance, HapticKind, ShareContent } from "@hachiman/hachiman";
 
-/** The error codes of a native rejection. */
-export type BridgeErrorCode =
-  | "SecureStorageUnavailable"
-  | "StoreCorrupt"
-  | "Malformed"
-  | "Unsupported"
-  | "Cancelled"
-  | "Internal";
-
-const CODES: readonly BridgeErrorCode[] = [
+const CODES = [
   "SecureStorageUnavailable",
   "StoreCorrupt",
   "Malformed",
   "Unsupported",
-  "Cancelled",
   "Internal",
-];
+] as const;
+
+/** The error codes of a native rejection. */
+export type BridgeErrorCode = (typeof CODES)[number];
 
 /** Each op: [arguments, reply value]. */
 export interface BridgeOps {

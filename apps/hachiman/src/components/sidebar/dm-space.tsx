@@ -3,10 +3,11 @@ import { ChevronDown, MessageCircle, Plus, SquarePen, Users } from 'lucide-react
 import type { Channel, PresenceStatus, VoiceState } from '@hachiman/client'
 import { closeDrawer } from '@/components/mobile/drawer-state'
 import { NewMessageDialog } from '@/components/people/new-message-dialog'
+import { useOnlinePeople } from '@/components/people/use-people'
 import { GroupAvatars } from '@/components/shell/sidebar-rows'
 import { PinToTabsMenuItem } from '@/components/shell/tab-bar'
 import { UserAvatar } from '@/components/shell/user-avatar'
-import { openDmHome, sidebarRowClass, TOUCH_HIT } from '@/components/sidebar/sidebar-row'
+import { openDmHome, sidebarRowClass } from '@/components/sidebar/sidebar-row'
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from '@/components/ui/context-menu'
 import { IconButton } from '@/components/ui/icon-button'
 import { selectableRowClass } from '@/components/ui/selectable-row'
@@ -19,6 +20,7 @@ import { dmName } from '@/lib/model'
 import type { UnreadBadge } from '@/lib/notify'
 import { recentDms } from '@/lib/sidebar-tiles'
 import { formatListTime } from '@/lib/time-format'
+import { TOUCH_HIT } from '@/lib/touch'
 import { cn } from '@/lib/utils'
 import { useChannelStore } from '@/stores/channelStore'
 import { useGuildStore } from '@/stores/guildStore'
@@ -92,7 +94,7 @@ function SidebarDmSpace(): React.JSX.Element {
  */
 function DrawerDmSpace(): React.JSX.Element {
   const selectedChannelId = useSelectedChannelId()
-  const online = useOnlineCount(null)
+  const online = useOnlinePeople().length
   const dmBadge = useDmUnread()
   const [composing, setComposing] = useState(false)
   const [folded, setFolded] = useState(false)
@@ -442,7 +444,6 @@ function previewOf(messages: ChatMessage[] | undefined, withAuthor: boolean): st
   return null
 }
 
-/** The voice channel where `userId` streams, or null. */
 function streamChannelOf(
   voiceStates: ReadonlyMap<string, ReadonlyMap<string, VoiceState>>,
   userId: string

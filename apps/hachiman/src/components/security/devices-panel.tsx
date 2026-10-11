@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { KeyRound, Link2, LogOut, MonitorSmartphone, Pencil } from 'lucide-react'
 import type { DeviceSummary } from '@hachiman/crypto'
 import { Button } from '@/components/ui/button'
@@ -16,55 +16,19 @@ import {
   useRenameDevice,
   type RemoveReason
 } from '@/components/security/device-model'
+import { DeviceGlyph } from '@/components/security/device-tile'
 import { DevicesScreen } from '@/components/security/devices-screen'
-import { cryptoErrorText, friendly } from '@/components/security/errors'
+import { friendly } from '@/components/security/errors'
 import { HostTrustLine } from '@/components/security/host-trust'
+import { useOwnDevices } from '@/components/security/use-own-devices'
 import { useLayout } from '@/hooks/use-layout'
-import { PLATFORM_ICON, PLATFORM_LABEL } from '@/lib/device-platform'
+import { PLATFORM_LABEL } from '@/lib/device-platform'
 import { formatShortDate } from '@/lib/time-format'
 import { cn } from '@/lib/utils'
 import { cryptoService } from '@/services/CryptoService'
-import { hachiman } from '@/services/hachiman'
 import { openDialog, useDialog } from '@/stores/dialogStore'
 import { useCryptoStore } from '@/stores/cryptoStore'
 import { openSettings } from '@/stores/navStore'
-
-/**
- * The own devices of the user from the Worker. Reloads on USER_KEYS_UPDATE for the own user.
- * `enabled` false loads nothing (the Worker is not ready).
- */
-// eslint-disable-next-line react-refresh/only-export-components
-export function useOwnDevices(enabled = true): {
-  devices: DeviceSummary[] | null
-  error: string | null
-  reload: () => void
-} {
-  const [devices, setDevices] = useState<DeviceSummary[] | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const reload = useCallback(() => {
-    Promise.resolve()
-      .then(() => cryptoService.client().listDevices())
-      .then(
-        (d) => {
-          setDevices(d)
-          setError(null)
-        },
-        (e: unknown) => setError(cryptoErrorText(e))
-      )
-  }, [])
-  useEffect(() => {
-    if (!enabled) return undefined
-    reload()
-    const onKeys = ({ userId }: { userId: string }): void => {
-      if (userId === hachiman.cache.user?.id) reload()
-    }
-    hachiman.on('USER_KEYS_UPDATE', onKeys)
-    return () => {
-      hachiman.off('USER_KEYS_UPDATE', onKeys)
-    }
-  }, [reload, enabled])
-  return { devices, error, reload }
-}
 
 const linkNewDevice = (): void =>
   openDialog({ kind: 'deviceLink', role: 'existing_device', sessionId: null })
@@ -139,7 +103,11 @@ export function DevicesPanel({ variant }: { variant: 'page' | 'dialog' }): React
           <ul className="text-text-tertiary grid gap-1 text-sm">
             {removed.map((d) => (
               <li key={d.id} className="flex items-center gap-2">
-                <PlatformIcon platform={d.platform} className="size-4" />
+                <DeviceGlyph
+                  platform={d.platform}
+                  label={PLATFORM_LABEL[d.platform]}
+                  className="size-4"
+                />
                 <span className="truncate">{d.name}</span>
               </li>
             ))}
@@ -166,18 +134,6 @@ export function DevicesPanel({ variant }: { variant: 'page' | 'dialog' }): React
       />
     </div>
   )
-}
-
-/** The icon of the kind of app that a device runs. */
-export function PlatformIcon({
-  platform,
-  className
-}: {
-  platform: DeviceSummary['platform']
-  className?: string
-}): React.JSX.Element {
-  const Icon = PLATFORM_ICON[platform]
-  return <Icon aria-label={PLATFORM_LABEL[platform]} className={className} />
 }
 
 function DeviceRow({
@@ -212,7 +168,11 @@ function DeviceRow({
     <li className={cn('grid gap-1 px-4 py-3', device.current && 'bg-surface-hover/50')}>
       <div className="flex items-center gap-3">
         <span className="bg-surface-raised text-text-secondary flex size-10 shrink-0 items-center justify-center">
-          <PlatformIcon platform={device.platform} className="size-[18px]" />
+          <DeviceGlyph
+            platform={device.platform}
+            label={PLATFORM_LABEL[device.platform]}
+            className="size-[18px]"
+          />
         </span>
         <div className="min-w-0 flex-1">
           {name !== null ? (

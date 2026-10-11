@@ -54,7 +54,6 @@ export function pickStop(
   return { index, hit, grab }
 }
 
-/** An edit of the stops: the new gradient and the stop to select. */
 export type StopEdit = { value: CustomGradient; selected: number }
 
 /**

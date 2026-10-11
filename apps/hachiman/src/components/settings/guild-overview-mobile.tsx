@@ -136,7 +136,6 @@ export function GuildOverviewMobile({
 const CHANGE_BUTTON =
   'pointer-events-auto h-9 px-3 text-[13.5px] font-bold border-line-strong bg-(--fill-control)'
 
-/** "Uploading…" over a picked image while it uploads. */
 function UploadingVeil(): React.JSX.Element {
   return (
     <span className="bg-surface-window/70 absolute inset-0 flex items-center justify-center text-xs font-semibold">

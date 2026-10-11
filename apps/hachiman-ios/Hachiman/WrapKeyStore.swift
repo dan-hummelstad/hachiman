@@ -1,28 +1,6 @@
 import Foundation
 import Security
 
-/// Error of a bridge op. The JS side gets `"<code>: <message>"`.
-struct BridgeError: Error, Equatable {
-    enum Code: String {
-        case secureStorageUnavailable = "SecureStorageUnavailable"
-        case storeCorrupt = "StoreCorrupt"
-        case malformed = "Malformed"
-        case unsupported = "Unsupported"
-        case cancelled = "Cancelled"
-        case `internal` = "Internal"
-    }
-
-    let code: Code
-    let message: String
-
-    init(_ code: Code, _ message: String) {
-        self.code = code
-        self.message = message
-    }
-
-    var replyText: String { "\(code.rawValue): \(message)" }
-}
-
 /// Keychain store of the per-user wrap key for `IPlatformService.secureStorage`
 /// (docs/gateway-protocol.md §11, §12.17). Same rules as the Electron host
 /// (`apps/hachiman-electron/src/main/secure-storage.ts`):

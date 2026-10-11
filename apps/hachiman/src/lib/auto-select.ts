@@ -6,7 +6,6 @@
  */
 let auto = false
 
-/** Runs `select` as an automatic selection. */
 export function autoSelect(select: () => void): void {
   auto = true
   try {

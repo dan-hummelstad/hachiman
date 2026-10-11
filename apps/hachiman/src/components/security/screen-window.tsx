@@ -1,12 +1,4 @@
-import {
-  createContext,
-  useContext,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState
-} from 'react'
+import { useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { ChevronRight, ShieldAlert, ShieldCheck } from 'lucide-react'
 import { MobileFoot } from '@/components/mobile/foot'
@@ -39,12 +31,6 @@ export function EmptyWindow({ children }: { children?: React.ReactNode }): React
 }
 
 /**
- * Inside a `StepScreen`: tells it that a docked foot mounted, and returns the unmount. The panel
- * drops its own bottom inset while a foot is there, because the foot has it.
- */
-const StepFootRegistry = createContext<(() => () => void) | null>(null)
-
-/**
  * The mobile frame of the screens before the shell (Template · Pushed screen, kit n3TQN, as a
  * root screen): the safe top and the 52 Nav Bar on the home-tinted window, then a square panel
  * (content colour, top hairline) that scrolls. The steps inside render in the 'screen' layout:
@@ -53,15 +39,7 @@ const StepFootRegistry = createContext<(() => () => void) | null>(null)
  */
 export function StepScreen({ children }: { children: React.ReactNode }): React.JSX.Element {
   const [nav, setNav] = useState<HTMLDivElement | null>(null)
-  const [feet, setFeet] = useState(0)
   const value = useMemo(() => ({ nav }), [nav])
-  const foot = useMemo(
-    () => () => {
-      setFeet((n) => n + 1)
-      return () => setFeet((n) => n - 1)
-    },
-    []
-  )
   return (
     <div
       data-slot="step-screen"
@@ -69,15 +47,8 @@ export function StepScreen({ children }: { children: React.ReactNode }): React.J
       className="bg-surface-window flex min-h-0 w-full flex-1 flex-col pt-(--safe-top,0px)"
     >
       <div ref={setNav} className="shrink-0" />
-      <div
-        className={cn(
-          'bg-surface-content border-line-hairline text-text-primary flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto overscroll-contain border-t px-4 pt-4 text-[15px] leading-[1.45]',
-          feet > 0 ? 'pb-0' : 'pb-[calc(16px+var(--safe-bottom,0px))] in-data-[keyboard=open]:pb-4'
-        )}
-      >
-        <StepScreenContext.Provider value={value}>
-          <StepFootRegistry.Provider value={foot}>{children}</StepFootRegistry.Provider>
-        </StepScreenContext.Provider>
+      <div className="bg-surface-content border-line-hairline text-text-primary flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto overscroll-contain border-t px-4 pt-4 pb-[calc(16px+var(--safe-bottom,0px))] text-[15px] leading-[1.45] in-data-[keyboard=open]:pb-4 has-[[data-slot=mobile-foot]]:pb-0">
+        <StepScreenContext.Provider value={value}>{children}</StepScreenContext.Provider>
       </div>
     </div>
   )
@@ -255,9 +226,7 @@ export function StepBody({ children }: { children: React.ReactNode }): React.JSX
  * layout it is the docked foot: the buttons stack at 48 and full width, so put the primary last.
  */
 export function StepFooter({ children }: { children: React.ReactNode }): React.JSX.Element {
-  const register = useContext(StepFootRegistry)
-  useLayoutEffect(() => register?.(), [register])
-  if (register) {
+  if (useStepLayout() === 'screen') {
     return (
       <MobileFoot className="bg-surface-content sticky bottom-0 z-10 -mx-4 mt-auto [&>[data-slot=button]]:h-12 [&>[data-slot=button]]:w-full [&>[data-slot=button]]:text-[15px] [&>[data-slot=button]]:font-extrabold">
         {children}

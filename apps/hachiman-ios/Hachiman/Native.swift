@@ -119,7 +119,6 @@ enum Native {
     }
 }
 
-/// The delegate of one Files export sheet (`Native.saveTextFile`).
 @MainActor
 private final class FileExport: NSObject, UIDocumentPickerDelegate {
     var finish: ((Bool) -> Void)?

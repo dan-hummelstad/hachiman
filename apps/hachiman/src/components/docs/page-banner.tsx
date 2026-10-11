@@ -27,18 +27,19 @@ const ACCEPTED: readonly string[] = PROFILE_IMAGE_TYPES
 
 /** What the banner area of a page shows. */
 export interface BannerView {
-  /** Nothing, the image (or the upload preview), or the editor's "Add banner" control. */
+  /**
+   * Nothing, the image (or the upload preview), or the editor's "Add banner" control. With an
+   * image, `screen` puts the 62 page tile over the lower edge of the banner.
+   */
   show: 'nothing' | 'image' | 'add'
   /** Change and Remove: an editor on the top-level page. */
   controls: boolean
-  /** `screen`: the 62 page tile over the lower edge of the banner, only with an image. */
-  tile: boolean
 }
 
-const NOTHING: BannerView = { show: 'nothing', controls: false, tile: false }
-const ADD: BannerView = { show: 'add', controls: false, tile: false }
-const IMAGE: BannerView = { show: 'image', controls: false, tile: true }
-const IMAGE_EDIT: BannerView = { show: 'image', controls: true, tile: true }
+const NOTHING: BannerView = { show: 'nothing', controls: false }
+const ADD: BannerView = { show: 'add', controls: false }
+const IMAGE: BannerView = { show: 'image', controls: false }
+const IMAGE_EDIT: BannerView = { show: 'image', controls: true }
 
 /**
  * The view of the banner of a page. Nothing for an orphan (no top-level page above it), and

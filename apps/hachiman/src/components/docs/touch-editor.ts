@@ -52,7 +52,6 @@ function containerDepth($pos: ResolvedPos): number {
   return -1
 }
 
-/** The depth of the innermost list item around `$pos`, or -1. */
 function itemDepth($pos: ResolvedPos): number {
   for (let d = $pos.depth; d > 0; d--) if ($pos.node(d).type.name === LIST_ITEM) return d
   return -1
@@ -60,7 +59,6 @@ function itemDepth($pos: ResolvedPos): number {
 
 const isTodo = (item: Node): boolean => typeof item.attrs.checked === 'boolean'
 
-/** The form of the block that holds the caret. */
 export function blockAt(state: EditorState): BlockAt {
   const sel = state.selection
   if (!(sel instanceof TextSelection)) return 'other'
@@ -300,8 +298,6 @@ export function currentBlockRange(state: EditorState): { from: number; to: numbe
 
 /** What the keyboard toolbar shows: the lit tools, the indent tool, the "+" tool. */
 export interface EditorSignals {
-  /** The focus is in the editor (`page-editor-state`). */
-  focused: boolean
   kind: BlockAt
   canIndent: boolean
   /** The slash menu shows. */
@@ -309,13 +305,12 @@ export interface EditorSignals {
 }
 
 export const NO_SIGNALS: EditorSignals = {
-  focused: false,
   kind: 'other',
   canIndent: false,
   slash: false
 }
 
-/** The block signals of a state (the focus and the slash menu come from elsewhere). */
+/** The block signals of a state (the slash menu signal comes from elsewhere). */
 export function blockSignals(state: EditorState): Pick<EditorSignals, 'kind' | 'canIndent'> {
   return { kind: blockAt(state), canIndent: indentItem(state) }
 }

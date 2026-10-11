@@ -21,7 +21,6 @@ export interface MemberGates {
   roles: Map<string, Role> | undefined
   /** The roles I may add or remove on a member; empty without MANAGE_ROLES. */
   assignable: Role[]
-  /** What I may do to one member. */
   gate: (member: Member) => MemberGate
 }
 
@@ -53,7 +52,6 @@ export function useMemberGates(guild: Guild): MemberGates {
 export interface MemberEdit {
   /** Sets the member's roles: a signed admin action (contract §12.6). */
   setRoles: (roleIds: string[]) => Promise<ActionResult<unknown>>
-  /** Adds the role, or takes it away when the member has it. */
   toggleRole: (roleId: string) => Promise<ActionResult<unknown>>
   /** Sets the nickname; an empty one clears it. */
   saveNick: (nick: string) => Promise<ActionResult<unknown>>

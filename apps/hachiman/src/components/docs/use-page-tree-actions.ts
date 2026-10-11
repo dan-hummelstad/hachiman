@@ -32,7 +32,6 @@ export interface PageTreeActions {
   /** The move that waits for its banner confirm (`PageMoveConfirm`). */
   bannerMove: BannerMove | null
   setBannerMove: (move: BannerMove | null) => void
-  /** The `onDragEnd` of the tree's `DndContext`. */
   onDragEnd: (event: DragEndEvent) => void
   /** The page whose delete waits for its confirm (`PageDeleteConfirm`). */
   deleting: PageNode | null

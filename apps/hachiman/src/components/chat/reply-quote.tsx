@@ -1,6 +1,6 @@
 import { UserAvatar } from '@/components/shell/user-avatar'
-import { TOUCH_HIT_BAND } from '@/components/sidebar/sidebar-row'
 import { useMemberView } from '@/hooks/use-member'
+import { TOUCH_HIT_BAND } from '@/lib/touch'
 import { cn } from '@/lib/utils'
 import { replyPreviewOf, useReplyTarget, type ChatMessage } from '@/stores/messagesStore'
 import { highlightRow } from '@/lib/navigation'

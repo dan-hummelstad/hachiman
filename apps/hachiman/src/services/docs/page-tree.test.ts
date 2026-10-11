@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import type { PageNode } from '@/stores/docsStore'
 import {
+  MAX_PAGE_TITLE_BYTES,
   POSITION_STEP,
   channelPageId,
   clampTitle,
   endPosition,
+  fitTitle,
   flattenPages,
   hideCollapsed,
   moveAmongSiblings,
@@ -185,5 +187,24 @@ describe('page tree', () => {
   it('clamps a title to 200 UTF-8 bytes', () => {
     expect(clampTitle('  ')).toBe('Untitled')
     expect(new TextEncoder().encode(clampTitle('文'.repeat(100))).length).toBeLessThanOrEqual(200)
+  })
+})
+
+describe('fitTitle', () => {
+  const bytes = (s: string): number => new TextEncoder().encode(s).length
+
+  it('keeps a title within the cap as it is, spaces included', () => {
+    expect(fitTitle(' Plan ')).toBe(' Plan ')
+  })
+
+  it('cuts at MAX_PAGE_TITLE_BYTES of UTF-8', () => {
+    expect(bytes(fitTitle('a'.repeat(MAX_PAGE_TITLE_BYTES + 5)))).toBe(MAX_PAGE_TITLE_BYTES)
+  })
+
+  it('never cuts a character in two', () => {
+    // 3 bytes each: 66 fit in 200 bytes (198), the 67th does not.
+    const out = fitTitle('€'.repeat(100))
+    expect(out).toBe('€'.repeat(66))
+    expect(bytes(out)).toBeLessThanOrEqual(MAX_PAGE_TITLE_BYTES)
   })
 })

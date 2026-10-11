@@ -6,7 +6,6 @@ import { Permissions, has, type Channel } from '@hachiman/client'
 import { EventRow } from '@/components/events/event-row'
 import { GuildHeader } from '@/components/shell/guild-header'
 import { ChannelManageItems, ChannelRow } from '@/components/sidebar/channel-row'
-import { TOUCH_HIT } from '@/components/sidebar/sidebar-row'
 import {
   ContextMenu,
   ContextMenuContent,
@@ -18,6 +17,7 @@ import { useGuildChannels, usePermissions } from '@/hooks/use-hachiman'
 import { useDragSensors } from '@/hooks/use-sortable-row'
 import { ChannelIcon } from '@/lib/channel-icon'
 import { CHANNEL_KINDS, CREATE_CHANNEL_TYPES, groupChannels } from '@/lib/model'
+import { TOUCH_HIT } from '@/lib/touch'
 import { cn } from '@/lib/utils'
 import { hachiman } from '@/services/hachiman'
 import { openDialog, useDialogStore } from '@/stores/dialogStore'

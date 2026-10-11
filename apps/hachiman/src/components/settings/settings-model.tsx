@@ -27,7 +27,8 @@ import { GuildInvitesTab } from '@/components/guild-settings-invites'
 import { GuildMembersTab } from '@/components/guild-settings-members'
 import { GuildRolesTab } from '@/components/guild-settings-roles'
 import type { ListRowTile } from '@/components/mobile/list'
-import { DevicesPanel, useOwnDevices } from '@/components/security/devices-panel'
+import { DevicesPanel } from '@/components/security/devices-panel'
+import { useOwnDevices } from '@/components/security/use-own-devices'
 import { RecoverySection } from '@/components/security/recovery-panel'
 import { SecurityLog } from '@/components/security/security-log'
 import { useActiveInviteCount } from '@/components/settings/use-guild-invites'
@@ -35,7 +36,6 @@ import { ChannelOverviewPage } from '@/components/settings/channel-overview'
 import { ChannelPermissionsPage, overrideCount } from '@/components/settings/channel-permissions'
 import { GuildOverviewPage } from '@/components/settings/guild-overview'
 import { GuildSoundboardPage } from '@/components/settings/guild-soundboard'
-import { openStatusSheet } from '@/components/settings/status-sheet-state'
 import { AccountSection } from '@/components/settings/user/account'
 import { AdvancedSection } from '@/components/settings/user/advanced'
 import { AppearanceSection } from '@/components/settings/user/appearance'
@@ -348,7 +348,7 @@ function useUserSettingsModel(active: boolean, mobile: boolean): SettingsModel {
       icon: <LogOut />,
       onClick: mobile ? () => openDialog({ kind: 'signOut' }) : () => takusenService.signOut()
     },
-    onStatus: mobile ? openStatusSheet : undefined
+    onStatus: mobile ? () => openDialog({ kind: 'status' }) : undefined
   }
 }
 

@@ -26,7 +26,7 @@ import { cn } from '@/lib/utils'
 import { docsService } from '@/services/docs/DocsService'
 import type { DocHandle } from '@/services/docs/types'
 import { usePlatform } from '@/shared/PlatformContext'
-import { blurPageEditor, trackEditorFocus, usePageEditorState } from './page-editor-state'
+import { blurPageEditor, trackEditorFocus } from './page-editor-state'
 import {
   NO_SIGNALS,
   blockSignals,
@@ -230,8 +230,8 @@ function touchBlocks(signals: SignalStore<EditorSignals>): ReturnType<typeof $pr
 }
 
 /**
- * What the touch editor offers to its page (`onReady`) and its keyboard toolbar. Commands keep the
- * focus in the editor when it was there, so the keyboard stays up.
+ * What the touch editor offers to its keyboard toolbar. Commands keep the focus in the editor when
+ * it was there, so the keyboard stays up.
  */
 export interface PageEditorApi {
   /** Runs a ProseMirror command (`touch-editor.ts` has the block commands). True when it applied. */
@@ -245,7 +245,7 @@ export interface PageEditorApi {
   blur: () => void
   /** Gives the editor the focus. In a tap on iOS, the keyboard comes up. */
   focus: () => void
-  /** The focus, the block at the caret and the slash menu, for `useSyncExternalStore`. */
+  /** The block at the caret and the slash menu, for `useSyncExternalStore`. */
   subscribe: (onChange: () => void) => () => void
   getSignals: () => EditorSignals
 }
@@ -341,8 +341,6 @@ export interface PageEditorProps {
    * the page picker as a sheet. The page screen scrolls the editor with its hero.
    */
   variant?: 'panel' | 'touch'
-  /** Touch only: the editor API once the editor is up, and null when it goes away. */
-  onReady?: (api: PageEditorApi | null) => void
 }
 
 /** Where the "Link to page" picker opens (the desktop popover), and the editor ctx for the pick. */
@@ -364,8 +362,7 @@ export function PageEditor({
   editable,
   onOpenPage,
   onNewSubPage,
-  variant = 'panel',
-  onReady
+  variant = 'panel'
 }: PageEditorProps): React.JSX.Element {
   const touch = variant === 'touch'
   const platform = usePlatform()
@@ -375,9 +372,9 @@ export function PageEditor({
   const [mediaError, setMediaError] = useState<string | null>(null)
   const [api, setApi] = useState<PageEditorApi | null>(null)
   // The editor lives longer than one render; it calls the newest callbacks.
-  const live = useRef({ onOpenPage, onNewSubPage, editable, onReady, platform })
+  const live = useRef({ onOpenPage, onNewSubPage, editable, platform })
   useLayoutEffect(() => {
-    live.current = { onOpenPage, onNewSubPage, editable, onReady, platform }
+    live.current = { onOpenPage, onNewSubPage, editable, platform }
   })
 
   useEffect(() => {
@@ -391,13 +388,10 @@ export function PageEditor({
     const onTaskTap = touch ? taskBoxTap(getView) : null
     if (onTaskTap) for (const type of TASK_TAP_EVENTS) root.addEventListener(type, onTaskTap, true)
     const stopFocus = touch ? trackEditorFocus(root) : null
-    // Touch: the toolbar's signals, and the layer of the slash menu.
     const signals = touch ? signalStore<EditorSignals>(NO_SIGNALS) : null
     const layer = touch ? slashLayer() : null
-    const stopSignals = [
-      signals && usePageEditorState.subscribe((st) => signals.set({ focused: st.focused })),
+    const stopSlash =
       signals && layer && watchSlashMenu(layer, (open) => signals.set({ slash: open }))
-    ]
     const newSubPage = (ctx: Ctx): void => {
       ctx.get(commandsCtx).call(clearTextInCurrentBlockCommand.key)
       void live.current.onNewSubPage().then((page) => {
@@ -532,7 +526,6 @@ export function PageEditor({
         )
         .use(touchBlocks(signals))
     }
-    let ready: PageEditorApi | null = null
     const created = crepe.create().then(() => {
       if (destroyed) return
       crepe.editor.action((ctx) => {
@@ -542,13 +535,13 @@ export function PageEditor({
       crepeRef.current = crepe
       docsService.setMarkdownSource(handle.pageId, () => crepe.getMarkdown())
       if (!signals) return
-      ready = touchApi(
-        crepe.editor.action((ctx) => ctx.get(editorViewCtx)),
-        root,
-        signals
+      setApi(
+        touchApi(
+          crepe.editor.action((ctx) => ctx.get(editorViewCtx)),
+          root,
+          signals
+        )
       )
-      setApi(ready)
-      live.current.onReady?.(ready)
     })
     created.catch((e) => console.warn('[pages] editor create failed', e))
 
@@ -558,12 +551,11 @@ export function PageEditor({
       if (onTaskTap)
         for (const type of TASK_TAP_EVENTS) root.removeEventListener(type, onTaskTap, true)
       stopFocus?.()
-      for (const stop of stopSignals) if (stop) stop()
+      stopSlash?.()
       crepeRef.current = null
       setPickAt(null)
       setMediaError(null)
       setApi(null)
-      if (ready) live.current.onReady?.(null)
       docsService.setMarkdownSource(handle.pageId, null)
       void created
         .then(() => crepe.destroy())
@@ -642,7 +634,6 @@ export function PageEditor({
   )
 }
 
-/** The API of a touch editor over its view. */
 function touchApi(
   view: EditorView,
   root: HTMLElement,

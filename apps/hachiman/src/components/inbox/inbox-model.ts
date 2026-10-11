@@ -160,7 +160,6 @@ export function filterInbox(entries: readonly InboxEntry[], filter: InboxFilter)
   )
 }
 
-/** The count of each filter chip. */
 export function inboxCounts(entries: readonly InboxEntry[]): Record<InboxFilter, number> {
   let mentions = 0
   for (const e of entries) if (e.kind === 'mention') mentions++

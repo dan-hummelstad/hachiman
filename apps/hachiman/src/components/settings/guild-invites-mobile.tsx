@@ -4,6 +4,7 @@ import type { Invite, Member } from '@hachiman/client'
 import { DockedFoot } from '@/components/mobile/foot'
 import { ListGroup, ListRow, SectionLabel } from '@/components/mobile/list'
 import { Sheet, SheetBody, SheetContent, SheetFoot, SheetHeader } from '@/components/mobile/sheet'
+import { InviteHistoryScope } from '@/components/settings/invite-history-option'
 import { InviteOptions } from '@/components/settings/invite-options'
 import {
   countActiveInvites,
@@ -50,7 +51,6 @@ interface ShownLink {
   scope: string[]
 }
 
-/** The copy that the create tap started did not reach the clipboard. */
 class LinkNotCopied extends Error {
   readonly made: CreatedInvite
   constructor(made: CreatedInvite) {
@@ -384,19 +384,7 @@ function InviteCreateBar({
                 toggle={{ checked: form.history, onCheckedChange: form.setHistory }}
               />
             </ListGroup>
-            {form.history && (
-              <Callout tone="caution" size="touch">
-                Anyone who gets this link can read the earlier messages and the pages of{' '}
-                {form.scope.map((c, i) => (
-                  <span key={c.id}>
-                    {i > 0 && ', '}
-                    <span className="font-semibold">#{c.name ?? c.id}</span>
-                    {c.historyVisibility === 'joined' && ' (joined)'}
-                  </span>
-                ))}
-                .
-              </Callout>
-            )}
+            {form.history && <InviteHistoryScope scope={form.scope} size="touch" />}
           </>
         )}
       </div>

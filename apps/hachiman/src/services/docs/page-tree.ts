@@ -173,15 +173,21 @@ export function pageTitle(page: Pick<PageNode, 'title' | 'titleState'>): string 
 /** The cap of a title in UTF-8 bytes (MAX_PAGE_TITLE_BYTES of @hachiman/crypto, §12.20). */
 export const MAX_PAGE_TITLE_BYTES = 200
 
-/** A title as it is sent: trimmed, at most MAX_PAGE_TITLE_BYTES bytes, 'Untitled' when empty. */
-export function clampTitle(title: string): string {
+/** `value` cut to MAX_PAGE_TITLE_BYTES of UTF-8, at a character edge, so typing stops there. */
+export function fitTitle(value: string): string {
   const enc = new TextEncoder()
+  if (enc.encode(value).length <= MAX_PAGE_TITLE_BYTES) return value
   let out = ''
-  for (const ch of title.trim()) {
+  for (const ch of value) {
     if (enc.encode(out + ch).length > MAX_PAGE_TITLE_BYTES) break
     out += ch
   }
-  return out.trim() || 'Untitled'
+  return out
+}
+
+/** A title as it is sent: trimmed, at most MAX_PAGE_TITLE_BYTES bytes, 'Untitled' when empty. */
+export function clampTitle(title: string): string {
+  return fitTitle(title.trim()).trim() || 'Untitled'
 }
 
 /**

@@ -29,7 +29,6 @@ final class AppSchemeHandler: NSObject, WKURLSchemeHandler {
         csp = policy?.isEmpty == false ? policy : nil
     }
 
-    /// The `WebApp/` folder in the app bundle.
     static var bundledRoot: URL {
         Bundle.main.bundleURL.appendingPathComponent("WebApp", isDirectory: true)
     }
@@ -77,7 +76,6 @@ final class AppSchemeHandler: NSObject, WKURLSchemeHandler {
         }
     }
 
-    /// The response and body for a request URL.
     func response(for url: URL?) -> (HTTPURLResponse, Data) {
         let responseURL = url ?? Self.startURL
         guard let csp else {

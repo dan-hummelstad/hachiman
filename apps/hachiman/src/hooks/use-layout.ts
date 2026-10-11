@@ -9,7 +9,6 @@ export const NARROW_QUERY = '(max-width: 767px)'
 /** A phone in landscape in the browser host. */
 export const SHORT_TOUCH_QUERY = '(pointer: coarse) and (max-height: 500px)'
 
-/** Mobile on the iOS host, in a narrow window, or on a short touch screen. */
 export function layoutOf(facts: { ios: boolean; narrow: boolean; shortTouch: boolean }): Layout {
   return facts.ios || facts.narrow || facts.shortTouch ? 'mobile' : 'desktop'
 }

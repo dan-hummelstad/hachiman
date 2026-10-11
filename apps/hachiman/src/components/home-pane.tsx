@@ -176,7 +176,6 @@ function MobilePeopleScreen(): React.JSX.Element {
   )
 }
 
-/** The list of the selected tab, or why it is empty. */
 function PeopleResults({
   view: { tab, query, visible, list, matches },
   touch = false,
@@ -388,7 +387,6 @@ function TouchPersonRow({ user, dim }: { user: User; dim: boolean }): React.JSX.
   )
 }
 
-/** The people I blocked (`useBlockedUsers`), with Unblock. */
 function BlockedList({ query, touch }: { query: string; touch: boolean }): React.JSX.Element {
   const { users, count } = useBlockedUsers()
   const matches = filterPeople(users, query)

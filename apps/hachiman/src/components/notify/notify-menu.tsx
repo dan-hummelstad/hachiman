@@ -66,7 +66,6 @@ interface ChannelNotify {
   own: boolean
   /** Muted here or through the guild. */
   muted: boolean
-  /** Muted here. */
   mutedHere: boolean
   /** No pings: muted or the level "Nothing". */
   silent: boolean

@@ -146,7 +146,6 @@ export interface SwitchSection {
   items: SwitchItem[]
 }
 
-/** The most results in the RECENT group. */
 export const RECENT_MAX = 5
 
 /**

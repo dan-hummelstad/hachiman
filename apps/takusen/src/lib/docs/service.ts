@@ -62,23 +62,19 @@ export async function updatePage(repo: DocsRepo, accept: AcceptDocEnvelope, inpu
       throw new ApiError('PageCycle', 400, 'a page cannot move into its own subtree')
     }
   }
-  // After lockTree: the lock order of a move. The compare and the banner rules read the locked
-  // row, not the unlocked `page` of the route.
-  let current = page
-  if (body.ifUpdatedAt !== undefined || body.banner !== undefined || body.parentId) {
-    const locked = await repo.lockPage(page.id)
-    if (!locked) throw new NotFoundError('Unknown page')
-    current = locked
-  }
+  // After lockTree: the lock order of a move. The rules below read the locked row, not the
+  // unlocked `page` of the route.
+  const current = await repo.lockPage(page.id)
+  if (!current) throw new NotFoundError('Unknown page')
   if (body.ifUpdatedAt !== undefined && current.updatedAt.getTime() !== Date.parse(body.ifUpdatedAt)) {
     // A re-wrap must not undo a rename or a banner change (§12.20).
     throw new ApiError('PageConflict', 409, 'the page changed after ifUpdatedAt')
   }
   if (body.titleEnvelope) {
-    await accept({ channelId: page.channelId, pageId: page.id, userId: input.userId, deviceId: input.deviceId, kind: 'doc_title', envelope: body.titleEnvelope })
+    await accept({ channelId: current.channelId, pageId: current.id, userId: input.userId, deviceId: input.deviceId, kind: 'doc_title', envelope: body.titleEnvelope })
   }
-  const banner = await bannerPatch(repo, accept, { ...input, page: current })
-  const row = await repo.updatePage(page.id, {
+  const banner = await bannerPatch(repo, accept, input, current)
+  const row = await repo.updatePage(current.id, {
     ...(body.parentId !== undefined && { parentId: body.parentId }),
     ...(body.position !== undefined && { position: body.position }),
     ...(body.titleEnvelope && { titleEnvelope: body.titleEnvelope }),
@@ -94,8 +90,13 @@ export async function updatePage(repo: DocsRepo, accept: AcceptDocEnvelope, inpu
  * page has a banner. Dropped ids get last_referenced_at = now, so the media sweep keeps them for
  * its undo window.
  */
-async function bannerPatch(repo: DocsRepo, accept: AcceptDocEnvelope, input: UpdatePageInput): Promise<Pick<DocPagePatch, 'bannerEnvelope' | 'bannerUploadIds'>> {
-  const { page, body, now } = input
+async function bannerPatch(
+  repo: DocsRepo,
+  accept: AcceptDocEnvelope,
+  input: UpdatePageInput,
+  page: DocPageRow,
+): Promise<Pick<DocPagePatch, 'bannerEnvelope' | 'bannerUploadIds'>> {
+  const { body, now } = input
   const parentId = body.parentId !== undefined ? body.parentId : page.parentId
   // A move under a page clears the banner as `banner: null` does.
   const banner = body.banner === undefined && parentId !== null && page.bannerEnvelope !== null ? null : body.banner
@@ -114,10 +115,7 @@ async function bannerPatch(repo: DocsRepo, accept: AcceptDocEnvelope, input: Upd
     return { bannerEnvelope: banner.envelope }
   }
   const fresh = ids.filter((id) => !stored.includes(id))
-  if (fresh.length > 0) {
-    const added = await repo.claimMediaUploads(page.id, fresh, input.userId, now)
-    if (added > 0 && !(await repo.addPageStorage(input.guildId, added, input.limits.guildStorageBytes))) throw quotaExceeded()
-  }
+  if (fresh.length > 0) await claimMedia(repo, { page, guildId: input.guildId, userId: input.userId, uploadIds: fresh, now, limits: input.limits })
   await repo.touchPageMedia(page.id, stored.filter((id) => !ids.includes(id)), now)
   return { bannerEnvelope: banner.envelope, bannerUploadIds: ids }
 }

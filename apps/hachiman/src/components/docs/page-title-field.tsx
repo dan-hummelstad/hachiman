@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react'
 import { cn, errMsg } from '@/lib/utils'
 import { docsService } from '@/services/docs/DocsService'
-import { MAX_PAGE_TITLE_BYTES, pageTitle } from '@/services/docs/page-tree'
+import { fitTitle, pageTitle } from '@/services/docs/page-tree'
 import type { PageNode } from '@/stores/docsStore'
 
 const PLACEHOLDER = 'Untitled'
@@ -15,19 +15,6 @@ export function titleDraft(page: Pick<PageNode, 'title' | 'titleState'>): string
   if (page.titleState !== 'ok') return ''
   const title = page.title.trim()
   return title === '' || title === PLACEHOLDER ? '' : page.title
-}
-
-/** `value` cut to MAX_PAGE_TITLE_BYTES of UTF-8, at a character edge, so typing stops there. */
-// eslint-disable-next-line react-refresh/only-export-components
-export function fitTitle(value: string): string {
-  const enc = new TextEncoder()
-  if (enc.encode(value).length <= MAX_PAGE_TITLE_BYTES) return value
-  let out = ''
-  for (const ch of value) {
-    if (enc.encode(out + ch).length > MAX_PAGE_TITLE_BYTES) break
-    out += ch
-  }
-  return out
 }
 
 /**

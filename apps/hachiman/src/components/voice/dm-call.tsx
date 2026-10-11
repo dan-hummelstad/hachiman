@@ -1,10 +1,10 @@
 import { useEffect, useRef } from 'react'
-import { create } from 'zustand'
 import { Phone, PhoneCall, PhoneOff } from 'lucide-react'
 import type { Channel } from '@hachiman/client'
 import { UserAvatar } from '@/components/shell/user-avatar'
 import { Button } from '@/components/ui/button'
 import { IconButton } from '@/components/ui/icon-button'
+import { closeDmStage, openDmStage, useDmStageShown } from '@/components/voice/dm-stage-state'
 import { useCanJoinVoice } from '@/components/voice/use-call-security'
 import { Stage } from '@/components/voice/voice-room'
 import { useChannelOccupants } from '@/hooks/use-hachiman'
@@ -17,36 +17,13 @@ import { voiceService } from '@/services/VoiceService'
 import { useRingStore } from '@/stores/ringStore'
 import { useVoiceStore } from '@/stores/voiceStore'
 
-/**
- * The DM whose call stage shows on the mobile layout, in place of its chat. In memory only: a
- * DM with my call opens on its chat, with the voice bar on the composer, and the bar (or the
- * header's call button) opens the stage.
- */
-const useDmStage = create<{ channelId: string | null }>()(() => ({ channelId: null }))
-
-/** Shows the stage of the DM call in `channelId` on the mobile layout (the voice bar's tap). */
-// eslint-disable-next-line react-refresh/only-export-components -- the voice bar calls it.
-export const openDmStage = (channelId: string): void => useDmStage.setState({ channelId })
-
-/** Back to the chat of the DM. */
-const closeDmStage = (): void => useDmStage.setState({ channelId: null })
+/** The header's call button of the mobile DM in my call: "Show the chat" focuses it. */
+const callButton: { current: HTMLButtonElement | null } = { current: null }
 
 /** The stage's "Show the chat": back to the chat, with the focus on the header's call button. */
 const showChat = (): void => {
   closeDmStage()
-  document.querySelector<HTMLElement>('[data-dm-call-button]')?.focus()
-}
-
-/**
- * True while the mobile layout shows the full-height stage of the DM `channelId`: I am in its
- * call and opened the stage. The stage then takes the place of the chat (MobileChatPane).
- */
-// eslint-disable-next-line react-refresh/only-export-components -- the mobile chat pane reads it.
-export function useDmStageShown(channelId: string | null): boolean {
-  const mobile = useLayout() === 'mobile'
-  const open = useDmStage((s) => channelId !== null && s.channelId === channelId)
-  const here = useVoiceStore((s) => channelId !== null && s.channelId === channelId)
-  return mobile && open && here
+  callButton.current?.focus()
 }
 
 /**
@@ -63,10 +40,6 @@ export function DmCallPanel({ channel }: { channel: Channel }): React.JSX.Elemen
   const here = useVoiceStore((s) => s.channelId === channel.id)
   const occupants = useChannelOccupants(null, channel.id)
   const stage = useDmStageShown(channel.id)
-  // The call ended: the next call in this DM opens on the chat again.
-  useEffect(() => {
-    if (!here) useDmStage.setState((s) => (s.channelId === channel.id ? { channelId: null } : s))
-  }, [here, channel.id])
   if (here && mobile) return stage ? <MobileDmStage channel={channel} /> : null
   if (here)
     return (
@@ -178,8 +151,8 @@ export function DmCallButton({
   if (here && mobile)
     return (
       <IconButton
+        ref={callButton}
         label={stage ? 'Show the chat' : 'Show the call'}
-        data-dm-call-button=""
         data-stage={stage ? 'on' : 'off'}
         onClick={() => (stage ? closeDmStage() : openDmStage(channel.id))}
         className={cn(className, 'text-feature-voice-text data-[stage=on]:bg-feature-voice/12')}

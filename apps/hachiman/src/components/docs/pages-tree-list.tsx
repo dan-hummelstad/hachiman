@@ -104,6 +104,8 @@ export function PagesTreeList({
     draft === null ? -1 : draft.parentId === null ? shown.length : subtreeEnd(shown, draft.parentId)
   const draftDepth =
     draft?.parentId != null ? (shown.find((r) => r.page.id === draft.parentId)?.depth ?? -1) + 1 : 0
+  // A draft whose parent row left the list (deleted or moved away) has no field: offer New page.
+  const activeDraft = draftAt >= 0 ? draft : null
   // One keyed list, so the field of a new page keeps its text when rows come or go around it.
   const items = shown.map((row) => (
     <PageRow
@@ -167,13 +169,13 @@ export function PagesTreeList({
             >
               <ul aria-label="Pages" className="flex flex-col gap-0.5">
                 {items}
-                {pages.length === 0 && draft === null && (
+                {pages.length === 0 && activeDraft === null && (
                   <li className="text-text-tertiary px-2 py-2 text-sm">No pages yet.</li>
                 )}
                 {searching && shown.length === 0 && (
                   <li className="text-text-tertiary px-2 py-2 text-sm">No page matches.</li>
                 )}
-                {canEdit && draft === null && (
+                {canEdit && activeDraft === null && (
                   <li>
                     <button
                       type="button"
