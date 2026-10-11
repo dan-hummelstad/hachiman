@@ -1,6 +1,9 @@
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import { Crown, Pencil, Plus, Search } from 'lucide-react'
-import { Permissions, has, type Guild, type Member, type Role } from '@hachiman/client'
+import type { Guild, Member, Role } from '@hachiman/client'
+import { GuildMembersMobile } from '@/components/settings/guild-members-mobile'
+import { filterMembers, kickCopy } from '@/components/settings/member-gates'
+import { useMemberEdit, useMemberGates } from '@/components/settings/use-member-gates'
 import { UserAvatar } from '@/components/shell/user-avatar'
 import { Button } from '@/components/ui/button'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
@@ -16,50 +19,39 @@ import { Input } from '@/components/ui/input'
 import { RoleChip } from '@/components/ui/role-chip'
 import { SystemTag } from '@/components/ui/system-tag'
 import { useAction, type Action } from '@/hooks/use-action'
-import { usePermissions, useRoleCeiling } from '@/hooks/use-hachiman'
+import { useLatched } from '@/hooks/use-latched'
+import { useLayout } from '@/hooks/use-layout'
 import { useMemberView } from '@/hooks/use-member'
-import { displayName, memberRoles, rolesByPositionDesc, sortMembersByName } from '@/lib/model'
+import { displayName, memberRoles } from '@/lib/model'
 import { ROLE_INK_SCOPE } from '@/lib/role-ink'
 import { cn } from '@/lib/utils'
-import { adminActionService } from '@/services/AdminActionService'
 import { hachiman } from '@/services/hachiman'
-import { useGuildStore } from '@/stores/guildStore'
-import { useUserStore } from '@/stores/userStore'
 
 const GRID = 'grid grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)_5rem] gap-3 px-3.5'
+
+/** Guild settings → Members: the desktop table, or the phone list (M54). */
+export function GuildMembersTab({ guild }: { guild: Guild }): React.JSX.Element {
+  return useLayout() === 'mobile' ? (
+    <GuildMembersMobile guild={guild} />
+  ) : (
+    <GuildMembersDesktop guild={guild} />
+  )
+}
 
 /**
  * Members table with nick + roles. Per-row actions are gated like the server (contract §4):
  * roles → MANAGE_ROLES + hierarchy; nick → self CHANGE_NICKNAME / others MANAGE_NICKNAMES;
  * kick → KICK_MEMBERS, never the owner or yourself.
  */
-export function GuildMembersTab({ guild }: { guild: Guild }): React.JSX.Element {
-  const members = useGuildStore((s) => s.members.get(guild.id))
-  const roles = useGuildStore((s) => s.roles.get(guild.id))
-  const myId = useUserStore((s) => s.me?.id)
-  const perms = usePermissions(guild.id)
-  const ceiling = useRoleCeiling(guild.id)
+function GuildMembersDesktop({ guild }: { guild: Guild }): React.JSX.Element {
+  const { sorted, roles, assignable, gate } = useMemberGates(guild)
   const [query, setQuery] = useState('')
   const [kicking, setKicking] = useState<Member | null>(null)
+  // The name stays in the window while it fades out.
+  const kicked = useLatched(kicking)
+  const kick = kickCopy(kicked ? displayName(kicked) : '')
   const action = useAction()
-
-  const sorted = useMemo(() => sortMembersByName(members?.values() ?? []), [members])
-  // Roles below my ceiling, highest first (never @everyone).
-  const assignable = useMemo(
-    () =>
-      rolesByPositionDesc(
-        [...(roles?.values() ?? [])].filter((r) => r.id !== guild.id && r.position < ceiling)
-      ),
-    [roles, guild.id, ceiling]
-  )
-  const q = query.trim().toLowerCase()
-  const shown = q
-    ? sorted.filter(
-        (m) => displayName(m).toLowerCase().includes(q) || m.user.username.toLowerCase().includes(q)
-      )
-    : sorted
-  const canRoles = has(perms, Permissions.MANAGE_ROLES)
-  const canKick = has(perms, Permissions.KICK_MEMBERS)
+  const shown = filterMembers(sorted, query)
 
   return (
     <div className={cn('grid gap-3', ROLE_INK_SCOPE)}>
@@ -92,8 +84,7 @@ export function GuildMembersTab({ guild }: { guild: Guild }): React.JSX.Element 
           </span>
         </div>
         {shown.map((m) => {
-          const isSelf = m.user.id === myId
-          const isOwner = m.user.id === guild.ownerId
+          const { isSelf, isOwner, canNick, canKick } = gate(m)
           return (
             <MemberRow
               key={m.user.id}
@@ -101,12 +92,9 @@ export function GuildMembersTab({ guild }: { guild: Guild }): React.JSX.Element 
               roles={roles}
               isOwner={isOwner}
               isSelf={isSelf}
-              canNick={has(
-                perms,
-                isSelf ? Permissions.CHANGE_NICKNAME : Permissions.MANAGE_NICKNAMES
-              )}
-              assignable={canRoles ? assignable : []}
-              onKick={canKick && !isOwner && !isSelf ? () => setKicking(m) : undefined}
+              canNick={canNick}
+              assignable={assignable}
+              onKick={canKick ? () => setKicking(m) : undefined}
               run={action.run}
             />
           )
@@ -120,10 +108,10 @@ export function GuildMembersTab({ guild }: { guild: Guild }): React.JSX.Element 
       <ConfirmDialog
         open={kicking !== null}
         onClose={() => setKicking(null)}
-        title={`Kick ${kicking ? displayName(kicking) : ''}?`}
-        body="They leave the guild now. They can come back with a new invite."
+        title={kick.title}
+        body={kick.body}
         confirmLabel="Kick"
-        what={`kick ${kicking ? displayName(kicking) : 'the member'}`}
+        what={kick.what}
         tone="danger"
         onConfirm={async () => {
           if (kicking) await hachiman.rest.kickMember(guild.id, kicking.user.id)
@@ -150,16 +138,12 @@ function MemberRow(props: {
   const id = member.user.id
   const { name, ink } = useMemberView(guildId, id)
   const [nick, setNick] = useState<string | null>(null) // non-null = editing
+  const edit = useMemberEdit(member, name, run)
 
-  const setRoles = (next: string[]): void =>
-    void run(`update roles for ${name}`, () =>
-      adminActionService.updateMember(guildId, id, { roles: next })
-    )
+  const setRoles = (next: string[]): void => void edit.setRoles(next)
   const saveNick = (e: React.FormEvent): void => {
     e.preventDefault()
-    void run(`change the nickname for ${name}`, () =>
-      adminActionService.updateMember(guildId, id, { nick: nick?.trim() || null })
-    )
+    void edit.saveNick(nick ?? '')
     setNick(null)
   }
   const canRemove = (r: Role): boolean => assignable.some((a) => a.id === r.id)
@@ -243,11 +227,7 @@ function MemberRow(props: {
                     key={r.id}
                     checked={on}
                     onSelect={(e) => e.preventDefault()}
-                    onCheckedChange={() =>
-                      setRoles(
-                        on ? member.roles.filter((x) => x !== r.id) : [...member.roles, r.id]
-                      )
-                    }
+                    onCheckedChange={() => void edit.toggleRole(r.id)}
                   >
                     {r.name}
                   </DropdownMenuCheckboxItem>
@@ -262,6 +242,7 @@ function MemberRow(props: {
           <Button
             variant="quiet"
             size="sm"
+            aria-label={`Kick ${name}`}
             className="text-text-tertiary hover:bg-feature-danger/15 hover:text-feature-danger-text"
             onClick={onKick}
           >

@@ -13,7 +13,7 @@ import {
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu'
 import { ErrorText } from '@/components/ui/field'
-import { DockedFoot } from '@/components/settings/channel-overview'
+import { DockedFoot } from '@/components/mobile/foot'
 import { channelPermissionLabels } from '@/components/settings/permission-labels'
 import { SaveBar } from '@/components/settings/save-bar'
 import { useAction } from '@/hooks/use-action'

@@ -14,6 +14,7 @@ import {
   type User,
   type VoiceState
 } from '@hachiman/client'
+import { resolveTakusenEnv } from '@/shared/takusen-env'
 import type { MembershipEvent } from '@hachiman/crypto'
 import type { ChatMessage } from '@/stores/messagesStore'
 import { IMG, avatarKey } from './images'
@@ -410,6 +411,12 @@ const extraGuilds: GuildFull[] = [
 })
 
 export const DM1 = 'c-dm-marlowe'
+
+/** A link to this server's invite page, as `inviteUrl` makes it (services/InviteService.ts). */
+const PREVIEW_INVITE_URL = `${
+  resolveTakusenEnv((import.meta as unknown as { env?: Record<string, unknown> }).env ?? {})
+    .issuerOrigin
+}/invite/nt0wl5x`
 export const DM2 = 'c-dm-yuki'
 export const DM3 = 'c-dm-juni'
 export const DM4 = 'c-dm-quill'
@@ -665,6 +672,9 @@ function otherHistory(): Map<string, ChatMessage[]> {
   out.set(DM1, [
     msg(DM1, null, U.marlowe, at(y, 23, 5), 'you around tomorrow morning?'),
     msg(DM1, null, ME, at(t, 7, 41), 'yeah from 8'),
+    // An invite link on this server (read already): the mobile layout opens the join sheet in the
+    // app (M45).
+    msg(DM1, null, U.marlowe, at(t, 7, 42), `join us for scrims: ${PREVIEW_INVITE_URL}`),
     msg(
       DM1,
       null,

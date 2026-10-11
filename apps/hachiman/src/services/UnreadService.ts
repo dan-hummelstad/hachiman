@@ -1,9 +1,10 @@
 /**
  * Read state and unread counts (N7). A client feature (services/features.ts): READY, MESSAGE_CREATE
- * (after the decrypt), READ_STATE_UPDATE and channel or guild removals. The UI calls `markRead`
- * and `markChannelRead`.
+ * (after the decrypt), READ_STATE_UPDATE and channel or guild removals. The UI calls `markRead`,
+ * `markChannelRead` and `markAllRead`.
  */
 import type { GatewayDispatch, GatewayEvents, Message } from '@hachiman/client'
+import { isMuted, notifyLevel, visibleBadge } from '@/lib/notify'
 import { cryptoService } from '@/services/CryptoService'
 import { hachiman } from '@/services/client'
 import type { ClientFeature } from '@/services/features'
@@ -12,6 +13,7 @@ import { rowFor, toEncrypted } from '@/services/message-decrypt'
 import { mentionPass } from '@/services/unread-pass'
 import { useMessageStore, type ChatMessage } from '@/stores/messagesStore'
 import { selectedChannelId, useNavStore } from '@/stores/navStore'
+import { notifyPrefs } from '@/stores/prefsStore'
 import {
   addMentions,
   addUnread,
@@ -181,6 +183,30 @@ export const unreadService = {
     const last = loaded?.findLast((m) => !m.pending && !m.failed)?.id
     const id = last ?? hachiman.cache.readStates.get(channelId)?.lastMessageId
     if (id) unreadService.markRead(channelId, id)
+  },
+
+  /**
+   * "Mark all read" of the inbox screen (M67): `markChannelRead` for each channel with a visible
+   * badge (its notification level and mute applied) or a mention in the inbox. Returns how many
+   * channels it marked.
+   */
+  markAllRead(): number {
+    const channels = hachiman.cache.channels
+    const prefs = notifyPrefs()
+    let marked = 0
+    for (const [channelId, counts] of useUnreadStore.getState().byChannel) {
+      const guildId = channels.get(channelId)?.guildId
+      if (guildId === undefined) continue
+      const badge = visibleBadge(
+        counts,
+        notifyLevel(prefs, channelId, guildId),
+        isMuted(prefs, channelId, guildId)
+      )
+      if (!badge.unread && counts.mentions === 0) continue
+      unreadService.markChannelRead(channelId)
+      marked++
+    }
+    return marked
   },
 
   /** Sign-out. */

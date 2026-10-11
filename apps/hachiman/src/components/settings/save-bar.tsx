@@ -69,7 +69,7 @@ function SaveFoot({
   return (
     <div
       data-slot="save-foot"
-      className="bg-surface-content border-line-hairline sticky bottom-0 z-10 -mx-4 flex flex-col gap-2.5 border-t px-4 pt-3 pb-[calc(6px+var(--safe-bottom,0px))] in-data-[keyboard=open]:pb-1.5"
+      className="bg-surface-content border-line-hairline sticky bottom-0 z-10 -mx-4 flex flex-col gap-2.5 border-t px-4 pt-3 pb-[max(16px,calc(6px+var(--safe-bottom,0px)))] in-data-[keyboard=open]:pb-1.5"
     >
       <div className={cn('flex min-h-7 items-center gap-2', !dirty && !saved && '-mb-2.5 min-h-0')}>
         {/* The live region holds only the status text, and stays mounted while it is empty. */}

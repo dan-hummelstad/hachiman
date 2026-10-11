@@ -1,19 +1,22 @@
 import { NativeSelect } from '@/components/ui/native-select'
 import { useRecommendedRegion } from '@/hooks/use-recommended-region'
 
-/** Voice-region picker. `''` is "Automatic"; its label names the measured recommendation, if any. */
+/**
+ * Voice-region picker. `''` is "Automatic"; its label names the measured recommendation, if any.
+ * Other props (`id`, `className`, `size`, `lead`, `disabled`) go to the `NativeSelect`. Inside a
+ * `MobileField`, leave out `id`: the field gives it.
+ */
 export function RegionSelect({
-  id,
   value,
-  onChange
-}: {
-  id: string
+  onChange,
+  ...props
+}: Omit<React.ComponentProps<typeof NativeSelect>, 'value' | 'onChange' | 'children'> & {
   value: string
   onChange: (region: string) => void
 }): React.JSX.Element {
   const { regions, recommended } = useRecommendedRegion()
   return (
-    <NativeSelect id={id} value={value} onChange={(e) => onChange(e.target.value)}>
+    <NativeSelect {...props} value={value} onChange={(e) => onChange(e.target.value)}>
       <option value="">
         {recommended ? `Automatic (recommended: ${recommended.displayName})` : 'Automatic'}
       </option>

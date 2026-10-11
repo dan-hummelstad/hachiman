@@ -73,7 +73,11 @@ function PreviewText({ message }: { message: ChatMessage }): React.JSX.Element {
     <>
       {text !== '' && (
         <p className="text-text-primary line-clamp-3 text-[13.5px] leading-5 break-words whitespace-pre-wrap">
-          <MessageTokens tokens={tokens} guildId={message.guildId} />
+          <MessageTokens
+            tokens={tokens}
+            guildId={message.guildId}
+            from={{ userId: message.author.id, channelId: message.channelId }}
+          />
         </p>
       )}
       {files !== null && (

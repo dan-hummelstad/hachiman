@@ -4,10 +4,17 @@ import { create } from 'zustand'
 import { devtools } from 'zustand/middleware'
 import type { CreateChannelBody } from '@hachiman/client'
 
+/** Where an invite link was tapped: the sender and the channel of the message (M45). */
+export interface InviteFrom {
+  userId: string
+  channelId: string
+}
+
 /** The app-level modals before E2EE. Settings are not dialogs: see `openSettings` (navStore). */
 type AppDialog =
   | { kind: 'addGuild' }
-  | { kind: 'joinInvite'; code: string }
+  /** `from`: the invite link was tapped in a message ("From marlowe, in your DMs"). */
+  | { kind: 'joinInvite'; code: string; from?: InviteFrom }
   | {
       kind: 'createChannel'
       guildId: string
@@ -60,6 +67,13 @@ export type DialogKind = AppDialog['kind']
 export type SecurityDialogKind = SecurityDialog['kind']
 /** Every kind that `openDialog` and `useDialog` take. */
 export type AnyDialogKind = Dialog['kind']
+
+/**
+ * The dialogs that a control in the left drawer opens and then shows lit under the dim (M44: the
+ * "+" beside GUILDS). On the mobile layout the drawer stays open under them; any other dialog
+ * closes it (`lib/mobile-drawer.ts`).
+ */
+export const OVER_LEFT_DRAWER: ReadonlySet<AnyDialogKind> = new Set<AnyDialogKind>(['addGuild'])
 
 /** An open dialog: its request plus a per-open id (a reopen of the same request gets a new one). */
 export type OpenDialog = Dialog & { id: number }

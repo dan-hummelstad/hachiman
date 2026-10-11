@@ -15,6 +15,10 @@ import { cn } from '@/lib/utils'
 
 const COLUMNS = ROW_TILES + 1
 
+/** The lit "+" of a row (M44): a voice-green tile with a green mark. Mobile layout only. */
+const ADD_LIT =
+  'mobile:border mobile:border-feature-voice/50 mobile:bg-feature-voice/18 mobile:text-feature-voice-text'
+
 /**
  * On the mobile layout a tile is a translucent fill (it takes the drawer tint, M3, M12), and the
  * rings around its marks are holes in the icons under them (`lib/tile-cutouts.ts`): each
@@ -40,11 +44,13 @@ const tileClass = (lit: boolean, held = false): string =>
  * four `ids` (the open guild grid) it ends the first line and the rest follow, five a line.
  * Arrow keys move the focus (up and down by a line). `onMove`: drag a tile onto another to
  * reorder (on a phone: hold it, then move). `onEscape`: Escape inside the row (the open grid
- * folds).
+ * folds). `addLit`: the sheet that "+" opens is open; on the mobile layout the "+" stays lit
+ * under the dim (M44).
  */
 export function TileRow({
   label,
   add,
+  addLit = false,
   ids,
   renderTile,
   cluster,
@@ -53,6 +59,7 @@ export function TileRow({
 }: {
   label: string
   add: { label: string; onClick: () => void }
+  addLit?: boolean
   ids: readonly string[]
   renderTile: (id: string) => React.ReactNode
   cluster: React.ReactNode
@@ -96,7 +103,11 @@ export function TileRow({
           size="sm"
           label={add.label}
           onClick={add.onClick}
-          className={cn('text-text-tertiary rounded-control h-5 w-[22px]', TOUCH_HIT)}
+          className={cn(
+            'text-text-tertiary rounded-control h-5 w-[22px]',
+            TOUCH_HIT,
+            addLit && ADD_LIT
+          )}
         >
           <Plus />
         </IconButton>

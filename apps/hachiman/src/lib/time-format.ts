@@ -71,15 +71,40 @@ export function formatDayMonth(iso: string | null): string | null {
 }
 
 /** The start of the local calendar day of `ms`. */
-const dayStart = (ms: number): number => {
+export const dayStart = (ms: number): number => {
   const d = new Date(ms)
   return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
 }
 
 /**
+ * The calendar days from `ms` back to `now`: 0 the same day, 1 the day before, negative for a
+ * later day. DST shifts make a day 23 or 25 hours long, so the count rounds.
+ */
+export const calendarDaysAgo = (ms: number, now: number): number =>
+  Math.round((dayStart(now) - dayStart(ms)) / 86_400_000)
+
+/**
+ * The day and month ("6 Oct", in the locale's order), with the year when it is not the year of
+ * `now` ("6 Oct 2025"): the date of a list row, a key log row or a block.
+ */
+export function formatDayMonthYear(
+  at: Date | number,
+  now: number = Date.now(),
+  locale?: string
+): string {
+  const date = new Date(typeof at === 'number' ? at : at.getTime())
+  const sameYear = date.getFullYear() === new Date(now).getFullYear()
+  return new Intl.DateTimeFormat(locale, {
+    day: 'numeric',
+    month: 'short',
+    ...(sameYear ? {} : { year: 'numeric' })
+  }).format(date)
+}
+
+/**
  * The time of a list row's last activity (the DM list, M56): "10:53" today (24 h), the weekday
- * within the last six days ("Mon"), else the date ("6 Oct", with the year when it is not this
- * year's). A time in the future (clock skew) counts as today.
+ * within the last six days ("Mon"), else the date (`formatDayMonthYear`). A time in the future
+ * (clock skew) counts as today.
  */
 export function formatListTime(
   at: Date | number,
@@ -88,8 +113,7 @@ export function formatListTime(
 ): string {
   const ms = typeof at === 'number' ? at : at.getTime()
   const date = new Date(ms)
-  // Calendar days between the two dates; DST shifts make a day 23 or 25 hours long.
-  const days = Math.round((dayStart(now) - dayStart(ms)) / 86_400_000)
+  const days = calendarDaysAgo(ms, now)
   if (days <= 0)
     return new Intl.DateTimeFormat(locale, {
       hour: '2-digit',
@@ -97,10 +121,5 @@ export function formatListTime(
       hourCycle: 'h23'
     }).format(date)
   if (days < 7) return new Intl.DateTimeFormat(locale, { weekday: 'short' }).format(date)
-  const sameYear = date.getFullYear() === new Date(now).getFullYear()
-  return new Intl.DateTimeFormat(locale, {
-    day: 'numeric',
-    month: 'short',
-    ...(sameYear ? {} : { year: 'numeric' })
-  }).format(date)
+  return formatDayMonthYear(date, now, locale)
 }

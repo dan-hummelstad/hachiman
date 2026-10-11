@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
 import { History, KeyRound, Link2, ShieldAlert, TriangleAlert, X } from 'lucide-react'
 import type { CryptoEvents } from '@hachiman/crypto'
+import { useChatCovered } from '@/components/mobile/drawer-state'
 import { Button } from '@/components/ui/button'
 import { useUserName } from '@/components/security/use-user-name'
+import { useLayout } from '@/hooks/use-layout'
 import { cn } from '@/lib/utils'
 import { hachiman } from '@/services/hachiman'
 import { useChannelStore } from '@/stores/channelStore'
@@ -19,19 +21,25 @@ import { useGuildStore } from '@/stores/guildStore'
 /**
  * Security notices in the corner of the shell, while the identity of this device is ready:
  * - key changes of unverified contacts (quiet). A key change of a verified contact opens the
- *   blocking 'keyChange' dialog whenever no other dialog is open;
+ *   blocking 'keyChange' dialog whenever no other dialog is open, unless the user said "not now"
+ *   on the mobile layout (`deferKeyChange`, M58). On the mobile layout a quiet change has no
+ *   notice here: the DM shows its gold line (M59, `KeyChangeLine`);
  * - fork alerts (§12.8.7) and key transparency alerts (§12.14);
  * - a link request from a new device of the user (§12.5, DEVICE_LINK);
  * - the history of an invite that did not open after the join (§12.11.4);
  * - no recovery key on a primary device.
+ *
+ * On the mobile layout the stack sits under the tab strip, full width, with 36 touch targets, and
+ * only while the chat is in sight (no drawer, pushed screen, search or inbox over it).
  */
 export function SecurityNotices(): React.JSX.Element | null {
   const ready = useCryptoStore((s) => s.phase === 'ready' && s.status?.state === 'ready')
   return ready ? <Notices /> : null
 }
 
-function Notices(): React.JSX.Element {
+function Notices(): React.JSX.Element | null {
   const keyChanges = useCryptoStore((s) => s.keyChanges)
+  const deferred = useCryptoStore((s) => s.deferredKeyChanges)
   const forkAlerts = useCryptoStore((s) => s.forkAlerts)
   const inviteFailures = useCryptoStore((s) => s.inviteHistoryFailures)
   const ktAlertCount = useCryptoStore((s) => s.ktAlerts.length)
@@ -42,13 +50,22 @@ function Notices(): React.JSX.Element {
   const [hidden, setHidden] = useState<ReadonlySet<string>>(() => new Set())
   const hide = (key: string): void => setHidden((h) => new Set(h).add(key))
   const linkRequest = useLinkRequest()
+  const mobile = useLayout() === 'mobile'
+  const covered = useChatCovered()
 
-  // A verified contact's key change blocks until the user decides.
-  const blocking = keyChanges.find((k) => k.severity === 'blocking')
+  // A verified contact's key change blocks until the user decides. "Not now" (M58) exists on the
+  // mobile layout only, where the paused composer opens the dialog again; a wide window reopens it.
+  const blocking = keyChanges.find(
+    (k) => k.severity === 'blocking' && !(mobile && deferred.includes(k.userId))
+  )
   useEffect(() => {
     if (blocking && !dialogOpen)
       openDialog({ kind: 'keyChange', userId: blocking.userId, severity: 'blocking' })
   }, [blocking, dialogOpen])
+
+  // On a phone the stack shows only over the chat: under the drawers and pushed screens, which
+  // paint below it (the MobileShell is its own stacking context), it would cover their tops.
+  if (mobile && covered) return null
 
   const notices: React.ReactNode[] = []
   if (linkRequest.sessionId && !hidden.has(`link:${linkRequest.sessionId}`)) {
@@ -68,7 +85,7 @@ function Notices(): React.JSX.Element {
     )
   }
   for (const k of keyChanges) {
-    if (k.severity !== 'notice') continue
+    if (k.severity !== 'notice' || mobile) continue
     notices.push(<KeyChangeNotice key={`key:${k.userId}`} change={k} />)
   }
   for (const f of forkAlerts) notices.push(<ForkNotice key={`fork:${f.groupId}`} alert={f} />)
@@ -100,7 +117,10 @@ function Notices(): React.JSX.Element {
   return (
     <div
       aria-live="polite"
-      className="pointer-events-none fixed right-4 bottom-4 z-40 flex w-[340px] max-w-[calc(100vw-2rem)] flex-col gap-2"
+      className={cn(
+        'pointer-events-none fixed right-4 bottom-4 z-40 flex w-[340px] max-w-[calc(100vw-2rem)] flex-col gap-2',
+        'mobile:top-[calc(var(--safe-top,0px)+56px)] mobile:right-3 mobile:bottom-auto mobile:left-3 mobile:w-auto mobile:max-w-none'
+      )}
     >
       {notices.slice(0, 4)}
     </div>
@@ -195,7 +215,12 @@ function Notice({
         <p className="leading-5">{text}</p>
         {action && onAction && (
           <div>
-            <Button size="sm" variant="secondary" onClick={onAction}>
+            <Button
+              size="sm"
+              variant="secondary"
+              className="mobile:h-9 mobile:px-3.5"
+              onClick={onAction}
+            >
               {action}
             </Button>
           </div>
@@ -205,7 +230,7 @@ function Notice({
         <button
           type="button"
           aria-label="Dismiss"
-          className="text-muted-foreground hover:text-foreground -m-1 p-1"
+          className="text-muted-foreground hover:text-foreground mobile:-m-2.5 mobile:p-2.5 -m-1 p-1"
           onClick={onDismiss}
         >
           <X className="size-4" />

@@ -4,6 +4,7 @@
  * that mirrors its cache into its store; the services are the calls the UI makes.
  */
 import type {
+  BlockedUser,
   Channel,
   CreateGuildEventRequest,
   GatewayDispatch,
@@ -158,15 +159,42 @@ export const threadService = {
   }
 }
 
-/** cache.blocks → userStore. A user of the block list stays in `blockedUsers` while blocked. */
-function syncBlocks(users?: readonly User[]): void {
+/** The blocked users and the times of their blocks, as `userStore` keeps them. */
+export interface BlockedState {
+  blockedUsers: ReadonlyMap<string, User>
+  blockedAt: ReadonlyMap<string, string>
+}
+
+/**
+ * Pure: the blocked users and block times after a change of `blocks`. A user stays in
+ * `blockedUsers`, and the time in `blockedAt`, while blocked. `list`: a new block list, which
+ * replaces both (a list entry with no time has none). `blockedNow`: a user blocked since
+ * (USER_BLOCK_UPDATE), whose block takes the time `now` unless it has one.
+ */
+export function nextBlockedState(
+  blocks: ReadonlySet<string>,
+  prev: BlockedState,
+  list?: readonly BlockedUser[],
+  blockedNow?: string,
+  now = new Date().toISOString()
+): BlockedState {
+  const blockedUsers = new Map<string, User>()
+  for (const u of list?.map((b) => b.user) ?? prev.blockedUsers.values())
+    if (blocks.has(u.id)) blockedUsers.set(u.id, u)
+  const times: Iterable<[string, string]> = list
+    ? list.filter((b) => b.createdAt !== '').map((b) => [b.user.id, b.createdAt])
+    : prev.blockedAt
+  const blockedAt = new Map<string, string>()
+  for (const [id, at] of times) if (blocks.has(id)) blockedAt.set(id, at)
+  if (blockedNow !== undefined && blocks.has(blockedNow) && !blockedAt.has(blockedNow))
+    blockedAt.set(blockedNow, now)
+  return { blockedUsers, blockedAt }
+}
+
+/** cache.blocks → userStore (`nextBlockedState`). */
+function syncBlocks(list?: readonly BlockedUser[], blockedNow?: string): void {
   const blocks = new Set(hachiman.cache.blocks)
-  useUserStore.setState((s) => {
-    const blockedUsers = new Map<string, User>()
-    for (const u of users ?? s.blockedUsers.values())
-      if (blocks.has(u.id)) blockedUsers.set(u.id, u)
-    return { blocks, blockedUsers }
-  })
+  useUserStore.setState((s) => ({ blocks, ...nextBlockedState(blocks, s, list, blockedNow) }))
 }
 
 export const blockService = {
@@ -176,8 +204,7 @@ export const blockService = {
   /** Loads the block list with the users (after READY, or for a name). Never rejects (logs). */
   async load(): Promise<void> {
     try {
-      const list = await hachiman.fetchBlocks()
-      syncBlocks(list.map((b) => b.user))
+      syncBlocks(await hachiman.fetchBlocks())
     } catch (e) {
       console.warn('[blocks] load failed', e)
     }
@@ -188,7 +215,7 @@ export const blocksFeature: ClientFeature = {
   name: 'blocks',
   onReady: () => void blockService.load(),
   onDispatch(e: GatewayDispatch): void {
-    if (e.t === 'USER_BLOCK_UPDATE') syncBlocks()
+    if (e.t === 'USER_BLOCK_UPDATE') syncBlocks(undefined, e.d.blocked ? e.d.userId : undefined)
   }
 }
 

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Ban } from 'lucide-react'
 import { Permissions, has, type Channel, type User } from '@hachiman/client'
 import { DropZone } from '@/components/chat/attachments/drop-zone'
@@ -21,6 +21,7 @@ import { blockService } from '@/services/guild-features'
 import { useMessageStore, useReplyTarget, type ChatMessage } from '@/stores/messagesStore'
 import { useIsBlocked, useUserStore } from '@/stores/userStore'
 import { useComposerStore, useReplyTargetId } from '@/stores/composerStore'
+import { openDialog, useDialogStore } from '@/stores/dialogStore'
 import { rowPolicy, type RowPolicy } from './row-policy'
 import { useSendPaused } from './use-dm-trust'
 
@@ -44,6 +45,12 @@ export interface ChannelChatState {
   /** The other person of a 1:1 DM when the server refused a send to them (their block). */
   refusedPeer: User | null
   composer: ChatComposerProps
+  /**
+   * Sending is paused (a verified contact's key changed): opens the key change dialog again, also
+   * after its "not now" (M58). A tap on the paused mobile composer calls it. Unset while sending
+   * is not paused.
+   */
+  onPausedTap?: () => void
 }
 
 /**
@@ -114,6 +121,9 @@ function useChannelChat(channel: Channel): ChannelChatState {
     setEditingId,
     blockedPeer: dmPeer && blockedPeer ? dmPeer : null,
     refusedPeer: dmPeer && refused ? dmPeer : null,
+    onPausedTap: pausedBy
+      ? () => openDialog({ kind: 'keyChange', userId: pausedBy, severity: 'blocking' })
+      : undefined,
     composer: {
       channel,
       placeholder: `Message ${where}`,
@@ -142,6 +152,15 @@ function ChannelChat({ channel }: { channel: Channel }): React.JSX.Element {
   const chat = useChannelChat(channel)
   const mobile = useLayout() === 'mobile'
   const blocked = chat.blockedPeer ? <BlockedNotice user={chat.blockedPeer} /> : null
+  const transcript = (
+    <Transcript
+      channel={channel}
+      policy={chat.policy}
+      onUpload={chat.canAttach ? chat.uploads.add : undefined}
+      editingId={chat.editingId}
+      onEditingChange={chat.setEditingId}
+    />
+  )
 
   return (
     <DropZone
@@ -150,19 +169,36 @@ function ChannelChat({ channel }: { channel: Channel }): React.JSX.Element {
       onFiles={chat.uploads.add}
       className="flex min-h-0 flex-1 flex-col"
     >
-      <Transcript
-        channel={channel}
-        policy={chat.policy}
-        onUpload={chat.canAttach ? chat.uploads.add : undefined}
-        editingId={chat.editingId}
-        onEditingChange={chat.setEditingId}
-      />
       {mobile ? (
-        <MobileChatFooter channel={channel} chat={chat} blocked={blocked} />
+        <KeyChangeCover>
+          {transcript}
+          <MobileChatFooter channel={channel} chat={chat} blocked={blocked} />
+        </KeyChangeCover>
       ) : (
-        <DesktopChatFooter channel={channel} chat={chat} blocked={blocked} />
+        <>
+          {transcript}
+          <DesktopChatFooter channel={channel} chat={chat} blocked={blocked} />
+        </>
       )}
     </DropZone>
+  )
+}
+
+/**
+ * Mobile: while a key change dialog shows over the chat (M58), the chat is inert and the composer
+ * loses the focus, so the keyboard goes down. `display: contents` keeps the chat's flex layout.
+ */
+function KeyChangeCover({ children }: { children: React.ReactNode }): React.JSX.Element {
+  const covered = useDialogStore((s) => s.dialog?.kind === 'keyChange')
+  const root = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const focused = document.activeElement
+    if (covered && focused instanceof HTMLElement && root.current?.contains(focused)) focused.blur()
+  }, [covered])
+  return (
+    <div ref={root} className="contents" inert={covered}>
+      {children}
+    </div>
   )
 }
 

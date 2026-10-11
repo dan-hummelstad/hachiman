@@ -1,6 +1,7 @@
 import {
   AudioLines,
   Ban,
+  Bell,
   Download,
   Headphones,
   Keyboard,
@@ -33,11 +34,14 @@ import { ChannelOverviewPage } from '@/components/settings/channel-overview'
 import { ChannelPermissionsPage, overrideCount } from '@/components/settings/channel-permissions'
 import { GuildOverviewPage } from '@/components/settings/guild-overview'
 import { GuildSoundboardPage } from '@/components/settings/guild-soundboard'
+import { openStatusSheet } from '@/components/settings/status-sheet-state'
 import { AccountSection } from '@/components/settings/user/account'
 import { AdvancedSection } from '@/components/settings/user/advanced'
 import { AppearanceSection } from '@/components/settings/user/appearance'
 import { CloseToTraySection } from '@/components/settings/user/tray'
 import { KeybindsSection } from '@/components/settings/user/keybinds'
+import { NotificationsSection } from '@/components/settings/user/notifications'
+import { PrivacySection } from '@/components/settings/user/privacy'
 import { UpdatesSection } from '@/components/settings/user/updates'
 import { VoiceSection } from '@/components/settings/user/voice'
 import { UserAvatar } from '@/components/shell/user-avatar'
@@ -150,8 +154,9 @@ const NONE = <span />
 const THEME_VALUE: Record<Theme, string> = { dark: 'Dark', light: 'Light', system: 'System' }
 
 /**
- * On the mobile layout: no Keybinds (a phone has no keyboard shortcuts), Advanced as the last row
- * of a Help group (the only reset path on a phone), and Sign out asks first.
+ * On the mobile layout: Privacy and safety (M34) and Notifications (M33), no Keybinds (a phone has
+ * no keyboard shortcuts), Advanced as the last row of a Help group (the only reset path on a
+ * phone), the status chip opens the status sheet, and Sign out asks first (M35).
  */
 function useUserSettingsModel(active: boolean, mobile: boolean): SettingsModel {
   const me = useUserStore((s) => s.me)
@@ -196,6 +201,18 @@ function useUserSettingsModel(active: boolean, mobile: boolean): SettingsModel {
               title: 'My account',
               description: 'How you appear to others, and the details that identify your account.',
               render: () => <AccountSection />
+            }
+          },
+          {
+            id: 'privacy',
+            label: 'Privacy and safety',
+            icon: <Shield />,
+            tint: 'thread',
+            visible: mobile,
+            page: {
+              title: 'Privacy and safety',
+              description: 'The people you blocked.',
+              render: () => <PrivacySection />
             }
           }
         ]
@@ -269,6 +286,18 @@ function useUserSettingsModel(active: boolean, mobile: boolean): SettingsModel {
             }
           },
           {
+            id: 'notifications',
+            label: 'Notifications',
+            icon: <Bell />,
+            tint: 'activity',
+            visible: mobile,
+            page: {
+              title: 'Notifications',
+              description: 'What counts as unread and plays a sound in each guild.',
+              render: () => <NotificationsSection />
+            }
+          },
+          {
             id: 'voice',
             label: 'Voice and audio',
             icon: <Headphones />,
@@ -317,7 +346,8 @@ function useUserSettingsModel(active: boolean, mobile: boolean): SettingsModel {
       label: 'Sign out',
       icon: <LogOut />,
       onClick: mobile ? () => openDialog({ kind: 'signOut' }) : () => takusenService.signOut()
-    }
+    },
+    onStatus: mobile ? openStatusSheet : undefined
   }
 }
 

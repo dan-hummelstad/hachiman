@@ -3,6 +3,7 @@ import { ArrowDown } from 'lucide-react'
 import type { Channel } from '@hachiman/client'
 import { MessageActionSheet } from '@/components/mobile/message-action-sheet'
 import { useChatCovered } from '@/components/mobile/drawer-state'
+import { useContactTrust } from '@/components/people/use-contact-trust'
 import { useDmStageShown } from '@/components/voice/dm-call'
 import { SystemTag } from '@/components/ui/system-tag'
 import { useLayout } from '@/hooks/use-layout'
@@ -10,6 +11,7 @@ import { highlightRow, jumpStep } from '@/lib/navigation'
 import { cn } from '@/lib/utils'
 import { messagesService } from '@/services/MessagesService'
 import { unreadService } from '@/services/UnreadService'
+import { useCryptoStore } from '@/stores/cryptoStore'
 import { useMessageStore, type ChatMessage } from '@/stores/messagesStore'
 import { useNavStore } from '@/stores/navStore'
 import { usePrefsStore } from '@/stores/prefsStore'
@@ -18,7 +20,8 @@ import { useGuildStore } from '@/stores/guildStore'
 import { useUserStore } from '@/stores/userStore'
 import { useMembershipTimeline } from '@/hooks/use-membership-timeline'
 import { ChannelIntro } from './channel-intro'
-import { buildItems, formatDay, joinSlots, membershipSlots } from './format'
+import { buildItems, formatDay, joinSlots, keyChangeSlot, membershipSlots } from './format'
+import { KeyChangeLine } from './key-change-line'
 import { JoinLine, MembershipLine } from './membership-line'
 import { TranscriptRow } from './message-row'
 import type { RowPolicy } from './row-policy'
@@ -92,7 +95,12 @@ export function Transcript({
     () => (members ? joinSlots(messages, members.values(), hasMore === false) : undefined),
     [messages, members, hasMore]
   )
-  /** The membership and join lines before message `i` (`items.length`: after the last one). */
+  const keyNotice = useKeyChangeNotice(channel, mobile)
+  const keySlot = keyNotice ? keyChangeSlot(messages, keyNotice.changedAt, hasMore === false) : null
+  /**
+   * The membership, join and key change lines before message `i` (`items.length`: after the
+   * last one).
+   */
   const notesAt = (i: number): React.ReactNode => (
     <>
       {slots.get(i)?.map((e, j) => (
@@ -101,6 +109,7 @@ export function Transcript({
       {joins?.get(i)?.map((m) => (
         <JoinLine key={`j${m.user.id}`} member={m} channel={channel} />
       ))}
+      {keyNotice && keySlot === i && <KeyChangeLine userId={keyNotice.userId} />}
     </>
   )
 
@@ -238,6 +247,30 @@ export function Transcript({
       )}
     </div>
   )
+}
+
+/**
+ * M59 on the mobile layout: the other person of a 1:1 DM has a key change of 'notice' severity
+ * (never verified). Their trust gives the time of the change (`changedAt`). Null while the trust
+ * loads, once the change is no longer pending, and on the desktop layout (its corner notice).
+ */
+function useKeyChangeNotice(
+  channel: Channel,
+  mobile: boolean
+): { userId: string; changedAt: string | null } | null {
+  const peerId = channel.type === 'dm' ? channel.recipients?.[0]?.id : undefined
+  const notice = useCryptoStore(
+    (s) =>
+      mobile &&
+      peerId !== undefined &&
+      s.keyChanges.some((k) => k.userId === peerId && k.severity === 'notice')
+  )
+  const { trust, error } = useContactTrust(notice ? peerId : undefined)
+  if (!notice || peerId === undefined) return null
+  // The Worker cannot answer: show the line after the last message rather than not at all.
+  if (error !== null) return { userId: peerId, changedAt: null }
+  if (trust?.userId !== peerId || trust.state !== 'changed') return null
+  return { userId: peerId, changedAt: trust.changedAt }
 }
 
 /** The window has the focus and shows. */

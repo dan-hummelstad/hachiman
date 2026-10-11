@@ -102,14 +102,41 @@ export function setSheetOpener(sheet: Element, opener: HTMLElement | null): void
   else sheetOpeners.delete(sheet)
 }
 
+/** An element that can take the focus back: still in the page and not in an inert subtree. */
+const canTakeFocus = (el: HTMLElement | null): el is HTMLElement =>
+  el !== null && el.isConnected && el.closest('[inert]') === null
+
+/** The last resort on the mobile layout: the tab strip's sidebar toggle. */
+const sidebarToggle = (): HTMLElement | null =>
+  document.querySelector<HTMLElement>('[data-slot="sidebar-toggle"]')
+
+const nowhere = (): boolean =>
+  document.activeElement === null || document.activeElement === document.body
+
 /**
- * Gives the focus back to `opener` when it is still in the page, else to the opener of the
- * closed sheet that held it (and so on back). True when it did.
+ * Gives the focus back to `opener` when it is still in the page and not inert, else to the opener
+ * of the closed sheet that held it (and so on back). An opener in a closed drawer (the inbox
+ * button, the search field) is inert: then the sidebar toggle of the tab strip, which opens that
+ * drawer, takes the focus. True when the focus landed.
  */
 export function restoreFocus(opener: HTMLElement | null): boolean {
   let el = opener
-  for (let i = 0; el && !el.isConnected && i < MAX_CHAIN; i++) el = fallbacks.get(el) ?? null
-  if (!el?.isConnected) return false
-  el.focus({ preventScroll: true })
-  return true
+  for (let i = 0; el && !canTakeFocus(el) && i < MAX_CHAIN; i++) el = fallbacks.get(el) ?? null
+  if (canTakeFocus(el)) {
+    el.focus({ preventScroll: true })
+    if (document.activeElement === el) return true
+  }
+  const toggle = sidebarToggle()
+  if (canTakeFocus(toggle)) {
+    toggle.focus({ preventScroll: true })
+    return document.activeElement === toggle
+  }
+  // The tab strip can still be inert while the overlay that covered it goes (its count drops in
+  // the same commit): try once more on the next frame, when nothing else took the focus.
+  if (toggle)
+    requestAnimationFrame(() => {
+      const next = sidebarToggle()
+      if (nowhere() && canTakeFocus(next)) next.focus({ preventScroll: true })
+    })
+  return false
 }

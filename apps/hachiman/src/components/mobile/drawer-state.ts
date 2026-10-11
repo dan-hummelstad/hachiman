@@ -10,8 +10,9 @@ interface DrawerState {
   /** A pushed screen (settings, a page) covers the chat. The MobileShell keeps it. */
   pushed: boolean
   /**
-   * The open `ScreenStackProvider` screens. One inside the chat card (the People list of the DM
-   * home) is not a nav view, but the left edge still means Back there.
+   * The local overlays over the chat that are not nav views: `ScreenStackProvider` screens (the
+   * People list of the DM home), the search screen (M66) and the inbox screen (M67). The left
+   * edge means Back there, the tab strip goes inert and the chat counts as covered.
    */
   localPushed: number
 }
@@ -39,7 +40,7 @@ export const hasRightDrawer = (channel: Channel): boolean =>
 /** The MobileShell unmounts (the window got wide): nothing stays open. */
 export const resetDrawers = (): void => useDrawerState.setState(initial())
 
-/** A `ScreenStackProvider` shows a screen (`1`) or stops showing it (`-1`). */
+/** A local overlay (a `ScreenStackProvider` screen, search, inbox) shows (`1`) or goes (`-1`). */
 export const countLocalPushed = (delta: 1 | -1): void =>
   useDrawerState.setState((s) => ({ localPushed: Math.max(0, s.localPushed + delta) }))
 

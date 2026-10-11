@@ -15,8 +15,11 @@ export type DrawerEvent =
    * guild's first text channel, `lib/auto-select.ts`), not the user.
    */
   | { kind: 'navigate'; from: View; to: View; auto?: boolean }
-  /** A dialog or the quick switcher opened. */
-  | { kind: 'dialog' }
+  /**
+   * A dialog or the quick switcher opened. `overLeft`: a control in the left drawer opened it, so
+   * the left drawer stays under the dim (M44).
+   */
+  | { kind: 'dialog'; overLeft?: boolean }
 
 /** The guild of a view: null for the DM space, undefined for settings. */
 function guildOf(view: View): string | null | undefined {
@@ -56,6 +59,7 @@ export function keepsLeftDrawer(from: View, to: View, auto = false): boolean {
 
 /** The open drawer after `event`. The right drawer closes on any navigation. */
 export function drawerAfter(open: DrawerSide | null, event: DrawerEvent): DrawerSide | null {
-  if (open === null || event.kind === 'dialog') return null
+  if (open === null) return null
+  if (event.kind === 'dialog') return open === 'left' && event.overLeft ? 'left' : null
   return open === 'left' && keepsLeftDrawer(event.from, event.to, event.auto) ? 'left' : null
 }

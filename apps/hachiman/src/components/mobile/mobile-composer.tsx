@@ -33,9 +33,16 @@ const keepFocus = (e: React.PointerEvent | React.MouseEvent): void => e.preventD
  *
  * Paused (a verified contact's key changed, M58): the field is disabled and says so, the chip
  * turns red ("PAUSED"), and Attach and Emoji dim. A read-only channel (M62) shows a notice with
- * its action instead.
+ * its action instead. A tap on the paused bar calls `onPausedTap` (the disabled field swallows
+ * taps, so a button covers the bar).
  */
-export function MobileComposer(props: ComposerProps): React.JSX.Element {
+export function MobileComposer({
+  onPausedTap,
+  ...props
+}: ComposerProps & {
+  /** Sending is paused: a tap on the bar opens the key change dialog again (M58). */
+  onPausedTap?: () => void
+}): React.JSX.Element {
   const { channel, placeholder, disabledReason, disabledAction, paused, uploads, reply } = props
   const input = useRef<HTMLTextAreaElement>(null)
   const picker = useRef<HTMLInputElement>(null)
@@ -93,7 +100,7 @@ export function MobileComposer(props: ComposerProps): React.JSX.Element {
         </div>
       )}
       <UploadTray items={uploads.items} onRemove={uploads.remove} />
-      <div className="flex items-end gap-2 px-3 py-2">
+      <div className="relative flex items-end gap-2 px-3 py-2">
         {/* Attach shows when I may attach; while sending is paused it dims (M58). */}
         {props.canAttach && (
           <>
@@ -179,6 +186,15 @@ export function MobileComposer(props: ComposerProps): React.JSX.Element {
           >
             <ArrowUp className="size-[19px]" strokeWidth={2.4} aria-hidden />
           </button>
+        )}
+        {paused && onPausedTap && (
+          <button
+            type="button"
+            aria-label={`${paused.placeholder}. Review the key change`}
+            aria-haspopup="dialog"
+            className="focus-visible:outline-line-focus absolute inset-0 outline-none focus-visible:outline-2 focus-visible:-outline-offset-2"
+            onClick={onPausedTap}
+          />
         )}
       </div>
       {uploads.notices.length > 0 && (

@@ -1,11 +1,11 @@
 import { useId, useState } from 'react'
 import { Checkbox } from '@/components/ui/checkbox'
-import { Check, Copy, Download, KeyRound, RotateCcw } from 'lucide-react'
+import { Check, Copy, Download, KeyRound, OctagonAlert, RotateCcw } from 'lucide-react'
 import { MobileField } from '@/components/mobile/field'
 import { Button } from '@/components/ui/button'
 import { ErrorText, Field } from '@/components/ui/field'
 import { Textarea } from '@/components/ui/textarea'
-import { StepBody, StepFooter, StepFrame } from '@/components/security/screen-window'
+import { StepBody, StepFooter, StepFrame, StepHeader } from '@/components/security/screen-window'
 import {
   RECOVERY_KEY_CHARS,
   checkRecoveryKey,
@@ -128,19 +128,67 @@ export function RecoveryKeyActions({
 /**
  * Shows a new recovery key one time (§12.11.3). The key lives only in the state of the caller:
  * it is never put in a store. `onDone` runs after the user confirms that the key is saved. It
- * renders a whole dialog step (header, body, footer).
+ * renders a whole dialog step (header, body, footer). `size="touch"` is the step in a mobile
+ * sheet (M27): the key in the 4-column mono grid, 48 Copy and Save, one red line, and the 36
+ * confirm row docked with the button at the sheet foot.
  */
 export function RecoveryKeyReveal({
   recoveryKey,
   onDone,
-  doneLabel = 'Continue'
+  doneLabel = 'Continue',
+  size = 'default'
 }: {
   recoveryKey: string
   onDone: () => void
   doneLabel?: string
+  size?: ViewSize
 }): React.JSX.Element {
   const [saved, setSaved] = useState(false)
   const checkId = useId()
+
+  if (size === 'touch') {
+    return (
+      <>
+        <StepHeader
+          icon={<KeyRound />}
+          feature="event"
+          title="Save your recovery key"
+          subtitle="Hachiman shows it only this one time"
+        />
+        <div className="flex flex-col gap-4">
+          <p className="text-text-secondary text-[14.5px] leading-[1.5] font-medium">
+            This is your recovery key. You need it to use your encrypted messages on a new device
+            when no other device is signed in.
+          </p>
+          <RecoveryKeyBlock recoveryKey={recoveryKey} size="touch" />
+          <RecoveryKeyActions recoveryKey={recoveryKey} size="touch" />
+          <p className="text-feature-danger-text flex items-start gap-2.5 text-[13.5px] leading-[1.45] font-semibold">
+            <OctagonAlert aria-hidden className="mt-px size-[17px] shrink-0" />
+            Anyone with this key can read all of your encrypted history. Keep it private and
+            offline.
+          </p>
+        </div>
+        <StepFooter>
+          <label
+            htmlFor={checkId}
+            className="text-text-primary flex min-h-9 items-center gap-3 px-0.5 text-[14.5px] leading-[1.4] font-semibold"
+          >
+            <Checkbox
+              id={checkId}
+              size="lg"
+              checked={saved}
+              onChange={(e) => setSaved(e.target.checked)}
+            />
+            I saved my recovery key somewhere safe.
+          </label>
+          <Button type="button" disabled={!saved} onClick={onDone}>
+            <Check />
+            {doneLabel}
+          </Button>
+        </StepFooter>
+      </>
+    )
+  }
 
   return (
     <StepFrame

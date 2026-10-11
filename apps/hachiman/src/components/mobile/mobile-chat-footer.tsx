@@ -46,7 +46,7 @@ export function MobileChatFooter({
               You can&apos;t message {chat.refusedPeer.username}.
             </p>
           )}
-          <MobileComposer {...chat.composer} />
+          <MobileComposer {...chat.composer} onPausedTap={chat.onPausedTap} />
         </>
       )}
     </footer>

@@ -1,35 +1,33 @@
 import { useCallback, useEffect, useState } from 'react'
 import { KeyRound, Link2, LogOut, MonitorSmartphone, Pencil } from 'lucide-react'
-import type { DeviceSummary, RevocationReasonName } from '@hachiman/crypto'
+import type { DeviceSummary } from '@hachiman/crypto'
 import { Button } from '@/components/ui/button'
 import { Callout } from '@/components/ui/callout'
+import { Chip } from '@/components/ui/chip'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
-import { ErrorText, Field, SectionHeading } from '@/components/ui/field'
+import { ErrorText, SectionHeading } from '@/components/ui/field'
 import { IconButton } from '@/components/ui/icon-button'
 import { Input } from '@/components/ui/input'
 import { ModalWindow } from '@/components/ui/modal-window'
-import { NativeSelect } from '@/components/ui/native-select'
+import { RemoveDeviceBody, SignOutThisDeviceBody } from '@/components/security/device-actions'
+import {
+  activeText,
+  PRIMARY_ONLY,
+  useRenameDevice,
+  type RemoveReason
+} from '@/components/security/device-model'
+import { DevicesScreen } from '@/components/security/devices-screen'
 import { cryptoErrorText, friendly } from '@/components/security/errors'
 import { HostTrustLine } from '@/components/security/host-trust'
-import { useAction } from '@/hooks/use-action'
+import { useLayout } from '@/hooks/use-layout'
 import { PLATFORM_ICON, PLATFORM_LABEL } from '@/lib/device-platform'
-import { formatShortDate, relativeTime } from '@/lib/time-format'
+import { formatShortDate } from '@/lib/time-format'
 import { cn } from '@/lib/utils'
 import { cryptoService } from '@/services/CryptoService'
 import { hachiman } from '@/services/hachiman'
 import { openDialog, useDialog } from '@/stores/dialogStore'
 import { useCryptoStore } from '@/stores/cryptoStore'
-
-type RemoveReason = Exclude<RevocationReasonName, 'password_reset' | 'signed_out'>
-
-const REASONS: { value: RemoveReason; label: string }[] = [
-  { value: 'user', label: 'I do not use it now' },
-  { value: 'lost', label: 'I lost it' },
-  { value: 'compromised', label: 'Someone else has it' }
-]
-
-const PRIMARY_ONLY =
-  'Only a device with your security key can sign out other devices: your first device, or a device that you restored with the recovery key.'
+import { openSettings } from '@/stores/navStore'
 
 /**
  * The own devices of the user from the Worker. Reloads on USER_KEYS_UPDATE for the own user.
@@ -87,13 +85,17 @@ function HostTrust(): React.JSX.Element | null {
  * The own device list (§12.5, §12.12) of H2 (settings page) and I9 (dialog): rename (the REST
  * name only), sign out another device (primary device only, signed by the master key), sign out
  * of this device. The page has the "Link a new device" action above the list; the dialog has it in
- * its footer.
+ * its footer. The page on the mobile layout is the devices screen (M25).
  */
 export function DevicesPanel({ variant }: { variant: 'page' | 'dialog' }): React.JSX.Element {
+  const mobile = useLayout() === 'mobile'
   const { devices, error, reload } = useOwnDevices()
   const primary = useCryptoStore((s) => s.status?.primary ?? false)
   const [removing, setRemoving] = useState<DeviceSummary | null>(null)
   const [signingOut, setSigningOut] = useState(false)
+  if (mobile && variant === 'page') {
+    return <DevicesScreen devices={devices} error={error} reload={reload} />
+  }
   const active = devices?.filter((d) => d.status !== 'revoked') ?? []
   const removed = devices?.filter((d) => d.status === 'revoked') ?? []
 
@@ -160,18 +162,7 @@ export function DevicesPanel({ variant }: { variant: 'page' | 'dialog' }): React
         tone="danger"
         onClose={() => setSigningOut(false)}
         onConfirm={() => friendly(cryptoService.signOutDevice())}
-        body={
-          <div className="grid gap-2">
-            <p>
-              This removes this device from your account and deletes its encryption keys. Your other
-              devices are not changed.
-            </p>
-            <p>
-              To use encryption here again, you must link this device from another device or use
-              your recovery key.
-            </p>
-          </div>
-        }
+        body={<SignOutThisDeviceBody />}
       />
     </div>
   )
@@ -189,33 +180,6 @@ export function PlatformIcon({
   return <Icon aria-label={PLATFORM_LABEL[platform]} className={className} />
 }
 
-/** "active now", "active 2 hours ago", "active yesterday". */
-function activeText(lastSeenAt: string, now: number): string {
-  const seen = Date.parse(lastSeenAt)
-  return now - seen < 5 * 60_000 ? 'active now' : `active ${relativeTime(lastSeenAt, now)}`
-}
-
-function Tag({
-  children,
-  tone
-}: {
-  children: React.ReactNode
-  tone: 'accent' | 'voice' | 'event'
-}): React.JSX.Element {
-  return (
-    <span
-      className={cn(
-        'inline-flex h-[18px] shrink-0 items-center gap-1 px-1.5 text-[10.5px] font-bold [&_svg]:size-3',
-        tone === 'accent' && 'bg-accent-tint text-accent-text',
-        tone === 'voice' && 'bg-feature-voice/15 text-feature-voice-text',
-        tone === 'event' && 'bg-feature-event/15 text-feature-event-text'
-      )}
-    >
-      {children}
-    </span>
-  )
-}
-
 function DeviceRow({
   device,
   canRemove,
@@ -231,19 +195,11 @@ function DeviceRow({
 }): React.JSX.Element {
   const [name, setName] = useState<string | null>(null) // non-null while editing
   const [now] = useState(Date.now)
-  const { run, busy, error } = useAction()
+  const { rename, busy, error } = useRenameDevice(device, onRenamed)
 
   const save = async (e: React.FormEvent): Promise<void> => {
     e.preventDefault()
-    const next = name?.trim() ?? ''
-    if (!next || next === device.name) return setName(null)
-    const r = await run('rename the device', () =>
-      friendly(cryptoService.client().renameDevice(device.id, next))
-    )
-    if (r.ok) {
-      setName(null)
-      onRenamed()
-    }
+    if ((await rename(name ?? '')) !== 'failed') setName(null)
   }
 
   const meta = [
@@ -276,13 +232,21 @@ function DeviceRow({
           ) : (
             <div className="flex min-w-0 flex-wrap items-center gap-1.5">
               <span className="text-label truncate">{device.name}</span>
-              {device.current && <Tag tone="accent">This device</Tag>}
-              {device.primary && (
-                <Tag tone="voice">
-                  <KeyRound aria-hidden /> Has security key
-                </Tag>
+              {device.current && (
+                <Chip size="sm" tone="accent">
+                  This device
+                </Chip>
               )}
-              {device.status === 'pending' && <Tag tone="event">Not linked</Tag>}
+              {device.primary && (
+                <Chip size="sm" tone="voice" icon={<KeyRound aria-hidden />}>
+                  Has security key
+                </Chip>
+              )}
+              {device.status === 'pending' && (
+                <Chip size="sm" tone="event">
+                  Not linked
+                </Chip>
+              )}
             </div>
           )}
           <p className="text-meta text-text-tertiary">{meta.join(' · ')}</p>
@@ -340,42 +304,26 @@ function RemoveDeviceDialog({
         await friendly(cryptoService.client().revokeDevice(device.id, reason))
         onRemoved()
       }}
-      body={
-        <div className="grid gap-3">
-          <p>
-            The device loses access to your account and to new messages. Your other devices get new
-            keys.
-          </p>
-          <Field id="remove-reason" label="Why">
-            <NativeSelect
-              id="remove-reason"
-              value={reason}
-              onChange={(e) => setReason(e.target.value as RemoveReason)}
-            >
-              {REASONS.map((r) => (
-                <option key={r.value} value={r.value}>
-                  {r.label}
-                </option>
-              ))}
-            </NativeSelect>
-          </Field>
-          {reason !== 'user' && (
-            <Callout tone="caution">
-              The device keeps the messages that it already has. If someone else has it, also change
-              your password.
-            </Callout>
-          )}
-        </div>
-      }
+      body={<RemoveDeviceBody reason={reason} onReasonChange={setReason} />}
     />
   )
 }
 
-/** Dialog kind 'devices' (I9): the same list in a window. */
+/**
+ * Dialog kind 'devices' (I9): the same list in a window. The mobile layout has no window for it:
+ * settings push the devices screen (M25) instead.
+ */
 export function DevicesDialog(): React.JSX.Element {
   const { open, close } = useDialog('devices')
-  const { devices } = useOwnDevices(open)
+  const mobile = useLayout() === 'mobile'
+  const { devices } = useOwnDevices(open && !mobile)
   const count = devices?.filter((d) => d.status !== 'revoked').length
+  useEffect(() => {
+    if (!mobile || !open) return
+    close()
+    openSettings({ kind: 'user' }, 'devices')
+  }, [mobile, open, close])
+  if (mobile) return <></>
   return (
     <ModalWindow
       open={open}

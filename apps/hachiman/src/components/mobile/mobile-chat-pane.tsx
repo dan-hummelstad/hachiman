@@ -3,6 +3,7 @@ import { ChatBody } from '@/components/chat/chat-body'
 import { HomePane } from '@/components/home-pane'
 import { hasRightDrawer, openDrawer } from '@/components/mobile/drawer-state'
 import { MobileChannelHeader, type MobileSide } from '@/components/mobile/mobile-channel-header'
+import { ChannelPageBar } from '@/components/mobile/page-bar'
 import { NoChannelPane } from '@/components/shell/channel-pane'
 import { DmCallPanel, useDmStageShown } from '@/components/voice/dm-call'
 import { VoiceRoom } from '@/components/voice/voice-room'
@@ -24,7 +25,8 @@ const sideOf = (channel: Channel): MobileSide =>
  * The content of the mobile chat card (docs/ios-mobile-ui-spec.md §2.3): the DM home, a channel
  * or nothing picked. A channel shows the mobile header (M1) over its body: the chat with its
  * mobile footer, which keeps the home-indicator inset itself, or the voice room. The header toggle
- * opens the right drawer.
+ * opens the right drawer. A pages channel opens on its chat, with the page bar (M37) under the
+ * header.
  */
 export function MobileChatPane(): React.JSX.Element {
   const selectedGuildId = useSelectedGuildId()
@@ -55,6 +57,7 @@ export function MobileChatPane(): React.JSX.Element {
             side={sideOf(channel)}
             onToggleSide={hasRightDrawer(channel) ? showSide : undefined}
           />
+          {channel.type === 'pages' && <ChannelPageBar key={channel.id} channel={channel} />}
           {voice ? (
             <VoiceRoom key={channel.id} channel={voice} />
           ) : (

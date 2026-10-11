@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import {
+  calendarDaysAgo,
+  dayStart,
   formatClock,
   formatDayMonth,
+  formatDayMonthYear,
   formatExpiry,
   formatListTime,
   relativeTime
@@ -78,5 +81,36 @@ describe('formatDayMonth', () => {
     const day = formatDayMonth('2026-10-02T12:00:00.000Z')
     expect(day).toMatch(/2/)
     expect(day).not.toMatch(/2026/)
+  })
+})
+
+describe('dayStart and calendarDaysAgo', () => {
+  const at = (d: number, h = 0, m = 0, month = 9): number =>
+    new Date(2026, month, d, h, m).getTime()
+
+  it('gives the local midnight of the day', () => {
+    expect(dayStart(at(11, 23, 59))).toBe(at(11))
+    expect(dayStart(at(11))).toBe(at(11))
+  })
+
+  it('counts calendar days, not 24 hour spans', () => {
+    expect(calendarDaysAgo(at(11, 0, 5), at(11, 23))).toBe(0)
+    expect(calendarDaysAgo(at(10, 23, 55), at(11, 0, 5))).toBe(1)
+    expect(calendarDaysAgo(at(30, 12, 0, 8), at(2, 12))).toBe(2)
+    expect(calendarDaysAgo(at(12, 1), at(11, 23))).toBe(-1)
+  })
+})
+
+describe('formatDayMonthYear', () => {
+  const now = new Date(2026, 9, 11, 12).getTime()
+
+  it('leaves out the year of this year', () => {
+    expect(formatDayMonthYear(new Date(2026, 9, 2).getTime(), now, 'en-GB')).toBe('2 Oct')
+    expect(formatDayMonthYear(new Date(2026, 0, 1), now, 'en-GB')).toBe('1 Jan')
+  })
+
+  it('shows the year of another year', () => {
+    expect(formatDayMonthYear(new Date(2025, 7, 2).getTime(), now, 'en-GB')).toBe('2 Aug 2025')
+    expect(formatDayMonthYear(new Date(2027, 0, 3).getTime(), now, 'en-GB')).toBe('3 Jan 2027')
   })
 })

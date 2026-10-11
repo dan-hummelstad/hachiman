@@ -1,8 +1,8 @@
 import { useState } from 'react'
-import { createPortal } from 'react-dom'
 import { Hash } from 'lucide-react'
 import type { Channel, HistoryVisibility } from '@hachiman/client'
 import { MobileField } from '@/components/mobile/field'
+import { DockedFoot } from '@/components/mobile/foot'
 import { MobileChannelHeader } from '@/components/mobile/mobile-channel-header'
 import { ErrorText, Field } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
@@ -19,33 +19,6 @@ import { hachiman } from '@/services/hachiman'
 const TOPIC_MAX = 1024
 
 const noop = (): void => {}
-
-/**
- * Docks a mobile Save foot (`SaveBar layout="foot"`) under the panel of the pushed screen that
- * holds `anchor`, where M48 and M49 draw it: at the foot of the screen, under the last row, also
- * when rows of the screen come after the page (ACCESS and Delete channel under the overview of
- * M48). Outside a pushed screen it stays in place. The foot is then outside the DOM of a form, so
- * its Save button takes `onSave`, not a submit.
- */
-export function DockedFoot({
-  anchor,
-  children
-}: {
-  /** An element of the page, once mounted. */
-  anchor: HTMLElement | null
-  children: React.ReactNode
-}): React.ReactNode {
-  if (!anchor) return null
-  const screen = anchor.closest<HTMLElement>('[data-slot="pushed-screen"]')
-  if (!screen) return children
-  // `SaveBar` spans the 16 px padding of its parent; this wrapper gives it that padding.
-  return createPortal(
-    <div data-slot="docked-foot" className="shrink-0 px-4">
-      {children}
-    </div>,
-    screen
-  )
-}
 
 /** Channel settings → Overview (F7): name, topic with a live header preview, earlier messages. */
 export function ChannelOverviewPage({

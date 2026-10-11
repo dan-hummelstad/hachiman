@@ -34,6 +34,7 @@ export function MobileTabStrip(): React.JSX.Element {
     <div className="flex h-12 shrink-0 items-center gap-2 pl-2.5">
       <button
         type="button"
+        data-slot="sidebar-toggle"
         aria-label={toggleLabel(badge)}
         aria-haspopup="dialog"
         aria-expanded={open}

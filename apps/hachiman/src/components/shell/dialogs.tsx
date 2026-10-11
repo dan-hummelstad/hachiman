@@ -13,6 +13,7 @@ import { RecoveryKeyDialog } from '@/components/security/recovery-panel'
 import { SecuritySetupDialog } from '@/components/security/security-setup-dialog'
 import { VerificationDialog } from '@/components/security/verification-dialog'
 import { SignOutSheet } from '@/components/settings/sign-out-sheet'
+import { StatusSheets } from '@/components/settings/status-sheet'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { MessageInfoDialog } from '@/components/chat/message-info-dialog'
 import { NotifySettingsDialog } from '@/components/notify/notify-menu'
@@ -49,13 +50,17 @@ const DIALOGS: Record<AnyDialogKind, () => React.JSX.Element> = {
 
 const KINDS = Object.keys(DIALOGS) as AnyDialogKind[]
 
-/** Every app-level dialog, driven by `useDialogStore`. */
+/**
+ * Every app-level dialog, driven by `useDialogStore`, and the status sheets of the mobile
+ * settings list, which keep their own open state (`openStatusSheet`).
+ */
 export function Dialogs(): React.JSX.Element {
   return (
     <>
       {KINDS.map((kind) => (
         <DialogSlot key={kind} kind={kind} />
       ))}
+      <StatusSheets />
     </>
   )
 }

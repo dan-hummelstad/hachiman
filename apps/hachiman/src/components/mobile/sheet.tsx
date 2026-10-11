@@ -45,8 +45,11 @@ interface DragHandlers {
   onPointerCancel: (e: React.PointerEvent<HTMLElement>) => void
 }
 
+/** A sheet that cannot close: the handle and the header do not follow the finger. */
+const NO_DRAG: Partial<DragHandlers> = {}
+
 interface SheetContextValue {
-  drag: DragHandlers
+  drag: Partial<DragHandlers>
   /** A Sheet Header with a close button mounted; returns the unmount. */
   registerClose: () => () => void
 }
@@ -171,20 +174,27 @@ function SheetClose(props: React.ComponentProps<typeof DialogPrimitive.Close>): 
  * Opening focuses the sheet itself, not its first field, so the keyboard stays down (spec §2.8);
  * a caller's `onOpenAutoFocus` that calls `preventDefault` keeps its own focus. Closing gives the
  * focus back to the control that opened the sheet (`lib/focus-opener`), never to a text field.
+ * `dismissible={false}` (a new recovery key on screen, M27): no drag, no Escape, no scrim close
+ * and no sr-only Close; the caller's own buttons close it.
  */
 function SheetContent({
   variant = 'default',
+  dismissible = true,
   className,
   children,
   onOpenAutoFocus,
   onCloseAutoFocus,
+  onEscapeKeyDown,
+  onInteractOutside,
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Content> & {
   variant?: SheetVariant
+  dismissible?: boolean
 }): React.JSX.Element {
   const close = useRef<HTMLButtonElement>(null)
   const opener = useRef<HTMLElement | null>(null)
-  const drag = useSheetDrag(close)
+  const sheetDrag = useSheetDrag(close)
+  const drag = dismissible ? sheetDrag : NO_DRAG
   const [closes, setCloses] = useState(0)
   const ctx = useMemo<SheetContextValue>(
     () => ({
@@ -224,6 +234,14 @@ function SheetContent({
           // none, and in WebKit the tapped control never had the focus.
           if (restoreFocus(el)) e.preventDefault()
         }}
+        onEscapeKeyDown={(e) => {
+          onEscapeKeyDown?.(e)
+          if (!dismissible) e.preventDefault()
+        }}
+        onInteractOutside={(e) => {
+          onInteractOutside?.(e)
+          if (!dismissible) e.preventDefault()
+        }}
         {...props}
         data-sheet=""
         className={cn(className, SHEET, VARIANT[variant])}
@@ -238,14 +256,22 @@ function SheetContent({
               variant === 'default' ? '-mb-0.5 h-2.5' : 'h-3'
             )}
           >
-            <span className="h-[5px] w-9 rounded-[3px] bg-(--sheet-handle)" />
+            {/* A sheet that cannot close shows no grabber, as an iOS modal sheet. */}
+            <span
+              className={cn(
+                'h-[5px] w-9 rounded-[3px] bg-(--sheet-handle)',
+                !dismissible && 'invisible'
+              )}
+            />
           </div>
           {children}
           {/* The drag asks to close through this button. Without a header close it is also the
               VoiceOver way out. */}
-          <DialogPrimitive.Close ref={close} hidden={closes > 0} className="sr-only">
-            Close
-          </DialogPrimitive.Close>
+          {dismissible && (
+            <DialogPrimitive.Close ref={close} hidden={closes > 0} className="sr-only">
+              Close
+            </DialogPrimitive.Close>
+          )}
         </SheetContext.Provider>
       </DialogPrimitive.Content>
     </DialogPrimitive.Portal>
@@ -265,10 +291,13 @@ function SheetHeader({
   subtitle,
   close = true,
   closeLabel = 'Close',
+  tileClassName,
   className
 }: {
   icon?: React.ReactNode
   feature?: Feature
+  /** Classes after the feature tile's, for example a grey tile for a device with no colour. */
+  tileClassName?: string
   title: React.ReactNode
   subtitle?: React.ReactNode
   /** False hides the close button (the sheet then keeps an sr-only one). */
@@ -289,7 +318,8 @@ function SheetHeader({
           aria-hidden
           className={cn(
             'flex size-10 shrink-0 items-center justify-center [&_svg]:size-5',
-            FEATURE_TILE[feature]
+            FEATURE_TILE[feature],
+            tileClassName
           )}
         >
           {icon}

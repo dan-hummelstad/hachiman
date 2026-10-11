@@ -1,3 +1,4 @@
+import { useLayout } from '@/hooks/use-layout'
 import { accountTabs, moved, usePrefsStore } from '@/stores/prefsStore'
 import { useCurrentView, type View } from '@/stores/navStore'
 
@@ -90,14 +91,23 @@ export function viewOfTarget(t: TabTarget): View {
 
 /**
  * The index of the lit tab for `view`, or -1. A page view lights its page tab, else the tab of
- * its pages channel.
+ * its pages channel. `pageTabOfChannel` (the mobile layout, where a pages channel opens on its
+ * chat): a channel view with no tab of its own lights the first pinned page tab of the channel.
  */
-export function activeIndex(tabs: readonly TabTarget[], view: View): number {
+export function activeIndex(
+  tabs: readonly TabTarget[],
+  view: View,
+  { pageTabOfChannel = false }: { pageTabOfChannel?: boolean } = {}
+): number {
   const target = targetOf(view)
   if (!target) return -1
   const exact = tabs.findIndex((t) => sameTarget(t, target))
-  if (exact >= 0 || target.kind !== 'page') return exact
-  return tabs.findIndex((t) => t.kind === 'channel' && t.id === target.id)
+  if (exact >= 0) return exact
+  if (target.kind === 'page')
+    return tabs.findIndex((t) => t.kind === 'channel' && t.id === target.id)
+  if (target.kind === 'channel' && pageTabOfChannel)
+    return tabs.findIndex((t) => t.kind === 'page' && t.id === target.id)
+  return -1
 }
 
 export const isPinned = (tabs: readonly TabTarget[], target: TabTarget): boolean =>
@@ -123,7 +133,8 @@ export const useTabs = (): TabTarget[] => usePrefsStore(accountTabs)
 export function useActiveTabIndex(): number {
   const tabs = useTabs()
   const view = useCurrentView()
-  return activeIndex(tabs, view)
+  const pageTabOfChannel = useLayout() === 'mobile'
+  return activeIndex(tabs, view, { pageTabOfChannel })
 }
 
 /** Whether `target` is pinned (false for null). */

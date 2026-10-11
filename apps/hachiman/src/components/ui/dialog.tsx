@@ -73,6 +73,8 @@ type DialogContentProps = React.ComponentProps<typeof DialogPrimitive.Content> &
   showCloseButton?: boolean
   /** The form on the mobile layout (default `sheet`). No effect on the desktop layout. */
   presentation?: DialogPresentation
+  /** False: the mobile sheet cannot be dragged, escaped or tapped away (`SheetContent`). */
+  dismissible?: boolean
 }
 
 function DialogContent({
@@ -80,6 +82,7 @@ function DialogContent({
   children,
   showCloseButton = true,
   presentation = 'sheet',
+  dismissible,
   ...props
 }: DialogContentProps) {
   const mobile = useLayout() === 'mobile'
@@ -88,7 +91,12 @@ function DialogContent({
 
   if (form === 'sheet') {
     return (
-      <SheetContent data-slot="dialog-content" className={className} {...props}>
+      <SheetContent
+        data-slot="dialog-content"
+        className={className}
+        dismissible={dismissible}
+        {...props}
+      >
         <DialogFormContext.Provider value={value}>
           {/* The whole body scrolls; the header sticks to its top and the footer to its foot. */}
           <div

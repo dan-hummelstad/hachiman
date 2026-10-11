@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Ban, MessageCircle, MoreHorizontal, Search, SquarePen, Users } from 'lucide-react'
 import type { PresenceStatus, User } from '@hachiman/client'
 import { MobileDmHome } from '@/components/mobile/dm-home-screen'
@@ -7,12 +7,7 @@ import { ActiveNow } from '@/components/people/active-now'
 import { BlockConfirmDialog } from '@/components/people/block-dialog'
 import { NewMessageDialog } from '@/components/people/new-message-dialog'
 import { PresenceSections } from '@/components/people/presence-sections'
-import {
-  filterPeople,
-  useOnlinePeople,
-  usePeople,
-  useVisiblePeople
-} from '@/components/people/use-people'
+import { filterPeople, useOnlinePeople, useVisiblePeople } from '@/components/people/use-people'
 import { useVoiceActivity } from '@/components/people/use-voice-activity'
 import { UserAvatar } from '@/components/shell/user-avatar'
 import { Button } from '@/components/ui/button'
@@ -36,6 +31,7 @@ import { PRESENCE_LABEL } from '@/components/ui/presence'
 import { SegmentedControl, type SegmentedOption } from '@/components/ui/segmented-control'
 import { TitleBar } from '@/components/ui/title-bar'
 import { useAction } from '@/hooks/use-action'
+import { useBlockedUsers } from '@/hooks/use-blocked-users'
 import { useCustomStatus } from '@/hooks/use-custom-status'
 import { useLayout } from '@/hooks/use-layout'
 import { useOpenDm, usePresence } from '@/hooks/use-member'
@@ -43,7 +39,6 @@ import { activityLabel } from '@/lib/member-activity'
 import { cn } from '@/lib/utils'
 import { blockService } from '@/services/guild-features'
 import { usePoke } from '@/services/poke'
-import { useChannelStore } from '@/stores/channelStore'
 import { useUserStore } from '@/stores/userStore'
 
 type Tab = 'online' | 'all' | 'blocked'
@@ -52,7 +47,6 @@ const userId = (u: User): string => u.id
 
 /** The People view: everyone I share a guild with, the tab, the filter and what they select. */
 function usePeopleView(): {
-  people: User[]
   tab: Tab
   setTab: (tab: Tab) => void
   query: string
@@ -63,7 +57,6 @@ function usePeopleView(): {
   list: User[]
   matches: User[]
 } {
-  const people = usePeople()
   const blocks = useUserStore((s) => s.blocks)
   const [tab, setTab] = useState<Tab>('online')
   const [query, setQuery] = useState('')
@@ -78,7 +71,7 @@ function usePeopleView(): {
     { value: 'all', label: 'All', count: visible.length },
     { value: 'blocked', label: 'Blocked', count: blocks.size }
   ]
-  return { people, tab, setTab, query, setQuery, tabs, online, visible, list, matches }
+  return { tab, setTab, query, setQuery, tabs, online, visible, list, matches }
 }
 
 /**
@@ -185,7 +178,7 @@ function MobilePeopleScreen(): React.JSX.Element {
 
 /** The list of the selected tab, or why it is empty. */
 function PeopleResults({
-  view: { people, tab, query, visible, list, matches },
+  view: { tab, query, visible, list, matches },
   touch = false,
   renderRow
 }: {
@@ -194,7 +187,7 @@ function PeopleResults({
   touch?: boolean
   renderRow: (user: User, offline: boolean) => React.ReactNode
 }): React.JSX.Element {
-  if (tab === 'blocked') return <BlockedList people={people} query={query} touch={touch} />
+  if (tab === 'blocked') return <BlockedList query={query} touch={touch} />
   if (list.length === 0)
     return (
       <Empty>
@@ -392,50 +385,12 @@ function TouchPersonRow({ user, dim }: { user: User; dim: boolean }): React.JSX.
   )
 }
 
-/**
- * The people I blocked, with Unblock. A blocked user I no longer share a guild with is not in the
- * member lists, so their name comes from the block list of blockService.
- */
-function BlockedList({
-  people,
-  query,
-  touch
-}: {
-  people: User[]
-  query: string
-  touch: boolean
-}): React.JSX.Element {
-  const blocks = useUserStore((s) => s.blocks)
-  const blockedUsers = useUserStore((s) => s.blockedUsers)
-  const channels = useChannelStore((s) => s.channels)
-  // One reload per mount for a name that the list lacks (a user blocked since the last load).
-  const reloaded = useRef(false)
-
-  const known = useMemo(() => {
-    const byId = new Map<string, User>(blockedUsers)
-    for (const u of people) byId.set(u.id, u)
-    for (const c of channels.values()) for (const u of c.recipients ?? []) byId.set(u.id, u)
-    return byId
-  }, [people, channels, blockedUsers])
-  const missing = [...blocks].some((id) => !known.has(id))
-
-  useEffect(() => {
-    if (!missing || reloaded.current) return
-    reloaded.current = true
-    void blockService.load()
-  }, [missing])
-
-  const users = useMemo(
-    () =>
-      [...blocks]
-        .map((id) => known.get(id))
-        .filter((u): u is User => u !== undefined)
-        .sort((a, b) => a.username.localeCompare(b.username)),
-    [blocks, known]
-  )
+/** The people I blocked (`useBlockedUsers`), with Unblock. */
+function BlockedList({ query, touch }: { query: string; touch: boolean }): React.JSX.Element {
+  const { users, count } = useBlockedUsers()
   const matches = filterPeople(users, query)
 
-  if (blocks.size === 0) return <Empty>You haven&apos;t blocked anyone.</Empty>
+  if (count === 0) return <Empty>You haven&apos;t blocked anyone.</Empty>
   if (users.length === 0) return <Empty>Loading…</Empty>
   if (matches.length === 0) return <Empty>No one matches “{query.trim()}”.</Empty>
   return (

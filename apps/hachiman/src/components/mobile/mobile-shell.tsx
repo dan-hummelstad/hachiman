@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { PanelLeftClose } from 'lucide-react'
 import { InboxButton } from '@/components/inbox/inbox-button'
+import { useInboxScreenOpen } from '@/components/inbox/inbox-screen'
 import { Drawer } from '@/components/mobile/drawer'
 import {
   closeDrawer,
@@ -33,7 +34,7 @@ import { isAutoSelect } from '@/lib/auto-select'
 import { drawerAfter, type DrawerEvent, type DrawerSide } from '@/lib/mobile-drawer'
 import { cn } from '@/lib/utils'
 import { useChannelStore } from '@/stores/channelStore'
-import { useDialogStore } from '@/stores/dialogStore'
+import { OVER_LEFT_DRAWER, useDialogStore } from '@/stores/dialogStore'
 import { useDocsStore } from '@/stores/docsStore'
 import {
   currentView,
@@ -62,7 +63,8 @@ const toggleLeft = (): void => {
 
 /**
  * Closes a drawer on a navigation, a dialog or the quick switcher (`lib/mobile-drawer.ts`). A
- * guild switch keeps the left drawer open on the new guild's channels.
+ * guild switch keeps the left drawer open on the new guild's channels, and so does a dialog that a
+ * drawer control opens (`OVER_LEFT_DRAWER`, M44: the "+" stays lit under the dim).
  */
 function useDrawerCloseRule(): void {
   useEffect(() => {
@@ -83,7 +85,8 @@ function useDrawerCloseRule(): void {
       useNavStore.subscribe(onView),
       useDocsStore.subscribe(onView),
       useDialogStore.subscribe((s, prev) => {
-        if (s.dialog !== null && s.dialog !== prev.dialog) apply({ kind: 'dialog' })
+        if (s.dialog !== null && s.dialog !== prev.dialog)
+          apply({ kind: 'dialog', overLeft: OVER_LEFT_DRAWER.has(s.dialog.kind) })
       }),
       useSwitcher.subscribe((s, prev) => {
         if (s.mode !== null && prev.mode === null) apply({ kind: 'dialog' })
@@ -165,7 +168,16 @@ export function MobileShell(): React.JSX.Element {
   // A screen pushed inside the chat card (the DM home's People list): Back on the edge, and the
   // tab strip goes inert. The chat card holds the screen, so it cannot go inert itself.
   const localPushed = useDrawerState((s) => s.localPushed > 0)
+  // The inbox screen (M67) is portaled into this root, outside the main column.
+  const inboxOpen = useInboxScreenOpen()
   const hasRight = selectedChannel !== undefined && hasRightDrawer(selectedChannel)
+  // The right drawer shows a DM profile, the page tree of a pages channel (M42), or the members.
+  const rightLabel =
+    selectedChannel?.guildId === null
+      ? 'Profile'
+      : selectedChannel?.type === 'pages'
+        ? 'Pages'
+        : 'Members'
 
   useNativeAppearance(tint.window[useResolvedTheme()])
   useDefaultChannel(selectedGuildId, selectedChannel !== undefined)
@@ -188,7 +200,7 @@ export function MobileShell(): React.JSX.Element {
         TOUCH
       )}
     >
-      <div inert={drawerOpen || pushed} className="flex min-h-0 flex-1 flex-col">
+      <div inert={drawerOpen || pushed || inboxOpen} className="flex min-h-0 flex-1 flex-col">
         <div className="contents" inert={localPushed}>
           <MobileTabStrip />
         </div>
@@ -223,10 +235,7 @@ export function MobileShell(): React.JSX.Element {
           }
           top={
             <>
-              {/* No ⌘K on a phone. */}
-              <div className="contents [&_kbd]:hidden">
-                <SwitcherField />
-              </div>
+              <SwitcherField />
               <SidebarRows />
             </>
           }
@@ -237,8 +246,8 @@ export function MobileShell(): React.JSX.Element {
       <DrawerHost
         side="right"
         lazy
-        label={selectedChannel?.guildId === null ? 'Profile' : 'Members'}
-        closeLabel={selectedChannel?.guildId === null ? 'Close profile' : 'Close members'}
+        label={rightLabel}
+        closeLabel={`Close ${rightLabel.toLowerCase()}`}
         className="bg-surface-panel pt-(--safe-top) pb-(--safe-bottom)"
       >
         {selectedChannel && hasRight && <RightColumn channel={selectedChannel} variant="drawer" />}

@@ -581,6 +581,9 @@ M7 is in I2. M8 is in I1. M11 is in A2. M12 is in A5.
 - **Native hooks:** `saveTextFile`, `haptic('success' | 'warning')`.
 - **Check:** Simulator: rotate the key: the sheet cannot be dragged down until "I saved" and Done. Check now gives a haptic and the "All clear" card.
 - **Depends on:** C3, E1.
+- **As built (W4):**
+  - `SheetContent` and `DialogContent` take `dismissible={false}`: no drag, no Escape, no scrim close and no sr-only Close. `RecoveryKeyDialog` passes it while the new key shows.
+  - The settings intro of the security log already says what the M28 footnote says, so the page has no footnote.
 
 ### 4.8 Row E · Settings
 
@@ -732,6 +735,9 @@ M36 is in A5.
 - **Native hooks:** clipboard read for Paste.
 - **Check:** Preview: tap "+" beside GUILDS: the sheet, and the "+" stays lit under the dim. Tap an invite link in a DM: the join sheet with "From marlowe, in your DMs".
 - **Depends on:** P6, I1, E1.
+- **As built (W4):**
+  - `OVER_LEFT_DRAWER` in `stores/dialogStore.ts` lists the dialogs that a left-drawer control opens (`addGuild`). The drawer close rule keeps the left drawer open under them (`lib/mobile-drawer.ts`, `{ kind: 'dialog', overLeft }`), so the "+" stays lit under the dim.
+  - The preview fixture has a marlowe message in DM1 with an invite link on this server, and `previewInvite` expires in 6 days.
 
 #### G2b · Invite, create channel, leave and delete
 
@@ -757,7 +763,7 @@ M36 is in A5.
 - **Depends on:** E1, A2.
 - **As built (W3):**
   - The topic counter is at the bottom right, as M48 draws it (not the bottom left).
-  - The Save foot of M48 and M49 docks under the screen panel through `DockedFoot` (exported from `components/settings/channel-overview.tsx`), not sticky inside the form. It portals the foot as the last child of the enclosing `PushedScreen`. `PushedScreen` then drops the safe-bottom padding of its body. H1 and H2 can use `DockedFoot` for pages with rows after the form.
+  - The Save foot of M48 and M49 docks under the screen panel through `DockedFoot` (in `components/mobile/foot.tsx` since W4), not sticky inside the form. It portals the foot as the last child of the enclosing `PushedScreen`. `PushedScreen` then drops the safe-bottom padding of its body. H1 and H2 can use `DockedFoot` for pages with rows after the form.
   - `ChipScroller({ label, options: {value,label,lead?,count?}[], value, onValueChange, className })` in `components/mobile/chip-scroller.tsx` reuses `FilterChip` at 38 and shows the selected chip with `revealScrollLeft`.
   - The three-way switch is `SegmentedControl size="touch"`: 44 high with 36-wide segments. The mock draws 40 high with 40-wide segments.
 
@@ -773,6 +779,12 @@ All four screens sit in E1's tab frame. Each page file branches on the layout. E
 - **Native hooks:** file input picker (P4 plist), `haptic('success')`.
 - **Check:** Simulator: Change icon opens the photo picker. Save shows "Changes saved." Delete guild row opens the remove sheet.
 - **Depends on:** E1, E2.
+- **As built (W4):**
+  - `useGuildOverviewForm(guild)` and the pure `guildOverviewPatch(guild, draft)` (tested in `components/settings/guild-overview.test.ts`) live in `components/settings/guild-overview.tsx`. `GuildOverviewPage` calls the hook and gives the form to `GuildOverviewMobile`, so a layout switch keeps the draft.
+  - The Save foot docks under the panel through `DockedFoot`, so the tab frame's Delete guild row sits between the fields and the foot, as M52 draws it.
+  - The Change buttons read "Add icon" / "Add banner" when no image is set. A tap on an empty image opens the picker.
+  - The welcome channel field (not in the mock) is the fourth field, with a DoorOpen lead. The name field has a Tag lead in place of the mock's sample moon.
+  - `RegionSelect` passes its other props (`className`, `size`, `lead`, `disabled`, an optional `id`) to `NativeSelect`.
 
 #### H2 · Roles
 
@@ -782,6 +794,12 @@ All four screens sit in E1's tab frame. Each page file branches on the layout. E
 - **Native hooks:** `haptic('light')` on a chip hold, `haptic('success')` on save. Custom colour is an `<input type="color">`, which WebKit shows as the iOS colour picker (no bridge op).
 - **Check:** Preview: "+" creates and selects "new role". Hold a chip: Move higher works with the ceiling rules. Administrator on: rows below dim and stay disabled.
 - **Depends on:** E1.
+- **As built (W4):**
+  - No colour and Custom are 36 chips on a second row under the eight swatches: ten 36 hit areas need 360 px, and the iPhone SE body is 343.
+  - The hoist hint reads "Online members with this role appear under <NAME> in the member list." (only online members are grouped).
+  - The Save foot is `DockedFoot` + `SaveBar layout="foot"`, shown only while dirty or saving.
+  - The hold menu (Move higher, Move lower, Delete role) is on editable roles only. An sr-only "Actions for <role>" button opens it for VoiceOver.
+  - `PermissionList` lives in `components/ui/permission-row.tsx` and takes the items as a prop. `ColourSwatches` stays desktop-only; the mobile swatches are `SwatchPicker` in `components/settings/guild-roles-mobile.tsx`. Both use `SWATCHES` from `components/settings/use-role-list.ts`, so the two page files do not import each other.
 
 #### H3 · Members
 
@@ -791,6 +809,9 @@ All four screens sit in E1's tab frame. Each page file branches on the layout. E
 - **Native hooks:** `haptic('light')` on hold, `haptic('warning')` when the kick confirm opens.
 - **Check:** Preview: search filters live. Kick shows only on others who are not the owner. A role toggle in the sheet saves as a signed admin action.
 - **Depends on:** E1.
+- **As built (W4):**
+  - The pure gates and helpers are in `components/settings/member-gates.ts` (with `member-gates.test.ts`). The hooks `useMemberGates` and `useMemberEdit` are in `components/settings/use-member-gates.ts`.
+  - The member edit sheet stays open under the kick confirm. A successful kick closes both.
 
 #### H4 · Invites
 

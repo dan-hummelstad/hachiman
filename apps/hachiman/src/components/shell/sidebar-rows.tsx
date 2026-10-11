@@ -22,7 +22,7 @@ import { dmName } from '@/lib/model'
 import { orderedIds, recentDms, rowSlice, tileSurface } from '@/lib/sidebar-tiles'
 import { cutMask, cutStyle, shiftHoles, tileMark, type Hole } from '@/lib/tile-cutouts'
 import { cn } from '@/lib/utils'
-import { openDialog } from '@/stores/dialogStore'
+import { openDialog, useDialogStore } from '@/stores/dialogStore'
 import { useChannelStore } from '@/stores/channelStore'
 import { useGuildStore } from '@/stores/guildStore'
 import { DM_HOME, navigate, selectGuild, useNavStore, useSelectedGuildId } from '@/stores/navStore'
@@ -275,6 +275,7 @@ function GuildRow(): React.JSX.Element {
   const badge = useGuildsUnread(row.hidden)
   const [open, setOpen] = useState(false)
   const expanded = open && row.cluster
+  const adding = useDialogStore((s) => s.dialog?.kind === 'addGuild')
 
   const pick = (id: string): void => {
     selectGuild(id)
@@ -289,6 +290,7 @@ function GuildRow(): React.JSX.Element {
     <TileRow
       label="Guilds"
       add={{ label: 'Create or join a guild', onClick: () => openDialog({ kind: 'addGuild' }) }}
+      addLit={adding}
       ids={expanded ? ids : row.tiles}
       renderTile={(id) => {
         const at = ids.indexOf(id)

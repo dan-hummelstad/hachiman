@@ -802,7 +802,8 @@ export function stubRest(): void {
       code,
       guild: { id: 'g-preview-invite', name: 'Pixel Pushers', icon: null },
       memberCount: 48,
-      expiresAt: null,
+      // "Expires in 6 days", as M45 draws it.
+      expiresAt: new Date(Date.now() + 6 * 86_400_000 + 3_600_000).toISOString(),
       hasHistory: code === HISTORY_INVITE_CODE
     }),
     acceptInvite: (code) => createGuild(`Joined via ${code}`),

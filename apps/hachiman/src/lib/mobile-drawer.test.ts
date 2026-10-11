@@ -74,6 +74,12 @@ describe('drawerAfter', () => {
     expect(drawerAfter('right', { kind: 'dialog' })).toBeNull()
   })
 
+  it('keeps the left drawer under a dialog that a drawer control opened', () => {
+    expect(drawerAfter('left', { kind: 'dialog', overLeft: true })).toBe('left')
+    expect(drawerAfter('left', { kind: 'dialog', overLeft: false })).toBeNull()
+    expect(drawerAfter('right', { kind: 'dialog', overLeft: true })).toBeNull()
+  })
+
   it('applies the left rule to the left drawer', () => {
     expect(drawerAfter('left', nav(general, otherGuild))).toBe('left')
     expect(drawerAfter('left', nav(general, random))).toBeNull()

@@ -1,6 +1,8 @@
 import { useRef } from 'react'
 import {
   CornerUpLeft,
+  FilePlus,
+  Loader2,
   Lock,
   MessagesSquare,
   Pin,
@@ -34,9 +36,10 @@ import { useContactTrust } from '@/components/people/use-contact-trust'
 import { useMutualGuilds } from '@/components/people/use-mutual-guilds'
 import { GuildTile } from '@/components/ui/guild-tile'
 import { useLayout } from '@/hooks/use-layout'
+import { useNewPage } from '@/services/docs/use-channel-pages'
 
-/** The quiet intro buttons: hairline outline, hover wash. */
-const INTRO_BUTTON = 'border-line-hairline text-text-primary'
+/** The quiet intro buttons: hairline outline, hover wash. 36 high on the mobile layout (§2.10). */
+const INTRO_BUTTON = 'border-line-hairline text-text-primary mobile:h-9'
 
 /**
  * The start of a channel (shown once all history is loaded): a square icon tile, "Welcome to
@@ -77,6 +80,10 @@ function GuildIntro({
   const perms = usePermissions(channel.guildId, channel.id)
   const canInvite = has(perms, Permissions.CREATE_INSTANT_INVITE)
   const canManage = has(perms, Permissions.MANAGE_CHANNELS)
+  // Mobile only (spec §6.1): a pages channel opens on its chat there, so its start offers a page.
+  const mobile = useLayout() === 'mobile'
+  const canWritePage = mobile && channel.type === 'pages' && has(perms, Permissions.SEND_MESSAGES)
+  const newPage = useNewPage(channel)
   const tile = access.readOnly
     ? FEATURE_TILE.event
     : channel.type === 'pages'
@@ -101,8 +108,23 @@ function GuildIntro({
       {channel.topic && (
         <p className="text-body text-text-secondary mt-1.5 max-w-[70ch]">{channel.topic}</p>
       )}
-      {(!pinned || canInvite || canManage) && (
+      {(!pinned || canInvite || canManage || canWritePage) && (
         <div className="mt-4 flex flex-wrap gap-2">
+          {canWritePage && (
+            <Button
+              variant="quiet"
+              className={INTRO_BUTTON}
+              disabled={newPage.busy}
+              onClick={newPage.create}
+            >
+              {newPage.busy ? (
+                <Loader2 className="animate-spin" aria-hidden />
+              ) : (
+                <FilePlus aria-hidden />
+              )}
+              New page
+            </Button>
+          )}
           {!pinned && (
             <Button variant="quiet" className={INTRO_BUTTON} onClick={() => pinTab(tab)}>
               <Pin aria-hidden />
@@ -126,6 +148,11 @@ function GuildIntro({
             </Button>
           )}
         </div>
+      )}
+      {newPage.error !== null && (
+        <p role="alert" className="text-feature-danger-text mt-2 text-xs leading-4">
+          {newPage.error}
+        </p>
       )}
       {access.restricted && (
         <RestrictedCard

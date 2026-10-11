@@ -368,7 +368,11 @@ function MessageBody({
             message.failed ? 'text-feature-danger-text' : 'text-text-primary'
           )}
         >
-          <MessageTokens tokens={tokens} guildId={message.guildId} />
+          <MessageTokens
+            tokens={tokens}
+            guildId={message.guildId}
+            from={{ userId: message.author.id, channelId: message.channelId }}
+          />
           {message.editedAt && (
             <span className="text-text-tertiary ml-1.5 text-[11px] select-none">(edited)</span>
           )}

@@ -2,6 +2,7 @@ import { useCallback, useMemo, useRef, useState } from 'react'
 import { ChevronLeft, FileText, Users } from 'lucide-react'
 import type { Channel } from '@hachiman/client'
 import { PagesPanel } from '@/components/docs/pages-panel'
+import { PagesTreeList } from '@/components/docs/pages-tree-list'
 import { MemberList } from '@/components/member-list'
 import { DmProfileColumn } from '@/components/people/dm-profile-column'
 import { GuildPagesList } from '@/components/people/guild-pages-list'
@@ -33,7 +34,8 @@ const EMPTY_MESSAGES: ChatMessage[] = []
  *
  * The `drawer` variant (mobile, docs/ios-mobile-ui-spec.md A1) fills the drawer: no border, no
  * resize handle, never the wide page column, the touch-size tab control. A page that the Pages
- * tab opens shows as the full-screen page (`{ kind: 'page' }`).
+ * tab opens shows as the full-screen page (`{ kind: 'page' }`), and the drawer closes. In a pages
+ * channel the Pages tab is the channel's page tree (M42, `PagesTreeList`).
  */
 export function RightColumn({
   channel,
@@ -160,7 +162,9 @@ function GuildColumn({
               </h2>
             )}
           </div>
-          {pagesTab ? (
+          {pagesTab && drawer && isPages ? (
+            <PagesTreeList channel={channel} onOpen={(pageId) => openPage(channel.id, pageId)} />
+          ) : pagesTab ? (
             <GuildPagesList guildId={guildId} onOpen={drawer ? openPage : openBeside} />
           ) : (
             <MemberList guildId={guildId} />
