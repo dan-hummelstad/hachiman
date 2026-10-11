@@ -11,7 +11,7 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger
 } from '@/components/ui/context-menu'
-import { PRESENCE_LABEL, PresenceDot } from '@/components/ui/presence'
+import { OWN_STATUS_LABEL, PresenceDot } from '@/components/ui/presence'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useCustomStatus } from '@/hooks/use-custom-status'
 import { cn } from '@/lib/utils'
@@ -21,8 +21,6 @@ import { openSettings, useNavStore } from '@/stores/navStore'
 import { useTakusenStore } from '@/stores/takusenStore'
 import { useUserStore } from '@/stores/userStore'
 
-/** For my own status, offline is a choice: "Invisible". */
-const STATUS_LABEL: Record<PresenceStatus, string> = { ...PRESENCE_LABEL, offline: 'Invisible' }
 const STATUSES: PresenceStatus[] = ['online', 'idle', 'dnd', 'offline']
 
 /**
@@ -75,7 +73,7 @@ export function MeButton(): React.JSX.Element {
               <span className="flex size-4 items-center justify-center">
                 <PresenceDot status={s} />
               </span>
-              <span className={cn(status === s && 'font-semibold')}>{STATUS_LABEL[s]}</span>
+              <span className={cn(status === s && 'font-semibold')}>{OWN_STATUS_LABEL[s]}</span>
             </ContextMenuItem>
           ))}
           <ContextMenuSeparator />

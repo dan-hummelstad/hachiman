@@ -1,4 +1,7 @@
-/** The time formatters of the UI: relative times, invite expiry, and clocks (timers, playback). */
+/**
+ * The time formatters of the UI: relative times, invite expiry, clocks (timers, playback) and
+ * short dates.
+ */
 
 const RELATIVE = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' })
 const UNITS: [Intl.RelativeTimeFormatUnit, number][] = [
@@ -42,4 +45,15 @@ export function formatClock(ms: number): string {
   const m = Math.floor((total % 3600) / 60)
   const ss = String(total % 60).padStart(2, '0')
   return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${ss}` : `${m}:${ss}`
+}
+
+const SHORT_DATE = new Intl.DateTimeFormat(undefined, {
+  day: 'numeric',
+  month: 'short',
+  year: 'numeric'
+})
+
+/** A date as "12 Mar 2026" (in the locale's order): when a device was added. */
+export function formatShortDate(date: Date | number): string {
+  return SHORT_DATE.format(date)
 }

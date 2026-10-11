@@ -4,6 +4,7 @@ import { IconButton } from '@/components/ui/icon-button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { ScreenSourcePicker, type PickerState } from '@/components/voice/screen-source-picker'
 import { StreamQualityFields } from '@/components/voice/stream-quality-fields'
+import { canShareScreen } from '@/lib/media-caps'
 import { voiceService } from '@/services/VoiceService'
 import { usePlatform } from '@/shared/PlatformContext'
 import { useVoiceStore } from '@/stores/voiceStore'
@@ -11,17 +12,19 @@ import { useVoiceStore } from '@/stores/voiceStore'
 /**
  * Share-screen toggle, "Change source" while sharing, and the stream quality picker. Render only
  * while in voice. Hosts with their own source list (Electron) get the in-app picker; the browser
- * shows its own. A pick while sharing swaps the source without a stop.
+ * shows its own. A pick while sharing swaps the source without a stop. Renders nothing where the
+ * host cannot share a screen (`lib/media-caps`: iOS, mobile Safari).
  * `buttonClassName` restyles both buttons, for the control bar of the stage.
  */
 export function ScreenShareControls({
   buttonClassName
 }: {
   buttonClassName?: string
-}): React.JSX.Element {
+}): React.JSX.Element | null {
   const platform = usePlatform()
   const sharing = useVoiceStore((s) => s.localScreen !== null)
   const [picker, setPicker] = useState<PickerState | null>(null)
+  if (!canShareScreen()) return null
 
   const start = async (): Promise<void> => {
     try {

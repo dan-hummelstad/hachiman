@@ -12,7 +12,10 @@ import { jumpToMessage } from '@/lib/navigation'
 import { MessagePreview } from './message-preview'
 import { useCanPin } from './use-can-pin'
 
-/** The amber pin button of the channel header (N13) and its popover of pinned messages. */
+/**
+ * The amber pin button of the channel header (N13) and its popover of pinned messages. On the
+ * mobile layout the popover is a sheet.
+ */
 export function PinsButton({ channel }: { channel: Channel }): React.JSX.Element {
   const [open, setOpen] = useState(false)
   const count = usePinCount(channel.id)
@@ -29,6 +32,7 @@ export function PinsButton({ channel }: { channel: Channel }): React.JSX.Element
           count={count ?? 0}
           feature="event"
           pressed={open}
+          className={(count ?? 0) > 0 ? 'mobile:bg-feature-event/9' : undefined}
         >
           <Pin />
         </HeaderCountButton>

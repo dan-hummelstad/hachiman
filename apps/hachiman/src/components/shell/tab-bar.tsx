@@ -1,5 +1,7 @@
 import { useEffect, useRef } from 'react'
 import {
+  ArrowLeft,
+  ArrowRight,
   AudioLines,
   FileText,
   Hash,
@@ -19,7 +21,12 @@ import { SidebarControls, SidebarToggle } from '@/components/shell/sidebar-contr
 import { useSidebarView } from '@/components/shell/sidebar-state'
 import { UserAvatar } from '@/components/shell/user-avatar'
 import { Button } from '@/components/ui/button'
-import { ContextMenuItem } from '@/components/ui/context-menu'
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger
+} from '@/components/ui/context-menu'
 import { FEATURE_TEXT } from '@/components/ui/feature'
 import { IconButton } from '@/components/ui/icon-button'
 import { dmName, guildInitials } from '@/lib/model'
@@ -46,7 +53,13 @@ import {
 import { UnreadMark } from '@/components/ui/unread-mark'
 import { useChannelUnread } from '@/stores/unreadStore'
 import { useVoiceStore } from '@/stores/voiceStore'
-import { useDragSensors, useSortableRow } from '@/hooks/use-sortable-row'
+import { useLayout } from '@/hooks/use-layout'
+import {
+  SORTABLE_TOUCH,
+  useDragSensors,
+  useSortableHoldMenu,
+  useSortableRow
+} from '@/hooks/use-sortable-row'
 
 const NO_DRAG = '[-webkit-app-region:no-drag]'
 
@@ -131,7 +144,9 @@ export function PinCurrent({ className }: { className?: string }): React.JSX.Ele
 
 /**
  * The pinned tabs, a sideways scroller that can be reordered by drag. `revealActive` (the mobile
- * strip): the tab that becomes active scrolls into view.
+ * strip): the tab that becomes active scrolls into view. On the mobile layout a finger holds a tab
+ * to drag it (a quick sideways swipe scrolls the strip), and a hold that ends in place opens the
+ * tab menu.
  */
 export function Tabs({
   revealActive = false,
@@ -171,7 +186,14 @@ export function Tabs({
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
         <SortableContext items={ids} strategy={horizontalListSortingStrategy}>
           {tabs.map((t, i) => (
-            <Tab key={ids[i]} id={ids[i]} target={t} index={i} active={i === active} />
+            <Tab
+              key={ids[i]}
+              id={ids[i]}
+              target={t}
+              index={i}
+              count={tabs.length}
+              active={i === active}
+            />
           ))}
         </SortableContext>
       </DndContext>
@@ -181,19 +203,24 @@ export function Tabs({
 
 /**
  * One pinned tab: crest, type icon, name, one state mark; the lit one has ✕ to unpin (on desktop;
- * a phone unpins from the hold menu).
+ * a phone unpins from the hold menu). The hold menu (mobile layout): Unpin, Move left and Move
+ * right, the button path of the drag for VoiceOver.
  */
 export function Tab({
   id,
   target,
   index,
+  count,
   active
 }: {
   id: string
   target: TabTarget
   index: number
+  /** The number of pinned tabs (Move right stops at the last). */
+  count: number
   active: boolean
 }): React.JSX.Element | null {
+  const mobile = useLayout() === 'mobile'
   const channel = useChannelStore((s) => s.channels.get(target.id))
   const guild = useGuildStore((s) => (target.guildId ? s.guilds.get(target.guildId) : undefined))
   const pageTitle = useDocsStore((s) =>
@@ -216,6 +243,7 @@ export function Tab({
     id,
     translateOnly: true
   })
+  const menu = useSortableHoldMenu(id)
   // A target that is gone: pruneTabs drops it once the caches show that.
   if (!channel) return null
 
@@ -228,7 +256,7 @@ export function Tab({
   const other = target.kind === 'dm' ? channel.recipients?.[0] : undefined
   const shortcut = index < 9 ? ` (${index + 1})` : ''
 
-  return (
+  const tab = (
     <div
       ref={setNodeRef}
       style={style}
@@ -254,7 +282,8 @@ export function Tab({
         active
           ? 'bg-surface-raised text-text-primary font-bold shadow-soft'
           : 'bg-surface-hover/50 text-text-secondary hover:bg-surface-hover hover:text-text-primary',
-        isDragging && 'opacity-70'
+        isDragging && 'opacity-70',
+        SORTABLE_TOUCH
       )}
     >
       {target.kind === 'dm' ? (
@@ -284,6 +313,26 @@ export function Tab({
         </button>
       )}
     </div>
+  )
+  if (!mobile) return tab
+
+  return (
+    <ContextMenu open={menu.open} onOpenChange={menu.onOpenChange}>
+      <ContextMenuTrigger asChild longPress={menu.longPress}>
+        {tab}
+      </ContextMenuTrigger>
+      <ContextMenuContent aria-label={name || undefined}>
+        <ContextMenuItem onSelect={() => unpinTab(target)}>
+          <PinOff /> Unpin
+        </ContextMenuItem>
+        <ContextMenuItem disabled={index === 0} onSelect={() => moveTab(index, index - 1)}>
+          <ArrowLeft /> Move left
+        </ContextMenuItem>
+        <ContextMenuItem disabled={index >= count - 1} onSelect={() => moveTab(index, index + 1)}>
+          <ArrowRight /> Move right
+        </ContextMenuItem>
+      </ContextMenuContent>
+    </ContextMenu>
   )
 }
 

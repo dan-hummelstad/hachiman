@@ -37,8 +37,9 @@ export function VoiceHeaderMeta({ channel }: { channel: GuildChannel }): React.J
 
 /**
  * The header action of a voice channel in the own call: the green "Verify call" chip, which opens
- * the verify call dialog. While the call keys are not ready, it is gold and says so. Renders
- * nothing outside the own call.
+ * the verify call dialog. While the call keys are not ready, it is gold and says so. On mobile
+ * the label drops "call" ("Verify", "Securing…", M10), and the screen reader still reads it.
+ * Renders nothing outside the own call.
  */
 export function VoiceHeaderExtras({
   channel
@@ -55,13 +56,18 @@ export function VoiceHeaderExtras({
       onClick={() => openDialog({ kind: 'verifyCall' })}
       className={cn(
         'rounded-control focus-visible:outline-line-focus inline-flex h-8 shrink-0 items-center gap-1.5 border px-3 text-[13px] leading-none font-bold transition-colors outline-none focus-visible:outline-2 focus-visible:outline-offset-1 [&_svg]:size-4 [&_svg]:shrink-0',
+        'mobile:h-9 mobile:gap-[5px] mobile:px-2.5 mobile:font-extrabold mobile:[&_svg]:size-[17px]',
         secure
           ? 'border-feature-voice/40 bg-feature-voice/10 text-feature-voice-text hover:bg-feature-voice/20'
           : 'border-feature-event/40 bg-feature-event/10 text-feature-event-text hover:bg-feature-event/20'
       )}
     >
       {secure ? <ShieldCheck aria-hidden /> : <LoaderCircle className="animate-spin" aria-hidden />}
-      {secure ? 'Verify call' : 'Securing call…'}
+      <span>
+        {secure ? 'Verify' : 'Securing'}
+        <span className="mobile:sr-only"> call</span>
+        {!secure && '…'}
+      </span>
     </button>
   )
 }

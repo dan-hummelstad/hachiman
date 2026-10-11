@@ -1,7 +1,10 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowDown } from 'lucide-react'
 import type { Channel } from '@hachiman/client'
+import { MessageActionSheet } from '@/components/mobile/message-action-sheet'
+import { useChatCovered } from '@/components/mobile/drawer-state'
 import { SystemTag } from '@/components/ui/system-tag'
+import { useLayout } from '@/hooks/use-layout'
 import { highlightRow, jumpStep } from '@/lib/navigation'
 import { cn } from '@/lib/utils'
 import { messagesService } from '@/services/MessagesService'
@@ -24,6 +27,14 @@ const EMPTY_MESSAGES: ChatMessage[] = []
 const AWAY_PX = 400
 /** Distance from the top (px) at which older history starts loading. */
 const LOAD_PX = 200
+
+/** The row that a long press lifted (mobile): a new `seq` per press gives a fresh sheet. */
+interface Lift {
+  /** The message at the press; the live row replaces it while it is still in the store. */
+  message: ChatMessage
+  row: HTMLElement
+  seq: number
+}
 
 /**
  * The log. A `flex-col-reverse` scroller keeps us pinned to the bottom for free and keeps the
@@ -49,7 +60,10 @@ export function Transcript({
   const channelId = channel.id
   const messages = useMessageStore((s) => s.byChannel.get(channelId) ?? EMPTY_MESSAGES)
   const hasMore = useMessageStore((s) => s.hasMore.get(channelId))
-  const display = usePrefsStore((s) => s.messageDisplay)
+  const mobile = useLayout() === 'mobile'
+  const displayPref = usePrefsStore((s) => s.messageDisplay)
+  // A phone row has room for one layout: cozy (M1).
+  const display = mobile ? 'cozy' : displayPref
   const myId = useUserStore((s) => s.me?.id)
 
   const scroller = useRef<HTMLDivElement>(null)
@@ -93,6 +107,25 @@ export function Transcript({
   useEffect(() => {
     messagesService.ensureLoaded(channelId)
   }, [channelId])
+
+  // The message action sheet of the mobile layout (spec A3): one per transcript.
+  const [lift, setLift] = useState<Lift | null>(null)
+  const [liftOpen, setLiftOpen] = useState(false)
+  const openActions = useCallback(
+    (messageId: string, row: HTMLElement): void => {
+      const message = useMessageStore
+        .getState()
+        .byChannel.get(channelId)
+        ?.find((m) => m.id === messageId)
+      if (!message) return
+      setLift((prev) => ({ message, row, seq: (prev?.seq ?? 0) + 1 }))
+      setLiftOpen(true)
+    },
+    [channelId]
+  )
+  // The live row, so pins and reactions show as they change. A deleted row keeps its last state
+  // until its sheet and confirm have closed.
+  const liftMessage = lift && (messages.find((m) => m.id === lift.message.id) ?? lift.message)
 
   // A jump from pins, the inbox or a thread start (lib/navigation): show the row once it renders.
   const jumpId = useNavStore((s) =>
@@ -142,7 +175,9 @@ export function Transcript({
       <div
         ref={scroller}
         onScroll={onScroll}
-        className="flex min-h-0 flex-1 flex-col-reverse overflow-y-auto"
+        // Mobile: the focus can land here when the row it was on is deleted (the action sheet).
+        tabIndex={mobile ? -1 : undefined}
+        className="mobile:touch-pan-y mobile:outline-none flex min-h-0 flex-1 flex-col-reverse overflow-y-auto"
         data-slot="chat-scroll"
       >
         <div className="flex flex-col pt-4 pb-3">
@@ -166,6 +201,7 @@ export function Transcript({
                 policy={policy}
                 editing={editingId === message.id}
                 onEditingChange={onEditingChange}
+                onActions={mobile ? openActions : undefined}
               />
             </Fragment>
           ))}
@@ -179,6 +215,8 @@ export function Transcript({
           onClick={() => jumpToPresent()}
           className={cn(
             'rounded-pill bg-surface-raised border-line-hairline text-text-primary hover:bg-surface-panel absolute right-5 bottom-3 flex h-8 items-center gap-2 border px-3 text-xs font-semibold shadow-lg shadow-black/20',
+            // A 36 touch target. The footer (typing line, voice bar, composer) sits below.
+            'mobile:right-4 mobile:h-9 mobile:px-3.5',
             'focus-visible:outline-line-focus outline-none focus-visible:outline-2'
           )}
         >
@@ -186,14 +224,30 @@ export function Transcript({
           Jump to present
         </button>
       )}
+      {mobile && lift && liftMessage && (
+        <MessageActionSheet
+          key={lift.seq}
+          message={liftMessage}
+          row={lift.row}
+          guildId={channel.guildId}
+          policy={policy}
+          onEditingChange={onEditingChange}
+          open={liftOpen}
+          onOpenChange={setLiftOpen}
+        />
+      )}
     </div>
   )
 }
 
+/** The window has the focus and shows. */
+const seen = (): boolean => document.hasFocus() && document.visibilityState === 'visible'
+
 /**
  * Read acks (N7). The channel counts as read up to its newest sent message while the bottom of
- * the transcript is in view and the window has focus, and right after my own message arrives.
- * Returns the ref of a sentinel under the last row.
+ * the transcript is in view, the window has focus and shows, and nothing covers the chat (a mobile
+ * drawer or pushed screen), and right after my own message arrives. Returns the ref of a sentinel
+ * under the last row.
  */
 function useMarkRead(
   channelId: string,
@@ -201,7 +255,8 @@ function useMarkRead(
   myId: string | undefined
 ): React.RefCallback<HTMLDivElement> {
   const [inView, setInView] = useState(false)
-  const [focused, setFocused] = useState(() => document.hasFocus())
+  const [focused, setFocused] = useState(seen)
+  const covered = useChatCovered()
 
   const bottom = useCallback((el: HTMLDivElement | null) => {
     if (!el) return
@@ -213,12 +268,15 @@ function useMarkRead(
   }, [])
 
   useEffect(() => {
-    const on = (): void => setFocused(document.hasFocus())
+    const on = (): void => setFocused(seen())
     window.addEventListener('focus', on)
     window.addEventListener('blur', on)
+    // An app in the background (iOS) can keep the focus but not show.
+    document.addEventListener('visibilitychange', on)
     return () => {
       window.removeEventListener('focus', on)
       window.removeEventListener('blur', on)
+      document.removeEventListener('visibilitychange', on)
     }
   }, [])
 
@@ -230,8 +288,9 @@ function useMarkRead(
   const lastId = last?.id
   const lastIsMine = last !== undefined && last.author.id === myId
   useEffect(() => {
-    if (lastId && ((inView && focused) || lastIsMine)) unreadService.markRead(channelId, lastId)
-  }, [channelId, lastId, lastIsMine, inView, focused])
+    if (lastId && ((inView && focused && !covered) || lastIsMine))
+      unreadService.markRead(channelId, lastId)
+  }, [channelId, lastId, lastIsMine, inView, focused, covered])
 
   return bottom
 }

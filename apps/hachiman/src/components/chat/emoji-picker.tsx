@@ -63,7 +63,8 @@ const customCell = (e: GuildEmoji): Cell => ({
  * The emoji picker in a popover anchored to `children` (the button that opens it): search by name,
  * shortcode or tag, a section per guild with custom emojis (the current guild first), the
  * recently used emojis and the Unicode categories. Controlled, so the message toolbar can stay
- * shown while it is open. Recent picks and the skin tone persist in prefsStore.
+ * shown while it is open. Recent picks and the skin tone persist in prefsStore. On the mobile
+ * layout the popover is a sheet, and `children` can be null (nothing to anchor).
  */
 export function EmojiPicker({
   open,
@@ -74,6 +75,7 @@ export function EmojiPicker({
   side = 'top',
   align = 'end',
   unicodeOnly = false,
+  autoFocusSearch = true,
   children
 }: {
   open: boolean
@@ -86,6 +88,11 @@ export function EmojiPicker({
   align?: 'start' | 'end'
   /** No custom emojis: for a field that holds plain text (a sound's emoji). */
   unicodeOnly?: boolean
+  /**
+   * Focus the search field on open (default). False keeps the phone keyboard down: the sheet
+   * itself takes the focus (the message action sheet's "More reactions", spec A3).
+   */
+  autoFocusSearch?: boolean
   children: React.ReactNode
 }): React.JSX.Element {
   return (
@@ -102,6 +109,7 @@ export function EmojiPicker({
         className="bg-surface-raised border-line-hairline flex h-[420px] max-h-(--radix-popover-content-available-height) w-[360px] flex-col p-0"
         aria-label={label}
         onOpenAutoFocus={(e) => {
+          if (!autoFocusSearch) return
           e.preventDefault()
           ;(e.currentTarget as HTMLElement).querySelector('input')?.focus()
         }}

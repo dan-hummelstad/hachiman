@@ -196,11 +196,13 @@ function useList(part: string): ListValue {
 export function MenuSheetContent({
   title,
   children,
+  onOpenAutoFocus,
   onCloseAutoFocus,
   onEscapeKeyDown
 }: {
   title?: string
   children?: React.ReactNode
+  onOpenAutoFocus?: (event: Event) => void
   onCloseAutoFocus?: (event: Event) => void
   onEscapeKeyDown?: (event: KeyboardEvent) => void
 }): React.JSX.Element {
@@ -233,6 +235,7 @@ export function MenuSheetContent({
     <SheetContent
       variant="action"
       aria-describedby={undefined}
+      onOpenAutoFocus={onOpenAutoFocus}
       onCloseAutoFocus={onCloseAutoFocus}
       onEscapeKeyDown={(e) => {
         onEscapeKeyDown?.(e)

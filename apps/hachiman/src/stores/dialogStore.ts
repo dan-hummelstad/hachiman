@@ -25,6 +25,8 @@ type AppDialog =
   | { kind: 'notifySettings'; guildId: string }
   /** The sent time, encryption and delivery details of one message. */
   | { kind: 'messageInfo'; channelId: string; messageId: string }
+  /** Sign out of this device: the red row of the mobile settings list (M29). */
+  | { kind: 'signOut' }
 
 /**
  * The E2EE dialogs (§12.4, §12.5, §12.10, §12.11). No payload holds a secret: a dialog that shows

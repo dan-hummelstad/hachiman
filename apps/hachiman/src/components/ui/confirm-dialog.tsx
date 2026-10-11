@@ -22,6 +22,8 @@ interface ConfirmDialogProps {
   what?: string
   /** Keeps the confirm button disabled (e.g. until a type-to-confirm field matches). */
   confirmDisabled?: boolean
+  /** Where the focus goes on close; `preventDefault` keeps Radix from moving it. */
+  onCloseAutoFocus?: (event: Event) => void
 }
 
 /**
@@ -38,6 +40,7 @@ export function ConfirmDialog(props: ConfirmDialogProps): React.JSX.Element {
       presentation="dialog"
       icon={props.icon}
       feature={props.tone === 'danger' ? 'danger' : 'accent'}
+      onCloseAutoFocus={props.onCloseAutoFocus}
     >
       <ConfirmBody {...props} />
     </ModalWindow>

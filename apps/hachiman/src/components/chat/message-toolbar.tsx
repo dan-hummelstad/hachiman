@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Ellipsis, Pencil, Reply, SmilePlus, Trash2 } from 'lucide-react'
+import { Ellipsis } from 'lucide-react'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -9,43 +9,40 @@ import { IconButton } from '@/components/ui/icon-button'
 import { cn } from '@/lib/utils'
 import { reactionKeyOf } from '@/lib/custom-emoji'
 import { EmojiPicker } from './emoji-picker'
+import { findAction, hasMoreItems, type MessageAction } from './message-actions'
+import { MessageMoreItems } from './message-more-items'
 
 /** Rounded 28px icon buttons with 16px icons. */
 const BUTTON = 'text-text-secondary hover:bg-surface-hover hover:text-text-primary size-7'
 
 interface MessageToolbarProps {
-  /** Adds a reaction (N10): a Unicode emoji or a custom `name:id`. Omitted when I can't react (not sent yet, no SEND_MESSAGES). */
-  onReact?: (emoji: string) => void
+  /**
+   * The row's actions (`useMessageActions`). React (N10), reply (N11), edit and delete show as
+   * buttons; pin (N13), thread (N12) and info go into "More".
+   */
+  actions: readonly MessageAction[]
   /** The guild of the message: its custom emojis come first in the picker. */
   guildId?: string | null
-  /** Makes this message the reply target of the composer (N11). */
-  onReply?: () => void
-  /** Omitted when the message isn't mine. */
-  onEdit?: () => void
-  /** Omitted when I can't delete it (not mine and no MANAGE_MESSAGES). */
-  onDelete?: () => void
-  /** The items of the "More" menu (pin N13, thread N12); omitted or null: no "More" button. */
-  more?: React.ReactNode
   className?: string
 }
 
 /**
  * Hover cluster pinned to the top right of a transcript row: a raised square card with rounded
- * icon buttons. Delete is two-step: the first click arms it, the second deletes. React (N10) and
- * reply (N11) come first; thread (N12) goes after them when it lands.
+ * icon buttons. Delete is two-step: the first click arms it, the second deletes. The mobile layout
+ * has no toolbar: a long press opens the action sheet with the same actions.
  */
 export function MessageToolbar({
-  onReact,
+  actions,
   guildId = null,
-  onReply,
-  onEdit,
-  onDelete,
-  more,
   className
 }: MessageToolbarProps): React.JSX.Element {
   const [armed, setArmed] = useState(false)
   const [picking, setPicking] = useState(false)
   const [moreOpen, setMoreOpen] = useState(false)
+  const react = findAction(actions, 'react')
+  const reply = findAction(actions, 'reply')
+  const edit = findAction(actions, 'edit')
+  const del = findAction(actions, 'delete')
 
   useEffect(() => {
     if (!armed) return
@@ -66,34 +63,34 @@ export function MessageToolbar({
         className
       )}
     >
-      {onReact && (
+      {react && (
         <EmojiPicker
           open={picking}
           onOpenChange={setPicking}
           guildId={guildId}
           label="Pick a reaction"
-          onPick={(pick) => onReact(reactionKeyOf(pick))}
+          onPick={(pick) => react.run(reactionKeyOf(pick))}
         >
-          <IconButton className={BUTTON} label="Add reaction" onClick={() => setPicking((v) => !v)}>
-            <SmilePlus />
+          <IconButton className={BUTTON} label={react.label} onClick={() => setPicking((v) => !v)}>
+            <react.icon />
           </IconButton>
         </EmojiPicker>
       )}
-      {onReply && (
-        <IconButton className={BUTTON} label="Reply" onClick={onReply}>
-          <Reply />
+      {reply && (
+        <IconButton className={BUTTON} label={reply.label} onClick={() => void reply.run()}>
+          <reply.icon />
         </IconButton>
       )}
-      {onEdit && (
-        <IconButton className={BUTTON} label="Edit" onClick={onEdit}>
-          <Pencil />
+      {edit && (
+        <IconButton className={BUTTON} label={edit.label} onClick={() => void edit.run()}>
+          <edit.icon />
         </IconButton>
       )}
-      {onDelete && (
+      {del && (
         <>
           <IconButton
             tone="danger"
-            label={armed ? 'Click again to delete' : 'Delete'}
+            label={armed ? 'Click again to delete' : del.label}
             className={cn(
               BUTTON,
               armed &&
@@ -102,10 +99,12 @@ export function MessageToolbar({
             onClick={() => {
               if (!armed) return setArmed(true)
               setArmed(false)
-              onDelete()
+              Promise.resolve(del.run()).catch((e: unknown) =>
+                console.error('[chat] delete failed', e)
+              )
             }}
           >
-            <Trash2 />
+            <del.icon />
           </IconButton>
           {armed && (
             <span
@@ -117,7 +116,7 @@ export function MessageToolbar({
           )}
         </>
       )}
-      {more && (
+      {hasMoreItems(actions) && (
         <DropdownMenu open={moreOpen} onOpenChange={setMoreOpen}>
           <DropdownMenuTrigger asChild>
             <IconButton className={BUTTON} label="More" pressed={moreOpen}>
@@ -125,7 +124,7 @@ export function MessageToolbar({
             </IconButton>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-52">
-            {more}
+            <MessageMoreItems actions={actions} />
           </DropdownMenuContent>
         </DropdownMenu>
       )}

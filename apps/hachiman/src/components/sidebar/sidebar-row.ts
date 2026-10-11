@@ -14,5 +14,15 @@ export function sidebarRowClass(selected: boolean, className?: string): string {
   )
 }
 
+/** A channel row on the mobile layout (Arc sidebar in the drawer, M3): 38 high, text 15. */
+export const CHANNEL_ROW_TOUCH = 'mobile:h-[38px] mobile:text-[15px]'
+
+/**
+ * A touch target of 36 around a smaller control on the mobile layout (spec §2.10): an invisible
+ * square centred on it. The control keeps its look.
+ */
+export const TOUCH_HIT =
+  'mobile:relative mobile:after:absolute mobile:after:top-1/2 mobile:after:left-1/2 mobile:after:size-9 mobile:after:-translate-1/2'
+
 /** "New message": the DM home (the People view), where a conversation starts. */
 export const openDmHome = (): void => navigate({ kind: 'dmHome' })

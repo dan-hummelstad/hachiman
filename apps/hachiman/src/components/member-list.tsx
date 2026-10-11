@@ -1,15 +1,20 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { Crown } from 'lucide-react'
-import type { Member } from '@hachiman/client'
+import type { Member, PresenceStatus } from '@hachiman/client'
+import { MemberSheet } from '@/components/mobile/member-sheet'
 import { CustomStatusLine } from '@/components/people/custom-status-line'
 import { useVoiceActivity } from '@/components/people/use-voice-activity'
 import { VoiceActivityLine } from '@/components/people/voice-activity-line'
 import { UserAvatar } from '@/components/shell/user-avatar'
+import { PRESENCE_LABEL } from '@/components/ui/presence'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { SystemTag } from '@/components/ui/system-tag'
 import { UserProfilePopover } from '@/components/user-profile-popover'
 import { LiveCard } from '@/components/voice/live-card'
+import { useCustomStatus } from '@/hooks/use-custom-status'
 import { useChannelOccupants } from '@/hooks/use-hachiman'
+import { useLayout } from '@/hooks/use-layout'
+import { LONG_PRESS_TARGET, useLongPress } from '@/hooks/use-long-press'
 import { usePresence, useSpeakingMember } from '@/hooks/use-member'
 import { groupMembers } from '@/lib/member-groups'
 import { ROLE_INK_SCOPE, roleInk } from '@/lib/role-ink'
@@ -31,8 +36,17 @@ interface Streamer {
  * The members of a guild, for the right column (RightColumn puts the column head above it).
  * Sections from `groupMembers`, names in their highest role colour, an activity line from the
  * voice states, and a live card per member who streams.
+ *
+ * Mobile layout (the members drawer, docs/ios-mobile-ui-spec.md A4): the M4 sizes, a 40 px fade
+ * at the foot of the list above the live cards, and a presence line ("Idle", "Do not disturb")
+ * for a member with no voice activity and no custom status. A tap opens the profile sheet; a hold
+ * opens the member sheet (`components/mobile/member-sheet.tsx`). One sheet serves the list.
  */
 export function MemberList({ guildId }: { guildId: string }): React.JSX.Element {
+  const mobile = useLayout() === 'mobile'
+  // The member whose sheet shows. The user id stays after the sheet closes, so that the sheet can
+  // slide out and a kick or ban confirm that it opened stays up.
+  const [held, setHeld] = useState<{ userId: string; open: boolean } | null>(null)
   const members = useGuildStore((s) => s.members.get(guildId))
   const presences = useGuildStore((s) => s.presences)
   const roles = useGuildStore((s) => s.roles.get(guildId))
@@ -53,10 +67,10 @@ export function MemberList({ guildId }: { guildId: string }): React.JSX.Element 
   return (
     <div className={cn('flex min-h-0 flex-1 flex-col', ROLE_INK_SCOPE)}>
       <ScrollArea className="min-h-0 flex-1">
-        <div className="flex flex-col gap-3 px-2 py-3">
+        <div className="mobile:gap-0 mobile:pt-1.5 mobile:pb-10 flex flex-col gap-3 px-2 py-3">
           {groups.map((g) => (
             <section key={g.id} aria-label={g.label}>
-              <h3 className="section-label flex items-center gap-1.5 px-2 pb-1">
+              <h3 className="section-label mobile:gap-[7px] mobile:pt-2.5 mobile:pb-0.5 mobile:tracking-[0.6px] flex items-center gap-1.5 px-2 pb-1">
                 {g.color && (
                   <span
                     className="size-2 shrink-0"
@@ -75,6 +89,7 @@ export function MemberList({ guildId }: { guildId: string }): React.JSX.Element 
                     dim={g.dim}
                     owner={m.user.id === ownerId}
                     me={m.user.id === myId}
+                    onHold={mobile ? (userId) => setHeld({ userId, open: true }) : undefined}
                   />
                 ))}
               </ul>
@@ -82,6 +97,21 @@ export function MemberList({ guildId }: { guildId: string }): React.JSX.Element 
           ))}
         </div>
       </ScrollArea>
+      {mobile && (
+        // The rows run out under it. Zero high, so the live cards keep their place below.
+        <div aria-hidden className="relative z-10 shrink-0">
+          <div className="from-surface-panel/0 to-surface-panel/95 pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-linear-to-b" />
+        </div>
+      )}
+      {mobile && held && (
+        <MemberSheet
+          key={held.userId}
+          guildId={guildId}
+          userId={held.userId}
+          open={held.open}
+          onOpenChange={(open) => setHeld({ userId: held.userId, open })}
+        />
+      )}
       {streamers.length > 0 && (
         <div className="flex shrink-0 flex-col gap-2 p-2">
           {streamers.map((s) => (
@@ -93,31 +123,50 @@ export function MemberList({ guildId }: { guildId: string }): React.JSX.Element 
   )
 }
 
+/**
+ * The presence line of the mobile member row: idle and do not disturb, the states that the dot
+ * alone does not spell out. Do not disturb is in the danger ink.
+ */
+const PRESENCE_LINE: Partial<Record<PresenceStatus, string>> = {
+  idle: 'text-text-tertiary font-medium',
+  dnd: 'text-feature-danger-text font-bold'
+}
+
 function MemberRow({
   member,
   guildId,
   dim,
   owner,
-  me
+  me,
+  onHold
 }: {
   member: Member
   guildId: string
   dim: boolean
   owner: boolean
   me: boolean
+  /** Mobile layout: a hold on the row opens the member sheet. */
+  onHold?: (userId: string) => void
 }): React.JSX.Element {
   const userId = member.user.id
   const { name, ink, speaking } = useSpeakingMember(guildId, userId)
   const status = usePresence(userId)
   const activity = useVoiceActivity(userId, guildId)
+  const customStatus = useCustomStatus(userId)
+  const press = useLongPress(() => onHold?.(userId), { enabled: onHold !== undefined })
+  const presenceLine =
+    onHold && !dim && !activity && !customStatus?.text ? PRESENCE_LINE[status] : undefined
   return (
     <li>
       <UserProfilePopover userId={userId} guildId={guildId}>
         <button
           type="button"
+          {...(onHold ? press : {})}
           className={cn(
             'group rounded-control hover:bg-surface-hover flex min-h-[42px] w-full items-center gap-2.5 px-2 py-1 text-left',
+            'mobile:rounded-[7px] mobile:active:bg-surface-hover',
             'focus-visible:outline-line-focus focus-visible:outline-2 focus-visible:-outline-offset-2',
+            LONG_PRESS_TARGET,
             dim && 'opacity-45 hover:opacity-100'
           )}
         >
@@ -132,7 +181,7 @@ function MemberRow({
           <span className="flex min-w-0 flex-1 flex-col">
             <span className="flex min-w-0 items-center gap-1.5">
               <span
-                className="text-text-primary truncate text-sm leading-5 font-semibold"
+                className="text-text-primary mobile:text-[14.5px] mobile:font-bold truncate text-sm leading-5 font-semibold"
                 style={ink ? { color: ink } : undefined}
               >
                 {name}
@@ -148,10 +197,20 @@ function MemberRow({
             {activity && !dim && (
               <VoiceActivityLine
                 activity={activity}
-                className="text-feature-voice-text text-xs leading-4 font-semibold"
+                className="text-feature-voice-text mobile:font-bold text-xs leading-4 font-semibold"
               />
             )}
-            {!activity && !dim && <CustomStatusLine userId={userId} />}
+            {!activity && !dim && (
+              <CustomStatusLine
+                userId={userId}
+                className="mobile:text-text-tertiary mobile:font-medium"
+              />
+            )}
+            {presenceLine && (
+              <span className={cn('truncate text-xs leading-4', presenceLine)}>
+                {PRESENCE_LABEL[status]}
+              </span>
+            )}
           </span>
           {activity?.streaming && !dim && <SystemTag kind="live" />}
         </button>

@@ -1,20 +1,30 @@
+import type { Channel } from '@hachiman/client'
 import { ChatBody } from '@/components/chat/chat-body'
 import { HomePane } from '@/components/home-pane'
 import { hasRightDrawer, openDrawer } from '@/components/mobile/drawer-state'
-import { ChannelPane, NoChannelPane } from '@/components/shell/channel-pane'
+import { MobileChannelHeader, type MobileSide } from '@/components/mobile/mobile-channel-header'
+import { NoChannelPane } from '@/components/shell/channel-pane'
 import { DmCallPanel } from '@/components/voice/dm-call'
 import { VoiceRoom } from '@/components/voice/voice-room'
 import { isGuildChannel } from '@/lib/model'
+import { ROLE_INK_SCOPE } from '@/lib/role-ink'
+import { cn } from '@/lib/utils'
 import { useChannelStore } from '@/stores/channelStore'
 import { useSelectedChannelId, useSelectedGuildId } from '@/stores/navStore'
 
 const showSide = (): void => openDrawer('right')
 
+/** The home-indicator inset on the content colour; it goes while the keyboard is open. */
+const SAFE_BOTTOM = 'pb-(--safe-bottom) in-data-[keyboard=open]:pb-0'
+
+const sideOf = (channel: Channel): MobileSide =>
+  channel.guildId === null ? 'profile' : channel.type === 'pages' ? 'pages' : 'members'
+
 /**
- * The content of the mobile chat card (docs/ios-mobile-ui-spec.md §2.3). For now the panes of the
- * desktop shell: the DM home, a channel (chat, voice room, DM call) or nothing picked. The header
- * toggle opens the right drawer. The home-indicator inset sits under it on the content colour,
- * and goes while the keyboard is open.
+ * The content of the mobile chat card (docs/ios-mobile-ui-spec.md §2.3): the DM home, a channel
+ * or nothing picked. A channel shows the mobile header (M1) over its body: the chat with its
+ * mobile footer, which keeps the home-indicator inset itself, or the voice room. The header toggle
+ * opens the right drawer.
  */
 export function MobileChatPane(): React.JSX.Element {
   const selectedGuildId = useSelectedGuildId()
@@ -22,28 +32,33 @@ export function MobileChatPane(): React.JSX.Element {
   const channel = useChannelStore((s) =>
     selectedChannelId ? s.channels.get(selectedChannelId) : undefined
   )
+  // The single gate: voice channels carry no messages (no history, typing, composer).
+  const voice = channel?.type === 'voice' && isGuildChannel(channel) ? channel : null
 
   return (
-    <main className="flex min-h-0 min-w-0 flex-1 flex-col pb-(--safe-bottom) in-data-[keyboard=open]:pb-0">
+    <main
+      className={cn('flex min-h-0 min-w-0 flex-1 flex-col', !(channel && !voice) && SAFE_BOTTOM)}
+    >
       {selectedGuildId === null && !channel ? (
         <HomePane />
       ) : channel ? (
-        <ChannelPane
-          channel={channel}
-          side={channel.type === 'pages' ? 'pages' : 'members'}
-          sideOpen={false}
-          onToggleSide={hasRightDrawer(channel) ? showSide : undefined}
+        <section
+          className={cn('bg-surface-content flex min-h-0 min-w-0 flex-1 flex-col', ROLE_INK_SCOPE)}
         >
-          {/* The single gate: voice channels carry no messages (no history, typing, composer). */}
-          {channel.type === 'voice' && isGuildChannel(channel) ? (
-            <VoiceRoom key={channel.id} channel={channel} />
+          <MobileChannelHeader
+            channel={channel}
+            side={sideOf(channel)}
+            onToggleSide={hasRightDrawer(channel) ? showSide : undefined}
+          />
+          {voice ? (
+            <VoiceRoom key={channel.id} channel={voice} />
           ) : (
             <>
               {channel.guildId === null && <DmCallPanel key={channel.id} channel={channel} />}
               <ChatBody channel={channel} />
             </>
           )}
-        </ChannelPane>
+        </section>
       ) : (
         <NoChannelPane />
       )}

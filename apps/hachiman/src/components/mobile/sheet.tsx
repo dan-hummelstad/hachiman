@@ -4,7 +4,7 @@ import { XIcon } from 'lucide-react'
 import { KIT_ICON_BUTTON } from '@/components/mobile/nav-bar'
 import { FEATURE_TILE, type Feature } from '@/components/ui/feature'
 import { shouldCommitDrag } from '@/lib/drag-commit'
-import { captureOpener, restoreFocus } from '@/lib/focus-opener'
+import { captureOpener, restoreFocus, setSheetOpener } from '@/lib/focus-opener'
 import { cn } from '@/lib/utils'
 
 /** The move (px) before a pointer on the handle counts as a drag or as no drag. */
@@ -209,6 +209,7 @@ function SheetContent({
         onOpenAutoFocus={(e) => {
           // The focus has not moved yet.
           opener.current = captureOpener()
+          if (e.currentTarget instanceof Element) setSheetOpener(e.currentTarget, opener.current)
           onOpenAutoFocus?.(e)
           if (e.defaultPrevented) return
           e.preventDefault()

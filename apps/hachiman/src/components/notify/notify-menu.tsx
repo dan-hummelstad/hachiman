@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { AtSign, Bell, BellOff, BellRing } from 'lucide-react'
+import { AtSign, Bell, BellOff, BellRing, Undo2 } from 'lucide-react'
 import type { Channel } from '@hachiman/client'
 import { Button } from '@/components/ui/button'
 import {
@@ -13,6 +13,13 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu'
+import {
+  MenuSheetCheckboxItem,
+  MenuSheetItem,
+  MenuSheetLabel,
+  MenuSheetRadioGroup,
+  MenuSheetRadioItem
+} from '@/components/mobile/menu-sheet'
 import { IconButton } from '@/components/ui/icon-button'
 import { ModalWindow } from '@/components/ui/modal-window'
 import { RadioCard } from '@/components/ui/radio-card'
@@ -37,17 +44,45 @@ const LEVEL_ICON: Record<NotifyLevel, React.ReactNode> = {
   none: <BellOff />
 }
 
-/** The bell of the channel header (N9): the level of this channel and its mute. */
-export function NotifyButton({ channel }: { channel: Channel }): React.JSX.Element {
-  const [open, setOpen] = useState(false)
+/** The notification state of one channel (N9) and its setters. */
+interface ChannelNotify {
+  /** The level in force: the channel's own, else the guild's. */
+  level: NotifyLevel
+  /** The channel has a level of its own. */
+  own: boolean
+  /** Muted here or through the guild. */
+  muted: boolean
+  /** Muted here. */
+  mutedHere: boolean
+  /** No pings: muted or the level "Nothing". */
+  silent: boolean
+  /** null goes back to the guild setting. */
+  setLevel: (level: NotifyLevel | null) => void
+  setMuted: (muted: boolean) => void
+}
+
+/** The bell menu of the desktop header and the channel sheet of the mobile header share this. */
+function useChannelNotify(channel: Channel): ChannelNotify {
   const prefs = useNotifyPrefs()
   const setNotifyLevel = usePrefsStore((s) => s.setNotifyLevel)
   const setMuted = usePrefsStore((s) => s.setMuted)
   const level = notifyLevel(prefs, channel.id, channel.guildId)
-  const own = prefs.notify[channel.id] !== undefined
   const muted = isMuted(prefs, channel.id, channel.guildId)
-  const mutedHere = prefs.muted.includes(channel.id)
-  const silent = muted || level === 'none'
+  return {
+    level,
+    own: prefs.notify[channel.id] !== undefined,
+    muted,
+    mutedHere: prefs.muted.includes(channel.id),
+    silent: muted || level === 'none',
+    setLevel: (l) => setNotifyLevel(channel.id, l),
+    setMuted: (m) => setMuted(channel.id, m)
+  }
+}
+
+/** The bell of the channel header (N9): the level of this channel and its mute. */
+export function NotifyButton({ channel }: { channel: Channel }): React.JSX.Element {
+  const [open, setOpen] = useState(false)
+  const { level, own, muted, mutedHere, silent, setLevel, setMuted } = useChannelNotify(channel)
 
   return (
     <DropdownMenu open={open} onOpenChange={setOpen}>
@@ -63,10 +98,7 @@ export function NotifyButton({ channel }: { channel: Channel }): React.JSX.Eleme
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-60">
         <DropdownMenuLabel>Notify me about</DropdownMenuLabel>
-        <DropdownMenuRadioGroup
-          value={level}
-          onValueChange={(v) => setNotifyLevel(channel.id, v as NotifyLevel)}
-        >
+        <DropdownMenuRadioGroup value={level} onValueChange={(v) => setLevel(v as NotifyLevel)}>
           {NOTIFY_LEVELS.map((l) => (
             <DropdownMenuRadioItem key={l.value} value={l.value}>
               {l.label}
@@ -74,20 +106,63 @@ export function NotifyButton({ channel }: { channel: Channel }): React.JSX.Eleme
           ))}
         </DropdownMenuRadioGroup>
         {own && channel.guildId !== null && (
-          <DropdownMenuItem onSelect={() => setNotifyLevel(channel.id, null)}>
-            Use the guild setting
-          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => setLevel(null)}>Use the guild setting</DropdownMenuItem>
         )}
         <DropdownMenuSeparator />
         <DropdownMenuCheckboxItem
           checked={mutedHere}
           disabled={muted && !mutedHere}
-          onCheckedChange={(c) => setMuted(channel.id, c === true)}
+          onCheckedChange={(c) => setMuted(c === true)}
         >
           {muted && !mutedHere ? 'Guild is muted' : 'Mute channel'}
         </DropdownMenuCheckboxItem>
       </DropdownMenuContent>
     </DropdownMenu>
+  )
+}
+
+/**
+ * The bell menu as rows of the mobile channel sheet (A2, `components/mobile/channel-info-sheet`):
+ * "Notify me about" with the three levels, back to the guild setting (its level as the hint), and
+ * the mute. Put it inside a `MenuSheetContent`.
+ */
+export function NotifySheetRows({ channel }: { channel: Channel }): React.JSX.Element {
+  const { level, own, muted, mutedHere, setLevel, setMuted } = useChannelNotify(channel)
+  const prefs = useNotifyPrefs()
+  const guildLevel = channel.guildId !== null ? guildNotifyLevel(prefs, channel.guildId) : null
+  return (
+    <>
+      <MenuSheetLabel>Notify me about</MenuSheetLabel>
+      <MenuSheetRadioGroup
+        aria-label="Notify me about"
+        value={level}
+        onValueChange={(v) => setLevel(v as NotifyLevel)}
+      >
+        {NOTIFY_LEVELS.map((l) => (
+          <MenuSheetRadioItem key={l.value} value={l.value}>
+            {LEVEL_ICON[l.value]}
+            {l.label}
+          </MenuSheetRadioItem>
+        ))}
+      </MenuSheetRadioGroup>
+      {own && guildLevel !== null && (
+        <MenuSheetItem
+          onSelect={() => setLevel(null)}
+          hint={NOTIFY_LEVELS.find((l) => l.value === guildLevel)?.label}
+        >
+          <Undo2 />
+          Use the guild setting
+        </MenuSheetItem>
+      )}
+      <MenuSheetCheckboxItem
+        checked={mutedHere}
+        disabled={muted && !mutedHere}
+        onCheckedChange={setMuted}
+      >
+        <BellOff />
+        {muted && !mutedHere ? 'Guild is muted' : 'Mute channel'}
+      </MenuSheetCheckboxItem>
+    </>
   )
 }
 

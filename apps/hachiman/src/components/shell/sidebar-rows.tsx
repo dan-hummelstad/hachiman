@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { MessageCircle } from 'lucide-react'
+import { ArrowLeft, ArrowRight, MessageCircle } from 'lucide-react'
 import type { Channel } from '@hachiman/client'
 import { GuildMenuItems } from '@/components/shell/guild-menu-items'
 import { ClusterTile, Tile, TileRow } from '@/components/shell/tile-row'
@@ -15,8 +15,11 @@ import {
 import { GuildTile } from '@/components/ui/guild-tile'
 import { UnreadMark } from '@/components/ui/unread-mark'
 import { useDmChannels } from '@/hooks/use-hachiman'
+import { useLayout } from '@/hooks/use-layout'
+import { useSortableHoldMenu } from '@/hooks/use-sortable-row'
 import { dmName } from '@/lib/model'
 import { orderedIds, recentDms, rowSlice, tileSurface } from '@/lib/sidebar-tiles'
+import { cutStyle, shiftHoles, tileMark, type Hole } from '@/lib/tile-cutouts'
 import { cn } from '@/lib/utils'
 import { openDialog } from '@/stores/dialogStore'
 import { useChannelStore } from '@/stores/channelStore'
@@ -94,6 +97,10 @@ function DmRow(): React.JSX.Element {
   )
 }
 
+/** The 28 px avatar of a DM tile, and the presence dot on its corner (a 12 px ring box at -2). */
+const DM_AVATAR = 28
+const PRESENCE_HOLE: Hole = [DM_AVATAR - 4, DM_AVATAR - 4, 6]
+
 function DmTile({ channelId, lit }: { channelId: string; lit: boolean }): React.JSX.Element | null {
   const channel = useChannelStore((s) => s.channels.get(channelId))
   const other = channel?.recipients?.[0]
@@ -104,38 +111,65 @@ function DmTile({ channelId, lit }: { channelId: string; lit: boolean }): React.
   const badge = useChannelUnread(channelId)
   if (!channel) return null
   const name = dmName(channel)
+  const mark = tileMark(badge, isGroup ? GROUP_BOX : DM_AVATAR, { dot: false })
   return (
     <Tile id={channelId} label={name} lit={lit} onClick={() => navigate({ kind: 'dm', channelId })}>
-      <span className="relative flex">
+      <span
+        className="relative flex"
+        style={isGroup ? undefined : cutStyle([...(status ? [PRESENCE_HOLE] : []), ...mark.holes])}
+      >
         {isGroup ? (
-          <GroupAvatars channel={channel} lit={lit} />
+          <GroupAvatars channel={channel} lit={lit} cut={mark.holes} />
         ) : (
           <UserAvatar
             name={name}
             avatar={other?.avatar}
-            size={28}
+            size={DM_AVATAR}
             status={status}
-            cutout={tileSurface(lit)}
+            cutout={cn(tileSurface(lit), 'mobile:bg-transparent')}
           />
         )}
-        <UnreadMark badge={badge} size="corner" dot={false} className="-top-1.5 -right-2" />
+        <UnreadMark
+          badge={badge}
+          size="corner"
+          dot={false}
+          className={cn('-top-1.5 -right-2', mark.className)}
+        />
       </span>
     </Tile>
   )
 }
 
-function GroupAvatars({ channel, lit }: { channel: Channel; lit: boolean }): React.JSX.Element {
+/** Two 20 px avatars in a 30 px box: the second (with a 1 px ring) at its bottom right. */
+const GROUP_BOX = 30
+const GROUP_SECOND_AT = 9
+
+function GroupAvatars({
+  channel,
+  lit,
+  cut
+}: {
+  channel: Channel
+  lit: boolean
+  /** The holes of the unread mark, in the box. */
+  cut: readonly Hole[]
+}): React.JSX.Element {
   const [a, b] = channel.recipients ?? []
+  const second: Hole = [GROUP_SECOND_AT + 10, GROUP_SECOND_AT + 10, 11]
   return (
     <span className="relative block size-[30px]">
-      <UserAvatar
-        name={a?.username ?? '?'}
-        avatar={a?.avatar}
-        size={20}
-        className="absolute top-0 left-0"
-      />
+      <span className="absolute top-0 left-0 flex" style={cutStyle(b ? [second, ...cut] : cut)}>
+        <UserAvatar name={a?.username ?? '?'} avatar={a?.avatar} size={20} />
+      </span>
       {b && (
-        <span className={cn('absolute right-0 bottom-0 flex rounded-full p-px', tileSurface(lit))}>
+        <span
+          className={cn(
+            'absolute right-0 bottom-0 flex rounded-full p-px',
+            tileSurface(lit),
+            'mobile:bg-transparent'
+          )}
+          style={cutStyle(shiftHoles(cut, GROUP_SECOND_AT, GROUP_SECOND_AT))}
+        >
           <UserAvatar name={b.username} avatar={b.avatar} size={20} />
         </span>
       )}
@@ -147,7 +181,7 @@ function GroupAvatars({ channel, lit }: { channel: Channel; lit: boolean }): Rea
  * The guilds in the user's order. Folded: the first four, then a cluster tile of the rest with
  * their badge (no cluster with five or fewer). The cluster opens a grid of every guild, five a
  * line, with a chevron in its place that folds it; Escape or a pick folds it too. Drag a tile to
- * reorder.
+ * reorder (on a phone: hold, then move; hold and lift for the guild menu).
  */
 function GuildRow(): React.JSX.Element {
   const guilds = useGuildStore((s) => s.guilds)
@@ -175,7 +209,19 @@ function GuildRow(): React.JSX.Element {
       label="Guilds"
       add={{ label: 'Create or join a guild', onClick: () => openDialog({ kind: 'addGuild' }) }}
       ids={expanded ? ids : row.tiles}
-      renderTile={(id) => <GuildRowTile key={id} guildId={id} lit={current === id} onPick={pick} />}
+      renderTile={(id) => {
+        const at = ids.indexOf(id)
+        return (
+          <GuildRowTile
+            key={id}
+            guildId={id}
+            lit={current === id}
+            onPick={pick}
+            onMoveLeft={at > 0 ? () => onMove(id, ids[at - 1]) : undefined}
+            onMoveRight={at < ids.length - 1 ? () => onMove(id, ids[at + 1]) : undefined}
+          />
+        )
+      }}
       onMove={onMove}
       onEscape={expanded ? () => setOpen(false) : undefined}
       cluster={
@@ -199,30 +245,56 @@ function GuildRow(): React.JSX.Element {
   )
 }
 
-/** A guild tile with its unread dot and mention sum (N7); right click: the guild menu. */
+/** The 28 px icon of a guild tile. */
+const GUILD_ICON = 28
+
+/**
+ * A guild tile with its unread dot and mention sum (N7); right click: the guild menu. On the
+ * mobile layout a hold that lifts in place opens the menu, with Move left and Move right first
+ * (the button path of the drag).
+ */
 function GuildRowTile({
   guildId,
   lit,
-  onPick
+  onPick,
+  onMoveLeft,
+  onMoveRight
 }: {
   guildId: string
   lit: boolean
   onPick: (guildId: string) => void
+  /** Undefined at the start (or the end) of the order. */
+  onMoveLeft?: () => void
+  onMoveRight?: () => void
 }): React.JSX.Element | null {
+  const mobile = useLayout() === 'mobile'
   const guild = useGuildStore((s) => s.guilds.get(guildId))
   const badge = useGuildUnread(guildId)
+  const menu = useSortableHoldMenu(guildId)
   if (!guild) return null
+  const mark = tileMark(badge, GUILD_ICON)
   return (
-    <ContextMenu>
-      <ContextMenuTrigger asChild>
+    <ContextMenu open={menu.open} onOpenChange={menu.onOpenChange}>
+      <ContextMenuTrigger asChild longPress={menu.longPress}>
         <Tile id={guildId} label={guild.name} lit={lit} onClick={() => onPick(guildId)}>
-          <span className="relative flex">
+          <span className="relative flex" style={cutStyle(mark.holes)}>
             <GuildTile guild={guild} className="size-7 border-0 text-[11px]" />
-            <UnreadMark badge={badge} size="corner" />
+            <UnreadMark badge={badge} size="corner" className={mark.className} />
           </span>
         </Tile>
       </ContextMenuTrigger>
-      <ContextMenuContent>
+      <ContextMenuContent aria-label={mobile ? guild.name : undefined}>
+        {mobile && (
+          <>
+            <ContextMenuItem disabled={!onMoveLeft} onSelect={onMoveLeft}>
+              <ArrowLeft /> Move left
+            </ContextMenuItem>
+            <ContextMenuItem disabled={!onMoveRight} onSelect={onMoveRight}>
+              <ArrowRight /> Move right
+            </ContextMenuItem>
+            <ContextMenuSeparator />
+          </>
+        )}
         <GuildMenuItems guildId={guildId} Item={ContextMenuItem} Separator={ContextMenuSeparator} />
       </ContextMenuContent>
     </ContextMenu>

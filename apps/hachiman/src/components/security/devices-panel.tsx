@@ -22,7 +22,7 @@ import { cryptoErrorText, friendly } from '@/components/security/errors'
 import { HostTrustLine } from '@/components/security/host-trust'
 import { useAction } from '@/hooks/use-action'
 import { PLATFORM_LABEL } from '@/lib/device-platform'
-import { relativeTime } from '@/lib/time-format'
+import { formatShortDate, relativeTime } from '@/lib/time-format'
 import { cn } from '@/lib/utils'
 import { cryptoService } from '@/services/CryptoService'
 import { hachiman } from '@/services/hachiman'
@@ -200,8 +200,6 @@ export function PlatformIcon({
   return <Icon aria-label={PLATFORM_LABEL[platform]} className={className} />
 }
 
-const DATE = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
-
 /** "active now", "active 2 hours ago", "active yesterday". */
 function activeText(lastSeenAt: string, now: number): string {
   const seen = Date.parse(lastSeenAt)
@@ -261,7 +259,7 @@ function DeviceRow({
 
   const meta = [
     PLATFORM_LABEL[device.platform],
-    `added ${DATE.format(new Date(device.createdAt))}`,
+    `added ${formatShortDate(new Date(device.createdAt))}`,
     device.lastSeenAt && activeText(device.lastSeenAt, now)
   ].filter(Boolean)
 

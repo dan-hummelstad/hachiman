@@ -20,6 +20,7 @@ import {
   type DsTransport
 } from '@hachiman/crypto'
 import { CLIENT_VERSION } from '@/lib/client-version'
+import { DEVICE_NAME } from '@/lib/device-platform'
 import { takusenService } from '@/services/TakusenService'
 import type { IPlatformService } from '@/shared/IPlatformService'
 import {
@@ -65,13 +66,6 @@ function asShape(e: unknown): { code: CryptoError['code']; message: string; dsCo
   )
     return { code, message }
   return { code: 'Internal', message }
-}
-
-/** The default name of a new device. The user can rename it. */
-const DEVICE_NAME: Record<IPlatformService['platform'], string> = {
-  electron: 'Hachiman Desktop',
-  browser: 'Hachiman Web',
-  ios: 'Hachiman iOS'
 }
 
 /** A throwaway wrap key for the stub, which stores nothing. */

@@ -39,11 +39,15 @@ export function ListGroup({
   )
 }
 
-/** The tile colour of a row: a feature colour, or neutral grey ("Help and support"). */
-export type ListRowTile = Feature | 'neutral'
+/**
+ * The tile colour of a row: a feature colour, pink activity (Notifications, M29) or neutral grey
+ * ("Help and support").
+ */
+export type ListRowTile = Feature | 'activity' | 'neutral'
 
 const TILE: Record<ListRowTile, string> = {
   ...FEATURE_TILE,
+  activity: 'bg-feature-activity/15 text-feature-activity',
   neutral: 'bg-surface-hover text-text-secondary'
 }
 
@@ -120,7 +124,7 @@ type ListRowMode =
 export type ListRowProps = ListRowBase & ListRowMode
 
 const ROW =
-  'flex w-full items-center gap-3 py-2 pr-3.5 pl-3 text-left outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-line-focus'
+  'flex w-full items-center gap-3 py-1.5 pr-3.5 pl-3 text-left outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-line-focus'
 const PRESSABLE = 'active:bg-surface-hover disabled:pointer-events-none disabled:opacity-50'
 const MARK = 'text-text-disabled size-[17px] shrink-0'
 

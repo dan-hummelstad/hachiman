@@ -31,10 +31,18 @@ export function ReactionChips({
   const [picking, setPicking] = useState(false)
   const guildId = useChannelStore((s) => s.channels.get(channelId)?.guildId ?? null)
   if (chips.length === 0) return null
-  const chip =
-    'rounded-pill flex h-7 items-center gap-1.5 border px-2 text-[13px] leading-none font-semibold tabular-nums transition-colors'
+  // The chips keep their 28 look; on the mobile layout each takes a 36 hit height, and the gaps
+  // grow so that the hit areas of two chips do not meet (spec §2.10).
+  const chip = cn(
+    'rounded-pill flex h-7 items-center gap-1.5 border px-2 text-[13px] leading-none font-semibold tabular-nums transition-colors',
+    'mobile:relative mobile:after:absolute mobile:after:-inset-x-0.5 mobile:after:-inset-y-1'
+  )
   return (
-    <div className="flex flex-wrap items-center gap-1 pt-1" role="group" aria-label="Reactions">
+    <div
+      className="mobile:gap-x-1.5 mobile:gap-y-2 mobile:pt-1.5 flex flex-wrap items-center gap-1 pt-1"
+      role="group"
+      aria-label="Reactions"
+    >
       {chips.map((c) => (
         <button
           key={c.emoji}

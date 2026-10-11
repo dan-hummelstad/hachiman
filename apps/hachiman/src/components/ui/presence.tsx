@@ -15,6 +15,12 @@ export const PRESENCE_LABEL: Record<PresenceStatus, string> = {
   offline: 'Offline'
 }
 
+/** For my own status, offline is a choice: "Invisible". */
+export const OWN_STATUS_LABEL: Record<PresenceStatus, string> = {
+  ...PRESENCE_LABEL,
+  offline: 'Invisible'
+}
+
 /** Circular presence dot. The label is its accessible name, so colour is never the only cue. */
 function PresenceDot({
   status,

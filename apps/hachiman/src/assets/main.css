@@ -404,6 +404,15 @@
       animation-duration: 0.01ms !important;
       transition-duration: 0.01ms !important;
     }
+    /* An infinite animation at 0.01ms flickers through random phases: run it once and stop. Mobile
+       only for now (spec §6.1: desktop does not change). */
+    html[data-layout='mobile'],
+    html[data-layout='mobile'] *,
+    html[data-layout='mobile'] *::before,
+    html[data-layout='mobile'] *::after {
+      animation-iteration-count: 1 !important;
+      scroll-behavior: auto !important;
+    }
   }
 }
 

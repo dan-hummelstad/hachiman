@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef } from 'react'
+import { noteActivation } from '@/lib/focus-opener'
 import {
   LONG_PRESS_IDLE,
   LONG_PRESS_MS,
@@ -112,6 +113,8 @@ function createPress(latest: { current: Latest }): Press {
       case 'fire':
         timer = undefined
         if (target) {
+          // The click of the lift is swallowed, so the opener of what opens now is noted here.
+          noteActivation(target)
           latest.current.platform.haptic('light')
           latest.current.onFire({ x: next.x, y: next.y, target })
         }

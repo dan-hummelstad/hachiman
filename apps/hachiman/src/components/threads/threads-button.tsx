@@ -22,7 +22,10 @@ import { lastActivityOf, useThreadCount, useThreads } from '@/stores/threadsStor
 import { useChannelUnread } from '@/stores/unreadStore'
 import { MAX_THREAD_NAME, validThreadName } from './thread-name'
 
-/** The sky threads button of the channel header (N12) and its popover of threads. */
+/**
+ * The sky threads button of the channel header (N12) and its popover of threads. On the mobile
+ * layout the popover is a sheet.
+ */
 export function ThreadsButton({ channel }: { channel: Channel }): React.JSX.Element {
   const [open, setOpen] = useState(false)
   const count = useThreadCount(channel.id)
@@ -30,7 +33,13 @@ export function ThreadsButton({ channel }: { channel: Channel }): React.JSX.Elem
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <HeaderCountButton label="Threads" count={count} feature="thread" pressed={open}>
+        <HeaderCountButton
+          label="Threads"
+          count={count}
+          feature="thread"
+          pressed={open}
+          className={count > 0 ? 'mobile:bg-feature-thread/9' : undefined}
+        >
           <MessagesSquare />
         </HeaderCountButton>
       </PopoverTrigger>

@@ -28,6 +28,8 @@ interface ModalWindowProps {
   className?: string
   /** The form on the mobile layout (default a sheet). */
   presentation?: DialogPresentation
+  /** Where the focus goes on close; `preventDefault` keeps Radix from moving it. */
+  onCloseAutoFocus?: (event: Event) => void
 }
 
 /**
@@ -40,6 +42,7 @@ export function ModalWindow(props: ModalWindowProps): React.JSX.Element {
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
       <DialogContent
         presentation={props.presentation}
+        onCloseAutoFocus={props.onCloseAutoFocus}
         className={cn('sm:max-w-[500px]', className)}
         {...(description ? {} : { 'aria-describedby': undefined })}
       >

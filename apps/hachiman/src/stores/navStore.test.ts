@@ -170,6 +170,45 @@ describe('settings view', () => {
   it('a section change without a settings view does nothing', () => {
     setSettingsSection('roles')
     expect(useNavStore.getState().settings).toBeNull()
+    setSettingsSection(null)
+    expect(useNavStore.getState().settings).toBeNull()
+  })
+
+  it('a null section goes back to the list (mobile Back); history back returns to the page', () => {
+    const userSettings = (section: string | null): View => ({
+      kind: 'settings',
+      settings: { target: { kind: 'user' }, section }
+    })
+    openChannel('g1', 'a')
+    openSettings({ kind: 'user' })
+    setSettingsSection('appearance')
+    setSettingsSection(null)
+    expect(currentView()).toEqual(userSettings(null))
+    expect(back()).toBe(true)
+    expect(currentView()).toEqual(userSettings('appearance'))
+    expect(back()).toBe(true)
+    expect(currentView()).toEqual(userSettings(null))
+  })
+
+  it('Back on the list after a page closes settings; back then skips them', () => {
+    openChannel('g1', 'x')
+    openChannel('g1', 'a')
+    openSettings({ kind: 'channel', channelId: 'a' })
+    setSettingsSection('permissions')
+    setSettingsSection(null)
+    closeSettings()
+    expect(currentView()).toEqual(ch('a'))
+    expect(back()).toBe(true)
+    expect(currentView()).toEqual(ch('x'))
+  })
+
+  it('a null section keeps the target', () => {
+    openSettings({ kind: 'guild', guildId: 'g1' }, 'roles')
+    setSettingsSection(null)
+    expect(useNavStore.getState().settings).toEqual({
+      target: { kind: 'guild', guildId: 'g1' },
+      section: null
+    })
   })
 })
 
