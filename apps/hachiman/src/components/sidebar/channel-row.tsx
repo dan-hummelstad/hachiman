@@ -35,7 +35,7 @@ import { isMuted } from '@/lib/notify'
 import { ROLE_INK_SCOPE } from '@/lib/role-ink'
 import { cn } from '@/lib/utils'
 import { voiceService } from '@/services/VoiceService'
-import { openDialog } from '@/stores/dialogStore'
+import { openDialog, useDialogStore } from '@/stores/dialogStore'
 import { navigate, openSettings, selectChannel } from '@/stores/navStore'
 import { useNotifyPrefs } from '@/stores/prefsStore'
 import { useChannelUnread } from '@/stores/unreadStore'
@@ -69,11 +69,20 @@ export function ChannelManageItems({
 const ACTION_TOUCH = "mobile:size-9 mobile:[&_svg:not([class*='size-'])]:size-4"
 
 /**
+ * A row action whose sheet is open (M46): a 26 accent box inside the 36 target, under the dim. The
+ * icon sits above the box.
+ */
+const ACTION_LIT =
+  'mobile:relative mobile:text-accent-text mobile:before:absolute mobile:before:inset-[5px] mobile:before:rounded-[6px] mobile:before:bg-accent-primary/30 mobile:[&_svg]:relative'
+
+/**
  * A channel in the sidebar: drag to reorder (with MANAGE_CHANNELS), right-click or hold for its
  * menu. On the mobile layout (M3, M36) the row is 38 high, only the selected row shows its
  * actions, and a pages channel has the violet icon and the PAGE tag. A tap there opens the
  * channel on its chat (a pages channel too, not its open page) and closes the drawer. There a
- * manager's hold menu also has Move up and Move down: the button path of the drag.
+ * manager's hold menu also has Move up and Move down: the button path of the drag. The drawer
+ * stays open under the dialogs a row opens: its invite button stays lit while its sheet is open
+ * (M46), and the row is marked red while its delete confirm is open (M51).
  */
 export function ChannelRow({
   guildId,
@@ -107,6 +116,14 @@ export function ChannelRow({
   const unread = badge.unread && !selected
   const callSince = useMemo(() => (isVoice ? callStartedAt(occupants) : null), [isVoice, occupants])
   const callElapsed = useElapsed(callSince)
+  const inviting = useDialogStore(
+    (s) => s.dialog?.kind === 'invite' && s.dialog.channelId === channel.id
+  )
+  const deleteOpen = useDialogStore(
+    (s) => s.dialog?.kind === 'deleteChannel' && s.dialog.channelId === channel.id
+  )
+  // The red mark is mobile only for now (spec §6.1, decision 3).
+  const deleting = mobile && deleteOpen
 
   const { setNodeRef, attributes, listeners, style } = useSortableRow({
     id: channel.id,
@@ -145,7 +162,12 @@ export function ChannelRow({
             tabIndex={-1}
             className={sidebarRowClass(
               selected,
-              cn('group/row relative gap-1 pr-1 pl-0', CHANNEL_ROW_TOUCH, SORTABLE_TOUCH)
+              cn(
+                'group/row relative gap-1 pr-1 pl-0',
+                CHANNEL_ROW_TOUCH,
+                SORTABLE_TOUCH,
+                deleting && 'bg-feature-danger/12'
+              )
             )}
           >
             {unread && <UnreadPip className="-left-2.5" />}
@@ -157,7 +179,8 @@ export function ChannelRow({
                 'flex h-full min-w-0 flex-1 items-center gap-2 pl-2.5 text-left',
                 isVoiceHere && !selected && 'text-feature-voice-text',
                 unread && 'text-text-primary font-bold',
-                muted && !selected && 'opacity-50'
+                muted && !selected && 'opacity-50',
+                deleting && 'text-feature-danger-text font-bold opacity-100'
               )}
               aria-current={selected ? 'page' : undefined}
               aria-label={
@@ -170,7 +193,10 @@ export function ChannelRow({
             >
               {readOnly ? (
                 <Megaphone
-                  className="text-feature-event mobile:size-[18px] size-4 shrink-0"
+                  className={cn(
+                    'mobile:size-[18px] size-4 shrink-0',
+                    deleting ? 'text-feature-danger' : 'text-feature-event'
+                  )}
                   aria-hidden
                 />
               ) : (
@@ -178,11 +204,13 @@ export function ChannelRow({
                   type={channel.type}
                   className={cn(
                     'mobile:size-[18px] size-4 shrink-0',
-                    isVoice
-                      ? 'text-feature-voice'
-                      : pageMark
-                        ? 'text-feature-page-text'
-                        : 'text-text-tertiary'
+                    deleting
+                      ? 'text-feature-danger'
+                      : isVoice
+                        ? 'text-feature-voice'
+                        : pageMark
+                          ? 'text-feature-page-text'
+                          : 'text-text-tertiary'
                   )}
                   aria-hidden
                 />
@@ -220,8 +248,8 @@ export function ChannelRow({
                 <IconButton
                   size="sm"
                   label="Invite people"
-                  onClick={() => openDialog({ kind: 'invite', guildId })}
-                  className={cn('rounded-control', ACTION_TOUCH)}
+                  onClick={() => openDialog({ kind: 'invite', guildId, channelId: channel.id })}
+                  className={cn('rounded-control', ACTION_TOUCH, inviting && ACTION_LIT)}
                 >
                   <UserPlus />
                 </IconButton>

@@ -70,6 +70,8 @@ interface ListRowBase {
   tone?: 'default' | 'danger'
   disabled?: boolean
   className?: string
+  /** The button of a button row (`onClick`), for example to give it the focus back. */
+  buttonRef?: React.Ref<HTMLButtonElement>
 }
 
 /** What the row does. At most one of these. None: a static row (with an optional `trailing`). */
@@ -224,7 +226,7 @@ function CopyRow({
 export function ListRow(props: ListRowProps): React.JSX.Element {
   const labelId = useId()
   const detailId = useId()
-  const { onClick, href, toggle, copy, trailing, chevron, ...base } = props
+  const { onClick, href, toggle, copy, trailing, chevron, buttonRef, ...base } = props
   const { className, disabled, tone } = base
   const height = base.detail ? 'min-h-[54px]' : 'min-h-[46px]'
 
@@ -233,6 +235,7 @@ export function ListRow(props: ListRowProps): React.JSX.Element {
   if (onClick) {
     return (
       <button
+        ref={buttonRef}
         type="button"
         disabled={disabled}
         onClick={onClick}

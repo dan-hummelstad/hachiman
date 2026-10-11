@@ -617,7 +617,8 @@ M7 is in I2. M8 is in I1. M11 is in A2. M12 is in A5.
 - **Work:**
   - M30 `AccountMobile`: banner 64 from `useUserBanner`, avatar 72 with a 28 camera badge (`ImageField variant="badge"`), name 20/800, a roles line (top role per guild, at most two). TAKUSEN ACCOUNT group: "Signed in with Takusen" (email or "Email not shared", opens `${issuerOrigin}/account`), "User ID" (mono, copy with a haptic), the note. Hide Colour, Display name, About and Save until the server has them (section 5).
   - `components/settings/image-field.tsx`: extract `useImageUpload` (pick, preview, upload, remove, abort, object URL revoke) into `components/settings/use-image-upload.ts`. Add `variant="badge"`.
-  - M31 `AppearanceMobile`: theme as 3 radio cards with a `PhoneSwatch` preview, density as 2 cards with `TranscriptPreview`, then `TextSizeSection`. No Sidebar and no Background section on mobile.
+  - M31 `AppearanceMobile`: theme as 3 radio cards with a `PhoneSwatch` preview, density as 2 cards with `TranscriptPreview`, then `TextSizeSection`, then a Background section. No Sidebar section on mobile.
+  - M31 Background: two cards, "Guild colour" and "Custom gradient" (`RadioCard size="mobile" mark="foot"`, a `PhoneSwatch` split dark | light and painted with the wallpaper). When Custom is picked, `GradientPickerMobile` shows inline below the cards. It is not a sheet and not a pushed screen, so the nav bar and the status bar show each change live.
   - `stores/prefsStore.ts`: persisted `messageTextSize` in 5 steps (13, 14, 15, 17, 19, default 15) with a safe merge.
   - `components/theme-provider.tsx`: write `--message-text-size` on `<html>`. `components/chat/message-row.tsx`: the body text uses `var(--message-text-size, 15px)`. Desktop stays at 15 by default.
   - `TextSizeSection`: a native `<input type="range">` with drawn ticks and `aria-valuetext`. Apply on release.
@@ -631,6 +632,13 @@ M7 is in I2. M8 is in I1. M11 is in A2. M12 is in A5.
   - The text-size note has no Dynamic Type sentence (section 5). It reads "<Name> · <n> pt. Sets the size of message text."
   - The Takusen row tile is the `event` feature tile with a "T" glyph. No `takusen/*` tokens were added.
   - The M31 density cards apply on the phone: `components/chat/transcript.tsx` no longer forces cozy on mobile (this replaces the A3 rule).
+- **As built (Background on mobile):**
+  - The desktop `GradientPicker` and the phone `GradientPickerMobile` share their parts (`ColourPad`, `SwatchRow`, `WavySlider`, `AngleDial`, `PadButton`, `PresetRow` in `components/settings/user/gradient-picker.tsx`) and their state (`useGradientEditor` in `components/settings/user/use-gradient-editor.ts`). The desktop editor does not change.
+  - The phone editor stacks the parts in one column: a 240 pad, −/+ with "N of M colours", the swatches (no chevrons), the lightness slider beside the angle dial, then the presets. Touch targets are 36 (`mobile:` classes); the lightness slider is 44 high. The editor carries `data-swipe-ignore`.
+  - On the phone pad, a press within 24 of a stop grabs it with a light haptic and does not move it. A drag keeps the offset between the finger and the stop. A press away from every stop moves the selected stop there. A second finger is ignored. The pad does not take focus on a press.
+  - Each stop has a hidden native range, "Colour N saturation" (0 to 100, step 5), because VoiceOver adjusts a custom slider only with Left and Right (the hue).
+  - The pure logic is `pickStop`, `addedStop` and `withoutStop` in `lib/gradient-pad.ts`, tested in `lib/gradient-pad.test.ts`.
+  - Only a tap on "Custom gradient" scrolls the editor into view; opening the screen with Custom already set does not scroll.
 
 #### E3 · Sign-out sheet, status sheet, notifications and privacy
 

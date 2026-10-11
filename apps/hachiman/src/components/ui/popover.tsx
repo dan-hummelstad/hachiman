@@ -4,6 +4,7 @@ import * as PopoverPrimitive from '@radix-ui/react-popover'
 import { Slot } from '@radix-ui/react-slot'
 
 import { SheetContent, SheetTitle } from '@/components/mobile/sheet'
+import type { SheetSize } from '@/components/mobile/sheet-size'
 import { useLayout } from '@/hooks/use-layout'
 import { accessibleName } from '@/lib/accessible-name'
 import { cn } from '@/lib/utils'
@@ -90,10 +91,22 @@ function PopoverContent({
   className,
   align = 'center',
   sideOffset = 4,
+  sheetSize,
   ...props
-}: React.ComponentProps<typeof PopoverPrimitive.Content>) {
+}: React.ComponentProps<typeof PopoverPrimitive.Content> & {
+  /** Mobile layout: the sheet's height (`SheetContent` `size`). No effect on desktop. */
+  sheetSize?: SheetSize
+}) {
   const sheet = React.useContext(SheetPopoverContext)
-  if (sheet) return <PopoverSheetContent className={className} trigger={sheet.trigger} {...props} />
+  if (sheet)
+    return (
+      <PopoverSheetContent
+        className={className}
+        trigger={sheet.trigger}
+        sheetSize={sheetSize}
+        {...props}
+      />
+    )
   return (
     <PopoverPrimitive.Portal>
       <PopoverPrimitive.Content
@@ -112,14 +125,16 @@ function PopoverContent({
 
 /**
  * The popover as a bottom sheet (pins, threads, profile, emoji, page picker). The caller's
- * `className` styles the body (padding, flex, height) but not its width: the body runs to the
- * sheet's edges and scrolls. Only the focus and dismiss handlers carry over; the popper props
+ * `className` styles the body (padding, flex) but not its size: the body runs to the sheet's
+ * edges, takes the room the sheet gives it and scrolls. A desktop popper height would otherwise
+ * decide the sheet's height (or, on iOS, collapse a `flex-1` child to 0 px). Only the focus and dismiss handlers carry over; the popper props
  * (side, align, offsets, collisions) have no meaning here.
  */
 function PopoverSheetContent({
   className,
   children,
   trigger,
+  sheetSize,
   'aria-label': ariaLabel,
   onOpenAutoFocus,
   onCloseAutoFocus,
@@ -127,9 +142,13 @@ function PopoverSheetContent({
   onPointerDownOutside,
   onFocusOutside,
   onInteractOutside
-}: React.ComponentProps<typeof PopoverPrimitive.Content> & { trigger: HTMLElement | null }) {
+}: React.ComponentProps<typeof PopoverPrimitive.Content> & {
+  trigger: HTMLElement | null
+  sheetSize?: SheetSize
+}) {
   return (
     <SheetContent
+      size={sheetSize}
       aria-label={ariaLabel}
       aria-describedby={undefined}
       onOpenAutoFocus={onOpenAutoFocus}
@@ -146,7 +165,7 @@ function PopoverSheetContent({
         data-slot="popover-sheet-body"
         className={cn(
           className,
-          'mx-[calc(var(--sheet-gutter)*-1)] min-h-0 w-auto max-w-none flex-1 overflow-x-hidden overflow-y-auto overscroll-contain'
+          'mx-[calc(var(--sheet-gutter)*-1)] h-auto max-h-none min-h-0 w-auto max-w-none flex-1 overflow-x-hidden overflow-y-auto overscroll-contain'
         )}
       >
         {children}

@@ -15,6 +15,8 @@ interface ConfirmDialogProps {
   tone?: 'default' | 'danger'
   /** Icon in the header tile; the tile is red for `tone="danger"`. */
   icon?: React.ReactNode
+  /** Mobile layout only: the header icon also leads the confirm button (M50, M51). */
+  confirmIcon?: boolean
   /** Awaited; the window closes on success and shows the error inline on failure. */
   onConfirm: () => Promise<void>
   onClose: () => void
@@ -73,6 +75,7 @@ function ConfirmBody(props: ConfirmDialogProps): React.JSX.Element {
           disabled={busy || props.confirmDisabled}
           onClick={() => void confirm()}
         >
+          {mobile && props.confirmIcon && props.icon}
           {confirmLabel}
         </Button>
       </DialogFooter>

@@ -78,6 +78,7 @@ export function RadioCard({
         className={cn(
           'flex items-center gap-3',
           preview && 'px-1',
+          mobile && !preview && 'min-w-0 flex-1',
           mobile && foot && preview && 'gap-2 px-0.5'
         )}
       >

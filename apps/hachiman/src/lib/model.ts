@@ -46,6 +46,19 @@ export const CHANNEL_KINDS: Record<
  */
 export const hasChat = (type: ChannelType): boolean => type === 'text' || type === 'pages'
 
+const KIND_NAMES: Record<ChannelType, string> = {
+  text: 'Text channel',
+  voice: 'Voice channel',
+  pages: 'Pages channel',
+  category: 'Category',
+  thread: 'Thread',
+  dm: 'Direct message',
+  group_dm: 'Group message'
+}
+
+/** The type of a channel in words: "Text channel" (the subtitle of the delete dialog, M51). */
+export const channelKindName = (type: ChannelType): string => KIND_NAMES[type]
+
 /** A channel that belongs to a guild (text, voice or category; never a DM). */
 export type GuildChannel = Channel & { guildId: string }
 
@@ -139,6 +152,62 @@ export function channelLabel(channel: Channel): { name: string; sigil: '#' | '@'
   return channel.guildId === null
     ? { name: dmName(channel), sigil: '@' }
     : { name: channel.name ?? '', sigil: '#' }
+}
+
+/**
+ * The guild to show after the user leaves or deletes `leftId`: the next one in the user's guild
+ * `order`, else the one before it. Null when no other guild is left, or `leftId` is not in it.
+ */
+export function guildAfterLeave(order: readonly string[], leftId: string): string | null {
+  const at = order.indexOf(leftId)
+  if (at < 0) return null
+  return order[at + 1] ?? order[at - 1] ?? null
+}
+
+const DAY_MINUTES = 24 * 60
+
+const count = (n: number, unit: string): string => `${n} ${unit}${n === 1 ? '' : 's'}`
+
+/** A span of whole minutes as one rounded unit: "7 days", "1 hour", "30 minutes". */
+function spanWords(minutes: number): string {
+  if (minutes >= DAY_MINUTES) return count(Math.round(minutes / DAY_MINUTES), 'day')
+  if (minutes >= 60) return count(Math.round(minutes / 60), 'hour')
+  return count(minutes, 'minute')
+}
+
+/**
+ * The limits of an invite link in words, with the expiry date spelled out (M46): "Expires in 7
+ * days, on Tuesday 13 October. Anyone with the link can join, as many times as they like." Under a
+ * day it gives the time ("at 21:30"); a date in another year gets the year. `expiresAt` (ms) null:
+ * the link never expires. `maxUses` 0: no limit. The date and time follow `locale`.
+ */
+export function inviteLimitsText(
+  { expiresAt, maxUses }: { expiresAt: number | null; maxUses: number },
+  now: number,
+  locale?: string
+): string {
+  const uses =
+    maxUses === 0
+      ? 'Anyone with the link can join, as many times as they like.'
+      : maxUses === 1
+        ? 'One person can join with it.'
+        : `Up to ${maxUses} people can join with it.`
+  if (expiresAt === null) {
+    return `This link never expires. Revoke it in Guild settings when you do not need it. ${uses}`
+  }
+  // In whole minutes, so a link made a moment ago still reads "1 day", not "24 hours".
+  const minutes = Math.max(1, Math.round((expiresAt - now) / 60_000))
+  const date = new Date(expiresAt)
+  const when =
+    minutes < DAY_MINUTES
+      ? `at ${new Intl.DateTimeFormat(locale, { timeStyle: 'short' }).format(date)}`
+      : `on ${new Intl.DateTimeFormat(locale, {
+          weekday: 'long',
+          day: 'numeric',
+          month: 'long',
+          ...(date.getFullYear() === new Date(now).getFullYear() ? {} : { year: 'numeric' })
+        }).format(date)}`
+  return `Expires in ${spanWords(minutes)}, ${when}. ${uses}`
 }
 
 /** Up to two initials for a guild tile: first letters of the first two words, else the first two characters. */

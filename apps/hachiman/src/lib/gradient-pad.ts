@@ -1,4 +1,4 @@
-import type { GradientStop } from '@/lib/guild-tint'
+import { MAX_GRADIENT_STOPS, type CustomGradient, type GradientStop } from '@/lib/guild-tint'
 
 /**
  * Geometry of the gradient picker (User settings → Appearance). On the pad, the angle of a stop
@@ -19,6 +19,49 @@ export function stopAt(dx: number, dy: number, radius: number): GradientStop {
 export function stopOffset({ h, s }: GradientStop, radius: number): { x: number; y: number } {
   const r = (clamp(s, 0, 100) / 100) * radius
   return { x: Math.cos(h / DEG) * r, y: Math.sin(h / DEG) * r }
+}
+
+/**
+ * The stop that a press at (dx, dy) from the pad centre grabs: the nearest stop closer than
+ * `reach` (`hit`), else `fallback` (the selected stop). `grab` is the offset from the press to the
+ * centre of the grabbed stop, so that a drag can keep it; it is zero for the fallback.
+ */
+export function pickStop(
+  stops: readonly GradientStop[],
+  dx: number,
+  dy: number,
+  radius: number,
+  reach: number,
+  fallback: number
+): { index: number; hit: boolean; grab: { x: number; y: number } } {
+  let index = fallback
+  let hit = false
+  let grab = { x: 0, y: 0 }
+  let best = reach
+  stops.forEach((st, j) => {
+    const o = stopOffset(st, radius)
+    const d = Math.hypot(o.x - dx, o.y - dy)
+    if (d < best) {
+      best = d
+      index = j
+      hit = true
+      grab = { x: o.x - dx, y: o.y - dy }
+    }
+  })
+  return { index, hit, grab }
+}
+
+/** `value` with one more stop, the hue of stop `active` turned by 120°; null at the limit. */
+export function addedStop(value: CustomGradient, active: number): CustomGradient | null {
+  if (value.stops.length >= MAX_GRADIENT_STOPS) return null
+  const base = value.stops[active] ?? value.stops[0]
+  return { ...value, stops: [...value.stops, { h: (base.h + 120) % 360, s: base.s }] }
+}
+
+/** `value` without stop `active`; null when it is the last stop. */
+export function withoutStop(value: CustomGradient, active: number): CustomGradient | null {
+  if (value.stops.length <= 1) return null
+  return { ...value, stops: value.stops.filter((_, j) => j !== active) }
 }
 
 /** The CSS gradient angle (0° = up, clockwise) of offset (dx, dy) from the dial centre. */

@@ -20,7 +20,7 @@ import { ChannelIcon } from '@/lib/channel-icon'
 import { CHANNEL_KINDS, CREATE_CHANNEL_TYPES, groupChannels } from '@/lib/model'
 import { cn } from '@/lib/utils'
 import { hachiman } from '@/services/hachiman'
-import { openDialog } from '@/stores/dialogStore'
+import { openDialog, useDialogStore } from '@/stores/dialogStore'
 import { useSelectedChannelId } from '@/stores/navStore'
 
 /**
@@ -51,6 +51,13 @@ function GuildChannels({ guildId }: { guildId: string }): React.JSX.Element {
   const canManage = has(perms, Permissions.MANAGE_CHANNELS)
   const canInvite = has(perms, Permissions.CREATE_INSTANT_INVITE)
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(() => new Set())
+  // The category whose "+" opened the open create sheet (M47), and the one being deleted (M51).
+  const creatingIn = useDialogStore((s) =>
+    s.dialog?.kind === 'createChannel' ? s.dialog.parentId : null
+  )
+  const deletingId = useDialogStore((s) =>
+    s.dialog?.kind === 'deleteChannel' ? s.dialog.channelId : null
+  )
 
   // Top-level (uncategorized) channels first, then each category with its children.
   const { loose, categories, byParent } = useMemo(() => groupChannels(channels), [channels])
@@ -86,6 +93,9 @@ function GuildChannels({ guildId }: { guildId: string }): React.JSX.Element {
         const children = byParent.get(cat.id) ?? []
         // Collapsed categories still show the channel being viewed.
         const visible = isCollapsed ? children.filter((c) => c.id === selectedChannelId) : children
+        // On the mobile layout the drawer stays open under the sheet or confirm, and the category
+        // shows it: the "+" lit, the label red (spec §6.1, decision 3: mobile only).
+        const deleting = deletingId === cat.id
         return (
           <section key={cat.id}>
             <ContextMenu>
@@ -96,7 +106,10 @@ function GuildChannels({ guildId }: { guildId: string }): React.JSX.Element {
                     type="button"
                     onClick={() => toggle(cat.id)}
                     aria-expanded={!isCollapsed}
-                    className="section-label hover:text-text-secondary mobile:gap-1 flex h-full min-w-0 flex-1 items-center gap-1.5 pl-1 text-left"
+                    className={cn(
+                      'section-label hover:text-text-secondary mobile:gap-1 flex h-full min-w-0 flex-1 items-center gap-1.5 pl-1 text-left',
+                      deleting && 'mobile:text-feature-danger-text'
+                    )}
                   >
                     <ChevronDown
                       className={cn(
@@ -113,7 +126,8 @@ function GuildChannels({ guildId }: { guildId: string }): React.JSX.Element {
                       onClick={() => createIn('text', cat.id)}
                       className={cn(
                         "text-text-tertiary rounded-control mobile:[&_svg:not([class*='size-'])]:size-4",
-                        TOUCH_HIT
+                        TOUCH_HIT,
+                        creatingIn === cat.id && 'mobile:text-accent-text'
                       )}
                     >
                       <Plus />

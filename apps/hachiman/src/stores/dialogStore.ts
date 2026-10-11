@@ -23,7 +23,11 @@ type AppDialog =
     }
   | { kind: 'deleteChannel'; channelId: string }
   | { kind: 'removeGuild'; guildId: string }
-  | { kind: 'invite'; guildId: string }
+  /**
+   * `channelId`: the channel row whose invite button opened it. On the mobile layout that button
+   * stays lit under the dim (M46).
+   */
+  | { kind: 'invite'; guildId: string; channelId?: string }
   /** Create (eventId null) or edit a guild event (N14). */
   | { kind: 'guildEvent'; guildId: string; eventId: string | null }
   /** N12: a thread on a message of `parentId`, `name` prefilled. */
@@ -69,11 +73,18 @@ export type SecurityDialogKind = SecurityDialog['kind']
 export type AnyDialogKind = Dialog['kind']
 
 /**
- * The dialogs that a control in the left drawer opens and then shows lit under the dim (M44: the
- * "+" beside GUILDS). On the mobile layout the drawer stays open under them; any other dialog
- * closes it (`lib/mobile-drawer.ts`).
+ * The dialogs that a control in the left drawer opens and then shows lit or marked under the dim:
+ * the "+" beside GUILDS (M44), a channel row's invite button (M46), a category "+" (M47), the
+ * guild row (M50) and the channel row to delete (M51). On the mobile layout the drawer stays open
+ * under them; any other dialog closes it (`lib/mobile-drawer.ts`).
  */
-export const OVER_LEFT_DRAWER: ReadonlySet<AnyDialogKind> = new Set<AnyDialogKind>(['addGuild'])
+export const OVER_LEFT_DRAWER: ReadonlySet<AnyDialogKind> = new Set<AnyDialogKind>([
+  'addGuild',
+  'invite',
+  'createChannel',
+  'removeGuild',
+  'deleteChannel'
+])
 
 /** An open dialog: its request plus a per-open id (a reopen of the same request gets a new one). */
 export type OpenDialog = Dialog & { id: number }

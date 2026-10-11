@@ -31,7 +31,7 @@ function fakeRoot(inside: readonly object[]): FakeRoot {
 
 const focused = (): boolean => usePageEditorState.getState().focused
 
-afterEach(() => usePageEditorState.setState({ focused: false }))
+afterEach(() => usePageEditorState.setState({ focused: false, focusMore: false }))
 
 describe('trackEditorFocus', () => {
   it('is focused from a focusin until the focus leaves the root', () => {
@@ -71,5 +71,13 @@ describe('trackEditorFocus', () => {
     expect(focused()).toBe(false)
     fire('focusin')
     expect(focused()).toBe(false)
+  })
+
+  it('drops a pending move of the focus to More when the editor takes the focus back', () => {
+    const { root, fire } = fakeRoot([])
+    trackEditorFocus(root)
+    usePageEditorState.setState({ focusMore: true })
+    fire('focusin')
+    expect(usePageEditorState.getState().focusMore).toBe(false)
   })
 })

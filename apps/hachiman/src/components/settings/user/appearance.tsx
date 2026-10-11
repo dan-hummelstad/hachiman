@@ -1,6 +1,6 @@
-import { useId } from 'react'
+import { useEffect, useId, useRef } from 'react'
 import { SectionLabel } from '@/components/mobile/list'
-import { GradientPicker } from '@/components/settings/user/gradient-picker'
+import { GradientPicker, GradientPickerMobile } from '@/components/settings/user/gradient-picker'
 import { TextSizeSection } from '@/components/settings/user/text-size'
 import { setSidebarMode } from '@/components/shell/sidebar-state'
 import { SectionHeading } from '@/components/ui/field'
@@ -137,7 +137,7 @@ function AppearanceDesktop(): React.JSX.Element {
 
 /**
  * M31: theme as three cards, each a tiny copy of the phone, density as two cards with a
- * transcript, then the text size. A phone has no sidebar choice and no window background.
+ * transcript, the text size, then the background. A phone has no sidebar choice.
  */
 function AppearanceMobile(): React.JSX.Element {
   const theme = usePrefsStore((s) => s.theme)
@@ -185,7 +185,66 @@ function AppearanceMobile(): React.JSX.Element {
         </div>
       </section>
       <TextSizeSection />
+      <BackgroundSectionMobile />
     </div>
+  )
+}
+
+/**
+ * M31 BACKGROUND: the wallpaper behind the tab strip and the status bar, as two phone cards. The
+ * custom gradient opens its editor inline below them, so the nav bar and the status bar above
+ * show each change live.
+ */
+function BackgroundSectionMobile(): React.JSX.Element {
+  const wallpaper = usePrefsStore((s) => s.wallpaper)
+  const setWallpaper = usePrefsStore((s) => s.setWallpaper)
+  const gradient = usePrefsStore((s) => s.customGradient)
+  const setGradient = usePrefsStore((s) => s.setCustomGradient)
+  const labelId = useId()
+  const editor = useRef<HTMLDivElement>(null)
+  // Only a tap on Custom scrolls the editor into view, not opening the screen with it shown.
+  const reveal = useRef(false)
+  const custom = customWallpaper(gradient)
+
+  useEffect(() => {
+    if (wallpaper !== 'custom' || !reveal.current) return
+    reveal.current = false
+    editor.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+  }, [wallpaper])
+
+  // min-w-0: the swatch row scrolls; it must not widen the grid column of the screen.
+  return (
+    <section className="flex min-w-0 flex-col gap-1.5">
+      <SectionLabel id={labelId}>Background</SectionLabel>
+      <div role="radiogroup" aria-labelledby={labelId} className="grid grid-cols-2 gap-2.5">
+        {(['guild', 'custom'] as WallpaperMode[]).map((m) => (
+          <RadioCard
+            key={m}
+            size="mobile"
+            mark="foot"
+            name="wallpaper"
+            checked={wallpaper === m}
+            onChange={() => {
+              reveal.current = m === 'custom'
+              setWallpaper(m)
+            }}
+            title={m === 'guild' ? 'Guild colour' : 'Custom gradient'}
+            preview={
+              <PhoneSwatch
+                value="system"
+                wallpaper={m === 'guild' ? SAMPLE_GUILD : { light: custom, dark: custom }}
+              />
+            }
+            description={m === 'guild' ? 'Tinted by each guild' : 'Your own colours'}
+          />
+        ))}
+      </div>
+      {wallpaper === 'custom' && (
+        <div ref={editor} className="mt-1 scroll-mb-4">
+          <GradientPickerMobile value={gradient} onChange={setGradient} />
+        </div>
+      )}
+    </section>
   )
 }
 
@@ -295,17 +354,21 @@ const MINI_ROWS = [
 
 /**
  * A 54 × 116 copy of the phone in `scheme`, drawn with its real tokens: the island, the tab strip
- * on the tinted window, then the chat card with three messages, the voice bar and the composer.
+ * on the tinted window (or on `wallpaper`), then the chat card with three messages, the voice bar
+ * and the composer.
  */
 function MiniPhone({
   scheme,
+  wallpaper,
   className
 }: {
   scheme: 'dark' | 'light'
+  wallpaper?: string
   className?: string
 }): React.JSX.Element {
   return (
     <span
+      style={wallpaper ? { backgroundImage: wallpaper } : undefined}
       className={cn(
         scheme,
         'border-line-sheet to-surface-window flex h-[116px] w-[54px] flex-col overflow-hidden rounded-[11px] border bg-linear-to-b from-[color-mix(in_oklab,var(--accent-primary)_20%,var(--surface-window))]',
@@ -347,14 +410,28 @@ function MiniPhone({
   )
 }
 
-/** The M31 theme preview: the phone in the theme; System is dark on the left, light on the right. */
-function PhoneSwatch({ value }: { value: Theme }): React.JSX.Element {
+/**
+ * The M31 theme preview: the phone in the theme; System is dark on the left, light on the right.
+ * A `wallpaper` replaces the built-in tint, per scheme.
+ */
+function PhoneSwatch({
+  value,
+  wallpaper
+}: {
+  value: Theme
+  wallpaper?: { light: string; dark: string }
+}): React.JSX.Element {
+  const scheme = value === 'light' ? 'light' : 'dark'
   return (
     <span aria-hidden className="bg-surface-sunken flex h-32 items-center justify-center">
       <span className="relative flex">
-        <MiniPhone scheme={value === 'light' ? 'light' : 'dark'} />
+        <MiniPhone scheme={scheme} wallpaper={wallpaper?.[scheme]} />
         {value === 'system' && (
-          <MiniPhone scheme="light" className="absolute inset-0 [clip-path:inset(0_0_0_50%)]" />
+          <MiniPhone
+            scheme="light"
+            wallpaper={wallpaper?.light}
+            className="absolute inset-0 [clip-path:inset(0_0_0_50%)]"
+          />
         )}
       </span>
     </span>

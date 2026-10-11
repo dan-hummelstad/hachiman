@@ -2,6 +2,7 @@ import { createContext, useContext, useLayoutEffect, useMemo, useRef, useState }
 import * as DialogPrimitive from '@radix-ui/react-dialog'
 import { XIcon } from 'lucide-react'
 import { KIT_ICON_BUTTON } from '@/components/mobile/nav-bar'
+import { SHEET_MAX_H, SHEET_SIZE, type SheetSize } from '@/components/mobile/sheet-size'
 import { FEATURE_TILE, type Feature } from '@/components/ui/feature'
 import { shouldCommitDrag } from '@/lib/drag-commit'
 import { captureOpener, restoreFocus, setSheetOpener } from '@/lib/focus-opener'
@@ -19,7 +20,8 @@ const DRAG_START = 4
  */
 const SHEET = cn(
   'fixed inset-x-0 bottom-[var(--kb,0px)] z-50 flex w-full max-w-none sm:max-w-none md:max-w-none lg:max-w-none',
-  'max-h-[calc(var(--app-height,100dvh)-var(--safe-top,0px)-8px)] flex-col overflow-hidden',
+  SHEET_MAX_H,
+  'flex-col overflow-hidden',
   'text-text-primary border-x-0 border-t border-b-0 border-(--line-sheet) shadow-(--shadow-sheet) outline-none',
   'px-(--sheet-gutter) pt-2 pb-[max(16px,var(--safe-bottom,0px))] in-data-[keyboard=open]:pb-4',
   'transition-transform duration-250 ease-[cubic-bezier(.32,.72,0,1)]',
@@ -175,10 +177,12 @@ function SheetClose(props: React.ComponentProps<typeof DialogPrimitive.Close>): 
  * a caller's `onOpenAutoFocus` that calls `preventDefault` keeps its own focus. Closing gives the
  * focus back to the control that opened the sheet (`lib/focus-opener`), never to a text field.
  * `dismissible={false}` (a new recovery key on screen, M27): no drag, no Escape, no scrim close
- * and no sr-only Close; the caller's own buttons close it.
+ * and no sr-only Close; the caller's own buttons close it. `size="full"` (`SHEET_SIZE`) holds the
+ * sheet at its max height, for a body that fills the rest with `flex-1`.
  */
 function SheetContent({
   variant = 'default',
+  size = 'fit',
   dismissible = true,
   className,
   children,
@@ -190,6 +194,7 @@ function SheetContent({
 }: React.ComponentProps<typeof DialogPrimitive.Content> & {
   variant?: SheetVariant
   dismissible?: boolean
+  size?: SheetSize
 }): React.JSX.Element {
   const close = useRef<HTMLButtonElement>(null)
   const opener = useRef<HTMLElement | null>(null)
@@ -244,7 +249,7 @@ function SheetContent({
         }}
         {...props}
         data-sheet=""
-        className={cn(className, SHEET, VARIANT[variant])}
+        className={cn(className, SHEET, SHEET_SIZE[size], VARIANT[variant])}
       >
         <SheetContext.Provider value={ctx}>
           <div

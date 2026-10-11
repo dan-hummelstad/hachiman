@@ -1,5 +1,6 @@
 import { useId } from 'react'
-import { ChevronsUpDown } from 'lucide-react'
+import { ChevronsUpDown, Hourglass, Users } from 'lucide-react'
+import { MobileField } from '@/components/mobile/field'
 import { Field } from '@/components/ui/field'
 import { NativeSelect } from '@/components/ui/native-select'
 import { INVITE_MAX_USES, inviteExpiryChoices, maxUsesLabel } from '@/components/settings/invites'
@@ -10,8 +11,9 @@ import type { InviteOptionsValue } from '@/services/InviteService'
  * 24 hours, and "Permanent".
  *
  * `fields` (default): two Fields; the parent lays them out. `boxes`: the mobile create bar (M55),
- * two 52 select boxes side by side, each with its label inside. They stack when the two do not
- * fit at 152 px each.
+ * two 52 select boxes side by side, each with its label inside. `touch`: the mobile invite sheet
+ * (M46), two touch selects with lead icons under their field labels. Both mobile layouts stack
+ * when the two do not fit at 152 px each.
  */
 export function InviteOptions({
   value,
@@ -22,7 +24,7 @@ export function InviteOptions({
   value: InviteOptionsValue
   onChange: (value: InviteOptionsValue) => void
   isAdmin: boolean
-  layout?: 'fields' | 'boxes'
+  layout?: 'fields' | 'boxes' | 'touch'
 }): React.JSX.Element {
   const id = useId()
   const choices = inviteExpiryChoices(isAdmin)
@@ -62,6 +64,35 @@ export function InviteOptions({
         >
           {usesOptions}
         </SelectBox>
+      </div>
+    )
+  }
+
+  if (layout === 'touch') {
+    return (
+      <div className="grid grid-cols-[repeat(auto-fit,minmax(9.5rem,1fr))] gap-3">
+        <MobileField id={`${id}-expiry`} label="Expire after">
+          <NativeSelect
+            size="touch"
+            lead={<Hourglass />}
+            className="w-full"
+            value={value.expiry}
+            onChange={setExpiry}
+          >
+            {expiryOptions}
+          </NativeSelect>
+        </MobileField>
+        <MobileField id={`${id}-uses`} label="Max uses">
+          <NativeSelect
+            size="touch"
+            lead={<Users />}
+            className="w-full"
+            value={value.maxUses}
+            onChange={setUses}
+          >
+            {usesOptions}
+          </NativeSelect>
+        </MobileField>
       </div>
     )
   }

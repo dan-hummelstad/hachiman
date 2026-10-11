@@ -1,9 +1,14 @@
-import { useCallback, useEffect, useRef } from 'react'
-import { Check, Copy, Ellipsis, FileText, Link2, MessagesSquare } from 'lucide-react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { Ellipsis, FileText, MessagesSquare } from 'lucide-react'
 import { Permissions, has, type Channel } from '@hachiman/client'
-import { blurPageEditor, usePageEditorFocused } from '@/components/docs/page-editor-state'
+import { PageActionsSheet } from '@/components/docs/page-actions'
+import {
+  blurPageEditor,
+  clearFocusMore,
+  usePageEditorFocused,
+  usePageEditorState
+} from '@/components/docs/page-editor-state'
 import { PageHero } from '@/components/docs/page-hero'
-import { pageLinkMarkdown } from '@/components/docs/page-links'
 import {
   Breadcrumb,
   LoadingBody,
@@ -16,18 +21,10 @@ import {
 import { NavActionButton } from '@/components/mobile/nav-bar'
 import { PushedScreen } from '@/components/mobile/pushed-screen'
 import { useGuildTint } from '@/components/shell/use-guild-tint'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger
-} from '@/components/ui/dropdown-menu'
-import { useCopy } from '@/hooks/use-copy'
 import { usePermissions } from '@/hooks/use-hachiman'
 import { useLatched } from '@/hooks/use-latched'
 import { countLabel } from '@/lib/unread-mark'
 import { cn } from '@/lib/utils'
-import { docsService } from '@/services/docs/DocsService'
 import { pageTitle } from '@/services/docs/page-tree'
 import { useChannelPages } from '@/services/docs/use-channel-pages'
 import { useChannelStore } from '@/stores/channelStore'
@@ -83,7 +80,16 @@ export function PageScreen(): React.JSX.Element | null {
       }
       onBack={back}
       backLabel="Back to the chat"
-      action={<BarActions pageId={shown.pageId} page={node} />}
+      action={
+        <BarActions
+          pageId={shown.pageId}
+          page={node}
+          channel={channel}
+          guildId={shown.guildId}
+          where={where}
+          onDeleted={back}
+        />
+      }
       bodyClassName="gap-0 overflow-hidden p-0 pb-(--safe-bottom) in-data-[keyboard=open]:pb-0"
     >
       <PageScreenBody
@@ -96,36 +102,64 @@ export function PageScreen(): React.JSX.Element | null {
   )
 }
 
-/** The right of the nav bar: who is here, then More, or Done while the editor has the focus. */
+/**
+ * The right of the nav bar: who is here, then More, or Done while the editor has the focus. More
+ * opens the page actions sheet (M41). The sheet stays mounted while Done shows, and its delete
+ * confirm outlives the page.
+ */
 function BarActions({
   pageId,
-  page
+  page,
+  channel,
+  guildId,
+  where,
+  onDeleted
 }: {
   pageId: string
   page: PageNode | undefined
+  channel: Channel
+  guildId: string
+  where: string
+  onDeleted: () => void
 }): React.JSX.Element {
   const editing = usePageEditorFocused()
+  const [actions, setActions] = useState(false)
   const more = useRef<HTMLButtonElement>(null)
-  const doneTapped = useRef(false)
-  // Done goes away with the focus it had: the focus moves to More, which takes its place.
+  const focusMore = usePageEditorState((s) => s.focusMore)
+  // Done, the toolbar's hide and a toolbar sheet go away with the focus they had: the focus moves
+  // to More, which takes Done's place.
   useEffect(() => {
-    if (editing || !doneTapped.current) return
-    doneTapped.current = false
-    more.current?.focus()
-  }, [editing])
+    if (editing || !focusMore || !more.current) return
+    clearFocusMore()
+    more.current.focus()
+  }, [editing, focusMore])
   return (
     <>
       <Presence pageId={pageId} variant="screen" />
       {editing ? (
-        <DoneButton
-          onDone={() => {
-            doneTapped.current = true
-            blurPageEditor()
-          }}
-        />
+        <DoneButton onDone={() => blurPageEditor({ focusMore: true })} />
       ) : (
-        page && <MoreMenu page={page} triggerRef={more} />
+        page && (
+          <NavActionButton
+            ref={more}
+            label="More"
+            aria-haspopup="dialog"
+            aria-expanded={actions}
+            onClick={() => setActions(true)}
+          >
+            <Ellipsis />
+          </NavActionButton>
+        )
       )}
+      <PageActionsSheet
+        open={actions}
+        onOpenChange={setActions}
+        page={page}
+        channel={channel}
+        guildId={guildId}
+        subtitle={where}
+        onDeleted={onDeleted}
+      />
     </>
   )
 }
@@ -147,41 +181,6 @@ function DoneButton({ onDone }: { onDone: () => void }): React.JSX.Element {
     >
       Done
     </button>
-  )
-}
-
-/** The page's actions (a sheet on the phone): copy a link to the page, copy it as markdown. */
-function MoreMenu({
-  page,
-  triggerRef
-}: {
-  page: PageNode
-  triggerRef: React.Ref<HTMLButtonElement>
-}): React.JSX.Element {
-  const { copied, copy } = useCopy()
-  const copyLink = (): void => copy(pageLinkMarkdown(page))
-  const copyMarkdown = (): void => {
-    const md = docsService.copyMarkdown(page.id)
-    if (md !== null) copy(md)
-  }
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <NavActionButton ref={triggerRef} label={copied !== null ? 'Copied' : 'More'}>
-          {copied !== null ? <Check /> : <Ellipsis />}
-        </NavActionButton>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end">
-        <DropdownMenuItem onSelect={copyLink}>
-          <Link2 />
-          Copy link
-        </DropdownMenuItem>
-        <DropdownMenuItem onSelect={copyMarkdown}>
-          <Copy />
-          Copy as markdown
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
   )
 }
 

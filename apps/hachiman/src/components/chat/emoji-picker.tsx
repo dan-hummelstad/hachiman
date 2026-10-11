@@ -104,6 +104,8 @@ export function EmojiPicker({
         side={side}
         align={align}
         collisionPadding={8}
+        // Mobile: the sheet holds its full height, so the grid below fills the rest and scrolls.
+        sheetSize="full"
         // Never taller than the room on the chosen side: a fixed height that fits neither side
         // makes the popper flip back and forth.
         className="bg-surface-raised border-line-hairline flex h-[420px] max-h-(--radix-popover-content-available-height) w-[360px] flex-col p-0"
@@ -256,7 +258,8 @@ function PickerPanel({
           onMouseEnter={() => setHover(c)}
           onFocus={() => setHover(c)}
           className={cn(
-            'rounded-control hover:bg-surface-hover focus-visible:bg-surface-hover flex size-10 items-center justify-center text-[24px] leading-none',
+            // Mobile: the cells share the sheet's width (about 43 x 44 on an SE).
+            'rounded-control hover:bg-surface-hover focus-visible:bg-surface-hover mobile:h-11 mobile:w-auto flex size-10 items-center justify-center text-[24px] leading-none',
             FOCUS
           )}
         >
@@ -272,7 +275,7 @@ function PickerPanel({
 
   return (
     <>
-      <div className="border-line-hairline flex items-center gap-2 border-b p-2">
+      <div className="border-line-hairline flex shrink-0 items-center gap-2 border-b p-2">
         <label className="bg-surface-panel rounded-control flex h-8 min-w-0 flex-1 items-center gap-2 px-2">
           <Search className="text-text-tertiary size-4 shrink-0" aria-hidden />
           <input
@@ -324,7 +327,7 @@ function PickerPanel({
       {results === null && (
         <nav
           aria-label="Emoji categories"
-          className="border-line-hairline flex gap-0.5 overflow-x-auto border-b px-2 py-1"
+          className="border-line-hairline mobile:overscroll-x-contain mobile:[scrollbar-width:none] mobile:[&::-webkit-scrollbar]:hidden flex shrink-0 gap-0.5 overflow-x-auto border-b px-2 py-1"
         >
           {sections.map((s) => (
             <button
@@ -338,7 +341,7 @@ function PickerPanel({
                   ?.scrollIntoView({ block: 'start' })
               }
               className={cn(
-                'rounded-control text-text-tertiary hover:bg-surface-hover hover:text-text-primary flex size-8 shrink-0 items-center justify-center',
+                'rounded-control text-text-tertiary hover:bg-surface-hover hover:text-text-primary mobile:size-9 flex size-8 shrink-0 items-center justify-center',
                 FOCUS
               )}
             >

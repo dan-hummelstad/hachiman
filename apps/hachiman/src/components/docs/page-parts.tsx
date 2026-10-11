@@ -10,6 +10,7 @@ import type { DocHandle, DocStatus } from '@/services/docs/types'
 import { useChannelStore } from '@/stores/channelStore'
 import { findPage, useDocsStore, type DocPeer, type PageNode } from '@/stores/docsStore'
 import { openChannel } from '@/stores/navStore'
+import { usePageEditorFocused } from './page-editor-state'
 import { PageLabels } from './page-labels'
 
 /*
@@ -248,7 +249,9 @@ function useOpenDoc(
 /**
  * The page screen's body (M38): what scrolls (the hero, the path, the labels and the text), a
  * layer over its bottom edge (the Chat pill), then the docked foot. The foot and the layer go
- * while the keyboard is open, so the text keeps the room on a small phone.
+ * while the editor has the focus, so the text keeps the room on a small phone and the keyboard
+ * toolbar does not cover them. That is also true with no software keyboard: a hardware keyboard,
+ * or the browser host at a narrow width.
  */
 export function PageScreenLayout({
   overlay,
@@ -259,6 +262,9 @@ export function PageScreenLayout({
   foot?: React.ReactNode
   children: React.ReactNode
 }): React.JSX.Element {
+  // Only an editable touch editor tracks the focus, and only it shows the keyboard toolbar.
+  const editing = usePageEditorFocused()
+  const hide = cn('contents in-data-[keyboard=open]:hidden', editing && 'hidden')
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="relative flex min-h-0 flex-1 flex-col">
@@ -268,9 +274,9 @@ export function PageScreenLayout({
         >
           {children}
         </div>
-        {overlay && <div className="contents in-data-[keyboard=open]:hidden">{overlay}</div>}
+        {overlay && <div className={hide}>{overlay}</div>}
       </div>
-      {foot && <div className="contents in-data-[keyboard=open]:hidden">{foot}</div>}
+      {foot && <div className={hide}>{foot}</div>}
     </div>
   )
 }

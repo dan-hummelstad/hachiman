@@ -9,9 +9,18 @@ import { create } from 'zustand'
 interface PageEditorState {
   /** The focus is in the editor (its text or a code block in it). */
   focused: boolean
+  /**
+   * The focus left the editor through a control that goes away with it (Done, the toolbar's hide,
+   * a toolbar sheet closed with no pick): the nav bar moves the focus to More, which takes Done's
+   * place, so VoiceOver does not land on `<body>`.
+   */
+  focusMore: boolean
 }
 
-export const usePageEditorState = create<PageEditorState>()(() => ({ focused: false }))
+export const usePageEditorState = create<PageEditorState>()(() => ({
+  focused: false,
+  focusMore: false
+}))
 
 export const usePageEditorFocused = (): boolean => usePageEditorState((s) => s.focused)
 
@@ -31,7 +40,10 @@ interface FocusRoot {
  * `focused`: an editor that goes away has no focus.
  */
 export function trackEditorFocus(root: FocusRoot): () => void {
-  const onIn = (): void => setFocused(true)
+  const onIn = (): void => {
+    setFocused(true)
+    clearFocusMore()
+  }
   const onOut = (e: FocusEvent): void => {
     const next = e.relatedTarget
     setFocused(next !== null && root.contains(next as Node))
@@ -45,9 +57,28 @@ export function trackEditorFocus(root: FocusRoot): () => void {
   }
 }
 
-/** Done in the nav bar: takes the focus out of the editor, so the keyboard goes down. */
-export function blurPageEditor(): void {
+/**
+ * Done in the nav bar and the toolbar's hide: takes the focus out of the editor, so the keyboard
+ * goes down. `focusMore`: the nav bar then moves the focus to More.
+ */
+export function blurPageEditor({ focusMore = false }: { focusMore?: boolean } = {}): void {
   const active = document.activeElement
   if (active instanceof HTMLElement && active.closest('.hm-page-editor')) active.blur()
   setFocused(false)
+  if (focusMore) usePageEditorState.setState({ focusMore: true })
+}
+
+/**
+ * For the `onCloseAutoFocus` of a sheet that the keyboard toolbar opened (Turn into, Link to
+ * page): with no pick, nothing took the focus, and the toolbar button that opened the sheet is
+ * gone. Then the nav bar moves the focus to More (a button, so no keyboard comes up).
+ */
+export function focusMoreIfLost(): void {
+  const active = document.activeElement
+  if (active === null || active === document.body) usePageEditorState.setState({ focusMore: true })
+}
+
+/** The nav bar moved the focus to More, or the editor took it back. */
+export function clearFocusMore(): void {
+  usePageEditorState.setState((s) => (s.focusMore ? { focusMore: false } : s))
 }

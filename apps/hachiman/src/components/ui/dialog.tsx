@@ -98,10 +98,11 @@ function DialogContent({
         {...props}
       >
         <DialogFormContext.Provider value={value}>
-          {/* The whole body scrolls; the header sticks to its top and the footer to its foot. */}
+          {/* The whole body scrolls; the header sticks to its top and the footer to its foot.
+              The scroll padding keeps a field that gets the focus clear of both. */}
           <div
             data-slot="dialog-sheet-body"
-            className="mx-[calc(var(--sheet-gutter)*-1)] flex min-h-0 flex-1 flex-col gap-4 overflow-x-hidden overflow-y-auto overscroll-contain bg-inherit px-(--sheet-gutter)"
+            className="mx-[calc(var(--sheet-gutter)*-1)] flex min-h-0 flex-1 flex-col gap-4 overflow-x-hidden overflow-y-auto overscroll-contain bg-inherit px-(--sheet-gutter) has-[[data-slot=dialog-footer]]:scroll-pb-[72px] has-[[data-slot=dialog-header]]:scroll-pt-[76px] has-[[data-slot=sheet-header]]:scroll-pt-[76px]"
           >
             {children}
           </div>
@@ -119,6 +120,8 @@ function DialogContent({
           // Arc dialog (docs/ui-redesign.md §5): square card, header 16/22, body 18/22, footer
           // 14/22. DialogHeader and DialogFooter bleed to the edges with negative margins.
           'bg-surface-content text-text-primary border-line-hairline data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed top-[50%] left-[50%] z-50 grid w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-4 overflow-hidden border px-[22px] pt-[18px] pb-[18px] shadow-soft duration-100 outline-none has-[[data-slot=dialog-header]]:pt-0 sm:max-w-[500px]',
+          // The mobile card's 16 sides (M50, M51), before the caller's classes so `p-0` still wins.
+          form === 'dialog' && 'px-4',
           className,
           // Centred on the part of the screen above the keyboard, and never taller than it.
           form === 'dialog' &&
@@ -137,7 +140,9 @@ function DialogContent({
             className={cn(
               "text-text-tertiary hover:bg-surface-hover hover:text-text-primary focus-visible:outline-line-focus rounded-control absolute top-4 right-4 z-10 flex size-8 items-center justify-center outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 disabled:pointer-events-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
               // A 36 touch target, centred on the 64 header.
-              form === 'dialog' && 'active:bg-surface-hover top-3.5 right-3 size-9',
+              // The kit's boxed icon button (M50, M51), as the Sheet Header close.
+              form === 'dialog' &&
+                "bg-surface-hover text-text-secondary active:bg-surface-selected top-3.5 right-3 size-9 [&_svg:not([class*='size-'])]:size-[18px]",
               form === 'fullscreen' &&
                 'active:bg-surface-hover top-[calc(var(--safe-top,0px)+8px)] right-3 size-9'
             )}
@@ -207,7 +212,7 @@ function DialogHeader({
       data-slot="dialog-header"
       className={cn(
         '-mx-[22px] flex items-center gap-3 px-[22px] pt-4 pr-14 text-left',
-        form === 'dialog' && 'min-h-16 py-3',
+        form === 'dialog' && '-mx-4 min-h-16 px-4 py-3 pr-14',
         form === 'fullscreen' && 'mx-0 min-h-[52px] shrink-0 px-4 py-2 pr-14',
         className
       )}
@@ -247,10 +252,13 @@ function DialogFooter({ className, ...props }: React.ComponentProps<'div'>) {
         form === 'sheet' &&
           'sticky bottom-0 z-10 flex shrink-0 flex-col gap-1.5 bg-inherit [&>*]:w-full',
         form === 'dialog' &&
-          'border-line-hairline -mx-[22px] -mb-[18px] flex flex-wrap gap-2 border-t px-[22px] py-3.5 [&>*]:min-w-[calc(50%-4px)] [&>*]:flex-[1_1_auto]',
+          'border-line-hairline -mx-4 -mb-[18px] flex flex-wrap gap-2 border-t px-4 py-3.5 [&>*]:min-w-[calc(50%-4px)] [&>*]:flex-[1_1_auto]',
         form === 'fullscreen' &&
           'mt-auto flex shrink-0 flex-col gap-1.5 px-4 pt-3 pb-(--safe-bottom) [&>*]:w-full',
         form !== 'desktop' && TOUCH_BUTTONS,
+        // Two half-width buttons: 12 side padding keeps "Delete channel" with its icon on one row
+        // at 393 (M51). An iPhone SE stacks them.
+        form === 'dialog' && '[&>[data-slot=button]]:px-3',
         className
       )}
       {...props}

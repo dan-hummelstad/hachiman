@@ -199,3 +199,122 @@
   > .children {
   color: var(--text-tertiary);
 }
+
+/* The current block while the touch editor has the focus (M39, `hm-current-block` from the touch
+   block plugin in page-editor.tsx): an 8 % accent box over the block's own 4 px padding, 6 px out
+   to each side, so the text does not move. A to-do or list line takes its box and its text. */
+.hm-page-editor[data-variant='touch'] .ProseMirror-focused .hm-current-block {
+  position: relative;
+  isolation: isolate;
+}
+.hm-page-editor[data-variant='touch'] .ProseMirror-focused .hm-current-block::after {
+  content: '';
+  position: absolute;
+  inset: 0 -6px;
+  z-index: -1;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--accent-primary) 8%, transparent);
+  pointer-events: none;
+}
+
+/* The touch slash menu (M40). It lives in a layer on <body> (`slashLayer` in page-editor.tsx), so
+   it is fixed over the page screen and Crepe's desktop menu styles do not reach it. 12 px from
+   each side, square, a scrolling list of 46 rows under "Basic blocks" and "In Hachiman" labels.
+   The menu's middleware sets the side and `--hm-slash-max` (the room above the keyboard toolbar). */
+.hm-slash-layer .milkdown-slash-menu {
+  position: fixed;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  width: calc(100vw - 24px);
+  max-height: var(--hm-slash-max, 284px);
+  background: var(--surface-raised);
+  border: 1px solid var(--line-sheet);
+  box-shadow: var(--shadow-soft);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+}
+.hm-slash-layer .milkdown-slash-menu[data-show='false'] {
+  display: none;
+}
+/* Over the caret line: the menu's bottom edge sits at `top`. */
+.hm-slash-layer .milkdown-slash-menu[data-side='top'] {
+  translate: 0 -100%;
+}
+.hm-slash-layer .milkdown-slash-menu > div {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+}
+.hm-slash-layer .milkdown-slash-menu .tab-group {
+  display: none;
+}
+.hm-slash-layer .milkdown-slash-menu .menu-groups {
+  min-height: 0;
+  padding: 4px 6px 6px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
+}
+.hm-slash-layer .milkdown-slash-menu ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.hm-slash-layer .milkdown-slash-menu h6 {
+  margin: 0;
+  padding: 8px 8px 4px;
+  font-size: 11.5px;
+  line-height: 16px;
+  font-weight: 800;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+}
+.hm-slash-layer .milkdown-slash-menu li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 46px;
+  padding: 0 8px;
+  border-radius: var(--radius-control, 8px);
+  font-size: 15px;
+  line-height: 20px;
+  font-weight: 700;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+/* The row that Enter runs: the first one, or the one under the finger. */
+.hm-slash-layer .milkdown-slash-menu li.hover {
+  background: var(--accent-tint);
+}
+.hm-slash-layer .milkdown-slash-menu li > span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* The 32 tile of a row, with an 18 icon. */
+.hm-slash-layer .milkdown-slash-menu .milkdown-icon {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 32px;
+  height: 32px;
+  background: var(--fill-control);
+  border: 1px solid var(--line-sheet);
+  color: var(--text-primary);
+}
+.hm-slash-layer .milkdown-slash-menu .milkdown-icon svg {
+  width: 18px;
+  height: 18px;
+}
+.hm-slash-layer .milkdown-slash-menu .milkdown-icon svg.hm-page-icon {
+  color: var(--feature-page-text);
+}

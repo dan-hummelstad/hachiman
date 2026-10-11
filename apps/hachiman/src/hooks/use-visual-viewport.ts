@@ -1,4 +1,4 @@
-import { useEffect, useSyncExternalStore } from 'react'
+import { useEffect, useRef, useSyncExternalStore } from 'react'
 
 /** A keyboard inset over this is the software keyboard, not a toolbar or rounding. */
 export const KEYBOARD_MIN_INSET = 80
@@ -78,4 +78,20 @@ export function useVisualViewport(enabled: boolean): void {
       setInset(0)
     }
   }, [enabled])
+}
+
+/**
+ * A field at the foot of a sheet body hides under the sheet foot when the keyboard rises and the
+ * sheet shrinks (an iPhone SE has about 360 px above the keyboard). While the keyboard rises over
+ * the focused field, this scrolls it to the middle of the sheet body: `nearest` would put it at
+ * the body's bottom edge, under the sticky footer, because `scrollIntoView` ignores sticky parts.
+ */
+export function useRevealOnKeyboard<T extends HTMLElement>(): React.RefObject<T | null> {
+  const ref = useRef<T>(null)
+  const inset = useKeyboardInset()
+  useEffect(() => {
+    const el = ref.current
+    if (inset > 0 && el && document.activeElement === el) el.scrollIntoView({ block: 'center' })
+  }, [inset])
+  return ref
 }
