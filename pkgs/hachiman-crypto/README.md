@@ -107,5 +107,5 @@ Use `tsgo`, never `tsc`.
 - A leaked recovery key exposes all history.
 - A leaked device store exposes the history of that device.
 - Signed messages are non-repudiable. Every envelope carries a franking tag.
-- The browser host trusts the server's code. The Electron host is the strong client.
+- The browser host trusts the server's code. The Electron host is the strong client. The iOS host is strong too (signed app bundle).
 - ts-mls has no partial trees. Every member holds the full ratchet tree. The smoke case "needs the full ratchet tree to join" fails when ts-mls adds support.

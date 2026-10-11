@@ -366,7 +366,7 @@ export interface GuildFull extends Guild {
 // ---- E2EE REST shapes (§12.12) ----
 
 export type DeviceStatus = 'pending' | 'active' | 'revoked'
-export type DevicePlatform = 'electron' | 'browser'
+export type DevicePlatform = 'electron' | 'browser' | 'ios'
 export type RevocationReason = 'user' | 'lost' | 'password_reset' | 'compromised' | 'signed_out'
 export type MlsGroupKind = 'public_set' | 'channel' | 'dm'
 export type MlsGroupStatus = 'pending' | 'active' | 'retired'

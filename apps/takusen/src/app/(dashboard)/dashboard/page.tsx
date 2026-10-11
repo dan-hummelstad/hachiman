@@ -1,10 +1,10 @@
 import { headers } from 'next/headers'
 
 import { IdentityCard, NextStepPanel, SecurityPanel } from '@/components/account/overview-cards'
-import { AppsPanel, SessionsPanel, type SessionRowData } from '@/components/account/overview-panels'
+import { AppsPanel, SessionsPanel, type SessionIcon, type SessionRowData } from '@/components/account/overview-panels'
 import { DashboardShell } from '@/components/dashboard-shell'
 import { getViewer, listAppAccess, listHachimanSessions } from '@/lib/account'
-import { describeUserAgent, type HachimanSession } from '@/lib/account-sessions'
+import { describeUserAgent, type DevicePlatform, type HachimanSession } from '@/lib/account-sessions'
 import { desktopDownloadFor, hachimanLinks } from '@/lib/deployment'
 import { formatDate, formatRelative, passwordAge, plural } from '@/lib/format'
 
@@ -12,21 +12,26 @@ export const metadata = {
   title: 'Overview · Takusen',
 }
 
+const PLATFORM: Record<DevicePlatform, { where: string; icon: SessionIcon }> = {
+  electron: { where: 'Desktop app', icon: 'desktop' },
+  browser: { where: 'In the browser', icon: 'web' },
+  ios: { where: 'iPhone app', icon: 'phone' },
+}
+
 /**
  * Takusen keeps no location or OS for a Hachiman sign-in: only the device the app
- * registered ("Hachiman Desktop" / "Hachiman Web"), and the time of the last token.
+ * registered ("Hachiman Desktop" / "Hachiman Web" / "Hachiman iOS"), and the time of the last token.
  */
 function sessionRow(s: HachimanSession): SessionRowData {
   const when = formatRelative(s.lastActiveAt)
   if (!s.device) {
     return { grantId: s.grantId, icon: 'app', title: 'Hachiman', meta: `No device set up yet · ${when}` }
   }
-  const desktop = s.device.platform === 'electron'
-  const where = desktop ? 'Desktop app' : 'In the browser'
+  const { where, icon } = PLATFORM[s.device.platform]
   const revoked = s.device.status === 'revoked' ? ' · device removed' : ''
   return {
     grantId: s.grantId,
-    icon: desktop ? 'desktop' : 'web',
+    icon,
     title: s.device.name,
     meta: `${where} · v${s.device.clientVersion}${revoked} · ${when}`,
   }

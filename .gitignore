@@ -48,3 +48,7 @@ skills-lock.json
 infra/oci/.terraform/
 infra/oci/*.tfstate*
 infra/oci/terraform.tfvars
+# The local deploy key and host keys (infra/README.md): they go to CI secrets, never into git
+infra/oci/deploy_key
+infra/oci/deploy_key.pub
+infra/oci/known_hosts

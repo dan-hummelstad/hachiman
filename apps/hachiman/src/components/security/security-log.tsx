@@ -1,11 +1,12 @@
 import { useState } from 'react'
-import { Globe, Monitor, RefreshCw, ShieldAlert, ShieldCheck, ShieldQuestion } from 'lucide-react'
+import { RefreshCw, ShieldAlert, ShieldCheck, ShieldQuestion } from 'lucide-react'
 import type { KtSelfCheckResult } from '@hachiman/crypto'
 import { Button } from '@/components/ui/button'
 import { ErrorText, SectionHeading } from '@/components/ui/field'
-import { useOwnDevices } from '@/components/security/devices-panel'
+import { PlatformIcon, useOwnDevices } from '@/components/security/devices-panel'
 import { friendly } from '@/components/security/errors'
 import { useAction } from '@/hooks/use-action'
+import { PLATFORM_LABEL } from '@/lib/device-platform'
 import { cn } from '@/lib/utils'
 import { cryptoService } from '@/services/CryptoService'
 import { dismissKtAlerts, useCryptoStore } from '@/stores/cryptoStore'
@@ -138,7 +139,7 @@ export function SecurityLog(): React.JSX.Element {
                   />
                 )}
                 <span className="bg-surface-raised border-line-hairline text-text-secondary flex size-9 shrink-0 items-center justify-center rounded-full border [&_svg]:size-4">
-                  {d.platform === 'electron' ? <Monitor aria-hidden /> : <Globe aria-hidden />}
+                  <PlatformIcon platform={d.platform} />
                 </span>
                 <div className="grid min-w-0 flex-1 pt-1">
                   <span className="text-label">Added {d.current ? 'this device' : d.name}</span>
@@ -147,9 +148,7 @@ export function SecurityLog(): React.JSX.Element {
                       ? 'Signed out since'
                       : d.primary
                         ? 'Has your security key'
-                        : d.platform === 'electron'
-                          ? 'Desktop app'
-                          : 'Browser'}
+                        : PLATFORM_LABEL[d.platform]}
                   </span>
                 </div>
                 <span className="text-meta text-text-tertiary shrink-0 pt-1">

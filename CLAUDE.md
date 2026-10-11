@@ -11,7 +11,7 @@ Hachiman is guild-based voice and text chat, with collaborative markdown pages, 
 - a browser-safe TypeScript client library
 - a browser-safe E2EE library (MLS through ts-mls, message envelopes, attachments, SFrame)
 - a shared React UI
-- two host apps (Electron + Browser)
+- three host apps (Electron, Browser and iOS)
 
 Postgres holds durable data. S3 (SeaweedFS in dev) holds file bytes, and only Takusen talks to it. Redis holds sessions, the resume buffer, presence, voice state and the event bus.
 
@@ -27,6 +27,7 @@ apps/
   hachiman/            @hachiman/hachiman           — shared React UI library (components, stores, services, hooks, platform abstraction, ?preview mode)
   hachiman-electron/   @hachiman/hachiman-electron  — Electron host (main: CSP, deep links, region probe, screen picker; preload bridge; renderer PlatformService)
   hachiman-browser/    @hachiman/hachiman-browser   — Browser host (Vite)
+  hachiman-ios/        @hachiman/hachiman-ios       — iOS host (SwiftUI + WKWebView serving the shared UI from hachiman://app; Swift bridge for the Keychain wrap key, OAuth, haptics, share, QR scan)
   hachiman-server/     hachiman-server              — Go module hachiman/server: hachiman-gateway, hachiman-media, hachiman-recorder (scaffold)
 
 pkgs/
@@ -34,7 +35,7 @@ pkgs/
   hachiman-crypto/     @hachiman/crypto             — E2EE (ts-mls): crypto Worker, identity, MLS groups, envelopes, attachments, SFrame transform Worker, encrypted store; `./ds` entry for Takusen
 ```
 
-Host apps (`hachiman-electron`, `hachiman-browser`) depend only on the shared UI library (`@hachiman/hachiman`), which depends on the client library (`@hachiman/client`) and the crypto library (`@hachiman/crypto`). Hosts do not import `@hachiman/client` or `@hachiman/crypto`. The shared UI owns the one `HachimanClient` (`apps/hachiman/src/services/hachiman.ts`). Hosts only implement `IPlatformService` (`apps/hachiman/src/shared/IPlatformService.ts`): Electron in `src/renderer/src/PlatformService.ts` (a thin adapter over the preload bridge `window.hachiman`), the browser in `src/platforms/browser/PlatformService.ts`. A new seam method needs both implementations, the preload bridge, and an IPC channel in `apps/hachiman-electron/src/shared/ipc.ts`.
+Host apps (`hachiman-electron`, `hachiman-browser`, `hachiman-ios`) depend only on the shared UI library (`@hachiman/hachiman`), which depends on the client library (`@hachiman/client`) and the crypto library (`@hachiman/crypto`). Hosts do not import `@hachiman/client` or `@hachiman/crypto`. The shared UI owns the one `HachimanClient` (`apps/hachiman/src/services/hachiman.ts`). Hosts only implement `IPlatformService` (`apps/hachiman/src/shared/IPlatformService.ts`): Electron in `src/renderer/src/PlatformService.ts` (a thin adapter over the preload bridge `window.hachiman`), the browser in `src/platforms/browser/PlatformService.ts`, iOS in `src/platforms/ios/PlatformService.ts` (over the WKWebView script message bridge). A new seam method needs all three implementations, the preload bridge, an IPC channel in `apps/hachiman-electron/src/shared/ipc.ts`, and an iOS bridge op when iOS implements it natively.
 
 Workspace dependency direction: `@hachiman/crypto` depends on `@hachiman/client` (only for `@hachiman/client/permissions`, in `src/worker/`). `@hachiman/client` never imports `@hachiman/crypto`. Its E2EE types mirror the crypto types structurally. Takusen loads `@hachiman/crypto/ds` through one file, `apps/takusen/src/lib/mls/crypto.ts`.
 
@@ -85,11 +86,13 @@ pnpm admin:grant <email>      # make an existing user a deployment admin (admin 
 pnpm build:server                  # gateway + media into apps/hachiman-server/bin (the recorder builds only from its Dockerfile)
 pnpm build:electron
 pnpm build:browser
+pnpm -F @hachiman/hachiman-ios build      # the iOS web bundle (dist/); then xcodegen + Xcode (apps/hachiman-ios/README.md)
 
 # Typecheck a single workspace (always tsgo under the hood)
 pnpm -F @hachiman/hachiman          typecheck
 pnpm -F @hachiman/hachiman-electron typecheck   # runs typecheck:node + typecheck:web
 pnpm -F @hachiman/hachiman-browser  typecheck
+pnpm -F @hachiman/hachiman-ios      typecheck
 pnpm -F @hachiman/client            typecheck
 pnpm -F @hachiman/crypto            typecheck   # tsgo --noEmit -p tsconfig.json
 pnpm -F @hachiman/takusen            typecheck   # incremental (tsbuildinfo): if results look stale, run
@@ -106,6 +109,8 @@ pnpm -F @hachiman/crypto test              # vitest (node environment, fake-inde
 pnpm -F @hachiman/takusen test              # tsx scripts incl. gRPC handlers and the DS (no DB needed)
 pnpm -F @hachiman/hachiman-electron test   # main-process unit tests (CSP, secure storage, ...)
 pnpm -F @hachiman/hachiman-browser test    # CSP and secure storage (node --test)
+pnpm -F @hachiman/hachiman-ios test        # CSP, bridge, native events, PlatformService (node --test)
+cd apps/hachiman-ios && xcodegen generate && xcodebuild test -project Hachiman.xcodeproj -scheme Hachiman -destination 'platform=iOS Simulator,name=iPhone 16,OS=latest'   # XCTest; needs a signed (ad hoc) build and developer mode
 cd apps/hachiman-server && go test ./...   # gateway, media (incl. the E2EE relay), permissions, voicetoken, ...
 # gateway integration test: build tag `integration`, needs DATABASE_URL / REDIS_URL / TAKUSEN_URL
 

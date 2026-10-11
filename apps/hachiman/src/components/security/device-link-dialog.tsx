@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Check, MonitorSmartphone, ScanLine, Smile, X } from 'lucide-react'
-import { LINK_QR_PREFIX } from '@hachiman/crypto'
+import { LINK_QR_PREFIX, type DevicePlatform } from '@hachiman/crypto'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { ErrorText } from '@/components/ui/field'
@@ -12,6 +12,7 @@ import { ScanOrPaste } from '@/components/security/qr-view'
 import { SasEmojiRow } from '@/components/security/sas-emoji'
 import { StepFrame } from '@/components/security/screen-window'
 import { useAction } from '@/hooks/use-action'
+import { PLATFORM_LABEL } from '@/lib/device-platform'
 import { cryptoService } from '@/services/CryptoService'
 import { clearLinkState, useCryptoStore } from '@/stores/cryptoStore'
 import { useDialog } from '@/stores/dialogStore'
@@ -20,7 +21,7 @@ import { Callout } from '@/components/ui/callout'
 interface PendingSession {
   sessionId: string
   newDeviceName: string
-  platform: 'electron' | 'browser'
+  platform: DevicePlatform
   createdAt: string
 }
 
@@ -280,8 +281,7 @@ function SessionPicker({
               >
                 <span className="truncate">{s.newDeviceName}</span>
                 <span className="text-text-tertiary ml-auto shrink-0 text-xs">
-                  {s.platform === 'electron' ? 'Desktop app' : 'Browser'} ·{' '}
-                  {new Date(s.createdAt).toLocaleTimeString()}
+                  {PLATFORM_LABEL[s.platform]} · {new Date(s.createdAt).toLocaleTimeString()}
                 </span>
               </SelectableRow>
             </li>

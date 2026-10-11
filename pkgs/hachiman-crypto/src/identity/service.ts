@@ -133,6 +133,8 @@ export const createIdentityService: CreateIdentityService = (ctx, deps) => {
       deviceId: row?.deviceId ?? null,
       primary: row?.master?.privateKey != null,
       recoveryConfigured: row?.recoveryKeyId != null,
+      // Electron and iOS are 'strong' on purpose: their code ships inside the signed app, so
+      // Takusen cannot serve this device other code. The browser loads its code from the server.
       hostTrust: ctx.platform === 'browser' ? 'server_code' : 'strong',
     }
   }

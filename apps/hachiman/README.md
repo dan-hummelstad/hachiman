@@ -1,6 +1,6 @@
 # @hachiman/hachiman
 
-The shared React UI of Hachiman. Both host apps mount it: [`hachiman-electron`](../hachiman-electron/README.md) and `hachiman-browser`.
+The shared React UI of Hachiman. All three host apps mount it: [`hachiman-electron`](../hachiman-electron/README.md), [`hachiman-browser`](../hachiman-browser/README.md) and [`hachiman-ios`](../hachiman-ios/README.md).
 The package has no build step. Hosts import its TypeScript source and resolve the `@/` alias to `src/`.
 
 References:

@@ -10,7 +10,7 @@ Takusen, the gateway and the media nodes relay only ciphertext. They see metadat
 They also see the read state, pinned message ids, guild events, thread names, blocks and custom status.
 Avatars, guild icons and banners stay plaintext, because they are public profile data.
 
-The Electron app is the strong client. The browser app shows the label "trusts the server's code", because a hostile server can send hostile JavaScript to a browser.
+The Electron and iOS apps are the strong clients, because their code ships inside the signed app. The browser app shows the label "trusts the server's code", because a hostile server can send hostile JavaScript to a browser.
 
 The wire contract for every process boundary is [`docs/gateway-protocol.md`](docs/gateway-protocol.md). §12 of it is normative for E2EE.
 The decisions behind the design are in [`docs/discord-refactor.md`](docs/discord-refactor.md) and, for E2EE, in [`docs/e2ee-plan.md`](docs/e2ee-plan.md).
@@ -30,6 +30,7 @@ Each package README has its own diagrams: where the package fits, its code archi
 | [`apps/hachiman`](apps/hachiman/README.md) | `@hachiman/hachiman` | Shared React UI (components, Zustand stores, services, hooks, the `IPlatformService` seam, a `?preview` mode with no backend). `CryptoService` owns the crypto Worker. |
 | [`apps/hachiman-electron`](apps/hachiman-electron/README.md) | `@hachiman/hachiman-electron` | Electron host: CSP, deep links, region probe, screen source picker, the wrap key in the OS keychain (`safeStorage`), `hachiman://app` renderer protocol. |
 | [`apps/hachiman-browser`](apps/hachiman-browser/README.md) | `@hachiman/hachiman-browser` | Browser host (Vite): the same CSP, a non-extractable wrap key in IndexedDB. |
+| [`apps/hachiman-ios`](apps/hachiman-ios/README.md) | `@hachiman/hachiman-ios` | iOS host (iOS 18.5+): a SwiftUI app with one `WKWebView` that serves the bundled shared UI on `hachiman://app` with the same CSP as a header. A Swift bridge gives the Keychain wrap key, sign-in through `ASWebAuthenticationSession`, haptics, the share sheet and a QR scanner. |
 
 ## Architecture
 
@@ -50,6 +51,11 @@ flowchart LR
       ER -- "RTCRtpScriptTransform" --> ET
     end
     BR["Browser host<br/>shared UI + the same two Workers<br/>trusts the server's code"]
+    subgraph I[iOS host]
+      IN["Swift app<br/>scheme handler + CSP header,<br/>Keychain wrap key, OAuth sheet, QR"]
+      IW["WKWebView<br/>shared UI + the same two Workers"]
+      IN <-- "script message bridge" --> IW
+    end
   end
 
   subgraph Takusen
@@ -64,10 +70,10 @@ flowchart LR
   S3[(S3<br/>SeaweedFS in dev)]
   T[coturn<br/>optional]
 
-  ER & BR -- HTTPS REST + blobs --> O
-  ER & BR -- WSS gateway --> G
-  ER & BR -- "WSS voice + SRTP (SFrame)" --> M
-  ER & BR -. TURN relay .-> T
+  ER & BR & IW -- HTTPS REST + blobs --> O
+  ER & BR & IW -- WSS gateway --> G
+  ER & BR & IW -- "WSS voice + SRTP (SFrame)" --> M
+  ER & BR & IW -. TURN relay .-> T
   T -.-> M
   P[region probe hosts]
   ER -- GET /api/regions --> O
@@ -319,7 +325,7 @@ The shell is one sidebar (280 px) and one content card on a wallpaper that the g
 
 `CryptoService` owns the one `CryptoClient`, which is the crypto Worker of the signed-in user. `services/hachiman.ts` forwards the E2EE gateway events to it. The client cache holds ciphertext. Every message goes through the Worker before it goes into `messagesStore`. `cryptoStore` mirrors the Worker events and holds no key material.
 
-Each host implements `IPlatformService` (`apps/hachiman/src/shared/IPlatformService.ts`). It supplies the OAuth redirect URI and sign-in flow, the title-bar inset, invite deep links, OAuth callbacks, region probes and the screen source picker. It also supplies the store wrap key (`secureStorage`). The Electron implementation (`apps/hachiman-electron/src/renderer/src/PlatformService.ts`) wraps the preload bridge `window.hachiman`. The browser implementation (`apps/hachiman-browser/src/platforms/browser/PlatformService.ts`) does same-tab redirects, gives no region probe and uses the browser's own screen picker.
+Each host implements `IPlatformService` (`apps/hachiman/src/shared/IPlatformService.ts`). It supplies the OAuth redirect URI and sign-in flow, the title-bar inset, invite deep links, OAuth callbacks, region probes and the screen source picker. It also supplies the store wrap key (`secureStorage`). The Electron implementation (`apps/hachiman-electron/src/renderer/src/PlatformService.ts`) wraps the preload bridge `window.hachiman`. The browser implementation (`apps/hachiman-browser/src/platforms/browser/PlatformService.ts`) does same-tab redirects, gives no region probe and uses the browser's own screen picker. The iOS implementation (`apps/hachiman-ios/src/platforms/ios/PlatformService.ts`) calls the Swift app through the script message handler `hachiman`. It has no screen share and no region probe.
 
 ## Local development
 
@@ -376,6 +382,7 @@ Schema changes: each change adds a migration (`pnpm -F @hachiman/takusen db:gene
 pnpm -F @hachiman/hachiman typecheck
 pnpm -F @hachiman/hachiman-electron typecheck
 pnpm -F @hachiman/hachiman-browser typecheck
+pnpm -F @hachiman/hachiman-ios typecheck
 pnpm -F @hachiman/client typecheck
 pnpm -F @hachiman/crypto typecheck
 pnpm -F @hachiman/takusen typecheck
@@ -385,6 +392,8 @@ pnpm -F @hachiman/crypto test
 pnpm -F @hachiman/takusen test
 pnpm -F @hachiman/hachiman-electron test
 pnpm -F @hachiman/hachiman-browser test
+pnpm -F @hachiman/hachiman-ios test
+(cd apps/hachiman-ios && xcodegen generate && xcodebuild test -project Hachiman.xcodeproj -scheme Hachiman -destination 'platform=iOS Simulator,name=iPhone 16,OS=latest')
 cd apps/hachiman-server && CGO_ENABLED=0 go test ./...
 ```
 
@@ -397,6 +406,7 @@ The shared UI unit tests run with the vitest binary of a sibling package: `cd ap
 ```bash
 pnpm build:server        # bin/hachiman-gateway, bin/hachiman-media (the recorder builds only from its Dockerfile)
 pnpm build:browser
+pnpm -F @hachiman/hachiman-ios build   # the web bundle; then Xcode, see apps/hachiman-ios/README.md
 pnpm build:electron      # or: pnpm -F @hachiman/hachiman-electron build:mac | build:win | build:linux
 ```
 

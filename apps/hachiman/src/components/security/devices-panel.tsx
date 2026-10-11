@@ -1,5 +1,14 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Globe, KeyRound, Link2, LogOut, MonitorSmartphone, Monitor, Pencil } from 'lucide-react'
+import {
+  Globe,
+  KeyRound,
+  Link2,
+  LogOut,
+  MonitorSmartphone,
+  Monitor,
+  Pencil,
+  Smartphone
+} from 'lucide-react'
 import type { DeviceSummary, RevocationReasonName } from '@hachiman/crypto'
 import { Button } from '@/components/ui/button'
 import { Callout } from '@/components/ui/callout'
@@ -12,6 +21,7 @@ import { NativeSelect } from '@/components/ui/native-select'
 import { cryptoErrorText, friendly } from '@/components/security/errors'
 import { HostTrustLine } from '@/components/security/host-trust'
 import { useAction } from '@/hooks/use-action'
+import { PLATFORM_LABEL } from '@/lib/device-platform'
 import { relativeTime } from '@/lib/time-format'
 import { cn } from '@/lib/utils'
 import { cryptoService } from '@/services/CryptoService'
@@ -176,18 +186,18 @@ export function DevicesPanel({ variant }: { variant: 'page' | 'dialog' }): React
   )
 }
 
-function PlatformIcon({
+const PLATFORM_ICON = { electron: Monitor, browser: Globe, ios: Smartphone } as const
+
+/** The icon of the kind of app that a device runs. */
+export function PlatformIcon({
   platform,
   className
 }: {
   platform: DeviceSummary['platform']
   className?: string
 }): React.JSX.Element {
-  return platform === 'electron' ? (
-    <Monitor aria-label="Desktop app" className={className} />
-  ) : (
-    <Globe aria-label="Browser" className={className} />
-  )
+  const Icon = PLATFORM_ICON[platform]
+  return <Icon aria-label={PLATFORM_LABEL[platform]} className={className} />
 }
 
 const DATE = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
@@ -250,7 +260,7 @@ function DeviceRow({
   }
 
   const meta = [
-    device.platform === 'electron' ? 'Desktop app' : 'Browser',
+    PLATFORM_LABEL[device.platform],
     `added ${DATE.format(new Date(device.createdAt))}`,
     device.lastSeenAt && activeText(device.lastSeenAt, now)
   ].filter(Boolean)

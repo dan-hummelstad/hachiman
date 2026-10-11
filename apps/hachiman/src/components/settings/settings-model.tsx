@@ -109,7 +109,8 @@ function useUserSettingsModel(active: boolean): SettingsModel {
   const me = useUserStore((s) => s.me)
   // The security pages need the Worker. They hide while it is not ready.
   const encryption = useCryptoStore((s) => s.phase === 'ready' && s.status?.state === 'ready')
-  const desktop = usePlatform().platform === 'electron'
+  const platform = usePlatform().platform
+  const desktop = platform === 'electron'
   const { devices } = useOwnDevices(active && encryption)
   const deviceCount = devices?.filter((d) => d.status !== 'revoked').length
   const name = me?.username ?? 'You'
@@ -205,6 +206,8 @@ function useUserSettingsModel(active: boolean): SettingsModel {
             id: 'keybinds',
             label: 'Keybinds',
             icon: <Keyboard />,
+            // A phone has no keyboard shortcuts.
+            visible: platform !== 'ios',
             page: {
               title: 'Keybinds',
               description: 'Click a key to change it, then press the new keys. Esc cancels.',

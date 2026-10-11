@@ -67,6 +67,13 @@ function asShape(e: unknown): { code: CryptoError['code']; message: string; dsCo
   return { code: 'Internal', message }
 }
 
+/** The default name of a new device. The user can rename it. */
+const DEVICE_NAME: Record<IPlatformService['platform'], string> = {
+  electron: 'Hachiman Desktop',
+  browser: 'Hachiman Web',
+  ios: 'Hachiman iOS'
+}
+
 /** A throwaway wrap key for the stub, which stores nothing. */
 const stubWrapKey = (): Promise<CryptoKey> =>
   crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt'])
@@ -113,7 +120,7 @@ class CryptoService {
         wrapKey,
         platform: platform?.platform ?? 'browser',
         clientVersion: CLIENT_VERSION,
-        deviceName: platform?.platform === 'electron' ? 'Hachiman Desktop' : 'Hachiman Web',
+        deviceName: DEVICE_NAME[platform?.platform ?? 'browser'],
         origin: new URL(takusenService.env.apiBase).origin
       })
       if (this.current !== client) return

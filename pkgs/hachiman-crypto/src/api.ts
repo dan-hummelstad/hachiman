@@ -98,7 +98,7 @@ export class CryptoError extends Error implements CryptoErrorShape {
 // MARK: - 1. Wire shapes (§12.12 REST, §12.13 gateway)
 
 export type DeviceStatus = 'pending' | 'active' | 'revoked'
-export type DevicePlatform = 'electron' | 'browser'
+export type DevicePlatform = 'electron' | 'browser' | 'ios'
 export type RevocationReasonName = 'user' | 'lost' | 'password_reset' | 'compromised' | 'signed_out'
 export type RevocationReasonId = (typeof DeviceRevocationReason)[keyof typeof DeviceRevocationReason]
 export type AdminActionTypeId = (typeof AdminActionType)[keyof typeof AdminActionType]

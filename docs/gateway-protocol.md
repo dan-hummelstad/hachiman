@@ -290,7 +290,7 @@ Pins, guild events and blocks (§4 Pins, guild events and blocks, `apps/takusen/
 | `user_blocks` | user_id → users (cascade), blocked_user_id → users (cascade), created_at | PK (user_id, blocked_user_id); index (blocked_user_id) |
 | `guild_sounds` | id uuid PK (no default: the client chooses it), guild_id → guilds (cascade), name, emoji null, upload_id unique → uploads (cascade), channel_id uuid (no FK), group_id bytea (no FK), epoch bigint, sender_device null → devices (set null), envelope bytea, created_by null → users (set null), created_at | index (guild_id, created_at). Migration 0008. The soundboard (§4 Soundboard). `name` and `emoji` are plaintext metadata. The clip is the encrypted blob of `upload_id` (purpose `sound`). `envelope` is the sound pointer with the file key, sealed in the group of `channel_id` (§12.21). Migration 0009 adds USE_SOUNDBOARD to the @everyone role of every existing guild |
 
-E2EE tables (§12). `bytea` columns hold the binary objects of §12 as they are. Enums: `device_status` ('pending','active','revoked'), `device_platform` ('electron','browser'), `revoke_reason` ('user','lost','password_reset','compromised','signed_out'), `mls_group_kind` ('public_set','channel','dm'), `mls_group_status` ('pending','active','retired'), `history_visibility` ('joined','shared'), `handshake_kind` ('commit','external_commit','proposal'), `pending_op` ('add','remove'), `pending_status` ('queued','assigned','rejected'), `join_status` ('queued','committed','rejected','external_commit','waiting'), `inbox_kind` ('welcome','dsk_transfer','history_keys'), `backup_kind` ('identity','history').
+E2EE tables (§12). `bytea` columns hold the binary objects of §12 as they are. Enums: `device_status` ('pending','active','revoked'), `device_platform` ('electron','browser','ios'), `revoke_reason` ('user','lost','password_reset','compromised','signed_out'), `mls_group_kind` ('public_set','channel','dm'), `mls_group_status` ('pending','active','retired'), `history_visibility` ('joined','shared'), `handshake_kind` ('commit','external_commit','proposal'), `pending_op` ('add','remove'), `pending_status` ('queued','assigned','rejected'), `join_status` ('queued','committed','rejected','external_commit','waiting'), `inbox_kind` ('welcome','dsk_transfer','history_keys'), `backup_kind` ('identity','history').
 
 | Table | Columns | Notes |
 |---|---|---|
@@ -1165,12 +1165,12 @@ Mute does not release the microphone. It only stops the outgoing track (`VoiceCo
 
 ```ts
 export interface IPlatformService {
-  readonly platform: 'electron' | 'browser'
+  readonly platform: 'electron' | 'browser' | 'ios'
   /** The host hides the native title bar, so the UI draws a draggable strip (Electron on macOS). */
   readonly insetTitleBar: boolean
   /** OAuth `redirect_uri` for this host. Takusen's client registration must allow it. */
   readonly oauthRedirectUri: string
-  /** Opens the OAuth authorization page. Browser: same-tab redirect. Electron: system browser. */
+  /** Opens the OAuth authorization page. Browser: same-tab redirect. Electron: system browser. iOS: ASWebAuthenticationSession. */
   beginOAuth(url: string): void
   /** Invite links (`takusen://invite/<code>` or `https://<takusen>/invite/<code>`, `#k=<key>` with history) → code and key. Returns unsubscribe. */
   onInviteLink(cb: (link: InviteLink) => void): () => void
@@ -1192,8 +1192,23 @@ export interface IPlatformService {
   setGlobalShortcuts(shortcuts: GlobalShortcut[]): Promise<string[] | null>
   /** Electron: a global shortcut fired, with its action. Browser: never. Returns unsubscribe. */
   onGlobalShortcut(cb: (action: string) => void): () => void
+  /** iOS: a tap of the haptic engine. Electron and browser: no-op. */
+  haptic(kind: HapticKind): void
+  /** The OS share sheet; true when shared, false when cancelled. iOS: native sheet. Browser: navigator.share when present, else null. Electron: null. Null: the UI offers Copy only. */
+  readonly share: ((content: ShareContent) => Promise<boolean>) | null
+  /** iOS: a native full-screen QR scanner; the code text, or null when cancelled. Electron and browser: null (the UI uses BarcodeDetector where present). */
+  readonly scanQr: (() => Promise<string | null>) | null
+  /** iOS: the status bar style and the window background follow the app theme. Others: no-op. */
+  setAppearance(appearance: Appearance): void
   /** The wrap key of the encrypted crypto store (§12.17). */
   readonly secureStorage: ISecureStorage
+}
+
+export type HapticKind = 'light' | 'success' | 'warning'
+export interface ShareContent { url: string; text?: string }
+export interface Appearance {
+  theme: 'dark' | 'light'
+  background: string   // a hex color (#rrggbb or #rrggbbaa), e.g. the value of --surface-window: the window background behind the safe areas
 }
 
 // Electron: IPC `hachiman:close-to-tray-get` / `hachiman:close-to-tray-set` (a boolean), from the top
@@ -1217,7 +1232,7 @@ export type UpdateCheckResult =
   | { status: 'failed'; reason: string }
 
 export interface ISecureStorage {
-  readonly backend: 'os-keychain' | 'browser-indexeddb'
+  readonly backend: 'os-keychain' | 'browser-indexeddb'   // iOS: 'os-keychain'
   /**
    * The store wrap key of this install and user: AES-GCM 256, non-extractable, usages encrypt/decrypt.
    * The host creates it on the first call. Rejects with SecureStorageUnavailable when no OS keystore exists.
@@ -1254,22 +1269,24 @@ Global shortcuts (the user's keybinds that work while the app is in the backgrou
 - Errors: a rejection is an `Error` whose `name` and `code` are `SecureStorageUnavailable` (no OS keystore, or no IndexedDB), `StoreCorrupt` (the stored key does not decrypt or decode) or `Malformed` (a bad user id or caller). `secureStorageErrorCode(e)` reads the code.
 - Residual risk (Electron): the main process zeroes the buffers that it holds, but it cannot zero every copy of the wrap key bytes (`safeStorage` results, IPC serialization, V8 copies).
 - Browser: the host makes a non-extractable `CryptoKey` with `crypto.subtle.generateKey` and stores the key object in its own IndexedDB database (`hachiman-wrap`). The raw bytes never exist in JavaScript.
+- iOS: the app keeps 32 random bytes per user in the Keychain (generic password, service `hachiman.wrap-key`, account the user id, `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`, not synchronized). The bridge op `wrapKey.get` gives them to the page, which imports them as a non-extractable `CryptoKey` and overwrites them, as Electron does. A Keychain failure rejects with `SecureStorageUnavailable`.
 - The shared UI gives the key to the crypto Worker in `CryptoApi.init`. A `CryptoKey` is structured-cloneable.
 
 The shared UI must not examine `window`, `navigator.userAgent`, or `window.location` to identify the host. It reads the host facts from this interface.
 
 Each host declares its title bar. The Electron main process hides the native title bar on macOS only. The preload script gives this fact to the renderer as `window.hachiman.insetTitleBar`. The browser host sets `insetTitleBar` to `false`.
 
-`beginOAuth` is the only way to start sign-in. The UI gives `oauthRedirectUri` to `takusenService.beginSignIn`. The pending PKCE flow keeps the URI, and `completeSignIn` sends the same URI in the token exchange. The two hosts use different redirect URIs:
+`beginOAuth` is the only way to start sign-in. The UI gives `oauthRedirectUri` to `takusenService.beginSignIn`. The pending PKCE flow keeps the URI, and `completeSignIn` sends the same URI in the token exchange. The hosts use different redirect URIs:
 
 - Browser: `${location.origin}/oauth/callback`. The host replaces the current page, so the callback comes back to the same app instance.
 - Electron: `${issuerOrigin}/oauth/electron-bridge`. A system browser cannot show an `app.hachiman://` URL. Thus the Takusen bridge page receives the code and opens `app.hachiman://oauth-callback?…`. The main process then sends that URL to the renderer.
+- iOS: `app.hachiman://oauth-callback`. `ASWebAuthenticationSession` catches the redirect itself, so no bridge page is necessary. The app sends the URL to the page as the `oauth-callback` event.
 
-`VITE_HACHIMAN_OIDC_REDIRECT` replaces the default URI on either host.
+`VITE_HACHIMAN_OIDC_REDIRECT` replaces the default URI on the Electron and browser hosts.
 
 When the user starts sign-in from an invite dialog, the pending PKCE flow also keeps the invite code. After the callback, the UI opens the invite dialog again. It does this also when sign-in fails. The browser host needs this step: the redirect loads the page again, and the host removed `/invite/<code>` from the URL at start-up. When the callback fails, the UI shows the cause and tells the user to sign in again. The sign-in screen and the invite dialog show this message.
 
-The key of an invite with history does not go into the pending flow, because the Takusen store keeps the flow in `localStorage`. In the browser host, the UI keeps the key in `sessionStorage` (`hachiman-invite-key:<code>`, this tab only) during the redirect, and moves it back into memory at the callback. At start-up, after the callback of the load URL, the UI deletes every other `hachiman-invite-key:` entry. Thus a sign-in that did not finish (the user left the sign-in page, for example) leaves no key. The Electron renderer keeps the key in memory.
+The key of an invite with history does not go into the pending flow, because the Takusen store keeps the flow in `localStorage`. In the browser host, the UI keeps the key in `sessionStorage` (`hachiman-invite-key:<code>`, this tab only) during the redirect, and moves it back into memory at the callback. At start-up, after the callback of the load URL, the UI deletes every other `hachiman-invite-key:` entry. Thus a sign-in that did not finish (the user left the sign-in page, for example) leaves no key. The Electron and iOS hosts do not load the page again, so they keep the key in memory.
 
 Invite links:
 - The forms are `takusen://invite/<code>`, `https://<Takusen issuer origin>/invite/<code>`, the web client path `/invite/<code>`, and a bare code. The link of an invite with history ends in `#k=<key>` (§12.11.4). `parseInviteLink` reads all of them.
@@ -1322,6 +1339,10 @@ The packaged Electron app does not load the renderer from `file://`. A `file://`
 - Takusen never allows the origin `null`.
 - The middleware is the only source of CORS headers under `/api/*`, `/api/oidc` included. It answers all preflights. The OIDC route removes the CORS headers and the `Vary` header that the OIDC provider sets.
 - On the token, userinfo and revocation endpoints, the OIDC provider also examines the origin with the same allowlist. It rejects a different origin with a 400 response.
+
+### iOS host
+
+`apps/hachiman-ios` is a SwiftUI app with one `WKWebView` (iOS 18.5 or later: the WebKit of iOS 18.3 has no WebCrypto X25519, and 18.5 is the oldest runtime that passed the capability probe). It serves the built shared UI from the scheme `hachiman` (`hachiman://app/index.html`, origin `hachiman://app`, as the packaged Electron renderer). Every response of the scheme handler carries the CSP of the iOS build (`apps/hachiman-ios/csp.ts`, the Electron policy) as a `Content-Security-Policy` header, so the Worker scripts get the policy too. The build writes the header value to `csp-header.txt`. `index.html` also has the policy as a meta tag. The page talks to the app through one script message handler, `hachiman`: a message is `{ op, ... }` and the reply comes back through `WKScriptMessageHandlerWithReply`. The app answers only the main frame of the origin `hachiman://app`. The ops are `ready`, `wrapKey.get`, `wrapKey.clear`, `oauth.begin`, `haptic`, `share`, `scanQr` and `setAppearance`. Events from the app (`oauth-callback`, `invite-link`) go to `window.__hachimanNative.emit(type, payload)`. The app holds its events until the page sends `ready`, and again from each new main-frame load. The page holds each event type until its first subscriber. Only the `ASWebAuthenticationSession` completion sends `oauth-callback`: the app does not register the URL scheme `app.hachiman`, so another app cannot send a callback. The app registers only `takusen` (invite links). iOS has no `getDisplayMedia` (no screen share) and no global shortcuts: `getScreenSources`, `closeToTray` and `setGlobalShortcuts` give null, and `checkForUpdate` gives `not-available` (TestFlight updates the app).
 
 Deep link scheme: `takusen://invite/<code>[#k=<base64url invite seed>]` (replaces `takusen://join#<signed payload>`). OAuth callback scheme unchanged (`app.hachiman://oauth-callback`).
 
@@ -1550,7 +1571,7 @@ struct {
   opaque mls_signature_key<V>;
   opaque hpke_key[32];
   opaque device_name<V>;           // UTF-8, 1 to 64 bytes
-  uint8 platform;                  // 1 electron, 2 browser
+  uint8 platform;                  // 1 electron, 2 browser, 3 ios
 } LinkOffer;
 
 struct {
@@ -2307,7 +2328,7 @@ CORS (§4) allows the request headers `X-Hachiman-Device` and `X-Hachiman-Signed
 
 | Method + path | D | Body | Returns | Publishes |
 |---|---|---|---|---|
-| POST `/devices` | | `{name, platform: 'electron'\|'browser', clientVersion, mlsSignatureKey}` (32 bytes) + a device proof by `mlsSignatureKey` | `Device` (201, status `pending`). At most 20 non-revoked devices (409 `TooManyDevices`) | — |
+| POST `/devices` | | `{name, platform: 'electron'\|'browser'\|'ios', clientVersion, mlsSignatureKey}` (32 bytes) + a device proof by `mlsSignatureKey` | `Device` (201, status `pending`). At most 20 non-revoked devices (409 `TooManyDevices`) | — |
 | GET `/devices` | | — | `Device[]` (own, revoked included) | — |
 | PATCH `/devices/:id` | D | `{name}` | `Device` | — |
 | PUT `/devices/:id/certificate` | D | `{certificate}` | `Device` (status `active`) | `USER_KEYS_UPDATE device_added` |
@@ -2398,7 +2419,7 @@ CORS (§4) allows the request headers `X-Hachiman-Device` and `X-Hachiman-Signed
 **Wire shapes.** These are the TS types in `pkgs/hachiman-crypto/src/api.ts` (`Wire*`). `@hachiman/client` exports the same shapes without the `Wire` prefix (§10).
 
 ```ts
-interface Device { id; userId; status: 'pending' | 'active' | 'revoked'; name; platform: 'electron' | 'browser'; clientVersion;
+interface Device { id; userId; status: 'pending' | 'active' | 'revoked'; name; platform: 'electron' | 'browser' | 'ios'; clientVersion;
   certificate: string | null; revocation: string | null; revokeReason: 'user' | 'lost' | 'password_reset' | 'compromised' | 'signed_out' | null;
   createdAt; lastSeenAt: string | null; revokedAt: string | null }
 interface UserKeys { userId; masterKey: { generation; record; ktIndex: number | null; ktEntry: string | null } | null;
@@ -2588,8 +2609,10 @@ franking_tag = HMAC-SHA256(franking_key, "hachiman franking v1" ‖ channel_id(1
 - **One tab per device.** The bridge takes the Web Lock `hachiman-crypto:{origin}:{userId}`. A second tab gets `CryptoError` `LockHeld` and shows "open in another tab". Two Workers on one store would fork the group state.
 - **Store.** IndexedDB, one database per (origin, user). Each record is AES-256-GCM under the non-extractable wrap key from `IPlatformService.secureStorage` (§11), with a random 12-byte nonce. The AAD is `encode(struct { opaque table<V>; opaque key<V>; })`, so the AAD is injective. The wrap key is used directly. There is no HKDF step, because a non-extractable AES-GCM key cannot be an HKDF input.
 - **Store table `invites`** (key: the invite key id). The records that the device accepted, the newest epoch that it sent per group (`bundled`), the revoke flag, and for a redeemer the invite code and the seed. The seed stays until `INVITE_AUTH_WINDOW_MS` after the redemption, or until `INVITE_DELETE`. The device deletes the row 30 days after the expiry of the invite (`HANDSHAKE_RETENTION_MS`: Takusen keeps handshakes for 30 days, §12.7.9). Until then, an invite join that the DS accepted before the expiry can come in the handshake stream: the row keeps the revoke mark, and the timeline event of the record goes only once into each group. The table came with database version 2: an upgrade adds the table and keeps the other records.
-- **Browser host.** The browser host shows the label "trusts the server's code", because a hostile server can send hostile JavaScript. The Electron host is the strong client. `CryptoStatus.hostTrust` gives the value. One exception applies to both hosts: a clicked invite link opens the Takusen page `/invite/<code>` in a browser, and a script of that page reads the invite seed (§11). Only a link that the user pastes into the Electron app does not go through Takusen.
-- **CSP.** Electron (rules in `apps/hachiman-electron/src/main/csp-policy.ts`, applied by `csp.ts`, §11) adds `worker-src 'self'`, and `blob:` to `img-src` and `media-src` (decrypted attachments are object URLs). It does not add `blob:` to `script-src` or `worker-src`. The browser host sends the same policy. ts-mls, @noble and @hpke are pure TypeScript on WebCrypto and use no wasm. `script-src` has `'wasm-unsafe-eval'` only for the RNNoise mic worklet (§11), which holds no key material. Both hosts build the crypto Worker and the transform Worker with Vite (`new Worker(new URL(…, import.meta.url), { type: 'module' })`).
+- **Browser host.** The browser host shows the label "trusts the server's code", because a hostile server can send hostile JavaScript. The Electron host is the strong client. `CryptoStatus.hostTrust` gives the value.
+- **iOS host.** `hostTrust` is `'strong'`, as for Electron, on purpose: the app code ships inside the signed app bundle, and Takusen cannot send other code to it.
+- **Invite link exception.** One exception applies to every host: a clicked invite link opens the Takusen page `/invite/<code>` in a browser, and a script of that page reads the invite seed (§11). Only a link that the user pastes into the Electron or iOS app does not go through Takusen.
+- **CSP.** Electron (rules in `apps/hachiman-electron/src/main/csp-policy.ts`, applied by `csp.ts`, §11) adds `worker-src 'self'`, and `blob:` to `img-src` and `media-src` (decrypted attachments are object URLs). It does not add `blob:` to `script-src` or `worker-src`. The browser and iOS hosts send the same policy (iOS: a header on every response of the scheme handler, §11). ts-mls, @noble and @hpke are pure TypeScript on WebCrypto and use no wasm. `script-src` has `'wasm-unsafe-eval'` only for the RNNoise mic worklet (§11), which holds no key material. Every host builds the crypto Worker and the transform Worker with Vite (`new Worker(new URL(…, import.meta.url), { type: 'module' })`).
 - **Light clients.** Deferred until ts-mls supports partial trees: joining with a membership proof, and processing commits without the full ratchet tree (IETF MLS light clients draft). The condition is testable: the `smoke.spec.ts` case "needs the full ratchet tree to join" fails when support exists. Until then, every member holds the full tree, and the Phase 3 load test measures its size.
 - **Later:** search (a local index), sender-made link previews, content-free push.
 

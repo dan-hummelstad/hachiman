@@ -35,8 +35,8 @@ const revocation: fc.Arbitrary<DeviceRevocation> = fc.record({
   signature: sig,
 })
 const offer: fc.Arbitrary<LinkOffer> = fc.oneof(
-  fc.record({ userId: uuid, deviceId: uuid, mode: fc.constant('qr' as const), commitment: fc.constant(new Uint8Array(0)), mlsSignatureKey: bytes(32), hpkeKey: bytes(32), deviceName: name, platform: fc.constantFrom('electron' as const, 'browser' as const) }),
-  fc.record({ userId: uuid, deviceId: uuid, mode: fc.constant('sas' as const), commitment: bytes(32), mlsSignatureKey: bytes(32), hpkeKey: bytes(32), deviceName: name, platform: fc.constantFrom('electron' as const, 'browser' as const) }),
+  fc.record({ userId: uuid, deviceId: uuid, mode: fc.constant('qr' as const), commitment: fc.constant(new Uint8Array(0)), mlsSignatureKey: bytes(32), hpkeKey: bytes(32), deviceName: name, platform: fc.constantFrom('electron' as const, 'browser' as const, 'ios' as const) }),
+  fc.record({ userId: uuid, deviceId: uuid, mode: fc.constant('sas' as const), commitment: bytes(32), mlsSignatureKey: bytes(32), hpkeKey: bytes(32), deviceName: name, platform: fc.constantFrom('electron' as const, 'browser' as const, 'ios' as const) }),
 )
 const historyKey = fc.record({ epoch: ms, secret: bytes(32) })
 const groupId = bytes(22)

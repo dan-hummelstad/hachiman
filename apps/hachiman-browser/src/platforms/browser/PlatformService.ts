@@ -1,30 +1,13 @@
-import type { InviteLink, IPlatformService } from "@hachiman/hachiman";
+import type {
+  InviteLink,
+  IPlatformService,
+  ShareContent,
+} from "@hachiman/hachiman";
+import { buffered } from "@hachiman/hachiman/shared/buffered.ts";
 import { launchRoute } from "./launch-url";
 import { createBrowserSecureStorage } from "./secure-storage";
 
-/**
- * Listener set that buffers values emitted before anyone subscribes: the page's
- * own URL is read at startup, long before the UI mounts its effects.
- */
-function buffered<T>(): {
-  emit(v: T): void;
-  subscribe(cb: (v: T) => void): () => void;
-} {
-  const subs = new Set<(v: T) => void>();
-  const pending: T[] = [];
-  return {
-    emit(v: T): void {
-      if (subs.size === 0) pending.push(v);
-      else subs.forEach((cb) => cb(v));
-    },
-    subscribe(cb: (v: T) => void): () => void {
-      subs.add(cb);
-      pending.splice(0).forEach((v) => cb(v));
-      return () => void subs.delete(cb);
-    },
-  };
-}
-
+// The page's own URL is read at startup, long before the UI mounts its effects.
 const inviteLinks = buffered<InviteLink>();
 const oauthCallbacks = buffered<string>();
 
@@ -42,6 +25,17 @@ export function consumeLaunchUrl(loc: Location = window.location): void {
   if (route.kind === "oauth") oauthCallbacks.emit(route.url);
   else if (route.link !== null) inviteLinks.emit(route.link);
   window.history.replaceState(null, "", "/");
+}
+
+/** The Web Share API. A dismissed sheet rejects with AbortError: that is a cancel, not an error. */
+async function shareWithNavigator(content: ShareContent): Promise<boolean> {
+  try {
+    await navigator.share({ url: content.url, text: content.text });
+    return true;
+  } catch (e) {
+    if (e instanceof DOMException && e.name === "AbortError") return false;
+    throw e;
+  }
 }
 
 export const platformService: IPlatformService = {
@@ -70,5 +64,10 @@ export const platformService: IPlatformService = {
   // A page cannot take keys from other apps.
   setGlobalShortcuts: async () => null,
   onGlobalShortcut: () => () => undefined,
+  haptic: () => undefined,
+  share: typeof navigator.share === "function" ? shareWithNavigator : null,
+  // qr-view.tsx scans with BarcodeDetector where the browser has it.
+  scanQr: null,
+  setAppearance: () => undefined,
   secureStorage: createBrowserSecureStorage(),
 };

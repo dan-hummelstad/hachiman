@@ -46,9 +46,9 @@ export function SignInScreen(): React.JSX.Element {
             </Button>
             <ErrorText>{error}</ErrorText>
             <p className="text-meta text-text-tertiary text-center">
-              {platform === 'browser'
-                ? 'You’ll sign in on Takusen and come straight back.'
-                : 'Your browser opens to finish signing in. Come back here when it says you’re done.'}
+              {platform === 'electron'
+                ? 'Your browser opens to finish signing in. Come back here when it says you’re done.'
+                : 'You’ll sign in on Takusen and come straight back.'}
             </p>
           </div>
           <div className="border-line-hairline grid gap-3 border-t pt-5">

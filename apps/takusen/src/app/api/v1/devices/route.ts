@@ -14,7 +14,7 @@ import { body, dsRoute, json } from '@/lib/mls/route'
 
 const registerSchema = z.object({
   name: z.string().trim().min(1).max(64),
-  platform: z.enum(['electron', 'browser']),
+  platform: z.enum(['electron', 'browser', 'ios']),
   clientVersion: z.string().trim().min(1).max(32),
   mlsSignatureKey: b64(32),
 })

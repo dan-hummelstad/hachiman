@@ -18,7 +18,7 @@ This plan covers the native structure, the seam work, and TestFlight distributio
   - AudioWorklet + wasm (RNNoise, CSP `'wasm-unsafe-eval'`)
   - Opus and VP8 (`voice-e2ee.ts:59-63`)
 
-  These set the **minimum iOS to 17** (native Ed25519/X25519 in WebKit). Phase 1 verifies each one in a real WKWebView before anything else.
+  These set the **minimum iOS to 18.5**. Phase 1 verifies each one in a real WKWebView before anything else. The probe found that WebCrypto X25519 is missing on iOS 18.3, on the page and in a Worker, and ts-mls (`@hpke/core` DHKEM-X25519) has no fallback. iOS 18.5 is the oldest runtime that passed every check (no iOS 17 or 18.4 runtime was available to probe). A noble-based X25519 KEM for ts-mls would be the way to support older versions.
 - Not available in iOS WKWebView: `getDisplayMedia` (no screen share; later via a ReplayKit extension; watching a share works) and `BarcodeDetector` (QR scanning gets a native scanner, Phase 5.5; the phone *shows* QR codes fine).
 - Web Notifications, service workers and push are not used anywhere, so there is nothing to port for this alpha.
 
@@ -39,13 +39,15 @@ Before any seam work, a throwaway `probe.html` in the app bundle reports in the 
 
 Run it on the iOS 17 and 18 simulators and on one physical iPhone. A failed hard requirement stops the plan and goes back to the user. The probe is deleted after Phase 2.
 
+Result (simulators): iOS 18.3 fails `x25519` and `curvesInWorker`. iOS 18.5, 26.0 and 27.0 pass every check, 18.5 also with the CSP header of the scheme handler. The probe is deleted. Still open: one physical iPhone.
+
 ## Phase 2: Native project `apps/hachiman-ios`
 
 Layout (one package, web build + Swift):
 ```
 apps/hachiman-ios/
   package.json            @hachiman/hachiman-ios: dev, build (tsgo --noEmit && vite build), typecheck, lint, test
-  vite.config.ts          copy of hachiman-browser's: @/ alias → ../hachiman/src, envDir = repo root, worker.format 'es', CSP <meta> plugin
+  vite.config.ts          copy of hachiman-browser's: @/ alias → ../hachiman/src, envDir = repo root, worker.format 'es', CSP plugin (<meta> + csp-header.txt)
   index.html              viewport-fit=cover
   csp.ts                  reuses cspFromEndpoints (as apps/hachiman-browser/csp.ts does)
   src/main.tsx            same mount as apps/hachiman-browser/src/main.tsx with the iOS PlatformService
@@ -65,7 +67,7 @@ apps/hachiman-ios/
   ExportOptions.plist     app-store-connect export for TestFlight
   README.md               architecture diagram + dev and release steps (as the other app READMEs)
 ```
-- **XcodeGen:** a reviewable YAML spec instead of a committed `project.pbxproj` (`brew install xcodegen`; CI does the same). Deployment target iOS 17.0, iPhone only for the alpha, bundle id from a build setting (`HACHIMAN_BUNDLE_ID`, placeholder `app.hachiman.ios`).
+- **XcodeGen:** a reviewable YAML spec instead of a committed `project.pbxproj` (`brew install xcodegen`; CI does the same). Deployment target iOS 18.5 (Phase 1), iPhone only for the alpha, bundle id from a build setting (`HACHIMAN_BUNDLE_ID`, placeholder `app.hachiman.ios`).
 - **Web bundle into the app:** an Xcode "Copy WebApp" run-script phase copies `apps/hachiman-ios/dist` into `Hachiman.app/WebApp/`. It fails the build with a clear message when `dist` is missing. `pnpm -F @hachiman/hachiman-ios build` runs first (locally and in CI).
 - **WKWebView configuration (`WebView.swift`):**
   - `setURLSchemeHandler(AppSchemeHandler, forURLScheme: "hachiman")`, then load `hachiman://app/index.html`.
@@ -77,14 +79,14 @@ apps/hachiman-ios/
 - **`AppSchemeHandler`:**
   - Serve only files under `WebApp/`: normalize the path, reject `..` and anything outside the folder, SPA fallback to `index.html`.
   - Correct MIME types (`.js`, `.wasm` = `application/wasm`, `.css`, ...).
-  - The CSP is in the `<meta>` tag from the Vite plugin (as the browser host); the `frame-ancestors`/`sandbox` parts don't apply to a WKWebView.
+  - Every response (200 and 404) carries the `Content-Security-Policy` header from `WebApp/csp-header.txt`, which the Vite plugin writes, as Electron does: a Worker script does not get the policy of the page. The `<meta>` tag stays as a second layer. Without the file, the handler answers 500 (fail closed), and the Copy WebApp phase fails the build.
 - **Bridge (`Bridge.swift` + `bridge.ts`):** one handler name, `hachiman`; messages `{op, ...}`, replies through `WKScriptMessageHandlerWithReply`. Each message is checked: `frameInfo.isMainFrame` and `securityOrigin` = `hachiman://app`, else rejected. Ops:
   - `wrapKey.get {userId}` → 32 bytes (base64). Keychain generic password, service `hachiman.wrap-key`, account `userId`, `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`, not synchronizable. Created on first call and never replaced (same rules as `apps/hachiman-electron/src/main/secure-storage.ts`). A Keychain failure → `SecureStorageUnavailable`.
   - `wrapKey.clear {userId}`.
-  - `oauth.begin {url}`: `ASWebAuthenticationSession(callbackURLScheme: "app.hachiman")`, `prefersEphemeralWebBrowserSession = false`. The callback URL goes to JS as an event.
+  - `oauth.begin {url}`: `ASWebAuthenticationSession(url:callback: .customScheme("app.hachiman"))`, `prefersEphemeralWebBrowserSession = false`. The callback URL goes to JS as an event.
   - `haptic`, `share`, `scanQr`, `setAppearance`: the hooks the mobile mocks need (Phase 5.5).
   - Events native → JS (`window.__hachimanNative.emit(type, payload)` via `evaluateJavaScript`, buffered until the page subscribes, as the Electron preload does): `oauth-callback`, `invite-link`.
-- **Deep links:** register the URL schemes `takusen` (invites, as Electron) and `app.hachiman` (OAuth) in Info.plist. `onOpenURL` → `invite-link` event; the JS side parses with `parseInviteLink` (`apps/hachiman/src/lib/invite-link`). Universal links for `https://<domain>/invite/...` need an `apple-app-site-association` file served by Takusen: listed as a follow-up.
+- **Deep links:** register the URL scheme `takusen` (invites, as Electron) in Info.plist. Do not register `app.hachiman`: `ASWebAuthenticationSession` catches its own callback, and a registered scheme would let any app push callback URLs into a sign-in. `onOpenURL` → `invite-link` event; the JS side parses with `parseInviteLink` (`apps/hachiman/src/lib/invite-link`). Universal links for `https://<domain>/invite/...` need an `apple-app-site-association` file served by Takusen: listed as a follow-up.
 - **Audio:** `AVAudioSession.playAndRecord`, mode `.voiceChat`, options `.allowBluetooth` and `.defaultToSpeaker`, activated by the first `getUserMedia`. ponytail: no CallKit and no background voice in the alpha. WKWebView pauses capture when the app goes to the background. CallKit or native WebRTC is the upgrade path if background calls matter.
 - **Info.plist:**
   - `NSMicrophoneUsageDescription`, `NSCameraUsageDescription` (avatar and image picking; QR later)
@@ -214,7 +216,7 @@ Nothing in 5.6 blocks the TestFlight alpha.
 - **Server side for testers:** nothing new. The origin `hachiman://app` and the redirect `app.hachiman://oauth-callback` are already allowed. If the production `TAKUSEN_ALLOWED_ORIGINS` or `HACHIMAN_CLIENT_REDIRECT_URIS` override the defaults, they must contain these two values (seed `apps/takusen/src/db/seed.ts`).
 
 ## Verification
-- **Phase 1 probe:** every hard requirement reports OK on the iOS 17 simulator, the iOS 18 simulator and one device.
+- **Phase 1 probe:** every hard requirement reports OK on the iOS 18.5 simulator (the deployment target) and one device.
 - **Unit tests:**
   - XCTest (`xcodebuild test`): the scheme handler rejects `..`, encoded traversal and paths outside `WebApp/`; WrapKeyStore creates once and returns the same bytes; the bridge rejects a non-main-frame or foreign-origin message.
   - JS: `node --test` for the iOS PlatformService (event buffering, OAuth callback forwarding), as `apps/hachiman-browser` tests.

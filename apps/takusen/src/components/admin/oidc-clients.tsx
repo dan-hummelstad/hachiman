@@ -1,6 +1,6 @@
 'use client'
 
-import { GlobeIcon, InfoIcon, KeySquareIcon, LaptopIcon, LinkIcon, MonitorIcon, type LucideIcon } from 'lucide-react'
+import { AppWindowIcon, GlobeIcon, InfoIcon, KeySquareIcon, LinkIcon, MonitorIcon, type LucideIcon } from 'lucide-react'
 
 import type { AdminOidcClient } from '@/lib/admin'
 import { redirectUriKind, type RedirectUriKind } from '@/lib/oidc-consent'
@@ -13,7 +13,7 @@ import { formatDate, plural } from '@/lib/format'
 import { ListFrame } from './kit'
 
 const URI_KINDS: Record<RedirectUriKind, { label: string; icon: LucideIcon }> = {
-  desktop: { label: 'Desktop app', icon: LaptopIcon },
+  app: { label: 'App', icon: AppWindowIcon },
   desktop_bridge: { label: 'Desktop bridge', icon: MonitorIcon },
   web: { label: 'Web client', icon: GlobeIcon },
   other: { label: 'Other', icon: LinkIcon },
