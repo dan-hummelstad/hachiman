@@ -6,6 +6,7 @@ vi.mock('@/services/guild-features', () => ({ pinsService: {} }))
 const {
   availableActions,
   liftPlacement,
+  pinHint,
   plainMessageText,
   quickReactionKeys,
   usableReactionKey,
@@ -66,6 +67,14 @@ describe('availableActions', () => {
       'delete'
     ])
     expect(availableActions({ ...mineAll, failed: true, hasText: false })).toEqual(['delete'])
+  })
+})
+
+describe('pinHint', () => {
+  it('counts the pins of the channel, or is null with none known', () => {
+    expect(pinHint(null)).toBeNull()
+    expect(pinHint(0)).toBeNull()
+    expect(pinHint(4)).toBe('4 pinned')
   })
 })
 

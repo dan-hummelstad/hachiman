@@ -76,20 +76,6 @@ export type SecurityDialogKind = SecurityDialog['kind']
 /** Every kind that `openDialog` and `useDialog` take. */
 export type AnyDialogKind = Dialog['kind']
 
-/**
- * The dialogs that a control in the left drawer opens and then shows lit or marked under the dim:
- * the "+" beside GUILDS (M44), a channel row's invite button (M46), a category "+" (M47), the
- * guild row (M50) and the channel row to delete (M51). On the mobile layout the drawer stays open
- * under them; any other dialog closes it (`lib/mobile-drawer.ts`).
- */
-export const OVER_LEFT_DRAWER: ReadonlySet<AnyDialogKind> = new Set<AnyDialogKind>([
-  'addGuild',
-  'invite',
-  'createChannel',
-  'removeGuild',
-  'deleteChannel'
-])
-
 /** An open dialog: its request plus a per-open id (a reopen of the same request gets a new one). */
 export type OpenDialog = Dialog & { id: number }
 export type DialogOf<K extends AnyDialogKind> = Extract<Dialog, { kind: K }> & { id: number }

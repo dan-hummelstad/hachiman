@@ -93,6 +93,7 @@ export function MemberList({ guildId }: { guildId: string }): React.JSX.Element 
                     dim={g.dim}
                     owner={m.user.id === ownerId}
                     me={m.user.id === myId}
+                    mobile={mobile}
                     onHold={mobile ? (userId) => setHeld({ userId, open: true }) : undefined}
                   />
                 ))}
@@ -164,6 +165,7 @@ function MemberRow({
   dim,
   owner,
   me,
+  mobile,
   onHold
 }: {
   member: Member
@@ -171,7 +173,9 @@ function MemberRow({
   dim: boolean
   owner: boolean
   me: boolean
-  /** Mobile layout: a hold on the row opens the member sheet. */
+  /** Mobile layout: the presence line, and the M4 voice line in place of VoiceActivityLine. */
+  mobile: boolean
+  /** A hold on the row opens the member sheet. */
   onHold?: (userId: string) => void
 }): React.JSX.Element {
   const userId = member.user.id
@@ -181,8 +185,8 @@ function MemberRow({
   const customStatus = useCustomStatus(userId)
   const press = useLongPress(() => onHold?.(userId), { enabled: onHold !== undefined })
   const presenceLine =
-    onHold && !dim && !activity && !customStatus?.text ? PRESENCE_LINE[status] : undefined
-  const voiceDetail = onHold && activity ? memberDetail(activity, status, null) : null
+    mobile && !dim && !activity && !customStatus?.text ? PRESENCE_LINE[status] : undefined
+  const voiceDetail = mobile && activity ? memberDetail(activity, status, null) : null
   return (
     <li>
       <UserProfilePopover userId={userId} guildId={guildId}>

@@ -17,16 +17,9 @@ consumeLaunchUrl();
 async function boot(): Promise<void> {
   const q = launchQuery;
   if (import.meta.env.DEV && q.has("preview")) {
-    const { startPreview } =
+    const { startPreview, previewOptionsFromQuery } =
       await import("@hachiman/hachiman/dev/preview/index");
-    const theme = q.get("theme");
-    const display = q.get("display");
-    startPreview({
-      signedOut: q.get("preview") === "signedout",
-      theme: theme === "light" || theme === "system" ? theme : undefined,
-      messageDisplay:
-        display === "compact" || display === "cozy" ? display : undefined,
-    });
+    startPreview(previewOptionsFromQuery(q));
   }
 }
 

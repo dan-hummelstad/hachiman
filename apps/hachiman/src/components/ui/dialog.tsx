@@ -5,7 +5,6 @@ import { XIcon } from 'lucide-react'
 import { SheetContent, SheetHeader } from '@/components/mobile/sheet'
 import { FEATURE_TILE, type Feature } from '@/components/ui/feature'
 import { useLayout } from '@/hooks/use-layout'
-import { sheetHeaderText } from '@/lib/sheet-header-text'
 import { cn } from '@/lib/utils'
 
 /**
@@ -222,7 +221,7 @@ function DialogContent({
 const STICKY_SHEET_HEADER = 'sticky top-0 z-10 -mb-2 bg-inherit pb-2'
 
 /**
- * Title (and optional DialogDescription as the subtitle) beside an optional icon tile in a
+ * The `title` (and the optional `description` as the subtitle) beside an optional icon tile in a
  * feature colour. In a sheet it is the kit's Sheet Header (tile 40, title 18/800, close 36), and it
  * stays at the top while the body scrolls.
  */
@@ -230,45 +229,27 @@ function DialogHeader({
   className,
   icon,
   feature = 'accent',
-  children,
+  title,
+  description,
   ...props
-}: React.ComponentProps<'div'> & { icon?: React.ReactNode; feature?: Feature }) {
+}: Omit<React.ComponentProps<'div'>, 'title' | 'children'> & {
+  icon?: React.ReactNode
+  feature?: Feature
+  title: React.ReactNode
+  description?: React.ReactNode
+}) {
   const { form, close } = React.useContext(DialogFormContext)
 
   if (form === 'sheet') {
-    const text = sheetHeaderText(children, DialogTitle, DialogDescription)
-    if (text) {
-      return (
-        <SheetHeader
-          icon={icon}
-          feature={feature}
-          title={text.title}
-          subtitle={text.subtitle}
-          close={close}
-          className={cn(STICKY_SHEET_HEADER, className)}
-        />
-      )
-    }
-    // Other children: the same look, and the sheet's own (screen reader) close.
     return (
-      <div
-        data-slot="dialog-header"
-        className={cn(STICKY_SHEET_HEADER, 'flex shrink-0 items-center gap-3', className)}
-        {...props}
-      >
-        {icon && (
-          <span
-            aria-hidden
-            className={cn(
-              'flex size-10 shrink-0 items-center justify-center [&_svg]:size-5',
-              FEATURE_TILE[feature]
-            )}
-          >
-            {icon}
-          </span>
-        )}
-        <div className="grid min-w-0 flex-1 gap-0.5">{children}</div>
-      </div>
+      <SheetHeader
+        icon={icon}
+        feature={feature}
+        title={title}
+        subtitle={description || undefined}
+        close={close}
+        className={cn(STICKY_SHEET_HEADER, className)}
+      />
     )
   }
 
@@ -294,7 +275,10 @@ function DialogHeader({
           {icon}
         </span>
       )}
-      <div className="grid min-w-0 flex-1 gap-0.5">{children}</div>
+      <div className="grid min-w-0 flex-1 gap-0.5">
+        <DialogTitle>{title}</DialogTitle>
+        {description && <DialogDescription>{description}</DialogDescription>}
+      </div>
     </div>
   )
 }

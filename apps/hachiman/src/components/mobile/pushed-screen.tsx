@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useId, useMemo, useRef, useState 
 import { countLocalPushed } from '@/components/mobile/drawer-state'
 import { MobileFoot } from '@/components/mobile/foot'
 import { NavActionProvider, NavBar } from '@/components/mobile/nav-bar'
+import { WALLPAPER } from '@/components/shell/wallpaper'
 import { captureOpener, restoreFocus } from '@/lib/focus-opener'
 import { cn } from '@/lib/utils'
 
@@ -9,12 +10,6 @@ import { cn } from '@/lib/utils'
 const SLIDE_MS = 250
 /** The unmount after a pop when no `animationend` comes (no animation ran). */
 const UNMOUNT_MS = SLIDE_MS + 100
-
-/**
- * The tinted window behind the nav bar: the shell's wallpaper (`WALLPAPER` in
- * `components/shell/shell.tsx`). The `--wallpaper-*` vars come from the MobileShell root.
- */
-const WINDOW = 'bg-surface-window bg-(image:--wallpaper-light) dark:bg-(image:--wallpaper-dark)'
 
 /** The closed state keeps the last frame (off screen) until the screen unmounts. */
 const SLIDE =
@@ -189,7 +184,9 @@ export function PushedScreen({
       onAnimationEnd={onAnimationEnd}
       className={cn(
         'fixed inset-x-0 top-0 z-30 flex h-[var(--app-height,100dvh)] flex-col pt-[var(--safe-top,0px)]',
-        WINDOW,
+        // The tinted window behind the nav bar (`components/shell/wallpaper.ts`). The
+        // `--wallpaper-*` vars come from the MobileShell root.
+        WALLPAPER,
         SLIDE,
         className
       )}

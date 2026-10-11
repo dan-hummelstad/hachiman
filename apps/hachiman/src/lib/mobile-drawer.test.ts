@@ -66,18 +66,28 @@ describe('keepsLeftDrawer', () => {
 describe('drawerAfter', () => {
   it('leaves a closed drawer closed', () => {
     expect(drawerAfter(null, nav(general, otherGuild))).toBeNull()
-    expect(drawerAfter(null, { kind: 'dialog' })).toBeNull()
+    expect(drawerAfter(null, { kind: 'dialog', dialogKind: null })).toBeNull()
+    expect(drawerAfter(null, { kind: 'dialog', dialogKind: 'addGuild' })).toBeNull()
   })
 
-  it('closes either drawer when a dialog opens', () => {
-    expect(drawerAfter('left', { kind: 'dialog' })).toBeNull()
-    expect(drawerAfter('right', { kind: 'dialog' })).toBeNull()
+  it('closes either drawer when the quick switcher or another dialog opens', () => {
+    for (const dialogKind of [null, 'messageInfo', 'signOut'] as const) {
+      expect(drawerAfter('left', { kind: 'dialog', dialogKind })).toBeNull()
+      expect(drawerAfter('right', { kind: 'dialog', dialogKind })).toBeNull()
+    }
   })
 
   it('keeps the left drawer under a dialog that a drawer control opened', () => {
-    expect(drawerAfter('left', { kind: 'dialog', overLeft: true })).toBe('left')
-    expect(drawerAfter('left', { kind: 'dialog', overLeft: false })).toBeNull()
-    expect(drawerAfter('right', { kind: 'dialog', overLeft: true })).toBeNull()
+    for (const dialogKind of [
+      'addGuild',
+      'invite',
+      'createChannel',
+      'removeGuild',
+      'deleteChannel'
+    ] as const) {
+      expect(drawerAfter('left', { kind: 'dialog', dialogKind })).toBe('left')
+      expect(drawerAfter('right', { kind: 'dialog', dialogKind })).toBeNull()
+    }
   })
 
   it('applies the left rule to the left drawer', () => {

@@ -1,3 +1,4 @@
+import type { AnyDialogKind } from '@/stores/dialogStore'
 import type { View } from '@/stores/navStore'
 
 /**
@@ -15,11 +16,22 @@ export type DrawerEvent =
    * guild's first text channel, `lib/auto-select.ts`), not the user.
    */
   | { kind: 'navigate'; from: View; to: View; auto?: boolean }
-  /**
-   * A dialog or the quick switcher opened. `overLeft`: a control in the left drawer opened it, so
-   * the left drawer stays under the dim (M44).
-   */
-  | { kind: 'dialog'; overLeft?: boolean }
+  /** A dialog of `dialogKind` opened, or the quick switcher (`dialogKind` null). */
+  | { kind: 'dialog'; dialogKind: AnyDialogKind | null }
+
+/**
+ * The dialogs that a control in the left drawer opens and then shows lit or marked under the dim:
+ * the "+" beside GUILDS (M44), a channel row's invite button (M46), a category "+" (M47), the
+ * guild row (M50) and the channel row to delete (M51). The left drawer stays open under them; any
+ * other dialog and the quick switcher close it.
+ */
+const OVER_LEFT_DRAWER: ReadonlySet<AnyDialogKind> = new Set<AnyDialogKind>([
+  'addGuild',
+  'invite',
+  'createChannel',
+  'removeGuild',
+  'deleteChannel'
+])
 
 /** The guild of a view: null for the DM space, undefined for settings. */
 function guildOf(view: View): string | null | undefined {
@@ -60,6 +72,9 @@ export function keepsLeftDrawer(from: View, to: View, auto = false): boolean {
 /** The open drawer after `event`. The right drawer closes on any navigation. */
 export function drawerAfter(open: DrawerSide | null, event: DrawerEvent): DrawerSide | null {
   if (open === null) return null
-  if (event.kind === 'dialog') return open === 'left' && event.overLeft ? 'left' : null
+  if (event.kind === 'dialog')
+    return open === 'left' && event.dialogKind !== null && OVER_LEFT_DRAWER.has(event.dialogKind)
+      ? 'left'
+      : null
   return open === 'left' && keepsLeftDrawer(event.from, event.to, event.auto) ? 'left' : null
 }

@@ -33,6 +33,7 @@ import {
   type SwitcherMode
 } from '@/components/shell/switcher-state'
 import { UserAvatar } from '@/components/shell/user-avatar'
+import { WALLPAPER } from '@/components/shell/wallpaper'
 import { FEATURE_TILE } from '@/components/ui/feature'
 import { GuildTile } from '@/components/ui/guild-tile'
 import { SystemTag } from '@/components/ui/system-tag'
@@ -65,13 +66,6 @@ const RESULT_LIMIT = 50
 
 /** A move (px) of a finger on the results that puts the keyboard away. */
 const DISMISS_MOVE = 10
-
-/**
- * The tinted window behind the search field: the shell's wallpaper (`WALLPAPER` in
- * `components/shell/shell.tsx`). The `--wallpaper-*` vars come from the MobileShell root, which
- * holds the screen (no portal).
- */
-const WINDOW = 'bg-surface-window bg-(image:--wallpaper-light) dark:bg-(image:--wallpaper-dark)'
 
 /** Messages and From wait for message search (spec section 5). */
 const CHIPS: readonly FilterChipOption<SwitchFilterKind>[] = [
@@ -206,7 +200,9 @@ export function MobileSearchScreen({ mode }: { mode: SwitcherMode }): React.JSX.
         className={cn(
           'fixed inset-x-0 top-0 z-50 flex h-(--app-height,100dvh) flex-col pt-(--safe-top) outline-none',
           'data-[state=open]:animate-in data-[state=open]:fade-in-0 duration-150',
-          WINDOW
+          // The tinted window behind the search field (`components/shell/wallpaper.ts`). The
+          // `--wallpaper-*` vars come from the MobileShell root, which holds the screen (no portal).
+          WALLPAPER
         )}
       >
         <DialogPrimitive.Title className="sr-only">

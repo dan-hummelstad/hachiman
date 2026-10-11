@@ -23,7 +23,7 @@ import { useComposerStore } from '@/stores/composerStore'
 import { openDialog } from '@/stores/dialogStore'
 import { useGuildStore } from '@/stores/guildStore'
 import type { ChatMessage } from '@/stores/messagesStore'
-import { usePinCount, usePinned } from '@/stores/pinsStore'
+import { usePinned } from '@/stores/pinsStore'
 import { useUserStore } from '@/stores/userStore'
 import type { RowPolicy } from './row-policy'
 import { react } from './transcript-actions'
@@ -41,8 +41,6 @@ export interface MessageActionOf<I extends MessageActionId> {
   label: string
   icon: LucideIcon
   tone: 'default' | 'danger'
-  /** Short text at the end of a sheet row ("4 pinned"), or null. */
-  hint: string | null
   /** `copy` and `delete` resolve when done and reject with an Error whose message is for the user. */
   run: I extends 'react' ? (emoji: string) => void : () => void | Promise<void>
 }
@@ -52,8 +50,8 @@ export type MessageAction = { [I in MessageActionId]: MessageActionOf<I> }[Messa
 export function findAction<I extends MessageActionId>(
   actions: readonly MessageAction[],
   id: I
-): MessageActionOf<I> | undefined {
-  return actions.find((a) => a.id === id) as MessageActionOf<I> | undefined
+): Extract<MessageAction, { id: I }> | undefined {
+  return actions.find((a) => a.id === id) as Extract<MessageAction, { id: I }> | undefined
 }
 
 /** The actions of a message's "More" menu on desktop, in menu order: pin (N13), thread (N12), info. */
@@ -61,6 +59,9 @@ export const MORE_ACTIONS = ['pin', 'thread', 'info'] as const satisfies readonl
 
 export const hasMoreItems = (actions: readonly MessageAction[]): boolean =>
   MORE_ACTIONS.some((id) => findAction(actions, id) !== undefined)
+
+/** The short text at the end of the action sheet's pin row ("4 pinned"), or null. */
+export const pinHint = (count: number | null): string | null => (count ? `${count} pinned` : null)
 
 /** What decides which actions a row offers. */
 export interface ActionFacts {
@@ -79,7 +80,7 @@ export interface ActionFacts {
 }
 
 /**
- * The actions a row offers, in sheet order. A row that is still sending offers only Copy; a failed
+ * The actions a row offers. A row that is still sending offers only Copy; a failed
  * one also Delete (it drops the local row). A deleted pending row would come back with the echo.
  */
 export function availableActions(f: ActionFacts): MessageActionId[] {
@@ -233,7 +234,6 @@ export function useMessageActions(
   onEdit: () => void
 ): MessageAction[] {
   const pinned = usePinned(message.channelId, message.id)
-  const pinCount = usePinCount(message.channelId)
   const mine = useUserStore((s) => s.me?.id === message.author.id)
 
   return useMemo(() => {
@@ -248,7 +248,7 @@ export function useMessageActions(
       hasTarget: target !== '',
       hasText: stripPageLinks(message.content) !== ''
     })
-    const base = { tone: 'default', hint: null } as const
+    const base = { tone: 'default' } as const
     const make = (id: MessageActionId): MessageAction => {
       switch (id) {
         case 'react':
@@ -295,7 +295,6 @@ export function useMessageActions(
             id,
             label: pinned ? 'Unpin message' : 'Pin message',
             icon: pinned ? PinOff : Pin,
-            hint: pinCount ? `${pinCount} pinned` : null,
             run: () => {
               const call = pinned ? pinsService.unpin : pinsService.pin
               call(channelId, message.id).catch((e: unknown) =>
@@ -328,5 +327,5 @@ export function useMessageActions(
       }
     }
     return ids.map(make)
-  }, [message, policy, mine, pinned, pinCount, onEdit])
+  }, [message, policy, mine, pinned, onEdit])
 }

@@ -1,10 +1,8 @@
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
-  DialogTitle,
   type DialogPresentation
 } from '@/components/ui/dialog'
 import type { Feature } from '@/components/ui/feature'
@@ -46,10 +44,7 @@ export function ModalWindow(props: ModalWindowProps): React.JSX.Element {
         className={cn('sm:max-w-[500px]', className)}
         {...(description ? {} : { 'aria-describedby': undefined })}
       >
-        <DialogHeader icon={icon} feature={feature}>
-          <DialogTitle>{title}</DialogTitle>
-          {description && <DialogDescription>{description}</DialogDescription>}
-        </DialogHeader>
+        <DialogHeader icon={icon} feature={feature} title={title} description={description} />
         {children}
         {actions && <DialogFooter>{actions}</DialogFooter>}
       </DialogContent>

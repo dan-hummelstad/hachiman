@@ -1,5 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
-import { createPortal } from 'react-dom'
+import { useMemo, useState } from 'react'
 import { AtSign, CheckCheck, Inbox } from 'lucide-react'
 import type { Channel } from '@hachiman/client'
 import { EmptyLine } from '@/components/pins/header-count-button'
@@ -20,7 +19,7 @@ import { useMessageStore } from '@/stores/messagesStore'
 import { useNotifyPrefs } from '@/stores/prefsStore'
 import { useAnyMention, useUnreadStore } from '@/stores/unreadStore'
 import { mentionEntries, unreadGroups, type MentionEntry, type UnreadGroup } from './inbox-model'
-import { InboxScreen, closeInboxScreen, openInboxScreen } from './inbox-screen'
+import { openInboxScreen } from './inbox-screen'
 
 type Tab = 'mentions' | 'unread'
 
@@ -80,36 +79,17 @@ function DesktopInboxButton({ className }: { className?: string }): React.JSX.El
   )
 }
 
-/**
- * Where the inbox screen mounts: the MobileShell root, the parent of the drawer that holds the
- * button. A drawer is transformed, so a fixed screen inside it would move with it, and it is inert
- * while closed. In the root the screen gets the guild tint and the edge swipe of the shell.
- */
-function shellRoot(button: HTMLElement): HTMLElement {
-  return button.closest('[data-slot=drawer]')?.parentElement ?? document.body
-}
-
-/** The mobile button: it opens the inbox screen and mounts it in the shell root. */
+/** The mobile button: it opens the inbox screen, which MobileShell renders in its root. */
 function MobileInboxButton({ className }: { className?: string }): React.JSX.Element {
   const mentioned = useAnyMention()
-  const [host, setHost] = useState<HTMLElement | null>(null)
-  // The MobileShell unmounts (the window got wide): nothing stays open.
-  useEffect(() => closeInboxScreen, [])
-
   return (
-    <>
-      <IconButton
-        label={mentioned ? 'Inbox, new mentions' : 'Inbox'}
-        onClick={(e) => {
-          setHost(shellRoot(e.currentTarget))
-          openInboxScreen()
-        }}
-        className={cn(BUTTON, className)}
-      >
-        <InboxGlyph mentioned={mentioned} />
-      </IconButton>
-      {host && createPortal(<InboxScreen />, host)}
-    </>
+    <IconButton
+      label={mentioned ? 'Inbox, new mentions' : 'Inbox'}
+      onClick={openInboxScreen}
+      className={cn(BUTTON, className)}
+    >
+      <InboxGlyph mentioned={mentioned} />
+    </IconButton>
   )
 }
 

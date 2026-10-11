@@ -20,15 +20,15 @@ import { useSidebarReveal } from '@/components/shell/use-sidebar-reveal'
 import { DmSpace } from '@/components/sidebar/dm-space'
 import { GuildChannelList } from '@/components/sidebar/guild-channels'
 import { useGuildTint } from '@/components/shell/use-guild-tint'
+import { WALLPAPER } from '@/components/shell/wallpaper'
 import { VoiceDock } from '@/components/voice-connected-panel'
 import { VoiceRoom } from '@/components/voice/voice-room'
 import { DmCallPanel } from '@/components/voice/dm-call'
 import { IncomingCall } from '@/components/voice/incoming-call'
 import { useAppShortcuts } from '@/hooks/use-app-shortcuts'
+import { useDefaultChannel } from '@/hooks/use-default-channel'
 import { useGlobalShortcuts } from '@/hooks/use-global-shortcuts'
-import { useGuildChannels } from '@/hooks/use-hachiman'
 import { useMediaQuery } from '@/hooks/use-media-query'
-import { autoSelect } from '@/lib/auto-select'
 import { isGuildChannel } from '@/lib/model'
 import { cn } from '@/lib/utils'
 import { useChannelStore } from '@/stores/channelStore'
@@ -36,18 +36,10 @@ import { useSidebarSide } from '@/stores/prefsStore'
 import { useVoiceStore } from '@/stores/voiceStore'
 import {
   closeSettings,
-  selectChannel,
   setSettingsSection,
   useSelectedChannelId,
   useSelectedGuildId
 } from '@/stores/navStore'
-
-/** The window wallpaper: tinted by the guild (N4), or the user's custom gradient (useGuildTint). */
-export const WALLPAPER = cn(
-  'bg-surface-window',
-  'bg-(image:--wallpaper-light)',
-  'dark:bg-(image:--wallpaper-dark)'
-)
 
 /**
  * Signed-in layout (docs/ui-redesign.md §6): the window is a wallpaper tinted by the guild (N4).
@@ -227,21 +219,6 @@ export function Shell(): React.JSX.Element {
       {createPortal(<VoiceDock />, dockHost)}
     </div>
   )
-}
-
-/**
- * Selects the first text channel of `guildId` when the guild has no (valid) selection
- * (`hasChannel` false). Both shells mount it. The pick is marked as automatic (`autoSelect`), so
- * the mobile sidebar drawer stays open on it.
- */
-// eslint-disable-next-line react-refresh/only-export-components -- the mobile shell shares it.
-export function useDefaultChannel(guildId: string | null, hasChannel: boolean): void {
-  const guildChannels = useGuildChannels(guildId)
-  useEffect(() => {
-    if (!guildId || hasChannel) return
-    const first = guildChannels.find((c) => c.type === 'text')
-    if (first) autoSelect(() => selectChannel(first.id, guildId))
-  }, [guildId, hasChannel, guildChannels])
 }
 
 /**

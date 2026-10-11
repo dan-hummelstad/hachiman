@@ -89,14 +89,9 @@ export function KeyChangeDialog(): React.JSX.Element {
         <DialogHeader
           icon={blocking ? <ShieldAlert /> : <KeyRound />}
           feature={blocking ? 'danger' : 'event'}
-        >
-          <DialogTitle>
-            {blocking ? `${name} has a new security key` : `New security key for ${name}`}
-          </DialogTitle>
-          <DialogDescription>
-            {blocking ? `You verified ${name} before` : `${name} isn’t verified`}
-          </DialogDescription>
-        </DialogHeader>
+          title={blocking ? `${name} has a new security key` : `New security key for ${name}`}
+          description={blocking ? `You verified ${name} before` : `${name} isn’t verified`}
+        />
         <div className="grid gap-3 text-sm">
           <p className="font-semibold">
             {blocking

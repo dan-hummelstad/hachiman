@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { ChevronRight, ShieldAlert, ShieldCheck } from 'lucide-react'
 import { MobileFoot } from '@/components/mobile/foot'
 import { NavBar } from '@/components/mobile/nav-bar'
-import { DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { DialogFooter, DialogHeader } from '@/components/ui/dialog'
 import { FEATURE_TILE, type Feature } from '@/components/ui/feature'
 import { StepScreenContext, useStepLayout } from '@/components/security/onboarding-steps'
 import { useLayout } from '@/hooks/use-layout'
@@ -165,12 +165,7 @@ export function StepHeader({
       />
     )
   }
-  return (
-    <DialogHeader icon={icon} feature={feature}>
-      <DialogTitle>{title}</DialogTitle>
-      {subtitle && <DialogDescription>{subtitle}</DialogDescription>}
-    </DialogHeader>
-  )
+  return <DialogHeader icon={icon} feature={feature} title={title} description={subtitle} />
 }
 
 /**

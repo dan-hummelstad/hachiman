@@ -1,5 +1,5 @@
 // Dev-only preview mode: seeds the mirror stores with a fixture so the UI can be screenshotted
-// without Takusen or a gateway. Loaded by the browser host on `?preview` (DEV builds only).
+// without Takusen or a gateway. Loaded by the browser and iOS hosts on `?preview` (DEV builds only).
 // See ../README.md.
 import { cryptoService } from '@/services/CryptoService'
 import { hachiman, startHachiman } from '@/services/hachiman'
@@ -10,7 +10,7 @@ import { useMessageStore, type ChatMessage } from '@/stores/messagesStore'
 import { addMentions, useUnreadStore } from '@/stores/unreadStore'
 import { useNavStore } from '@/stores/navStore'
 import { useTakusenStore } from '@/stores/takusenStore'
-import { usePrefsStore, type Theme } from '@/stores/prefsStore'
+import { usePrefsStore } from '@/stores/prefsStore'
 import { useUserStore } from '@/stores/userStore'
 import { useVoiceStore } from '@/stores/voiceStore'
 import {
@@ -36,6 +36,9 @@ import { stubAdminActions } from './admin'
 import { seedFeatureFixtures } from './fixture-features'
 import { dispatch, stubRest, stubVoice } from './stubs'
 import { pinTab, type TabTarget } from '@/stores/tabsStore'
+import type { PreviewOptions } from './options'
+
+export { previewOptionsFromQuery, type PreviewOptions } from './options'
 
 /** The B1 tab row (pinTab skips a tab that is already pinned). */
 const PREVIEW_TABS: TabTarget[] = [
@@ -46,15 +49,6 @@ const PREVIEW_TABS: TabTarget[] = [
   { kind: 'channel', id: G2C.standup, guildId: G2 },
   { kind: 'channel', id: 'c-no-thread-bracket', guildId: G1 }
 ]
-
-export interface PreviewOptions {
-  /** Show the signed-out screen instead of the seeded app. */
-  signedOut?: boolean
-  /** Force the transcript display mode. */
-  messageDisplay?: 'cozy' | 'compact'
-  /** Force the theme; preview defaults to dark so screenshots are stable. */
-  theme?: Theme
-}
 
 /**
  * Point every persisted store at a preview-only key so fixture state never leaks into real dev.

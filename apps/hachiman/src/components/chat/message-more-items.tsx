@@ -16,11 +16,7 @@ export function MessageMoreItems({
         const action = findAction(actions, id)
         if (!action) return null
         return (
-          <DropdownMenuItem
-            key={id}
-            hint={action.hint ?? undefined}
-            onSelect={() => void action.run()}
-          >
+          <DropdownMenuItem key={id} onSelect={() => void action.run()}>
             <action.icon />
             {action.label}
           </DropdownMenuItem>

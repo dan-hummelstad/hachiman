@@ -6,6 +6,7 @@ import { EmojiPicker } from '@/components/chat/emoji-picker'
 import {
   findAction,
   liftPlacement,
+  pinHint,
   useMessageActions,
   type MessageAction,
   type MessageActionId
@@ -29,6 +30,7 @@ import { setSheetOpener } from '@/lib/focus-opener'
 import { ROLE_INK_SCOPE } from '@/lib/role-ink'
 import { cn } from '@/lib/utils'
 import type { ChatMessage } from '@/stores/messagesStore'
+import { usePinCount } from '@/stores/pinsStore'
 import { useUserStore } from '@/stores/userStore'
 
 /** The action groups of the sheet (M5), in order. A group with no actions draws nothing. */
@@ -97,6 +99,7 @@ export function MessageActionSheet({
 }: MessageActionSheetProps): React.JSX.Element {
   const startEdit = useCallback(() => onEditingChange(message.id), [onEditingChange, message.id])
   const actions = useMessageActions(message, policy, startEdit)
+  const pinCount = usePinCount(message.channelId)
   const reactAction = findAction(actions, 'react')
   const deleteAction = findAction(actions, 'delete')
   const [picking, setPicking] = useState(false)
@@ -180,7 +183,7 @@ export function MessageActionSheet({
       <MenuSheetItem
         key={action.id}
         variant={action.tone === 'danger' ? 'destructive' : 'default'}
-        hint={action.hint ?? undefined}
+        hint={action.id === 'pin' ? (pinHint(pinCount) ?? undefined) : undefined}
         onSelect={select(action)}
       >
         <Icon className={ICON_TINT[action.id]} aria-hidden />
@@ -236,7 +239,7 @@ export function MessageActionSheet({
               <Fragment key={ids[0]}>
                 {i > 0 && <MenuSheetSeparator />}
                 {ids.map((id) => {
-                  const action = actions.find((a) => a.id === id)
+                  const action = findAction(actions, id)
                   return action ? item(action) : null
                 })}
               </Fragment>

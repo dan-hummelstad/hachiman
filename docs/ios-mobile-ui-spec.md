@@ -109,7 +109,7 @@ A browser window that crosses 767 px swaps the two shells. The composer draft in
 ```
 
 - The root is `fixed inset-x-0 top-0 h-(--app-height,100dvh)` with the `WALLPAPER` classes and `useGuildTint` vars, as the desktop shell has.
-- It keeps the desktop rule "select the first text channel" (exported from `components/shell/shell.tsx` as `useDefaultChannel`).
+- It keeps the desktop rule "select the first text channel" (`useDefaultChannel` in `hooks/use-default-channel.ts`).
 - It mounts `QuickSwitcher` and `IncomingCall`. It does not mount `useSidebarReveal` or `useGlobalShortcuts`. It keeps `useAppShortcuts` for a hardware keyboard, with the sidebar keybind mapped to the drawer.
 - The `VoiceDock` renders directly in the left drawer foot. The drawer is always mounted and `inert` while closed, so the dock never remounts.
 - The chat card stays mounted under drawers, sheets and pushed screens. The open tab and the scroll position stay.
@@ -388,7 +388,7 @@ The plan's order of value still holds: rows A and B first, then C (sign in on a 
   - `components/mobile/page-screen.tsx`: a fallback that renders `PagesPanel` in a `PushedScreen` for a `{ kind: 'page' }` view. F2 takes it over.
   - `MobileTabStrip`: toggle 36 with the `useAllUnread()` badge, divider, the exported `Tabs` in a `data-swipe-ignore` scroller with a 24 px `mask-image` fade, `PinCurrent` and "+" (`openSwitcher('pin')`).
   - `components/shell/tab-bar.tsx`: export `Tab`, `Tabs`, `PinCurrent`, `TabIcon` and `Crest`. Scroll the active tab into view when the active index changes and is 0 or more (`inline: 'nearest'`). On mobile the active tab keeps its ✕ (20 visual, 36 hit area through `TOUCH_HIT`), and holding a tab still gives the hold menu with Unpin.
-  - `components/shell/shell.tsx`: export `WALLPAPER` and `useDefaultChannel()`. No behaviour change on desktop.
+  - `components/shell/shell.tsx`: move `WALLPAPER` to `components/shell/wallpaper.ts` and `useDefaultChannel()` to `hooks/use-default-channel.ts`, so that both shells import them from there. No behaviour change on desktop.
   - `components/shell/use-guild-tint.ts`: also return the solid window colour per theme for `useNativeAppearance`.
   - `stores/unreadStore.ts`: export `useAllUnread()` on the private `useBadgeSum` with a stable match-all function.
   - `App.tsx`: the layout branch.
@@ -744,7 +744,7 @@ M36 is in A5.
 - **Check:** Preview: tap "+" beside GUILDS: the sheet, and the "+" stays lit under the dim. Tap an invite link in a DM: the join sheet with "From marlowe, in your DMs".
 - **Depends on:** P6, I1, E1.
 - **As built (W4):**
-  - `OVER_LEFT_DRAWER` in `stores/dialogStore.ts` lists the dialogs that a left-drawer control opens (`addGuild`). The drawer close rule keeps the left drawer open under them (`lib/mobile-drawer.ts`, `{ kind: 'dialog', overLeft }`), so the "+" stays lit under the dim.
+  - `OVER_LEFT_DRAWER` in `lib/mobile-drawer.ts` lists the dialogs that a left-drawer control opens (`addGuild`, `invite`, `createChannel`, `removeGuild`, `deleteChannel`). The drawer close rule gets the kind of each dialog that opens (`{ kind: 'dialog', dialogKind }`, with `dialogKind` null for the quick switcher) and keeps the left drawer open under these dialogs, so the "+" stays lit under the dim.
   - The preview fixture has a marlowe message in DM1 with an invite link on this server, and `previewInvite` expires in 6 days.
 
 #### G2b · Invite, create channel, leave and delete
