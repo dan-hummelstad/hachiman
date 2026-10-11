@@ -203,6 +203,10 @@ function useBadgeSum(match: (c: Channel) => boolean): UnreadBadge {
 }
 
 const isDm = (c: Channel): boolean => c.guildId === null
+const anyChannel = (): boolean => true
+
+/** Every channel and DM together (the sidebar toggle of the mobile tab strip). */
+export const useAllUnread = (): UnreadBadge => useBadgeSum(anyChannel)
 
 /** A guild's dot and mention sum (the guild row). A muted guild shows no dot. */
 export function useGuildUnread(guildId: string): UnreadBadge {

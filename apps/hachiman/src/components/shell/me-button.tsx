@@ -50,7 +50,7 @@ export function MeButton(): React.JSX.Element {
                 aria-current={settingsOpen ? 'page' : undefined}
                 onClick={() => openSettings({ kind: 'user' })}
                 className={cn(
-                  'flex size-8 shrink-0 items-center justify-center rounded-full',
+                  'flex size-8 shrink-0 items-center justify-center rounded-full mobile:size-9',
                   settingsOpen && 'ring-text-primary ring-2'
                 )}
               >

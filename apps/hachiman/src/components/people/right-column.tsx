@@ -12,9 +12,13 @@ import { cn } from '@/lib/utils'
 import { useChannelStore } from '@/stores/channelStore'
 import { useDocsStore } from '@/stores/docsStore'
 import { useMessageStore, type ChatMessage } from '@/stores/messagesStore'
+import { navigate } from '@/stores/navStore'
 import { usePrefsStore } from '@/stores/prefsStore'
 
 export type RightColumnTab = 'members' | 'pages'
+
+/** `column`: the right column of the desktop card. `drawer`: the right drawer on a phone. */
+export type RightColumnVariant = 'column' | 'drawer'
 
 const EMPTY_MESSAGES: ChatMessage[] = []
 
@@ -26,13 +30,25 @@ const EMPTY_MESSAGES: ChatMessage[] = []
  *   opens beside the chat the same way (N21.1).
  * - DM: the profile of the other user (E2, E3).
  * - Group DM: nothing (null).
+ *
+ * The `drawer` variant (mobile, docs/ios-mobile-ui-spec.md A1) fills the drawer: no border, no
+ * resize handle, never the wide page column, the touch-size tab control. A page that the Pages
+ * tab opens shows as the full-screen page (`{ kind: 'page' }`).
  */
-export function RightColumn({ channel }: { channel: Channel }): React.JSX.Element | null {
+export function RightColumn({
+  channel,
+  variant = 'column'
+}: {
+  channel: Channel
+  variant?: RightColumnVariant
+}): React.JSX.Element | null {
   if (channel.guildId === null) {
     const other = channel.type === 'dm' ? channel.recipients?.[0] : undefined
-    return other ? <DmProfileColumn key={channel.id} user={other} /> : null
+    return other ? <DmProfileColumn key={channel.id} user={other} variant={variant} /> : null
   }
-  return <GuildColumn key={channel.id} channel={channel} guildId={channel.guildId} />
+  return (
+    <GuildColumn key={channel.id} channel={channel} guildId={channel.guildId} variant={variant} />
+  )
 }
 
 /** Pages tab count: the pages channel's page count, or the pages linked in a text channel's loaded messages. */
@@ -51,11 +67,14 @@ function usePagesCount(channel: Channel): number | undefined {
 
 function GuildColumn({
   channel,
-  guildId
+  guildId,
+  variant
 }: {
   channel: Channel
   guildId: string
+  variant: RightColumnVariant
 }): React.JSX.Element {
+  const drawer = variant === 'drawer'
   const isPages = channel.type === 'pages'
   const hasTabs = isPages || channel.type === 'text'
   const [tab, setTab] = useState<RightColumnTab>(isPages ? 'pages' : 'members')
@@ -68,17 +87,27 @@ function GuildColumn({
     useDocsStore.getState().setOpenPage(channelId, pageId)
     setBesideId(channelId)
   }, [])
+  const openPage = useCallback(
+    (channelId: string, pageId: string) => navigate({ kind: 'page', guildId, channelId, pageId }),
+    [guildId]
+  )
 
   const options: SegmentedOption<RightColumnTab>[] = [
     { value: 'members', label: 'Members', icon: <Users /> },
     { value: 'pages', label: 'Pages', icon: <FileText />, count: pageCount }
   ]
   const switcher = (
-    <SegmentedControl label="Right column" options={options} value={tab} onChange={setTab} />
+    <SegmentedControl
+      label="Right column"
+      options={options}
+      value={tab}
+      onChange={setTab}
+      size={drawer ? 'touch' : 'default'}
+    />
   )
   const pagesTab = hasTabs && tab === 'pages'
   const panelChannel = isPages ? channel : beside
-  const wide = pagesTab && panelChannel !== undefined
+  const wide = !drawer && pagesTab && panelChannel !== undefined
   const pageWidth = usePrefsStore((s) => s.pageColumnWidth)
 
   return (
@@ -86,8 +115,9 @@ function GuildColumn({
       aria-label={pagesTab ? 'Pages' : 'Members'}
       style={wide ? { width: clampPageColumn(pageWidth, window.innerWidth) } : undefined}
       className={cn(
-        'bg-surface-panel border-line-hairline relative flex h-full min-h-0 shrink-0 flex-col border-l',
-        !wide && 'w-[252px]'
+        'bg-surface-panel border-line-hairline relative flex h-full min-h-0 shrink-0 flex-col',
+        drawer ? 'w-full' : 'border-l',
+        !wide && !drawer && 'w-[252px]'
       )}
     >
       {wide && <ColumnResizeHandle width={pageWidth} />}
@@ -115,7 +145,12 @@ function GuildColumn({
         />
       ) : (
         <>
-          <div className="border-line-hairline flex h-14 shrink-0 items-center border-b px-2">
+          <div
+            className={cn(
+              'border-line-hairline flex h-14 shrink-0 items-center border-b',
+              drawer ? 'px-3' : 'px-2'
+            )}
+          >
             {hasTabs ? (
               switcher
             ) : (
@@ -126,7 +161,7 @@ function GuildColumn({
             )}
           </div>
           {pagesTab ? (
-            <GuildPagesList guildId={guildId} onOpen={openBeside} />
+            <GuildPagesList guildId={guildId} onOpen={drawer ? openPage : openBeside} />
           ) : (
             <MemberList guildId={guildId} />
           )}

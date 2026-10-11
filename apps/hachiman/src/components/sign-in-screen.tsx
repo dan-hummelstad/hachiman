@@ -1,18 +1,45 @@
-import { ArrowUpRight, KeyRound, Link2, Lock, Sparkles } from 'lucide-react'
+import { Fragment } from 'react'
+import { ArrowUpRight, KeyRound, LifeBuoy, Link2, Lock, Sparkles } from 'lucide-react'
+import { useDeviceNoun } from '@/components/security/onboarding-steps'
 import { Button } from '@/components/ui/button'
+import { FEATURE_TILE } from '@/components/ui/feature'
 import { ErrorText } from '@/components/ui/field'
+import { useLayout } from '@/hooks/use-layout'
 import { useSignIn } from '@/hooks/use-sign-in'
+import { HOME_WALLPAPER } from '@/lib/guild-tint'
 import { cn } from '@/lib/utils'
+import { takusenService } from '@/services/TakusenService'
+import type { IPlatformService } from '@/shared/IPlatformService'
 import { usePlatform } from '@/shared/PlatformContext'
+
+/** How the sign-in comes back to the app, under the button. */
+function helperText(platform: IPlatformService['platform']): string {
+  return platform === 'electron'
+    ? 'Your browser opens to finish signing in. Come back here when it says you’re done.'
+    : 'You’ll sign in on Takusen and come straight back.'
+}
 
 /**
  * Signed-out screen (A1): the wallpaper with a violet glow, the app mark top-left, and one square
  * card with the single primary action. The set-up paths after sign-in show as chips that only
  * inform. After sign-in, the encryption onboarding (security/onboarding.tsx) sets up this device.
+ * The mobile layout shows M13 (`MobileSignIn`).
  */
 export function SignInScreen(): React.JSX.Element {
   const { signIn, busy, error } = useSignIn()
   const { platform } = usePlatform()
+  const layout = useLayout()
+
+  if (layout === 'mobile') {
+    return (
+      <MobileSignIn
+        onSignIn={() => void signIn()}
+        busy={busy}
+        error={error}
+        helper={helperText(platform)}
+      />
+    )
+  }
 
   return (
     <div className="bg-surface-window relative isolate flex min-h-full w-full flex-1 flex-col overflow-y-auto">
@@ -45,11 +72,7 @@ export function SignInScreen(): React.JSX.Element {
               {busy ? 'Opening Takusen…' : 'Sign in with Takusen'}
             </Button>
             <ErrorText>{error}</ErrorText>
-            <p className="text-meta text-text-tertiary text-center">
-              {platform === 'electron'
-                ? 'Your browser opens to finish signing in. Come back here when it says you’re done.'
-                : 'You’ll sign in on Takusen and come straight back.'}
-            </p>
+            <p className="text-meta text-text-tertiary text-center">{helperText(platform)}</p>
           </div>
           <div className="border-line-hairline grid gap-3 border-t pt-5">
             <div className="flex items-start gap-3">
@@ -78,6 +101,124 @@ export function SignInScreen(): React.JSX.Element {
           </div>
         </section>
       </div>
+    </div>
+  )
+}
+
+/** Takusen's landing page sections, in the footer of M13. */
+const FOOTER_LINKS = [
+  { label: 'Help', hash: 'help' },
+  { label: 'Privacy', hash: 'privacy' },
+  { label: 'Status', hash: 'status' }
+] as const
+
+/** The three set-up paths of the encryption note (M13). */
+const PATHS = [
+  { icon: <Link2 />, tile: 'accent', label: 'Link it', detail: 'from a device you already use' },
+  { icon: <LifeBuoy />, tile: 'voice', label: 'Restore it', detail: 'with your recovery key' },
+  { icon: <Sparkles />, tile: 'event', label: 'Start new', detail: 'if this is your first device' }
+] as const
+
+/**
+ * M13: the content sits on the gradient window, with no card. The mark, the title and the
+ * encryption note scroll. The foot keeps the error, the 48 primary and the helper, then the
+ * Takusen links. Takusen draws M14 and M15 inside the system sign-in sheet.
+ */
+function MobileSignIn({
+  onSignIn,
+  busy,
+  error,
+  helper
+}: {
+  onSignIn: () => void
+  busy: boolean
+  error: string | null
+  helper: string
+}): React.JSX.Element {
+  const origin = takusenService.env.issuerOrigin
+  const noun = useDeviceNoun()
+  return (
+    <div
+      style={{ backgroundImage: HOME_WALLPAPER }}
+      className="bg-surface-window relative isolate flex h-full w-full flex-col overflow-y-auto pt-(--safe-top) pb-(--safe-bottom)"
+    >
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[480px] bg-[radial-gradient(ellipse_90%_60%_at_0%_0%,color-mix(in_srgb,var(--accent-primary)_28%,transparent),transparent)]"
+      />
+      <section
+        aria-labelledby="sign-in-title"
+        className="flex flex-1 flex-col gap-7 px-6 pt-[52px] pb-6"
+      >
+        <div className="grid gap-[22px]">
+          <AppMark className="size-16 text-[34px] shadow-[0_10px_24px_color-mix(in_srgb,var(--accent-primary)_35%,transparent)]" />
+          <div className="grid gap-2.5">
+            <h1 id="sign-in-title" className="text-[30px] leading-9 font-extrabold">
+              Sign in to Hachiman
+            </h1>
+            <p className="text-text-secondary text-base leading-normal font-medium">
+              Hachiman uses your Takusen account. Sign in to see your guilds, DMs and voice
+              channels.
+            </p>
+          </div>
+        </div>
+        <div className="border-line-hairline border bg-white/2">
+          <div className="border-line-hairline flex items-start gap-3 border-b px-3.5 pt-3.5 pb-3">
+            <span
+              aria-hidden
+              className={cn(FEATURE_TILE.voice, 'flex size-8 shrink-0 items-center justify-center')}
+            >
+              <Lock className="size-4" />
+            </span>
+            <p className="text-text-primary text-sm leading-[1.4] font-semibold">
+              Messages and calls are end-to-end encrypted. After you sign in, you set up this {noun}
+              :
+            </p>
+          </div>
+          <ul className="py-1.5">
+            {PATHS.map(({ icon, tile, label, detail }) => (
+              <li key={label} className="flex items-center gap-3 px-3.5 py-2">
+                <span
+                  aria-hidden
+                  className={cn(
+                    FEATURE_TILE[tile],
+                    'flex size-7 shrink-0 items-center justify-center [&_svg]:size-[15px]'
+                  )}
+                >
+                  {icon}
+                </span>
+                <p className="min-w-0 text-[13px] font-medium">
+                  <span className="text-text-primary text-sm font-extrabold">{label}</span>{' '}
+                  <span className="text-text-tertiary">{detail}</span>
+                </p>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </section>
+      <div className="grid gap-3 px-6">
+        <ErrorText>{error}</ErrorText>
+        <Button size="mobile" disabled={busy} onClick={onSignIn}>
+          <ArrowUpRight />
+          {busy ? 'Opening Takusen…' : 'Sign in with Takusen'}
+        </Button>
+        <p className="text-text-tertiary text-center text-[13px] font-medium">{helper}</p>
+      </div>
+      <nav aria-label="Takusen" className="flex items-center justify-center gap-1.5 px-6 pb-1.5">
+        {FOOTER_LINKS.map(({ label, hash }, i) => (
+          <Fragment key={hash}>
+            {i > 0 && <span aria-hidden className="bg-text-disabled size-[3px] rounded-full" />}
+            <a
+              href={`${origin}/#${hash}`}
+              target="_blank"
+              rel="noreferrer"
+              className="text-text-tertiary rounded-control active:bg-surface-hover focus-visible:outline-line-focus inline-flex h-11 items-center px-2 text-[13px] font-semibold outline-none focus-visible:outline-2"
+            >
+              {label}
+            </a>
+          </Fragment>
+        ))}
+      </nav>
     </div>
   )
 }

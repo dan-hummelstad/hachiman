@@ -21,19 +21,30 @@ export interface SidebarProps {
   middle: React.ReactNode
   /** Foot: the voice dock. */
   foot?: React.ReactNode
+  /** Replaces the size and padding: the mobile drawer is full width inside the safe areas. */
+  className?: string
 }
 
 /**
  * The Arc sidebar (280, padding 10): it sits on the window wallpaper and holds everything that
  * is not content. Four slots, top to bottom: controls, top, middle, foot.
  */
-export function Sidebar({ controls, top, middle, foot }: SidebarProps): React.JSX.Element {
+export function Sidebar({
+  controls,
+  top,
+  middle,
+  foot,
+  className
+}: SidebarProps): React.JSX.Element {
   const { insetTitleBar } = usePlatform()
   const left = useSidebarSide() === 'left'
   return (
     <aside
       aria-label="Sidebar"
-      className="text-text-primary flex h-full min-h-0 w-[280px] shrink-0 flex-col gap-2 px-2.5 pt-1.5 pb-2"
+      className={cn(
+        'text-text-primary flex h-full min-h-0 w-[280px] shrink-0 flex-col gap-2 px-2.5 pt-1.5 pb-2',
+        className
+      )}
     >
       {/* With an inset title bar and the sidebar on the left, the traffic lights sit at the left
           of this row (trafficLightPosition x 16, y 18), and the controls start after them. */}

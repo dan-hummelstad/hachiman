@@ -62,6 +62,9 @@ async function sha256(input: string): Promise<Uint8Array> {
   return new Uint8Array(hash)
 }
 
+/** The sign-in screen text after a deny on the Takusen consent page (`error=access_denied`). */
+export const SIGN_IN_CANCELLED = 'You cancelled the sign-in.'
+
 /** Discovery and token refresh: a request on a dead network gives up after this. */
 const FETCH_TIMEOUT_MS = 15_000
 
@@ -145,14 +148,25 @@ export class TakusenService {
 
   /**
    * Exchange the authorization code in the OAuth redirect URL (as delivered by
-   * `platform.onOAuthCallback`) for tokens.
+   * `platform.onOAuthCallback`) for tokens. A deny on the consent page (`error=access_denied`) of
+   * the sign-in this app started resolves with {@link SIGN_IN_CANCELLED} as the auth error. Any
+   * other error throws.
    */
   async completeSignIn(url: string): Promise<void> {
     const params = parseCallbackUrl(url)
+    if (params.kind === 'error' && params.error !== 'access_denied') {
+      throw new Error(params.description ?? params.error)
+    }
     const pending = useTakusenStore.getState().pendingFlow
     if (!pending) throw new Error('this app did not start a sign-in')
     if (pending.state !== params.state) {
       throw new Error('the sign-in response does not match the sign-in this app started')
+    }
+    if (params.kind === 'error') {
+      // Deny on the Takusen consent page: the user's choice, so no "did not finish" text.
+      useTakusenStore.getState().setPendingFlow(null)
+      useTakusenStore.getState().setAuthError(SIGN_IN_CANCELLED)
+      return
     }
     // 24h hard cap on pending flows.
     if (Date.now() - pending.createdAt > 24 * 60 * 60 * 1000) {
@@ -360,15 +374,19 @@ export class TakusenService {
   }
 }
 
-function parseCallbackUrl(url: string): { code: string; state: string } {
+/** The query of the OAuth redirect: a code, or an error response (RFC 6749 §4.1.2.1). */
+export type OAuthCallback =
+  | { kind: 'code'; code: string; state: string }
+  | { kind: 'error'; error: string; description: string | null; state: string | null }
+
+export function parseCallbackUrl(url: string): OAuthCallback {
   const q = new URL(url).searchParams
-  const code = q.get('code')
   const state = q.get('state')
-  if (!code || !state)
-    throw new Error(
-      q.get('error_description') ?? q.get('error') ?? 'OAuth callback missing code/state'
-    )
-  return { code, state }
+  const error = q.get('error')
+  if (error) return { kind: 'error', error, description: q.get('error_description'), state }
+  const code = q.get('code')
+  if (!code || !state) throw new Error('OAuth callback missing code/state')
+  return { kind: 'code', code, state }
 }
 
 export const takusenService = new TakusenService()

@@ -11,6 +11,7 @@ import { useElapsed } from '@/hooks/use-elapsed'
 import { useUserBanner } from '@/components/people/use-user-banner'
 import { TRUST_LOOK } from '@/components/people/trust-look'
 import { useContactSecurity, type ContactSecurity } from '@/components/people/use-contact-security'
+import type { RightColumnVariant } from '@/components/people/right-column'
 import { UserAvatar } from '@/components/shell/user-avatar'
 import { Button } from '@/components/ui/button'
 import { GuildTile } from '@/components/ui/guild-tile'
@@ -63,8 +64,15 @@ function useStanding(
  * The right column of a DM (E2, E3): banner, avatar, name (crown when the user owns a shared
  * guild), the top role in a shared guild, the voice activity with Join, the security key card,
  * the devices from their certificates and the mutual guilds. Trust is per user (decision 5).
+ * The `drawer` variant fills the right drawer on a phone (no border).
  */
-export function DmProfileColumn({ user }: { user: User }): React.JSX.Element {
+export function DmProfileColumn({
+  user,
+  variant = 'column'
+}: {
+  user: User
+  variant?: RightColumnVariant
+}): React.JSX.Element {
   const userId = user.id
   const status = usePresence(userId)
   const mutual = useMutualGuilds(userId)
@@ -79,7 +87,8 @@ export function DmProfileColumn({ user }: { user: User }): React.JSX.Element {
     <aside
       aria-label={`Profile of ${name}`}
       className={cn(
-        'bg-surface-panel border-line-hairline flex h-full min-h-0 w-[252px] shrink-0 flex-col border-l',
+        'bg-surface-panel border-line-hairline flex h-full min-h-0 shrink-0 flex-col',
+        variant === 'drawer' ? 'w-full' : 'w-[252px] border-l',
         ROLE_INK_SCOPE
       )}
     >

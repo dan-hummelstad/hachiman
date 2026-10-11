@@ -28,6 +28,7 @@ import { useAppShortcuts } from '@/hooks/use-app-shortcuts'
 import { useGlobalShortcuts } from '@/hooks/use-global-shortcuts'
 import { useGuildChannels } from '@/hooks/use-hachiman'
 import { useMediaQuery } from '@/hooks/use-media-query'
+import { autoSelect } from '@/lib/auto-select'
 import { isGuildChannel } from '@/lib/model'
 import { cn } from '@/lib/utils'
 import { useChannelStore } from '@/stores/channelStore'
@@ -42,7 +43,7 @@ import {
 } from '@/stores/navStore'
 
 /** The window wallpaper: tinted by the guild (N4), or the user's custom gradient (useGuildTint). */
-const WALLPAPER = cn(
+export const WALLPAPER = cn(
   'bg-surface-window',
   'bg-(image:--wallpaper-light)',
   'dark:bg-(image:--wallpaper-dark)'
@@ -71,8 +72,7 @@ export function Shell(): React.JSX.Element {
   const selectedChannel = useChannelStore((s) =>
     selectedChannelId ? s.channels.get(selectedChannelId) : undefined
   )
-  const guildChannels = useGuildChannels(selectedGuildId)
-  const tint = useGuildTint(selectedGuildId)
+  const tint = useGuildTint(selectedGuildId).vars
   // The right column defaults open only on wide windows; an explicit toggle overrides the default.
   const wide = useMediaQuery('(min-width: 1200px)')
   const [sidePref, setSidePref] = useState<boolean | null>(null)
@@ -97,13 +97,7 @@ export function Shell(): React.JSX.Element {
   useSidebarReveal(sidebarRef)
   useAppShortcuts()
   useGlobalShortcuts()
-
-  // Default to the first text channel when a guild has no (valid) selection.
-  useEffect(() => {
-    if (!selectedGuildId || selectedChannel) return
-    const first = guildChannels.find((c) => c.type === 'text')
-    if (first) selectChannel(first.id, selectedGuildId)
-  }, [selectedGuildId, selectedChannel, guildChannels])
+  useDefaultChannel(selectedGuildId, selectedChannel !== undefined)
 
   return (
     <div
@@ -233,6 +227,21 @@ export function Shell(): React.JSX.Element {
       {createPortal(<VoiceDock />, dockHost)}
     </div>
   )
+}
+
+/**
+ * Selects the first text channel of `guildId` when the guild has no (valid) selection
+ * (`hasChannel` false). Both shells mount it. The pick is marked as automatic (`autoSelect`), so
+ * the mobile sidebar drawer stays open on it.
+ */
+// eslint-disable-next-line react-refresh/only-export-components -- the mobile shell shares it.
+export function useDefaultChannel(guildId: string | null, hasChannel: boolean): void {
+  const guildChannels = useGuildChannels(guildId)
+  useEffect(() => {
+    if (!guildId || hasChannel) return
+    const first = guildChannels.find((c) => c.type === 'text')
+    if (first) autoSelect(() => selectChannel(first.id, guildId))
+  }, [guildId, hasChannel, guildChannels])
 }
 
 /**

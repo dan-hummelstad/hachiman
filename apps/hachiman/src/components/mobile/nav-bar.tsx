@@ -67,7 +67,8 @@ export function NavAction({ children }: { children: React.ReactNode }): React.JS
 }
 
 /**
- * Mobile / Nav Bar (kit J1oV5): 52 high, padding 0/12/0/10. Back 36, title 17/800 with an
+ * Mobile / Nav Bar (kit J1oV5): 52 high, padding 0/12/0/10 (0/12/0/16 on a root screen with no
+ * Back, so the title lines up with the body). Back 36, title 17/800 with an
  * optional subtitle 12.5/500, then the action slot. The title takes the focus on a push, so it has
  * `tabIndex={-1}` and `titleRef`.
  */
@@ -98,7 +99,11 @@ export function NavBar({
   return (
     <div
       data-slot="nav-bar"
-      className={cn('flex h-[52px] shrink-0 items-center gap-2.5 pr-3 pl-2.5', className)}
+      className={cn(
+        'flex h-[52px] shrink-0 items-center gap-2.5 pr-3',
+        onBack ? 'pl-2.5' : 'pl-4',
+        className
+      )}
     >
       {onBack && (
         <button

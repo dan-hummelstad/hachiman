@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import {
   AudioLines,
   FileText,
@@ -106,7 +106,7 @@ export function TabBar({ inbox }: { inbox?: React.ReactNode }): React.JSX.Elemen
 }
 
 /** The pin glyph at the start of the bar: pins or unpins the open view. */
-function PinCurrent(): React.JSX.Element {
+export function PinCurrent({ className }: { className?: string }): React.JSX.Element {
   const view = useCurrentView()
   const target = targetOf(view)
   const pinned = useIsPinned(target)
@@ -119,18 +119,38 @@ function PinCurrent(): React.JSX.Element {
       pressed={pinned}
       disabled={target === null}
       onClick={() => target && (pinned ? unpinTab(target) : pinTab(target))}
-      className="text-text-tertiary hover:text-text-primary hover:bg-surface-hover rounded-control size-7"
+      className={cn(
+        'text-text-tertiary hover:text-text-primary hover:bg-surface-hover rounded-control size-7',
+        className
+      )}
     >
       {pinned ? <PinOff className="size-3.5" /> : <Pin className="size-3.5" />}
     </IconButton>
   )
 }
 
-function Tabs(): React.JSX.Element {
+/**
+ * The pinned tabs, a sideways scroller that can be reordered by drag. `revealActive` (the mobile
+ * strip): the tab that becomes active scrolls into view.
+ */
+export function Tabs({
+  revealActive = false,
+  className
+}: {
+  revealActive?: boolean
+  className?: string
+}): React.JSX.Element {
   const tabs = useTabs()
   const active = useActiveTabIndex()
   const sensors = useDragSensors()
   const ids = tabs.map(tabKey)
+  const list = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!revealActive || active < 0) return
+    list.current
+      ?.querySelector(`[data-tab-index="${active}"]`)
+      ?.scrollIntoView({ inline: 'nearest', block: 'nearest' })
+  }, [revealActive, active])
   const onDragEnd = ({ active: a, over }: DragEndEvent): void => {
     if (!over || a.id === over.id) return
     const from = ids.indexOf(String(a.id))
@@ -139,11 +159,13 @@ function Tabs(): React.JSX.Element {
   }
   return (
     <div
+      ref={list}
       role="tablist"
       aria-label="Pinned tabs"
       className={cn(
         'flex min-w-0 shrink items-center gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden',
-        NO_DRAG
+        NO_DRAG,
+        className
       )}
     >
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
@@ -157,8 +179,11 @@ function Tabs(): React.JSX.Element {
   )
 }
 
-/** One pinned tab: crest, type icon, name, one state mark; the lit one has ✕ to unpin. */
-function Tab({
+/**
+ * One pinned tab: crest, type icon, name, one state mark; the lit one has ✕ to unpin (on desktop;
+ * a phone unpins from the hold menu).
+ */
+export function Tab({
   id,
   target,
   index,
@@ -211,6 +236,7 @@ function Tab({
       {...listeners}
       role="tab"
       aria-selected={active}
+      data-tab-index={index}
       tabIndex={0}
       title={`${name}${shortcut}`}
       onClick={() => navigate(viewOfTarget(target))}
@@ -222,6 +248,8 @@ function Tab({
       }}
       className={cn(
         'rounded-control group/tab flex h-[34px] max-w-[200px] min-w-[112px] shrink cursor-default items-center gap-1.5 px-2 text-[13px] select-none',
+        // The mobile strip scrolls: each tab keeps its natural width.
+        'mobile:min-w-0 mobile:shrink-0 mobile:pr-2.5 mobile:pl-[7px] mobile:text-[13.5px]',
         'focus-visible:ring-ring outline-none focus-visible:ring-2',
         active
           ? 'bg-surface-raised text-text-primary font-bold shadow-soft'
@@ -250,7 +278,7 @@ function Tab({
             e.stopPropagation()
             unpinTab(target)
           }}
-          className="text-text-tertiary hover:text-text-primary hover:bg-surface-hover -mr-1 flex size-5 shrink-0 items-center justify-center rounded-[5px]"
+          className="text-text-tertiary hover:text-text-primary hover:bg-surface-hover mobile:hidden -mr-1 flex size-5 shrink-0 items-center justify-center rounded-[5px]"
         >
           <X className="size-3" />
         </button>
@@ -260,14 +288,14 @@ function Tab({
 }
 
 /**
- * The guild crest: the guild icon at 16px, or its initials. In a narrow tab it gives up its
- * width before the name truncates (shrink weight far above the name's).
+ * The guild crest: the guild icon at 16px (18 on a phone), or its initials. In a narrow tab it
+ * gives up its width before the name truncates (shrink weight far above the name's).
  */
-function Crest({ name, icon }: { name: string; icon: string | null }): React.JSX.Element {
+export function Crest({ name, icon }: { name: string; icon: string | null }): React.JSX.Element {
   return (
     <span
       aria-hidden
-      className="bg-rail text-text-primary flex h-4 w-4 min-w-0 shrink-[100] items-center justify-center overflow-hidden rounded-[4px] text-[7px] leading-none font-bold"
+      className="bg-rail text-text-primary mobile:h-[18px] mobile:w-[18px] flex h-4 w-4 min-w-0 shrink-[100] items-center justify-center overflow-hidden rounded-[4px] text-[7px] leading-none font-bold"
     >
       {icon ? (
         <img src={hachiman.rest.fileUrl(icon)} alt="" className="size-full object-cover" />
@@ -279,7 +307,13 @@ function Crest({ name, icon }: { name: string; icon: string | null }): React.JSX
 }
 
 /** The type icon in its feature colour; DMs show only the avatar. */
-function TabIcon({ target, type }: { target: TabTarget; type: string }): React.JSX.Element | null {
+export function TabIcon({
+  target,
+  type
+}: {
+  target: TabTarget
+  type: string
+}): React.JSX.Element | null {
   if (target.kind === 'dm') return null
   if (target.kind === 'page' || type === 'pages')
     return <FileText className={cn('size-3.5 shrink-0', FEATURE_TEXT.page)} />

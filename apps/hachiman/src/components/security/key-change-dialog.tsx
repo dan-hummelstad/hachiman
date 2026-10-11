@@ -12,6 +12,7 @@ import { ErrorText } from '@/components/ui/field'
 import { friendly } from '@/components/security/errors'
 import { useUserName } from '@/components/security/use-user-name'
 import { useAction } from '@/hooks/use-action'
+import { useLayout } from '@/hooks/use-layout'
 import { cryptoService } from '@/services/CryptoService'
 import { dismissKeyChange } from '@/stores/cryptoStore'
 import { openDialog, useDialog } from '@/stores/dialogStore'
@@ -28,6 +29,9 @@ export function KeyChangeDialog(): React.JSX.Element {
   const blocking = severity === 'blocking'
   const name = useUserName(userId)
   const { run, busy, error } = useAction()
+  const mobile = useLayout() === 'mobile'
+  // M58: on a phone the blocking form stacks Compare (primary) over the quiet Accept.
+  const stacked = blocking && mobile
 
   const accept = async (): Promise<void> => {
     const r = await run('accept the new key', () =>
@@ -37,6 +41,15 @@ export function KeyChangeDialog(): React.JSX.Element {
     dismissKeyChange(userId)
     close()
   }
+  const acceptButton = (
+    <Button
+      variant={blocking ? 'quiet' : 'secondary'}
+      disabled={busy}
+      onClick={() => void accept()}
+    >
+      {blocking ? 'Accept the new key' : 'OK'}
+    </Button>
+  )
   const keep = (e: Event): void => {
     if (blocking) e.preventDefault()
   }
@@ -44,6 +57,7 @@ export function KeyChangeDialog(): React.JSX.Element {
   return (
     <Dialog open={open} onOpenChange={(o) => !o && !blocking && close()}>
       <DialogContent
+        presentation={blocking ? 'dialog' : 'sheet'}
         showCloseButton={!blocking}
         onEscapeKeyDown={keep}
         onPointerDownOutside={keep}
@@ -84,18 +98,13 @@ export function KeyChangeDialog(): React.JSX.Element {
           )}
           <ErrorText>{error}</ErrorText>
         </div>
-        <DialogFooter>
-          <Button
-            variant={blocking ? 'quiet' : 'secondary'}
-            disabled={busy}
-            onClick={() => void accept()}
-          >
-            {blocking ? 'Accept the new key' : 'OK'}
-          </Button>
+        <DialogFooter className={stacked ? 'flex-col' : undefined}>
+          {!stacked && acceptButton}
           <Button disabled={busy} onClick={() => openDialog({ kind: 'verification', userId })}>
             <ShieldCheck />
             Compare safety numbers
           </Button>
+          {stacked && acceptButton}
         </DialogFooter>
       </DialogContent>
     </Dialog>

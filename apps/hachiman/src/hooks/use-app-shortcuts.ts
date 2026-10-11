@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { toggleSidebar } from '@/components/shell/sidebar-state'
 import { closeSwitcher, isSwitcherOpen, openSwitcher } from '@/components/shell/switcher-state'
 import { currentKeybinds, useKeybindRuntime } from '@/hooks/use-keybinds'
@@ -59,8 +59,15 @@ export function runVoiceToggle(action: string): void {
  * buttons. One listener; no key acts under a modal dialog, except ⌘K, which closes an open quick
  * switcher, and the voice keys (push to talk, mute, deafen). A key acts in a text field too, with
  * or without a modifier: the user picked it. Mount once in the shell.
+ *
+ * `onSidebar` replaces the sidebar keybind's `toggleSidebar()`: the mobile shell opens and
+ * closes its drawer with it (a hardware keyboard on a phone or tablet).
  */
-export function useAppShortcuts(): void {
+export function useAppShortcuts(onSidebar?: () => void): void {
+  const sidebar = useRef(onSidebar)
+  useEffect(() => {
+    sidebar.current = onSidebar
+  }, [onSidebar])
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       const { recording, globalActive } = useKeybindRuntime.getState()
@@ -98,7 +105,8 @@ export function useAppShortcuts(): void {
           handled = openTab(shortcut.index)
           break
         case 'sidebar':
-          toggleSidebar()
+          if (sidebar.current) sidebar.current()
+          else toggleSidebar()
           break
         case 'switcher':
           openSwitcher('open')

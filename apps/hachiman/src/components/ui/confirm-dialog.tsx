@@ -3,10 +3,13 @@ import { DialogFooter } from '@/components/ui/dialog'
 import { ErrorText } from '@/components/ui/field'
 import { ModalWindow } from '@/components/ui/modal-window'
 import { useAction } from '@/hooks/use-action'
+import { useLayout } from '@/hooks/use-layout'
 
 interface ConfirmDialogProps {
   open: boolean
   title: string
+  /** The subtitle under the title ("Text channel · Night Owls"). */
+  description?: string
   body: React.ReactNode
   confirmLabel: string
   tone?: 'default' | 'danger'
@@ -21,13 +24,18 @@ interface ConfirmDialogProps {
   confirmDisabled?: boolean
 }
 
-/** "Are you sure?" window: Cancel + one confirm button, busy while `onConfirm` runs. */
+/**
+ * "Are you sure?" window: Cancel + one confirm button, busy while `onConfirm` runs. On the mobile
+ * layout it stays a centred card (M50, M51), with Cancel and the confirm button side by side.
+ */
 export function ConfirmDialog(props: ConfirmDialogProps): React.JSX.Element {
   return (
     <ModalWindow
       open={props.open}
       onClose={props.onClose}
       title={props.title}
+      description={props.description}
+      presentation="dialog"
       icon={props.icon}
       feature={props.tone === 'danger' ? 'danger' : 'accent'}
     >
@@ -43,6 +51,7 @@ export function ConfirmDialog(props: ConfirmDialogProps): React.JSX.Element {
 function ConfirmBody(props: ConfirmDialogProps): React.JSX.Element {
   const { body, confirmLabel, tone = 'default', onConfirm, onClose } = props
   const { run, busy, error } = useAction()
+  const mobile = useLayout() === 'mobile'
 
   const confirm = async (): Promise<void> => {
     if ((await run(props.what ?? confirmLabel.toLowerCase(), onConfirm)).ok) onClose()
@@ -53,7 +62,7 @@ function ConfirmBody(props: ConfirmDialogProps): React.JSX.Element {
       <div className="text-sm">{body}</div>
       <ErrorText>{error}</ErrorText>
       <DialogFooter>
-        <Button variant="quiet" disabled={busy} onClick={onClose}>
+        <Button variant={mobile ? 'secondary' : 'quiet'} disabled={busy} onClick={onClose}>
           Cancel
         </Button>
         <Button

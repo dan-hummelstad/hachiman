@@ -11,7 +11,7 @@ import { usePrefsStore } from '@/stores/prefsStore'
 export const DEFAULT_WINDOW_COLOR = 'var(--surface-window)'
 
 /** The theme that ThemeProvider puts on `<html>`. */
-function useResolvedTheme(): ResolvedTheme {
+export function useResolvedTheme(): ResolvedTheme {
   const pref = usePrefsStore((s) => s.theme)
   const osDark = useMediaQuery(DARK_QUERY)
   return resolveTheme(pref, osDark)
