@@ -5,6 +5,7 @@
  * the public_set group in the same transaction (`guild_created`, §12.18).
  * The create assignment goes to X-Hachiman-Device when it is given.
  */
+import { randomUUID } from 'node:crypto'
 import { eq } from 'drizzle-orm'
 import { NextResponse, type NextRequest } from 'next/server'
 import { z } from 'zod'
@@ -44,13 +45,13 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         permissions: DEFAULT_EVERYONE,
       })
       await tx.insert(guildMembers).values({ guildId: guild.id, userId: me })
-      const [general] = await tx
-        .insert(channels)
-        .values({ guildId: guild.id, type: 'text', name: 'general', position: 0 })
-        .returning({ id: channels.id })
-      await tx.insert(channels).values({ guildId: guild.id, type: 'voice', name: 'General', position: 0 })
+      const generalId = randomUUID()
+      await tx.insert(channels).values([
+        { id: generalId, guildId: guild.id, type: 'text', name: 'general', position: 0 },
+        { guildId: guild.id, type: 'voice', name: 'General', position: 0 },
+      ])
       // #general greets new members by default (§4 Guilds).
-      await tx.update(guilds).set({ welcomeChannelId: general.id }).where(eq(guilds.id, guild.id))
+      await tx.update(guilds).set({ welcomeChannelId: generalId }).where(eq(guilds.id, guild.id))
       await membershipChanged(tx, MembershipTriggers.guildCreated(guild.id), actor)
       return guild.id
     })

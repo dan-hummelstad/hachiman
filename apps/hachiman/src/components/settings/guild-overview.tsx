@@ -1,4 +1,3 @@
-import { useMemo } from 'react'
 import type { Guild, HistoryVisibility } from '@hachiman/client'
 import { Input } from '@/components/ui/input'
 import { NativeSelect } from '@/components/ui/native-select'
@@ -7,10 +6,10 @@ import { RegionSelect } from '@/components/region-select'
 import { ImageField } from '@/components/settings/image-field'
 import { SaveBar } from '@/components/settings/save-bar'
 import { useAction } from '@/hooks/use-action'
+import { useGuildChannels } from '@/hooks/use-hachiman'
 import { trimName, useDraft } from '@/hooks/use-draft'
 import { guildInitials } from '@/lib/model'
 import { hachiman } from '@/services/hachiman'
-import { useChannelStore } from '@/stores/channelStore'
 
 /** Guild settings → Overview (G1): icon, banner, name, voice region, earlier messages, welcome channel. */
 export function GuildOverviewPage({ guild }: { guild: Guild }): React.JSX.Element {
@@ -24,14 +23,7 @@ export function GuildOverviewPage({ guild }: { guild: Guild }): React.JSX.Elemen
     trimName
   )
   const { name, region, publicHistoryVisibility, welcomeChannelId } = draft.value
-  const channels = useChannelStore((s) => s.channels)
-  const textChannels = useMemo(
-    () =>
-      [...channels.values()]
-        .filter((c) => c.guildId === guild.id && c.type === 'text')
-        .sort((a, b) => a.position - b.position),
-    [channels, guild.id]
-  )
+  const textChannels = useGuildChannels(guild.id).filter((c) => c.type === 'text')
   const { run, busy, error, clearError } = useAction()
 
   const save = async (e: React.FormEvent): Promise<void> => {

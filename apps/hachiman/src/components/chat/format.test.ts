@@ -54,5 +54,6 @@ describe('joinSlots', () => {
     const early = member('e', '2026-09-01T00:00:00Z')
     expect(joinSlots(messages, [early], false).size).toBe(0)
     expect(joinSlots(messages, [early], true).get(0)).toEqual([early])
+    expect(joinSlots([], [early], false).size).toBe(0)
   })
 })

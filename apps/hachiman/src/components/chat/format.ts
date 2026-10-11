@@ -48,45 +48,55 @@ export function buildItems(messages: ChatMessage[]): TranscriptItem[] {
 }
 
 /**
- * Where each membership event goes in the transcript: before the first loaded message of its
- * group at or after its epoch. The key is that message's index; `messages.length` means after
- * the last message. Events keep their order within one slot.
+ * Groups `items` by transcript slot: the index of the message that the item goes before. `at`
+ * gives that index, -1 (no such message) for after the last of `length` messages, or null to
+ * leave the item out. Items keep their order within one slot.
  */
-export function membershipSlots(
-  messages: readonly Pick<ChatMessage, 'groupId' | 'epoch'>[],
-  events: readonly MembershipEvent[]
-): Map<number, MembershipEvent[]> {
-  const slots = new Map<number, MembershipEvent[]>()
-  for (const e of events) {
-    const i = messages.findIndex((m) => m.groupId === e.groupId && m.epoch >= e.epoch)
-    const at = i === -1 ? messages.length : i
-    const list = slots.get(at)
-    if (list) list.push(e)
-    else slots.set(at, [e])
+function slotsBy<T>(
+  items: Iterable<T>,
+  length: number,
+  at: (item: T) => number | null
+): Map<number, T[]> {
+  const slots = new Map<number, T[]>()
+  for (const item of items) {
+    const found = at(item)
+    if (found === null) continue
+    const i = found === -1 ? length : found
+    const list = slots.get(i)
+    if (list) list.push(item)
+    else slots.set(i, [item])
   }
   return slots
 }
 
 /**
+ * Where each membership event goes in the transcript: before the first loaded message of its
+ * group at or after its epoch.
+ */
+export function membershipSlots(
+  messages: readonly Pick<ChatMessage, 'groupId' | 'epoch'>[],
+  events: readonly MembershipEvent[]
+): Map<number, MembershipEvent[]> {
+  return slotsBy(events, messages.length, (e) =>
+    messages.findIndex((m) => m.groupId === e.groupId && m.epoch >= e.epoch)
+  )
+}
+
+/**
  * Where each member join goes in the welcome channel: before the first loaded message after the
- * join, keyed like membershipSlots. A join before the first loaded message shows only when no
- * older history is left to load (`complete`), so it does not stack above a partial page.
+ * join, oldest first. A join before the first loaded message shows only when no older history is
+ * left to load (`complete`), so it does not stack above a partial page.
  */
 export function joinSlots(
   messages: readonly Pick<ChatMessage, 'createdAt'>[],
   members: Iterable<Member>,
   complete: boolean
 ): Map<number, Member[]> {
-  const slots = new Map<number, Member[]>()
   const joins = [...members].sort((a, b) => a.joinedAt.localeCompare(b.joinedAt))
-  for (const m of joins) {
+  return slotsBy(joins, messages.length, (m) => {
     const joined = Date.parse(m.joinedAt)
     const i = messages.findIndex((msg) => Date.parse(msg.createdAt) > joined)
     const at = i === -1 ? messages.length : i
-    if (at === 0 && !complete) continue
-    const list = slots.get(at)
-    if (list) list.push(m)
-    else slots.set(at, [m])
-  }
-  return slots
+    return at === 0 && !complete ? null : at
+  })
 }

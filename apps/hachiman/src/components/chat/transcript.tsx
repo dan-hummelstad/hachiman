@@ -78,6 +78,17 @@ export function Transcript({
     () => (members ? joinSlots(messages, members.values(), hasMore === false) : undefined),
     [messages, members, hasMore]
   )
+  /** The membership and join lines before message `i` (`items.length`: after the last one). */
+  const notesAt = (i: number): React.ReactNode => (
+    <>
+      {slots.get(i)?.map((e, j) => (
+        <MembershipLine key={`m${j}`} event={e} channel={channel} />
+      ))}
+      {joins?.get(i)?.map((m) => (
+        <JoinLine key={`j${m.user.id}`} member={m} channel={channel} />
+      ))}
+    </>
+  )
 
   useEffect(() => {
     messagesService.ensureLoaded(channelId)
@@ -145,12 +156,7 @@ export function Transcript({
           {items.map(({ message, newDay, groupStart }, i) => (
             <Fragment key={message.nonce ?? message.id}>
               {newDay && <DayDivider iso={message.createdAt} />}
-              {slots.get(i)?.map((e, j) => (
-                <MembershipLine key={`m${j}`} event={e} channel={channel} />
-              ))}
-              {joins?.get(i)?.map((m) => (
-                <JoinLine key={`j${m.user.id}`} member={m} channel={channel} />
-              ))}
+              {notesAt(i)}
               {message.id === firstUnreadId && <NewDivider />}
               <TranscriptRow
                 message={message}
@@ -163,12 +169,7 @@ export function Transcript({
               />
             </Fragment>
           ))}
-          {slots.get(items.length)?.map((e, j) => (
-            <MembershipLine key={`m${j}`} event={e} channel={channel} />
-          ))}
-          {joins?.get(items.length)?.map((m) => (
-            <JoinLine key={`j${m.user.id}`} member={m} channel={channel} />
-          ))}
+          {notesAt(items.length)}
           <div ref={bottom} aria-hidden className="h-px" />
         </div>
       </div>
