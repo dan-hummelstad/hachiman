@@ -8,12 +8,18 @@ import {
   FolderInput,
   Link,
   Pin,
+  PinOff,
   Trash2,
   UserPlus
 } from 'lucide-react'
 import { Permissions, has, type Channel } from '@hachiman/client'
 import { pageLinkMarkdown } from '@/components/docs/page-links'
-import { moveUnder, pageMoveTargets, type PageMoveTarget } from '@/components/docs/page-move'
+import {
+  bannersLost,
+  moveUnder,
+  pageMoveTargets,
+  type PageMoveTarget
+} from '@/components/docs/page-move'
 import { PageDeleteConfirm } from '@/components/docs/page-tree-actions'
 import { ListGroup, ListRow, SectionLabel } from '@/components/mobile/list'
 import { Sheet, SheetBody, SheetContent, SheetFoot, SheetHeader } from '@/components/mobile/sheet'
@@ -54,9 +60,10 @@ function TitleText({ page }: { page: PageNode }): React.JSX.Element {
 /**
  * The page actions sheet (M41), from More on the page screen: the quick tiles Pin to tabs (lit
  * while pinned), Copy link and Invite (with CREATE_INSTANT_INVITE), then Move to… (a parent in the
- * same channel), Export (copies the markdown) and Delete page. Move and Delete need
- * SEND_MESSAGES, as every page edit. The delete confirm names the sub-pages that go with the
- * page; after the delete, `onDeleted` leads back to the chat.
+ * same channel), Pin channel to tabs (or Unpin, for the page's pages channel), Export (copies the
+ * markdown) and Delete page. Move and Delete need SEND_MESSAGES, as every page edit. The delete
+ * confirm names the sub-pages that go with the page; after the delete, `onDeleted` leads back to
+ * the chat.
  *
  * Export does not open the share sheet: `IPlatformService.share` needs an http(s) `url`, and a
  * page has none (spec section 5). History, comments, duplicate, lock, a move to another channel,
@@ -200,6 +207,8 @@ function ActionsStep({
   const canInvite = has(perms, Permissions.CREATE_INSTANT_INVITE)
   const tab: TabTarget = { kind: 'page', id: channel.id, guildId, pageId: page.id }
   const pinned = useIsPinned(tab)
+  const channelTab: TabTarget = { kind: 'channel', id: channel.id, guildId }
+  const channelPinned = useIsPinned(channelTab)
   const success = useCallback(() => platform.haptic('success'), [platform])
   const link = useCopy({ onCopied: success })
   const markdown = useCopy({ onCopied: success })
@@ -209,12 +218,12 @@ function ActionsStep({
   )
   const below = useMemo(() => subtreeIds(pages, page.id).size - 1, [pages, page.id])
 
-  const togglePin = (): void => {
-    if (pinned) {
-      unpinTab(tab)
+  const toggle = (target: TabTarget, on: boolean): void => {
+    if (on) {
+      unpinTab(target)
       platform.haptic('light')
     } else {
-      pinTab(tab)
+      pinTab(target)
       platform.haptic('success')
     }
   }
@@ -250,7 +259,7 @@ function ActionsStep({
             type="button"
             aria-label="Pin to tabs"
             aria-pressed={pinned}
-            onClick={togglePin}
+            onClick={() => toggle(tab, pinned)}
             className={cn(TILE, TILE_TONE[pinned ? 'on' : 'off'])}
           >
             <Pin aria-hidden />
@@ -290,6 +299,14 @@ function ActionsStep({
             />
           )}
           <ListRow
+            icon={channelPinned ? <PinOff /> : <Pin />}
+            tile="page"
+            label={channelPinned ? 'Unpin channel from tabs' : 'Pin channel to tabs'}
+            detail={`#${channel.name ?? ''}`}
+            chevron={false}
+            onClick={() => toggle(channelTab, channelPinned)}
+          />
+          <ListRow
             icon={<FileDown />}
             tile="voice"
             label="Export"
@@ -325,7 +342,8 @@ function ActionsStep({
 /**
  * Move to… (same channel only): the top level, then the other pages of the channel in tree order,
  * without the page and its sub-pages. A tap moves the page last under the place and closes the
- * sheet. Back returns to the actions.
+ * sheet. Back returns to the actions. A move under a page removes the banner of a top-level page
+ * (contract §4 Pages "Banner"), so for a page with a banner the tap shows a confirm line first.
  */
 function MoveStep({
   page,
@@ -346,15 +364,32 @@ function MoveStep({
   const byId = useMemo(() => new Map(pages.map((p) => [p.id, p])), [pages])
   const [top, ...under] = targets
   const body = useRef<HTMLDivElement>(null)
+  /** The place that waits for the banner confirm. */
+  const [confirming, setConfirming] = useState<{ parentId: string | null } | null>(null)
+  /** The confirm line takes the focus on its Cancel: a held Enter must not confirm it. */
+  const cancelButton = useRef<HTMLButtonElement>(null)
   // The Move to… row that had the focus is gone: the focus goes to the first place to pick.
   useEffect(() => {
     body.current?.querySelector<HTMLElement>('button:enabled')?.focus({ preventScroll: true })
   }, [])
+  useEffect(() => {
+    if (confirming) cancelButton.current?.focus({ preventScroll: true })
+  }, [confirming])
 
-  const move = (parentId: string | null): void => {
-    void run('move the page', () =>
-      docsService.movePages(moveUnder(pages, page.id, parentId))
-    ).then((r) => {
+  // The confirm goes: the focus goes back to the places.
+  const cancelConfirm = (): void => {
+    setConfirming(null)
+    body.current?.querySelector<HTMLElement>('button:enabled')?.focus({ preventScroll: true })
+  }
+  const move = (parentId: string | null, confirmed = false): void => {
+    const moves = moveUnder(pages, page.id, parentId)
+    if (!confirmed && bannersLost(pages, moves).length > 0) {
+      setConfirming({ parentId })
+      platform.haptic('warning')
+      return
+    }
+    setConfirming(null)
+    void run('move the page', () => docsService.movePages(moves)).then((r) => {
       if (!r.ok) return
       platform.haptic('success')
       onMoved()
@@ -399,9 +434,28 @@ function MoveStep({
         <ErrorText>{error}</ErrorText>
       </SheetBody>
       <SheetFoot>
-        <Button variant="quiet" size="mobile" onClick={onBack}>
-          <ChevronLeft /> Back
-        </Button>
+        {confirming ? (
+          <>
+            <p role="alert" className="text-text-secondary px-1 pb-1 text-[13.5px] leading-[18px]">
+              This removes the banner of <strong className="font-bold">{pageTitle(page)}</strong>.
+            </p>
+            <Button
+              variant="danger"
+              size="mobile"
+              disabled={busy}
+              onClick={() => move(confirming.parentId, true)}
+            >
+              Move and remove the banner
+            </Button>
+            <Button ref={cancelButton} variant="quiet" size="mobile" onClick={cancelConfirm}>
+              Cancel
+            </Button>
+          </>
+        ) : (
+          <Button variant="quiet" size="mobile" onClick={onBack}>
+            <ChevronLeft /> Back
+          </Button>
+        )}
       </SheetFoot>
     </>
   )

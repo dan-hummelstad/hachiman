@@ -16,7 +16,7 @@ import type {
 } from '../api'
 import { CryptoError } from '../api'
 import { fromB64url, toB64url } from '../codec'
-import { DOC_ENVELOPE_MAGIC, MAX_DOC_AWARENESS_B64_BYTES, MAX_PAGE_TITLE_BYTES } from '../constants'
+import { DOC_ENVELOPE_MAGIC, DocEnvelopeKind, MAX_DOC_AWARENESS_B64_BYTES, MAX_PAGE_BANNER_BYTES, MAX_PAGE_TITLE_BYTES } from '../constants'
 import { generateEd25519 } from '../sign'
 import { decodeDocEnvelope, decodeSnapshotPointer, docEnvelopeLength, encodeDocContent, encodeHeader } from './codec'
 import { sealDocContentBytes } from './doc'
@@ -149,6 +149,26 @@ async function one(docs: DocService, i: EncryptedDocItem): Promise<DocDecryptRes
 
 const utf8 = (s: string) => new TextEncoder().encode(s)
 const pointerJson = () => utf8(JSON.stringify({ uploadId: uuid(300), fileKey: toB64url(bytes(32, 1)), sha256: toB64url(bytes(32, 2)), size: 4096 }))
+const bannerPointer = (over: Record<string, unknown> = {}) => ({
+  uploadId: uuid(400),
+  key: toB64url(bytes(32, 4)),
+  sha256: toB64url(bytes(32, 5)),
+  size: 300_000,
+  blobSize: 300_100,
+  mime: 'image/webp',
+  name: 'banner.webp',
+  width: 2048,
+  height: 512,
+  durationMs: null,
+  blurhash: null,
+  thumbnail: null,
+  ...over,
+})
+/** UTF-8 JSON of a banner pointer, padded with an unknown key to exactly `length` bytes. */
+function bannerOfLength(length: number): Uint8Array {
+  const base = JSON.stringify({ ...bannerPointer(), pad: '' })
+  return utf8(base.replace('"pad":""', `"pad":"${'a'.repeat(length - base.length)}"`))
+}
 
 // MARK: - Specs
 
@@ -179,6 +199,61 @@ describe('doc envelopes (§12.20)', () => {
     expect(r.status === 'ok' && new TextDecoder().decode(r.bytes)).toBe('Roadmap ✓')
     const aw = await a.docs.encryptDoc({ channelId: CHANNEL, pageId: PAGE, kind: 'doc_awareness', bytes: bytes(100, 3) })
     expect((await one(b.docs, item(aw.envelope, { kind: 'doc_awareness' }))).status).toBe('ok')
+  })
+
+  it('round-trips a doc_banner pointer with kind byte 5', async () => {
+    const { a, b } = setup()
+    const body = utf8(JSON.stringify(bannerPointer()))
+    const enc = await a.docs.encryptDoc({ channelId: CHANNEL, pageId: PAGE, kind: 'doc_banner', bytes: body })
+    const raw = fromB64url(enc.envelope)
+    expect(raw[2]).toBe(DocEnvelopeKind.BANNER)
+    expect(decodeDocEnvelope(raw).header.kind).toBe('doc_banner')
+    expect(raw.length).toBe(docEnvelopeLength(body.length))
+
+    const r = await one(b.docs, item(enc.envelope, { kind: 'doc_banner' }))
+    expect(r).toMatchObject({ status: 'ok', kind: 'doc_banner', sender: { userId: ALICE, deviceId: ALICE_DEV } })
+    expect(r.status === 'ok' && JSON.parse(new TextDecoder().decode(r.bytes))).toEqual(bannerPointer())
+
+    const full = await a.docs.encryptDoc({ channelId: CHANNEL, pageId: PAGE, kind: 'doc_banner', bytes: bannerOfLength(MAX_PAGE_BANNER_BYTES) })
+    expect((await one(b.docs, item(full.envelope, { kind: 'doc_banner' }))).status).toBe('ok')
+  })
+
+  it('a title is not a banner, and a banner is not a title or a snapshot pointer', async () => {
+    const { a, b } = setup()
+    const title = await a.docs.encryptDoc({ channelId: CHANNEL, pageId: PAGE, kind: 'doc_title', bytes: utf8('Roadmap') })
+    expect(await one(b.docs, item(title.envelope, { kind: 'doc_banner' }))).toEqual({ status: 'failed', id: 'x', reason: 'wrong_kind' })
+    const banner = await a.docs.encryptDoc({ channelId: CHANNEL, pageId: PAGE, kind: 'doc_banner', bytes: utf8(JSON.stringify(bannerPointer())) })
+    expect(await one(b.docs, item(banner.envelope, { kind: 'doc_title' }))).toEqual({ status: 'failed', id: 'x', reason: 'wrong_kind' })
+    expect(await one(b.docs, item(banner.envelope, { kind: 'doc_snapshot' }))).toEqual({ status: 'failed', id: 'x', reason: 'wrong_kind' })
+  })
+
+  it('rejects a banner body that is too large, not JSON, not an object or not an image', async () => {
+    const { a } = setup()
+    const enc = (b: Uint8Array) => a.docs.encryptDoc({ channelId: CHANNEL, pageId: PAGE, kind: 'doc_banner', bytes: b })
+    await expect(enc(bannerOfLength(MAX_PAGE_BANNER_BYTES + 1))).rejects.toMatchObject({ code: 'TooLarge' })
+    await expect(enc(utf8('not json'))).rejects.toMatchObject({ code: 'Malformed' })
+    await expect(enc(new Uint8Array(0))).rejects.toMatchObject({ code: 'Malformed' })
+    await expect(enc(new Uint8Array([0x7b, 0xff, 0x7d]))).rejects.toMatchObject({ code: 'Malformed' })
+    await expect(enc(utf8('[]'))).rejects.toMatchObject({ code: 'Malformed' })
+    await expect(enc(utf8('null'))).rejects.toMatchObject({ code: 'Malformed' })
+    await expect(enc(utf8(JSON.stringify(bannerPointer({ mime: 'application/pdf' }))))).rejects.toMatchObject({ code: 'Malformed' })
+    await expect(enc(utf8(JSON.stringify(bannerPointer({ mime: 7 }))))).rejects.toMatchObject({ code: 'Malformed' })
+    await expect(enc(utf8(JSON.stringify(bannerPointer({ mime: undefined }))))).rejects.toMatchObject({ code: 'Malformed' })
+    // Unknown keys pass: a later focusY needs no new kind.
+    await expect(enc(utf8(JSON.stringify(bannerPointer({ focusY: 0.3 }))))).resolves.toMatchObject({ groupId: G })
+  })
+
+  it('reports malformed for a signed banner body that is not an image pointer', async () => {
+    const { world, alice, b } = setup()
+    const sealed = await sealDocContentBytes(
+      {
+        header: { kind: 'doc_banner', groupId: GROUP, channelId: CHANNEL, pageId: PAGE, epoch: 0, senderLeaf: alice.leaf, senderDeviceId: ALICE_DEV },
+        epochSecret: world.secrets.get(0)!,
+        signatureKey: alice.keys.privateKey,
+      },
+      encodeDocContent(utf8(JSON.stringify(bannerPointer({ mime: 'image' }))), 0),
+    )
+    expect(await one(b.docs, item(toB64url(sealed), { kind: 'doc_banner' }))).toEqual({ status: 'failed', id: 'x', reason: 'malformed' })
   })
 
   it('fails an envelope moved to another page or channel', async () => {

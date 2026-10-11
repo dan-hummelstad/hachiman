@@ -1,9 +1,15 @@
-// Preview fixture, pages (contract §4 Pages): two linked pages in #design-pages and the scrim
-// playbook in #scrim-playbook, as stub doc
-// envelopes. ./stubs.ts seeds its in-memory page routes from fixturePages().
+// Preview fixture, pages (contract §4 Pages): two linked pages in #design-pages (the RFC has a
+// banner, its Glossary sub-page shows it) and the scrim playbook (no banner) in #scrim-playbook,
+// as stub doc envelopes. ./stubs.ts seeds its in-memory page routes from fixturePages().
 import type { DocUpdate, Page } from '@hachiman/client'
-import { STUB_MARKER, toB64url, type DocEnvelopeKindName } from '@hachiman/crypto'
+import {
+  STUB_MARKER,
+  toB64url,
+  type AttachmentPointer,
+  type DocEnvelopeKindName
+} from '@hachiman/crypto'
 import * as Y from 'yjs'
+import { ATT } from './attachments'
 import { DAY, G1C, G2C, U, groupOf, now } from './fixture'
 
 /** The stub crypto client's doc envelope (createCryptoStub): base64url JSON, NOT ENCRYPTED. */
@@ -64,13 +70,23 @@ export function fixturePages(): { pages: Page[]; updates: Map<string, DocUpdate[
     id: string,
     title: string,
     parentId: string | null,
-    position: number
+    position: number,
+    banner: AttachmentPointer | null = null
   ): Page => ({
     id,
     channelId,
     parentId,
     position,
     titleEnvelope: stubDocEnvelope(channelId, id, 'doc_title', new TextEncoder().encode(title)),
+    bannerEnvelope:
+      banner === null
+        ? null
+        : stubDocEnvelope(
+            channelId,
+            id,
+            'doc_banner',
+            new TextEncoder().encode(JSON.stringify(banner))
+          ),
     createdBy: U.yuki.id,
     createdAt: daysAgo(3),
     updatedAt: daysAgo(1)
@@ -86,7 +102,7 @@ export function fixturePages(): { pages: Page[]; updates: Map<string, DocUpdate[
   })
   return {
     pages: [
-      page(G2C.designPages, PAGE.rfc, 'RFC: pages channels', null, 0),
+      page(G2C.designPages, PAGE.rfc, 'RFC: pages channels', null, 0, ATT.pageBanner),
       page(G2C.designPages, PAGE.glossary, 'Glossary', PAGE.rfc, 0),
       page(G1C.playbook, PAGE.playbook, 'Scrim playbook', null, 0)
     ],

@@ -116,7 +116,7 @@ async function checkGroupHeader(
 
 export interface DocEnvelopeInput extends EnvelopeInputBase {
   pageId: string
-  kind: 'doc_update' | 'doc_snapshot' | 'doc_title'
+  kind: 'doc_update' | 'doc_snapshot' | 'doc_title' | 'doc_banner'
 }
 
 export interface AcceptedDocEnvelope {

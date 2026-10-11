@@ -4,6 +4,7 @@ import { DndContext, closestCenter } from '@dnd-kit/core'
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import {
   PageDeleteConfirm,
+  PageMoveConfirm,
   PageRowActionsButton,
   PageRowMenu,
   RenameInput
@@ -114,6 +115,7 @@ function PageTree({
         </SortableContext>
       </DndContext>
       <ErrorText>{actions.error}</ErrorText>
+      <PageMoveConfirm actions={actions} />
       <PageDeleteConfirm
         pages={pages}
         page={actions.deleting}

@@ -59,6 +59,33 @@ export function PageDeleteConfirm({
 }
 
 /**
+ * The confirm of a move that removes a banner: a top-level page with a banner moves under a page
+ * (a drag in the tree), and Takusen clears its banner (contract §4 Pages "Banner").
+ */
+export function PageMoveConfirm({ actions }: { actions: PageTreeActions }): React.JSX.Element {
+  const pending = actions.bannerMove
+  const page = pending?.lost[0]
+  return (
+    <ConfirmDialog
+      open={pending !== null}
+      title="Move page"
+      body={
+        page && (
+          <>
+            This removes the banner of <strong>{pageTitle(page)}</strong>.
+          </>
+        )
+      }
+      confirmLabel="Move"
+      tone="danger"
+      what="move the page"
+      onConfirm={() => (pending ? docsService.movePages(pending.moves) : Promise.resolve())}
+      onClose={() => actions.setBannerMove(null)}
+    />
+  )
+}
+
+/**
  * The hold menu of a page row on the mobile layout (spec §2.9): New sub-page, Rename, Move up,
  * Move down and Delete. New sub-page and Rename show a field in the list: the sheet closes at
  * once, so that its focus trap lets go, and the field mounts and takes the focus in the same tap,

@@ -4,11 +4,18 @@ import { useAction } from '@/hooks/use-action'
 import { docsService } from '@/services/docs/DocsService'
 import type { PageNode } from '@/stores/docsStore'
 import { projectDrop, type PageMove } from '@/services/docs/page-tree'
+import { bannersLost } from './page-move'
 
 /** Pixels of one nesting level, in the rows and in the drag projection. */
 export const INDENT = 16
 
 const NONE: ReadonlySet<string> = new Set()
+
+/** A move that removes the banner of `lost` (a top-level page that goes under a page). */
+export interface BannerMove {
+  moves: PageMove[]
+  lost: PageNode[]
+}
 
 export interface PageTreeActions {
   /** The last failed action, as "Could not …". */
@@ -20,7 +27,11 @@ export interface PageTreeActions {
   create: (parentId: string | null, title?: string) => Promise<string | null>
   /** The end of a row's title edit: `title` null when cancelled. */
   finishRename: (page: PageNode, title: string | null) => void
+  /** Moves the pages, or first asks for the confirm of a move that removes a banner. */
   move: (moves: PageMove[]) => void
+  /** The move that waits for its banner confirm (`PageMoveConfirm`). */
+  bannerMove: BannerMove | null
+  setBannerMove: (move: BannerMove | null) => void
   /** The `onDragEnd` of the tree's `DndContext`. */
   onDragEnd: (event: DragEndEvent) => void
   /** The page whose delete waits for its confirm (`PageDeleteConfirm`). */
@@ -41,6 +52,7 @@ export function usePageTreeActions(
   const { run, error } = useAction()
   const [renaming, setRenaming] = useState<string | null>(null)
   const [deleting, setDeleting] = useState<PageNode | null>(null)
+  const [bannerMove, setBannerMove] = useState<BannerMove | null>(null)
 
   const create = useCallback(
     async (parentId: string | null, title = 'Untitled'): Promise<string | null> => {
@@ -63,9 +75,13 @@ export function usePageTreeActions(
 
   const move = useCallback(
     (moves: PageMove[]): void => {
-      if (moves.length > 0) void run('move the page', () => docsService.movePages(moves))
+      if (moves.length === 0) return
+      // Takusen clears the banner of a page that moves under a page (contract §4 Pages "Banner").
+      const lost = bannersLost(pages, moves)
+      if (lost.length > 0) setBannerMove({ moves, lost })
+      else void run('move the page', () => docsService.movePages(moves))
     },
-    [run]
+    [run, pages]
   )
 
   const onDragEnd = useCallback(
@@ -91,6 +107,8 @@ export function usePageTreeActions(
     create,
     finishRename,
     move,
+    bannerMove,
+    setBannerMove,
     onDragEnd,
     deleting,
     setDeleting

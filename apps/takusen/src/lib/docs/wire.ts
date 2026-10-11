@@ -20,6 +20,8 @@ export function toPage(row: DocPageRow): Page {
     parentId: row.parentId,
     position: row.position,
     titleEnvelope: toB64(row.titleEnvelope),
+    // banner_upload_ids stays on the server (§3).
+    bannerEnvelope: row.bannerEnvelope && toB64(row.bannerEnvelope),
     createdBy: row.createdBy,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
@@ -54,11 +56,12 @@ export function toDocSnapshot({ row, key, size }: StoredSnapshot): DocSnapshot {
   }
 }
 
-export function toPageHead({ page, title, snapshot }: PageHeadRow): PageHead {
+export function toPageHead({ page, title, banner, snapshot }: PageHeadRow): PageHead {
   return {
     pageId: page.id,
     latestSeq: page.latestSeq,
     title: title && { groupId: toB64(title.groupId), epoch: title.epoch },
+    banner: banner && { groupId: toB64(banner.groupId), epoch: banner.epoch },
     snapshot: snapshot && toDocSnapshot(snapshot),
   }
 }
@@ -84,6 +87,16 @@ export const updatePageSchema = z
     parentId: z.string().uuid().nullable().optional(),
     position: position.optional(),
     titleEnvelope: envelopeField.optional(),
+    /**
+     * The doc_banner envelope of a top-level page and the uploads it uses (§4 Pages "Banner").
+     * `uploadIds` are the image and its thumbnail. null removes the banner. No `uploadIds` is a
+     * re-wrap: the stored ids stay.
+     */
+    banner: z
+      .object({ envelope: envelopeField, uploadIds: uniqueIds(2, 1).optional() })
+      .strict()
+      .nullable()
+      .optional(),
     /** Compare-and-set: 409 PageConflict when the page `updatedAt` differs. */
     ifUpdatedAt: z.string().datetime().optional(),
   })

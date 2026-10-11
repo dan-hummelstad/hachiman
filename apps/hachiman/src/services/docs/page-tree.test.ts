@@ -10,6 +10,7 @@ import {
   moveAmongSiblings,
   pagePath,
   projectDrop,
+  rootOf,
   searchRows,
   subtreeEnd,
   subtreeIds
@@ -22,6 +23,8 @@ const page = (id: string, parentId: string | null, position: number): PageNode =
   position,
   title: id,
   titleState: 'ok',
+  banner: null,
+  bannerPending: false,
   createdBy: null,
   createdAt: '2026-01-01T00:00:00.000Z',
   updatedAt: '2026-01-01T00:00:00.000Z'
@@ -50,6 +53,18 @@ describe('page tree', () => {
   it('gives the path and the subtree', () => {
     expect(pagePath(PAGES, 'a2').map((p) => p.id)).toEqual(['a', 'a2'])
     expect([...subtreeIds(PAGES, 'a')].sort()).toEqual(['a', 'a1', 'a2'])
+  })
+
+  it('gives the top-level page of a path, or null for an orphan', () => {
+    const deep = [...PAGES, page('a2x', 'a2', 0)]
+    expect(rootOf(deep, 'a2x')).toBe('a')
+    expect(rootOf(deep, 'a1')).toBe('a')
+    expect(rootOf(deep, 'b')).toBe('b')
+    // The parent is not in the list (a move in flight): no root, so no banner and no controls.
+    expect(rootOf([...deep, page('o', 'gone', 0), page('o1', 'o', 0)], 'o1')).toBeNull()
+    expect(rootOf(deep, 'missing')).toBeNull()
+    // A cycle never reaches a top-level page.
+    expect(rootOf([page('x', 'y', 0), page('y', 'x', 0)], 'x')).toBeNull()
   })
 
   it('moves a page between two spaced siblings with one PATCH', () => {

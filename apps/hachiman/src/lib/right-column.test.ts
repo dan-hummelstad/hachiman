@@ -225,7 +225,9 @@ describe('guildPagesSections', () => {
     createdAt: '2026-10-01T00:00:00Z',
     updatedAt: '2026-10-01T00:00:00Z',
     title,
-    titleState: 'ok'
+    titleState: 'ok',
+    banner: null,
+    bannerPending: false
   })
   const channels = [pagesChannel('c1'), pagesChannel('c2'), pagesChannel('c3')]
   const loaded = new Map([

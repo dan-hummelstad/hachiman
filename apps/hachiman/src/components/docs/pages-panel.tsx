@@ -1,12 +1,22 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { Check, FileText, Link2, Loader2, MoreHorizontal, Plus } from 'lucide-react'
+import {
+  Check,
+  FileText,
+  ImagePlus,
+  Link2,
+  Loader2,
+  MoreHorizontal,
+  Plus,
+  Trash2
+} from 'lucide-react'
 import { Permissions, has, type Channel } from '@hachiman/client'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu'
 import { IconButton } from '@/components/ui/icon-button'
@@ -16,6 +26,12 @@ import { errMsg } from '@/lib/utils'
 import { docsService } from '@/services/docs/DocsService'
 import { flattenPages } from '@/services/docs/page-tree'
 import { useDocsStore, type PageNode } from '@/stores/docsStore'
+import {
+  AddBannerButton,
+  PageBanner,
+  usePageBannerControl,
+  type PageBannerControl
+} from './page-banner'
 import { pageLinkMarkdown } from './page-links'
 import {
   Breadcrumb,
@@ -25,14 +41,16 @@ import {
   Presence,
   openPageAnywhere
 } from './page-parts'
+import { PageTitleField } from './page-title-field'
 import { PageTreePopover } from './page-tree-popover'
 
 const EMPTY_PAGES: PageNode[] = []
 
 /**
  * The Pages view of the right column in a pages channel (C1): the column head (the switcher of
- * RightColumn, presence, outline, copy link, more), the path "channel › page", the open page and
- * its footer (save state, word count).
+ * RightColumn, presence, outline, copy link, more), the banner of the page's top-level page, the
+ * path "channel › page" (the title is a field for editors), the open page and its footer (save
+ * state, word count).
  */
 export function PagesPanel({
   channel,
@@ -79,6 +97,9 @@ export function PagesPanel({
     (id: string) => openPageAnywhere(id, channel.id, onOpenElsewhere),
     [channel.id, onOpenElsewhere]
   )
+  const banner = usePageBannerControl(channel.id, pageId ?? '', canEdit)
+  const page = pageId === null ? undefined : pages.find((p) => p.id === pageId)
+  const [titleError, setTitleError] = useState<{ pageId: string; message: string } | null>(null)
 
   return (
     <div
@@ -92,9 +113,41 @@ export function PagesPanel({
         canEdit={canEdit}
         onOpen={open}
         switcher={switcher}
+        banner={banner}
       />
+      {pageId && <PageBanner control={banner} />}
       {pageId && (
-        <Breadcrumb channelName={channel.name ?? ''} pages={pages} pageId={pageId} onOpen={open} />
+        <Breadcrumb
+          channelName={channel.name ?? ''}
+          pages={pages}
+          pageId={pageId}
+          onOpen={open}
+          current={
+            canEdit &&
+            page && (
+              <PageTitleField
+                key={page.id}
+                page={page}
+                current
+                className="text-text-primary"
+                onError={(message) => setTitleError({ pageId: page.id, message })}
+              />
+            )
+          }
+          trailing={banner.view.show === 'add' && <AddBannerButton control={banner} />}
+        />
+      )}
+      {titleError !== null && titleError.pageId === pageId && (
+        <p role="alert" className="text-feature-danger-text flex shrink-0 gap-2 px-16 pt-2 text-xs">
+          <span className="min-w-0 flex-1">{titleError.message}</span>
+          <button
+            type="button"
+            onClick={() => setTitleError(null)}
+            className="text-text-tertiary hover:text-text-primary shrink-0 font-semibold"
+          >
+            Dismiss
+          </button>
+        </p>
       )}
       {loadError !== null && !loaded ? (
         <PanelMessage>Could not load the pages: {loadError}</PanelMessage>
@@ -121,7 +174,8 @@ function PanelHeader({
   pageId,
   canEdit,
   onOpen,
-  switcher
+  switcher,
+  banner
 }: {
   channelId: string
   pages: PageNode[]
@@ -129,6 +183,7 @@ function PanelHeader({
   canEdit: boolean
   onOpen: (pageId: string) => void
   switcher: React.ReactNode
+  banner: PageBannerControl
 }): React.JSX.Element {
   const page = pageId ? pages.find((p) => p.id === pageId) : undefined
   return (
@@ -144,7 +199,7 @@ function PanelHeader({
         onOpen={onOpen}
       />
       {page && <CopyLink page={page} />}
-      {pageId && <MoreMenu pageId={pageId} />}
+      {pageId && <MoreMenu pageId={pageId} banner={banner} />}
     </header>
   )
 }
@@ -164,7 +219,14 @@ function CopyLink({ page }: { page: PageNode }): React.JSX.Element {
   )
 }
 
-function MoreMenu({ pageId }: { pageId: string }): React.JSX.Element {
+/** Copy as markdown, and for the editor of a top-level page its banner actions. */
+function MoreMenu({
+  pageId,
+  banner
+}: {
+  pageId: string
+  banner: PageBannerControl
+}): React.JSX.Element {
   const { copied, copy } = useCopy()
   const copyMarkdown = (): void => {
     const md = docsService.copyMarkdown(pageId)
@@ -179,6 +241,25 @@ function MoreMenu({ pageId }: { pageId: string }): React.JSX.Element {
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
         <DropdownMenuItem onSelect={copyMarkdown}>Copy as markdown</DropdownMenuItem>
+        {(banner.view.show === 'add' || banner.view.controls) && <DropdownMenuSeparator />}
+        {banner.view.show === 'add' && (
+          <DropdownMenuItem disabled={banner.busy} onSelect={banner.pick}>
+            <ImagePlus />
+            Add banner
+          </DropdownMenuItem>
+        )}
+        {banner.view.controls && (
+          <>
+            <DropdownMenuItem disabled={banner.busy} onSelect={banner.pick}>
+              <ImagePlus />
+              Change banner
+            </DropdownMenuItem>
+            <DropdownMenuItem variant="destructive" disabled={banner.busy} onSelect={banner.remove}>
+              <Trash2 />
+              Remove banner
+            </DropdownMenuItem>
+          </>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   )

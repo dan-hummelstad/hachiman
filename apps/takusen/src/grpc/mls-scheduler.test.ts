@@ -123,6 +123,36 @@ describe('MlsScheduler', () => {
     assert.deepEqual([...media.uploads.keys()].sort(), ['claimed', 'current', 'previous'])
   })
 
+  test('the daily sweep never deletes a banner upload; a dropped banner upload goes after 30 days', async () => {
+    const w = await newWorld()
+    const media = new InMemoryPageMediaSweepRepo()
+    const created = new Date(w.clock.now)
+    for (const id of ['banner', 'thumb', 'dropped', 'otherPage']) {
+      media.uploads.set(id, { id, pageId: id === 'otherPage' ? 'q' : 'p', key: `key-${id}`, createdAt: created, lastReferencedAt: created })
+    }
+    media.banners.set('p', ['banner', 'thumb'])
+    media.banners.set('q', [])
+    const deleted: string[] = []
+    const scheduler = new MlsScheduler({
+      repo: w.repo,
+      deps: w.deps,
+      flush: async () => undefined,
+      logger: () => undefined,
+      pageMedia: { repo: media, deleteObjects: async (keys) => void deleted.push(...keys) },
+    })
+    // The PATCH that dropped it touched it, so it stays for 30 days after that.
+    w.clock.now += 20 * 24 * 60 * 60_000
+    media.uploads.get('dropped')!.lastReferencedAt = new Date(w.clock.now)
+    w.clock.now += 20 * 24 * 60 * 60_000
+    assert.equal((await scheduler.sweep()).pageMedia, 1)
+    assert.deepEqual(deleted, ['key-otherPage'], 'the banner of page p does not keep media of page q')
+
+    w.clock.now += 365 * 24 * 60 * 60_000
+    assert.equal((await scheduler.sweep()).pageMedia, 1)
+    assert.deepEqual(deleted.sort(), ['key-dropped', 'key-otherPage'])
+    assert.deepEqual([...media.uploads.keys()].sort(), ['banner', 'thumb'])
+  })
+
   test('the daily sweep deletes the bundles of revoked invites and of invites that ended more than an hour ago', async () => {
     const w = await newWorld()
     const invites = new InMemoryInviteHistoryStore()

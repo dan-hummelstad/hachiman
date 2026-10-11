@@ -854,12 +854,13 @@ export type FrameStatsMessage = {
 // MARK: - 3c2. Page envelopes (§12.20)
 
 export type PageId = string
-export type DocEnvelopeKindName = 'doc_update' | 'doc_snapshot' | 'doc_awareness' | 'doc_title'
+export type DocEnvelopeKindName = 'doc_update' | 'doc_snapshot' | 'doc_awareness' | 'doc_title' | 'doc_banner'
 
 /**
  * `bytes` is the body: a Yjs update (doc_update), the encoded DocSnapshotPointer (doc_snapshot),
- * a y-protocols awareness update (doc_awareness), or the UTF-8 title (doc_title, 1 to
- * MAX_PAGE_TITLE_BYTES bytes).
+ * a y-protocols awareness update (doc_awareness), the UTF-8 title (doc_title, 1 to
+ * MAX_PAGE_TITLE_BYTES bytes), or the UTF-8 JSON of the AttachmentPointer of a top-level page's
+ * banner image (doc_banner, at most MAX_PAGE_BANNER_BYTES bytes, an `image/` mime).
  */
 export interface EncryptDocInput {
   channelId: ChannelId

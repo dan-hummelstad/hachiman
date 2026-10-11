@@ -521,11 +521,19 @@ export function stubRest(): void {
           pageId: p.id,
           latestSeq: docUpdates.get(p.id)?.length ?? 0,
           title: null,
+          banner: null,
           snapshot: null
         })),
     createPage: (channelId, body) => {
       const now = new Date().toISOString()
-      const p: Page = { ...body, channelId, createdBy: ME.id, createdAt: now, updatedAt: now }
+      const p: Page = {
+        ...body,
+        channelId,
+        bannerEnvelope: null,
+        createdBy: ME.id,
+        createdAt: now,
+        updatedAt: now
+      }
       pages.set(p.id, p)
       dispatch({ t: 'PAGE_CREATE', d: { ...p, guildId: pageGuild(p) } })
       return p
@@ -534,11 +542,21 @@ export function stubRest(): void {
       const p = pageOf(pageId)
       if (body.ifUpdatedAt != null && body.ifUpdatedAt !== p.updatedAt)
         throw new RestError(409, 'PageConflict')
+      const parentId = body.parentId === undefined ? p.parentId : body.parentId
+      // §4 Pages "Banner": only a top-level page has one, a re-wrap (no uploadIds) needs one, and
+      // a move under a parent clears it.
+      if (body.banner && parentId !== null) throw new RestError(400, 'ValidationError')
+      if (body.banner && !body.banner.uploadIds && p.bannerEnvelope === null)
+        throw new RestError(400, 'ValidationError')
       const next: Page = {
         ...p,
-        parentId: body.parentId === undefined ? p.parentId : body.parentId,
+        parentId,
         position: body.position ?? p.position,
         titleEnvelope: body.titleEnvelope ?? p.titleEnvelope,
+        bannerEnvelope:
+          parentId !== null || body.banner === null
+            ? null
+            : (body.banner?.envelope ?? p.bannerEnvelope),
         updatedAt: new Date().toISOString()
       }
       pages.set(pageId, next)

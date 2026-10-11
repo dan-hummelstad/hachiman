@@ -84,6 +84,7 @@ export class InMemoryDocsStore {
       const page = s().pages.get(pageId)
       return page ? s().channels.get(page.channelId) : undefined
     }
+    const copy = (p: DocPageRow): DocPageRow => ({ ...p, bannerUploadIds: [...p.bannerUploadIds] })
     const stored = (row: DocSnapshotRow): StoredSnapshot => {
       const u = s().uploads.get(row.uploadId)!
       return { row: { ...row }, key: u.key, size: u.size }
@@ -104,29 +105,29 @@ export class InMemoryDocsStore {
 
     return {
       async listPages(channelId) {
-        return [...s().pages.values()].filter((p) => p.channelId === channelId).map((p) => ({ ...p }))
+        return [...s().pages.values()].filter((p) => p.channelId === channelId).map(copy)
       },
       async getPage(pageId) {
         const p = s().pages.get(pageId)
-        return p ? { ...p } : null
+        return p ? copy(p) : null
       },
       async lockPage(pageId) {
         const p = s().pages.get(pageId)
-        return p ? { ...p } : null
+        return p ? copy(p) : null
       },
       async lockTree() {},
       async insertPage(values) {
         if (s().pages.has(values.id)) return null
         const now = new Date()
-        const row: DocPageRow = { ...values, latestSeq: 0, createdAt: now, updatedAt: now }
+        const row: DocPageRow = { ...values, bannerEnvelope: null, bannerUploadIds: [], latestSeq: 0, createdAt: now, updatedAt: now }
         s().pages.set(row.id, row)
-        return { ...row }
+        return copy(row)
       },
       async updatePage(pageId, patch) {
         const p = s().pages.get(pageId)
         if (!p) return null
-        Object.assign(p, patch)
-        return { ...p }
+        Object.assign(p, patch, patch.bannerUploadIds && { bannerUploadIds: [...patch.bannerUploadIds] })
+        return copy(p)
       },
       async subtreeIds(pageId) {
         return subtree(pageId)
@@ -207,6 +208,12 @@ export class InMemoryDocsStore {
           Object.assign(u, { purpose: 'page_media', pageId, lastReferencedAt: now })
         }
         return added
+      },
+      async touchPageMedia(pageId, uploadIds, now) {
+        for (const id of uploadIds) {
+          const u = s().uploads.get(id)
+          if (u?.purpose === 'page_media' && u.pageId === pageId) u.lastReferencedAt = now
+        }
       },
       async deletePageUploads(scope) {
         if ('uploadIds' in scope) return removeUploads(new Set(scope.uploadIds))

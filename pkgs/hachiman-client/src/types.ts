@@ -286,6 +286,8 @@ export interface Page {
   position: number
   /** The doc_title envelope (§12.20). */
   titleEnvelope: B64url
+  /** The doc_banner envelope (§12.20): the banner image pointer. Not null only on a top-level page. */
+  bannerEnvelope: B64url | null
   /** null after the user is gone. */
   createdBy: string | null
   createdAt: string
@@ -337,6 +339,8 @@ export interface PageHead {
   latestSeq: number
   /** The group and epoch of the title envelope header. null when the header does not decode. */
   title: { groupId: B64url; epoch: number } | null
+  /** The group and epoch of the banner envelope header. null when the page has no banner or the header does not decode. */
+  banner: { groupId: B64url; epoch: number } | null
   /** The newest snapshot. */
   snapshot: DocSnapshot | null
 }

@@ -1,8 +1,9 @@
 // The pages channel services as the UI sees them. Contract: docs/gateway-protocol.md §4 Pages, §12.20.
-// The store (stores/docsStore.ts) holds the tree, titles and presence. The Yjs objects stay here.
+// The store (stores/docsStore.ts) holds the tree, titles, banners and presence. The Yjs objects stay here.
 import type { Awareness } from 'y-protocols/awareness'
 import type * as Y from 'yjs'
 import type { DocUpdate } from '@hachiman/client'
+import type { UploadFileOptions } from '@/services/UploadService'
 import type { PageMove } from './page-tree'
 
 /**
@@ -36,7 +37,21 @@ export interface DocsService {
    * new page id.
    */
   createPage(channelId: string, title: string, parentId: string | null): Promise<string>
+  /**
+   * Encrypts the title (trimmed, at most MAX_PAGE_TITLE_BYTES, 'Untitled' when empty) and PATCHes
+   * it. A title that does not change sends nothing.
+   */
   renamePage(pageId: string, title: string): Promise<void>
+  /**
+   * Sets or changes the banner of a top-level page (§4 Pages "Banner"): scales and encodes the
+   * image again (lib/banner-image.ts), encrypts and uploads it, encrypts its pointer as a
+   * doc_banner envelope and PATCHes it with the upload ids. Rejects before any upload when the
+   * page is not a top-level page. The image and upload errors are user-facing. A PATCH error is a
+   * RestError (413 StorageQuotaExceeded): show it with `claimErrorText` (services/UploadService).
+   */
+  setBanner(pageId: string, file: File, opts?: UploadFileOptions): Promise<void>
+  /** Removes the banner of a top-level page. Its uploads stay for the 30 days of the media sweep. */
+  removeBanner(pageId: string): Promise<void>
   /** The PATCHes of a drop (projectDrop). 400 PageCycle rejects. */
   movePages(moves: PageMove[]): Promise<void>
   /** Deletes the page and its subtree. */

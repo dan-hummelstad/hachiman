@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest'
-import { holdEndOpensMenu, isTouchDrag } from './use-sortable-row'
+import { holdCancelOpensMenu, holdEndOpensMenu, isTouchDrag } from './use-sortable-row'
 
 const touchStart = { type: 'touchstart', touches: [] } as unknown as Event
 const mouseDown = { type: 'mousedown' } as unknown as Event
@@ -22,4 +22,15 @@ it('reorders, not opens the menu, when the finger moved', () => {
 
 it('never opens the hold menu at the end of a mouse drag', () => {
   expect(holdEndOpensMenu(false, { x: 0, y: 0 })).toBe(false)
+})
+
+it('opens the hold menu when iOS cancels a still touch hold in view', () => {
+  expect(holdCancelOpensMenu(true, { x: 0, y: 0 }, true)).toBe(true)
+  expect(holdCancelOpensMenu(true, { x: 4, y: 4 }, true)).toBe(true)
+})
+
+it('opens nothing for a cancel after a move, of a mouse drag, or out of view', () => {
+  expect(holdCancelOpensMenu(true, { x: 30, y: 0 }, true)).toBe(false)
+  expect(holdCancelOpensMenu(false, { x: 0, y: 0 }, true)).toBe(false)
+  expect(holdCancelOpensMenu(true, { x: 0, y: 0 }, false)).toBe(false)
 })

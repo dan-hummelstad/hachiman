@@ -92,6 +92,20 @@ export function holdEndOpensMenu(touch: boolean, delta: { x: number; y: number }
 }
 
 /**
+ * A cancel of a touch drag that the hold had started. iOS WKWebView can end a still hold with
+ * `touchcancel` instead of `touchend` (a native gesture takes the touch), and it fires no
+ * `contextmenu`. So a cancel with no move is a hold too, while the page is in view. A cancel
+ * because the app went to the background opens nothing.
+ */
+export function holdCancelOpensMenu(
+  touch: boolean,
+  delta: { x: number; y: number },
+  visible: boolean
+): boolean {
+  return visible && holdEndOpensMenu(touch, delta)
+}
+
+/**
  * While a finger drags a row, the pointer moves of that touch stop at the window. The drawer swipe
  * of the mobile shell listens to pointer events and would otherwise close the drawer under a tile
  * that moves to the left. The drag itself runs on touch events.
@@ -140,8 +154,8 @@ export interface SortableHoldMenu {
 /**
  * Hold on a sortable row (spec §2.9): the touch sensor starts a drag after a 400 ms hold, with a
  * light haptic. A drag that moves reorders (the list's `onDragEnd`); a drag that ends with no move
- * opens the row's hold menu. So "hold and release" gives the menu and "hold and move" reorders.
- * The click of the lift is swallowed. Call it in the component of row `id`, inside the list's
+ * opens the row's hold menu, and so does a still hold that iOS cancels (`holdCancelOpensMenu`). So
+ * "hold and release" gives the menu and "hold and move" reorders. The click of the lift is swallowed. Call it in the component of row `id`, inside the list's
  * `DndContext`. `sortable` false: the row cannot be dragged (no permission).
  */
 export function useSortableHoldMenu(id: string, { sortable = true } = {}): SortableHoldMenu {
@@ -159,6 +173,11 @@ export function useSortableHoldMenu(id: string, { sortable = true } = {}): Sorta
       release.current?.()
       release.current = null
     }
+    const openFrom = (activatorEvent: Event | null): void => {
+      // The lift click never reaches the document: the held row is the menu's opener.
+      if (activatorEvent?.target instanceof Element) noteActivation(activatorEvent.target)
+      setOpen(true)
+    }
     return {
       onDragStart: ({ active, activatorEvent }: DragStartEvent): void => {
         if (active.id !== latest.current.id || !isTouchDrag(activatorEvent)) return
@@ -171,13 +190,15 @@ export function useSortableHoldMenu(id: string, { sortable = true } = {}): Sorta
         end()
         const touch = isTouchDrag(activatorEvent)
         if (touch) swallowLiftClick()
-        if (!holdEndOpensMenu(touch, delta)) return
-        // The lift click never reaches the document: the held row is the menu's opener.
-        if (activatorEvent?.target instanceof Element) noteActivation(activatorEvent.target)
-        setOpen(true)
+        if (holdEndOpensMenu(touch, delta)) openFrom(activatorEvent)
       },
-      onDragCancel: ({ active }: DragCancelEvent): void => {
-        if (active.id === latest.current.id) end()
+      onDragCancel: ({ active, activatorEvent, delta }: DragCancelEvent): void => {
+        if (active.id !== latest.current.id) return
+        end()
+        const visible = document.visibilityState === 'visible'
+        if (holdCancelOpensMenu(isTouchDrag(activatorEvent), delta, visible)) {
+          openFrom(activatorEvent)
+        }
       }
     }
   }, [])

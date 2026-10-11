@@ -431,7 +431,7 @@ export function testEnvelope(h: { groupId: Uint8Array; channelId: string; epoch:
 
 /** A page envelope (§12.20) with a random ciphertext: the DS reads only the header. */
 export function testDocEnvelope(h: {
-  kind: 'doc_update' | 'doc_snapshot' | 'doc_awareness' | 'doc_title'
+  kind: 'doc_update' | 'doc_snapshot' | 'doc_awareness' | 'doc_title' | 'doc_banner'
   groupId: Uint8Array
   channelId: string
   pageId: string

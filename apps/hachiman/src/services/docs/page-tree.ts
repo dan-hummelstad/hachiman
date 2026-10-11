@@ -124,6 +124,16 @@ export function pagePath(pages: readonly PageNode[], pageId: string): PageNode[]
   return path
 }
 
+/**
+ * The id of the top-level page above `pageId` (itself when it is one): the page whose banner it
+ * shows. null when the page is not in the list, or when the top of its path is not top-level (an
+ * orphan whose parent is not in the list, during a move for example).
+ */
+export function rootOf(pages: readonly PageNode[], pageId: string): string | null {
+  const top = pagePath(pages, pageId)[0]
+  return top?.parentId === null ? top.id : null
+}
+
 /** The ids of `pageId` and of every page below it. */
 export function subtreeIds(pages: readonly PageNode[], pageId: string): Set<string> {
   const kids = childrenByParent(pages)

@@ -17,6 +17,7 @@ import { DndContext, closestCenter, type DragEndEvent } from '@dnd-kit/core'
 import { SortableContext, horizontalListSortingStrategy } from '@dnd-kit/sortable'
 import { openSwitcher } from '@/components/shell/switcher-state'
 import { DRAG_REGION } from '@/components/shell/sidebar'
+import { TOUCH_HIT } from '@/components/sidebar/sidebar-row'
 import { SidebarControls, SidebarToggle } from '@/components/shell/sidebar-controls'
 import { useSidebarView } from '@/components/shell/sidebar-state'
 import { UserAvatar } from '@/components/shell/user-avatar'
@@ -202,9 +203,10 @@ export function Tabs({
 }
 
 /**
- * One pinned tab: crest, type icon, name, one state mark; the lit one has ✕ to unpin (on desktop;
- * a phone unpins from the hold menu). The hold menu (mobile layout): Unpin, Move left and Move
- * right, the button path of the drag for VoiceOver.
+ * One pinned tab: crest, type icon, name, one state mark; the lit one has ✕ to unpin (on a phone
+ * with a 36 hit area, spec §2.10). The ✕ lets the touch through to the tab, so holding it gives
+ * the hold menu too. The hold menu (mobile layout): Unpin, Move left and Move right, the button
+ * path of the drag for VoiceOver.
  */
 export function Tab({
   id,
@@ -307,7 +309,14 @@ export function Tab({
             e.stopPropagation()
             unpinTab(target)
           }}
-          className="text-text-tertiary hover:text-text-primary hover:bg-surface-hover mobile:hidden -mr-1 flex size-5 shrink-0 items-center justify-center rounded-[5px]"
+          className={cn(
+            'text-text-tertiary hover:text-text-primary hover:bg-surface-hover -mr-1 flex size-5 shrink-0 items-center justify-center rounded-[5px]',
+            'mobile:active:bg-surface-hover mobile:active:text-text-primary',
+            // The 36 hit area reaches 8 past the mark: 4 more gap keeps it off the name and the
+            // unread mark, so a tap on them goes to the tab, not to an unpin.
+            'mobile:ml-1',
+            TOUCH_HIT
+          )}
         >
           <X className="size-3" />
         </button>

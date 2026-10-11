@@ -56,3 +56,16 @@ export function moveUnder(
   }
   return [{ pageId, parentId, position: endPosition(pages, parentId) }]
 }
+
+/**
+ * The pages whose banner `moves` remove. Takusen clears the banner of a page that moves under a
+ * parent (contract §4 Pages "Banner"), so "Move to…" and a drag in the tree confirm it first. A
+ * banner that has not decrypted yet counts too: the server still holds it.
+ */
+export function bannersLost(pages: readonly PageNode[], moves: readonly PageMove[]): PageNode[] {
+  return moves.flatMap((m) => {
+    if (m.parentId === null) return []
+    const page = pages.find((p) => p.id === m.pageId)
+    return page && (page.banner !== null || page.bannerPending) ? [page] : []
+  })
+}

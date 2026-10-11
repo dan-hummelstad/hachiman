@@ -2,21 +2,27 @@
  * The pages of each pages channel (contract §4 Pages): the tree with decrypted titles in docsStore
  * (titles.ts), the PAGE_* mirror, one DocProvider per open page with a reference count, and the
  * re-wrap pass for new members (rewrap.ts). Decrypt before store: a title envelope never reaches
- * the store, only its text or a pending/failed state.
+ * the store, only its text or a pending/failed state. A banner envelope reaches it only as its
+ * checked pointer (banner.ts).
  */
+import { uploadIdsOf } from '@/lib/attachments'
+import { prepareBannerImage } from '@/lib/banner-image'
+import { formatBytes } from '@/lib/format-bytes'
 import { userHue } from '@/lib/user-tint'
 import type { GatewayEvents, Page } from '@hachiman/client'
 import type { CryptoEvents } from '@hachiman/crypto'
 import { cryptoService } from '@/services/CryptoService'
+import { uploadAttachment } from '@/services/UploadService'
 import { hachiman } from '@/services/client'
 import { currentDeviceId } from '@/stores/cryptoStore'
 import { findPage, resetDocsStore, useDocsStore } from '@/stores/docsStore'
 import { useUserStore } from '@/stores/userStore'
+import { BANNER_MAX_BYTES, parseBanner } from './banner'
 import { createDocProvider, type DocProviderDeps } from './DocProvider'
 import { collectMediaUploadIds, forgetCopiedMedia } from './media'
-import { endPosition } from './page-tree'
+import { clampTitle, endPosition, rootOf } from './page-tree'
 import { createRewrapper, pagesChannelsOf, snapshotHeadless } from './rewrap'
-import { createPageTitles, keepTitle } from './titles'
+import { createPageTitles, keepDecrypted } from './titles'
 import type { DocHandle, DocProvider, DocsService } from './types'
 
 const utf8 = new TextEncoder()
@@ -73,7 +79,7 @@ async function encryptTitle(channelId: string, pageId: string, title: string): P
     channelId,
     pageId,
     kind: 'doc_title',
-    bytes: utf8.encode(title.trim() || 'Untitled')
+    bytes: utf8.encode(clampTitle(title))
   })
   return out.envelope
 }
@@ -141,7 +147,7 @@ export const docsService: DocsService & {
     )
     useDocsStore.getState().setPages(
       channelId,
-      nodes.map((n) => keepTitle(stored.get(n.id), n))
+      nodes.map((n) => keepDecrypted(stored.get(n.id), n))
     )
   },
 
@@ -192,8 +198,40 @@ export const docsService: DocsService & {
   async renamePage(pageId, title) {
     const page = findPage(pageId)
     if (!page) throw new Error('unknown page')
+    // A save of the title field that changed nothing (a blur) sends no PATCH.
+    if (page.titleState === 'ok' && clampTitle(page.title) === clampTitle(title)) return
     const titleEnvelope = await encryptTitle(page.channelId, pageId, title)
     await upsertFromEvent(await hachiman.rest.updatePage(pageId, { titleEnvelope }))
+  },
+
+  async setBanner(pageId, file, opts = {}) {
+    const page = findPage(pageId)
+    if (!page) throw new Error('unknown page')
+    const pages = useDocsStore.getState().pagesByChannel.get(page.channelId) ?? []
+    if (rootOf(pages, pageId) !== pageId) throw new Error('Only a top-level page has a banner.')
+    const image = await prepareBannerImage(file)
+    opts.signal?.throwIfAborted()
+    if (image.size > BANNER_MAX_BYTES)
+      throw new Error(`The banner is larger than ${formatBytes(BANNER_MAX_BYTES)}.`)
+    const pointer = await uploadAttachment(image, opts)
+    const bytes = utf8.encode(JSON.stringify(pointer))
+    // The members check the pointer as banner.ts does: one that fails there shows as no banner.
+    if (!parseBanner(bytes)) throw new Error('This image cannot be used as a banner.')
+    opts.signal?.throwIfAborted()
+    const { envelope } = await cryptoService.client().encryptDoc({
+      channelId: page.channelId,
+      pageId,
+      kind: 'doc_banner',
+      bytes
+    })
+    const row = await hachiman.rest.updatePage(pageId, {
+      banner: { envelope, uploadIds: uploadIdsOf([pointer]) }
+    })
+    await upsertFromEvent(row)
+  },
+
+  async removeBanner(pageId) {
+    await upsertFromEvent(await hachiman.rest.updatePage(pageId, { banner: null }))
   },
 
   async movePages(moves) {

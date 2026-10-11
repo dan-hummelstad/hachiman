@@ -6,6 +6,7 @@ import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { Permissions, has, type Channel } from '@hachiman/client'
 import {
   PageDeleteConfirm,
+  PageMoveConfirm,
   PageRowActionsButton,
   PageRowMenu,
   RenameInput
@@ -195,6 +196,7 @@ export function PagesTreeList({
           <ErrorText>{actions.error}</ErrorText>
         </div>
       </div>
+      <PageMoveConfirm actions={actions} />
       <PageDeleteConfirm
         pages={pages}
         page={actions.deleting}

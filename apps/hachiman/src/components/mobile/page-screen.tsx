@@ -8,7 +8,7 @@ import {
   usePageEditorFocused,
   usePageEditorState
 } from '@/components/docs/page-editor-state'
-import { PageHero } from '@/components/docs/page-hero'
+import { PageBanner, usePageBannerControl } from '@/components/docs/page-banner'
 import {
   Breadcrumb,
   LoadingBody,
@@ -18,9 +18,9 @@ import {
   Presence,
   openPageAnywhere
 } from '@/components/docs/page-parts'
+import { PageTitleField } from '@/components/docs/page-title-field'
 import { NavActionButton } from '@/components/mobile/nav-bar'
 import { PushedScreen } from '@/components/mobile/pushed-screen'
-import { useGuildTint } from '@/components/shell/use-guild-tint'
 import { usePermissions } from '@/hooks/use-hachiman'
 import { useLatched } from '@/hooks/use-latched'
 import { countLabel } from '@/lib/unread-mark'
@@ -33,6 +33,12 @@ import { useGuildStore } from '@/stores/guildStore'
 import { navigate, useCurrentView } from '@/stores/navStore'
 import { useUnreadStore } from '@/stores/unreadStore'
 
+/**
+ * The title field in the nav bar: 16 (iOS zooms into a field under 16), the full width of the
+ * title, its text in line with the line under it.
+ */
+const TITLE_FIELD = '-ml-1 grid-cols-1 text-[16px]'
+
 /** The focus ring of the bar's own buttons, as the kit's 36 buttons (`KIT_ICON_BUTTON`). */
 const FOCUS =
   'outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-line-focus'
@@ -40,10 +46,11 @@ const FOCUS =
 /**
  * The full-screen page of a `{ kind: 'page' }` view (M38; docs/ios-mobile-ui-spec.md §2.6, F2),
  * pushed over the chat of its pages channel, with no tab strip. The nav bar: Back, the title
- * (15.5/800) over "channel · guild", who is on the page, then More, or Done while the editor has
- * the focus. Under it the computed hero, the path and the labels, the touch editor, the foot
- * ("Saved · end-to-end encrypted", the word count) and the floating Chat pill. Back and the pill
- * go to the channel's chat, which clears the open page.
+ * (15.5/800; for an editor the inline title field at 16, so iOS does not zoom) over "channel ·
+ * guild", who is on the page, then More, or Done while the editor has the focus. Under it the
+ * banner of the top-level page (`PageBanner`, contract §12.20 doc_banner), the path and the
+ * labels, the touch editor, the foot ("Saved · end-to-end encrypted", the word count) and the
+ * floating Chat pill. Back and the pill go to the channel's chat, which clears the open page.
  */
 export function PageScreen(): React.JSX.Element | null {
   const view = useCurrentView()
@@ -55,22 +62,45 @@ export function PageScreen(): React.JSX.Element | null {
   const node = useDocsStore((s) =>
     shown ? s.pagesByChannel.get(shown.channelId)?.find((p) => p.id === shown.pageId) : undefined
   )
+  const canEdit = has(
+    usePermissions(shown?.guildId ?? null, shown?.channelId),
+    Permissions.SEND_MESSAGES
+  )
+  const titleBox = useRef<HTMLSpanElement>(null)
+  // A failed rename, for the page it was on.
+  const [titleError, setTitleError] = useState<{ pageId: string; text: string } | null>(null)
   if (!shown || !channel) return null
 
   const back = (): void =>
     navigate({ kind: 'channel', guildId: shown.guildId, channelId: shown.channelId })
   const where = guildName ? `${channel.name ?? ''} · ${guildName}` : (channel.name ?? '')
+  const editable = canEdit && node !== undefined
+  // The title line is 20 high: a tap anywhere on the full-width line under it also starts the
+  // edit, so the band is 36 high (spec §2.10).
+  const editTitle = (): void => titleBox.current?.querySelector('input')?.focus()
 
   return (
     <PushedScreen
       open={page !== null}
       title={
-        <span className={cn('text-[15.5px]', node && node.titleState !== 'ok' && 'italic')}>
-          {node ? pageTitle(node) : 'Page'}
-        </span>
+        editable ? (
+          <span ref={titleBox} className="contents">
+            <PageTitleField
+              // A new page is a new field: no draft or save of the page before it.
+              key={node.id}
+              page={node}
+              className={TITLE_FIELD}
+              onError={(text) => setTitleError({ pageId: node.id, text })}
+            />
+          </span>
+        ) : (
+          <span className={cn('text-[15.5px]', node && node.titleState !== 'ok' && 'italic')}>
+            {node ? pageTitle(node) : 'Page'}
+          </span>
+        )
       }
       subtitle={
-        <span className="text-[12px]">
+        <span className="block truncate text-[12px]" onClick={editable ? editTitle : undefined}>
           <FileText
             aria-hidden
             className="text-feature-page-text mr-1 inline-block size-3 align-[-1.5px]"
@@ -94,8 +124,10 @@ export function PageScreen(): React.JSX.Element | null {
     >
       <PageScreenBody
         channel={channel}
-        guildId={shown.guildId}
         pageId={shown.pageId}
+        canEdit={canEdit}
+        titleError={titleError?.pageId === shown.pageId ? titleError.text : null}
+        onDismissTitleError={() => setTitleError(null)}
         onBack={back}
       />
     </PushedScreen>
@@ -186,32 +218,37 @@ function DoneButton({ onDone }: { onDone: () => void }): React.JSX.Element {
 
 /**
  * The page under the nav bar. The pages of the channel load here too (a pinned page tab can open
- * the screen first), and a page that is gone says so: Back and the pill still lead out.
+ * the screen first), and a page that is gone says so: Back and the pill still lead out. The banner
+ * shows from the top-level page; the page tile sits over its lower edge and the path under it.
  */
 function PageScreenBody({
   channel,
-  guildId,
   pageId,
+  canEdit,
+  titleError,
+  onDismissTitleError,
   onBack
 }: {
   channel: Channel
-  guildId: string
   pageId: string
+  canEdit: boolean
+  /** A failed rename from the title field in the nav bar. */
+  titleError: string | null
+  onDismissTitleError: () => void
   onBack: () => void
 }): React.JSX.Element {
   const { pages, loaded, failed } = useChannelPages(channel.id)
-  const canEdit = has(usePermissions(channel.guildId, channel.id), Permissions.SEND_MESSAGES)
-  const tint = useGuildTint(guildId).window
+  const banner = usePageBannerControl(channel.id, pageId, canEdit)
   const open = useCallback((id: string) => openPageAnywhere(id, channel.id), [channel.id])
   const exists = pages.some((p) => p.id === pageId)
 
-  const hero = <PageHero pageId={pageId} tint={tint} />
+  const top = <PageBanner variant="screen" control={banner} />
   const pill = <ChatPill channelId={channel.id} onClick={onBack} />
 
   if (!loaded || !exists) {
     return (
       <PageScreenLayout overlay={pill}>
-        {hero}
+        {top}
         {!loaded && failed !== null ? (
           <PanelMessage>Could not load the pages: {failed}</PanelMessage>
         ) : !loaded ? (
@@ -232,18 +269,48 @@ function PageScreenBody({
       onOpen={open}
       head={
         <>
-          {hero}
+          {top}
           <Breadcrumb
             variant="screen"
             channelName={channel.name ?? ''}
             pages={pages}
             pageId={pageId}
             onOpen={open}
+            afterTile={banner.view.tile}
           />
+          {titleError !== null && <TitleError text={titleError} onDismiss={onDismissTitleError} />}
         </>
       }
       overlay={pill}
     />
+  )
+}
+
+/** A failed rename from the nav bar, under the path, until the user closes it or renames again. */
+function TitleError({
+  text,
+  onDismiss
+}: {
+  text: string
+  onDismiss: () => void
+}): React.JSX.Element {
+  return (
+    <p
+      role="alert"
+      className="text-feature-danger-text flex shrink-0 items-start gap-2 px-5 pt-4 text-xs"
+    >
+      <span className="min-w-0 flex-1">{text}</span>
+      <button
+        type="button"
+        onClick={onDismiss}
+        className={cn(
+          'text-text-tertiary active:text-text-primary relative shrink-0 font-semibold after:absolute after:-inset-3',
+          FOCUS
+        )}
+      >
+        Dismiss
+      </button>
+    </p>
   )
 }
 

@@ -59,20 +59,32 @@ export function Breadcrumb({
   pages,
   pageId,
   onOpen,
-  variant = 'panel'
+  variant = 'panel',
+  afterTile = true,
+  current,
+  trailing
 }: {
   channelName: string
   pages: PageNode[]
   pageId: string
   onOpen: (pageId: string) => void
   variant?: PageVariant
+  /** `screen`: the path sits under the page tile of the banner (M38), which sets its margins. */
+  afterTile?: boolean
+  /** `panel`: in place of the last step, the open page (the title field of an editor). */
+  current?: React.ReactNode
+  /** `panel`: at the right end of the row ("Add banner"). */
+  trailing?: React.ReactNode
 }): React.JSX.Element {
   const path = useMemo(() => pagePath(pages, pageId), [pages, pageId])
   if (variant === 'screen') {
     return (
       <nav
         aria-label="Page path"
-        className="relative z-[1] mt-[1.5px] -mb-[10.5px] flex h-9 min-w-0 shrink-0 items-stretch gap-1.5 overflow-hidden px-5 text-[12.5px] leading-[15px]"
+        className={cn(
+          'flex h-9 min-w-0 shrink-0 items-stretch gap-1.5 overflow-hidden px-5 text-[12.5px] leading-[15px]',
+          afterTile ? 'relative z-[1] mt-[1.5px] -mb-[10.5px]' : 'mt-1 -mb-[10.5px]'
+        )}
       >
         <span className="text-text-tertiary flex max-w-32 min-w-0 shrink items-center font-medium">
           <span className="truncate">{channelName}</span>
@@ -119,22 +131,32 @@ export function Breadcrumb({
         return (
           <Fragment key={p.id}>
             <ChevronRight className="text-text-tertiary size-3.5 shrink-0" aria-hidden />
-            <button
-              type="button"
-              className={cn(
-                'min-w-0 truncate',
-                last
-                  ? 'text-text-primary'
-                  : 'text-text-tertiary hover:text-text-primary max-w-32 shrink'
-              )}
-              aria-current={last ? 'page' : undefined}
-              onClick={() => onOpen(p.id)}
-            >
-              {pageTitle(p)}
-            </button>
+            {last && current ? (
+              current
+            ) : (
+              <button
+                type="button"
+                className={cn(
+                  'min-w-0 truncate',
+                  last
+                    ? 'text-text-primary'
+                    : 'text-text-tertiary hover:text-text-primary max-w-32 shrink'
+                )}
+                aria-current={last ? 'page' : undefined}
+                onClick={() => onOpen(p.id)}
+              >
+                {pageTitle(p)}
+              </button>
+            )}
           </Fragment>
         )
       })}
+      {trailing && (
+        <>
+          <span className="min-w-2 flex-1" />
+          {trailing}
+        </>
+      )}
     </nav>
   )
 }

@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
+import type { AttachmentPointer } from '@hachiman/crypto'
 import type { PageNode } from '@/stores/docsStore'
 import { POSITION_STEP } from '@/services/docs/page-tree'
-import { moveUnder, pageMoveTargets } from './page-move'
+import { bannersLost, moveUnder, pageMoveTargets } from './page-move'
 
 const page = (id: string, parentId: string | null, position: number): PageNode => ({
   id,
@@ -10,6 +11,8 @@ const page = (id: string, parentId: string | null, position: number): PageNode =
   position,
   title: id,
   titleState: 'ok',
+  banner: null,
+  bannerPending: false,
   createdBy: null,
   createdAt: '2026-01-01T00:00:00.000Z',
   updatedAt: '2026-01-01T00:00:00.000Z'
@@ -75,5 +78,38 @@ describe('moveUnder', () => {
     expect(moveUnder(PAGES, 'a', 'a1x')).toEqual([])
     expect(moveUnder(PAGES, 'b', 'gone')).toEqual([])
     expect(moveUnder(PAGES, 'nope', null)).toEqual([])
+  })
+})
+
+describe('bannersLost', () => {
+  const BANNER: AttachmentPointer = {
+    uploadId: 'up-1',
+    key: '',
+    sha256: '',
+    size: 1000,
+    blobSize: 1000,
+    mime: 'image/webp',
+    name: 'banner.webp',
+    width: 1600,
+    height: 400,
+    durationMs: null,
+    blurhash: null,
+    thumbnail: null
+  }
+  const withBanner = PAGES.map((p) => (p.id === 'a' ? { ...p, banner: BANNER } : p))
+
+  it('names a top-level page with a banner that moves under a page', () => {
+    expect(bannersLost(withBanner, moveUnder(withBanner, 'a', 'b')).map((p) => p.id)).toEqual(['a'])
+  })
+
+  it('counts a banner that has not decrypted yet', () => {
+    const pending = PAGES.map((p) => (p.id === 'a' ? { ...p, bannerPending: true } : p))
+    expect(bannersLost(pending, moveUnder(pending, 'a', 'b')).map((p) => p.id)).toEqual(['a'])
+  })
+
+  it('names nothing for a move at the top level, a page with no banner or an unknown page', () => {
+    expect(bannersLost(withBanner, [{ pageId: 'a', parentId: null, position: 5 }])).toEqual([])
+    expect(bannersLost(withBanner, moveUnder(withBanner, 'b', 'a'))).toEqual([])
+    expect(bannersLost(withBanner, [{ pageId: 'gone', parentId: 'b', position: 0 }])).toEqual([])
   })
 })

@@ -184,10 +184,10 @@ If a selector returns a fresh array/object literal, React shows the warning "get
 ### E2EE rules in the UI
 
 - Decrypt before store. Every ciphertext `Message` goes through the crypto Worker (`services/message-decrypt.ts`). Only the result goes into `messagesStore`. Never store or show an envelope as text.
-- Attachments show as object URLs of decrypted blobs (`hooks/use-decrypted-blob.ts`, `lib/blob-url-cache.ts`). Never set the `src` of an attachment to a file URL. Avatars, icons and banners stay plaintext.
+- Attachments show as object URLs of decrypted blobs (`hooks/use-decrypted-blob.ts`, `lib/blob-url-cache.ts`). Never set the `src` of an attachment to a file URL. Avatars, icons and guild banners stay plaintext. A page banner is E2EE (see Pages below).
 - `cryptoStore` holds status, alerts and metadata only. It never holds key material, a recovery key or an invite seed.
 - The voice UI shows call participants from the MLS tree (`components/voice/call-roster.ts`), not from the server roster.
-- Pages: every page title, Yjs update, snapshot pointer and awareness frame is a page envelope (§12.20) from `encryptDoc`. `docsStore` holds the page tree and presence, never a `Y.Doc`. The `Y.Doc` stays in `DocProvider`. A page media node holds its pointer (with the file key) inside the `Y.Doc`, and shows through `use-decrypted-blob`.
+- Pages: every page title, page banner, Yjs update, snapshot pointer and awareness frame is a page envelope (§12.20) from `encryptDoc`. `docsStore` holds the page tree and presence, never a `Y.Doc`. The `Y.Doc` stays in `DocProvider`. A page media node holds its pointer (with the file key) inside the `Y.Doc`, and shows through `use-decrypted-blob`. The one exception is the banner of a top-level page: its decrypted pointer (with the file key) is `PageNode.banner` in `docsStore`, as `messagesStore` holds attachment pointers. It also shows only through `use-decrypted-blob`. `docsStore` is never persisted. Do not put the banner pointer or its object URL into a persisted store, `localStorage` or `sessionStorage`, and do not log it (log the `uploadId` only).
 
 ## Working in the client library (`pkgs/hachiman-client`)
 

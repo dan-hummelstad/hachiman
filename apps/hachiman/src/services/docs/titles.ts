@@ -1,19 +1,37 @@
 /**
- * The page titles in docsStore (contract §12.20): the node of a page from the decrypt result of
- * its title, the merge of a new node into the stored one, and the titles that wait for keys
- * (createPageTitles): their retry and the catch-up of a channel whose titles are of an epoch that
- * the Worker does not have yet.
+ * The page titles and banners in docsStore (contract §12.20): the node of a page from the decrypt
+ * results of its title and banner, the merge of a new node into the stored one, and the rows that
+ * wait for keys (createPageTitles): their retry and the catch-up of a channel whose envelopes are
+ * of an epoch that the Worker does not have yet.
  *
  * Plain dependencies, so the rules are testable without a Worker or a store.
  */
 import type { Page } from '@hachiman/client'
-import type { CryptoApi, DocDecryptResult } from '@hachiman/crypto'
+import type {
+  AttachmentPointer,
+  CryptoApi,
+  DocDecryptResult,
+  EncryptedDocItem
+} from '@hachiman/crypto'
 import type { PageNode } from '@/stores/docsStore'
+import { parseBanner } from './banner'
 
 const fromUtf8 = new TextDecoder('utf-8', { fatal: true })
 
-/** A page without its envelope: the store never holds ciphertext. */
-export const nodeOf = (p: Page, title: string, titleState: PageNode['titleState']): PageNode => ({
+type BannerFields = Pick<PageNode, 'banner' | 'bannerPending'>
+
+const NO_BANNER: BannerFields = { banner: null, bannerPending: false }
+
+/** The id of the banner item of a page in a decryptDoc batch. */
+const bannerItemId = (pageId: string): string => `${pageId}:banner`
+
+/** A page without its envelopes: the store never holds ciphertext. */
+export const nodeOf = (
+  p: Page,
+  title: string,
+  titleState: PageNode['titleState'],
+  banner: BannerFields = NO_BANNER
+): PageNode => ({
   id: p.id,
   channelId: p.channelId,
   parentId: p.parentId,
@@ -22,19 +40,39 @@ export const nodeOf = (p: Page, title: string, titleState: PageNode['titleState'
   createdAt: p.createdAt,
   updatedAt: p.updatedAt,
   title,
-  titleState
+  titleState,
+  banner: banner.banner,
+  bannerPending: banner.bannerPending
 })
 
-/** The node of a page from the decrypt result of its title. No result: pending. */
-export function titleNode(p: Page, r: DocDecryptResult | undefined): PageNode {
+/**
+ * The banner of a page from the decrypt result of its banner envelope. No result: pending. A
+ * banner that fails or does not parse is no banner, so an editor can replace it.
+ */
+function bannerOf(p: Page, r: DocDecryptResult | undefined): BannerFields {
+  if (p.bannerEnvelope === null) return NO_BANNER
+  if (r?.status === 'ok') return { banner: parseBanner(r.bytes), bannerPending: false }
+  return r?.status === 'failed' ? NO_BANNER : { banner: null, bannerPending: true }
+}
+
+/**
+ * The node of a page from the decrypt results of its title and its banner. No result: pending. A
+ * pending banner does not make the title pending.
+ */
+export function titleNode(
+  p: Page,
+  r: DocDecryptResult | undefined,
+  banner?: DocDecryptResult
+): PageNode {
+  const b = bannerOf(p, banner)
   if (r?.status === 'ok') {
     try {
-      return nodeOf(p, fromUtf8.decode(r.bytes), 'ok')
+      return nodeOf(p, fromUtf8.decode(r.bytes), 'ok', b)
     } catch {
-      return nodeOf(p, '', 'failed')
+      return nodeOf(p, '', 'failed', b)
     }
   }
-  return nodeOf(p, '', r?.status === 'failed' ? 'failed' : 'pending')
+  return nodeOf(p, '', r?.status === 'failed' ? 'failed' : 'pending', b)
 }
 
 /**
@@ -48,7 +86,39 @@ export function keepTitle(stored: PageNode | undefined, next: PageNode): PageNod
     : next
 }
 
-/** The same row as the store has: a title re-wrap changes only the envelope and updatedAt. */
+/**
+ * A banner that this device decrypted stays while a newer banner envelope of the page waits for
+ * its key (a banner re-wrap or change in an epoch that the Worker did not apply yet), as
+ * keepTitle. The other fields come from `next`.
+ */
+export function keepBanner(stored: PageNode | undefined, next: PageNode): PageNode {
+  return stored?.id === next.id && stored.banner !== null && next.bannerPending
+    ? { ...next, banner: stored.banner, bannerPending: false }
+    : next
+}
+
+/** keepTitle and keepBanner: what `next` keeps of the stored node. */
+export const keepDecrypted = (stored: PageNode | undefined, next: PageNode): PageNode =>
+  keepBanner(stored, keepTitle(stored, next))
+
+/**
+ * What names the content of a banner: the file and the thumbnail with their keys and hashes. Two
+ * pointers that name one upload with another key or hash are other banners.
+ */
+const bannerId = (p: AttachmentPointer | null): string | null =>
+  p === null
+    ? null
+    : [
+        p.uploadId,
+        p.key,
+        p.sha256,
+        p.mime,
+        p.thumbnail?.uploadId,
+        p.thumbnail?.key,
+        p.thumbnail?.sha256
+      ].join(':')
+
+/** The same row as the store has: a re-wrap changes only the envelopes and updatedAt. */
 export const sameNode = (a: PageNode | undefined, b: PageNode): boolean =>
   a !== undefined &&
   a.id === b.id &&
@@ -57,7 +127,9 @@ export const sameNode = (a: PageNode | undefined, b: PageNode): boolean =>
   a.title === b.title &&
   a.channelId === b.channelId &&
   a.parentId === b.parentId &&
-  a.position === b.position
+  a.position === b.position &&
+  bannerId(a.banner) === bannerId(b.banner) &&
+  a.bannerPending === b.bannerPending
 
 /** `a` is a newer row of the page than `b`. Takusen sends ISO timestamps, which compare as strings. */
 export const isNewer = (
@@ -66,14 +138,19 @@ export const isNewer = (
 ): boolean => a !== undefined && a.updatedAt > b.updatedAt
 
 /**
- * The node to store for `next` (a PAGE_* event, a REST row or a title retry), or null when the
- * store has it or a newer row of the page (a retry that a newer PAGE_UPDATE overtook).
+ * The node to store for `next` (a PAGE_* event, a REST row or a retry), or null when the store
+ * has it or a newer row of the page (a retry that a newer PAGE_UPDATE overtook).
  */
 export function mergeNode(stored: PageNode | undefined, next: PageNode): PageNode | null {
   if (isNewer(stored, next)) return null
-  const node = keepTitle(stored, next)
+  const node = keepDecrypted(stored, next)
   return sameNode(stored, node) ? null : node
 }
+
+const WAITING_BANNER: BannerFields = { banner: null, bannerPending: true }
+
+/** The title or the banner of the node waits for keys. */
+const waits = (n: PageNode): boolean => n.titleState === 'pending' || n.bannerPending
 
 export interface PageTitlesDeps {
   /** The crypto Worker. Throws while it is not ready. */
@@ -84,16 +161,16 @@ export interface PageTitlesDeps {
 
 export interface PageTitles {
   /**
-   * The nodes of `pages` from their titles. A title that waits for keys stays for retry(). A
-   * failure of the Worker call itself (not ready yet): the titles show pending.
+   * The nodes of `pages` from their titles and banners. A title or banner that waits for keys
+   * stays for retry(). A failure of the Worker call itself (not ready yet): both show pending.
    */
   decrypt(pages: Page[]): Promise<PageNode[]>
   /**
-   * Stores `node` unless the store has it or a newer row. A decrypted title stays while a newer one
-   * is pending.
+   * Stores `node` unless the store has it or a newer row. A decrypted title or banner stays while
+   * a newer one is pending.
    */
   store(node: PageNode): void
-  /** Decrypts the pending titles again and stores the ones that are no longer pending. */
+  /** Decrypts the pending titles and banners again and stores the ones that are no longer pending. */
   retry(): void
   /** The pages are gone: their titles wait no more. */
   forget(pageIds: Iterable<string>): void
@@ -106,10 +183,10 @@ export interface PageTitles {
 }
 
 /**
- * The titles that wait for keys, with the newest row of each page. They decrypt again on
- * epochKeysAvailable, after a catch-up, and when this device joins a group (retry()).
+ * The titles and banners that wait for keys, with the newest row of each page. They decrypt again
+ * on epochKeysAvailable, after a catch-up, and when this device joins a group (retry()).
  *
- * A title is ahead when a member committed and this device did not apply the commit yet: the
+ * A title or banner is ahead when a member committed and this device did not apply the commit yet: the
  * PAGE_UPDATE of a title re-wrap or rename came before the handshake, or READY decrypts the titles
  * before the Worker syncs. The Worker does not keep doc envelopes for later, so no
  * epochKeysAvailable follows. Thus one catch-up per channel (ensureChannelGroup), then the titles
@@ -117,7 +194,7 @@ export interface PageTitles {
  * READY or RESUMED, and for a decrypt of its titles with none ahead: no loop.
  */
 export function createPageTitles(deps: PageTitlesDeps): PageTitles {
-  /** Pages whose title waits for keys, with the newest row of each. */
+  /** Pages whose title or banner waits for keys, with the newest row of each. */
   const pending = new Map<string, Page>()
   /** The channels with a catch-up since their titles last decrypted with none ahead. */
   const tried = new Set<string>()
@@ -141,8 +218,8 @@ export function createPageTitles(deps: PageTitlesDeps): PageTitles {
   }
 
   /**
-   * The titles of `channelIds` were decrypted. `ahead` holds the channels with a title of an epoch
-   * after the current one of the Worker (pending 'epoch_ahead').
+   * The titles and banners of `channelIds` were decrypted. `ahead` holds the channels with a title
+   * or banner of an epoch after the current one of the Worker (pending 'epoch_ahead').
    */
   function noteResults(channelIds: Iterable<string>, ahead: ReadonlySet<string>): void {
     for (const channelId of new Set(channelIds)) {
@@ -154,26 +231,33 @@ export function createPageTitles(deps: PageTitlesDeps): PageTitles {
   async function decryptTitles(pages: Page[]): Promise<PageNode[]> {
     if (pages.length === 0) return []
     const gen = generation
-    const results = await deps.crypto().decryptDoc(
-      pages.map((p) => ({
-        id: p.id,
-        channelId: p.channelId,
-        pageId: p.id,
-        kind: 'doc_title' as const,
-        senderDevice: null,
-        envelope: p.titleEnvelope
-      }))
+    // One batch: the title of each page, and the banner of each page that has one.
+    const items: EncryptedDocItem[] = []
+    for (const p of pages) {
+      const item = { channelId: p.channelId, pageId: p.id, senderDevice: null }
+      items.push({ ...item, id: p.id, kind: 'doc_title', envelope: p.titleEnvelope })
+      if (p.bannerEnvelope !== null)
+        items.push({
+          ...item,
+          id: bannerItemId(p.id),
+          kind: 'doc_banner',
+          envelope: p.bannerEnvelope
+        })
+    }
+    const results = new Map(
+      (await deps.crypto().decryptDoc(items)).map((r): [string, DocDecryptResult] => [r.id, r])
     )
-    const nodes = pages.map((p, i) => titleNode(p, results[i]))
+    const nodes = pages.map((p) => titleNode(p, results.get(p.id), results.get(bannerItemId(p.id))))
     if (gen !== generation) return nodes
     const ahead = new Set<string>()
     for (const [i, p] of pages.entries()) {
-      const r = results[i]
-      if (r?.status === 'pending' && r.reason === 'epoch_ahead') ahead.add(p.channelId)
+      for (const r of [results.get(p.id), results.get(bannerItemId(p.id))])
+        if (r?.status === 'pending' && r.reason === 'epoch_ahead') ahead.add(p.channelId)
       // A newer row of the page came in during the decrypt: the entry is the newer row's.
       if (isNewer(pending.get(p.id), p) || isNewer(deps.findPage(p.id), p)) continue
-      if (r && r.status !== 'pending') pending.delete(p.id)
-      else pending.set(p.id, p)
+      const n = nodes[i]
+      if (!n || waits(n)) pending.set(p.id, p)
+      else pending.delete(p.id)
     }
     noteResults(
       pages.map((p) => p.channelId),
@@ -188,7 +272,9 @@ export function createPageTitles(deps: PageTitlesDeps): PageTitles {
     } catch (e) {
       console.warn('[docs] titles not decrypted', e)
       for (const p of pages) pending.set(p.id, p)
-      return pages.map((p) => nodeOf(p, '', 'pending'))
+      return pages.map((p) =>
+        nodeOf(p, '', 'pending', p.bannerEnvelope === null ? NO_BANNER : WAITING_BANNER)
+      )
     }
   }
 
@@ -200,9 +286,15 @@ export function createPageTitles(deps: PageTitlesDeps): PageTitles {
   function retry(): void {
     if (pending.size === 0) return
     const gen = generation
-    void decrypt([...pending.values()]).then((nodes) => {
+    const pages = [...pending.values()]
+    void decrypt(pages).then((nodes) => {
       if (gen !== generation) return
-      for (const n of nodes) if (n.titleState !== 'pending') store(n)
+      // A node whose title or banner no longer waits.
+      for (const [i, p] of pages.entries()) {
+        const n = nodes[i]
+        if (n && (n.titleState !== 'pending' || (p.bannerEnvelope !== null && !n.bannerPending)))
+          store(n)
+      }
     })
   }
 
