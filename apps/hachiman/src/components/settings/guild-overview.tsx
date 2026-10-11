@@ -1,3 +1,4 @@
+import { useMemo } from 'react'
 import type { Guild, HistoryVisibility } from '@hachiman/client'
 import { Input } from '@/components/ui/input'
 import { NativeSelect } from '@/components/ui/native-select'
@@ -9,18 +10,28 @@ import { useAction } from '@/hooks/use-action'
 import { trimName, useDraft } from '@/hooks/use-draft'
 import { guildInitials } from '@/lib/model'
 import { hachiman } from '@/services/hachiman'
+import { useChannelStore } from '@/stores/channelStore'
 
-/** Guild settings → Overview (G1): icon, banner, name, voice region, earlier messages. */
+/** Guild settings → Overview (G1): icon, banner, name, voice region, earlier messages, welcome channel. */
 export function GuildOverviewPage({ guild }: { guild: Guild }): React.JSX.Element {
   const draft = useDraft(
     {
       name: guild.name,
       region: guild.region ?? '',
-      publicHistoryVisibility: guild.publicHistoryVisibility
+      publicHistoryVisibility: guild.publicHistoryVisibility,
+      welcomeChannelId: guild.welcomeChannelId ?? ''
     },
     trimName
   )
-  const { name, region, publicHistoryVisibility } = draft.value
+  const { name, region, publicHistoryVisibility, welcomeChannelId } = draft.value
+  const channels = useChannelStore((s) => s.channels)
+  const textChannels = useMemo(
+    () =>
+      [...channels.values()]
+        .filter((c) => c.guildId === guild.id && c.type === 'text')
+        .sort((a, b) => a.position - b.position),
+    [channels, guild.id]
+  )
   const { run, busy, error, clearError } = useAction()
 
   const save = async (e: React.FormEvent): Promise<void> => {
@@ -33,7 +44,8 @@ export function GuildOverviewPage({ guild }: { guild: Guild }): React.JSX.Elemen
         publicHistoryVisibility:
           publicHistoryVisibility !== guild.publicHistoryVisibility
             ? publicHistoryVisibility
-            : undefined
+            : undefined,
+        welcomeChannelId: welcomeChannelId || null
       })
     )
     if (saved.ok) draft.markSaved()
@@ -98,6 +110,25 @@ export function GuildOverviewPage({ guild }: { guild: Guild }): React.JSX.Elemen
         >
           <option value="shared">Show earlier messages</option>
           <option value="joined">Hide earlier messages</option>
+        </NativeSelect>
+      </Field>
+      <Field
+        id="guild-welcome-channel"
+        label="Welcome channel"
+        hint="Shows a line in this channel when someone joins the guild."
+      >
+        <NativeSelect
+          id="guild-welcome-channel"
+          className="w-full"
+          value={welcomeChannelId}
+          onChange={(e) => draft.set({ welcomeChannelId: e.target.value })}
+        >
+          <option value="">No welcome messages</option>
+          {textChannels.map((c) => (
+            <option key={c.id} value={c.id}>
+              #{c.name}
+            </option>
+          ))}
         </NativeSelect>
       </Field>
       <ErrorText>{error}</ErrorText>

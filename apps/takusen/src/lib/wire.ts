@@ -68,6 +68,7 @@ export function toGuild(g: GuildRow, publicHistoryVisibility: HistoryVisibility)
     region: g.region,
     createdAt: g.createdAt.toISOString(),
     publicHistoryVisibility,
+    welcomeChannelId: g.welcomeChannelId,
   }
 }
 

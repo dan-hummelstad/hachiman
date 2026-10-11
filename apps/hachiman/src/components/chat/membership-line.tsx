@@ -1,5 +1,5 @@
-import { KeyRound } from 'lucide-react'
-import type { Channel } from '@hachiman/client'
+import { KeyRound, UserPlus } from 'lucide-react'
+import type { Channel, Member } from '@hachiman/client'
 import type { MembershipEvent } from '@hachiman/crypto'
 import { useMemberView } from '@/hooks/use-member'
 import { useUserStore } from '@/stores/userStore'
@@ -74,4 +74,25 @@ function UserName({ channel, userId }: { channel: Channel; userId: string }): Re
   const fallback = me?.id === userId ? me : channel.recipients?.find((u) => u.id === userId)
   const { name } = useMemberView(channel.guildId, userId, fallback ?? undefined)
   return <span className="text-text-secondary font-semibold">{name}</span>
+}
+
+/** A member joined the guild: shown in the guild's welcome channel (§4 Guilds). */
+export function JoinLine({
+  member,
+  channel
+}: {
+  member: Member
+  channel: Channel
+}): React.JSX.Element {
+  return (
+    <div
+      role="note"
+      className="text-text-tertiary flex items-center gap-2 px-5 py-1 text-xs leading-5 font-medium"
+    >
+      <UserPlus className="text-feature-voice size-3.5 shrink-0" aria-hidden />
+      <span>
+        <UserName channel={channel} userId={member.user.id} /> joined the guild. Say hi!
+      </span>
+    </div>
+  )
 }

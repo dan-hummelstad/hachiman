@@ -317,6 +317,7 @@ export function stubRest(): void {
       region: null,
       createdAt: new Date().toISOString(),
       publicHistoryVisibility: 'shared',
+      welcomeChannelId: null,
       channels: [
         channel(id, nextId('c'), 'text', 'general', 0),
         channel(id, nextId('c'), 'voice', 'General', 0)

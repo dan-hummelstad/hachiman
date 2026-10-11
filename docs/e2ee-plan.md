@@ -93,7 +93,7 @@ Reset must also revoke all sessions (today it does not).
   - When a channel becomes public again, new messages go to the public set group.
 - **Who may add a member:**
   - **DMs and group DMs:** the creator's commit sets the members. Today group DMs cannot change members, and that stays true.
-  - **Private channels** (a channel where @everyone lacks VIEW_CHANNEL): when a user gains VIEW_CHANNEL, an online member's device commits the Add. The timeline shows "A added B".
+  - **Private channels** (a channel where @everyone lacks VIEW_CHANNEL): when a user gains VIEW_CHANNEL, an online member's device commits the Add. The membership timeline records "A added B". The chat transcript does not show it.
 
     The server cannot add a member by itself. Role data is not signed, so a malicious server can still trick a member device into adding someone. The visible timeline entry is the defense. Signed admin actions come in Phase 4.
   - **Public set group:** a device asks to join when it first opens a public channel. It uploads a key package. Takusen checks VIEW_CHANNEL and queues an Add proposal as `external_sender` (see "Batched commits" below).

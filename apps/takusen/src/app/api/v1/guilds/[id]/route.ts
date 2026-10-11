@@ -1,9 +1,10 @@
 /**
  * GET    /api/v1/guilds/:id — GuildFull (member).
- * PATCH  /api/v1/guilds/:id { name?, icon?, banner?, region?, publicHistoryVisibility? }
+ * PATCH  /api/v1/guilds/:id { name?, icon?, banner?, region?, publicHistoryVisibility?, welcomeChannelId? }
  *        — MANAGE_GUILD. icon / banner take the caller's image upload id
  *        (stored as its key). `publicHistoryVisibility` sets the value that
- *        REST mirrors for the public_set group (§12.6). With no other change,
+ *        REST mirrors for the public_set group (§12.6). `welcomeChannelId` is
+ *        a text channel of the guild, or null. With no other change,
  *        X-Hachiman-Signed-Action carries the genesis action (§12.16).
  * DELETE /api/v1/guilds/:id — owner only. The DS retires the guild's groups
  *        in the same transaction. Deletes its messages' attachment rows, then
@@ -15,11 +16,11 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { z } from 'zod'
 
 import { db } from '@/db/client'
-import { guilds, mlsGroups, type GuildRow } from '@/db/schema'
+import { channels, guilds, mlsGroups, type GuildRow } from '@/db/schema'
 import { enforceAdminAction, SIGNED_ACTION_HEADER } from '@/lib/admin-actions'
 import { errorResponse, noContent, parseBody } from '@/lib/api-helpers'
 import { requireUser } from '@/lib/auth-helpers'
-import { MissingPermissionsError } from '@/lib/errors'
+import { MissingPermissionsError, ValidationError } from '@/lib/errors'
 import { publishToGuild } from '@/lib/events'
 import { actorDeviceId, loadGuildAccess, requirePermission } from '@/lib/guild-access'
 import { assertRegion, historyVisibilitySchema, nameSchema, regionCodeSchema } from '@/lib/guild-schemas'
@@ -37,6 +38,7 @@ const updateGuildSchema = z.object({
   banner: z.string().uuid().nullable().optional(),
   region: regionCodeSchema.nullable().optional(),
   publicHistoryVisibility: historyVisibilitySchema.optional(),
+  welcomeChannelId: z.string().uuid().nullable().optional(),
 })
 
 export async function GET(_req: NextRequest, ctx: RouteContext): Promise<NextResponse> {
@@ -58,6 +60,7 @@ export async function PATCH(req: NextRequest, ctx: RouteContext): Promise<NextRe
     requirePermission(access.permissions, Permissions.MANAGE_GUILD)
     const { icon, banner, publicHistoryVisibility: visibility, ...rest } = await parseBody(req, updateGuildSchema)
     await assertRegion(rest.region)
+    if (rest.welcomeChannelId) await assertTextChannel(id, rest.welcomeChannelId)
     const genesisOnly =
       icon === undefined && banner === undefined && visibility === undefined && Object.keys(rest).length === 0 && req.headers.has(SIGNED_ACTION_HEADER)
 
@@ -105,4 +108,12 @@ export async function DELETE(req: NextRequest, ctx: RouteContext): Promise<NextR
   } catch (err) {
     return errorResponse(err)
   }
+}
+
+async function assertTextChannel(guildId: string, channelId: string): Promise<void> {
+  const [c] = await db
+    .select({ id: channels.id })
+    .from(channels)
+    .where(and(eq(channels.id, channelId), eq(channels.guildId, guildId), eq(channels.type, 'text')))
+  if (!c) throw new ValidationError('welcomeChannelId is not a text channel of this guild')
 }

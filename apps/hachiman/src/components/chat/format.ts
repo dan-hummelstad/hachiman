@@ -1,3 +1,4 @@
+import type { Member } from '@hachiman/client'
 import type { MembershipEvent } from '@hachiman/crypto'
 import type { ChatMessage } from '@/stores/messagesStore'
 
@@ -62,6 +63,30 @@ export function membershipSlots(
     const list = slots.get(at)
     if (list) list.push(e)
     else slots.set(at, [e])
+  }
+  return slots
+}
+
+/**
+ * Where each member join goes in the welcome channel: before the first loaded message after the
+ * join, keyed like membershipSlots. A join before the first loaded message shows only when no
+ * older history is left to load (`complete`), so it does not stack above a partial page.
+ */
+export function joinSlots(
+  messages: readonly Pick<ChatMessage, 'createdAt'>[],
+  members: Iterable<Member>,
+  complete: boolean
+): Map<number, Member[]> {
+  const slots = new Map<number, Member[]>()
+  const joins = [...members].sort((a, b) => a.joinedAt.localeCompare(b.joinedAt))
+  for (const m of joins) {
+    const joined = Date.parse(m.joinedAt)
+    const i = messages.findIndex((msg) => Date.parse(msg.createdAt) > joined)
+    const at = i === -1 ? messages.length : i
+    if (at === 0 && !complete) continue
+    const list = slots.get(at)
+    if (list) list.push(m)
+    else slots.set(at, [m])
   }
   return slots
 }

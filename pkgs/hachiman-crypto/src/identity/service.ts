@@ -942,8 +942,10 @@ export const createIdentityService: CreateIdentityService = (ctx, deps) => {
     try {
       await transport.revokeDevice(r.deviceId, { revocation, reason: 'signed_out' })
     } catch (e) {
-      // A revoked device cannot sign out again on the DS. Its local store goes anyway.
-      if (!locked) throw e
+      // A revoked device cannot sign out again on the DS. A pending device has no keys to keep,
+      // and the DS may not know it (a store from another server). Both stores go anyway. An
+      // active device keeps its store, so no active device is left that no store holds.
+      if (!locked && self !== null) throw e
     }
     await forget()
   }

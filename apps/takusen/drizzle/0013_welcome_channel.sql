@@ -1,0 +1,2 @@
+ALTER TABLE "guilds" ADD COLUMN "welcome_channel_id" uuid;--> statement-breakpoint
+ALTER TABLE "guilds" ADD CONSTRAINT "guilds_welcome_channel_id_channels_id_fk" FOREIGN KEY ("welcome_channel_id") REFERENCES "public"."channels"("id") ON DELETE set null ON UPDATE no action;

@@ -253,7 +253,8 @@ describe('channelReaders', () => {
     ownerId: 'u-owner',
     region: null,
     createdAt: '',
-    publicHistoryVisibility: 'shared'
+    publicHistoryVisibility: 'shared',
+    welcomeChannelId: null
   }
   const user = (id: string): User => ({ id, username: id, avatar: null })
   const member = (id: string, roles: string[] = []): Member => ({

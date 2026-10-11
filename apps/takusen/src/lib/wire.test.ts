@@ -87,7 +87,7 @@ function overwrite(
 // #staff: hidden from @everyone, visible to the mod role.
 function input(viewerId: string, aliceRoles: string[]): GuildFullInput {
   return {
-    guild: { id: GUILD, ownerId: OWNER, name: 'G', icon: null, banner: null, region: null, pageStorageBytes: 0, createdAt: T },
+    guild: { id: GUILD, ownerId: OWNER, name: 'G', icon: null, banner: null, region: null, pageStorageBytes: 0, welcomeChannelId: null, createdAt: T },
     roles: [role(GUILD, 0, DEFAULT_EVERYONE), role(MOD_ROLE, 1, 0)],
     channels: [channel(GENERAL, 'general'), channel(STAFF, 'staff')],
     overwrites: [

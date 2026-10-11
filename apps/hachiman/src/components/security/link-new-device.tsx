@@ -104,8 +104,17 @@ export function LinkAsNewDevice({
         {...frame}
         footer={
           <>
-            <Button variant="quiet" className="sm:mr-auto" disabled={busy} onClick={onBack}>
+            <Button variant="quiet" disabled={busy} onClick={onBack}>
               Back
+            </Button>
+            <Button
+              variant="quiet"
+              className="sm:mr-auto"
+              disabled={busy}
+              title="Forget the keys of this device and sign out. Sign in again to start over."
+              onClick={() => void run('start over', () => cryptoService.signOutDevice())}
+            >
+              Start over
             </Button>
             <span className="text-meta text-text-tertiary flex items-center gap-1.5">
               <Lock aria-hidden className="size-3.5" />
@@ -116,7 +125,8 @@ export function LinkAsNewDevice({
       >
         <p>
           Link this device to a device where you already use Hachiman. That device sends the keys to
-          this one. You need it near you.
+          this one. You need it near you. If the link does not start, select <b>Start over</b>, then
+          sign in again.
         </p>
         <OptionCard
           icon={busy && mode === 'qr' ? <Loader2 className="animate-spin" /> : <QrCode />}

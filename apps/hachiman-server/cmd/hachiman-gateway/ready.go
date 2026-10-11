@@ -33,6 +33,8 @@ type Guild struct {
 	OwnerID   string  `json:"ownerId"`
 	Region    *string `json:"region"`
 	CreatedAt string  `json:"createdAt"`
+	// WelcomeChannelID is the text channel that shows member joins, or null.
+	WelcomeChannelID *string `json:"welcomeChannelId"`
 }
 
 type Role struct {
@@ -213,13 +215,13 @@ func pgLoader(db *pgxpool.Pool) func(ctx context.Context, userID, onlyGuild stri
 		var ids []string
 
 		rows, _ := db.Query(ctx, `
-			SELECT g.id::text, g.name, g.icon, g.banner, g.owner_id::text, g.region, g.created_at
+			SELECT g.id::text, g.name, g.icon, g.banner, g.owner_id::text, g.region, g.created_at, g.welcome_channel_id::text
 			FROM guilds g JOIN guild_members m ON m.guild_id = g.id
 			WHERE m.user_id = $1::uuid AND ($2 = '' OR g.id::text = $2)`, userID, onlyGuild)
 		if err := forEach(rows, func() error {
 			gf := &GuildFull{Channels: []Channel{}, Roles: []Role{}, Members: []Member{}, Emojis: []GuildEmoji{}}
 			var created time.Time
-			if err := rows.Scan(&gf.ID, &gf.Name, &gf.Icon, &gf.Banner, &gf.OwnerID, &gf.Region, &created); err != nil {
+			if err := rows.Scan(&gf.ID, &gf.Name, &gf.Icon, &gf.Banner, &gf.OwnerID, &gf.Region, &created, &gf.WelcomeChannelID); err != nil {
 				return err
 			}
 			gf.CreatedAt = iso(created)

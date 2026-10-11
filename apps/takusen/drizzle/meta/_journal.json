@@ -92,6 +92,20 @@
       "when": 1791468012353,
       "tag": "0012_guild_emojis",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1791684675997,
+      "tag": "0013_welcome_channel",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1791685051177,
+      "tag": "0014_welcome_channel_backfill",
+      "breakpoints": true
     }
   ]
 }
