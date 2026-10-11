@@ -27,6 +27,19 @@ describe('buildEmojiData', () => {
     expect(data.byEmoji.get('👋🏽')?.emoji).toBe('👋')
   })
 
+  it('leaves out the hexcodes that the device cannot draw', () => {
+    const some = buildEmojiData(
+      [
+        { hexcode: '1F600', label: 'grinning face', unicode: '😀', group: 0 },
+        { hexcode: '1FAEA', label: 'distorted face', unicode: '\u{1FAEA}', group: 0 }
+      ],
+      { '1F600': 'grinning', '1FAEA': 'distorted_face' },
+      new Set(['1FAEA'])
+    )
+    expect(some.emojis.map((e) => e.label)).toEqual(['grinning face'])
+    expect(some.byShortcode.has('distorted_face')).toBe(false)
+  })
+
   it('applies a skin tone only where the emoji has tones', () => {
     const wave = data.byShortcode.get('wave')!
     expect(withSkin(wave, 0)).toBe('👋')

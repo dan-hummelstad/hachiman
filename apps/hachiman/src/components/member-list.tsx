@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
-import { Crown } from 'lucide-react'
+import { AudioLines, Crown, Volume2 } from 'lucide-react'
 import type { Member, PresenceStatus } from '@hachiman/client'
+import { memberDetail, type MemberDetail } from '@/components/chat/mobile-mention-model'
 import { MemberSheet } from '@/components/mobile/member-sheet'
 import { CustomStatusLine } from '@/components/people/custom-status-line'
 import { useVoiceActivity } from '@/components/people/use-voice-activity'
@@ -71,10 +72,13 @@ export function MemberList({ guildId }: { guildId: string }): React.JSX.Element 
           {groups.map((g) => (
             <section key={g.id} aria-label={g.label}>
               <h3 className="section-label mobile:gap-[7px] mobile:pt-2.5 mobile:pb-0.5 mobile:tracking-[0.6px] flex items-center gap-1.5 px-2 pb-1">
-                {g.color && (
+                {(g.color || mobile) && (
+                  // Mobile (M4): the offline group gets a grey mark too.
                   <span
                     className="size-2 shrink-0"
-                    style={{ backgroundColor: roleInk(g.color) }}
+                    style={{
+                      backgroundColor: g.color ? roleInk(g.color) : 'var(--text-disabled)'
+                    }}
                     aria-hidden
                   />
                 )}
@@ -124,12 +128,34 @@ export function MemberList({ guildId }: { guildId: string }): React.JSX.Element 
 }
 
 /**
+ * The voice line of the mobile member row (M4), as in the mention list (M6): "Speaking in
+ * Lounge", "In Lounge", or "Idle · in Lounge" in the quiet ink while away.
+ */
+const DETAIL_TONE: Record<MemberDetail['tone'], string> = {
+  voice: 'text-feature-voice-text font-bold',
+  quiet: 'text-text-tertiary font-medium',
+  danger: 'text-feature-danger-text font-bold'
+}
+
+/**
  * The presence line of the mobile member row: idle and do not disturb, the states that the dot
  * alone does not spell out. Do not disturb is in the danger ink.
  */
 const PRESENCE_LINE: Partial<Record<PresenceStatus, string>> = {
-  idle: 'text-text-tertiary font-medium',
-  dnd: 'text-feature-danger-text font-bold'
+  idle: DETAIL_TONE.quiet,
+  dnd: DETAIL_TONE.danger
+}
+
+function MobileVoiceLine({ detail }: { detail: MemberDetail }): React.JSX.Element {
+  const Icon = detail.icon === 'speaking' ? AudioLines : Volume2
+  return (
+    <span
+      className={cn('flex min-w-0 items-center gap-1 text-xs leading-4', DETAIL_TONE[detail.tone])}
+    >
+      {detail.icon && <Icon className="size-3.5 shrink-0" aria-hidden />}
+      <span className="truncate">{detail.text}</span>
+    </span>
+  )
 }
 
 function MemberRow({
@@ -156,6 +182,7 @@ function MemberRow({
   const press = useLongPress(() => onHold?.(userId), { enabled: onHold !== undefined })
   const presenceLine =
     onHold && !dim && !activity && !customStatus?.text ? PRESENCE_LINE[status] : undefined
+  const voiceDetail = onHold && activity ? memberDetail(activity, status, null) : null
   return (
     <li>
       <UserProfilePopover userId={userId} guildId={guildId}>
@@ -164,7 +191,7 @@ function MemberRow({
           {...(onHold ? press : {})}
           className={cn(
             'group rounded-control hover:bg-surface-hover flex min-h-[42px] w-full items-center gap-2.5 px-2 py-1 text-left',
-            'mobile:rounded-[7px] mobile:active:bg-surface-hover',
+            'mobile:rounded-[7px] mobile:py-[3px] mobile:active:bg-surface-hover',
             'focus-visible:outline-line-focus focus-visible:outline-2 focus-visible:-outline-offset-2',
             LONG_PRESS_TARGET,
             dim && 'opacity-45 hover:opacity-100'
@@ -194,7 +221,8 @@ function MemberRow({
               )}
               {me && <SystemTag kind="you" />}
             </span>
-            {activity && !dim && (
+            {voiceDetail && !dim && <MobileVoiceLine detail={voiceDetail} />}
+            {activity && !voiceDetail && !dim && (
               <VoiceActivityLine
                 activity={activity}
                 className="text-feature-voice-text mobile:font-bold text-xs leading-4 font-semibold"

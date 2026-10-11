@@ -73,6 +73,7 @@ function PinsList({
                 <Button
                   variant="secondary"
                   size="sm"
+                  className="mobile:h-9"
                   onClick={() => {
                     onJump()
                     jumpToMessage(channel, m.id)
@@ -84,6 +85,7 @@ function PinsList({
                   <Button
                     variant="quiet"
                     size="sm"
+                    className="mobile:h-9"
                     disabled={busy}
                     onClick={() => void run('unpin', () => pinsService.unpin(channel.id, m.id))}
                   >

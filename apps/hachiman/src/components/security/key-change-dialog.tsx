@@ -181,7 +181,7 @@ function BlockingCard({
           <ShieldAlert />
         </span>
         <div className="grid min-w-0 flex-1 gap-[3px] pt-px">
-          <DialogTitle className="block text-[17px] leading-[1.25] break-words">
+          <DialogTitle className="block text-[17px] leading-[1.25] text-balance break-words">
             {name} has a new security key
           </DialogTitle>
           <DialogDescription className="text-text-tertiary text-[13px] leading-[18px] font-semibold">
@@ -199,7 +199,7 @@ function BlockingCard({
         </DialogClose>
       </div>
       <div className="grid gap-3 px-4 pt-2.5 pb-4">
-        <p className="text-text-primary text-[15px] leading-[1.45] font-semibold">
+        <p className="text-text-primary text-[15px] leading-[1.45] font-semibold text-balance">
           Their security key is different from the one you verified.
         </p>
         <p className="text-text-secondary text-[14px] leading-[1.45] font-medium">

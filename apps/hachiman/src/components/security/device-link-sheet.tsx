@@ -121,7 +121,7 @@ function LinkFromThisPhone({
             </Button>
           )}
           <Button size="mobile" onClick={onClose}>
-            Done
+            {done.ok && <Check />} Done
           </Button>
         </SheetFoot>
       </>

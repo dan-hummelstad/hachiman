@@ -107,7 +107,8 @@ export function SetupDoneScreen({
       <div className="my-auto grid gap-3.5 pb-10">
         <SetupDoneCard noun={noun} size="touch" />
         <p className="text-text-tertiary text-center text-[13px] font-medium">
-          You can see this {noun} any time in User settings → Devices.
+          You can see this {noun} any time in{' '}
+          <span className="whitespace-nowrap">Settings → Devices</span>.
         </p>
       </div>
     </StepFrame>

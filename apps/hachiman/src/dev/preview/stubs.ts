@@ -48,6 +48,11 @@ export const dispatch = (e: GatewayDispatch): void => {
   hachiman.gateway.emit('dispatch', e)
 }
 
+/** A PATCH body without its undefined keys, as JSON sends it. */
+function defined<T extends object>(body: T): Partial<T> {
+  return Object.fromEntries(Object.entries(body).filter(([, v]) => v !== undefined)) as Partial<T>
+}
+
 function must<T>(value: T | undefined, what: string): T {
   if (value === undefined) throw new Error(`[preview] unknown ${what}`)
   return value
@@ -473,7 +478,7 @@ export function stubRest(): void {
       return ev
     },
     updateGuildEvent: (eventId, body) => {
-      const ev = { ...eventOf(eventId), ...body } as GuildEventWithMe
+      const ev = { ...eventOf(eventId), ...defined(body) } as GuildEventWithMe
       events.set(eventId, ev)
       dispatch({ t: 'GUILD_EVENT_UPDATE', d: ev })
       return ev
@@ -652,7 +657,7 @@ export function stubRest(): void {
         'guild'
       ),
     updateGuild: (id, body) => {
-      const g = { ...must(cache.guilds.get(id), 'guild'), ...body }
+      const g = { ...must(cache.guilds.get(id), 'guild'), ...defined(body) }
       dispatch({ t: 'GUILD_UPDATE', d: g })
       return g
     },
@@ -680,7 +685,7 @@ export function stubRest(): void {
       [...cache.channels.values()].filter((c) => c.type === 'thread' && c.parentId === parentId),
     reorderChannels: () => undefined,
     updateChannel: (id, body) => {
-      const c = { ...must(cache.channels.get(id), 'channel'), ...body }
+      const c = { ...must(cache.channels.get(id), 'channel'), ...defined(body) }
       dispatch({ t: 'CHANNEL_UPDATE', d: c })
       return c
     },
@@ -794,7 +799,7 @@ export function stubRest(): void {
       return [...(cache.roles.get(guildId)?.values() ?? [])]
     },
     updateRole: (guildId, roleId, body) => {
-      const r = { ...must(cache.roles.get(guildId)?.get(roleId), 'role'), ...body }
+      const r = { ...must(cache.roles.get(guildId)?.get(roleId), 'role'), ...defined(body) }
       dispatch({ t: 'GUILD_ROLE_UPDATE', d: { guildId, role: r } })
       return r
     },

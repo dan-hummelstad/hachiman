@@ -1,3 +1,4 @@
+import { ShieldAlert, type LucideIcon } from 'lucide-react'
 import type { SenderTrust } from '@hachiman/crypto'
 import { KIT_ICON_BUTTON } from '@/components/mobile/nav-bar'
 import { useContactTrust } from '@/components/people/use-contact-trust'
@@ -82,6 +83,9 @@ const BUTTON_TINT: Record<SenderTrust, string> = {
   unknown: 'text-text-tertiary'
 }
 
+/** M7 draws the gold "Not verified" shield with "!", not the "?" of the chip. */
+const BUTTON_ICON: Partial<Record<SenderTrust, LucideIcon>> = { tofu: ShieldAlert }
+
 /**
  * The trust of the other person of a 1:1 DM in the mobile header (M7, M57): a 36 button with the
  * shield only. The label carries the state and its day. A tap opens the verification sheet (B1).
@@ -91,7 +95,7 @@ export function TrustButton({ userId, name }: { userId: string; name: string }):
   const { trust, error } = useContactTrust(userId)
   const keyChange = useMobileKeyChange(userId)
   const shown = trust ? shownTrust(trust.state, keyChange) : 'unknown'
-  const { Icon } = TRUST_LOOK[shown]
+  const Icon = BUTTON_ICON[shown] ?? TRUST_LOOK[shown].Icon
   const label = trust
     ? trustButtonLabel({
         name,

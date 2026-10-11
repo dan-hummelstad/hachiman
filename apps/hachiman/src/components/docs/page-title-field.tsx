@@ -75,7 +75,8 @@ export function PageTitleField({
     return (
       <span
         aria-current={current ? 'page' : undefined}
-        className={cn('min-w-0 truncate italic', className)}
+        // px-1 as the field: the text stays where the field's text will be.
+        className={cn('min-w-0 truncate px-1 italic', className)}
       >
         {pageTitle(page)}
       </span>

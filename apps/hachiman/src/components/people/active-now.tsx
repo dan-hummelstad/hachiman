@@ -194,7 +194,7 @@ export function ActiveNowStrip(): React.JSX.Element | null {
   if (calls.length === 0) return null
   return (
     <section aria-labelledby={labelId} className={cn('flex flex-col gap-2.5', ROLE_INK_SCOPE)}>
-      <SectionLabel id={labelId} className="px-3 pt-0.5">
+      <SectionLabel id={labelId} className="px-4 pt-0.5">
         Active now
       </SectionLabel>
       <ul

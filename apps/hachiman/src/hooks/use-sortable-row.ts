@@ -8,7 +8,8 @@ import {
   useSensors,
   type DragCancelEvent,
   type DragEndEvent,
-  type DragStartEvent
+  type DragStartEvent,
+  type DraggableAttributes
 } from '@dnd-kit/core'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
@@ -52,7 +53,9 @@ export function useDragSensors(): ReturnType<typeof useSensors> {
 
 /**
  * One row of a sortable list, with its drag style: lifted above its neighbours and dimmed while
- * dragged. `translateOnly` keeps the row's size (tabs of different widths).
+ * dragged. `translateOnly` keeps the row's size (tabs of different widths). The attributes leave
+ * out dnd-kit's `aria-disabled`: a row that cannot be dragged can still be tapped, and assistive
+ * tech (VoiceOver takes it from an ancestor too) would read it as disabled.
  */
 export function useSortableRow({
   id,
@@ -65,17 +68,19 @@ export function useSortableRow({
   translateOnly?: boolean
   /** Default: true unless `translateOnly`. */
   dim?: boolean
-}): Omit<ReturnType<typeof useSortable>, 'transform' | 'transition'> & {
+}): Omit<ReturnType<typeof useSortable>, 'transform' | 'transition' | 'attributes'> & {
+  attributes: Omit<DraggableAttributes, 'aria-disabled'> & { 'aria-disabled'?: undefined }
   style: React.CSSProperties
 } {
   const { transform, transition, ...sortable } = useSortable({ id, disabled })
+  const attributes = { ...sortable.attributes, 'aria-disabled': undefined }
   const style: React.CSSProperties = {
     transform: (translateOnly ? CSS.Translate : CSS.Transform).toString(transform),
     transition,
     opacity: dim && sortable.isDragging ? 0.5 : undefined,
     zIndex: sortable.isDragging ? 1 : undefined
   }
-  return { ...sortable, style }
+  return { ...sortable, attributes, style }
 }
 
 /** The drag was started by a finger or a pen (the touch sensor), not a mouse. */

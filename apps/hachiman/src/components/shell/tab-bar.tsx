@@ -124,6 +124,8 @@ export function PinCurrent({ className }: { className?: string }): React.JSX.Ele
   const view = useCurrentView()
   const target = targetOf(view)
   const pinned = useIsPinned(target)
+  // The mobile strip draws the plain pin in both states (M1): the label says the state.
+  const mobile = useLayout() === 'mobile'
   const label =
     target === null ? 'This view cannot be pinned' : pinned ? 'Unpin tab' : 'Pin to tabs'
   return (
@@ -138,7 +140,7 @@ export function PinCurrent({ className }: { className?: string }): React.JSX.Ele
         className
       )}
     >
-      {pinned ? <PinOff className="size-3.5" /> : <Pin className="size-3.5" />}
+      {pinned && !mobile ? <PinOff className="size-3.5" /> : <Pin className="size-3.5" />}
     </IconButton>
   )
 }

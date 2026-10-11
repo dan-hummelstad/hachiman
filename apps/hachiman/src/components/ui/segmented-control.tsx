@@ -11,6 +11,8 @@ export interface SegmentedOption<T extends string> {
   count?: number
   /** The look of this option when selected (default: the raised fill). */
   selectedClassName?: string
+  /** The look of the count chip (default: raised fill, secondary text). */
+  countClassName?: string
 }
 
 /**
@@ -89,7 +91,12 @@ export function SegmentedControl<T extends string>({
             {o.icon}
             {!iconOnly && o.label}
             {o.count !== undefined && (
-              <span className="bg-surface-raised text-text-secondary px-1 text-[10.5px] leading-4 font-bold tabular-nums">
+              <span
+                className={cn(
+                  'px-1 text-[10.5px] leading-4 font-bold tabular-nums',
+                  o.countClassName ?? 'bg-surface-raised text-text-secondary'
+                )}
+              >
                 {o.count}
               </span>
             )}

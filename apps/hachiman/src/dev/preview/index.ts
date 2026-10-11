@@ -127,7 +127,8 @@ function previewReadStates(history: Map<string, ChatMessage[]>): {
       channelId,
       lastReadMessageId: readTo,
       unreadCount: spec.unread,
-      lastMessageId: last,
+      // A channel with no fixture history: its newest message is the made-up mention.
+      lastMessageId: last ?? found.at(-1) ?? null,
       lastMessageAt: lastAt
     }
   })

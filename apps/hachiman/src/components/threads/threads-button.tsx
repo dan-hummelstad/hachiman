@@ -209,10 +209,17 @@ export function NewThreadForm({
       />
       <ErrorText>{error}</ErrorText>
       <div className="flex justify-end gap-2">
-        <Button type="button" variant="quiet" size="sm" disabled={busy} onClick={onCancel}>
+        <Button
+          type="button"
+          variant="quiet"
+          size="sm"
+          className="mobile:h-9"
+          disabled={busy}
+          onClick={onCancel}
+        >
           Cancel
         </Button>
-        <Button type="submit" size="sm" disabled={busy || !valid}>
+        <Button type="submit" size="sm" className="mobile:h-9" disabled={busy || !valid}>
           Create thread
         </Button>
       </div>

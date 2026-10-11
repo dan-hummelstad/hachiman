@@ -96,7 +96,14 @@ function GuildColumn({
 
   const options: SegmentedOption<RightColumnTab>[] = [
     { value: 'members', label: 'Members', icon: <Users /> },
-    { value: 'pages', label: 'Pages', icon: <FileText />, count: pageCount }
+    {
+      value: 'pages',
+      label: 'Pages',
+      icon: <FileText />,
+      count: pageCount,
+      // The drawer (M42): the violet page chip, seen on the raised selected segment too.
+      countClassName: drawer ? 'bg-feature-page/20 text-feature-page-text' : undefined
+    }
   ]
   const switcher = (
     <SegmentedControl

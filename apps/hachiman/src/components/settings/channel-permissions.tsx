@@ -179,7 +179,8 @@ export function ChannelPermissionsPage({
               ) : (
                 <span className="size-[9px]" style={{ background: roleColor(o) }} />
               ),
-            count: bitCount(o.allow | o.deny)
+            // The selected chip counts the draft, so it follows the unsaved rules (M49).
+            count: bitCount(o.id === current.id ? current.allow | current.deny : o.allow | o.deny)
           }))}
           value={selected.id}
           onValueChange={select}

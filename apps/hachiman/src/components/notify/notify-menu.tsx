@@ -222,6 +222,7 @@ export function NotifySettingsDialog(): React.JSX.Element {
   const guildId = guild?.id ?? ''
   const level = guildNotifyLevel(prefs, guildId)
   const muted = prefs.muted.includes(guildId)
+  const mobile = useLayout() === 'mobile'
 
   return (
     <ModalWindow
@@ -244,6 +245,7 @@ export function NotifySettingsDialog(): React.JSX.Element {
             icon={LEVEL_ICON[l.value]}
             title={l.label}
             description={l.hint}
+            size={mobile ? 'mobile' : 'default'}
           />
         ))}
       </div>
@@ -254,7 +256,11 @@ export function NotifySettingsDialog(): React.JSX.Element {
             No unread marks and no sounds, except mentions.
           </span>
         </span>
-        <Switch checked={muted} onCheckedChange={(c) => setMuted(guildId, c)} />
+        <Switch
+          size={mobile ? 'touch' : 'default'}
+          checked={muted}
+          onCheckedChange={(c) => setMuted(guildId, c)}
+        />
       </label>
     </ModalWindow>
   )

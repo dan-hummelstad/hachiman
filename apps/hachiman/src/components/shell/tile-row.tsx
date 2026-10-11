@@ -28,12 +28,21 @@ const TILE = cn(
   'relative flex h-[46px] w-full items-center justify-center rounded-[8px] border',
   'mobile:[&_[data-slot=avatar]]:[mask-image:var(--cut,none)] mobile:[&_[data-slot=avatar]]:[mask-composite:intersect]'
 )
-const tileClass = (lit: boolean, held = false): string =>
+/**
+ * The lit tile of a guild or DM on the mobile layout (M2, M3, M12): the tile keeps its fill and a
+ * 2 px ring in the text ink circles the icon. It sits under the badge and the presence dot.
+ */
+const LIT_RING = cn(
+  'mobile:border-transparent mobile:bg-surface-hover',
+  "mobile:before:absolute mobile:before:top-1/2 mobile:before:left-1/2 mobile:before:size-9 mobile:before:-translate-1/2 mobile:before:rounded-full mobile:before:border-2 mobile:before:border-text-primary mobile:before:content-['']"
+)
+
+const tileClass = (lit: boolean, held = false, ring = false): string =>
   cn(
     TILE,
     'transition-colors',
     lit
-      ? cn(LIT_BG, 'border-accent-primary/40 mobile:bg-accent-primary/17')
+      ? cn(LIT_BG, 'border-accent-primary/40 mobile:bg-accent-primary/17', ring && LIT_RING)
       : 'bg-surface-raised hover:bg-surface-hover mobile:bg-surface-hover border-transparent',
     held && 'mobile:bg-fill-control-strong'
   )
@@ -169,7 +178,7 @@ export function Tile({
             aria-label={label}
             aria-current={lit ? 'page' : undefined}
             onClick={onClick}
-            className={cn(tileClass(lit, held), SORTABLE_TOUCH, className)}
+            className={cn(tileClass(lit, held, true), SORTABLE_TOUCH, className)}
           >
             {children}
           </button>

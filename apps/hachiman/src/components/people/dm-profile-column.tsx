@@ -246,7 +246,13 @@ function ActivityCard({ activity }: { activity: VoiceActivity }): React.JSX.Elem
         )}
       </div>
       {!activity.withMe && channel && (
-        <Button variant="voice" size="sm" disabled={busy || !canJoin} onClick={join}>
+        <Button
+          variant="voice"
+          size="sm"
+          className="mobile:h-10 mobile:text-sm"
+          disabled={busy || !canJoin}
+          onClick={join}
+        >
           <Phone /> Join
         </Button>
       )}

@@ -55,7 +55,12 @@ export function VerifyCallDialog(): React.JSX.Element {
       icon={<ShieldCheck />}
       feature="voice"
       className="sm:max-w-[520px]"
-      actions={<Button onClick={close}>Done</Button>}
+      actions={
+        <Button onClick={close}>
+          {mobile && <Check aria-hidden />}
+          Done
+        </Button>
+      }
     >
       {guildId && channelId ? (
         <CallDetails
@@ -253,7 +258,13 @@ function ParticipantList({
 
 const STATUS: Record<
   CallParticipant['status'],
-  { text: string; className: string; icon: React.ReactNode }
+  {
+    text: string
+    /** The phone's text, where it must fit one line beside Safety number (375 wide). */
+    short?: string
+    className: string
+    icon: React.ReactNode
+  }
 > = {
   secure: {
     text: 'Has the call keys',
@@ -262,6 +273,7 @@ const STATUS: Record<
   },
   joining: {
     text: 'Waiting for the call keys…',
+    short: 'Waiting for keys…',
     className: 'text-feature-event-text',
     icon: <LoaderCircle className="animate-spin" aria-hidden />
   },
@@ -312,7 +324,9 @@ function ParticipantRow({
         >
           {status.icon}
           {/* One line on the SE too: the row stays 50 high. */}
-          <span className="mobile:truncate">{status.text}</span>
+          <span className="mobile:truncate">
+            {mobile ? (status.short ?? status.text) : status.text}
+          </span>
         </span>
         {devices > 1 && (
           <span className="text-feature-event-text mobile:text-[12.5px] text-xs">

@@ -388,13 +388,16 @@ class VoiceService {
     { guildId, channelId }: VoiceTarget,
     connPromise: Promise<VoiceConnection>
   ): Promise<void> {
+    // A new call (a join, a move): nothing of the previous call's media state carries over.
     useVoiceStore.setState({
       guildId,
       channelId,
       localJoinedAt: Date.now(),
       connectionState: 'new',
       screens: new Map(),
-      watching: new Set()
+      watching: new Set(),
+      peers: [],
+      speaking: new Set()
     })
     try {
       const conn = await connPromise

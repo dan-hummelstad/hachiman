@@ -53,9 +53,22 @@ export function GuildRolesMobile({ guildId }: { guildId: string }): React.JSX.El
   const [deleting, setDeleting] = useState<Role | null>(null)
   // The dialog keeps its title while it closes.
   const shownDelete = useLatched(deleting)
+  const root = useRef<HTMLDivElement>(null)
+  const firstPick = useRef(true)
+
+  // Another role (a pick, or a new role after a create): its editor starts at the top, at the
+  // Role name field. No focus: the keyboard rises when the user taps the field (spec §2.8).
+  const selectedId = selected?.id
+  useLayoutEffect(() => {
+    if (firstPick.current) {
+      firstPick.current = false
+      return
+    }
+    scrollParent(root.current)?.scrollTo({ top: 0 })
+  }, [selectedId])
 
   return (
-    <div className="flex flex-col gap-3">
+    <div ref={root} className="flex flex-col gap-3">
       <NavAction>
         <NavActionButton label="Create role" tone="accent" onClick={() => void list.create()}>
           <Plus />
@@ -89,6 +102,15 @@ export function GuildRolesMobile({ guildId }: { guildId: string }): React.JSX.El
       />
     </div>
   )
+}
+
+/** The nearest ancestor that scrolls vertically (the pushed screen's body). */
+function scrollParent(el: HTMLElement | null): HTMLElement | null {
+  for (let p = el?.parentElement ?? null; p; p = p.parentElement) {
+    const y = getComputedStyle(p).overflowY
+    if (y === 'auto' || y === 'scroll') return p
+  }
+  return null
 }
 
 /**
@@ -145,8 +167,9 @@ function RoleStrip({
 
   return (
     // -top-4: the body's 16 padding insets where a sticky child sticks. The row is `relative`, so
-    // the sr-only counts of its chips scroll with it and do not widen the body.
-    <div className="bg-surface-content sticky -top-4 z-10 -mx-4 -mt-4 pt-3.5 pb-0.5">
+    // the sr-only counts of its chips scroll with it and do not widen the body. pb-2 keeps a band
+    // under the pinned chips; -mb-1.5 keeps the resting gap to the editor.
+    <div className="bg-surface-content sticky -top-4 z-10 -mx-4 -mt-4 -mb-1.5 pt-3.5 pb-2">
       <div
         ref={row}
         role="radiogroup"

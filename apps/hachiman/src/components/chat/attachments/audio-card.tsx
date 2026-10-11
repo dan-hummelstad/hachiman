@@ -4,6 +4,7 @@ import type { AttachmentPointer } from '@hachiman/crypto'
 import { useAction } from '@/hooks/use-action'
 import { decryptBlob, downloadAttachment, useDecryptedBlob } from '@/hooks/use-decrypted-blob'
 import { formatBytes } from '@/lib/format-bytes'
+import { TOUCH_HIT } from '@/components/sidebar/sidebar-row'
 import { cn } from '@/lib/utils'
 import { formatClock } from '@/lib/time-format'
 import { downsamplePeaks, WAVEFORM_BARS } from '@/lib/waveform'
@@ -185,6 +186,7 @@ export function AudioCard({ audio }: { audio: AttachmentPointer }): React.JSX.El
         className={cn(
           'rounded-control text-text-tertiary hover:bg-surface-hover hover:text-text-primary flex size-8 shrink-0 items-center justify-center',
           download.error && 'text-feature-danger-text',
+          TOUCH_HIT,
           FOCUS
         )}
       >

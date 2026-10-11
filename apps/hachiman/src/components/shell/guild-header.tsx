@@ -14,6 +14,7 @@ import { GuildMenuItems } from '@/components/shell/guild-menu-items'
 import { useLayout } from '@/hooks/use-layout'
 import { useOnlineCount } from '@/hooks/use-online-count'
 import { cn } from '@/lib/utils'
+import { useDialogStore } from '@/stores/dialogStore'
 import { useGuildStore } from '@/stores/guildStore'
 
 /** The lifted copy of the header row (M43) is 38 tall and 4 px wider than the row on each side. */
@@ -32,6 +33,10 @@ export function GuildHeader({ guildId }: { guildId: string }): React.JSX.Element
   const mobile = useLayout() === 'mobile'
   const [open, setOpen] = useState(false)
   const row = useRef<HTMLButtonElement>(null)
+  // The centred leave or delete confirm (M50) keeps this row in view (components/ui/dialog.tsx).
+  const removing = useDialogStore(
+    (s) => s.dialog?.kind === 'removeGuild' && s.dialog.guildId === guildId
+  )
 
   // The lift stands at the rect that the row had when the sheet opened.
   useEffect(() => {
@@ -47,6 +52,7 @@ export function GuildHeader({ guildId }: { guildId: string }): React.JSX.Element
         <button
           ref={row}
           type="button"
+          data-dialog-mark={(mobile && removing) || undefined}
           className="group/header hover:bg-surface-hover data-[state=open]:bg-surface-hover rounded-control mobile:pl-0.5 mobile:pr-1 flex h-9 w-full shrink-0 items-center gap-2 px-1.5 text-left"
         >
           <HeaderFace guild={guild} online={online} />

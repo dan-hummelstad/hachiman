@@ -1,6 +1,7 @@
 import { useId } from 'react'
 import { Volume2, VolumeX } from 'lucide-react'
 import { Switch } from '@/components/ui/switch'
+import { useLayout } from '@/hooks/use-layout'
 import { VolumeRange } from '@/components/voice/volume-range'
 import { DEFAULT_USER_AUDIO, usePrefsStore } from '@/stores/prefsStore'
 
@@ -12,6 +13,7 @@ export function UserAudioControl({ userId }: { userId: string }): React.JSX.Elem
   const audio = usePrefsStore((s) => s.userAudio[userId] ?? DEFAULT_USER_AUDIO)
   const setUserAudio = usePrefsStore((s) => s.setUserAudio)
   const id = useId()
+  const mobile = useLayout() === 'mobile'
   const percent = Math.round(audio.volume * 100)
   return (
     <div className="border-line-hairline flex flex-col gap-2 border-t pt-3">
@@ -22,19 +24,23 @@ export function UserAudioControl({ userId }: { userId: string }): React.JSX.Elem
           label="User volume"
           audio={audio}
           onVolume={(volume) => setUserAudio(userId, { volume })}
-          className="min-w-0 flex-1"
+          className="mobile:h-9 min-w-0 flex-1"
         />
         <span className="text-meta text-text-secondary w-10 text-right tabular-nums">
           {percent}%
         </span>
       </div>
-      <div className="flex items-center gap-2">
+      <div className="mobile:min-h-11 flex items-center gap-2">
         <VolumeX aria-hidden className="text-text-tertiary size-4 shrink-0" />
-        <label htmlFor={`${id}-mute`} className="text-label flex-1 cursor-pointer">
+        <label
+          htmlFor={`${id}-mute`}
+          className="text-label mobile:self-stretch mobile:flex mobile:items-center flex-1 cursor-pointer"
+        >
           Mute for me
         </label>
         <Switch
           id={`${id}-mute`}
+          size={mobile ? 'touch' : 'default'}
           checked={audio.muted}
           onCheckedChange={(muted) => setUserAudio(userId, { muted })}
         />

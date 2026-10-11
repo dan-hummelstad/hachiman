@@ -208,7 +208,7 @@ export function MobileMentionMenu({
         id="mention-menu"
         role="listbox"
         aria-label={scope}
-        className="flex min-h-0 flex-col gap-0.5 overflow-y-auto overscroll-contain"
+        className="flex min-h-0 flex-col gap-0.5 overflow-y-auto overscroll-contain [&_[data-slot=avatar-fallback]]:bg-surface-hover"
       >
         {items.map((item, i) => (
           <li

@@ -434,7 +434,7 @@ function MicCheck({
           aria-label="Microphone level"
           aria-valuemin={0}
           aria-valuemax={100}
-          className="bg-surface-raised relative h-2.5 flex-1 overflow-hidden"
+          className="bg-surface-raised mobile:bg-fill-control-strong relative h-2.5 flex-1 overflow-hidden"
         >
           <span
             ref={barRef}

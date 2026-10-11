@@ -77,17 +77,65 @@ type DialogContentProps = React.ComponentProps<typeof DialogPrimitive.Content> &
   dismissible?: boolean
 }
 
+/** The centred card keeps this gap to the marked element (M50, M51) and to the screen edges. */
+const MARK_GAP = 12
+const EDGE_GAP = 8
+
+/**
+ * A drawer control that opened a centred dialog marks its row with `data-dialog-mark` (the guild
+ * header in M50, the channel row in M51). When the centred card covers that row, the card moves
+ * to the side with more room, so the row stays in view under the dim. With the keyboard up the
+ * card still ends above it.
+ */
+function placeClearOfMark(card: HTMLElement): void {
+  const mark = Array.from(document.querySelectorAll('[data-dialog-mark]')).find(
+    (el) => el.getClientRects().length > 0
+  )
+  if (!mark) return
+  const m = mark.getBoundingClientRect()
+  const c = card.getBoundingClientRect()
+  // Clear of the card already, or off screen (a closed drawer).
+  if (c.bottom <= m.top || c.top >= m.bottom || c.right <= m.left || c.left >= m.right) return
+  if (m.right <= 0 || m.left >= window.innerWidth) return
+  const root = getComputedStyle(document.documentElement)
+  const screen = parseFloat(root.getPropertyValue('--app-height')) || window.innerHeight
+  const safeTop = parseFloat(root.getPropertyValue('--safe-top')) || 0
+  const half = c.height / 2
+  const above = m.top - MARK_GAP - half
+  const below = m.bottom + MARK_GAP + half
+  const fitsAbove = above - half >= safeTop + EDGE_GAP
+  const fitsBelow = below + half <= screen - EDGE_GAP
+  const centre =
+    fitsAbove && (!fitsBelow || m.top >= screen - m.bottom) ? above : fitsBelow ? below : null
+  if (centre === null) return
+  card.style.top = `min(${centre}px, calc(var(--app-height, 100dvh) - ${half + EDGE_GAP}px))`
+}
+
+function assignRef<T>(ref: React.Ref<T> | undefined, value: T | null): void {
+  if (typeof ref === 'function') ref(value)
+  else if (ref) ref.current = value
+}
+
 function DialogContent({
   className,
   children,
   showCloseButton = true,
   presentation = 'sheet',
   dismissible,
+  ref,
+  onOpenAutoFocus,
   ...props
 }: DialogContentProps) {
   const mobile = useLayout() === 'mobile'
   const form: DialogForm['form'] = mobile ? presentation : 'desktop'
   const value = React.useMemo(() => ({ form, close: showCloseButton }), [form, showCloseButton])
+  const setRef = React.useCallback(
+    (el: HTMLDivElement | null) => {
+      assignRef(ref, el)
+      if (el && form === 'dialog') placeClearOfMark(el)
+    },
+    [ref, form]
+  )
 
   if (form === 'sheet') {
     return (
@@ -95,6 +143,8 @@ function DialogContent({
         data-slot="dialog-content"
         className={className}
         dismissible={dismissible}
+        ref={ref}
+        onOpenAutoFocus={onOpenAutoFocus}
         {...props}
       >
         <DialogFormContext.Provider value={value}>
@@ -131,6 +181,15 @@ function DialogContent({
           form === 'fullscreen' &&
             'inset-x-0 top-0 left-0 flex h-(--app-height,100dvh) max-h-none w-full max-w-none translate-x-0 translate-y-0 flex-col gap-0 border-0 px-0 pt-(--safe-top) pb-0 shadow-none has-[[data-slot=dialog-header]]:pt-(--safe-top) sm:max-w-none'
         )}
+        ref={setRef}
+        onOpenAutoFocus={(e) => {
+          onOpenAutoFocus?.(e)
+          // The centred card takes the focus itself, not its first field: the keyboard rises
+          // when the user taps the field (spec §2.8), as in a sheet.
+          if (form !== 'dialog' || e.defaultPrevented) return
+          e.preventDefault()
+          if (e.currentTarget instanceof HTMLElement) e.currentTarget.focus({ preventScroll: true })
+        }}
         {...props}
       >
         <DialogFormContext.Provider value={value}>{children}</DialogFormContext.Provider>
@@ -157,6 +216,12 @@ function DialogContent({
 }
 
 /**
+ * A sheet header stays at the top while the body scrolls. Its fill runs 8 px into the gap below
+ * (the negative margin keeps the layout), so scrolled text does not touch the subtitle.
+ */
+const STICKY_SHEET_HEADER = 'sticky top-0 z-10 -mb-2 bg-inherit pb-2'
+
+/**
  * Title (and optional DialogDescription as the subtitle) beside an optional icon tile in a
  * feature colour. In a sheet it is the kit's Sheet Header (tile 40, title 18/800, close 36), and it
  * stays at the top while the body scrolls.
@@ -180,7 +245,7 @@ function DialogHeader({
           title={text.title}
           subtitle={text.subtitle}
           close={close}
-          className={cn('sticky top-0 z-10 bg-inherit', className)}
+          className={cn(STICKY_SHEET_HEADER, className)}
         />
       )
     }
@@ -188,7 +253,7 @@ function DialogHeader({
     return (
       <div
         data-slot="dialog-header"
-        className={cn('sticky top-0 z-10 flex shrink-0 items-center gap-3 bg-inherit', className)}
+        className={cn(STICKY_SHEET_HEADER, 'flex shrink-0 items-center gap-3', className)}
         {...props}
       >
         {icon && (

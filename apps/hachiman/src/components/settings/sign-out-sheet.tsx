@@ -263,7 +263,7 @@ function BackCallout({
         <div className="flex items-center gap-2.5">
           <label className="flex min-h-11 min-w-0 flex-1 cursor-pointer items-center gap-2.5 py-1">
             <Checkbox size="lg" checked={ack} onChange={(e) => onAck(e.target.checked)} />
-            <span className="text-text-primary text-sm leading-[18px] font-semibold">
+            <span className="text-text-primary text-sm leading-[18px] font-semibold text-balance">
               {look.ack}
             </span>
           </label>

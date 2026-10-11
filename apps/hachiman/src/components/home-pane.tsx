@@ -326,6 +326,8 @@ function PersonRow({ user, dim }: { user: User; dim: boolean }): React.JSX.Eleme
  */
 function TouchPersonRow({ user, dim }: { user: User; dim: boolean }): React.JSX.Element {
   const status = usePresence(user.id)
+  // The purple live dot, as on the DM home rows and the Active now card (M56).
+  const live = useVoiceActivity(user.id, null)?.streaming === true
   const dm = useOpenDm(user.id)
   const poke = usePoke()
   const [menu, setMenu] = useState(false)
@@ -341,6 +343,7 @@ function TouchPersonRow({ user, dim }: { user: User; dim: boolean }): React.JSX.
               name={user.username}
               size={40}
               status={status}
+              live={live}
               cutout="bg-surface-content"
               className={cn(dim && 'opacity-50')}
             />

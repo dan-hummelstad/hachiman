@@ -17,7 +17,7 @@ export function KeyChangeLine({ userId }: { userId: string }): React.JSX.Element
         className="border-feature-event/20 bg-feature-event/7 flex items-center gap-2.5 border py-2.5 pr-2.5 pl-3"
       >
         <KeyRound className="text-feature-event size-4 shrink-0" aria-hidden />
-        <div className="grid min-w-0 flex-1 gap-0.5 break-words">
+        <div className="grid min-w-0 flex-1 gap-0.5 break-words text-pretty">
           <p className="text-feature-event-text text-[13.5px] leading-[1.3] font-bold">
             {name}’s security key changed.
           </p>

@@ -2,6 +2,7 @@ import { memo, useCallback, useMemo, useState } from 'react'
 import { CircleAlert, EyeOff, RotateCw } from 'lucide-react'
 import type { DecryptFailure } from '@hachiman/crypto'
 import { UserAvatar } from '@/components/shell/user-avatar'
+import { TOUCH_HIT_BAND } from '@/components/sidebar/sidebar-row'
 import { Button } from '@/components/ui/button'
 import { ErrorText } from '@/components/ui/field'
 import { UserProfilePopover } from '@/components/user-profile-popover'
@@ -175,9 +176,9 @@ function MessageRow(props: TranscriptRowProps): React.JSX.Element {
       className={cn(
         'inline-block max-w-full cursor-pointer truncate align-top font-bold hover:underline',
         'focus-visible:outline-line-focus outline-none focus-visible:outline-2',
-        // A compact phone row is 36 tall: the name's hit area fills its height (spec §2.10). The
+        // On the phone the name's hit area is 36 tall (spec §2.10): it fills a compact row. The
         // padding stays out of the line box, and its column does not clip it.
-        display === 'compact' && 'mobile:-my-[7px] mobile:py-[7px]',
+        'mobile:-my-[7px] mobile:py-[7px]',
         !ink && 'text-text-primary'
       )}
       style={ink ? { color: ink } : undefined}
@@ -380,16 +381,17 @@ function MessageBody({
       {message.failed && (
         <div
           data-hold-ignore
-          className="mobile:gap-x-3 flex flex-wrap items-center gap-2 py-1 text-[13px] leading-5 font-semibold"
+          className="mobile:gap-x-3 mobile:flex-nowrap flex flex-wrap items-center gap-2 py-1 text-[13px] leading-5 font-semibold"
         >
-          <span className="text-feature-danger-text inline-flex items-center gap-1.5">
+          {/* Mobile (M1): the reason wraps in its own column, Retry and Delete stay beside it. */}
+          <span className="text-feature-danger-text mobile:min-w-0 mobile:flex-1 inline-flex items-center gap-1.5">
             <CircleAlert className="size-4 shrink-0" aria-hidden />
             {message.sendError ?? 'Not sent.'}
           </span>
           <Button
             variant="danger"
             size="sm"
-            className={cn('h-6 px-2 text-xs', FAILED_HIT)}
+            className={cn('h-6 px-2 text-xs', TOUCH_HIT_BAND)}
             onClick={() => void messagesService.retry(message)}
           >
             <RotateCw className="size-3.5" aria-hidden />
@@ -398,7 +400,7 @@ function MessageBody({
           <Button
             variant="quiet"
             size="sm"
-            className={cn('text-text-secondary h-6 px-2 text-xs', FAILED_HIT)}
+            className={cn('text-text-secondary h-6 px-2 text-xs', TOUCH_HIT_BAND)}
             onClick={() => messagesService.discard(message)}
           >
             Delete
@@ -414,9 +416,6 @@ function MessageBody({
  * height over its full width (spec §2.10). Delete drops the text for good, so a near miss on
  * Retry must not reach it: the row puts 12 between them.
  */
-const FAILED_HIT =
-  'mobile:relative mobile:after:absolute mobile:after:inset-x-0 mobile:after:top-1/2 mobile:after:h-9 mobile:after:-translate-y-1/2'
-
 function LinkButton(props: { onClick: () => void; children: React.ReactNode }): React.JSX.Element {
   return (
     <button

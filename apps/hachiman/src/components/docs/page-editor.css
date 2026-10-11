@@ -111,15 +111,27 @@
   display: none;
 }
 
+/* Crepe's own fields (the link edit "Paste link...", the image link, the code block search) set
+   about 13 px, and their selectors beat the mobile 16 px base rule. iOS zooms into a focused field
+   under 16 px. */
+[data-layout='mobile'] .milkdown :is(input, textarea) {
+  font-size: 16px !important;
+}
+
 .hm-page-editor[data-variant='touch'] .milkdown .ProseMirror {
   padding: 0 20px 120px;
 }
 
-/* The first block starts at the top. ProseMirror can put a zero-height widget before it. */
+/* The first block starts at the top. ProseMirror can put a zero-height widget before it, and
+   Crepe's virtual cursor element comes first while the editor has the focus. */
 .hm-page-editor[data-variant='touch']
   .milkdown
   .ProseMirror
-  > :is(:first-child, .ProseMirror-widget:first-child + *) {
+  > :is(
+    :first-child,
+    .ProseMirror-widget:first-child + *,
+    .prosemirror-virtual-cursor:first-child + *
+  ) {
   margin-top: 0;
 }
 

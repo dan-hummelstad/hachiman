@@ -448,7 +448,7 @@ export function SwatchRow({ onPick }: { onPick: (stop: GradientStop) => void }):
             title={sw.name}
             aria-label={sw.name}
             onClick={() => onPick(sw.stop)}
-            className="border-line-hairline focus-visible:outline-line-focus mobile:size-8 mobile:after:absolute mobile:after:-inset-0.5 mobile:relative size-7 shrink-0 rounded-full border transition-transform hover:scale-110 focus-visible:outline-2 focus-visible:outline-offset-1"
+            className="border-line-hairline focus-visible:outline-line-focus mobile:size-8 mobile:after:absolute mobile:after:-inset-[3px] mobile:relative size-7 shrink-0 rounded-full border transition-transform hover:scale-110 focus-visible:outline-2 focus-visible:outline-offset-1"
             style={{ background: `hsl(${sw.stop.h} ${sw.stop.s}% ${sw.l}%)` }}
           />
         ))}

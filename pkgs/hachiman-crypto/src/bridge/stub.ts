@@ -17,12 +17,13 @@ import type {
   EncryptedDocItem,
   EncryptedMessage,
   KindedContent,
+  SafetyNumber,
   TrustInfo,
   UserId,
   WireMlsGroup,
 } from '../api'
 import { fromB64url, toB64url } from '../codec'
-import { GROUP_ID_LENGTH } from '../constants'
+import { GROUP_ID_LENGTH, VERIFY_QR_PREFIX } from '../constants'
 
 export const STUB_MARKER = 'hachiman dev stub: NOT ENCRYPTED'
 
@@ -55,6 +56,27 @@ const PREVIEW_TRUST: Readonly<Record<UserId, StubTrust>> = {
 
 /** The contact of each pushed key change: verified yuki.h blocks (M58), marlowe is a notice (M59). */
 const PREVIEW_KEY_CHANGE_USER = { blocking: 'u-yuki', notice: 'u-marlowe' } as const
+
+/**
+ * The time of a pushed key change: now, but not before 12:00 today. The fixture messages of today
+ * end before 12:00, so the key change line always comes after them in the transcript (M59).
+ */
+function previewChangedAt(): string {
+  const noon = new Date().setHours(12, 0, 0, 0)
+  return new Date(Math.max(Date.now(), noon)).toISOString()
+}
+
+/** A fixed, non-zero safety number for each contact, so the verify sheet shows real content (M9). */
+function previewSafetyNumber(u: UserId): SafetyNumber {
+  let h = 2166136261
+  for (const c of u) h = Math.imul(h ^ c.charCodeAt(0), 16777619) >>> 0
+  let digits = ''
+  while (digits.length < 60) {
+    h = Math.imul(h ^ (h >>> 15), 2246822507) >>> 0
+    digits += (h % 100000).toString().padStart(5, '0')
+  }
+  return { digits, groups: digits.match(/\d{5}/g) ?? [], qrPayload: VERIFY_QR_PREFIX + toB64url(utf8(u)) }
+}
 
 /** After init, the time until the stub pushes the key change of `?keychange=`, as a live event. */
 const KEY_CHANGE_DELAY_MS = 1000
@@ -96,7 +118,7 @@ export const createCryptoStub: CreateCryptoStub = () => {
   let keyChangeTimer: ReturnType<typeof setTimeout> | undefined
   // As the Worker's updateContact: the contact is 'changed' until verified or acknowledged, and the change clears verifiedAt.
   const pushKeyChange = (change: CryptoEvents['keyChange']): void => {
-    trust.set(change.userId, { state: 'changed', verifiedAt: null, changedAt: new Date().toISOString() })
+    trust.set(change.userId, { state: 'changed', verifiedAt: null, changedAt: previewChangedAt() })
     emit('keyChange', change)
   }
 
@@ -184,8 +206,17 @@ export const createCryptoStub: CreateCryptoStub = () => {
     renameDevice: ok,
 
     getTrust: (u) => Promise.resolve(trustOf(u)),
-    listContactDevices: () => Promise.resolve([]),
-    getSafetyNumber: () => Promise.resolve({ digits: '0'.repeat(60), groups: Array.from({ length: 12 }, () => '00000'), qrPayload: '' }),
+    // Each contact with a key has a desktop and a phone (M9).
+    listContactDevices: (u) =>
+      Promise.resolve(
+        trust.has(u)
+          ? [
+              { deviceId: `${u}-desktop`, displayName: 'Desktop', dskGeneration: 1, issuedAtMs: Date.UTC(2026, 7, 14) },
+              { deviceId: `${u}-phone`, displayName: 'Phone', dskGeneration: 1, issuedAtMs: Date.UTC(2026, 8, 2) },
+            ]
+          : [],
+      ),
+    getSafetyNumber: (u) => Promise.resolve(previewSafetyNumber(u)),
     verifyQr: () => Promise.resolve({ userId: '', match: false }),
     setVerified(u, verified) {
       if (trust.has(u)) trust.set(u, verified ? { state: 'verified', verifiedAt: new Date().toISOString(), changedAt: null } : { state: 'tofu', verifiedAt: null, changedAt: null })

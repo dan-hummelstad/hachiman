@@ -279,7 +279,7 @@ function PickerPanel({
   return (
     <>
       <div className="border-line-hairline flex shrink-0 items-center gap-2 border-b p-2">
-        <label className="bg-surface-panel rounded-control flex h-8 min-w-0 flex-1 items-center gap-2 px-2">
+        <label className="bg-surface-panel rounded-control mobile:h-9 flex h-8 min-w-0 flex-1 items-center gap-2 px-2">
           <Search className="text-text-tertiary size-4 shrink-0" aria-hidden />
           <input
             value={query}
@@ -295,7 +295,7 @@ function PickerPanel({
             }}
             placeholder="Search emoji"
             aria-label="Search emoji"
-            className="placeholder:text-text-tertiary text-text-primary min-w-0 flex-1 bg-transparent text-[14px] outline-none"
+            className="placeholder:text-text-tertiary text-text-primary min-w-0 flex-1 self-stretch bg-transparent text-[14px] outline-none"
           />
         </label>
         <DropdownMenu>
@@ -304,7 +304,7 @@ function PickerPanel({
               type="button"
               aria-label={`Skin tone: ${SKIN_TONES[tone]?.label ?? 'Default'}`}
               className={cn(
-                'rounded-control hover:bg-surface-hover flex size-8 items-center justify-center text-[18px]',
+                'rounded-control hover:bg-surface-hover mobile:size-9 flex size-8 items-center justify-center text-[18px]',
                 FOCUS
               )}
             >

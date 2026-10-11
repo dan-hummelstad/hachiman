@@ -160,6 +160,8 @@ export function ChannelRow({
             {...listeners}
             role={undefined}
             tabIndex={-1}
+            // The centred delete confirm keeps the marked row in view (components/ui/dialog.tsx).
+            data-dialog-mark={deleting || undefined}
             className={sidebarRowClass(
               selected,
               cn(
@@ -170,7 +172,7 @@ export function ChannelRow({
               )
             )}
           >
-            {unread && <UnreadPip className="-left-2.5" />}
+            {unread && <UnreadPip className="mobile:hidden -left-2.5" />}
             <button
               type="button"
               onClick={open}

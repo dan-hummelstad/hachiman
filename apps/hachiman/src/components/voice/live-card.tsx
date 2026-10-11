@@ -33,7 +33,9 @@ const FRAME = {
   lg: { box: 'aspect-video w-full max-w-2xl', avatar: 112, tag: 'absolute top-3 left-3' },
   // Full width; it keeps its height in a scroller, and the avatar sits above the streamer line.
   stage: {
-    box: 'aspect-video w-full shrink-0 pb-10',
+    // On a short screen (the SE) the card gets lower, so the first occupant row stays in view
+    // above the docked join block.
+    box: 'aspect-video max-h-[max(120px,calc(var(--app-height,100dvh)-520px))] w-full shrink-0 pb-10',
     avatar: 80,
     tag: 'absolute top-3 left-3 h-[22px] px-[7px] text-[11px]'
   },
@@ -150,8 +152,9 @@ export function LiveCard({
             <span className="text-text-primary truncate text-[13.5px] leading-4 font-extrabold">
               <StreamerName guildId={guildId} userId={userId} />
             </span>
+            {/* Who watches is not known (spec section 5): the strip counts the call. */}
             <span className="text-text-tertiary truncate text-xs leading-[14px] font-semibold">
-              {detail}
+              {channelName} · {watching + 1} in call
             </span>
           </span>
         </span>

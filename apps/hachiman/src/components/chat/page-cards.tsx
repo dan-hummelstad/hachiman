@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { FileText, PanelRight } from 'lucide-react'
 import { useNow } from '@/hooks/use-elapsed'
 import { relativeTime } from '@/lib/time-format'
+import { TOUCH_HIT_BAND } from '@/components/sidebar/sidebar-row'
 import { cn } from '@/lib/utils'
 import { docsService } from '@/services/docs/DocsService'
 import { pageTitle } from '@/services/docs/page-tree'
@@ -103,6 +104,7 @@ export function PageLinkCard({
           onClick={() => openPage(page, guildId)}
           className={cn(
             'rounded-control bg-accent-tint text-accent-text hover:bg-accent-primary hover:text-text-on-accent flex h-8 shrink-0 items-center gap-1.5 px-3 text-[13px] font-semibold transition-colors',
+            TOUCH_HIT_BAND,
             FOCUS
           )}
         >

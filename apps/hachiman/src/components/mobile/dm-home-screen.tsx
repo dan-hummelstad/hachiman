@@ -92,7 +92,7 @@ function DmHome({ people }: { people: React.ReactNode }): React.JSX.Element {
         </div>
         <ActiveNowStrip />
         <section aria-labelledby={listId} className="flex flex-col gap-2.5">
-          <SectionLabel id={listId} className="px-3 pt-1">
+          <SectionLabel id={listId} className="px-4 pt-1">
             Conversations
           </SectionLabel>
           <DmList variant="home" />

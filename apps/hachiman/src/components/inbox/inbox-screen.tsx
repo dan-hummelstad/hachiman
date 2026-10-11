@@ -249,7 +249,12 @@ function KindAvatar({
   children: React.ReactNode
 }): React.JSX.Element {
   return (
-    <span aria-hidden className="relative size-9 shrink-0">
+    // The initial of a user with no picture sits on a tinted disc: the plain fallback fill is
+    // the card's own colour.
+    <span
+      aria-hidden
+      className="[&_[data-slot=avatar-fallback]]:bg-surface-selected relative size-9 shrink-0"
+    >
       {children}
       <span
         className={cn(
@@ -431,12 +436,15 @@ function LoadedMention({
   const blocked = useIsBlocked(row.author.id)
   const placeholder = blocked ? 'Blocked message' : decryptText(row.decrypt)
   const { sigil, name: channelName } = channelLabel(channel)
+  // Every DM message counts as a mention (unread logic); its row says what it is.
+  const dm = channel.guildId === null
+  const verb = dm ? 'messaged you' : 'mentioned you'
   return (
     <ItemRow
-      label={`${name} mentioned you in ${sigil}${channelName}`}
+      label={`${name} ${verb} in ${dm ? channelName : `${sigil}${channelName}`}`}
       onOpen={onOpen}
       avatar={
-        <KindAvatar kind="mention">
+        <KindAvatar kind={dm ? 'channel' : 'mention'}>
           <UserAvatar name={name} avatar={avatar} size={36} color={ink} />
         </KindAvatar>
       }
@@ -445,7 +453,7 @@ function LoadedMention({
           <span className="font-extrabold" style={ink ? { color: ink } : undefined}>
             {name}
           </span>{' '}
-          <span className="font-semibold">mentioned you</span>
+          <span className="font-semibold">{verb}</span>
         </>
       }
       at={at}
@@ -469,16 +477,18 @@ function UnloadedMention({
   onOpen: () => void
 }): React.JSX.Element {
   const { sigil, name } = channelLabel(channel)
+  const dm = channel.guildId === null
+  const head = dm ? 'New message' : 'A message mentions you'
   return (
     <ItemRow
-      label={`A message mentions you in ${sigil}${name}`}
+      label={`${head} in ${dm ? name : `${sigil}${name}`}`}
       onOpen={onOpen}
       avatar={
-        <KindAvatar kind="mention">
+        <KindAvatar kind={dm ? 'channel' : 'mention'}>
           <ChannelAvatar channel={channel} />
         </KindAvatar>
       }
-      head={<span className="font-semibold">A message mentions you</span>}
+      head={<span className="font-semibold">{head}</span>}
       at={null}
       where={<Where channel={channel} channelName />}
     />

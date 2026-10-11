@@ -53,7 +53,7 @@ function StatusChip({ onStatus }: { onStatus?: () => void }): React.JSX.Element 
         className,
         'active:bg-surface-selected focus-visible:outline-line-focus relative z-10 outline-none focus-visible:outline-2',
         // A 36 hit height around the 28 chip, so a near miss does not open My account.
-        'after:absolute after:-inset-x-1 after:-inset-y-1'
+        'after:absolute after:-inset-x-[5px] after:-inset-y-[5px]'
       )}
     >
       {content}

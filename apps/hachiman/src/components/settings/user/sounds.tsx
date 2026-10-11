@@ -119,6 +119,18 @@ export function SoundSettings(): React.JSX.Element {
   )
 }
 
+/** Half the 22 knob of the mobile volume slider: the fill ends under the knob's centre. */
+const KNOB_HALF = 11
+
+/** The native thumb as the 22 white knob on a drawn track (as the M31 text size slider). */
+const VOLUME_RANGE = cn(
+  'absolute inset-0 h-full w-full cursor-pointer appearance-none rounded-control bg-transparent outline-none focus-visible:outline-2 focus-visible:outline-line-focus disabled:cursor-not-allowed',
+  '[&::-webkit-slider-runnable-track]:h-9 [&::-webkit-slider-runnable-track]:bg-transparent',
+  '[&::-webkit-slider-thumb]:mt-[7px] [&::-webkit-slider-thumb]:size-[22px] [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:shadow-[0_1px_4px_#00000059]',
+  '[&::-moz-range-track]:bg-transparent',
+  '[&::-moz-range-thumb]:size-[22px] [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:bg-white [&::-moz-range-thumb]:shadow-[0_1px_4px_#00000059]'
+)
+
 /**
  * Mobile (M32): the master row (switch, volume, percent), then one 44 row per sound or pair of
  * sounds (`SOUND_ROWS`), each with a round 32 play button in a 44 hit area and a switch.
@@ -146,18 +158,33 @@ export function SoundSettingsMobile(): React.JSX.Element {
             Play sounds
           </label>
           <Volume1 aria-hidden className="text-text-tertiary size-4 shrink-0" />
-          <input
-            aria-label="Sound volume"
-            type="range"
-            min={0}
-            max={100}
-            value={percent}
-            disabled={!enabled}
-            onChange={(e) => setVolume(Number(e.target.value) / 100)}
-            onPointerUp={() => previewSound('message')}
+          <span
             data-swipe-ignore=""
-            className="accent-accent-primary h-9 w-0 min-w-0 flex-1 disabled:opacity-50"
-          />
+            className={cn('relative h-9 w-0 min-w-0 flex-1', !enabled && 'opacity-50')}
+          >
+            <span
+              aria-hidden
+              className="bg-fill-control-strong absolute inset-x-0 top-1/2 h-1 -translate-y-1/2 rounded-full"
+            />
+            <span
+              aria-hidden
+              className="bg-accent-primary absolute top-1/2 left-0 h-1 -translate-y-1/2 rounded-full"
+              style={{
+                width: `calc(${KNOB_HALF}px + (100% - ${KNOB_HALF * 2}px) * ${percent / 100})`
+              }}
+            />
+            <input
+              aria-label="Sound volume"
+              type="range"
+              min={0}
+              max={100}
+              value={percent}
+              disabled={!enabled}
+              onChange={(e) => setVolume(Number(e.target.value) / 100)}
+              onPointerUp={() => previewSound('message')}
+              className={VOLUME_RANGE}
+            />
+          </span>
           <span className="text-text-secondary w-9 shrink-0 text-right text-[13px] leading-4 font-bold tabular-nums">
             {percent}%
           </span>
@@ -171,7 +198,8 @@ export function SoundSettingsMobile(): React.JSX.Element {
                 htmlFor={switchId}
                 className="flex min-w-0 flex-1 cursor-pointer items-center self-stretch py-1.5"
               >
-                <span>
+                {/* The hint wraps as a whole under the label when the row is too narrow. */}
+                <span className="flex flex-wrap items-baseline gap-x-1.5">
                   <span
                     className={cn(
                       'text-[14px] leading-[17px] font-semibold',
@@ -181,7 +209,7 @@ export function SoundSettingsMobile(): React.JSX.Element {
                     {row.label}
                   </span>
                   {row.hint && (
-                    <span className="text-text-tertiary ml-1.5 text-[12px] leading-[14px] font-medium">
+                    <span className="text-text-tertiary text-[12px] leading-[14px] font-medium whitespace-nowrap">
                       {row.hint}
                     </span>
                   )}

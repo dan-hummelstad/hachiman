@@ -607,14 +607,14 @@ function MobileTranscriptPreview({ display }: { display: MessageDisplay }): Reac
     <span
       aria-hidden
       className={cn(
-        'bg-surface-panel flex h-[90px] flex-col overflow-hidden p-2.5',
+        'bg-surface-panel flex h-[90px] flex-col overflow-hidden px-2 py-2.5',
         display === 'compact' ? 'gap-1.5' : 'gap-2'
       )}
     >
       {display === 'compact'
         ? MOBILE_COMPACT.map((m, i) => (
             <span key={i} className="flex items-baseline gap-1 text-[10.5px] leading-[13px]">
-              <span className="text-text-tertiary w-[25px] shrink-0 text-[9.5px] font-semibold tabular-nums">
+              <span className="text-text-tertiary w-[27px] shrink-0 text-[9.5px] font-semibold tabular-nums">
                 {m.time}
               </span>
               <span className={cn('w-[46px] shrink-0 truncate text-right font-extrabold', m.ink)}>
