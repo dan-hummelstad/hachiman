@@ -1,28 +1,44 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
-import { Headphones, Mic, Square } from 'lucide-react'
+import { AudioLines, Headphones, Mic, Square } from 'lucide-react'
+import { MobileField } from '@/components/mobile/field'
+import { ListGroup, ListRow, SectionLabel } from '@/components/mobile/list'
 import { Button } from '@/components/ui/button'
 import { ErrorText, SectionHeading } from '@/components/ui/field'
 import { Keycap } from '@/components/ui/keycap'
 import { NativeSelect } from '@/components/ui/native-select'
 import { SegmentedControl } from '@/components/ui/segmented-control'
 import { Switch } from '@/components/ui/switch'
-import { SoundSettings } from '@/components/settings/user/sounds'
+import { SoundSettings, SoundSettingsMobile } from '@/components/settings/user/sounds'
 import { useKeybindLabel } from '@/hooks/use-keybinds'
+import { useLayout } from '@/hooks/use-layout'
 import { useMicLevel } from '@/hooks/use-mic-level'
 import { meterPercent } from '@/lib/input-sensitivity'
 import { errMsg } from '@/lib/utils'
+import { usePlatform } from '@/shared/PlatformContext'
 import { setSettingsSection } from '@/stores/navStore'
 import { usePrefsStore, type NoiseSuppression, type VoiceInputMode } from '@/stores/prefsStore'
 
 const canPickOutput =
   typeof HTMLMediaElement !== 'undefined' && 'setSinkId' in HTMLMediaElement.prototype
 
-/** User settings → Voice and audio (H6): the devices side by side, an opt-in mic check, sounds. */
+const NO_DEVICE_LIST = 'This app can’t list audio devices here, so the system default is used.'
+
+/** User settings → Voice and audio: H6 on the desktop layout, M32 on the mobile layout. */
 export function VoiceSection(): React.JSX.Element {
-  const inputDeviceId = usePrefsStore((s) => s.inputDeviceId)
-  const outputDeviceId = usePrefsStore((s) => s.outputDeviceId)
-  const setInputDeviceId = usePrefsStore((s) => s.setInputDeviceId)
-  const setOutputDeviceId = usePrefsStore((s) => s.setOutputDeviceId)
+  return useLayout() === 'mobile' ? <VoiceMobile /> : <VoiceDesktop />
+}
+
+/** The audio devices, listed again on a device change and after the mic check opens the mic. */
+function useAudioDevices(): {
+  inputs: MediaDeviceInfo[]
+  outputs: MediaDeviceInfo[]
+  /** Without mic permission the browser hides device labels. */
+  unlabeled: boolean
+  /** False when the browser cannot list devices at all. */
+  supported: boolean
+  error: string | null
+  refresh: () => void
+} {
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([])
   const [error, setError] = useState<string | null>(null)
 
@@ -48,8 +64,17 @@ export function VoiceSection(): React.JSX.Element {
     )
   const inputs = real('audioinput')
   const outputs = real('audiooutput')
-  // Without mic permission the browser hides device labels.
   const unlabeled = inputs.length > 0 && inputs.every((d) => !d.label)
+  return { inputs, outputs, unlabeled, supported, error, refresh }
+}
+
+/** H6: the devices side by side, an opt-in mic check, the voice options, sounds. */
+function VoiceDesktop(): React.JSX.Element {
+  const inputDeviceId = usePrefsStore((s) => s.inputDeviceId)
+  const outputDeviceId = usePrefsStore((s) => s.outputDeviceId)
+  const setInputDeviceId = usePrefsStore((s) => s.setInputDeviceId)
+  const setOutputDeviceId = usePrefsStore((s) => s.setOutputDeviceId)
+  const { inputs, outputs, unlabeled, supported, error, refresh } = useAudioDevices()
 
   return (
     <div className="grid gap-6">
@@ -80,17 +105,81 @@ export function VoiceSection(): React.JSX.Element {
           Device names are hidden until you allow microphone access. Use “Check microphone” below.
         </p>
       )}
-      <ErrorText>
-        {supported
-          ? error
-          : 'This app can’t list audio devices here, so the system default is used.'}
-      </ErrorText>
+      <ErrorText>{supported ? error : NO_DEVICE_LIST}</ErrorText>
       <NoiseSuppressionSelect />
       <InputMode />
       <InputSensitivity />
       <MicCheck deviceId={inputDeviceId} onOpen={refresh} />
       <AudioQuality />
       <SoundSettings />
+    </div>
+  )
+}
+
+/**
+ * M32: the devices as two touch selects (the iOS wheel), the mic check, noise suppression as one
+ * switch, then the sounds. Input mode, sensitivity and quality stay on the desktop: their
+ * defaults suit a phone, and push to talk needs a keybind, which the mobile layout does not have.
+ */
+function VoiceMobile(): React.JSX.Element {
+  const ios = usePlatform().platform === 'ios'
+  const inputDeviceId = usePrefsStore((s) => s.inputDeviceId)
+  const outputDeviceId = usePrefsStore((s) => s.outputDeviceId)
+  const setInputDeviceId = usePrefsStore((s) => s.setInputDeviceId)
+  const setOutputDeviceId = usePrefsStore((s) => s.setOutputDeviceId)
+  const { inputs, outputs, unlabeled, supported, error, refresh } = useAudioDevices()
+  const id = useId()
+  // iOS has no `setSinkId`: the output follows the system route (a route picker is spec §5).
+  const showOutput = !ios && canPickOutput
+
+  return (
+    <div className="grid gap-4">
+      <section className="grid gap-2.5" aria-labelledby={`${id}-devices`}>
+        <SectionLabel id={`${id}-devices`}>Devices</SectionLabel>
+        <MobileField
+          id={`${id}-input`}
+          label="Input device"
+          hint={
+            !supported
+              ? NO_DEVICE_LIST
+              : unlabeled
+                ? 'Device names show after you allow the microphone. Use “Check microphone” below.'
+                : undefined
+          }
+          error={supported ? error : null}
+        >
+          <NativeSelect
+            size="touch"
+            lead={<Mic />}
+            className="w-full"
+            value={inputDeviceId ?? ''}
+            onChange={(e) => setInputDeviceId(e.target.value || null)}
+          >
+            <DeviceOptions devices={inputs} value={inputDeviceId} fallbackLabel="Microphone" />
+          </NativeSelect>
+        </MobileField>
+        {showOutput && (
+          <MobileField id={`${id}-output`} label="Output device">
+            <NativeSelect
+              size="touch"
+              lead={<Headphones />}
+              className="w-full"
+              value={outputDeviceId ?? ''}
+              onChange={(e) => setOutputDeviceId(e.target.value || null)}
+            >
+              <DeviceOptions devices={outputs} value={outputDeviceId} fallbackLabel="Speaker" />
+            </NativeSelect>
+          </MobileField>
+        )}
+        <MicCheck deviceId={inputDeviceId} onOpen={refresh} stopWhenHidden />
+      </section>
+      <section className="grid gap-1.5" aria-labelledby={`${id}-processing`}>
+        <SectionLabel id={`${id}-processing`}>Voice processing</SectionLabel>
+        <ListGroup>
+          <NoiseSuppressionRow />
+        </ListGroup>
+      </section>
+      <SoundSettingsMobile />
     </div>
   )
 }
@@ -192,7 +281,6 @@ function DeviceSelect(props: {
   hint?: string
 }): React.JSX.Element {
   const { id, label, icon, devices, value, onChange, fallbackLabel, disabled, hint } = props
-  const missing = value !== null && devices.length > 0 && !devices.some((d) => d.deviceId === value)
   return (
     <div className="grid gap-1.5">
       <label
@@ -209,16 +297,34 @@ function DeviceSelect(props: {
         disabled={disabled}
         onChange={(e) => onChange(e.target.value || null)}
       >
-        <option value="">System default</option>
-        {devices.map((d, i) => (
-          <option key={d.deviceId} value={d.deviceId}>
-            {d.label || `${fallbackLabel} ${i + 1}`}
-          </option>
-        ))}
-        {missing && <option value={value}>Disconnected device</option>}
+        <DeviceOptions devices={devices} value={value} fallbackLabel={fallbackLabel} />
       </NativeSelect>
       {hint && <p className="text-meta text-text-tertiary">{hint}</p>}
     </div>
+  )
+}
+
+/** "System default", each device, and the saved device while it is unplugged. */
+function DeviceOptions({
+  devices,
+  value,
+  fallbackLabel
+}: {
+  devices: MediaDeviceInfo[]
+  value: string | null
+  fallbackLabel: string
+}): React.JSX.Element {
+  const missing = value !== null && devices.length > 0 && !devices.some((d) => d.deviceId === value)
+  return (
+    <>
+      <option value="">System default</option>
+      {devices.map((d, i) => (
+        <option key={d.deviceId} value={d.deviceId}>
+          {d.label || `${fallbackLabel} ${i + 1}`}
+        </option>
+      ))}
+      {missing && <option value={value}>Disconnected device</option>}
+    </>
   )
 }
 
@@ -248,13 +354,41 @@ function NoiseSuppressionSelect(): React.JSX.Element {
   )
 }
 
-/** Opt-in mic level meter: opens the selected input only while checking. */
+/**
+ * Mobile: noise suppression as one switch. On is RNNoise; VoiceService falls back to the
+ * browser's own suppression when the RNNoise worklet cannot load. A desktop "Standard" choice
+ * also shows as on.
+ */
+function NoiseSuppressionRow(): React.JSX.Element {
+  const value = usePrefsStore((s) => s.noiseSuppression)
+  const setValue = usePrefsStore((s) => s.setNoiseSuppression)
+  return (
+    <ListRow
+      icon={<AudioLines />}
+      tile="voice"
+      label="Noise suppression"
+      detail="Filters fans, keyboards and traffic"
+      toggle={{
+        checked: value !== 'off',
+        onCheckedChange: (on) => setValue(on ? 'rnnoise' : 'off')
+      }}
+    />
+  )
+}
+
+/**
+ * Opt-in mic level meter: opens the selected input only while checking. With `stopWhenHidden`
+ * (mobile) the check stops when the page hides: iOS pauses the capture in the background, so the
+ * meter would hang.
+ */
 function MicCheck({
   deviceId,
-  onOpen
+  onOpen,
+  stopWhenHidden = false
 }: {
   deviceId: string | null
   onOpen: () => void
+  stopWhenHidden?: boolean
 }): React.JSX.Element {
   const barRef = useRef<HTMLSpanElement>(null)
   const markRef = useRef<HTMLSpanElement>(null)
@@ -263,10 +397,35 @@ function MicCheck({
   const auto = usePrefsStore((s) => s.inputSensitivityAuto)
   const db = usePrefsStore((s) => s.inputSensitivityDb)
 
+  useEffect(() => {
+    if (!stopWhenHidden || !on) return
+    // `toggle` flips: `pagehide` and `visibilitychange` can both come before the next render.
+    let stopped = false
+    const stop = (): void => {
+      if (stopped) return
+      stopped = true
+      toggle()
+    }
+    const onVisibility = (): void => {
+      if (document.visibilityState === 'hidden') stop()
+    }
+    window.addEventListener('pagehide', stop)
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => {
+      window.removeEventListener('pagehide', stop)
+      document.removeEventListener('visibilitychange', onVisibility)
+    }
+  }, [stopWhenHidden, on, toggle])
+
   return (
-    <section className="bg-surface-panel border-line-hairline grid gap-2 border px-3.5 py-3">
+    <section className="bg-surface-panel border-line-hairline mobile:bg-white/2 grid gap-2 border px-3.5 py-3">
       <div className="flex items-center gap-3">
-        <Button variant="secondary" size="lg" onClick={toggle}>
+        <Button
+          variant="secondary"
+          size="lg"
+          onClick={toggle}
+          className="mobile:border-line-strong mobile:h-11 mobile:bg-fill-control mobile:px-3.5 mobile:text-[15px] mobile:font-bold"
+        >
           {on ? <Square /> : <Mic />}
           {on ? 'Stop check' : 'Check microphone'}
         </Button>

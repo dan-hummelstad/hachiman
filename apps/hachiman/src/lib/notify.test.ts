@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { guildNotifyLevel, isFollowing, notifyLevel, type NotifyPrefs } from './notify'
+import {
+  guildNotifyLevel,
+  isFollowing,
+  notifyLevel,
+  notifyLevelLabel,
+  type NotifyPrefs
+} from './notify'
 
 const prefs = (notify: NotifyPrefs['notify']): NotifyPrefs => ({ notify, muted: [] })
 
@@ -13,6 +19,18 @@ describe('notify levels', () => {
   it('lets the channel level win over the guild level', () => {
     expect(notifyLevel(prefs({ g: 'all', c: 'none' }), 'c', 'g')).toBe('none')
     expect(notifyLevel(prefs({ g: 'all' }), 'c', 'g')).toBe('all')
+  })
+})
+
+describe('notifyLevelLabel', () => {
+  it('names each level once', () => {
+    expect(notifyLevelLabel('all')).toBe('All messages')
+    expect(notifyLevelLabel('mentions')).toBe('Mentions only')
+    expect(notifyLevelLabel('none')).toBe('Nothing')
+  })
+
+  it('names the default level of a guild with no setting', () => {
+    expect(notifyLevelLabel(guildNotifyLevel(prefs({}), 'g'))).toBe('Mentions only')
   })
 })
 

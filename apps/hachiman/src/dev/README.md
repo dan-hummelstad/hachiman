@@ -43,6 +43,7 @@ The fixture uses the cast of the Arc mocks (`docs/arc-redesign-plan.md` decision
 ## Stubs (`preview/stubs.ts`)
 
 - The crypto client is `createCryptoStub` from `@hachiman/crypto` (`cryptoService.useStub()`). It has no Worker and no keys. Its envelopes are marked JSON, NOT ENCRYPTED, and it gives attachment blobs back unchanged. The send, edit, upload and decrypted-blob code paths are the real ones.
+- The crypto stub has trust fixtures: yuki.h is verified (2 Oct), marlowe is not verified, and everyone else has no key. `setVerified` changes a fixture user for the session.
 - `hachiman.connect` and the gateway are no-ops.
 - Every `hachiman.rest.*` method resolves locally and logs `[preview] rest.<name>` at debug level. The stubs dispatch writes as gateway events, so the UI updates as it would live:
   - Sending a message echoes it after 400ms. The echo goes through the stub decrypt.

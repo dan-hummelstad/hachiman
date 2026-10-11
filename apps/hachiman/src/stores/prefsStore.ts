@@ -23,6 +23,14 @@ export type WallpaperMode = 'guild' | 'custom'
 /** How the mic opens in voice: on speech (VAD), or only while the push-to-talk key is held. */
 export type VoiceInputMode = 'voiceActivity' | 'pushToTalk'
 
+/** The message text sizes of the mobile Appearance slider (M31), px, smallest first. */
+export const MESSAGE_TEXT_SIZES = [13, 14, 15, 17, 19] as const
+export type MessageTextSize = (typeof MESSAGE_TEXT_SIZES)[number]
+export const DEFAULT_MESSAGE_TEXT_SIZE: MessageTextSize = 15
+
+export const isMessageTextSize = (v: unknown): v is MessageTextSize =>
+  (MESSAGE_TEXT_SIZES as readonly unknown[]).includes(v)
+
 /** The preferences of one account on this device (N1, N6, N9). */
 export interface AccountPrefs extends NotifyPrefs {
   /** Guild ids in the order the user set (the guild row). Guilds not in it follow, in READY order. */
@@ -47,6 +55,11 @@ const EMPTY_ACCOUNT: AccountPrefs = { notify: {}, muted: [] }
 interface PrefsState {
   theme: Theme
   messageDisplay: MessageDisplay
+  /**
+   * The size of message text, px. `ThemeProvider` writes it to `--message-text-size`; only the
+   * mobile layout reads it.
+   */
+  messageTextSize: MessageTextSize
   /** `MediaDeviceInfo.deviceId`; null = the system default. */
   inputDeviceId: string | null
   outputDeviceId: string | null
@@ -96,6 +109,7 @@ interface PrefsState {
   accountId: string | null
   setTheme: (theme: Theme) => void
   setMessageDisplay: (messageDisplay: MessageDisplay) => void
+  setMessageTextSize: (messageTextSize: MessageTextSize) => void
   setInputDeviceId: (inputDeviceId: string | null) => void
   setOutputDeviceId: (outputDeviceId: string | null) => void
   setNoiseSuppression: (noiseSuppression: NoiseSuppression) => void
@@ -146,6 +160,7 @@ export const usePrefsStore = create<PrefsState>()(
       (set) => ({
         theme: 'dark',
         messageDisplay: 'cozy',
+        messageTextSize: DEFAULT_MESSAGE_TEXT_SIZE,
         inputDeviceId: null,
         outputDeviceId: null,
         noiseSuppression: 'rnnoise',
@@ -174,6 +189,7 @@ export const usePrefsStore = create<PrefsState>()(
         accountId: null,
         setTheme: (theme) => set({ theme }),
         setMessageDisplay: (messageDisplay) => set({ messageDisplay }),
+        setMessageTextSize: (messageTextSize) => set({ messageTextSize }),
         setInputDeviceId: (inputDeviceId) => set({ inputDeviceId }),
         setOutputDeviceId: (outputDeviceId) => set({ outputDeviceId }),
         setMicBitrate: (micBitrate) => set({ micBitrate }),
@@ -254,21 +270,29 @@ export const usePrefsStore = create<PrefsState>()(
           delete rest.accountId
           return rest
         },
-        // A stored gradient of an older shape falls back to the default.
-        merge: (persisted, current) => {
-          const p = (persisted ?? {}) as Partial<PrefsState>
-          return {
-            ...current,
-            ...p,
-            customGradient: isCustomGradient(p.customGradient)
-              ? p.customGradient
-              : current.customGradient
-          }
-        }
+        merge: mergePersistedPrefs
       }
     )
   )
 )
+
+/**
+ * The stored preferences over the defaults. A stored gradient of an older shape and a text size
+ * that is not a step of the slider fall back to the default.
+ */
+export function mergePersistedPrefs<
+  T extends Pick<PrefsState, 'customGradient' | 'messageTextSize'>
+>(persisted: unknown, current: T): T {
+  const p = (persisted ?? {}) as Partial<PrefsState>
+  return {
+    ...current,
+    ...p,
+    customGradient: isCustomGradient(p.customGradient) ? p.customGradient : current.customGradient,
+    messageTextSize: isMessageTextSize(p.messageTextSize)
+      ? p.messageTextSize
+      : current.messageTextSize
+  }
+}
 
 /** `map` with `change` applied to `userId`'s entry. An entry back at the default is removed. */
 function withAudio(

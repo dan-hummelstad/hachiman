@@ -25,17 +25,29 @@ import { ModalWindow } from '@/components/ui/modal-window'
 import { RadioCard } from '@/components/ui/radio-card'
 import { Switch } from '@/components/ui/switch'
 import { useDialogSubject } from '@/hooks/use-dialog-subject'
-import { guildNotifyLevel, isFollowing, isMuted, notifyLevel, type NotifyLevel } from '@/lib/notify'
+import { useLayout } from '@/hooks/use-layout'
+import {
+  guildNotifyLevel,
+  isFollowing,
+  isMuted,
+  notifyLevel,
+  notifyLevelLabel,
+  type NotifyLevel
+} from '@/lib/notify'
 import type { DialogOf } from '@/stores/dialogStore'
 import { useGuildStore } from '@/stores/guildStore'
 import { useNotifyPrefs, usePrefsStore } from '@/stores/prefsStore'
 import type { Guild } from '@hachiman/client'
 
-/** The three levels of N9, in menu order. */
+/** The three levels of N9, in menu order. The labels are `notifyLevelLabel`'s, on both layouts. */
 const NOTIFY_LEVELS: readonly { value: NotifyLevel; label: string; hint: string }[] = [
-  { value: 'all', label: 'All messages', hint: 'Every new message counts and pings' },
-  { value: 'mentions', label: 'Mentions only', hint: 'Only messages that mention you' },
-  { value: 'none', label: 'Nothing', hint: 'No pings and no unread marks' }
+  { value: 'all', label: notifyLevelLabel('all'), hint: 'Every new message counts and pings' },
+  {
+    value: 'mentions',
+    label: notifyLevelLabel('mentions'),
+    hint: 'Only messages that mention you'
+  },
+  { value: 'none', label: notifyLevelLabel('none'), hint: 'No pings and no unread marks' }
 ]
 
 const LEVEL_ICON: Record<NotifyLevel, React.ReactNode> = {
@@ -81,6 +93,9 @@ function useChannelNotify(channel: Channel): ChannelNotify {
 
 /** The bell of the channel header (N9): the level of this channel and its mute. */
 export function NotifyButton({ channel }: { channel: Channel }): React.JSX.Element {
+  // Mobile (the DM profile drawer): the level is in the name, not only in the icon, and the open
+  // menu shows through aria-expanded alone.
+  const mobile = useLayout() === 'mobile'
   const [open, setOpen] = useState(false)
   const { level, own, muted, mutedHere, silent, setLevel, setMuted } = useChannelNotify(channel)
 
@@ -88,10 +103,12 @@ export function NotifyButton({ channel }: { channel: Channel }): React.JSX.Eleme
     <DropdownMenu open={open} onOpenChange={setOpen}>
       <DropdownMenuTrigger asChild>
         <IconButton
-          label="Notifications"
+          label={
+            mobile ? `Notifications: ${muted ? 'muted' : notifyLevelLabel(level)}` : 'Notifications'
+          }
           tooltipSide="bottom"
-          pressed={open}
-          className="aria-pressed:bg-accent-tint aria-pressed:text-accent-text [&_svg]:size-[18px]"
+          pressed={mobile ? undefined : open}
+          className="aria-pressed:bg-accent-tint aria-pressed:text-accent-text mobile:aria-expanded:bg-accent-tint mobile:aria-expanded:text-accent-text mobile:size-9 [&_svg]:size-[18px] mobile:[&_svg]:size-[19px]"
         >
           {silent ? <BellOff /> : level === 'all' ? <BellRing /> : <Bell />}
         </IconButton>
@@ -146,10 +163,7 @@ export function NotifySheetRows({ channel }: { channel: Channel }): React.JSX.El
         ))}
       </MenuSheetRadioGroup>
       {own && guildLevel !== null && (
-        <MenuSheetItem
-          onSelect={() => setLevel(null)}
-          hint={NOTIFY_LEVELS.find((l) => l.value === guildLevel)?.label}
-        >
+        <MenuSheetItem onSelect={() => setLevel(null)} hint={notifyLevelLabel(guildLevel)}>
           <Undo2 />
           Use the guild setting
         </MenuSheetItem>

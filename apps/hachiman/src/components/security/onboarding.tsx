@@ -18,6 +18,7 @@ import { HostTrustNote } from '@/components/security/host-trust'
 import { LinkAsNewDevice } from '@/components/security/link-new-device'
 import {
   ONBOARDING_TITLES,
+  useDeviceNoun,
   useStepLayout,
   useStepTitles,
   type AccountFacts,
@@ -34,7 +35,13 @@ import {
   StepScreen
 } from '@/components/security/screen-window'
 import { SetupDoneScreen, SetupDoneStep } from '@/components/security/setup-done'
-import { ChooseScreen } from '@/components/security/setup-screens'
+import {
+  ChooseScreen,
+  NewIdentityScreen,
+  NewKeyScreen,
+  ResetScreen,
+  type CreateForm
+} from '@/components/security/setup-screens'
 import { useAction } from '@/hooks/use-action'
 import { useLayout } from '@/hooks/use-layout'
 import { cn } from '@/lib/utils'
@@ -143,6 +150,7 @@ export function OnboardingFlow({
           title={titleOf('reset')}
           onHold={onHold}
           onBack={back}
+          onRestore={() => onStep('restore')}
           onFinished={onFinished}
         />
       )
@@ -254,12 +262,18 @@ function Choose({
   )
 }
 
+/**
+ * Set up a first device, or reset the keys after a password reset. Both make a new identity and
+ * a recovery key, then show the key one time. On the mobile set-up gate this is M19 (setup) and
+ * M20 (reset), and both show the key as M19's second state.
+ */
 function CreateIdentity({
   mode,
   title,
   onHold,
   onBack,
   onLink,
+  onRestore,
   onFinished
 }: {
   mode: 'setup' | 'reset'
@@ -267,12 +281,14 @@ function CreateIdentity({
   onHold: (hold: boolean) => void
   onBack: () => void
   onLink?: () => void
+  /** M20: "Have your recovery key?" goes to the restore step. */
+  onRestore?: () => void
   onFinished: (() => void) | undefined
 }): React.JSX.Element {
+  const platform = usePlatform()
+  const screen = useStepLayout() === 'screen'
   const [recoveryKey, setRecoveryKey] = useState<string | null>(null)
-  const [understood, setUnderstood] = useState(false)
   const { run, busy, error } = useAction()
-  const checkId = useId()
 
   // The key is in this component only: drop the hold when it goes away.
   useEffect(() => () => onHold(false), [onHold])
@@ -282,71 +298,92 @@ function CreateIdentity({
     const r = await run(mode === 'setup' ? 'set up this device' : 'reset your keys', () =>
       friendly(mode === 'setup' ? cryptoService.setupFirstDevice() : cryptoService.resetIdentity())
     )
+    platform.haptic(r.ok ? 'success' : 'warning')
     if (r.ok) setRecoveryKey(r.value.recoveryKey)
     else onHold(false)
   }
+  const finish = (): void => {
+    setRecoveryKey(null)
+    onHold(false)
+    onFinished?.()
+  }
+  const form = { title, busy, error, onBack, onCreate: () => void create() }
 
   if (recoveryKey) {
-    return (
-      <RecoveryKeyReveal
-        recoveryKey={recoveryKey}
-        onDone={() => {
-          setRecoveryKey(null)
-          onHold(false)
-          onFinished?.()
-        }}
-      />
+    return screen ? (
+      <NewKeyScreen title={title} recoveryKey={recoveryKey} onDone={finish} />
+    ) : (
+      <RecoveryKeyReveal recoveryKey={recoveryKey} onDone={finish} />
     )
   }
-
   if (mode === 'setup') {
-    return (
-      <StepFrame
-        icon={<Sparkles />}
-        title={title}
-        subtitle="Start a new identity"
-        onBack={busy ? undefined : onBack}
-        footer={
-          <>
-            <BackButton disabled={busy} onClick={onBack} />
-            {onLink && (
-              <Button variant="secondary" disabled={busy} onClick={onLink}>
-                <Link2 /> Link instead
-              </Button>
-            )}
-            <Button disabled={busy} onClick={() => void create()}>
-              {busy ? 'Making keys…' : 'Set up this device'}
-            </Button>
-          </>
-        }
-      >
-        <p>
-          This makes a new security key for your account on this device, and a recovery key for you
-          to keep.
-        </p>
-        <ul className="border-line-hairline bg-surface-sunken grid gap-3 border px-3.5 py-3">
-          <KeyItem
-            icon={<KeyRound />}
-            title="A security key"
-            hint="Lives only on this device"
-            tile="bg-accent-tint text-accent-text"
-          />
-          <KeyItem
-            icon={<RotateCcw />}
-            title="A recovery key"
-            hint="For you to keep somewhere safe and offline"
-            tile="bg-feature-voice/15 text-feature-voice-text"
-          />
-        </ul>
-        <Callout tone="caution">
-          Do this only if you do not use Hachiman on another device. If you do, link this device to
-          it instead.
-        </Callout>
-        <ErrorText>{error}</ErrorText>
-      </StepFrame>
+    return screen ? (
+      <NewIdentityScreen {...form} onLink={onLink} />
+    ) : (
+      <SetupStep {...form} onLink={onLink} />
     )
   }
+  return screen ? <ResetScreen {...form} onRestore={onRestore} /> : <ResetStep {...form} />
+}
 
+function SetupStep({
+  title,
+  busy,
+  error,
+  onBack,
+  onCreate,
+  onLink
+}: CreateForm & { onLink?: () => void }): React.JSX.Element {
+  return (
+    <StepFrame
+      icon={<Sparkles />}
+      title={title}
+      subtitle="Start a new identity"
+      onBack={busy ? undefined : onBack}
+      footer={
+        <>
+          <BackButton disabled={busy} onClick={onBack} />
+          {onLink && (
+            <Button variant="secondary" disabled={busy} onClick={onLink}>
+              <Link2 /> Link instead
+            </Button>
+          )}
+          <Button disabled={busy} onClick={onCreate}>
+            {busy ? 'Making keys…' : 'Set up this device'}
+          </Button>
+        </>
+      }
+    >
+      <p>
+        This makes a new security key for your account on this device, and a recovery key for you to
+        keep.
+      </p>
+      <ul className="border-line-hairline bg-surface-sunken grid gap-3 border px-3.5 py-3">
+        <KeyItem
+          icon={<KeyRound />}
+          title="A security key"
+          hint="Lives only on this device"
+          tile="bg-accent-tint text-accent-text"
+        />
+        <KeyItem
+          icon={<RotateCcw />}
+          title="A recovery key"
+          hint="For you to keep somewhere safe and offline"
+          tile="bg-feature-voice/15 text-feature-voice-text"
+        />
+      </ul>
+      <Callout tone="caution">
+        Do this only if you do not use Hachiman on another device. If you do, link this device to it
+        instead.
+      </Callout>
+      <ErrorText>{error}</ErrorText>
+    </StepFrame>
+  )
+}
+
+function ResetStep({ title, busy, error, onBack, onCreate }: CreateForm): React.JSX.Element {
+  const [understood, setUnderstood] = useState(false)
+  const checkId = useId()
   return (
     <StepFrame
       icon={<RotateCcw />}
@@ -357,7 +394,7 @@ function CreateIdentity({
       footer={
         <>
           <BackButton disabled={busy} onClick={onBack} />
-          <Button variant="danger" disabled={busy || !understood} onClick={() => void create()}>
+          <Button variant="danger" disabled={busy || !understood} onClick={onCreate}>
             <RotateCcw /> {busy ? 'Making keys…' : 'Reset my keys'}
           </Button>
         </>
@@ -407,30 +444,46 @@ function KeyItem(props: {
   )
 }
 
+/**
+ * Restore with the recovery key. On the mobile set-up gate this is M18: the touch field, and
+ * Restore docked on the keyboard. A finished restore turns the state 'ready', and the gate shows
+ * M21.
+ */
 function Restore({ title, onBack }: { title: string; onBack: () => void }): React.JSX.Element {
+  const platform = usePlatform()
+  const noun = useDeviceNoun()
   const { run, busy, error } = useAction()
   const screen = useStepLayout() === 'screen'
+  const restore = async (key: string): Promise<void> => {
+    const r = await run('restore', () => friendly(cryptoService.restoreFromRecoveryKey(key)))
+    if (!r.ok) platform.haptic('warning')
+  }
   return (
     <>
       <StepHeader
         icon={<KeyRound />}
         feature="voice"
         title={title}
-        subtitle="Read your messages on this device"
+        subtitle={`Read your messages on this ${noun}`}
         onBack={busy ? undefined : onBack}
       />
-      <p className={screen ? 'text-text-secondary' : 'text-sm'}>
-        Type or paste the recovery key that you saved when you set up Hachiman. Hachiman gets your
-        security key and your message history from the encrypted backup.
-      </p>
+      {screen ? (
+        <p className="text-text-secondary font-medium">
+          Type or paste the recovery key that you saved when you set up Hachiman.
+        </p>
+      ) : (
+        <p className="text-sm">
+          Type or paste the recovery key that you saved when you set up Hachiman. Hachiman gets your
+          security key and your message history from the encrypted backup.
+        </p>
+      )}
       <RecoveryKeyInput
         busy={busy}
         error={error}
         submitLabel="Restore"
+        size={screen ? 'touch' : 'default'}
         footerStart={<BackButton disabled={busy} onClick={onBack} />}
-        onSubmit={(key) =>
-          void run('restore', () => friendly(cryptoService.restoreFromRecoveryKey(key)))
-        }
+        onSubmit={(key) => void restore(key)}
       />
     </>
   )

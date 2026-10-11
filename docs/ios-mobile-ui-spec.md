@@ -116,7 +116,7 @@ A browser window that crosses 767 px swaps the two shells. The composer draft in
 
 ### 2.4 Drawers
 
-- `components/mobile/drawer.tsx` (new): `Drawer({ side, open, progress, onClose, children })`. Width `min(320px, 100vw - 73px)`. Full height.
+- `components/mobile/drawer.tsx` (new): `Drawer({ side, open, progress, onClose, children })`. Width `min(320px, 100vw - 48px)` (320 on the iPhone SE too, §2.12). Full height.
 - Closed: `translateX(∓100%)`. While a finger drags: `translateX(progress)`. Transition `transform 250ms cubic-bezier(.32,.72,0,1)`. The reduced-motion rule in `assets/main.css` removes the slide.
 - Left drawer: `WALLPAPER` fill, `border-r` in `--line-sheet`, `--shadow-drawer`. It holds `Sidebar` (`components/shell/sidebar.tsx` gets a `className` prop).
 - Right drawer: `surface-panel`, `border-l`, mirrored shadow. It holds `RightColumn` with `variant="drawer"`. Mount it at the first open or at the gesture start, not before. A mounted column re-renders on every presence event and runs Worker calls for a DM.
@@ -239,7 +239,19 @@ The mocks break the 36 rule in many places: reaction chips 26, Retry 24, the tab
 - `components/shell/use-guild-tint.ts` also returns the solid tint colour per theme (A1). The custom gradient gives its first stop.
 - `apps/hachiman-ios/Hachiman/Native.swift` accepts only a hex colour. `tintColors()` returns `color-mix()` strings. `lib/css-color.ts` (new) resolves any CSS colour to `#rrggbb`: paint 1 px on a canvas and read `getImageData`. Check in the simulator that WebKit's canvas accepts a `color-mix()` fill. If it does not, compute the colour from the hue with OKLab math.
 
-### 2.12 Rules that protect the desktop
+### 2.12 Smallest device: iPhone SE
+
+The mocks are 393 × 852. The smallest phone that runs the app (iOS 18.5 or later) is the iPhone SE, 2nd and 3rd generation: **375 × 667**, with no notch. Every screen must fit and work on it.
+
+- Safe areas on the SE: top 20 (the status bar), bottom 0 (a home button, no home indicator). The `--safe-top` and `--safe-bottom` variables give these values. Do not hard-code 54 or 34.
+- Height budget on the SE: 667 − 20 = 647. The chat chrome takes tabs 48, header 56, voice bar 52 and composer 60, so 431 is left for messages. With the keyboard up (about 260 on the SE), the voice bar hides, and about 220 is left. Every screen must keep its primary action in view or scrollable to.
+- Width: the 320 drawers leave 55 of the chat in view on the SE, not 73. Keep 320. Never let a drawer take more than `100vw − 48`.
+- No horizontal overflow at 375. Rows truncate or wrap their text. Chip and tab strips scroll sideways. Two-column controls (for example the invite limits in M46) stack when they do not fit.
+- Sheets and pushed screens scroll inside when their content is taller than the screen. The sheet header and the foot buttons stay in place.
+- Touch sizes (section 2.10) do not shrink on the SE.
+- **Check every screen at both sizes:** 393 × 852 (the mock) and 375 × 667 (iPhone SE). In the simulator use "iPhone SE (3rd generation)".
+
+### 2.13 Rules that protect the desktop
 
 - Shared components take mobile forms through `mobile:` classes, `useLayout()` in a named leaf, or a prop. Never through `useIsMobile()` inside desktop code.
 - Extract logic into hooks so desktop and mobile share it. Keep the desktop JSX the same where possible.
@@ -609,6 +621,13 @@ M7 is in I2. M8 is in I1. M11 is in A2. M12 is in A5.
 - **Native hooks:** `haptic('light')` per slider step, `haptic('success')` on copy.
 - **Check:** Preview: theme cards switch live, status bar follows in the simulator. The slider changes the sample message and the transcript after release.
 - **Depends on:** E1, A3.
+- **As built (W3):**
+  - `--message-text-size` applies only on the mobile layout (`mobile:` classes on the message body in `components/chat/message-row.tsx`). The desktop message text does not change, and a size set in a narrow browser window does not reach a wide one.
+  - The pure logic is `MESSAGE_TEXT_SIZES`, `isMessageTextSize` and `mergePersistedPrefs` in `stores/prefsStore.ts`, tested in `stores/prefsStore.test.ts`.
+  - With an image set, the camera badge of `ImageField variant="badge"` opens a Choose / Remove menu (a sheet on mobile). With no image, it opens the picker directly.
+  - The text-size note has no Dynamic Type sentence (section 5). It reads "<Name> · <n> pt. Sets the size of message text."
+  - The Takusen row tile is the `event` feature tile with a "T" glyph. No `takusen/*` tokens were added.
+  - The M31 density cards apply on the phone: `components/chat/transcript.tsx` no longer forces cozy on mobile (this replaces the A3 rule).
 
 #### E3 · Sign-out sheet, status sheet, notifications and privacy
 
@@ -736,6 +755,11 @@ M36 is in A5.
 - **Native hooks:** none.
 - **Check:** Preview: channel gear → M48 pushes. Type in the topic: the preview updates and the foot shows unsaved changes. Permissions → tap deny on a rule: the "Denied here" chip shows. Save signs the change.
 - **Depends on:** E1, A2.
+- **As built (W3):**
+  - The topic counter is at the bottom right, as M48 draws it (not the bottom left).
+  - The Save foot of M48 and M49 docks under the screen panel through `DockedFoot` (exported from `components/settings/channel-overview.tsx`), not sticky inside the form. It portals the foot as the last child of the enclosing `PushedScreen`. `PushedScreen` then drops the safe-bottom padding of its body. H1 and H2 can use `DockedFoot` for pages with rows after the form.
+  - `ChipScroller({ label, options: {value,label,lead?,count?}[], value, onValueChange, className })` in `components/mobile/chip-scroller.tsx` reuses `FilterChip` at 38 and shows the selected chip with `revealScrollLeft`.
+  - The three-way switch is `SegmentedControl size="touch"`: 44 high with 36-wide segments. The mock draws 40 high with 40-wide segments.
 
 ### 4.11 Row H · Guild settings
 

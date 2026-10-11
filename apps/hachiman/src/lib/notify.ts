@@ -1,6 +1,20 @@
 /** N9 notification levels. Stored per account in prefsStore; read by sounds and unread badges. */
 export type NotifyLevel = 'all' | 'mentions' | 'none'
 
+const LEVEL_LABEL: Record<NotifyLevel, string> = {
+  all: 'All messages',
+  mentions: 'Mentions only',
+  none: 'Nothing'
+}
+
+/**
+ * The name of a level, the same on both layouts: the level menus and cards show it, and the
+ * mobile sheets show it as a hint ("Notification settings · Mentions only").
+ */
+export function notifyLevelLabel(level: NotifyLevel): string {
+  return LEVEL_LABEL[level]
+}
+
 export interface NotifyPrefs {
   /** channelId or guildId → level. A channel level wins over its guild level. */
   notify: Readonly<Record<string, NotifyLevel>>

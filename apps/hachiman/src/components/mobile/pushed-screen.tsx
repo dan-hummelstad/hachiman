@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useId, useMemo, useRef, useState } from 'react'
+import { countLocalPushed } from '@/components/mobile/drawer-state'
 import { MobileFoot } from '@/components/mobile/foot'
 import { NavActionProvider, NavBar } from '@/components/mobile/nav-bar'
 import { captureOpener, restoreFocus } from '@/lib/focus-opener'
@@ -63,6 +64,13 @@ export function ScreenStackProvider({
     []
   )
   const stacked = useMemo<StackedScreen>(() => ({ open, pop: stack.pop }), [open, stack])
+
+  // The MobileShell's edge swipe means Back while this stack shows a screen.
+  useEffect(() => {
+    if (!open) return
+    countLocalPushed(1)
+    return () => countLocalPushed(-1)
+  }, [open])
 
   // Drop the screen once it has slid out. It renders nothing from the end of its slide.
   useEffect(() => {
@@ -202,6 +210,8 @@ export function PushedScreen({
           className={cn(
             'flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto overscroll-contain p-4',
             !foot && 'pb-[calc(16px+var(--safe-bottom,0px))] in-data-[keyboard=open]:pb-4',
+            // A foot docked by the page (`DockedFoot` in settings/channel-overview) keeps the inset.
+            '[[data-slot=pushed-screen]:has(>[data-slot=docked-foot])>div>&]:pb-4',
             bodyClassName
           )}
         >

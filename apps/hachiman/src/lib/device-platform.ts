@@ -1,3 +1,4 @@
+import { Globe, Monitor, Smartphone, type LucideIcon } from 'lucide-react'
 import type { DevicePlatform } from '@hachiman/crypto'
 
 /** The kind of app that a device runs, as the device lists show it. */
@@ -5,6 +6,13 @@ export const PLATFORM_LABEL: Record<DevicePlatform, string> = {
   electron: 'Desktop app',
   browser: 'Browser',
   ios: 'iPhone app'
+}
+
+/** The icon of the kind of app that a device runs: the one platform-to-icon table. */
+export const PLATFORM_ICON: Record<DevicePlatform, LucideIcon> = {
+  electron: Monitor,
+  browser: Globe,
+  ios: Smartphone
 }
 
 /**

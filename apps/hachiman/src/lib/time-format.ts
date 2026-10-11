@@ -57,3 +57,50 @@ const SHORT_DATE = new Intl.DateTimeFormat(undefined, {
 export function formatShortDate(date: Date | number): string {
   return SHORT_DATE.format(date)
 }
+
+const DAY_MONTH = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short' })
+
+/**
+ * The day and month of an ISO time ("2 Oct", in the locale's order): the day of a verification on
+ * the mobile layout. Null for no time or a broken one.
+ */
+export function formatDayMonth(iso: string | null): string | null {
+  if (iso === null) return null
+  const ms = Date.parse(iso)
+  return Number.isFinite(ms) ? DAY_MONTH.format(ms) : null
+}
+
+/** The start of the local calendar day of `ms`. */
+const dayStart = (ms: number): number => {
+  const d = new Date(ms)
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
+}
+
+/**
+ * The time of a list row's last activity (the DM list, M56): "10:53" today (24 h), the weekday
+ * within the last six days ("Mon"), else the date ("6 Oct", with the year when it is not this
+ * year's). A time in the future (clock skew) counts as today.
+ */
+export function formatListTime(
+  at: Date | number,
+  now: number = Date.now(),
+  locale?: string
+): string {
+  const ms = typeof at === 'number' ? at : at.getTime()
+  const date = new Date(ms)
+  // Calendar days between the two dates; DST shifts make a day 23 or 25 hours long.
+  const days = Math.round((dayStart(now) - dayStart(ms)) / 86_400_000)
+  if (days <= 0)
+    return new Intl.DateTimeFormat(locale, {
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23'
+    }).format(date)
+  if (days < 7) return new Intl.DateTimeFormat(locale, { weekday: 'short' }).format(date)
+  const sameYear = date.getFullYear() === new Date(now).getFullYear()
+  return new Intl.DateTimeFormat(locale, {
+    day: 'numeric',
+    month: 'short',
+    ...(sameYear ? {} : { year: 'numeric' })
+  }).format(date)
+}

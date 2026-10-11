@@ -154,7 +154,8 @@ export function AudioCard({ audio }: { audio: AttachmentPointer }): React.JSX.El
               aria-hidden
               onClick={seek}
               className={cn(
-                'flex h-6 min-w-0 flex-1 items-center gap-[2px]',
+                // A narrow phone column (the compact layout at 375) clips the bars, not the row.
+                'mobile:overflow-hidden flex h-6 min-w-0 flex-1 items-center gap-[2px]',
                 url && 'cursor-pointer'
               )}
             >

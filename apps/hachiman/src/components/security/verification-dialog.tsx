@@ -26,7 +26,8 @@ import { Textarea } from '@/components/ui/textarea'
 import { MobileField } from '@/components/mobile/field'
 import { ListGroup, SectionLabel } from '@/components/mobile/list'
 import { friendly } from '@/components/security/errors'
-import { TrustChip } from '@/components/people/trust-chip'
+import { TrustChip, useMobileKeyChange } from '@/components/people/trust-chip'
+import type { KeyChangeSeverity } from '@/components/people/trust-look'
 import { useContactSecurity } from '@/components/people/use-contact-security'
 import { invalidateTrust } from '@/components/people/use-contact-trust'
 import { PlatformIcon } from '@/components/security/devices-panel'
@@ -63,6 +64,8 @@ const PASTE_CAUTION =
 interface Verification {
   name: string
   trust: TrustInfo | null
+  /** The key-change severity on the mobile layout (a notice shows gold); null on desktop. */
+  keyChange: KeyChangeSeverity | null
   safety: SafetyNumber | null
   devices: ContactDevice[] | null
   loadError: string | null
@@ -92,6 +95,7 @@ function useVerification(userId: string): Verification {
   const platform = usePlatform()
   const name = useUserName(userId)
   const { trust, safety, devices, error: loadError } = useContactSecurity(userId)
+  const keyChange = useMobileKeyChange(userId)
   const [scanning, setScanning] = useState(false)
   const [scanResult, setScanResult] = useState<'match' | 'mismatch' | null>(null)
   const [showCode, setShowCode] = useState(false)
@@ -132,6 +136,7 @@ function useVerification(userId: string): Verification {
   return {
     name,
     trust,
+    keyChange,
     safety,
     devices,
     loadError,
@@ -330,7 +335,7 @@ function VerificationWindow({ v, open, close }: ViewProps): React.JSX.Element {
                       added {new Date(d.issuedAtMs).toLocaleDateString()}
                     </span>
                   </span>
-                  {trust && <TrustChip state={trust.state} />}
+                  {trust && <TrustChip state={trust.state} keyChange={v.keyChange} />}
                 </li>
               ))}
             </ul>
@@ -556,6 +561,7 @@ function VerificationSheet({ v, open, close }: ViewProps): React.JSX.Element {
                 {trust && (
                   <TrustChip
                     state={trust.state}
+                    keyChange={v.keyChange}
                     className="px-[7px] font-extrabold [&_svg]:size-3"
                   />
                 )}

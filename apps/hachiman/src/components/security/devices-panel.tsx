@@ -1,14 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import {
-  Globe,
-  KeyRound,
-  Link2,
-  LogOut,
-  MonitorSmartphone,
-  Monitor,
-  Pencil,
-  Smartphone
-} from 'lucide-react'
+import { KeyRound, Link2, LogOut, MonitorSmartphone, Pencil } from 'lucide-react'
 import type { DeviceSummary, RevocationReasonName } from '@hachiman/crypto'
 import { Button } from '@/components/ui/button'
 import { Callout } from '@/components/ui/callout'
@@ -21,7 +12,7 @@ import { NativeSelect } from '@/components/ui/native-select'
 import { cryptoErrorText, friendly } from '@/components/security/errors'
 import { HostTrustLine } from '@/components/security/host-trust'
 import { useAction } from '@/hooks/use-action'
-import { PLATFORM_LABEL } from '@/lib/device-platform'
+import { PLATFORM_ICON, PLATFORM_LABEL } from '@/lib/device-platform'
 import { formatShortDate, relativeTime } from '@/lib/time-format'
 import { cn } from '@/lib/utils'
 import { cryptoService } from '@/services/CryptoService'
@@ -185,8 +176,6 @@ export function DevicesPanel({ variant }: { variant: 'page' | 'dialog' }): React
     </div>
   )
 }
-
-const PLATFORM_ICON = { electron: Monitor, browser: Globe, ios: Smartphone } as const
 
 /** The icon of the kind of app that a device runs. */
 export function PlatformIcon({

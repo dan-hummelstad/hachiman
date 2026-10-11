@@ -49,10 +49,11 @@ function run(...inputs: SwipeInput[]): SwipeStep[] {
 const last = (steps: SwipeStep[]): SwipeStep => steps[steps.length - 1]
 
 describe('drawerWidth', () => {
-  it('is 320 and leaves 73 px of the chat in view', () => {
+  it('is 320, also on the iPhone SE, and leaves at least 48 px of the chat in view', () => {
     expect(drawerWidth(393)).toBe(320)
-    expect(drawerWidth(375)).toBe(302)
-    expect(drawerWidth(50)).toBe(0)
+    expect(drawerWidth(375)).toBe(320)
+    expect(drawerWidth(360)).toBe(312)
+    expect(drawerWidth(40)).toBe(0)
   })
 })
 

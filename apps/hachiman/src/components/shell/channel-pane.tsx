@@ -255,7 +255,7 @@ function RoleName({ role }: { role: Role }): React.JSX.Element {
  * The left side of a DM's header: the avatar (or the group icon), the name and, in a 1:1 DM, the
  * voice activity of the other person.
  */
-export function DmTitle({ channel }: { channel: Channel }): React.JSX.Element {
+function DmTitle({ channel }: { channel: Channel }): React.JSX.Element {
   const recipients = channel.recipients ?? []
   const solo = recipients.length === 1 ? recipients[0] : undefined
   const status = usePresence(solo?.id)
@@ -292,7 +292,7 @@ function VoiceActivity({ userId }: { userId: string }): React.JSX.Element | null
 }
 
 /** The trust of the other person in a 1:1 DM. Opens the verification dialog. */
-export function DmTrustChip({ channel }: { channel: Channel }): React.JSX.Element | null {
+function DmTrustChip({ channel }: { channel: Channel }): React.JSX.Element | null {
   const recipients = channel.recipients ?? []
   const solo = recipients.length === 1 ? recipients[0] : undefined
   const { trust } = useContactTrust(solo?.id)

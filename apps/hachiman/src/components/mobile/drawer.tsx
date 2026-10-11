@@ -12,7 +12,7 @@ const PANEL: Record<DrawerSide, string> = {
 }
 
 /**
- * A mobile drawer (docs/ios-mobile-ui-spec.md §2.4) over the chat: `min(320px, 100vw - 73px)`
+ * A mobile drawer (docs/ios-mobile-ui-spec.md §2.4) over the chat: `min(320px, 100vw - 48px)`
  * wide, full height, from its side of the screen, over a scrim (`--surface-scrim-drawer`) that
  * closes it on a tap. It stays mounted while closed (inert and off screen), so what it holds
  * keeps its state. While a finger drags it, `progress` (its open share, 0–1) places it and the
@@ -104,7 +104,7 @@ export function Drawer({
         data-state={open ? 'open' : 'closed'}
         style={{ transform: `translate3d(${away * (1 - share) * 100}%, 0, 0)` }}
         className={cn(
-          'border-line-sheet absolute inset-y-0 z-40 flex w-[min(320px,calc(100vw-73px))] flex-col outline-none',
+          'border-line-sheet absolute inset-y-0 z-40 flex w-[min(320px,calc(100vw-48px))] flex-col outline-none',
           PANEL[side],
           // A closed drawer casts no shadow onto the screen edge.
           !open && !dragging && 'shadow-none',

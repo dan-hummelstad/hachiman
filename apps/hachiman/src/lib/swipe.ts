@@ -22,11 +22,14 @@ export const EDGE_PX = 24
 export const LOCK_PX = 10
 /** A sideways move must be this much larger than the vertical move. */
 export const AXIS_RATIO = 1.2
-/** The drawer width: 320, and at least DRAWER_PEEK of the chat stays in view. */
+/**
+ * The drawer width: 320, and at least DRAWER_PEEK of the chat stays in view. 320 fits the iPhone
+ * SE (375 wide, 55 of the chat in view, spec §2.12).
+ */
 export const DRAWER_MAX_WIDTH = 320
-export const DRAWER_PEEK = 73
+export const DRAWER_PEEK = 48
 
-/** The width of a drawer in a `viewport` wide window (CSS `min(320px, 100vw - 73px)`). */
+/** The width of a drawer in a `viewport` wide window (CSS `min(320px, 100vw - 48px)`). */
 export function drawerWidth(viewport: number): number {
   return Math.max(0, Math.min(DRAWER_MAX_WIDTH, viewport - DRAWER_PEEK))
 }

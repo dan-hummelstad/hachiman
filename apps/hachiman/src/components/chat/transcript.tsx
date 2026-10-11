@@ -3,6 +3,7 @@ import { ArrowDown } from 'lucide-react'
 import type { Channel } from '@hachiman/client'
 import { MessageActionSheet } from '@/components/mobile/message-action-sheet'
 import { useChatCovered } from '@/components/mobile/drawer-state'
+import { useDmStageShown } from '@/components/voice/dm-call'
 import { SystemTag } from '@/components/ui/system-tag'
 import { useLayout } from '@/hooks/use-layout'
 import { highlightRow, jumpStep } from '@/lib/navigation'
@@ -61,9 +62,8 @@ export function Transcript({
   const messages = useMessageStore((s) => s.byChannel.get(channelId) ?? EMPTY_MESSAGES)
   const hasMore = useMessageStore((s) => s.hasMore.get(channelId))
   const mobile = useLayout() === 'mobile'
-  const displayPref = usePrefsStore((s) => s.messageDisplay)
-  // A phone row has room for one layout: cozy (M1).
-  const display = mobile ? 'cozy' : displayPref
+  // The density cards of M31 (spec E2) set it on the phone too.
+  const display = usePrefsStore((s) => s.messageDisplay)
   const myId = useUserStore((s) => s.me?.id)
 
   const scroller = useRef<HTMLDivElement>(null)
@@ -246,8 +246,8 @@ const seen = (): boolean => document.hasFocus() && document.visibilityState === 
 /**
  * Read acks (N7). The channel counts as read up to its newest sent message while the bottom of
  * the transcript is in view, the window has focus and shows, and nothing covers the chat (a mobile
- * drawer or pushed screen), and right after my own message arrives. Returns the ref of a sentinel
- * under the last row.
+ * drawer, pushed screen or DM call stage), and right after my own message arrives. Returns the
+ * ref of a sentinel under the last row.
  */
 function useMarkRead(
   channelId: string,
@@ -256,7 +256,9 @@ function useMarkRead(
 ): React.RefCallback<HTMLDivElement> {
   const [inView, setInView] = useState(false)
   const [focused, setFocused] = useState(seen)
-  const covered = useChatCovered()
+  // The stage of a mobile DM call hides the chat as well (MobileChatPane).
+  const stage = useDmStageShown(channelId)
+  const covered = useChatCovered() || stage
 
   const bottom = useCallback((el: HTMLDivElement | null) => {
     if (!el) return

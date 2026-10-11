@@ -4,7 +4,7 @@ import { HomePane } from '@/components/home-pane'
 import { hasRightDrawer, openDrawer } from '@/components/mobile/drawer-state'
 import { MobileChannelHeader, type MobileSide } from '@/components/mobile/mobile-channel-header'
 import { NoChannelPane } from '@/components/shell/channel-pane'
-import { DmCallPanel } from '@/components/voice/dm-call'
+import { DmCallPanel, useDmStageShown } from '@/components/voice/dm-call'
 import { VoiceRoom } from '@/components/voice/voice-room'
 import { isGuildChannel } from '@/lib/model'
 import { ROLE_INK_SCOPE } from '@/lib/role-ink'
@@ -34,10 +34,15 @@ export function MobileChatPane(): React.JSX.Element {
   )
   // The single gate: voice channels carry no messages (no history, typing, composer).
   const voice = channel?.type === 'voice' && isGuildChannel(channel) ? channel : null
+  // My DM call's full-height stage covers the chat (B2).
+  const dmStage = useDmStageShown(channel?.guildId === null ? channel.id : null)
 
   return (
     <main
-      className={cn('flex min-h-0 min-w-0 flex-1 flex-col', !(channel && !voice) && SAFE_BOTTOM)}
+      className={cn(
+        'flex min-h-0 min-w-0 flex-1 flex-col',
+        !(channel && !voice && !dmStage) && SAFE_BOTTOM
+      )}
     >
       {selectedGuildId === null && !channel ? (
         <HomePane />
@@ -55,7 +60,10 @@ export function MobileChatPane(): React.JSX.Element {
           ) : (
             <>
               {channel.guildId === null && <DmCallPanel key={channel.id} channel={channel} />}
-              <ChatBody channel={channel} />
+              {/* Hidden, not unmounted, under the stage: it keeps the draft and the uploads. */}
+              <div className={dmStage ? 'hidden' : 'contents'} inert={dmStage}>
+                <ChatBody channel={channel} />
+              </div>
             </>
           )}
         </section>

@@ -1,15 +1,20 @@
 import { useMemo } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { Crown, MonitorSmartphone, Phone, ShieldCheck, ShieldQuestion } from 'lucide-react'
+import { Crown, Hand, MonitorSmartphone, Phone, ShieldCheck, ShieldQuestion } from 'lucide-react'
 import type { ContactDevice } from '@hachiman/crypto'
-import type { Guild, Role, User } from '@hachiman/client'
+import type { Channel, Guild, Role, User } from '@hachiman/client'
+import { KIT_ICON_BUTTON } from '@/components/mobile/nav-bar'
+import { NotifyButton } from '@/components/notify/notify-menu'
+import { PinsButton } from '@/components/pins/pins-button'
 import { CustomStatusLine } from '@/components/people/custom-status-line'
 import { useVoiceActivity } from '@/components/people/use-voice-activity'
 import { VoiceActivityLine } from '@/components/people/voice-activity-line'
 import { useCanJoinVoice } from '@/components/voice/use-call-security'
 import { useElapsed } from '@/hooks/use-elapsed'
 import { useUserBanner } from '@/components/people/use-user-banner'
-import { TRUST_LOOK } from '@/components/people/trust-look'
+import { useMobileKeyChange } from '@/components/people/trust-chip'
+import { lookFor, securityText } from '@/components/people/trust-look'
+import { useMutualGuilds } from '@/components/people/use-mutual-guilds'
 import { useContactSecurity, type ContactSecurity } from '@/components/people/use-contact-security'
 import type { RightColumnVariant } from '@/components/people/right-column'
 import { UserAvatar } from '@/components/shell/user-avatar'
@@ -21,26 +26,14 @@ import { usePresence } from '@/hooks/use-member'
 import type { VoiceActivity } from '@/lib/member-activity'
 import { displayName, hexColor, memberRoles } from '@/lib/model'
 import { ROLE_INK_SCOPE, roleInk } from '@/lib/role-ink'
+import { formatDayMonth } from '@/lib/time-format'
 import { cn } from '@/lib/utils'
+import { usePoke } from '@/services/poke'
 import { voiceService } from '@/services/VoiceService'
 import { useChannelStore } from '@/stores/channelStore'
 import { openDialog } from '@/stores/dialogStore'
 import { useGuildStore } from '@/stores/guildStore'
-import { openChannel, selectGuild } from '@/stores/navStore'
-
-/** The guilds that the viewer shares with `userId` (the viewer has members only of its guilds). */
-function useMutualGuilds(userId: string): Guild[] {
-  const { guilds, members } = useGuildStore(
-    useShallow((s) => ({ guilds: s.guilds, members: s.members }))
-  )
-  return useMemo(
-    () =>
-      [...guilds.values()]
-        .filter((g) => members.get(g.id)?.has(userId))
-        .sort((a, b) => a.name.localeCompare(b.name)),
-    [guilds, members, userId]
-  )
-}
+import { openChannel, selectGuild, useSelectedChannelId } from '@/stores/navStore'
 
 /** The highest role of the user in the first mutual guild (by name) where it has a role. */
 function useStanding(
@@ -64,14 +57,17 @@ function useStanding(
  * The right column of a DM (E2, E3): banner, avatar, name (crown when the user owns a shared
  * guild), the top role in a shared guild, the voice activity with Join, the security key card,
  * the devices from their certificates and the mutual guilds. Trust is per user (decision 5).
- * The `drawer` variant fills the right drawer on a phone (no border).
+ * The `drawer` variant fills the right drawer on a phone (no border). Poke, Pins and Notify,
+ * which the desktop DM header holds, sit there as a row of 36 buttons under the name (I2).
  */
 export function DmProfileColumn({
   user,
-  variant = 'column'
+  variant = 'column',
+  className
 }: {
   user: User
   variant?: RightColumnVariant
+  className?: string
 }): React.JSX.Element {
   const userId = user.id
   const status = usePresence(userId)
@@ -89,7 +85,8 @@ export function DmProfileColumn({
       className={cn(
         'bg-surface-panel border-line-hairline flex h-full min-h-0 shrink-0 flex-col',
         variant === 'drawer' ? 'w-full' : 'w-[252px] border-l',
-        ROLE_INK_SCOPE
+        ROLE_INK_SCOPE,
+        className
       )}
     >
       <ScrollArea className="min-h-0 flex-1">
@@ -127,9 +124,16 @@ export function DmProfileColumn({
             <CustomStatusLine userId={userId} className="mt-1 text-[13px] leading-5" />
           </div>
 
+          {variant === 'drawer' && <DrawerActions user={user} />}
+
           {activity && <ActivityCard activity={activity} />}
 
-          <SecurityCard name={name} userId={userId} security={security} />
+          <SecurityCard
+            name={name}
+            userId={userId}
+            security={security}
+            dayOf={variant === 'drawer' ? formatDayMonth : localeDay}
+          />
 
           {security.devices && security.devices.length > 0 && (
             <Devices devices={security.devices} verified={security.trust?.state === 'verified'} />
@@ -159,6 +163,58 @@ export function DmProfileColumn({
         </div>
       </ScrollArea>
     </aside>
+  )
+}
+
+/** The Poke button of the drawer row: 36, the look of the mobile header buttons. */
+const ACTION_BUTTON = cn(KIT_ICON_BUTTON, 'text-text-secondary active:bg-surface-hover')
+
+/**
+ * The selected channel when it is the 1:1 DM with `userId`: the right drawer shows the profile of
+ * the open DM, and its Pins and Notify act on that DM.
+ */
+function useOpenDmWith(userId: string): Channel | undefined {
+  const channelId = useSelectedChannelId()
+  return useChannelStore((s) => {
+    const c = channelId ? s.channels.get(channelId) : undefined
+    return c?.type === 'dm' && c.recipients?.[0]?.id === userId ? c : undefined
+  })
+}
+
+/**
+ * Poke, Pins and Notify of the open DM in the mobile profile drawer (the desktop header has
+ * them). Pins and Notify open as sheets over the drawer. A poke that fails says why below the row;
+ * touch has no tooltip.
+ */
+function DrawerActions({ user }: { user: User }): React.JSX.Element {
+  const poke = usePoke()
+  const dm = useOpenDmWith(user.id)
+  const status = poke.error ?? (poke.sent ? 'Poke sent!' : null)
+  return (
+    <div className="flex flex-col">
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          aria-label={`Poke ${user.username}`}
+          disabled={poke.busy}
+          onClick={() => void poke.run(user.id, user.username)}
+          className={ACTION_BUTTON}
+        >
+          <Hand />
+        </button>
+        {dm && <PinsButton channel={dm} />}
+        {dm && <NotifyButton channel={dm} />}
+      </div>
+      <p
+        role="status"
+        className={cn(
+          'text-[12.5px] leading-4 font-medium not-empty:mt-1.5',
+          poke.error ? 'text-feature-danger-text' : 'text-text-secondary'
+        )}
+      >
+        {status}
+      </p>
+    </div>
   )
 }
 
@@ -198,31 +254,34 @@ function ActivityCard({ activity }: { activity: VoiceActivity }): React.JSX.Elem
   )
 }
 
+/** The day of a verification in the desktop column: the locale's full date. */
+function localeDay(iso: string | null): string | null {
+  return iso ? new Date(iso).toLocaleDateString() : null
+}
+
 function SecurityCard({
   name,
   userId,
-  security
+  security,
+  dayOf
 }: {
   name: string
   userId: string
   security: ContactSecurity
+  /** Formats TrustInfo.verifiedAt for the explainer. */
+  dayOf: (iso: string | null) => string | null
 }): React.JSX.Element {
   const { trust, safety, error } = security
-  const look = trust ? TRUST_LOOK[trust.state] : null
+  const keyChange = useMobileKeyChange(userId)
+  const look = trust ? lookFor(trust.state, keyChange) : null
   const Icon = look?.Icon ?? ShieldQuestion
-  const verifiedOn = trust?.verifiedAt ? new Date(trust.verifiedAt).toLocaleDateString() : null
-  const text =
-    error !== null
-      ? 'The security key cannot be read now.'
-      : !trust
-        ? 'Reading the security key…'
-        : trust.state === 'verified'
-          ? `You compared safety numbers${verifiedOn ? ` on ${verifiedOn}` : ''}. Hachiman will tell you if this key ever changes.`
-          : trust.state === 'changed'
-            ? `The security key of ${name} changed. Compare safety numbers again.`
-            : trust.state === 'tofu'
-              ? 'Compare safety numbers once, in person or on a call, so nobody can sit in between.'
-              : `Hachiman has no security key for ${name} yet.`
+  const text = securityText({
+    name,
+    state: trust?.state ?? null,
+    keyChange,
+    verifiedOn: dayOf(trust?.verifiedAt ?? null),
+    error
+  })
   const canVerify = look?.canVerify ?? false
   return (
     <section className="flex flex-col gap-1.5">

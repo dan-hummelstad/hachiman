@@ -1,7 +1,7 @@
 import type { Channel } from '@hachiman/client'
 import type { ChannelChatState } from '@/components/chat/chat-body'
-import { Composer } from '@/components/chat/composer'
 import { TypingLine } from '@/components/chat/typing-line'
+import { MobileComposer } from '@/components/mobile/mobile-composer'
 import { VoiceBar } from '@/components/mobile/voice-bar'
 
 /**
@@ -15,10 +15,11 @@ export function focusComposer(): void {
 }
 
 /**
- * The foot of the chat card on the mobile layout (M1): the typing line (22), the voice bar while
- * in a call, the composer, then the home-indicator inset on the content colour. With the keyboard
- * open the inset and the voice bar go, so the composer sits on the keyboard. `blocked` replaces
- * the typing line and the composer (a 1:1 DM with someone I blocked, N23).
+ * The foot of the chat card on the mobile layout (M1, M6): the typing line (22), the voice bar
+ * while in a call, the mobile composer (its bar keeps its own 8/12 padding), then the
+ * home-indicator inset on the content colour. With the keyboard open the inset and the voice bar
+ * go, so the composer sits on the keyboard. `blocked` replaces the typing line and the composer
+ * (a 1:1 DM with someone I blocked, N23).
  */
 export function MobileChatFooter({
   channel,
@@ -35,20 +36,19 @@ export function MobileChatFooter({
       className="flex shrink-0 flex-col pb-(--safe-bottom) in-data-[keyboard=open]:pb-0"
     >
       {!blocked && <TypingLine channel={channel} className="h-[22px] pr-4 pl-5 leading-[22px]" />}
-      {/* A DM call shows its stage above this chat: the bar would repeat it. */}
-      <VoiceBar stageChannelId={channel.id} />
-      <div className="px-3 pt-2 pb-2">
-        {blocked ?? (
-          <>
-            {chat.refusedPeer && (
-              <p role="status" className="text-text-tertiary px-1 pb-1.5 text-[13px]">
-                You can&apos;t message {chat.refusedPeer.username}.
-              </p>
-            )}
-            <Composer {...chat.composer} />
-          </>
-        )}
-      </div>
+      <VoiceBar />
+      {blocked ? (
+        <div className="px-3 pt-2 pb-2">{blocked}</div>
+      ) : (
+        <>
+          {chat.refusedPeer && (
+            <p role="status" className="text-text-tertiary px-4 pt-2 text-[13px]">
+              You can&apos;t message {chat.refusedPeer.username}.
+            </p>
+          )}
+          <MobileComposer {...chat.composer} />
+        </>
+      )}
     </footer>
   )
 }

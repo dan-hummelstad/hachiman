@@ -5,12 +5,14 @@ import {
   MessagesSquare,
   Pin,
   Settings,
+  ShieldCheck,
   ShieldQuestion,
   Upload,
   UserPlus,
   Users
 } from 'lucide-react'
-import { Permissions, has, type Channel, type Role } from '@hachiman/client'
+import { Permissions, has, type Channel, type Role, type User } from '@hachiman/client'
+import type { SenderTrust } from '@hachiman/crypto'
 import { HeaderChannelIcon } from '@/components/shell/channel-pane'
 import { UserAvatar } from '@/components/shell/user-avatar'
 import { Button } from '@/components/ui/button'
@@ -25,8 +27,13 @@ import { openDialog } from '@/stores/dialogStore'
 import { openSettings } from '@/stores/navStore'
 import { pinTab, useIsPinned, type TabTarget } from '@/stores/tabsStore'
 import { useChannelAccess } from '@/lib/channel-access'
-import { TRUST_LOOK } from '@/components/people/trust-look'
+import { KeyCard } from '@/components/chat/key-card'
+import { useMobileKeyChange } from '@/components/people/trust-chip'
+import { TRUST_LOOK, shownTrust } from '@/components/people/trust-look'
 import { useContactTrust } from '@/components/people/use-contact-trust'
+import { useMutualGuilds } from '@/components/people/use-mutual-guilds'
+import { GuildTile } from '@/components/ui/guild-tile'
+import { useLayout } from '@/hooks/use-layout'
 
 /** The quiet intro buttons: hairline outline, hover wash. */
 const INTRO_BUTTON = 'border-line-hairline text-text-primary'
@@ -35,7 +42,8 @@ const INTRO_BUTTON = 'border-line-hairline text-text-primary'
  * The start of a channel (shown once all history is loaded): a square icon tile, "Welcome to
  * #name", the topic and the actions this user may take. A restricted channel lists the roles that
  * can see it, and an empty channel offers the first upload. An unpinned channel offers "Pin to
- * tabs" (N1, B5) in front of "Invite people".
+ * tabs" (N1, B5) in front of "Invite people". A DM on the mobile layout has its own start (M7,
+ * M57); the desktop one does not change.
  */
 export function ChannelIntro({
   channel,
@@ -48,7 +56,9 @@ export function ChannelIntro({
   /** ATTACH_FILES: the drop card's upload button. */
   onUpload?: (files: File[]) => void
 }): React.JSX.Element {
-  if (channel.guildId === null) return <DmIntro channel={channel} />
+  const mobile = useLayout() === 'mobile'
+  if (channel.guildId === null)
+    return mobile ? <MobileDmIntro channel={channel} /> : <DmIntro channel={channel} />
   if (channel.type === 'thread') return <ThreadIntro thread={channel} />
   return <GuildIntro channel={channel} empty={empty} onUpload={onUpload} />
 }
@@ -297,5 +307,114 @@ function DmIntro({ channel }: { channel: Channel }): React.JSX.Element {
         </div>
       )}
     </div>
+  )
+}
+
+/** At most this many mutual guild chips in the mobile DM intro; the rest is "+n". */
+const MUTUAL_CHIPS = 3
+
+/** The 30 high chips of the mobile DM intro (M7). */
+const INTRO_CHIP =
+  'rounded-control inline-flex h-[30px] max-w-full min-w-0 shrink-0 items-center gap-[7px] border text-[13.5px] leading-none font-bold'
+
+/** The wash and edge of a quiet intro chip (the mutual guilds, "+n", "No key yet"). */
+const MUTUAL_CHIP = 'bg-surface-hover border-(--fill-control)'
+
+/** The Verify chip per shown trust state: gold for "Not verified", red for a blocking change. */
+const VERIFY_TINT: Partial<Record<SenderTrust, string>> = {
+  tofu: 'border-feature-event/22 bg-feature-event/10 text-feature-event-text',
+  changed: 'border-feature-danger/22 bg-feature-danger/10 text-feature-danger-text'
+}
+
+/**
+ * The start of a DM on the mobile layout (M7, M57): the avatar (72), the name (28/800), the
+ * end-to-end line, the mutual guilds as chips (at most 3, then "+n") with the trust chip of the
+ * state, and the key card once the contact is verified.
+ */
+function MobileDmIntro({ channel }: { channel: Channel }): React.JSX.Element {
+  const { name } = channelLabel(channel)
+  const recipients = channel.recipients ?? []
+  const solo = recipients.length === 1 ? recipients[0] : undefined
+  const status = usePresence(solo?.id)
+  return (
+    <div className="flex flex-col gap-2.5 px-4 pt-6 pb-3">
+      {solo ? (
+        <UserAvatar
+          name={name}
+          avatar={solo.avatar}
+          size={72}
+          status={status}
+          cutout="bg-surface-content"
+        />
+      ) : (
+        <div className={cn('flex size-[72px] items-center justify-center', FEATURE_TILE.accent)}>
+          <Users className="size-9" aria-hidden />
+        </div>
+      )}
+      <h2 className="text-text-primary max-w-full truncate text-[28px] leading-[34px] font-extrabold tracking-[-0.3px]">
+        {name}
+      </h2>
+      <p className="text-text-secondary text-[15px] leading-[1.45] font-medium">
+        This is the start of your conversation with {name}. Messages are end-to-end encrypted.
+      </p>
+      {solo && <MobileDmIntroTrust user={solo} name={name} />}
+    </div>
+  )
+}
+
+/** The mutual guild chips, the trust chip and the key card of a 1:1 DM. */
+function MobileDmIntroTrust({ user, name }: { user: User; name: string }): React.JSX.Element {
+  const mutual = useMutualGuilds(user.id)
+  const { trust } = useContactTrust(user.id)
+  const keyChange = useMobileKeyChange(user.id)
+  const shown = trust ? shownTrust(trust.state, keyChange) : null
+  const more = mutual.length - MUTUAL_CHIPS
+  const verifyTint = shown ? VERIFY_TINT[shown] : undefined
+  return (
+    <>
+      {(mutual.length > 0 || (shown !== null && shown !== 'verified')) && (
+        <ul aria-label="Mutual guilds and trust" className="flex max-w-full flex-wrap gap-2 pt-1">
+          {mutual.slice(0, MUTUAL_CHIPS).map((g) => (
+            <li key={g.id} className={cn(INTRO_CHIP, MUTUAL_CHIP, 'pr-3 pl-2')}>
+              <GuildTile guild={g} className="size-[18px] border-0 text-[7.5px]" />
+              <span className="text-text-primary truncate">{g.name}</span>
+            </li>
+          ))}
+          {more > 0 && (
+            <li className={cn(INTRO_CHIP, MUTUAL_CHIP, 'text-text-secondary px-3')}>
+              <span aria-hidden>+{more}</span>
+              <span className="sr-only">{more} more mutual guilds</span>
+            </li>
+          )}
+          {verifyTint && (
+            <li className="max-w-full min-w-0">
+              <button
+                type="button"
+                onClick={() => openDialog({ kind: 'verification', userId: user.id })}
+                className={cn(
+                  INTRO_CHIP,
+                  verifyTint,
+                  // The 30 high chip in a 36 hit area (spec §2.10).
+                  'relative pr-3 pl-2.5 after:absolute after:-inset-y-[3px] after:inset-x-0 active:brightness-125',
+                  'focus-visible:outline-line-focus outline-none focus-visible:outline-2 focus-visible:outline-offset-1'
+                )}
+              >
+                <ShieldCheck className="size-[15px] shrink-0" aria-hidden />
+                <span className="truncate">
+                  {shown === 'changed' ? `Verify ${name} again` : `Verify ${name}`}
+                </span>
+              </button>
+            </li>
+          )}
+          {shown === 'unknown' && (
+            <li className={cn(INTRO_CHIP, MUTUAL_CHIP, 'text-text-tertiary pr-3 pl-2.5')}>
+              <ShieldQuestion className="size-[15px] shrink-0" aria-hidden />
+              {TRUST_LOOK.unknown.label}
+            </li>
+          )}
+        </ul>
+      )}
+      {trust?.state === 'verified' && <KeyCard name={name} verifiedAt={trust.verifiedAt} />}
+    </>
   )
 }

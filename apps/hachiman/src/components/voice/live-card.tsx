@@ -30,7 +30,12 @@ const FRAME = {
     tag: 'absolute top-0.5 left-0.5 h-4 px-1 text-[9px]'
   },
   md: { box: 'aspect-video w-full', avatar: 48, tag: 'absolute top-1.5 left-1.5' },
-  lg: { box: 'aspect-video w-full max-w-2xl', avatar: 112, tag: 'absolute top-3 left-3' }
+  lg: { box: 'aspect-video w-full max-w-2xl', avatar: 112, tag: 'absolute top-3 left-3' },
+  strip: {
+    box: 'h-[52px] w-full',
+    avatar: 32,
+    tag: 'absolute top-1.5 left-1.5 h-[17px] px-[5px] text-[9.5px]'
+  }
 } as const
 
 /**
@@ -40,6 +45,8 @@ const FRAME = {
  * - 'sm': a row for the member list; a button when `onClick` is given.
  * - 'md': a tile with the name under it (Active now).
  * - 'lg': the stage of a voice channel the viewer is not in.
+ * - 'strip': the body of a card in the mobile Active now strip (M56), a 52 high frame over the
+ *   name. Phrasing content only, as the card is a button.
  */
 export function LiveCard({
   guildId,
@@ -68,7 +75,7 @@ export function LiveCard({
     <span
       className={cn(
         'bg-feature-danger/10 relative flex items-center justify-center overflow-hidden',
-        size !== 'sm' && 'border-feature-danger/30 border',
+        (size === 'md' || size === 'lg') && 'border-feature-danger/30 border',
         frame.box
       )}
     >
@@ -80,7 +87,10 @@ export function LiveCard({
           avatar={avatar}
           color={ink}
           size={frame.avatar}
-          className={cn(size !== 'sm' && 'ring-feature-danger/40 rounded-full ring-4')}
+          className={cn(
+            size !== 'sm' && 'ring-feature-danger/40 rounded-full ring-4',
+            size === 'strip' && 'ring-2'
+          )}
         />
       )}
       {size === 'lg' ? (
@@ -117,6 +127,24 @@ export function LiveCard({
       <span className="text-text-tertiary truncate text-xs">{detail}</span>
     </span>
   )
+
+  if (size === 'strip')
+    return (
+      <span className="flex w-full min-w-0 flex-col gap-2">
+        {box}
+        <span className="flex min-w-0 items-center gap-2 px-1">
+          <UserAvatar avatar={avatar} name={name} color={ink} size={24} />
+          <span className="flex min-w-0 flex-col gap-px text-left">
+            <span className="text-text-primary truncate text-[13.5px] leading-4 font-extrabold">
+              <StreamerName guildId={guildId} userId={userId} />
+            </span>
+            <span className="text-text-tertiary truncate text-xs leading-[14px] font-semibold">
+              {detail}
+            </span>
+          </span>
+        </span>
+      </span>
+    )
 
   if (size === 'md')
     return (

@@ -1,14 +1,28 @@
 import { useId, useState } from 'react'
-import { CircleHelp, LifeBuoy, Link2, LogOut, RotateCcw, ShieldCheck, Sparkles } from 'lucide-react'
+import {
+  Check,
+  CircleHelp,
+  KeyRound,
+  LifeBuoy,
+  Link2,
+  LogOut,
+  OctagonAlert,
+  RotateCcw,
+  ShieldCheck,
+  Sparkles,
+  TriangleAlert
+} from 'lucide-react'
 import type { CryptoState } from '@hachiman/crypto'
-import { ListGroup, ListRow } from '@/components/mobile/list'
+import { ListGroup, ListRow, SectionLabel } from '@/components/mobile/list'
 import { NavActionButton } from '@/components/mobile/nav-bar'
 import { Sheet, SheetBody, SheetContent, SheetFoot, SheetHeader } from '@/components/mobile/sheet'
 import { Button } from '@/components/ui/button'
 import { Callout } from '@/components/ui/callout'
+import { Checkbox } from '@/components/ui/checkbox'
 import type { Feature } from '@/components/ui/feature'
 import { RadioCard } from '@/components/ui/radio-card'
 import { HostTrustNote } from '@/components/security/host-trust'
+import { RecoveryKeyActions, RecoveryKeyBlock } from '@/components/security/recovery-key-view'
 import {
   SETUP_PATHS,
   pathDisabled,
@@ -294,5 +308,235 @@ function AdminResetSheet({
         )}
       </SheetContent>
     </Sheet>
+  )
+}
+
+/** The form of a create step before the key exists. */
+export interface CreateForm {
+  title: string
+  busy: boolean
+  error: string | null
+  onBack: () => void
+  onCreate: () => void
+}
+
+/** A create step's error on a phone screen. */
+function ScreenError({ children }: { children: React.ReactNode }): React.JSX.Element | null {
+  if (!children) return null
+  return (
+    <p role="alert" className="text-feature-danger-text text-[13px] leading-[1.4] font-semibold">
+      {children}
+    </p>
+  )
+}
+
+/**
+ * The 44 confirm row of the set-up screens (M19, M20): the kit checkbox and its text, and the
+ * whole row is the label. `textId` names the text, for the `aria-describedby` of the button that
+ * the tick enables.
+ */
+function ConfirmRow({
+  checked,
+  onChange,
+  textId,
+  children
+}: {
+  checked: boolean
+  onChange: (checked: boolean) => void
+  textId?: string
+  children: React.ReactNode
+}): React.JSX.Element {
+  const id = useId()
+  return (
+    <label
+      htmlFor={id}
+      className="text-text-primary flex min-h-11 items-center gap-3 px-0.5 py-1 text-[14.5px] leading-[1.4] font-semibold"
+    >
+      <Checkbox id={id} size="lg" checked={checked} onChange={(e) => onChange(e.target.checked)} />
+      <span id={textId}>{children}</span>
+    </label>
+  )
+}
+
+/**
+ * M19, first state: what a new identity gives, and when to link instead. "Make my keys" runs
+ * `setupFirstDevice`; then `NewKeyScreen` shows the key.
+ */
+export function NewIdentityScreen({
+  title,
+  busy,
+  error,
+  onBack,
+  onCreate,
+  onLink
+}: CreateForm & { onLink?: () => void }): React.JSX.Element {
+  const noun = useDeviceNoun()
+  return (
+    <StepFrame
+      icon={<Sparkles />}
+      feature="event"
+      title={title}
+      subtitle="New keys for your account"
+      onBack={busy ? undefined : onBack}
+      footer={
+        <Button size="mobile" disabled={busy} onClick={onCreate}>
+          <KeyRound />
+          {busy ? 'Making keys…' : 'Make my keys'}
+        </Button>
+      }
+    >
+      <div className="grid gap-[18px]">
+        <section className="grid gap-2.5">
+          <SectionLabel>What you get</SectionLabel>
+          <ListGroup>
+            <ListRow
+              icon={<KeyRound />}
+              label="A security key"
+              detail={`Lives only on this ${noun}`}
+            />
+            <ListRow
+              icon={<LifeBuoy />}
+              tile="voice"
+              label="A recovery key"
+              detail="For you to keep safe and offline"
+            />
+          </ListGroup>
+        </section>
+        <Callout
+          size="touch"
+          tone="caution"
+          icon={<TriangleAlert />}
+          action={onLink && !busy ? { label: 'Link instead', onClick: onLink } : undefined}
+        >
+          Do this only if Hachiman is on no other device. If it is, link this {noun} to it instead.
+        </Callout>
+        <ScreenError>{error}</ScreenError>
+      </div>
+    </StepFrame>
+  )
+}
+
+/**
+ * M19, second state (also after the M20 reset): the new recovery key, one time. There is no Back:
+ * the identity exists now. The primary button closes the flow after the tick.
+ */
+export function NewKeyScreen({
+  title,
+  recoveryKey,
+  onDone
+}: {
+  title: string
+  recoveryKey: string
+  onDone: () => void
+}): React.JSX.Element {
+  const noun = useDeviceNoun()
+  const [saved, setSaved] = useState(false)
+  return (
+    <StepFrame
+      icon={<KeyRound />}
+      feature="event"
+      title={title}
+      subtitle="Save your recovery key"
+      footer={
+        <>
+          <ConfirmRow checked={saved} onChange={setSaved}>
+            I saved my recovery key somewhere safe.
+          </ConfirmRow>
+          <Button size="mobile" disabled={!saved} onClick={onDone}>
+            <Check />
+            Set up this {noun}
+          </Button>
+        </>
+      }
+    >
+      <div className="grid gap-[18px]">
+        <p className="text-text-secondary font-medium">
+          Hachiman shows this key only this one time. With it, you can read your messages on a new
+          device when no other device is signed in.
+        </p>
+        <section className="grid gap-2.5">
+          <SectionLabel>Your recovery key</SectionLabel>
+          <RecoveryKeyBlock recoveryKey={recoveryKey} size="touch" />
+          <RecoveryKeyActions recoveryKey={recoveryKey} size="touch" />
+        </section>
+        <p className="text-feature-danger-text flex items-start gap-2.5 text-[13.5px] leading-[1.45] font-semibold">
+          <OctagonAlert aria-hidden className="mt-px size-[17px] shrink-0" />
+          Anyone with this key can read all of your messages. Keep it private and offline.
+        </p>
+      </div>
+    </StepFrame>
+  )
+}
+
+/**
+ * M20: reset the keys after a password reset. The consequence is one red callout, the restore
+ * path sits above as the way out, and the red button waits for the tick.
+ */
+export function ResetScreen({
+  title,
+  busy,
+  error,
+  onBack,
+  onCreate,
+  onRestore
+}: CreateForm & { onRestore?: () => void }): React.JSX.Element {
+  const [understood, setUnderstood] = useState(false)
+  const confirmId = useId()
+  return (
+    <StepFrame
+      icon={<RotateCcw />}
+      feature="danger"
+      title={title}
+      subtitle="Start over without your old messages"
+      onBack={busy ? undefined : onBack}
+      footer={
+        <>
+          <ConfirmRow checked={understood} onChange={setUnderstood} textId={confirmId}>
+            I understand that I cannot read my old messages after the reset.
+          </ConfirmRow>
+          <Button
+            size="mobile"
+            variant="danger"
+            disabled={busy || !understood}
+            aria-describedby={confirmId}
+            onClick={onCreate}
+          >
+            <RotateCcw />
+            {busy ? 'Making keys…' : 'Reset my keys'}
+          </Button>
+        </>
+      }
+    >
+      <div className="grid gap-[22px]">
+        <Callout
+          size="touch"
+          tone="danger"
+          icon={<OctagonAlert />}
+          title={
+            <span className="text-feature-danger-text">Your old messages become unreadable</span>
+          }
+        >
+          A reset makes a new security key. Messages from before the reset cannot be read on any
+          device, and your contacts see that your security key changed. Your account and guilds
+          stay.
+        </Callout>
+        {onRestore && (
+          <section className="grid gap-2.5">
+            <SectionLabel>Have your recovery key?</SectionLabel>
+            <ListGroup>
+              <ListRow
+                icon={<LifeBuoy />}
+                tile="voice"
+                label="Restore with recovery key"
+                detail="Keeps your old messages readable"
+                disabled={busy}
+                onClick={onRestore}
+              />
+            </ListGroup>
+          </section>
+        )}
+        <ScreenError>{error}</ScreenError>
+      </div>
+    </StepFrame>
   )
 }

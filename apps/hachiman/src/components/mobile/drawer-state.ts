@@ -9,9 +9,14 @@ interface DrawerState {
   drag: { side: DrawerSide; share: number } | null
   /** A pushed screen (settings, a page) covers the chat. The MobileShell keeps it. */
   pushed: boolean
+  /**
+   * The open `ScreenStackProvider` screens. One inside the chat card (the People list of the DM
+   * home) is not a nav view, but the left edge still means Back there.
+   */
+  localPushed: number
 }
 
-const initial = (): DrawerState => ({ open: null, drag: null, pushed: false })
+const initial = (): DrawerState => ({ open: null, drag: null, pushed: false, localPushed: 0 })
 
 /**
  * The drawers of the mobile shell (docs/ios-mobile-ui-spec.md §2.4). In memory only: the
@@ -34,10 +39,15 @@ export const hasRightDrawer = (channel: Channel): boolean =>
 /** The MobileShell unmounts (the window got wide): nothing stays open. */
 export const resetDrawers = (): void => useDrawerState.setState(initial())
 
+/** A `ScreenStackProvider` shows a screen (`1`) or stops showing it (`-1`). */
+export const countLocalPushed = (delta: 1 | -1): void =>
+  useDrawerState.setState((s) => ({ localPushed: Math.max(0, s.localPushed + delta) }))
+
 export const useOpenDrawer = (): DrawerSide | null => useDrawerState((s) => s.open)
 
 /**
  * True while a drawer is open or a pushed screen shows: the chat is out of sight, so nothing in
  * it counts as read. Always false on the desktop layout.
  */
-export const useChatCovered = (): boolean => useDrawerState((s) => s.open !== null || s.pushed)
+export const useChatCovered = (): boolean =>
+  useDrawerState((s) => s.open !== null || s.pushed || s.localPushed > 0)

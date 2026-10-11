@@ -58,6 +58,7 @@ export function MeButton(): React.JSX.Element {
                   size={24}
                   status={status}
                   cutout="bg-surface-window"
+                  ringHole
                 />
               </button>
             </TooltipTrigger>

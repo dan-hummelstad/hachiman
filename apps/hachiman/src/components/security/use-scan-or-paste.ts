@@ -49,13 +49,16 @@ export interface ScanOrPasteState {
  * Scan a code or paste its text. `prefix` is the start of a valid code (for example
  * `hachiman-link:1:`). A native result is checked against it; null (the user closed the scanner)
  * is a cancel and changes nothing. The camera view hands over only codes with the prefix.
+ * `wrongScan` replaces the text for a scanned code of the wrong kind.
  */
 export function useScanOrPaste({
   prefix,
-  onCode
+  onCode,
+  wrongScan = WRONG_SCAN
 }: {
   prefix: string
   onCode: (code: string) => void
+  wrongScan?: string
 }): ScanOrPasteState {
   const nativeScan = usePlatform().scanQr
   const [camera, setCamera] = useState(false)
@@ -78,7 +81,7 @@ export function useScanOrPaste({
         (raw) => {
           const checked = checkCode(prefix, raw)
           if (checked.kind === 'code') onCode(checked.code)
-          else if (checked.kind === 'wrong') setError(WRONG_SCAN)
+          else if (checked.kind === 'wrong') setError(wrongScan)
         },
         () => setError(NO_CAMERA)
       )

@@ -56,7 +56,8 @@ const TOUCH =
 
 /** The sidebar keybind. As the edge swipe, it opens no drawer over a pushed screen (§2.4). */
 const toggleLeft = (): void => {
-  if (!useDrawerState.getState().pushed) toggleDrawer('left')
+  const { pushed, localPushed } = useDrawerState.getState()
+  if (!pushed && localPushed === 0) toggleDrawer('left')
 }
 
 /**
@@ -161,13 +162,16 @@ export function MobileShell(): React.JSX.Element {
   const drawerOpen = useDrawerState((s) => s.open !== null)
   const viewKind = useCurrentView().kind
   const pushed = viewKind === 'settings' || viewKind === 'page'
+  // A screen pushed inside the chat card (the DM home's People list): Back on the edge, and the
+  // tab strip goes inert. The chat card holds the screen, so it cannot go inert itself.
+  const localPushed = useDrawerState((s) => s.localPushed > 0)
   const hasRight = selectedChannel !== undefined && hasRightDrawer(selectedChannel)
 
   useNativeAppearance(tint.window[useResolvedTheme()])
   useDefaultChannel(selectedGuildId, selectedChannel !== undefined)
   useAppShortcuts(toggleLeft)
   useDrawerCloseRule()
-  useSwipe(root, { pushed, hasRight })
+  useSwipe(root, { pushed: pushed || localPushed, hasRight })
 
   useEffect(() => {
     useDrawerState.setState({ pushed })
@@ -185,7 +189,9 @@ export function MobileShell(): React.JSX.Element {
       )}
     >
       <div inert={drawerOpen || pushed} className="flex min-h-0 flex-1 flex-col">
-        <MobileTabStrip />
+        <div className="contents" inert={localPushed}>
+          <MobileTabStrip />
+        </div>
         <div
           data-swipe-area="chat"
           className="bg-surface-content border-line-hairline flex min-h-0 flex-1 flex-col border-t"

@@ -1,6 +1,7 @@
 import { AudioLines, PhoneOff } from 'lucide-react'
 import { IconButton } from '@/components/ui/icon-button'
 import { CallTimer } from '@/components/voice-connected-panel'
+import { openDmStage } from '@/components/voice/dm-call'
 import { SelfVoiceToggles } from '@/components/voice/self-voice-toggles'
 import { channelLabel } from '@/lib/model'
 import { openChannelView } from '@/lib/navigation'
@@ -27,14 +28,10 @@ const LAYER = 'pointer-events-none relative'
  * Mobile / Voice Bar (kit Q0wWD, rule 04 "Voice stays in reach"): 52 high on the composer while
  * I am in a call. The signal tile (lit while I speak), "Voice connected" and where, my call timer,
  * then Mute, Deafen and Leave. A tap anywhere else opens the call: the voice channel's stage or
- * the DM with its call. It hides while the keyboard is open, and in `stageChannelId`, whose stage
- * already shows. The full dock with share screen and the call details stays in the left drawer.
+ * the DM's call stage. It hides while the keyboard is open. The full dock with share screen and
+ * the call details stays in the left drawer.
  */
-export function VoiceBar({
-  stageChannelId
-}: {
-  stageChannelId?: string
-}): React.JSX.Element | null {
+export function VoiceBar(): React.JSX.Element | null {
   const platform = usePlatform()
   const channelId = useVoiceStore((s) => s.channelId)
   const guildId = useVoiceStore((s) => s.guildId)
@@ -43,7 +40,7 @@ export function VoiceBar({
   const guildName = useGuildStore((s) => (guildId ? (s.guilds.get(guildId)?.name ?? null) : null))
   const myId = useUserStore((s) => s.me?.id)
   const speaking = useVoiceStore((s) => myId !== undefined && s.speaking.has(myId))
-  if (!channelId || channelId === stageChannelId) return null
+  if (!channelId) return null
 
   const phase = phaseOf(state)
   const name = (channel && channelLabel(channel).name) || 'Voice'
@@ -58,7 +55,11 @@ export function VoiceBar({
         type="button"
         aria-label={`${PHASE[phase].label}, ${where}. Open the call`}
         disabled={!channel}
-        onClick={() => channel && openChannelView(channel)}
+        onClick={() => {
+          if (!channel) return
+          if (channel.guildId === null) openDmStage(channel.id)
+          openChannelView(channel)
+        }}
         className="bg-feature-voice/10 active:bg-feature-voice/15 focus-visible:outline-line-focus absolute inset-0 outline-none focus-visible:outline-2 focus-visible:-outline-offset-2"
       />
       <span

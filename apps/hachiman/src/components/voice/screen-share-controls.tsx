@@ -14,12 +14,15 @@ import { useVoiceStore } from '@/stores/voiceStore'
  * while in voice. Hosts with their own source list (Electron) get the in-app picker; the browser
  * shows its own. A pick while sharing swaps the source without a stop. Renders nothing where the
  * host cannot share a screen (`lib/media-caps`: iOS, mobile Safari).
- * `buttonClassName` restyles both buttons, for the control bar of the stage.
+ * `buttonClassName` restyles the buttons, for the control bar of the stage. `toggleOnly` keeps
+ * only the share toggle, for the docked bar of the mobile stage, which has no room for more.
  */
 export function ScreenShareControls({
-  buttonClassName
+  buttonClassName,
+  toggleOnly = false
 }: {
   buttonClassName?: string
+  toggleOnly?: boolean
 }): React.JSX.Element | null {
   const platform = usePlatform()
   const sharing = useVoiceStore((s) => s.localScreen !== null)
@@ -52,12 +55,12 @@ export function ScreenShareControls({
       >
         {sharing ? <ScreenShareOff /> : <ScreenShare />}
       </IconButton>
-      {sharing && (
+      {sharing && !toggleOnly && (
         <IconButton label="Change source" className={buttonClassName} onClick={() => void start()}>
           <RefreshCw />
         </IconButton>
       )}
-      <StreamQualityPicker className={buttonClassName} />
+      {!toggleOnly && <StreamQualityPicker className={buttonClassName} />}
       <ScreenSourcePicker picker={picker} onClose={() => setPicker(null)} />
     </>
   )

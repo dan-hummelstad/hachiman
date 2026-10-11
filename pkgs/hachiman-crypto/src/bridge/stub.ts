@@ -17,6 +17,7 @@ import type {
   EncryptedDocItem,
   EncryptedMessage,
   KindedContent,
+  TrustInfo,
   UserId,
   WireMlsGroup,
 } from '../api'
@@ -41,6 +42,17 @@ interface StubDocEnvelope {
 
 const utf8 = (s: string): Uint8Array => new TextEncoder().encode(s)
 
+type StubTrust = Pick<TrustInfo, 'state' | 'verifiedAt'>
+
+/**
+ * The trust of the preview's contacts (apps/hachiman/src/dev/preview/fixture.ts): yuki.h is
+ * verified (M57), marlowe has a key and is not verified (M7). Everyone else has no key yet.
+ */
+const PREVIEW_TRUST: Readonly<Record<UserId, StubTrust>> = {
+  'u-yuki': { state: 'verified', verifiedAt: '2026-10-02T12:00:00.000Z' },
+  'u-marlowe': { state: 'tofu', verifiedAt: null },
+}
+
 function stubId(): string {
   return toB64url(crypto.getRandomValues(new Uint8Array(16)))
 }
@@ -59,6 +71,12 @@ export const createCryptoStub: CreateCryptoStub = () => {
   let userId: UserId | null = null
   const deviceId = crypto.randomUUID()
   const groupId = toB64url(new Uint8Array(GROUP_ID_LENGTH))
+  // setVerified changes a contact with a key for the session.
+  const trust = new Map<UserId, StubTrust>(Object.entries(PREVIEW_TRUST))
+  const trustOf = (u: UserId): TrustInfo => {
+    const t = trust.get(u)
+    return { userId: u, state: t?.state ?? 'unknown', masterKeyGeneration: t ? 1 : null, changedAt: null, verifiedAt: t?.verifiedAt ?? null }
+  }
 
   const status = (): CryptoStatus => ({ state: 'ready', userId, deviceId, primary: true, recoveryConfigured: true, hostTrust: 'server_code' })
   function emit<K extends keyof CryptoEvents>(event: K, payload: CryptoEvents[K]): void {
@@ -140,12 +158,15 @@ export const createCryptoStub: CreateCryptoStub = () => {
     revokeDevice: ok,
     renameDevice: ok,
 
-    getTrust: (u) => Promise.resolve({ userId: u, state: 'unknown', masterKeyGeneration: null, changedAt: null, verifiedAt: null }),
+    getTrust: (u) => Promise.resolve(trustOf(u)),
     listContactDevices: () => Promise.resolve([]),
     getSafetyNumber: () => Promise.resolve({ digits: '0'.repeat(60), groups: Array.from({ length: 12 }, () => '00000'), qrPayload: '' }),
     verifyQr: () => Promise.resolve({ userId: '', match: false }),
-    setVerified: (u) => Promise.resolve({ userId: u, state: 'unknown', masterKeyGeneration: null, changedAt: null, verifiedAt: null }),
-    acknowledgeKeyChange: (u) => Promise.resolve({ userId: u, state: 'unknown', masterKeyGeneration: null, changedAt: null, verifiedAt: null }),
+    setVerified(u, verified) {
+      if (trust.has(u)) trust.set(u, verified ? { state: 'verified', verifiedAt: new Date().toISOString() } : { state: 'tofu', verifiedAt: null })
+      return Promise.resolve(trustOf(u))
+    },
+    acknowledgeKeyChange: (u) => Promise.resolve(trustOf(u)),
     getEpochCode: () => Promise.resolve('0'.repeat(30)),
 
     sync: ok,

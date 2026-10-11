@@ -1,37 +1,43 @@
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import { Check, MonitorSmartphone, ScanLine, Smile, X } from 'lucide-react'
-import { LINK_QR_PREFIX, type DevicePlatform } from '@hachiman/crypto'
+import { LINK_QR_PREFIX } from '@hachiman/crypto'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { ErrorText } from '@/components/ui/field'
 import { SegmentedControl } from '@/components/ui/segmented-control'
 import { SelectableRow } from '@/components/ui/selectable-row'
-import { cryptoErrorText, friendly } from '@/components/security/errors'
+import { cryptoErrorText } from '@/components/security/errors'
 import { LinkAsNewDevice, Waiting } from '@/components/security/link-new-device'
 import { ScanOrPaste } from '@/components/security/qr-view'
 import { SasEmojiRow } from '@/components/security/sas-emoji'
 import { StepFrame } from '@/components/security/screen-window'
-import { useAction } from '@/hooks/use-action'
+import { useLayout } from '@/hooks/use-layout'
 import { PLATFORM_LABEL } from '@/lib/device-platform'
-import { cryptoService } from '@/services/CryptoService'
-import { clearLinkState, useCryptoStore } from '@/stores/cryptoStore'
 import { useDialog } from '@/stores/dialogStore'
 import { Callout } from '@/components/ui/callout'
-
-interface PendingSession {
-  sessionId: string
-  newDeviceName: string
-  platform: DevicePlatform
-  createdAt: string
-}
+import { DeviceLinkSheet } from '@/components/security/device-link-sheet'
+import {
+  useExistingDeviceLink,
+  useLinkSessions,
+  type PendingSession
+} from '@/components/security/use-device-link'
 
 /**
  * Dialog kind 'deviceLink' (§12.5). Existing device: scan or paste the QR code of the new device,
  * or accept its request and compare the 7 emoji. The keys go to the new device only after the
  * scan, or after the user confirms that the emoji match. New device: the same flow as onboarding.
+ * On the mobile layout the existing device's side is the M22 to M24 sheet.
  */
 export function DeviceLinkDialog(): React.JSX.Element {
   const { dialog, open, close } = useDialog('deviceLink')
+  const mobile = useLayout() === 'mobile'
+  if (mobile && dialog.role === 'existing_device') {
+    return (
+      <Dialog open={open} onOpenChange={(o) => !o && close()}>
+        <DeviceLinkSheet initialSessionId={dialog.sessionId} onClose={close} />
+      </Dialog>
+    )
+  }
   return (
     <Dialog open={open} onOpenChange={(o) => !o && close()}>
       <DialogContent aria-describedby={undefined} className="sm:max-w-[560px]">
@@ -63,63 +69,8 @@ function LinkFromThisDevice({
   initialSessionId: string | null
   onClose: () => void
 }): React.JSX.Element {
-  const [mode, setMode] = useState<'qr' | 'sas'>(initialSessionId ? 'sas' : 'qr')
-  const [active, setActive] = useState<{ sessionId: string; name: string } | null>(null)
-  const { run, busy, error, clearError } = useAction()
-  const sas = useCryptoStore((s) =>
-    active && s.linkSas?.sessionId === active.sessionId ? s.linkSas : null
-  )
-  const done = useCryptoStore((s) =>
-    active && s.linkDone?.sessionId === active.sessionId ? s.linkDone : null
-  )
-
-  // Stop an open session when the window closes before the end.
-  const open = useRef<string | null>(null)
-  useEffect(() => {
-    open.current = active && !done ? active.sessionId : null
-  }, [active, done])
-  useEffect(() => {
-    clearLinkState()
-    return () => {
-      const id = open.current
-      if (id)
-        void cryptoService
-          .client()
-          .linkCancel(id)
-          .catch(() => undefined)
-    }
-  }, [])
-
-  const scan = async (payload: string): Promise<void> => {
-    clearLinkState()
-    const r = await run('link the device', () => friendly(cryptoService.client().linkScan(payload)))
-    if (r.ok) setActive({ sessionId: r.value.sessionId, name: r.value.newDeviceName })
-  }
-  const accept = async (s: PendingSession): Promise<void> => {
-    clearLinkState()
-    setActive({ sessionId: s.sessionId, name: s.newDeviceName })
-    const r = await run('accept the request', () =>
-      friendly(cryptoService.client().linkAccept(s.sessionId))
-    )
-    if (!r.ok) setActive(null)
-  }
-  const confirm = async (matches: boolean): Promise<void> => {
-    if (!active) return
-    await run(matches ? 'send the keys' : 'stop the link', () =>
-      friendly(cryptoService.client().linkConfirmSas(active.sessionId, matches))
-    )
-  }
-  const restart = (): void => {
-    const id = active?.sessionId
-    setActive(null)
-    clearLinkState()
-    clearError()
-    if (id && !done)
-      void cryptoService
-        .client()
-        .linkCancel(id)
-        .catch(() => undefined)
-  }
+  const { mode, setMode, active, sas, done, busy, error, scan, accept, confirm, restart } =
+    useExistingDeviceLink(initialSessionId)
 
   if (done) {
     return (
@@ -239,28 +190,8 @@ function SessionPicker({
   busy: boolean
   onPick: (s: PendingSession) => void
 }): React.JSX.Element {
-  const [sessions, setSessions] = useState<PendingSession[] | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const { sessions, error, reload } = useLinkSessions()
   const [selected, setSelected] = useState<string | null>(initialSessionId)
-
-  // Bumped by "Look again".
-  const [attempt, setAttempt] = useState(0)
-  useEffect(() => {
-    let live = true
-    Promise.resolve()
-      .then(() => cryptoService.client().listLinkSessions())
-      .then(
-        (list) => {
-          if (!live) return
-          setSessions(list)
-          setError(null)
-        },
-        (e: unknown) => live && setError(cryptoErrorText(e))
-      )
-    return () => {
-      live = false
-    }
-  }, [attempt])
 
   const pick = sessions?.find((s) => s.sessionId === selected) ?? null
   return (
@@ -289,7 +220,7 @@ function SessionPicker({
         </ul>
       )}
       <div className="flex justify-end gap-2">
-        <Button variant="quiet" onClick={() => setAttempt((n) => n + 1)}>
+        <Button variant="quiet" onClick={reload}>
           Look again
         </Button>
         <Button disabled={busy || !pick} onClick={() => pick && onPick(pick)}>

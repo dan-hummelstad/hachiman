@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { formatClock, formatExpiry, relativeTime } from './time-format'
+import {
+  formatClock,
+  formatDayMonth,
+  formatExpiry,
+  formatListTime,
+  relativeTime
+} from './time-format'
 
 const now = Date.parse('2026-10-07T12:00:00Z')
 
@@ -33,5 +39,44 @@ describe('formatClock', () => {
     expect(formatClock((1 * 3600 + 24 * 60 + 7) * 1000)).toBe('1:24:07')
     expect(formatClock(Number.NaN)).toBe('0:00')
     expect(formatClock(Infinity)).toBe('0:00')
+  })
+})
+
+describe('formatListTime', () => {
+  // Local times, so the calendar days do not depend on the time zone of the test run.
+  const at = (d: number, h = 0, m = 0, month = 9, year = 2026): number =>
+    new Date(year, month, d, h, m).getTime()
+  const wed = at(7, 12) // Wednesday 7 Oct 2026, 12:00
+
+  it('shows the 24 h clock today', () => {
+    expect(formatListTime(at(7, 10, 53), wed, 'en-GB')).toBe('10:53')
+    expect(formatListTime(at(7, 0, 5), wed, 'en-US')).toBe('00:05')
+    expect(formatListTime(new Date(at(7, 9, 4)), wed, 'en-GB')).toBe('09:04')
+  })
+  it('counts a time in the future as today', () => {
+    expect(formatListTime(at(8, 1, 0), wed, 'en-GB')).toBe('01:00')
+  })
+  it('shows the weekday within the last six days', () => {
+    expect(formatListTime(at(6, 23, 59), wed, 'en-GB')).toBe('Tue')
+    expect(formatListTime(at(5, 8), wed, 'en-GB')).toBe('Mon')
+    expect(formatListTime(at(1, 8), wed, 'en-GB')).toBe('Thu')
+  })
+  it('shows the date from a week back, with the year when it differs', () => {
+    expect(formatListTime(at(30, 23, 0, 8), wed, 'en-GB')).toMatch(/^30 Sep/)
+    expect(formatListTime(at(30, 23, 0, 7), wed, 'en-GB')).toBe('30 Aug')
+    expect(formatListTime(at(6, 8, 0, 9, 2025), wed, 'en-GB')).toBe('6 Oct 2025')
+  })
+})
+
+describe('formatDayMonth', () => {
+  it('gives no day for a missing or broken time', () => {
+    expect(formatDayMonth(null)).toBeNull()
+    expect(formatDayMonth('not a date')).toBeNull()
+  })
+
+  it('formats the day and month only', () => {
+    const day = formatDayMonth('2026-10-02T12:00:00.000Z')
+    expect(day).toMatch(/2/)
+    expect(day).not.toMatch(/2026/)
   })
 })

@@ -13,13 +13,14 @@ import {
   ContextMenuTrigger
 } from '@/components/ui/context-menu'
 import { GuildTile } from '@/components/ui/guild-tile'
+import { presenceHole } from '@/components/ui/presence'
 import { UnreadMark } from '@/components/ui/unread-mark'
 import { useDmChannels } from '@/hooks/use-hachiman'
 import { useLayout } from '@/hooks/use-layout'
 import { useSortableHoldMenu } from '@/hooks/use-sortable-row'
 import { dmName } from '@/lib/model'
 import { orderedIds, recentDms, rowSlice, tileSurface } from '@/lib/sidebar-tiles'
-import { cutStyle, shiftHoles, tileMark, type Hole } from '@/lib/tile-cutouts'
+import { cutMask, cutStyle, shiftHoles, tileMark, type Hole } from '@/lib/tile-cutouts'
 import { cn } from '@/lib/utils'
 import { openDialog } from '@/stores/dialogStore'
 import { useChannelStore } from '@/stores/channelStore'
@@ -97,9 +98,9 @@ function DmRow(): React.JSX.Element {
   )
 }
 
-/** The 28 px avatar of a DM tile, and the presence dot on its corner (a 12 px ring box at -2). */
+/** The 28 px avatar of a DM tile, and the hole of the mobile presence dot on its corner. */
 const DM_AVATAR = 28
-const PRESENCE_HOLE: Hole = [DM_AVATAR - 4, DM_AVATAR - 4, 6]
+const PRESENCE_HOLE = presenceHole(DM_AVATAR)
 
 function DmTile({ channelId, lit }: { channelId: string; lit: boolean }): React.JSX.Element | null {
   const channel = useChannelStore((s) => s.channels.get(channelId))
@@ -119,7 +120,7 @@ function DmTile({ channelId, lit }: { channelId: string; lit: boolean }): React.
         style={isGroup ? undefined : cutStyle([...(status ? [PRESENCE_HOLE] : []), ...mark.holes])}
       >
         {isGroup ? (
-          <GroupAvatars channel={channel} lit={lit} cut={mark.holes} />
+          <GroupTileAvatars channel={channel} lit={lit} cut={mark.holes} />
         ) : (
           <UserAvatar
             name={name}
@@ -144,7 +145,7 @@ function DmTile({ channelId, lit }: { channelId: string; lit: boolean }): React.
 const GROUP_BOX = 30
 const GROUP_SECOND_AT = 9
 
-function GroupAvatars({
+function GroupTileAvatars({
   channel,
   lit,
   cut
@@ -173,6 +174,86 @@ function GroupAvatars({
           <UserAvatar name={b.username} avatar={b.avatar} size={20} />
         </span>
       )}
+    </span>
+  )
+}
+
+/** The ring between two faces of a group stack: a hole in the face behind. */
+const FACE_RING = 2
+
+/**
+ * The faces of a group DM row by the box width: a 30 x 28 box of 18 px faces in the drawer (M8),
+ * a 40 box of 24 px faces on the DM home (M56). Places by count: one centred, two corner to
+ * corner, three with the last in front at the bottom.
+ */
+const GROUP_STACK = {
+  30: {
+    h: 28,
+    face: 18,
+    at: [
+      [[6, 5]],
+      [
+        [0, 0],
+        [12, 10]
+      ],
+      [
+        [0, 0],
+        [12, 2],
+        [6, 10]
+      ]
+    ]
+  },
+  40: {
+    h: 40,
+    face: 24,
+    at: [
+      [[8, 8]],
+      [
+        [0, 0],
+        [16, 16]
+      ],
+      [
+        [0, 2],
+        [16, 0],
+        [8, 16]
+      ]
+    ]
+  }
+} as const
+
+/**
+ * A group DM's 3-face stack (M8, M56): the first three recipients, each in front of the ones
+ * before it. The ring around a face is a hole in the faces behind it, so any row fill shows through.
+ */
+export function GroupAvatars({
+  channel,
+  size
+}: {
+  channel: Channel
+  size: keyof typeof GROUP_STACK
+}): React.JSX.Element {
+  const { h, face, at } = GROUP_STACK[size]
+  const people = (channel.recipients ?? []).slice(0, 3)
+  const places: readonly (readonly [number, number])[] =
+    people.length > 0 ? (at[people.length - 1] ?? []) : []
+  const r = face / 2
+  return (
+    <span aria-hidden className="relative block shrink-0" style={{ width: size, height: h }}>
+      {people.map((u, i) => {
+        const [x, y] = places[i] ?? [0, 0]
+        const holes = places
+          .slice(i + 1)
+          .map(([fx, fy]): Hole => [fx - x + r, fy - y + r, r + FACE_RING])
+        return (
+          <span
+            key={u.id}
+            className="absolute flex"
+            style={{ left: x, top: y, maskImage: holes.length > 0 ? cutMask(holes) : undefined }}
+          >
+            <UserAvatar name={u.username} avatar={u.avatar} size={face} />
+          </span>
+        )
+      })}
     </span>
   )
 }

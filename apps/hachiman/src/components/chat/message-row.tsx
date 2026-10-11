@@ -177,6 +177,9 @@ function MessageRow(props: TranscriptRowProps): React.JSX.Element {
       className={cn(
         'inline-block max-w-full cursor-pointer truncate align-top font-bold hover:underline',
         'focus-visible:outline-line-focus outline-none focus-visible:outline-2',
+        // A compact phone row is 36 tall: the name's hit area fills its height (spec §2.10). The
+        // padding stays out of the line box, and its column does not clip it.
+        display === 'compact' && 'mobile:-my-[7px] mobile:py-[7px]',
         !ink && 'text-text-primary'
       )}
       style={ink ? { color: ink } : undefined}
@@ -203,11 +206,17 @@ function MessageRow(props: TranscriptRowProps): React.JSX.Element {
 
   if (display === 'compact') {
     return (
-      <div className={cn(rowClass, 'py-[3px]')} data-message-id={message.id} {...touch}>
+      <div
+        className={cn(rowClass, 'mobile:py-[7px] py-[3px]')}
+        data-message-id={message.id}
+        {...touch}
+      >
         {quote}
         <div className="text-body flex gap-3">
           <Timestamp iso={message.createdAt} className="w-11 shrink-0 leading-[22px]" />
-          <span className="w-[10ch] shrink-0 truncate text-right leading-[22px]">{author}</span>
+          <span className="mobile:overflow-visible w-[10ch] shrink-0 truncate text-right leading-[22px]">
+            {author}
+          </span>
           <div className="max-w-[90ch] min-w-0 flex-1">{body}</div>
         </div>
         {toolbar}
@@ -354,6 +363,8 @@ function MessageBody({
         <p
           className={cn(
             'text-body break-words whitespace-pre-wrap',
+            // The mobile text size slider (M31); `ThemeProvider` writes the variable.
+            'mobile:text-[length:var(--message-text-size,15px)] mobile:leading-[1.45]',
             message.failed ? 'text-feature-danger-text' : 'text-text-primary'
           )}
         >

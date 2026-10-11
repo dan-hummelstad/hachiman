@@ -139,6 +139,8 @@ Source: the pen.dev document, frame **Final - Mobile** (`GZi9q`): 6 rules, the b
 - **Pages open on their chat (rule 05):** a violet bar under the header opens the page (M37); the pill on the page goes back.
 - **Pushed screens and sheets (rule 06):** settings, devices and guild admin push in from the right with a back button (Mobile / Nav Bar 52, List Row 54, one 48 primary at the foot). Choices, confirmations and key checks rise as square sheets (Mobile / Sheet Header). Today's dialogs (`components/ui` dialog) render as sheets on mobile through one wrapper, not per dialog.
 
+- **Smallest device:** the iPhone SE (2nd/3rd gen), 375 × 667, no notch. Every screen must fit and work on it as well as at the 393 × 852 mock size (spec section 2.12).
+
 ### 5.2 Mobile kit → components
 Build the kit once in `components/mobile/` and map each pen.dev component:
 - `Mobile / Status Bar` and `Mobile / Home Indicator` → the safe areas, not drawn: `env(safe-area-inset-top/bottom)` plus `viewport-fit=cover` (status 54, home 34).

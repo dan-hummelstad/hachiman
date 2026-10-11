@@ -1,6 +1,9 @@
 import { useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Hash } from 'lucide-react'
 import type { Channel, HistoryVisibility } from '@hachiman/client'
+import { MobileField } from '@/components/mobile/field'
+import { MobileChannelHeader } from '@/components/mobile/mobile-channel-header'
 import { ErrorText, Field } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { NativeSelect } from '@/components/ui/native-select'
@@ -9,10 +12,40 @@ import { SaveBar } from '@/components/settings/save-bar'
 import { useAction } from '@/hooks/use-action'
 import { trimName, useDraft } from '@/hooks/use-draft'
 import { useKeyedAsync } from '@/hooks/use-keyed-async'
+import { useLayout } from '@/hooks/use-layout'
 import { adminActionService } from '@/services/AdminActionService'
 import { hachiman } from '@/services/hachiman'
 
 const TOPIC_MAX = 1024
+
+const noop = (): void => {}
+
+/**
+ * Docks a mobile Save foot (`SaveBar layout="foot"`) under the panel of the pushed screen that
+ * holds `anchor`, where M48 and M49 draw it: at the foot of the screen, under the last row, also
+ * when rows of the screen come after the page (ACCESS and Delete channel under the overview of
+ * M48). Outside a pushed screen it stays in place. The foot is then outside the DOM of a form, so
+ * its Save button takes `onSave`, not a submit.
+ */
+export function DockedFoot({
+  anchor,
+  children
+}: {
+  /** An element of the page, once mounted. */
+  anchor: HTMLElement | null
+  children: React.ReactNode
+}): React.ReactNode {
+  if (!anchor) return null
+  const screen = anchor.closest<HTMLElement>('[data-slot="pushed-screen"]')
+  if (!screen) return children
+  // `SaveBar` spans the 16 px padding of its parent; this wrapper gives it that padding.
+  return createPortal(
+    <div data-slot="docked-foot" className="shrink-0 px-4">
+      {children}
+    </div>,
+    screen
+  )
+}
 
 /** Channel settings → Overview (F7): name, topic with a live header preview, earlier messages. */
 export function ChannelOverviewPage({
@@ -22,14 +55,16 @@ export function ChannelOverviewPage({
   channel: Channel
   editable: boolean
 }): React.JSX.Element {
+  const mobile = useLayout() === 'mobile'
   const draft = useDraft({ name: channel.name ?? '', topic: channel.topic ?? '' }, trimName)
   const { name, topic } = draft.value
   const { run, busy, error, clearError } = useAction()
+  const [form, setForm] = useState<HTMLFormElement | null>(null)
   const isText = channel.type === 'text'
   const hashed = channel.type !== 'category'
+  const nameLabel = channel.type === 'category' ? 'Category name' : 'Channel name'
 
-  const save = async (e: React.FormEvent): Promise<void> => {
-    e.preventDefault()
+  const save = async (): Promise<void> => {
     const saved = await run('save changes', () =>
       hachiman.rest.updateChannel(channel.id, {
         name: name.trim(),
@@ -38,13 +73,101 @@ export function ChannelOverviewPage({
     )
     if (saved.ok) draft.markSaved()
   }
+  const submit = (e: React.FormEvent): void => {
+    e.preventDefault()
+    // Return in the name field submits the form on mobile, where Save sits outside it (M48): the
+    // same guards as the Save button.
+    if (!editable || !draft.dirty || !name.trim() || busy) return
+    void save()
+  }
+  const reset = (): void => {
+    draft.reset()
+    clearError()
+  }
+
+  if (mobile) {
+    return (
+      <form ref={setForm} onSubmit={submit} className="flex flex-col gap-3.5">
+        <MobileField id="channel-name-edit" label={nameLabel}>
+          <Input
+            size="touch"
+            lead={hashed ? <Hash className="text-accent-text" /> : undefined}
+            value={name}
+            maxLength={100}
+            disabled={!editable}
+            onChange={(e) => draft.set({ name: e.target.value })}
+          />
+        </MobileField>
+        {isText && (
+          <>
+            <MobileField
+              id="channel-topic"
+              label="Topic"
+              hint="Shown in the channel header. Say what the channel is for."
+            >
+              <div className="relative">
+                <Textarea
+                  size="touch"
+                  value={topic}
+                  maxLength={TOPIC_MAX}
+                  disabled={!editable}
+                  className="pb-8"
+                  onChange={(e) => draft.set({ topic: e.target.value })}
+                />
+                <span
+                  aria-hidden
+                  className="text-text-tertiary pointer-events-none absolute right-3.5 bottom-2.5 text-[12px] leading-4 font-semibold tabular-nums"
+                >
+                  {topic.length} / {TOPIC_MAX}
+                </span>
+              </div>
+            </MobileField>
+            <div className="flex flex-col gap-2">
+              <span className="text-text-secondary text-[13px] leading-4 font-bold">Preview</span>
+              {/* The phone's channel header with the draft, as a picture: no focus, no taps. */}
+              <div
+                aria-hidden
+                inert
+                className="bg-surface-content border-line-strong border [&>header]:border-b-0"
+              >
+                <MobileChannelHeader
+                  channel={{ ...channel, name: name.trim() || channel.name, topic: topic.trim() }}
+                  side="members"
+                  onToggleSide={noop}
+                />
+              </div>
+            </div>
+          </>
+        )}
+        {!editable && (
+          <p className="text-text-tertiary text-[12.5px] leading-[1.4] font-medium">
+            You need the Manage channels permission to change these.
+          </p>
+        )}
+        <ErrorText>{error}</ErrorText>
+        {isText && channel.guildId && (
+          <HistoryVisibilityField channel={channel} editable={editable} touch />
+        )}
+        {editable && (
+          <DockedFoot anchor={form}>
+            <SaveBar
+              layout="foot"
+              dirty={draft.dirty}
+              saved={draft.saved}
+              busy={busy}
+              disabled={!name.trim()}
+              onReset={reset}
+              onSave={() => void save()}
+            />
+          </DockedFoot>
+        )}
+      </form>
+    )
+  }
 
   return (
-    <form onSubmit={(e) => void save(e)} className="grid gap-5">
-      <Field
-        id="channel-name-edit"
-        label={channel.type === 'category' ? 'Category name' : 'Channel name'}
-      >
+    <form onSubmit={submit} className="grid gap-5">
+      <Field id="channel-name-edit" label={nameLabel}>
         <div className="relative">
           {hashed && (
             <Hash
@@ -111,10 +234,7 @@ export function ChannelOverviewPage({
           saved={draft.saved}
           busy={busy}
           disabled={!name.trim()}
-          onReset={() => {
-            draft.reset()
-            clearError()
-          }}
+          onReset={reset}
         />
       )}
       {isText && channel.guildId && (
@@ -131,14 +251,17 @@ const groupKindOf = (channelId: string): Promise<string | null> =>
 /**
  * History visibility of a channel with its own group (§12.6): `joined` (new members see only
  * new messages) or `shared` (members send the earlier message keys to new members). Public
- * channels share the guild's group and its setting (guild settings → Overview).
+ * channels share the guild's group and its setting (guild settings → Overview). `touch`: the
+ * mobile kit field.
  */
 function HistoryVisibilityField({
   channel,
-  editable
+  editable,
+  touch = false
 }: {
   channel: Channel
   editable: boolean
+  touch?: boolean
 }): React.JSX.Element | null {
   const kind = useKeyedAsync(channel.id, groupKindOf)
   const { run, busy, error } = useAction()
@@ -154,28 +277,36 @@ function HistoryVisibilityField({
     if (r.ok) setSaved(true)
   }
 
+  const label = 'Earlier messages for new members'
+  const hint =
+    value === 'shared'
+      ? 'New members can read the messages from before they joined. A member device sends them the keys.'
+      : 'New members see only the messages that come after they join.'
+  const select = (
+    <NativeSelect
+      id="channel-history"
+      size={touch ? 'touch' : 'default'}
+      className="w-full"
+      value={value}
+      disabled={!editable || busy}
+      onChange={(e) => void change(e.target.value as HistoryVisibility)}
+    >
+      <option value="joined">Hide earlier messages</option>
+      <option value="shared">Show earlier messages</option>
+    </NativeSelect>
+  )
+
   return (
-    <div className="border-line-hairline grid gap-2 border-t pt-5">
-      <Field
-        id="channel-history"
-        label="Earlier messages for new members"
-        hint={
-          value === 'shared'
-            ? 'New members can read the messages from before they joined. A member device sends them the keys.'
-            : 'New members see only the messages that come after they join.'
-        }
-      >
-        <NativeSelect
-          id="channel-history"
-          className="w-full"
-          value={value}
-          disabled={!editable || busy}
-          onChange={(e) => void change(e.target.value as HistoryVisibility)}
-        >
-          <option value="joined">Hide earlier messages</option>
-          <option value="shared">Show earlier messages</option>
-        </NativeSelect>
-      </Field>
+    <div className={touch ? 'grid gap-2' : 'border-line-hairline grid gap-2 border-t pt-5'}>
+      {touch ? (
+        <MobileField id="channel-history" label={label} hint={hint}>
+          {select}
+        </MobileField>
+      ) : (
+        <Field id="channel-history" label={label} hint={hint}>
+          {select}
+        </Field>
+      )}
       {saved && <span className="text-meta text-text-tertiary">Changes saved.</span>}
       <ErrorText>{error}</ErrorText>
     </div>

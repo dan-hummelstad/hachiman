@@ -1,18 +1,18 @@
-import { ChevronRight, FileText, MessagesSquare, User, Users, Volume2 } from 'lucide-react'
-import type { Channel } from '@hachiman/client'
+import { ChevronRight, FileText, MessagesSquare, UserRound, Users, Volume2 } from 'lucide-react'
+import type { Channel, User } from '@hachiman/client'
 import { ChannelInfoSheet } from '@/components/mobile/channel-info-sheet'
 import { KIT_ICON_BUTTON } from '@/components/mobile/nav-bar'
+import { TrustButton } from '@/components/people/trust-chip'
+import { useVoiceActivity } from '@/components/people/use-voice-activity'
+import { VoiceActivityLine } from '@/components/people/voice-activity-line'
 import { PinsButton } from '@/components/pins/pins-button'
-import {
-  ChannelChips,
-  DmTitle,
-  DmTrustChip,
-  HeaderChannelIcon
-} from '@/components/shell/channel-pane'
+import { ChannelChips, HeaderChannelIcon } from '@/components/shell/channel-pane'
+import { UserAvatar } from '@/components/shell/user-avatar'
 import { canHoldThreads } from '@/components/threads/thread-name'
 import { ThreadsButton } from '@/components/threads/threads-button'
 import { DmCallButton } from '@/components/voice/dm-call'
 import { VoiceHeaderExtras, VoiceHeaderMeta } from '@/components/voice/voice-header'
+import { usePresence } from '@/hooks/use-member'
 import { useChannelAccess } from '@/lib/channel-access'
 import { channelLabel, isGuildChannel } from '@/lib/model'
 import { cn } from '@/lib/utils'
@@ -24,7 +24,7 @@ export type MobileSide = 'members' | 'pages' | 'profile'
 const SIDE_ICON: Record<MobileSide, React.ReactNode> = {
   members: <Users />,
   pages: <FileText />,
-  profile: <User />
+  profile: <UserRound />
 }
 
 /** The 36 icon buttons of the header: icon 19 in the secondary text colour. */
@@ -55,7 +55,9 @@ const Chevron = (): React.JSX.Element => (
  *
  * - text and pages: the Threads and Pins chips (lists as sheets), the right drawer toggle
  * - voice: the Volume2 icon, "n in call" as line 2, "Verify call" in the own call, the toggle
- * - DM: the avatar and the name, the trust chip, Call, the profile toggle
+ * - DM (M7, M57, padding 0/10/0/14, gap 8): the avatar (32), the name over the voice activity,
+ *   the trust button, Call and the profile toggle. Poke, Pins and Notify are in the profile
+ *   drawer. A group DM has no drawer, so its Pins stay here.
  */
 export function MobileChannelHeader({
   channel,
@@ -68,20 +70,28 @@ export function MobileChannelHeader({
   onToggleSide?: () => void
 }): React.JSX.Element {
   const isDm = channel.guildId === null
+  const solo = isDm ? soloOf(channel) : undefined
   const voice = channel.type === 'voice' && isGuildChannel(channel) ? channel : null
   const hasMessages = channel.type !== 'voice' && channel.type !== 'category'
 
   return (
-    <header className="border-line-hairline flex h-14 shrink-0 items-center gap-1.5 border-b pr-2.5 pl-4">
+    <header
+      className={cn(
+        'border-line-hairline flex h-14 shrink-0 items-center gap-1.5 border-b pr-2.5 pl-4',
+        isDm && 'gap-2 pl-3.5'
+      )}
+    >
       {isDm ? (
-        <ChannelInfoSheet channel={channel}>
-          <button
-            type="button"
-            className={cn(STACK, 'flex-row items-center justify-start gap-2.5')}
-          >
-            <DmTitle channel={channel} />
-          </button>
-        </ChannelInfoSheet>
+        <h1 className="flex min-w-0 flex-1">
+          <ChannelInfoSheet channel={channel}>
+            <button
+              type="button"
+              className={cn(STACK, 'flex-row items-center justify-start gap-2')}
+            >
+              <DmLines channel={channel} />
+            </button>
+          </ChannelInfoSheet>
+        </h1>
       ) : voice ? (
         <>
           <Volume2 className="text-feature-voice-text size-5 shrink-0" aria-hidden />
@@ -112,11 +122,11 @@ export function MobileChannelHeader({
           </ChannelInfoSheet>
         </h1>
       )}
-      {isDm && <DmTrustChip channel={channel} />}
+      {solo && <TrustButton userId={solo.id} name={channelLabel(channel).name} />}
       {isDm && <DmCallButton channel={channel} className={HEADER_BUTTON} />}
       {voice && <VoiceHeaderExtras channel={voice} />}
       {canHoldThreads(channel) && <ThreadsButton channel={channel} />}
-      {hasMessages && !isDm && <PinsButton channel={channel} />}
+      {hasMessages && !solo && <PinsButton channel={channel} />}
       {onToggleSide && (
         <button
           type="button"
@@ -128,6 +138,57 @@ export function MobileChannelHeader({
         </button>
       )}
     </header>
+  )
+}
+
+/** The other person of a 1:1 DM. */
+const soloOf = (channel: Channel): User | undefined => {
+  const recipients = channel.recipients ?? []
+  return recipients.length === 1 ? recipients[0] : undefined
+}
+
+/**
+ * A DM: the avatar (32) or the group icon, the name (17/800) and, in a 1:1 DM, the voice activity
+ * of the other person as line 2 (12.5/700).
+ */
+function DmLines({ channel }: { channel: Channel }): React.JSX.Element {
+  const solo = soloOf(channel)
+  const status = usePresence(solo?.id)
+  const name = channelLabel(channel).name
+  return (
+    <>
+      {solo ? (
+        <span aria-hidden className="flex shrink-0">
+          <UserAvatar
+            name={name}
+            avatar={solo.avatar}
+            size={32}
+            status={status}
+            cutout="bg-surface-content"
+          />
+        </span>
+      ) : (
+        <span className="bg-surface-raised flex size-8 shrink-0 items-center justify-center rounded-full">
+          <Users className="text-text-tertiary size-[18px]" aria-hidden />
+        </span>
+      )}
+      <span className="flex min-w-0 flex-1 flex-col items-start gap-px">
+        <span className={cn(NAME, 'max-w-full')}>{name}</span>
+        {solo && <DmVoiceLine userId={solo.id} />}
+      </span>
+    </>
+  )
+}
+
+/** Where the other person of a 1:1 DM is in voice, when the viewer can see it (M7). */
+function DmVoiceLine({ userId }: { userId: string }): React.JSX.Element | null {
+  const activity = useVoiceActivity(userId, null)
+  if (!activity) return null
+  return (
+    <VoiceActivityLine
+      activity={activity}
+      className="text-feature-voice-text max-w-full text-[12.5px] leading-4 font-bold [&_svg]:size-3"
+    />
   )
 }
 

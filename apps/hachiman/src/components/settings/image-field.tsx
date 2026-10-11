@@ -1,24 +1,20 @@
-import { useEffect, useId, useRef, useState } from 'react'
-import { PROFILE_IMAGE_TYPES } from '@hachiman/client'
+import { Camera, ImagePlus, Trash2 } from 'lucide-react'
+import { useImageUpload } from '@/components/settings/use-image-upload'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
-import { ErrorText, Field } from '@/components/ui/field'
-import { useAction } from '@/hooks/use-action'
-import { cn } from '@/lib/utils'
-import { hachiman } from '@/services/hachiman'
 import {
-  PROFILE_IMAGE_FORMATS,
-  ensureLimits,
-  uploadErrorText,
-  uploadFile
-} from '@/services/UploadService'
-
-const ACCEPTED: readonly string[] = PROFILE_IMAGE_TYPES
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger
+} from '@/components/ui/dropdown-menu'
+import { ErrorText, Field } from '@/components/ui/field'
+import { cn } from '@/lib/utils'
 
 /**
- * Pick, upload and apply one profile image (avatar, guild icon or banner). The picked file shows
- * as a local preview while it uploads, until the saved key comes back through the gateway.
- * ponytail: no cropper; the image is shown with object-fit cover wherever it is used.
+ * Pick, upload and apply one profile image (avatar, guild icon or banner), through
+ * `useImageUpload`. ponytail: no cropper; the image is shown with object-fit cover wherever it is
+ * used.
  */
 export function ImageField({
   label,
@@ -27,6 +23,8 @@ export function ImageField({
   fallback,
   wide,
   row,
+  variant,
+  children,
   onSave
 }: {
   label: string
@@ -39,52 +37,79 @@ export function ImageField({
   wide?: boolean
   /** One row: a small circle, the label and hint, then the buttons (My account). */
   row?: boolean
+  /**
+   * `badge`: the profile header of a card on the panel colour (M30). A 72 circle that rises half
+   * its height over what is above it (the banner), with a 28 camera badge that picks an image, or
+   * opens Choose and Remove when there is one. `children` sit beside the circle, the error under
+   * both.
+   */
+  variant?: 'badge'
+  children?: React.ReactNode
   /** Apply an upload id, or null to remove the image. */
   onSave: (uploadId: string | null) => Promise<unknown>
 }): React.JSX.Element {
-  const id = useId()
-  const input = useRef<HTMLInputElement>(null)
-  const { run, busy, error, setError } = useAction()
-  // `base` is the key the preview replaces; once the key changes, the saved image takes over.
-  const [preview, setPreview] = useState<{ url: string; base: string | null } | null>(null)
-  const inflight = useRef<AbortController | null>(null)
+  const { src, busy, uploading, error, input, pick, remove } = useImageUpload(value, onSave)
+  const picker = <input {...input} />
+  const progress = uploading && (
+    <span className="bg-surface-window/70 absolute inset-0 flex items-center justify-center text-xs">
+      Uploading…
+    </span>
+  )
 
-  useEffect(ensureLimits, [])
-  useEffect(() => () => inflight.current?.abort(), [])
-
-  useEffect(() => {
-    if (!preview) return undefined
-    return () => URL.revokeObjectURL(preview.url)
-  }, [preview])
-
-  const src =
-    preview && preview.base === value ? preview.url : value ? hachiman.rest.fileUrl(value) : null
-
-  const pick = async (e: React.ChangeEvent<HTMLInputElement>): Promise<void> => {
-    const file = e.target.files?.[0]
-    e.target.value = '' // so picking the same file again still fires change
-    if (!file) return
-    if (!ACCEPTED.includes(file.type)) {
-      setError(`${file.name} is not a ${PROFILE_IMAGE_FORMATS} image.`)
-      return
-    }
-    const controller = new AbortController()
-    inflight.current = controller
-    const { signal } = controller
-    setPreview({ url: URL.createObjectURL(file), base: value })
-    const saved = await run('upload the image', async () => {
-      const upload = await uploadFile(file, { signal })
-      if (signal.aborted) return
-      await onSave(upload.id).catch((err: unknown) => {
-        throw new Error(uploadErrorText(err), { cause: err })
-      })
-    })
-    if (!saved.ok) setPreview(null)
-  }
-
-  const remove = async (): Promise<void> => {
-    setPreview(null)
-    await run('remove the image', () => onSave(null))
+  if (variant === 'badge') {
+    const noun = label.toLowerCase()
+    const badge = (
+      <button
+        type="button"
+        disabled={busy}
+        aria-label={value ? `Change ${noun}` : `Add ${noun}`}
+        onClick={value ? undefined : pick}
+        className={cn(
+          'bg-surface-raised ring-surface-panel text-text-primary absolute -right-1 -bottom-1 flex size-7 items-center justify-center rounded-full ring-[3px] outline-none',
+          'focus-visible:outline-line-focus focus-visible:outline-2 active:brightness-125 disabled:opacity-60',
+          // A 36 hit area around the 28 badge (spec §2.10).
+          'after:absolute after:-inset-1'
+        )}
+      >
+        <Camera aria-hidden className="size-3.5" />
+      </button>
+    )
+    return (
+      <div className="grid gap-2">
+        <div className="flex items-start gap-4">
+          <span className="relative -mt-9 shrink-0">
+            <Avatar className="bg-surface-raised ring-surface-panel size-[72px] ring-[5px]">
+              {src && <AvatarImage src={src} alt="" />}
+              <AvatarFallback className="bg-surface-raised text-text-primary text-[32px] font-bold">
+                {fallback}
+              </AvatarFallback>
+              {progress}
+            </Avatar>
+            {value ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>{badge}</DropdownMenuTrigger>
+                <DropdownMenuContent aria-label={label} align="start">
+                  {/* Synchronous in the tap, so iOS opens the picker. */}
+                  <DropdownMenuItem onSelect={pick}>
+                    <ImagePlus />
+                    Choose a new {noun}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem variant="destructive" onSelect={() => void remove()}>
+                    <Trash2 />
+                    Remove {noun}
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : (
+              badge
+            )}
+          </span>
+          {children}
+        </div>
+        <ErrorText>{error}</ErrorText>
+        {picker}
+      </div>
+    )
   }
 
   const thumb = (
@@ -100,21 +125,12 @@ export function ImageField({
       >
         {fallback}
       </AvatarFallback>
-      {busy && preview && (
-        <span className="bg-surface-window/70 absolute inset-0 flex items-center justify-center text-xs">
-          Uploading…
-        </span>
-      )}
+      {progress}
     </Avatar>
   )
   const buttons = (
     <div className="flex shrink-0 items-center gap-1">
-      <Button
-        type="button"
-        variant="secondary"
-        disabled={busy}
-        onClick={() => input.current?.click()}
-      >
+      <Button type="button" variant="secondary" disabled={busy} onClick={pick}>
         {value ? 'Change' : 'Upload image'}
       </Button>
       {value && (
@@ -124,24 +140,13 @@ export function ImageField({
       )}
     </div>
   )
-  const picker = (
-    <input
-      ref={input}
-      id={id}
-      type="file"
-      accept={ACCEPTED.join(',')}
-      className="hidden"
-      disabled={busy}
-      onChange={(e) => void pick(e)}
-    />
-  )
 
   if (row)
     return (
       <div className="grid gap-1.5">
         <div className="flex items-center gap-4">
           {thumb}
-          <label htmlFor={id} className="grid min-w-0 flex-1">
+          <label htmlFor={input.id} className="grid min-w-0 flex-1">
             <span className="text-label">{label}</span>
             {hint && <span className="text-meta text-text-tertiary">{hint}</span>}
           </label>
@@ -153,7 +158,7 @@ export function ImageField({
     )
 
   return (
-    <Field id={id} label={label}>
+    <Field id={input.id} label={label}>
       <div className="grid gap-2">
         {thumb}
         <div className="flex items-center gap-2">
