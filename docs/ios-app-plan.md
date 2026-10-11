@@ -1,5 +1,16 @@
 # Plan: `apps/hachiman-ios`, a native WKWebView host + TestFlight alpha
 
+## Status (PR #75)
+
+Every phase is built on branch `ios-app`. These steps need the user:
+
+1. **TestFlight:** do the one-time Apple setup in Phase 6 (and `apps/hachiman-ios/README.md`, "Release"). Then set the repository variables `APPLE_TEAM_ID` and `HACHIMAN_DOMAIN` and the secrets `ASC_KEY_P8`, `ASC_KEY_ID` and `ASC_ISSUER_ID`. The `testflight` job of `.github/workflows/ios.yml` runs after that.
+2. **Real device:** check the microphone permission prompt on an iPhone. The simulator grants the microphone without a prompt.
+3. **This Mac:** `sudo DevToolsSecurity -enable` makes plain `xcodebuild test` work. Until then, the XCTests run through bundle injection.
+4. **Review the decisions:** minimum iOS 18.5 (X25519), iOS host trust `strong`, the mobile UI decisions in `docs/ios-mobile-ui-spec.md` §6.1, and the page banner decisions in `docs/pages-banner-plan.md`.
+
+The end-to-end run in the simulators passed sign-in, set-up, messages both ways, the emoji sheet with the keyboard, the page title and banner, the tab hold menu, and voice with SFrame. It created dev accounts `ios-e2e-a/b/c@example.test` and the guild "iOS E2E" in the local database.
+
 ## Context
 
 Hachiman has two hosts today: Electron (`apps/hachiman-electron`) and the browser (`apps/hachiman-browser`). Both render the one shared React UI (`@hachiman/hachiman`) and differ only through `IPlatformService` (`apps/hachiman/src/shared/IPlatformService.ts`, contract §11). We want an iPhone app for alpha testers via TestFlight. It is a third host: a native Swift shell around a `WKWebView` that runs the same shared UI, bundled inside the app. Android comes later, out of scope.

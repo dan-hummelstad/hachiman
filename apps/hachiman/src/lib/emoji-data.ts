@@ -123,10 +123,27 @@ function drawsInColour(ctx: OffscreenCanvasRenderingContext2D, emoji: string): b
   return false
 }
 
+/** An Emoji 1.0 face that every emoji font has: the control for the probes. */
+const BASELINE_PROBE = '\u{1F600}'
+
+/**
+ * The newest probed version that `draws`, from 12.1 up. Null when even the baseline does not draw:
+ * then the readback is blank or a placeholder (a privacy-hardened canvas), not a missing font.
+ */
+export function newestFromProbes(draws: (emoji: string) => boolean): number | null {
+  if (!draws(BASELINE_PROBE)) return null
+  let newest = 12.1
+  for (const [version, emoji] of VERSION_PROBES) {
+    if (!draws(emoji)) break
+    newest = version
+  }
+  return newest
+}
+
 /**
  * The newest Emoji version that this device draws, or null when it cannot be measured (no
- * OffscreenCanvas, as in tests): then the picker keeps every emoji. iOS 18.5 has Emoji 16, not 17,
- * so the Emoji 17 characters would show as empty boxes.
+ * OffscreenCanvas, as in tests, or no usable readback): then the picker keeps every emoji. iOS 18.5
+ * has Emoji 16, not 17, so the Emoji 17 characters would show as empty boxes.
  */
 function newestDrawnVersion(): number | null {
   if (typeof OffscreenCanvas === 'undefined') return null
@@ -136,12 +153,7 @@ function newestDrawnVersion(): number | null {
     ctx.font = '16px "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif'
     ctx.textBaseline = 'top'
     ctx.fillStyle = '#000'
-    let newest = 12.1
-    for (const [version, emoji] of VERSION_PROBES) {
-      if (!drawsInColour(ctx, emoji)) break
-      newest = version
-    }
-    return newest
+    return newestFromProbes((emoji) => drawsInColour(ctx, emoji))
   } catch {
     return null
   }

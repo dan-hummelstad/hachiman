@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { buildEmojiData, replaceShortcodes, searchEmoji, withSkin } from './emoji-data'
+import {
+  buildEmojiData,
+  newestFromProbes,
+  replaceShortcodes,
+  searchEmoji,
+  withSkin
+} from './emoji-data'
 
 const data = buildEmojiData(
   [
@@ -67,5 +73,22 @@ describe('replaceShortcodes', () => {
   it('leaves custom emoji wire forms alone, even with a Unicode name', () => {
     const id = '0b1f4e1c-6d3a-4f39-9a3c-111111111111'
     expect(replaceShortcodes(`<:joy:${id}> :joy:`, data)).toBe(`<:joy:${id}> 😂`)
+  })
+})
+
+describe('newestFromProbes', () => {
+  const upTo = (codepoint: number) => (emoji: string) => (emoji.codePointAt(0) ?? 0) <= codepoint
+
+  it('gives the newest version whose probe draws', () => {
+    expect(newestFromProbes(upTo(0x1fae8))).toBe(15)
+    expect(newestFromProbes(() => true)).toBe(17)
+  })
+
+  it('gives 12.1 when the baseline draws but no newer probe does', () => {
+    expect(newestFromProbes((emoji) => emoji === '\u{1F600}')).toBe(12.1)
+  })
+
+  it('gives null for a blank or placeholder readback, so every emoji stays', () => {
+    expect(newestFromProbes(() => false)).toBeNull()
   })
 })
