@@ -1,7 +1,6 @@
 import { useEffect } from 'react'
+import { DARK_QUERY, resolveTheme } from '@/lib/theme'
 import { usePrefsStore } from '@/stores/prefsStore'
-
-const DARK_QUERY = '(prefers-color-scheme: dark)'
 
 /** Applies `prefsStore.theme` as the `light`/`dark` class on `<html>`; `system` tracks the OS. */
 export function ThemeProvider({ children }: { children: React.ReactNode }): React.JSX.Element {
@@ -11,7 +10,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }): Reac
     const root = document.documentElement
     const mq = window.matchMedia(DARK_QUERY)
     const apply = (): void => {
-      const resolved = theme === 'system' ? (mq.matches ? 'dark' : 'light') : theme
+      const resolved = resolveTheme(theme, mq.matches)
       root.classList.remove('light', 'dark')
       root.classList.add(resolved)
     }

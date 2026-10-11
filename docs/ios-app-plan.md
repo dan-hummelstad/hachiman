@@ -84,7 +84,7 @@ apps/hachiman-ios/
   - `wrapKey.get {userId}` → 32 bytes (base64). Keychain generic password, service `hachiman.wrap-key`, account `userId`, `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`, not synchronizable. Created on first call and never replaced (same rules as `apps/hachiman-electron/src/main/secure-storage.ts`). A Keychain failure → `SecureStorageUnavailable`.
   - `wrapKey.clear {userId}`.
   - `oauth.begin {url}`: `ASWebAuthenticationSession(url:callback: .customScheme("app.hachiman"))`, `prefersEphemeralWebBrowserSession = false`. The callback URL goes to JS as an event.
-  - `haptic`, `share`, `scanQr`, `setAppearance`: the hooks the mobile mocks need (Phase 5.5).
+  - `haptic`, `share`, `scanQr`, `setAppearance`, `saveTextFile`: the hooks the mobile mocks need (Phase 5.5).
   - Events native → JS (`window.__hachimanNative.emit(type, payload)` via `evaluateJavaScript`, buffered until the page subscribes, as the Electron preload does): `oauth-callback`, `invite-link`.
 - **Deep links:** register the URL scheme `takusen` (invites, as Electron) in Info.plist. Do not register `app.hachiman`: `ASWebAuthenticationSession` catches its own callback, and a registered scheme would let any app push callback URLs into a sign-in. `onOpenURL` → `invite-link` event; the JS side parses with `parseInviteLink` (`apps/hachiman/src/lib/invite-link`). Universal links for `https://<domain>/invite/...` need an `apple-app-site-association` file served by Takusen: listed as a follow-up.
 - **Audio:** `AVAudioSession.playAndRecord`, mode `.voiceChat`, options `.allowBluetooth` and `.defaultToSpeaker`, activated by the first `getUserMedia`. ponytail: no CallKit and no background voice in the alpha. WKWebView pauses capture when the app goes to the background. CallKit or native WebRTC is the upgrade path if background calls matter.
@@ -102,7 +102,7 @@ Mirror `apps/hachiman-browser/src/platforms/browser/PlatformService.ts`; reuse i
 - `getScreenSources` → `null`, `selectScreenSource` no-op, `screenShareAudio: false`
 - `checkForUpdate` → `not-available` (TestFlight updates the app)
 - `closeToTray: null`, `setGlobalShortcuts` → `null`, `onGlobalShortcut` no-op
-- `haptic`, `share`, `scanQr`, `setAppearance` → the bridge ops of Phase 5.5
+- `haptic`, `share`, `scanQr`, `setAppearance`, `saveTextFile` → the bridge ops of Phase 5.5
 - `secureStorage`:
   - backend `'os-keychain'`
   - `getWrapKey` = bridge bytes → `crypto.subtle.importKey('raw', ..., 'AES-GCM', false, ['encrypt','decrypt'])`, then zero-fill the byte copy (same as `apps/hachiman-electron/src/renderer/src/PlatformService.ts:42-69`)

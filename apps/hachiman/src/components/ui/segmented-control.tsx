@@ -23,6 +23,7 @@ export function SegmentedControl<T extends string>({
   onChange,
   label,
   iconOnly = false,
+  size = 'default',
   className
 }: {
   options: readonly SegmentedOption<T>[]
@@ -32,8 +33,11 @@ export function SegmentedControl<T extends string>({
   label: string
   /** Show only the icons; the labels name the options. */
   iconOnly?: boolean
+  /** `touch`: the mobile kit control, full width, a 44 group (radius 10) of 38 segments, text 14. */
+  size?: 'default' | 'touch'
   className?: string
 }): React.JSX.Element {
+  const touch = size === 'touch'
   const ref = useRef<HTMLDivElement>(null)
   const current = Math.max(
     options.findIndex((o) => o.value === value),
@@ -53,7 +57,12 @@ export function SegmentedControl<T extends string>({
       aria-label={label}
       data-slot="segmented-control"
       onKeyDown={onKeyDown}
-      className={cn('rounded-control bg-surface-sunken inline-flex gap-0.5 p-0.5', className)}
+      className={cn(
+        touch
+          ? 'rounded-option bg-surface-sunken border-line-hairline flex w-full gap-[3px] border p-0.5'
+          : 'rounded-control bg-surface-sunken inline-flex gap-0.5 p-0.5',
+        className
+      )}
     >
       {options.map((o, i) => {
         const selected = i === current
@@ -70,6 +79,8 @@ export function SegmentedControl<T extends string>({
             className={cn(
               "rounded-control inline-flex h-7 flex-1 items-center whitespace-nowrap justify-center gap-1.5 text-[13px] font-semibold transition-colors outline-none focus-visible:outline-2 focus-visible:outline-line-focus [&_svg:not([class*='size-'])]:size-4",
               iconOnly ? 'w-9 px-0' : 'px-3',
+              touch && 'h-[38px] gap-[7px] text-sm',
+              touch && (selected ? 'font-extrabold' : 'font-bold'),
               selected
                 ? (o.selectedClassName ?? 'bg-surface-raised text-text-primary')
                 : 'text-text-tertiary hover:text-text-primary'

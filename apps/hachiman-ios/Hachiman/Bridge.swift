@@ -127,6 +127,12 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply {
             let from = try presenter()
             return try await QRScanner.scan(from: from)
 
+        case "saveTextFile":
+            let name = try string(args, "name")
+            let text = try string(args, "text")
+            let from = try presenter()
+            return try await Native.saveTextFile(name: name, text: text, from: from)
+
         case "setAppearance":
             try Native.setAppearance(
                 theme: try string(args, "theme"), background: try string(args, "background"),

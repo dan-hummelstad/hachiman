@@ -111,6 +111,12 @@ export interface IPlatformService {
    * user cancelled. Electron and browser: null (the UI scans with `BarcodeDetector` where present).
    */
   readonly scanQr: (() => Promise<string | null>) | null
+  /**
+   * iOS: saves a UTF-8 text file through the Files export sheet. `name` is a file name with no
+   * path (for example `hachiman-recovery-key.txt`). Resolves true when the user saved the file,
+   * false when they cancelled. Electron and browser: null (the UI downloads a blob).
+   */
+  readonly saveTextFile: ((name: string, text: string) => Promise<boolean>) | null
   /** iOS: the status bar style and the window background follow the app theme. Others: no-op. */
   setAppearance(appearance: Appearance): void
   /** The wrap key of the encrypted crypto store (§12.17). */

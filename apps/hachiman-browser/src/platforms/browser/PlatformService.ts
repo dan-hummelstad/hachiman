@@ -68,6 +68,8 @@ export const platformService: IPlatformService = {
   share: typeof navigator.share === "function" ? shareWithNavigator : null,
   // qr-view.tsx scans with BarcodeDetector where the browser has it.
   scanQr: null,
+  // The UI downloads a blob.
+  saveTextFile: null,
   setAppearance: () => undefined,
   secureStorage: createBrowserSecureStorage(),
 };

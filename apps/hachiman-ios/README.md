@@ -54,7 +54,7 @@ flowchart LR
 
 | File | Contents |
 |---|---|
-| `index.html` | Page shell with `viewport-fit=cover`. It loads `src/main.tsx`. |
+| `index.html` | Page shell with `viewport-fit=cover` and `maximum-scale=1` (no focus zoom). It loads `src/main.tsx`. |
 | `src/main.tsx` | Renders `App` in `PlatformProvider` and `ThemeProvider`, then sends the bridge op `ready`. In dev with `?preview`, it starts preview mode. |
 | `src/platforms/ios/PlatformService.ts` | `createIosPlatformService`: the `IPlatformService` implementation over the bridge. |
 | `src/platforms/ios/bridge.ts` | `call(op, args)`: the typed bridge ops, and the parse of a native rejection `"Code: message"` into an error with a `code`. |
@@ -64,15 +64,15 @@ flowchart LR
 | `*.test.mts`, `src/**/*.test.mts` | CSP, bridge, event and PlatformService tests (`node --test`). |
 | `project.yml` | XcodeGen spec. `xcodegen generate` writes `Hachiman.xcodeproj` (not in git). |
 | `Hachiman/HachimanApp.swift` | `@main`. `onOpenURL` sends a `takusen://` URL to the page as `invite-link`. |
-| `Hachiman/WebView.swift` | `WebHost`: the `WKWebView` configuration, the navigation policy (only `hachiman://app` loads, http(s) opens in the system browser) and the media permission (main frame of `hachiman://app` only). |
+| `Hachiman/WebView.swift` | `WebHost`: the `WKWebView` configuration, the navigation policy (only `hachiman://app` loads, http(s) opens in the system browser) and the media permission (main frame of `hachiman://app` only). Also the touch settings: no link preview and no WebKit context menu (the long press belongs to the page), no document bounce, and no keyboard accessory bar (a runtime subclass of the private `WKContentView`, App Review risk, spec section 6.2). |
 | `Hachiman/AppSchemeHandler.swift` | Serves `WebApp/`: path guard, SPA fallback, MIME types, and the `Content-Security-Policy` header on every response. |
 | `Hachiman/Bridge.swift` | The op dispatch and the event queue. It answers only the main frame of `hachiman://app`. |
 | `Hachiman/WrapKeyStore.swift` | The Keychain wrap key, and `BridgeError`. |
 | `Hachiman/OAuth.swift` | `ASWebAuthenticationSession` with the callback scheme `app.hachiman`. |
 | `Hachiman/QRScanner.swift` | The full-screen QR scanner for the device link Scan tab. |
-| `Hachiman/Native.swift` | Haptics, the share sheet and the window appearance. |
+| `Hachiman/Native.swift` | Haptics, the share sheet, the Files export sheet (`saveTextFile`) and the window appearance. |
 | `Hachiman/AudioSession.swift` | `AVAudioSession` `playAndRecord` / `voiceChat`. |
-| `HachimanTests/` | XCTest: the scheme handler (path guard, CSP header), the Keychain store, the bridge (sender check, event queue). |
+| `HachimanTests/` | XCTest: the scheme handler (path guard, CSP header), the Keychain store, the bridge (sender check, event queue), the keyboard accessory bar, the export sheet (`saveTextFile`). |
 | `ExportOptions.plist` | The App Store Connect export for TestFlight. |
 
 ### Bridge
@@ -88,6 +88,7 @@ The page calls `window.webkit.messageHandlers.hachiman.postMessage({ op, ...args
 | `haptic` | `kind`: `light`, `success` or `warning` | `null` |
 | `share` | `url`, `text` (optional) | `true` when shared, `false` when cancelled. |
 | `scanQr` | | The text of the code, or `null` when cancelled. |
+| `saveTextFile` | `name` (a file name, no path), `text` | `true` when saved, `false` when cancelled. The app writes a temp file in `tmp/export/`, shows the Files export sheet, and deletes the file when the sheet closes. One sheet at a time: a call while one is open rejects with `Malformed`. |
 | `setAppearance` | `theme` (`dark` or `light`), `background` (`#rrggbb` or `#rrggbbaa`) | `null` |
 
 Events from the app are `oauth-callback` and `invite-link`, each with `{ url }`. The app registers only the URL scheme `takusen`. It does not register `app.hachiman`, so only the `ASWebAuthenticationSession` completion sends `oauth-callback`.

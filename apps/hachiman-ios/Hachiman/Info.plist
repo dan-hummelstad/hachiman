@@ -39,6 +39,8 @@
 	<string>Hachiman uses the camera to scan device link QR codes and to take pictures that you send.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Hachiman uses the microphone for voice channels.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Hachiman uses your photo library when you choose pictures and videos to send or upload.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

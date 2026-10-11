@@ -63,6 +63,7 @@ export function createIosPlatformService(
         ...(content.text !== undefined ? { text: content.text } : {}),
       }),
     scanQr: () => call("scanQr", {}),
+    saveTextFile: (name, text) => call("saveTextFile", { name, text }),
     setAppearance: ({ theme, background }) => {
       call("setAppearance", { theme, background }).catch(
         report("could not set the appearance"),

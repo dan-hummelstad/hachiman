@@ -7,6 +7,10 @@
 @source "../**/*.{ts,tsx}";
 
 @custom-variant dark (&:is(.dark *));
+/* The mobile layout (docs/ios-mobile-ui-spec.md §2.2): `App.tsx` sets `data-layout` on `<html>`,
+   so Radix portals in `<body>` match too. No added specificity: a `mobile:` class wins over the
+   base class by its later place in the CSS, but not over a `dark:` class. */
+@custom-variant mobile (&:where([data-layout=mobile], [data-layout=mobile] *));
 
 /* Figtree (UI and chat) and IBM Plex Mono (keys, codes). Vendored: the CSP allows no font host. */
 @font-face {
@@ -64,9 +68,15 @@
   --surface-hover: #23204a0d;
   --surface-selected: #6b5bf52b;
   --surface-scrim: #16151f66;
+  --surface-scrim-drawer: #16151f59;
+  --surface-scrim-lift: #16151f73;
   --line-hairline: #e3e3ec;
   --line-strong: #dcdce6;
   --line-focus: #6b5bf599;
+  --line-sheet: #23204a24;
+  --fill-control: #23204a0f;
+  --fill-control-strong: #23204a1a;
+  --sheet-handle: #16151f33;
   --text-primary: #16151f;
   --text-secondary: #4e5066;
   --text-tertiary: #6e7088;
@@ -85,6 +95,7 @@
   --feature-thread-text: #1584be;
   --feature-danger: #f04a5c;
   --feature-danger-text: #d93649;
+  --feature-activity: #e0569a;
   --feature-bot: #2dd4bf;
   --status-online: #34c77f;
   --status-idle: #f5a524;
@@ -92,6 +103,9 @@
   --status-offline: #9c9eb2;
   --tint-home: #e7eaf1;
   --shadow-soft: 0 12px 32px #16151f1f, 0 2px 8px #16151f14;
+  --shadow-drawer: 12px 0 48px #1c1a3a2e;
+  --shadow-drawer-right: -12px 0 48px #1c1a3a2e;
+  --shadow-sheet: 0 -8px 32px #16151f1f;
 }
 
 .dark {
@@ -103,9 +117,15 @@
   --surface-hover: #ffffff0f;
   --surface-selected: #7b6cff2b;
   --surface-scrim: #05060ab8;
+  --surface-scrim-drawer: #05060aa6;
+  --surface-scrim-lift: #05060ac7;
   --line-hairline: #2a2c3b;
   --line-strong: #363849;
   --line-focus: #7b6cffb3;
+  --line-sheet: #ffffff1f;
+  --fill-control: #ffffff12;
+  --fill-control-strong: #ffffff1f;
+  --sheet-handle: #ffffff33;
   --text-primary: #f3f4fa;
   --text-secondary: #b6b9ce;
   --text-tertiary: #80839a;
@@ -124,6 +144,7 @@
   --feature-thread-text: #4cc2ff;
   --feature-danger: #ff5d6e;
   --feature-danger-text: #ff5d6e;
+  --feature-activity: #ff6fae;
   --feature-bot: #2dd4bf;
   --status-online: #3dd68c;
   --status-idle: #ffb547;
@@ -131,6 +152,9 @@
   --status-offline: #5c5f76;
   --tint-home: #1c2130;
   --shadow-soft: 0 12px 32px #00000073, 0 2px 8px #00000040;
+  --shadow-drawer: 12px 0 48px #000000b3;
+  --shadow-drawer-right: -12px 0 48px #000000b3;
+  --shadow-sheet: 0 -8px 32px #00000080;
 }
 
 /* The shadcn names that the primitives use, mapped onto the Arc tokens. The selector list
@@ -163,6 +187,9 @@
   --idle: var(--status-idle);
   --dnd: var(--status-dnd);
   --offline: var(--status-offline);
+  --status-live: var(--feature-page);
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
   --font-sans: 'Figtree', ui-sans-serif, system-ui, sans-serif;
   --font-mono: 'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, monospace;
   --radius: 0rem;
@@ -188,9 +215,15 @@
   --color-surface-hover: var(--surface-hover);
   --color-surface-selected: var(--surface-selected);
   --color-surface-scrim: var(--surface-scrim);
+  --color-surface-scrim-drawer: var(--surface-scrim-drawer);
+  --color-surface-scrim-lift: var(--surface-scrim-lift);
   --color-line-hairline: var(--line-hairline);
   --color-line-strong: var(--line-strong);
   --color-line-focus: var(--line-focus);
+  --color-line-sheet: var(--line-sheet);
+  --color-fill-control: var(--fill-control);
+  --color-fill-control-strong: var(--fill-control-strong);
+  --color-sheet-handle: var(--sheet-handle);
   --color-text-primary: var(--text-primary);
   --color-text-secondary: var(--text-secondary);
   --color-text-tertiary: var(--text-tertiary);
@@ -209,11 +242,13 @@
   --color-feature-thread-text: var(--feature-thread-text);
   --color-feature-danger: var(--feature-danger);
   --color-feature-danger-text: var(--feature-danger-text);
+  --color-feature-activity: var(--feature-activity);
   --color-feature-bot: var(--feature-bot);
   --color-status-online: var(--status-online);
   --color-status-idle: var(--status-idle);
   --color-status-dnd: var(--status-dnd);
   --color-status-offline: var(--status-offline);
+  --color-status-live: var(--status-live);
   --color-tint-home: var(--tint-home);
 
   /* shadcn names */
@@ -277,6 +312,9 @@
   --radius-xl: var(--radius);
 
   --shadow-soft: var(--shadow-soft);
+  --shadow-drawer: var(--shadow-drawer);
+  --shadow-drawer-right: var(--shadow-drawer-right);
+  --shadow-sheet: var(--shadow-sheet);
   --shadow-2xs: var(--shadow-2xs);
   --shadow-xs: var(--shadow-xs);
   --shadow-sm: var(--shadow-sm);
@@ -350,6 +388,15 @@
       scrollbar-color: var(--line-strong) transparent;
     }
   }
+  /* Touch: no rubber band on the root, no grey tap flash, no double-tap zoom. */
+  html[data-layout='mobile'],
+  html[data-layout='mobile'] body {
+    overscroll-behavior: none;
+  }
+  html[data-layout='mobile'] {
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+  }
   @media (prefers-reduced-motion: reduce) {
     *,
     *::before,
@@ -358,4 +405,11 @@
       transition-duration: 0.01ms !important;
     }
   }
+}
+
+/* iOS zooms the page into a focused field whose text is under 16 px (the kit draws 15.5). Not in
+   a layer, so it beats the text utilities on the fields. */
+[data-layout='mobile']
+  :where(input, textarea, select, [contenteditable]:not([contenteditable='false'])) {
+  font-size: 16px;
 }

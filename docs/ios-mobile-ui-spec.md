@@ -132,7 +132,7 @@ A browser window that crosses 767 px swaps the two shells. The composer draft in
 - A left swipe that starts anywhere in the chat body opens the right drawer.
 - A touch that starts in a horizontal scroller or in `[data-swipe-ignore]` does not start a gesture (tab strip, code blocks, image rows, chip rows, the composer field).
 - Axis lock after 10 px when `|dx| > 1.2·|dy|`. Then `setPointerCapture`, and the drawer follows the finger.
-- Commit past 35 % of the width or faster than 0.5 px/ms. Else snap back.
+- Commit past 35 % of the width or faster than 0.5 px/ms. Else snap back. `lib/swipe.ts` calls `shouldCommitDrag` from `lib/drag-commit.ts` (P2, also the sheet handle), so the rule has one copy.
 - A drag toward the drawer's own edge closes it.
 - On a pushed screen, the left-edge swipe means Back. The drawer gesture is off there.
 - While a sheet or dialog is open, no swipe gesture runs.
@@ -381,7 +381,7 @@ The plan's order of value still holds: rows A and B first, then C (sign in on a 
   - `stores/unreadStore.ts`: export `useAllUnread()` on the private `useBadgeSum` with a stable match-all function.
   - `App.tsx`: the layout branch.
 - **Native hooks:** `setAppearance` with the guild tint.
-- **Check:** Preview at 393 × 852: the chat fills the screen under the tab strip. Tap the sidebar button: the drawer slides over in 250 ms, the chat does not move, 73 px of chat shows under the scrim. Swipe from the left edge: the drawer follows the finger and snaps. Tap a channel: the drawer closes on that channel. Tap a guild tile: the drawer stays open on the new guild's channels. Swipe left in the chat: the members drawer. Escape closes a drawer. Check M12's frame in light mode (35 % scrim). In the simulator, switch guilds: the area behind the status bar takes the tint.
+- **Check:** Preview at 393 × 852: the chat fills the screen under the tab strip. Tap the sidebar button: the drawer slides over in 250 ms, the chat does not move, 73 px of chat shows under the scrim. Swipe from the left edge: the drawer follows the finger and snaps. Tap a channel: the drawer closes on that channel. Tap a guild tile: the drawer stays open on the new guild's channels. Swipe left in the chat: the members drawer. Escape closes a drawer. While a pushed screen shows, the chat card and the closed drawers are `inert` (`useChatCovered()`): VoiceOver swipe and Tab stay in the screen (`PushedScreen` makes only itself inert). Check M12's frame in light mode (35 % scrim). In the simulator, switch guilds: the area behind the status bar takes the tint.
 - **Depends on:** P1, P2.
 
 #### A2 · Chat pane: header, voice bar and footer
@@ -552,7 +552,7 @@ M7 is in I2. M8 is in I1. M11 is in A2. M12 is in A5.
 - **Owns:** `components/security/devices-panel.tsx`, `components/security/host-trust.tsx`, `components/security/devices-screen.tsx` (new), `components/security/device-sheet.tsx` (new).
 - **Work:**
   - The devices section renders `DevicesScreen` on mobile: the intro, the web-trust callout, "YOUR DEVICES · n", rows as buttons (tile 40, name, "This device" chip, meta, chevron), the hint, and "Link a new device" at the foot. `DevicesDialog` (kind `devices`) on mobile opens settings on the devices section instead of a modal.
-  - `DeviceSheet` with steps details, rename and sign-out in one sheet. Details: static List Rows "Last active" and "Added", the note, Rename (quiet), Sign out (danger, last). Extract `useRenameDevice` and the two sign-out bodies, so the desktop ConfirmDialogs share them. Swap the local `Tag` for `Chip`.
+  - `DeviceSheet` with steps details, rename and sign-out in one sheet. Details: static List Rows "Last active" and "Added", the note, Rename (quiet), Sign out (danger, last). Extract `useRenameDevice` and the two sign-out bodies, so the desktop ConfirmDialogs share them. Swap the local `Tag` for `Chip`. The `Tag` is 18 high, 10.5/700, icon 12, and `Chip` is 20, 11/800, icon 11: if the desktop look must not change, add `Chip size="sm"` with the `Tag` values and use it on desktop.
   - `components/security/host-trust.tsx`: fix the iOS line (today it says "The desktop app runs its own code"). The new callout rule (any active browser device) is mobile-only unless desktop agrees (section 6). "Get the desktop app" links to `${issuerOrigin}/`.
 - **Native hooks:** `haptic('warning')` when the sign-out step opens, `haptic('success')` after rename or revoke.
 - **Check:** Simulator: Settings → Devices pushes M25. Tap a device: the sheet. Rename: the field sits above the keyboard. Sign out another device: the reason picker uses the iOS wheel.

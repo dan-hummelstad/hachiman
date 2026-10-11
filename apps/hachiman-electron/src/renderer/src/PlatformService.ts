@@ -44,6 +44,8 @@ export const platformService: IPlatformService = {
   share: null,
   // qr-view.tsx scans with BarcodeDetector where Chromium has it.
   scanQr: null,
+  // The UI downloads a blob.
+  saveTextFile: null,
   setAppearance: () => undefined,
   secureStorage: {
     backend: "os-keychain",

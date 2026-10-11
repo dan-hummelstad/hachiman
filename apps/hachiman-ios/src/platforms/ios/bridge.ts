@@ -41,6 +41,8 @@ export interface BridgeOps {
   share: [ShareContent, boolean];
   /** The text of the scanned QR code, or null when the user closed the scanner. */
   scanQr: [Record<string, never>, string | null];
+  /** The Files export sheet (Hachiman/Native.swift). False when the user closed it. */
+  saveTextFile: [{ name: string; text: string }, boolean];
   /** `background`: a hex color (`#rrggbb` or `#rrggbbaa`) behind the safe areas. */
   setAppearance: [Appearance, null];
 }

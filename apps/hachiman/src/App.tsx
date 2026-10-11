@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useLayoutEffect } from 'react'
 
 import { FatalScreen } from '@/components/security/fatal-screen'
 import { CryptoGate } from '@/components/security/onboarding'
@@ -8,6 +8,10 @@ import { Dialogs } from '@/components/shell/dialogs'
 import { Shell } from '@/components/shell/shell'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { PokeToasts } from '@/components/notify/poke-toasts'
+
+import { useLayout } from '@/hooks/use-layout'
+import { DEFAULT_WINDOW_COLOR, useNativeAppearance } from '@/hooks/use-native-appearance'
+import { useVisualViewport } from '@/hooks/use-visual-viewport'
 
 import { errMsg } from '@/lib/utils'
 import { startHachiman } from '@/services/hachiman'
@@ -29,6 +33,14 @@ function App(): React.JSX.Element {
   const platform = usePlatform()
   const signedIn = useTakusenStore((s) => s.session !== null)
   const fatal = useCryptoStore((s) => s.fatal)
+  const layout = useLayout()
+
+  // On <html>, so the Radix portals in <body> match the `mobile:` variant too.
+  useLayoutEffect(() => {
+    document.documentElement.dataset.layout = layout
+  }, [layout])
+  useVisualViewport(layout === 'mobile')
+  useNativeAppearance(DEFAULT_WINDOW_COLOR, { base: true })
 
   // The host gives the crypto Worker its store wrap key (§11).
   useEffect(() => startHachiman(platform), [platform])
@@ -82,7 +94,7 @@ function App(): React.JSX.Element {
 
   return (
     <TooltipProvider delayDuration={200}>
-      <div className="bg-background text-foreground flex h-screen w-screen flex-col overflow-clip">
+      <div className="bg-background text-foreground flex h-(--app-height,100dvh) w-screen flex-col overflow-clip">
         {fatal ? (
           <FatalScreen fatal={fatal} />
         ) : signedIn ? (

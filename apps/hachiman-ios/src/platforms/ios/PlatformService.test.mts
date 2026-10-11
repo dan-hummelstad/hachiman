@@ -122,6 +122,26 @@ test("haptic, share, scanQr and setAppearance use their bridge ops", async () =>
   ]);
 });
 
+test("saveTextFile sends its bridge op, and a bridge rejection passes through", async () => {
+  const { ps, sent } = setup(() => true);
+  assert.equal(
+    await ps.saveTextFile!("hachiman-recovery-key.txt", "abc\n"),
+    true,
+  );
+  assert.deepEqual(sent, [
+    {
+      op: "saveTextFile",
+      args: { name: "hachiman-recovery-key.txt", text: "abc\n" },
+    },
+  ]);
+  const failing = setup(() => {
+    throw bridgeError("Malformed", "no");
+  });
+  await assert.rejects(failing.ps.saveTextFile!("../x", "y"), {
+    code: "Malformed",
+  });
+});
+
 test("getWrapKey imports the bytes as a non-extractable AES-GCM key", async () => {
   const bytes = new Uint8Array(32).map((_, i) => i);
   const b64 = Buffer.from(bytes).toString("base64");
