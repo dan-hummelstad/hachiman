@@ -1,13 +1,18 @@
-import { useRef } from 'react'
+import { useRef, useState } from 'react'
 import {
+  ChevronRight,
   CornerUpLeft,
   FilePlus,
+  Images,
+  LinkIcon,
   Loader2,
   Lock,
+  Megaphone,
   MessagesSquare,
   Pin,
   Settings,
   ShieldCheck,
+  ShieldEllipsis,
   ShieldQuestion,
   Upload,
   UserPlus,
@@ -28,8 +33,10 @@ import { useChannelStore } from '@/stores/channelStore'
 import { openDialog } from '@/stores/dialogStore'
 import { openSettings } from '@/stores/navStore'
 import { pinTab, useIsPinned, type TabTarget } from '@/stores/tabsStore'
-import { useChannelAccess } from '@/lib/channel-access'
+import { useChannelAccess, type ChannelAccess } from '@/lib/channel-access'
+import { ChannelIcon } from '@/lib/channel-icon'
 import { KeyCard } from '@/components/chat/key-card'
+import { focusComposer } from '@/components/mobile/mobile-chat-footer'
 import { useMobileKeyChange } from '@/components/people/trust-chip'
 import { TRUST_LOOK, shownTrust } from '@/components/people/trust-look'
 import { useContactTrust } from '@/components/people/use-contact-trust'
@@ -37,6 +44,7 @@ import { useMutualGuilds } from '@/components/people/use-mutual-guilds'
 import { GuildTile } from '@/components/ui/guild-tile'
 import { useLayout } from '@/hooks/use-layout'
 import { useNewPage } from '@/services/docs/use-channel-pages'
+import { usePlatform } from '@/shared/PlatformContext'
 
 /** The quiet intro buttons: hairline outline, hover wash. 36 high on the mobile layout (§2.10). */
 const INTRO_BUTTON = 'border-line-hairline text-text-primary mobile:h-9'
@@ -66,6 +74,47 @@ export function ChannelIntro({
   return <GuildIntro channel={channel} empty={empty} onUpload={onUpload} />
 }
 
+/** What both forms of a guild channel's start show and do. */
+interface GuildIntroModel {
+  name: string
+  access: ChannelAccess
+  /** The tile colours: gold for a read-only channel, violet for pages, else the accent. */
+  tile: string
+  canInvite: boolean
+  canManage: boolean
+  /** A pages channel that I may write in: the mobile start offers a new page. */
+  canWritePage: boolean
+  tab: TabTarget
+  pinned: boolean
+  invite: () => void
+  settings: () => void
+  manageAccess: () => void
+}
+
+function useGuildIntro(channel: Channel): GuildIntroModel {
+  const access = useChannelAccess(channel)
+  const perms = usePermissions(channel.guildId, channel.id)
+  const tab: TabTarget = { kind: 'channel', id: channel.id, guildId: channel.guildId }
+  const pinned = useIsPinned(tab)
+  return {
+    name: channelLabel(channel).name,
+    access,
+    tile: access.readOnly
+      ? FEATURE_TILE.event
+      : channel.type === 'pages'
+        ? FEATURE_TILE.page
+        : FEATURE_TILE.accent,
+    canInvite: has(perms, Permissions.CREATE_INSTANT_INVITE),
+    canManage: has(perms, Permissions.MANAGE_CHANNELS),
+    canWritePage: channel.type === 'pages' && has(perms, Permissions.SEND_MESSAGES),
+    tab,
+    pinned,
+    invite: () => openDialog({ kind: 'invite', guildId: channel.guildId! }),
+    settings: () => openSettings({ kind: 'channel', channelId: channel.id }),
+    manageAccess: () => openSettings({ kind: 'channel', channelId: channel.id }, 'permissions')
+  }
+}
+
 function GuildIntro({
   channel,
   empty,
@@ -75,25 +124,11 @@ function GuildIntro({
   empty: boolean
   onUpload?: (files: File[]) => void
 }): React.JSX.Element {
-  const { name } = channelLabel(channel)
-  const access = useChannelAccess(channel)
-  const perms = usePermissions(channel.guildId, channel.id)
-  const canInvite = has(perms, Permissions.CREATE_INSTANT_INVITE)
-  const canManage = has(perms, Permissions.MANAGE_CHANNELS)
-  // Mobile only (spec §6.1): a pages channel opens on its chat there, so its start offers a page.
+  const intro = useGuildIntro(channel)
   const mobile = useLayout() === 'mobile'
-  const canWritePage = mobile && channel.type === 'pages' && has(perms, Permissions.SEND_MESSAGES)
-  const newPage = useNewPage(channel)
-  const tile = access.readOnly
-    ? FEATURE_TILE.event
-    : channel.type === 'pages'
-      ? FEATURE_TILE.page
-      : FEATURE_TILE.accent
-  const tab: TabTarget = { kind: 'channel', id: channel.id, guildId: channel.guildId }
-  const pinned = useIsPinned(tab)
-  const settings = (): void => openSettings({ kind: 'channel', channelId: channel.id })
-  const manageAccess = (): void =>
-    openSettings({ kind: 'channel', channelId: channel.id }, 'permissions')
+  if (mobile)
+    return <MobileGuildIntro channel={channel} intro={intro} empty={empty} onUpload={onUpload} />
+  const { name, access, tile, canInvite, canManage, tab, pinned } = intro
 
   return (
     <div className="px-5 pt-10 pb-4">
@@ -108,23 +143,8 @@ function GuildIntro({
       {channel.topic && (
         <p className="text-body text-text-secondary mt-1.5 max-w-[70ch]">{channel.topic}</p>
       )}
-      {(!pinned || canInvite || canManage || canWritePage) && (
+      {(!pinned || canInvite || canManage) && (
         <div className="mt-4 flex flex-wrap gap-2">
-          {canWritePage && (
-            <Button
-              variant="quiet"
-              className={INTRO_BUTTON}
-              disabled={newPage.busy}
-              onClick={newPage.create}
-            >
-              {newPage.busy ? (
-                <Loader2 className="animate-spin" aria-hidden />
-              ) : (
-                <FilePlus aria-hidden />
-              )}
-              New page
-            </Button>
-          )}
           {!pinned && (
             <Button variant="quiet" className={INTRO_BUTTON} onClick={() => pinTab(tab)}>
               <Pin aria-hidden />
@@ -132,36 +152,165 @@ function GuildIntro({
             </Button>
           )}
           {canInvite && (
-            <Button
-              variant="quiet"
-              className={INTRO_BUTTON}
-              onClick={() => openDialog({ kind: 'invite', guildId: channel.guildId! })}
-            >
+            <Button variant="quiet" className={INTRO_BUTTON} onClick={intro.invite}>
               <UserPlus aria-hidden />
               Invite people
             </Button>
           )}
           {canManage && (
-            <Button variant="quiet" className={INTRO_BUTTON} onClick={settings}>
+            <Button variant="quiet" className={INTRO_BUTTON} onClick={intro.settings}>
               <Settings aria-hidden />
               Edit channel
             </Button>
           )}
         </div>
       )}
-      {newPage.error !== null && (
-        <p role="alert" className="text-feature-danger-text mt-2 text-xs leading-4">
-          {newPage.error}
-        </p>
-      )}
       {access.restricted && (
         <RestrictedCard
           name={name}
           roles={access.viewers}
-          onManage={canManage ? manageAccess : undefined}
+          onManage={canManage ? intro.manageAccess : undefined}
         />
       )}
       {empty && !access.restricted && onUpload && <DropCard name={name} onUpload={onUpload} />}
+    </div>
+  )
+}
+
+/** The 44 high actions of the mobile channel start (M60): icon 16, label 14/700. */
+const MOBILE_ACTION = cn(
+  'rounded-control inline-flex h-11 shrink-0 items-center gap-[7px] border pr-3.5 pl-3 text-[14px] leading-5 font-bold whitespace-nowrap select-none [&_svg]:size-4 [&_svg]:shrink-0',
+  'focus-visible:outline-line-focus outline-none focus-visible:outline-2 focus-visible:outline-offset-1 disabled:opacity-50'
+)
+/** A quiet action: a light wash and edge. */
+const MOBILE_ACTION_QUIET =
+  'bg-surface-hover border-fill-control text-text-primary active:bg-fill-control-strong'
+/** "Pin to tabs" as the main action of the start (M60): the accent tint. */
+const MOBILE_ACTION_ACCENT =
+  'bg-accent-tint border-accent-primary/60 text-text-primary active:bg-accent-primary/30'
+
+/**
+ * The start of a guild channel on the mobile layout (M60 to M63): the tile (60, icon 28), "Welcome
+ * to #name" (26/800), the topic (15) and the actions (44). "Pin to tabs" comes first and has the
+ * accent tint, except where another action is the main one: the drop card's Upload (M61) and the
+ * read-only notice's Follow (M62). A pages channel offers a new page, because it opens on its chat
+ * here (F1). Then the restricted card (M63) or the drop card of an empty channel (M61).
+ */
+function MobileGuildIntro({
+  channel,
+  intro,
+  empty,
+  onUpload
+}: {
+  channel: Channel
+  intro: GuildIntroModel
+  empty: boolean
+  onUpload?: (files: File[]) => void
+}): React.JSX.Element {
+  const platform = usePlatform()
+  const { name, access, tile, canInvite, canManage, canWritePage, tab, pinned } = intro
+  const newPage = useNewPage(channel)
+  // An empty channel that I may upload to shows the drop card, unless it is restricted.
+  const dropCard = empty && !access.restricted && onUpload ? onUpload : null
+  const heading = useRef<HTMLHeadingElement>(null)
+  const [justPinned, setJustPinned] = useState(false)
+  // Pin to tabs goes away once pinned: the focus moves to the heading, and the pin is announced.
+  const pin = (): void => {
+    platform.haptic('light')
+    pinTab(tab)
+    setJustPinned(true)
+    requestAnimationFrame(() => heading.current?.focus({ preventScroll: true }))
+  }
+
+  return (
+    <div className="flex flex-col gap-2.5 px-4 pt-6 pb-3">
+      <div className={cn('flex size-[60px] shrink-0 items-center justify-center', tile)}>
+        {access.readOnly ? (
+          <Megaphone className="size-7" aria-hidden />
+        ) : (
+          <ChannelIcon type={channel.type} className="size-7" aria-hidden />
+        )}
+      </div>
+      <h2
+        ref={heading}
+        tabIndex={-1}
+        className="text-text-primary text-[26px] leading-8 font-extrabold tracking-[-0.3px] break-words outline-none"
+      >
+        Welcome to #{name}
+      </h2>
+      <span className="sr-only" aria-live="polite">
+        {justPinned && pinned ? 'Pinned to tabs' : ''}
+      </span>
+      {channel.topic && (
+        <p className="text-text-secondary text-[15px] leading-[1.45] font-medium break-words">
+          {channel.topic}
+        </p>
+      )}
+      {(!pinned || canInvite || canManage || canWritePage) && (
+        <div className="flex flex-wrap gap-2 pt-1">
+          {canWritePage && (
+            <button
+              type="button"
+              className={cn(MOBILE_ACTION, MOBILE_ACTION_QUIET)}
+              disabled={newPage.busy}
+              onClick={newPage.create}
+            >
+              {newPage.busy ? (
+                <Loader2 className="text-text-secondary animate-spin" aria-hidden />
+              ) : (
+                <FilePlus className="text-text-secondary" aria-hidden />
+              )}
+              New page
+            </button>
+          )}
+          {!pinned && (
+            <button
+              type="button"
+              className={cn(
+                MOBILE_ACTION,
+                dropCard !== null || access.readOnly ? MOBILE_ACTION_QUIET : MOBILE_ACTION_ACCENT
+              )}
+              onClick={pin}
+            >
+              <Pin className="text-accent-text" aria-hidden />
+              Pin to tabs
+            </button>
+          )}
+          {canInvite && (
+            <button
+              type="button"
+              className={cn(MOBILE_ACTION, MOBILE_ACTION_QUIET)}
+              onClick={intro.invite}
+            >
+              <UserPlus className="text-text-secondary" aria-hidden />
+              Invite
+            </button>
+          )}
+          {canManage && (
+            <button
+              type="button"
+              className={cn(MOBILE_ACTION, MOBILE_ACTION_QUIET)}
+              onClick={intro.settings}
+            >
+              <Settings className="text-text-secondary" aria-hidden />
+              Edit
+            </button>
+          )}
+        </div>
+      )}
+      {newPage.error !== null && (
+        <p role="alert" className="text-feature-danger-text text-xs leading-4">
+          {newPage.error}
+        </p>
+      )}
+      {access.restricted && (
+        <MobileRestrictedCard
+          name={name}
+          roles={access.viewers}
+          onManage={canManage ? intro.manageAccess : undefined}
+        />
+      )}
+      {dropCard && <MobileDropCard name={name} topic={channel.topic} onUpload={dropCard} />}
     </div>
   )
 }
@@ -279,6 +428,132 @@ function DropCard({
         <Upload aria-hidden />
         Upload
       </Button>
+      <input
+        ref={picker}
+        type="file"
+        multiple
+        hidden
+        tabIndex={-1}
+        onChange={(e) => {
+          onUpload([...(e.target.files ?? [])])
+          e.target.value = ''
+        }}
+      />
+    </section>
+  )
+}
+
+/**
+ * M63: who can see a restricted channel, full width, with "Manage access" (46) at its foot for a
+ * manager. The row pushes the channel's permissions screen (M49).
+ */
+function MobileRestrictedCard({
+  name,
+  roles,
+  onManage
+}: {
+  name: string
+  roles: Role[]
+  onManage?: () => void
+}): React.JSX.Element {
+  return (
+    <section className="bg-surface-hover/40 border-fill-control border">
+      <div className="flex flex-col gap-2.5 px-4 py-3.5">
+        <h3 className="text-text-primary flex items-center gap-2 text-[14.5px] leading-5 font-extrabold">
+          <Lock className="text-accent-text size-[15px] shrink-0" aria-hidden />
+          Restricted channel
+        </h3>
+        <p className="text-text-secondary text-[14px] leading-[1.45] font-medium break-words">
+          {roles.length > 0
+            ? `Only these roles can see #${name} and read its history.`
+            : `Only the people with access granted to them can see #${name}.`}
+        </p>
+        {roles.length > 0 && (
+          <ul aria-label="Roles that can see it" className="flex flex-wrap gap-1.5">
+            {roles.map((r) => (
+              <li
+                key={r.id}
+                className="bg-surface-hover text-text-primary flex h-[26px] max-w-full min-w-0 items-center gap-1.5 px-[9px] text-[13px] leading-none font-bold"
+              >
+                <span
+                  aria-hidden
+                  className="size-2 shrink-0"
+                  style={{ background: r.color ? hexColor(r.color) : 'var(--text-tertiary)' }}
+                />
+                <span className="truncate">{r.name}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+      {onManage && (
+        <button
+          type="button"
+          onClick={onManage}
+          className={cn(
+            'border-fill-control text-accent-text flex h-[46px] w-full items-center gap-2 border-t pr-3.5 pl-4 text-left text-[14px] font-bold',
+            'active:bg-surface-hover focus-visible:outline-line-focus outline-none focus-visible:outline-2 focus-visible:-outline-offset-2'
+          )}
+        >
+          <ShieldEllipsis className="size-4 shrink-0" aria-hidden />
+          <span className="min-w-0 flex-1 truncate">Manage access</span>
+          <ChevronRight className="size-[17px] shrink-0" aria-hidden />
+        </button>
+      )}
+    </section>
+  )
+}
+
+/**
+ * M61: the first step of an empty channel on the mobile layout. The tile and the text sit above
+ * Upload (primary) and "Paste a link" (secondary), both 48. The text repeats the channel's rule (its
+ * topic) when it has one. "Paste a link" focuses the composer inside the tap, so the keyboard
+ * rises (docs/ios-mobile-ui-spec.md §2.8). The two buttons stack when they do not fit side by side.
+ */
+function MobileDropCard({
+  name,
+  topic,
+  onUpload
+}: {
+  name: string
+  topic: string | null | undefined
+  onUpload: (files: File[]) => void
+}): React.JSX.Element {
+  const picker = useRef<HTMLInputElement>(null)
+  return (
+    <section className="bg-surface-hover/30 border-fill-control mt-1.5 flex flex-col gap-4 border p-4">
+      <div className="flex gap-3.5">
+        <div className={cn('flex size-12 shrink-0 items-center justify-center', FEATURE_TILE.page)}>
+          <Images className="size-[22px]" aria-hidden />
+        </div>
+        <div className="flex min-w-0 flex-1 flex-col gap-1">
+          <h3 className="text-text-primary text-[16px] leading-5 font-extrabold">
+            No messages yet
+          </h3>
+          <p className="text-text-secondary text-[14px] leading-[1.45] font-medium break-words">
+            {topic || `Pick a file or paste a link. It stays end-to-end encrypted in #${name}.`}
+          </p>
+        </div>
+      </div>
+      <div className="flex flex-wrap gap-2.5">
+        <Button
+          size="mobile"
+          className="grow basis-36 px-3"
+          onClick={() => picker.current?.click()}
+        >
+          <Upload aria-hidden />
+          Upload
+        </Button>
+        <Button
+          variant="secondary"
+          size="mobile"
+          className="grow basis-36 px-3"
+          onClick={focusComposer}
+        >
+          <LinkIcon aria-hidden />
+          Paste a link
+        </Button>
+      </div>
       <input
         ref={picker}
         type="file"

@@ -42,12 +42,16 @@ export function SectionTabs({
     0
   )
 
-  // Keep the picked tab in view, also when another screen picked it.
+  // A count that loads later widens the picked tab.
+  const currentCount = tabs[current]?.count
+
+  // Keep the picked tab in view, also when another screen picked it or its count arrives. The
+  // strip's scroll padding keeps the 12 gutter beside it.
   useLayoutEffect(() => {
     strip.current
       ?.querySelector<HTMLElement>('[aria-selected="true"]')
       ?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
-  }, [value])
+  }, [value, currentCount])
 
   const onKeyDown = (e: React.KeyboardEvent): void => {
     const next = radioStep(current, tabs.length, e.key)
@@ -65,7 +69,7 @@ export function SectionTabs({
       data-slot="section-tabs"
       data-swipe-ignore=""
       onKeyDown={onKeyDown}
-      className="flex h-12 shrink-0 items-center gap-1.5 overflow-x-auto overscroll-x-contain px-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      className="flex h-12 shrink-0 items-center gap-1.5 overflow-x-auto overscroll-x-contain scroll-px-3 px-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
     >
       {tabs.map((t, i) => {
         const selected = i === current

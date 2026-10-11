@@ -14,8 +14,11 @@ import { insertPageLink, pageLinks } from './page-links'
 import { pageMedia } from './page-media'
 import { PagePicker } from './page-picker'
 import './page-editor.css'
+import { useKeyboardOpen } from '@/hooks/use-visual-viewport'
+import { cn } from '@/lib/utils'
 import { docsService } from '@/services/docs/DocsService'
 import type { DocHandle } from '@/services/docs/types'
+import { trackEditorFocus } from './page-editor-state'
 
 // lucide "link" and "file-plus", in the 24px frame of the Crepe menu icons.
 const LINK_ICON =
@@ -67,6 +70,39 @@ function editorKeyCapture(getView: () => EditorView | null): (e: KeyboardEvent) 
   }
 }
 
+/**
+ * Touch: a tap on a to-do box toggles it with no focus, so the keyboard stays down (M38). Crepe's
+ * own box handler focuses the editor first. This capture listener on the editor root takes the
+ * tap before it: `pointerdown` and `mousedown` are stopped (no Crepe toggle, no focus, no caret),
+ * and `click` (a tap, not the start of a scroll) sets the item's `checked`.
+ */
+function taskBoxTap(getView: () => EditorView | null): (e: Event) => void {
+  return (e) => {
+    const view = getView()
+    const target = e.target
+    if (!view || !view.editable || !(target instanceof Element)) return
+    const box = target.closest('.label-wrapper')
+    const item = box?.closest('.milkdown-list-item-block')
+    if (!box || !item || !view.dom.contains(item)) return
+    if (!box.querySelector('.checked, .unchecked')) return
+    e.preventDefault()
+    e.stopPropagation()
+    if (e.type !== 'click') return
+    const content = item.querySelector('.content-dom')
+    if (!content) return
+    const $in = view.state.doc.resolve(view.posAtDOM(content, 0))
+    for (let d = $in.depth; d > 0; d--) {
+      const node = $in.node(d)
+      if (node.type.name !== 'list_item') continue
+      if (typeof node.attrs.checked !== 'boolean') return
+      view.dispatch(view.state.tr.setNodeAttribute($in.before(d), 'checked', !node.attrs.checked))
+      return
+    }
+  }
+}
+
+const TASK_TAP_EVENTS = ['pointerdown', 'mousedown', 'click'] as const
+
 export interface PageEditorProps {
   handle: DocHandle
   /** False: read-only (no SEND_MESSAGES, or the doc is not live yet). */
@@ -74,6 +110,12 @@ export interface PageEditorProps {
   onOpenPage: (pageId: string) => void
   /** "New sub-page" in the slash menu: creates a child of this page. Resolves the new id and title. */
   onNewSubPage: () => Promise<{ id: string; title: string } | null>
+  /**
+   * `touch` (the phone's page screen, M38): no block handle and no selection toolbar, the touch
+   * placeholder, the kit sizes (page-editor.css), a to-do tap that does not raise the keyboard,
+   * and the focus in `page-editor-state.ts`. The page screen scrolls the editor with its hero.
+   */
+  variant?: 'panel' | 'touch'
 }
 
 /** Where the "Link to page" picker opens, and the editor ctx that inserts the pick. */
@@ -94,8 +136,10 @@ export function PageEditor({
   handle,
   editable,
   onOpenPage,
-  onNewSubPage
+  onNewSubPage,
+  variant = 'panel'
 }: PageEditorProps): React.JSX.Element {
+  const touch = variant === 'touch'
   const rootRef = useRef<HTMLDivElement>(null)
   const crepeRef = useRef<Crepe | null>(null)
   const [pickAt, setPickAt] = useState<PickAt | null>(null)
@@ -110,13 +154,21 @@ export function PageEditor({
     const root = rootRef.current
     if (!root) return
     let destroyed = false
-    const onKeyDown = editorKeyCapture(() =>
+    const getView = (): EditorView | null =>
       crepeRef.current ? crepeRef.current.editor.action((ctx) => ctx.get(editorViewCtx)) : null
-    )
+    const onKeyDown = editorKeyCapture(getView)
     root.addEventListener('keydown', onKeyDown, true)
+    const onTaskTap = touch ? taskBoxTap(getView) : null
+    if (onTaskTap) for (const type of TASK_TAP_EVENTS) root.addEventListener(type, onTaskTap, true)
+    const stopFocus = touch ? trackEditorFocus(root) : null
     const crepe = new Crepe({
       root,
-      features: { [Crepe.Feature.ImageBlock]: false, [Crepe.Feature.TopBar]: false },
+      features: {
+        [Crepe.Feature.ImageBlock]: false,
+        [Crepe.Feature.TopBar]: false,
+        // The selection toolbar sits over the text under a finger; the touch toolbar (F3a) does it.
+        ...(touch ? { [Crepe.Feature.Toolbar]: false } : {})
+      },
       featureConfigs: {
         // Crepe's default CodeMirror theme is oneDark: light grey text (#abb2bf) that, on the
         // light theme, sits on our light code surface and reads as disabled. null keeps it out
@@ -124,7 +176,10 @@ export function PageEditor({
         [Crepe.Feature.CodeMirror]: document.documentElement.classList.contains('dark')
           ? {}
           : { theme: null as never },
-        [Crepe.Feature.Placeholder]: { text: 'Type / for blocks and page links', mode: 'block' },
+        [Crepe.Feature.Placeholder]: {
+          text: touch ? 'Tap to write, / for blocks' : 'Type / for blocks and page links',
+          mode: 'block'
+        },
         [Crepe.Feature.BlockEdit]: {
           advancedGroup: { image: null },
           buildMenu: (builder) => {
@@ -177,6 +232,9 @@ export function PageEditor({
     return () => {
       destroyed = true
       root.removeEventListener('keydown', onKeyDown, true)
+      if (onTaskTap)
+        for (const type of TASK_TAP_EVENTS) root.removeEventListener(type, onTaskTap, true)
+      stopFocus?.()
       crepeRef.current = null
       setPickAt(null)
       setMediaError(null)
@@ -185,14 +243,29 @@ export function PageEditor({
         .then(() => crepe.destroy())
         .catch((e) => console.warn('[pages] editor destroy failed', e))
     }
-  }, [handle])
+  }, [handle, touch])
 
   useEffect(() => {
     crepeRef.current?.setReadonly(!editable)
   }, [editable])
 
+  // The keyboard shrinks the screen and leaves the page scroller where it was: a caret in the
+  // lower part of the page ends up under the keyboard. Scroll it into view once the keyboard is up.
+  const keyboardOpen = useKeyboardOpen()
+  useEffect(() => {
+    if (!touch || !keyboardOpen) return
+    const frame = requestAnimationFrame(() => {
+      const view = crepeRef.current?.editor.action((ctx) => ctx.get(editorViewCtx))
+      if (view?.hasFocus()) view.dispatch(view.state.tr.scrollIntoView())
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [touch, keyboardOpen])
+
   return (
-    <div className="hm-page-editor min-h-0 flex-1 overflow-y-auto">
+    <div
+      data-variant={touch ? 'touch' : undefined}
+      className={cn('hm-page-editor', touch ? 'shrink-0' : 'min-h-0 flex-1 overflow-y-auto')}
+    >
       {mediaError && (
         <div className="bg-destructive/10 text-destructive sticky top-0 z-10 flex items-center gap-2 px-3 py-1.5 text-xs">
           <span className="flex-1">{mediaError}</span>
@@ -201,7 +274,7 @@ export function PageEditor({
           </button>
         </div>
       )}
-      <div ref={rootRef} className="mx-auto w-full max-w-3xl px-2 py-4" />
+      <div ref={rootRef} className={cn('mx-auto w-full max-w-3xl', touch ? 'pt-3' : 'px-2 py-4')} />
       {pickAt && (
         <PagePicker
           at={pickAt}

@@ -1,7 +1,9 @@
-import { useMemo, useState } from 'react'
+import { useId, useMemo, useState } from 'react'
 import { Ellipsis, Eye, Info, MessageSquareText, PhoneCall, PhoneOff } from 'lucide-react'
 import { Permissions, has, type Channel, type VoiceState } from '@hachiman/client'
+import { ListGroup, SectionLabel } from '@/components/mobile/list'
 import { MemberSheet } from '@/components/mobile/member-sheet'
+import { AvatarRow, UserAvatar } from '@/components/shell/user-avatar'
 import { Button } from '@/components/ui/button'
 import { IconButton } from '@/components/ui/icon-button'
 import { CallSecurityBanner } from '@/components/voice/call-security'
@@ -12,15 +14,21 @@ import { SoundboardButton } from '@/components/voice/soundboard-button'
 import { LiveCard, StreamerName } from '@/components/voice/live-card'
 import { StreamGrid } from '@/components/voice/stream-grid'
 import { useCallParticipants, useCanJoinVoice } from '@/components/voice/use-call-security'
+import { useVoiceRegionName } from '@/components/voice/use-voice-region'
+import { VoiceOccupantRow } from '@/components/voice/voice-occupant-row'
+import { othersInCallText } from '@/components/voice/voice-occupant-text'
 import { ParticipantTile, type TileStatus } from '@/components/voice/voice-tile'
 import { mobileStageGrid, stageColumns } from '@/components/voice/voice-tile-styles'
 import { useChannelOccupants, usePermissions } from '@/hooks/use-hachiman'
 import { useLayout } from '@/hooks/use-layout'
-import { channelLabel, type GuildChannel } from '@/lib/model'
+import { useMemberView } from '@/hooks/use-member'
+import { channelLabel, displayName, type GuildChannel } from '@/lib/model'
+import { ROLE_INK_SCOPE } from '@/lib/role-ink'
 import { cn } from '@/lib/utils'
 import { voiceService } from '@/services/VoiceService'
 import { usePlatform } from '@/shared/PlatformContext'
 import { useChannelStore } from '@/stores/channelStore'
+import { useGuildStore } from '@/stores/guildStore'
 import { useUserStore } from '@/stores/userStore'
 import { useVoiceStore } from '@/stores/voiceStore'
 
@@ -34,7 +42,9 @@ import { useVoiceStore } from '@/stores/voiceStore'
  */
 export function VoiceRoom({ channel }: { channel: GuildChannel }): React.JSX.Element {
   const here = useVoiceStore((s) => s.channelId === channel.id)
-  return here ? <Stage channel={channel} /> : <NotJoined channel={channel} />
+  const mobile = useLayout() === 'mobile'
+  if (here) return <Stage channel={channel} />
+  return mobile ? <NotJoinedMobile channel={channel} /> : <NotJoined channel={channel} />
 }
 
 interface Tile {
@@ -216,12 +226,17 @@ function DockedControls({ onShowChat }: { onShowChat?: () => void }): React.JSX.
   )
 }
 
-/**
- * A voice channel the user is not in (D2). A live stream shows as the live card (decision 4: no
- * frame for non-members), else the people in the channel. Then "Join voice", and a note when the
- * join moves the user's call from another channel.
- */
-function NotJoined({ channel }: { channel: GuildChannel }): React.JSX.Element {
+/** What a voice channel I am not in shows, on both layouts. */
+function useNotJoined(channel: GuildChannel): {
+  occupants: VoiceState[]
+  /** The first person who streams. */
+  streamer: VoiceState | null
+  channelName: string
+  canConnect: boolean
+  canJoin: boolean
+  /** The channel of my call elsewhere, which a join moves. */
+  otherCallName: string | null
+} {
   const occupants = useChannelOccupants(channel.guildId, channel.id)
   const canConnect = has(usePermissions(channel.guildId, channel.id), Permissions.CONNECT)
   const canJoin = useCanJoinVoice(channel.guildId, channel.id)
@@ -229,8 +244,48 @@ function NotJoined({ channel }: { channel: GuildChannel }): React.JSX.Element {
   const otherCallName = useChannelStore((s) =>
     otherCallId ? (s.channels.get(otherCallId)?.name ?? null) : null
   )
-  const streamer = occupants.find((vs) => vs.selfStream) ?? null
-  const channelName = channelLabel(channel).name
+  return {
+    occupants,
+    streamer: occupants.find((vs) => vs.selfStream) ?? null,
+    channelName: channelLabel(channel).name,
+    canConnect,
+    canJoin,
+    otherCallName
+  }
+}
+
+/**
+ * The title over "Join voice": "<name> is live in <channel>", "n in <channel>", or that no one is
+ * there yet.
+ */
+function NotJoinedTitle({
+  channel,
+  occupants,
+  streamer,
+  channelName
+}: {
+  channel: GuildChannel
+  occupants: VoiceState[]
+  streamer: VoiceState | null
+  channelName: string
+}): React.ReactNode {
+  if (streamer)
+    return (
+      <StreamerName guildId={channel.guildId} userId={streamer.userId} channelName={channelName} />
+    )
+  return occupants.length > 0
+    ? `${occupants.length} in ${channelName}`
+    : `No one is in ${channelName} yet`
+}
+
+/**
+ * A voice channel the user is not in (D2). A live stream shows as the live card (decision 4: no
+ * frame for non-members), else the people in the channel. Then "Join voice", and a note when the
+ * join moves the user's call from another channel.
+ */
+function NotJoined({ channel }: { channel: GuildChannel }): React.JSX.Element {
+  const { occupants, streamer, channelName, canConnect, canJoin, otherCallName } =
+    useNotJoined(channel)
   const joinDisabled = !canJoin
 
   return (
@@ -264,17 +319,12 @@ function NotJoined({ channel }: { channel: GuildChannel }): React.JSX.Element {
         </ul>
       ) : null}
       <h2 className="text-text-primary text-center text-lg font-extrabold">
-        {streamer ? (
-          <StreamerName
-            guildId={channel.guildId}
-            userId={streamer.userId}
-            channelName={channelName}
-          />
-        ) : occupants.length > 0 ? (
-          `${occupants.length} in ${channelName}`
-        ) : (
-          `No one is in ${channelName} yet`
-        )}
+        <NotJoinedTitle
+          channel={channel}
+          occupants={occupants}
+          streamer={streamer}
+          channelName={channelName}
+        />
       </h2>
       <div className="flex flex-wrap items-center justify-center gap-2">
         <Button
@@ -313,4 +363,138 @@ function NotJoined({ channel }: { channel: GuildChannel }): React.JSX.Element {
       <CallSecurityBanner className="w-full max-w-md" />
     </div>
   )
+}
+
+/**
+ * The mobile form of a voice channel I am not in (M64). What is on scrolls: the full-width live
+ * card, who else is in the call, and a 56 row per person. The join block stays at the foot, so
+ * "Join voice" is in reach on the smallest phone too: the title, "n in call · region", Join voice,
+ * Watch stream (joins muted, N18) and the note that the join moves my call. My call elsewhere
+ * keeps its voice bar under it.
+ */
+function NotJoinedMobile({ channel }: { channel: GuildChannel }): React.JSX.Element {
+  const { occupants, streamer, channelName, canConnect, canJoin, otherCallName } =
+    useNotJoined(channel)
+  const region = useVoiceRegionName(channel.guildId)
+  const others = streamer ? occupants.filter((vs) => vs.userId !== streamer.userId) : []
+  const sub = streamer
+    ? [`${occupants.length} in call`, region].filter(Boolean).join(' · ')
+    : region
+  const labelId = useId()
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="flex min-h-0 flex-1 flex-col gap-3.5 overflow-y-auto px-4 pt-4 pb-6 [&>*]:shrink-0">
+        {streamer && (
+          <LiveCard
+            guildId={channel.guildId}
+            userId={streamer.userId}
+            channelName={channelName}
+            watching={others.length}
+            size="stage"
+          />
+        )}
+        {others.length > 0 && <OthersInCall guildId={channel.guildId} occupants={others} />}
+        {occupants.length > 0 && (
+          <section aria-labelledby={labelId} className="flex flex-col gap-2 pt-1.5">
+            <SectionLabel id={labelId}>
+              In {channelName} · {occupants.length}
+            </SectionLabel>
+            <ListGroup>
+              <ul className={cn('divide-line-hairline flex flex-col divide-y', ROLE_INK_SCOPE)}>
+                {occupants.map((vs) => (
+                  <VoiceOccupantRow
+                    key={vs.userId}
+                    guildId={channel.guildId}
+                    state={vs}
+                    size={56}
+                  />
+                ))}
+              </ul>
+            </ListGroup>
+          </section>
+        )}
+        <CallSecurityBanner />
+      </div>
+      {/* The fade over the scroller's foot shows that more is above; it is invisible on an empty one.
+          A mask, not a colour gradient: WebKit draws a gradient from a /0 colour through black. */}
+      <div className="before:bg-surface-content relative flex shrink-0 flex-col gap-2.5 px-4 pb-4 before:pointer-events-none before:absolute before:inset-x-0 before:-top-6 before:h-6 before:[mask-image:linear-gradient(to_bottom,transparent,black)]">
+        <div className="flex flex-col gap-[3px] pb-1.5 text-center">
+          <h2 className="text-text-primary text-xl leading-6 font-extrabold text-balance">
+            <NotJoinedTitle
+              channel={channel}
+              occupants={occupants}
+              streamer={streamer}
+              channelName={channelName}
+            />
+          </h2>
+          {sub && <p className="text-text-tertiary text-[13px] leading-4 font-medium">{sub}</p>}
+        </div>
+        <Button
+          variant="voice"
+          size="mobile"
+          disabled={!canJoin}
+          onClick={() => void voiceService.join(channel)}
+        >
+          <PhoneCall />
+          Join voice
+        </Button>
+        {streamer && (
+          <Button
+            variant="secondary"
+            size="mobile"
+            disabled={!canJoin}
+            onClick={() => void voiceService.join(channel, { muted: true })}
+          >
+            <Eye />
+            Watch stream
+          </Button>
+        )}
+        {otherCallName !== null && canConnect && (
+          <p className="text-text-tertiary flex items-start justify-center gap-1.5 pt-0.5 text-center text-[13px] leading-4 font-medium">
+            <Info className="mt-px size-3.5 shrink-0" aria-hidden />
+            You&apos;re in {otherCallName}. Joining moves your call here.
+          </p>
+        )}
+        {!canConnect && (
+          <p className="text-text-tertiary pt-0.5 text-center text-[13px] leading-4 font-medium">
+            You don&apos;t have permission to join {channelName}.
+          </p>
+        )}
+      </div>
+    </div>
+  )
+}
+
+/** At most this many faces before the line under the live card. */
+const FACES = 3
+
+/**
+ * The line under the live card (M64): up to three faces and the names of the others in the call,
+ * "yuki.h, renata and tobias are in the call".
+ */
+function OthersInCall({
+  guildId,
+  occupants
+}: {
+  guildId: string
+  occupants: VoiceState[]
+}): React.JSX.Element {
+  const members = useGuildStore((s) => s.members.get(guildId))
+  const text = othersInCallText(occupants.map((vs) => displayName(members?.get(vs.userId))))
+  return (
+    <p className="text-text-secondary flex min-w-0 items-center gap-2.5 text-[13px] leading-4 font-medium">
+      <AvatarRow size={24} overlap={6}>
+        {occupants.slice(0, FACES).map((vs) => (
+          <Face key={vs.userId} guildId={guildId} userId={vs.userId} />
+        ))}
+      </AvatarRow>
+      <span className="min-w-0">{text}</span>
+    </p>
+  )
+}
+
+function Face({ guildId, userId }: { guildId: string; userId: string }): React.JSX.Element {
+  const { name, avatar, ink } = useMemberView(guildId, userId)
+  return <UserAvatar name={name} avatar={avatar} color={ink} size={24} />
 }

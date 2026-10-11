@@ -1,4 +1,5 @@
-import { CornerUpLeft, Pin, PinOff, Settings } from 'lucide-react'
+import { useState } from 'react'
+import { CornerUpLeft, MessagesSquare, Pin, PinOff, Settings } from 'lucide-react'
 import { Permissions, has, type Channel } from '@hachiman/client'
 import {
   MenuSheet,
@@ -7,20 +8,25 @@ import {
   MenuSheetSeparator,
   MenuSheetTrigger
 } from '@/components/mobile/menu-sheet'
+import { hasTitleChip } from '@/components/chat/channel-states'
 import { NotifySheetRows } from '@/components/notify/notify-menu'
 import { HeaderChannelIcon } from '@/components/shell/channel-pane'
+import { canHoldThreads } from '@/components/threads/thread-name'
+import { ThreadsSheet } from '@/components/threads/threads-button'
 import { usePermissions } from '@/hooks/use-hachiman'
 import { useChannelAccess } from '@/lib/channel-access'
 import { channelLabel } from '@/lib/model'
 import { openChannelView } from '@/lib/navigation'
 import { useChannelStore } from '@/stores/channelStore'
 import { openSettings } from '@/stores/navStore'
+import { usePlatform } from '@/shared/PlatformContext'
 import { pinTab, unpinTab, useIsPinned, type TabTarget } from '@/stores/tabsStore'
 
 /**
  * The channel sheet of the mobile header (A2): a tap on the title stack opens it. It holds what
  * the desktop header shows as the bell and the gear: the notify level and the mute (N9), Pin to
- * tabs, the parent of a thread, and Channel settings (pushes M48). `children` is the trigger.
+ * tabs, the parent of a thread, Threads where the header leaves its button out for a title chip
+ * (M62, M63), and Channel settings (pushes M48). `children` is the trigger.
  */
 export function ChannelInfoSheet({
   channel,
@@ -30,18 +36,22 @@ export function ChannelInfoSheet({
   children: React.ReactNode
 }): React.JSX.Element {
   const label = channelLabel(channel)
+  const [threads, setThreads] = useState(false)
   return (
-    <MenuSheet>
-      <MenuSheetTrigger asChild>{children}</MenuSheetTrigger>
-      <MenuSheetContent title={`${label.sigil}${label.name}`}>
-        <InfoHead channel={channel} />
-        {channel.type !== 'voice' && channel.type !== 'category' && (
-          <NotifySheetRows channel={channel} />
-        )}
-        <MenuSheetSeparator />
-        <ChannelRows channel={channel} />
-      </MenuSheetContent>
-    </MenuSheet>
+    <>
+      <MenuSheet>
+        <MenuSheetTrigger asChild>{children}</MenuSheetTrigger>
+        <MenuSheetContent title={`${label.sigil}${label.name}`}>
+          <InfoHead channel={channel} />
+          {channel.type !== 'voice' && channel.type !== 'category' && (
+            <NotifySheetRows channel={channel} />
+          )}
+          <MenuSheetSeparator />
+          <ChannelRows channel={channel} onThreads={() => setThreads(true)} />
+        </MenuSheetContent>
+      </MenuSheet>
+      <ThreadsSheet channel={channel} open={threads} onOpenChange={setThreads} />
+    </>
   )
 }
 
@@ -64,8 +74,17 @@ function InfoHead({ channel }: { channel: Channel }): React.JSX.Element {
   )
 }
 
-/** Pin to tabs, the parent of a thread, and Channel settings for a manager. */
-function ChannelRows({ channel }: { channel: Channel }): React.JSX.Element {
+/** Pin to tabs, the parent of a thread, Threads, and Channel settings for a manager. */
+function ChannelRows({
+  channel,
+  onThreads
+}: {
+  channel: Channel
+  onThreads: () => void
+}): React.JSX.Element {
+  const platform = usePlatform()
+  const access = useChannelAccess(channel)
+  const threadsRow = canHoldThreads(channel) && hasTitleChip(access)
   const isDm = channel.guildId === null
   const target: TabTarget = {
     kind: isDm ? 'dm' : 'channel',
@@ -81,7 +100,13 @@ function ChannelRows({ channel }: { channel: Channel }): React.JSX.Element {
   )
   return (
     <>
-      <MenuSheetItem onSelect={() => (pinned ? unpinTab(target) : pinTab(target))}>
+      <MenuSheetItem
+        onSelect={() => {
+          platform.haptic('light')
+          if (pinned) unpinTab(target)
+          else pinTab(target)
+        }}
+      >
         {pinned ? <PinOff /> : <Pin />}
         {pinned ? 'Unpin from tabs' : 'Pin to tabs'}
       </MenuSheetItem>
@@ -89,6 +114,12 @@ function ChannelRows({ channel }: { channel: Channel }): React.JSX.Element {
         <MenuSheetItem onSelect={() => openChannelView(parent)}>
           <CornerUpLeft />
           Open #{parent.name}
+        </MenuSheetItem>
+      )}
+      {threadsRow && (
+        <MenuSheetItem onSelect={onThreads}>
+          <MessagesSquare />
+          Threads
         </MenuSheetItem>
       )}
       {canManage && (

@@ -50,6 +50,28 @@ export function ThreadsButton({ channel }: { channel: Channel }): React.JSX.Elem
   )
 }
 
+/**
+ * The same list with no header button, opened from the channel sheet (mobile) where the header
+ * leaves Threads out for a title chip (M62, M63).
+ */
+export function ThreadsSheet({
+  channel,
+  open,
+  onOpenChange
+}: {
+  channel: Channel
+  open: boolean
+  onOpenChange: (open: boolean) => void
+}): React.JSX.Element {
+  return (
+    <Popover open={open} onOpenChange={onOpenChange}>
+      <PopoverContent aria-label="Threads" className="p-0">
+        <ThreadsList parent={channel} onOpened={() => onOpenChange(false)} />
+      </PopoverContent>
+    </Popover>
+  )
+}
+
 function ThreadsList({
   parent,
   onOpened
@@ -80,7 +102,12 @@ function ThreadsList({
       actions={
         canCreate &&
         !creating && (
-          <Button variant="secondary" size="sm" onClick={() => setCreating(true)}>
+          <Button
+            variant="secondary"
+            size="sm"
+            className="mobile:h-9 mobile:px-3"
+            onClick={() => setCreating(true)}
+          >
             <Plus />
             New thread
           </Button>

@@ -30,6 +30,7 @@ import type { ListRowTile } from '@/components/mobile/list'
 import { DevicesPanel, useOwnDevices } from '@/components/security/devices-panel'
 import { RecoverySection } from '@/components/security/recovery-panel'
 import { SecurityLog } from '@/components/security/security-log'
+import { useActiveInviteCount } from '@/components/settings/use-guild-invites'
 import { ChannelOverviewPage } from '@/components/settings/channel-overview'
 import { ChannelPermissionsPage, overrideCount } from '@/components/settings/channel-permissions'
 import { GuildOverviewPage } from '@/components/settings/guild-overview'
@@ -139,7 +140,7 @@ export interface SettingsModel {
 export function useSettingsModel(target: SettingsTarget | null): SettingsModel | null {
   const mobile = useLayout() === 'mobile'
   const user = useUserSettingsModel(target?.kind === 'user', mobile)
-  const guild = useGuildSettingsModel(target?.kind === 'guild' ? target.guildId : null)
+  const guild = useGuildSettingsModel(target?.kind === 'guild' ? target.guildId : null, mobile)
   const channel = useChannelSettingsModel(
     target?.kind === 'channel' ? target.channelId : null,
     mobile
@@ -351,8 +352,11 @@ function useUserSettingsModel(active: boolean, mobile: boolean): SettingsModel {
   }
 }
 
-/** Each section only shows if the user holds its permission. */
-function useGuildSettingsModel(guildId: string | null): SettingsModel {
+/**
+ * Each section only shows if the user holds its permission. On the mobile layout the Invites tab
+ * counts the active invites (M52, M55), so the invite list loads while guild settings are open.
+ */
+function useGuildSettingsModel(guildId: string | null, mobile: boolean): SettingsModel {
   const guild = useGuildStore((s) => (guildId ? s.guilds.get(guildId) : undefined))
   const roleCount = useGuildStore((s) => (guildId ? (s.roles.get(guildId)?.size ?? 0) : 0))
   const memberCount = useGuildStore((s) => (guildId ? (s.members.get(guildId)?.size ?? 0) : 0))
@@ -360,6 +364,7 @@ function useGuildSettingsModel(guildId: string | null): SettingsModel {
   const isOwner = useIsGuildOwner(guildId)
   const perms = usePermissions(guildId)
   const canManage = has(perms, Permissions.MANAGE_GUILD)
+  const inviteCount = useActiveInviteCount(mobile && canManage ? guildId : null)
   const name = guild?.name ?? 'Guild'
   const members = `${memberCount} ${memberCount === 1 ? 'member' : 'members'}`
   return {
@@ -430,10 +435,12 @@ function useGuildSettingsModel(guildId: string | null): SettingsModel {
             id: 'invites',
             label: 'Invites',
             icon: <Link />,
+            count: inviteCount,
             visible: canManage || has(perms, Permissions.CREATE_INSTANT_INVITE),
             page: guild && {
               title: 'Invites',
               description: `Links that let people join ${name}. Anyone with a link can join until it expires or runs out of uses.`,
+              intro: true,
               wide: true,
               render: () => <GuildInvitesTab guildId={guild.id} />
             }

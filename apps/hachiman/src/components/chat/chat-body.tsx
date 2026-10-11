@@ -13,7 +13,7 @@ import { useLayout } from '@/hooks/use-layout'
 import { useMemberView } from '@/hooks/use-member'
 import { channelLabel } from '@/lib/model'
 import { BLOCKED_SEND_ERROR, messagesService } from '@/services/MessagesService'
-import { useChannelAccess, joinNames } from '@/lib/channel-access'
+import { useChannelAccess } from '@/lib/channel-access'
 import { Button } from '@/components/ui/button'
 import { ErrorText } from '@/components/ui/field'
 import { useAction } from '@/hooks/use-action'
@@ -22,6 +22,7 @@ import { useMessageStore, useReplyTarget, type ChatMessage } from '@/stores/mess
 import { useIsBlocked, useUserStore } from '@/stores/userStore'
 import { useComposerStore, useReplyTargetId } from '@/stores/composerStore'
 import { openDialog, useDialogStore } from '@/stores/dialogStore'
+import { cantPostReason } from './channel-states'
 import { rowPolicy, type RowPolicy } from './row-policy'
 import { useSendPaused } from './use-dm-trust'
 
@@ -103,14 +104,13 @@ function useChannelChat(channel: Channel): ChannelChatState {
     return true
   }
 
-  // The read-only notice names who can post (B7); the "Follow" button (N9) goes next to it.
+  // The read-only notice names who can post (B7); the "Follow" button (N9) goes next to it. The
+  // mobile layout says it shorter (M62).
+  const mobile = useLayout() === 'mobile'
+  const posters = access.posters.map((r) => r.name)
   const disabledReason = canSend
     ? undefined
-    : access.readOnly
-      ? access.posters.length > 0
-        ? `You can't post in ${where}. Only ${joinNames(access.posters.map((r) => r.name))} can.`
-        : `You can't post in ${where}.`
-      : `You don't have permission to send messages in ${where}.`
+    : cantPostReason(where, access.readOnly, posters, mobile)
 
   return {
     policy,

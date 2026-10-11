@@ -26,6 +26,8 @@ import { RadioCard } from '@/components/ui/radio-card'
 import { Switch } from '@/components/ui/switch'
 import { useDialogSubject } from '@/hooks/use-dialog-subject'
 import { useLayout } from '@/hooks/use-layout'
+import { cn } from '@/lib/utils'
+import { usePlatform } from '@/shared/PlatformContext'
 import {
   guildNotifyLevel,
   isFollowing,
@@ -182,18 +184,25 @@ export function NotifySheetRows({ channel }: { channel: Channel }): React.JSX.El
 
 /**
  * "Follow" in the read-only notice (B7): sets the channel to all messages. While followed
- * (isFollowing) it shows "Following"; a click there goes back to the guild setting.
+ * (isFollowing) it shows "Following"; a click there goes back to the guild setting. On the mobile
+ * layout (M62) it is the kit's Secondary button at 44, and a toggle taps the haptic engine.
  */
 export function FollowButton({ channel }: { channel: Channel }): React.JSX.Element {
+  const platform = usePlatform()
+  const mobile = useLayout() === 'mobile'
   const prefs = useNotifyPrefs()
   const setNotifyLevel = usePrefsStore((s) => s.setNotifyLevel)
   const following = isFollowing(prefs, channel.id)
   return (
     <Button
       variant="secondary"
+      size={mobile ? 'mobile' : 'default'}
       aria-pressed={following}
-      className="shrink-0"
-      onClick={() => setNotifyLevel(channel.id, following ? null : 'all')}
+      className={cn('shrink-0', mobile && 'h-11 w-auto')}
+      onClick={() => {
+        platform.haptic('light')
+        setNotifyLevel(channel.id, following ? null : 'all')
+      }}
     >
       {following ? <BellRing className="text-feature-event-text" /> : <Bell />}
       {following ? 'Following' : 'Follow'}

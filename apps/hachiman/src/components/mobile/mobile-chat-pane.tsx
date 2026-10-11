@@ -4,6 +4,7 @@ import { HomePane } from '@/components/home-pane'
 import { hasRightDrawer, openDrawer } from '@/components/mobile/drawer-state'
 import { MobileChannelHeader, type MobileSide } from '@/components/mobile/mobile-channel-header'
 import { ChannelPageBar } from '@/components/mobile/page-bar'
+import { VoiceBar } from '@/components/mobile/voice-bar'
 import { NoChannelPane } from '@/components/shell/channel-pane'
 import { DmCallPanel, useDmStageShown } from '@/components/voice/dm-call'
 import { VoiceRoom } from '@/components/voice/voice-room'
@@ -12,6 +13,7 @@ import { ROLE_INK_SCOPE } from '@/lib/role-ink'
 import { cn } from '@/lib/utils'
 import { useChannelStore } from '@/stores/channelStore'
 import { useSelectedChannelId, useSelectedGuildId } from '@/stores/navStore'
+import { useVoiceStore } from '@/stores/voiceStore'
 
 const showSide = (): void => openDrawer('right')
 
@@ -38,6 +40,8 @@ export function MobileChatPane(): React.JSX.Element {
   const voice = channel?.type === 'voice' && isGuildChannel(channel) ? channel : null
   // My DM call's full-height stage covers the chat (B2).
   const dmStage = useDmStageShown(channel?.guildId === null ? channel.id : null)
+  // Outside the call, the voice room shows my voice bar under its join block (M64).
+  const inThisCall = useVoiceStore((s) => voice !== null && s.channelId === voice.id)
 
   return (
     <main
@@ -59,7 +63,10 @@ export function MobileChatPane(): React.JSX.Element {
           />
           {channel.type === 'pages' && <ChannelPageBar key={channel.id} channel={channel} />}
           {voice ? (
-            <VoiceRoom key={channel.id} channel={voice} />
+            <>
+              <VoiceRoom key={channel.id} channel={voice} />
+              {!inThisCall && <VoiceBar />}
+            </>
           ) : (
             <>
               {channel.guildId === null && <DmCallPanel key={channel.id} channel={channel} />}

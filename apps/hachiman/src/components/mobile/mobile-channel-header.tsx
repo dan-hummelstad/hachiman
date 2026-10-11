@@ -1,19 +1,28 @@
-import { ChevronRight, FileText, MessagesSquare, UserRound, Users, Volume2 } from 'lucide-react'
-import type { Channel, User } from '@hachiman/client'
+import {
+  ChevronRight,
+  FileText,
+  Lock,
+  MessagesSquare,
+  UserRound,
+  Users,
+  Volume2
+} from 'lucide-react'
+import type { Channel, Role, User } from '@hachiman/client'
+import { chipRoles, hasTitleChip } from '@/components/chat/channel-states'
 import { ChannelInfoSheet } from '@/components/mobile/channel-info-sheet'
 import { KIT_ICON_BUTTON } from '@/components/mobile/nav-bar'
 import { TrustButton } from '@/components/people/trust-chip'
 import { useVoiceActivity } from '@/components/people/use-voice-activity'
 import { VoiceActivityLine } from '@/components/people/voice-activity-line'
 import { PinsButton } from '@/components/pins/pins-button'
-import { ChannelChips, HeaderChannelIcon } from '@/components/shell/channel-pane'
+import { HeaderChannelIcon, HeaderChip } from '@/components/shell/channel-pane'
 import { UserAvatar } from '@/components/shell/user-avatar'
 import { canHoldThreads } from '@/components/threads/thread-name'
 import { ThreadsButton } from '@/components/threads/threads-button'
 import { DmCallButton } from '@/components/voice/dm-call'
 import { VoiceHeaderExtras, VoiceHeaderMeta } from '@/components/voice/voice-header'
 import { usePresence } from '@/hooks/use-member'
-import { useChannelAccess } from '@/lib/channel-access'
+import { joinNames, useChannelAccess, type ChannelAccess } from '@/lib/channel-access'
 import { channelLabel, isGuildChannel } from '@/lib/model'
 import { cn } from '@/lib/utils'
 import { useChannelStore } from '@/stores/channelStore'
@@ -53,7 +62,8 @@ const Chevron = (): React.JSX.Element => (
  * one button that opens the channel sheet (notify level, Pin to tabs, Channel settings), so the
  * bell and the gear of the desktop header are not here. Then, by channel kind:
  *
- * - text and pages: the Threads and Pins chips (lists as sheets), the right drawer toggle
+ * - text and pages: the Threads and Pins chips (lists as sheets), the right drawer toggle. A chip
+ *   in the title row (read only M62, restricted M63) needs the room, so Threads is left out there.
  * - voice: the Volume2 icon, "n in call" as line 2, "Verify call" in the own call, the toggle
  * - DM (M7, M57, padding 0/10/0/14, gap 8): the avatar (32), the name over the voice activity,
  *   the trust button, Call and the profile toggle. Poke, Pins and Notify are in the profile
@@ -73,6 +83,7 @@ export function MobileChannelHeader({
   const solo = isDm ? soloOf(channel) : undefined
   const voice = channel.type === 'voice' && isGuildChannel(channel) ? channel : null
   const hasMessages = channel.type !== 'voice' && channel.type !== 'category'
+  const access = useChannelAccess(channel)
 
   return (
     <header
@@ -116,7 +127,7 @@ export function MobileChannelHeader({
               {channel.type === 'thread' ? (
                 <ThreadLines thread={channel} />
               ) : (
-                <ChannelLines channel={channel} />
+                <ChannelLines channel={channel} access={access} />
               )}
             </button>
           </ChannelInfoSheet>
@@ -125,7 +136,7 @@ export function MobileChannelHeader({
       {solo && <TrustButton userId={solo.id} name={channelLabel(channel).name} />}
       {isDm && <DmCallButton channel={channel} className={HEADER_BUTTON} />}
       {voice && <VoiceHeaderExtras channel={voice} />}
-      {canHoldThreads(channel) && <ThreadsButton channel={channel} />}
+      {canHoldThreads(channel) && !hasTitleChip(access) && <ThreadsButton channel={channel} />}
       {hasMessages && !solo && <PinsButton channel={channel} />}
       {onToggleSide && (
         <button
@@ -192,19 +203,57 @@ function DmVoiceLine({ userId }: { userId: string }): React.JSX.Element | null {
   )
 }
 
-/** Line 1: the type icon (18), the name, the chips and the chevron. Line 2: the topic. */
-function ChannelLines({ channel }: { channel: Channel }): React.JSX.Element {
-  const access = useChannelAccess(channel)
+/**
+ * Line 1: the type icon (18), the name, the chip and the chevron. Line 2: the topic. The chip is
+ * "Read only" (M62) or, for a restricted channel, the roles that can see it (M63).
+ */
+function ChannelLines({
+  channel,
+  access
+}: {
+  channel: Channel
+  access: ChannelAccess
+}): React.JSX.Element {
   return (
     <>
       <span className="flex max-w-full min-w-0 items-center gap-[5px]">
         <HeaderChannelIcon channel={channel} readOnly={access.readOnly} className="size-[18px]" />
         <span className={NAME}>{channelLabel(channel).name}</span>
-        <ChannelChips access={access} />
+        {access.readOnly && (
+          <HeaderChip>
+            <Lock className="text-text-tertiary" aria-hidden />
+            Read only
+          </HeaderChip>
+        )}
+        {access.restricted && access.viewers.length > 0 && (
+          <RestrictedChip roles={access.viewers} />
+        )}
         <Chevron />
       </span>
       {channel.topic && <span className={LINE_2}>{channel.topic}</span>}
     </>
+  )
+}
+
+/**
+ * The restricted chip (M63): the lock and two role names in the accent, then "+n". It shrinks
+ * before it pushes the chevron out on a 375 wide phone. A screen reader hears every role.
+ */
+function RestrictedChip({ roles }: { roles: Role[] }): React.JSX.Element {
+  const { shown, more } = chipRoles(roles)
+  return (
+    <span className="bg-surface-hover text-accent-text inline-flex h-[22px] min-w-0 items-center gap-1 px-[7px] text-[11.5px] leading-none font-extrabold">
+      <Lock className="size-3 shrink-0" aria-hidden />
+      <span aria-hidden className="truncate">
+        {shown.map((r) => r.name).join(' · ')}
+      </span>
+      {more > 0 && (
+        <span aria-hidden className="shrink-0">
+          +{more}
+        </span>
+      )}
+      <span className="sr-only">, only {joinNames(roles.map((r) => r.name))} can see it</span>
+    </span>
   )
 }
 

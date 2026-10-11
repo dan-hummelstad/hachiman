@@ -821,6 +821,12 @@ All four screens sit in E1's tab frame. Each page file branches on the layout. E
 - **Native hooks:** `haptic('success')` on copy.
 - **Check:** Simulator: Create and copy link → paste in Notes works. Invites tab count matches the active invites. Desktop invites table unchanged.
 - **Depends on:** E1, E3.
+- **As built (W5):**
+  - The invite list cache (`loadGuildInvites`, `guildInviteList`, `subscribeGuildInviteLists`, `addGuildInvite`, `revokeGuildInvite`) is in `services/InviteService.ts`, so `resetInvites()` clears it at sign-out. The hooks `useGuildInvites`, `useActiveInviteCount`, `useInviteCreateForm` and `useInvitePermissions` are in `components/settings/use-guild-invites.ts`.
+  - The tab count shows on mobile only.
+  - `copyLinkFromTap` starts the clipboard write inside the tap. It falls back to `writeText` when `ClipboardItem` is missing or takes no promise.
+  - Delete stays fully opaque on used-up rows (always enabled). The mock dims it.
+  - Create and copy errors show inside the docked create bar. On a short screen the bar is capped at 60 % of `--app-height` and scrolls inside.
 
 ### 4.12 Row I · DMs and safety
 
@@ -880,6 +886,9 @@ M65 is in B2.
 - **Native hooks:** `haptic('light')`, the file picker.
 - **Check:** Preview: `#lfg` (unpinned) → Pin to tabs adds and lights the tab. `#clips` empty → Upload opens the picker. `#patch-notes` → Follow toggles. `#deploys` → Manage access pushes the permissions screen.
 - **Depends on:** I3, G1, F1.
+- **As built (W5):**
+  - The pure helpers `cantPostReason`, `chipRoles` and `hasTitleChip` are in `components/chat/channel-states.ts` (with a test).
+  - Where the header leaves Threads out for a title chip, the channel sheet (`components/mobile/channel-info-sheet.tsx`) has a Threads row that opens the same list (`ThreadsSheet` in `components/threads/threads-button.tsx`). Pin to tabs in that sheet also calls `haptic('light')`.
 
 #### J2 · Voice channel not joined
 

@@ -2,19 +2,16 @@ import { useMemo } from 'react'
 import {
   ArrowDown,
   ArrowUp,
-  HeadphoneOff,
   Lock,
   Megaphone,
-  MicOff,
   PhoneCall,
   Settings,
   Trash2,
   UserPlus
 } from 'lucide-react'
-import { Permissions, has, type Channel, type VoiceState } from '@hachiman/client'
+import { Permissions, has, type Channel } from '@hachiman/client'
 import { closeDrawer } from '@/components/mobile/drawer-state'
 import { PinToTabsMenuItem } from '@/components/shell/tab-bar'
-import { UserAvatar } from '@/components/shell/user-avatar'
 import {
   ContextMenu,
   ContextMenuContent,
@@ -26,12 +23,10 @@ import { IconButton } from '@/components/ui/icon-button'
 import { CHANNEL_ROW_TOUCH, sidebarRowClass } from '@/components/sidebar/sidebar-row'
 import { SystemTag } from '@/components/ui/system-tag'
 import { UnreadMark, UnreadPip } from '@/components/ui/unread-mark'
-import { UserProfilePopover } from '@/components/user-profile-popover'
-import { ServerMark } from '@/components/voice/voice-state-badges'
+import { VoiceOccupantRow } from '@/components/voice/voice-occupant-row'
 import { useElapsed } from '@/hooks/use-elapsed'
 import { useChannelOccupants, usePermissions } from '@/hooks/use-hachiman'
 import { useLayout } from '@/hooks/use-layout'
-import { useSpeakingMember } from '@/hooks/use-member'
 import { SORTABLE_TOUCH, useSortableHoldMenu, useSortableRow } from '@/hooks/use-sortable-row'
 import { callStartedAt } from '@/lib/call-timer'
 import { useChannelAccess } from '@/lib/channel-access'
@@ -246,7 +241,7 @@ export function ChannelRow({
           {occupants.length > 0 && (
             <ul className={cn('flex flex-col pt-0.5 pb-1', ROLE_INK_SCOPE)}>
               {occupants.map((vs) => (
-                <VoiceMemberRow key={vs.userId} guildId={guildId} state={vs} mobile={mobile} />
+                <VoiceOccupantRow key={vs.userId} guildId={guildId} state={vs} size={26} />
               ))}
             </ul>
           )}
@@ -269,63 +264,5 @@ export function ChannelRow({
         {canManage && <ChannelManageItems channelId={channel.id} noun="channel" />}
       </ContextMenuContent>
     </ContextMenu>
-  )
-}
-
-/**
- * A voice participant: 26 high (36 with a 22 avatar on the mobile layout), indent 34, with the
- * LIVE tag and the mute and deafen marks.
- */
-function VoiceMemberRow({
-  guildId,
-  state,
-  mobile
-}: {
-  guildId: string
-  state: VoiceState
-  mobile: boolean
-}): React.JSX.Element {
-  const { member, name, ink, speaking } = useSpeakingMember(guildId, state.userId)
-  return (
-    <li>
-      <UserProfilePopover userId={state.userId} guildId={guildId}>
-        <button
-          type="button"
-          className={cn(
-            'hover:bg-surface-hover rounded-control mobile:h-9 flex h-[26px] w-full items-center gap-2 pr-2 pl-[34px] text-left text-[14px]',
-            speaking ? 'text-text-primary font-semibold' : 'text-text-secondary'
-          )}
-        >
-          <UserAvatar
-            name={name}
-            avatar={member?.user.avatar}
-            color={ink}
-            size={mobile ? 22 : 20}
-            speaking={speaking}
-          />
-          <span className="flex-1 truncate" style={ink ? { color: ink } : undefined}>
-            {name}
-          </span>
-          {state.selfStream && <SystemTag kind="live" />}
-          {state.mute ? (
-            <ServerMark label="Server muted" icon={<MicOff />} />
-          ) : (
-            state.selfMute && (
-              <MicOff aria-label="Muted" className="text-feature-danger size-3.5 shrink-0" />
-            )
-          )}
-          {state.deaf ? (
-            <ServerMark label="Server deafened" icon={<HeadphoneOff />} />
-          ) : (
-            state.selfDeaf && (
-              <HeadphoneOff
-                aria-label="Deafened"
-                className="text-feature-danger size-3.5 shrink-0"
-              />
-            )
-          )}
-        </button>
-      </UserProfilePopover>
-    </li>
   )
 }
