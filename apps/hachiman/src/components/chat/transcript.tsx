@@ -10,11 +10,12 @@ import { useMessageStore, type ChatMessage } from '@/stores/messagesStore'
 import { useNavStore } from '@/stores/navStore'
 import { usePrefsStore } from '@/stores/prefsStore'
 import { useFirstUnreadId } from '@/stores/unreadStore'
+import { useGuildStore } from '@/stores/guildStore'
 import { useUserStore } from '@/stores/userStore'
 import { useMembershipTimeline } from '@/hooks/use-membership-timeline'
 import { ChannelIntro } from './channel-intro'
-import { buildItems, formatDay, membershipSlots } from './format'
-import { MembershipLine } from './membership-line'
+import { buildItems, formatDay, joinSlots, membershipSlots } from './format'
+import { JoinLine, MembershipLine } from './membership-line'
 import { TranscriptRow } from './message-row'
 import type { RowPolicy } from './row-policy'
 
@@ -58,7 +59,36 @@ export function Transcript({
   const firstUnreadId = useFirstUnreadId(channelId)
   const bottom = useMarkRead(channelId, messages, myId)
   const membership = useMembershipTimeline(channelId)
-  const slots = useMemo(() => membershipSlots(messages, membership), [messages, membership])
+  // "A added B" is routine (each new member and device): the welcome channel greets new members.
+  const slots = useMemo(
+    () =>
+      membershipSlots(
+        messages,
+        membership.filter((e) => e.kind !== 'added')
+      ),
+    [messages, membership]
+  )
+  const guildId = channel.guildId
+  const members = useGuildStore((s) =>
+    guildId && s.guilds.get(guildId)?.welcomeChannelId === channelId
+      ? s.members.get(guildId)
+      : undefined
+  )
+  const joins = useMemo(
+    () => (members ? joinSlots(messages, members.values(), hasMore === false) : undefined),
+    [messages, members, hasMore]
+  )
+  /** The membership and join lines before message `i` (`items.length`: after the last one). */
+  const notesAt = (i: number): React.ReactNode => (
+    <>
+      {slots.get(i)?.map((e, j) => (
+        <MembershipLine key={`m${j}`} event={e} channel={channel} />
+      ))}
+      {joins?.get(i)?.map((m) => (
+        <JoinLine key={`j${m.user.id}`} member={m} channel={channel} />
+      ))}
+    </>
+  )
 
   useEffect(() => {
     messagesService.ensureLoaded(channelId)
@@ -126,9 +156,7 @@ export function Transcript({
           {items.map(({ message, newDay, groupStart }, i) => (
             <Fragment key={message.nonce ?? message.id}>
               {newDay && <DayDivider iso={message.createdAt} />}
-              {slots.get(i)?.map((e, j) => (
-                <MembershipLine key={`m${j}`} event={e} channel={channel} />
-              ))}
+              {notesAt(i)}
               {message.id === firstUnreadId && <NewDivider />}
               <TranscriptRow
                 message={message}
@@ -141,9 +169,7 @@ export function Transcript({
               />
             </Fragment>
           ))}
-          {slots.get(items.length)?.map((e, j) => (
-            <MembershipLine key={`m${j}`} event={e} channel={channel} />
-          ))}
+          {notesAt(items.length)}
           <div ref={bottom} aria-hidden className="h-px" />
         </div>
       </div>

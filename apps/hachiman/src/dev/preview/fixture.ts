@@ -181,6 +181,7 @@ const guild1: GuildFull = {
   region: 'eu-west',
   createdAt: joined(400),
   publicHistoryVisibility: 'shared',
+  welcomeChannelId: G1C.general,
   roles: [
     role(G1, G1, '@everyone', 0, 0, DEFAULT_EVERYONE),
     role(G1, G1R.captain, 'Captain', 0xffc36b, 4, Permissions.ADMINISTRATOR, true),
@@ -286,6 +287,7 @@ const guild2: GuildFull = {
   region: 'us-east',
   createdAt: joined(500),
   publicHistoryVisibility: 'shared',
+  welcomeChannelId: null,
   roles: [
     role(G2, G2, '@everyone', 0, 0, DEFAULT_EVERYONE),
     role(
@@ -360,6 +362,7 @@ const guild3: GuildFull = {
   region: null,
   createdAt: joined(100),
   publicHistoryVisibility: 'shared',
+  welcomeChannelId: null,
   roles: [role(G3, G3, '@everyone', 0, 0, DEFAULT_EVERYONE)],
   channels: [
     channel(G3, G3C.reading, 'text', 'currently-reading', 0, {
@@ -396,6 +399,7 @@ const extraGuilds: GuildFull[] = [
     region: null,
     createdAt: joined(30 + i),
     publicHistoryVisibility: 'shared',
+    welcomeChannelId: null,
     roles: [role(id, id, '@everyone', 0, 0, DEFAULT_EVERYONE)],
     channels: [channel(id, `c-${id}-general`, 'text', 'general', 0)],
     members,

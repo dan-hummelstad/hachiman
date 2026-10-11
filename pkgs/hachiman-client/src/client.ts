@@ -133,6 +133,7 @@ const toGuild = ({
   region,
   createdAt,
   publicHistoryVisibility,
+  welcomeChannelId,
 }: Guild): Guild => ({
   id,
   name,
@@ -142,6 +143,7 @@ const toGuild = ({
   region,
   createdAt,
   publicHistoryVisibility,
+  welcomeChannelId,
 })
 
 function sub<V>(m: Map<string, Map<string, V>>, key: string): Map<string, V> {

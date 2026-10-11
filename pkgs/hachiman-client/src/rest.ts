@@ -126,6 +126,8 @@ export interface UpdateGuildBody {
   banner?: Opt<string | null>
   region?: Opt<string | null>
   publicHistoryVisibility?: Opt<HistoryVisibility>
+  /** A text channel of the guild, or null for no welcome lines. */
+  welcomeChannelId?: Opt<string | null>
 }
 export interface CreateChannelBody {
   name: string

@@ -39,6 +39,7 @@ const guild: GuildFull = {
   region: null,
   createdAt: '',
   publicHistoryVisibility: 'shared',
+  welcomeChannelId: null,
   channels: [
     channel('general'),
     channel('secret', { permissionOverwrites: [{ id: 'g', type: 'role', allow: 0, deny: P.VIEW_CHANNEL }] }),
@@ -132,6 +133,7 @@ describe('HachimanClient cache', () => {
       region: null,
       createdAt: '',
       publicHistoryVisibility: 'shared',
+      welcomeChannelId: null,
     })
     expect([...c.channels.keys()].sort()).toEqual(['dm', 'general', 'secret'])
     expect(c.members.get('g')?.size).toBe(2)
@@ -212,6 +214,7 @@ describe('HachimanClient cache', () => {
       region,
       createdAt,
       publicHistoryVisibility: 'joined',
+      welcomeChannelId: null,
     })
     expect(client.cache.guilds.get('g')?.banner).toBe('u3/banner.webp')
     expect(client.cache.guilds.get('g')?.publicHistoryVisibility).toBe('joined')

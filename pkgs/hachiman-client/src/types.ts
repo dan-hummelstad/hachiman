@@ -28,6 +28,8 @@ export interface Guild {
   createdAt: string
   /** History visibility of the guild's public_set group (§12.6). */
   publicHistoryVisibility: HistoryVisibility
+  /** The text channel that shows a line when a member joins, or null (§4 Guilds). */
+  welcomeChannelId: string | null
 }
 
 /**

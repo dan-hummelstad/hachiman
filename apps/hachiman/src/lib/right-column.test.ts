@@ -121,7 +121,8 @@ const guild = (id: string, name: string): Guild => ({
   ownerId: 'u0',
   region: null,
   createdAt: '2026-01-01T00:00:00Z',
-  publicHistoryVisibility: 'joined'
+  publicHistoryVisibility: 'joined',
+  welcomeChannelId: null
 })
 const state = (guildId: string, channelId: string | null, userId: string): VoiceState => ({
   guildId,

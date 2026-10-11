@@ -183,6 +183,8 @@ export const guilds = pgTable('guilds', {
   region: text('region').references(() => regions.code, { onDelete: 'set null' }),
   // Blob bytes of the page_snapshot and page_media uploads of the guild's pages (the page quota, §4 Pages).
   pageStorageBytes: bigint('page_storage_bytes', { mode: 'number' }).notNull().default(0),
+  // The text channel that shows a line when a member joins (§4 Guilds). Null: no welcome lines.
+  welcomeChannelId: uuid('welcome_channel_id').references((): AnyPgColumn => channels.id, { onDelete: 'set null' }),
   createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
     .notNull()
     .defaultNow(),

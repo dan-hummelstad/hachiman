@@ -753,6 +753,24 @@ describe('key changes, revocation of this device, recovery key rotation', () => 
     expect(fresh.svc.status().deviceId).not.toBe(oldId)
   })
 
+  it('a pending device that the DS does not know signs out locally', async () => {
+    await primary(ALICE)
+    const b = await makeDevice(ds, ALICE, 'Phone')
+    await b.svc.linkAsNewDevice('sas')
+    ds.devices.delete(b.svc.status().deviceId!) // e.g. a store from another server
+    await b.svc.signOutDevice()
+    expect(b.store.destroyed).toBe(1)
+    const fresh = await makeDevice(ds, ALICE, 'Phone', b.store)
+    expect(fresh.svc.status()).toMatchObject({ state: 'needs_identity', deviceId: null })
+  })
+
+  it('a set-up device keeps its store when the sign-out does not reach the DS', async () => {
+    const { dev: a } = await primary(ALICE)
+    a.transport.revokeDevice = () => Promise.reject(new Error('network'))
+    await expect(a.svc.signOutDevice()).rejects.toThrow('network')
+    expect(a.store.destroyed).toBe(0)
+  })
+
   it('a half-linked device (certified on the DS, the transfer lost) starts over at the next start', async () => {
     const { dev: a } = await primary(ALICE)
     const b = await makeDevice(ds, ALICE, 'Phone')
