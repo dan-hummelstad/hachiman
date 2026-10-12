@@ -14,8 +14,8 @@ it('measures the keyboard under the visible area', () => {
   expect(m!.kb).toBeGreaterThan(KEYBOARD_MIN_INSET)
 })
 
-it('subtracts the offset of a visual viewport that the field focus scrolled', () => {
-  expect(viewportMetrics(852, { height: 516, offsetTop: 100, scale: 1 })?.kb).toBe(236)
+it('ignores the offset of a visual viewport that the field focus scrolled', () => {
+  expect(viewportMetrics(852, { height: 516, offsetTop: 100, scale: 1 })?.kb).toBe(336)
 })
 
 it('never gives a negative inset', () => {

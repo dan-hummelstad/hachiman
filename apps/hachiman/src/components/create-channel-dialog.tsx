@@ -10,7 +10,6 @@ import { Input } from '@/components/ui/input'
 import { RadioCard } from '@/components/ui/radio-card'
 import { useAction } from '@/hooks/use-action'
 import { useLayout } from '@/hooks/use-layout'
-import { useRevealOnKeyboard } from '@/hooks/use-visual-viewport'
 import { ChannelIcon } from '@/lib/channel-icon'
 import { CHANNEL_KINDS, CREATE_CHANNEL_TYPES, hasChat } from '@/lib/model'
 import { cn } from '@/lib/utils'
@@ -45,7 +44,6 @@ export function CreateChannelDialog(): React.JSX.Element {
   const [type, setType] = useState<ChannelKind>(dialog.type)
   const { run, busy, error } = useAction()
   const mobile = useLayout() === 'mobile'
-  const nameRef = useRevealOnKeyboard<HTMLInputElement>()
   const parentName = useChannelStore((s) =>
     parentId ? (s.channels.get(parentId)?.name ?? null) : null
   )
@@ -140,7 +138,6 @@ export function CreateChannelDialog(): React.JSX.Element {
             error={error}
           >
             <Input
-              ref={nameRef}
               size="touch"
               name="channel-name"
               autoComplete="off"

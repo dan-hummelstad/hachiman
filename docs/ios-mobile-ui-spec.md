@@ -196,9 +196,10 @@ Menus and popovers (`components/ui/dropdown-menu.tsx`, `components/ui/context-me
 `hooks/use-visual-viewport.ts` (new), mounted once in `App.tsx`, so the gate screens get it too. On each `visualViewport` `resize` and `scroll`, it writes on `<html>`:
 
 - `--app-height` = `visualViewport.height`
-- `--kb` = `max(0, innerHeight - vv.height - vv.offsetTop)`
+- `--kb` = `max(0, layoutHeight - vv.height)`. `layoutHeight` is `innerHeight` at mount and at each window `resize`, never at a keyboard event: while iOS 26 scrolls the document to a focused field, `innerHeight` shrinks to the visual viewport for a second or more and no event follows. It does not subtract `vv.offsetTop`, because the scroll below puts the visual viewport back at 0
 - `data-keyboard="open"` while `--kb` is over 80
 - then `window.scrollTo(0, 0)`, because WKWebView scrolls the document to the focused field
+- then, while the keyboard is open, a focused `input` or `textarea` that its scroller or the keyboard hides scrolls to the middle of its scroller. Every field gets this, so no field needs its own code
 
 It also exports `useKeyboardOpen()` and `useKeyboardInset()`.
 
