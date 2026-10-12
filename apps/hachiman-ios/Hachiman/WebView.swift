@@ -43,7 +43,22 @@ final class WebHost: NSObject, WKNavigationDelegate, WKUIDelegate {
         if !Self.hideInputAccessoryBar(of: webView) {
             NSLog("[hachiman] no WKContentView: the keyboard accessory bar stays")
         }
+        loadStart()
+    }
+
+    /// Loads the bundled app. A Debug build loads the dev server instead when it answers.
+    private func loadStart() {
+        #if DEBUG
+        Task {
+            var probe = URLRequest(url: AppSchemeHandler.devServerURL, timeoutInterval: 1)
+            probe.httpMethod = "HEAD"
+            let up = (try? await URLSession.shared.data(for: probe)) != nil
+            NSLog("[hachiman] %@", up ? "dev server: hot reload" : "no dev server: bundled WebApp")
+            webView.load(URLRequest(url: up ? AppSchemeHandler.devServerURL : AppSchemeHandler.startURL))
+        }
+        #else
         webView.load(URLRequest(url: AppSchemeHandler.startURL))
+        #endif
     }
 
     /// Removes the bar above the keyboard (previous, next, Done) for every field of the page. The
@@ -61,7 +76,10 @@ final class WebHost: NSObject, WKNavigationDelegate, WKUIDelegate {
     }
 
     static func isAppURL(_ url: URL?) -> Bool {
-        url?.scheme == AppSchemeHandler.scheme && url?.host == AppSchemeHandler.host && url?.port == nil
+        #if DEBUG
+        if AppSchemeHandler.isDevServer(scheme: url?.scheme, host: url?.host, port: url?.port) { return true }
+        #endif
+        return url?.scheme == AppSchemeHandler.scheme && url?.host == AppSchemeHandler.host && url?.port == nil
     }
 
     // MARK: - WKNavigationDelegate
@@ -93,7 +111,7 @@ final class WebHost: NSObject, WKNavigationDelegate, WKUIDelegate {
 
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
         bridge.pageWillLoad()
-        webView.load(URLRequest(url: AppSchemeHandler.startURL))
+        loadStart()
     }
 
     // MARK: - WKUIDelegate

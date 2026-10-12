@@ -11,6 +11,11 @@ final class BridgeTests: XCTestCase {
         XCTAssertFalse(Bridge.isTrustedSender(isMainFrame: true, scheme: "hachiman", host: "app", port: 8080))
         XCTAssertFalse(Bridge.isTrustedSender(isMainFrame: true, scheme: "file", host: "", port: 0))
         XCTAssertFalse(Bridge.isTrustedSender(isMainFrame: true, scheme: "", host: "", port: 0))
+        #if DEBUG
+        XCTAssertTrue(Bridge.isTrustedSender(isMainFrame: true, scheme: "http", host: "localhost", port: 5175))
+        XCTAssertFalse(Bridge.isTrustedSender(isMainFrame: false, scheme: "http", host: "localhost", port: 5175))
+        XCTAssertFalse(Bridge.isTrustedSender(isMainFrame: true, scheme: "http", host: "localhost", port: 5173))
+        #endif
     }
 
     func testErrorReplyText() {

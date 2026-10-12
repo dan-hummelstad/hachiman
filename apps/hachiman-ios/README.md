@@ -188,6 +188,15 @@ The simulator build must have a signature. With `CODE_SIGNING_ALLOWED=NO`, the a
 
 Debug builds also set `isInspectable`: open the page in the Safari Web Inspector (Develop menu).
 
+### Hot reload
+
+At start, a Debug build sends a probe to the iOS dev server (`http://localhost:5175`, which `pnpm dev` starts). If the server answers, the app loads it instead of `WebApp/`, and changes to the shared UI reload in the simulator. If not, the app loads `WebApp/`. A device has no dev server on its own `localhost`, so it always loads `WebApp/`.
+
+- The app checks only at start. Start the dev server before the app, or start the app again.
+- The dev server origin has its own IndexedDB, so the app has a different device identity there than with `WebApp/`.
+- Takusen must allow the origin. `http://localhost:5175` is in the default `TAKUSEN_ALLOWED_ORIGINS` and in `.env.example`.
+- The Copy WebApp phase still needs `dist/`. Build the web bundle once.
+
 ## Release (TestFlight)
 
 `.github/workflows/ios.yml` has two jobs:

@@ -44,9 +44,14 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply {
         self.evaluate = evaluate
     }
 
-    /// Accepts a message only from the main frame of `hachiman://app` (no port).
+    /// Accepts a message only from the main frame of `hachiman://app` (no port), and in Debug
+    /// builds also of the dev server.
     nonisolated static func isTrustedSender(isMainFrame: Bool, scheme: String, host: String, port: Int) -> Bool {
-        isMainFrame && scheme == AppSchemeHandler.scheme && host == AppSchemeHandler.host && port == 0
+        guard isMainFrame else { return false }
+        #if DEBUG
+        if AppSchemeHandler.isDevServer(scheme: scheme, host: host, port: port) { return true }
+        #endif
+        return scheme == AppSchemeHandler.scheme && host == AppSchemeHandler.host && port == 0
     }
 
     static func isTrustedSender(_ frame: WKFrameInfo) -> Bool {

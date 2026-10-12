@@ -10,6 +10,15 @@ final class AppSchemeHandler: NSObject, WKURLSchemeHandler {
     nonisolated static let scheme = "hachiman"
     nonisolated static let host = "app"
     nonisolated static let startURL = URL(string: "hachiman://app/index.html")!
+    #if DEBUG
+    /// Debug builds load the Vite dev server (`pnpm dev`, vite.config.ts `server.port`) when it
+    /// answers, for hot reload. A device has no dev server on its own localhost, so it gets `WebApp/`.
+    nonisolated static let devServerURL = URL(string: "http://localhost:5175/")!
+
+    nonisolated static func isDevServer(scheme: String?, host: String?, port: Int?) -> Bool {
+        scheme == "http" && host == "localhost" && port == 5175
+    }
+    #endif
     /// Written by the Vite build (vite.config.ts); the Copy WebApp phase fails without it.
     nonisolated static let cspFile = "csp-header.txt"
 
