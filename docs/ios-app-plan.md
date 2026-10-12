@@ -203,7 +203,7 @@ Nothing in 5.6 blocks the TestFlight alpha.
 1. Enroll in the Apple Developer Program (organization account if it ships under a company). Note the Team ID.
 2. In Certificates, Identifiers & Profiles, register the App ID with the final bundle id (for example `app.hachiman.ios`). No special capabilities for the alpha (push and associated domains come later).
 3. In App Store Connect, go to My Apps → + → New App: iOS, name "Hachiman", the bundle id, SKU, primary language.
-4. In App Store Connect → Users and Access → Integrations → App Store Connect API, create a key with the App Manager role. Download the `.p8` once, and note the Key ID and Issuer ID (for CI uploads).
+4. In App Store Connect → Users and Access → Integrations → App Store Connect API, create a key with the Admin role (cloud signing at export needs it). Download the `.p8` once, and note the Key ID and Issuer ID (for CI uploads).
 5. Export compliance: the app uses encryption (AES-GCM, X25519, Ed25519, MLS; all standard algorithms, no proprietary crypto). Set `ITSAppUsesNonExemptEncryption` in Info.plist from the answer to App Store Connect's export compliance questions. Standard-algorithm E2EE messaging usually takes the "standard encryption" path, which in the US can require an annual self-classification report to BIS. Confirm this before the first external build.
 6. TestFlight → Test Information: beta description, feedback email, and a privacy policy URL (needed for external testers).
 
