@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   FALLBACK_HUES,
   customWallpaper,
+  customWindowColor,
   dominantHue,
   fallbackHue,
   isCustomGradient,
@@ -103,6 +104,27 @@ describe('customWallpaper', () => {
   it('repeats a single stop', () => {
     const one = customWallpaper({ stops: [{ h: 10, s: 20 }], lightness: 50, angle: 0 })
     expect(one.match(/hsl\(10 20% 50%\)/g)).toHaveLength(2)
+  })
+})
+
+describe('customWindowColor', () => {
+  it('is the first stop, washed as customWallpaper washes it', () => {
+    const g = {
+      stops: [
+        { h: 0, s: 100 },
+        { h: 240, s: 50 }
+      ],
+      lightness: 60,
+      angle: 45
+    }
+    expect(customWindowColor(g)).toBe(
+      'color-mix(in oklab, hsl(0 100% 60%) 30%, var(--surface-window))'
+    )
+    expect(customWallpaper(g)).toContain(customWindowColor(g))
+  })
+
+  it('falls back to the window surface with no stops', () => {
+    expect(customWindowColor({ stops: [], lightness: 60, angle: 0 })).toBe('var(--surface-window)')
   })
 })
 

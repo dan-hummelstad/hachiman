@@ -48,6 +48,11 @@ export const dispatch = (e: GatewayDispatch): void => {
   hachiman.gateway.emit('dispatch', e)
 }
 
+/** A PATCH body without its undefined keys, as JSON sends it. */
+function defined<T extends object>(body: T): Partial<T> {
+  return Object.fromEntries(Object.entries(body).filter(([, v]) => v !== undefined)) as Partial<T>
+}
+
 function must<T>(value: T | undefined, what: string): T {
   if (value === undefined) throw new Error(`[preview] unknown ${what}`)
   return value
@@ -473,7 +478,7 @@ export function stubRest(): void {
       return ev
     },
     updateGuildEvent: (eventId, body) => {
-      const ev = { ...eventOf(eventId), ...body } as GuildEventWithMe
+      const ev = { ...eventOf(eventId), ...defined(body) } as GuildEventWithMe
       events.set(eventId, ev)
       dispatch({ t: 'GUILD_EVENT_UPDATE', d: ev })
       return ev
@@ -521,11 +526,19 @@ export function stubRest(): void {
           pageId: p.id,
           latestSeq: docUpdates.get(p.id)?.length ?? 0,
           title: null,
+          banner: null,
           snapshot: null
         })),
     createPage: (channelId, body) => {
       const now = new Date().toISOString()
-      const p: Page = { ...body, channelId, createdBy: ME.id, createdAt: now, updatedAt: now }
+      const p: Page = {
+        ...body,
+        channelId,
+        bannerEnvelope: null,
+        createdBy: ME.id,
+        createdAt: now,
+        updatedAt: now
+      }
       pages.set(p.id, p)
       dispatch({ t: 'PAGE_CREATE', d: { ...p, guildId: pageGuild(p) } })
       return p
@@ -534,11 +547,21 @@ export function stubRest(): void {
       const p = pageOf(pageId)
       if (body.ifUpdatedAt != null && body.ifUpdatedAt !== p.updatedAt)
         throw new RestError(409, 'PageConflict')
+      const parentId = body.parentId === undefined ? p.parentId : body.parentId
+      // §4 Pages "Banner": only a top-level page has one, a re-wrap (no uploadIds) needs one, and
+      // a move under a parent clears it.
+      if (body.banner && parentId !== null) throw new RestError(400, 'ValidationError')
+      if (body.banner && !body.banner.uploadIds && p.bannerEnvelope === null)
+        throw new RestError(400, 'ValidationError')
       const next: Page = {
         ...p,
-        parentId: body.parentId === undefined ? p.parentId : body.parentId,
+        parentId,
         position: body.position ?? p.position,
         titleEnvelope: body.titleEnvelope ?? p.titleEnvelope,
+        bannerEnvelope:
+          parentId !== null || body.banner === null
+            ? null
+            : (body.banner?.envelope ?? p.bannerEnvelope),
         updatedAt: new Date().toISOString()
       }
       pages.set(pageId, next)
@@ -634,7 +657,7 @@ export function stubRest(): void {
         'guild'
       ),
     updateGuild: (id, body) => {
-      const g = { ...must(cache.guilds.get(id), 'guild'), ...body }
+      const g = { ...must(cache.guilds.get(id), 'guild'), ...defined(body) }
       dispatch({ t: 'GUILD_UPDATE', d: g })
       return g
     },
@@ -662,7 +685,7 @@ export function stubRest(): void {
       [...cache.channels.values()].filter((c) => c.type === 'thread' && c.parentId === parentId),
     reorderChannels: () => undefined,
     updateChannel: (id, body) => {
-      const c = { ...must(cache.channels.get(id), 'channel'), ...body }
+      const c = { ...must(cache.channels.get(id), 'channel'), ...defined(body) }
       dispatch({ t: 'CHANNEL_UPDATE', d: c })
       return c
     },
@@ -776,7 +799,7 @@ export function stubRest(): void {
       return [...(cache.roles.get(guildId)?.values() ?? [])]
     },
     updateRole: (guildId, roleId, body) => {
-      const r = { ...must(cache.roles.get(guildId)?.get(roleId), 'role'), ...body }
+      const r = { ...must(cache.roles.get(guildId)?.get(roleId), 'role'), ...defined(body) }
       dispatch({ t: 'GUILD_ROLE_UPDATE', d: { guildId, role: r } })
       return r
     },
@@ -802,7 +825,8 @@ export function stubRest(): void {
       code,
       guild: { id: 'g-preview-invite', name: 'Pixel Pushers', icon: null },
       memberCount: 48,
-      expiresAt: null,
+      // "Expires in 6 days", as M45 draws it.
+      expiresAt: new Date(Date.now() + 6 * 86_400_000 + 3_600_000).toISOString(),
       hasHistory: code === HISTORY_INVITE_CODE
     }),
     acceptInvite: (code) => createGuild(`Joined via ${code}`),

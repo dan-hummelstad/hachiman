@@ -1,21 +1,33 @@
 import { useId, useRef, useState } from 'react'
 import { ChevronLeft, ChevronRight, Minus, Plus } from 'lucide-react'
-import { dialAngle, nudgeStop, sliderKey, stopAt, stopOffset } from '@/lib/gradient-pad'
+import { dialAngle, nudgeStop, pickStop, sliderKey, stopAt, stopOffset } from '@/lib/gradient-pad'
 import {
   DEFAULT_CUSTOM_GRADIENT,
   LIGHTNESS_RANGE,
-  MAX_GRADIENT_STOPS,
   stopColor,
   type CustomGradient,
   type GradientStop
 } from '@/lib/guild-tint'
 import { cn } from '@/lib/utils'
+import { useGradientEditor } from '@/components/settings/user/use-gradient-editor'
+import { usePlatform } from '@/shared/PlatformContext'
 
-const PAD = 208
-/** The colour circle inside the pad; the stops keep clear of the pad edge. */
-const RADIUS = PAD / 2 - 16
 const DIAL = 48
 const DIAL_RING = 18
+
+/**
+ * The two colour pads: a `size` square with the colour circle `inset` in from its edge, and the
+ * `reach` around a stop that grabs it. On the phone, a grabbed stop keeps its offset from the
+ * finger (so a tap selects it without moving it), a press does not take the focus, and a press
+ * off every stop moves the selected stop only as a tap, so that a swipe there scrolls the screen.
+ */
+const PAD = {
+  desktop: { size: 208, inset: 16, reach: 18, touch: false },
+  phone: { size: 240, inset: 18, reach: 24, touch: true }
+} as const
+
+/** How far a finger may move before a press off every stop stops being a tap. */
+const TAP_SLOP = 6
 
 /** Colour swatches: a hue and saturation for the selected stop, shown at a fitting lightness. */
 const SWATCHES: { name: string; stop: GradientStop; l: number }[] = [
@@ -86,16 +98,21 @@ function rawGradient(g: CustomGradient): string {
   return `linear-gradient(${g.angle}deg, ${colors.join(', ')})`
 }
 
+type PointerHandlers = Required<
+  Pick<
+    React.HTMLAttributes<HTMLElement>,
+    'onPointerDown' | 'onPointerMove' | 'onPointerUp' | 'onPointerCancel'
+  >
+>
+
 /** Pointer handlers that call `onPoint` on press and while the pointer stays captured. */
 function dragHandlers(
   onPoint: (e: React.PointerEvent<HTMLElement>, rect: DOMRect, start: boolean) => void
-): Pick<
-  React.HTMLAttributes<HTMLElement>,
-  'onPointerDown' | 'onPointerMove' | 'onPointerUp' | 'onPointerCancel'
-> {
+): PointerHandlers {
   return {
     onPointerDown: (e) => {
-      if (e.button !== 0) return
+      // A second finger is not primary; a mouse always is.
+      if (e.button !== 0 || !e.isPrimary) return
       e.preventDefault()
       e.currentTarget.setPointerCapture(e.pointerId)
       onPoint(e, e.currentTarget.getBoundingClientRect(), true)
@@ -120,108 +137,180 @@ export function GradientPicker({
   value: CustomGradient
   onChange: (value: CustomGradient) => void
 }): React.JSX.Element {
-  const [selected, setSelected] = useState(0)
-  const active = Math.min(selected, value.stops.length - 1)
-
-  const setStop = (i: number, stop: GradientStop): void =>
-    onChange({ ...value, stops: value.stops.map((st, j) => (j === i ? stop : st)) })
-
-  const add = (): void => {
-    if (value.stops.length >= MAX_GRADIENT_STOPS) return
-    const base = value.stops[active]
-    onChange({ ...value, stops: [...value.stops, { h: (base.h + 120) % 360, s: base.s }] })
-    setSelected(value.stops.length)
-  }
-  const remove = (): void => {
-    if (value.stops.length <= 1) return
-    onChange({ ...value, stops: value.stops.filter((_, j) => j !== active) })
-    setSelected(Math.max(0, active - 1))
-  }
+  const ed = useGradientEditor(value, onChange)
 
   return (
     <div className="flex flex-wrap items-start gap-6">
       <div className="grid justify-items-center gap-2">
-        <ColourPad value={value} active={active} onSelect={setSelected} onStop={setStop} />
+        <ColourPad
+          variant="desktop"
+          value={value}
+          active={ed.active}
+          onSelect={ed.select}
+          onStop={ed.setStop}
+        />
         <div className="flex items-center gap-2">
-          <PadButton label="Remove colour" disabled={value.stops.length <= 1} onClick={remove}>
+          <PadButton label="Remove colour" disabled={!ed.canRemove} onClick={ed.remove}>
             <Minus />
           </PadButton>
-          <PadButton
-            label="Add colour"
-            disabled={value.stops.length >= MAX_GRADIENT_STOPS}
-            onClick={add}
-          >
+          <PadButton label="Add colour" disabled={!ed.canAdd} onClick={ed.add}>
             <Plus />
           </PadButton>
         </div>
       </div>
       <div className="grid min-w-56 flex-1 content-start gap-4">
-        <SwatchRow onPick={(stop) => setStop(active, stop)} />
+        <SwatchRow onPick={(stop) => ed.setStop(ed.active, stop)} />
         <div className="flex items-center gap-4">
-          <WavySlider
-            value={value.lightness}
-            onChange={(lightness) => onChange({ ...value, lightness })}
-          />
-          <AngleDial value={value.angle} onChange={(angle) => onChange({ ...value, angle })} />
+          <WavySlider value={value.lightness} onChange={ed.setLightness} />
+          <AngleDial value={value.angle} onChange={ed.setAngle} />
         </div>
-        <div className="flex flex-wrap gap-2">
-          {PRESETS.map((p) => (
-            <button
-              key={p.name}
-              type="button"
-              title={p.name}
-              aria-label={`${p.name} preset`}
-              onClick={() => {
-                onChange(p.gradient)
-                setSelected(0)
-              }}
-              className="rounded-pill border-line-hairline hover:border-line-strong focus-visible:outline-line-focus size-8 border focus-visible:outline-2 focus-visible:outline-offset-1"
-              style={{ backgroundImage: rawGradient(p.gradient) }}
-            />
-          ))}
-        </div>
+        <PresetRow onPick={ed.applyPreset} />
       </div>
     </div>
   )
 }
 
+/**
+ * The gradient picker of the phone (M31 Background): the same parts, stacked in one column, with a
+ * 240 pad (`PAD.phone`). Each stop also has a hidden saturation range, since VoiceOver's swipes
+ * only send Left and Right.
+ */
+export function GradientPickerMobile({
+  value,
+  onChange
+}: {
+  value: CustomGradient
+  onChange: (value: CustomGradient) => void
+}): React.JSX.Element {
+  const ed = useGradientEditor(value, onChange)
+  const platform = usePlatform()
+  const n = value.stops.length
+
+  return (
+    <div
+      data-swipe-ignore=""
+      className="rounded-option border-line-hairline bg-surface-sunken/40 relative flex flex-col gap-4 border p-3.5"
+    >
+      <ColourPad
+        variant="phone"
+        value={value}
+        active={ed.active}
+        onSelect={ed.select}
+        onStop={ed.setStop}
+        onGrab={() => platform.haptic('light')}
+      />
+      {value.stops.map((st, i) => (
+        <input
+          key={i}
+          type="range"
+          min={0}
+          max={100}
+          step={1}
+          value={st.s}
+          aria-label={`Colour ${i + 1} saturation`}
+          aria-valuetext={`${st.s}%`}
+          onFocus={() => ed.select(i)}
+          onChange={(e) => ed.setStop(i, { ...st, s: Number(e.target.value) })}
+          className="sr-only"
+        />
+      ))}
+      <div className="flex items-center justify-between gap-3">
+        <PadButton label="Remove colour" disabled={!ed.canRemove} onClick={ed.remove}>
+          <Minus />
+        </PadButton>
+        <span className="text-text-secondary text-[13px] leading-4 font-semibold tabular-nums">
+          {ed.active + 1} of {n} {n === 1 ? 'colour' : 'colours'}
+        </span>
+        <PadButton label="Add colour" disabled={!ed.canAdd} onClick={ed.add}>
+          <Plus />
+        </PadButton>
+      </div>
+      <SwatchRow onPick={(stop) => ed.setStop(ed.active, stop)} />
+      <div className="flex items-center gap-4">
+        <WavySlider value={value.lightness} onChange={ed.setLightness} />
+        <AngleDial value={value.angle} onChange={ed.setAngle} />
+      </div>
+      <PresetRow onPick={ed.applyPreset} />
+    </div>
+  )
+}
+
+/** The colour pad: a press within reach of a stop grabs it, elsewhere it moves the selected stop. */
 function ColourPad({
+  variant,
   value,
   active,
   onSelect,
-  onStop
+  onStop,
+  onGrab
 }: {
+  variant: keyof typeof PAD
   value: CustomGradient
   active: number
   onSelect: (i: number) => void
   onStop: (i: number, stop: GradientStop) => void
+  onGrab?: () => void
 }): React.JSX.Element {
-  // The stop that a press grabbed; it follows the pointer until release.
-  const [dragging, setDragging] = useState(0)
+  const { size, inset, reach, touch } = PAD[variant]
+  // The stop that a press grabbed, and its offset from the pointer; it follows until release.
+  const [drag, setDrag] = useState({ index: 0, grab: { x: 0, y: 0 } })
+  // A phone press off every stop: it moves the selected stop on release, unless it became a swipe.
+  const tap = useRef<{ id: number; x: number; y: number } | null>(null)
   const l = value.lightness
+  const radius = size / 2 - inset
+  const fromCentre = (e: React.PointerEvent<HTMLElement>): { dx: number; dy: number } => {
+    const rect = e.currentTarget.getBoundingClientRect()
+    return { dx: e.clientX - rect.left - size / 2, dy: e.clientY - rect.top - size / 2 }
+  }
 
   const handlers = dragHandlers((e, rect, start) => {
-    const dx = e.clientX - rect.left - PAD / 2
-    const dy = e.clientY - rect.top - PAD / 2
-    let i = dragging
+    const dx = e.clientX - rect.left - size / 2
+    const dy = e.clientY - rect.top - size / 2
     if (start) {
-      // A press on (or near) a stop grabs it; elsewhere it moves the selected stop there.
-      i = active
-      let best = 18
-      value.stops.forEach((st, j) => {
-        const o = stopOffset(st, RADIUS)
-        const d = Math.hypot(o.x - dx, o.y - dy)
-        if (d < best) {
-          best = d
-          i = j
-        }
-      })
-      setDragging(i)
-      onSelect(i)
-      e.currentTarget.querySelectorAll<HTMLElement>('[role=slider]')[i]?.focus()
+      const picked = pickStop(value.stops, dx, dy, radius, reach, active)
+      setDrag({ index: picked.index, grab: touch ? picked.grab : { x: 0, y: 0 } })
+      onSelect(picked.index)
+      if (picked.hit) onGrab?.()
+      // On the phone, a press on a stop only grabs it; the drag then moves it.
+      if (!touch) {
+        e.currentTarget.querySelectorAll<HTMLElement>('[role=slider]')[picked.index]?.focus()
+        onStop(picked.index, stopAt(dx, dy, radius))
+      }
+      return
     }
-    onStop(i, stopAt(dx, dy, RADIUS))
+    onStop(drag.index, stopAt(dx + drag.grab.x, dy + drag.grab.y, radius))
   })
+  const padHandlers: PointerHandlers = {
+    onPointerDown: (e) => {
+      tap.current = null
+      if (touch && e.isPrimary) {
+        const { dx, dy } = fromCentre(e)
+        if (!pickStop(value.stops, dx, dy, radius, reach, active).hit) {
+          tap.current = { id: e.pointerId, x: e.clientX, y: e.clientY }
+          return
+        }
+      }
+      handlers.onPointerDown(e)
+    },
+    onPointerMove: (e) => {
+      const t = tap.current
+      if (t?.id === e.pointerId && Math.hypot(e.clientX - t.x, e.clientY - t.y) > TAP_SLOP)
+        tap.current = null
+      handlers.onPointerMove(e)
+    },
+    onPointerUp: (e) => {
+      if (tap.current?.id === e.pointerId) {
+        const { dx, dy } = fromCentre(e)
+        onStop(active, stopAt(dx, dy, radius))
+      }
+      tap.current = null
+      handlers.onPointerUp(e)
+    },
+    onPointerCancel: (e) => {
+      tap.current = null
+      handlers.onPointerCancel(e)
+    }
+  }
 
   const hues = Array.from({ length: 13 }, (_, i) => `hsl(${i * 30} 85% ${l}%)`).join(', ')
 
@@ -229,15 +318,18 @@ function ColourPad({
     <div
       role="group"
       aria-label="Gradient colours"
-      className="rounded-option border-line-hairline bg-surface-sunken relative shrink-0 cursor-crosshair touch-none overflow-hidden border select-none"
-      style={{ width: PAD, height: PAD }}
-      {...handlers}
+      className={cn(
+        'rounded-option border-line-hairline bg-surface-sunken relative shrink-0 cursor-crosshair overflow-hidden border select-none',
+        touch ? 'touch-pan-y self-center' : 'touch-none'
+      )}
+      style={{ width: size, height: size }}
+      {...padHandlers}
     >
       <span
         aria-hidden
         className="absolute rounded-full opacity-40"
         style={{
-          inset: PAD / 2 - RADIUS,
+          inset,
           backgroundImage: `radial-gradient(closest-side, hsl(0 0% ${l}%), transparent), conic-gradient(from 90deg, ${hues})`
         }}
       />
@@ -246,7 +338,7 @@ function ColourPad({
         className="absolute inset-0 bg-[radial-gradient(circle,var(--line-strong)_1.2px,transparent_1.5px)] bg-size-[13px_13px] bg-center"
       />
       {value.stops.map((st, i) => {
-        const o = stopOffset(st, RADIUS)
+        const o = stopOffset(st, radius)
         const on = i === active
         return (
           <span
@@ -267,12 +359,36 @@ function ColourPad({
             }}
             className={cn(
               'focus-visible:outline-line-focus absolute -translate-x-1/2 -translate-y-1/2 rounded-full shadow-md transition-[width,height] focus-visible:outline-2 focus-visible:outline-offset-2',
-              on ? 'z-10 size-7 border-4 border-white' : 'size-4 border-2 border-white/85'
+              // On the phone, a press within reach of a stop (48 across) drags it, never the screen.
+              touch &&
+                'touch-none after:absolute after:top-1/2 after:left-1/2 after:size-12 after:-translate-x-1/2 after:-translate-y-1/2 after:rounded-full',
+              on
+                ? 'z-10 size-7 border-4 border-white mobile:size-8'
+                : 'size-4 border-2 border-white/85 mobile:size-5'
             )}
-            style={{ left: PAD / 2 + o.x, top: PAD / 2 + o.y, background: stopColor(st, l) }}
+            style={{ left: size / 2 + o.x, top: size / 2 + o.y, background: stopColor(st, l) }}
           />
         )
       })}
+    </div>
+  )
+}
+
+/** The preset gradients; Twilight, the default, doubles as the reset. */
+function PresetRow({ onPick }: { onPick: (gradient: CustomGradient) => void }): React.JSX.Element {
+  return (
+    <div className="flex flex-wrap gap-2">
+      {PRESETS.map((p) => (
+        <button
+          key={p.name}
+          type="button"
+          title={p.gradient === DEFAULT_CUSTOM_GRADIENT ? `${p.name} (default)` : p.name}
+          aria-label={`${p.name} preset${p.gradient === DEFAULT_CUSTOM_GRADIENT ? ' (default)' : ''}`}
+          onClick={() => onPick(p.gradient)}
+          className="rounded-pill border-line-hairline hover:border-line-strong focus-visible:outline-line-focus mobile:size-9 size-8 border focus-visible:outline-2 focus-visible:outline-offset-1"
+          style={{ backgroundImage: rawGradient(p.gradient) }}
+        />
+      ))}
     </div>
   )
 }
@@ -295,7 +411,7 @@ function PadButton({
       title={label}
       disabled={disabled}
       onClick={onClick}
-      className="rounded-pill border-line-hairline text-text-secondary hover:bg-surface-hover focus-visible:outline-line-focus flex size-8 items-center justify-center border focus-visible:outline-2 disabled:opacity-40 [&_svg]:size-4"
+      className="rounded-pill border-line-hairline text-text-secondary hover:bg-surface-hover focus-visible:outline-line-focus mobile:size-9 flex size-8 items-center justify-center border focus-visible:outline-2 disabled:opacity-40 [&_svg]:size-4"
     >
       {children}
     </button>
@@ -306,7 +422,7 @@ function SwatchRow({ onPick }: { onPick: (stop: GradientStop) => void }): React.
   const row = useRef<HTMLDivElement>(null)
   const scroll = (by: number): void => row.current?.scrollBy({ left: by, behavior: 'smooth' })
   const chevron =
-    'text-text-tertiary hover:text-text-primary focus-visible:outline-line-focus flex size-6 shrink-0 items-center justify-center rounded-full focus-visible:outline-2 [&_svg]:size-4'
+    'text-text-tertiary hover:text-text-primary focus-visible:outline-line-focus mobile:hidden flex size-6 shrink-0 items-center justify-center rounded-full focus-visible:outline-2 [&_svg]:size-4'
   return (
     <div className="flex items-center gap-1">
       <button
@@ -319,7 +435,7 @@ function SwatchRow({ onPick }: { onPick: (stop: GradientStop) => void }): React.
       </button>
       <div
         ref={row}
-        className="flex min-w-0 flex-1 gap-2 overflow-x-auto px-0.5 py-1 [scrollbar-width:none]"
+        className="mobile:grid mobile:grid-cols-5 mobile:justify-items-center mobile:gap-y-2.5 mobile:overflow-visible flex min-w-0 flex-1 gap-2 overflow-x-auto px-0.5 py-1 [scrollbar-width:none]"
       >
         {SWATCHES.map((sw) => (
           <button
@@ -328,7 +444,7 @@ function SwatchRow({ onPick }: { onPick: (stop: GradientStop) => void }): React.
             title={sw.name}
             aria-label={sw.name}
             onClick={() => onPick(sw.stop)}
-            className="border-line-hairline focus-visible:outline-line-focus size-7 shrink-0 rounded-full border transition-transform hover:scale-110 focus-visible:outline-2 focus-visible:outline-offset-1"
+            className="border-line-hairline focus-visible:outline-line-focus mobile:size-8 mobile:after:absolute mobile:after:-inset-[3px] mobile:relative size-7 shrink-0 rounded-full border transition-transform hover:scale-110 focus-visible:outline-2 focus-visible:outline-offset-1"
             style={{ background: `hsl(${sw.stop.h} ${sw.stop.s}% ${sw.l}%)` }}
           />
         ))}
@@ -383,14 +499,14 @@ function WavySlider({
         e.preventDefault()
         onChange(next)
       }}
-      className="focus-visible:outline-line-focus relative h-8 min-w-0 flex-1 cursor-pointer touch-none rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2"
+      className="focus-visible:outline-line-focus mobile:h-11 relative h-8 min-w-0 flex-1 cursor-pointer touch-none rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2"
       {...handlers}
     >
       <svg
         aria-hidden
         viewBox="0 0 200 24"
         preserveAspectRatio="none"
-        className="absolute inset-x-0 top-1 h-6 w-full overflow-visible"
+        className="mobile:top-2.5 absolute inset-x-0 top-1 h-6 w-full overflow-visible"
       >
         <clipPath id={clip}>
           <rect x="0" y="-4" width={pct * 2} height="32" />
@@ -413,7 +529,7 @@ function WavySlider({
       </svg>
       <span
         aria-hidden
-        className="rounded-pill bg-text-primary ring-surface-content absolute top-0 h-8 w-2 -translate-x-1/2 shadow-md ring-2"
+        className="rounded-pill bg-text-primary ring-surface-content mobile:top-1.5 absolute top-0 h-8 w-2 -translate-x-1/2 shadow-md ring-2"
         style={{ left: `${pct}%` }}
       />
     </div>

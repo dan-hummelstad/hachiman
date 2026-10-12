@@ -40,7 +40,7 @@ describe('consentRequest', () => {
 
 describe('redirectUriKind', () => {
   test('desktop scheme, desktop bridge, web and junk', () => {
-    assert.equal(redirectUriKind('app.hachiman://oauth-callback'), 'desktop')
+    assert.equal(redirectUriKind('app.hachiman://oauth-callback'), 'app')
     assert.equal(redirectUriKind('http://localhost:3000/oauth/electron-bridge'), 'desktop_bridge')
     assert.equal(redirectUriKind('http://localhost:5173/oauth/callback'), 'web')
     assert.equal(redirectUriKind('not a url'), 'other')

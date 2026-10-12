@@ -11,6 +11,7 @@ import {
 import { GuildTile } from '@/components/ui/guild-tile'
 import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover'
 import { useEmojiData } from '@/hooks/use-emoji-data'
+import { useLayout } from '@/hooks/use-layout'
 import {
   currentGuildFirst,
   parseReactionKey,
@@ -63,7 +64,8 @@ const customCell = (e: GuildEmoji): Cell => ({
  * The emoji picker in a popover anchored to `children` (the button that opens it): search by name,
  * shortcode or tag, a section per guild with custom emojis (the current guild first), the
  * recently used emojis and the Unicode categories. Controlled, so the message toolbar can stay
- * shown while it is open. Recent picks and the skin tone persist in prefsStore.
+ * shown while it is open. Recent picks and the skin tone persist in prefsStore. On the mobile
+ * layout the popover is a sheet, and `children` can be null (nothing to anchor).
  */
 export function EmojiPicker({
   open,
@@ -74,6 +76,7 @@ export function EmojiPicker({
   side = 'top',
   align = 'end',
   unicodeOnly = false,
+  autoFocusSearch,
   children
 }: {
   open: boolean
@@ -86,8 +89,15 @@ export function EmojiPicker({
   align?: 'start' | 'end'
   /** No custom emojis: for a field that holds plain text (a sound's emoji). */
   unicodeOnly?: boolean
+  /**
+   * Focus the search field on open. The default is true on the desktop layout and false on the
+   * mobile layout, where it keeps the keyboard down: the sheet itself takes the focus (spec A3).
+   */
+  autoFocusSearch?: boolean
   children: React.ReactNode
 }): React.JSX.Element {
+  const mobile = useLayout() === 'mobile'
+  const focusSearch = autoFocusSearch ?? !mobile
   return (
     <Popover open={open} onOpenChange={onOpenChange}>
       <PopoverAnchor asChild>
@@ -97,11 +107,14 @@ export function EmojiPicker({
         side={side}
         align={align}
         collisionPadding={8}
+        // Mobile: the sheet holds its full height, so the grid below fills the rest and scrolls.
+        sheetSize="full"
         // Never taller than the room on the chosen side: a fixed height that fits neither side
         // makes the popper flip back and forth.
         className="bg-surface-raised border-line-hairline flex h-[420px] max-h-(--radix-popover-content-available-height) w-[360px] flex-col p-0"
         aria-label={label}
         onOpenAutoFocus={(e) => {
+          if (!focusSearch) return
           e.preventDefault()
           ;(e.currentTarget as HTMLElement).querySelector('input')?.focus()
         }}
@@ -248,7 +261,8 @@ function PickerPanel({
           onMouseEnter={() => setHover(c)}
           onFocus={() => setHover(c)}
           className={cn(
-            'rounded-control hover:bg-surface-hover focus-visible:bg-surface-hover flex size-10 items-center justify-center text-[24px] leading-none',
+            // Mobile: the cells share the sheet's width (about 43 x 44 on an SE).
+            'rounded-control hover:bg-surface-hover focus-visible:bg-surface-hover mobile:h-11 mobile:w-auto flex size-10 items-center justify-center text-[24px] leading-none',
             FOCUS
           )}
         >
@@ -264,8 +278,8 @@ function PickerPanel({
 
   return (
     <>
-      <div className="border-line-hairline flex items-center gap-2 border-b p-2">
-        <label className="bg-surface-panel rounded-control flex h-8 min-w-0 flex-1 items-center gap-2 px-2">
+      <div className="border-line-hairline flex shrink-0 items-center gap-2 border-b p-2">
+        <label className="bg-surface-panel rounded-control mobile:h-9 flex h-8 min-w-0 flex-1 items-center gap-2 px-2">
           <Search className="text-text-tertiary size-4 shrink-0" aria-hidden />
           <input
             value={query}
@@ -281,7 +295,7 @@ function PickerPanel({
             }}
             placeholder="Search emoji"
             aria-label="Search emoji"
-            className="placeholder:text-text-tertiary text-text-primary min-w-0 flex-1 bg-transparent text-[14px] outline-none"
+            className="placeholder:text-text-tertiary text-text-primary min-w-0 flex-1 self-stretch bg-transparent text-[14px] outline-none"
           />
         </label>
         <DropdownMenu>
@@ -290,7 +304,7 @@ function PickerPanel({
               type="button"
               aria-label={`Skin tone: ${SKIN_TONES[tone]?.label ?? 'Default'}`}
               className={cn(
-                'rounded-control hover:bg-surface-hover flex size-8 items-center justify-center text-[18px]',
+                'rounded-control hover:bg-surface-hover mobile:size-9 flex size-8 items-center justify-center text-[18px]',
                 FOCUS
               )}
             >
@@ -316,7 +330,7 @@ function PickerPanel({
       {results === null && (
         <nav
           aria-label="Emoji categories"
-          className="border-line-hairline flex gap-0.5 overflow-x-auto border-b px-2 py-1"
+          className="border-line-hairline mobile:overscroll-x-contain mobile:[scrollbar-width:none] mobile:[&::-webkit-scrollbar]:hidden mobile:justify-between mobile:gap-0 mobile:px-1.5 flex shrink-0 gap-0.5 overflow-x-auto border-b px-2 py-1"
         >
           {sections.map((s) => (
             <button
@@ -330,7 +344,7 @@ function PickerPanel({
                   ?.scrollIntoView({ block: 'start' })
               }
               className={cn(
-                'rounded-control text-text-tertiary hover:bg-surface-hover hover:text-text-primary flex size-8 shrink-0 items-center justify-center',
+                'rounded-control text-text-tertiary hover:bg-surface-hover hover:text-text-primary mobile:size-9 flex size-8 shrink-0 items-center justify-center',
                 FOCUS
               )}
             >
@@ -370,7 +384,8 @@ function PickerPanel({
         )}
       </div>
       <div
-        className="border-line-hairline flex h-11 shrink-0 items-center gap-2 border-t px-3"
+        // Touch has no hover, and a tap picks and closes: the preview line would stay empty.
+        className="border-line-hairline mobile:hidden flex h-11 shrink-0 items-center gap-2 border-t px-3"
         aria-live="polite"
       >
         {hover ? (

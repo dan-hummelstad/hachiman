@@ -2,7 +2,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Page } from '@hachiman/client'
 import type { DocDecryptResult, EncryptedDocItem } from '@hachiman/crypto'
 import type { PageNode } from '@/stores/docsStore'
-import { createPageTitles, keepTitle, mergeNode, titleNode, type PageTitlesDeps } from './titles'
+import {
+  createPageTitles,
+  keepBanner,
+  keepTitle,
+  mergeNode,
+  titleNode,
+  type PageTitlesDeps
+} from './titles'
 
 const utf8 = new TextEncoder()
 
@@ -12,6 +19,7 @@ const page = (over: Partial<Page> = {}): Page => ({
   parentId: null,
   position: 1024,
   titleEnvelope: 'env',
+  bannerEnvelope: null,
   createdBy: 'u-1',
   createdAt: 't0',
   updatedAt: 't1',
@@ -35,6 +43,38 @@ const pending = (reason: 'epoch_ahead' | 'no_history_key'): DocDecryptResult => 
 const node = (over: Partial<Page> = {}, title = 'Notes'): PageNode =>
   titleNode(page(over), ok(title))
 
+const bannerPointer = (uploadId: string, over: Record<string, unknown> = {}): string =>
+  JSON.stringify({
+    uploadId,
+    key: 'k',
+    sha256: 's',
+    size: 1000,
+    blobSize: 1100,
+    mime: 'image/webp',
+    name: 'banner.webp',
+    width: 2048,
+    height: 512,
+    durationMs: null,
+    blurhash: null,
+    thumbnail: null,
+    ...over
+  })
+
+const okBanner = (json: string): DocDecryptResult => ({
+  status: 'ok',
+  id: 'p-1:banner',
+  kind: 'doc_banner',
+  bytes: utf8.encode(json),
+  sender: { userId: 'u-1', deviceId: 'd-1', leafIndex: 0, trust: 'tofu', membershipVerified: true }
+})
+
+/** A node of a page with a banner envelope, from its title and banner results. */
+const bannered = (
+  banner: DocDecryptResult | undefined,
+  over: Partial<Page> = {},
+  title: DocDecryptResult = ok('Notes')
+): PageNode => titleNode(page({ bannerEnvelope: 'benv', ...over }), title, banner)
+
 describe('titleNode', () => {
   it('maps a decrypt result to a node without the envelope', () => {
     const n = node()
@@ -50,6 +90,65 @@ describe('titleNode', () => {
       titleState: 'pending'
     })
     expect(titleNode(page(), undefined).titleState).toBe('pending')
+  })
+})
+
+describe('banners', () => {
+  it('a banner decrypts into the node; a page without one has none', () => {
+    const n = bannered(okBanner(bannerPointer('up-1')))
+    expect(n.banner).toMatchObject({ uploadId: 'up-1', mime: 'image/webp', width: 2048 })
+    expect(n).toMatchObject({ bannerPending: false, titleState: 'ok' })
+    expect(n).not.toHaveProperty('bannerEnvelope')
+    expect(node()).toMatchObject({ banner: null, bannerPending: false })
+  })
+
+  it('a banner that fails or does not parse is no banner, not pending', () => {
+    const failed: DocDecryptResult = { status: 'failed', id: 'p-1:banner', reason: 'malformed' }
+    expect(bannered(failed)).toMatchObject({ banner: null, bannerPending: false })
+    const svg = okBanner(bannerPointer('up-1', { mime: 'image/svg+xml' }))
+    expect(bannered(svg)).toMatchObject({ banner: null, bannerPending: false })
+  })
+
+  it('a pending banner does not make the title pending, nor the reverse', () => {
+    const waiting = bannered({ status: 'pending', id: 'p-1:banner', reason: 'epoch_ahead' })
+    expect(waiting).toMatchObject({ titleState: 'ok', title: 'Notes', banner: null })
+    expect(waiting.bannerPending).toBe(true)
+    // No result for the banner: pending too.
+    expect(bannered(undefined).bannerPending).toBe(true)
+    const titleWaits = bannered(okBanner(bannerPointer('up-1')), {}, pending('epoch_ahead'))
+    expect(titleWaits).toMatchObject({ titleState: 'pending', bannerPending: false })
+    expect(titleWaits.banner?.uploadId).toBe('up-1')
+  })
+
+  it('a pending banner keeps the decrypted one; a change or a removal is stored', () => {
+    const stored = bannered(okBanner(bannerPointer('up-1')))
+    const behind = bannered(
+      { status: 'pending', id: 'p-1:banner', reason: 'epoch_ahead' },
+      {
+        updatedAt: 't2'
+      }
+    )
+    expect(keepBanner(stored, behind)).toMatchObject({
+      banner: stored.banner,
+      bannerPending: false
+    })
+    // Only the banner envelope is new: nothing to store, and the stored reference stays.
+    expect(mergeNode(stored, behind)).toBeNull()
+    const changed = bannered(okBanner(bannerPointer('up-2')), { updatedAt: 't2' })
+    expect(mergeNode(stored, changed)?.banner?.uploadId).toBe('up-2')
+    const removed = titleNode(page({ updatedAt: 't2' }), ok('Notes'))
+    expect(mergeNode(stored, removed)).toMatchObject({ banner: null, bannerPending: false })
+    // A re-wrap gives the same pointer: nothing to store.
+    expect(
+      mergeNode(stored, bannered(okBanner(bannerPointer('up-1')), { updatedAt: 't2' }))
+    ).toBeNull()
+    // The same upload with another key or hash is another banner: it is stored.
+    const rekeyed = bannered(okBanner(bannerPointer('up-1', { key: 'k2', sha256: 's2' })), {
+      updatedAt: 't2'
+    })
+    expect(mergeNode(stored, rekeyed)?.banner).toMatchObject({ key: 'k2', sha256: 's2' })
+    // No decrypted banner to keep: it stays pending.
+    expect(mergeNode(node(), behind)?.bannerPending).toBe(true)
   })
 })
 
@@ -110,11 +209,18 @@ describe('createPageTitles', () => {
     const waiting = new Map<string, 'epoch_ahead' | 'group_unknown'>()
     const stored = new Map<string, PageNode>()
     const worker = { ready: true }
+    /** Banner envelopes that wait for keys, and why. */
+    const waitingBanners = new Map<string, 'epoch_ahead' | 'no_history_key'>()
     const crypto = {
       decryptDoc: vi.fn(async (items: EncryptedDocItem[]) =>
         items.map((it): DocDecryptResult => {
           const reason = waiting.get(it.channelId)
-          return reason ? { status: 'pending', id: it.id, reason } : { ...ok('Notes'), id: it.id }
+          if (reason) return { status: 'pending', id: it.id, reason }
+          if (it.kind !== 'doc_banner') return { ...ok('Notes'), id: it.id }
+          const why = waitingBanners.get(it.envelope)
+          return why
+            ? { status: 'pending', id: it.id, reason: why }
+            : { ...okBanner(bannerPointer(`up-${it.envelope}`)), id: it.id }
         })
       ),
       ensureChannelGroup: vi.fn<(channelId: string) => Promise<unknown>>(async () => ({}))
@@ -129,7 +235,7 @@ describe('createPageTitles', () => {
         stored.set(n.id, n)
       }
     })
-    return { waiting, stored, worker, crypto, titles }
+    return { waiting, waitingBanners, stored, worker, crypto, titles }
   }
   const flush = async (): Promise<void> => {
     for (let i = 0; i < 3; i++) await new Promise((resolve) => setTimeout(resolve, 0))
@@ -209,6 +315,50 @@ describe('createPageTitles', () => {
     done()
     await flush()
     expect(crypto.decryptDoc).toHaveBeenCalledTimes(2)
+  })
+
+  it('decrypts the banners in the same batch, and retries a banner that waits', async () => {
+    const { waitingBanners, stored, crypto, titles } = harness()
+    waitingBanners.set('b-1', 'no_history_key')
+    const nodes = await titles.decrypt([
+      page({ bannerEnvelope: 'b-1' }),
+      page({ id: 'p-2', bannerEnvelope: 'b-2' }),
+      page({ id: 'p-3' })
+    ])
+    expect(crypto.decryptDoc).toHaveBeenCalledTimes(1)
+    expect(crypto.decryptDoc.mock.calls[0]?.[0].map((it) => `${it.id} ${it.kind}`)).toEqual([
+      'p-1 doc_title',
+      'p-1:banner doc_banner',
+      'p-2 doc_title',
+      'p-2:banner doc_banner',
+      'p-3 doc_title'
+    ])
+    expect(nodes.map((n) => [n.titleState, n.bannerPending, n.banner?.uploadId ?? null])).toEqual([
+      ['ok', true, null],
+      ['ok', false, 'up-b-2'],
+      ['ok', false, null]
+    ])
+    // Only the page whose banner waits is retried, and stored once the banner decrypts.
+    stored.set('p-1', nodes[0]!)
+    waitingBanners.delete('b-1')
+    titles.retry()
+    await flush()
+    expect(crypto.decryptDoc.mock.lastCall?.[0].map((it) => it.id)).toEqual(['p-1', 'p-1:banner'])
+    expect(stored.get('p-1')).toMatchObject({
+      bannerPending: false,
+      banner: { uploadId: 'up-b-1' }
+    })
+    titles.retry()
+    await flush()
+    expect(crypto.decryptDoc).toHaveBeenCalledTimes(2)
+  })
+
+  it('a banner that is ahead catches its channel up', async () => {
+    const { waitingBanners, crypto, titles } = harness()
+    waitingBanners.set('b-1', 'epoch_ahead')
+    await titles.decrypt([page({ bannerEnvelope: 'b-1' })])
+    await flush()
+    expect(crypto.ensureChannelGroup.mock.calls).toEqual([['c-1']])
   })
 
   it('a Worker that is not ready: the titles show pending until a retry', async () => {

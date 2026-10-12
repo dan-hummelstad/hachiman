@@ -1,12 +1,20 @@
 import { describe, expect, it } from 'vitest'
 import type { PageNode } from '@/stores/docsStore'
 import {
+  MAX_PAGE_TITLE_BYTES,
   POSITION_STEP,
+  channelPageId,
   clampTitle,
   endPosition,
+  fitTitle,
   flattenPages,
+  hideCollapsed,
+  moveAmongSiblings,
   pagePath,
   projectDrop,
+  rootOf,
+  searchRows,
+  subtreeEnd,
   subtreeIds
 } from './page-tree'
 
@@ -17,6 +25,8 @@ const page = (id: string, parentId: string | null, position: number): PageNode =
   position,
   title: id,
   titleState: 'ok',
+  banner: null,
+  bannerPending: false,
   createdBy: null,
   createdAt: '2026-01-01T00:00:00.000Z',
   updatedAt: '2026-01-01T00:00:00.000Z'
@@ -45,6 +55,18 @@ describe('page tree', () => {
   it('gives the path and the subtree', () => {
     expect(pagePath(PAGES, 'a2').map((p) => p.id)).toEqual(['a', 'a2'])
     expect([...subtreeIds(PAGES, 'a')].sort()).toEqual(['a', 'a1', 'a2'])
+  })
+
+  it('gives the top-level page of a path, or null for an orphan', () => {
+    const deep = [...PAGES, page('a2x', 'a2', 0)]
+    expect(rootOf(deep, 'a2x')).toBe('a')
+    expect(rootOf(deep, 'a1')).toBe('a')
+    expect(rootOf(deep, 'b')).toBe('b')
+    // The parent is not in the list (a move in flight): no root, so no banner and no controls.
+    expect(rootOf([...deep, page('o', 'gone', 0), page('o1', 'o', 0)], 'o1')).toBeNull()
+    expect(rootOf(deep, 'missing')).toBeNull()
+    // A cycle never reaches a top-level page.
+    expect(rootOf([page('x', 'y', 0), page('y', 'x', 0)], 'x')).toBeNull()
   })
 
   it('moves a page between two spaced siblings with one PATCH', () => {
@@ -90,8 +112,99 @@ describe('page tree', () => {
     expect(projectDrop(PAGES, 'a1', 'a1', 0)).toEqual([])
   })
 
+  it('hides the rows below a collapsed page, at any depth', () => {
+    const rows = flattenPages([...PAGES, page('a1x', 'a1', 0)])
+    const ids = (collapsed: string[]): string[] =>
+      hideCollapsed(rows, new Set(collapsed)).map((r) => r.page.id)
+    expect(hideCollapsed(rows, new Set())).toBe(rows)
+    expect(ids(['a'])).toEqual(['a', 'b'])
+    expect(ids(['a1'])).toEqual(['a', 'a1', 'a2', 'b'])
+    // A collapsed page inside a collapsed page changes nothing more.
+    expect(ids(['a', 'a1'])).toEqual(['a', 'b'])
+    expect(ids(['b'])).toEqual(['a', 'a1', 'a1x', 'a2', 'b'])
+  })
+
+  it('finds the end of a subtree in the rows', () => {
+    const rows = flattenPages(PAGES)
+    expect(subtreeEnd(rows, 'a')).toBe(3)
+    expect(subtreeEnd(rows, 'a1')).toBe(2)
+    expect(subtreeEnd(rows, 'b')).toBe(4)
+    expect(subtreeEnd(rows, 'gone')).toBe(-1)
+  })
+
+  it('searches the titles, flat', () => {
+    const rows = flattenPages(PAGES)
+    expect(searchRows(rows, '  ')).toBe(rows)
+    expect(searchRows(rows, 'A2').map((r) => `${r.page.id}:${r.depth}`)).toEqual(['a2:0'])
+    expect(searchRows(rows, 'zz')).toEqual([])
+  })
+
+  it('names the open page, else the last one, else the first of the tree', () => {
+    expect(channelPageId(PAGES, 'a2', 'b')).toBe('a2')
+    expect(channelPageId(PAGES, null, 'b')).toBe('b')
+    // A page that is gone (deleted) falls through.
+    expect(channelPageId(PAGES, 'gone', 'gone')).toBe('a')
+    expect(channelPageId([], null, null)).toBeNull()
+  })
+
+  it('moves a page one place among its siblings', () => {
+    expect(moveAmongSiblings(PAGES, 'a', 1)).toEqual([
+      { pageId: 'a', parentId: null, position: 1 + POSITION_STEP }
+    ])
+    // No gap above a1: the siblings are renumbered.
+    expect(moveAmongSiblings(PAGES, 'a2', -1)).toEqual([
+      { pageId: 'a2', parentId: 'a', position: 0 },
+      { pageId: 'a1', parentId: 'a', position: POSITION_STEP }
+    ])
+    expect(moveAmongSiblings(PAGES, 'a', -1)).toEqual([])
+    expect(moveAmongSiblings(PAGES, 'a2', 1)).toEqual([])
+    expect(moveAmongSiblings(PAGES, 'gone', 1)).toEqual([])
+  })
+
+  it('drops between the rows that show when a page is collapsed', () => {
+    const pages = [
+      page('x', null, 0),
+      page('a', null, POSITION_STEP),
+      page('a1', 'a', 0),
+      page('b', null, 2 * POSITION_STEP)
+    ]
+    // Expanded: below a is a1, so x lands as a's first child.
+    expect(projectDrop(pages, 'x', 'a', 0)).toEqual([
+      { pageId: 'x', parentId: 'a', position: 0 },
+      { pageId: 'a1', parentId: 'a', position: POSITION_STEP }
+    ])
+    // Collapsed: below a is b, so x stays a root page between them.
+    const collapsed = new Set(['a'])
+    expect(projectDrop(pages, 'x', 'a', 0, collapsed)).toEqual([
+      { pageId: 'x', parentId: null, position: 1536 }
+    ])
+    // A drag to the right nests it after a's hidden sub-pages.
+    expect(projectDrop(pages, 'x', 'a', 1, collapsed)).toEqual([
+      { pageId: 'x', parentId: 'a', position: POSITION_STEP }
+    ])
+  })
+
   it('clamps a title to 200 UTF-8 bytes', () => {
     expect(clampTitle('  ')).toBe('Untitled')
     expect(new TextEncoder().encode(clampTitle('文'.repeat(100))).length).toBeLessThanOrEqual(200)
+  })
+})
+
+describe('fitTitle', () => {
+  const bytes = (s: string): number => new TextEncoder().encode(s).length
+
+  it('keeps a title within the cap as it is, spaces included', () => {
+    expect(fitTitle(' Plan ')).toBe(' Plan ')
+  })
+
+  it('cuts at MAX_PAGE_TITLE_BYTES of UTF-8', () => {
+    expect(bytes(fitTitle('a'.repeat(MAX_PAGE_TITLE_BYTES + 5)))).toBe(MAX_PAGE_TITLE_BYTES)
+  })
+
+  it('never cuts a character in two', () => {
+    // 3 bytes each: 66 fit in 200 bytes (198), the 67th does not.
+    const out = fitTitle('€'.repeat(100))
+    expect(out).toBe('€'.repeat(66))
+    expect(bytes(out)).toBeLessThanOrEqual(MAX_PAGE_TITLE_BYTES)
   })
 })

@@ -1,71 +1,34 @@
-import { useCallback, useEffect, useState } from 'react'
-import { Globe, KeyRound, Link2, LogOut, MonitorSmartphone, Monitor, Pencil } from 'lucide-react'
-import type { DeviceSummary, RevocationReasonName } from '@hachiman/crypto'
+import { useEffect, useState } from 'react'
+import { KeyRound, Link2, LogOut, MonitorSmartphone, Pencil } from 'lucide-react'
+import type { DeviceSummary } from '@hachiman/crypto'
 import { Button } from '@/components/ui/button'
 import { Callout } from '@/components/ui/callout'
+import { Chip } from '@/components/ui/chip'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
-import { ErrorText, Field, SectionHeading } from '@/components/ui/field'
+import { ErrorText, SectionHeading } from '@/components/ui/field'
 import { IconButton } from '@/components/ui/icon-button'
 import { Input } from '@/components/ui/input'
 import { ModalWindow } from '@/components/ui/modal-window'
-import { NativeSelect } from '@/components/ui/native-select'
-import { cryptoErrorText, friendly } from '@/components/security/errors'
+import { RemoveDeviceBody, SignOutThisDeviceBody } from '@/components/security/device-actions'
+import {
+  activeText,
+  PRIMARY_ONLY,
+  useRenameDevice,
+  type RemoveReason
+} from '@/components/security/device-model'
+import { DeviceGlyph } from '@/components/security/device-tile'
+import { DevicesScreen } from '@/components/security/devices-screen'
+import { friendly } from '@/components/security/errors'
 import { HostTrustLine } from '@/components/security/host-trust'
-import { useAction } from '@/hooks/use-action'
-import { relativeTime } from '@/lib/time-format'
+import { useOwnDevices } from '@/components/security/use-own-devices'
+import { useLayout } from '@/hooks/use-layout'
+import { PLATFORM_LABEL } from '@/lib/device-platform'
+import { formatShortDate } from '@/lib/time-format'
 import { cn } from '@/lib/utils'
 import { cryptoService } from '@/services/CryptoService'
-import { hachiman } from '@/services/hachiman'
 import { openDialog, useDialog } from '@/stores/dialogStore'
 import { useCryptoStore } from '@/stores/cryptoStore'
-
-type RemoveReason = Exclude<RevocationReasonName, 'password_reset' | 'signed_out'>
-
-const REASONS: { value: RemoveReason; label: string }[] = [
-  { value: 'user', label: 'I do not use it now' },
-  { value: 'lost', label: 'I lost it' },
-  { value: 'compromised', label: 'Someone else has it' }
-]
-
-const PRIMARY_ONLY =
-  'Only a device with your security key can sign out other devices: your first device, or a device that you restored with the recovery key.'
-
-/**
- * The own devices of the user from the Worker. Reloads on USER_KEYS_UPDATE for the own user.
- * `enabled` false loads nothing (the Worker is not ready).
- */
-// eslint-disable-next-line react-refresh/only-export-components
-export function useOwnDevices(enabled = true): {
-  devices: DeviceSummary[] | null
-  error: string | null
-  reload: () => void
-} {
-  const [devices, setDevices] = useState<DeviceSummary[] | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const reload = useCallback(() => {
-    Promise.resolve()
-      .then(() => cryptoService.client().listDevices())
-      .then(
-        (d) => {
-          setDevices(d)
-          setError(null)
-        },
-        (e: unknown) => setError(cryptoErrorText(e))
-      )
-  }, [])
-  useEffect(() => {
-    if (!enabled) return undefined
-    reload()
-    const onKeys = ({ userId }: { userId: string }): void => {
-      if (userId === hachiman.cache.user?.id) reload()
-    }
-    hachiman.on('USER_KEYS_UPDATE', onKeys)
-    return () => {
-      hachiman.off('USER_KEYS_UPDATE', onKeys)
-    }
-  }, [reload, enabled])
-  return { devices, error, reload }
-}
+import { openSettings } from '@/stores/navStore'
 
 const linkNewDevice = (): void =>
   openDialog({ kind: 'deviceLink', role: 'existing_device', sessionId: null })
@@ -86,13 +49,17 @@ function HostTrust(): React.JSX.Element | null {
  * The own device list (§12.5, §12.12) of H2 (settings page) and I9 (dialog): rename (the REST
  * name only), sign out another device (primary device only, signed by the master key), sign out
  * of this device. The page has the "Link a new device" action above the list; the dialog has it in
- * its footer.
+ * its footer. The page on the mobile layout is the devices screen (M25).
  */
 export function DevicesPanel({ variant }: { variant: 'page' | 'dialog' }): React.JSX.Element {
+  const mobile = useLayout() === 'mobile'
   const { devices, error, reload } = useOwnDevices()
   const primary = useCryptoStore((s) => s.status?.primary ?? false)
   const [removing, setRemoving] = useState<DeviceSummary | null>(null)
   const [signingOut, setSigningOut] = useState(false)
+  if (mobile && variant === 'page') {
+    return <DevicesScreen devices={devices} error={error} reload={reload} />
+  }
   const active = devices?.filter((d) => d.status !== 'revoked') ?? []
   const removed = devices?.filter((d) => d.status === 'revoked') ?? []
 
@@ -136,7 +103,11 @@ export function DevicesPanel({ variant }: { variant: 'page' | 'dialog' }): React
           <ul className="text-text-tertiary grid gap-1 text-sm">
             {removed.map((d) => (
               <li key={d.id} className="flex items-center gap-2">
-                <PlatformIcon platform={d.platform} className="size-4" />
+                <DeviceGlyph
+                  platform={d.platform}
+                  label={PLATFORM_LABEL[d.platform]}
+                  className="size-4"
+                />
                 <span className="truncate">{d.name}</span>
               </li>
             ))}
@@ -159,63 +130,9 @@ export function DevicesPanel({ variant }: { variant: 'page' | 'dialog' }): React
         tone="danger"
         onClose={() => setSigningOut(false)}
         onConfirm={() => friendly(cryptoService.signOutDevice())}
-        body={
-          <div className="grid gap-2">
-            <p>
-              This removes this device from your account and deletes its encryption keys. Your other
-              devices are not changed.
-            </p>
-            <p>
-              To use encryption here again, you must link this device from another device or use
-              your recovery key.
-            </p>
-          </div>
-        }
+        body={<SignOutThisDeviceBody />}
       />
     </div>
-  )
-}
-
-function PlatformIcon({
-  platform,
-  className
-}: {
-  platform: DeviceSummary['platform']
-  className?: string
-}): React.JSX.Element {
-  return platform === 'electron' ? (
-    <Monitor aria-label="Desktop app" className={className} />
-  ) : (
-    <Globe aria-label="Browser" className={className} />
-  )
-}
-
-const DATE = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
-
-/** "active now", "active 2 hours ago", "active yesterday". */
-function activeText(lastSeenAt: string, now: number): string {
-  const seen = Date.parse(lastSeenAt)
-  return now - seen < 5 * 60_000 ? 'active now' : `active ${relativeTime(lastSeenAt, now)}`
-}
-
-function Tag({
-  children,
-  tone
-}: {
-  children: React.ReactNode
-  tone: 'accent' | 'voice' | 'event'
-}): React.JSX.Element {
-  return (
-    <span
-      className={cn(
-        'inline-flex h-[18px] shrink-0 items-center gap-1 px-1.5 text-[10.5px] font-bold [&_svg]:size-3',
-        tone === 'accent' && 'bg-accent-tint text-accent-text',
-        tone === 'voice' && 'bg-feature-voice/15 text-feature-voice-text',
-        tone === 'event' && 'bg-feature-event/15 text-feature-event-text'
-      )}
-    >
-      {children}
-    </span>
   )
 }
 
@@ -234,24 +151,16 @@ function DeviceRow({
 }): React.JSX.Element {
   const [name, setName] = useState<string | null>(null) // non-null while editing
   const [now] = useState(Date.now)
-  const { run, busy, error } = useAction()
+  const { rename, busy, error } = useRenameDevice(device, onRenamed)
 
   const save = async (e: React.FormEvent): Promise<void> => {
     e.preventDefault()
-    const next = name?.trim() ?? ''
-    if (!next || next === device.name) return setName(null)
-    const r = await run('rename the device', () =>
-      friendly(cryptoService.client().renameDevice(device.id, next))
-    )
-    if (r.ok) {
-      setName(null)
-      onRenamed()
-    }
+    if ((await rename(name ?? '')) !== 'failed') setName(null)
   }
 
   const meta = [
-    device.platform === 'electron' ? 'Desktop app' : 'Browser',
-    `added ${DATE.format(new Date(device.createdAt))}`,
+    PLATFORM_LABEL[device.platform],
+    `added ${formatShortDate(new Date(device.createdAt))}`,
     device.lastSeenAt && activeText(device.lastSeenAt, now)
   ].filter(Boolean)
 
@@ -259,7 +168,11 @@ function DeviceRow({
     <li className={cn('grid gap-1 px-4 py-3', device.current && 'bg-surface-hover/50')}>
       <div className="flex items-center gap-3">
         <span className="bg-surface-raised text-text-secondary flex size-10 shrink-0 items-center justify-center">
-          <PlatformIcon platform={device.platform} className="size-[18px]" />
+          <DeviceGlyph
+            platform={device.platform}
+            label={PLATFORM_LABEL[device.platform]}
+            className="size-[18px]"
+          />
         </span>
         <div className="min-w-0 flex-1">
           {name !== null ? (
@@ -279,13 +192,21 @@ function DeviceRow({
           ) : (
             <div className="flex min-w-0 flex-wrap items-center gap-1.5">
               <span className="text-label truncate">{device.name}</span>
-              {device.current && <Tag tone="accent">This device</Tag>}
-              {device.primary && (
-                <Tag tone="voice">
-                  <KeyRound aria-hidden /> Has security key
-                </Tag>
+              {device.current && (
+                <Chip size="sm" tone="accent">
+                  This device
+                </Chip>
               )}
-              {device.status === 'pending' && <Tag tone="event">Not linked</Tag>}
+              {device.primary && (
+                <Chip size="sm" tone="voice" icon={<KeyRound aria-hidden />}>
+                  Has security key
+                </Chip>
+              )}
+              {device.status === 'pending' && (
+                <Chip size="sm" tone="event">
+                  Not linked
+                </Chip>
+              )}
             </div>
           )}
           <p className="text-meta text-text-tertiary">{meta.join(' · ')}</p>
@@ -343,42 +264,26 @@ function RemoveDeviceDialog({
         await friendly(cryptoService.client().revokeDevice(device.id, reason))
         onRemoved()
       }}
-      body={
-        <div className="grid gap-3">
-          <p>
-            The device loses access to your account and to new messages. Your other devices get new
-            keys.
-          </p>
-          <Field id="remove-reason" label="Why">
-            <NativeSelect
-              id="remove-reason"
-              value={reason}
-              onChange={(e) => setReason(e.target.value as RemoveReason)}
-            >
-              {REASONS.map((r) => (
-                <option key={r.value} value={r.value}>
-                  {r.label}
-                </option>
-              ))}
-            </NativeSelect>
-          </Field>
-          {reason !== 'user' && (
-            <Callout tone="caution">
-              The device keeps the messages that it already has. If someone else has it, also change
-              your password.
-            </Callout>
-          )}
-        </div>
-      }
+      body={<RemoveDeviceBody reason={reason} onReasonChange={setReason} />}
     />
   )
 }
 
-/** Dialog kind 'devices' (I9): the same list in a window. */
+/**
+ * Dialog kind 'devices' (I9): the same list in a window. The mobile layout has no window for it:
+ * settings push the devices screen (M25) instead.
+ */
 export function DevicesDialog(): React.JSX.Element {
   const { open, close } = useDialog('devices')
-  const { devices } = useOwnDevices(open)
+  const mobile = useLayout() === 'mobile'
+  const { devices } = useOwnDevices(open && !mobile)
   const count = devices?.filter((d) => d.status !== 'revoked').length
+  useEffect(() => {
+    if (!mobile || !open) return
+    close()
+    openSettings({ kind: 'user' }, 'devices')
+  }, [mobile, open, close])
+  if (mobile) return <></>
   return (
     <ModalWindow
       open={open}

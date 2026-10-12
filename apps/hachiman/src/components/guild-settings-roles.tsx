@@ -1,89 +1,50 @@
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import { ArrowDown, ArrowUp, AtSign, Check, GripVertical, Lock, Plus, Trash2 } from 'lucide-react'
-import { Permissions, type Role } from '@hachiman/client'
+import type { Role } from '@hachiman/client'
 import { Button } from '@/components/ui/button'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { ErrorText, Field, SectionHeading } from '@/components/ui/field'
 import { IconButton } from '@/components/ui/icon-button'
 import { Input } from '@/components/ui/input'
-import { Switch } from '@/components/ui/switch'
+import { PermissionList } from '@/components/ui/permission-row'
+import { GuildRolesMobile } from '@/components/settings/guild-roles-mobile'
 import { HoistRow } from '@/components/settings/hoist-row'
 import { PERMISSION_LABELS } from '@/components/settings/permission-labels'
 import { SaveBar } from '@/components/settings/save-bar'
-import { useAction } from '@/hooks/use-action'
-import { trimName, useDraft } from '@/hooks/use-draft'
-import { useRoleCeiling } from '@/hooks/use-hachiman'
-import { hexColor, rolesByPositionDesc } from '@/lib/model'
+import {
+  SWATCHES,
+  SWATCH_NAMES,
+  colourFromHex,
+  isCustomColour,
+  useRoleDraft,
+  useRoleList
+} from '@/components/settings/use-role-list'
+import { useLayout } from '@/hooks/use-layout'
+import { hexColor } from '@/lib/model'
 import { cn } from '@/lib/utils'
 import { adminActionService } from '@/services/AdminActionService'
-import { useGuildStore } from '@/stores/guildStore'
 import { selectableRowClass } from '@/components/ui/selectable-row'
 
-/** The colour row of the role editor (0 = no colour). */
-const SWATCHES = [
-  0xffc36b, 0xff8fc4, 0xff6b6b, 0xc9a2ff, 0x8b7bff, 0x7fd3ff, 0x5ee6d0, 0x5ed98a
-] as const
-
 /**
- * Guild settings → Roles (G2): the role list (highest first, @everyone last; drag or the arrows to
- * reorder) and the editor of the picked role. Gated MANAGE_ROLES.
+ * Guild settings → Roles (G2). Gated MANAGE_ROLES. The mobile layout has its own page (M53,
+ * `GuildRolesMobile`); both use `useRoleList` and `useRoleDraft`.
  */
 export function GuildRolesTab({ guildId }: { guildId: string }): React.JSX.Element {
-  const roleMap = useGuildStore((s) => s.roles.get(guildId))
-  const members = useGuildStore((s) => s.members.get(guildId))
-  const ceiling = useRoleCeiling(guildId)
-  const [selectedId, setSelectedId] = useState<string | null>(null)
+  return useLayout() === 'mobile' ? (
+    <GuildRolesMobile guildId={guildId} />
+  ) : (
+    <GuildRolesDesktop guildId={guildId} />
+  )
+}
+
+/**
+ * The desktop page: the role list (highest first, @everyone last; drag or the arrows to reorder)
+ * and the editor of the picked role.
+ */
+function GuildRolesDesktop({ guildId }: { guildId: string }): React.JSX.Element {
+  const list = useRoleList(guildId)
+  const { roles, selected, movable, ceiling, moveTo, create, error } = list
   const [dragging, setDragging] = useState<string | null>(null)
-  const { run, error } = useAction()
-
-  const roles = useMemo(() => rolesByPositionDesc(roleMap?.values() ?? []), [roleMap])
-  const selected = roles.find((r) => r.id === selectedId) ?? roles[0]
-  // @everyone (id === guildId) is pinned at position 0 and never moves.
-  const movable = roles.filter((r) => r.id !== guildId)
-  const counts = useMemo(() => {
-    const m = new Map<string, number>()
-    for (const member of members?.values() ?? [])
-      for (const id of member.roles) m.set(id, (m.get(id) ?? 0) + 1)
-    return m
-  }, [members])
-
-  const create = async (): Promise<void> => {
-    const created = await run('create the role', () =>
-      adminActionService.createRole(guildId, { name: 'new role' })
-    )
-    if (created.ok) setSelectedId(created.value.id)
-  }
-
-  /**
-   * Moves `role` to index `to` of the movable list. Only the roles between the two places change
-   * position, and each of them must be below my ceiling, so a non-admin never sends a role above
-   * it. They take the same set of positions in the new order. Duplicate positions (legacy data)
-   * fall back to renumbering n..1.
-   */
-  const moveTo = (role: Role, to: number): void => {
-    const from = movable.indexOf(role)
-    if (from < 0 || to < 0 || to >= movable.length || to === from) return
-    const lo = Math.min(from, to)
-    const hi = Math.max(from, to)
-    const span = movable.slice(lo, hi + 1)
-    if (span.some((r) => r.position >= ceiling)) return
-    const order = [...movable]
-    order.splice(from, 1)
-    order.splice(to, 0, role)
-    const positions = span.map((r) => r.position)
-    let body: { id: string; position: number }[]
-    if (new Set(positions).size === positions.length) {
-      body = order
-        .slice(lo, hi + 1)
-        .map((r, k) => ({ id: r.id, position: positions[k] }))
-        .filter((r) => roleMap?.get(r.id)?.position !== r.position)
-    } else {
-      body = order
-        .map((r, k) => ({ id: r.id, position: order.length - k }))
-        .filter((r, k) => r.position !== order[k].position)
-    }
-    void run('reorder roles', () => adminActionService.reorderRoles(guildId, body))
-  }
 
   return (
     <div className="grid grid-cols-[220px_minmax(0,1fr)] items-start gap-6">
@@ -136,7 +97,7 @@ export function GuildRolesTab({ guildId }: { guildId: string }): React.JSX.Eleme
                   type="button"
                   aria-current={isSelected || undefined}
                   className="flex h-full min-w-0 flex-1 items-center gap-2 text-left"
-                  onClick={() => setSelectedId(r.id)}
+                  onClick={() => list.select(r.id)}
                 >
                   {isEveryone ? (
                     <AtSign aria-hidden className="text-text-tertiary size-3.5 shrink-0" />
@@ -157,7 +118,7 @@ export function GuildRolesTab({ guildId }: { guildId: string }): React.JSX.Eleme
                     <IconButton
                       size="sm"
                       label={`Move ${r.name} up`}
-                      disabled={!editable || i === 0 || movable[i - 1].position >= ceiling}
+                      disabled={!list.canMoveHigher(r)}
                       onClick={() => moveTo(r, i - 1)}
                     >
                       <ArrowUp />
@@ -165,7 +126,7 @@ export function GuildRolesTab({ guildId }: { guildId: string }): React.JSX.Eleme
                     <IconButton
                       size="sm"
                       label={`Move ${r.name} down`}
-                      disabled={!editable || i === movable.length - 1}
+                      disabled={!list.canMoveLower(r)}
                       onClick={() => moveTo(r, i + 1)}
                     >
                       <ArrowDown />
@@ -173,7 +134,7 @@ export function GuildRolesTab({ guildId }: { guildId: string }): React.JSX.Eleme
                   </span>
                 )}
                 <span className="text-meta text-text-tertiary w-6 shrink-0 text-right tabular-nums group-focus-within:hidden group-hover:hidden">
-                  {isEveryone ? (members?.size ?? 0) : (counts.get(r.id) ?? 0)}
+                  {list.count(r)}
                 </span>
               </li>
             )
@@ -186,7 +147,7 @@ export function GuildRolesTab({ guildId }: { guildId: string }): React.JSX.Eleme
           role={selected}
           isEveryone={selected.id === guildId}
           editable={selected.position < ceiling}
-          onDeleted={() => setSelectedId(null)}
+          onDeleted={() => list.select(null)}
         />
       )}
     </div>
@@ -211,25 +172,9 @@ function RoleEditor(props: {
 }): React.JSX.Element {
   const { role, isEveryone, editable } = props
   // Reset per role via the parent's `key`. Gateway updates to *other* fields don't clobber it.
-  const draft = useDraft(
-    { name: role.name, color: role.color, permissions: role.permissions },
-    trimName
-  )
+  const { draft, busy, error, save } = useRoleDraft(role, isEveryone)
   const { name, color, permissions } = draft.value
-  const { run, busy, error } = useAction()
   const [confirmDelete, setConfirmDelete] = useState(false)
-  const admin = (permissions & Permissions.ADMINISTRATOR) !== 0
-  const custom = color !== 0 && !(SWATCHES as readonly number[]).includes(color)
-
-  const save = (): Promise<unknown> =>
-    run('save the role', () =>
-      adminActionService.updateRole(role.guildId, role.id, {
-        name: isEveryone ? undefined : name.trim(),
-        color,
-        // A permissions change is a signed admin action (§12.16); send it only when it changed.
-        permissions: permissions !== role.permissions ? permissions : undefined
-      })
-    )
 
   return (
     <div className="grid gap-5">
@@ -258,84 +203,22 @@ function RoleEditor(props: {
           <span id="role-color" className="text-xs leading-4 font-semibold">
             Colour
           </span>
-          <div
-            role="radiogroup"
-            aria-labelledby="role-color"
-            className="flex h-10 items-center gap-1.5"
-          >
-            <ColourSwatch
-              label="No colour"
-              value={0}
-              checked={color === 0}
-              disabled={!editable}
-              onPick={() => draft.set({ color: 0 })}
-            />
-            {SWATCHES.map((c) => (
-              <ColourSwatch
-                key={c}
-                label={hexColor(c)}
-                value={c}
-                checked={color === c}
-                disabled={!editable}
-                onPick={() => draft.set({ color: c })}
-              />
-            ))}
-            <label
-              title="Custom colour"
-              className={cn(
-                'rounded-pill relative size-7 shrink-0 cursor-pointer border-2 bg-[conic-gradient(#ff6b6b,#ffc36b,#5ed98a,#7fd3ff,#8b7bff,#ff8fc4,#ff6b6b)]',
-                custom ? 'border-text-primary' : 'border-transparent',
-                !editable && 'pointer-events-none opacity-50'
-              )}
-              style={custom ? { background: hexColor(color) } : undefined}
-            >
-              <span className="sr-only">Custom colour</span>
-              <input
-                type="color"
-                className="absolute inset-0 cursor-pointer opacity-0"
-                value={color ? hexColor(color) : '#99a0ac'}
-                disabled={!editable}
-                onChange={(e) => draft.set({ color: parseInt(e.target.value.slice(1), 16) })}
-              />
-            </label>
-          </div>
+          <ColourSwatches
+            value={color}
+            disabled={!editable}
+            onChange={(c) => draft.set({ color: c })}
+          />
         </div>
       </div>
       {!isEveryone && <HoistRow role={role} editable={editable} />}
       <section>
         <SectionHeading>Permissions</SectionHeading>
-        <div className="divide-line-hairline divide-y">
-          {PERMISSION_LABELS.map((p) => {
-            const isAdminRow = p.bit === Permissions.ADMINISTRATOR
-            const viaAdmin = admin && !isAdminRow
-            return (
-              <div
-                key={p.name}
-                className={cn('flex items-center gap-4 py-2.5', viaAdmin && 'opacity-55')}
-              >
-                <label htmlFor={`perm-${p.name}`} className="grid min-w-0 flex-1 cursor-pointer">
-                  <span className="text-label flex items-center gap-2">
-                    {p.label}
-                    {viaAdmin && (
-                      <span className="bg-feature-event/15 text-feature-event-text px-1.5 text-[10px] leading-4 font-extrabold tracking-[0.6px]">
-                        VIA ADMINISTRATOR
-                      </span>
-                    )}
-                  </span>
-                  <span className="text-meta text-text-tertiary">{p.hint}</span>
-                </label>
-                <Switch
-                  id={`perm-${p.name}`}
-                  checked={viaAdmin || (permissions & p.bit) === p.bit}
-                  disabled={!editable || viaAdmin}
-                  onCheckedChange={(v) =>
-                    draft.set({ permissions: v ? permissions | p.bit : permissions & ~p.bit })
-                  }
-                />
-              </div>
-            )
-          })}
-        </div>
+        <PermissionList
+          items={PERMISSION_LABELS}
+          value={permissions}
+          disabled={!editable}
+          onChange={(p) => draft.set({ permissions: p })}
+        />
       </section>
       <ErrorText>{error}</ErrorText>
       {editable && (
@@ -369,6 +252,58 @@ function RoleEditor(props: {
           props.onDeleted()
         }}
       />
+    </div>
+  )
+}
+
+/** The colour row: No colour, the swatches, then Custom (the system colour picker). */
+function ColourSwatches({
+  value,
+  disabled,
+  onChange
+}: {
+  value: number
+  disabled: boolean
+  onChange: (color: number) => void
+}): React.JSX.Element {
+  const custom = isCustomColour(value)
+  return (
+    <div role="radiogroup" aria-labelledby="role-color" className="flex h-10 items-center gap-1.5">
+      <ColourSwatch
+        label="No colour"
+        value={0}
+        checked={value === 0}
+        disabled={disabled}
+        onPick={() => onChange(0)}
+      />
+      {SWATCHES.map((c) => (
+        <ColourSwatch
+          key={c}
+          label={SWATCH_NAMES.get(c) ?? hexColor(c)}
+          value={c}
+          checked={value === c}
+          disabled={disabled}
+          onPick={() => onChange(c)}
+        />
+      ))}
+      <label
+        title="Custom colour"
+        className={cn(
+          'rounded-pill relative size-7 shrink-0 cursor-pointer border-2 bg-[conic-gradient(#ff6b6b,#ffc36b,#5ed98a,#7fd3ff,#8b7bff,#ff8fc4,#ff6b6b)]',
+          custom ? 'border-text-primary' : 'border-transparent',
+          disabled && 'pointer-events-none opacity-50'
+        )}
+        style={custom ? { background: hexColor(value) } : undefined}
+      >
+        <span className="sr-only">Custom colour</span>
+        <input
+          type="color"
+          className="absolute inset-0 cursor-pointer opacity-0"
+          value={value ? hexColor(value) : '#99a0ac'}
+          disabled={disabled}
+          onChange={(e) => onChange(colourFromHex(e.target.value))}
+        />
+      </label>
     </div>
   )
 }

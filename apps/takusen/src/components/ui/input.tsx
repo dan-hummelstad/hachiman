@@ -3,9 +3,10 @@ import * as React from "react"
 import { cn } from "@/lib/utils"
 
 // T3 kit input: 44px, sunken fill, strong line, radius/control; gold line + halo on focus,
-// danger line on aria-invalid, hover fill when read only.
+// danger line on aria-invalid, hover fill when read only. 16px on a phone: iOS Safari zooms the
+// page on focus of a field under 16px (the sign-in sheet of the iOS app).
 const fieldBox =
-  "flex h-11 w-full min-w-0 items-center gap-2.5 rounded-control border border-line-strong bg-surface-sunken px-3.5 text-[15px] leading-5 font-medium text-text-primary transition-[border-color,box-shadow]"
+  "flex h-11 w-full min-w-0 items-center gap-2.5 rounded-control border border-line-strong bg-surface-sunken px-3.5 text-[15px] max-sm:text-base leading-5 font-medium text-text-primary transition-[border-color,box-shadow]"
 
 const inputText =
   "min-w-0 flex-1 bg-transparent outline-none placeholder:text-text-disabled disabled:cursor-not-allowed file:inline-flex file:h-7 file:border-0 file:bg-transparent file:text-sm file:font-semibold file:text-text-primary"

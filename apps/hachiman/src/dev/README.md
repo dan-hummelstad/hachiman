@@ -6,12 +6,14 @@ Seeds the stores with a fixture so the UI renders without Takusen or a gateway. 
 
 The dev server runs at `http://localhost:5173` (`cd apps/hachiman-browser && ./node_modules/.bin/vite --port 5173 --strictPort`).
 
-| URL                         | Shows                                                    |
-| --------------------------- | -------------------------------------------------------- |
-| `/?preview`                 | Signed in, dark theme, Night Owls / #general             |
-| `/?preview&theme=light`     | Same, light theme                                        |
-| `/?preview&display=compact` | Compact transcript (sets `usePrefsStore.messageDisplay`) |
-| `/?preview=signedout`       | Signed-out screen                                        |
+| URL                            | Shows                                                                                                                        |
+| ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
+| `/?preview`                    | Signed in, dark theme, Night Owls / #general                                                                                 |
+| `/?preview&theme=light`        | Same, light theme                                                                                                            |
+| `/?preview&display=compact`    | Compact transcript (sets `usePrefsStore.messageDisplay`)                                                                     |
+| `/?preview=signedout`          | Signed-out screen                                                                                                            |
+| `/?preview&keychange=blocking` | yuki.h's key changes about 1 s after load: the blocking key change dialog (M58), and sending to yuki.h is paused             |
+| `/?preview&keychange=notice`   | marlowe's key changes: on the mobile layout marlowe's DM shows the gold key change line (M59); on desktop, the corner notice |
 
 Preview state persists under `preview:*` localStorage keys, so it never touches your real dev session. Each reload re-seeds the fixture. (Selections such as the current guild come from the fixture, not from the last visit.)
 
@@ -43,6 +45,7 @@ The fixture uses the cast of the Arc mocks (`docs/arc-redesign-plan.md` decision
 ## Stubs (`preview/stubs.ts`)
 
 - The crypto client is `createCryptoStub` from `@hachiman/crypto` (`cryptoService.useStub()`). It has no Worker and no keys. Its envelopes are marked JSON, NOT ENCRYPTED, and it gives attachment blobs back unchanged. The send, edit, upload and decrypted-blob code paths are the real ones.
+- The crypto stub has trust fixtures: yuki.h is verified (2 Oct), marlowe is not verified, and everyone else has no key. `setVerified` changes a fixture user for the session. With `keychange=blocking` or `keychange=notice` the stub pushes a key change for yuki.h or marlowe. `acknowledgeKeyChange` makes the contact unverified again, and `setVerified` clears the change.
 - `hachiman.connect` and the gateway are no-ops.
 - Every `hachiman.rest.*` method resolves locally and logs `[preview] rest.<name>` at debug level. The stubs dispatch writes as gateway events, so the UI updates as it would live:
   - Sending a message echoes it after 400ms. The echo goes through the stub decrypt.
@@ -51,7 +54,7 @@ The fixture uses the cast of the Arc mocks (`docs/arc-redesign-plan.md` decision
   - You can create, edit or delete channels, roles and guilds.
   - The invite list has an invite with history (`h1st0ry`, no Copy button), `nt0wl5x` and an older permanent invite by petra_v (`p3rm4nt`). A new invite gets an `inv-NNNN` code, with the expiry and the maximum uses of the request. It has `hasHistory` when the request has a `record`.
   - I own Night Owls, so its invite dialog offers 7 days, "Permanent" (with the warning) and "Include history". The crypto stub signs a placeholder record and gives a random key, so the link ends in `#k=`. In Lattice Labs I am not an administrator, so the dialog offers 24 hours or less and no history.
-  - `previewInvite` returns "Pixel Pushers". For `h1st0ry` it has `hasHistory`: open `/invite/h1st0ry?preview` for the "Open the full link" note, or add `#k=` and a well-formed key (43 base64url characters, for example 43 × `A`) for the "includes history" note. The stub `redeemInvite` imports nothing.
+  - `previewInvite` returns "Pixel Pushers", which expires in 6 days. marlowe's DM has a link to the invite `nt0wl5x` on this server: on the mobile layout a tap opens the join sheet with "From marlowe, in your DMs" (M45). For `h1st0ry` it has `hasHistory`: open `/invite/h1st0ry?preview` for the "Open the full link" note, or add `#k=` and a well-formed key (43 base64url characters, for example 43 × `A`) for the "includes history" note. The stub `redeemInvite` imports nothing.
 - The fixture ids are not UUIDs, so signed admin actions (§12.16) cannot encode. `stubAdminActions` (`preview/admin.ts`) sends role, member role, channel permission and history visibility changes unsigned.
 - `joinVoice`, `leaveVoice` and `setSelfVoice` update my voice state. `setSelfVoice` keeps the client's own mute and deafen rules. There is no media.
 - The stub table is typed against `hachiman.rest`. If a REST method is added or renamed, `stubs.ts` does not compile until it has a stub or is in `DS_ROUTES`.

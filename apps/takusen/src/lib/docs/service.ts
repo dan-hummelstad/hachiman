@@ -12,7 +12,7 @@ import type { DsModule } from '@/lib/mls/crypto'
 import type { AcceptedDocEnvelope, DocEnvelopeInput } from '@/lib/mls/envelopes'
 
 import { STATE_UPDATES_MAX, type DocsLimits } from './config'
-import type { DocsRepo, StoredSnapshot } from './repo'
+import type { DocPagePatch, DocsRepo, StoredSnapshot } from './repo'
 import type { CreatePageBody, PostSnapshotBody, UpdatePageBody } from './wire'
 
 /** `acceptDocEnvelope` bound to the route transaction. Throws ApiError (§4 Pages). */
@@ -45,8 +45,13 @@ export async function createPage(repo: DocsRepo, accept: AcceptDocEnvelope, inpu
   return row
 }
 
-/** PATCH /pages/:pageId: a move, a reorder and/or a rename. `ifUpdatedAt` makes it a compare-and-set. */
-export async function updatePage(repo: DocsRepo, accept: AcceptDocEnvelope, input: Actor & { page: DocPageRow; body: UpdatePageBody; now: Date }): Promise<DocPageRow> {
+export type UpdatePageInput = Actor & { page: DocPageRow; guildId: string; body: UpdatePageBody; now: Date; limits: DocsLimits }
+
+/**
+ * PATCH /pages/:pageId: a move, a reorder, a rename and/or a banner change. `ifUpdatedAt` makes it
+ * a compare-and-set.
+ */
+export async function updatePage(repo: DocsRepo, accept: AcceptDocEnvelope, input: UpdatePageInput): Promise<DocPageRow> {
   const { page, body } = input
   if (body.parentId) {
     // Two concurrent moves could each pass the check and make a cycle together.
@@ -57,23 +62,62 @@ export async function updatePage(repo: DocsRepo, accept: AcceptDocEnvelope, inpu
       throw new ApiError('PageCycle', 400, 'a page cannot move into its own subtree')
     }
   }
-  if (body.ifUpdatedAt !== undefined) {
-    // After lockTree: the lock order of a move. A title re-wrap must not undo a rename (§12.20).
-    const locked = await repo.lockPage(page.id)
-    if (!locked) throw new NotFoundError('Unknown page')
-    if (locked.updatedAt.getTime() !== Date.parse(body.ifUpdatedAt)) throw new ApiError('PageConflict', 409, 'the page changed after ifUpdatedAt')
+  // After lockTree: the lock order of a move. The rules below read the locked row, not the
+  // unlocked `page` of the route.
+  const current = await repo.lockPage(page.id)
+  if (!current) throw new NotFoundError('Unknown page')
+  if (body.ifUpdatedAt !== undefined && current.updatedAt.getTime() !== Date.parse(body.ifUpdatedAt)) {
+    // A re-wrap must not undo a rename or a banner change (§12.20).
+    throw new ApiError('PageConflict', 409, 'the page changed after ifUpdatedAt')
   }
   if (body.titleEnvelope) {
-    await accept({ channelId: page.channelId, pageId: page.id, userId: input.userId, deviceId: input.deviceId, kind: 'doc_title', envelope: body.titleEnvelope })
+    await accept({ channelId: current.channelId, pageId: current.id, userId: input.userId, deviceId: input.deviceId, kind: 'doc_title', envelope: body.titleEnvelope })
   }
-  const row = await repo.updatePage(page.id, {
+  const banner = await bannerPatch(repo, accept, input, current)
+  const row = await repo.updatePage(current.id, {
     ...(body.parentId !== undefined && { parentId: body.parentId }),
     ...(body.position !== undefined && { position: body.position }),
     ...(body.titleEnvelope && { titleEnvelope: body.titleEnvelope }),
+    ...banner,
     updatedAt: input.now,
   })
   if (!row) throw new NotFoundError('Unknown page')
   return row
+}
+
+/**
+ * The banner columns of a PATCH (§4 Pages "Banner"). `page` is the locked row. Only a top-level
+ * page has a banner. Dropped ids get last_referenced_at = now, so the media sweep keeps them for
+ * its undo window.
+ */
+async function bannerPatch(
+  repo: DocsRepo,
+  accept: AcceptDocEnvelope,
+  input: UpdatePageInput,
+  page: DocPageRow,
+): Promise<Pick<DocPagePatch, 'bannerEnvelope' | 'bannerUploadIds'>> {
+  const { body, now } = input
+  const parentId = body.parentId !== undefined ? body.parentId : page.parentId
+  // A move under a page clears the banner as `banner: null` does.
+  const banner = body.banner === undefined && parentId !== null && page.bannerEnvelope !== null ? null : body.banner
+  if (banner === undefined) return {}
+  const stored = page.bannerUploadIds
+  if (banner === null) {
+    await repo.touchPageMedia(page.id, stored, now)
+    return { bannerEnvelope: null, bannerUploadIds: [] }
+  }
+  if (parentId !== null) throw new ValidationError('Only a top-level page has a banner')
+  await accept({ channelId: page.channelId, pageId: page.id, userId: input.userId, deviceId: input.deviceId, kind: 'doc_banner', envelope: banner.envelope })
+  const ids = banner.uploadIds
+  if (ids === undefined) {
+    // A re-wrap: the caller need not be the uploader, and cannot drop a media reference.
+    if (page.bannerEnvelope === null) throw new ValidationError('The page has no banner to re-wrap')
+    return { bannerEnvelope: banner.envelope }
+  }
+  const fresh = ids.filter((id) => !stored.includes(id))
+  if (fresh.length > 0) await claimMedia(repo, { page, guildId: input.guildId, userId: input.userId, uploadIds: fresh, now, limits: input.limits })
+  await repo.touchPageMedia(page.id, stored.filter((id) => !ids.includes(id)), now)
+  return { bannerEnvelope: banner.envelope, bannerUploadIds: ids }
 }
 
 /** DELETE /pages/:pageId: the page and its subtree. Returns the deleted page ids and the object keys to delete after commit. */
@@ -89,11 +133,18 @@ function latestSeqOf(page: DocPageRow, updates: DocUpdateRow[]): number {
   return Math.max(page.latestSeq, updates.at(-1)?.seq ?? 0)
 }
 
+export interface EnvelopeHead {
+  groupId: Uint8Array
+  epoch: number
+}
+
 /** One page of GET /channels/:id/pages/heads. */
 export interface PageHeadRow {
   page: DocPageRow
   /** The group and epoch of the title envelope header. null when the header does not decode. */
-  title: { groupId: Uint8Array; epoch: number } | null
+  title: EnvelopeHead | null
+  /** The same for the banner envelope. null also when the page has no banner. */
+  banner: EnvelopeHead | null
   snapshot: StoredSnapshot | null
 }
 
@@ -101,16 +152,17 @@ export interface PageHeadRow {
 export async function listPageHeads(repo: DocsRepo, ds: Pick<DsModule, 'parseDocEnvelopeHeader'>, channelId: string): Promise<PageHeadRow[]> {
   const pages = await repo.listPages(channelId)
   const snapshots = new Map((await repo.newestSnapshots(channelId)).map((s) => [s.row.pageId, s]))
-  return pages.map((page) => {
-    let title: PageHeadRow['title'] = null
+  const head = (envelope: Uint8Array | null): EnvelopeHead | null => {
+    if (envelope === null) return null
     try {
-      const h = ds.parseDocEnvelopeHeader(page.titleEnvelope)
-      title = { groupId: h.groupId, epoch: h.epoch }
+      const h = ds.parseDocEnvelopeHeader(envelope)
+      return { groupId: h.groupId, epoch: h.epoch }
     } catch {
-      // A title that does not decode is not re-wrapped.
+      // An envelope that does not decode is not re-wrapped.
+      return null
     }
-    return { page, title, snapshot: snapshots.get(page.id) ?? null }
-  })
+  }
+  return pages.map((page) => ({ page, title: head(page.titleEnvelope), banner: head(page.bannerEnvelope), snapshot: snapshots.get(page.id) ?? null }))
 }
 
 /** GET /pages/:pageId/state. */

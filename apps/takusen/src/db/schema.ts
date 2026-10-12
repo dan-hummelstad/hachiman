@@ -54,7 +54,7 @@ export const uploadPurposeEnum = pgEnum('upload_purpose', ['attachment', 'image'
 
 // E2EE enums (§3).
 export const deviceStatusEnum = pgEnum('device_status', ['pending', 'active', 'revoked'])
-export const devicePlatformEnum = pgEnum('device_platform', ['electron', 'browser'])
+export const devicePlatformEnum = pgEnum('device_platform', ['electron', 'browser', 'ios'])
 export const revokeReasonEnum = pgEnum('revoke_reason', ['user', 'lost', 'password_reset', 'compromised', 'signed_out'])
 export const mlsGroupKindEnum = pgEnum('mls_group_kind', ['public_set', 'channel', 'dm'])
 export const mlsGroupStatusEnum = pgEnum('mls_group_status', ['pending', 'active', 'retired'])

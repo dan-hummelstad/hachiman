@@ -10,7 +10,7 @@ import {
   Volume2
 } from 'lucide-react'
 import { Permissions, has, type Channel, type Role } from '@hachiman/client'
-import { useChannelAccess } from '@/lib/channel-access'
+import { useChannelAccess, type ChannelAccess } from '@/lib/channel-access'
 import { TrustChip } from '@/components/people/trust-chip'
 import { useVoiceActivity } from '@/components/people/use-voice-activity'
 import { VoiceActivityLine } from '@/components/people/voice-activity-line'
@@ -145,7 +145,8 @@ export function HeaderChannelIcon({
   return <ChannelIcon type={channel.type} className={cn(cls, 'text-text-tertiary')} aria-hidden />
 }
 
-function ChannelTitle({ channel }: { channel: Channel }): React.JSX.Element {
+/** The left side of a guild channel's desktop header: icon, name, chips and topic in one row. */
+export function ChannelTitle({ channel }: { channel: Channel }): React.JSX.Element {
   const access = useChannelAccess(channel)
   if (channel.type === 'thread') return <ThreadTitle thread={channel} />
   return (
@@ -155,23 +156,7 @@ function ChannelTitle({ channel }: { channel: Channel }): React.JSX.Element {
         {channelLabel(channel).name}
       </h1>
       {channel.type === 'voice' && isGuildChannel(channel) && <VoiceHeaderMeta channel={channel} />}
-      {access.readOnly && (
-        <HeaderChip>
-          <Lock aria-hidden />
-          Read only
-        </HeaderChip>
-      )}
-      {access.restricted && access.viewers.length > 0 && (
-        <HeaderChip title={`Only ${access.viewers.map((r) => r.name).join(', ')} can see it`}>
-          <Lock aria-hidden />
-          {access.viewers.map((r, i) => (
-            <span key={r.id} className="contents">
-              {i > 0 && <span aria-hidden>·</span>}
-              <RoleName role={r} />
-            </span>
-          ))}
-        </HeaderChip>
-      )}
+      <ChannelChips access={access} />
       {channel.topic && (
         <>
           <span className="bg-line-hairline mx-1 h-5 w-px shrink-0" aria-hidden />
@@ -216,7 +201,35 @@ function ThreadTitle({ thread }: { thread: Channel }): React.JSX.Element {
   )
 }
 
-function HeaderChip({
+/**
+ * The chips after a channel's name: "Read only" (B7) and the roles that alone can see it (B8).
+ * The desktop and the mobile header share them.
+ */
+export function ChannelChips({ access }: { access: ChannelAccess }): React.JSX.Element {
+  return (
+    <>
+      {access.readOnly && (
+        <HeaderChip>
+          <Lock aria-hidden />
+          Read only
+        </HeaderChip>
+      )}
+      {access.restricted && access.viewers.length > 0 && (
+        <HeaderChip title={`Only ${access.viewers.map((r) => r.name).join(', ')} can see it`}>
+          <Lock aria-hidden />
+          {access.viewers.map((r, i) => (
+            <span key={r.id} className="contents">
+              {i > 0 && <span aria-hidden>·</span>}
+              <RoleName role={r} />
+            </span>
+          ))}
+        </HeaderChip>
+      )}
+    </>
+  )
+}
+
+export function HeaderChip({
   title,
   children
 }: {
@@ -226,7 +239,7 @@ function HeaderChip({
   return (
     <span
       title={title}
-      className="rounded-check bg-surface-raised text-text-secondary inline-flex h-[22px] shrink-0 items-center gap-1 px-1.5 text-[11.5px] leading-none font-bold [&_svg]:size-3"
+      className="rounded-check bg-surface-raised text-text-secondary mobile:px-[7px] mobile:font-extrabold inline-flex h-[22px] shrink-0 items-center gap-1 px-1.5 text-[11.5px] leading-none font-bold [&_svg]:size-3"
     >
       {children}
     </span>
@@ -237,6 +250,10 @@ function RoleName({ role }: { role: Role }): React.JSX.Element {
   return <span style={role.color ? { color: hexColor(role.color) } : undefined}>{role.name}</span>
 }
 
+/**
+ * The left side of a DM's header: the avatar (or the group icon), the name and, in a 1:1 DM, the
+ * voice activity of the other person.
+ */
 function DmTitle({ channel }: { channel: Channel }): React.JSX.Element {
   const recipients = channel.recipients ?? []
   const solo = recipients.length === 1 ? recipients[0] : undefined

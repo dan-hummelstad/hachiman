@@ -106,3 +106,44 @@ export async function checkRecoveryKey(input: string): Promise<RecoveryKeyCheck>
   bytes.fill(0)
   return ok ? shape : mismatch
 }
+
+/** The helper line under the key field and the state of its count. */
+export interface RecoveryKeyHint {
+  text: string
+  /** The characters typed, at most 55. */
+  count: number
+  /** All 55 characters are there, and all are key characters. */
+  complete: boolean
+  /** A character that keys do not use, or too many characters. */
+  invalid: boolean
+  /** Enough characters to try the key. */
+  ready: boolean
+}
+
+/**
+ * The helper of the key field for `input`. The touch field shows the count beside the helper, so
+ * its helper does not count the characters again while the key is incomplete.
+ */
+export function recoveryKeyHint(
+  input: string,
+  size: 'default' | 'touch' = 'default'
+): RecoveryKeyHint {
+  const shape = checkRecoveryKeyShape(input)
+  const typed = recoveryKeyBody(input).length
+  const help =
+    size === 'touch'
+      ? 'In groups of 5. Case, spaces and dashes do not matter.'
+      : '55 characters, in groups of 5. Case, spaces and dashes do not matter.'
+  const text = shape.ok
+    ? 'All 55 characters are there.'
+    : shape.reason === 'empty' || (size === 'touch' && shape.reason === 'incomplete')
+      ? help
+      : shape.detail
+  return {
+    text,
+    count: Math.min(typed, RECOVERY_KEY_CHARS),
+    complete: shape.ok,
+    invalid: !shape.ok && shape.reason !== 'empty' && shape.reason !== 'incomplete',
+    ready: typed >= RECOVERY_KEY_CHARS
+  }
+}

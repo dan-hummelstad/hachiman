@@ -1,7 +1,8 @@
-import { useMemo } from 'react'
+import { useId, useMemo } from 'react'
 import { Activity, Check, Eye, Info, PhoneCall, Volume2 } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
-import { UserAvatar } from '@/components/shell/user-avatar'
+import { SectionLabel } from '@/components/mobile/list'
+import { AvatarRow, UserAvatar } from '@/components/shell/user-avatar'
 import { Button } from '@/components/ui/button'
 import { LiveCard } from '@/components/voice/live-card'
 import { useCanJoinVoice } from '@/components/voice/use-call-security'
@@ -18,13 +19,8 @@ import { useVoiceStore } from '@/stores/voiceStore'
 
 const MAX_FACES = 6
 
-/**
- * "Active now" (E1): the voice channels with people in them, across the guilds I share. The
- * gateway sends voice states only for my guilds. My own call says so. A live call shows the
- * streamer's avatar on the live tint (decision 4: no frame outside the call) and "Watch" (N18,
- * a muted join). Other calls show "Join".
- */
-export function ActiveNow(): React.JSX.Element {
+/** The voice channels with people in them that the viewer sees, and the viewer's own call. */
+function useActiveCalls(): { calls: ActiveCall[]; myChannelId: string | null } {
   const { voiceStates, myChannelId } = useVoiceStore(
     useShallow((s) => ({ voiceStates: s.voiceStates, myChannelId: s.channelId }))
   )
@@ -35,7 +31,20 @@ export function ActiveNow(): React.JSX.Element {
     () => activeCalls(voiceStates, channels, guilds, myId, myChannelId),
     [voiceStates, channels, guilds, myId, myChannelId]
   )
-  const myCallName = myChannelId ? (channels.get(myChannelId)?.name ?? null) : null
+  return { calls, myChannelId }
+}
+
+/**
+ * "Active now" (E1): the voice channels with people in them, across the guilds I share. The
+ * gateway sends voice states only for my guilds. My own call says so. A live call shows the
+ * streamer's avatar on the live tint (decision 4: no frame outside the call) and "Watch" (N18,
+ * a muted join). Other calls show "Join".
+ */
+export function ActiveNow(): React.JSX.Element {
+  const { calls, myChannelId } = useActiveCalls()
+  const myCallName = useChannelStore((s) =>
+    myChannelId ? (s.channels.get(myChannelId)?.name ?? null) : null
+  )
   const joinable = calls.some((c) => !c.withMe)
 
   return (
@@ -167,4 +176,113 @@ function Face({
       />
     </li>
   )
+}
+
+/** The faces of a strip card: 26, overlapping by 5. */
+const STRIP_FACE = 26
+const STRIP_MAX_FACES = 6
+
+/**
+ * ACTIVE NOW on the mobile DM home (M56): a row of 212 x 112 cards that scrolls sideways and
+ * snaps, one per call. The whole card opens the channel; there it can be joined. A live call shows
+ * the streamer's avatar on the live tint, never a frame of the stream. Nothing when no one is in a
+ * call.
+ */
+export function ActiveNowStrip(): React.JSX.Element | null {
+  const { calls } = useActiveCalls()
+  const labelId = useId()
+  if (calls.length === 0) return null
+  return (
+    <section aria-labelledby={labelId} className={cn('flex flex-col gap-2.5', ROLE_INK_SCOPE)}>
+      <SectionLabel id={labelId} className="px-4 pt-0.5">
+        Active now
+      </SectionLabel>
+      <ul
+        data-swipe-ignore
+        className="flex snap-x snap-mandatory scroll-px-4 gap-2.5 overflow-x-auto overscroll-x-contain px-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      >
+        {calls.map((c) => (
+          <li key={c.channelId} className="shrink-0 snap-start">
+            <StripCard call={c} />
+          </li>
+        ))}
+      </ul>
+    </section>
+  )
+}
+
+const STRIP_TONE = {
+  mine: 'border-feature-voice/22 bg-feature-voice/6 gap-2.5 p-3',
+  live: 'border-feature-danger/20 bg-feature-danger/5 gap-2 p-2',
+  other: 'border-fill-control bg-surface-hover/40 gap-2.5 p-3'
+} as const
+
+function StripCard({ call }: { call: ActiveCall }): React.JSX.Element {
+  const streamerId = call.withMe ? null : call.streamerId
+  const streamer = useMemberView(call.guildId, streamerId ?? call.userIds[0] ?? '')
+  const tone = call.withMe ? 'mine' : streamerId !== null ? 'live' : 'other'
+  const people = call.userIds.length
+  const state = call.withMe
+    ? "you're in this call"
+    : streamerId !== null
+      ? `${streamer.name} is live`
+      : `${people} ${people === 1 ? 'person' : 'people'}`
+
+  return (
+    <button
+      type="button"
+      onClick={() => openChannel(call.guildId, call.channelId)}
+      aria-label={`${call.channelName}, ${call.guildName}, ${state}`}
+      className={cn(
+        'flex h-28 w-[212px] flex-col overflow-hidden border text-left outline-none active:opacity-80',
+        'focus-visible:outline-line-focus focus-visible:outline-2 focus-visible:-outline-offset-2',
+        STRIP_TONE[tone]
+      )}
+    >
+      {streamerId !== null ? (
+        <LiveCard
+          guildId={call.guildId}
+          userId={streamerId}
+          channelName={call.channelName}
+          watching={people - 1}
+          size="strip"
+        />
+      ) : (
+        <>
+          <span className="flex min-w-0 items-center gap-1.5">
+            <Volume2 className="text-feature-voice-text size-[15px] shrink-0" aria-hidden />
+            <span className="text-text-primary truncate text-sm leading-[17px] font-extrabold">
+              {call.channelName}
+            </span>
+            <span className="text-text-tertiary truncate text-[12.5px] leading-[15px] font-semibold">
+              · {call.guildName}
+            </span>
+          </span>
+          <span className="flex items-center gap-1.5">
+            <AvatarRow size={STRIP_FACE} overlap={5}>
+              {call.userIds.slice(0, STRIP_MAX_FACES).map((id) => (
+                <StripFace key={id} guildId={call.guildId} userId={id} />
+              ))}
+            </AvatarRow>
+            {people > STRIP_MAX_FACES && (
+              <span className="text-text-tertiary text-xs font-semibold tabular-nums">
+                +{people - STRIP_MAX_FACES}
+              </span>
+            )}
+          </span>
+          {call.withMe && (
+            <span className="text-feature-voice-text flex items-center gap-[5px] text-[12.5px] leading-[15px] font-bold">
+              <Check className="size-[13px]" aria-hidden />
+              You&apos;re in this call
+            </span>
+          )}
+        </>
+      )}
+    </button>
+  )
+}
+
+function StripFace({ guildId, userId }: { guildId: string; userId: string }): React.JSX.Element {
+  const { name, avatar, ink } = useMemberView(guildId, userId)
+  return <UserAvatar avatar={avatar} name={name} color={ink} size={STRIP_FACE} />
 }

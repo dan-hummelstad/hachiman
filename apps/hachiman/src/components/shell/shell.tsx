@@ -20,13 +20,14 @@ import { useSidebarReveal } from '@/components/shell/use-sidebar-reveal'
 import { DmSpace } from '@/components/sidebar/dm-space'
 import { GuildChannelList } from '@/components/sidebar/guild-channels'
 import { useGuildTint } from '@/components/shell/use-guild-tint'
+import { WALLPAPER } from '@/components/shell/wallpaper'
 import { VoiceDock } from '@/components/voice-connected-panel'
 import { VoiceRoom } from '@/components/voice/voice-room'
 import { DmCallPanel } from '@/components/voice/dm-call'
 import { IncomingCall } from '@/components/voice/incoming-call'
 import { useAppShortcuts } from '@/hooks/use-app-shortcuts'
+import { useDefaultChannel } from '@/hooks/use-default-channel'
 import { useGlobalShortcuts } from '@/hooks/use-global-shortcuts'
-import { useGuildChannels } from '@/hooks/use-hachiman'
 import { useMediaQuery } from '@/hooks/use-media-query'
 import { isGuildChannel } from '@/lib/model'
 import { cn } from '@/lib/utils'
@@ -35,18 +36,10 @@ import { useSidebarSide } from '@/stores/prefsStore'
 import { useVoiceStore } from '@/stores/voiceStore'
 import {
   closeSettings,
-  selectChannel,
   setSettingsSection,
   useSelectedChannelId,
   useSelectedGuildId
 } from '@/stores/navStore'
-
-/** The window wallpaper: tinted by the guild (N4), or the user's custom gradient (useGuildTint). */
-const WALLPAPER = cn(
-  'bg-surface-window',
-  'bg-(image:--wallpaper-light)',
-  'dark:bg-(image:--wallpaper-dark)'
-)
 
 /**
  * Signed-in layout (docs/ui-redesign.md §6): the window is a wallpaper tinted by the guild (N4).
@@ -71,8 +64,7 @@ export function Shell(): React.JSX.Element {
   const selectedChannel = useChannelStore((s) =>
     selectedChannelId ? s.channels.get(selectedChannelId) : undefined
   )
-  const guildChannels = useGuildChannels(selectedGuildId)
-  const tint = useGuildTint(selectedGuildId)
+  const tint = useGuildTint(selectedGuildId).vars
   // The right column defaults open only on wide windows; an explicit toggle overrides the default.
   const wide = useMediaQuery('(min-width: 1200px)')
   const [sidePref, setSidePref] = useState<boolean | null>(null)
@@ -97,13 +89,7 @@ export function Shell(): React.JSX.Element {
   useSidebarReveal(sidebarRef)
   useAppShortcuts()
   useGlobalShortcuts()
-
-  // Default to the first text channel when a guild has no (valid) selection.
-  useEffect(() => {
-    if (!selectedGuildId || selectedChannel) return
-    const first = guildChannels.find((c) => c.type === 'text')
-    if (first) selectChannel(first.id, selectedGuildId)
-  }, [selectedGuildId, selectedChannel, guildChannels])
+  useDefaultChannel(selectedGuildId, selectedChannel !== undefined)
 
   return (
     <div

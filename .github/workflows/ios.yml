@@ -1,0 +1,112 @@
+# Builds the iOS app (apps/hachiman-ios) and uploads it to TestFlight.
+# check: every pull request and push that touches the app: web bundle, XcodeGen, simulator build
+# and unit tests. The simulator build is signed ad hoc (no team): without a signature it has no
+# entitlements, and every Keychain call fails with errSecMissingEntitlement (-34018).
+# testflight: pushes to main and manual runs. It archives with automatic signing through an App
+# Store Connect API key and uploads the build (apps/hachiman-ios/README.md, "Release").
+# The job is skipped until the repository variable APPLE_TEAM_ID is set.
+# Repository variables: HACHIMAN_DOMAIN (Vite bakes the endpoints in), APPLE_TEAM_ID, and
+# HACHIMAN_BUNDLE_ID (optional, default app.hachiman.ios).
+# Secrets: ASC_KEY_P8 (the .p8 key, base64), ASC_KEY_ID, ASC_ISSUER_ID (App Manager role).
+name: iOS
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/hachiman/**'
+      - 'apps/hachiman-ios/**'
+      - 'pkgs/**'
+      - 'patches/**'
+      - 'pnpm-lock.yaml'
+      - '.github/workflows/ios.yml'
+  pull_request:
+    paths:
+      - 'apps/hachiman/**'
+      - 'apps/hachiman-ios/**'
+      - 'pkgs/**'
+      - 'patches/**'
+      - 'pnpm-lock.yaml'
+      - '.github/workflows/ios.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: corepack enable && pnpm install --frozen-lockfile
+      - run: pnpm -F @hachiman/hachiman-ios build
+      - run: pnpm -F @hachiman/hachiman-ios test
+      - run: brew install xcodegen && xcodegen generate
+        working-directory: apps/hachiman-ios
+      - name: Build and test on a simulator
+        working-directory: apps/hachiman-ios
+        run: |
+          set -euo pipefail
+          # The newest runtime: the deployment target is iOS 18.5.
+          SIM=$(xcrun simctl list devices available | grep -oE 'iPhone [0-9]+( Pro)?' | tail -n 1)
+          xcodebuild test -project Hachiman.xcodeproj -scheme Hachiman \
+            -destination "platform=iOS Simulator,name=${SIM},OS=latest" \
+            CODE_SIGN_IDENTITY=- | tail -n 40
+
+  testflight:
+    needs: check
+    if: github.event_name != 'pull_request' && vars.APPLE_TEAM_ID != ''
+    runs-on: macos-latest
+    env:
+      VITE_TAKUSEN_OIDC_ISSUER: https://${{ vars.HACHIMAN_DOMAIN }}/api/oidc
+      VITE_HACHIMAN_GATEWAY_URL: wss://${{ vars.HACHIMAN_DOMAIN }}/gateway
+      BUNDLE_ID: ${{ vars.HACHIMAN_BUNDLE_ID || 'app.hachiman.ios' }}
+    steps:
+      - name: Check the domain variable
+        if: vars.HACHIMAN_DOMAIN == ''
+        run: echo "::error::Set the repository variable HACHIMAN_DOMAIN" && exit 1
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: corepack enable && pnpm install --frozen-lockfile
+      - run: pnpm -F @hachiman/hachiman-ios build
+      - run: brew install xcodegen && xcodegen generate
+        working-directory: apps/hachiman-ios
+      - name: Write the App Store Connect key
+        env:
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+        run: echo "$ASC_KEY_P8" | base64 --decode > "$RUNNER_TEMP/AuthKey.p8"
+      - name: Archive
+        working-directory: apps/hachiman-ios
+        run: |
+          set -euo pipefail
+          xcodebuild archive -project Hachiman.xcodeproj -scheme Hachiman -configuration Release \
+            -destination 'generic/platform=iOS' -archivePath "$RUNNER_TEMP/Hachiman.xcarchive" \
+            DEVELOPMENT_TEAM='${{ vars.APPLE_TEAM_ID }}' HACHIMAN_BUNDLE_ID="$BUNDLE_ID" \
+            CURRENT_PROJECT_VERSION='${{ github.run_number }}' \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$RUNNER_TEMP/AuthKey.p8" \
+            -authenticationKeyID '${{ secrets.ASC_KEY_ID }}' \
+            -authenticationKeyIssuerID '${{ secrets.ASC_ISSUER_ID }}' | tail -n 40
+      - name: Upload to TestFlight
+        working-directory: apps/hachiman-ios
+        run: |
+          set -euo pipefail
+          cp ExportOptions.plist "$RUNNER_TEMP/ExportOptions.plist"
+          /usr/libexec/PlistBuddy -c "Add :teamID string ${{ vars.APPLE_TEAM_ID }}" "$RUNNER_TEMP/ExportOptions.plist"
+          xcodebuild -exportArchive -archivePath "$RUNNER_TEMP/Hachiman.xcarchive" \
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" -exportPath "$RUNNER_TEMP/export" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$RUNNER_TEMP/AuthKey.p8" \
+            -authenticationKeyID '${{ secrets.ASC_KEY_ID }}' \
+            -authenticationKeyIssuerID '${{ secrets.ASC_ISSUER_ID }}'
+      - name: Remove the key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/AuthKey.p8"

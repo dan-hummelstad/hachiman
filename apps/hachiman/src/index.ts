@@ -1,5 +1,5 @@
 // Public entry point for the shared renderer library, consumed by the hosts
-// (hachiman-electron, hachiman-browser).
+// (hachiman-electron, hachiman-browser, hachiman-ios).
 
 import './assets/main.css'
 
@@ -9,11 +9,14 @@ export { ThemeProvider } from './components/theme-provider'
 // Platform seam (contract §11)
 export { PlatformProvider, usePlatform } from './shared/PlatformContext'
 export type {
+  Appearance,
+  HapticKind,
   InviteLink,
   IPlatformService,
   RegionProbeTarget,
   RegionProbeResult,
   ScreenSource,
+  ShareContent,
   UpdateCheckResult
 } from './shared/IPlatformService'
 

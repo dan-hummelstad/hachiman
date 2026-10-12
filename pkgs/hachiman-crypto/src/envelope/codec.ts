@@ -33,6 +33,7 @@ import {
   MAX_ATTACHMENTS_PER_MESSAGE,
   MAX_MESSAGE_UPLOAD_IDS,
   MAX_PAGE_ACTIVITY_CHANGES,
+  MAX_PAGE_BANNER_BYTES,
   MAX_PAGE_TITLE_BYTES,
   MAX_REACTION_EMOJI_BYTES,
   MAX_REACTION_EMOJI_LENGTH,
@@ -546,6 +547,7 @@ const DOC_KIND: Record<DocEnvelopeKindName, number> = {
   doc_snapshot: DocEnvelopeKind.SNAPSHOT,
   doc_awareness: DocEnvelopeKind.AWARENESS,
   doc_title: DocEnvelopeKind.TITLE,
+  doc_banner: DocEnvelopeKind.BANNER,
 }
 const DOC_KIND_NAME = new Map<number, DocEnvelopeKindName>(Object.entries(DOC_KIND).map(([k, v]) => [v, k as DocEnvelopeKindName]))
 
@@ -634,7 +636,23 @@ export function checkDocBody(kind: DocEnvelopeKindName, body: Uint8Array): void 
     decoding('page title', () => STRICT_UTF8.decode(body))
   } else if (kind === 'doc_snapshot') {
     decodeSnapshotPointer(body)
+  } else if (kind === 'doc_banner') {
+    checkBannerBody(body)
   }
+}
+
+/**
+ * The doc_banner body: strict UTF-8 JSON of an object whose `mime` starts with `image/`. Unknown
+ * keys pass. The UI checks the whole AttachmentPointer and fails closed.
+ */
+function checkBannerBody(body: Uint8Array): void {
+  if (body.length > MAX_PAGE_BANNER_BYTES) tooLarge(`page banner pointer longer than ${MAX_PAGE_BANNER_BYTES} bytes`)
+  decoding('page banner pointer', () => {
+    const v: unknown = JSON.parse(STRICT_UTF8.decode(body))
+    if (typeof v !== 'object' || v === null || Array.isArray(v)) malformed('banner pointer is not an object')
+    const { mime } = v as Record<string, unknown>
+    if (typeof mime !== 'string' || !mime.startsWith('image/')) malformed('banner mime is not an image type')
+  })
 }
 
 export function encodeDocContent(body: Uint8Array, sentAtMs: number): Uint8Array {

@@ -1,24 +1,50 @@
+import { useState } from 'react'
 import { ChevronUp, Plus } from 'lucide-react'
 import { DndContext, closestCenter, type DragEndEvent } from '@dnd-kit/core'
 import { SortableContext, rectSortingStrategy } from '@dnd-kit/sortable'
+import { TOUCH_HIT } from '@/lib/touch'
 import { IconButton } from '@/components/ui/icon-button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { UnreadMark } from '@/components/ui/unread-mark'
-import { useDragSensors, useSortableRow } from '@/hooks/use-sortable-row'
+import { useLayout } from '@/hooks/use-layout'
+import { SORTABLE_TOUCH, useDragSensors, useSortableRow } from '@/hooks/use-sortable-row'
 import type { UnreadBadge } from '@/lib/notify'
 import { LIT_BG, ROW_TILES, tileSurface } from '@/lib/sidebar-tiles'
+import { STACK_W, cutStyle, stackHoles, tileMark, type Hole } from '@/lib/tile-cutouts'
 import { cn } from '@/lib/utils'
 
 const COLUMNS = ROW_TILES + 1
 
-const TILE = 'relative flex h-[46px] w-full items-center justify-center rounded-[8px] border'
-const tileClass = (lit: boolean): string =>
+/** The lit "+" of a row (M44): a voice-green tile with a green mark. Mobile layout only. */
+const ADD_LIT =
+  'mobile:border mobile:border-feature-voice/50 mobile:bg-feature-voice/18 mobile:text-feature-voice-text'
+
+/**
+ * On the mobile layout a tile is a translucent fill (it takes the drawer tint, M3, M12), and the
+ * rings around its marks are holes in the icons under them (`lib/tile-cutouts.ts`): each
+ * `[data-slot=avatar]` in the tile takes the mask in `--cut`.
+ */
+const TILE = cn(
+  'relative flex h-[46px] w-full items-center justify-center rounded-[8px] border',
+  'mobile:[&_[data-slot=avatar]]:[mask-image:var(--cut,none)] mobile:[&_[data-slot=avatar]]:[mask-composite:intersect]'
+)
+/**
+ * The lit tile of a guild or DM on the mobile layout (M2, M3, M12): the tile keeps its fill and a
+ * 2 px ring in the text ink circles the icon. It sits under the badge and the presence dot.
+ */
+const LIT_RING = cn(
+  'mobile:border-transparent mobile:bg-surface-hover',
+  "mobile:before:absolute mobile:before:top-1/2 mobile:before:left-1/2 mobile:before:size-9 mobile:before:-translate-1/2 mobile:before:rounded-full mobile:before:border-2 mobile:before:border-text-primary mobile:before:content-['']"
+)
+
+const tileClass = (lit: boolean, held = false, ring = false): string =>
   cn(
     TILE,
     'transition-colors',
     lit
-      ? cn(LIT_BG, 'border-accent-primary/40')
-      : 'bg-surface-raised hover:bg-surface-hover border-transparent'
+      ? cn(LIT_BG, 'border-accent-primary/40 mobile:bg-accent-primary/17', ring && LIT_RING)
+      : 'bg-surface-raised hover:bg-surface-hover mobile:bg-surface-hover border-transparent',
+    held && 'mobile:bg-fill-control-strong'
   )
 
 /**
@@ -26,11 +52,14 @@ const tileClass = (lit: boolean): string =>
  * places a row. `ids` are the tiles; the cluster tile takes the fifth place, so with more than
  * four `ids` (the open guild grid) it ends the first line and the rest follow, five a line.
  * Arrow keys move the focus (up and down by a line). `onMove`: drag a tile onto another to
- * reorder. `onEscape`: Escape inside the row (the open grid folds).
+ * reorder (on a phone: hold it, then move). `onEscape`: Escape inside the row (the open grid
+ * folds). `addLit`: the sheet that "+" opens is open; on the mobile layout the "+" stays lit
+ * under the dim (M44).
  */
 export function TileRow({
   label,
   add,
+  addLit = false,
   ids,
   renderTile,
   cluster,
@@ -39,6 +68,7 @@ export function TileRow({
 }: {
   label: string
   add: { label: string; onClick: () => void }
+  addLit?: boolean
   ids: readonly string[]
   renderTile: (id: string) => React.ReactNode
   cluster: React.ReactNode
@@ -82,7 +112,11 @@ export function TileRow({
           size="sm"
           label={add.label}
           onClick={add.onClick}
-          className="text-text-tertiary rounded-control h-5 w-[22px]"
+          className={cn(
+            'text-text-tertiary rounded-control h-5 w-[22px]',
+            TOUCH_HIT,
+            addLit && ADD_LIT
+          )}
         >
           <Plus />
         </IconButton>
@@ -107,12 +141,15 @@ export function TileRow({
 /**
  * One tile of a TileRow: a 46 high button with a tooltip, lit while `lit`. Sortable when the
  * row has `onMove`. Extra props (from a wrapping `ContextMenuTrigger asChild`) land on the button.
+ * On the mobile layout a finger that holds the tile shows its name above it (the tooltip, which
+ * touch otherwise never shows) until it lifts.
  */
 export function Tile({
   id,
   label,
   lit,
   onClick,
+  className,
   children,
   ...props
 }: Omit<React.ComponentProps<'button'>, 'id'> & {
@@ -120,10 +157,17 @@ export function Tile({
   label: string
   lit: boolean
 }): React.JSX.Element {
-  const { setNodeRef, attributes, listeners, style } = useSortableRow({ id })
+  const mobile = useLayout() === 'mobile'
+  const { setNodeRef, attributes, listeners, isDragging, style } = useSortableRow({
+    id,
+    // A held tile stays solid under the finger.
+    dim: !mobile
+  })
+  const held = mobile && isDragging
+  const [hover, setHover] = useState(false)
   return (
     <li ref={setNodeRef} style={style}>
-      <Tooltip>
+      <Tooltip open={held || hover} onOpenChange={setHover}>
         <TooltipTrigger asChild>
           <button
             type="button"
@@ -134,12 +178,23 @@ export function Tile({
             aria-label={label}
             aria-current={lit ? 'page' : undefined}
             onClick={onClick}
-            className={tileClass(lit)}
+            className={cn(tileClass(lit, held, true), SORTABLE_TOUCH, className)}
           >
             {children}
           </button>
         </TooltipTrigger>
-        <TooltipContent side="bottom">{label}</TooltipContent>
+        {held ? (
+          // M3: the name bubble above the held tile, clear of the finger; it follows the tile.
+          <TooltipContent
+            side="top"
+            updatePositionStrategy="always"
+            className="mobile:pointer-coarse:block px-2.5 py-1.5 text-[12.5px] font-bold"
+          >
+            {label}
+          </TooltipContent>
+        ) : (
+          <TooltipContent side="bottom">{label}</TooltipContent>
+        )}
       </Tooltip>
     </li>
   )
@@ -147,7 +202,8 @@ export function Tile({
 
 /**
  * The fifth place of a TileRow: up to three small icons of the ids it holds, stacked, with their
- * badge together. `expanded` (the guild grid): a chevron that folds the grid back.
+ * badge together. `expanded` (the guild grid): a chevron that folds the grid back. On the mobile
+ * layout the badge sits on the stack's corner, as on the other tiles.
  */
 export function ClusterTile({
   label,
@@ -168,6 +224,7 @@ export function ClusterTile({
   stack: React.ReactNode[]
   fallback?: React.ReactNode
 }): React.JSX.Element {
+  const mark = tileMark(badge, STACK_W, { dot: false })
   return (
     <li>
       <Tooltip>
@@ -185,10 +242,16 @@ export function ClusterTile({
             {expanded ? (
               <ChevronUp className="size-4" />
             ) : (
-              <Stack items={stack} fallback={fallback} lit={lit} />
-            )}
-            {!expanded && (
-              <UnreadMark badge={badge} size="corner" dot={false} className="top-1 right-1" />
+              // Desktop: the badge is on the tile's corner (this span is not positioned).
+              <span className="mobile:relative flex">
+                <Stack items={stack} fallback={fallback} lit={lit} cut={mark.holes} />
+                <UnreadMark
+                  badge={badge}
+                  size="corner"
+                  dot={false}
+                  className={cn('top-1 right-1', mark.className)}
+                />
+              </span>
             )}
           </button>
         </TooltipTrigger>
@@ -198,7 +261,10 @@ export function ClusterTile({
   )
 }
 
-/** Where the stacked icons sit in the 34x30 box, by count: two behind, the last in front. */
+/**
+ * Where the stacked icons sit in the 34x30 box, by count: two behind, the last in front. The
+ * holes on a phone use the same places (`STACK_XY` in `lib/tile-cutouts.ts`).
+ */
 const STACK_AT = [
   [],
   ['left-1/2 top-1/2 -translate-1/2'],
@@ -209,11 +275,14 @@ const STACK_AT = [
 function Stack({
   items,
   fallback,
-  lit
+  lit,
+  cut
 }: {
   items: React.ReactNode[]
   fallback?: React.ReactNode
   lit: boolean
+  /** The holes of the cluster badge, in the stack's box. */
+  cut: readonly Hole[]
 }): React.JSX.Element {
   const shown = items.slice(0, 3)
   if (shown.length === 0) return <>{fallback}</>
@@ -222,9 +291,11 @@ function Stack({
       {shown.map((item, i) => (
         <span
           key={i}
+          style={cutStyle(stackHoles(shown.length, i, cut))}
           className={cn(
             'absolute flex size-[20px] rounded-full p-px',
             tileSurface(lit),
+            'mobile:bg-transparent',
             STACK_AT[shown.length][i]
           )}
         >

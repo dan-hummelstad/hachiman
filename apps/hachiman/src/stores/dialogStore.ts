@@ -4,10 +4,17 @@ import { create } from 'zustand'
 import { devtools } from 'zustand/middleware'
 import type { CreateChannelBody } from '@hachiman/client'
 
+/** Where an invite link was tapped: the sender and the channel of the message (M45). */
+export interface InviteFrom {
+  userId: string
+  channelId: string
+}
+
 /** The app-level modals before E2EE. Settings are not dialogs: see `openSettings` (navStore). */
 type AppDialog =
   | { kind: 'addGuild' }
-  | { kind: 'joinInvite'; code: string }
+  /** `from`: the invite link was tapped in a message ("From marlowe, in your DMs"). */
+  | { kind: 'joinInvite'; code: string; from?: InviteFrom }
   | {
       kind: 'createChannel'
       guildId: string
@@ -16,7 +23,11 @@ type AppDialog =
     }
   | { kind: 'deleteChannel'; channelId: string }
   | { kind: 'removeGuild'; guildId: string }
-  | { kind: 'invite'; guildId: string }
+  /**
+   * `channelId`: the channel row whose invite button opened it. On the mobile layout that button
+   * stays lit under the dim (M46).
+   */
+  | { kind: 'invite'; guildId: string; channelId?: string }
   /** Create (eventId null) or edit a guild event (N14). */
   | { kind: 'guildEvent'; guildId: string; eventId: string | null }
   /** N12: a thread on a message of `parentId`, `name` prefilled. */
@@ -25,6 +36,12 @@ type AppDialog =
   | { kind: 'notifySettings'; guildId: string }
   /** The sent time, encryption and delivery details of one message. */
   | { kind: 'messageInfo'; channelId: string; messageId: string }
+  /** Sign out of this device: the red row of the mobile settings list (M29). */
+  | { kind: 'signOut' }
+  /** My status from the status chip of the mobile settings list (M29). */
+  | { kind: 'status' }
+  /** "Set a status" (N16): the status sheet opens it in its own place. */
+  | { kind: 'customStatus' }
 
 /**
  * The E2EE dialogs (§12.4, §12.5, §12.10, §12.11). No payload holds a secret: a dialog that shows

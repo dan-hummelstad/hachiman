@@ -17,7 +17,7 @@ import { $node, $prose, $view } from '@milkdown/kit/utils'
 import { ySyncPluginKey } from 'y-prosemirror'
 import { MessageAttachments } from '@/components/chat/attachments/message-attachments'
 import { uploadIdsOf } from '@/lib/attachments'
-import { uploadAttachment, uploadErrorText } from '@/services/UploadService'
+import { claimErrorText, uploadAttachment } from '@/services/UploadService'
 import {
   MEDIA_NODE,
   copyMediaPointer,
@@ -102,12 +102,6 @@ const mediaView = $view(mediaSchema, (): NodeViewConstructor => (initial) => {
     destroy: () => void setTimeout(() => root.unmount())
   }
 })
-
-function claimErrorText(e: unknown): string {
-  if (e instanceof RestError && e.code === 'StorageQuotaExceeded')
-    return 'The page storage of this server is full.'
-  return uploadErrorText(e)
-}
 
 async function claim(pageId: string, ids: string[]): Promise<void> {
   for (let i = 0; i < ids.length; i += CLAIM_BATCH)

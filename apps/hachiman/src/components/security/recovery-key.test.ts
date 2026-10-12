@@ -3,7 +3,8 @@ import {
   checkRecoveryKey,
   checkRecoveryKeyShape,
   decodeRecoveryKeyBody,
-  recoveryKeyBody
+  recoveryKeyBody,
+  recoveryKeyHint
 } from './recovery-key'
 
 // §12.11.3 test vector: rk = 0x00 … 0x1f, checksum 630d.
@@ -54,5 +55,63 @@ describe('recovery key input', () => {
     // The last character carries 2 data bits and 3 pad bits: 8 = 01000 sets a pad bit.
     expect(decodeRecoveryKeyBody(recoveryKeyBody(VECTOR.slice(0, -1) + '9'))).toBeNull()
     expect(await checkRecoveryKey(VECTOR.slice(0, -1) + '9')).toMatchObject({ reason: 'checksum' })
+  })
+})
+
+const FULL = `HRK1-${'ABCDE-'.repeat(10)}FGHJK`
+const TOUCH_HELP = 'In groups of 5. Case, spaces and dashes do not matter.'
+
+describe('recoveryKeyHint', () => {
+  it('shows the help for an empty field', () => {
+    expect(recoveryKeyHint('')).toMatchObject({
+      text: '55 characters, in groups of 5. Case, spaces and dashes do not matter.',
+      count: 0,
+      complete: false,
+      invalid: false,
+      ready: false
+    })
+    expect(recoveryKeyHint('', 'touch').text).toBe(TOUCH_HELP)
+  })
+
+  it('counts an incomplete key in the dialog text, and only beside the touch helper', () => {
+    expect(recoveryKeyHint('HRK1-ABCDE-FG').text).toBe('7 of 55 characters.')
+    expect(recoveryKeyHint('HRK1-ABCDE-FG', 'touch')).toMatchObject({
+      text: TOUCH_HELP,
+      count: 7,
+      complete: false,
+      invalid: false,
+      ready: false
+    })
+  })
+
+  it('marks a full key complete and ready, with or without separators and in any case', () => {
+    for (const input of [FULL, FULL.toLowerCase(), FULL.replace(/-/g, ' ')]) {
+      expect(recoveryKeyHint(input, 'touch')).toMatchObject({
+        text: 'All 55 characters are there.',
+        count: 55,
+        complete: true,
+        invalid: false,
+        ready: true
+      })
+    }
+  })
+
+  it('names a character that keys do not use', () => {
+    const hint = recoveryKeyHint('HRK1-ABCDU', 'touch')
+    expect(hint.invalid).toBe(true)
+    expect(hint.complete).toBe(false)
+    expect(hint.text).toContain('letter U')
+  })
+
+  it('caps the count at 55 for a key that is too long, but lets the user try it', () => {
+    const hint = recoveryKeyHint(`${FULL}-XX`, 'touch')
+    expect(hint).toMatchObject({ count: 55, complete: false, invalid: true, ready: true })
+    expect(hint.text).toBe('The key has 2 characters too many.')
+  })
+
+  it('lets a full key with a bad character go to the check, which names the character', () => {
+    const hint = recoveryKeyHint(`${FULL.slice(0, -1)}U`)
+    expect(hint.ready).toBe(true)
+    expect(hint.invalid).toBe(true)
   })
 })

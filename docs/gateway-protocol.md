@@ -153,6 +153,7 @@ interface Page {
   parentId: string | null          // null for a root page. A page of the same channel
   position: number
   titleEnvelope: string            // base64url doc_title envelope (§12.20)
+  bannerEnvelope: string | null    // base64url doc_banner envelope (§12.20). Not null only on a top-level page
   createdBy: string | null         // null after the user is gone
   createdAt: string; updatedAt: string
 }
@@ -168,6 +169,7 @@ interface PageState { snapshot: DocSnapshot | null; updates: DocUpdate[] /* afte
 interface PageHead {               // GET /channels/:id/pages/heads: the data of a re-wrap pass (§12.20)
   pageId: string; latestSeq: number
   title: { groupId: string; epoch: number } | null   // from the header of titleEnvelope. null when the header does not decode
+  banner: { groupId: string; epoch: number } | null  // from the header of bannerEnvelope. null when the page has no banner or the header does not decode
   snapshot: DocSnapshot | null     // the newest snapshot
 }
 
@@ -276,7 +278,7 @@ Pages tables (§4 Pages, §12.20). The server sees the tree and the timestamps. 
 
 | Table | Columns | Notes |
 |---|---|---|
-| `doc_pages` | id uuid PK (no default: the client chooses it), channel_id → channels (cascade), parent_id null → doc_pages (cascade), position int default 0, title_envelope bytea, created_by null → users (set null), latest_seq bigint default 0, created_at, updated_at | index (channel_id); index (parent_id). `latest_seq` is the highest `doc_updates.seq` of the page |
+| `doc_pages` | id uuid PK (no default: the client chooses it), channel_id → channels (cascade), parent_id null → doc_pages (cascade), position int default 0, title_envelope bytea, banner_envelope bytea null, banner_upload_ids uuid[] default '{}', created_by null → users (set null), latest_seq bigint default 0, created_at, updated_at | index (channel_id); index (parent_id). `latest_seq` is the highest `doc_updates.seq` of the page. `banner_envelope` is the doc_banner envelope (§12.20). It is null when `parent_id` is not null. `banner_upload_ids` are the `page_media` uploads of the page that the banner uses (the image and its thumbnail). The client gives them, because the server cannot read the envelope. No route or event carries them |
 | `doc_updates` | page_id → doc_pages (cascade), seq bigint, group_id bytea → mls_groups (cascade), epoch bigint, sender_device null → devices (set null), envelope bytea, created_at | PK (page_id, seq). One doc_update envelope (one encrypted Yjs update) per row |
 | `doc_snapshots` | page_id → doc_pages (cascade), base_seq bigint, upload_id unique → uploads (cascade), group_id bytea → mls_groups (cascade), epoch bigint, sender_device null → devices (set null), envelope bytea, media_upload_ids uuid[] default '{}', created_at | PK (page_id, base_seq). The bytes are the S3 object of `upload_id`. `envelope` is the doc_snapshot pointer envelope. A re-wrap (§4 Pages) replaces `envelope`, `group_id`, `epoch` and `sender_device` in place |
 
@@ -290,7 +292,7 @@ Pins, guild events and blocks (§4 Pins, guild events and blocks, `apps/takusen/
 | `user_blocks` | user_id → users (cascade), blocked_user_id → users (cascade), created_at | PK (user_id, blocked_user_id); index (blocked_user_id) |
 | `guild_sounds` | id uuid PK (no default: the client chooses it), guild_id → guilds (cascade), name, emoji null, upload_id unique → uploads (cascade), channel_id uuid (no FK), group_id bytea (no FK), epoch bigint, sender_device null → devices (set null), envelope bytea, created_by null → users (set null), created_at | index (guild_id, created_at). Migration 0008. The soundboard (§4 Soundboard). `name` and `emoji` are plaintext metadata. The clip is the encrypted blob of `upload_id` (purpose `sound`). `envelope` is the sound pointer with the file key, sealed in the group of `channel_id` (§12.21). Migration 0009 adds USE_SOUNDBOARD to the @everyone role of every existing guild |
 
-E2EE tables (§12). `bytea` columns hold the binary objects of §12 as they are. Enums: `device_status` ('pending','active','revoked'), `device_platform` ('electron','browser'), `revoke_reason` ('user','lost','password_reset','compromised','signed_out'), `mls_group_kind` ('public_set','channel','dm'), `mls_group_status` ('pending','active','retired'), `history_visibility` ('joined','shared'), `handshake_kind` ('commit','external_commit','proposal'), `pending_op` ('add','remove'), `pending_status` ('queued','assigned','rejected'), `join_status` ('queued','committed','rejected','external_commit','waiting'), `inbox_kind` ('welcome','dsk_transfer','history_keys'), `backup_kind` ('identity','history').
+E2EE tables (§12). `bytea` columns hold the binary objects of §12 as they are. Enums: `device_status` ('pending','active','revoked'), `device_platform` ('electron','browser','ios'), `revoke_reason` ('user','lost','password_reset','compromised','signed_out'), `mls_group_kind` ('public_set','channel','dm'), `mls_group_status` ('pending','active','retired'), `history_visibility` ('joined','shared'), `handshake_kind` ('commit','external_commit','proposal'), `pending_op` ('add','remove'), `pending_status` ('queued','assigned','rejected'), `join_status` ('queued','committed','rejected','external_commit','waiting'), `inbox_kind` ('welcome','dsk_transfer','history_keys'), `backup_kind` ('identity','history').
 
 | Table | Columns | Notes |
 |---|---|---|
@@ -550,7 +552,7 @@ Every route needs VIEW_CHANNEL on the channel of the page (a page that the calle
 | GET `/channels/:id/pages` | | — | `Page[]` (all pages of the channel, any order) | — |
 | GET `/channels/:id/pages/heads` | | — | `PageHead[]` (all pages of the channel, any order) | — |
 | POST `/channels/:id/pages` | W D | `{id, parentId: string \| null, position, titleEnvelope}` | `Page` (201). 409 `PageExists` when `id` is taken | `PAGE_CREATE` |
-| PATCH `/pages/:pageId` | W D | `{parentId?, position?, titleEnvelope?, ifUpdatedAt?: string}` | `Page`. 409 `PageConflict` when `ifUpdatedAt` is not the `updatedAt` of the page | `PAGE_UPDATE` |
+| PATCH `/pages/:pageId` | W D | `{parentId?, position?, titleEnvelope?, banner?: {envelope, uploadIds?: string[] /* 1 to 2 */} \| null, ifUpdatedAt?: string}` | `Page`. 409 `PageConflict` when `ifUpdatedAt` is not the `updatedAt` of the page. 413 `StorageQuotaExceeded` (Banner, below) | `PAGE_UPDATE` |
 | DELETE `/pages/:pageId` | W | — | 204 | `PAGE_DELETE` |
 | GET `/pages/:pageId/state` | | — | `PageState` | — |
 | GET `/pages/:pageId/updates?after=&limit=` | | — | `{updates: DocUpdate[], latestSeq}`, `seq > after` ascending. `limit` ≤ 500 (default 200) | — |
@@ -560,10 +562,18 @@ Every route needs VIEW_CHANNEL on the channel of the page (a page that the calle
 
 - **Channel type.** The page routes need a channel of type `pages`, else 400 `NotPagesChannel`. A new pages channel has no page. The client that creates the channel then creates one root page ("Untitled"), because only a client can encrypt the title.
 - **Create.** `id` is a new UUID that the client chooses, because the title envelope binds the page id (§12.20). `parentId` is null or a page of the same channel, else 400 `ValidationError`.
-- **Envelope checks.** Takusen decodes only the header (§12.20 "Server checks"). `titleEnvelope` needs kind `doc_title`, the updates route kind `doc_update`, the snapshots route kind `doc_snapshot`, else 400 `InvalidEnvelope`. The other checks and codes are those of §12.8.4: 413 `EnvelopeTooLarge`, 409 `GroupPending`, 409 `StaleEpoch {epoch}`, 403 `NotMember`, 400 `InvalidEnvelope`.
+- **Envelope checks.** Takusen decodes only the header (§12.20 "Server checks"). `titleEnvelope` needs kind `doc_title`, `banner.envelope` kind `doc_banner`, the updates route kind `doc_update`, the snapshots route kind `doc_snapshot`, else 400 `InvalidEnvelope`. The other checks and codes are those of §12.8.4: 413 `EnvelopeTooLarge`, 409 `GroupPending`, 409 `StaleEpoch {epoch}`, 403 `NotMember`, 400 `InvalidEnvelope`.
 - **Move.** A PATCH that sets `parentId` to the page itself or to a page of its subtree gives 400 `PageCycle`. A `parentId` of another channel gives 400 `ValidationError`. Takusen sets `updated_at` on every PATCH. Takusen does not renumber siblings: the client sends the positions it wants.
-- **Compare-and-set.** With `ifUpdatedAt` (an ISO 8601 time, as `Page.updatedAt`), Takusen locks the page row and compares the two times to the millisecond. When they differ, it gives 409 `PageConflict` and changes nothing. A title re-wrap (§12.20) sends it, so that it does not undo a rename that came in between.
-- **Heads.** `GET /channels/:id/pages/heads` gives, for each page, `latest_seq`, the group and the epoch from the header of the title envelope (Takusen decodes the header only), and the newest snapshot. A re-wrap pass reads it instead of the state of each page.
+- **Compare-and-set.** With `ifUpdatedAt` (an ISO 8601 time, as `Page.updatedAt`), Takusen locks the page row and compares the two times to the millisecond. When they differ, it gives 409 `PageConflict` and changes nothing. A title or banner re-wrap (§12.20) sends it, so that it does not undo a rename or a banner change that came in between.
+- **Banner.** A top-level page (`parentId` null) can have a banner image: a `doc_banner` envelope (§12.20) that holds the pointer of a §12.9 blob. Its sub-pages show the banner of their top-level ancestor. A PATCH with `banner`:
+  1. Takusen locks the page row once (after the tree lock of a move). The `ifUpdatedAt` check uses the same locked row.
+  2. A non-null `banner` needs the resulting `parentId` (the body value, else the stored one) to be null. Else 400 `ValidationError`.
+  3. `banner.envelope` must pass the envelope checks above.
+  4. With `uploadIds` (1 to 2 ids, no duplicates: the image and its thumbnail): each id must be in the stored `banner_upload_ids`, or be claimable as in "Media" below. Else 400 `UnknownUpload`. Takusen stores the list as `banner_upload_ids`. Without `uploadIds` (a re-wrap): the page must have a stored banner, else 400 `ValidationError`. Takusen keeps the stored `banner_upload_ids` and claims nothing, as the snapshot re-wrap does. Thus the caller does not need to be the uploader.
+  5. A new claim adds the size to the quota. Above the limit: 413 `StorageQuotaExceeded`, and nothing of the request is stored.
+  6. Ids of the stored `banner_upload_ids` that the PATCH drops, also on `banner: null`, get `last_referenced_at = now()`. The media sweep deletes them after 30 days (the undo window).
+  7. A PATCH that sets a non-null `parentId` on a page with a banner clears the banner as `banner: null` does. Thus `banner_envelope` is not null only when `parent_id` is null.
+- **Heads.** `GET /channels/:id/pages/heads` gives, for each page, `latest_seq`, the group and the epoch from the header of the title envelope and of the banner envelope (Takusen decodes the header only), and the newest snapshot. A re-wrap pass reads it instead of the state of each page.
 - **Delete.** Deletes the page and its subtree in one transaction. It deletes the upload rows of these pages (`deletePageUploadRows`), then (best effort) their objects, and subtracts their bytes from `guilds.page_storage_bytes`. `PAGE_DELETE.ids` lists the page and every page of its subtree. A channel delete and a guild delete also delete the page uploads with `deleteAttachmentRows`.
 - **Updates.** `POST /pages/:pageId/updates` locks the page row, sets `latest_seq = latest_seq + 1` and inserts the row with that `seq` in one transaction. Thus `seq` has no gaps, also when two senders post at the same time. After the commit, Takusen publishes `DOC_UPDATE`.
 - **State.** `GET /pages/:pageId/state` gives the newest snapshot and the first 500 updates after its `baseSeq` (after 0 without a snapshot). The client reads the rest with `GET /pages/:pageId/updates`, downloads the snapshot blob from `/files/{uploadId}/blob` and decrypts it (§12.9).
@@ -574,9 +584,9 @@ Every route needs VIEW_CHANNEL on the channel of the page (a page that the calle
   4. Keeps the previous snapshot and the updates after its `base_seq`. It deletes the older snapshot rows, the updates with `seq <=` the `base_seq` of the previous snapshot, and the upload rows of the deleted snapshots (`deletePageUploadRows`, objects after the commit). Thus a page has at most two snapshot objects.
 - **Re-wrap.** A re-wrap posts the pointer of the newest snapshot again, in a newer epoch (§12.20 "Access by new members"). The blob does not change, so the client uploads nothing. The route accepts it when `baseSeq` and `uploadId` are those of the newest snapshot, the envelope passes the checks above, and the envelope is of another group than the row (the channel has a new group) or of a higher epoch. Else 409 `SnapshotConflict` with the current `baseSeq`: another member was first. Takusen replaces `envelope`, `group_id`, `epoch` and `sender_device` of the row in place. It claims no upload, changes no quota and deletes nothing. It keeps the stored `media_upload_ids` and ignores the body list, so a re-wrap cannot drop a media reference. The caller does not need to be the uploader.
 - **When a client posts a snapshot.** When more than 200 updates follow the newest snapshot, or when the newest snapshot or an update after it has an epoch below the current epoch of the group. The second rule lets a member who joined in a later epoch read the page (§12.20 "Access by new members"). When no update follows the newest snapshot, the client re-wraps its pointer instead of a new snapshot.
-- **Media.** A page image, video or file is a §12.9 blob from `POST /uploads?kind=blob`. `POST /pages/:pageId/media` claims each id: the upload must be of the caller and `encrypted`, with purpose null (a new claim: it sets `purpose = 'page_media'` and `page_id`, and adds the size to the quota) or `page_media` of this page (a refresh). Else 400 `UnknownUpload`. Every claim sets `last_referenced_at = now()`. The client claims again each time it inserts the media into the page.
+- **Media.** A page image, video or file is a §12.9 blob from `POST /uploads?kind=blob`. `POST /pages/:pageId/media` claims each id: the upload must be of the caller and `encrypted`, with purpose null (a new claim: it sets `purpose = 'page_media'` and `page_id`, and adds the size to the quota) or `page_media` of this page (a refresh). Else 400 `UnknownUpload`. Every claim sets `last_referenced_at = now()`. The client claims again each time it inserts the media into the page. A page banner is page media too: the PATCH that sets it claims its uploads (Banner, above), not this route.
 - **Quota.** `guilds.page_storage_bytes` counts the blob bytes of the `page_snapshot` and `page_media` uploads of the guild. A claim that takes it above `TAKUSEN_GUILD_PAGE_STORAGE_BYTES` (default 10737418240 = 10 GiB, 0 = no limit) gives 413 `StorageQuotaExceeded`, and nothing of the request is stored. Each claim and each delete changes the count in its transaction, with the guild row locked.
-- **Media sweep.** The daily sweep of the gRPC process deletes a `page_media` upload (in one transaction the row and its bytes from the quota, then the object) when all three are true: no snapshot of its page lists it in `media_upload_ids`, its `created_at` is more than 30 days ago, and its `last_referenced_at` is more than 30 days ago. The 30 days are the window for undo and restore.
+- **Media sweep.** The daily sweep of the gRPC process deletes a `page_media` upload (in one transaction the row and its bytes from the quota, then the object) when all four are true: no snapshot of its page lists it in `media_upload_ids`, its page does not list it in `banner_upload_ids`, its `created_at` is more than 30 days ago, and its `last_referenced_at` is more than 30 days ago. The 30 days are the window for undo and restore.
 
 ### Admin API
 
@@ -1007,7 +1017,7 @@ export class RestClient {
   poke(userId)
   updateMe({ avatar? }); getLimits()
   // §4 Pages
-  getPages(channelId); getPageHeads(channelId); createPage(channelId, { id, parentId, position, titleEnvelope }); updatePage(pageId, { parentId?, position?, titleEnvelope?, ifUpdatedAt? }); deletePage(pageId)
+  getPages(channelId); getPageHeads(channelId); createPage(channelId, { id, parentId, position, titleEnvelope }); updatePage(pageId, { parentId?, position?, titleEnvelope?, banner?: { envelope, uploadIds? } | null, ifUpdatedAt? }); deletePage(pageId)
   getPageState(pageId); getPageUpdates(pageId, { after, limit? }); postPageUpdate(pageId, { envelope })
   postPageSnapshot(pageId, { baseSeq, uploadId, envelope, mediaUploadIds }); claimPageMedia(pageId, uploadIds)
   sendMessage(channelId, { envelope, nonce?, attachments?: string[] /* upload ids */ }); editMessage(channelId, messageId, { envelope })
@@ -1016,7 +1026,7 @@ export class RestClient {
   uploadSnapshot(blob: Blob, opts?: { signal?: AbortSignal; onProgress?(loaded: number, total: number): void }): Promise<Attachment>   // ?kind=page_snapshot
   uploadImage(file: Blob, opts: { filename: string; signal?: AbortSignal; onProgress?(loaded: number, total: number): void }): Promise<{ id: string; key: string; size: number }>
   fileUrl(key: string): string   // `${baseUrl}/files/${key}`, each path segment URI-encoded
-  fetchBlob(key: string, opts?: { signal?: AbortSignal }): Promise<Blob>
+  fetchBlob(key: string, opts?: { signal?: AbortSignal; maxBytes?: number }): Promise<Blob>   // maxBytes: a larger Content-Length, or a body past it, stops the read and rejects with RestError code TooLarge. The UI gives a pointer's blobSize
   // §12.12, one method per row, with the shapes of §12.12:
   registerDevice(body); listDevices(); renameDevice(id, name); putDeviceCertificate(id, body); revokeDevice(id, body)
   getUserKeys(userId); putMasterKey(body); putDeviceSigningKey(body)
@@ -1165,12 +1175,12 @@ Mute does not release the microphone. It only stops the outgoing track (`VoiceCo
 
 ```ts
 export interface IPlatformService {
-  readonly platform: 'electron' | 'browser'
+  readonly platform: 'electron' | 'browser' | 'ios'
   /** The host hides the native title bar, so the UI draws a draggable strip (Electron on macOS). */
   readonly insetTitleBar: boolean
   /** OAuth `redirect_uri` for this host. Takusen's client registration must allow it. */
   readonly oauthRedirectUri: string
-  /** Opens the OAuth authorization page. Browser: same-tab redirect. Electron: system browser. */
+  /** Opens the OAuth authorization page. Browser: same-tab redirect. Electron: system browser. iOS: ASWebAuthenticationSession. */
   beginOAuth(url: string): void
   /** Invite links (`takusen://invite/<code>` or `https://<takusen>/invite/<code>`, `#k=<key>` with history) → code and key. Returns unsubscribe. */
   onInviteLink(cb: (link: InviteLink) => void): () => void
@@ -1192,8 +1202,25 @@ export interface IPlatformService {
   setGlobalShortcuts(shortcuts: GlobalShortcut[]): Promise<string[] | null>
   /** Electron: a global shortcut fired, with its action. Browser: never. Returns unsubscribe. */
   onGlobalShortcut(cb: (action: string) => void): () => void
+  /** iOS: a tap of the haptic engine. Electron and browser: no-op. */
+  haptic(kind: HapticKind): void
+  /** The OS share sheet; true when shared, false when cancelled. iOS: native sheet. Browser: navigator.share when present, else null. Electron: null. Null: the UI offers Copy only. */
+  readonly share: ((content: ShareContent) => Promise<boolean>) | null
+  /** iOS: a native full-screen QR scanner; the code text, or null when cancelled. Electron and browser: null (the UI uses BarcodeDetector where present). */
+  readonly scanQr: (() => Promise<string | null>) | null
+  /** iOS: saves a UTF-8 text file (`name`: a file name, no path) through the Files export sheet; true when saved, false when cancelled. Electron and browser: null (the UI downloads a blob). */
+  readonly saveTextFile: ((name: string, text: string) => Promise<boolean>) | null
+  /** iOS: the status bar style and the window background follow the app theme. Others: no-op. */
+  setAppearance(appearance: Appearance): void
   /** The wrap key of the encrypted crypto store (§12.17). */
   readonly secureStorage: ISecureStorage
+}
+
+export type HapticKind = 'light' | 'success' | 'warning'
+export interface ShareContent { url: string; text?: string }
+export interface Appearance {
+  theme: 'dark' | 'light'
+  background: string   // a hex color (#rrggbb or #rrggbbaa), e.g. the value of --surface-window: the window background behind the safe areas
 }
 
 // Electron: IPC `hachiman:close-to-tray-get` / `hachiman:close-to-tray-set` (a boolean), from the top
@@ -1217,7 +1244,7 @@ export type UpdateCheckResult =
   | { status: 'failed'; reason: string }
 
 export interface ISecureStorage {
-  readonly backend: 'os-keychain' | 'browser-indexeddb'
+  readonly backend: 'os-keychain' | 'browser-indexeddb'   // iOS: 'os-keychain'
   /**
    * The store wrap key of this install and user: AES-GCM 256, non-extractable, usages encrypt/decrypt.
    * The host creates it on the first call. Rejects with SecureStorageUnavailable when no OS keystore exists.
@@ -1254,22 +1281,24 @@ Global shortcuts (the user's keybinds that work while the app is in the backgrou
 - Errors: a rejection is an `Error` whose `name` and `code` are `SecureStorageUnavailable` (no OS keystore, or no IndexedDB), `StoreCorrupt` (the stored key does not decrypt or decode) or `Malformed` (a bad user id or caller). `secureStorageErrorCode(e)` reads the code.
 - Residual risk (Electron): the main process zeroes the buffers that it holds, but it cannot zero every copy of the wrap key bytes (`safeStorage` results, IPC serialization, V8 copies).
 - Browser: the host makes a non-extractable `CryptoKey` with `crypto.subtle.generateKey` and stores the key object in its own IndexedDB database (`hachiman-wrap`). The raw bytes never exist in JavaScript.
+- iOS: the app keeps 32 random bytes per user in the Keychain (generic password, service `hachiman.wrap-key`, account the user id, `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`, not synchronized). The bridge op `wrapKey.get` gives them to the page, which imports them as a non-extractable `CryptoKey` and overwrites them, as Electron does. A Keychain failure rejects with `SecureStorageUnavailable`.
 - The shared UI gives the key to the crypto Worker in `CryptoApi.init`. A `CryptoKey` is structured-cloneable.
 
 The shared UI must not examine `window`, `navigator.userAgent`, or `window.location` to identify the host. It reads the host facts from this interface.
 
 Each host declares its title bar. The Electron main process hides the native title bar on macOS only. The preload script gives this fact to the renderer as `window.hachiman.insetTitleBar`. The browser host sets `insetTitleBar` to `false`.
 
-`beginOAuth` is the only way to start sign-in. The UI gives `oauthRedirectUri` to `takusenService.beginSignIn`. The pending PKCE flow keeps the URI, and `completeSignIn` sends the same URI in the token exchange. The two hosts use different redirect URIs:
+`beginOAuth` is the only way to start sign-in. The UI gives `oauthRedirectUri` to `takusenService.beginSignIn`. The pending PKCE flow keeps the URI, and `completeSignIn` sends the same URI in the token exchange. The hosts use different redirect URIs:
 
 - Browser: `${location.origin}/oauth/callback`. The host replaces the current page, so the callback comes back to the same app instance.
 - Electron: `${issuerOrigin}/oauth/electron-bridge`. A system browser cannot show an `app.hachiman://` URL. Thus the Takusen bridge page receives the code and opens `app.hachiman://oauth-callback?…`. The main process then sends that URL to the renderer.
+- iOS: `app.hachiman://oauth-callback`. `ASWebAuthenticationSession` catches the redirect itself, so no bridge page is necessary. The app sends the URL to the page as the `oauth-callback` event.
 
-`VITE_HACHIMAN_OIDC_REDIRECT` replaces the default URI on either host.
+`VITE_HACHIMAN_OIDC_REDIRECT` replaces the default URI on the Electron and browser hosts.
 
 When the user starts sign-in from an invite dialog, the pending PKCE flow also keeps the invite code. After the callback, the UI opens the invite dialog again. It does this also when sign-in fails. The browser host needs this step: the redirect loads the page again, and the host removed `/invite/<code>` from the URL at start-up. When the callback fails, the UI shows the cause and tells the user to sign in again. The sign-in screen and the invite dialog show this message.
 
-The key of an invite with history does not go into the pending flow, because the Takusen store keeps the flow in `localStorage`. In the browser host, the UI keeps the key in `sessionStorage` (`hachiman-invite-key:<code>`, this tab only) during the redirect, and moves it back into memory at the callback. At start-up, after the callback of the load URL, the UI deletes every other `hachiman-invite-key:` entry. Thus a sign-in that did not finish (the user left the sign-in page, for example) leaves no key. The Electron renderer keeps the key in memory.
+The key of an invite with history does not go into the pending flow, because the Takusen store keeps the flow in `localStorage`. In the browser host, the UI keeps the key in `sessionStorage` (`hachiman-invite-key:<code>`, this tab only) during the redirect, and moves it back into memory at the callback. At start-up, after the callback of the load URL, the UI deletes every other `hachiman-invite-key:` entry. Thus a sign-in that did not finish (the user left the sign-in page, for example) leaves no key. The Electron and iOS hosts do not load the page again, so they keep the key in memory.
 
 Invite links:
 - The forms are `takusen://invite/<code>`, `https://<Takusen issuer origin>/invite/<code>`, the web client path `/invite/<code>`, and a bare code. The link of an invite with history ends in `#k=<key>` (§12.11.4). `parseInviteLink` reads all of them.
@@ -1290,6 +1319,11 @@ Screen share source selection:
 - Without a selection, or when the request does not come from the top frame of the app page, `getDisplayMedia` fails.
 - Thumbnails are JPEG `data:` URLs. The CSP allows `data:` images.
 - Accepted risk: script in the app page (for example, after an XSS attack) can list and select a source itself. It can then capture a window, and the user sees no picker.
+
+`saveTextFile` ("Save to Files", for example the recovery key):
+- iOS: the bridge op `saveTextFile` (`{ name, text }`). The app refuses a `name` that is empty, starts with `.`, has `/`, `:` or a control character, or has more than 255 UTF-8 bytes (`Malformed`). It writes the text to `tmp/export/<uuid>/<name>` with complete file protection, and shows `UIDocumentPickerViewController(forExporting:asCopy: true)`. The reply is true when the user picked a place, and false when the user closed the sheet. Only one export sheet is open at a time: a call while one is open (for example a double tap) is refused with `Malformed`, and the open sheet stays. The app deletes the file when the sheet closes. A save first deletes all of `tmp/export/`, so a file that a killed process left goes too.
+- Electron and browser: null. The UI downloads a `Blob` with `<a download>`.
+- The text leaves the app only on this user action. The UI calls it only from a button that the user selects.
 
 The guild region pickers use `probeRegions`. They send the measured RTTs to `POST /api/v1/regions/recommend` and show the result as "Automatic (recommended: <region>)". The browser host measures nothing, so the picker shows only "Automatic".
 
@@ -1323,6 +1357,10 @@ The packaged Electron app does not load the renderer from `file://`. A `file://`
 - The middleware is the only source of CORS headers under `/api/*`, `/api/oidc` included. It answers all preflights. The OIDC route removes the CORS headers and the `Vary` header that the OIDC provider sets.
 - On the token, userinfo and revocation endpoints, the OIDC provider also examines the origin with the same allowlist. It rejects a different origin with a 400 response.
 
+### iOS host
+
+`apps/hachiman-ios` is a SwiftUI app with one `WKWebView` (iOS 18.5 or later: the WebKit of iOS 18.3 has no WebCrypto X25519, and 18.5 is the oldest runtime that passed the capability probe). It serves the built shared UI from the scheme `hachiman` (`hachiman://app/index.html`, origin `hachiman://app`, as the packaged Electron renderer). Every response of the scheme handler carries the CSP of the iOS build (`apps/hachiman-ios/csp.ts`, the Electron policy) as a `Content-Security-Policy` header, so the Worker scripts get the policy too. The build writes the header value to `csp-header.txt`. `index.html` also has the policy as a meta tag. The page talks to the app through one script message handler, `hachiman`: a message is `{ op, ... }` and the reply comes back through `WKScriptMessageHandlerWithReply`. The app answers only the main frame of the origin `hachiman://app`. The ops are `ready`, `wrapKey.get`, `wrapKey.clear`, `oauth.begin`, `haptic`, `share`, `scanQr`, `saveTextFile` and `setAppearance`. Events from the app (`oauth-callback`, `invite-link`) go to `window.__hachimanNative.emit(type, payload)`. The app holds its events until the page sends `ready`, and again from each new main-frame load. The page holds each event type until its first subscriber. Only the `ASWebAuthenticationSession` completion sends `oauth-callback`: the app does not register the URL scheme `app.hachiman`, so another app cannot send a callback. The app registers only `takusen` (invite links). iOS has no `getDisplayMedia` (no screen share) and no global shortcuts: `getScreenSources`, `closeToTray` and `setGlobalShortcuts` give null, and `checkForUpdate` gives `not-available` (TestFlight updates the app).
+
 Deep link scheme: `takusen://invite/<code>[#k=<base64url invite seed>]` (replaces `takusen://join#<signed payload>`). OAuth callback scheme unchanged (`app.hachiman://oauth-callback`).
 
 ## 12. End-to-end encryption
@@ -1335,7 +1373,7 @@ This section is normative for E2EE. `docs/e2ee-plan.md` gives the reasons. `pkgs
 - Takusen, the gateway and the media nodes relay ciphertext. Only member devices hold keys.
 - The gateway accepts only clients that send the capability `e2ee/1` and a version at or above the minimum (§12.13).
 - There is no migration from plaintext data.
-- Avatars, guild icons and banners stay plaintext. They are public profile data.
+- Avatars, guild icons and guild banners stay plaintext. They are public profile data. A page banner is page content and is E2EE (§12.20 `doc_banner`).
 - Metadata stays visible to the server: membership, sender, time, sizes, typing, presence, voice state and speaking state.
 - Plaintext like a channel topic: guild event titles, times, voice channel and RSVPs (§4 Pins, guild events and blocks), the pinned message ids of a channel (not their content), and user blocks.
 - Each device is a separate MLS member. One device has one MLS signature key for all of its groups.
@@ -1550,7 +1588,7 @@ struct {
   opaque mls_signature_key<V>;
   opaque hpke_key[32];
   opaque device_name<V>;           // UTF-8, 1 to 64 bytes
-  uint8 platform;                  // 1 electron, 2 browser
+  uint8 platform;                  // 1 electron, 2 browser, 3 ios
 } LinkOffer;
 
 struct {
@@ -2307,7 +2345,7 @@ CORS (§4) allows the request headers `X-Hachiman-Device` and `X-Hachiman-Signed
 
 | Method + path | D | Body | Returns | Publishes |
 |---|---|---|---|---|
-| POST `/devices` | | `{name, platform: 'electron'\|'browser', clientVersion, mlsSignatureKey}` (32 bytes) + a device proof by `mlsSignatureKey` | `Device` (201, status `pending`). At most 20 non-revoked devices (409 `TooManyDevices`) | — |
+| POST `/devices` | | `{name, platform: 'electron'\|'browser'\|'ios', clientVersion, mlsSignatureKey}` (32 bytes) + a device proof by `mlsSignatureKey` | `Device` (201, status `pending`). At most 20 non-revoked devices (409 `TooManyDevices`) | — |
 | GET `/devices` | | — | `Device[]` (own, revoked included) | — |
 | PATCH `/devices/:id` | D | `{name}` | `Device` | — |
 | PUT `/devices/:id/certificate` | D | `{certificate}` | `Device` (status `active`) | `USER_KEYS_UPDATE device_added` |
@@ -2398,7 +2436,7 @@ CORS (§4) allows the request headers `X-Hachiman-Device` and `X-Hachiman-Signed
 **Wire shapes.** These are the TS types in `pkgs/hachiman-crypto/src/api.ts` (`Wire*`). `@hachiman/client` exports the same shapes without the `Wire` prefix (§10).
 
 ```ts
-interface Device { id; userId; status: 'pending' | 'active' | 'revoked'; name; platform: 'electron' | 'browser'; clientVersion;
+interface Device { id; userId; status: 'pending' | 'active' | 'revoked'; name; platform: 'electron' | 'browser' | 'ios'; clientVersion;
   certificate: string | null; revocation: string | null; revokeReason: 'user' | 'lost' | 'password_reset' | 'compromised' | 'signed_out' | null;
   createdAt; lastSeenAt: string | null; revokedAt: string | null }
 interface UserKeys { userId; masterKey: { generation; record; ktIndex: number | null; ktEntry: string | null } | null;
@@ -2588,8 +2626,10 @@ franking_tag = HMAC-SHA256(franking_key, "hachiman franking v1" ‖ channel_id(1
 - **One tab per device.** The bridge takes the Web Lock `hachiman-crypto:{origin}:{userId}`. A second tab gets `CryptoError` `LockHeld` and shows "open in another tab". Two Workers on one store would fork the group state.
 - **Store.** IndexedDB, one database per (origin, user). Each record is AES-256-GCM under the non-extractable wrap key from `IPlatformService.secureStorage` (§11), with a random 12-byte nonce. The AAD is `encode(struct { opaque table<V>; opaque key<V>; })`, so the AAD is injective. The wrap key is used directly. There is no HKDF step, because a non-extractable AES-GCM key cannot be an HKDF input.
 - **Store table `invites`** (key: the invite key id). The records that the device accepted, the newest epoch that it sent per group (`bundled`), the revoke flag, and for a redeemer the invite code and the seed. The seed stays until `INVITE_AUTH_WINDOW_MS` after the redemption, or until `INVITE_DELETE`. The device deletes the row 30 days after the expiry of the invite (`HANDSHAKE_RETENTION_MS`: Takusen keeps handshakes for 30 days, §12.7.9). Until then, an invite join that the DS accepted before the expiry can come in the handshake stream: the row keeps the revoke mark, and the timeline event of the record goes only once into each group. The table came with database version 2: an upgrade adds the table and keeps the other records.
-- **Browser host.** The browser host shows the label "trusts the server's code", because a hostile server can send hostile JavaScript. The Electron host is the strong client. `CryptoStatus.hostTrust` gives the value. One exception applies to both hosts: a clicked invite link opens the Takusen page `/invite/<code>` in a browser, and a script of that page reads the invite seed (§11). Only a link that the user pastes into the Electron app does not go through Takusen.
-- **CSP.** Electron (rules in `apps/hachiman-electron/src/main/csp-policy.ts`, applied by `csp.ts`, §11) adds `worker-src 'self'`, and `blob:` to `img-src` and `media-src` (decrypted attachments are object URLs). It does not add `blob:` to `script-src` or `worker-src`. The browser host sends the same policy. ts-mls, @noble and @hpke are pure TypeScript on WebCrypto and use no wasm. `script-src` has `'wasm-unsafe-eval'` only for the RNNoise mic worklet (§11), which holds no key material. Both hosts build the crypto Worker and the transform Worker with Vite (`new Worker(new URL(…, import.meta.url), { type: 'module' })`).
+- **Browser host.** The browser host shows the label "trusts the server's code", because a hostile server can send hostile JavaScript. The Electron host is the strong client. `CryptoStatus.hostTrust` gives the value.
+- **iOS host.** `hostTrust` is `'strong'`, as for Electron, on purpose: the app code ships inside the signed app bundle, and Takusen cannot send other code to it.
+- **Invite link exception.** One exception applies to every host: a clicked invite link opens the Takusen page `/invite/<code>` in a browser, and a script of that page reads the invite seed (§11). Only a link that the user pastes into the Electron or iOS app does not go through Takusen.
+- **CSP.** Electron (rules in `apps/hachiman-electron/src/main/csp-policy.ts`, applied by `csp.ts`, §11) adds `worker-src 'self'`, and `blob:` to `img-src` and `media-src` (decrypted attachments are object URLs). It does not add `blob:` to `script-src` or `worker-src`. The browser and iOS hosts send the same policy (iOS: a header on every response of the scheme handler, §11). ts-mls, @noble and @hpke are pure TypeScript on WebCrypto and use no wasm. `script-src` has `'wasm-unsafe-eval'` only for the RNNoise mic worklet (§11), which holds no key material. Every host builds the crypto Worker and the transform Worker with Vite (`new Worker(new URL(…, import.meta.url), { type: 'module' })`).
 - **Light clients.** Deferred until ts-mls supports partial trees: joining with a membership proof, and processing commits without the full ratchet tree (IETF MLS light clients draft). The condition is testable: the `smoke.spec.ts` case "needs the full ratchet tree to join" fails when support exists. Until then, every member holds the full tree, and the Phase 3 load test measures its size.
 - **Later:** search (a local index), sender-made link previews, content-free push.
 
@@ -2629,7 +2669,7 @@ export type EnvelopeInput =
 export async function acceptEnvelope(tx: Tx, input: EnvelopeInput):
   Promise<{ groupId: Uint8Array; epoch: number; senderDeviceId: string; clientMsgId: Uint8Array; frankingTag: Uint8Array; size: number }>   // throws ApiError (§12.8.4)
 // The page envelope header checks (§12.20). doc_awareness never reaches Takusen
-export type DocEnvelopeInput = { channelId: string; pageId: string; userId: string; deviceId: string; kind: 'doc_update' | 'doc_snapshot' | 'doc_title'; envelope: Uint8Array }
+export type DocEnvelopeInput = { channelId: string; pageId: string; userId: string; deviceId: string; kind: 'doc_update' | 'doc_snapshot' | 'doc_title' | 'doc_banner'; envelope: Uint8Array }
 export async function acceptDocEnvelope(tx: Tx, input: DocEnvelopeInput):
   Promise<{ groupId: Uint8Array; epoch: number; senderDeviceId: string; size: number }>   // throws ApiError (§4 Pages)
 
@@ -2714,12 +2754,12 @@ export class ApiError extends Error {
 
 ### 12.20 Page envelopes
 
-A pages channel (§4 Pages) sends its titles, edits, snapshot pointers and presence as page envelopes in the MLS group of the channel (§12.6). The format is that of §12.8.1, with its own magic, a kind byte and the page id in the header:
+A pages channel (§4 Pages) sends its titles, banners, edits, snapshot pointers and presence as page envelopes in the MLS group of the channel (§12.6). The format is that of §12.8.1, with its own magic, a kind byte and the page id in the header:
 
 ```
 struct {
   uint16 magic = 0x4802;           // DOC_ENVELOPE_MAGIC. A message envelope (0x4801) never decodes as one
-  uint8 kind;                      // 1 doc_update, 2 doc_snapshot, 3 doc_awareness, 4 doc_title
+  uint8 kind;                      // 1 doc_update, 2 doc_snapshot, 3 doc_awareness, 4 doc_title, 5 doc_banner
   opaque group_id<V>;              // 22 bytes
   opaque channel_id[16];
   opaque page_id[16];
@@ -2751,8 +2791,11 @@ struct {
 - `doc_snapshot`: UTF-8 JSON of `DocSnapshotPointer { uploadId, fileKey, sha256, size }`. `fileKey` (32 bytes) and `sha256` (of the whole blob) are base64url, and `size` is the plaintext bytes of the state. The blob is the Yjs state (`Y.encodeStateAsUpdate`) in the §12.9 format.
 - `doc_awareness`: one y-protocols awareness update. The state holds the user id, display name, color, cursor and selection.
 - `doc_title`: the UTF-8 title, 1 to 200 bytes (`MAX_PAGE_TITLE_BYTES`).
+- `doc_banner`: UTF-8 JSON of the `AttachmentPointer` (§12.8.1) of the banner image, at most 8192 bytes (`MAX_PAGE_BANNER_BYTES`). The fields are those of an inline page image: `uploadId, key, sha256, size, blobSize, mime, name, width, height, durationMs, blurhash, thumbnail`. The blob and its thumbnail are §12.9 blobs from `POST /uploads?kind=blob`. The Worker checks strict UTF-8, a JSON object and a `mime` string that starts with `image/` (else `Malformed`, and `TooLarge` above the size). It ignores unknown keys. The UI also checks the whole pointer and fails closed: an image mime of `image/png`, `image/jpeg`, `image/webp` or `image/gif` (no SVG), a `size` of at most 8 MiB, and a width and a height. Else it shows no banner.
 
 Page labels ("RFC", "Draft") are page content: they are in the Y.Doc (`Y.Map` `meta`, key `labels`, at most 5 strings of at most 24 characters), so `doc_update` and `doc_snapshot` carry them encrypted, and no route or event carries them.
+
+A page banner is not in the Y.Doc. It is a row envelope, as the title: `Page.bannerEnvelope`, set with `PATCH /pages/:pageId` (§4 Pages "Banner"). Only a top-level page has one. A sub-page shows the banner of its top-level ancestor, so it does not load the doc of that page. The header binds the kind and the page id, so the server cannot pass a title or a snapshot pointer off as a banner, or move a banner to another page.
 
 **Key.** The derivation of §12.8.2 with another label:
 
@@ -2765,7 +2808,7 @@ The labels differ, so `K_doc` never equals a `K_msg`. Each envelope has its own 
 
 **Send.** `CryptoApi.encryptDoc({ channelId, pageId, kind, bytes })` runs `GroupService.sendState(channelId)` first, as a message send does (pending Removes are committed, §12.7.4). It returns `{ envelope, groupId, epoch }`. An envelope above `Limits.maxEnvelopeBytes` (8192 base64url characters for `doc_awareness`) throws `CryptoError('TooLarge')`. A Yjs update that does not fit goes into a snapshot instead. On 409 `StaleEpoch`, the client catches up and encrypts again.
 
-**Server checks.** Takusen decodes only the header (`acceptDocEnvelope`, §12.18), as `acceptEnvelope` does for messages (§12.8.4): the size, `magic` 0x4802, the kind of the route (§4 Pages), the current and active group of the channel, `channel_id` = the route channel, `page_id` = the route page (the body `id` on create), the epoch rule of §12.8.4, and the sender device and leaf. It stores `group_id`, `epoch`, `sender_device` and the envelope. Takusen never sees `doc_awareness` envelopes: the gateway relays them (§6 op 5) and checks only their size.
+**Server checks.** Takusen decodes only the header (`acceptDocEnvelope`, §12.18), as `acceptEnvelope` does for messages (§12.8.4): the size, `magic` 0x4802, the kind of the route (§4 Pages; the PATCH `banner.envelope` is checked as kind `doc_banner`), the current and active group of the channel, `channel_id` = the route channel, `page_id` = the route page (the body `id` on create), the epoch rule of §12.8.4, and the sender device and leaf. It stores `group_id`, `epoch`, `sender_device` and the envelope. Takusen never sees `doc_awareness` envelopes: the gateway relays them (§6 op 5) and checks only their size.
 
 **Receive.** `CryptoApi.decryptDoc(items)` gives one `DocDecryptResult` per `EncryptedDocItem { id, channelId, pageId, kind, senderDevice, envelope }`, in order:
 1. **Header.** It does not decode, or the magic is wrong: `malformed`. `channel_id` differs from the item: `wrong_channel`. `page_id` differs: `wrong_page`. The kind differs from the item kind: `wrong_kind`. The item `senderDevice` is not null and differs from `sender_device_id`: `device_mismatch`.
@@ -2783,16 +2826,16 @@ An `ok` result has `{ id, kind, bytes, sender }`: the body bytes and the `Decryp
   1. An open page resyncs, and its provider does step 2 or 3 for it.
   2. Updates after the newest snapshot (`latestSeq` above the snapshot `baseSeq`, 0 without a snapshot), and no snapshot or a snapshot of an older epoch or group: the client loads the page without showing it and posts a full snapshot when the snapshot or an update after it is of an older epoch or group. An update of the old epoch can follow a snapshot of the current epoch only inside the epoch grace. Thus only the second pass of the committer also loads a page whose snapshot is of the current epoch. In an external commit join no member commits, and step 1 on the open pages does this work.
   3. No update after the newest snapshot, and the snapshot is of an older epoch or group: a pointer re-wrap. The client decrypts the pointer, and continues only when the result is `ok` and the pointer `uploadId` is the `uploadId` of the row. It encrypts the same bytes again and posts them with the same `baseSeq` and `uploadId` (§4 Pages "Re-wrap"). 409 `SnapshotConflict` means that another member was first.
-  4. A title envelope of an older epoch or group (from the heads): the client decrypts the title, encrypts the same bytes again and sends `PATCH /pages/:pageId { titleEnvelope, ifUpdatedAt }` with the `updatedAt` that it read with `GET /channels/:id/pages`. The client reads the page list first, then the heads again, and re-wraps only the titles that are still of an older epoch or group. Thus a rename before the second heads read gives a current title, and a rename after the list read gives 409 `PageConflict`, which skips the page.
-- **Verified content only.** The re-wrapper signs each envelope as its sender. Thus it re-wraps only a pointer or a title that is `ok` on its device. A `pending` or `failed` result is skipped.
+  4. A title or banner envelope of an older epoch or group (from the heads): the client decrypts it, encrypts the same bytes again and sends `PATCH /pages/:pageId { titleEnvelope?, banner?: { envelope }, ifUpdatedAt }` with the `updatedAt` that it read with `GET /channels/:id/pages`. One PATCH carries both when both are stale. The banner part has no `uploadIds`, so Takusen keeps the stored ids (§4 Pages "Banner"). The client reads the page list first, then the heads again, and re-wraps only the titles and banners that are still of an older epoch or group. Thus a rename or a banner change before the second heads read gives a current envelope, and one after the list read gives 409 `PageConflict`, which skips the page.
+- **Verified content only.** The re-wrapper signs each envelope as its sender. Thus it re-wraps only a pointer, a title or a banner that is `ok` on its device. A `pending` or `failed` result is skipped.
 - **The new member.** Until a member re-wraps a page, the client of the new member shows "Waiting for a member to share this page". A waiting page loads again after a random 10 to 30 s, then after twice the last wait, at most every 5 min. A `PAGE_UPDATE` of the page (for example a title re-wrap) also makes it load again, and does not make the next wait longer. A load reads the state (`GET /pages/:pageId/state`) again, so a newer snapshot that covers an update without a key opens the page. A page that already shows its content and gets an update without a key (an update of the old epoch inside the epoch grace) stays open and retries the same way. A page that shows its content and finds a newer snapshot that does not open (a failed decrypt, or a pointer of another `uploadId`) skips that snapshot and keeps its content and status. When the snapshot blob of such a reload fails, the next load also uses the slow retry.
-- **Titles of the new member.** A title re-wrap can come before the device of the new member joins the group. The title then stays `pending` `group_unknown`. Doc envelopes do not go into the `buffered` table, so no `epochKeysAvailable` follows the join. Thus the client decrypts its pending titles again when the Worker reports a `membership` event that names this device (a Welcome, an own external join or a create).
-- **The other members.** A re-wrapped title is of the new epoch. A member whose Worker did not apply the commit yet gets `pending` `epoch_ahead` for it. Doc envelopes do not go into the `buffered` table, so no `epochKeysAvailable` follows. Thus the client calls `ensureChannelGroup` once for the channel (it fetches the handshakes) and then decrypts the pending titles again. Until a title decrypts, the client shows the title that it decrypted before. A channel that is still ahead after this gets no new catch-up until a decrypt of its titles finds none ahead, or until READY or RESUMED. Thus a title that stays ahead does not cause a loop.
+- **Titles and banners of the new member.** A title or banner re-wrap can come before the device of the new member joins the group. The envelope then stays `pending` `group_unknown`. Doc envelopes do not go into the `buffered` table, so no `epochKeysAvailable` follows the join. Thus the client decrypts its pending titles and banners again when the Worker reports a `membership` event that names this device (a Welcome, an own external join or a create).
+- **The other members.** A re-wrapped title or banner is of the new epoch. A member whose Worker did not apply the commit yet gets `pending` `epoch_ahead` for it. Doc envelopes do not go into the `buffered` table, so no `epochKeysAvailable` follows. Thus the client calls `ensureChannelGroup` once for the channel (it fetches the handshakes) and then decrypts the pending titles and banners again. Until one decrypts, the client shows the title or banner that it decrypted before. A channel that is still ahead after this gets no new catch-up until a decrypt of its titles and banners finds none ahead, or until READY or RESUMED. Thus an envelope that stays ahead does not cause a loop.
 - A removed member gets no new envelope, because the re-wrap is in an epoch without its leaf.
 
 **Page activity in a channel.** An editor can tell a text channel that it edited a page. It sends a message envelope of kind 4 `page_activity { pageId, changes }` (§12.8.1) in that channel, not a page envelope. The sender sends at most one per page per 10 minutes. `changes` counts the local Yjs updates of that time (1 to 10000). The receiver shows the line only for a page that it can open, and decrypts the title with `decryptDoc` as for the page list. The server sees a normal message row.
 
-**Residual risk.** The server can withhold updates, or serve an older title envelope (a rollback of a rename). It cannot forge, change or move an envelope to another page or channel, because the header is the AAD and the sender signs it. A replayed update does no harm, because Yjs ignores an update that it already has. A member who can edit can damage a page. This includes a re-wrap with a false pointer for the `uploadId` of the newest snapshot: the page then does not open until a member posts a new snapshot. The previous snapshot (§4 Pages) is the recovery path. A re-wrap does not change the blob. Thus a removed member that kept an old `fileKey` can open that blob when the server gives it the blob.
+**Residual risk.** The server can withhold updates, or serve an older title or banner envelope (a rollback of a rename or of a banner change), or withhold a banner. It cannot forge, change or move an envelope to another page or channel, because the header is the AAD and the sender signs it. A replayed update does no harm, because Yjs ignores an update that it already has. A member who can edit can damage a page. This includes a re-wrap with a false pointer for the `uploadId` of the newest snapshot: the page then does not open until a member posts a new snapshot. The previous snapshot (§4 Pages) is the recovery path. A re-wrap does not change the blob. Thus a removed member that kept an old `fileKey` can open that blob when the server gives it the blob. The server learns that a top-level page has a banner, when it changes, which uploads it uses (`banner_upload_ids`) and their blob sizes. It does not learn the image, its key, its mime or its dimensions. A member who can edit can point a banner at another upload whose key it knows, or at any upload id (the files route is public). The UI bounds that with the mime list, the size cap on `size` and `blobSize` (an 8 MiB file and its §12.9 blob), and a download that stops past the pointer's `blobSize` (`fetchBlob` `maxBytes`, §10). A pointer at a larger upload thus costs each viewer at most that cap, and then fails to decrypt.
 
 ### 12.21 Sound pointers
 

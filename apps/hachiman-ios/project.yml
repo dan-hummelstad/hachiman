@@ -1,0 +1,95 @@
+# XcodeGen spec for the iOS host. `xcodegen generate` writes Hachiman.xcodeproj (git-ignored).
+# Build the web bundle first: `pnpm -F @hachiman/hachiman-ios build` writes dist/, and the
+# "Copy WebApp" phase copies it into Hachiman.app/WebApp/.
+name: Hachiman
+options:
+  bundleIdPrefix: app.hachiman
+  # WebCrypto X25519 (ts-mls HPKE) is missing on iOS 18.3. 18.5 is the oldest runtime that the
+  # capability probe passed on (docs/ios-app-plan.md, Phase 1).
+  deploymentTarget:
+    iOS: "18.5"
+  createIntermediateGroups: true
+settings:
+  base:
+    HACHIMAN_BUNDLE_ID: app.hachiman.ios
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    SWIFT_VERSION: "6.0"
+    TARGETED_DEVICE_FAMILY: "1"
+    # The run scripts read dist/ and edit the built Info.plist.
+    ENABLE_USER_SCRIPT_SANDBOXING: NO
+targets:
+  Hachiman:
+    type: application
+    platform: iOS
+    sources:
+      - path: Hachiman
+        excludes:
+          - Info.plist
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(HACHIMAN_BUNDLE_ID)
+        PRODUCT_NAME: Hachiman
+        INFOPLIST_FILE: Hachiman/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        CODE_SIGN_ENTITLEMENTS: Hachiman/Hachiman.entitlements
+        CODE_SIGN_STYLE: Automatic
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        SUPPORTS_MACCATALYST: NO
+        SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD: NO
+        SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD: NO
+    preBuildScripts:
+      - name: Copy WebApp
+        basedOnDependencyAnalysis: false
+        script: |
+          set -euo pipefail
+          SRC="${SRCROOT}/dist"
+          if [ ! -f "${SRC}/index.html" ]; then
+            echo "error: apps/hachiman-ios/dist/index.html is missing. Run 'pnpm -F @hachiman/hachiman-ios build' first."
+            exit 1
+          fi
+          # The scheme handler sends this policy as the CSP header of every response.
+          if [ ! -s "${SRC}/csp-header.txt" ]; then
+            echo "error: apps/hachiman-ios/dist/csp-header.txt is missing. Run 'pnpm -F @hachiman/hachiman-ios build' again."
+            exit 1
+          fi
+          DEST="${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/WebApp"
+          mkdir -p "${DEST}"
+          rsync -a --delete "${SRC}/" "${DEST}/"
+    postBuildScripts:
+      - name: Debug ATS local networking
+        basedOnDependencyAnalysis: false
+        # The input orders this phase after Info.plist processing.
+        inputFiles:
+          - $(TARGET_BUILD_DIR)/$(INFOPLIST_PATH)
+        script: |
+          set -euo pipefail
+          # Debug builds only: the simulator talks to the http://localhost dev servers.
+          if [ "${CONFIGURATION}" = "Debug" ]; then
+            PLIST="${TARGET_BUILD_DIR}/${INFOPLIST_PATH}"
+            /usr/libexec/PlistBuddy -c "Delete :NSAppTransportSecurity" "${PLIST}" 2>/dev/null || true
+            /usr/libexec/PlistBuddy -c "Add :NSAppTransportSecurity dict" "${PLIST}"
+            /usr/libexec/PlistBuddy -c "Add :NSAppTransportSecurity:NSAllowsLocalNetworking bool true" "${PLIST}"
+          fi
+  HachimanTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: HachimanTests
+    dependencies:
+      - target: Hachiman
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(HACHIMAN_BUNDLE_ID).tests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_HOST: $(BUILT_PRODUCTS_DIR)/Hachiman.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Hachiman
+        BUNDLE_LOADER: $(TEST_HOST)
+schemes:
+  Hachiman:
+    build:
+      targets:
+        Hachiman: all
+        HachimanTests: [test]
+    test:
+      targets:
+        - HachimanTests

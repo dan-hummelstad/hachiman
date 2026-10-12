@@ -1,14 +1,14 @@
-import { Fragment, Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import {
   Check,
-  ChevronRight,
   FileText,
+  ImagePlus,
   Link2,
   Loader2,
-  Lock,
   MoreHorizontal,
-  Plus
+  Plus,
+  Trash2
 } from 'lucide-react'
 import { Permissions, has, type Channel } from '@hachiman/client'
 import { Button } from '@/components/ui/button'
@@ -16,58 +16,41 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu'
 import { IconButton } from '@/components/ui/icon-button'
-import { Skeleton } from '@/components/ui/skeleton'
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { usePermissions } from '@/hooks/use-hachiman'
 import { useCopy } from '@/hooks/use-copy'
-import { cn, errMsg } from '@/lib/utils'
-import { countWords } from '@/lib/word-count'
+import { errMsg } from '@/lib/utils'
 import { docsService } from '@/services/docs/DocsService'
-import type { DocHandle, DocStatus } from '@/services/docs/types'
-import { useChannelStore } from '@/stores/channelStore'
-import { flattenPages, pagePath, pageTitle } from '@/services/docs/page-tree'
-import { findPage, useDocsStore, type DocPeer, type PageNode } from '@/stores/docsStore'
-import { openChannel } from '@/stores/navStore'
-import { PageLabels } from './page-labels'
-import { pageHref } from './page-links'
+import { flattenPages } from '@/services/docs/page-tree'
+import { useDocsStore, type PageNode } from '@/stores/docsStore'
+import {
+  AddBannerButton,
+  PageBanner,
+  usePageBannerControl,
+  type PageBannerControl
+} from './page-banner'
+import { pageLinkMarkdown } from './page-links'
+import {
+  Breadcrumb,
+  LoadingBody,
+  OpenPage,
+  PanelMessage,
+  Presence,
+  openPageAnywhere
+} from './page-parts'
+import { PageTitleField } from './page-title-field'
 import { PageTreePopover } from './page-tree-popover'
 
-// Crepe, CodeMirror and KaTeX are large: they load with the first open page.
-const PageEditor = lazy(() => import('./page-editor').then((m) => ({ default: m.PageEditor })))
-
 const EMPTY_PAGES: PageNode[] = []
-const EMPTY_PEERS: DocPeer[] = []
-const MAX_AVATARS = 5
-
-/**
- * Opens `pageId` in its pages channel. A page of another channel also selects that channel, or
- * calls `elsewhere` when the panel shows beside another channel (N21.1).
- * A page of a channel that is not loaded cannot be found, so the click does nothing.
- */
-function openPageAnywhere(
-  pageId: string,
-  fromChannelId: string,
-  elsewhere?: (channelId: string) => void
-): void {
-  const page = findPage(pageId)
-  if (!page) {
-    console.warn('[pages] link to an unknown page', pageId)
-    return
-  }
-  useDocsStore.getState().setOpenPage(page.channelId, pageId)
-  if (page.channelId === fromChannelId) return
-  if (elsewhere) return elsewhere(page.channelId)
-  const channel = useChannelStore.getState().channels.get(page.channelId)
-  if (channel?.guildId) openChannel(channel.guildId, channel.id)
-}
 
 /**
  * The Pages view of the right column in a pages channel (C1): the column head (the switcher of
- * RightColumn, presence, outline, copy link, more), the path "channel › page", the open page and
- * its footer (save state, word count).
+ * RightColumn, presence, outline, copy link, more), the banner of the page's top-level page, the
+ * path "channel › page" (the title is a field for editors), the open page and its footer (save
+ * state, word count).
  */
 export function PagesPanel({
   channel,
@@ -114,6 +97,9 @@ export function PagesPanel({
     (id: string) => openPageAnywhere(id, channel.id, onOpenElsewhere),
     [channel.id, onOpenElsewhere]
   )
+  const banner = usePageBannerControl(channel.id, pageId ?? '', canEdit)
+  const page = pageId === null ? undefined : pages.find((p) => p.id === pageId)
+  const [titleError, setTitleError] = useState<{ pageId: string; message: string } | null>(null)
 
   return (
     <div
@@ -127,9 +113,41 @@ export function PagesPanel({
         canEdit={canEdit}
         onOpen={open}
         switcher={switcher}
+        banner={banner}
       />
+      {pageId && <PageBanner control={banner} />}
       {pageId && (
-        <Breadcrumb channelName={channel.name ?? ''} pages={pages} pageId={pageId} onOpen={open} />
+        <Breadcrumb
+          channelName={channel.name ?? ''}
+          pages={pages}
+          pageId={pageId}
+          onOpen={open}
+          current={
+            canEdit &&
+            page && (
+              <PageTitleField
+                key={page.id}
+                page={page}
+                current
+                className="text-text-primary"
+                onError={(message) => setTitleError({ pageId: page.id, message })}
+              />
+            )
+          }
+          trailing={banner.view.show === 'add' && <AddBannerButton control={banner} />}
+        />
+      )}
+      {titleError !== null && titleError.pageId === pageId && (
+        <p role="alert" className="text-feature-danger-text flex shrink-0 gap-2 px-16 pt-2 text-xs">
+          <span className="min-w-0 flex-1">{titleError.message}</span>
+          <button
+            type="button"
+            onClick={() => setTitleError(null)}
+            className="text-text-tertiary hover:text-text-primary shrink-0 font-semibold"
+          >
+            Dismiss
+          </button>
+        </p>
       )}
       {loadError !== null && !loaded ? (
         <PanelMessage>Could not load the pages: {loadError}</PanelMessage>
@@ -156,7 +174,8 @@ function PanelHeader({
   pageId,
   canEdit,
   onOpen,
-  switcher
+  switcher,
+  banner
 }: {
   channelId: string
   pages: PageNode[]
@@ -164,6 +183,7 @@ function PanelHeader({
   canEdit: boolean
   onOpen: (pageId: string) => void
   switcher: React.ReactNode
+  banner: PageBannerControl
 }): React.JSX.Element {
   const page = pageId ? pages.find((p) => p.id === pageId) : undefined
   return (
@@ -179,97 +199,15 @@ function PanelHeader({
         onOpen={onOpen}
       />
       {page && <CopyLink page={page} />}
-      {pageId && <MoreMenu pageId={pageId} />}
+      {pageId && <MoreMenu pageId={pageId} banner={banner} />}
     </header>
-  )
-}
-
-/** "channel › parent › page": the channel, then the path of the open page. */
-function Breadcrumb({
-  channelName,
-  pages,
-  pageId,
-  onOpen
-}: {
-  channelName: string
-  pages: PageNode[]
-  pageId: string
-  onOpen: (pageId: string) => void
-}): React.JSX.Element {
-  const path = useMemo(() => pagePath(pages, pageId), [pages, pageId])
-  return (
-    <nav
-      aria-label="Page path"
-      className="flex min-w-0 shrink-0 items-center gap-1 px-16 pt-5 text-[13px] font-semibold"
-    >
-      <span className="text-text-tertiary flex max-w-40 min-w-0 shrink items-center gap-1.5">
-        <FileText className="text-feature-page-text size-3.5 shrink-0" aria-hidden />
-        <span className="truncate">{channelName}</span>
-      </span>
-      {path.map((p, i) => {
-        const last = i === path.length - 1
-        return (
-          <Fragment key={p.id}>
-            <ChevronRight className="text-text-tertiary size-3.5 shrink-0" aria-hidden />
-            <button
-              type="button"
-              className={cn(
-                'min-w-0 truncate',
-                last
-                  ? 'text-text-primary'
-                  : 'text-text-tertiary hover:text-text-primary max-w-32 shrink'
-              )}
-              aria-current={last ? 'page' : undefined}
-              onClick={() => onOpen(p.id)}
-            >
-              {pageTitle(p)}
-            </button>
-          </Fragment>
-        )
-      })}
-    </nav>
-  )
-}
-
-/** The remote viewers of the page, one avatar per user, in their cursor color. */
-function Presence({ pageId }: { pageId: string }): React.JSX.Element | null {
-  const peers = useDocsStore((s) => s.presence.get(pageId) ?? EMPTY_PEERS)
-  const users = useMemo(() => {
-    const byUser = new Map<string, DocPeer>()
-    for (const p of peers) if (!byUser.has(p.userId)) byUser.set(p.userId, p)
-    return [...byUser.values()]
-  }, [peers])
-  if (users.length === 0) return null
-  const shown = users.slice(0, MAX_AVATARS)
-  return (
-    <div className="flex shrink-0 items-center -space-x-1 px-1" aria-label="On this page">
-      {shown.map((u) => (
-        <Tooltip key={u.userId}>
-          <TooltipTrigger asChild>
-            <span
-              className="border-surface-content text-surface-content inline-flex size-7 items-center justify-center rounded-full border-2 text-[11px] font-bold"
-              style={{ backgroundColor: u.color }}
-            >
-              {u.name.slice(0, 1).toUpperCase()}
-            </span>
-          </TooltipTrigger>
-          <TooltipContent side="bottom">{u.name}</TooltipContent>
-        </Tooltip>
-      ))}
-      {users.length > shown.length && (
-        <span className="text-text-tertiary pl-2.5 text-xs">+{users.length - shown.length}</span>
-      )}
-    </div>
   )
 }
 
 /** Copies a markdown link to the page. Pasted into a page, it is a page link (page-links.ts). */
 function CopyLink({ page }: { page: PageNode }): React.JSX.Element {
   const { copied, copy } = useCopy()
-  const copyLink = (): void => {
-    const title = pageTitle(page).replace(/[[\]\\]/g, '\\$&')
-    copy(`[${title}](${pageHref(page.id)})`)
-  }
+  const copyLink = (): void => copy(pageLinkMarkdown(page))
   return (
     <IconButton
       label={copied !== null ? 'Copied' : 'Copy link'}
@@ -281,7 +219,14 @@ function CopyLink({ page }: { page: PageNode }): React.JSX.Element {
   )
 }
 
-function MoreMenu({ pageId }: { pageId: string }): React.JSX.Element {
+/** Copy as markdown, and for the editor of a top-level page its banner actions. */
+function MoreMenu({
+  pageId,
+  banner
+}: {
+  pageId: string
+  banner: PageBannerControl
+}): React.JSX.Element {
   const { copied, copy } = useCopy()
   const copyMarkdown = (): void => {
     const md = docsService.copyMarkdown(pageId)
@@ -296,168 +241,28 @@ function MoreMenu({ pageId }: { pageId: string }): React.JSX.Element {
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
         <DropdownMenuItem onSelect={copyMarkdown}>Copy as markdown</DropdownMenuItem>
+        {(banner.view.show === 'add' || banner.view.controls) && <DropdownMenuSeparator />}
+        {banner.view.show === 'add' && (
+          <DropdownMenuItem disabled={banner.busy} onSelect={banner.pick}>
+            <ImagePlus />
+            Add banner
+          </DropdownMenuItem>
+        )}
+        {banner.view.controls && (
+          <>
+            <DropdownMenuItem disabled={banner.busy} onSelect={banner.pick}>
+              <ImagePlus />
+              Change banner
+            </DropdownMenuItem>
+            <DropdownMenuItem variant="destructive" disabled={banner.busy} onSelect={banner.remove}>
+              <Trash2 />
+              Remove banner
+            </DropdownMenuItem>
+          </>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   )
-}
-
-function OpenPage({
-  channelId,
-  pageId,
-  canEdit,
-  onOpen
-}: {
-  channelId: string
-  pageId: string
-  canEdit: boolean
-  onOpen: (pageId: string) => void
-}): React.JSX.Element {
-  const [handle, setHandle] = useState<DocHandle | null>(null)
-  const [status, setStatus] = useState<DocStatus>('loading')
-  const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    let closed = false
-    let h: DocHandle | null = null
-    let unsubscribe = (): void => {}
-    docsService.openPage(channelId, pageId).then(
-      (opened) => {
-        if (closed) {
-          opened.close()
-          return
-        }
-        h = opened
-        setStatus(opened.status)
-        unsubscribe = opened.onStatus(setStatus)
-        setHandle(opened)
-      },
-      (e) => {
-        if (!closed) setError(errMsg(e))
-      }
-    )
-    return () => {
-      closed = true
-      unsubscribe()
-      h?.close()
-    }
-  }, [channelId, pageId])
-
-  const onNewSubPage = useCallback(async () => {
-    const id = await docsService.createPage(channelId, 'Untitled', pageId)
-    return { id, title: 'Untitled' }
-  }, [channelId, pageId])
-
-  if (error !== null) return <PanelMessage>Could not open the page: {error}</PanelMessage>
-  if (!handle || status === 'loading') return <LoadingBody />
-  if (status === 'waiting') {
-    return (
-      <PanelMessage>
-        Waiting for a member to share this page. It opens when a member who can read it is online.
-      </PanelMessage>
-    )
-  }
-  if (status === 'error') return <PanelMessage>This page cannot be read.</PanelMessage>
-  return (
-    <div className="relative flex min-h-0 flex-1 flex-col">
-      {(status === 'offline' || !canEdit) && (
-        <div className="text-text-tertiary border-line-hairline shrink-0 border-b px-4 py-1 text-xs">
-          {status === 'offline'
-            ? 'Offline. Your edits are sent when the connection is back.'
-            : 'Read only. You cannot edit pages in this channel.'}
-        </div>
-      )}
-      <PageLabels handle={handle} editable={canEdit} />
-      <div className="flex min-h-0 flex-1 flex-col">
-        <Suspense fallback={<LoadingBody />}>
-          <PageEditor
-            handle={handle}
-            editable={canEdit}
-            onOpenPage={onOpen}
-            onNewSubPage={onNewSubPage}
-          />
-        </Suspense>
-      </div>
-      <PageFooter handle={handle} status={status} />
-    </div>
-  )
-}
-
-const WORD_COUNT_DELAY_MS = 1000
-
-/** The footer line of each page status. OpenPage shows the footer only for 'ready' and 'offline'. */
-const FOOTER: Record<DocStatus, { label: string; live: boolean }> = {
-  ready: { label: 'Saved', live: true },
-  offline: { label: 'Offline', live: false },
-  loading: { label: 'Loading', live: false },
-  waiting: { label: 'Waiting for a member', live: false },
-  error: { label: 'Cannot be read', live: false }
-}
-
-/**
- * "Saved · end-to-end encrypted" while the page is live (each edit goes out encrypted within
- * 100 ms), "Offline" while edits wait. The word count reads the markdown that the editor
- * registers (DocsService.copyMarkdown), when typing pauses and the main thread is idle.
- */
-function PageFooter({
-  handle,
-  status
-}: {
-  handle: DocHandle
-  status: DocStatus
-}): React.JSX.Element {
-  const words = useWordCount(handle)
-  const { label, live } = FOOTER[status]
-  return (
-    <footer className="border-line-hairline flex h-10 shrink-0 items-center gap-2 border-t px-4 text-xs font-semibold">
-      <span
-        className={cn(
-          'flex items-center gap-1.5',
-          live ? 'text-feature-voice-text' : 'text-text-tertiary'
-        )}
-      >
-        <Lock className="size-3.5" aria-hidden />
-        {label} · end-to-end encrypted
-      </span>
-      <span className="flex-1" />
-      {words !== null && (
-        <span className="text-text-tertiary tabular-nums">
-          {words} {words === 1 ? 'word' : 'words'}
-        </span>
-      )}
-    </footer>
-  )
-}
-
-function useWordCount(handle: DocHandle): number | null {
-  const [words, setWords] = useState<number | null>(null)
-  useEffect(() => {
-    let timer: ReturnType<typeof setTimeout> | undefined
-    let idle: number | undefined
-    const measure = (): void => {
-      idle = undefined
-      const md = docsService.copyMarkdown(handle.pageId)
-      setWords(md === null ? null : countWords(md))
-    }
-    // The whole page goes to markdown: only after typing pauses, and when the thread is idle.
-    const count = (): void => {
-      clearTimeout(timer)
-      timer = setTimeout(() => {
-        if (idle !== undefined) return
-        if (typeof requestIdleCallback === 'function')
-          idle = requestIdleCallback(measure, { timeout: 2000 })
-        else measure()
-      }, WORD_COUNT_DELAY_MS)
-    }
-    // The editor registers its markdown source after it mounts (lazy chunk): count once after that.
-    count()
-    handle.doc.on('update', count)
-    return () => {
-      clearTimeout(timer)
-      if (idle !== undefined) cancelIdleCallback(idle)
-      handle.doc.off('update', count)
-    }
-  }, [handle])
-  return words
 }
 
 function EmptyChannel({
@@ -493,24 +298,5 @@ function EmptyChannel({
         <p className="text-feature-danger-text mt-2 text-xs">Could not create the page: {error}</p>
       )}
     </PanelMessage>
-  )
-}
-
-function LoadingBody(): React.JSX.Element {
-  return (
-    <div className="mx-auto flex w-full max-w-3xl flex-col gap-3 px-14 py-6" aria-busy="true">
-      <Skeleton className="h-7 w-1/2" />
-      <Skeleton className="h-4 w-full" />
-      <Skeleton className="h-4 w-5/6" />
-      <Skeleton className="h-4 w-2/3" />
-    </div>
-  )
-}
-
-function PanelMessage({ children }: { children: React.ReactNode }): React.JSX.Element {
-  return (
-    <div className="text-text-tertiary flex flex-1 items-center justify-center p-6 text-center text-sm">
-      <div className="max-w-xs">{children}</div>
-    </div>
   )
 }

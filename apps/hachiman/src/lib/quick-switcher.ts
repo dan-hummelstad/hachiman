@@ -14,8 +14,44 @@ export interface SwitchItem {
   /** The channel (DM, channel, pages channel of a page); null for a person. */
   channelId: string | null
   pageId?: string
-  /** The person of a 'person' result. */
+  /** The person of a 'person' result, or the other person of a 1:1 DM. */
   userId?: string
+  /** A person or DM: the guilds where the person (a recipient) is a member, for the guild filter. */
+  guildIds?: readonly string[]
+  /** A person or 1:1 DM: the avatar file key. */
+  avatar?: string | null
+}
+
+/** The chips of the mobile search screen (M66): All, People (DMs and people), Channels. */
+export type SwitchFilterKind = 'all' | 'people' | 'channels'
+
+/** What the switcher lists: the chip and the "In:" guild (null: any guild). */
+export interface SwitchFilter {
+  kind: SwitchFilterKind
+  guildId: string | null
+}
+
+/** Everything, in any guild: the desktop switcher's only filter. */
+export const ANY_RESULT: SwitchFilter = { kind: 'all', guildId: null }
+
+/** A DM or a person: the People chip and the PEOPLE group. */
+export const isPersonKind = (kind: SwitchKind): boolean => kind === 'dm' || kind === 'person'
+
+/** Whether `it` passes `filter`. A DM or person is in a guild when the person is a member of it. */
+export function inFilter(it: SwitchItem, filter: SwitchFilter): boolean {
+  const person = isPersonKind(it.kind)
+  if (filter.kind === 'people' && !person) return false
+  if (filter.kind === 'channels' && person) return false
+  if (filter.guildId === null) return true
+  return person ? (it.guildIds?.includes(filter.guildId) ?? false) : it.guildId === filter.guildId
+}
+
+/**
+ * The chip that the mobile search screen starts on: People when it opens over the DM home (the
+ * "Find or start a conversation" field, M56), else All.
+ */
+export function initialFilterKind(view: View): SwitchFilterKind {
+  return view.kind === 'dmHome' ? 'people' : 'all'
 }
 
 /** The switcher key of a view, or null (DM home, guild, settings). */
@@ -51,6 +87,32 @@ export function matchTier(name: string, query: string): number {
   return n.split(/[\s\-_./:]+/).some((w) => w.startsWith(q)) ? 1 : 2
 }
 
+/** The characters between words, where `matchTier` splits a name. */
+const WORD_BREAK = /[\s\-_./:]/
+
+/**
+ * Where `query` matches `name`, for the highlight: `[start, end)` in `name`, or null for no match
+ * (or an empty query). The same place that `matchTier` ranks: the start of the name, else the
+ * first match at the start of a word, else the first match. Case-insensitive.
+ */
+export function matchRange(name: string, query: string): [number, number] | null {
+  const q = query.trim().toLowerCase()
+  const n = name.toLowerCase()
+  // A lower-case form of another length (a few Unicode letters) has no index into `name`.
+  if (q === '' || n.length !== name.length) return null
+  const first = n.indexOf(q)
+  if (first < 0) return null
+  let at = first
+  while (at > 0 && !WORD_BREAK.test(n.charAt(at - 1))) {
+    at = n.indexOf(q, at + 1)
+    if (at < 0) {
+      at = first
+      break
+    }
+  }
+  return [at, at + q.length]
+}
+
 /**
  * The results for `query`: case-insensitive substring of the name, ranked by the match tier, then
  * by recent use (`recent`: keys, the most recent first), then by name. An empty query lists the
@@ -74,4 +136,39 @@ export function rankItems(
     (a, b) => a.tier - b.tier || recency(a.it) - recency(b.it) || a.it.name.localeCompare(b.it.name)
   )
   return scored.slice(0, limit).map((s) => s.it)
+}
+
+/** The groups of the mobile search screen (M66), in their order. */
+export type SwitchGroup = 'recent' | 'channels' | 'people'
+
+export interface SwitchSection {
+  group: SwitchGroup
+  items: SwitchItem[]
+}
+
+export const RECENT_MAX = 5
+
+/**
+ * Splits ranked `results` into the groups of the mobile search screen: RECENT (the results that
+ * are in `recent`, the most recent first, at most `max`), then CHANNELS (channels and pages) and
+ * PEOPLE (DMs and people) in rank order. Empty groups are left out.
+ */
+export function groupResults(
+  results: readonly SwitchItem[],
+  recent: readonly string[],
+  max = RECENT_MAX
+): SwitchSection[] {
+  const rank = new Map(recent.map((k, i) => [k, i]))
+  const latest = results
+    .filter((it) => rank.has(it.key))
+    .sort((a, b) => (rank.get(a.key) ?? 0) - (rank.get(b.key) ?? 0))
+    .slice(0, max)
+  const shown = new Set(latest.map((it) => it.key))
+  const rest = results.filter((it) => !shown.has(it.key))
+  const sections: SwitchSection[] = [
+    { group: 'recent', items: latest },
+    { group: 'channels', items: rest.filter((it) => !isPersonKind(it.kind)) },
+    { group: 'people', items: rest.filter((it) => isPersonKind(it.kind)) }
+  ]
+  return sections.filter((s) => s.items.length > 0)
 }

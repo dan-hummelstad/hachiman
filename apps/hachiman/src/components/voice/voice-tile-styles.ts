@@ -11,3 +11,17 @@ export function stageColumns(count: number): string {
   if (count <= 9) return 'grid-cols-3'
   return 'grid-cols-4'
 }
+
+/** The stage grid on the mobile layout (M10). */
+export interface MobileStageGrid {
+  /** One column for up to 2 tiles (one above the other), else 2. Never more on a phone. */
+  columns: 1 | 2
+  /** Up to 4 tiles share the height of the stage. Past 4 the tiles are square and scroll. */
+  fill: boolean
+  /** 3 tiles: the last one spans both columns, so no cell stays empty. */
+  spanLast: boolean
+}
+
+export function mobileStageGrid(count: number): MobileStageGrid {
+  return { columns: count <= 2 ? 1 : 2, fill: count <= 4, spanLast: count === 3 }
+}

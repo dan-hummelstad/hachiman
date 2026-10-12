@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Member } from '@hachiman/client'
 import type { MembershipEvent } from '@hachiman/crypto'
-import { joinSlots, membershipSlots } from './format'
+import { joinSlots, keyChangeSlot, membershipSlots } from './format'
 
 const event = (groupId: string, epoch: number): MembershipEvent => ({
   groupId,
@@ -55,5 +55,31 @@ describe('joinSlots', () => {
     expect(joinSlots(messages, [early], false).size).toBe(0)
     expect(joinSlots(messages, [early], true).get(0)).toEqual([early])
     expect(joinSlots([], [early], false).size).toBe(0)
+  })
+})
+
+describe('keyChangeSlot', () => {
+  const messages = [
+    { createdAt: '2026-10-06T07:41:00Z' },
+    { createdAt: '2026-10-06T07:43:00Z' },
+    { createdAt: '2026-10-06T10:53:00Z' }
+  ]
+
+  it('puts the line before the first message after the change', () => {
+    expect(keyChangeSlot(messages, '2026-10-06T08:00:00Z', false)).toBe(2)
+    expect(keyChangeSlot(messages, '2026-10-06T07:43:00Z', false)).toBe(2)
+  })
+
+  it('puts a newer change, or one with no time, after the last message', () => {
+    expect(keyChangeSlot(messages, '2026-10-06T11:00:00Z', false)).toBe(3)
+    expect(keyChangeSlot(messages, null, false)).toBe(3)
+    expect(keyChangeSlot(messages, 'not a time', false)).toBe(3)
+  })
+
+  it('shows a change before the loaded page only when the history is complete', () => {
+    expect(keyChangeSlot(messages, '2026-10-01T00:00:00Z', false)).toBeNull()
+    expect(keyChangeSlot(messages, '2026-10-01T00:00:00Z', true)).toBe(0)
+    expect(keyChangeSlot([], null, false)).toBeNull()
+    expect(keyChangeSlot([], null, true)).toBe(0)
   })
 })

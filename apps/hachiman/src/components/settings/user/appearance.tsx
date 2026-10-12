@@ -1,11 +1,21 @@
-import { GradientPicker } from '@/components/settings/user/gradient-picker'
+import { useEffect, useId, useRef } from 'react'
+import { SectionLabel } from '@/components/mobile/list'
+import { GradientPicker, GradientPickerMobile } from '@/components/settings/user/gradient-picker'
+import { TextSizeSection } from '@/components/settings/user/text-size'
 import { setSidebarMode } from '@/components/shell/sidebar-state'
 import { SectionHeading } from '@/components/ui/field'
 import { Keycap } from '@/components/ui/keycap'
 import { RadioCard } from '@/components/ui/radio-card'
 import { SegmentedControl } from '@/components/ui/segmented-control'
-import { customWallpaper, FALLBACK_HUES, tintColors, tintWallpaper } from '@/lib/guild-tint'
+import {
+  customWallpaper,
+  FALLBACK_HUES,
+  tintColors,
+  tintWallpaper,
+  type CustomGradient
+} from '@/lib/guild-tint'
 import { useKeybindLabel } from '@/hooks/use-keybinds'
+import { useLayout } from '@/hooks/use-layout'
 import { cn } from '@/lib/utils'
 import {
   usePrefsStore,
@@ -21,10 +31,10 @@ const SIDES = [
   { value: 'right', label: 'Right side' }
 ] as const
 
-const THEMES: { value: Theme; label: string }[] = [
-  { value: 'dark', label: 'Dark' },
-  { value: 'light', label: 'Light' },
-  { value: 'system', label: 'Match system' }
+const THEMES: { value: Theme; label: string; short: string }[] = [
+  { value: 'dark', label: 'Dark', short: 'Dark' },
+  { value: 'light', label: 'Light', short: 'Light' },
+  { value: 'system', label: 'Match system', short: 'System' }
 ]
 
 /** The guild tint preview uses the accent hue. */
@@ -34,11 +44,36 @@ const SAMPLE_GUILD = {
   dark: tintWallpaper(SAMPLE_TINT.dark)
 }
 
-/**
- * User settings → Appearance (H5): theme, sidebar (N3), message display and the window
- * background, each a small preview.
- */
+const WALLPAPER_TITLE: Record<WallpaperMode, string> = {
+  guild: 'Guild colour',
+  custom: 'Custom gradient'
+}
+const WALLPAPERS = Object.keys(WALLPAPER_TITLE) as WallpaperMode[]
+
+/** The background prefs of both Background sections, and the custom gradient as a wallpaper. */
+function useWallpaperPrefs(): {
+  wallpaper: WallpaperMode
+  setWallpaper: (mode: WallpaperMode) => void
+  gradient: CustomGradient
+  setGradient: (gradient: CustomGradient) => void
+  custom: string
+} {
+  const wallpaper = usePrefsStore((s) => s.wallpaper)
+  const setWallpaper = usePrefsStore((s) => s.setWallpaper)
+  const gradient = usePrefsStore((s) => s.customGradient)
+  const setGradient = usePrefsStore((s) => s.setCustomGradient)
+  return { wallpaper, setWallpaper, gradient, setGradient, custom: customWallpaper(gradient) }
+}
+
+/** User settings → Appearance: the desktop page (H5), or the phone screen (M31). */
 export function AppearanceSection(): React.JSX.Element {
+  return useLayout() === 'mobile' ? <AppearanceMobile /> : <AppearanceDesktop />
+}
+
+/**
+ * H5: theme, sidebar (N3), message display and the window background, each a small preview.
+ */
+function AppearanceDesktop(): React.JSX.Element {
   const theme = usePrefsStore((s) => s.theme)
   const setTheme = usePrefsStore((s) => s.setTheme)
   const messageDisplay = usePrefsStore((s) => s.messageDisplay)
@@ -127,25 +162,130 @@ export function AppearanceSection(): React.JSX.Element {
   )
 }
 
+/**
+ * M31: theme as three cards, each a tiny copy of the phone, density as two cards with a
+ * transcript, the text size, then the background. A phone has no sidebar choice.
+ */
+function AppearanceMobile(): React.JSX.Element {
+  const theme = usePrefsStore((s) => s.theme)
+  const setTheme = usePrefsStore((s) => s.setTheme)
+  const messageDisplay = usePrefsStore((s) => s.messageDisplay)
+  const setMessageDisplay = usePrefsStore((s) => s.setMessageDisplay)
+  const themeId = useId()
+  const densityId = useId()
+
+  return (
+    <div className="grid gap-[18px]">
+      <section className="flex flex-col gap-1.5">
+        <SectionLabel id={themeId}>Theme</SectionLabel>
+        <div role="radiogroup" aria-labelledby={themeId} className="grid grid-cols-3 gap-2.5">
+          {THEMES.map((t) => (
+            <RadioCard
+              key={t.value}
+              size="mobile"
+              mark="foot"
+              name="theme"
+              checked={theme === t.value}
+              onChange={() => setTheme(t.value)}
+              title={t.short}
+              preview={<PhoneSwatch value={t.value} />}
+            />
+          ))}
+        </div>
+      </section>
+      <section className="flex flex-col gap-1.5">
+        <SectionLabel id={densityId}>Message density</SectionLabel>
+        <div role="radiogroup" aria-labelledby={densityId} className="grid grid-cols-2 gap-2.5">
+          {(['cozy', 'compact'] as MessageDisplay[]).map((d) => (
+            <RadioCard
+              key={d}
+              size="mobile"
+              mark="foot"
+              name="message-display"
+              checked={messageDisplay === d}
+              onChange={() => setMessageDisplay(d)}
+              title={d === 'cozy' ? 'Cozy' : 'Compact'}
+              preview={<TranscriptPreview display={d} size="mobile" />}
+              description={d === 'cozy' ? 'Avatars and names' : 'One line each'}
+            />
+          ))}
+        </div>
+      </section>
+      <TextSizeSection />
+      <BackgroundSectionMobile />
+    </div>
+  )
+}
+
+/**
+ * M31 BACKGROUND: the wallpaper behind the tab strip and the status bar, as two phone cards. The
+ * custom gradient opens its editor inline below them, so the nav bar and the status bar above
+ * show each change live.
+ */
+function BackgroundSectionMobile(): React.JSX.Element {
+  const { wallpaper, setWallpaper, gradient, setGradient, custom } = useWallpaperPrefs()
+  const labelId = useId()
+  const editor = useRef<HTMLDivElement>(null)
+  // Only a tap on Custom scrolls the editor into view, not opening the screen with it shown.
+  const reveal = useRef(false)
+
+  useEffect(() => {
+    if (wallpaper !== 'custom' || !reveal.current) return
+    reveal.current = false
+    editor.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+  }, [wallpaper])
+
+  // min-w-0: the swatch row scrolls; it must not widen the grid column of the screen.
+  return (
+    <section className="flex min-w-0 flex-col gap-1.5">
+      <SectionLabel id={labelId}>Background</SectionLabel>
+      <div role="radiogroup" aria-labelledby={labelId} className="grid grid-cols-2 gap-2.5">
+        {WALLPAPERS.map((m) => (
+          <RadioCard
+            key={m}
+            size="mobile"
+            mark="foot"
+            name="wallpaper"
+            checked={wallpaper === m}
+            onChange={() => {
+              reveal.current = m === 'custom'
+              setWallpaper(m)
+            }}
+            title={WALLPAPER_TITLE[m]}
+            preview={
+              <PhoneSwatch
+                value="system"
+                wallpaper={m === 'guild' ? SAMPLE_GUILD : { light: custom, dark: custom }}
+              />
+            }
+            description={m === 'guild' ? 'Tinted by each guild' : 'Your own colours'}
+          />
+        ))}
+      </div>
+      {wallpaper === 'custom' && (
+        <div ref={editor} className="mt-1 scroll-mb-4">
+          <GradientPickerMobile value={gradient} onChange={setGradient} />
+        </div>
+      )}
+    </section>
+  )
+}
+
 /** The window wallpaper: the guild tint (N4) or the user's own gradient, in both themes. */
 function BackgroundSection(): React.JSX.Element {
-  const wallpaper = usePrefsStore((s) => s.wallpaper)
-  const setWallpaper = usePrefsStore((s) => s.setWallpaper)
-  const gradient = usePrefsStore((s) => s.customGradient)
-  const setGradient = usePrefsStore((s) => s.setCustomGradient)
-  const custom = customWallpaper(gradient)
+  const { wallpaper, setWallpaper, gradient, setGradient, custom } = useWallpaperPrefs()
 
   return (
     <section>
       <SectionHeading>Background</SectionHeading>
       <div role="radiogroup" aria-label="Background" className="grid grid-cols-2 gap-3">
-        {(['guild', 'custom'] as WallpaperMode[]).map((m) => (
+        {WALLPAPERS.map((m) => (
           <RadioCard
             key={m}
             name="wallpaper"
             checked={wallpaper === m}
             onChange={() => setWallpaper(m)}
-            title={m === 'guild' ? 'Guild colour' : 'Custom gradient'}
+            title={WALLPAPER_TITLE[m]}
             preview={
               <WallpaperSwatch
                 light={m === 'guild' ? SAMPLE_GUILD.light : custom}
@@ -224,6 +364,99 @@ function ThemeSwatch({ value }: { value: Theme }): React.JSX.Element {
   )
 }
 
+/** The dots and line widths of the three messages of `MiniPhone`. */
+const MINI_ROWS = [
+  { dot: 'bg-feature-voice', lines: [30, 24] },
+  { dot: 'bg-feature-danger', lines: [34, 18], accent: true },
+  { dot: 'bg-feature-thread', lines: [28, 32] }
+]
+
+/**
+ * A 54 × 116 copy of the phone in `scheme`, drawn with its real tokens: the island, the tab strip
+ * on the tinted window (or on `wallpaper`), then the chat card with three messages, the voice bar
+ * and the composer.
+ */
+function MiniPhone({
+  scheme,
+  wallpaper,
+  className
+}: {
+  scheme: 'dark' | 'light'
+  wallpaper?: string
+  className?: string
+}): React.JSX.Element {
+  return (
+    <span
+      style={wallpaper ? { backgroundImage: wallpaper } : undefined}
+      className={cn(
+        scheme,
+        'border-line-sheet to-surface-window flex h-[116px] w-[54px] flex-col overflow-hidden rounded-[11px] border bg-linear-to-b from-[color-mix(in_oklab,var(--accent-primary)_20%,var(--surface-window))]',
+        className
+      )}
+    >
+      <span className="mx-auto mt-1 h-[5px] w-4 shrink-0 rounded-[2px] bg-black" />
+      <span className="mt-[3px] flex shrink-0 gap-[3px] px-[5px]">
+        <span className="bg-fill-control-strong h-[5px] w-1.5 rounded-[1.5px]" />
+        <span className="bg-accent-primary/55 h-[5px] w-4 rounded-[1.5px]" />
+        <span className="bg-fill-control-strong h-[5px] w-4 rounded-[1.5px]" />
+      </span>
+      <span className="bg-surface-content mt-1 flex flex-1 flex-col px-[3px] py-[5px]">
+        <span className="bg-text-primary/35 mx-0.5 h-[3px] w-[22px]" />
+        <span className="mt-1.5 flex flex-col gap-[7px] px-0.5">
+          {MINI_ROWS.map((row, i) => (
+            <span key={i} className="flex gap-[3px]">
+              <span className={cn('size-1.5 shrink-0 rounded-full', row.dot)} />
+              <span className="flex flex-col gap-0.5">
+                {row.lines.map((w, j) => (
+                  <span
+                    key={j}
+                    className={cn(
+                      'h-[3px]',
+                      row.accent && j === 1 ? 'bg-accent-primary' : 'bg-text-primary/18'
+                    )}
+                    style={{ width: w }}
+                  />
+                ))}
+              </span>
+            </span>
+          ))}
+        </span>
+        <span className="bg-feature-voice/25 mt-auto h-2 shrink-0" />
+        <span className="bg-fill-control mt-[3px] h-[9px] shrink-0 rounded-[4.5px]" />
+        <span className="bg-text-primary/60 mx-auto mt-[5px] h-0.5 w-4 shrink-0 rounded-full" />
+      </span>
+    </span>
+  )
+}
+
+/**
+ * The M31 theme preview: the phone in the theme; System is dark on the left, light on the right.
+ * A `wallpaper` replaces the built-in tint, per scheme.
+ */
+function PhoneSwatch({
+  value,
+  wallpaper
+}: {
+  value: Theme
+  wallpaper?: { light: string; dark: string }
+}): React.JSX.Element {
+  const scheme = value === 'light' ? 'light' : 'dark'
+  return (
+    <span aria-hidden className="bg-surface-sunken flex h-32 items-center justify-center">
+      <span className="relative flex">
+        <MiniPhone scheme={scheme} wallpaper={wallpaper?.[scheme]} />
+        {value === 'system' && (
+          <MiniPhone
+            scheme="light"
+            wallpaper={wallpaper?.light}
+            className="absolute inset-0 [clip-path:inset(0_0_0_50%)]"
+          />
+        )}
+      </span>
+    </span>
+  )
+}
+
 /** The window with the sidebar docked beside the content, or slid out over it from its edge. */
 function SidebarPreview({
   mode,
@@ -297,7 +530,38 @@ const SAMPLE = [
 // Cozy shows one line per author, so that both groups fit the preview.
 const COZY_SAMPLE = SAMPLE.filter((m, i) => i === 0 || SAMPLE[i - 1].author !== m.author)
 
-function TranscriptPreview({ display }: { display: MessageDisplay }): React.JSX.Element {
+/** The M31 density previews: fewer and shorter lines for a 160 card. */
+const MOBILE_COZY = [
+  {
+    time: '10:42',
+    author: 'marlowe',
+    ink: 'text-feature-event-text',
+    dot: 'bg-feature-voice',
+    text: 'up for a game?'
+  },
+  {
+    time: '10:43',
+    author: 'Juni',
+    ink: 'text-feature-activity',
+    dot: 'bg-feature-danger',
+    text: 'sure, in 5'
+  }
+]
+const MOBILE_COMPACT = [
+  { time: '10:42', author: 'marlowe', ink: 'text-feature-event-text', text: 'anyone up?' },
+  { time: '10:42', author: 'marlowe', ink: 'text-feature-event-text', text: 'lounge open' },
+  { time: '10:43', author: 'Juni', ink: 'text-feature-activity', text: 'sure, in 5' },
+  { time: '10:44', author: 'kestrel', ink: 'text-feature-activity', text: 'on my way' }
+]
+
+function TranscriptPreview({
+  display,
+  size = 'default'
+}: {
+  display: MessageDisplay
+  size?: 'default' | 'mobile'
+}): React.JSX.Element {
+  if (size === 'mobile') return <MobileTranscriptPreview display={display} />
   return (
     <span
       aria-hidden
@@ -331,6 +595,52 @@ function TranscriptPreview({ display }: { display: MessageDisplay }): React.JSX.
                   <span className="text-text-secondary text-[11px] tabular-nums">{m.time}</span>
                 </span>
                 <span className="truncate">{m.text}</span>
+              </span>
+            </span>
+          ))}
+    </span>
+  )
+}
+
+function MobileTranscriptPreview({ display }: { display: MessageDisplay }): React.JSX.Element {
+  return (
+    <span
+      aria-hidden
+      className={cn(
+        'bg-surface-panel flex h-[90px] flex-col overflow-hidden px-2 py-2.5',
+        display === 'compact' ? 'gap-1.5' : 'gap-2'
+      )}
+    >
+      {display === 'compact'
+        ? MOBILE_COMPACT.map((m, i) => (
+            <span key={i} className="flex items-baseline gap-1 text-[10.5px] leading-[13px]">
+              <span className="text-text-tertiary w-[27px] shrink-0 text-[9.5px] font-semibold tabular-nums">
+                {m.time}
+              </span>
+              <span className={cn('w-[46px] shrink-0 truncate text-right font-extrabold', m.ink)}>
+                {m.author}
+              </span>
+              <span className="text-text-primary min-w-0 truncate font-medium">{m.text}</span>
+            </span>
+          ))
+        : MOBILE_COZY.map((m, i) => (
+            <span key={i} className="flex gap-2">
+              <span
+                className={cn(
+                  'text-surface-window flex size-5 shrink-0 items-center justify-center rounded-full text-[10px] font-extrabold',
+                  m.dot
+                )}
+              >
+                {m.author[0].toUpperCase()}
+              </span>
+              <span className="flex min-w-0 flex-col gap-px text-[11.5px] leading-[14px]">
+                <span className="flex items-baseline gap-[5px]">
+                  <span className={cn('font-extrabold', m.ink)}>{m.author}</span>
+                  <span className="text-text-tertiary text-[9.5px] font-semibold tabular-nums">
+                    {m.time}
+                  </span>
+                </span>
+                <span className="text-text-primary truncate font-medium">{m.text}</span>
               </span>
             </span>
           ))}

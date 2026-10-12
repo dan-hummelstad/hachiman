@@ -59,10 +59,17 @@ export function useSpeakingMember(
   return { ...useMemberView(guildId, userId), speaking }
 }
 
-/** Open (or reuse) a DM with `userId` and switch to it. `open` resolves false on failure (logged). */
-export function useOpenDm(userId: string): { open: () => Promise<boolean>; busy: boolean } {
-  const { run, busy } = useAction()
+/**
+ * Open (or reuse) a DM with `userId` and switch to it. `open` resolves false on failure (logged),
+ * and `error` then holds the message.
+ */
+export function useOpenDm(userId: string): {
+  open: () => Promise<boolean>
+  busy: boolean
+  error: string | null
+} {
+  const { run, busy, error } = useAction()
   const open = async (): Promise<boolean> =>
     (await run('open the conversation', () => openDmWith(userId))).ok
-  return { open, busy }
+  return { open, busy, error }
 }

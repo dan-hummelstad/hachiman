@@ -11,7 +11,7 @@ import { channels, devices, mlsGroups, uploads, users } from './schema'
 
 // ---------------------------------------------------------------------------
 // Pages channels (contract §3 "Pages tables", §4 Pages, §12.20). The server sees
-// the tree and the timestamps. Titles, updates and snapshot pointers are envelopes.
+// the tree and the timestamps. Titles, banners, updates and snapshot pointers are envelopes.
 // ---------------------------------------------------------------------------
 export const docPages = pgTable(
   'doc_pages',
@@ -24,6 +24,11 @@ export const docPages = pgTable(
     parentId: uuid('parent_id').references((): AnyPgColumn => docPages.id, { onDelete: 'cascade' }),
     position: integer('position').notNull().default(0),
     titleEnvelope: bytea('title_envelope').notNull(),
+    // The doc_banner envelope (§12.20). Null when parent_id is not null: a move under a page clears it.
+    bannerEnvelope: bytea('banner_envelope'),
+    // The page_media uploads of the banner (the image and its thumbnail). The client gives the
+    // list, because the server cannot read the envelope. No route or event carries it.
+    bannerUploadIds: uuid('banner_upload_ids').array().notNull().default(sql`'{}'::uuid[]`),
     createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
     // The highest doc_updates.seq of the page. An update takes latest_seq + 1 (§4 Pages).
     latestSeq: bigint('latest_seq', { mode: 'number' }).notNull().default(0),

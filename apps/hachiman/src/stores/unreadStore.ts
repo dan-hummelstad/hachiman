@@ -130,6 +130,18 @@ export const markReadTo = (
       : { lastReadId, unread: 0, mentions: 0, mentionIds: EMPTY_IDS }
   )
 
+/**
+ * "Mark read" with no message id to ack (none loaded, none known): the counts clear here and the
+ * read point stays. The server keeps its count until a later ack.
+ */
+export const clearCounts = (
+  m: Map<string, ChannelUnread>,
+  channelId: string
+): Map<string, ChannelUnread> =>
+  patch(m, channelId, (c) =>
+    c.unread === 0 && c.mentions === 0 ? c : { ...c, unread: 0, mentions: 0, mentionIds: EMPTY_IDS }
+  )
+
 /** Keeps only the channels in `channels` (channel delete, guild left). */
 export function keepChannels(
   m: Map<string, ChannelUnread>,
@@ -203,6 +215,10 @@ function useBadgeSum(match: (c: Channel) => boolean): UnreadBadge {
 }
 
 const isDm = (c: Channel): boolean => c.guildId === null
+const anyChannel = (): boolean => true
+
+/** Every channel and DM together (the sidebar toggle of the mobile tab strip). */
+export const useAllUnread = (): UnreadBadge => useBadgeSum(anyChannel)
 
 /** A guild's dot and mention sum (the guild row). A muted guild shows no dot. */
 export function useGuildUnread(guildId: string): UnreadBadge {

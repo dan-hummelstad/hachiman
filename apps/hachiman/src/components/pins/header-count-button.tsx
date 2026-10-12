@@ -5,6 +5,8 @@ import { cn } from '@/lib/utils'
 /**
  * A channel header button with a count (B1: threads "3", pins "4"). With a count it takes the
  * tint of its feature; without one it is a plain icon button. Pass it as a Popover trigger child.
+ * On the mobile layout it is the M1 chip: 36 high, count 13/800, icon 17 while lit (the caller
+ * passes the 9 % fill), a plain 36 button with icon 19 while not.
  */
 export function HeaderCountButton({
   label,
@@ -36,6 +38,8 @@ export function HeaderCountButton({
               : 'text-muted-foreground hover:bg-surface-hover hover:text-foreground w-8',
             pressed && !lit && 'bg-accent-tint text-accent-text',
             pressed && lit && 'ring-line-focus ring-1',
+            'mobile:h-9 mobile:min-w-9 mobile:gap-[5px] mobile:px-[9px] mobile:font-extrabold',
+            lit ? 'mobile:[&_svg]:size-[17px]' : 'mobile:[&_svg]:size-[19px]',
             className
           )}
           {...props}

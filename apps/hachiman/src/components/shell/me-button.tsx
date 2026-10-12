@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { LogOut, MessageSquareText } from 'lucide-react'
-import type { PresenceStatus } from '@hachiman/client'
+import { closeDrawer } from '@/components/mobile/drawer-state'
 import { CustomStatusDialog } from '@/components/people/custom-status-dialog'
 import { UserAvatar } from '@/components/shell/user-avatar'
 import {
@@ -11,9 +11,10 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger
 } from '@/components/ui/context-menu'
-import { PRESENCE_LABEL, PresenceDot } from '@/components/ui/presence'
+import { OWN_STATUS_LABEL, PresenceDot, STATUSES } from '@/components/ui/presence'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useCustomStatus } from '@/hooks/use-custom-status'
+import { useLayout } from '@/hooks/use-layout'
 import { cn } from '@/lib/utils'
 import { setMyStatus } from '@/services/hachiman'
 import { takusenService } from '@/services/TakusenService'
@@ -21,20 +22,53 @@ import { openSettings, useNavStore } from '@/stores/navStore'
 import { useTakusenStore } from '@/stores/takusenStore'
 import { useUserStore } from '@/stores/userStore'
 
-/** For my own status, offline is a choice: "Invisible". */
-const STATUS_LABEL: Record<PresenceStatus, string> = { ...PRESENCE_LABEL, offline: 'Invisible' }
-const STATUSES: PresenceStatus[] = ['online', 'idle', 'dnd', 'offline']
-
 /**
  * My avatar (24, with my status) at the right of the sidebar controls row: opens user settings
- * (ringed while they are open). Right click: status, custom status and sign out.
+ * (ringed while they are open). Right click: status, custom status and sign out. On the mobile
+ * layout a tap only: it closes the drawer and pushes the settings list, whose status chip and
+ * sign-out row take the menu's place.
  */
 export function MeButton(): React.JSX.Element {
+  return useLayout() === 'mobile' ? <MobileMeButton /> : <DesktopMeButton />
+}
+
+/** My avatar with my status, the face of both buttons. */
+function MeAvatar(): React.JSX.Element {
   const me = useUserStore((s) => s.me)
   const status = useUserStore((s) => s.status)
   const handle = useTakusenStore((s) => s.session?.user.handle)
+  return (
+    <UserAvatar
+      name={me?.username ?? handle ?? 'Guest'}
+      avatar={me?.avatar}
+      size={24}
+      status={status}
+      cutout="bg-surface-window"
+      ringHole
+    />
+  )
+}
+
+function MobileMeButton(): React.JSX.Element {
+  return (
+    <button
+      type="button"
+      aria-label="User settings"
+      onClick={() => {
+        closeDrawer()
+        openSettings({ kind: 'user' })
+      }}
+      className="active:bg-surface-hover flex size-9 shrink-0 items-center justify-center rounded-full"
+    >
+      <MeAvatar />
+    </button>
+  )
+}
+
+function DesktopMeButton(): React.JSX.Element {
+  const me = useUserStore((s) => s.me)
+  const status = useUserStore((s) => s.status)
   const settingsOpen = useNavStore((s) => s.settings?.target.kind === 'user')
-  const name = me?.username ?? handle ?? 'Guest'
   const custom = useCustomStatus(me?.id ?? '')
   const [statusOpen, setStatusOpen] = useState(false)
 
@@ -54,13 +88,7 @@ export function MeButton(): React.JSX.Element {
                   settingsOpen && 'ring-text-primary ring-2'
                 )}
               >
-                <UserAvatar
-                  name={name}
-                  avatar={me?.avatar}
-                  size={24}
-                  status={status}
-                  cutout="bg-surface-window"
-                />
+                <MeAvatar />
               </button>
             </TooltipTrigger>
           </ContextMenuTrigger>
@@ -75,7 +103,7 @@ export function MeButton(): React.JSX.Element {
               <span className="flex size-4 items-center justify-center">
                 <PresenceDot status={s} />
               </span>
-              <span className={cn(status === s && 'font-semibold')}>{STATUS_LABEL[s]}</span>
+              <span className={cn(status === s && 'font-semibold')}>{OWN_STATUS_LABEL[s]}</span>
             </ContextMenuItem>
           ))}
           <ContextMenuSeparator />

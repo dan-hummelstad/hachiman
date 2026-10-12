@@ -1,36 +1,24 @@
-import { useMemo, useRef, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { FilePlus, FileText, GripVertical, ListTree, Pencil, Plus, Trash2 } from 'lucide-react'
+import { DndContext, closestCenter } from '@dnd-kit/core'
+import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import {
-  DndContext,
-  PointerSensor,
-  closestCenter,
-  useSensor,
-  useSensors,
-  type DragEndEvent
-} from '@dnd-kit/core'
-import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
-import { CSS } from '@dnd-kit/utilities'
-import { ConfirmDialog } from '@/components/ui/confirm-dialog'
+  PageDeleteConfirm,
+  PageMoveConfirm,
+  RenameInput
+} from '@/components/docs/page-tree-actions'
+import {
+  INDENT,
+  usePageTreeActions,
+  type PageTreeActions
+} from '@/components/docs/use-page-tree-actions'
 import { ErrorText } from '@/components/ui/field'
 import { IconButton } from '@/components/ui/icon-button'
-import { Input } from '@/components/ui/input'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import { useAction } from '@/hooks/use-action'
+import { useDragSensors, useSortableRow } from '@/hooks/use-sortable-row'
 import { cn } from '@/lib/utils'
-import { docsService } from '@/services/docs/DocsService'
 import type { PageNode } from '@/stores/docsStore'
-import {
-  MAX_PAGE_TITLE_BYTES,
-  clampTitle,
-  flattenPages,
-  pageTitle,
-  projectDrop,
-  subtreeIds,
-  type FlatPage
-} from '@/services/docs/page-tree'
-
-/** Pixels of one nesting level, in the rows and in the drag projection. */
-const INDENT = 16
+import { flattenPages, pageTitle, type FlatPage } from '@/services/docs/page-tree'
 
 export interface PageTreePopoverProps {
   channelId: string
@@ -71,32 +59,14 @@ function PageTree({
   onOpen
 }: PageTreePopoverProps): React.JSX.Element {
   const rows = useMemo(() => flattenPages(pages), [pages])
-  const { run, error } = useAction()
-  const [renaming, setRenaming] = useState<string | null>(null)
-  const [deleting, setDeleting] = useState<PageNode | null>(null)
-  // 4px activation distance so a click isn't swallowed as a drag.
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }))
+  const actions = usePageTreeActions(channelId, pages)
+  // A drag starts after 4 px, so a click is not a drag.
+  const sensors = useDragSensors()
 
   const create = async (parentId: string | null): Promise<void> => {
-    const r = await run('create the page', () =>
-      docsService.createPage(channelId, 'Untitled', parentId)
-    )
-    if (r.ok) setRenaming(r.value)
+    const id = await actions.create(parentId)
+    if (id !== null) actions.setRenaming(id)
   }
-
-  const onDragEnd = ({ active, over, delta }: DragEndEvent): void => {
-    if (!over) return
-    const moves = projectDrop(
-      pages,
-      String(active.id),
-      String(over.id),
-      Math.round(delta.x / INDENT)
-    )
-    if (moves.length === 0) return
-    void run('move the page', () => docsService.movePages(moves))
-  }
-
-  const deleteCount = deleting ? subtreeIds(pages, deleting.id).size : 0
 
   return (
     <div className="flex flex-col">
@@ -110,26 +80,22 @@ function PageTree({
           </IconButton>
         )}
       </div>
-      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCenter}
+        onDragEnd={actions.onDragEnd}
+      >
         <SortableContext items={rows.map((r) => r.page.id)} strategy={verticalListSortingStrategy}>
           <ul className="flex max-h-96 flex-col gap-px overflow-y-auto">
             {rows.map((row) => (
               <TreeRow
                 key={row.page.id}
                 row={row}
+                actions={actions}
                 selected={row.page.id === openPageId}
                 canEdit={canEdit}
-                renaming={renaming === row.page.id}
                 onOpen={() => onOpen(row.page.id)}
                 onAddChild={() => void create(row.page.id)}
-                onRename={() => setRenaming(row.page.id)}
-                onRenameDone={(title) => {
-                  setRenaming(null)
-                  if (title !== null && title !== row.page.title) {
-                    void run('rename the page', () => docsService.renamePage(row.page.id, title))
-                  }
-                }}
-                onDelete={() => setDeleting(row.page)}
               />
             ))}
             {rows.length === 0 && (
@@ -138,67 +104,42 @@ function PageTree({
           </ul>
         </SortableContext>
       </DndContext>
-      <ErrorText>{error}</ErrorText>
-      <ConfirmDialog
-        open={deleting !== null}
-        title="Delete page"
-        body={
-          deleting && (
-            <>
-              Delete <strong>{pageTitle(deleting)}</strong>
-              {deleteCount > 1 &&
-                ` and its ${deleteCount - 1} sub-page${deleteCount > 2 ? 's' : ''}`}
-              ? This cannot be undone.
-            </>
-          )
-        }
-        confirmLabel="Delete"
-        tone="danger"
-        what="delete the page"
-        onConfirm={() => (deleting ? docsService.deletePage(deleting.id) : Promise.resolve())}
-        onClose={() => setDeleting(null)}
+      <ErrorText>{actions.error}</ErrorText>
+      <PageMoveConfirm actions={actions} />
+      <PageDeleteConfirm
+        pages={pages}
+        page={actions.deleting}
+        onClose={() => actions.setDeleting(null)}
       />
     </div>
   )
 }
 
+/** One row of the popover tree: a grip to drag and the actions on hover. */
 function TreeRow({
   row,
+  actions,
   selected,
   canEdit,
-  renaming,
   onOpen,
-  onAddChild,
-  onRename,
-  onRenameDone,
-  onDelete
+  onAddChild
 }: {
   row: FlatPage
+  actions: PageTreeActions
   selected: boolean
   canEdit: boolean
-  renaming: boolean
   onOpen: () => void
   onAddChild: () => void
-  onRename: () => void
-  /** null: cancelled. */
-  onRenameDone: (title: string | null) => void
-  onDelete: () => void
 }): React.JSX.Element {
   const { page, depth } = row
-  const { setNodeRef, attributes, listeners, transform, transition, isDragging } = useSortable({
+  const renaming = actions.renaming === page.id
+  const { setNodeRef, attributes, listeners, style } = useSortableRow({
     id: page.id,
     disabled: !canEdit || renaming
   })
-  const style: React.CSSProperties = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    opacity: isDragging ? 0.5 : 1,
-    zIndex: isDragging ? 1 : undefined,
-    paddingLeft: depth * INDENT
-  }
 
   return (
-    <li ref={setNodeRef} style={style}>
+    <li ref={setNodeRef} style={{ ...style, paddingLeft: depth * INDENT }}>
       <div
         className={cn(
           'group hover:bg-accent flex h-8 items-center gap-1 pr-1',
@@ -219,7 +160,11 @@ function TreeRow({
         )}
         <FileText className="text-muted-foreground size-4 shrink-0" />
         {renaming ? (
-          <RenameInput initial={page.title} onDone={onRenameDone} />
+          <RenameInput
+            initial={page.title}
+            onDone={(title) => actions.finishRename(page, title)}
+            className="h-7 min-w-0 flex-1 px-1 text-sm"
+          />
         ) : (
           <button
             type="button"
@@ -238,50 +183,21 @@ function TreeRow({
               <FilePlus />
             </IconButton>
             {page.titleState === 'ok' && (
-              <IconButton label="Rename" size="sm" onClick={onRename}>
+              <IconButton label="Rename" size="sm" onClick={() => actions.setRenaming(page.id)}>
                 <Pencil />
               </IconButton>
             )}
-            <IconButton label="Delete" size="sm" tone="danger" onClick={onDelete}>
+            <IconButton
+              label="Delete"
+              size="sm"
+              tone="danger"
+              onClick={() => actions.setDeleting(page)}
+            >
               <Trash2 />
             </IconButton>
           </span>
         )}
       </div>
     </li>
-  )
-}
-
-function RenameInput({
-  initial,
-  onDone
-}: {
-  initial: string
-  onDone: (title: string | null) => void
-}): React.JSX.Element {
-  const [value, setValue] = useState(initial)
-  const done = useRef(false)
-  const finish = (title: string | null): void => {
-    if (done.current) return
-    done.current = true
-    onDone(title === null ? null : clampTitle(title))
-  }
-  return (
-    <Input
-      autoFocus
-      value={value}
-      maxLength={MAX_PAGE_TITLE_BYTES}
-      className="h-7 min-w-0 flex-1 px-1 text-sm"
-      onFocus={(e) => e.currentTarget.select()}
-      onChange={(e) => setValue(e.target.value)}
-      onBlur={() => finish(value)}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter') finish(value)
-        else if (e.key === 'Escape') {
-          e.stopPropagation()
-          finish(null)
-        }
-      }}
-    />
   )
 }

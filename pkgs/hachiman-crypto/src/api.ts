@@ -98,7 +98,7 @@ export class CryptoError extends Error implements CryptoErrorShape {
 // MARK: - 1. Wire shapes (§12.12 REST, §12.13 gateway)
 
 export type DeviceStatus = 'pending' | 'active' | 'revoked'
-export type DevicePlatform = 'electron' | 'browser'
+export type DevicePlatform = 'electron' | 'browser' | 'ios'
 export type RevocationReasonName = 'user' | 'lost' | 'password_reset' | 'compromised' | 'signed_out'
 export type RevocationReasonId = (typeof DeviceRevocationReason)[keyof typeof DeviceRevocationReason]
 export type AdminActionTypeId = (typeof AdminActionType)[keyof typeof AdminActionType]
@@ -854,12 +854,13 @@ export type FrameStatsMessage = {
 // MARK: - 3c2. Page envelopes (§12.20)
 
 export type PageId = string
-export type DocEnvelopeKindName = 'doc_update' | 'doc_snapshot' | 'doc_awareness' | 'doc_title'
+export type DocEnvelopeKindName = 'doc_update' | 'doc_snapshot' | 'doc_awareness' | 'doc_title' | 'doc_banner'
 
 /**
  * `bytes` is the body: a Yjs update (doc_update), the encoded DocSnapshotPointer (doc_snapshot),
- * a y-protocols awareness update (doc_awareness), or the UTF-8 title (doc_title, 1 to
- * MAX_PAGE_TITLE_BYTES bytes).
+ * a y-protocols awareness update (doc_awareness), the UTF-8 title (doc_title, 1 to
+ * MAX_PAGE_TITLE_BYTES bytes), or the UTF-8 JSON of the AttachmentPointer of a top-level page's
+ * banner image (doc_banner, at most MAX_PAGE_BANNER_BYTES bytes, an `image/` mime).
  */
 export interface EncryptDocInput {
   channelId: ChannelId

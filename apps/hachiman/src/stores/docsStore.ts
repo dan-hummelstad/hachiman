@@ -2,15 +2,26 @@ import type {} from '@redux-devtools/extension'
 import { create } from 'zustand'
 import { devtools } from 'zustand/middleware'
 import type { Page } from '@hachiman/client'
+import type { AttachmentPointer } from '@hachiman/crypto'
 
 /** The decrypt state of a page title (doc_title envelope, §12.20). */
 export type PageTitleState = 'ok' | 'pending' | 'failed'
 
-/** A page as rendered: the decrypted title, never the title envelope. */
-export interface PageNode extends Omit<Page, 'titleEnvelope'> {
+/**
+ * A page as rendered: the decrypted title and banner, never an envelope. This store is never
+ * persisted: `banner` holds a file key (as `ChatMessage.attachments` in messagesStore does).
+ */
+export interface PageNode extends Omit<Page, 'titleEnvelope' | 'bannerEnvelope'> {
   /** '' while the title does not decrypt. */
   title: string
   titleState: PageTitleState
+  /**
+   * The decrypted doc_banner pointer (§12.20, services/docs/banner.ts). Only a top-level page has
+   * one. null: no banner, or one that does not decrypt or parse.
+   */
+  banner: AttachmentPointer | null
+  /** The banner envelope waits for a key, and no older banner of the page decrypted. */
+  bannerPending: boolean
 }
 
 /** One remote viewer of a page, from its decrypted awareness state. */

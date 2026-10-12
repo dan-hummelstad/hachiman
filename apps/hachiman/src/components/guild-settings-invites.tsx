@@ -1,29 +1,27 @@
-import { useEffect, useMemo, useState } from 'react'
 import { Check, Copy, Hourglass, Link2, Trash2 } from 'lucide-react'
 import { useCopy } from '@/hooks/use-copy'
-import { Permissions, has, type Channel, type GatewayEvents, type Invite } from '@hachiman/client'
 import { UserAvatar } from '@/components/shell/user-avatar'
 import { Button } from '@/components/ui/button'
 import { ErrorText, SectionHeading } from '@/components/ui/field'
 import { IconButton } from '@/components/ui/icon-button'
+import { GuildInvitesMobile } from '@/components/settings/guild-invites-mobile'
 import { InviteHistoryOption } from '@/components/settings/invite-history-option'
 import { InviteOptions } from '@/components/settings/invite-options'
-import { inviteScope, sortInvites } from '@/components/settings/invites'
+import { INVITE_SOON_MS, isUsedUp } from '@/components/settings/invites'
+import {
+  useGuildInvites,
+  useInviteCreateForm,
+  useInvitePermissions
+} from '@/components/settings/use-guild-invites'
 import { formatExpiry } from '@/lib/time-format'
 import { PermanentInviteConfirm } from '@/components/settings/permanent-invite-confirm'
-import { useInviteCreation } from '@/components/settings/use-invite-creation'
 import { useAction } from '@/hooks/use-action'
-import { usePermissions } from '@/hooks/use-hachiman'
+import { useLayout } from '@/hooks/use-layout'
 import { displayName } from '@/lib/model'
 import { cn, errMsg } from '@/lib/utils'
-import { hachiman } from '@/services/hachiman'
-import { copyInviteLink, createHistoryInvite, createInvite } from '@/services/InviteService'
-import { useChannelStore } from '@/stores/channelStore'
+import { copyInviteLink } from '@/services/InviteService'
 import { useGuildStore } from '@/stores/guildStore'
 
-const NO_CHANNELS: Channel[] = []
-/** An expiry closer than this shows in gold. */
-const SOON_MS = 3 * 86_400_000
 const GRID =
   'grid grid-cols-[minmax(0,1.1fr)_minmax(0,1.1fr)_4.5rem_minmax(0,1fr)_4.5rem] gap-3 px-4'
 
@@ -32,79 +30,42 @@ const GRID =
  * include history, §12.11.4) and the list (MANAGE_GUILD), permanent invites first. INVITE_DELETE
  * removes a revoked invite. The link of an invite with history has a key that only its creator saw
  * once, so the list cannot copy it. The key of a new one goes to the clipboard and nowhere else.
+ * The phone screen (M55) is `GuildInvitesMobile`.
  */
 export function GuildInvitesTab({ guildId }: { guildId: string }): React.JSX.Element {
-  const perms = usePermissions(guildId)
-  const canList = has(perms, Permissions.MANAGE_GUILD)
-  const canCreate = has(perms, Permissions.CREATE_INSTANT_INVITE)
-  const isAdmin = has(perms, Permissions.ADMINISTRATOR)
-  const guild = useGuildStore((s) => s.guilds.get(guildId))
-  const roles = useGuildStore((s) => s.roles.get(guildId))
-  const members = useGuildStore((s) => s.members.get(guildId))
-  const channels = useChannelStore((s) => s.channels)
-  const [invites, setInvites] = useState<Invite[]>([])
-  const sorted = useMemo(() => sortInvites(invites), [invites])
-  const [now] = useState(Date.now)
-  const [includeHistory, setIncludeHistory] = useState(false)
-  const { run, busy, error, setError } = useAction()
-  const { copied, copy: copyLink } = useCopy({ onError: (e) => setError(errMsg(e)) })
-
-  const scope = useMemo(
-    () => (guild && roles ? inviteScope(guild, roles, channels.values()) : NO_CHANNELS),
-    [guild, roles, channels]
+  return useLayout() === 'mobile' ? (
+    <GuildInvitesMobile guildId={guildId} />
+  ) : (
+    <GuildInvitesTable guildId={guildId} />
   )
-  // The user can lose ADMINISTRATOR, and the last channel can leave the scope, while it is open.
-  const history = isAdmin && includeHistory && scope.length > 0
+}
+
+function GuildInvitesTable({ guildId }: { guildId: string }): React.JSX.Element {
+  const { canList, canCreate, isAdmin } = useInvitePermissions(guildId)
+  const members = useGuildStore((s) => s.members.get(guildId))
+  const { run, busy, error, setError } = useAction()
+  const { invites, now, add, revoke: revokeInvite } = useGuildInvites(guildId, canList, setError)
+  const { copied, copy: copyLink } = useCopy({ onError: (e) => setError(errMsg(e)) })
 
   const copy = (code: string, key: string | null = null): void =>
     copyLink(() => copyInviteLink(code, key), code)
 
-  const { options, setOptions, create, confirm } = useInviteCreation({
+  const { options, setOptions, create, confirm, scope, history, setHistory } = useInviteCreateForm({
+    guildId,
     isAdmin,
     run,
-    what: 'create an invite',
-    make: async (o, acknowledgedPermanent): Promise<{ invite: Invite; key: string | null }> => {
-      if (!history)
-        return { invite: await createInvite(guildId, o, acknowledgedPermanent), key: null }
-      const made = await createHistoryInvite(
-        guildId,
-        o,
-        scope.map((c) => c.id),
-        acknowledgedPermanent
-      )
-      return { invite: made.invite, key: made.key }
-    },
+    copyInTap: false,
     onCreated: ({ invite, key }) => {
-      setInvites((cur) => [invite, ...cur])
+      add(invite)
       copy(invite.code, key)
     }
   })
 
-  useEffect(() => {
-    if (!canList) return
-    hachiman.rest
-      .getInvites(guildId)
-      .then(setInvites)
-      .catch((e) => setError(`Could not load invites: ${errMsg(e)}. Reopen settings to retry.`))
-  }, [guildId, canList, setError])
-
-  useEffect(() => {
-    const onDelete = (d: GatewayEvents['INVITE_DELETE']): void => {
-      if (d.guildId === guildId) setInvites((cur) => cur.filter((i) => i.code !== d.code))
-    }
-    hachiman.on('INVITE_DELETE', onDelete)
-    return () => {
-      hachiman.off('INVITE_DELETE', onDelete)
-    }
-  }, [guildId])
-
   const revoke = async (code: string): Promise<void> => {
-    const revoked = await run(`revoke ${code}`, () => hachiman.rest.deleteInvite(code))
-    if (revoked.ok) setInvites((cur) => cur.filter((i) => i.code !== code))
+    await run(`revoke ${code}`, () => revokeInvite(code))
   }
 
-  const usedUp = (inv: Invite): boolean => !!inv.maxUses && inv.uses >= inv.maxUses
-  const active = invites.filter((i) => !usedUp(i)).length
+  const active = invites.filter((i) => !isUsedUp(i)).length
 
   return (
     <div className="grid gap-6">
@@ -120,15 +81,7 @@ export function GuildInvitesTab({ guildId }: { guildId: string }): React.JSX.Ele
             </div>
             {isAdmin && (
               <div className="border-line-hairline border-t pt-3">
-                <InviteHistoryOption
-                  checked={history}
-                  scope={scope}
-                  onChange={(on) => {
-                    setIncludeHistory(on)
-                    // An invite with history has one use by default (§12.11.4).
-                    if (on) setOptions({ ...options, maxUses: 1 })
-                  }}
-                />
+                <InviteHistoryOption checked={history} scope={scope} onChange={setHistory} />
               </div>
             )}
           </div>
@@ -160,10 +113,10 @@ export function GuildInvitesTab({ guildId }: { guildId: string }): React.JSX.Ele
                 Actions
               </span>
             </div>
-            {sorted.map((inv) => {
-              const spent = usedUp(inv)
+            {invites.map((inv) => {
+              const spent = isUsedUp(inv)
               const left = inv.expiresAt ? new Date(inv.expiresAt).getTime() - now : null
-              const soon = !spent && left !== null && left < SOON_MS
+              const soon = !spent && left !== null && left < INVITE_SOON_MS
               const creator = members?.get(inv.createdBy)
               const creatorName = displayName(creator)
               return (

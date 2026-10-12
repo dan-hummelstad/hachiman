@@ -23,7 +23,7 @@ export function AdvancedSection(): React.JSX.Element {
           signed in, and your encryption keys stay on this device.
         </p>
         <div>
-          <Button variant="secondary" onClick={() => setConfirm('cache')}>
+          <Button variant="secondary" className="mobile:h-11" onClick={() => setConfirm('cache')}>
             Clear cached data
           </Button>
         </div>
@@ -35,7 +35,11 @@ export function AdvancedSection(): React.JSX.Element {
           reloads. You must sign in again and set up this device again.
         </p>
         <div>
-          <Button variant="danger-outline" onClick={() => setConfirm('reset')}>
+          <Button
+            variant="danger-outline"
+            className="mobile:h-11"
+            onClick={() => setConfirm('reset')}
+          >
             Reset this device
           </Button>
         </div>

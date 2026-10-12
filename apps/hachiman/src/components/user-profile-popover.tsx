@@ -27,6 +27,7 @@ import { PRESENCE_LABEL, PresenceDot } from '@/components/ui/presence'
 import { RoleChip } from '@/components/ui/role-chip'
 import { UserAudioControl } from '@/components/voice/user-audio-control'
 import { useAction } from '@/hooks/use-action'
+import { useLayout } from '@/hooks/use-layout'
 import { useMemberView, useOpenDm, usePresence } from '@/hooks/use-member'
 import { memberRoles } from '@/lib/model'
 import { ROLE_INK_SCOPE } from '@/lib/role-ink'
@@ -53,7 +54,8 @@ interface UserProfilePopoverProps {
 
 /**
  * Member card: identity, presence, voice status, roles, a "Message" (open DM) action and "Verify"
- * (the safety number, §12.5).
+ * (the safety number, §12.5). On the mobile layout the popover is a bottom sheet (P6) with touch
+ * size actions (docs/ios-mobile-ui-spec.md A4).
  */
 export function UserProfilePopover({
   children,
@@ -77,6 +79,8 @@ export function UserProfilePopover({
           asChild
           onClick={() => setPoint(null)}
           onContextMenu={(e) => {
+            // A touch hold that opened the trigger's own menu (the mobile member sheet).
+            if (e.defaultPrevented) return
             e.preventDefault()
             setPoint({ x: e.clientX, y: e.clientY })
             setOpen(true)
@@ -160,6 +164,9 @@ function ProfileCard(props: {
   const chips = memberRoles(member, roles)
   const identity = member?.user ?? props.user
   const banner = useUserBanner(userId, identity?.avatar)
+  const mobile = useLayout() === 'mobile'
+  const actionSize = mobile ? 'mobile' : 'sm'
+  const actionIcon = mobile ? undefined : 'size-3.5'
 
   return (
     <div className="flex flex-col">
@@ -234,15 +241,15 @@ function ProfileCard(props: {
         {!isMe && (
           <div className="flex gap-2">
             <Button
-              size="sm"
+              size={actionSize}
               className="flex-1"
               disabled={dm.busy || blocked}
               onClick={() => void dm.open().then((ok) => ok && props.onDone())}
             >
-              <MessageCircle className="size-3.5" /> Message
+              <MessageCircle className={actionIcon} /> Message
             </Button>
             <Button
-              size="sm"
+              size={actionSize}
               variant="secondary"
               className="flex-1"
               disabled={!encryption}
@@ -251,11 +258,18 @@ function ProfileCard(props: {
                 openDialog({ kind: 'verification', userId })
               }}
             >
-              <ShieldCheck className="size-3.5" /> Verify
+              <ShieldCheck className={actionIcon} /> Verify
             </Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <IconButton label="More" size="sm" className="rounded-control">
+                <IconButton
+                  label="More"
+                  size={mobile ? 'touch' : 'sm'}
+                  className={cn(
+                    'rounded-control',
+                    mobile && 'border-line-strong size-12 bg-(--fill-control)'
+                  )}
+                >
                   <MoreHorizontal />
                 </IconButton>
               </DropdownMenuTrigger>

@@ -1,9 +1,10 @@
 /**
  * Read state and unread counts (N7). A client feature (services/features.ts): READY, MESSAGE_CREATE
- * (after the decrypt), READ_STATE_UPDATE and channel or guild removals. The UI calls `markRead`
- * and `markChannelRead`.
+ * (after the decrypt), READ_STATE_UPDATE and channel or guild removals. The UI calls `markRead`,
+ * `markChannelRead` and `markAllRead`.
  */
 import type { GatewayDispatch, GatewayEvents, Message } from '@hachiman/client'
+import { isMuted, notifyLevel, visibleBadge } from '@/lib/notify'
 import { cryptoService } from '@/services/CryptoService'
 import { hachiman } from '@/services/client'
 import type { ClientFeature } from '@/services/features'
@@ -12,10 +13,12 @@ import { rowFor, toEncrypted } from '@/services/message-decrypt'
 import { mentionPass } from '@/services/unread-pass'
 import { useMessageStore, type ChatMessage } from '@/stores/messagesStore'
 import { selectedChannelId, useNavStore } from '@/stores/navStore'
+import { notifyPrefs } from '@/stores/prefsStore'
 import {
   addMentions,
   addUnread,
   bumpLastAt,
+  clearCounts,
   fromReadStates,
   keepChannels,
   lastAtFromReadStates,
@@ -29,6 +32,11 @@ const ACK_DEBOUNCE_MS = 1_000
 
 /** channelId → the pending ack: the message id and its timer. */
 const acks = new Map<string, { messageId: string; timer: ReturnType<typeof setTimeout> }>()
+/**
+ * channelId → the newest message id and its time (ms): READY `lastMessageId`, then each
+ * MESSAGE_CREATE. "Mark read" acks it for a channel with no loaded messages.
+ */
+const newest = new Map<string, { id: string; at: number }>()
 /** The restart pass waits for the crypto Worker. */
 let passWaiting = false
 /** Bumped by READY and sign-out, so a pass of an older session does not write. */
@@ -109,6 +117,11 @@ export const unreadService = {
     unreadService.start()
     session++
     const readStates = [...hachiman.cache.readStates.values()]
+    newest.clear()
+    for (const r of readStates) {
+      const at = r.lastMessageAt ? Date.parse(r.lastMessageAt) : NaN
+      if (r.lastMessageId) newest.set(r.channelId, { id: r.lastMessageId, at })
+    }
     useUnreadStore.setState({
       byChannel: fromReadStates(readStates),
       opened: null,
@@ -128,6 +141,9 @@ export const unreadService = {
    * and the window has focus.
    */
   onMessageCreate(m: Pick<Message, 'id' | 'channelId' | 'createdAt'>, ctx: MessageContext): void {
+    const at = Date.parse(m.createdAt)
+    const known = newest.get(m.channelId)
+    if (!known || !(known.at > at)) newest.set(m.channelId, { id: m.id, at })
     useUnreadStore.setState((s) => ({
       lastAt: bumpLastAt(s.lastAt, m.channelId, Date.parse(m.createdAt))
     }))
@@ -175,12 +191,43 @@ export const unreadService = {
     acks.set(channelId, { messageId, timer })
   },
 
-  /** Acks the newest message of a channel: the loaded one, else the one READY named. */
+  /**
+   * Acks the newest message of a channel: the loaded one, else the newest that READY or a
+   * MESSAGE_CREATE named, else its newest mention. With no id at all the counts still clear here.
+   */
   markChannelRead(channelId: string): void {
     const loaded = useMessageStore.getState().byChannel.get(channelId)
-    const last = loaded?.findLast((m) => !m.pending && !m.failed)?.id
-    const id = last ?? hachiman.cache.readStates.get(channelId)?.lastMessageId
+    const id =
+      loaded?.findLast((m) => !m.pending && !m.failed)?.id ??
+      newest.get(channelId)?.id ??
+      hachiman.cache.readStates.get(channelId)?.lastMessageId ??
+      useUnreadStore.getState().byChannel.get(channelId)?.mentionIds.at(-1)
     if (id) unreadService.markRead(channelId, id)
+    else useUnreadStore.setState((s) => ({ byChannel: clearCounts(s.byChannel, channelId) }))
+  },
+
+  /**
+   * "Mark all read" of the inbox screen (M67): `markChannelRead` for each channel with a visible
+   * badge (its notification level and mute applied) or a mention in the inbox. Returns how many
+   * channels it marked.
+   */
+  markAllRead(): number {
+    const channels = hachiman.cache.channels
+    const prefs = notifyPrefs()
+    let marked = 0
+    for (const [channelId, counts] of useUnreadStore.getState().byChannel) {
+      const guildId = channels.get(channelId)?.guildId
+      if (guildId === undefined) continue
+      const badge = visibleBadge(
+        counts,
+        notifyLevel(prefs, channelId, guildId),
+        isMuted(prefs, channelId, guildId)
+      )
+      if (!badge.unread && counts.mentions === 0) continue
+      unreadService.markChannelRead(channelId)
+      marked++
+    }
+    return marked
   },
 
   /** Sign-out. */
@@ -189,6 +236,7 @@ export const unreadService = {
     passWaiting = false
     for (const { timer } of acks.values()) clearTimeout(timer)
     acks.clear()
+    newest.clear()
     resetUnreadStore()
   }
 }

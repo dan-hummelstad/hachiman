@@ -1,6 +1,7 @@
 /**
  * Pure view models of the inbox (N8): the mentions list and the unread channels by guild. The
  * popover feeds them from unreadStore, messagesStore, channelStore, guildStore and prefsStore.
+ * The inbox screen of the mobile layout (M67) puts both in one list (`inboxEntries`).
  */
 import type { Channel, Guild } from '@hachiman/client'
 import { compareChannels } from '@/lib/model'
@@ -48,6 +49,8 @@ export function mentionEntries(
 export interface UnreadChannel {
   channel: Channel
   badge: UnreadBadge
+  /** The new messages from others (raw, with no notification level applied). */
+  unread: number
 }
 
 export interface UnreadGroup {
@@ -84,11 +87,85 @@ export function unreadGroups(
       }
       groups.set(guildId, g)
     }
-    g.channels.push({ channel, badge })
+    g.channels.push({ channel, badge, unread: counts.unread })
   }
   for (const g of groups.values()) g.channels.sort((a, b) => compareChannels(a.channel, b.channel))
   return [...groups.values()].sort(
     (a, b) =>
       (a.guildId === null ? 0 : 1) - (b.guildId === null ? 0 : 1) || a.name.localeCompare(b.name)
   )
+}
+
+/** What an entry of the inbox screen is: a message that mentions me, or a channel with news. */
+export type InboxKind = 'mention' | 'channel'
+
+/** The filter chips of the inbox screen: All, Mentions, Channels (the popover's Unread tab). */
+export type InboxFilter = 'all' | 'mentions' | 'channels'
+
+interface InboxEntryBase {
+  /** Unique in the list. */
+  key: string
+  /** The time (ms) that sorts the entry: the message time, or the channel's last activity. */
+  at: number | null
+}
+
+export type InboxEntry =
+  | (InboxEntryBase & MentionEntry & { kind: 'mention' })
+  | (InboxEntryBase & UnreadChannel & { kind: 'channel' })
+
+const timeOf = (ms: number | undefined): number | null =>
+  ms === undefined || Number.isNaN(ms) ? null : ms
+
+/**
+ * The mentions and the unread channels as one list, newest first: a mention by its message time,
+ * a channel by its last activity (`lastAt`). Entries with no time follow in their given order. On
+ * a tie the mention comes before its channel.
+ */
+export function inboxEntries(
+  mentions: readonly MentionEntry[],
+  channels: readonly UnreadChannel[],
+  lastAt: ReadonlyMap<string, number>
+): InboxEntry[] {
+  const entries: InboxEntry[] = [
+    ...mentions.map((m): InboxEntry => ({
+      ...m,
+      kind: 'mention',
+      key: `mention:${m.messageId}`,
+      at: timeOf(m.row && Date.parse(m.row.createdAt))
+    })),
+    ...channels.map((c): InboxEntry => ({
+      ...c,
+      kind: 'channel',
+      key: `channel:${c.channel.id}`,
+      at: timeOf(lastAt.get(c.channel.id))
+    }))
+  ]
+  const timed = entries.filter((e) => e.at !== null).sort((a, b) => b.at! - a.at!)
+  return [...timed, ...entries.filter((e) => e.at === null)]
+}
+
+/**
+ * The entries that `filter` shows. All leaves out a channel when the mentions in the list already
+ * cover its news: its badge shows mentions only (a muted channel), or it has no more new messages
+ * than listed mentions.
+ */
+export function filterInbox(entries: readonly InboxEntry[], filter: InboxFilter): InboxEntry[] {
+  if (filter === 'mentions') return entries.filter((e) => e.kind === 'mention')
+  if (filter === 'channels') return entries.filter((e) => e.kind === 'channel')
+  const listed = new Map<string, number>()
+  for (const e of entries)
+    if (e.kind === 'mention') listed.set(e.channelId, (listed.get(e.channelId) ?? 0) + 1)
+  return entries.filter(
+    (e) => e.kind === 'mention' || (e.badge.unread && e.unread > (listed.get(e.channel.id) ?? 0))
+  )
+}
+
+export function inboxCounts(entries: readonly InboxEntry[]): Record<InboxFilter, number> {
+  let mentions = 0
+  for (const e of entries) if (e.kind === 'mention') mentions++
+  return {
+    all: filterInbox(entries, 'all').length,
+    mentions,
+    channels: entries.length - mentions
+  }
 }

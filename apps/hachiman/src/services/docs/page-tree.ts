@@ -59,6 +59,59 @@ export function flattenPages(pages: readonly PageNode[]): FlatPage[] {
   return out
 }
 
+/**
+ * The rows that show while each page in `collapsed` hides its sub-pages (the disclosure of the
+ * mobile page list): the rows below a collapsed page go, at any depth.
+ */
+export function hideCollapsed(
+  rows: readonly FlatPage[],
+  collapsed: ReadonlySet<string>
+): readonly FlatPage[] {
+  if (collapsed.size === 0) return rows
+  const out: FlatPage[] = []
+  let hideBelow = Infinity
+  for (const row of rows) {
+    if (row.depth > hideBelow) continue
+    hideBelow = collapsed.has(row.page.id) ? row.depth : Infinity
+    out.push(row)
+  }
+  return out
+}
+
+/**
+ * The index after the last row below `pageId` in `rows` (depth-first): where a new sub-page
+ * shows while its title is typed. -1 when the page has no row.
+ */
+export function subtreeEnd(rows: readonly FlatPage[], pageId: string): number {
+  const at = rows.findIndex((r) => r.page.id === pageId)
+  if (at < 0) return -1
+  let end = at + 1
+  while (end < rows.length && rows[end].depth > rows[at].depth) end++
+  return end
+}
+
+/** The rows whose title contains `query` (case-insensitive), flat. An empty query keeps all. */
+export function searchRows(rows: readonly FlatPage[], query: string): readonly FlatPage[] {
+  const q = query.trim().toLowerCase()
+  if (q === '') return rows
+  return rows
+    .filter((r) => pageTitle(r.page).toLowerCase().includes(q))
+    .map((r) => ({ page: r.page, depth: 0 }))
+}
+
+/**
+ * The page that a pages channel names on its chat (the mobile page bar): the open page, else
+ * `lastId` (the page opened last), else the first page of the tree. Null for no pages.
+ */
+export function channelPageId(
+  pages: readonly PageNode[],
+  openId: string | null,
+  lastId: string | null
+): string | null {
+  for (const id of [openId, lastId]) if (id !== null && pages.some((p) => p.id === id)) return id
+  return flattenPages(pages)[0]?.page.id ?? null
+}
+
 /** The pages from the root to `pageId` (inclusive). Empty when the page is not in the list. */
 export function pagePath(pages: readonly PageNode[], pageId: string): PageNode[] {
   const byId = new Map(pages.map((p) => [p.id, p]))
@@ -69,6 +122,16 @@ export function pagePath(pages: readonly PageNode[], pageId: string): PageNode[]
     cur = cur.parentId !== null ? byId.get(cur.parentId) : undefined
   }
   return path
+}
+
+/**
+ * The id of the top-level page above `pageId` (itself when it is one): the page whose banner it
+ * shows. null when the page is not in the list, or when the top of its path is not top-level (an
+ * orphan whose parent is not in the list, during a move for example).
+ */
+export function rootOf(pages: readonly PageNode[], pageId: string): string | null {
+  const top = pagePath(pages, pageId)[0]
+  return top?.parentId === null ? top.id : null
 }
 
 /** The ids of `pageId` and of every page below it. */
@@ -110,16 +173,68 @@ export function pageTitle(page: Pick<PageNode, 'title' | 'titleState'>): string 
 /** The cap of a title in UTF-8 bytes (MAX_PAGE_TITLE_BYTES of @hachiman/crypto, §12.20). */
 export const MAX_PAGE_TITLE_BYTES = 200
 
-/** A title as it is sent: trimmed, at most MAX_PAGE_TITLE_BYTES bytes, 'Untitled' when empty. */
-export function clampTitle(title: string): string {
+/** `value` cut to MAX_PAGE_TITLE_BYTES of UTF-8, at a character edge, so typing stops there. */
+export function fitTitle(value: string): string {
   const enc = new TextEncoder()
+  if (enc.encode(value).length <= MAX_PAGE_TITLE_BYTES) return value
   let out = ''
-  for (const ch of title.trim()) {
+  for (const ch of value) {
     if (enc.encode(out + ch).length > MAX_PAGE_TITLE_BYTES) break
     out += ch
   }
-  return out.trim() || 'Untitled'
+  return out
 }
+
+/** A title as it is sent: trimmed, at most MAX_PAGE_TITLE_BYTES bytes, 'Untitled' when empty. */
+export function clampTitle(title: string): string {
+  return fitTitle(title.trim()).trim() || 'Untitled'
+}
+
+/**
+ * The PATCHes that put `page` at `insertAt` among `siblings` (the pages of `parentId` without
+ * it). Usually one PATCH, of `page`. When its new neighbours leave no gap, the siblings are
+ * renumbered (POSITION_STEP), and only the pages whose position changes get a PATCH.
+ */
+function placeAmong(
+  page: PageNode,
+  parentId: string | null,
+  siblings: readonly PageNode[],
+  insertAt: number
+): PageMove[] {
+  const position = between(siblings[insertAt - 1]?.position, siblings[insertAt]?.position)
+  if (position !== null) return [{ pageId: page.id, parentId, position }]
+  const ordered = [...siblings]
+  ordered.splice(insertAt, 0, page)
+  return ordered.flatMap((p, i) =>
+    p.position === i * POSITION_STEP && p.parentId === parentId
+      ? []
+      : [{ pageId: p.id, parentId, position: i * POSITION_STEP }]
+  )
+}
+
+/**
+ * The PATCHes that move a page one place up (-1) or down (1) among its siblings, under the same
+ * parent (the Move items of the hold menu). Empty when it is first or last already.
+ */
+export function moveAmongSiblings(
+  pages: readonly PageNode[],
+  pageId: string,
+  step: -1 | 1
+): PageMove[] {
+  const page = pages.find((p) => p.id === pageId)
+  if (!page) return []
+  const siblings = siblingsOf(pages, page.parentId)
+  const at = siblings.indexOf(page) + step
+  if (at < 0 || at >= siblings.length) return []
+  return placeAmong(
+    page,
+    page.parentId,
+    siblings.filter((p) => p !== page),
+    at
+  )
+}
+
+const NONE: ReadonlySet<string> = new Set()
 
 /**
  * The PATCHes of a drag in the tree. The row of `activeId` goes to the place of the row of
@@ -127,14 +242,17 @@ export function clampTitle(title: string): string {
  * range that the rows above and below allow (the sortable-tree projection of dnd-kit).
  * Usually one PATCH, of the dragged page (POSITION_STEP). When its new neighbours leave no gap,
  * the new siblings are renumbered, and only the pages whose position changes get a PATCH.
+ * `collapsed`: the pages whose sub-pages the list hides (`hideCollapsed`). A drop goes between
+ * the rows that show, so a drop under a collapsed page does not land in its hidden sub-pages.
  */
 export function projectDrop(
   pages: readonly PageNode[],
   activeId: string,
   overId: string,
-  depthDelta: number
+  depthDelta: number,
+  collapsed: ReadonlySet<string> = NONE
 ): PageMove[] {
-  const all = flattenPages(pages)
+  const all = hideCollapsed(flattenPages(pages), collapsed)
   const active = all.find((r) => r.page.id === activeId)
   if (!active) return []
   const below = subtreeIds(pages, activeId)
@@ -163,20 +281,16 @@ export function projectDrop(
   }
 
   // The new sibling order: the rows above `to` under the same parent, the page, then the rest.
-  const before = new Set(moved.slice(0, to).map((r) => r.page.id))
+  // The hidden sub-pages of a collapsed row above count as above.
+  const before = new Set<string>()
+  for (const { page: above } of moved.slice(0, to)) {
+    if (collapsed.has(above.id)) for (const id of subtreeIds(pages, above.id)) before.add(id)
+    else before.add(above.id)
+  }
   const siblings = siblingsOf(pages, parentId).filter((p) => p.id !== activeId)
   const insertAt = siblings.filter((s) => before.has(s.id)).length
   const page = active.page
   if (page.parentId === parentId && siblingsOf(pages, parentId).indexOf(page) === insertAt)
     return []
-
-  const position = between(siblings[insertAt - 1]?.position, siblings[insertAt]?.position)
-  if (position !== null) return [{ pageId: activeId, parentId, position }]
-  const ordered = [...siblings]
-  ordered.splice(insertAt, 0, page)
-  return ordered.flatMap((p, i) =>
-    p.position === i * POSITION_STEP && p.parentId === parentId
-      ? []
-      : [{ pageId: p.id, parentId, position: i * POSITION_STEP }]
-  )
+  return placeAmong(page, parentId, siblings, insertAt)
 }

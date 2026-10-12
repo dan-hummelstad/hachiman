@@ -21,5 +21,5 @@ export function matchShortcut(combo: string | null, binds: Keybinds): Shortcut |
 export function underModal(target: EventTarget | null, dialogOpen: boolean): boolean {
   if (dialogOpen) return true
   const el = target as Element | null
-  return el?.closest?.('[data-slot="dialog-content"], [role="alertdialog"]') != null
+  return el?.closest?.('[data-slot="dialog-content"], [role="alertdialog"], [data-sheet]') != null
 }

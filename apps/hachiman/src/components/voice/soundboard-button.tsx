@@ -15,7 +15,16 @@ import { useServerVoice } from '@/components/voice/use-server-voice'
  * into my sent track and plays it here too. Hidden without SPEAK and USE_SOUNDBOARD in the
  * channel. While I am muted (self or server) the grid is off: nobody would hear it.
  */
-export function SoundboardButton({ className }: { className?: string }): React.JSX.Element | null {
+export function SoundboardButton({
+  className,
+  icon = <AudioLines />,
+  label
+}: {
+  className?: string
+  /** The trigger icon and name: the docked mobile bar shows it as "More" (decision 6). */
+  icon?: React.ReactNode
+  label?: string
+}): React.JSX.Element | null {
   const guildId = useVoiceStore((s) => s.guildId)
   const channelId = useVoiceStore((s) => s.channelId)
   const perms = usePermissions(guildId, channelId)
@@ -33,8 +42,11 @@ export function SoundboardButton({ className }: { className?: string }): React.J
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <IconButton label={selfMute ? 'Soundboard (unmute to play)' : 'Soundboard'} className={className}>
-          <AudioLines />
+        <IconButton
+          label={label ?? (selfMute ? 'Soundboard (unmute to play)' : 'Soundboard')}
+          className={className}
+        >
+          {icon}
         </IconButton>
       </PopoverTrigger>
       <PopoverContent side="top" className="w-80 space-y-2">
@@ -49,7 +61,9 @@ export function SoundboardButton({ className }: { className?: string }): React.J
           </p>
         )}
         {sounds.length === 0 ? (
-          <p className="text-text-tertiary py-4 text-center text-sm">This guild has no sounds yet.</p>
+          <p className="text-text-tertiary py-4 text-center text-sm">
+            This guild has no sounds yet.
+          </p>
         ) : (
           <ul className="grid max-h-72 grid-cols-3 gap-1.5 overflow-y-auto">
             {sounds.map((s) => (
@@ -64,8 +78,17 @@ export function SoundboardButton({ className }: { className?: string }): React.J
   )
 }
 
-function SoundTile({ sound, disabled }: { sound: GuildSound; disabled: boolean }): React.JSX.Element {
-  const [state, setState] = useState<{ busy: boolean; error: string | null }>({ busy: false, error: null })
+function SoundTile({
+  sound,
+  disabled
+}: {
+  sound: GuildSound
+  disabled: boolean
+}): React.JSX.Element {
+  const [state, setState] = useState<{ busy: boolean; error: string | null }>({
+    busy: false,
+    error: null
+  })
   const play = (): void => {
     setState({ busy: true, error: null })
     soundboardService

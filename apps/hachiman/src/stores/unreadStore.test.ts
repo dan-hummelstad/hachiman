@@ -4,6 +4,7 @@ import { shouldPing, visibleBadge, type NotifyPrefs } from '@/lib/notify'
 import {
   addMentions,
   addUnread,
+  clearCounts,
   bumpLastAt,
   firstUnreadId,
   fromReadStates,
@@ -79,6 +80,12 @@ describe('unread reducers', () => {
     const m = markReadTo(addMentions(ready, 'lfg', ['m3']), 'lfg', 'm3')
     expect(m.get('lfg')).toEqual({ lastReadId: 'm3', unread: 0, mentions: 0, mentionIds: [] })
     expect(markReadTo(m, 'lfg', 'm3')).toBe(m)
+  })
+
+  it('clears the counts and keeps the read point when no message id is known', () => {
+    const m = clearCounts(addMentions(ready, 'lfg', ['m3']), 'lfg')
+    expect(m.get('lfg')).toEqual({ lastReadId: 'm1', unread: 0, mentions: 0, mentionIds: [] })
+    expect(clearCounts(m, 'lfg')).toBe(m)
   })
 
   it('drops the channels that are gone', () => {

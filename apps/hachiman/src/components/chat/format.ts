@@ -100,3 +100,22 @@ export function joinSlots(
     return at === 0 && !complete ? null : at
   })
 }
+
+/**
+ * Where the notice line of a contact's key change goes in a 1:1 DM (M59): before the first loaded
+ * message after the change, or after the last message. `changedAt` null (the time is not known):
+ * after the last message. As for joins, a change before the first loaded message shows only when
+ * no older history is left to load (`complete`). Null: leave the line out for now.
+ */
+export function keyChangeSlot(
+  messages: readonly Pick<ChatMessage, 'createdAt'>[],
+  changedAt: string | null,
+  complete: boolean
+): number | null {
+  const changed = changedAt === null ? Number.NaN : Date.parse(changedAt)
+  const i = Number.isNaN(changed)
+    ? -1
+    : messages.findIndex((msg) => Date.parse(msg.createdAt) > changed)
+  const at = i === -1 ? messages.length : i
+  return at === 0 && !complete ? null : at
+}

@@ -37,8 +37,9 @@ function TooltipContent({
         data-slot="tooltip-content"
         sideOffset={sideOffset}
         className={cn(
-          // Always a dark label, in both themes.
-          'animate-in fade-in-0 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 z-50 w-fit max-w-64 origin-(--radix-tooltip-content-transform-origin) border border-black bg-[#111317] px-2 py-1 text-xs leading-4 font-medium text-balance text-[#e6e8ec] shadow-lg',
+          // Always a dark label, in both themes. Touch has no hover: no tooltips on a touch
+          // screen in the mobile layout. A mouse in a narrow window keeps them.
+          'animate-in fade-in-0 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 z-50 w-fit max-w-64 origin-(--radix-tooltip-content-transform-origin) border border-black bg-[#111317] px-2 py-1 text-xs leading-4 font-medium text-balance text-[#e6e8ec] shadow-lg mobile:pointer-coarse:hidden',
           className
         )}
         {...props}

@@ -231,6 +231,15 @@ describe('page envelope checks (§12.20)', () => {
     assert.equal(r.size, i.envelope.length)
   })
 
+  test('a doc_banner envelope passes as kind doc_banner only', async () => {
+    const { s, i } = await docInput({ kind: 'doc_banner' })
+    const r = await acceptDoc(s.w, { ...i, kind: 'doc_banner' })
+    assert.equal(r.epoch, 1)
+    for (const kind of ['doc_title', 'doc_update', 'doc_snapshot'] as const) await rejects(acceptDoc(s.w, { ...i, kind }), 'InvalidEnvelope', 400)
+    const title = await docInput({ kind: 'doc_title' })
+    await rejects(acceptDoc(title.s.w, { ...title.i, kind: 'doc_banner' }), 'InvalidEnvelope', 400)
+  })
+
   test('the kind, the page, the channel and the leaf must match; a message envelope is not a page envelope', async () => {
     for (const over of [{ kind: 'doc_title' as const }, { kind: 'doc_awareness' as const }, { page: crypto.randomUUID() }, { channel: crypto.randomUUID() }]) {
       const { s, i } = await docInput(over)

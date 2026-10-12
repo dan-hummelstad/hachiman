@@ -22,6 +22,8 @@ const CHANNEL = 'c-1'
 const utf8 = new TextEncoder()
 const pointer = (uploadId: string): Uint8Array =>
   utf8.encode(JSON.stringify({ uploadId, fileKey: 'fk', sha256: 'sha', size: 1 }))
+const bannerBytes = (pageId: string): Uint8Array =>
+  utf8.encode(JSON.stringify({ uploadId: `banner-${pageId}`, mime: 'image/webp' }))
 
 /** A fake Worker: an envelope is a handle on the plaintext, with the epoch of its send. */
 // eslint-disable-next-line @typescript-eslint/explicit-function-return-type -- the fake is its own type
@@ -90,6 +92,8 @@ function fakeServer(crypto: ReturnType<typeof fakeCrypto>, epoch: { current: num
       id: string,
       opts: {
         titleEpoch: number
+        /** A banner envelope of this epoch. */
+        bannerEpoch?: number
         latestSeq?: number
         snapshot?: { baseSeq: number; epoch: number; uploadId?: string }
       }
@@ -98,6 +102,13 @@ function fakeServer(crypto: ReturnType<typeof fakeCrypto>, epoch: { current: num
         { channelId: CHANNEL, pageId: id, kind: 'doc_title', bytes: utf8.encode(` ${id} `) },
         opts.titleEpoch
       )
+      const bannerEnvelope =
+        opts.bannerEpoch === undefined
+          ? null
+          : crypto.seal(
+              { channelId: CHANNEL, pageId: id, kind: 'doc_banner', bytes: bannerBytes(id) },
+              opts.bannerEpoch
+            )
       const s = opts.snapshot
       const uploadId = s?.uploadId ?? `up-${id}`
       const p: FakePage = {
@@ -107,6 +118,7 @@ function fakeServer(crypto: ReturnType<typeof fakeCrypto>, epoch: { current: num
           parentId: null,
           position: 0,
           titleEnvelope,
+          bannerEnvelope,
           createdBy: 'u-2',
           createdAt: 't0',
           updatedAt: `t${++clock}`
@@ -139,6 +151,7 @@ function fakeServer(crypto: ReturnType<typeof fakeCrypto>, epoch: { current: num
         pageId: p.page.id,
         latestSeq: p.latestSeq,
         title: header(p.page.titleEnvelope),
+        banner: p.page.bannerEnvelope === null ? null : header(p.page.bannerEnvelope),
         snapshot: p.snapshot
       }))
     ),
@@ -164,7 +177,11 @@ function fakeServer(crypto: ReturnType<typeof fakeCrypto>, epoch: { current: num
     updatePage: vi.fn(
       async (
         pageId: string,
-        body: { titleEnvelope?: string | null; ifUpdatedAt?: string | null }
+        body: {
+          titleEnvelope?: string | null
+          banner?: { envelope: string; uploadIds?: string[] } | null
+          ifUpdatedAt?: string | null
+        }
       ) => {
         const p = pages.get(pageId)!
         if (body.ifUpdatedAt != null && body.ifUpdatedAt !== p.page.updatedAt)
@@ -172,6 +189,8 @@ function fakeServer(crypto: ReturnType<typeof fakeCrypto>, epoch: { current: num
         p.page = {
           ...p.page,
           titleEnvelope: body.titleEnvelope ?? p.page.titleEnvelope,
+          bannerEnvelope:
+            body.banner === undefined ? p.page.bannerEnvelope : (body.banner?.envelope ?? null),
           updatedAt: `t${++clock}`
         }
         return p.page
@@ -320,12 +339,60 @@ describe('rewrapChannel', () => {
     expect(console.warn).not.toHaveBeenCalled()
   })
 
+  it('re-wraps a stale banner in one PATCH with the title, without uploadIds', async () => {
+    const h = harness()
+    const a = h.server.add('a', { titleEpoch: 1, bannerEpoch: 1 })
+    h.epoch.current = 2
+    const readAt = a.page.updatedAt
+    await rewrapChannel(h.deps, CHANNEL)
+    expect(h.server.updatePage).toHaveBeenCalledTimes(1)
+    // An exact body: a stray uploadIds would make Takusen claim ids for a non-uploader.
+    expect(h.server.updatePage).toHaveBeenCalledWith('a', {
+      titleEnvelope: expect.any(String),
+      banner: { envelope: expect.any(String) },
+      ifUpdatedAt: readAt
+    })
+    // The same bytes, not parsed, in the current epoch.
+    expect(h.crypto.sealed.get(a.page.bannerEnvelope!)).toMatchObject({
+      epoch: 2,
+      input: { kind: 'doc_banner', bytes: bannerBytes('a') }
+    })
+  })
+
+  it('re-wraps a page whose title is current and whose banner is stale', async () => {
+    const h = harness()
+    const a = h.server.add('a', { titleEpoch: 2, bannerEpoch: 1 })
+    const titleEnvelope = a.page.titleEnvelope
+    h.server.add('b', { titleEpoch: 2, bannerEpoch: 2 })
+    h.epoch.current = 2
+    await rewrapChannel(h.deps, CHANNEL)
+    expect(h.server.updatePage.mock.calls).toEqual([
+      ['a', { banner: { envelope: expect.any(String) }, ifUpdatedAt: expect.any(String) }]
+    ])
+    expect(a.page.titleEnvelope).toBe(titleEnvelope)
+    expect(h.crypto.sealed.get(a.page.bannerEnvelope!)?.epoch).toBe(2)
+  })
+
+  it('skips a banner that does not open here, and keeps the title re-wrap', async () => {
+    const h = harness()
+    const a = h.server.add('a', { titleEpoch: 1, bannerEpoch: 1 })
+    h.crypto.pending.add(a.page.bannerEnvelope!)
+    const b = h.server.add('b', { titleEpoch: 2, bannerEpoch: 1 })
+    h.crypto.pending.add(b.page.bannerEnvelope!)
+    h.epoch.current = 2
+    await rewrapChannel(h.deps, CHANNEL)
+    expect(h.server.updatePage.mock.calls).toEqual([
+      ['a', { titleEnvelope: expect.any(String), ifUpdatedAt: expect.any(String) }]
+    ])
+    expect(h.crypto.encryptDoc).toHaveBeenCalledTimes(1)
+  })
+
   it('a re-wrap that another member made first ends quietly', async () => {
     const h = harness()
     const a = h.server.add('a', { titleEpoch: 2, snapshot: { baseSeq: 1, epoch: 1 } })
     h.epoch.current = 2
     h.server.getPageHeads.mockImplementationOnce(async () => {
-      const heads = [{ pageId: 'a', latestSeq: 1, title: null, snapshot: a.snapshot }]
+      const heads = [{ pageId: 'a', latestSeq: 1, title: null, banner: null, snapshot: a.snapshot }]
       a.snapshot = { ...a.snapshot!, epoch: 2 }
       return heads
     })

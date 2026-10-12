@@ -20,6 +20,7 @@ import {
   type DsTransport
 } from '@hachiman/crypto'
 import { CLIENT_VERSION } from '@/lib/client-version'
+import { DEVICE_NAME } from '@/lib/device-platform'
 import { takusenService } from '@/services/TakusenService'
 import type { IPlatformService } from '@/shared/IPlatformService'
 import {
@@ -113,7 +114,7 @@ class CryptoService {
         wrapKey,
         platform: platform?.platform ?? 'browser',
         clientVersion: CLIENT_VERSION,
-        deviceName: platform?.platform === 'electron' ? 'Hachiman Desktop' : 'Hachiman Web',
+        deviceName: DEVICE_NAME[platform?.platform ?? 'browser'],
         origin: new URL(takusenService.env.apiBase).origin
       })
       if (this.current !== client) return

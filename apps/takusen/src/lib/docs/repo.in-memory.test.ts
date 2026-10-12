@@ -17,6 +17,10 @@ describeDocsRepo('InMemoryDocsStore', async () => {
       addGroup: async () => new Uint8Array(randomBytes(16)),
       addUpload: async (u) => store.addUpload(u).id,
       uploadExists: async (id) => store.state.uploads.has(id),
+      upload: async (id) => {
+        const u = store.state.uploads.get(id)
+        return u ? { purpose: u.purpose, pageId: u.pageId, lastReferencedAt: u.lastReferencedAt } : null
+      },
       storage: async (guildId) => store.storage(guildId),
     },
   }

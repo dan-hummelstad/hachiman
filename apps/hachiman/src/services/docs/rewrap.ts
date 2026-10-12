@@ -1,9 +1,9 @@
 /**
  * The re-wrap pass of a pages channel (contract §4 Pages, §12.20 "Access by new members"). A user
  * that joins the MLS group of a pages channel has no secret of the older epochs. The pass encrypts
- * the newest snapshot pointer and the title of each page again in the current epoch, so the new
- * member opens every page without a member that has it open. The snapshot blob has its own file
- * key, so a pointer re-wrap writes no blob.
+ * the newest snapshot pointer, the title and the banner of each page again in the current epoch,
+ * so the new member opens every page without a member that has it open. The snapshot and banner
+ * blobs have their own file keys, so a re-wrap writes no blob.
  *
  * - Trigger: the Worker event `usersAdded`. The committer runs the pass at once and again after
  *   the epoch grace of §12.8.4, because a member can still post in the old epoch for that time.
@@ -23,9 +23,16 @@ import {
   type Channel,
   type Page,
   type PageHead,
-  type RestClient
+  type RestClient,
+  type UpdatePageBody
 } from '@hachiman/client'
-import { ADD_ONLY_EPOCH_GRACE_MS, type CryptoApi, type CryptoEvents } from '@hachiman/crypto'
+import {
+  ADD_ONLY_EPOCH_GRACE_MS,
+  type CryptoApi,
+  type CryptoEvents,
+  type DocEnvelopeKindName,
+  type EncryptedDocItem
+} from '@hachiman/crypto'
 import { isStale, rewrapPointer } from './envelopes'
 import type { DocProvider } from './types'
 
@@ -41,33 +48,59 @@ const codeOf = (e: unknown): unknown => (e as { code?: unknown } | null)?.code
 const statusOf = (e: unknown): number | null => (e instanceof RestError ? e.status : null)
 
 /**
- * PATCHes the title of `page` again, encrypted in the current epoch. The bytes stay as they are.
- * `ifUpdatedAt` keeps a rename that came in between: 409 PageConflict skips the page.
+ * Encrypts the row envelope `envelope` of `page` again in the current epoch, with the same bytes.
+ * Null when it does not open here: only a decrypted envelope is re-wrapped.
  */
-async function rewrapTitle(
+async function rewrapEnvelope(
   crypto: DocCrypto,
-  rest: Pick<RestClient, 'updatePage'>,
-  page: Page
-): Promise<void> {
-  const [r] = await crypto.decryptDoc([
-    {
-      id: page.id,
-      channelId: page.channelId,
-      pageId: page.id,
-      kind: 'doc_title',
-      senderDevice: null,
-      envelope: page.titleEnvelope
-    }
-  ])
-  if (r?.status !== 'ok') return
+  page: Page,
+  kind: Extract<DocEnvelopeKindName, 'doc_title' | 'doc_banner'>,
+  envelope: string
+): Promise<string | null> {
+  const item: EncryptedDocItem = {
+    id: page.id,
+    channelId: page.channelId,
+    pageId: page.id,
+    kind,
+    senderDevice: null,
+    envelope
+  }
+  const [r] = await crypto.decryptDoc([item])
+  if (r?.status !== 'ok') return null
   const out = await crypto.encryptDoc({
     channelId: page.channelId,
     pageId: page.id,
-    kind: 'doc_title',
+    kind,
     bytes: r.bytes
   })
+  return out.envelope
+}
+
+/**
+ * PATCHes the stale row envelopes of `page` (its title, its banner or both) again, encrypted in
+ * the current epoch, in one PATCH. The bytes stay as they are: the banner pointer is not parsed.
+ * The banner goes without `uploadIds`, so Takusen keeps the stored ids and claims nothing (the
+ * re-wrapper is usually not the uploader). `ifUpdatedAt` keeps a rename or a banner change that
+ * came in between: 409 PageConflict skips the page.
+ */
+async function rewrapRow(
+  crypto: DocCrypto,
+  rest: Pick<RestClient, 'updatePage'>,
+  page: Page,
+  stale: { title: boolean; banner: boolean }
+): Promise<void> {
+  const body: UpdatePageBody = {}
+  if (stale.title) {
+    const envelope = await rewrapEnvelope(crypto, page, 'doc_title', page.titleEnvelope)
+    if (envelope !== null) body.titleEnvelope = envelope
+  }
+  if (stale.banner && page.bannerEnvelope !== null) {
+    const envelope = await rewrapEnvelope(crypto, page, 'doc_banner', page.bannerEnvelope)
+    if (envelope !== null) body.banner = { envelope }
+  }
+  if (body.titleEnvelope === undefined && body.banner === undefined) return
   try {
-    await rest.updatePage(page.id, { titleEnvelope: out.envelope, ifUpdatedAt: page.updatedAt })
+    await rest.updatePage(page.id, { ...body, ifUpdatedAt: page.updatedAt })
   } catch (e) {
     if (codeOf(e) !== 'PageConflict') throw e
   }
@@ -118,9 +151,10 @@ export interface RewrapDeps {
 }
 
 /**
- * One pass over one channel: snapshots and pointers first, then the titles. `thorough`: the
- * committer's second pass, which also loads the pages with updates after a current snapshot.
- * `cancelled`: true after a sign-out. The pass stops before its next page and before the titles.
+ * One pass over one channel: snapshots and pointers first, then the titles and banners.
+ * `thorough`: the committer's second pass, which also loads the pages with updates after a current
+ * snapshot. `cancelled`: true after a sign-out. The pass stops before its next page and before the
+ * titles and banners.
  */
 export async function rewrapChannel(
   deps: RewrapDeps,
@@ -133,6 +167,8 @@ export async function rewrapChannel(
   if (group.epoch === null) return
   const cur = { groupId: group.groupId, epoch: group.epoch }
   const staleTitle = (h: PageHead): boolean => h.title !== null && isStale(h.title, cur)
+  const staleBanner = (h: PageHead): boolean => h.banner !== null && isStale(h.banner, cur)
+  const staleRow = (h: PageHead): boolean => staleTitle(h) || staleBanner(h)
   const heads = await deps.rest.getPageHeads(channelId)
   // A 403 (the channel is read-only for me now) stops the channel; another failure, the page.
   const each = async (pageId: string, task: () => Promise<unknown>): Promise<void> => {
@@ -154,17 +190,20 @@ export async function rewrapChannel(
     } else if (snap && staleSnap)
       await each(head.pageId, () => rewrapPointer(crypto, deps.rest, channelId, snap))
   }
-  if (cancelled() || !heads.some(staleTitle)) return
-  // The page list first, then the heads again: a rename after the list read fails the
-  // compare-and-set, and a rename before the second heads read makes the title current.
+  if (cancelled() || !heads.some(staleRow)) return
+  // The page list first, then the heads again: a rename or banner change after the list read
+  // fails the compare-and-set, and one before the second heads read makes the envelope current.
   const pages = await deps.rest.getPages(channelId)
-  const stale = new Set(
-    (await deps.rest.getPageHeads(channelId)).filter(staleTitle).map((h) => h.pageId)
+  const stale = new Map(
+    (await deps.rest.getPageHeads(channelId))
+      .filter(staleRow)
+      .map((h) => [h.pageId, { title: staleTitle(h), banner: staleBanner(h) }])
   )
   for (const page of pages) {
-    if (!stale.has(page.id)) continue
+    const which = stale.get(page.id)
+    if (!which) continue
     if (cancelled()) return
-    await each(page.id, () => rewrapTitle(crypto, deps.rest, page))
+    await each(page.id, () => rewrapRow(crypto, deps.rest, page, which))
   }
 }
 

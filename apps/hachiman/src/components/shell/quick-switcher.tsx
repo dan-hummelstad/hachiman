@@ -1,33 +1,30 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import * as DialogPrimitive from '@radix-ui/react-dialog'
 import { AtSign, FileText, Hash, Pin, Search, Volume2, type LucideIcon } from 'lucide-react'
-import { Permissions, has } from '@hachiman/client'
+import { MobileSearchScreen } from '@/components/mobile/search-screen'
 import {
+  activateItem,
   closeSwitcher,
+  isPinnedItem,
   openSwitcher,
   useSwitcher,
+  useSwitcherResults,
   type SwitcherMode
 } from '@/components/shell/switcher-state'
 import { useSidebarView } from '@/components/shell/sidebar-state'
 import { FEATURE_TEXT } from '@/components/ui/feature'
 import { Keycap } from '@/components/ui/keycap'
 import { UnreadMark } from '@/components/ui/unread-mark'
-import { dmName } from '@/lib/model'
 import { useKeybindLabel } from '@/hooks/use-keybinds'
+import { useLayout } from '@/hooks/use-layout'
 import { MOD_KEY } from '@/lib/mod-key'
-import { rankItems, recentKeys, type SwitchItem, type SwitchKind } from '@/lib/quick-switcher'
+import type { SwitchItem, SwitchKind } from '@/lib/quick-switcher'
 import { cn } from '@/lib/utils'
-import { dmChannelWith, hachiman } from '@/services/hachiman'
-import { useChannelStore } from '@/stores/channelStore'
-import { useDocsStore } from '@/stores/docsStore'
-import { useGuildStore } from '@/stores/guildStore'
-import { currentView, navigate, useNavStore, type View } from '@/stores/navStore'
-import { isPinned, pinTab, targetOf, useTabs } from '@/stores/tabsStore'
+import { useTabs } from '@/stores/tabsStore'
 import { useChannelUnread } from '@/stores/unreadStore'
-import { useUserStore } from '@/stores/userStore'
 import { selectableRowClass } from '@/components/ui/selectable-row'
 
-/** The field at the top of the sidebar: "Search or jump to… ⌘K". */
+/** The field at the top of the sidebar: "Search or jump to… ⌘K". No keycap on a phone. */
 export function SwitcherField(): React.JSX.Element {
   const key = useKeybindLabel('switcher')
   return (
@@ -38,7 +35,7 @@ export function SwitcherField(): React.JSX.Element {
     >
       <Search className="size-4 shrink-0" />
       <span className="flex-1 truncate">Search or jump to…</span>
-      {key && <Keycap>{key}</Keycap>}
+      {key && <Keycap className="mobile:hidden">{key}</Keycap>}
     </button>
   )
 }
@@ -61,101 +58,16 @@ const KIND_COLOUR: Record<SwitchKind, string> = {
   person: 'text-text-tertiary'
 }
 
-/** Every item the switcher can open: channels, voice, pages, DMs and people across all guilds. */
-function collectItems(): SwitchItem[] {
-  const { channels } = useChannelStore.getState()
-  const { guilds, members } = useGuildStore.getState()
-  const { pagesByChannel } = useDocsStore.getState()
-  const myId = useUserStore.getState().me?.id
-  const items: SwitchItem[] = []
-  const dmWith = new Set<string>()
-  for (const c of channels.values()) {
-    if (c.guildId === null) {
-      if (c.type === 'dm' && c.recipients?.[0]) dmWith.add(c.recipients[0].id)
-      items.push({
-        key: `c:${c.id}`,
-        kind: 'dm',
-        name: dmName(c),
-        guildId: null,
-        guildName: null,
-        channelId: c.id
-      })
-      continue
-    }
-    if (c.type !== 'text' && c.type !== 'voice' && c.type !== 'pages') continue
-    if (!has(hachiman.permissionsFor(c.id), Permissions.VIEW_CHANNEL)) continue
-    const guildName = guilds.get(c.guildId)?.name ?? null
-    items.push({
-      key: `c:${c.id}`,
-      kind: c.type,
-      name: c.name ?? '',
-      guildId: c.guildId,
-      guildName,
-      channelId: c.id
-    })
-    if (c.type !== 'pages') continue
-    for (const p of pagesByChannel.get(c.id) ?? []) {
-      if (p.titleState !== 'ok' || !p.title) continue
-      items.push({
-        key: `p:${p.id}`,
-        kind: 'page',
-        name: p.title,
-        guildId: c.guildId,
-        guildName,
-        channelId: c.id,
-        pageId: p.id
-      })
-    }
-  }
-  const people = new Set<string>()
-  for (const byUser of members.values()) {
-    for (const m of byUser.values()) {
-      const id = m.user.id
-      if (id === myId || dmWith.has(id) || people.has(id)) continue
-      people.add(id)
-      items.push({
-        key: `u:${id}`,
-        kind: 'person',
-        name: m.user.username,
-        guildId: null,
-        guildName: null,
-        channelId: null,
-        userId: id
-      })
-    }
-  }
-  return items
-}
-
-/** The view an item opens; null for a person (the DM may not exist yet). */
-function viewOfItem(it: SwitchItem): View | null {
-  if (it.kind === 'person' || it.channelId === null) return null
-  if (it.kind === 'dm') return { kind: 'dm', channelId: it.channelId }
-  const guildId = it.guildId ?? ''
-  return it.kind === 'page' && it.pageId
-    ? { kind: 'page', guildId, channelId: it.channelId, pageId: it.pageId }
-    : { kind: 'channel', guildId, channelId: it.channelId }
-}
-
-/** Opens (or with `pin`, pins) a result. A person opens (or reuses) the DM with them. */
-async function activate(it: SwitchItem, pin: boolean): Promise<void> {
-  let view = viewOfItem(it)
-  if (!view && it.userId) {
-    view = { kind: 'dm', channelId: await dmChannelWith(it.userId) }
-  }
-  if (!view) return
-  const target = targetOf(view)
-  if (pin && target) pinTab(target)
-  else navigate(view)
-}
-
 /**
  * The quick switcher (N5): a 480-wide popover with one field and one list of results across all
- * guilds. No message search: the server holds only ciphertext. Mount once in the shell.
+ * guilds. On the mobile layout, the full-screen search (M66). No message search: the server holds
+ * only ciphertext. Mount once in the shell.
  */
 export function QuickSwitcher(): React.JSX.Element | null {
   const mode = useSwitcher((s) => s.mode)
+  const mobile = useLayout() === 'mobile'
   if (mode === null) return null
+  if (mobile) return <MobileSearchScreen mode={mode} />
   return (
     <DialogPrimitive.Root open onOpenChange={(open) => !open && closeSwitcher()}>
       <DialogPrimitive.Portal>
@@ -173,10 +85,7 @@ function SwitcherPanel({ mode }: { mode: SwitcherMode }): React.JSX.Element {
   const sidebar = useSidebarView()
   const anchored = mode === 'open' && sidebar !== 'tucked'
 
-  // A snapshot when the panel opens: the lists are small and do not change while it is open.
-  const [items] = useState(collectItems)
-  const [recent] = useState(() => recentKeys(useNavStore.getState().past, currentView()))
-  const results = useMemo(() => rankItems(items, query, recent), [items, query, recent])
+  const { results } = useSwitcherResults(query)
   const tabs = useTabs()
   const selected = Math.min(index, Math.max(results.length - 1, 0))
 
@@ -188,7 +97,7 @@ function SwitcherPanel({ mode }: { mode: SwitcherMode }): React.JSX.Element {
 
   const run = (it: SwitchItem | undefined, pin: boolean): void => {
     if (!it) return
-    activate(it, pin).then(closeSwitcher, () => setError('Could not open the conversation.'))
+    activateItem(it, pin).then(closeSwitcher, () => setError('Could not open the conversation.'))
   }
 
   const onKeyDown = (e: React.KeyboardEvent): void => {
@@ -282,12 +191,6 @@ function SwitcherPanel({ mode }: { mode: SwitcherMode }): React.JSX.Element {
       </DialogPrimitive.Content>
     </>
   )
-}
-
-function isPinnedItem(tabs: Parameters<typeof isPinned>[0], it: SwitchItem): boolean {
-  const view = viewOfItem(it)
-  const target = view ? targetOf(view) : null
-  return target !== null && isPinned(tabs, target)
 }
 
 function ResultRow({

@@ -9,6 +9,7 @@ import { IconButton } from '@/components/ui/icon-button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { SegmentedControl } from '@/components/ui/segmented-control'
 import { UnreadMark } from '@/components/ui/unread-mark'
+import { useLayout } from '@/hooks/use-layout'
 import { channelLabel } from '@/lib/model'
 import { cn } from '@/lib/utils'
 import { unreadService } from '@/services/UnreadService'
@@ -18,17 +19,45 @@ import { useMessageStore } from '@/stores/messagesStore'
 import { useNotifyPrefs } from '@/stores/prefsStore'
 import { useAnyMention, useUnreadStore } from '@/stores/unreadStore'
 import { mentionEntries, unreadGroups, type MentionEntry, type UnreadGroup } from './inbox-model'
+import { openInboxScreen } from './inbox-screen'
 
 type Tab = 'mentions' | 'unread'
 
 const ANY_MENTION = { mentions: 1, unread: true }
 const NO_MENTION = { mentions: 0, unread: false }
 
+const BUTTON =
+  'text-text-secondary hover:bg-surface-hover hover:text-text-primary relative [&_svg]:size-[18px]'
+
 /**
  * The inbox button of the sidebar top (N8): an inbox icon with a red dot while anything mentions
- * me, opening `MentionsInbox`. Not the E2EE device inbox of ds-transport.ts.
+ * me. On the desktop layout it opens `MentionsInbox` in a popover; on the mobile layout the inbox
+ * screen (M67). Not the E2EE device inbox of ds-transport.ts.
  */
 export function InboxButton({ className }: { className?: string }): React.JSX.Element {
+  return useLayout() === 'mobile' ? (
+    <MobileInboxButton className={className} />
+  ) : (
+    <DesktopInboxButton className={className} />
+  )
+}
+
+function InboxGlyph({ mentioned }: { mentioned: boolean }): React.JSX.Element {
+  return (
+    <>
+      <Inbox />
+      <UnreadMark
+        badge={mentioned ? ANY_MENTION : NO_MENTION}
+        size="corner"
+        count={false}
+        aria-hidden
+        className="ring-surface-panel top-1 right-1 size-2"
+      />
+    </>
+  )
+}
+
+function DesktopInboxButton({ className }: { className?: string }): React.JSX.Element {
   const [open, setOpen] = useState(false)
   const mentioned = useAnyMention()
   return (
@@ -38,25 +67,29 @@ export function InboxButton({ className }: { className?: string }): React.JSX.El
           label={mentioned ? 'Inbox, new mentions' : 'Inbox'}
           tooltipSide="bottom"
           pressed={open}
-          className={cn(
-            'text-text-secondary hover:bg-surface-hover hover:text-text-primary relative [&_svg]:size-[18px]',
-            className
-          )}
+          className={cn(BUTTON, className)}
         >
-          <Inbox />
-          <UnreadMark
-            badge={mentioned ? ANY_MENTION : NO_MENTION}
-            size="corner"
-            count={false}
-            aria-hidden
-            className="ring-surface-panel top-1 right-1 size-2"
-          />
+          <InboxGlyph mentioned={mentioned} />
         </IconButton>
       </PopoverTrigger>
       <PopoverContent align="start" className="w-[420px] max-w-[calc(100vw-32px)] p-0">
         <MentionsInbox onNavigate={() => setOpen(false)} />
       </PopoverContent>
     </Popover>
+  )
+}
+
+/** The mobile button: it opens the inbox screen, which MobileShell renders in its root. */
+function MobileInboxButton({ className }: { className?: string }): React.JSX.Element {
+  const mentioned = useAnyMention()
+  return (
+    <IconButton
+      label={mentioned ? 'Inbox, new mentions' : 'Inbox'}
+      onClick={openInboxScreen}
+      className={cn(BUTTON, className)}
+    >
+      <InboxGlyph mentioned={mentioned} />
+    </IconButton>
   )
 }
 

@@ -20,13 +20,22 @@ interface UserState {
    * user I share no guild with is in no member list. Can lack a user blocked since.
    */
   blockedUsers: ReadonlyMap<string, User>
+  /**
+   * userId → when I blocked them (ISO), for "Blocked 3 Oct" (M34): from the block list, or the
+   * time of the USER_BLOCK_UPDATE for a block since.
+   */
+  blockedAt: ReadonlyMap<string, string>
 }
 
-const initialUserState = (): Pick<UserState, 'me' | 'status' | 'blocks' | 'blockedUsers'> => ({
+const initialUserState = (): Pick<
+  UserState,
+  'me' | 'status' | 'blocks' | 'blockedUsers' | 'blockedAt'
+> => ({
   me: null,
   status: 'online',
   blocks: new Set(),
-  blockedUsers: new Map()
+  blockedUsers: new Map(),
+  blockedAt: new Map()
 })
 
 export const useUserStore = create<UserState>()(

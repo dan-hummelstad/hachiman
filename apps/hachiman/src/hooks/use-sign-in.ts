@@ -24,7 +24,7 @@ export function useSignIn(
   const signIn = async (): Promise<void> => {
     await run('start sign-in', async () => {
       const url = await takusenService.beginSignIn(platform.oauthRedirectUri, inviteCode)
-      // Only the browser redirect loads the page again. The Electron renderer keeps the key in memory.
+      // Only the browser redirect loads the page again. Electron and iOS keep the key in memory.
       if (inviteCode && inviteKey && platform.platform === 'browser')
         keepInviteKeyForSignIn(inviteCode, inviteKey)
       platform.beginOAuth(url)

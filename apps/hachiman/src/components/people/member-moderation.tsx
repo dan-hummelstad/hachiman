@@ -8,7 +8,7 @@ import {
   DropdownMenuSubContent,
   DropdownMenuSubTrigger
 } from '@/components/ui/dropdown-menu'
-import { Field } from '@/components/ui/field'
+import { ErrorText, Field } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import type { ModerationRights } from '@/components/people/use-moderation-rights'
 import type { Action } from '@/hooks/use-action'
@@ -23,6 +23,8 @@ export type ModerationDialog = 'kick' | 'ban'
 /**
  * The moderation items of a member menu: server mute and deafen, move and disconnect (while the
  * member is in voice), kick and ban. Kick and ban only ask: `onDialog` opens their confirm window.
+ * With `onDone` (the mobile member sheet), a change keeps the menu open while it runs, so that an
+ * error shows in it, and `onDone` runs after the change went through.
  */
 export function ModerationMenuItems(props: {
   guildId: string
@@ -31,8 +33,9 @@ export function ModerationMenuItems(props: {
   rights: ModerationRights
   action: Action
   onDialog: (kind: ModerationDialog) => void
+  onDone?: () => void
 }): React.JSX.Element | null {
-  const { guildId, userId, name, rights, action, onDialog } = props
+  const { guildId, userId, name, rights, action, onDialog, onDone } = props
   const member = useGuildStore((s) => s.members.get(guildId)?.get(userId))
   const voiceChannelId = useVoiceStore((s) => s.voiceStates.get(guildId)?.get(userId)?.channelId)
   const channels = useChannelStore((s) => s.channels)
@@ -45,31 +48,37 @@ export function ModerationMenuItems(props: {
   )
   if (!member || !Object.values(rights).some(Boolean)) return null
 
-  const update = (what: string, body: Parameters<typeof hachiman.rest.updateMember>[2]): void =>
-    void action.run(what, () => hachiman.rest.updateMember(guildId, userId, body))
+  const update =
+    (what: string, body: Parameters<typeof hachiman.rest.updateMember>[2]) =>
+    (event: Event): void => {
+      if (onDone) event.preventDefault()
+      void action
+        .run(what, () => hachiman.rest.updateMember(guildId, userId, body))
+        .then((r) => r.ok && onDone?.())
+    }
   const voiceItems = rights.mute || rights.deafen || (rights.move && voiceChannelId)
+  // Only a menu that stays open can take a second tap while a change runs.
+  const busy = onDone !== undefined && action.busy
 
   return (
     <>
       <DropdownMenuSeparator />
       {rights.mute && (
         <DropdownMenuItem
-          onSelect={() =>
-            update(`${member.mute ? 'server unmute' : 'server mute'} ${name}`, {
-              mute: !member.mute
-            })
-          }
+          disabled={busy}
+          onSelect={update(`${member.mute ? 'server unmute' : 'server mute'} ${name}`, {
+            mute: !member.mute
+          })}
         >
           <MicOff /> {member.mute ? 'Server unmute' : 'Server mute'}
         </DropdownMenuItem>
       )}
       {rights.deafen && (
         <DropdownMenuItem
-          onSelect={() =>
-            update(`${member.deaf ? 'server undeafen' : 'server deafen'} ${name}`, {
-              deaf: !member.deaf
-            })
-          }
+          disabled={busy}
+          onSelect={update(`${member.deaf ? 'server undeafen' : 'server deafen'} ${name}`, {
+            deaf: !member.deaf
+          })}
         >
           <HeadphoneOff /> {member.deaf ? 'Server undeafen' : 'Server deafen'}
         </DropdownMenuItem>
@@ -83,18 +92,27 @@ export function ModerationMenuItems(props: {
             {targets.map((c) => (
               <DropdownMenuItem
                 key={c.id}
-                onSelect={() => update(`move ${name}`, { channelId: c.id })}
+                disabled={busy}
+                onSelect={update(`move ${name}`, { channelId: c.id })}
               >
                 {c.name ?? 'Voice'}
               </DropdownMenuItem>
             ))}
+            {/* The pushed list of the mobile sheet hides the sheet's own error line. */}
+            {onDone && action.error && (
+              <>
+                <DropdownMenuSeparator />
+                <ErrorText>{action.error}</ErrorText>
+              </>
+            )}
           </DropdownMenuSubContent>
         </DropdownMenuSub>
       )}
       {rights.move && voiceChannelId && (
         <DropdownMenuItem
           variant="destructive"
-          onSelect={() => update(`disconnect ${name}`, { channelId: null })}
+          disabled={busy}
+          onSelect={update(`disconnect ${name}`, { channelId: null })}
         >
           <PhoneOff /> Disconnect
         </DropdownMenuItem>

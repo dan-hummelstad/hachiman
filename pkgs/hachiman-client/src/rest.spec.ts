@@ -321,6 +321,17 @@ describe('RestClient fetch routes', () => {
     expect(last()).toMatchObject({ url: 'http://api/v1/pages/p1', method: 'PATCH', body: { parentId: 'p0' } })
     await rest.updatePage('p1', { titleEnvelope: 'T2', ifUpdatedAt: '2026-10-06T10:00:00.000Z' })
     expect(last()).toMatchObject({ method: 'PATCH', body: { titleEnvelope: 'T2', ifUpdatedAt: '2026-10-06T10:00:00.000Z' } })
+    await rest.updatePage('p1', { banner: { envelope: 'B', uploadIds: ['u-file', 'u-thumb'] } })
+    expect(last()).toMatchObject({
+      url: 'http://api/v1/pages/p1',
+      method: 'PATCH',
+      body: { banner: { envelope: 'B', uploadIds: ['u-file', 'u-thumb'] } },
+    })
+    await rest.updatePage('p1', { banner: { envelope: 'B2' }, ifUpdatedAt: '2026-10-06T11:00:00.000Z' })
+    expect(last().body).toEqual({ banner: { envelope: 'B2' }, ifUpdatedAt: '2026-10-06T11:00:00.000Z' })
+    await rest.updatePage('p1', { banner: null })
+    expect(last()).toMatchObject({ url: 'http://api/v1/pages/p1', method: 'PATCH' })
+    expect(last().body).toEqual({ banner: null })
     await rest.getPageState('p1')
     expect(last()).toMatchObject({ url: 'http://api/v1/pages/p1/state', method: 'GET' })
     await rest.getPageUpdates('p1', { after: 7, limit: 50 })
@@ -651,6 +662,28 @@ describe('RestClient fetch routes', () => {
     expect(last()).toMatchObject({ url: 'http://api/v1/files/u1/blob', method: 'GET', headers: {} })
     reply = json(404, { error: 'NotFound' })
     await expect(rest.fetchBlob('u1/blob')).rejects.toMatchObject({ status: 404, code: 'NotFound' })
+  })
+
+  it('fetchBlob with maxBytes stops a download past the cap', async () => {
+    reply = () => new Response(new Uint8Array([1, 2, 3]), { status: 200 })
+    const blob = await rest.fetchBlob('u1/blob', { maxBytes: 3 })
+    expect(new Uint8Array(await blob.arrayBuffer())).toEqual(new Uint8Array([1, 2, 3]))
+    // The Content-Length is over the cap: no read.
+    reply = () => new Response(new Uint8Array(4), { status: 200, headers: { 'Content-Length': '4' } })
+    await expect(rest.fetchBlob('u1/blob', { maxBytes: 3 })).rejects.toMatchObject({ code: 'TooLarge' })
+    // No Content-Length: the body grows past the cap.
+    reply = () =>
+      new Response(
+        new ReadableStream<Uint8Array>({
+          start(c) {
+            c.enqueue(new Uint8Array(2))
+            c.enqueue(new Uint8Array(2))
+            c.close()
+          },
+        }),
+        { status: 200 },
+      )
+    await expect(rest.fetchBlob('u1/blob', { maxBytes: 3 })).rejects.toMatchObject({ code: 'TooLarge' })
   })
 })
 

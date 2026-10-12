@@ -53,7 +53,8 @@ interface NavState {
   /** Drop a guild's remembered channel; leave it for the DM home if it's the selected one. */
   forgetGuild: (guildId: string) => void
   openSettings: (target: SettingsTarget, section?: string | null) => void
-  setSettingsSection: (section: string) => void
+  /** null: the settings list on the mobile layout (the desktop shows the first section). */
+  setSettingsSection: (section: string | null) => void
   closeSettings: () => void
 }
 
@@ -351,6 +352,6 @@ export const openChannel = (guildKey: string, channelId: string): void =>
 export const forgetGuild = (guildId: string): void => useNavStore.getState().forgetGuild(guildId)
 export const openSettings = (target: SettingsTarget, section?: string | null): void =>
   useNavStore.getState().openSettings(target, section)
-export const setSettingsSection = (section: string): void =>
+export const setSettingsSection = (section: string | null): void =>
   useNavStore.getState().setSettingsSection(section)
 export const closeSettings = (): void => useNavStore.getState().closeSettings()

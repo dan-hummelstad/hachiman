@@ -1,17 +1,89 @@
 import * as React from 'react'
+import * as DialogPrimitive from '@radix-ui/react-dialog'
 import * as PopoverPrimitive from '@radix-ui/react-popover'
+import { Slot } from '@radix-ui/react-slot'
 
+import { SheetContent, SheetTitle } from '@/components/mobile/sheet'
+import type { SheetSize } from '@/components/mobile/sheet-size'
+import { useLayout } from '@/hooks/use-layout'
+import { accessibleName } from '@/lib/accessible-name'
 import { cn } from '@/lib/utils'
 
-function Popover({ ...props }: React.ComponentProps<typeof PopoverPrimitive.Root>) {
-  return <PopoverPrimitive.Root data-slot="popover" {...props} />
+/**
+ * Set under a popover that shows as a bottom sheet (the mobile layout, docs/ios-mobile-ui-spec.md
+ * §2.5). The root is then a Radix Dialog, so `open`, `defaultOpen` and `onOpenChange` keep their
+ * meaning. The sheet takes the trigger's name.
+ */
+interface SheetPopoverValue {
+  trigger: HTMLElement | null
+  setTrigger: (el: HTMLElement | null) => void
+}
+
+const SheetPopoverContext = React.createContext<SheetPopoverValue | null>(null)
+
+function Popover({
+  inline = false,
+  ...props
+}: React.ComponentProps<typeof PopoverPrimitive.Root> & {
+  /** Mobile layout: keep a small anchored popover instead of a sheet. */
+  inline?: boolean
+}) {
+  const mobile = useLayout() === 'mobile'
+  if (mobile && !inline) return <SheetPopover {...props} />
+  // An inline popover inside a sheet popover anchors on its own trigger, not the outer sheet.
+  return (
+    <SheetPopoverContext.Provider value={null}>
+      <PopoverPrimitive.Root data-slot="popover" {...props} />
+    </SheetPopoverContext.Provider>
+  )
+}
+
+function SheetPopover({
+  open,
+  defaultOpen,
+  onOpenChange,
+  children
+}: React.ComponentProps<typeof PopoverPrimitive.Root>) {
+  const [trigger, setTrigger] = React.useState<HTMLElement | null>(null)
+  const value = React.useMemo(() => ({ trigger, setTrigger }), [trigger])
+  return (
+    <DialogPrimitive.Root open={open} defaultOpen={defaultOpen} onOpenChange={onOpenChange}>
+      <SheetPopoverContext.Provider value={value}>{children}</SheetPopoverContext.Provider>
+    </DialogPrimitive.Root>
+  )
 }
 
 function PopoverTrigger({ ...props }: React.ComponentProps<typeof PopoverPrimitive.Trigger>) {
+  const sheet = React.useContext(SheetPopoverContext)
+  if (sheet) return <SheetPopoverTrigger setTrigger={sheet.setTrigger} {...props} />
   return <PopoverPrimitive.Trigger data-slot="popover-trigger" {...props} />
 }
 
+function SheetPopoverTrigger({
+  setTrigger,
+  ...props
+}: React.ComponentProps<typeof DialogPrimitive.Trigger> & {
+  setTrigger: (el: HTMLElement | null) => void
+}) {
+  // The `Slot` adds `setTrigger` to the caller's ref instead of replacing it.
+  return (
+    <Slot ref={setTrigger}>
+      <DialogPrimitive.Trigger data-slot="popover-trigger" {...props} />
+    </Slot>
+  )
+}
+
+/** In a sheet the anchor has no job: it renders its child (or a `div`) as it is. */
 function PopoverAnchor({ ...props }: React.ComponentProps<typeof PopoverPrimitive.Anchor>) {
+  const sheet = React.useContext(SheetPopoverContext)
+  if (sheet) {
+    const { asChild, ...rest } = props
+    return asChild ? (
+      <Slot data-slot="popover-anchor" {...rest} />
+    ) : (
+      <div data-slot="popover-anchor" {...rest} />
+    )
+  }
   return <PopoverPrimitive.Anchor data-slot="popover-anchor" {...props} />
 }
 
@@ -19,8 +91,22 @@ function PopoverContent({
   className,
   align = 'center',
   sideOffset = 4,
+  sheetSize,
   ...props
-}: React.ComponentProps<typeof PopoverPrimitive.Content>) {
+}: React.ComponentProps<typeof PopoverPrimitive.Content> & {
+  /** Mobile layout: the sheet's height (`SheetContent` `size`). No effect on desktop. */
+  sheetSize?: SheetSize
+}) {
+  const sheet = React.useContext(SheetPopoverContext)
+  if (sheet)
+    return (
+      <PopoverSheetContent
+        className={className}
+        trigger={sheet.trigger}
+        sheetSize={sheetSize}
+        {...props}
+      />
+    )
   return (
     <PopoverPrimitive.Portal>
       <PopoverPrimitive.Content
@@ -34,6 +120,58 @@ function PopoverContent({
         {...props}
       />
     </PopoverPrimitive.Portal>
+  )
+}
+
+/**
+ * The popover as a bottom sheet (pins, threads, profile, emoji, page picker). The caller's
+ * `className` styles the body (padding, flex) but not its size: the body runs to the sheet's
+ * edges, takes the room the sheet gives it and scrolls. A desktop popper height would otherwise
+ * decide the sheet's height (or, on iOS, collapse a `flex-1` child to 0 px). Only the focus and
+ * dismiss handlers carry over; the popper props (side, align, offsets, collisions) have no
+ * meaning here.
+ */
+function PopoverSheetContent({
+  className,
+  children,
+  trigger,
+  sheetSize,
+  'aria-label': ariaLabel,
+  onOpenAutoFocus,
+  onCloseAutoFocus,
+  onEscapeKeyDown,
+  onPointerDownOutside,
+  onFocusOutside,
+  onInteractOutside
+}: React.ComponentProps<typeof PopoverPrimitive.Content> & {
+  trigger: HTMLElement | null
+  sheetSize?: SheetSize
+}) {
+  return (
+    <SheetContent
+      size={sheetSize}
+      aria-label={ariaLabel}
+      aria-describedby={undefined}
+      onOpenAutoFocus={onOpenAutoFocus}
+      onCloseAutoFocus={onCloseAutoFocus}
+      onEscapeKeyDown={onEscapeKeyDown}
+      onPointerDownOutside={onPointerDownOutside}
+      onFocusOutside={onFocusOutside}
+      onInteractOutside={onInteractOutside}
+    >
+      <SheetTitle className="sr-only">
+        {ariaLabel ?? accessibleName(trigger) ?? 'Details'}
+      </SheetTitle>
+      <div
+        data-slot="popover-sheet-body"
+        className={cn(
+          className,
+          'mx-[calc(var(--sheet-gutter)*-1)] h-auto max-h-none min-h-0 w-auto max-w-none flex-1 overflow-x-hidden overflow-y-auto overscroll-contain'
+        )}
+      >
+        {children}
+      </div>
+    </SheetContent>
   )
 }
 

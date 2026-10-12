@@ -3,14 +3,17 @@ import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 
+// `mobile:active:` is the press fill on touch, where `hover:` never applies.
 const iconButton = cva(
-  'text-muted-foreground hover:bg-accent hover:text-foreground shrink-0 p-0 has-[>svg]:p-0',
+  'text-muted-foreground hover:bg-accent hover:text-foreground mobile:active:bg-surface-hover shrink-0 p-0 has-[>svg]:p-0',
   {
     variants: {
       size: {
         // Same arbitrary variant as Button's default icon size, so tailwind-merge replaces it.
         sm: "size-6 [&_svg:not([class*='size-'])]:size-3.5",
-        md: 'size-8'
+        md: 'size-8',
+        /** Mobile kit: a 36 touch target with an 18 icon. */
+        touch: "size-9 [&_svg:not([class*='size-'])]:size-[18px]"
       },
       // Colour while pressed (aria-pressed=true); danger also colours the hover.
       tone: {
@@ -28,7 +31,7 @@ export interface IconButtonProps extends Omit<React.ComponentProps<'button'>, 'a
   label: string
   /** Toggle state; sets aria-pressed (omit for a plain action button). */
   pressed?: boolean
-  size?: 'sm' | 'md'
+  size?: 'sm' | 'md' | 'touch'
   tone?: 'default' | 'danger' | 'online'
   tooltipSide?: 'top' | 'right' | 'bottom' | 'left'
 }

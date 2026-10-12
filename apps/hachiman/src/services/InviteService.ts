@@ -166,12 +166,116 @@ function retryIn(ms: number): void {
   }
 }
 
-/** Sign-out: forget the keys and the waiting redemptions. */
+/** Sign-out: forget the keys, the waiting redemptions and the invite lists. */
 export function resetInvites(): void {
   linkKeys.clear()
   waiting.clear()
   if (retry !== null) clearTimeout(retry.timer)
   retry = null
+  inviteLists.clear()
+  inviteLoads.clear()
+  loadedAt.clear()
+  notifyInviteLists()
+}
+
+// MARK: - the invite list of a guild (MANAGE_GUILD)
+
+/** The invites of a guild, as GET /guilds/:id/invites gave them, with this client's changes. */
+export interface GuildInviteList {
+  /** Permanent first, then newest first (the server order; a new invite goes first). */
+  invites: readonly Invite[]
+  /**
+   * Date.now() at the last load or change. The expiry states count from it, so the tab count and
+   * the list agree.
+   */
+  at: number
+}
+
+/** Guild id → its invite list. Only a user with MANAGE_GUILD loads one. */
+const inviteLists = new Map<string, GuildInviteList>()
+const inviteListeners = new Set<() => void>()
+/** Guild id → the load in flight. */
+const inviteLoads = new Map<string, Promise<void>>()
+/** Guild id → Date.now() at the end of its last load. */
+const loadedAt = new Map<string, number>()
+/** The tab count and the list mount together: a list loaded this recently is not loaded again. */
+const INVITE_LIST_FRESH_MS = 10_000
+let deletesWatched = false
+
+function notifyInviteLists(): void {
+  for (const listener of inviteListeners) listener()
+}
+
+function putInviteList(guildId: string, invites: readonly Invite[]): void {
+  inviteLists.set(guildId, { invites, at: Date.now() })
+  notifyInviteLists()
+}
+
+/** Revoked invites leave every loaded list (`INVITE_DELETE` → guild, contract §4 Invite limits). */
+function watchInviteDeletes(): void {
+  if (deletesWatched) return
+  deletesWatched = true
+  hachiman.on('INVITE_DELETE', (d) => dropGuildInvite(d.guildId, d.code))
+}
+
+/** The loaded invite list of a guild, or undefined. The same object until the list changes. */
+export function guildInviteList(guildId: string): GuildInviteList | undefined {
+  return inviteLists.get(guildId)
+}
+
+/** For `useSyncExternalStore`: calls `listener` on each change of any invite list. */
+export function subscribeGuildInviteLists(listener: () => void): () => void {
+  inviteListeners.add(listener)
+  return () => {
+    inviteListeners.delete(listener)
+  }
+}
+
+/**
+ * Loads the invites of a guild (MANAGE_GUILD) into its list. A load in flight, or one that ended
+ * less than 10 s ago, is not started again. Rejects with the REST error.
+ */
+export function loadGuildInvites(guildId: string): Promise<void> {
+  watchInviteDeletes()
+  const pending = inviteLoads.get(guildId)
+  if (pending) return pending
+  const last = loadedAt.get(guildId)
+  if (last !== undefined && Date.now() - last < INVITE_LIST_FRESH_MS) return Promise.resolve()
+  const load = hachiman.rest
+    .getInvites(guildId)
+    .then((invites) => {
+      // A sign-out during the load cleared the loads: keep nothing.
+      if (inviteLoads.get(guildId) !== load) return
+      loadedAt.set(guildId, Date.now())
+      putInviteList(guildId, invites)
+    })
+    .finally(() => {
+      if (inviteLoads.get(guildId) === load) inviteLoads.delete(guildId)
+    })
+  inviteLoads.set(guildId, load)
+  return load
+}
+
+/** Puts a new invite first in the list of its guild. */
+export function addGuildInvite(invite: Invite): void {
+  const cur = inviteLists.get(invite.guildId)?.invites ?? []
+  putInviteList(invite.guildId, [invite, ...cur.filter((i) => i.code !== invite.code)])
+}
+
+function dropGuildInvite(guildId: string, code: string): void {
+  const cur = inviteLists.get(guildId)
+  if (cur?.invites.some((i) => i.code === code)) {
+    putInviteList(
+      guildId,
+      cur.invites.filter((i) => i.code !== code)
+    )
+  }
+}
+
+/** Revokes an invite (MANAGE_GUILD) and drops it from the list. Rejects with the REST error. */
+export async function revokeGuildInvite(guildId: string, code: string): Promise<void> {
+  await hachiman.rest.deleteInvite(code)
+  dropGuildInvite(guildId, code)
 }
 
 // MARK: - guilds and invites
@@ -192,13 +296,47 @@ export function inviteUrl(code: string, key: string | null = null): string {
   return key === null ? url : url + inviteKeyFragment(key)
 }
 
-/** Copy the invite's link; rejects with a user-facing message. */
+/**
+ * Copy the invite's link; rejects with a user-facing message. The write starts before the first
+ * await, so a call inside a tap keeps the gesture that WebKit asks for.
+ */
 export async function copyInviteLink(code: string, key: string | null = null): Promise<void> {
   try {
     await navigator.clipboard.writeText(inviteUrl(code, key))
   } catch {
     throw new Error('Could not copy to the clipboard. Select the link and copy it by hand.')
   }
+}
+
+/**
+ * Copies a link that the tap has only started to make, such as the link of a new invite. WebKit
+ * writes to the clipboard only inside a tap, and the invite comes after awaits. So call this
+ * inside the tap: the write starts at once, with a `ClipboardItem` whose text waits for `link`.
+ * With no `ClipboardItem`, it writes the text when `link` resolves. Resolves true when the link is
+ * on the clipboard, false when the copy or `link` failed. It never rejects.
+ */
+export function copyLinkFromTap(link: Promise<string>): Promise<boolean> {
+  // A failed `link` fails the copy below; this keeps it from also being an unhandled rejection.
+  link.catch(() => undefined)
+  try {
+    const clipboard = navigator.clipboard
+    if (typeof ClipboardItem !== 'undefined' && typeof clipboard?.write === 'function') {
+      const blob = link.then((text) => new Blob([text], { type: 'text/plain' }))
+      blob.catch(() => undefined)
+      return clipboard.write([new ClipboardItem({ 'text/plain': blob })]).then(
+        () => true,
+        () => false
+      )
+    }
+  } catch {
+    // No clipboard, or a `ClipboardItem` that takes no promise: write the text when it is ready.
+  }
+  return link
+    .then((text) => navigator.clipboard.writeText(text))
+    .then(
+      () => true,
+      () => false
+    )
 }
 
 /** What a new invite link allows. 0 = no limit, for both fields. */

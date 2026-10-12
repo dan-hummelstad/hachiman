@@ -1,0 +1,35 @@
+{
+  "name": "@hachiman/hachiman-ios",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Hachiman iOS app (the web half of the WKWebView host)",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsgo --noEmit -p tsconfig.json && vite build",
+    "typecheck": "tsgo --noEmit -p tsconfig.json",
+    "test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test \"*.test.mts\" \"src/**/*.test.mts\"",
+    "lint": "eslint --cache .",
+    "format": "prettier --write ."
+  },
+  "dependencies": {
+    "@hachiman/hachiman": "workspace:*",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
+  },
+  "devDependencies": {
+    "@electron-toolkit/eslint-config-prettier": "^3.0.0",
+    "@electron-toolkit/eslint-config-ts": "^3.1.0",
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "@vitejs/plugin-react": "^5.2.0",
+    "eslint": "^9.39.5",
+    "eslint-plugin-react": "^7.37.5",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react-refresh": "^0.4.26",
+    "prettier": "^3.9.6",
+    "tailwindcss": "^4.3.3",
+    "vite": "^7.3.6"
+  }
+}

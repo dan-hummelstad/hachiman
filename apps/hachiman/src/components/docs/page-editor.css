@@ -102,3 +102,230 @@
   white-space: nowrap;
   user-select: none;
 }
+
+/* The touch editor of the phone's page screen (M38, `variant="touch"` in page-editor.tsx). The
+   desktop rules above stay as they are. The block handle goes (no hover on touch; F3a gives the
+   keyboard toolbar). The editable root keeps the 16 px of the mobile base rule (no focus zoom);
+   the blocks are 15. */
+.hm-page-editor[data-variant='touch'] .milkdown-block-handle {
+  display: none;
+}
+
+/* Crepe's own fields (the link edit "Paste link...", the image link, the code block search) set
+   about 13 px, and their selectors beat the mobile 16 px base rule. iOS zooms into a focused field
+   under 16 px. */
+[data-layout='mobile'] .milkdown :is(input, textarea) {
+  font-size: 16px !important;
+}
+
+.hm-page-editor[data-variant='touch'] .milkdown .ProseMirror {
+  padding: 0 20px 120px;
+}
+
+/* The first block starts at the top. ProseMirror can put a zero-height widget before it, and
+   Crepe's virtual cursor element comes first while the editor has the focus. */
+.hm-page-editor[data-variant='touch']
+  .milkdown
+  .ProseMirror
+  > :is(
+    :first-child,
+    .ProseMirror-widget:first-child + *,
+    .prosemirror-virtual-cursor:first-child + *
+  ) {
+  margin-top: 0;
+}
+
+.hm-page-editor[data-variant='touch'] .milkdown .ProseMirror :where(p, li, blockquote, td, th) {
+  font-size: 15px;
+}
+
+.hm-page-editor[data-variant='touch'] .milkdown .ProseMirror h1 {
+  font-size: 26px;
+  line-height: 1.2;
+  letter-spacing: -0.3px;
+  margin-top: 24px;
+}
+
+.hm-page-editor[data-variant='touch'] .milkdown .ProseMirror h2 {
+  font-size: 19px;
+  font-weight: 800;
+  line-height: 1.25;
+  margin-top: 20px;
+}
+
+.hm-page-editor[data-variant='touch'] .milkdown .ProseMirror h3 {
+  font-size: 17px;
+  font-weight: 800;
+  line-height: 1.3;
+  margin-top: 16px;
+}
+
+/* To-do boxes as the kit's 18 checkbox (Arc / Checkbox, `Checkbox size="lg"`): radius 4, a 1.5
+   ring when open, the accent with a white check when done. The box sits on the middle of the first
+   line of its item (a 15/1.5 paragraph with 4 px padding: 30.5). Its hit area is 36 × 36. */
+.hm-page-editor[data-variant='touch'] .milkdown-list-item-block li .label-wrapper {
+  position: relative;
+  width: 18px;
+  height: 30.5px;
+}
+.hm-page-editor[data-variant='touch'] .milkdown-list-item-block li .label-wrapper::after {
+  content: '';
+  position: absolute;
+  inset: -2.75px -9px;
+}
+.hm-page-editor[data-variant='touch'] .milkdown-list-item-block li .label-wrapper .label {
+  width: 18px;
+  height: 30.5px;
+  padding: 0;
+}
+.hm-page-editor[data-variant='touch']
+  .milkdown-list-item-block
+  li
+  .label-wrapper
+  :is(.checked, .unchecked)
+  svg {
+  display: none;
+}
+.hm-page-editor[data-variant='touch']
+  .milkdown-list-item-block
+  li
+  .label-wrapper
+  :is(.checked, .unchecked)::before {
+  content: '';
+  width: 18px;
+  height: 18px;
+  box-sizing: border-box;
+  border-radius: var(--radius-check, 4px);
+  border: 1.5px solid var(--text-disabled);
+}
+.hm-page-editor[data-variant='touch'] .milkdown-list-item-block li .label-wrapper .checked::before {
+  border-color: var(--accent-primary);
+  /* lucide check, white, stroke 3, 13 in the 18 box */
+  background: var(--accent-primary)
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E")
+    center / 13px no-repeat;
+}
+.hm-page-editor[data-variant='touch']
+  .milkdown-list-item-block:has(> .list-item > .label-wrapper .checked)
+  > .list-item
+  > .children {
+  color: var(--text-tertiary);
+}
+
+/* The current block while the touch editor has the focus (M39, `hm-current-block` from the touch
+   block plugin in page-editor.tsx): an 8 % accent box over the block's own 4 px padding, 6 px out
+   to each side, so the text does not move. A to-do or list line takes its box and its text. */
+.hm-page-editor[data-variant='touch'] .ProseMirror-focused .hm-current-block {
+  position: relative;
+  isolation: isolate;
+}
+.hm-page-editor[data-variant='touch'] .ProseMirror-focused .hm-current-block::after {
+  content: '';
+  position: absolute;
+  inset: 0 -6px;
+  z-index: -1;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--accent-primary) 8%, transparent);
+  pointer-events: none;
+}
+
+/* The touch slash menu (M40). It lives in a layer on <body> (`slashLayer` in page-editor.tsx), so
+   it is fixed over the page screen and Crepe's desktop menu styles do not reach it. 12 px from
+   each side, square, a scrolling list of 46 rows under "Basic blocks" and "In Hachiman" labels.
+   The menu's middleware sets the side and `--hm-slash-max` (the room above the keyboard toolbar). */
+.hm-slash-layer .milkdown-slash-menu {
+  position: fixed;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  width: calc(100vw - 24px);
+  max-height: var(--hm-slash-max, 284px);
+  background: var(--surface-raised);
+  border: 1px solid var(--line-sheet);
+  box-shadow: var(--shadow-soft);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+}
+.hm-slash-layer .milkdown-slash-menu[data-show='false'] {
+  display: none;
+}
+/* Over the caret line: the menu's bottom edge sits at `top`. */
+.hm-slash-layer .milkdown-slash-menu[data-side='top'] {
+  translate: 0 -100%;
+}
+.hm-slash-layer .milkdown-slash-menu > div {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+}
+.hm-slash-layer .milkdown-slash-menu .tab-group {
+  display: none;
+}
+.hm-slash-layer .milkdown-slash-menu .menu-groups {
+  min-height: 0;
+  padding: 4px 6px 6px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
+}
+.hm-slash-layer .milkdown-slash-menu ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.hm-slash-layer .milkdown-slash-menu h6 {
+  margin: 0;
+  padding: 8px 8px 4px;
+  font-size: 11.5px;
+  line-height: 16px;
+  font-weight: 800;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+}
+.hm-slash-layer .milkdown-slash-menu li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 46px;
+  padding: 0 8px;
+  border-radius: var(--radius-control, 8px);
+  font-size: 15px;
+  line-height: 20px;
+  font-weight: 700;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+/* The row that Enter runs: the first one, or the one under the finger. */
+.hm-slash-layer .milkdown-slash-menu li.hover {
+  background: var(--accent-tint);
+}
+.hm-slash-layer .milkdown-slash-menu li > span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hm-slash-layer .milkdown-slash-menu .milkdown-icon {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 32px;
+  height: 32px;
+  background: var(--fill-control);
+  border: 1px solid var(--line-sheet);
+  color: var(--text-primary);
+}
+.hm-slash-layer .milkdown-slash-menu .milkdown-icon svg {
+  width: 18px;
+  height: 18px;
+}
+.hm-slash-layer .milkdown-slash-menu .milkdown-icon svg.hm-page-icon {
+  color: var(--feature-page-text);
+}

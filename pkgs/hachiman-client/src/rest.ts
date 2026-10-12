@@ -223,10 +223,18 @@ export interface CreatePageBody {
   position: number
   titleEnvelope: B64url
 }
+export interface UpdatePageBanner {
+  /** A doc_banner envelope (§12.20). */
+  envelope: B64url
+  /** The page_media uploads of the pointer (1 to 2: the file and its thumbnail). Omit on a re-wrap: Takusen keeps the stored ids. */
+  uploadIds?: Opt<string[]>
+}
 export interface UpdatePageBody {
   parentId?: Opt<string | null>
   position?: Opt<number>
   titleEnvelope?: Opt<B64url>
+  /** Set, change or remove (null) the banner of a top-level page (§4 Pages "Banner"). */
+  banner?: Opt<UpdatePageBanner | null>
   /** Compare-and-set on `Page.updatedAt`: 409 PageConflict when the page changed. */
   ifUpdatedAt?: Opt<string>
 }
@@ -454,12 +462,44 @@ export class RestClient {
   uploadImage = (file: Blob, opts: UploadImageOptions): Promise<{ id: string; key: string; size: number }> =>
     this.xhrUpload(query({ filename: opts.filename }), file, file.type || 'application/octet-stream', opts)
 
-  /** Downloads a file (an encrypted blob or a profile image). The route is public, so no headers go out. */
-  fetchBlob = async (key: string, opts: { signal?: Opt<AbortSignal> } = {}): Promise<Blob> => {
+  /**
+   * Downloads a file (an encrypted blob or a profile image). The route is public, so no headers go out.
+   * `maxBytes` caps the download: a larger `Content-Length`, or a body that grows past the cap, stops
+   * the read and rejects with RestError code `TooLarge`.
+   */
+  fetchBlob = async (
+    key: string,
+    opts: { signal?: Opt<AbortSignal>; maxBytes?: Opt<number> } = {},
+  ): Promise<Blob> => {
     const res = await fetch(this.fileUrl(key), opts.signal ? { signal: opts.signal } : {})
     if (!res.ok)
       throw restError(res.status, await res.json().catch(() => null), res.headers.get('Retry-After'))
-    return res.blob()
+    const max = opts.maxBytes
+    if (max === undefined) return res.blob()
+    const tooLarge = () => new RestError(res.status, 'TooLarge', `file is larger than ${max} bytes`)
+    if (Number(res.headers.get('Content-Length') ?? 0) > max) {
+      void res.body?.cancel().catch(() => undefined)
+      throw tooLarge()
+    }
+    if (!res.body) {
+      const blob = await res.blob()
+      if (blob.size > max) throw tooLarge()
+      return blob
+    }
+    const reader = res.body.getReader()
+    const parts: Uint8Array<ArrayBuffer>[] = []
+    let total = 0
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      total += value.byteLength
+      if (total > max) {
+        void reader.cancel().catch(() => undefined)
+        throw tooLarge()
+      }
+      parts.push(value)
+    }
+    return new Blob(parts, { type: res.headers.get('Content-Type') ?? '' })
   }
 
   // MARK: - Devices and keys (§12.12)

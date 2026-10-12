@@ -1,8 +1,15 @@
 import { Button } from '@/components/ui/button'
 import { ScreenActions, ScreenWindow } from '@/components/security/screen-window'
 import { takusenService } from '@/services/TakusenService'
+import type { IPlatformService } from '@/shared/IPlatformService'
 import { usePlatform } from '@/shared/PlatformContext'
 import { setCryptoFatal, type CryptoFatal } from '@/stores/cryptoStore'
+
+const UPDATE_TEXT: Record<IPlatformService['platform'], string> = {
+  browser: 'Reload the page to get the new version.',
+  electron: 'Install the new version of the desktop app, then open it again.',
+  ios: 'Install the new version of the app from TestFlight, then open it again.'
+}
 
 /**
  * The global stops of §12.13. The client does not reconnect after them.
@@ -19,11 +26,7 @@ export function FatalScreen({ fatal }: { fatal: CryptoFatal }): React.JSX.Elemen
           This version of Hachiman is too old for the server. The server accepts only versions that
           support end-to-end encryption.
         </p>
-        <p className="text-sm">
-          {platform === 'browser'
-            ? 'Reload the page to get the new version.'
-            : 'Install the new version of the desktop app, then open it again.'}
-        </p>
+        <p className="text-sm">{UPDATE_TEXT[platform]}</p>
         <ScreenActions>
           <Button
             variant="quiet"

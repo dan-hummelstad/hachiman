@@ -8,11 +8,20 @@ import { Plugin, PluginKey, type EditorState } from '@milkdown/kit/prose/state'
 import { Decoration, DecorationSet, type EditorView } from '@milkdown/kit/prose/view'
 import { $prose, type $Prose } from '@milkdown/kit/utils'
 import { pageTitle } from '@/services/docs/page-tree'
-import { findPage, useDocsStore } from '@/stores/docsStore'
+import { findPage, useDocsStore, type PageNode } from '@/stores/docsStore'
 
 export const PAGE_HREF_PREFIX = 'hachiman:page/'
 
 export const pageHref = (pageId: string): string => PAGE_HREF_PREFIX + pageId
+
+/**
+ * A markdown link to the page, `[title](hachiman:page/<id>)`, for the clipboard. Brackets and
+ * backslashes in the title are escaped, so pasted into a page it parses back as a page link.
+ */
+export function pageLinkMarkdown(page: Pick<PageNode, 'id' | 'title' | 'titleState'>): string {
+  const title = pageTitle(page).replace(/[[\]\\]/g, '\\$&')
+  return `[${title}](${pageHref(page.id)})`
+}
 
 export function pageIdOfHref(href: unknown): string | null {
   if (typeof href !== 'string' || !href.startsWith(PAGE_HREF_PREFIX)) return null

@@ -145,11 +145,13 @@ export const MentionType = { USER: 1, ROLE: 2, EVERYONE: 3 } as const
 
 /** First two bytes of a DocEnvelope. A message envelope (ENVELOPE_MAGIC) never decodes as one. */
 export const DOC_ENVELOPE_MAGIC = 0x4802
-export const DocEnvelopeKind = { UPDATE: 1, SNAPSHOT: 2, AWARENESS: 3, TITLE: 4 } as const
+export const DocEnvelopeKind = { UPDATE: 1, SNAPSHOT: 2, AWARENESS: 3, TITLE: 4, BANNER: 5 } as const
 export const PAGE_ID_LENGTH = 16
 export const DOC_SALT_LENGTH = 32
 /** UTF-8 bytes of a page title (doc_title body), 1 to this. */
 export const MAX_PAGE_TITLE_BYTES = 200
+/** UTF-8 bytes of a page banner pointer (doc_banner body), at most this. */
+export const MAX_PAGE_BANNER_BYTES = 8_192
 /** A doc_awareness envelope as base64url on op 5 (§6). The gateway drops a larger frame. */
 export const MAX_DOC_AWARENESS_B64_BYTES = 8_192
 

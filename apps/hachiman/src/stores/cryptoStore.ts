@@ -42,6 +42,12 @@ interface CryptoState {
   fatal: CryptoFatal | null
   /** Unacknowledged master key changes, oldest first. One entry per user. */
   keyChanges: CryptoEvents['keyChange'][]
+  /**
+   * Users whose blocking key change the user closed with "not now" (the Close of M58 on the
+   * mobile layout). Their dialog does not open again by itself; sending to them stays paused, and
+   * a tap on the paused composer opens it. User ids only, never key material.
+   */
+  deferredKeyChanges: string[]
   forkAlerts: CryptoEvents['forkAlert'][]
   ktAlerts: CryptoEvents['ktAlert'][]
   /** channelId → membership events in arrival order (the loaded timeline plus live events). */
@@ -70,6 +76,7 @@ const initialCryptoState = (): CryptoData => ({
   status: null,
   startError: null,
   keyChanges: [],
+  deferredKeyChanges: [],
   forkAlerts: [],
   ktAlerts: [],
   membership: new Map(),
@@ -101,14 +108,45 @@ export function currentDeviceId(): string | null {
   return status && status.state !== 'revoked' ? status.deviceId : null
 }
 
+/** `ids` without `userId`: the same array when it is not in it, so selectors keep their value. */
+const withoutUser = (ids: string[], userId: string): string[] =>
+  ids.includes(userId) ? ids.filter((u) => u !== userId) : ids
+
+/**
+ * A key change event of the Worker. The Worker can report one pending change again (each chain
+ * fetch of a DSK downgrade). A repeat with the same severity keeps the user's "not now"; a new
+ * change or a new severity asks again.
+ */
 export function pushKeyChange(e: CryptoEvents['keyChange']): void {
+  useCryptoStore.setState((s) => {
+    const repeat = s.keyChanges.some((k) => k.userId === e.userId && k.severity === e.severity)
+    return {
+      keyChanges: [...s.keyChanges.filter((k) => k.userId !== e.userId), e],
+      deferredKeyChanges: repeat
+        ? s.deferredKeyChanges
+        : withoutUser(s.deferredKeyChanges, e.userId)
+    }
+  })
+}
+
+/** The user accepted the new key or verified the contact: the change and its "not now" go. */
+export function dismissKeyChange(userId: string): void {
   useCryptoStore.setState((s) => ({
-    keyChanges: [...s.keyChanges.filter((k) => k.userId !== e.userId), e]
+    keyChanges: s.keyChanges.filter((k) => k.userId !== userId),
+    deferredKeyChanges: withoutUser(s.deferredKeyChanges, userId)
   }))
 }
 
-export function dismissKeyChange(userId: string): void {
-  useCryptoStore.setState((s) => ({ keyChanges: s.keyChanges.filter((k) => k.userId !== userId) }))
+/**
+ * "Not now" for the blocking key change of `userId` (M58 Close): the dialog does not open again
+ * by itself. The change stays pending, so sending stays paused. No-op without a pending change.
+ */
+export function deferKeyChange(userId: string): void {
+  useCryptoStore.setState((s) =>
+    s.keyChanges.some((k) => k.userId === userId) && !s.deferredKeyChanges.includes(userId)
+      ? { deferredKeyChanges: [...s.deferredKeyChanges, userId] }
+      : s
+  )
 }
 
 export function dismissForkAlert(groupId: string): void {

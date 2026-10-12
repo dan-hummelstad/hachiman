@@ -22,7 +22,7 @@ const master: fc.Arbitrary<MasterKeyRecord> = fc.record({ userId: uuid, publicKe
 const dsk: fc.Arbitrary<DeviceSigningKeyCert> = fc.record({ userId: uuid, publicKey: bytes(32), generation: u32, masterGeneration: u32, issuedAtMs: ms, signature: sig })
 const device: fc.Arbitrary<DeviceCertificate> = fc.record({ userId: uuid, deviceId: uuid, mlsSignatureKey: bytes(32), hpkeKey: bytes(32), dskGeneration: u32, issuedAtMs: ms, displayName: name, signature: sig })
 const revocation: fc.Arbitrary<DeviceRevocation> = fc.record({ userId: uuid, deviceId: uuid, revokedAtMs: ms, reason: fc.constantFrom(1 as const, 2 as const, 3 as const, 4 as const, 5 as const), masterGeneration: u32, signature: sig })
-const platform = fc.constantFrom('electron' as const, 'browser' as const)
+const platform = fc.constantFrom('electron' as const, 'browser' as const, 'ios' as const)
 const offer: fc.Arbitrary<LinkOffer> = fc.oneof(
   fc.record({ userId: uuid, deviceId: uuid, mode: fc.constant('qr' as const), commitment: fc.constant(new Uint8Array(0)), mlsSignatureKey: bytes(32), hpkeKey: bytes(32), deviceName: name, platform }),
   fc.record({ userId: uuid, deviceId: uuid, mode: fc.constant('sas' as const), commitment: bytes(32), mlsSignatureKey: bytes(32), hpkeKey: bytes(32), deviceName: name, platform }),

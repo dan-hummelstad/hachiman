@@ -1,50 +1,11 @@
-import { useEffect, useRef, useState } from 'react'
+import { useRef } from 'react'
 import { CircleAlert, ImagePlus, Lock, Plus, Smile, X } from 'lucide-react'
-import type { Channel } from '@hachiman/client'
-import type { AttachmentPointer } from '@hachiman/crypto'
 import { IconButton } from '@/components/ui/icon-button'
-import { emojiInsert, reactionKeyOf, type EmojiPick } from '@/lib/custom-emoji'
-import { emojiDataNow, replaceShortcodes } from '@/lib/emoji-data'
-import {
-  applyCompletion,
-  findTrigger,
-  toWire,
-  type WireInsert,
-  type Trigger
-} from '@/lib/mention-complete'
 import { cn } from '@/lib/utils'
-import { usePrefsStore } from '@/stores/prefsStore'
 import { UploadTray } from './attachments/upload-tray'
-import type { Uploads } from './attachments/use-uploads'
-import { insertFor, useMentionItems, type MentionItem } from './mention-items'
 import { EmojiPicker } from './emoji-picker'
 import { MentionMenu } from './mention-menu'
-import { submitOnEnter } from './submit-on-enter'
-
-interface ComposerProps {
-  /** The channel the message goes to: the source of the `@` and `#` suggestions. */
-  channel: Channel
-  placeholder: string
-  /** A plain reason shown instead of the input when I can't send. */
-  disabledReason?: string
-  /** A button at the end of the `disabledReason` notice ("Follow", N9). */
-  disabledAction?: React.ReactNode
-  /**
-   * Sending is paused (a verified contact's key changed, E5): a coral line above a disabled
-   * composer that shows this text as its placeholder.
-   */
-  paused?: { notice: string; placeholder: string }
-  /** This composer's pending attachments (owned by the chat body, which is also the drop target). */
-  uploads: Uploads
-  /** ATTACH_FILES: shows the attach buttons and accepts pasted files. */
-  canAttach: boolean
-  /** The message that the next send answers (N11): "Replying to <name>" with ✕ above the input. */
-  reply?: { name: string; onCancel: () => void }
-  onSend: (text: string, attachments: AttachmentPointer[]) => void
-  onTyping: () => void
-  /** Arrow Up in an empty input: edit my newest message. False when there is none. */
-  onEditLast?: () => boolean
-}
+import { useComposer, type ComposerProps } from './use-composer'
 
 const TOOL = 'text-text-tertiary hover:bg-surface-hover hover:text-text-primary size-8'
 
@@ -55,40 +16,27 @@ const TOOL = 'text-text-tertiary hover:bg-surface-hover hover:text-text-primary 
  * the emoji picker. The sticker button of the mocks has no feature yet and is not rendered.
  *
  * `@`, `#` and `:` open suggestions (mention-menu.tsx): members, roles, @everyone, channels, pages
- * and emojis. A picked role shows as `@Name` and is sent as `<@&roleId>`, a picked custom emoji
- * shows as `:name:` and is sent as `<:name:id>` (lib/mention-complete `toWire`). A typed
- * `:shortcode:` of a Unicode emoji is sent as the emoji.
+ * and emojis. The state and the handlers live in `useComposer` (use-composer.ts), which the
+ * mobile composer (components/mobile/mobile-composer.tsx) shares.
  */
-export function Composer({
-  channel,
-  placeholder,
-  disabledReason,
-  disabledAction,
-  paused,
-  uploads,
-  canAttach,
-  reply,
-  onSend,
-  onTyping,
-  onEditLast
-}: ComposerProps): React.JSX.Element {
-  const [text, setText] = useState('')
+export function Composer(props: ComposerProps): React.JSX.Element {
+  const { channel, placeholder, disabledReason, disabledAction, paused, uploads, reply } = props
+  const input = useRef<HTMLTextAreaElement>(null)
   const picker = useRef<HTMLInputElement>(null)
   const imagePicker = useRef<HTMLInputElement>(null)
-  const input = useRef<HTMLTextAreaElement>(null)
-  const [trigger, setTrigger] = useState<Trigger | null>(null)
-  const [active, setActive] = useState(0)
-  /** Picked roles and custom emojis: their display forms become wire forms on send. */
-  const pickedInserts = useRef<WireInsert[]>([])
-  const [emojiOpen, setEmojiOpen] = useState(false)
-  const addRecentEmoji = usePrefsStore((s) => s.addRecentEmoji)
-  const items = useMentionItems(channel, trigger)
-  const menuOpen = items.length > 0
-  const replying = reply !== undefined
-  // Reply moves the focus here, so that the answer can be typed at once.
-  useEffect(() => {
-    if (replying) input.current?.focus()
-  }, [replying])
+  const {
+    field,
+    items,
+    menuOpen,
+    active,
+    setActive,
+    pick,
+    attach,
+    emojiOpen,
+    setEmojiOpen,
+    insertEmoji,
+    onFilesPicked
+  } = useComposer(props, 'desktop', input)
 
   if (disabledReason) {
     return (
@@ -103,71 +51,6 @@ export function Composer({
     )
   }
 
-  const send = (): void => {
-    if (paused) return
-    if (uploads.busy) return uploads.setNotices(['Wait for the uploads to finish, then send.'])
-    if (uploads.failed) return uploads.setNotices(['Remove the failed uploads to send.'])
-    if (!text.trim() && uploads.items.length === 0) return
-    const wire = toWire(text, pickedInserts.current)
-    const data = emojiDataNow()
-    onSend(data ? replaceShortcodes(wire, data) : wire, uploads.take())
-    setText('')
-    setTrigger(null)
-    pickedInserts.current = []
-  }
-
-  /** The trigger at the caret after a change or a caret move; a new trigger starts at the top. */
-  const track = (value: string, caret: number | null): void => {
-    const next = caret === null ? null : findTrigger(value, caret)
-    setTrigger((prev) => {
-      if (prev?.start !== next?.start || prev?.char !== next?.char) setActive(0)
-      return next
-    })
-  }
-
-  const pick = (item: MentionItem): void => {
-    if (!trigger) return
-    const { insert, wire } = insertFor(item)
-    const done = applyCompletion(text, trigger, insert)
-    if (wire) pickedInserts.current = [...pickedInserts.current, { display: insert, wire }]
-    if (item.kind === 'emoji' || item.kind === 'custom-emoji')
-      addRecentEmoji(reactionKeyOf(item.pick))
-    setText(done.text)
-    setTrigger(null)
-    requestAnimationFrame(() => input.current?.setSelectionRange(done.caret, done.caret))
-  }
-
-  /** Puts a picked emoji at the caret (or over the selection), with a space after it. */
-  const insertEmoji = (pick: EmojiPick): void => {
-    const el = input.current
-    const from = el?.selectionStart ?? text.length
-    const to = el?.selectionEnd ?? from
-    const { insert: display, wire } = emojiInsert(pick)
-    if (wire) pickedInserts.current = [...pickedInserts.current, { display, wire }]
-    const before = text.slice(0, from)
-    const pad = before && !/\s$/.test(before) ? ' ' : ''
-    const insert = `${pad}${display} `
-    const caret = from + insert.length
-    setText(`${before}${insert}${text.slice(to)}`)
-    requestAnimationFrame(() => {
-      input.current?.focus()
-      input.current?.setSelectionRange(caret, caret)
-    })
-  }
-
-  /** The menu's keys: arrows move, Enter or Tab picks, Escape closes. True when handled. */
-  const menuKey = (e: React.KeyboardEvent): boolean => {
-    if (!menuOpen || e.nativeEvent.isComposing) return false
-    const item = items[active]
-    if (e.key === 'ArrowDown') setActive((active + 1) % items.length)
-    else if (e.key === 'ArrowUp') setActive((active - 1 + items.length) % items.length)
-    else if ((e.key === 'Enter' || e.key === 'Tab') && !e.shiftKey && item) pick(item)
-    else if (e.key === 'Escape') setTrigger(null)
-    else return false
-    e.preventDefault()
-    return true
-  }
-
   const filePicker = (
     ref: React.RefObject<HTMLInputElement | null>,
     accept?: string
@@ -179,13 +62,9 @@ export function Composer({
       multiple
       hidden
       tabIndex={-1}
-      onChange={(e) => {
-        uploads.add([...(e.target.files ?? [])])
-        e.target.value = '' // picking the same file again must fire change
-      }}
+      onChange={onFilesPicked}
     />
   )
-  const attach = canAttach && !paused
 
   return (
     <>
@@ -241,43 +120,7 @@ export function Composer({
             ref={input}
             aria-label={paused ? paused.placeholder : placeholder}
             placeholder={paused ? paused.placeholder : placeholder}
-            disabled={!!paused}
-            value={text}
-            rows={1}
-            role="combobox"
-            aria-expanded={menuOpen}
-            aria-controls={menuOpen ? 'mention-menu' : undefined}
-            aria-activedescendant={menuOpen ? `mention-${active}` : undefined}
-            aria-autocomplete="list"
-            onChange={(e) => {
-              setText(e.target.value)
-              track(e.target.value, e.target.selectionStart)
-              if (e.target.value) onTyping()
-            }}
-            onSelect={(e) => track(e.currentTarget.value, e.currentTarget.selectionStart)}
-            onBlur={() => setTrigger(null)}
-            onKeyDown={(e) => {
-              if (menuKey(e)) return
-              if (e.key === 'Escape' && reply) {
-                e.preventDefault()
-                reply.onCancel()
-              } else if (
-                e.key === 'ArrowUp' &&
-                !text &&
-                !e.shiftKey &&
-                !e.altKey &&
-                !e.ctrlKey &&
-                !e.metaKey
-              ) {
-                if (onEditLast?.()) e.preventDefault()
-              } else submitOnEnter(e, send)
-            }}
-            onPaste={(e) => {
-              const files = [...e.clipboardData.files]
-              if (!attach || files.length === 0) return
-              e.preventDefault()
-              uploads.add(files)
-            }}
+            {...field}
             className={cn(
               'field-sizing-content block max-h-[196px] min-h-8 w-full flex-1 resize-none bg-transparent px-1.5 py-[5px]',
               'placeholder:text-text-tertiary text-body text-text-primary outline-none disabled:cursor-not-allowed'

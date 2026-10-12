@@ -14,5 +14,8 @@ export function sidebarRowClass(selected: boolean, className?: string): string {
   )
 }
 
+/** A channel row on the mobile layout (Arc sidebar in the drawer, M3): 38 high, text 15. */
+export const CHANNEL_ROW_TOUCH = 'mobile:h-[38px] mobile:text-[15px]'
+
 /** "New message": the DM home (the People view), where a conversation starts. */
 export const openDmHome = (): void => navigate({ kind: 'dmHome' })

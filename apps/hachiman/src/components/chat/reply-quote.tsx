@@ -1,5 +1,6 @@
 import { UserAvatar } from '@/components/shell/user-avatar'
 import { useMemberView } from '@/hooks/use-member'
+import { TOUCH_HIT_BAND } from '@/lib/touch'
 import { cn } from '@/lib/utils'
 import { replyPreviewOf, useReplyTarget, type ChatMessage } from '@/stores/messagesStore'
 import { highlightRow } from '@/lib/navigation'
@@ -66,7 +67,10 @@ function QuoteLine({
       type="button"
       onClick={() => highlightRow(target.id)}
       aria-label={`Replying to ${name}. Go to the message`}
-      className="focus-visible:outline-line-focus group/quote flex min-w-0 cursor-pointer items-center gap-1.5 outline-none focus-visible:outline-2"
+      className={cn(
+        'focus-visible:outline-line-focus group/quote flex min-w-0 cursor-pointer items-center gap-1.5 outline-none focus-visible:outline-2',
+        TOUCH_HIT_BAND
+      )}
     >
       <UserAvatar avatar={avatar} name={name} color={ink} size={16} />
       <span

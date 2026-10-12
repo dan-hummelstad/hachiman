@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { useTakusenStore, type TakusenSession } from '@/stores/takusenStore'
-import { TakusenService } from './TakusenService'
+import { parseCallbackUrl, SIGN_IN_CANCELLED, TakusenService } from './TakusenService'
 
 const discovery = {
   issuer: 'http://t/api/oidc',
@@ -61,4 +61,57 @@ it('a server error (5xx) keeps the session for a later retry', async () => {
   useTakusenStore.setState({ session: expired('r') })
   await expect(new TakusenService().getAccessToken()).rejects.toThrow()
   expect(useTakusenStore.getState().session).not.toBeNull()
+})
+
+type PendingFlow = NonNullable<ReturnType<typeof useTakusenStore.getState>['pendingFlow']>
+
+const flow = (state: string): PendingFlow => ({
+  state,
+  codeVerifier: 'v',
+  redirectUri: 'app://cb',
+  inviteCode: null,
+  createdAt: Date.now()
+})
+
+it('reads a code callback and an error callback', () => {
+  expect(parseCallbackUrl('app://cb?code=c&state=s')).toEqual({
+    kind: 'code',
+    code: 'c',
+    state: 's'
+  })
+  expect(parseCallbackUrl('app://cb?error=access_denied&error_description=no&state=s')).toEqual({
+    kind: 'error',
+    error: 'access_denied',
+    description: 'no',
+    state: 's'
+  })
+  expect(() => parseCallbackUrl('app://cb?code=c')).toThrow('missing code/state')
+})
+
+it('a deny on the consent page says the user cancelled, and the sign-in can start again', async () => {
+  useTakusenStore.setState({ pendingFlow: flow('s') })
+  await new TakusenService().completeSignIn(
+    'app://cb?error=access_denied&error_description=The+end+user+denied&state=s'
+  )
+  expect(useTakusenStore.getState().authError).toBe(SIGN_IN_CANCELLED)
+  expect(useTakusenStore.getState().pendingFlow).toBeNull()
+  expect(useTakusenStore.getState().session).toBeNull()
+})
+
+it('a deny for a sign-in this app did not start is refused', async () => {
+  useTakusenStore.setState({ pendingFlow: flow('mine') })
+  await expect(
+    new TakusenService().completeSignIn('app://cb?error=access_denied&state=other')
+  ).rejects.toThrow('does not match')
+  expect(useTakusenStore.getState().authError).toBeNull()
+  expect(useTakusenStore.getState().pendingFlow).not.toBeNull()
+})
+
+it('another error response throws its description', async () => {
+  useTakusenStore.setState({ pendingFlow: flow('s') })
+  await expect(
+    new TakusenService().completeSignIn(
+      'app://cb?error=server_error&error_description=Takusen+broke&state=s'
+    )
+  ).rejects.toThrow('Takusen broke')
 })

@@ -1,12 +1,15 @@
 import { useState } from 'react'
-import { CirclePlus, FolderPlus } from 'lucide-react'
+import { CirclePlus, FolderPlus, Plus } from 'lucide-react'
 import type { CreateChannelBody } from '@hachiman/client'
+import { MobileField } from '@/components/mobile/field'
 import { ModalWindow } from '@/components/ui/modal-window'
 import { Button } from '@/components/ui/button'
+import { FEATURE_TEXT, type Feature } from '@/components/ui/feature'
 import { ErrorText } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { RadioCard } from '@/components/ui/radio-card'
 import { useAction } from '@/hooks/use-action'
+import { useLayout } from '@/hooks/use-layout'
 import { ChannelIcon } from '@/lib/channel-icon'
 import { CHANNEL_KINDS, CREATE_CHANNEL_TYPES, hasChat } from '@/lib/model'
 import { cn } from '@/lib/utils'
@@ -21,10 +24,18 @@ type ChannelKind = CreateChannelBody['type']
 
 const FORM_ID = 'create-channel-form'
 
+/** The feature colour of each type: its card, and the lead icon of the name field (M47). */
+const featureOf = (type: ChannelKind): Feature =>
+  type === 'voice' ? 'voice' : type === 'pages' ? 'page' : 'accent'
+
 /**
  * Create a channel or category in a guild; a new text or pages channel becomes the selected one.
  * Text, voice and pages can be switched in the dialog. A new pages channel gets its root page,
  * "Untitled", from this client: only a client can encrypt the title.
+ *
+ * On the mobile layout (M47) it is a sheet with no Cancel: the type cards in their feature
+ * colours, the name field with the type icon, and Create as one 48 button at the foot, which stays
+ * in view over the keyboard. The field takes no autofocus, so the keyboard rises only on a tap.
  */
 export function CreateChannelDialog(): React.JSX.Element {
   const { dialog, open, close } = useDialog('createChannel')
@@ -32,6 +43,7 @@ export function CreateChannelDialog(): React.JSX.Element {
   const [name, setName] = useState('')
   const [type, setType] = useState<ChannelKind>(dialog.type)
   const { run, busy, error } = useAction()
+  const mobile = useLayout() === 'mobile'
   const parentName = useChannelStore((s) =>
     parentId ? (s.channels.get(parentId)?.name ?? null) : null
   )
@@ -64,6 +76,8 @@ export function CreateChannelDialog(): React.JSX.Element {
     close()
   }
 
+  const submitLabel = busy ? 'Creating…' : isCategory ? 'Create category' : 'Create channel'
+
   return (
     <ModalWindow
       open={open}
@@ -76,21 +90,28 @@ export function CreateChannelDialog(): React.JSX.Element {
           : [parentName && `In ${parentName}`, guildName].filter(Boolean).join(' · ') || undefined
       }
       actions={
-        <>
-          <Button type="button" variant="quiet" disabled={busy} onClick={close}>
-            Cancel
-          </Button>
+        mobile ? (
           <Button type="submit" form={FORM_ID} disabled={busy || !name.trim()}>
-            {!isCategory && <CirclePlus />}
-            {busy ? 'Creating…' : isCategory ? 'Create category' : 'Create channel'}
+            <Plus />
+            {submitLabel}
           </Button>
-        </>
+        ) : (
+          <>
+            <Button type="button" variant="quiet" disabled={busy} onClick={close}>
+              Cancel
+            </Button>
+            <Button type="submit" form={FORM_ID} disabled={busy || !name.trim()}>
+              {!isCategory && <CirclePlus />}
+              {submitLabel}
+            </Button>
+          </>
+        )
       }
     >
       <form id={FORM_ID} onSubmit={(e) => void handleSubmit(e)} className="grid gap-4">
         {!isCategory && (
           <fieldset className="grid gap-2">
-            <legend className="section-label mb-2">Type</legend>
+            <legend className="section-label mobile:px-1 mobile:pt-1 mb-2">Type</legend>
             {CREATE_CHANNEL_TYPES.map((t) => {
               const { label, hint } = CHANNEL_KINDS[t]
               return (
@@ -103,35 +124,59 @@ export function CreateChannelDialog(): React.JSX.Element {
                   icon={<ChannelIcon type={t} />}
                   title={label}
                   description={hint}
-                  feature={t === 'voice' ? 'voice' : t === 'pages' ? 'page' : 'accent'}
+                  feature={featureOf(t)}
+                  size={mobile ? 'mobile' : 'default'}
                 />
               )
             })}
           </fieldset>
         )}
-        <div className="grid gap-2">
-          <label htmlFor="channel-name" className="section-label">
-            {isCategory ? 'Category name' : 'Channel name'}
-          </label>
-          <div className="relative">
-            {!isCategory && (
-              <span className="text-text-tertiary pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2">
-                <ChannelIcon type={type} className="size-4" />
-              </span>
-            )}
+        {mobile ? (
+          <MobileField
+            id="channel-name"
+            label={isCategory ? 'Category name' : 'Channel name'}
+            error={error}
+          >
             <Input
-              id="channel-name"
+              size="touch"
               name="channel-name"
+              autoComplete="off"
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder={CHANNEL_KINDS[type].placeholder}
-              autoFocus
               disabled={busy}
-              className={cn(!isCategory && 'pl-8')}
+              lead={
+                isCategory ? undefined : (
+                  <ChannelIcon type={type} className={FEATURE_TEXT[featureOf(type)]} />
+                )
+              }
             />
+          </MobileField>
+        ) : (
+          <div className="grid gap-2">
+            <label htmlFor="channel-name" className="section-label">
+              {isCategory ? 'Category name' : 'Channel name'}
+            </label>
+            <div className="relative">
+              {!isCategory && (
+                <span className="text-text-tertiary pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2">
+                  <ChannelIcon type={type} className="size-4" />
+                </span>
+              )}
+              <Input
+                id="channel-name"
+                name="channel-name"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder={CHANNEL_KINDS[type].placeholder}
+                autoFocus
+                disabled={busy}
+                className={cn(!isCategory && 'pl-8')}
+              />
+            </div>
+            <ErrorText>{error}</ErrorText>
           </div>
-          <ErrorText>{error}</ErrorText>
-        </div>
+        )}
       </form>
     </ModalWindow>
   )

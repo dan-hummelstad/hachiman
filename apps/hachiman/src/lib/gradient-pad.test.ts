@@ -1,5 +1,16 @@
 import { describe, expect, it } from 'vitest'
-import { dialAngle, nudgeStop, sliderKey, stopAt, stopOffset } from './gradient-pad'
+import { DEFAULT_CUSTOM_GRADIENT, type CustomGradient } from './guild-tint'
+import {
+  addedStop,
+  clampSelected,
+  dialAngle,
+  nudgeStop,
+  pickStop,
+  sliderKey,
+  stopAt,
+  stopOffset,
+  withoutStop
+} from './gradient-pad'
 
 describe('stopAt / stopOffset', () => {
   it('maps the angle to the hue and the distance to the saturation', () => {
@@ -38,5 +49,82 @@ describe('keys', () => {
     expect(sliderKey(355, 'ArrowRight', 0, 360, 5, true)).toBe(0)
     expect(sliderKey(0, 'ArrowLeft', 0, 360, 5, true)).toBe(355)
     expect(sliderKey(0, 'x', 0, 360, 5)).toBeNull()
+  })
+})
+
+describe('pickStop', () => {
+  const stops = [
+    { h: 0, s: 50 },
+    { h: 180, s: 100 }
+  ]
+
+  it('gives a tapped stop back, and a grab that puts it back where it was', () => {
+    const o = stopOffset(stops[1], 100)
+    const press = { x: o.x + 10, y: o.y - 5 }
+    const { index, hit, grab } = pickStop(stops, press.x, press.y, 100, 24, 0)
+    expect(index).toBe(1)
+    expect(hit).toBe(true)
+    expect(stopAt(press.x + grab.x, press.y + grab.y, 100)).toEqual(stops[1])
+  })
+
+  it('takes the nearest stop in reach', () => {
+    expect(pickStop(stops, 40, 0, 100, 24, 1).index).toBe(0)
+  })
+
+  it('falls back to the selected stop with a zero grab off any stop', () => {
+    expect(pickStop(stops, 0, 80, 100, 24, 1)).toEqual({
+      index: 1,
+      hit: false,
+      grab: { x: 0, y: 0 }
+    })
+  })
+
+  it('lets the selected stop win a tie with a stop on the same spot', () => {
+    const same = [
+      { h: 90, s: 60 },
+      { h: 90, s: 60 }
+    ]
+    const o = stopOffset(same[0], 100)
+    expect(pickStop(same, o.x, o.y, 100, 24, 1).index).toBe(1)
+    expect(pickStop(same, o.x, o.y, 100, 24, 0).index).toBe(0)
+  })
+
+  it('honours the reach', () => {
+    expect(pickStop(stops, 70, 0, 100, 18, 1).index).toBe(1)
+    expect(pickStop(stops, 70, 0, 100, 24, 1).index).toBe(0)
+  })
+})
+
+describe('addedStop / withoutStop', () => {
+  const two: CustomGradient = {
+    ...DEFAULT_CUSTOM_GRADIENT,
+    stops: [
+      { h: 300, s: 40 },
+      { h: 10, s: 90 }
+    ]
+  }
+
+  it('adds a stop 120° on from the selected one and selects it, up to the limit', () => {
+    const three = addedStop(two, 0)
+    expect(three?.value.stops).toEqual([...two.stops, { h: 60, s: 40 }])
+    expect(three?.selected).toBe(2)
+    expect(three && addedStop(three.value, 0)).toBeNull()
+  })
+
+  it('removes the selected stop, selects the one before it, and never removes the last', () => {
+    expect(withoutStop(two, 0)).toEqual({
+      value: { ...two, stops: [{ h: 10, s: 90 }] },
+      selected: 0
+    })
+    expect(withoutStop(two, 1)?.selected).toBe(0)
+    const three = addedStop(two, 0)!.value
+    expect(withoutStop(three, 2)?.selected).toBe(1)
+    expect(withoutStop({ ...two, stops: [two.stops[0]] }, 0)).toBeNull()
+  })
+
+  it('clamps the selected stop when the count drops', () => {
+    expect(clampSelected(2, 2)).toBe(1)
+    expect(clampSelected(2, 1)).toBe(0)
+    expect(clampSelected(1, 3)).toBe(1)
   })
 })

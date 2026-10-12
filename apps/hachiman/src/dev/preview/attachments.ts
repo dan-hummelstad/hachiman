@@ -34,6 +34,20 @@ function sheet(w: number, h: number, accent: string): string {
   return svg(w, h, cells)
 }
 
+/** A wide page banner: a dusk sky with a sun and two ridges. */
+function bannerArt(w: number, h: number): string {
+  return svg(
+    w,
+    h,
+    `<defs><linearGradient id="s" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2b2d6e"/>` +
+      `<stop offset="0.6" stop-color="#b8577e"/><stop offset="1" stop-color="#f2a65a"/></linearGradient></defs>` +
+      `<rect width="${w}" height="${h}" fill="url(#s)"/>` +
+      `<circle cx="${w * 0.72}" cy="${h * 0.62}" r="${h * 0.22}" fill="#ffd27a" opacity="0.9"/>` +
+      `<path d="M0 ${h * 0.7} L${w * 0.2} ${h * 0.48} L${w * 0.42} ${h * 0.72} L${w * 0.62} ${h * 0.52} L${w} ${h * 0.78} V${h} H0Z" fill="#3a2a55"/>` +
+      `<path d="M0 ${h * 0.86} L${w * 0.3} ${h * 0.7} L${w * 0.55} ${h * 0.88} L${w * 0.8} ${h * 0.74} L${w} ${h * 0.9} V${h} H0Z" fill="#1e1833"/>`
+  )
+}
+
 /** One second of a 440 Hz tone, as a WAV data URL. */
 function tone(): string {
   const rate = 8000
@@ -72,9 +86,10 @@ const file = (
   mime: string,
   size: number,
   width: number | null = null,
-  height: number | null = null
+  height: number | null = null,
+  uploadId = `att-${name}`
 ): AttachmentPointer => ({
-  uploadId: `att-${name}`,
+  uploadId,
   key: '',
   sha256: '',
   size,
@@ -97,14 +112,17 @@ export const ATT = {
   compC: file('comp-fallback.png', 'image/png', 377_002, 1200, 900),
   clip: file('flank-1m40s.mp4', 'video/mp4', 18_412_550, 1280, 720),
   callouts: file('callouts-take2.wav', 'audio/wav', 8_044),
-  stratDoc: file('strat-doc-v3.pdf', 'application/pdf', 1_873_221)
+  stratDoc: file('strat-doc-v3.pdf', 'application/pdf', 1_873_221),
+  /** The banner of the RFC page (a doc_banner pointer: its upload id passes parsePointer). */
+  pageBanner: file('banner.png', 'image/png', 214_530, 1600, 400, 'att-page-banner')
 }
 
 const URLS: Record<string, string> = {
   [keyOf(ATT.crosshair)]: screenshot(1600, 900, '#5b7fa6', '#3d4a3a', '#00ff88'),
   [keyOf(ATT.compA)]: sheet(1200, 900, '#c98a0b'),
   [keyOf(ATT.compB)]: sheet(1200, 900, '#2f9e8f'),
-  [keyOf(ATT.compC)]: sheet(1200, 900, '#c9303a')
+  [keyOf(ATT.compC)]: sheet(1200, 900, '#c9303a'),
+  [keyOf(ATT.pageBanner)]: bannerArt(1600, 400)
 }
 
 /** Generated file behind a fixture attachment blob key, if there is one. */

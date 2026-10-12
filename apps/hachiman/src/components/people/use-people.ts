@@ -18,6 +18,26 @@ export function usePeople(): User[] {
   }, [members, myId])
 }
 
+/** Everyone I share a guild with, except me and the people I blocked. */
+export function useVisiblePeople(): User[] {
+  const people = usePeople()
+  const blocks = useUserStore((s) => s.blocks)
+  return useMemo(() => people.filter((u) => !blocks.has(u.id)), [people, blocks])
+}
+
+/**
+ * The visible people (`useVisiblePeople`) who are online: the one online count of the DM home,
+ * its People row and the People list.
+ */
+export function useOnlinePeople(): User[] {
+  const visible = useVisiblePeople()
+  const presences = useGuildStore((s) => s.presences)
+  return useMemo(
+    () => visible.filter((u) => (presences.get(u.id) ?? 'offline') !== 'offline'),
+    [visible, presences]
+  )
+}
+
 /** The people whose username contains `query` (case-insensitive). */
 export function filterPeople(people: User[], query: string): User[] {
   const q = query.trim().toLowerCase()

@@ -237,10 +237,10 @@ Contract §4 Pages and §12.20. A `pages` channel holds a tree of pages. The con
 | File | What |
 |---|---|
 | `repo.ts`, `repo.drizzle.ts`, `repo.in-memory.ts` | `DocsRepo`, the storage seam. `repo.conformance.ts` is one suite for both implementations. Change the two implementations in the same commit. |
-| `service.ts` | Create, move (cycle check), delete; the update log (`seq` from `doc_pages.latest_seq` under a row lock); the snapshot compare-and-set and the pointer re-wrap (the same `baseSeq` and `uploadId` in a newer epoch: the row changes in place, with no claim, quota change or delete); the title compare-and-set (`ifUpdatedAt`, 409 `PageConflict`); the page heads (`GET /channels/:id/pages/heads`); media claims; the guild quota (`guilds.page_storage_bytes`). |
+| `service.ts` | Create, move (cycle check), delete; the update log (`seq` from `doc_pages.latest_seq` under a row lock); the snapshot compare-and-set and the pointer re-wrap (the same `baseSeq` and `uploadId` in a newer epoch: the row changes in place, with no claim, quota change or delete); the title compare-and-set (`ifUpdatedAt`, 409 `PageConflict`); the page heads (`GET /channels/:id/pages/heads`, title and banner); media claims; the guild quota (`guilds.page_storage_bytes`); the page banner of a top-level page (the PATCH claims its uploads as page media and stores `banner_upload_ids`, a re-wrap without `uploadIds` keeps the stored ids, dropped ids get `last_referenced_at`, and a move under a page clears the banner). |
 | `access.ts`, `wire.ts`, `config.ts` | The channel and permission checks of the routes, the zod bodies and wire shapes, and the limits. |
 | `../mls/envelopes.ts` | `acceptDocEnvelope`: the page envelope header checks. It shares the group, epoch and sender checks with `acceptEnvelope`. |
-| `../page-media-sweep.ts` | The daily sweep of page media that no kept snapshot lists. |
+| `../page-media-sweep.ts` | The daily sweep of page media that no kept snapshot and no page banner lists. |
 | `../channel-types.ts` | `TEXT_GROUP_TYPES`: `text` and `pages` use a text MLS group. |
 
 Storage: Postgres holds rows of bounded size (the tree, update envelopes up to 32 KiB, pointer envelopes). The snapshot bytes and page media are encrypted S3 objects in `uploads` (purposes `page_snapshot` and `page_media`, column `page_id`). A page keeps at most two snapshots. `DOC_UPDATE` is published to `guild:{id}` after the commit, as other events are.

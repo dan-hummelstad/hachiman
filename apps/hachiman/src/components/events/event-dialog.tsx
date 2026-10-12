@@ -108,11 +108,14 @@ export function EventDialog(): React.JSX.Element {
             onChange={(e) => set({ title: e.target.value })}
           />
         </Field>
+        {/* mobile:appearance-none: iOS gives a native date or time field a minimum width wider
+            than its column on an iPhone SE. */}
         <div className="grid grid-cols-2 gap-3">
           <Field id="event-start-date" label="Start date">
             <Input
               id="event-start-date"
               type="date"
+              className="mobile:appearance-none"
               required
               value={form.startDate}
               onChange={(e) => set({ startDate: e.target.value })}
@@ -122,6 +125,7 @@ export function EventDialog(): React.JSX.Element {
             <Input
               id="event-start-time"
               type="time"
+              className="mobile:appearance-none"
               required
               value={form.startTime}
               onChange={(e) => set({ startTime: e.target.value })}
@@ -131,6 +135,7 @@ export function EventDialog(): React.JSX.Element {
             <Input
               id="event-end-date"
               type="date"
+              className="mobile:appearance-none"
               value={form.endDate}
               onChange={(e) => set({ endDate: e.target.value })}
             />
@@ -139,6 +144,7 @@ export function EventDialog(): React.JSX.Element {
             <Input
               id="event-end-time"
               type="time"
+              className="mobile:appearance-none"
               value={form.endTime}
               onChange={(e) => set({ endTime: e.target.value })}
             />

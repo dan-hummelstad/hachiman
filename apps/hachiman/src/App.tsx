@@ -1,5 +1,6 @@
-import { useEffect } from 'react'
+import { useEffect, useLayoutEffect } from 'react'
 
+import { MobileShell } from '@/components/mobile/mobile-shell'
 import { FatalScreen } from '@/components/security/fatal-screen'
 import { CryptoGate } from '@/components/security/onboarding'
 import { SecurityNotices } from '@/components/security/security-notices'
@@ -8,6 +9,10 @@ import { Dialogs } from '@/components/shell/dialogs'
 import { Shell } from '@/components/shell/shell'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { PokeToasts } from '@/components/notify/poke-toasts'
+
+import { useLayout } from '@/hooks/use-layout'
+import { DEFAULT_WINDOW_COLOR, useNativeAppearance } from '@/hooks/use-native-appearance'
+import { useVisualViewport } from '@/hooks/use-visual-viewport'
 
 import { errMsg } from '@/lib/utils'
 import { startHachiman } from '@/services/hachiman'
@@ -21,7 +26,8 @@ import { useTakusenStore } from '@/stores/takusenStore'
 /**
  * App root: one of
  * - a fatal screen (update required, device signed out: §12.13),
- * - the signed-in shell behind the encryption gate (start-up, onboarding: §12.4, §12.5),
+ * - the signed-in shell behind the encryption gate (start-up, onboarding: §12.4, §12.5): the
+ *   desktop `Shell`, or `MobileShell` on the mobile layout (docs/ios-mobile-ui-spec.md §2.3),
  * - the sign-in window,
  * plus every app-level dialog (driven by dialogStore) and the security notices.
  */
@@ -29,6 +35,14 @@ function App(): React.JSX.Element {
   const platform = usePlatform()
   const signedIn = useTakusenStore((s) => s.session !== null)
   const fatal = useCryptoStore((s) => s.fatal)
+  const layout = useLayout()
+
+  // On <html>, so the Radix portals in <body> match the `mobile:` variant too.
+  useLayoutEffect(() => {
+    document.documentElement.dataset.layout = layout
+  }, [layout])
+  useVisualViewport(layout === 'mobile')
+  useNativeAppearance(DEFAULT_WINDOW_COLOR, { base: true })
 
   // The host gives the crypto Worker its store wrap key (§11).
   useEffect(() => startHachiman(platform), [platform])
@@ -82,13 +96,11 @@ function App(): React.JSX.Element {
 
   return (
     <TooltipProvider delayDuration={200}>
-      <div className="bg-background text-foreground flex h-screen w-screen flex-col overflow-clip">
+      <div className="bg-background text-foreground flex h-(--app-height,100dvh) w-screen flex-col overflow-clip">
         {fatal ? (
           <FatalScreen fatal={fatal} />
         ) : signedIn ? (
-          <CryptoGate>
-            <Shell />
-          </CryptoGate>
+          <CryptoGate>{layout === 'mobile' ? <MobileShell /> : <Shell />}</CryptoGate>
         ) : (
           <div className="min-h-0 flex-1">
             <SignInScreen />

@@ -3,15 +3,20 @@ import { DialogFooter } from '@/components/ui/dialog'
 import { ErrorText } from '@/components/ui/field'
 import { ModalWindow } from '@/components/ui/modal-window'
 import { useAction } from '@/hooks/use-action'
+import { useLayout } from '@/hooks/use-layout'
 
 interface ConfirmDialogProps {
   open: boolean
   title: string
+  /** The subtitle under the title ("Text channel · Night Owls"). */
+  description?: string
   body: React.ReactNode
   confirmLabel: string
   tone?: 'default' | 'danger'
   /** Icon in the header tile; the tile is red for `tone="danger"`. */
   icon?: React.ReactNode
+  /** Mobile layout only: the header icon also leads the confirm button (M50, M51). */
+  confirmIcon?: boolean
   /** Awaited; the window closes on success and shows the error inline on failure. */
   onConfirm: () => Promise<void>
   onClose: () => void
@@ -19,17 +24,25 @@ interface ConfirmDialogProps {
   what?: string
   /** Keeps the confirm button disabled (e.g. until a type-to-confirm field matches). */
   confirmDisabled?: boolean
+  /** Where the focus goes on close; `preventDefault` keeps Radix from moving it. */
+  onCloseAutoFocus?: (event: Event) => void
 }
 
-/** "Are you sure?" window: Cancel + one confirm button, busy while `onConfirm` runs. */
+/**
+ * "Are you sure?" window: Cancel + one confirm button, busy while `onConfirm` runs. On the mobile
+ * layout it stays a centred card (M50, M51), with Cancel and the confirm button side by side.
+ */
 export function ConfirmDialog(props: ConfirmDialogProps): React.JSX.Element {
   return (
     <ModalWindow
       open={props.open}
       onClose={props.onClose}
       title={props.title}
+      description={props.description}
+      presentation="dialog"
       icon={props.icon}
       feature={props.tone === 'danger' ? 'danger' : 'accent'}
+      onCloseAutoFocus={props.onCloseAutoFocus}
     >
       <ConfirmBody {...props} />
     </ModalWindow>
@@ -43,6 +56,7 @@ export function ConfirmDialog(props: ConfirmDialogProps): React.JSX.Element {
 function ConfirmBody(props: ConfirmDialogProps): React.JSX.Element {
   const { body, confirmLabel, tone = 'default', onConfirm, onClose } = props
   const { run, busy, error } = useAction()
+  const mobile = useLayout() === 'mobile'
 
   const confirm = async (): Promise<void> => {
     if ((await run(props.what ?? confirmLabel.toLowerCase(), onConfirm)).ok) onClose()
@@ -53,7 +67,7 @@ function ConfirmBody(props: ConfirmDialogProps): React.JSX.Element {
       <div className="text-sm">{body}</div>
       <ErrorText>{error}</ErrorText>
       <DialogFooter>
-        <Button variant="quiet" disabled={busy} onClick={onClose}>
+        <Button variant={mobile ? 'secondary' : 'quiet'} disabled={busy} onClick={onClose}>
           Cancel
         </Button>
         <Button
@@ -61,6 +75,7 @@ function ConfirmBody(props: ConfirmDialogProps): React.JSX.Element {
           disabled={busy || props.confirmDisabled}
           onClick={() => void confirm()}
         >
+          {mobile && props.confirmIcon && props.icon}
           {confirmLabel}
         </Button>
       </DialogFooter>

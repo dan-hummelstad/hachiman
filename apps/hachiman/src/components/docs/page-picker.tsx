@@ -1,34 +1,29 @@
-import { useMemo, useState } from 'react'
-import { FileText } from 'lucide-react'
+import { useId, useMemo, useState } from 'react'
+import { FileText, Link2, Search } from 'lucide-react'
+import { ListGroup, ListRow } from '@/components/mobile/list'
+import { Sheet, SheetBody, SheetContent, SheetHeader } from '@/components/mobile/sheet'
 import { Input } from '@/components/ui/input'
 import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover'
 import { cn } from '@/lib/utils'
 import { useChannelStore } from '@/stores/channelStore'
 import { useDocsStore, type PageNode } from '@/stores/docsStore'
 import { pageTitle } from '@/services/docs/page-tree'
+import { focusMoreIfLost } from './page-editor-state'
 
 const MAX_ROWS = 50
 
-/** "Link to page": a filterable list of the pages of every loaded pages channel, at a point. */
-export function PagePicker({
-  at,
-  excludeId,
-  onPick,
-  onClose
-}: {
-  at: { left: number; top: number }
-  excludeId?: string
-  onPick: (page: { id: string; title: string }) => void
-  onClose: () => void
-}): React.JSX.Element {
+interface PageRow {
+  page: PageNode
+  title: string
+  channel: string
+}
+
+function usePageRows(filter: string, excludeId: string | undefined): PageRow[] {
   const pagesByChannel = useDocsStore((s) => s.pagesByChannel)
   const channels = useChannelStore((s) => s.channels)
-  const [filter, setFilter] = useState('')
-  const [active, setActive] = useState(0)
-
-  const rows = useMemo(() => {
+  return useMemo(() => {
     const q = filter.trim().toLowerCase()
-    const out: { page: PageNode; title: string; channel: string }[] = []
+    const out: PageRow[] = []
     for (const [channelId, list] of pagesByChannel) {
       const channel = channels.get(channelId)?.name ?? ''
       for (const page of list) {
@@ -40,6 +35,39 @@ export function PagePicker({
     }
     return out.slice(0, MAX_ROWS)
   }, [pagesByChannel, channels, filter, excludeId])
+}
+
+interface PickerBase {
+  excludeId?: string
+  onPick: (page: { id: string; title: string }) => void
+  onClose: () => void
+}
+
+/**
+ * "Link to page": a filterable list of the pages of every loaded pages channel. `popover` (the
+ * desktop editor): at a point. `sheet` (the touch editor, docs/ios-mobile-ui-spec.md F3a): a bottom
+ * sheet with a search field.
+ */
+export function PagePicker(
+  props: PickerBase &
+    (
+      | { variant?: 'popover'; at: { left: number; top: number } }
+      | { variant: 'sheet'; open: boolean }
+    )
+): React.JSX.Element {
+  if (props.variant === 'sheet') return <PagePickerSheet {...props} />
+  return <PagePickerPopover {...props} />
+}
+
+function PagePickerPopover({
+  at,
+  excludeId,
+  onPick,
+  onClose
+}: PickerBase & { at: { left: number; top: number } }): React.JSX.Element {
+  const [filter, setFilter] = useState('')
+  const [active, setActive] = useState(0)
+  const rows = usePageRows(filter, excludeId)
 
   const pick = (i: number): void => {
     const row = rows[i]
@@ -97,5 +125,98 @@ export function PagePicker({
         </ul>
       </PopoverContent>
     </Popover>
+  )
+}
+
+/**
+ * The touch form: a sheet with a Sheet Header, a 48 search field and 54 page rows (title, channel).
+ * The sheet sits on the keyboard (`--kb`) and its list scrolls, so it fits an iPhone SE with the
+ * keyboard up. Opening moves the focus straight to the search field: the editor opens the sheet in
+ * the tap, so iOS keeps the keyboard up. The sheet gives no focus back on close: a pick inserts the
+ * link and focuses the editor in its own tap; a sheet closed with no pick leaves the keyboard down.
+ */
+function PagePickerSheet({
+  open,
+  excludeId,
+  onPick,
+  onClose
+}: PickerBase & { open: boolean }): React.JSX.Element {
+  return (
+    <Sheet open={open} onOpenChange={(next) => !next && onClose()}>
+      <SheetContent
+        aria-describedby={undefined}
+        onOpenAutoFocus={(e) => {
+          e.preventDefault()
+          const field =
+            e.currentTarget instanceof HTMLElement && e.currentTarget.querySelector('input')
+          if (field) field.focus({ preventScroll: true })
+        }}
+        onCloseAutoFocus={(e) => {
+          e.preventDefault()
+          focusMoreIfLost()
+        }}
+      >
+        <SheetHeader icon={<Link2 />} feature="page" title="Link to page" />
+        <PickerList excludeId={excludeId} onPick={onPick} />
+      </SheetContent>
+    </Sheet>
+  )
+}
+
+/** The search field and the rows. Mounted with the open sheet, so each open starts empty. */
+function PickerList({
+  excludeId,
+  onPick
+}: Pick<PickerBase, 'excludeId' | 'onPick'>): React.JSX.Element {
+  const [filter, setFilter] = useState('')
+  const rows = usePageRows(filter, excludeId)
+  const listId = useId()
+  const pick = (row: PageRow | undefined): void => {
+    if (row) onPick({ id: row.page.id, title: row.title })
+  }
+  return (
+    <>
+      <Input
+        size="touch"
+        type="search"
+        enterKeyHint="go"
+        autoComplete="off"
+        lead={<Search />}
+        value={filter}
+        placeholder="Search pages"
+        aria-label="Search pages"
+        aria-controls={listId}
+        onChange={(e) => setFilter(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key !== 'Enter') return
+          e.preventDefault()
+          pick(rows[0])
+        }}
+      />
+      <SheetBody>
+        {rows.length === 0 ? (
+          <p
+            id={listId}
+            className="text-text-tertiary py-6 text-center text-[13.5px] leading-5 font-medium"
+          >
+            {filter.trim() ? 'No page has this name.' : 'No pages to link.'}
+          </p>
+        ) : (
+          <ListGroup id={listId} aria-label="Pages" className="shrink-0">
+            {rows.map((row) => (
+              <ListRow
+                key={row.page.id}
+                icon={<FileText />}
+                tile="page"
+                label={row.title}
+                detail={row.channel ? `#${row.channel}` : undefined}
+                chevron={false}
+                onClick={() => pick(row)}
+              />
+            ))}
+          </ListGroup>
+        )}
+      </SheetBody>
+    </>
   )
 }

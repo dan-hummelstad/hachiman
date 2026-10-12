@@ -8,11 +8,11 @@
  * dashboard cookie is a stateless JWT, so only the current one is known.
  */
 
-export type DevicePlatform = 'electron' | 'browser'
+export type DevicePlatform = 'electron' | 'browser' | 'ios'
 
 export interface HachimanSessionDevice {
   id: string
-  /** Set by the app: "Hachiman Desktop" or "Hachiman Web". */
+  /** Set by the app: "Hachiman Desktop", "Hachiman Web" or "Hachiman iOS". */
   name: string
   platform: DevicePlatform
   clientVersion: string

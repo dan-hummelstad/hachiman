@@ -15,12 +15,18 @@ export interface CopyState {
 
 /**
  * The "Copy" → "Copied" pattern. `copied` goes back to null after `resetMs` (null: it stays until
- * reset). A failure sets `failed` and calls `onError`.
+ * reset). A copy that works calls `onCopied` (e.g. a haptic). A failure sets `failed` and calls
+ * `onError`.
  */
 export function useCopy({
   resetMs = 1500,
+  onCopied,
   onError
-}: { resetMs?: number | null; onError?: (e: unknown) => void } = {}): CopyState {
+}: {
+  resetMs?: number | null
+  onCopied?: (key: string) => void
+  onError?: (e: unknown) => void
+} = {}): CopyState {
   const [copied, setCopied] = useState<string | null>(null)
   const [failed, setFailed] = useState(false)
 
@@ -33,19 +39,23 @@ export function useCopy({
   const copy = useCallback(
     (source: CopySource, key = ''): void => {
       setFailed(false)
-      Promise.resolve()
-        .then(() => (typeof source === 'string' ? navigator.clipboard.writeText(source) : source()))
-        .then(
-          () => setCopied(key),
-          (e: unknown) => {
-            setCopied(null)
-            setFailed(true)
-            if (onError) onError(e)
-            else console.warn('[copy] failed', e)
-          }
-        )
+      // The executor runs at once, so the clipboard call starts inside the tap (WebKit needs it).
+      new Promise<void>((resolve) => {
+        resolve(typeof source === 'string' ? navigator.clipboard.writeText(source) : source())
+      }).then(
+        () => {
+          setCopied(key)
+          onCopied?.(key)
+        },
+        (e: unknown) => {
+          setCopied(null)
+          setFailed(true)
+          if (onError) onError(e)
+          else console.warn('[copy] failed', e)
+        }
+      )
     },
-    [onError]
+    [onCopied, onError]
   )
   const reset = useCallback((): void => {
     setCopied(null)

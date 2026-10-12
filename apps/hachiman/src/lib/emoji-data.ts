@@ -68,17 +68,21 @@ interface RawEmoji {
   skins?: { unicode: string }[]
 }
 
-/** Builds the lookup tables from the emojibase files. Exported for tests. */
+/**
+ * Builds the lookup tables from the emojibase files. `unsupported`: the hexcodes that this device
+ * cannot draw, left out. Exported for tests.
+ */
 export function buildEmojiData(
   raw: readonly RawEmoji[],
-  shortcodes: Record<string, string | string[]>
+  shortcodes: Record<string, string | string[]>,
+  unsupported: ReadonlySet<string> = new Set()
 ): EmojiData {
   const emojis: UnicodeEmoji[] = []
   const byEmoji = new Map<string, UnicodeEmoji>()
   const byShortcode = new Map<string, UnicodeEmoji>()
   for (const r of raw) {
     const group = r.group === undefined ? undefined : GROUP_INDEX[r.group]
-    if (group === undefined) continue
+    if (group === undefined || unsupported.has(r.hexcode)) continue
     const sc = shortcodes[r.hexcode]
     const e: UnicodeEmoji = {
       emoji: r.unicode,
@@ -96,6 +100,74 @@ export function buildEmojiData(
   return { emojis, byEmoji, byShortcode }
 }
 
+/**
+ * One single-codepoint emoji of each newer Emoji version, oldest first. The newest version whose
+ * probe draws in colour is the newest that this device's emoji font has.
+ */
+const VERSION_PROBES: readonly (readonly [version: number, emoji: string])[] = [
+  [13, '\u{1F972}'], // smiling face with tear
+  [14, '\u{1FAE0}'], // melting face
+  [15, '\u{1FAE8}'], // shaking face
+  [16, '\u{1FAE9}'], // face with bags under eyes
+  [17, '\u{1FAEA}'] // distorted face
+]
+
+/** True when `emoji` draws with colour (a glyph of the emoji font), false for a grey empty box. */
+function drawsInColour(ctx: OffscreenCanvasRenderingContext2D, emoji: string): boolean {
+  ctx.clearRect(0, 0, 20, 20)
+  ctx.fillText(emoji, 0, 0)
+  const px = ctx.getImageData(0, 0, 20, 20).data
+  for (let i = 0; i < px.length; i += 4) {
+    if (px[i + 3] > 0 && (px[i] !== px[i + 1] || px[i + 1] !== px[i + 2])) return true
+  }
+  return false
+}
+
+/** An Emoji 1.0 face that every emoji font has: the control for the probes. */
+const BASELINE_PROBE = '\u{1F600}'
+
+/**
+ * The newest probed version that `draws`, from 12.1 up. Null when even the baseline does not draw:
+ * then the readback is blank or a placeholder (a privacy-hardened canvas), not a missing font.
+ */
+export function newestFromProbes(draws: (emoji: string) => boolean): number | null {
+  if (!draws(BASELINE_PROBE)) return null
+  let newest = 12.1
+  for (const [version, emoji] of VERSION_PROBES) {
+    if (!draws(emoji)) break
+    newest = version
+  }
+  return newest
+}
+
+/**
+ * The newest Emoji version that this device draws, or null when it cannot be measured (no
+ * OffscreenCanvas, as in tests, or no usable readback): then the picker keeps every emoji. iOS 18.5
+ * has Emoji 16, not 17, so the Emoji 17 characters would show as empty boxes.
+ */
+function newestDrawnVersion(): number | null {
+  if (typeof OffscreenCanvas === 'undefined') return null
+  try {
+    const ctx = new OffscreenCanvas(20, 20).getContext('2d', { willReadFrequently: true })
+    if (!ctx) return null
+    ctx.font = '16px "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif'
+    ctx.textBaseline = 'top'
+    ctx.fillStyle = '#000'
+    return newestFromProbes((emoji) => drawsInColour(ctx, emoji))
+  } catch {
+    return null
+  }
+}
+
+/** The hexcodes of the Emoji versions after `newest`. 15.1 counts as newer than 15. */
+function hexcodesAfter(byVersion: Record<string, string[]>, newest: number): Set<string> {
+  const out = new Set<string>()
+  for (const [version, hexcodes] of Object.entries(byVersion)) {
+    if (Number(version) > newest) for (const h of hexcodes) out.add(h)
+  }
+  return out
+}
+
 let loading: Promise<EmojiData> | null = null
 let loaded: EmojiData | null = null
 
@@ -103,12 +175,17 @@ let loaded: EmojiData | null = null
 export function loadEmojiData(): Promise<EmojiData> {
   loading ??= Promise.all([
     import('emojibase-data/en/compact.json'),
-    import('emojibase-data/en/shortcodes/iamcal.json')
+    import('emojibase-data/en/shortcodes/iamcal.json'),
+    import('emojibase-data/versions/emoji.json')
   ]).then(
-    ([compact, iamcal]) => {
+    ([compact, iamcal, versions]) => {
+      const newest = newestDrawnVersion()
       loaded = buildEmojiData(
         compact.default as unknown as RawEmoji[],
-        iamcal.default as unknown as Record<string, string | string[]>
+        iamcal.default as unknown as Record<string, string | string[]>,
+        newest === null
+          ? undefined
+          : hexcodesAfter(versions.default as unknown as Record<string, string[]>, newest)
       )
       return loaded
     },

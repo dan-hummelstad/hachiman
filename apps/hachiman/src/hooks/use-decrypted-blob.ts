@@ -7,8 +7,12 @@ import { cryptoService } from '@/services/CryptoService'
 import { hachiman } from '@/services/client'
 import { useCryptoStore } from '@/stores/cryptoStore'
 
-/** What a decrypt needs: a file pointer or a thumbnail pointer (§12.9). */
-export type BlobPointer = Pick<AttachmentPointer, 'uploadId' | 'key' | 'sha256' | 'mime' | 'size'>
+/**
+ * What a decrypt needs: a file pointer or a thumbnail pointer (§12.9). `blobSize` caps the
+ * download; a pointer without one (a soundboard sound, §12.21) has no cap.
+ */
+export type BlobPointer = Pick<AttachmentPointer, 'uploadId' | 'key' | 'sha256' | 'mime' | 'size'> &
+  Partial<Pick<AttachmentPointer, 'blobSize'>>
 
 /** Decrypted attachments and thumbnails that stay as object URLs without a holder. */
 const CACHE_ENTRIES = 48
@@ -26,12 +30,13 @@ export function clearDecryptedBlobs(): void {
 const cacheKey = (p: BlobPointer): string => `${p.uploadId}:${p.sha256}`
 
 /**
- * Downloads `/files/{uploadId}/blob` and decrypts it in the Worker. The Worker checks the length
- * and SHA-256 first and throws CryptoError('Malformed') on any mismatch. The Blob type is the
- * pointer MIME type.
+ * Downloads `/files/{uploadId}/blob` and decrypts it in the Worker. The download stops past the
+ * pointer's blobSize, so a pointer at a larger upload costs no more than it declares. The Worker
+ * checks the length and SHA-256 first and throws CryptoError('Malformed') on any mismatch. The
+ * Blob type is the pointer MIME type.
  */
 export async function decryptBlob(p: BlobPointer, signal?: AbortSignal): Promise<Blob> {
-  const blob = await hachiman.rest.fetchBlob(blobKey(p.uploadId), { signal })
+  const blob = await hachiman.rest.fetchBlob(blobKey(p.uploadId), { signal, maxBytes: p.blobSize })
   return cryptoService
     .client()
     .decryptAttachment({ key: p.key, sha256: p.sha256, mime: p.mime, size: p.size }, blob)

@@ -1,17 +1,20 @@
 import { useEffect } from 'react'
+import { DARK_QUERY, resolveTheme } from '@/lib/theme'
 import { usePrefsStore } from '@/stores/prefsStore'
 
-const DARK_QUERY = '(prefers-color-scheme: dark)'
-
-/** Applies `prefsStore.theme` as the `light`/`dark` class on `<html>`; `system` tracks the OS. */
+/**
+ * Applies `prefsStore.theme` as the `light`/`dark` class on `<html>`; `system` tracks the OS. Also
+ * writes `prefsStore.messageTextSize` to `--message-text-size` on `<html>` (the mobile transcript).
+ */
 export function ThemeProvider({ children }: { children: React.ReactNode }): React.JSX.Element {
   const theme = usePrefsStore((s) => s.theme)
+  const textSize = usePrefsStore((s) => s.messageTextSize)
 
   useEffect(() => {
     const root = document.documentElement
     const mq = window.matchMedia(DARK_QUERY)
     const apply = (): void => {
-      const resolved = theme === 'system' ? (mq.matches ? 'dark' : 'light') : theme
+      const resolved = resolveTheme(theme, mq.matches)
       root.classList.remove('light', 'dark')
       root.classList.add(resolved)
     }
@@ -20,6 +23,10 @@ export function ThemeProvider({ children }: { children: React.ReactNode }): Reac
     mq.addEventListener('change', apply)
     return () => mq.removeEventListener('change', apply)
   }, [theme])
+
+  useEffect(() => {
+    document.documentElement.style.setProperty('--message-text-size', `${textSize}px`)
+  }, [textSize])
 
   return <>{children}</>
 }

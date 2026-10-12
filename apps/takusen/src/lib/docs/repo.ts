@@ -7,7 +7,7 @@
 import type { DocPageRow, DocSnapshotRow, DocUpdateRow } from '@/db/schema'
 
 export type NewDocPage = Pick<DocPageRow, 'id' | 'channelId' | 'parentId' | 'position' | 'titleEnvelope' | 'createdBy'>
-export type DocPagePatch = Partial<Pick<DocPageRow, 'parentId' | 'position' | 'titleEnvelope'>> & { updatedAt: Date }
+export type DocPagePatch = Partial<Pick<DocPageRow, 'parentId' | 'position' | 'titleEnvelope' | 'bannerEnvelope' | 'bannerUploadIds'>> & { updatedAt: Date }
 export type NewDocUpdate = Omit<DocUpdateRow, 'createdAt'>
 export type NewDocSnapshot = Omit<DocSnapshotRow, 'createdAt'>
 /** The columns that a re-wrap replaces (§4 Pages): the pointer envelope and its header fields. */
@@ -62,6 +62,8 @@ export interface DocsRepo {
   claimSnapshotUpload(pageId: string, uploadId: string, userId: string): Promise<{ key: string; size: number }>
   /** lib/uploads.ts pageMediaClaimable, for every id. Returns the bytes of the new claims. Throws UnknownUpload. */
   claimMediaUploads(pageId: string, uploadIds: string[], userId: string, now: Date): Promise<number>
+  /** Sets last_referenced_at = now on the page_media uploads of `pageId` among `uploadIds`. Other ids are ignored. */
+  touchPageMedia(pageId: string, uploadIds: string[], now: Date): Promise<void>
   /** Deletes claimed page uploads (snapshot rows cascade), subtracts their bytes from the guild quota. */
   deletePageUploads(scope: { pageIds: string[] } | { uploadIds: string[] }): Promise<DeletedUpload[]>
   /**

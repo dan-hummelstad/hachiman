@@ -199,7 +199,7 @@ export const decodeVerifyQr = (b: Uint8Array): VerifyQr =>
 // MARK: - Device linking (§12.5)
 
 const MODE = { qr: 1, sas: 2 } as const
-const PLATFORM = { electron: 1, browser: 2 } as const
+const PLATFORM = { electron: 1, browser: 2, ios: 3 } as const
 
 export function writeLinkOffer(w: Writer, o: LinkOffer): void {
   w.u8(WIRE_VERSION)
@@ -227,7 +227,7 @@ export function readLinkOffer(r: Reader): LinkOffer {
   const hpkeKey = r.fixed(KEY)
   const deviceName = readName(r)
   const p = r.u8()
-  const platform: DevicePlatform | null = p === 1 ? 'electron' : p === 2 ? 'browser' : null
+  const platform: DevicePlatform | null = p === 1 ? 'electron' : p === 2 ? 'browser' : p === 3 ? 'ios' : null
   if (platform === null) throw new CodecError(`bad platform ${p}`)
   return { userId, deviceId, mode, commitment, mlsSignatureKey, hpkeKey, deviceName, platform }
 }

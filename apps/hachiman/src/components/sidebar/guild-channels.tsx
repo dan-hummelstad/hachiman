@@ -17,10 +17,18 @@ import { useGuildChannels, usePermissions } from '@/hooks/use-hachiman'
 import { useDragSensors } from '@/hooks/use-sortable-row'
 import { ChannelIcon } from '@/lib/channel-icon'
 import { CHANNEL_KINDS, CREATE_CHANNEL_TYPES, groupChannels } from '@/lib/model'
+import { TOUCH_HIT } from '@/lib/touch'
 import { cn } from '@/lib/utils'
 import { hachiman } from '@/services/hachiman'
-import { openDialog } from '@/stores/dialogStore'
+import { openDialog, useDialogStore } from '@/stores/dialogStore'
 import { useSelectedChannelId } from '@/stores/navStore'
+
+/**
+ * The list fades out over its last 36 px on the mobile layout (M3). A mask, not a gradient in the
+ * drawer colour: the drawer is a tinted wallpaper. The padding lets the last row scroll clear of it.
+ */
+const BOTTOM_FADE =
+  'mobile:pb-9 mobile:[mask-image:linear-gradient(to_bottom,#000_calc(100%-36px),transparent)]'
 
 /** The middle of the sidebar in a guild: the guild header row, then the channel list. */
 export function GuildChannelList({ guildId }: { guildId: string }): React.JSX.Element {
@@ -29,7 +37,7 @@ export function GuildChannelList({ guildId }: { guildId: string }): React.JSX.El
       <GuildHeader guildId={guildId} />
       <EventRow guildId={guildId} />
       {/* Full sidebar width (its padding is 10), so the unread pip sits at the window edge. */}
-      <div className="-mx-2.5 mt-2 min-h-0 flex-1 overflow-y-auto px-2.5 pb-2">
+      <div className={cn('-mx-2.5 mt-2 min-h-0 flex-1 overflow-y-auto px-2.5 pb-2', BOTTOM_FADE)}>
         <GuildChannels guildId={guildId} />
       </div>
     </>
@@ -43,6 +51,13 @@ function GuildChannels({ guildId }: { guildId: string }): React.JSX.Element {
   const canManage = has(perms, Permissions.MANAGE_CHANNELS)
   const canInvite = has(perms, Permissions.CREATE_INSTANT_INVITE)
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(() => new Set())
+  // The category whose "+" opened the open create sheet (M47), and the one being deleted (M51).
+  const creatingIn = useDialogStore((s) =>
+    s.dialog?.kind === 'createChannel' ? s.dialog.parentId : null
+  )
+  const deletingId = useDialogStore((s) =>
+    s.dialog?.kind === 'deleteChannel' ? s.dialog.channelId : null
+  )
 
   // Top-level (uncategorized) channels first, then each category with its children.
   const { loose, categories, byParent } = useMemo(() => groupChannels(channels), [channels])
@@ -78,16 +93,23 @@ function GuildChannels({ guildId }: { guildId: string }): React.JSX.Element {
         const children = byParent.get(cat.id) ?? []
         // Collapsed categories still show the channel being viewed.
         const visible = isCollapsed ? children.filter((c) => c.id === selectedChannelId) : children
+        // On the mobile layout the drawer stays open under the sheet or confirm, and the category
+        // shows it: the "+" lit, the label red (spec §6.1, decision 3: mobile only).
+        const deleting = deletingId === cat.id
         return (
           <section key={cat.id}>
             <ContextMenu>
-              <ContextMenuTrigger asChild>
-                <div className="flex h-[30px] items-center pr-1">
+              {/* The menu has items only for a manager: no empty sheet on a hold. */}
+              <ContextMenuTrigger asChild longPress={canManage}>
+                <div className="mobile:h-9 flex h-[30px] items-center pr-1">
                   <button
                     type="button"
                     onClick={() => toggle(cat.id)}
                     aria-expanded={!isCollapsed}
-                    className="section-label hover:text-text-secondary flex h-full min-w-0 flex-1 items-center gap-1.5 pl-1 text-left"
+                    className={cn(
+                      'section-label hover:text-text-secondary mobile:gap-1 flex h-full min-w-0 flex-1 items-center gap-1.5 pl-1 text-left',
+                      deleting && 'mobile:text-feature-danger-text'
+                    )}
                   >
                     <ChevronDown
                       className={cn(
@@ -102,7 +124,11 @@ function GuildChannels({ guildId }: { guildId: string }): React.JSX.Element {
                       size="sm"
                       label="Create channel"
                       onClick={() => createIn('text', cat.id)}
-                      className="text-text-tertiary rounded-control"
+                      className={cn(
+                        "text-text-tertiary rounded-control mobile:[&_svg:not([class*='size-'])]:size-4",
+                        TOUCH_HIT,
+                        creatingIn === cat.id && 'mobile:text-accent-text'
+                      )}
                     >
                       <Plus />
                     </IconButton>
@@ -146,10 +172,10 @@ function SortableGroup({
 }: GroupProps): React.JSX.Element {
   const sensors = useDragSensors()
 
-  const onDragEnd = ({ active, over }: DragEndEvent): void => {
-    if (!over || active.id === over.id) return
-    const from = list.findIndex((c) => c.id === active.id)
-    const to = list.findIndex((c) => c.id === over.id)
+  const move = (fromId: string, toId: string): void => {
+    if (fromId === toId) return
+    const from = list.findIndex((c) => c.id === fromId)
+    const to = list.findIndex((c) => c.id === toId)
     if (from < 0 || to < 0) return
     const body = arrayMove(list, from, to).map((c, position) => ({ id: c.id, position }))
     void hachiman.rest
@@ -157,11 +183,15 @@ function SortableGroup({
       .catch((e) => console.warn('[sidebar] reorder failed', e))
   }
 
+  const onDragEnd = ({ active, over }: DragEndEvent): void => {
+    if (over) move(String(active.id), String(over.id))
+  }
+
   return (
     <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
       <SortableContext items={list.map((c) => c.id)} strategy={verticalListSortingStrategy}>
         <ul className="flex flex-col gap-0.5">
-          {list.map((c) => (
+          {list.map((c, at) => (
             <ChannelRow
               key={c.id}
               guildId={guildId}
@@ -169,6 +199,8 @@ function SortableGroup({
               selected={selectedChannelId === c.id}
               canManage={canManage}
               canInvite={canInvite}
+              onMoveUp={at > 0 ? () => move(c.id, list[at - 1].id) : undefined}
+              onMoveDown={at < list.length - 1 ? () => move(c.id, list[at + 1].id) : undefined}
             />
           ))}
         </ul>

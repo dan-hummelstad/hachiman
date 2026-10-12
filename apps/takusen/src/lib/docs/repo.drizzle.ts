@@ -104,6 +104,13 @@ export function drizzleDocsRepo(x: Database | Tx = db): DocsRepo {
 
     claimSnapshotUpload: (pageId, uploadId, userId) => claimPageSnapshot(x, pageId, uploadId, userId),
     claimMediaUploads: (pageId, uploadIds, userId, now) => claimPageMedia(x, pageId, uploadIds, userId, now),
+    async touchPageMedia(pageId, uploadIds, now) {
+      if (uploadIds.length === 0) return
+      await x
+        .update(uploads)
+        .set({ lastReferencedAt: now })
+        .where(and(inArray(uploads.id, uploadIds), eq(uploads.purpose, 'page_media'), eq(uploads.pageId, pageId)))
+    },
     deletePageUploads: (scope) =>
       'pageIds' in scope ? deleteUploadsOfPages(x, inArray(docPages.id, scope.pageIds)) : deletePageUploadRows(x, inArray(uploads.id, scope.uploadIds)),
     async addPageStorage(guildId, bytes, limit) {

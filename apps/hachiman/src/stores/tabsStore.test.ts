@@ -95,4 +95,17 @@ describe('tabsStore', () => {
     }
     expect(targetOf(settings)).toBeNull()
   })
+
+  it('on the mobile layout, a pages channel chat lights a pinned page tab of the channel', () => {
+    const page2: TabTarget = { ...page, pageId: 'p2' }
+    const wikiChat: View = { kind: 'channel', guildId: 'g2', channelId: 'wiki' }
+    const mobile = true
+    expect(activeIndex([general, page, page2], wikiChat, mobile)).toBe(1)
+    // The channel's own tab wins.
+    expect(activeIndex([page, wiki], wikiChat, mobile)).toBe(1)
+    // Desktop does not change, and another channel lights nothing.
+    expect(activeIndex([general, page], wikiChat)).toBe(-1)
+    const loungeChat: View = { kind: 'channel', guildId: 'g1', channelId: 'lounge' }
+    expect(activeIndex([general, page], loungeChat, mobile)).toBe(-1)
+  })
 })

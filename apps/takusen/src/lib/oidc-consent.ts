@@ -32,8 +32,11 @@ export function consentRequest(interaction: {
   }
 }
 
-/** `desktop`: a custom scheme the OS hands to the app. `desktop_bridge`: the Takusen page that forwards to it. `web`: any other http(s) URI. */
-export type RedirectUriKind = 'desktop' | 'desktop_bridge' | 'web' | 'other'
+/**
+ * `app`: a custom scheme the OS hands to the app (the iOS app, and the desktop app through the bridge).
+ * `desktop_bridge`: the Takusen page that forwards to the desktop app. `web`: any other http(s) URI.
+ */
+export type RedirectUriKind = 'app' | 'desktop_bridge' | 'web' | 'other'
 
 export function redirectUriKind(uri: string): RedirectUriKind {
   let url: URL
@@ -42,6 +45,6 @@ export function redirectUriKind(uri: string): RedirectUriKind {
   } catch {
     return 'other'
   }
-  if (url.protocol !== 'http:' && url.protocol !== 'https:') return 'desktop'
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return 'app'
   return url.pathname === '/oauth/electron-bridge' ? 'desktop_bridge' : 'web'
 }

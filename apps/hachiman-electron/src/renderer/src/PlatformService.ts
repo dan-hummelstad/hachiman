@@ -39,6 +39,14 @@ export const platformService: IPlatformService = {
   setGlobalShortcuts: (shortcuts) =>
     window.hachiman.setGlobalShortcuts(shortcuts),
   onGlobalShortcut: (cb) => window.hachiman.onGlobalShortcut(cb),
+  haptic: () => undefined,
+  // No OS share sheet: the UI offers Copy only.
+  share: null,
+  // qr-view.tsx scans with BarcodeDetector where Chromium has it.
+  scanQr: null,
+  // The UI downloads a blob.
+  saveTextFile: null,
+  setAppearance: () => undefined,
   secureStorage: {
     backend: "os-keychain",
     // Main keeps the bytes under safeStorage (main/secure-storage.ts). The

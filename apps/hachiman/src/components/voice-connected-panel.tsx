@@ -12,26 +12,15 @@ import { voiceService } from '@/services/VoiceService'
 import { useChannelStore } from '@/stores/channelStore'
 import { useGuildStore } from '@/stores/guildStore'
 import { useUserStore } from '@/stores/userStore'
-import { useVoiceStore, type VoiceConnectionState } from '@/stores/voiceStore'
+import { useVoiceStore } from '@/stores/voiceStore'
 import { classifyQuality, fmtLoss, fmtMs, QUALITY_TIER_LABEL } from '@/lib/connection-quality'
-
-type Phase = 'connected' | 'lost' | 'connecting'
-
-const PHASE: Record<Phase, { label: string; className: string }> = {
-  connected: { label: 'Voice connected', className: 'text-feature-voice-text' },
-  lost: { label: 'Connection lost', className: 'text-dnd' },
-  connecting: { label: 'Connecting…', className: 'text-idle' }
-}
-
-function phaseOf(state: VoiceConnectionState): Phase {
-  if (state === 'connected') return 'connected'
-  return state === 'failed' || state === 'disconnected' ? 'lost' : 'connecting'
-}
+import { PHASE, phaseOf } from '@/lib/voice-phase'
 
 /**
- * The voice dock at the foot of the sidebar (about 93 high, buttons 32): a green tinted card with
- * "Voice connected", the channel and guild, my call timer, then mic, deafen, share screen and
- * disconnect. Renders only while in voice. The title opens the details popover (connection stats
+ * The voice dock at the foot of the sidebar (about 93 high, buttons 32, 36 on the mobile layout): a
+ * green tinted card with "Voice connected", the channel and guild, my call timer, then mic, deafen,
+ * share screen (where the host can share, `lib/media-caps`) and disconnect. Renders only while in
+ * voice. The title opens the details popover (connection stats
  * and the call encryption, with "Verify call", §12.5); its tooltip gives the connection quality.
  * The banner line shows the 4013 rejoin and 4012.
  */
@@ -115,7 +104,8 @@ export function VoiceDock(): React.JSX.Element | null {
       <div
         className={cn(
           'mt-2.5 flex gap-1.5',
-          '[&>button]:rounded-control [&>button]:bg-surface-hover [&>button]:text-text-secondary [&>button]:h-8 [&>button]:w-auto [&>button]:flex-1'
+          '[&>button]:rounded-control [&>button]:bg-surface-hover [&>button]:text-text-secondary [&>button]:h-8 [&>button]:w-auto [&>button]:flex-1',
+          'mobile:[&>button]:h-9'
         )}
       >
         <SelfVoiceToggles />
@@ -135,13 +125,25 @@ export function VoiceDock(): React.JSX.Element | null {
 /**
  * My time in this call (N17): from my own VoiceState.joinedAt when the gateway sent one, else
  * from when this client joined (voiceStore), so a remount of the dock keeps the time.
+ * `className` restyles the chip (the voice bar).
  */
-function CallTimer({ channelId }: { channelId: string }): React.JSX.Element {
+export function CallTimer({
+  channelId,
+  className
+}: {
+  channelId: string
+  className?: string
+}): React.JSX.Element {
   const localJoinedAt = useVoiceStore((s) => s.localJoinedAt)
   const joinedAt = useMyJoinedAt(channelId)
   const elapsed = useElapsed(joinedAt ?? localJoinedAt)
   return (
-    <span className="bg-feature-voice/15 text-feature-voice-text shrink-0 px-1.5 py-0.5 font-mono text-xs font-semibold tabular-nums">
+    <span
+      className={cn(
+        'bg-feature-voice/15 text-feature-voice-text shrink-0 px-1.5 py-0.5 font-mono text-xs font-semibold tabular-nums',
+        className
+      )}
+    >
       {elapsed}
     </span>
   )

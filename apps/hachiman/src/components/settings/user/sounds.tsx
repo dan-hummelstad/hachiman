@@ -1,5 +1,8 @@
 import { useId } from 'react'
-import { Play, Volume, Volume2 } from 'lucide-react'
+import { Play, Volume, Volume1, Volume2 } from 'lucide-react'
+import { ListGroup, SectionLabel } from '@/components/mobile/list'
+import { SOUND_ROWS, soundRowOn } from '@/components/settings/user/sound-rows'
+import { TouchRange } from '@/components/mobile/touch-range'
 import { SectionHeading } from '@/components/ui/field'
 import { IconButton } from '@/components/ui/icon-button'
 import { Switch } from '@/components/ui/switch'
@@ -113,6 +116,100 @@ export function SoundSettings(): React.JSX.Element {
           )
         })}
       </ul>
+    </section>
+  )
+}
+
+/**
+ * Mobile (M32): the master row (switch, volume, percent), then one 44 row per sound or pair of
+ * sounds (`SOUND_ROWS`), each with a round 32 play button in a 44 hit area and a switch.
+ */
+export function SoundSettingsMobile(): React.JSX.Element {
+  const enabled = usePrefsStore((s) => s.soundsEnabled)
+  const volume = usePrefsStore((s) => s.soundVolume)
+  const disabled = usePrefsStore((s) => s.disabledSounds)
+  const setEnabled = usePrefsStore((s) => s.setSoundsEnabled)
+  const setVolume = usePrefsStore((s) => s.setSoundVolume)
+  const setSoundEnabled = usePrefsStore((s) => s.setSoundEnabled)
+  const id = useId()
+  const percent = Math.round(volume * 100)
+
+  return (
+    <section className="grid gap-1.5" aria-labelledby={`${id}-heading`}>
+      <SectionLabel id={`${id}-heading`}>Sounds</SectionLabel>
+      <ListGroup>
+        <div className="flex min-h-[50px] items-center gap-3 px-3.5">
+          <Switch size="touch" id={`${id}-all`} checked={enabled} onCheckedChange={setEnabled} />
+          <label
+            htmlFor={`${id}-all`}
+            className="text-text-primary flex cursor-pointer items-center self-stretch text-[15px] leading-[18px] font-bold whitespace-nowrap"
+          >
+            Play sounds
+          </label>
+          <Volume1 aria-hidden className="text-text-tertiary size-4 shrink-0" />
+          <TouchRange
+            className={cn('w-0 min-w-0 flex-1', !enabled && 'opacity-50')}
+            fraction={percent / 100}
+            aria-label="Sound volume"
+            min={0}
+            max={100}
+            value={percent}
+            disabled={!enabled}
+            onChange={(e) => setVolume(Number(e.target.value) / 100)}
+            onPointerUp={() => previewSound('message')}
+          />
+          <span className="text-text-secondary w-9 shrink-0 text-right text-[13px] leading-4 font-bold tabular-nums">
+            {percent}%
+          </span>
+        </div>
+        {SOUND_ROWS.map((row) => {
+          const on = soundRowOn(row, disabled)
+          const switchId = `${id}-${row.events[0]}`
+          return (
+            <div key={row.events[0]} className="flex min-h-11 items-center gap-2.5 px-3.5">
+              <label
+                htmlFor={switchId}
+                className="flex min-w-0 flex-1 cursor-pointer items-center self-stretch py-1.5"
+              >
+                {/* The hint wraps as a whole under the label when the row is too narrow. */}
+                <span className="flex flex-wrap items-baseline gap-x-1.5">
+                  <span
+                    className={cn(
+                      'text-[14px] leading-[17px] font-semibold',
+                      enabled && on ? 'text-text-primary' : 'text-text-tertiary'
+                    )}
+                  >
+                    {row.label}
+                  </span>
+                  {row.hint && (
+                    <span className="text-text-tertiary text-[12px] leading-[14px] font-medium whitespace-nowrap">
+                      {row.hint}
+                    </span>
+                  )}
+                </span>
+              </label>
+              <button
+                type="button"
+                aria-label={`Play "${row.label}"`}
+                disabled={!enabled}
+                onClick={() => previewSound(row.events[0])}
+                className="group rounded-pill -mx-1.5 flex size-11 shrink-0 items-center justify-center outline-none focus-visible:outline-2 focus-visible:-outline-offset-4 focus-visible:outline-line-focus disabled:opacity-50"
+              >
+                <span className="rounded-pill bg-surface-hover text-text-secondary group-active:bg-fill-control-strong flex size-8 items-center justify-center">
+                  <Play aria-hidden className="size-[13px]" />
+                </span>
+              </button>
+              <Switch
+                size="touch"
+                id={switchId}
+                checked={on}
+                disabled={!enabled}
+                onCheckedChange={(v) => row.events.forEach((e) => setSoundEnabled(e, v))}
+              />
+            </div>
+          )
+        })}
+      </ListGroup>
     </section>
   )
 }

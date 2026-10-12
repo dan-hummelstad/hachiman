@@ -92,6 +92,10 @@ export function tintWallpaper(tint: string): string {
   return `linear-gradient(180deg, ${tint}, color-mix(in oklab, ${tint} 45%, var(--surface-window)))`
 }
 
+/** The tint of the DM space, and of the screens before the shell (no guild). */
+export const HOME_TINT = 'var(--tint-home)'
+export const HOME_WALLPAPER = tintWallpaper(HOME_TINT)
+
 /** One colour of a custom gradient: hue 0–360 and saturation 0–100. */
 export interface GradientStop {
   h: number
@@ -149,6 +153,17 @@ export function customWallpaper({ stops, lightness, angle }: CustomGradient): st
   )
   if (colors.length === 1) colors.push(colors[0])
   return `linear-gradient(${Math.round(angle)}deg, ${colors.join(', ')})`
+}
+
+/**
+ * The solid colour at the top of a custom wallpaper: its first stop, washed as `customWallpaper`
+ * washes it. One value serves both themes.
+ */
+export function customWindowColor({ stops, lightness }: CustomGradient): string {
+  const first = stops[0]
+  return first
+    ? `color-mix(in oklab, ${stopColor(first, lightness)} ${WASH}%, var(--surface-window))`
+    : 'var(--surface-window)'
 }
 
 const ICON_SAMPLE = 32

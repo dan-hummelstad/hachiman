@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { Camera, CameraOff, Copy } from 'lucide-react'
 import { useCopy } from '@/hooks/use-copy'
 import { Button } from '@/components/ui/button'
 import { ErrorText, Field } from '@/components/ui/field'
 import { Textarea } from '@/components/ui/textarea'
 import { encodeQr, qrSvgPath } from '@/components/security/qr'
+import { barcodeDetector, useScanOrPaste } from '@/components/security/use-scan-or-paste'
 import { cn } from '@/lib/utils'
 
 const BORDER = 4
@@ -64,25 +65,11 @@ export function CopyableCode({
   )
 }
 
-// Chromium and Electron have BarcodeDetector. TypeScript's DOM types do not have it yet.
-interface DetectedBarcode {
-  rawValue: string
-}
-interface BarcodeDetectorLike {
-  detect(source: HTMLVideoElement): Promise<DetectedBarcode[]>
-}
-type BarcodeDetectorCtor = new (opts: { formats: string[] }) => BarcodeDetectorLike
-
-function barcodeDetector(): BarcodeDetectorCtor | null {
-  const ctor = (globalThis as { BarcodeDetector?: BarcodeDetectorCtor }).BarcodeDetector
-  return typeof ctor === 'function' ? ctor : null
-}
-
 const SCAN_INTERVAL_MS = 300
 
 /**
- * Scan a code with the camera (where BarcodeDetector exists), or paste its text. Every host has
- * the paste field. `prefix` is the start of a valid code (for example `hachiman-link:1:`).
+ * Scan a code with the camera (the native scanner, or BarcodeDetector), or paste its text. Every
+ * host has the paste field. `prefix` is the start of a valid code (for example `hachiman-link:1:`).
  */
 export function ScanOrPaste({
   prefix,
@@ -95,75 +82,52 @@ export function ScanOrPaste({
   busy?: boolean
   pasteLabel?: string
 }): React.JSX.Element {
-  const [scanning, setScanning] = useState(false)
-  const [text, setText] = useState('')
-  const [error, setError] = useState<string | null>(null)
-  const canScan = barcodeDetector() !== null
-  const trimmed = text.trim()
-
-  const submit = (e: React.FormEvent): void => {
-    e.preventDefault()
-    if (!trimmed.startsWith(prefix)) {
-      setError('This is not the right kind of code. Copy all of the text from the other device.')
-      return
-    }
-    setError(null)
-    onCode(trimmed)
-  }
+  const scan = useScanOrPaste({ prefix, onCode })
 
   return (
     <div className="grid gap-3">
-      {canScan && (
+      {scan.canScan && (
         <div className="grid gap-2">
-          {scanning ? (
-            <CameraScan
-              prefix={prefix}
-              onCode={(code) => {
-                setScanning(false)
-                onCode(code)
-              }}
-              onError={(msg) => {
-                setScanning(false)
-                setError(msg)
-              }}
-            />
+          {scan.camera ? (
+            <CameraScan prefix={prefix} onCode={scan.onCameraCode} onError={scan.onCameraError} />
           ) : null}
           <Button
             type="button"
             variant="secondary"
             disabled={busy}
-            onClick={() => {
-              setError(null)
-              setScanning((s) => !s)
-            }}
+            onClick={scan.camera ? scan.stopCamera : scan.scan}
           >
-            {scanning ? <CameraOff /> : <Camera />}
-            {scanning ? 'Stop the camera' : 'Scan with the camera'}
+            {scan.camera ? <CameraOff /> : <Camera />}
+            {scan.camera ? 'Stop the camera' : 'Scan with the camera'}
           </Button>
         </div>
       )}
-      <form onSubmit={submit} className="grid gap-2">
+      <form onSubmit={scan.submit} className="grid gap-2">
         <Field id="scan-paste" label={pasteLabel}>
           <Textarea
             id="scan-paste"
             className="font-mono text-[12px]"
             placeholder={`${prefix}…`}
-            value={text}
+            value={scan.text}
             spellCheck={false}
             autoComplete="off"
-            onChange={(e) => setText(e.target.value)}
+            onChange={(e) => scan.setText(e.target.value)}
           />
         </Field>
-        <Button type="submit" className="justify-self-end" disabled={busy || !trimmed}>
+        <Button type="submit" className="justify-self-end" disabled={busy || !scan.pasted}>
           Use this code
         </Button>
       </form>
-      <ErrorText>{error}</ErrorText>
+      <ErrorText>{scan.error}</ErrorText>
     </div>
   )
 }
 
-function CameraScan({
+/**
+ * The BarcodeDetector camera view: hands over the first code that starts with `prefix`. Mount it
+ * only while `ScanOrPasteState.camera` is on.
+ */
+export function CameraScan({
   prefix,
   onCode,
   onError

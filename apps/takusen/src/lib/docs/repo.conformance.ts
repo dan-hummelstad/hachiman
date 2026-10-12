@@ -21,6 +21,8 @@ export interface DocsFixtures {
   /** An encrypted upload of `uploaderId`. Default size 100, purpose null. */
   addUpload(u: { uploaderId: string; size?: number; purpose?: 'page_snapshot' | null; encrypted?: boolean }): Promise<string>
   uploadExists(id: string): Promise<boolean>
+  /** The upload row fields that a claim or a touch changes. null when the row is gone. */
+  upload(id: string): Promise<{ purpose: string | null; pageId: string | null; lastReferencedAt: Date | null } | null>
   storage(guildId: string): Promise<number>
 }
 
@@ -75,6 +77,47 @@ export function describeDocsRepo(name: string, open: () => Promise<DocsRepoUnder
       assert.equal(row?.position, 3)
       assert.equal(row?.updatedAt.getTime(), at.getTime())
       assert.equal(await tx((r) => r.updatePage(randomUUID(), { updatedAt: at })), null)
+    })
+
+    test('a new page has no banner; updatePage stores and clears the banner columns', async () => {
+      const values = page()
+      const row = (await tx((r) => r.insertPage(values)))!
+      assert.equal(row.bannerEnvelope, null)
+      assert.deepEqual(row.bannerUploadIds, [])
+      const ids = [randomUUID(), randomUUID()]
+      const envelope = new Uint8Array([5, 4, 3])
+      const set = await tx((r) => r.updatePage(values.id, { bannerEnvelope: envelope, bannerUploadIds: ids, updatedAt: new Date() }))
+      assert.deepEqual(set?.bannerEnvelope, envelope)
+      assert.deepEqual(set?.bannerUploadIds, ids)
+      const read = await tx((r) => r.lockPage(values.id))
+      assert.deepEqual(read?.bannerEnvelope, envelope)
+      assert.deepEqual(read?.bannerUploadIds, ids)
+      // A patch without the banner columns keeps them.
+      assert.deepEqual((await tx((r) => r.updatePage(values.id, { position: 1, updatedAt: new Date() })))?.bannerUploadIds, ids)
+      const cleared = await tx((r) => r.updatePage(values.id, { bannerEnvelope: null, bannerUploadIds: [], updatedAt: new Date() }))
+      assert.equal(cleared?.bannerEnvelope, null)
+      assert.deepEqual(cleared?.bannerUploadIds, [])
+      assert.equal((await tx((r) => r.listPages(channel))).find((p) => p.id === values.id)?.bannerEnvelope, null)
+    })
+
+    test('touchPageMedia sets last_referenced_at on the page_media uploads of the page only', async () => {
+      const a = await addPage()
+      const b = await addPage()
+      const mine = await t.fx.addUpload({ uploaderId: user })
+      const ofB = await t.fx.addUpload({ uploaderId: user })
+      const unclaimed = await t.fx.addUpload({ uploaderId: user })
+      const claimedAt = new Date(Date.now() - 60_000)
+      await tx(async (r) => {
+        await r.claimMediaUploads(a.id, [mine], user, claimedAt)
+        await r.claimMediaUploads(b.id, [ofB], user, claimedAt)
+      })
+      const now = new Date(Date.now() + 60_000)
+      await tx((r) => r.touchPageMedia(a.id, [mine, ofB, unclaimed, randomUUID()], now))
+      assert.equal((await t.fx.upload(mine))?.lastReferencedAt?.getTime(), now.getTime())
+      assert.equal((await t.fx.upload(ofB))?.lastReferencedAt?.getTime(), claimedAt.getTime())
+      assert.deepEqual(await t.fx.upload(unclaimed), { purpose: null, pageId: null, lastReferencedAt: null })
+      await tx((r) => r.touchPageMedia(a.id, [], new Date()))
+      assert.equal((await t.fx.upload(mine))?.lastReferencedAt?.getTime(), now.getTime())
     })
 
     test('subtreeIds and deletePage take the whole subtree', async () => {

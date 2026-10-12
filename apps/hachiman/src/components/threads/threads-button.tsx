@@ -22,7 +22,10 @@ import { lastActivityOf, useThreadCount, useThreads } from '@/stores/threadsStor
 import { useChannelUnread } from '@/stores/unreadStore'
 import { MAX_THREAD_NAME, validThreadName } from './thread-name'
 
-/** The sky threads button of the channel header (N12) and its popover of threads. */
+/**
+ * The sky threads button of the channel header (N12) and its popover of threads. On the mobile
+ * layout the popover is a sheet.
+ */
 export function ThreadsButton({ channel }: { channel: Channel }): React.JSX.Element {
   const [open, setOpen] = useState(false)
   const count = useThreadCount(channel.id)
@@ -30,12 +33,40 @@ export function ThreadsButton({ channel }: { channel: Channel }): React.JSX.Elem
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <HeaderCountButton label="Threads" count={count} feature="thread" pressed={open}>
+        <HeaderCountButton
+          label="Threads"
+          count={count}
+          feature="thread"
+          pressed={open}
+          className={count > 0 ? 'mobile:bg-feature-thread/9' : undefined}
+        >
           <MessagesSquare />
         </HeaderCountButton>
       </PopoverTrigger>
       <PopoverContent align="end" className="w-[400px] max-w-[calc(100vw-32px)] p-0">
         <ThreadsList parent={channel} onOpened={() => setOpen(false)} />
+      </PopoverContent>
+    </Popover>
+  )
+}
+
+/**
+ * The same list with no header button, opened from the channel sheet (mobile) where the header
+ * leaves Threads out for a title chip (M62, M63).
+ */
+export function ThreadsSheet({
+  channel,
+  open,
+  onOpenChange
+}: {
+  channel: Channel
+  open: boolean
+  onOpenChange: (open: boolean) => void
+}): React.JSX.Element {
+  return (
+    <Popover open={open} onOpenChange={onOpenChange}>
+      <PopoverContent aria-label="Threads" className="p-0">
+        <ThreadsList parent={channel} onOpened={() => onOpenChange(false)} />
       </PopoverContent>
     </Popover>
   )
@@ -71,7 +102,12 @@ function ThreadsList({
       actions={
         canCreate &&
         !creating && (
-          <Button variant="secondary" size="sm" onClick={() => setCreating(true)}>
+          <Button
+            variant="secondary"
+            size="sm"
+            className="mobile:h-9 mobile:px-3"
+            onClick={() => setCreating(true)}
+          >
             <Plus />
             New thread
           </Button>
@@ -173,10 +209,17 @@ export function NewThreadForm({
       />
       <ErrorText>{error}</ErrorText>
       <div className="flex justify-end gap-2">
-        <Button type="button" variant="quiet" size="sm" disabled={busy} onClick={onCancel}>
+        <Button
+          type="button"
+          variant="quiet"
+          size="sm"
+          className="mobile:h-9"
+          disabled={busy}
+          onClick={onCancel}
+        >
           Cancel
         </Button>
-        <Button type="submit" size="sm" disabled={busy || !valid}>
+        <Button type="submit" size="sm" className="mobile:h-9" disabled={busy || !valid}>
           Create thread
         </Button>
       </div>
