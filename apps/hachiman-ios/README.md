@@ -218,7 +218,7 @@ One-time Apple setup (plan, Phase 6):
 1. Enroll in the Apple Developer Program. Note the team ID.
 2. Register the App ID with the bundle id. The alpha needs no special capabilities.
 3. In App Store Connect, add the app (iOS, name "Hachiman", the bundle id).
-4. Make an App Store Connect API key with the App Manager role. Download the `.p8` and note the key ID and the issuer ID.
+4. Make an App Store Connect API key with the Admin role. The export signs with a cloud-managed distribution certificate, and only an Admin key may use it (an App Manager key fails with "Cloud signing permission error"). Download the `.p8` and note the key ID and the issuer ID.
 5. Answer the export compliance questions. `Info.plist` sets `ITSAppUsesNonExemptEncryption` to true (AES-GCM, X25519, Ed25519, MLS).
 6. In TestFlight, add the test information and a privacy policy URL (external testers need it).
 

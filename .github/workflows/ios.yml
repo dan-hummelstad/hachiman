@@ -7,7 +7,7 @@
 # The job is skipped until the repository variable APPLE_TEAM_ID is set.
 # Repository variables: HACHIMAN_DOMAIN (Vite bakes the endpoints in), APPLE_TEAM_ID, and
 # HACHIMAN_BUNDLE_ID (optional, default app.hachiman.ios).
-# Secrets: ASC_KEY_P8 (the .p8 key, base64), ASC_KEY_ID, ASC_ISSUER_ID (App Manager role).
+# Secrets: ASC_KEY_P8 (the .p8 key, base64), ASC_KEY_ID, ASC_ISSUER_ID (Admin role: the export uses cloud signing).
 name: iOS
 on:
   push:
