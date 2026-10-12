@@ -1,10 +1,9 @@
 import { BadgeCheck, Lock } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
-export type SystemTagKind = 'page' | 'live' | 'bot' | 'new' | 'you' | 'encrypted'
+export type SystemTagKind = 'live' | 'bot' | 'new' | 'you' | 'encrypted'
 
 const TAG: Record<SystemTagKind, { label: string; className: string; icon?: React.ReactNode }> = {
-  page: { label: 'PAGE', className: 'bg-feature-page/15 text-feature-page-text' },
   live: { label: 'LIVE', className: 'bg-feature-danger text-text-on-accent' },
   bot: {
     label: 'BOT',
@@ -20,7 +19,7 @@ const TAG: Record<SystemTagKind, { label: string; className: string; icon?: Reac
   }
 }
 
-/** Square uppercase system tag: PAGE, LIVE, BOT, NEW, YOU, ENCRYPTED. */
+/** Square uppercase system tag: LIVE, BOT, NEW, YOU, ENCRYPTED. */
 export function SystemTag({
   kind,
   className

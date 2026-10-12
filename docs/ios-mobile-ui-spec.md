@@ -1085,7 +1085,7 @@ These are product features. Each one is a separate PR with its own server, contr
 
 1. **Confirmations as sheets or centred dialogs.** The spec text says sheets. M50, M51 and M58 draw centred dialogs. This spec follows the drawings. Confirm.
 2. **Page edits in the chat.** M37 and desktop C1 show page activity in the chat. #53 removed it. Bring it back on both layouts, or drop it from the mocks?
-3. **Desktop side effects that the captions ask for.** Newest-first DM list, the PAGE tag and violet icon, the gold "Not verified" look for notice changes, lit and marked rows under open dialogs, the spelled-out invite expiry. This spec lets the DM order, the PAGE tag and the trust look change on desktop. The lit and marked states are mobile-only until you agree.
+3. **Desktop side effects that the captions ask for.** Newest-first DM list, the violet page icon, the gold "Not verified" look for notice changes, lit and marked rows under open dialogs, the spelled-out invite expiry. This spec lets the DM order and the trust look change on desktop. The lit and marked states are mobile-only until you agree.
 4. **Delete without confirm on invites.** Desktop deletes an invite at once. On touch, Copy and Delete sit 6 px apart. This spec adds a confirm on touch only.
 5. **Settings "Advanced" on a phone.** The mock leaves it out. It is the only reset path on a phone with no devtools. This spec keeps it as the last Help row.
 6. **Soundboard in the call bar.** M10 has no slot for it. This spec moves it into a "More" sheet.
@@ -1095,7 +1095,7 @@ These are product features. Each one is a separate PR with its own server, contr
 
 1. Follow the drawings: M50, M51 and M58 are centred dialogs. All other dialogs are sheets.
 2. No page activity in the chat. #53 removed it on purpose, so the build does not add it back. M37 shows no edit lines.
-3. Mobile only: the newest-first DM list, the PAGE tag and violet icon, the gold "Not verified" look, the lit and marked rows under open dialogs and the spelled-out invite expiry. The desktop does not change.
+3. Mobile only: the newest-first DM list, the violet page icon, the gold "Not verified" look, the lit and marked rows under open dialogs and the spelled-out invite expiry. The desktop does not change.
 4. A confirm on touch only, as proposed.
 5. Keep "Advanced" as the last Help row, as proposed.
 6. The soundboard goes into a "More" sheet, as proposed.

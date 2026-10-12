@@ -21,7 +21,6 @@ import {
 } from '@/components/ui/context-menu'
 import { IconButton } from '@/components/ui/icon-button'
 import { CHANNEL_ROW_TOUCH, sidebarRowClass } from '@/components/sidebar/sidebar-row'
-import { SystemTag } from '@/components/ui/system-tag'
 import { UnreadMark, UnreadPip } from '@/components/ui/unread-mark'
 import { VoiceOccupantRow } from '@/components/voice/voice-occupant-row'
 import { useElapsed } from '@/hooks/use-elapsed'
@@ -78,7 +77,7 @@ const ACTION_LIT =
 /**
  * A channel in the sidebar: drag to reorder (with MANAGE_CHANNELS), right-click or hold for its
  * menu. On the mobile layout (M3, M36) the row is 38 high, only the selected row shows its
- * actions, and a pages channel has the violet icon and the PAGE tag. A tap there opens the
+ * actions, and a pages channel has the violet icon. A tap there opens the
  * channel on its chat (a pages channel too, not its open page) and closes the drawer. There a
  * manager's hold menu also has Move up and Move down: the button path of the drag. The drawer
  * stays open under the dialogs a row opens: its invite button stays lit while its sheet is open
@@ -105,7 +104,7 @@ export function ChannelRow({
 }): React.JSX.Element {
   const mobile = useLayout() === 'mobile'
   const isVoice = channel.type === 'voice'
-  // The PAGE mark is mobile only for now (spec §6.1, decision 3).
+  // The violet page icon is mobile only for now (spec §6.1, decision 3).
   const pageMark = mobile && channel.type === 'pages'
   const occupants = useChannelOccupants(guildId, channel.id)
   const isVoiceHere = useVoiceStore((s) => isVoice && s.channelId === channel.id)
@@ -219,7 +218,6 @@ export function ChannelRow({
               )}
               <span className="truncate">{channel.name}</span>
               {/* The button's label names the type, so the tag text stays out of it. */}
-              {pageMark && <SystemTag kind="page" className="ml-auto" />}
             </button>
             <span className={cn('items-center gap-1 pr-1', showStatus)}>
               {(readOnly || restricted) && (
