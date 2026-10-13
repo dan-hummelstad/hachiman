@@ -1108,6 +1108,13 @@ export const createGroupService = ((ctx: EngineContext, identity: IdentityServic
       } catch (e) {
         report(e)
       }
+      // §12.11.3: upload the history keys that have no backup yet. Without this, a restore from the
+      // recovery key gets the identity but no history. backupNow limits itself per group.
+      try {
+        await identity.backupNow()
+      } catch (e) {
+        report(e)
+      }
       const self = identity.self()
       for (const group of await transport.listGroups()) {
         try {

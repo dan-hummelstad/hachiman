@@ -129,6 +129,14 @@ class CryptoService {
       }
       useCryptoStore.setState({ phase: 'ready' })
       this.setStatus(status)
+      // The Worker also backs up at each READY and RESUMED. Going to the background is the last
+      // chance before iOS suspends the app or the user closes a long-lived desktop window.
+      const backupOnHide = (): void => {
+        if (document.visibilityState !== 'hidden' || !this.ready || this.current !== client) return
+        client.backupNow().catch((e: unknown) => console.warn('[crypto] history backup failed', e))
+      }
+      document.addEventListener('visibilitychange', backupOnHide)
+      this.unsubscribe.push(() => document.removeEventListener('visibilitychange', backupOnHide))
     } catch (e) {
       if (this.current !== client) return
       console.error('[crypto] start failed', e)

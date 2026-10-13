@@ -162,6 +162,17 @@ describe('GroupService', () => {
     expect((await alice.groups.membershipTimeline(general, 10)).at(-1)).toMatchObject({ kind: 'joined_external', actorUserId: null })
   }, 120_000)
 
+  it('backs up the history keys on sync, so a restore from the recovery key reads old epochs', async () => {
+    const { ds, c } = await world(['alice', 'bob'])
+    const { alice, bob } = c as Record<'alice' | 'bob', Client>
+    const { gid } = await channelGroup(ds, [alice, bob])
+    const epoch = (await epochOf(alice, gid))!
+    await alice.groups.sync()
+    const restored = await ds.client(alice.userId, { recoveryKey: (alice as Client & { recoveryKey: string }).recoveryKey })
+    const secret = await restored.groups.epochSecret(fromB64url(gid), epoch)
+    expect(secret && toB64url(secret)).toBe(await secretOf(alice, gid))
+  }, 120_000)
+
   it('joins a new own device to channel and dm groups through sync join requests', async () => {
     const { ds, c } = await world(['alice', 'bob'])
     const { alice, bob } = c as Record<'alice' | 'bob', Client>
