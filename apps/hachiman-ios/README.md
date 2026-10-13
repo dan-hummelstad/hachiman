@@ -199,6 +199,14 @@ At start, a Debug build sends a probe to the iOS dev server (`http://localhost:5
 
 ## Release (TestFlight)
 
+### From this Mac
+
+`pnpm -F @hachiman/hachiman-ios testflight` (`scripts/testflight.sh`) does the steps of the `testflight` job below on this Mac: the web build with the production endpoints, XcodeGen, `xcodebuild archive`, and the export that uploads to TestFlight. The build number is the UTC time (`yyMMddHHmm`), so it is always higher than the run number of a CI build.
+
+Set the `IOS_*` values of the section "iOS release" in the repo-root `.env` (`.env.example` shows them). Put the API key at `~/.appstoreconnect/private_keys/AuthKey_<key id>.p8`, or set `IOS_ASC_KEY_PATH`. The key needs the Admin role. If `xcode-select` points to the Command Line Tools, set `DEVELOPER_DIR` to the Xcode developer dir.
+
+### From CI
+
 `.github/workflows/ios.yml` has two jobs:
 
 - `check`, on each pull request and push that touches the app: web build, `node --test`, XcodeGen, and `xcodebuild test` on the newest iPhone simulator.

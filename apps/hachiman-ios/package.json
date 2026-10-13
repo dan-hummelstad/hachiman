@@ -9,6 +9,7 @@
     "build": "tsgo --noEmit -p tsconfig.json && vite build",
     "typecheck": "tsgo --noEmit -p tsconfig.json",
     "test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test \"*.test.mts\" \"src/**/*.test.mts\"",
+    "testflight": "node --env-file-if-exists=../../.env -e \"process.exit(require('node:child_process').spawnSync('scripts/testflight.sh', { stdio: 'inherit' }).status ?? 1)\"",
     "lint": "eslint --cache .",
     "format": "prettier --write ."
   },
