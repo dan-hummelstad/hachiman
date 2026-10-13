@@ -31,8 +31,6 @@
 			</array>
 		</dict>
 	</array>
-	<key>ITSAppUsesNonExemptEncryption</key>
-	<true/>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSCameraUsageDescription</key>
