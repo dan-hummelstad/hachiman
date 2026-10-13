@@ -227,7 +227,7 @@ One-time Apple setup (plan, Phase 6):
 2. Register the App ID with the bundle id. The alpha needs no special capabilities.
 3. In App Store Connect, add the app (iOS, name "Hachiman", the bundle id).
 4. Make an App Store Connect API key with the Admin role. The export signs with a cloud-managed distribution certificate, and only an Admin key may use it (an App Manager key fails with "Cloud signing permission error"). Download the `.p8` and note the key ID and the issuer ID.
-5. Answer the export compliance questions. `Info.plist` sets `ITSAppUsesNonExemptEncryption` to true (AES-GCM, X25519, Ed25519, MLS).
+5. Answer the export compliance questions on the first build in App Store Connect. `Info.plist` has no `ITSAppUsesNonExemptEncryption` until then: a `true` with no `ITSEncryptionExportComplianceCode` fails the upload ("Invalid Export Compliance Code"). The app bundles standard algorithms (AES-GCM, X25519, Ed25519, ML-KEM, MLS through ts-mls, `@noble/*` and `@hpke/*`), none proprietary. Then add the key with the value that App Store Connect gives, so that later builds skip the questions.
 6. In TestFlight, add the test information and a privacy policy URL (external testers need it).
 
 Takusen needs no change for testers. If the production `TAKUSEN_ALLOWED_ORIGINS` or `HACHIMAN_CLIENT_REDIRECT_URIS` replace the defaults, they must contain `hachiman://app` and `app.hachiman://oauth-callback`.
