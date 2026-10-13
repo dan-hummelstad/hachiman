@@ -15,7 +15,6 @@ settings:
     MARKETING_VERSION: "0.1.0"
     CURRENT_PROJECT_VERSION: "1"
     SWIFT_VERSION: "6.0"
-    TARGETED_DEVICE_FAMILY: "1"
     # The run scripts read dist/ and edit the built Info.plist.
     ENABLE_USER_SCRIPT_SANDBOXING: NO
 targets:
@@ -30,6 +29,9 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: $(HACHIMAN_BUNDLE_ID)
         PRODUCT_NAME: Hachiman
+        # iPhone only. Here, not in the project settings: XcodeGen's iOS app defaults set "1,2" on
+        # the target, and an iPad build must support every orientation (App Store Connect refuses it).
+        TARGETED_DEVICE_FAMILY: "1"
         INFOPLIST_FILE: Hachiman/Info.plist
         GENERATE_INFOPLIST_FILE: NO
         CODE_SIGN_ENTITLEMENTS: Hachiman/Hachiman.entitlements
