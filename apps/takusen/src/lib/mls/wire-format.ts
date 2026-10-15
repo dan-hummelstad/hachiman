@@ -164,7 +164,8 @@ export function parseLinkOffer(bytes: Uint8Array): LinkOfferFields {
   const name = r.opaque()
   if (name.length < 1 || name.length > 64) throw new ParseError('bad device name')
   const platform = r.u8()
-  if (platform !== 1 && platform !== 2) throw new ParseError('bad platform')
+  // 1 electron, 2 browser, 3 ios
+  if (platform < 1 || platform > 3) throw new ParseError('bad platform')
   r.end()
   return { userId, deviceId, mode, mlsSignatureKey, hpkeKey }
 }
@@ -181,7 +182,7 @@ export const encodeForTests = {
   sealedDeviceMessage(kind: 2 | 3, senderDeviceId: Uint8Array): Uint8Array {
     return concat([[1, kind], senderDeviceId, new Uint8Array(32), opaque(new Uint8Array([1, 2, 3]))])
   },
-  linkOffer(o: { userId: Uint8Array; deviceId: Uint8Array; mlsSignatureKey: Uint8Array; hpkeKey: Uint8Array }): Uint8Array {
-    return concat([[1], o.userId, o.deviceId, [1], opaque(new Uint8Array()), opaque(o.mlsSignatureKey), o.hpkeKey, opaque(new TextEncoder().encode('Laptop')), [1]])
+  linkOffer(o: { userId: Uint8Array; deviceId: Uint8Array; mlsSignatureKey: Uint8Array; hpkeKey: Uint8Array; platform?: number }): Uint8Array {
+    return concat([[1], o.userId, o.deviceId, [1], opaque(new Uint8Array()), opaque(o.mlsSignatureKey), o.hpkeKey, opaque(new TextEncoder().encode('Laptop')), [o.platform ?? 1]])
   },
 }

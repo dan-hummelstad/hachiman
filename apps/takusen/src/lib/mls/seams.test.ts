@@ -132,4 +132,10 @@ describe('encodings (§12.2)', () => {
     assert.equal(o.mode, 'qr')
     assert.deepEqual(o.hpkeKey, new Uint8Array(32).fill(4))
   })
+
+  test('LinkOffer parse: every §12.5 platform, and no other', () => {
+    const offer = (platform: number) => encodeForTests.linkOffer({ userId: new Uint8Array(16).fill(1), deviceId: new Uint8Array(16).fill(2), mlsSignatureKey: new Uint8Array(32).fill(3), hpkeKey: new Uint8Array(32).fill(4), platform })
+    for (const p of [1, 2, 3]) parseLinkOffer(offer(p))
+    for (const p of [0, 4]) assert.throws(() => parseLinkOffer(offer(p)))
+  })
 })
