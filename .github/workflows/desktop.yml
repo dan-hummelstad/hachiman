@@ -1,8 +1,11 @@
 # Builds the Electron app: a .dmg on macOS (Apple Silicon) and an NSIS .exe installer on Windows.
 # Each upload replaces the previous one: the last job deletes the artifacts of older runs, so
 # only the newest hachiman-macos and hachiman-windows artifacts exist.
-# The builds have no trusted signature (macOS: ad-hoc signed; open once, then Privacy & Security > Open Anyway.
-# Windows: SmartScreen "Run anyway").
+# macOS: Developer ID signed and notarized when the secret MAC_CSC_LINK is set, else ad-hoc signed
+# (open once, then Privacy & Security > Open Anyway). Signing secrets: MAC_CSC_LINK (the Developer ID
+# Application .p12, base64), MAC_CSC_KEY_PASSWORD, and the iOS App Store Connect key ASC_KEY_P8,
+# ASC_KEY_ID, ASC_ISSUER_ID for notarization; variable APPLE_TEAM_ID picks the identity.
+# Windows has no trusted signature (SmartScreen "Run anyway").
 # Repository variable HACHIMAN_DOMAIN: Vite bakes the endpoints in at build time.
 # The release job publishes both builds as zip files in a GitHub release (tag desktop-<run number>)
 # in the repository <owner>/hachiman-release. The installed apps update themselves from the newest
@@ -55,7 +58,25 @@ jobs:
         with:
           node-version: 22
       - run: corepack enable && pnpm install --frozen-lockfile
-      - run: pnpm -F @hachiman/hachiman-electron build:${{ matrix.target }} --publish never
+      - name: Set up Developer ID signing
+        if: matrix.target == 'mac'
+        env:
+          MAC_CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+        run: |
+          [ -n "$MAC_CSC_LINK" ] || { echo "No MAC_CSC_LINK: ad-hoc signature"; exit 0; }
+          [ -n "${{ vars.APPLE_TEAM_ID }}" ] || { echo "::error::Set the repository variable APPLE_TEAM_ID"; exit 1; }
+          echo "$ASC_KEY_P8" | base64 --decode > "$RUNNER_TEMP/AuthKey.p8"
+          {
+            echo "CSC_LINK=$(printf %s "$MAC_CSC_LINK" | tr -d '\n')"
+            echo "CSC_KEY_PASSWORD=${{ secrets.MAC_CSC_KEY_PASSWORD }}"
+            echo "APPLE_API_KEY=$RUNNER_TEMP/AuthKey.p8"
+            echo "APPLE_API_KEY_ID=${{ secrets.ASC_KEY_ID }}"
+            echo "APPLE_API_ISSUER=${{ secrets.ASC_ISSUER_ID }}"
+            echo "SIGN_ARGS=-c.mac.identity=${{ vars.APPLE_TEAM_ID }} -c.mac.hardenedRuntime=true"
+          } >> "$GITHUB_ENV"
+      - shell: bash
+        run: pnpm -F @hachiman/hachiman-electron build:${{ matrix.target }} --publish never $SIGN_ARGS
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
@@ -83,7 +104,7 @@ jobs:
             --title "Desktop build ${{ github.run_number }} (${GITHUB_SHA::7})" \
             --notes "Commit: ${{ github.sha }}
 
-          No trusted signature. macOS: open the app once, then System Settings > Privacy & Security > Open Anyway. Windows: SmartScreen > More info > Run anyway."
+          Without the MAC_CSC_LINK secret, macOS builds are ad-hoc signed: open the app once, then System Settings > Privacy & Security > Open Anyway. Windows has no trusted signature: SmartScreen > More info > Run anyway."
 
   prune:
     needs: build

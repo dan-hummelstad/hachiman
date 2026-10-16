@@ -26,9 +26,12 @@ nsis:
   uninstallDisplayName: ${productName}
   createDesktopShortcut: always
 mac:
-  # Ad-hoc signature: packaging edits the bundle, which breaks Electron's own signature, and macOS
-  # then calls the app "damaged" with no Open Anyway. Ad-hoc needs no Apple account; the hardened
-  # runtime needs a real identity, so it is off.
+  # Default: an ad-hoc signature. Packaging edits the bundle, which breaks Electron's own signature,
+  # and macOS then calls the app "damaged" with no Open Anyway. Ad-hoc needs no Apple account; the
+  # hardened runtime needs a real identity, so it is off.
+  # Developer ID: give CSC_LINK + CSC_KEY_PASSWORD (or a keychain identity) and override
+  # `-c.mac.identity=<team id> -c.mac.hardenedRuntime=true`. APPLE_API_KEY, APPLE_API_KEY_ID and
+  # APPLE_API_ISSUER then also notarize the app (desktop.yml does this when MAC_CSC_LINK is set).
   identity: '-'
   hardenedRuntime: false
   entitlementsInherit: build/entitlements.mac.plist
@@ -37,7 +40,6 @@ mac:
     - NSMicrophoneUsageDescription: Application requests access to the device's microphone.
     - NSDocumentsFolderUsageDescription: Application requests access to the user's Documents folder.
     - NSDownloadsFolderUsageDescription: Application requests access to the user's Downloads folder.
-  notarize: false
 dmg:
   artifactName: hachiman-${version}.${ext}
 linux:

@@ -223,6 +223,8 @@ pnpm build:electron                                 # typecheck + electron-vite 
 pnpm -F @hachiman/hachiman-electron build:mac       # or build:win, build:linux, build:unpack
 ```
 
+`build:mac` makes an ad-hoc signature by default. For a Developer ID signature with notarization, set `CSC_LINK` + `CSC_KEY_PASSWORD` (or have the identity in your keychain) and `APPLE_API_KEY` (path to the .p8), `APPLE_API_KEY_ID`, `APPLE_API_ISSUER`, then run `pnpm -F @hachiman/hachiman-electron build:mac -c.mac.identity=<team id> -c.mac.hardenedRuntime=true`. The Desktop workflow does this when the secret `MAC_CSC_LINK` is set.
+
 Takusen, the gateway and media must run for sign-in and voice. See the [root README](../../README.md#local-development).
 
 Workers: `electron.vite.config.ts` sets `worker.format` to `es` for the renderer. Thus Vite builds `new Worker(new URL(…, import.meta.url), { type: 'module' })` from `@hachiman/crypto` as module Workers with their own chunks.
