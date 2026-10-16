@@ -32,12 +32,12 @@ export interface NativeEvents extends NativeEmitter {
   ): () => void;
 }
 
-/** The one string field of a payload, or null. Only that field reaches a subscriber. */
-function field(v: unknown, key: string): string | null {
-  if (typeof v !== "object" || v === null) return null;
-  const value = (v as Record<string, unknown>)[key];
-  return typeof value === "string" ? value : null;
-}
+/** The one string field of each payload. Only that field reaches a subscriber. */
+const FIELD = {
+  "oauth-callback": "url",
+  "invite-link": "url",
+  "push-open": "channelId",
+} as const satisfies { [K in NativeEventType]: keyof NativeEventMap[K] };
 
 export function createNativeEvents(): NativeEvents {
   const channels: {
@@ -50,14 +50,16 @@ export function createNativeEvents(): NativeEvents {
   return {
     emit(type, payload) {
       // Unknown types and bad payloads are dropped: nothing else may reach a subscriber.
-      if (type === "push-open") {
-        const channelId = field(payload, "channelId");
-        if (channelId !== null) channels["push-open"].emit({ channelId });
-        return;
-      }
-      if (type !== "oauth-callback" && type !== "invite-link") return;
-      const url = field(payload, "url");
-      if (url !== null) channels[type].emit({ url });
+      if (!Object.hasOwn(FIELD, type)) return;
+      const key = FIELD[type as NativeEventType];
+      const value =
+        typeof payload === "object" && payload !== null
+          ? (payload as Record<string, unknown>)[key]
+          : undefined;
+      if (typeof value !== "string") return;
+      (channels[type as NativeEventType] as { emit(v: object): void }).emit({
+        [key]: value,
+      });
     },
     on: (type, cb) => channels[type].subscribe(cb),
   };

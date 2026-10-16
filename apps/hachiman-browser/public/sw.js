@@ -38,7 +38,6 @@ const unb64u = (s) =>
     c.charCodeAt(0),
   );
 
-/** A new push key for `deviceId`. The one before it becomes "previous". */
 async function rotateKey(deviceId) {
   const kp = await crypto.subtle.generateKey(
     { name: "ECDH", namedCurve: "P-256" },
@@ -48,10 +47,14 @@ async function rotateKey(deviceId) {
   const pub = new Uint8Array(
     await crypto.subtle.exportKey("raw", kp.publicKey),
   );
-  const current = await tx("readonly", (s) => s.get("current"));
+  // One transaction: two rotations at once cannot both move the same key to "previous".
   await tx("readwrite", (s) => {
-    if (current) s.put(current, "previous");
-    return s.put({ priv: kp.privateKey, pub, deviceId }, "current");
+    const current = s.get("current");
+    current.onsuccess = () => {
+      if (current.result) s.put(current.result, "previous");
+      s.put({ priv: kp.privateKey, pub, deviceId }, "current");
+    };
+    return current;
   });
   return b64u(pub);
 }

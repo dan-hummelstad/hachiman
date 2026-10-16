@@ -22,7 +22,6 @@ export function notifyLevelLabel(level: NotifyLevel): string {
 export const NOTIFY_KINDS = ['dm', 'mention', 'channel', 'poke', 'ring'] as const
 export type NotifyKind = (typeof NOTIFY_KINDS)[number]
 
-/** The kind of a message notification: a DM, a mention of me, else a channel message. */
 export function messageNotifyKind(guildId: string | null, mentionsMe: boolean): NotifyKind {
   if (guildId === null) return 'dm'
   return mentionsMe ? 'mention' : 'channel'

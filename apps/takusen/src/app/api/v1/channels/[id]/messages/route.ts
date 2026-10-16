@@ -26,7 +26,7 @@ import { toAttachment } from '@/lib/files'
 import { loadChannelAccess, publishToChannel, requirePermission } from '@/lib/guild-access'
 import { requireUserById, userColumns } from '@/lib/guilds'
 import { requireDevice } from '@/lib/mls/device-auth'
-import { canViewChannel, pushMessage } from '@/lib/push'
+import { pushMessage } from '@/lib/push'
 import { acceptEnvelope } from '@/lib/mls/envelopes'
 import { loadAttachments } from '@/lib/uploads'
 import { createMessageSchema, parseMessageQuery, toMessage } from '@/lib/wire'
@@ -103,18 +103,7 @@ export async function POST(req: NextRequest, ctx: RouteContext): Promise<NextRes
     const author = await requireUserById(userId)
     const message = toMessage(row, author, access.channel.guildId, claimed.map(toAttachment), body.nonce)
     await publishToChannel(access, 'MESSAGE_CREATE', message)
-    // A DM pushes to every other participant. A guild message pushes only to the devices that the
-    // sender sealed a preview for (its mentions): the mentions are inside the envelope.
-    if (!body.silent) {
-      void pushMessage({
-        channelId: id,
-        guildId: access.channel.guildId,
-        authorId: userId,
-        recipientIds: access.channel.guildId === null ? access.participantIds.filter((p) => p !== userId) : [],
-        sealed: body.push,
-        canView: (u) => canViewChannel(id, u),
-      }).catch((e) => console.error('[push]', e))
-    }
+    if (!body.silent) void pushMessage(access, userId, body.push).catch((e) => console.error('[push]', e))
     return NextResponse.json(message)
   } catch (err) {
     return errorResponse(err)

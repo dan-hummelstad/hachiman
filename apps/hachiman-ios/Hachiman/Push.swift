@@ -1,8 +1,9 @@
 import UIKit
 import UserNotifications
 
-/// APNs registration for the `push.register` bridge op (contract §4 Push). Takusen sends a
-/// content-free alert ("New message"): it cannot read the sender or the text.
+/// APNs registration for the `push.register` bridge op (contract §4 Push), and the taps on
+/// notifications. The sender and the text of a push are sealed to this device (§12.22); the
+/// Notification Service Extension opens them.
 @MainActor
 final class Push: NSObject, UNUserNotificationCenterDelegate {
     static let shared = Push()

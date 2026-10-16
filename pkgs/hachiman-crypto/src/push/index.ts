@@ -34,7 +34,6 @@ export function pushKeyContent(deviceId: string, pushKey: Uint8Array): Uint8Arra
   return out
 }
 
-/** The preview plaintext, cut to the limits. */
 export function encodePushPreview(p: PushPreview): Uint8Array {
   return utf8(JSON.stringify({ t: p.title.slice(0, PUSH_PREVIEW_MAX_TITLE), b: p.body.slice(0, PUSH_PREVIEW_MAX_BODY), c: p.channelId }))
 }

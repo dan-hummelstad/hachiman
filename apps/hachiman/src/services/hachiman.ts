@@ -272,7 +272,6 @@ const onFatal = ({ code }: { code: number }): void => {
 let started = false
 let platform: IPlatformService | null = null
 
-/** The host of `startHachiman`, or null before it. */
 export const hostPlatform = (): IPlatformService | null => platform
 
 /** The crypto Worker of the signed-in user. The gateway connects when it has a device id. */

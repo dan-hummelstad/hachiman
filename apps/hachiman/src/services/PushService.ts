@@ -11,7 +11,7 @@
  *    service (`pushSubscribe` null).
  */
 import type { PushFilters, PushKey, User } from '@hachiman/client'
-import type { Mention } from '@hachiman/crypto'
+import type { AttachmentPointer, Mention } from '@hachiman/crypto'
 import { cryptoService } from '@/services/CryptoService'
 import { hachiman, hostPlatform } from '@/services/hachiman'
 import type { ClientFeature } from '@/services/features'
@@ -19,23 +19,28 @@ import { messageSound } from '@/services/SoundService'
 import { plainEmojiText } from '@/lib/mentions'
 import { jumpToMessage, openChannelView } from '@/lib/navigation'
 import { messageNotifyKind, NOTIFY_KINDS, type NotifyKind } from '@/lib/notify'
-import type { ChatMessage } from '@/stores/messagesStore'
 import { currentDeviceId } from '@/stores/cryptoStore'
 import { notifyPrefs, usePrefsStore } from '@/stores/prefsStore'
 
 const MAX_BODY = 200
 
-/** The body of an OS notification: the text, cut, or a line for an attachment-only message. */
-export function notificationBody(row: Pick<ChatMessage, 'content' | 'attachments'>): string {
-  const text = row.content.trim()
-  if (text === '') return row.attachments.length > 0 ? 'Sent an attachment' : 'New message'
-  return text.length > MAX_BODY ? `${text.slice(0, MAX_BODY - 1)}…` : text
+/**
+ * The body of a notification, local or a push preview: the text with custom emojis as `:name:`,
+ * cut, or a line for a message without text.
+ */
+export function notificationBody(text: string, attachments: readonly AttachmentPointer[]): string {
+  const plain = plainEmojiText(text).trim()
+  if (plain === '') return attachments.length > 0 ? 'Sent an attachment' : 'New message'
+  return plain.length > MAX_BODY ? `${plain.slice(0, MAX_BODY - 1)}…` : plain
 }
 
 /** The page can show OS notifications itself: Electron and the browser, not the iOS WebView. */
 const hasNotificationApi = (): boolean => typeof Notification !== 'undefined'
 
-const PUSH_KINDS: readonly NotifyKind[] = ['dm', 'mention']
+/** The kinds that Takusen pushes (§4 Push). The others are notifications of the open app only. */
+const PUSH_KINDS = ['dm', 'mention'] as const
+type PushKind = (typeof PUSH_KINDS)[number]
+const isPushKind = (k: NotifyKind): k is PushKind => (PUSH_KINDS as readonly string[]).includes(k)
 
 /**
  * The kinds that this host can notify. iOS has no OS notifications from the page: only push,
@@ -45,13 +50,14 @@ export function notifyKinds(): readonly NotifyKind[] {
   return hasNotificationApi() ? NOTIFY_KINDS : PUSH_KINDS
 }
 
-/** The master switch and the switch of `kind`. */
 export function notifyOn(kind: NotifyKind): boolean {
   const { pushEnabled, disabledNotifications } = usePrefsStore.getState()
   return pushEnabled && !disabledNotifications.includes(kind)
 }
 
-/** Shows an OS notification of `kind` while the window has no focus. */
+/** The push kinds that are on: none means this device needs no push target. */
+const pushKindsOn = (): PushKind[] => PUSH_KINDS.filter((k) => notifyOn(k))
+
 export function showNotification(
   kind: NotifyKind,
   title: string,
@@ -68,7 +74,6 @@ export function showNotification(
   }
 }
 
-/** A poke from `user` (poke.ts). */
 export function notifyPoke(user: User): void {
   showNotification('poke', user.username, {
     body: 'Poked you',
@@ -77,7 +82,6 @@ export function notifyPoke(user: User): void {
   })
 }
 
-/** An incoming DM call (CallRingService). */
 export function notifyRing(channelId: string, callerId: string): void {
   const channel = hachiman.cache.channels.get(channelId)
   const caller = channel?.recipients?.find((u) => u.id === callerId)?.username ?? 'Someone'
@@ -95,11 +99,10 @@ export function notifyRing(channelId: string, callerId: string): void {
  * quiet as a whole; send the louder channels too when that matters.
  */
 export function pushFilters(): PushFilters {
-  const kinds = (['dm', 'mention'] as const).filter((k) => notifyOn(k))
   const p = notifyPrefs()
   const quiet = new Set(Object.keys(p.notify).filter((id) => p.notify[id] === 'none'))
   for (const id of p.muted) if (hachiman.cache.channels.get(id)?.guildId === null) quiet.add(id)
-  return { kinds: [...kinds], quiet: [...quiet] }
+  return { kinds: pushKindsOn(), quiet: [...quiet] }
 }
 
 /**
@@ -130,7 +133,7 @@ let filterTimer: ReturnType<typeof setTimeout> | undefined
 function queueFilterSync(): void {
   clearTimeout(filterTimer)
   filterTimer = setTimeout(() => {
-    if (!notifyOn('dm') && !notifyOn('mention')) return
+    if (pushKindsOn().length === 0) return
     hachiman.rest.setPushFilters(pushFilters()).catch((e) => console.warn('[push] filters', e))
   }, 2000)
 }
@@ -160,7 +163,7 @@ export async function sealPushPreviews(
   channelId: string,
   text: string,
   mentions: readonly Mention[],
-  attachments: readonly unknown[]
+  attachments: readonly AttachmentPointer[]
 ): Promise<Record<string, string>> {
   try {
     const channel = hachiman.cache.channels.get(channelId)
@@ -178,9 +181,7 @@ export async function sealPushPreviews(
     const group = (channel.recipients?.length ?? 0) > 1 && channel.name ? ` · ${channel.name}` : ''
     const title =
       channel.guildId === null ? `${me.username}${group}` : `${me.username} in #${channel.name}`
-    const plain = plainEmojiText(text).trim()
-    const body =
-      plain !== '' ? plain : attachments.length > 0 ? 'Sent an attachment' : 'New message'
+    const body = notificationBody(text, attachments)
     return await cryptoService
       .client()
       .sealPushPreviews(channelId, { title, body, channelId }, keys)
@@ -210,7 +211,7 @@ export async function disablePush(): Promise<void> {
 /** The switch of one kind. "Direct messages" and "Mentions" change what Takusen pushes. */
 export async function setNotifyKind(kind: NotifyKind, on: boolean): Promise<boolean> {
   usePrefsStore.getState().setNotificationEnabled(kind, on)
-  return kind === 'dm' || kind === 'mention' ? syncPushTarget() : true
+  return isPushKind(kind) ? syncPushTarget() : true
 }
 
 let pendingOpen: string | null = null
@@ -221,12 +222,8 @@ let pendingOpen: string | null = null
  */
 export function openFromPush(channelId: string): void {
   const channel = hachiman.cache.channels.get(channelId)
-  if (channel) {
-    pendingOpen = null
-    openChannelView(channel)
-  } else {
-    pendingOpen = channelId
-  }
+  pendingOpen = channel ? null : channelId
+  if (channel) openChannelView(channel)
 }
 
 let watchingPrefs = false
@@ -235,25 +232,23 @@ export const pushFeature: ClientFeature = {
   name: 'push',
   // A token can change between launches (APNs), and a new device of this install has no target.
   onReady(): void {
-    if (pendingOpen !== null) {
-      // A channel that READY does not have (left, or no longer visible) opens nothing.
-      const id = pendingOpen
-      pendingOpen = null
-      if (hachiman.cache.channels.has(id)) openFromPush(id)
-    }
+    // A channel that READY does not have (left, or no longer visible) opens nothing.
+    const waiting = pendingOpen !== null ? hachiman.cache.channels.get(pendingOpen) : undefined
+    pendingOpen = null
+    if (waiting) openChannelView(waiting)
     if (!watchingPrefs) {
       watchingPrefs = true
       usePrefsStore.subscribe((s, p) => {
         if (s.accounts !== p.accounts) queueFilterSync()
       })
     }
-    if (!notifyOn('dm') && !notifyOn('mention')) return
+    if (pushKindsOn().length === 0) return
     syncPushTarget().catch((e) => console.error('[push] could not subscribe', e))
   },
   onMessage(_m, row, ctx): void {
     if (!row || messageSound(row, ctx, notifyPrefs()) === null) return
     showNotification(messageNotifyKind(row.guildId, ctx.mentionsMe), row.author.username, {
-      body: notificationBody(row),
+      body: notificationBody(row.content, row.attachments),
       tag: row.channelId,
       onClick: () => jumpToMessage({ id: row.channelId, guildId: row.guildId }, row.id)
     })

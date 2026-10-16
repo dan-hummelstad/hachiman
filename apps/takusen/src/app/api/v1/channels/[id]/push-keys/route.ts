@@ -10,7 +10,7 @@ import { errorResponse } from '@/lib/api-helpers'
 import { requireUser } from '@/lib/auth-helpers'
 import { ValidationError } from '@/lib/errors'
 import { loadChannelAccess } from '@/lib/guild-access'
-import { canViewChannel, pushKeysOf } from '@/lib/push'
+import { pushKeysOf, viewersOf } from '@/lib/push'
 
 const MAX_USERS = 25
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -31,8 +31,7 @@ export async function GET(req: NextRequest, ctx: RouteContext): Promise<NextResp
     } else {
       const asked = [...new Set((req.nextUrl.searchParams.get('userIds') ?? '').split(',').filter(Boolean))]
       if (asked.length > MAX_USERS || !asked.every((u) => UUID.test(u))) throw new ValidationError(`userIds: at most ${MAX_USERS} user ids`)
-      users = []
-      for (const u of asked) if (u !== me && (await canViewChannel(id, u))) users.push(u)
+      users = await viewersOf(id, asked.filter((u) => u !== me))
     }
     return NextResponse.json(await pushKeysOf(users))
   } catch (err) {

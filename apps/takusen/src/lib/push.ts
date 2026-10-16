@@ -14,8 +14,9 @@ import { and, eq, inArray, or } from 'drizzle-orm'
 
 import { db } from '@/db/client'
 import { devices, pushTargets } from '@/db/schema'
+import { MissingPermissionsError, NotFoundError } from '@/lib/errors'
 import { redis } from '@/lib/events'
-import { loadChannelAccess } from '@/lib/guild-access'
+import { loadChannelAccess, type ChannelAccess } from '@/lib/guild-access'
 import { loadOrCreateSeed } from '@/lib/mls/keys'
 
 const b64u = (b: Buffer | string): string => Buffer.from(b).toString('base64url')
@@ -216,25 +217,19 @@ async function sendApns(c: ApnsConfig, token: string, sandbox: boolean, channelI
   }
 }
 
-export interface PushMessage {
-  channelId: string
-  guildId: string | null
-  authorId: string
-  /** DM: every other participant gets a push, sealed or not. Guild: []. */
-  recipientIds: string[]
-  /** deviceId → the sealed preview (§12.22). Guild channels push only to these devices. */
-  sealed: Record<string, string>
-  /** Checks that a user may get a push of this channel: a guild member who can view it. */
-  canView: (userId: string) => Promise<boolean>
-}
-
 /**
- * Pushes a new message to the offline devices of its recipients. Call it after the commit and do
- * not await it: a failed push loses only the notification.
+ * Pushes a new message to the offline devices of its recipients. A DM pushes to every other
+ * participant, sealed or not. A guild message pushes only to the devices of `sealed` (the
+ * sender seals for its mentions, as the mentions are inside the envelope), and only when their
+ * user can view the channel. Call it after the commit and do not await it: a failed push loses
+ * only the notification.
  */
-export async function pushMessage(p: PushMessage): Promise<void> {
-  const sealedIds = Object.keys(p.sealed)
-  if (p.recipientIds.length === 0 && sealedIds.length === 0) return
+export async function pushMessage(access: ChannelAccess, authorId: string, sealed: Record<string, string>): Promise<void> {
+  const channelId = access.channel.id
+  const guildId = access.channel.guildId
+  const recipientIds = guildId === null ? access.participantIds.filter((u) => u !== authorId) : []
+  const sealedIds = Object.keys(sealed)
+  if (recipientIds.length === 0 && sealedIds.length === 0) return
   const rows = await db
     .select({
       deviceId: pushTargets.deviceId,
@@ -253,18 +248,21 @@ export async function pushMessage(p: PushMessage): Promise<void> {
       and(
         eq(devices.status, 'active'),
         or(
-          p.recipientIds.length > 0 ? inArray(pushTargets.userId, p.recipientIds) : undefined,
+          recipientIds.length > 0 ? inArray(pushTargets.userId, recipientIds) : undefined,
           sealedIds.length > 0 ? inArray(pushTargets.deviceId, sealedIds) : undefined,
         ),
       ),
     )
-  const kind = p.guildId === null ? 'dm' : 'mention'
+  const kind = guildId === null ? 'dm' : 'mention'
   // A sealed preview for a device of a user who may not read the channel is dropped, with its push.
-  const users = [...new Set(rows.map((t) => t.userId))].filter((u) => u !== p.authorId)
-  const allowed = new Set<string>()
-  for (const u of users) if (p.guildId === null ? p.recipientIds.includes(u) : await p.canView(u)) allowed.add(u)
+  const users = [...new Set(rows.map((t) => t.userId))].filter((u) => u !== authorId)
+  const allowed = new Set(
+    guildId === null
+      ? users.filter((u) => recipientIds.includes(u))
+      : await viewersOf(channelId, users),
+  )
   const candidates = rows.filter(
-    (t) => allowed.has(t.userId) && t.kinds.includes(kind) && !t.quiet.includes(p.channelId) && !(p.guildId && t.quiet.includes(p.guildId)),
+    (t) => allowed.has(t.userId) && t.kinds.includes(kind) && !t.quiet.includes(channelId) && !(guildId && t.quiet.includes(guildId)),
   )
   if (candidates.length === 0) return
   const r = redis()
@@ -277,11 +275,11 @@ export async function pushMessage(p: PushMessage): Promise<void> {
     candidates
       .filter((t, i) => online[i] === null && !dnd.has(t.userId))
       .map(async (t) => {
-        const sealed = p.sealed[t.deviceId]
+        const preview = sealed[t.deviceId]
         try {
           const c = apnsConfig()
           const gone =
-            t.kind === 'apns' ? c !== null && (await sendApns(c, t.token, t.sandbox, p.channelId, sealed)) : await sendWebPush(t, p.channelId, sealed)
+            t.kind === 'apns' ? c !== null && (await sendApns(c, t.token, t.sandbox, channelId, preview)) : await sendWebPush(t, channelId, preview)
           // Only this token: the device may have registered a new one meanwhile.
           if (gone) await db.delete(pushTargets).where(and(eq(pushTargets.deviceId, t.deviceId), eq(pushTargets.token, t.token)))
         } catch (err) {
@@ -302,12 +300,19 @@ export async function pushKeysOf(userIds: string[]): Promise<{ deviceId: string;
   return rows.flatMap((r) => (r.pushKey && r.signature ? [{ deviceId: r.deviceId, userId: r.userId, pushKey: r.pushKey, signature: r.signature }] : []))
 }
 
-/** Whether `userId` may read `channelId` (and so may get its pushes). */
-export async function canViewChannel(channelId: string, userId: string): Promise<boolean> {
-  try {
-    await loadChannelAccess(channelId, userId)
-    return true
-  } catch {
-    return false
-  }
+/** The users of `userIds` who can view `channelId`: they may get its pushes and push keys. */
+export async function viewersOf(channelId: string, userIds: string[]): Promise<string[]> {
+  const can = await Promise.all(
+    userIds.map(async (u) => {
+      try {
+        await loadChannelAccess(channelId, u)
+        return true
+      } catch (err) {
+        // 403 and 404 are the answer. Anything else is logged: it would hide a push silently.
+        if (!(err instanceof NotFoundError || err instanceof MissingPermissionsError)) console.error('[push] view check failed', err)
+        return false
+      }
+    }),
+  )
+  return userIds.filter((_, i) => can[i])
 }
