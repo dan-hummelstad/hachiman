@@ -213,9 +213,9 @@ export async function dmChannelWith(userId: string): Promise<string> {
   return (await hachiman.rest.openDm([userId])).id
 }
 
-/** Open (or reuse) a 1:1 DM with `userId` and switch the view to it. */
-export async function openDmWith(userId: string): Promise<void> {
-  openChannel(DM_HOME, await dmChannelWith(userId))
+/** Open (or reuse) the 1:1 DM with one user, or create a group DM with several, and switch to it. */
+export async function openDmWith(...userIds: string[]): Promise<void> {
+  openChannel(DM_HOME, (await hachiman.rest.openDm(userIds)).id)
 }
 
 /** MESSAGE_UPDATE: decrypt, then store. */

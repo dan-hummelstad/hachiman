@@ -836,10 +836,12 @@ export function stubRest(): void {
         (c) =>
           c.guildId === null && c.recipients?.length === 1 && c.recipients[0].id === recipientIds[0]
       )
-      if (existing) return existing
-      const u =
-        Object.values(U).find((x) => x.id === recipientIds[0]) ?? user(recipientIds[0], 'someone')
-      const c = channel(null, nextId('c-dm'), 'dm', null, 0, { recipients: [u] })
+      if (existing && recipientIds.length === 1) return existing
+      const recipients = recipientIds.map(
+        (id) => Object.values(U).find((x) => x.id === id) ?? user(id, 'someone')
+      )
+      const type = recipients.length === 1 ? 'dm' : 'group_dm'
+      const c = channel(null, nextId('c-dm'), type, null, 0, { recipients })
       dispatch({ t: 'CHANNEL_CREATE', d: c })
       return c
     }
