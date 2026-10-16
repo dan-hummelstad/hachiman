@@ -1,6 +1,6 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Check, Search, SquarePen, UserPlus, X } from 'lucide-react'
-import type { User } from '@hachiman/client'
+import { DEFAULT_LIMITS, type User } from '@hachiman/client'
 import { UserAvatar } from '@/components/shell/user-avatar'
 import { Button } from '@/components/ui/button'
 import { ErrorText } from '@/components/ui/field'
@@ -9,11 +9,10 @@ import { useAction } from '@/hooks/use-action'
 import { usePresence } from '@/hooks/use-member'
 import { cn } from '@/lib/utils'
 import { openDmWith } from '@/services/hachiman'
+import { ensureLimits } from '@/services/UploadService'
+import { useLimitsStore } from '@/stores/limitsStore'
 import { useUserStore } from '@/stores/userStore'
 import { filterPeople, usePeople } from './use-people'
-
-/** The server's limit: a group DM has at most 9 recipients (10 participants, contract §4). */
-const MAX_RECIPIENTS = 9
 
 /**
  * "New message": pick one or more people I share a guild with. One opens (or reuses) the DM, two
@@ -63,7 +62,12 @@ function Picker({
     [people, query, blocks]
   )
   const pickedIds = useMemo(() => new Set(picked.map((u) => u.id)), [picked])
-  const full = picked.length >= MAX_RECIPIENTS
+  useEffect(ensureLimits, [])
+  // The server's cap counts me too (`Limits.maxGroupDmMembers`, contract §4).
+  const maxMembers = useLimitsStore(
+    (s) => s.limits?.maxGroupDmMembers ?? DEFAULT_LIMITS.maxGroupDmMembers
+  )
+  const full = picked.length + 1 >= maxMembers
   // The same people again would make a duplicate group DM: the server reuses only a 1:1 DM.
   const unchanged =
     !!include && include.length === picked.length && include.every((u) => pickedIds.has(u.id))
@@ -135,7 +139,7 @@ function Picker({
       <div className="flex items-center justify-end gap-3">
         {full && (
           <span className="text-text-tertiary text-xs">
-            A group has at most {MAX_RECIPIENTS + 1} people.
+            A group has at most {maxMembers} people.
           </span>
         )}
         <Button disabled={busy || picked.length === 0 || unchanged} onClick={() => void start()}>

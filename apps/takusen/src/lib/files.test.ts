@@ -43,7 +43,7 @@ test('limits: default, override, invalid', () => {
   assert.throws(() => parseMaxUploadBytes('-5'))
   assert.throws(() => parseMaxUploadBytes('10MB'))
   assert.throws(() => parseMaxUploadBytes('1.5'))
-  assert.deepEqual(getLimits({ TAKUSEN_MAX_UPLOAD_BYTES: '100' }), { maxUploadBytes: 100, maxAttachmentsPerMessage: 10, maxEnvelopeBytes: 32768, maxPageSnapshotBytes: 104857600 })
+  assert.deepEqual(getLimits({ TAKUSEN_MAX_UPLOAD_BYTES: '100' }), { maxUploadBytes: 100, maxAttachmentsPerMessage: 10, maxEnvelopeBytes: 32768, maxPageSnapshotBytes: 104857600, maxGroupDmMembers: 500 })
   assert.equal(getLimits({ TAKUSEN_MAX_ENVELOPE_BYTES: '65536' }).maxEnvelopeBytes, 65536)
   assert.equal(getLimits({}).maxEnvelopeBytes, DEFAULT_LIMITS.maxEnvelopeBytes)
 })

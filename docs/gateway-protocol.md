@@ -46,7 +46,7 @@ interface Guild {
 // The file name, MIME type, dimensions and plaintext size are only in the envelope (AttachmentPointer, §12.8).
 interface Attachment { id: string; key: string /* `${id}/blob` */; size: number /* blob bytes */ }
 
-interface Limits { maxUploadBytes: number; maxAttachmentsPerMessage: number; maxEnvelopeBytes: number; maxPageSnapshotBytes: number }
+interface Limits { maxUploadBytes: number; maxAttachmentsPerMessage: number; maxEnvelopeBytes: number; maxPageSnapshotBytes: number; maxGroupDmMembers: number }
 
 interface Role { id: string; guildId: string; name: string; color: number; hoist: boolean /* own group in the member list */; position: number; permissions: number }
 // The @everyone role has id === guildId and position 0. It always exists and cannot be deleted.
@@ -401,7 +401,7 @@ Implemented extras (Discord semantics):
 | GET `/invites/:code` | **public** | `InvitePreview` (non-consuming) | — |
 | POST `/invites/:code` | auth; 403 `Banned` for a banned user (§4 Bans) | `GuildFull` (idempotent if already a member — no use consumed) | `GUILD_MEMBER_ADD` → guild; `GUILD_CREATE` → user:{me} |
 | GET `/users/@me/channels` | auth | `Channel[]` (DMs) | — |
-| POST `/users/@me/channels` `{recipientIds: string[]}` | auth; recipients must share a guild with me; no block either way (403 `Blocked`, Pins, guild events and blocks) | `Channel` (1 recipient → reuse existing `dm`; ≥2 → new `group_dm`, max 10) | `CHANNEL_CREATE` → user:{each participant} |
+| POST `/users/@me/channels` `{recipientIds: string[]}` | auth; recipients must share a guild with me; no block either way (403 `Blocked`, Pins, guild events and blocks) | `Channel` (1 recipient → reuse existing `dm`; ≥2 → new `group_dm`. At most `Limits.maxGroupDmMembers` participants, me included, else 400 `ValidationError`) | `CHANNEL_CREATE` → user:{each participant} |
 | GET `/limits` | auth | `Limits` | — |
 | POST `/uploads?kind=blob` raw body | auth | `Attachment` (201): an encrypted attachment or thumbnail blob | — |
 | POST `/uploads?kind=page_snapshot` raw body | auth | `Attachment` (201): an encrypted page snapshot blob (§4 Pages) | — |
@@ -1844,6 +1844,7 @@ The scheduler runs in the Takusen gRPC process (`apps/takusen/src/grpc/main.ts`)
 - In `channel` and `dm` groups, when the user already has a leaf in the group, Takusen sets the status `external_commit` at once, and the new device joins by external commit. A join request of a user without a leaf stays queued for a member to commit.
 - `GroupService.sync()` posts a join request for each group of `GET /mls/groups` with `member = false`, except `public_set` groups. A `public_set` join waits for the first open of a public channel (`ensureChannelGroup`).
 - **Invite joins.** For a `channel` group whose channel a redeemed invite with history names, `sync()` and `ensureChannelGroup` first join by external commit with an `InviteAuth`, with no join request (§12.11.4). When the device cannot make the `InviteAuth`, or the DS refuses the commit, they post the join request.
+- A `group_dm` has at most `TAKUSEN_PUBLIC_SET_MAX_MEMBERS` participants (users, not leaves). `GET /limits` gives the value as `Limits.maxGroupDmMembers`. Its `dm` group has no leaf cap.
 - A `public_set` group has at most `TAKUSEN_PUBLIC_SET_MAX_MEMBERS` leaves (default `PUBLIC_SET_MAX_MEMBERS`, 500). Above the cap, a join request gets 403 `GroupFull`. There is no plaintext fallback. The Phase 3 load test (`docs/e2ee-load-test.md`) set this value: at 500 leaves, a full batch of Adds takes the committer 0.43 s (deadline 5 s), and a join by Welcome takes 2.2 s (budget 10 s). The Welcome join time grows about with the square of the leaves. Fewer Adds per `public_set` batch and an empty commit with a path after each join would allow a higher cap. Both are contract changes that are not made yet (`docs/e2ee-load-test.md`, "How to increase the cap").
 
 #### 12.7.9 Retention and catch-up
@@ -2694,7 +2695,7 @@ export class ApiError extends Error {
 - The scheduler, the KT tree-head timer and the daily sweeps run in `apps/takusen/src/grpc/main.ts`. The gRPC process subscribes to `takusen:mls_wakeup`. The payload on that channel is raw JSON `{ groupId }` (base64url), not a `{t, d}` event envelope.
 - Takusen imports `@hachiman/crypto/ds` as TypeScript source. Other code can import the pure entry points `@hachiman/crypto/admin` (§12.16, Takusen uses it), `@hachiman/crypto/franking`, `@hachiman/crypto/constants` and `@hachiman/crypto/codec`. They use no Worker-only or ts-mls code. `apps/takusen/next.config.ts` lists `@hachiman/crypto` in `transpilePackages`. The import graph of `src/mls/ds.ts` uses only `globalThis.crypto` and excludes `src/attachments`, `src/store`, `src/worker`, `src/bridge` and `src/media`.
 
-**Env (Takusen):** `TAKUSEN_DS_SIGNING_KEY`, `TAKUSEN_KT_SIGNING_KEY`, `TAKUSEN_MLS_SUITES` (default `1`), `TAKUSEN_MAX_ENVELOPE_BYTES` (default 32768), `TAKUSEN_PUBLIC_SET_MAX_MEMBERS` (default 500, `docs/e2ee-load-test.md`), `TAKUSEN_MLS_BATCH_INTERVAL_MS` (default 2000), `TAKUSEN_MLS_BATCH_TIMEOUT_MS` (default 5000), `TAKUSEN_MAX_PAGE_SNAPSHOT_BYTES` (default 104857600), `TAKUSEN_GUILD_PAGE_STORAGE_BYTES` (default 10737418240, 0 = no limit). **Gateway:** `GATEWAY_MIN_CLIENT_VERSION` (default `0.1.0`). **Media:** `MEDIA_WS_READ_LIMIT` (default 1048576). Add each one to `.env.example`.
+**Env (Takusen):** `TAKUSEN_DS_SIGNING_KEY`, `TAKUSEN_KT_SIGNING_KEY`, `TAKUSEN_MLS_SUITES` (default `1`), `TAKUSEN_MAX_ENVELOPE_BYTES` (default 32768), `TAKUSEN_PUBLIC_SET_MAX_MEMBERS` (default 500, `docs/e2ee-load-test.md`; also the participant cap of a group DM), `TAKUSEN_MLS_BATCH_INTERVAL_MS` (default 2000), `TAKUSEN_MLS_BATCH_TIMEOUT_MS` (default 5000), `TAKUSEN_MAX_PAGE_SNAPSHOT_BYTES` (default 104857600), `TAKUSEN_GUILD_PAGE_STORAGE_BYTES` (default 10737418240, 0 = no limit). **Gateway:** `GATEWAY_MIN_CLIENT_VERSION` (default `0.1.0`). **Media:** `MEDIA_WS_READ_LIMIT` (default 1048576). Add each one to `.env.example`.
 
 ### 12.19 Error codes
 

@@ -24,12 +24,17 @@ export function parseMaxUploadBytes(raw: string | undefined): number {
   return n
 }
 
-/** `maxEnvelopeBytes` is TAKUSEN_MAX_ENVELOPE_BYTES, the limit that acceptEnvelope applies (§12.8.4). */
+/**
+ * `maxEnvelopeBytes` is TAKUSEN_MAX_ENVELOPE_BYTES, the limit that acceptEnvelope applies (§12.8.4).
+ * `maxGroupDmMembers` is TAKUSEN_PUBLIC_SET_MAX_MEMBERS: a group DM is as large as a guild channel.
+ */
 export function getLimits(env: Readonly<Record<string, string | undefined>> = process.env): Limits {
+  const ds = dsConfig(env as NodeJS.ProcessEnv)
   return {
     ...DEFAULT_LIMITS,
     maxUploadBytes: parseMaxUploadBytes(env.TAKUSEN_MAX_UPLOAD_BYTES),
-    maxEnvelopeBytes: dsConfig(env as NodeJS.ProcessEnv).maxEnvelopeBytes,
+    maxEnvelopeBytes: ds.maxEnvelopeBytes,
+    maxGroupDmMembers: ds.publicSetMaxMembers,
     maxPageSnapshotBytes: docsLimits(env).maxSnapshotBytes,
   }
 }

@@ -48,6 +48,8 @@ export interface Limits {
   maxEnvelopeBytes: number
   /** TAKUSEN_MAX_PAGE_SNAPSHOT_BYTES: the blob cap of `POST /uploads?kind=page_snapshot` (§4 Pages). */
   maxPageSnapshotBytes: number
+  /** TAKUSEN_PUBLIC_SET_MAX_MEMBERS: the most participants of a group DM, me included (§4 DMs). */
+  maxGroupDmMembers: number
 }
 
 /** The @everyone role has `id === guildId` and position 0. */

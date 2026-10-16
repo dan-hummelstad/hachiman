@@ -1,12 +1,13 @@
 // Upload policy shared by Takusen and the UI. Contract: docs/gateway-protocol.md §4 Files.
 import type { Limits } from './types'
 
-/** Takusen serves the live values from TAKUSEN_MAX_UPLOAD_BYTES and TAKUSEN_MAX_ENVELOPE_BYTES; these are the defaults. */
+/** Takusen serves the live values from TAKUSEN_MAX_UPLOAD_BYTES, TAKUSEN_MAX_ENVELOPE_BYTES and TAKUSEN_PUBLIC_SET_MAX_MEMBERS; these are the defaults. */
 export const DEFAULT_LIMITS: Limits = {
   maxUploadBytes: 26214400,
   maxAttachmentsPerMessage: 10,
   maxEnvelopeBytes: 32768,
   maxPageSnapshotBytes: 104857600,
+  maxGroupDmMembers: 500,
 }
 
 /** Avatar, guild icon and guild banner uploads must be one of these. */

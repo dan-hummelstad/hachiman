@@ -1,8 +1,9 @@
 /**
  * GET  /api/v1/users/@me/channels — the caller's DMs and group DMs.
  * POST /api/v1/users/@me/channels { recipientIds } — open a DM (1 recipient,
- *      reuses an existing one) or create a group DM (2–9 recipients, ≤ 10
- *      participants). Every recipient must share a guild with the caller.
+ *      reuses an existing one) or create a group DM (2 or more recipients, at
+ *      most TAKUSEN_PUBLIC_SET_MAX_MEMBERS participants, the guild channel
+ *      size). Every recipient must share a guild with the caller.
  *      A new DM gets its dm group in the same transaction (`dm_created`, §12.18).
  *      A block between the caller and any recipient gives 403 `Blocked`.
  */
@@ -18,6 +19,7 @@ import { requireUser } from '@/lib/auth-helpers'
 import { MissingPermissionsError, ValidationError } from '@/lib/errors'
 import { assertNotBlocked } from '@/lib/blocks'
 import { publishToUser } from '@/lib/events'
+import { getLimits } from '@/lib/files'
 import { actorDeviceId } from '@/lib/guild-access'
 import { groupVisibility, membershipChanged, membershipTransaction, MembershipTriggers, userColumns } from '@/lib/guilds'
 import { toDmChannel, type UserLike } from '@/lib/wire'
@@ -27,7 +29,7 @@ interface RouteContext {
 }
 
 const openDmSchema = z.object({
-  recipientIds: z.array(z.string().uuid()).min(1).max(9),
+  recipientIds: z.array(z.string().uuid()).min(1),
 })
 
 /** Participants (as users) for each of `channelIds`. */
@@ -75,6 +77,10 @@ export async function POST(req: NextRequest, ctx: RouteContext): Promise<NextRes
     const { recipientIds: raw } = await parseBody(req, openDmSchema)
     const recipientIds = [...new Set(raw)].filter((id) => id !== me)
     if (recipientIds.length === 0) throw new ValidationError('A DM needs at least one other user')
+    const { maxGroupDmMembers } = getLimits()
+    if (recipientIds.length + 1 > maxGroupDmMembers) {
+      throw new ValidationError(`A group DM has at most ${maxGroupDmMembers} participants`)
+    }
 
     // Recipients must share at least one guild with the caller.
     const theirs = alias(guildMembers, 'theirs')
