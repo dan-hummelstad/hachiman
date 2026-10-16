@@ -329,16 +329,15 @@ function useMarkRead(
   return bottom
 }
 
-/** Rows of grey bars while a page of history loads and decrypts. */
 function TranscriptSkeleton({ rows }: { rows: number }): React.JSX.Element {
   return (
     <div role="status" aria-label="Loading messages" className="flex flex-col gap-5 px-5 py-3">
       {Array.from({ length: rows }, (_, i) => (
         <div key={i} className="flex gap-4">
-          <Skeleton className="bg-surface-raised size-10 shrink-0 rounded-full" />
+          <Skeleton className="size-10 shrink-0 rounded-full" />
           <div className="flex flex-1 flex-col gap-2 pt-1">
-            <Skeleton className="bg-surface-raised h-3 w-32" />
-            <Skeleton className={cn('bg-surface-raised h-3', i % 2 ? 'w-1/2' : 'w-3/4')} />
+            <Skeleton className="h-3 w-32" />
+            <Skeleton className={cn('h-3', i % 2 ? 'w-1/2' : 'w-3/4')} />
           </div>
         </div>
       ))}

@@ -29,7 +29,7 @@ export function MembershipLine({
     </>
   )
   const actor = event.actorUserId ? <UserName channel={channel} userId={event.actorUserId} /> : null
-  // An external commit has no actor, and a resync that keeps its leaf adds no subject.
+  // An external commit has no actor.
   const subject = subjects.length > 0 ? who : (actor ?? 'Someone')
   const what = (() => {
     switch (event.kind) {
@@ -50,7 +50,7 @@ export function MembershipLine({
       case 'joined_external':
         return <>{subject} joined with a new device.</>
       case 'resynced':
-        return <>{subject} renewed the keys of a device.</>
+        return null
       case 'invite_with_history':
         return (
           <>
