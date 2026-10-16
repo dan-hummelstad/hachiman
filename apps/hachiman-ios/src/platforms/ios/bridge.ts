@@ -38,6 +38,14 @@ export interface BridgeOps {
   saveTextFile: [{ name: string; text: string }, boolean];
   /** `background`: a hex color (`#rrggbb` or `#rrggbbaa`) behind the safe areas. */
   setAppearance: [Appearance, null];
+  /**
+   * Asks for notification permission and registers with APNs (Hachiman/Push.swift). The hex
+   * device token, `sandbox` for a Debug build; null when the user refused.
+   */
+  "push.register": [
+    Record<string, never>,
+    { token: string; sandbox: boolean } | null,
+  ];
 }
 
 export type BridgeOp = keyof BridgeOps;

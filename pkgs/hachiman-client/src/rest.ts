@@ -168,7 +168,15 @@ export interface SendMessageBody {
   nonce?: Opt<string>
   /** Upload ids from {@link RestClient.uploadBlob}: per pointer, the file id and then its thumbnail id. */
   attachments?: Opt<string[]>
+  /** No push for this message (§4 Push): a reaction. The server cannot read the envelope kind. */
+  silent?: Opt<boolean>
 }
+/** The push target of this device (§4 Push). */
+export type PushTarget =
+  /** `token`: the hex APNs device token. `sandbox`: a development build. */
+  | { kind: 'apns'; token: string; sandbox: boolean }
+  /** `endpoint`: the `PushSubscription.endpoint` of the browser. */
+  | { kind: 'webpush'; endpoint: string }
 export interface UploadProgressOptions {
   signal?: Opt<AbortSignal>
   onProgress?: Opt<(loaded: number, total: number) => void>
@@ -339,6 +347,11 @@ export class RestClient {
     this.req<Message>('PATCH', `/channels/${e(channelId)}/messages/${e(messageId)}`, body)
   deleteMessage = (channelId: string, messageId: string) =>
     this.req<undefined>('DELETE', `/channels/${e(channelId)}/messages/${e(messageId)}`)
+  /** The VAPID key for `PushManager.subscribe` (§4 Push). */
+  getPushConfig = () => this.req<{ vapidPublicKey: string }>('GET', '/push')
+  /** Sends X-Hachiman-Device: the target replaces the previous one of this device. */
+  setPushTarget = (target: PushTarget) => this.req<undefined>('PUT', '/push', target)
+  deletePushTarget = () => this.req<undefined>('DELETE', '/push')
   triggerTyping = (channelId: string) => this.req<undefined>('POST', `/channels/${e(channelId)}/typing`)
   /** Moves the read state of the channel forward to `messageId` (§4). An older message is ignored. */
   ackMessage = (channelId: string, messageId: string) =>

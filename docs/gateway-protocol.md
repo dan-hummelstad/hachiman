@@ -317,6 +317,7 @@ E2EE tables (§12). `bytea` columns hold the binary objects of §12 as they are.
 | `kt_entries` | idx bigint PK (leaf index from 0), user_id uuid (no FK: the log is append-only), type smallint, entry bytea, leaf_hash bytea, created_at | index (user_id, idx) |
 | `kt_tree_heads` | tree_size bigint PK, root_hash bytea, signed bytea, created_at, published_at null | The gRPC process signs heads (§12.14) |
 | `admin_actions` | guild_id → guilds (cascade), seq bigint, action bytea, hash bytea, actor_user_id uuid, created_at | PK (guild_id, seq) |
+| `push_targets` | device_id PK → devices (cascade), user_id → users (cascade), kind text (`apns`, `webpush`), token text, sandbox bool default false, created_at | index (user_id). Migration 0017. One push target per device (§4 Push). `token` is the lowercase hex APNs token or the Web Push endpoint URL |
 | `message_reports` | id, message_id null → messages (set null), channel_id uuid, reporter_id → users (cascade), reason text, content bytea, franking_key bytea, verified bool, created_at | |
 
 Changed: `regions.probe_port` default **443**. `media_nodes.sidechannel_addr` → `signaling_url`.
@@ -378,7 +379,7 @@ Implemented extras (Discord semantics):
 | PUT `/channels/:id/permissions/:targetId` `{type, allow, deny}` | MANAGE_ROLES. Not on a thread (400) | 204 | `CHANNEL_UPDATE` |
 | DELETE `/channels/:id/permissions/:targetId` | MANAGE_ROLES | 204 | `CHANNEL_UPDATE` |
 | GET `/channels/:id/messages?before=<messageId>&limit=50` | VIEW_CHANNEL + READ_MESSAGE_HISTORY | `Message[]` (ciphertext) newest first, limit ≤ 100 | — |
-| POST `/channels/:id/messages` `{envelope, nonce?, attachments?: uploadId[]}` + `X-Hachiman-Device` | SEND_MESSAGES; ATTACH_FILES if attachments is not empty; envelope checks of §12.8.4. `attachments` lists, for each pointer in order, the file id and then its thumbnail id when it has one (at most 20 ids) | `Message` (with nonce) | `MESSAGE_CREATE` (with nonce) |
+| POST `/channels/:id/messages` `{envelope, nonce?, attachments?: uploadId[], silent?: bool}` + `X-Hachiman-Device` | SEND_MESSAGES; ATTACH_FILES if attachments is not empty; envelope checks of §12.8.4. `attachments` lists, for each pointer in order, the file id and then its thumbnail id when it has one (at most 20 ids). `silent` (default false): no push (§4 Push); the client sets it for a reaction | `Message` (with nonce) | `MESSAGE_CREATE` (with nonce); a DM message that is not `silent` also pushes (§4 Push) |
 | PATCH `/channels/:id/messages/:mid` `{envelope}` + `X-Hachiman-Device` (attachments do not change) | author; §12.8.4 | `Message` | `MESSAGE_UPDATE` |
 | DELETE `/channels/:id/messages/:mid` | author or MANAGE_MESSAGES | 204 | `MESSAGE_DELETE {id, channelId, guildId}` |
 | POST `/channels/:id/typing` | SEND_MESSAGES | 204 | `TYPING_START {channelId, guildId, userId, timestamp}` |
@@ -540,6 +541,23 @@ The app (`apps/hachiman-electron/src/main/updater.ts`) checks at start and every
 When `sha` differs from its own, it downloads the zip, drops it unless its SHA-256 is `sha256`, unpacks it and asks to restart.
 After "Later", the timer does not ask again for that build. User settings → Desktop app checks at once (`IPlatformService.checkForUpdate`, IPC `hachiman:check-for-update` from the top frame of the app page only) and asks again for a build that was put off. The timer and the button share one check at a time.
 Windows runs the NSIS installer with `/S --force-run`. macOS (unsigned builds, so no Squirrel.Mac) copies the `.app` from the dmg over its own bundle after it quits. When the install folder is not writable, it opens the dmg instead.
+
+### Push
+
+Content-free push for DM messages. Takusen cannot read a message, so a push names no sender, no channel name and no text. `apps/takusen/src/lib/push.ts` sends it.
+
+| Method + path | Auth | Returns |
+|---|---|---|
+| GET `/push` | auth | `{vapidPublicKey}`: the base64url P-256 public point, the `applicationServerKey` of a browser subscription |
+| PUT `/push` `{kind: 'apns', token, sandbox}` or `{kind: 'webpush', endpoint}` + `X-Hachiman-Device` | auth, active device | 204. The push target of the device replaces the one before. Takusen deletes the rows of other devices with the same `token`. `token` is 64 to 200 hex characters. `endpoint` is an `https:` URL without a port on a known push service (`fcm.googleapis.com`, `updates.push.services.mozilla.com`, `*.push.apple.com`, `*.notify.windows.com`), else 400 `ValidationError`: Takusen sends requests to it |
+| DELETE `/push` + `X-Hachiman-Device` | auth, active device | 204. The device gets no more push |
+
+- **When.** After the commit of `POST /channels/:id/messages` in a `dm` or `group_dm` that is not `silent`, Takusen pushes to the other participants. It does not wait for the push. Guild channels do not push: a guild message pings only for a mention, and the mentions are in the envelope.
+- **Which devices.** Only `active` devices without `device_online:{deviceId}` (§5): a device with a gateway session shows its own notification. No device of a user whose `presence:{userId}` is `dnd` gets a push.
+- **APNs.** HTTP/2 to `api.push.apple.com`, or `api.sandbox.push.apple.com` when `sandbox`, with a token JWT (ES256) of the `.p8` key. Headers: `apns-push-type: alert`, `apns-priority: 10`, `apns-collapse-id: <channelId>`. Payload: `{aps: {alert: {title: "Hachiman", body: "New message"}, sound: "default", "thread-id": <channelId>}, channelId}`. Takusen deletes the row on 410 or the reason `BadDeviceToken`, `Unregistered` or `DeviceTokenNotForTopic`. Off until `TAKUSEN_APNS_KEY`, `TAKUSEN_APNS_KEY_ID` and `TAKUSEN_APNS_TEAM_ID` are set. `TAKUSEN_APNS_TOPIC` is the bundle id (default `app.hachiman.ios`).
+- **Web Push.** An empty `POST` to the endpoint (no payload, so no RFC 8291 encryption) with `Authorization: vapid t=<JWT>, k=<vapidPublicKey>` (RFC 8292, ES256, `exp` 12 h), `TTL: 86400`, `Urgency: high`, `Topic: <channelId without dashes>`. No redirects. Takusen deletes the row on 404 or 410. The VAPID key is the 32-byte P-256 scalar in `TAKUSEN_VAPID_KEY` (default `.dev/keys/takusen-vapid.p256`, relative to `apps/takusen`). The first process that finds no file creates it with mode 0600, like the DS key. All Takusen instances must share the file: a new key makes every browser subscription useless. `TAKUSEN_VAPID_SUBJECT` is the JWT `sub` (default `mailto:push@localhost`).
+- **Client.** `PushService` (shared UI) keeps the switches of the install in `prefsStore`: the master switch `pushEnabled` (off by default) and `disabledNotifications`, the kinds that the user turned off (`dm`, `mention`, `channel`, `poke`, `ring`). User settings → Notifications shows them on both layouts. The device has a push target while `pushEnabled` is on and `dm` is not off: at each READY it subscribes through `IPlatformService.pushSubscribe` (§11) and sends the target with `PUT /push`. When either switch goes off, it sends `DELETE /push`. A switch turns on only from a click, after the OS permission: `Notification.requestPermission()` where the page has the Web Notifications API (Electron, browser), else the native prompt of `pushSubscribe` (iOS).
+- **In the open app.** While the window has no focus, Electron and the browser show an OS notification for a message that pings (the SoundService rules and the levels of `lib/notify.ts`: kind `dm`, `mention` or `channel`), a poke (`poke`) and an incoming DM call (`ring`). It has the author and the decrypted text. That text does not leave the device. The iOS page has no Web Notifications API, so iOS shows only the `dm` switch. Electron sets the Windows AppUserModelID to the electron-builder `appId` (`com.electron.app`): Windows shows toasts only for the ID of the Start menu shortcut.
 
 ### Pages
 
@@ -1210,6 +1228,8 @@ export interface IPlatformService {
   readonly scanQr: (() => Promise<string | null>) | null
   /** iOS: saves a UTF-8 text file (`name`: a file name, no path) through the Files export sheet; true when saved, false when cancelled. Electron and browser: null (the UI downloads a blob). */
   readonly saveTextFile: ((name: string, text: string) => Promise<boolean>) | null
+  /** Notification permission, then a push subscription of this install (§4 Push); null when the user refused. iOS: APNs. Browser: Web Push (`/sw.js`). Electron: null (no push service). */
+  readonly pushSubscribe: ((vapidPublicKey: string) => Promise<PushTarget | null>) | null
   /** iOS: the status bar style and the window background follow the app theme. Others: no-op. */
   setAppearance(appearance: Appearance): void
   /** The wrap key of the encrypted crypto store (§12.17). */
@@ -1325,6 +1345,11 @@ Screen share source selection:
 - Electron and browser: null. The UI downloads a `Blob` with `<a download>`.
 - The text leaves the app only on this user action. The UI calls it only from a button that the user selects.
 
+`pushSubscribe` (§4 Push):
+- iOS: the bridge op `push.register` (`{}`). The app asks for alert and sound permission, then calls `registerForRemoteNotifications`. The reply is `{token, sandbox}`: the lowercase hex APNs token, and `sandbox` true in a Debug build. The reply is null when the user refused. The entitlement `aps-environment` is `development`; an export for TestFlight or the App Store sets `production`. In front, the app shows no banner for a push (`willPresent` gives no options), because it has the gateway.
+- Browser: registers the service worker `/sw.js` (`worker-src 'self'`), asks for the permission, and subscribes with `userVisibleOnly` and the VAPID key. A subscription of another key is replaced. The target is the endpoint only: the push is empty, so `p256dh` and `auth` are not used. On a push, the service worker shows "Hachiman / New message" unless a window of the app has focus. A click focuses a window of the app, or opens `/`.
+- Electron: null. The app keeps its gateway session in the tray, and shows OS notifications itself.
+
 The guild region pickers use `probeRegions`. They send the measured RTTs to `POST /api/v1/regions/recommend` and show the result as "Automatic (recommended: <region>)". The browser host measures nothing, so the picker shows only "Automatic".
 
 Hosts render `<PlatformProvider value={platformService}><ThemeProvider><App /></ThemeProvider></PlatformProvider>`. `ThemeProvider` applies the theme from `prefsStore` to `<html>`. The config comes from
@@ -1359,7 +1384,7 @@ The packaged Electron app does not load the renderer from `file://`. A `file://`
 
 ### iOS host
 
-`apps/hachiman-ios` is a SwiftUI app with one `WKWebView` (iOS 18.5 or later: the WebKit of iOS 18.3 has no WebCrypto X25519, and 18.5 is the oldest runtime that passed the capability probe). It serves the built shared UI from the scheme `hachiman` (`hachiman://app/index.html`, origin `hachiman://app`, as the packaged Electron renderer). Every response of the scheme handler carries the CSP of the iOS build (`apps/hachiman-ios/csp.ts`, the Electron policy) as a `Content-Security-Policy` header, so the Worker scripts get the policy too. The build writes the header value to `csp-header.txt`. `index.html` also has the policy as a meta tag. The page talks to the app through one script message handler, `hachiman`: a message is `{ op, ... }` and the reply comes back through `WKScriptMessageHandlerWithReply`. The app answers only the main frame of the origin `hachiman://app`. The ops are `ready`, `wrapKey.get`, `wrapKey.clear`, `oauth.begin`, `haptic`, `share`, `scanQr`, `saveTextFile` and `setAppearance`. Events from the app (`oauth-callback`, `invite-link`) go to `window.__hachimanNative.emit(type, payload)`. The app holds its events until the page sends `ready`, and again from each new main-frame load. The page holds each event type until its first subscriber. Only the `ASWebAuthenticationSession` completion sends `oauth-callback`: the app does not register the URL scheme `app.hachiman`, so another app cannot send a callback. The app registers only `takusen` (invite links). iOS has no `getDisplayMedia` (no screen share) and no global shortcuts: `getScreenSources`, `closeToTray` and `setGlobalShortcuts` give null, and `checkForUpdate` gives `not-available` (TestFlight updates the app).
+`apps/hachiman-ios` is a SwiftUI app with one `WKWebView` (iOS 18.5 or later: the WebKit of iOS 18.3 has no WebCrypto X25519, and 18.5 is the oldest runtime that passed the capability probe). It serves the built shared UI from the scheme `hachiman` (`hachiman://app/index.html`, origin `hachiman://app`, as the packaged Electron renderer). Every response of the scheme handler carries the CSP of the iOS build (`apps/hachiman-ios/csp.ts`, the Electron policy) as a `Content-Security-Policy` header, so the Worker scripts get the policy too. The build writes the header value to `csp-header.txt`. `index.html` also has the policy as a meta tag. The page talks to the app through one script message handler, `hachiman`: a message is `{ op, ... }` and the reply comes back through `WKScriptMessageHandlerWithReply`. The app answers only the main frame of the origin `hachiman://app`. The ops are `ready`, `wrapKey.get`, `wrapKey.clear`, `oauth.begin`, `haptic`, `share`, `scanQr`, `saveTextFile`, `setAppearance` and `push.register`. Events from the app (`oauth-callback`, `invite-link`) go to `window.__hachimanNative.emit(type, payload)`. The app holds its events until the page sends `ready`, and again from each new main-frame load. The page holds each event type until its first subscriber. Only the `ASWebAuthenticationSession` completion sends `oauth-callback`: the app does not register the URL scheme `app.hachiman`, so another app cannot send a callback. The app registers only `takusen` (invite links). iOS has no `getDisplayMedia` (no screen share) and no global shortcuts: `getScreenSources`, `closeToTray` and `setGlobalShortcuts` give null, and `checkForUpdate` gives `not-available` (TestFlight updates the app).
 
 Deep link scheme: `takusen://invite/<code>[#k=<base64url invite seed>]` (replaces `takusen://join#<signed payload>`). OAuth callback scheme unchanged (`app.hachiman://oauth-callback`).
 
@@ -2631,7 +2656,8 @@ franking_tag = HMAC-SHA256(franking_key, "hachiman franking v1" ‖ channel_id(1
 - **Invite link exception.** One exception applies to every host: a clicked invite link opens the Takusen page `/invite/<code>` in a browser, and a script of that page reads the invite seed (§11). Only a link that the user pastes into the Electron or iOS app does not go through Takusen.
 - **CSP.** Electron (rules in `apps/hachiman-electron/src/main/csp-policy.ts`, applied by `csp.ts`, §11) adds `worker-src 'self'`, and `blob:` to `img-src` and `media-src` (decrypted attachments are object URLs). It does not add `blob:` to `script-src` or `worker-src`. The browser and iOS hosts send the same policy (iOS: a header on every response of the scheme handler, §11). ts-mls, @noble and @hpke are pure TypeScript on WebCrypto and use no wasm. `script-src` has `'wasm-unsafe-eval'` only for the RNNoise mic worklet (§11), which holds no key material. Every host builds the crypto Worker and the transform Worker with Vite (`new Worker(new URL(…, import.meta.url), { type: 'module' })`).
 - **Light clients.** Deferred until ts-mls supports partial trees: joining with a membership proof, and processing commits without the full ratchet tree (IETF MLS light clients draft). The condition is testable: the `smoke.spec.ts` case "needs the full ratchet tree to join" fails when support exists. Until then, every member holds the full tree, and the Phase 3 load test measures its size.
-- **Later:** search (a local index), sender-made link previews, content-free push.
+- **Push** (§4 Push) is content-free: "New message" and the channel id, for DMs only. A Notification Service Extension that decrypts on iOS, and a push for guild mentions, are later.
+- **Later:** search (a local index), sender-made link previews.
 
 ### 12.18 Takusen internal seams
 

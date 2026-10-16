@@ -1,8 +1,9 @@
 // Shared UI ↔ host seam. Contract: docs/gateway-protocol.md §11.
 
+import type { PushTarget } from '@hachiman/client'
 import type { InviteLink } from '../lib/invite-link'
 
-export type { InviteLink }
+export type { InviteLink, PushTarget }
 
 export interface RegionProbeTarget {
   region: string
@@ -117,6 +118,13 @@ export interface IPlatformService {
    * false when they cancelled. Electron and browser: null (the UI downloads a blob).
    */
   readonly saveTextFile: ((name: string, text: string) => Promise<boolean>) | null
+  /**
+   * Asks the OS for notification permission, then subscribes this install to push (§4 Push).
+   * Resolves null when the user refused. `vapidPublicKey` is the Takusen key (Web Push only).
+   * iOS: APNs. Browser: Web Push through the service worker `/sw.js`. Electron: null, as it has
+   * no push service; the open app shows OS notifications itself.
+   */
+  readonly pushSubscribe: ((vapidPublicKey: string) => Promise<PushTarget | null>) | null
   /** iOS: the status bar style and the window background follow the app theme. Others: no-op. */
   setAppearance(appearance: Appearance): void
   /** The wrap key of the encrypted crypto store (§12.17). */

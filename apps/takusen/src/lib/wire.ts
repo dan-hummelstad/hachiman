@@ -316,6 +316,8 @@ export const createMessageSchema = z.object({
     .max(MESSAGE_MAX_UPLOAD_IDS)
     .refine((ids) => new Set(ids).size === ids.length, 'Duplicate upload id')
     .default([]),
+  /** The sender asks for no push (§4 Push). It can only mute its own message. */
+  silent: z.boolean().default(false),
 })
 export type CreateMessageBody = z.infer<typeof createMessageSchema>
 

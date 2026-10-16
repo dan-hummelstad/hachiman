@@ -4,7 +4,7 @@ import { devtools, persist } from 'zustand/middleware'
 import { DEFAULT_CUSTOM_GRADIENT, isCustomGradient, type CustomGradient } from '@/lib/guild-tint'
 import type { StreamQuality } from '@/lib/stream-quality'
 import type { SoundEvent } from '@/lib/sounds'
-import type { NotifyLevel, NotifyPrefs } from '@/lib/notify'
+import type { NotifyKind, NotifyLevel, NotifyPrefs } from '@/lib/notify'
 import type { TabTarget } from '@/stores/tabsStore'
 import type { KeybindAction, KeybindOverrides } from '@/lib/keybinds'
 
@@ -75,6 +75,10 @@ interface PrefsState {
   soundsEnabled: boolean
   /** 0..1 */
   soundVolume: number
+  /** OS notifications and push on this install (PushService). Off until the user turns it on. */
+  pushEnabled: boolean
+  /** Notification kinds the user switched off one by one. Ignored while `pushEnabled` is false. */
+  disabledNotifications: NotifyKind[]
   /** Sounds the user switched off one by one. Ignored while `soundsEnabled` is false. */
   disabledSounds: SoundEvent[]
   /** userId → local volume and mute in voice. A user at the default has no entry. */
@@ -118,6 +122,8 @@ interface PrefsState {
   setStreamQuality: (streamQuality: StreamQuality) => void
   setSoundsEnabled: (soundsEnabled: boolean) => void
   setSoundVolume: (soundVolume: number) => void
+  setPushEnabled: (pushEnabled: boolean) => void
+  setNotificationEnabled: (kind: NotifyKind, enabled: boolean) => void
   setSoundEnabled: (event: SoundEvent, enabled: boolean) => void
   setUserAudio: (userId: string, change: Partial<UserAudio>) => void
   setStreamAudio: (userId: string, change: Partial<UserAudio>) => void
@@ -169,6 +175,8 @@ export const usePrefsStore = create<PrefsState>()(
         streamQuality: { resolution: '1080p', fps: 30 },
         soundsEnabled: true,
         soundVolume: 0.7,
+        pushEnabled: false,
+        disabledNotifications: [],
         disabledSounds: [],
         userAudio: {},
         streamAudio: {},
@@ -198,6 +206,13 @@ export const usePrefsStore = create<PrefsState>()(
         setStreamQuality: (streamQuality) => set({ streamQuality }),
         setSoundsEnabled: (soundsEnabled) => set({ soundsEnabled }),
         setSoundVolume: (soundVolume) => set({ soundVolume }),
+        setPushEnabled: (pushEnabled) => set({ pushEnabled }),
+        setNotificationEnabled: (kind, enabled) =>
+          set((s) => ({
+            disabledNotifications: enabled
+              ? s.disabledNotifications.filter((k) => k !== kind)
+              : [...new Set([...s.disabledNotifications, kind])]
+          })),
         setSoundEnabled: (event, enabled) =>
           set((s) => ({
             disabledSounds: enabled

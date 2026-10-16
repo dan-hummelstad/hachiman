@@ -311,7 +311,7 @@ export const messagesService = {
           editOf: null,
           content: { target: targetClientMsgId, emoji, remove }
         },
-        (envelope) => hachiman.rest.sendMessage(channelId, { envelope, nonce })
+        (envelope) => hachiman.rest.sendMessage(channelId, { envelope, nonce, silent: true })
       )
       await decryptor.ingest([sent])
     } catch (err) {

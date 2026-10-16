@@ -1,6 +1,7 @@
 import type {
   InviteLink,
   IPlatformService,
+  PushTarget,
   ShareContent,
 } from "@hachiman/hachiman";
 import { buffered } from "@hachiman/hachiman/shared/buffered.ts";
@@ -38,6 +39,38 @@ async function shareWithNavigator(content: ShareContent): Promise<boolean> {
   }
 }
 
+/**
+ * Web Push through `/sw.js` (public/sw.js). Takusen sends empty pushes, so the subscription keys
+ * (`p256dh`, `auth`) are not used: only the endpoint goes to Takusen. Null when the browser has
+ * no Push API or the user refused.
+ */
+async function subscribeWebPush(
+  vapidPublicKey: string,
+): Promise<PushTarget | null> {
+  if (!("serviceWorker" in navigator) || !("PushManager" in window))
+    return null;
+  if ((await Notification.requestPermission()) !== "granted") return null;
+  const reg = await navigator.serviceWorker.register("/sw.js");
+  await navigator.serviceWorker.ready;
+  const key = Uint8Array.from(
+    atob(vapidPublicKey.replaceAll("-", "+").replaceAll("_", "/")),
+    (c) => c.charCodeAt(0),
+  );
+  let sub = await reg.pushManager.getSubscription();
+  // A subscription of another key (Takusen made a new VAPID key) cannot receive.
+  const old = sub?.options.applicationServerKey;
+  const same = old != null && new Uint8Array(old).every((b, i) => b === key[i]);
+  if (sub && !same) {
+    await sub.unsubscribe();
+    sub = null;
+  }
+  sub ??= await reg.pushManager.subscribe({
+    userVisibleOnly: true,
+    applicationServerKey: key,
+  });
+  return { kind: "webpush", endpoint: sub.endpoint };
+}
+
 export const platformService: IPlatformService = {
   platform: "browser",
   insetTitleBar: false,
@@ -70,6 +103,7 @@ export const platformService: IPlatformService = {
   scanQr: null,
   // The UI downloads a blob.
   saveTextFile: null,
+  pushSubscribe: subscribeWebPush,
   setAppearance: () => undefined,
   secureStorage: createBrowserSecureStorage(),
 };

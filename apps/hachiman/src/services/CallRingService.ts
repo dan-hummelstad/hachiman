@@ -2,6 +2,7 @@ import { voiceScopeId } from '@hachiman/client'
 import { keepRinging, ringOf, type IncomingRing } from '@/lib/call-ring'
 import { openChannelView } from '@/lib/navigation'
 import { hachiman } from '@/services/client'
+import { notifyRing } from '@/services/PushService'
 import { playSound } from '@/services/SoundService'
 import { voiceService } from '@/services/VoiceService'
 import { useRingStore } from '@/stores/ringStore'
@@ -53,6 +54,7 @@ class CallRingService {
     this.stop()
     useRingStore.setState({ ring })
     playSound('ring')
+    notifyRing(ring.channelId, ring.callerId)
     this.loop = setInterval(() => playSound('ring'), RING_REPEAT_MS)
     this.timer = setTimeout(() => this.stop(), Math.max(0, ring.until - Date.now()))
   }

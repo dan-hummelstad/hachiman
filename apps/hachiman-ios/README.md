@@ -90,6 +90,7 @@ The page calls `window.webkit.messageHandlers.hachiman.postMessage({ op, ...args
 | `scanQr`        |                                                                      | The text of the code, or `null` when cancelled.                                                                                                                                                                                           |
 | `saveTextFile`  | `name` (a file name, no path), `text`                                | `true` when saved, `false` when cancelled. The app writes a temp file in `tmp/export/`, shows the Files export sheet, and deletes the file when the sheet closes. One sheet at a time: a call while one is open rejects with `Malformed`. |
 | `setAppearance` | `theme` (`dark` or `light`), `background` (`#rrggbb` or `#rrggbbaa`) | `null`                                                                                                                                                                                                                                    |
+| `push.register` |                                                                      | `{ token, sandbox }`: the hex APNs token, `sandbox` true in a Debug build. `null` when the user refused the permission (`Push.swift`).                                                                                                    |
 
 Events from the app are `oauth-callback` and `invite-link`, each with `{ url }`. The app registers only the URL scheme `takusen`. It does not register `app.hachiman`, so only the `ASWebAuthenticationSession` completion sends `oauth-callback`.
 
@@ -138,6 +139,15 @@ sequenceDiagram
 ```
 
 A main-frame load (a reload, or a restart after a web content crash) makes the app hold its events again until the next `ready`.
+
+## Push notifications
+
+Contract §4 Push. User settings → Notifications → "Notify this phone" calls `push.register`. The app asks for alert and sound permission, registers with APNs, and the page sends the token to Takusen (`PUT /api/v1/push`). A push is content-free ("Hachiman / New message"): Takusen cannot read the sender or the text. In front, the app shows no banner for a push (`willPresent`), because it has the gateway.
+
+Setup:
+
+- `Hachiman.entitlements` has `aps-environment` `development`. An export for TestFlight or the App Store sets `production`. Automatic signing adds the Push Notifications capability to the App ID. For cloud signing (`scripts/testflight.sh`), turn on Push Notifications for the App ID in Certificates, Identifiers & Profiles once.
+- Takusen needs an APNs auth key (`.p8`, Keys → "Apple Push Notifications service"): `TAKUSEN_APNS_KEY`, `TAKUSEN_APNS_KEY_ID`, `TAKUSEN_APNS_TEAM_ID` and `TAKUSEN_APNS_TOPIC` (the bundle id) in the root `.env`. Debug builds get sandbox tokens. Takusen sends each token to the APNs host of its environment.
 
 ## Crypto store wrap key
 

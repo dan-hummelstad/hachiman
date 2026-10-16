@@ -7,6 +7,7 @@ import type { GatewayDispatch, User } from '@hachiman/client'
 import { useAction } from '@/hooks/use-action'
 import { hachiman } from '@/services/client'
 import type { ClientFeature } from '@/services/features'
+import { notifyPoke } from '@/services/PushService'
 import { playSound } from '@/services/SoundService'
 import { usePokeStore } from '@/stores/pokeStore'
 
@@ -56,6 +57,7 @@ export function receivePoke(user: User): void {
   const id = nextId++
   usePokeStore.getState().add({ id, user })
   playSound('poke')
+  notifyPoke(user)
   setTimeout(() => usePokeStore.getState().remove(id), POKE_TOAST_MS)
 }
 

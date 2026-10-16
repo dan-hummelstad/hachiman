@@ -970,6 +970,26 @@ export const messageReports = pgTable('message_reports', {
   createdAt: createdAt(),
 })
 
+/** One push target per device (§4 Push): an APNs token or a Web Push endpoint. */
+export const pushTargets = pgTable(
+  'push_targets',
+  {
+    deviceId: uuid('device_id')
+      .primaryKey()
+      .references(() => devices.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    kind: text('kind', { enum: ['apns', 'webpush'] }).notNull(),
+    /** APNs: the hex device token. Web Push: the endpoint URL. */
+    token: text('token').notNull(),
+    /** APNs only: the token is for the development (sandbox) environment. */
+    sandbox: boolean('sandbox').notNull().default(false),
+    createdAt: createdAt(),
+  },
+  (table) => [index('push_targets_user_id_idx').on(table.userId)],
+)
+
 export type DeviceDbRow = typeof devices.$inferSelect
 export type MlsGroupDbRow = typeof mlsGroups.$inferSelect
 export type AdminActionRow = typeof adminActions.$inferSelect

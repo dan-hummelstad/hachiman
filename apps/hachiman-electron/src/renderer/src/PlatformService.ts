@@ -46,6 +46,8 @@ export const platformService: IPlatformService = {
   scanQr: null,
   // The UI downloads a blob.
   saveTextFile: null,
+  // No push service: the app in the tray shows OS notifications from the gateway (PushService).
+  pushSubscribe: null,
   setAppearance: () => undefined,
   secureStorage: {
     backend: "os-keychain",

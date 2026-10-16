@@ -740,6 +740,10 @@ export function stubRest(): void {
       dispatch({ t: 'MESSAGE_DELETE', d: { id: messageId, channelId, guildId: null } })
     },
     triggerTyping: () => undefined,
+    // The preview has no push service.
+    getPushConfig: () => ({ vapidPublicKey: '' }),
+    setPushTarget: () => undefined,
+    deletePushTarget: () => undefined,
     ackMessage: () => undefined,
     getMembers: (guildId) => [...(cache.members.get(guildId)?.values() ?? [])],
     updateMember: (guildId, userId, body) => {

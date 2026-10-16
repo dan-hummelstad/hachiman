@@ -2,6 +2,7 @@ import SwiftUI
 
 @main
 struct HachimanApp: App {
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var host = WebHost()
 
     init() {

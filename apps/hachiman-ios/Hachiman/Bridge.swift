@@ -165,6 +165,9 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply {
                 window: webView?.window, webView: webView)
             return nil
 
+        case "push.register":
+            return try await Push.shared.register()
+
         default:
             throw BridgeError(.unsupported, "unknown op \(op)")
         }

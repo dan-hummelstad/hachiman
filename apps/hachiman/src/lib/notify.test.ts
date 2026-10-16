@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   guildNotifyLevel,
   isFollowing,
+  messageNotifyKind,
   notifyLevel,
   notifyLevelLabel,
   type NotifyPrefs
@@ -39,5 +40,14 @@ describe('isFollowing', () => {
     expect(isFollowing(prefs({ g: 'all' }), 'c')).toBe(false)
     expect(isFollowing(prefs({ c: 'all' }), 'c')).toBe(true)
     expect(isFollowing(prefs({ c: 'mentions' }), 'c')).toBe(false)
+  })
+})
+
+describe('messageNotifyKind', () => {
+  it('a DM is dm, a guild mention is mention, else channel', () => {
+    expect(messageNotifyKind(null, false)).toBe('dm')
+    expect(messageNotifyKind(null, true)).toBe('dm')
+    expect(messageNotifyKind('g', true)).toBe('mention')
+    expect(messageNotifyKind('g', false)).toBe('channel')
   })
 })

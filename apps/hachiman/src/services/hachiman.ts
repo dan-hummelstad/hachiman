@@ -12,6 +12,7 @@ import { messageContext } from '@/services/message-context'
 import { messagesService } from '@/services/MessagesService'
 import { takusenService } from '@/services/TakusenService'
 import { pokeFeature } from '@/services/poke'
+import { pushFeature } from '@/services/PushService'
 import { soundboardFeature } from '@/services/soundboard'
 import { soundFeature, startSounds } from '@/services/SoundService'
 import { tabsFeature } from '@/services/tabs-feature'
@@ -127,6 +128,7 @@ features.register(
   invitesFeature,
   unreadFeature,
   soundFeature,
+  pushFeature,
   pinsFeature,
   eventsFeature,
   blocksFeature,
@@ -269,6 +271,9 @@ const onFatal = ({ code }: { code: number }): void => {
 
 let started = false
 let platform: IPlatformService | null = null
+
+/** The host of `startHachiman`, or null before it. */
+export const hostPlatform = (): IPlatformService | null => platform
 
 /** The crypto Worker of the signed-in user. The gateway connects when it has a device id. */
 function startCrypto(): void {

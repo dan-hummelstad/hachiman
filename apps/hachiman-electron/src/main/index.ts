@@ -256,7 +256,8 @@ app.on("will-quit", () => globalShortcuts.clear());
 // Some APIs can only be used after this event occurs.
 app.whenReady().then(() => {
   // Set app user model id for windows
-  electronApp.setAppUserModelId("com.electron");
+  // The appId of electron-builder.yml: Windows shows a toast only for the AUMID of the Start menu shortcut.
+  electronApp.setAppUserModelId("com.electron.app");
 
   // Default open or close DevTools by F12 in development
   // and ignore CommandOrControl + R in production.
