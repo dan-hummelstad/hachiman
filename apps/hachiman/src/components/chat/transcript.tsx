@@ -5,6 +5,7 @@ import { MessageActionSheet } from '@/components/mobile/message-action-sheet'
 import { useChatCovered } from '@/components/mobile/drawer-state'
 import { useContactTrust } from '@/components/people/use-contact-trust'
 import { useDmStageShown } from '@/components/voice/dm-stage-state'
+import { Skeleton } from '@/components/ui/skeleton'
 import { SystemTag } from '@/components/ui/system-tag'
 import { useLayout } from '@/hooks/use-layout'
 import { highlightRow, jumpStep } from '@/lib/navigation'
@@ -77,11 +78,12 @@ export function Transcript({
   const bottom = useMarkRead(channelId, messages, myId)
   const membership = useMembershipTimeline(channelId)
   // "A added B" is routine (each new member and device): the welcome channel greets new members.
+  // A key renewal ('resynced') means nothing to the reader.
   const slots = useMemo(
     () =>
       membershipSlots(
         messages,
-        membership.filter((e) => e.kind !== 'added')
+        membership.filter((e) => e.kind !== 'added' && e.kind !== 'resynced')
       ),
     [messages, membership]
   )
@@ -193,9 +195,7 @@ export function Transcript({
           {hasMore === false ? (
             <ChannelIntro channel={channel} empty={messages.length === 0} onUpload={onUpload} />
           ) : (
-            <div className="text-text-tertiary text-meta px-5 py-3">
-              {hasMore === undefined ? 'Loading messages…' : 'Loading older messages…'}
-            </div>
+            <TranscriptSkeleton rows={hasMore === undefined ? 6 : 2} />
           )}
           {items.map(({ message, newDay, groupStart }, i) => (
             <Fragment key={message.nonce ?? message.id}>
@@ -327,6 +327,23 @@ function useMarkRead(
   }, [channelId, lastId, lastIsMine, inView, focused, covered])
 
   return bottom
+}
+
+/** Rows of grey bars while a page of history loads and decrypts. */
+function TranscriptSkeleton({ rows }: { rows: number }): React.JSX.Element {
+  return (
+    <div role="status" aria-label="Loading messages" className="flex flex-col gap-5 px-5 py-3">
+      {Array.from({ length: rows }, (_, i) => (
+        <div key={i} className="flex gap-4">
+          <Skeleton className="bg-surface-raised size-10 shrink-0 rounded-full" />
+          <div className="flex flex-1 flex-col gap-2 pt-1">
+            <Skeleton className="bg-surface-raised h-3 w-32" />
+            <Skeleton className={cn('bg-surface-raised h-3', i % 2 ? 'w-1/2' : 'w-3/4')} />
+          </div>
+        </div>
+      ))}
+    </div>
+  )
 }
 
 /** The NEW divider: a coral hairline with the tag on the right, above the first unread row. */
