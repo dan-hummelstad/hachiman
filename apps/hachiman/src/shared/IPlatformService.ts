@@ -127,6 +127,13 @@ export interface IPlatformService {
    * (Web Push only). Electron: null, as it has no push service; the open app shows OS
    * notifications itself.
    */
+  /**
+   * The user tapped a push notification of `channelId` (§4 Push). iOS: the notification
+   * response. Browser: a click in the service worker (an open tab gets a message; a new tab
+   * starts at `/?channel=<id>`). Electron: never (no push). The host holds a tap until the first
+   * subscriber, as a cold start comes before the UI mounts. Returns unsubscribe.
+   */
+  onPushOpen(cb: (channelId: string) => void): () => void
   readonly pushSubscribe:
     ((vapidPublicKey: string, deviceId: string) => Promise<PushTarget | null>) | null
   /** iOS: the status bar style and the window background follow the app theme. Others: no-op. */

@@ -48,6 +48,8 @@ export const platformService: IPlatformService = {
   saveTextFile: null,
   // No push service: the app in the tray shows OS notifications from the gateway (PushService).
   pushSubscribe: null,
+  // No push, so no push tap. Its own notifications open their chat (PushService).
+  onPushOpen: () => () => undefined,
   setAppearance: () => undefined,
   secureStorage: {
     backend: "os-keychain",

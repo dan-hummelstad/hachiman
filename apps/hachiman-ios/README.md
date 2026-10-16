@@ -92,7 +92,7 @@ The page calls `window.webkit.messageHandlers.hachiman.postMessage({ op, ...args
 | `setAppearance` | `theme` (`dark` or `light`), `background` (`#rrggbb` or `#rrggbbaa`) | `null`                                                                                                                                                                                                                                    |
 | `push.register` | `deviceId` | `{ token, sandbox, pushKey }`: the hex APNs token, `sandbox` true in a Debug build, and a new push key (base64url P-256 point) whose private half goes to the shared Keychain group. `null` when the user refused the permission (`Push.swift`). |
 
-Events from the app are `oauth-callback` and `invite-link`, each with `{ url }`. The app registers only the URL scheme `takusen`. It does not register `app.hachiman`, so only the `ASWebAuthenticationSession` completion sends `oauth-callback`.
+Events from the app are `oauth-callback` and `invite-link`, each with `{ url }`, and `push-open` with `{ channelId }` (a tapped notification, `Push.swift`; it waits for the page like every event). The app registers only the URL scheme `takusen`. It does not register `app.hachiman`, so only the `ASWebAuthenticationSession` completion sends `oauth-callback`.
 
 ### Sign-in
 

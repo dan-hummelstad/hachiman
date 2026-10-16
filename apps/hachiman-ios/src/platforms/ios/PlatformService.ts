@@ -40,6 +40,9 @@ export function createIosPlatformService(
         if (link) cb(link);
       }),
     onOAuthCallback: (cb) => events.on("oauth-callback", ({ url }) => cb(url)),
+    // The notification response (Hachiman/Push.swift), held until the UI subscribes.
+    onPushOpen: (cb) =>
+      events.on("push-open", ({ channelId }) => cb(channelId)),
     // ponytail: no native TCP probe yet (Electron region-probe.ts is the model).
     probeRegions: async () => [],
     // No getDisplayMedia in WKWebView: no screen share (a ReplayKit extension later).

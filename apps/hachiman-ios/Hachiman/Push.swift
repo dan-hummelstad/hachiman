@@ -8,6 +8,29 @@ final class Push: NSObject, UNUserNotificationCenterDelegate {
     static let shared = Push()
 
     private var waiting: [CheckedContinuation<Data, Error>] = []
+    private var pendingOpen: String?
+
+    /// Receives the channel of a tapped push (HachimanApp sends it to the page as `push-open`).
+    /// A tap from before (a cold start opens the app first) goes to it at once.
+    var onOpen: ((String) -> Void)? {
+        didSet {
+            if let onOpen, let id = pendingOpen {
+                pendingOpen = nil
+                onOpen(id)
+            }
+        }
+    }
+
+    /// The `c` of the payload (Takusen's channel id). The page opens it only when the account
+    /// can (PushService).
+    nonisolated static func channelId(of userInfo: [AnyHashable: Any]) -> String? {
+        guard let id = userInfo["c"] as? String, UUID(uuidString: id) != nil else { return nil }
+        return id.lowercased()
+    }
+
+    private func open(_ channelId: String) {
+        if let onOpen { onOpen(channelId) } else { pendingOpen = channelId }
+    }
 
     /// Asks for permission (once; later calls answer at once), then registers with APNs and
     /// makes a new push key for `deviceId` (§12.22). The hex token, `sandbox` (a Debug build
@@ -45,6 +68,16 @@ final class Push: NSObject, UNUserNotificationCenterDelegate {
     nonisolated func userNotificationCenter(
         _ center: UNUserNotificationCenter, willPresent notification: UNNotification
     ) async -> UNNotificationPresentationOptions { [] }
+
+    /// A tap on a notification: open its chat.
+    nonisolated func userNotificationCenter(
+        _ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse
+    ) async {
+        guard response.actionIdentifier == UNNotificationDefaultActionIdentifier,
+              let id = Self.channelId(of: response.notification.request.content.userInfo)
+        else { return }
+        await MainActor.run { Push.shared.open(id) }
+    }
 }
 
 /// The UIKit callbacks that SwiftUI does not offer: the APNs token.

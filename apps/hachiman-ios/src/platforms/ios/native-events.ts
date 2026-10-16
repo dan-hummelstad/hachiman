@@ -14,6 +14,8 @@ export interface NativeEventMap {
   "oauth-callback": { url: string };
   /** A `takusen://invite/…` URL from `onOpenURL`. */
   "invite-link": { url: string };
+  /** A tap on a push notification of this channel (Hachiman/Push.swift). */
+  "push-open": { channelId: string };
 }
 
 export type NativeEventType = keyof NativeEventMap;
@@ -30,24 +32,32 @@ export interface NativeEvents extends NativeEmitter {
   ): () => void;
 }
 
-function isPayload(v: unknown): v is { url: string } {
-  return (
-    typeof v === "object" &&
-    v !== null &&
-    typeof (v as { url?: unknown }).url === "string"
-  );
+/** The one string field of a payload, or null. Only that field reaches a subscriber. */
+function field(v: unknown, key: string): string | null {
+  if (typeof v !== "object" || v === null) return null;
+  const value = (v as Record<string, unknown>)[key];
+  return typeof value === "string" ? value : null;
 }
 
 export function createNativeEvents(): NativeEvents {
-  const channels = {
-    "oauth-callback": buffered<NativeEventMap["oauth-callback"]>(),
-    "invite-link": buffered<NativeEventMap["invite-link"]>(),
-  } satisfies { [K in NativeEventType]: unknown };
+  const channels: {
+    [K in NativeEventType]: ReturnType<typeof buffered<NativeEventMap[K]>>;
+  } = {
+    "oauth-callback": buffered(),
+    "invite-link": buffered(),
+    "push-open": buffered(),
+  };
   return {
     emit(type, payload) {
       // Unknown types and bad payloads are dropped: nothing else may reach a subscriber.
-      if (!Object.hasOwn(channels, type) || !isPayload(payload)) return;
-      channels[type as NativeEventType].emit({ url: payload.url });
+      if (type === "push-open") {
+        const channelId = field(payload, "channelId");
+        if (channelId !== null) channels["push-open"].emit({ channelId });
+        return;
+      }
+      if (type !== "oauth-callback" && type !== "invite-link") return;
+      const url = field(payload, "url");
+      if (url !== null) channels[type].emit({ url });
     },
     on: (type, cb) => channels[type].subscribe(cb),
   };

@@ -213,12 +213,34 @@ export async function setNotifyKind(kind: NotifyKind, on: boolean): Promise<bool
   return kind === 'dm' || kind === 'mention' ? syncPushTarget() : true
 }
 
+let pendingOpen: string | null = null
+
+/**
+ * A tap on a push (`IPlatformService.onPushOpen`): opens the chat. On a cold start the channel
+ * is not in the cache before READY, so the tap waits for it.
+ */
+export function openFromPush(channelId: string): void {
+  const channel = hachiman.cache.channels.get(channelId)
+  if (channel) {
+    pendingOpen = null
+    openChannelView(channel)
+  } else {
+    pendingOpen = channelId
+  }
+}
+
 let watchingPrefs = false
 
 export const pushFeature: ClientFeature = {
   name: 'push',
   // A token can change between launches (APNs), and a new device of this install has no target.
   onReady(): void {
+    if (pendingOpen !== null) {
+      // A channel that READY does not have (left, or no longer visible) opens nothing.
+      const id = pendingOpen
+      pendingOpen = null
+      if (hachiman.cache.channels.has(id)) openFromPush(id)
+    }
     if (!watchingPrefs) {
       watchingPrefs = true
       usePrefsStore.subscribe((s, p) => {
@@ -235,5 +257,9 @@ export const pushFeature: ClientFeature = {
       tag: row.channelId,
       onClick: () => jumpToMessage({ id: row.channelId, guildId: row.guildId }, row.id)
     })
+  },
+  // A tap that waited for READY belongs to the account that signed out.
+  reset(): void {
+    pendingOpen = null
   }
 }

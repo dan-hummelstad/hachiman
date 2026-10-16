@@ -11,12 +11,22 @@ import { createBrowserSecureStorage } from "./secure-storage";
 // The page's own URL is read at startup, long before the UI mounts its effects.
 const inviteLinks = buffered<InviteLink>();
 const oauthCallbacks = buffered<string>();
+const pushOpens = buffered<string>();
+
+// A click on a push in public/sw.js while a tab is open: the worker focuses the tab and names
+// the channel. The page talks only to its own service worker.
+navigator.serviceWorker?.addEventListener("message", (e: MessageEvent) => {
+  const d = e.data as { op?: unknown; channelId?: unknown } | null;
+  if (d?.op === "open-channel" && typeof d.channelId === "string")
+    pushOpens.emit(d.channelId);
+});
 
 /**
  * Consume the load URL's deep-link routes, then reset to `/` so a reload neither
  * re-redeems the single-use OAuth code nor re-opens the invite:
  *  - `/oauth/callback?code=…&state=…` → onOAuthCallback(full URL)
  *  - `/invite/<code>[#k=<key>]`        → onInviteLink({ code, key })
+ *  - `/?channel=<id>` (a push tap)     → onPushOpen(id)
  * The reset also removes the key of an invite with history from the address
  * bar and the history entry. A link with a malformed key opens nothing.
  */
@@ -24,6 +34,7 @@ export function consumeLaunchUrl(loc: Location = window.location): void {
   const route = launchRoute(loc);
   if (route === null) return;
   if (route.kind === "oauth") oauthCallbacks.emit(route.url);
+  else if (route.kind === "channel") pushOpens.emit(route.channelId);
   else if (route.link !== null) inviteLinks.emit(route.link);
   window.history.replaceState(null, "", "/");
 }
@@ -134,6 +145,7 @@ export const platformService: IPlatformService = {
   // The UI downloads a blob.
   saveTextFile: null,
   pushSubscribe: subscribeWebPush,
+  onPushOpen: pushOpens.subscribe,
   setAppearance: () => undefined,
   secureStorage: createBrowserSecureStorage(),
 };

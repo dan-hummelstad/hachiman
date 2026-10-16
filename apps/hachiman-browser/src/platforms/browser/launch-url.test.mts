@@ -50,10 +50,20 @@ test("the OAuth callback passes as the full URL", () => {
   assert.deepEqual(route(failed), { kind: "oauth", url: failed });
 });
 
+test("a push tap opens its channel (public/sw.js)", () => {
+  const id = "0B8F7A7E-3C1D-4E2F-9A6B-5C4D3E2F1A0B";
+  assert.deepEqual(route(`https://app.example/?channel=${id}`), {
+    kind: "channel",
+    channelId: id.toLowerCase(),
+  });
+});
+
 test("other URLs are not routes", () => {
   for (const href of [
     "https://app.example/",
     "https://app.example/?preview",
+    "https://app.example/?channel=not-a-uuid",
+    "https://app.example/invites?channel=0b8f7a7e-3c1d-4e2f-9a6b-5c4d3e2f1a0b",
     "https://app.example/oauth/callback",
     "https://app.example/invites",
     "https://app.example/channels/x#k=" + KEY,

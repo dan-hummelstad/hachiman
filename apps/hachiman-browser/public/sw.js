@@ -202,6 +202,9 @@ self.addEventListener("push", (event) => {
         // A preview is one message; "New message" replaces the one before of its channel.
         ...(p.c ? {} : { tag: data?.c ?? "message" }),
         icon: "/favicon.png",
+        // The channel to open on a click. From Takusen's outer layer: the click opens a chat
+        // that this account can open, or nothing (PushService checks the channel).
+        data: { c: typeof data?.c === "string" ? data.c : null },
       });
     })(),
   );
@@ -211,9 +214,16 @@ self.addEventListener("notificationclick", (event) => {
   event.notification.close();
   event.waitUntil(
     (async () => {
+      const channelId = event.notification.data?.c ?? null;
       const [open] = await self.clients.matchAll({ type: "window" });
-      if (open) await open.focus();
-      else await self.clients.openWindow("/");
+      if (open) {
+        await open.focus();
+        if (channelId) open.postMessage({ op: "open-channel", channelId });
+      } else {
+        await self.clients.openWindow(
+          channelId ? `/?channel=${encodeURIComponent(channelId)}` : "/",
+        );
+      }
     })(),
   );
 });

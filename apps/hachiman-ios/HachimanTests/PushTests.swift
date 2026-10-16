@@ -9,6 +9,14 @@ final class PushTests: XCTestCase {
         XCTAssertEqual(Push.hex(Data()), "")
     }
 
+    /// A tap opens the `c` of the payload, lowercased; anything that is not a UUID opens nothing.
+    func testChannelIdOfATappedPush() {
+        XCTAssertEqual(Push.channelId(of: ["c": "0B8F7A7E-3C1D-4E2F-9A6B-5C4D3E2F1A0B"]), "0b8f7a7e-3c1d-4e2f-9a6b-5c4d3e2f1a0b")
+        XCTAssertNil(Push.channelId(of: ["c": "javascript:alert(1)"]))
+        XCTAssertNil(Push.channelId(of: ["c": 7]))
+        XCTAssertNil(Push.channelId(of: [:]))
+    }
+
     /// A preview that the crypto Worker's `@hpke/core` sealed (§12.22) opens with CryptoKit.
     private let key = Data(base64Encoded: "ya+p2EW6dRZrXCFXZ7HWk05Qw9s26JsSe4piKxIPZyE=")!
     private let deviceId = "22222222-2222-4222-8222-222222222222"

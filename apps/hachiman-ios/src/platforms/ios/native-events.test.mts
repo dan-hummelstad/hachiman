@@ -70,6 +70,17 @@ test("the payload handed on carries only the url", () => {
   ev.on("oauth-callback", (p) => assert.deepEqual(p, { url: "u" }));
 });
 
+test("push-open carries only a string channelId", () => {
+  const ev = createNativeEvents();
+  ev.emit("push-open", { url: "x" });
+  ev.emit("push-open", { channelId: 7 });
+  ev.emit("push-open", { channelId: "c1", url: "x" });
+  ev.emit("invite-link", { channelId: "c2" });
+  const got: unknown[] = [];
+  ev.on("push-open", (p) => got.push(p));
+  assert.deepEqual(got, [{ channelId: "c1" }]);
+});
+
 test("installNativeEvents defines one fixed emitter on the target", () => {
   const target: { __hachimanNative?: NativeEmitter } = {};
   const ev = installNativeEvents(target);

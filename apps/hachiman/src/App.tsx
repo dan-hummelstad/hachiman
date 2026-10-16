@@ -17,6 +17,7 @@ import { useVisualViewport } from '@/hooks/use-visual-viewport'
 import { errMsg } from '@/lib/utils'
 import { startHachiman } from '@/services/hachiman'
 import { dropSignInInviteKeys, restoreInviteKey, stashInviteKey } from '@/services/InviteService'
+import { openFromPush } from '@/services/PushService'
 import { takusenService } from '@/services/TakusenService'
 import { usePlatform } from '@/shared/PlatformContext'
 import { useCryptoStore } from '@/stores/cryptoStore'
@@ -69,6 +70,8 @@ function App(): React.JSX.Element {
     dropSignInInviteKeys()
     return off
   }, [platform])
+  // A tap on a push notification opens its chat (PushService waits for READY on a cold start).
+  useEffect(() => platform.onPushOpen(openFromPush), [platform])
   useEffect(
     () =>
       platform.onInviteLink(({ code, key }) => {

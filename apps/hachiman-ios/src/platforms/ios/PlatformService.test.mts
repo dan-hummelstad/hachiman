@@ -142,6 +142,15 @@ test("saveTextFile sends its bridge op, and a bridge rejection passes through", 
   });
 });
 
+test("a push-open event before the UI subscribes reaches onPushOpen", () => {
+  const { ps, events } = setup();
+  events.emit("push-open", { channelId: "c1" });
+  const got: string[] = [];
+  ps.onPushOpen((id) => got.push(id));
+  events.emit("push-open", { channelId: "c2" });
+  assert.deepEqual(got, ["c1", "c2"]);
+});
+
 test("pushSubscribe gives the APNs token as a push target, or null when refused", async () => {
   const { ps, sent } = setup(() => ({
     token: "ab".repeat(32),
