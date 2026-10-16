@@ -64,11 +64,14 @@ function Picker({
   )
   const pickedIds = useMemo(() => new Set(picked.map((u) => u.id)), [picked])
   const full = picked.length >= MAX_RECIPIENTS
-  // From an open DM, the same people again is the same conversation: ask for someone new.
-  const unchanged = !!include && picked.every((u) => include.some((i) => i.id === u.id))
+  // The same people again would make a duplicate group DM: the server reuses only a 1:1 DM.
+  const unchanged =
+    !!include && include.length === picked.length && include.every((u) => pickedIds.has(u.id))
 
   const toggle = (user: User): void => {
-    setPicked((p) => (pickedIds.has(user.id) ? p.filter((u) => u.id !== user.id) : [...p, user]))
+    setPicked((p) =>
+      p.some((u) => u.id === user.id) ? p.filter((u) => u.id !== user.id) : [...p, user]
+    )
     setQuery('')
   }
 

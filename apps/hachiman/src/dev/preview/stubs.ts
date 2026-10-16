@@ -832,15 +832,20 @@ export function stubRest(): void {
     acceptInvite: (code) => createGuild(`Joined via ${code}`),
     getDmChannels: () => dms,
     openDm: (recipientIds) => {
-      const existing = [...cache.channels.values()].find(
-        (c) =>
-          c.guildId === null && c.recipients?.length === 1 && c.recipients[0].id === recipientIds[0]
-      )
-      if (existing && recipientIds.length === 1) return existing
+      const solo = recipientIds.length === 1
+      const existing =
+        solo &&
+        [...cache.channels.values()].find(
+          (c) =>
+            c.guildId === null &&
+            c.recipients?.length === 1 &&
+            c.recipients[0].id === recipientIds[0]
+        )
+      if (existing) return existing
       const recipients = recipientIds.map(
         (id) => Object.values(U).find((x) => x.id === id) ?? user(id, 'someone')
       )
-      const type = recipients.length === 1 ? 'dm' : 'group_dm'
+      const type = solo ? 'dm' : 'group_dm'
       const c = channel(null, nextId('c-dm'), type, null, 0, { recipients })
       dispatch({ t: 'CHANNEL_CREATE', d: c })
       return c

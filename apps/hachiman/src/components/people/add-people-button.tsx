@@ -4,7 +4,6 @@ import type { Channel } from '@hachiman/client'
 import { IconButton } from '@/components/ui/icon-button'
 import { NewMessageDialog } from './new-message-dialog'
 
-/** The header button of a DM or group DM: starts a group with its people and more. */
 export function AddPeopleButton({
   channel,
   className
