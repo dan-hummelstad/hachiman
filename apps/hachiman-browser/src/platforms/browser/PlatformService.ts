@@ -60,6 +60,7 @@ const b64u = (buf: ArrayBuffer | null): string =>
 function workerPushKey(
   worker: ServiceWorker,
   deviceId: string,
+  discardOld: boolean,
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     const channel = new MessageChannel();
@@ -67,7 +68,9 @@ function workerPushKey(
       typeof data?.pushKey === "string"
         ? resolve(data.pushKey)
         : reject(new Error(String(data?.error ?? "no push key")));
-    worker.postMessage({ op: "push-key", deviceId }, [channel.port2]);
+    worker.postMessage({ op: "push-key", deviceId, discardOld }, [
+      channel.port2,
+    ]);
   });
 }
 
@@ -79,6 +82,7 @@ function workerPushKey(
 async function subscribeWebPush(
   vapidPublicKey: string,
   deviceId: string,
+  { discardOld }: { discardOld: boolean },
 ): Promise<PushTarget | null> {
   if (!("serviceWorker" in navigator) || !("PushManager" in window))
     return null;
@@ -108,7 +112,7 @@ async function subscribeWebPush(
     endpoint: sub.endpoint,
     p256dh: b64u(sub.getKey("p256dh")),
     auth: b64u(sub.getKey("auth")),
-    pushKey: await workerPushKey(worker, deviceId),
+    pushKey: await workerPushKey(worker, deviceId, discardOld),
   };
 }
 

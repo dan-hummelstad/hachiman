@@ -107,10 +107,10 @@ export function pushFilters(): PushFilters {
 
 /**
  * Brings the push target of this device in line with the switches: subscribed with a new
- * signed push key (§12.22) while a kind that pushes is on, else deleted. False: the OS refused
- * the permission.
+ * signed push key (§12.22) while a kind that pushes is on, else deleted. `discardOld`: the host
+ * deletes the key before the new one instead of keeping it. False: the OS refused the permission.
  */
-async function syncPushTarget(): Promise<boolean> {
+async function syncPushTarget(discardOld = false): Promise<boolean> {
   const pushSubscribe = hostPlatform()?.pushSubscribe
   const deviceId = currentDeviceId()
   if (!pushSubscribe || deviceId === null) return true
@@ -120,7 +120,7 @@ async function syncPushTarget(): Promise<boolean> {
     return true
   }
   const { vapidPublicKey } = await hachiman.rest.getPushConfig()
-  const target = await pushSubscribe(vapidPublicKey, deviceId)
+  const target = await pushSubscribe(vapidPublicKey, deviceId, { discardOld })
   if (!target) return false
   // The Worker signs with the device MLS key: a sender checks it against the device's leaf.
   const pushKeySig = await cryptoService.client().signPushKey(target.pushKey)
@@ -207,6 +207,16 @@ export async function disablePush(): Promise<void> {
   usePrefsStore.getState().setPushEnabled(false)
   await syncPushTarget()
 }
+
+/** Whether this device has a push key: the host has push, and a kind that pushes is on. */
+export const hasPushKey = (): boolean =>
+  hostPlatform()?.pushSubscribe != null && pushKindsOn().length > 0
+
+/**
+ * User settings → Devices → "Make a new push key": a new key replaces the old one, which the host
+ * deletes at once, so no previews sealed to it open any more (§12.22). False: the OS refused.
+ */
+export const regeneratePushKey = (): Promise<boolean> => syncPushTarget(true)
 
 /** The switch of one kind. "Direct messages" and "Mentions" change what Takusen pushes. */
 export async function setNotifyKind(kind: NotifyKind, on: boolean): Promise<boolean> {

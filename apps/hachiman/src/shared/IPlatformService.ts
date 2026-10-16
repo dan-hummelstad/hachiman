@@ -121,7 +121,9 @@ export interface IPlatformService {
   /**
    * Asks the OS for notification permission, then subscribes this install to push (§4 Push).
    * Each call makes a new push key for `deviceId` (§12.22) and keeps the one before it, so a
-   * push sealed before the change still opens. Only the host's notification code holds the
+   * push sealed before the change still opens. With `discardOld` the host deletes every older
+   * key instead (User settings → Devices → "Make a new push key"). With `discardOld` the host deletes every older
+   * key instead (User settings → Devices → "Make a new push key"). Only the host's notification code holds the
    * private key: iOS the Notification Service Extension (shared Keychain group), the browser its
    * service worker. Resolves null when the user refused. `vapidPublicKey` is the Takusen key
    * (Web Push only). Electron: null, as it has no push service; the open app shows OS
@@ -135,7 +137,12 @@ export interface IPlatformService {
    */
   onPushOpen(cb: (channelId: string) => void): () => void
   readonly pushSubscribe:
-    ((vapidPublicKey: string, deviceId: string) => Promise<PushTarget | null>) | null
+    | ((
+        vapidPublicKey: string,
+        deviceId: string,
+        opts: { discardOld: boolean }
+      ) => Promise<PushTarget | null>)
+    | null
   /** iOS: the status bar style and the window background follow the app theme. Others: no-op. */
   setAppearance(appearance: Appearance): void
   /** The wrap key of the encrypted crypto store (§12.17). */

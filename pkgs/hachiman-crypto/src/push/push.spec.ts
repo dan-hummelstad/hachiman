@@ -72,6 +72,40 @@ describe('push previews', () => {
     await expect(openPreview({ ...key, deviceId: OTHER }, sealed[PEER]!)).rejects.toThrow()
   })
 
+  it('the service worker keeps the key before a rotation, and a new key on request drops it', async () => {
+    const self: { addEventListener: () => void; hachimanRotateKey?: (d: string, discardOld: boolean) => Promise<string> } = {
+      addEventListener: () => undefined,
+    }
+    // fake-indexeddb (vitest.setup.ts) stands in for the worker's IndexedDB.
+    new Function('self', swSource)(self)
+    const rotate = self.hachimanRotateKey!
+    type Stored = { pub: Uint8Array } | undefined
+    const stored = async (): Promise<{ current: Stored; previous: Stored }> => {
+      const db = await new Promise<IDBDatabase>((resolve, reject) => {
+        const req = indexedDB.open('hachiman-push', 1)
+        req.onsuccess = () => resolve(req.result)
+        req.onerror = () => reject(req.error)
+      })
+      const get = (k: string) =>
+        new Promise<{ pub: Uint8Array } | undefined>((resolve) => {
+          const r = db.transaction('keys').objectStore('keys').get(k)
+          r.onsuccess = () => resolve(r.result as { pub: Uint8Array } | undefined)
+        })
+      const out = { current: await get('current'), previous: await get('previous') }
+      db.close()
+      return out
+    }
+    const first = await rotate(PEER, false)
+    const second = await rotate(PEER, false)
+    let keys = await stored()
+    expect(toB64url(keys.current!.pub)).toBe(second)
+    expect(toB64url(keys.previous!.pub)).toBe(first)
+    const third = await rotate(PEER, true)
+    keys = await stored()
+    expect(toB64url(keys.current!.pub)).toBe(third)
+    expect(keys.previous).toBeUndefined()
+  })
+
   it('signPushKey signs deviceId ‖ key with the device MLS key', async () => {
     const { pub } = await pushKeyPair()
     const sig = await service.signPushKey(toB64url(pub))

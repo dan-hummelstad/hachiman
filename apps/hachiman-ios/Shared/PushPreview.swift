@@ -52,10 +52,16 @@ enum PushKeyStore {
 
     static var group: String? { Bundle.main.object(forInfoDictionaryKey: "HachimanKeychainGroup") as? String }
 
-    /// A new key for `deviceId`. Returns its 65-byte uncompressed public point.
-    static func rotate(deviceId: String) throws -> Data {
+    /// A new key for `deviceId`. Returns its 65-byte uncompressed public point. The key before it
+    /// becomes "previous", or with `discardOld` is deleted: a new key on request (Settings →
+    /// Devices) leaves no older key that could open a push.
+    static func rotate(deviceId: String, discardOld: Bool) throws -> Data {
         let key = P256.KeyAgreement.PrivateKey()
-        if let current = read("current") { try write("previous", current) }
+        if discardOld {
+            SecItemDelete(query("previous") as CFDictionary)
+        } else if let current = read("current") {
+            try write("previous", current)
+        }
         try write("current", PushPreview.Key(key: key.rawRepresentation, deviceId: deviceId))
         return key.publicKey.x963Representation
     }

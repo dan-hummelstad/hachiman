@@ -36,7 +36,8 @@ final class Push: NSObject, UNUserNotificationCenterDelegate {
     /// Asks for permission (once; later calls answer at once), then registers with APNs and
     /// makes a new push key for `deviceId` (§12.22). The hex token, `sandbox` (a Debug build
     /// talks to the APNs sandbox) and the base64url public point, or nil when the user refused.
-    func register(deviceId: String) async throws -> [String: Any]? {
+    /// `discardOld` deletes the key before it instead of keeping it (PushKeyStore.rotate).
+    func register(deviceId: String, discardOld: Bool) async throws -> [String: Any]? {
         guard try await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound])
         else { return nil }
         let token = try await withCheckedThrowingContinuation { continuation in
@@ -48,7 +49,7 @@ final class Push: NSObject, UNUserNotificationCenterDelegate {
         #else
         let sandbox = false
         #endif
-        let pushKey = try PushKeyStore.rotate(deviceId: deviceId)
+        let pushKey = try PushKeyStore.rotate(deviceId: deviceId, discardOld: discardOld)
         return ["token": Self.hex(token), "sandbox": sandbox, "pushKey": pushKey.base64URL]
     }
 

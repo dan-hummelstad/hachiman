@@ -157,15 +157,22 @@ test("pushSubscribe gives the APNs token as a push target, or null when refused"
     sandbox: true,
     pushKey: "PK",
   }));
-  assert.deepEqual(await ps.pushSubscribe!("vapid-key", USER), {
-    kind: "apns",
-    token: "ab".repeat(32),
-    sandbox: true,
-    pushKey: "PK",
-  });
-  assert.deepEqual(sent, [{ op: "push.register", args: { deviceId: USER } }]);
+  assert.deepEqual(
+    await ps.pushSubscribe!("vapid-key", USER, { discardOld: true }),
+    {
+      kind: "apns",
+      token: "ab".repeat(32),
+      sandbox: true,
+      pushKey: "PK",
+    },
+  );
+  assert.deepEqual(sent, [
+    { op: "push.register", args: { deviceId: USER, discardOld: true } },
+  ]);
   assert.equal(
-    await setup(() => null).ps.pushSubscribe!("vapid-key", USER),
+    await setup(() => null).ps.pushSubscribe!("vapid-key", USER, {
+      discardOld: false,
+    }),
     null,
   );
 });

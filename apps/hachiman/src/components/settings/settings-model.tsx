@@ -28,6 +28,7 @@ import { GuildMembersTab } from '@/components/guild-settings-members'
 import { GuildRolesTab } from '@/components/guild-settings-roles'
 import type { ListRowTile } from '@/components/mobile/list'
 import { DevicesPanel } from '@/components/security/devices-panel'
+import { PushKeySection } from '@/components/security/push-key-section'
 import { useOwnDevices } from '@/components/security/use-own-devices'
 import { RecoverySection } from '@/components/security/recovery-panel'
 import { SecurityLog } from '@/components/security/security-log'
@@ -239,7 +240,12 @@ function useUserSettingsModel(active: boolean, mobile: boolean): SettingsModel {
                 deviceCount === undefined
                   ? undefined
                   : `${deviceCount} ${deviceCount === 1 ? 'device holds' : 'devices hold'} your keys`,
-              render: () => <DevicesPanel variant="page" />
+              render: () => (
+                <>
+                  <DevicesPanel variant="page" />
+                  <PushKeySection />
+                </>
+              )
             }
           },
           {

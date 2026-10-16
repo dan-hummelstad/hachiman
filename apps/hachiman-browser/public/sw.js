@@ -38,7 +38,7 @@ const unb64u = (s) =>
     c.charCodeAt(0),
   );
 
-async function rotateKey(deviceId) {
+async function rotateKey(deviceId, discardOld) {
   const kp = await crypto.subtle.generateKey(
     { name: "ECDH", namedCurve: "P-256" },
     false,
@@ -51,7 +51,9 @@ async function rotateKey(deviceId) {
   await tx("readwrite", (s) => {
     const current = s.get("current");
     current.onsuccess = () => {
-      if (current.result) s.put(current.result, "previous");
+      // A new key on request (Settings → Devices) leaves no older key that could open a push.
+      if (discardOld) s.delete("previous");
+      else if (current.result) s.put(current.result, "previous");
       s.put({ priv: kp.privateKey, pub, deviceId }, "current");
     };
     return current;
@@ -156,7 +158,9 @@ async function openPreview(key, sealed) {
   );
   return JSON.parse(new TextDecoder().decode(pt));
 }
+// For the interop spec (pkgs/hachiman-crypto/src/push/push.spec.ts).
 self.hachimanOpenPreview = openPreview;
+self.hachimanRotateKey = rotateKey;
 
 /** The sender and text of a push, or "New message" when it has none or none opens. */
 async function previewOf(data) {
@@ -179,7 +183,7 @@ self.addEventListener("message", (event) => {
   const port = event.ports[0];
   if (event.data?.op !== "push-key" || !port) return;
   event.waitUntil(
-    rotateKey(String(event.data.deviceId)).then(
+    rotateKey(String(event.data.deviceId), event.data.discardOld === true).then(
       (pushKey) => port.postMessage({ pushKey }),
       (e) => port.postMessage({ error: String(e) }),
     ),
