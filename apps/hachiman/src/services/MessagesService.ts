@@ -11,6 +11,7 @@ import { errMsg } from '@/lib/utils'
 import { cryptoService } from '@/services/CryptoService'
 import { hachiman } from '@/services/client'
 import { createMessageDecryptor } from '@/services/message-decrypt'
+import { sealPushPreviews } from '@/services/PushService'
 import { playSound } from '@/services/SoundService'
 import {
   dropHistory,
@@ -242,16 +243,19 @@ export const messagesService = {
     playSound('messageSent')
     lastTyping = { channelId: '', at: 0 }
     const body: Omit<MessageContent, 'sentAtMs'> = { text, mentions, attachments, replyTo }
+    // The previews seal while the envelope does; they never fail the send (PushService).
+    const push = sealPushPreviews(channelId, text, mentions, attachments)
     try {
       const ids = uploadIdsOf(attachments)
       const sent = await sealAndPost(
         channelId,
         { channelId, kind: 'message', editOf: null, content: body },
-        (envelope) =>
+        async (envelope) =>
           hachiman.rest.sendMessage(channelId, {
             envelope,
             nonce,
-            attachments: ids.length > 0 ? ids : undefined
+            attachments: ids.length > 0 ? ids : undefined,
+            push: await push
           })
       )
       await decryptor.ingest([sent])

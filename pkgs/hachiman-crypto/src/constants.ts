@@ -83,6 +83,8 @@ export const SignLabel = {
   INVITE_BUNDLE: 'InviteBundle',
   /** InviteAuth, by the invite sign key (§12.11.4). */
   INVITE_AUTH: 'InviteAuth',
+  /** deviceId ‖ push key, by the device MLS key (§12.22). */
+  PUSH_KEY: 'PushKey',
 } as const
 
 // MARK: - HKDF info strings (§12.3, §12.5, §12.8, §12.11)
@@ -101,7 +103,13 @@ export const HkdfInfo = {
   INVITE_HPKE: 'hachiman invite hpke v1',
   /** The invite sign (Ed25519) private key from the invite seed (§12.11.4). */
   INVITE_SIGN: 'hachiman invite sign v1',
+  /** The HPKE info of a sealed push preview (§12.22). */
+  PUSH_PREVIEW: 'hachiman push preview v1',
 } as const
+
+/** Longest push preview title and body in UTF-16 code units (§12.22). The sender cuts longer text. */
+export const PUSH_PREVIEW_MAX_TITLE = 100
+export const PUSH_PREVIEW_MAX_BODY = 300
 
 /** Epoch grace for message sends after a commit that removed no leaf (§12.8.4). */
 export const ADD_ONLY_EPOCH_GRACE_MS = 10_000

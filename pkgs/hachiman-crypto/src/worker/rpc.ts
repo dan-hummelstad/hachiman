@@ -74,6 +74,8 @@ const CRYPTO_API_METHOD_SET = {
   sendInviteBundles: true,
   redeemInvite: true,
   proveDevice: true,
+  signPushKey: true,
+  sealPushPreviews: true,
   voiceStart: true,
   voiceHandle: true,
   voiceAttachTransform: true,

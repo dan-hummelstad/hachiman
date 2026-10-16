@@ -120,11 +120,15 @@ export interface IPlatformService {
   readonly saveTextFile: ((name: string, text: string) => Promise<boolean>) | null
   /**
    * Asks the OS for notification permission, then subscribes this install to push (§4 Push).
-   * Resolves null when the user refused. `vapidPublicKey` is the Takusen key (Web Push only).
-   * iOS: APNs. Browser: Web Push through the service worker `/sw.js`. Electron: null, as it has
-   * no push service; the open app shows OS notifications itself.
+   * Each call makes a new push key for `deviceId` (§12.22) and keeps the one before it, so a
+   * push sealed before the change still opens. Only the host's notification code holds the
+   * private key: iOS the Notification Service Extension (shared Keychain group), the browser its
+   * service worker. Resolves null when the user refused. `vapidPublicKey` is the Takusen key
+   * (Web Push only). Electron: null, as it has no push service; the open app shows OS
+   * notifications itself.
    */
-  readonly pushSubscribe: ((vapidPublicKey: string) => Promise<PushTarget | null>) | null
+  readonly pushSubscribe:
+    ((vapidPublicKey: string, deviceId: string) => Promise<PushTarget | null>) | null
   /** iOS: the status bar style and the window background follow the app theme. Others: no-op. */
   setAppearance(appearance: Appearance): void
   /** The wrap key of the encrypted crypto store (§12.17). */

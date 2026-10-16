@@ -166,7 +166,9 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply {
             return nil
 
         case "push.register":
-            return try await Push.shared.register()
+            let deviceId = try string(args, "deviceId")
+            guard UUID(uuidString: deviceId) != nil else { throw BridgeError(.malformed, "deviceId is not a UUID") }
+            return try await Push.shared.register(deviceId: deviceId.lowercased())
 
         default:
             throw BridgeError(.unsupported, "unknown op \(op)")

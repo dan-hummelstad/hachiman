@@ -59,5 +59,8 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<!-- The Keychain group of the push keys, shared with HachimanNotify (Shared/PushPreview.swift). -->
+	<key>HachimanKeychainGroup</key>
+	<string>$(AppIdentifierPrefix)$(HACHIMAN_BUNDLE_ID).push</string>
 </dict>
 </plist>

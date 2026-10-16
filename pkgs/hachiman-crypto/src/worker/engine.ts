@@ -31,6 +31,7 @@ import { createDocService } from '../envelope/doc-service'
 import { createMessageService } from '../envelope/service'
 import { createIdentityService } from '../identity/service'
 import { createInviteService, type InviteServiceExt } from '../invites/service'
+import { createPushService, type PushService } from '../push'
 import { createVoiceService } from '../media/service'
 import { mls } from '../mls/index'
 import { createGroupService, type GroupServiceExt } from '../mls/service'
@@ -63,6 +64,7 @@ interface Services {
   voice: VoiceService
   admin: AdminService
   invites: InviteServiceExt
+  push: PushService
 }
 
 const GROUP_EVENTS = new Set<CryptoGatewayEvent['t']>(['MLS_HANDSHAKE', 'MLS_BATCH_ASSIGN', 'MLS_JOIN_UPDATE', 'MLS_GROUP_UPDATE', 'DEVICE_INBOX'])
@@ -134,6 +136,7 @@ export function createEngine(env: EngineEnv): Engine {
       voice: createVoiceService(ctx, identity),
       admin: createAdminService(ctx, identity, env.adminPermissions),
       invites: createInviteService(ctx, identity, groups, env.adminPermissions),
+      push: createPushService(identity, groups),
     }
     await identity.load(opts)
     services = next
@@ -242,6 +245,8 @@ export function createEngine(env: EngineEnv): Engine {
       return serial('invites', () => svc.invites.redeemInvite(input))
     },
     proveDevice: (input) => s().identity.proveDevice(input),
+    signPushKey: (k) => s().push.signPushKey(k),
+    sealPushPreviews: (c, p, t) => s().push.sealPushPreviews(c, p, t),
 
     voiceStart: (o) => s().voice.voiceStart(o),
     voiceHandle: (h, op) => s().voice.voiceHandle(h, op),

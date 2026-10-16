@@ -4,16 +4,23 @@
  *  - The open app (Electron, browser) shows an OS notification for a message that pings, a poke
  *    or a call ring while the window has no focus. It has the decrypted text, which stays on
  *    this device.
- *  - A device with no gateway session gets a content-free push from Takusen, for DMs only: APNs
- *    on iOS, Web Push in the browser. Electron has no push service (`pushSubscribe` null).
+ *  - A device with no gateway session gets a push from Takusen: APNs on iOS, Web Push in the
+ *    browser. The sender seals the sender name and the text to the push key of each recipient
+ *    device (§12.22), so the device shows them while Takusen relays only ciphertext. A DM pushes
+ *    to every participant, a guild message to the users it mentions. Electron has no push
+ *    service (`pushSubscribe` null).
  */
-import type { User } from '@hachiman/client'
+import type { PushFilters, PushKey, User } from '@hachiman/client'
+import type { Mention } from '@hachiman/crypto'
+import { cryptoService } from '@/services/CryptoService'
 import { hachiman, hostPlatform } from '@/services/hachiman'
 import type { ClientFeature } from '@/services/features'
 import { messageSound } from '@/services/SoundService'
+import { plainEmojiText } from '@/lib/mentions'
 import { jumpToMessage, openChannelView } from '@/lib/navigation'
 import { messageNotifyKind, NOTIFY_KINDS, type NotifyKind } from '@/lib/notify'
 import type { ChatMessage } from '@/stores/messagesStore'
+import { currentDeviceId } from '@/stores/cryptoStore'
 import { notifyPrefs, usePrefsStore } from '@/stores/prefsStore'
 
 const MAX_BODY = 200
@@ -28,12 +35,14 @@ export function notificationBody(row: Pick<ChatMessage, 'content' | 'attachments
 /** The page can show OS notifications itself: Electron and the browser, not the iOS WebView. */
 const hasNotificationApi = (): boolean => typeof Notification !== 'undefined'
 
+const PUSH_KINDS: readonly NotifyKind[] = ['dm', 'mention']
+
 /**
- * The kinds that this host can notify. iOS has no OS notifications from the page, and its push
- * carries DMs only.
+ * The kinds that this host can notify. iOS has no OS notifications from the page: only push,
+ * which carries DMs and mentions.
  */
 export function notifyKinds(): readonly NotifyKind[] {
-  return hasNotificationApi() ? NOTIFY_KINDS : ['dm']
+  return hasNotificationApi() ? NOTIFY_KINDS : PUSH_KINDS
 }
 
 /** The master switch and the switch of `kind`. */
@@ -80,22 +89,105 @@ export function notifyRing(channelId: string, callerId: string): void {
 }
 
 /**
- * Brings the push target of this device in line with the switches: subscribed while the master
- * switch and "Direct messages" are on (Takusen pushes only DMs), else deleted. False: the OS
- * refused the permission.
+ * What Takusen filters by (§4 Push): the kinds that push, and the channels and guilds that do
+ * not. A level of 'none' is quiet. A muted DM is quiet; a muted guild channel still pushes its
+ * mentions, as it pings for them. ponytail: a guild at 'none' with a louder channel inside is
+ * quiet as a whole; send the louder channels too when that matters.
+ */
+export function pushFilters(): PushFilters {
+  const kinds = (['dm', 'mention'] as const).filter((k) => notifyOn(k))
+  const p = notifyPrefs()
+  const quiet = new Set(Object.keys(p.notify).filter((id) => p.notify[id] === 'none'))
+  for (const id of p.muted) if (hachiman.cache.channels.get(id)?.guildId === null) quiet.add(id)
+  return { kinds: [...kinds], quiet: [...quiet] }
+}
+
+/**
+ * Brings the push target of this device in line with the switches: subscribed with a new
+ * signed push key (§12.22) while a kind that pushes is on, else deleted. False: the OS refused
+ * the permission.
  */
 async function syncPushTarget(): Promise<boolean> {
   const pushSubscribe = hostPlatform()?.pushSubscribe
-  if (!pushSubscribe) return true
-  if (!notifyOn('dm')) {
+  const deviceId = currentDeviceId()
+  if (!pushSubscribe || deviceId === null) return true
+  const filters = pushFilters()
+  if (filters.kinds.length === 0) {
     await hachiman.rest.deletePushTarget()
     return true
   }
   const { vapidPublicKey } = await hachiman.rest.getPushConfig()
-  const target = await pushSubscribe(vapidPublicKey)
+  const target = await pushSubscribe(vapidPublicKey, deviceId)
   if (!target) return false
-  await hachiman.rest.setPushTarget(target)
+  // The Worker signs with the device MLS key: a sender checks it against the device's leaf.
+  const pushKeySig = await cryptoService.client().signPushKey(target.pushKey)
+  await hachiman.rest.setPushTarget({ ...target, ...filters, pushKeySig })
   return true
+}
+
+let filterTimer: ReturnType<typeof setTimeout> | undefined
+/** A level or mute changed: send the filters again, once the user stops clicking. */
+function queueFilterSync(): void {
+  clearTimeout(filterTimer)
+  filterTimer = setTimeout(() => {
+    if (!notifyOn('dm') && !notifyOn('mention')) return
+    hachiman.rest.setPushFilters(pushFilters()).catch((e) => console.warn('[push] filters', e))
+  }, 2000)
+}
+
+const PUSH_KEYS_TTL_MS = 60_000
+const pushKeyCache = new Map<string, { at: number; keys: Promise<PushKey[]> }>()
+
+/** The push keys of a channel's recipients, kept for a minute (a burst of messages asks once). */
+function pushKeys(channelId: string, userIds: string[]): Promise<PushKey[]> {
+  const key = `${channelId}:${userIds.join(',')}`
+  const hit = pushKeyCache.get(key)
+  if (hit && Date.now() - hit.at < PUSH_KEYS_TTL_MS) return hit.keys
+  const keys = hachiman.rest.getPushKeys(channelId, userIds)
+  pushKeyCache.set(key, { at: Date.now(), keys })
+  keys.catch(() => pushKeyCache.delete(key))
+  return keys
+}
+
+const MAX_MENTION_PUSHES = 25
+
+/**
+ * The sealed push previews of a new message (§12.22): to every other participant of a DM, to
+ * the mentioned users of a guild channel. The crypto Worker checks each key against the MLS
+ * roster. Never throws: without previews the DM still pushes "New message".
+ */
+export async function sealPushPreviews(
+  channelId: string,
+  text: string,
+  mentions: readonly Mention[],
+  attachments: readonly unknown[]
+): Promise<Record<string, string>> {
+  try {
+    const channel = hachiman.cache.channels.get(channelId)
+    const me = hachiman.cache.user
+    if (!channel || !me) return {}
+    const userIds =
+      channel.guildId === null
+        ? []
+        : [...new Set(mentions.flatMap((m) => (m.type === 'user' && m.id ? [m.id] : [])))]
+            .filter((id) => id !== me.id)
+            .slice(0, MAX_MENTION_PUSHES)
+    if (channel.guildId !== null && userIds.length === 0) return {}
+    const keys = await pushKeys(channelId, userIds)
+    if (keys.length === 0) return {}
+    const group = (channel.recipients?.length ?? 0) > 1 && channel.name ? ` · ${channel.name}` : ''
+    const title =
+      channel.guildId === null ? `${me.username}${group}` : `${me.username} in #${channel.name}`
+    const plain = plainEmojiText(text).trim()
+    const body =
+      plain !== '' ? plain : attachments.length > 0 ? 'Sent an attachment' : 'New message'
+    return await cryptoService
+      .client()
+      .sealPushPreviews(channelId, { title, body, channelId }, keys)
+  } catch (e) {
+    console.warn('[push] no previews for this message', e)
+    return {}
+  }
 }
 
 /**
@@ -115,17 +207,25 @@ export async function disablePush(): Promise<void> {
   await syncPushTarget()
 }
 
-/** The switch of one kind. Only "Direct messages" changes the push target. */
+/** The switch of one kind. "Direct messages" and "Mentions" change what Takusen pushes. */
 export async function setNotifyKind(kind: NotifyKind, on: boolean): Promise<boolean> {
   usePrefsStore.getState().setNotificationEnabled(kind, on)
-  return kind === 'dm' ? syncPushTarget() : true
+  return kind === 'dm' || kind === 'mention' ? syncPushTarget() : true
 }
+
+let watchingPrefs = false
 
 export const pushFeature: ClientFeature = {
   name: 'push',
   // A token can change between launches (APNs), and a new device of this install has no target.
   onReady(): void {
-    if (!notifyOn('dm')) return
+    if (!watchingPrefs) {
+      watchingPrefs = true
+      usePrefsStore.subscribe((s, p) => {
+        if (s.accounts !== p.accounts) queueFilterSync()
+      })
+    }
+    if (!notifyOn('dm') && !notifyOn('mention')) return
     syncPushTarget().catch((e) => console.error('[push] could not subscribe', e))
   },
   onMessage(_m, row, ctx): void {

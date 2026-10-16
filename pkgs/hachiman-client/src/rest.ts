@@ -170,13 +170,31 @@ export interface SendMessageBody {
   attachments?: Opt<string[]>
   /** No push for this message (§4 Push): a reaction. The server cannot read the envelope kind. */
   silent?: Opt<boolean>
+  /** deviceId → the sealed push preview of that device (§4 Push, §12.22). */
+  push?: Opt<Record<string, B64url>>
 }
-/** The push target of this device (§4 Push). */
-export type PushTarget =
+/**
+ * The push target of this device as the host makes it (§4 Push). `pushKey`: the 65-byte P-256
+ * point (base64url) that senders seal previews to; its private key stays with the host.
+ */
+export type PushTarget = (
   /** `token`: the hex APNs device token. `sandbox`: a development build. */
   | { kind: 'apns'; token: string; sandbox: boolean }
-  /** `endpoint`: the `PushSubscription.endpoint` of the browser. */
-  | { kind: 'webpush'; endpoint: string }
+  /** The `PushSubscription` of the browser: its endpoint and its RFC 8291 keys. */
+  | { kind: 'webpush'; endpoint: string; p256dh: B64url; auth: B64url }
+) & { pushKey: B64url }
+/** The kinds that push to a device, and the channel and guild ids that do not (§4 Push). */
+export interface PushFilters {
+  kinds: ('dm' | 'mention')[]
+  quiet: string[]
+}
+/** A push key of a recipient device (§12.22). The sender checks `signature` in the crypto Worker. */
+export interface PushKey {
+  deviceId: string
+  userId: string
+  pushKey: B64url
+  signature: B64url
+}
 export interface UploadProgressOptions {
   signal?: Opt<AbortSignal>
   onProgress?: Opt<(loaded: number, total: number) => void>
@@ -350,7 +368,15 @@ export class RestClient {
   /** The VAPID key for `PushManager.subscribe` (§4 Push). */
   getPushConfig = () => this.req<{ vapidPublicKey: string }>('GET', '/push')
   /** Sends X-Hachiman-Device: the target replaces the previous one of this device. */
-  setPushTarget = (target: PushTarget) => this.req<undefined>('PUT', '/push', target)
+  setPushTarget = (target: PushTarget & PushFilters & { pushKeySig: B64url }) =>
+    this.req<undefined>('PUT', '/push', target)
+  setPushFilters = (filters: PushFilters) => this.req<undefined>('PATCH', '/push', filters)
+  /** DM: every other participant. Guild channel: `userIds` (at most 25) who can view it. */
+  getPushKeys = (channelId: string, userIds: string[] = []) =>
+    this.req<PushKey[]>(
+      'GET',
+      `/channels/${e(channelId)}/push-keys${userIds.length > 0 ? query({ userIds: userIds.join(',') }) : ''}`,
+    )
   deletePushTarget = () => this.req<undefined>('DELETE', '/push')
   triggerTyping = (channelId: string) => this.req<undefined>('POST', `/channels/${e(channelId)}/typing`)
   /** Moves the read state of the channel forward to `messageId` (§4). An older message is ignored. */

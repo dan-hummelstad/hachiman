@@ -985,6 +985,16 @@ export const pushTargets = pgTable(
     token: text('token').notNull(),
     /** APNs only: the token is for the development (sandbox) environment. */
     sandbox: boolean('sandbox').notNull().default(false),
+    /** Web Push only: the subscription keys for the RFC 8291 payload encryption (base64url). */
+    p256dh: text('p256dh'),
+    auth: text('auth'),
+    /** The P-256 key that senders seal previews to (§12.22), and the device signature over it. */
+    pushKey: text('push_key'),
+    pushKeySig: text('push_key_sig'),
+    /** The kinds that push to this device: 'dm', 'mention'. */
+    kinds: text('kinds').array().notNull().default(sql`'{dm,mention}'::text[]`),
+    /** Channel and guild ids that do not push (a level of 'none', a muted DM). */
+    quiet: text('quiet').array().notNull().default(sql`'{}'::text[]`),
     createdAt: createdAt(),
   },
   (table) => [index('push_targets_user_id_idx').on(table.userId)],

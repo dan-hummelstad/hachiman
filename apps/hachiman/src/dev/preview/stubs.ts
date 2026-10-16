@@ -744,6 +744,8 @@ export function stubRest(): void {
     getPushConfig: () => ({ vapidPublicKey: '' }),
     setPushTarget: () => undefined,
     deletePushTarget: () => undefined,
+    setPushFilters: () => undefined,
+    getPushKeys: () => [],
     ackMessage: () => undefined,
     getMembers: (guildId) => [...(cache.members.get(guildId)?.values() ?? [])],
     updateMember: (guildId, userId, body) => {

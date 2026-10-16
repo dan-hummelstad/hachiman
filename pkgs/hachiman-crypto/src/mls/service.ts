@@ -1230,6 +1230,17 @@ export const createGroupService = ((ctx: EngineContext, identity: IdentityServic
 
     resyncAll,
 
+    async channelRoster(channelId) {
+      const group = await groupForChannel(channelId)
+      return withGroup(group.groupId, async (g) => {
+        if (g?.handle == null) throw new CryptoError('NotMember', `this device has no leaf in the group of ${channelId}`)
+        await catchUp(g)
+        const h = g.handle as MlsGroupHandle | null
+        if (h === null) throw new CryptoError('NotMember', 'removed from the group')
+        return mls.roster(h)
+      })
+    },
+
     async sendState(channelId) {
       const group = await groupForChannel(channelId)
       if (group.status === 'retired') throw new CryptoError('GroupPending', `the group of channel ${channelId} is retired`)

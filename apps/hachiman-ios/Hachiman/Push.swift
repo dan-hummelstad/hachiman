@@ -9,10 +9,10 @@ final class Push: NSObject, UNUserNotificationCenterDelegate {
 
     private var waiting: [CheckedContinuation<Data, Error>] = []
 
-    /// Asks for permission (once; later calls answer at once), then registers with APNs.
-    /// The hex token and `sandbox` (a Debug build talks to the APNs sandbox), or nil when the
-    /// user refused.
-    func register() async throws -> [String: Any]? {
+    /// Asks for permission (once; later calls answer at once), then registers with APNs and
+    /// makes a new push key for `deviceId` (§12.22). The hex token, `sandbox` (a Debug build
+    /// talks to the APNs sandbox) and the base64url public point, or nil when the user refused.
+    func register(deviceId: String) async throws -> [String: Any]? {
         guard try await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound])
         else { return nil }
         let token = try await withCheckedThrowingContinuation { continuation in
@@ -24,7 +24,8 @@ final class Push: NSObject, UNUserNotificationCenterDelegate {
         #else
         let sandbox = false
         #endif
-        return ["token": Self.hex(token), "sandbox": sandbox]
+        let pushKey = try PushKeyStore.rotate(deviceId: deviceId)
+        return ["token": Self.hex(token), "sandbox": sandbox, "pushKey": pushKey.base64URL]
     }
 
     func didRegister(_ token: Data) { resume(.success(token)) }

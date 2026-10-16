@@ -39,19 +39,41 @@ async function shareWithNavigator(content: ShareContent): Promise<boolean> {
   }
 }
 
+const b64u = (buf: ArrayBuffer | null): string =>
+  btoa(String.fromCharCode(...new Uint8Array(buf ?? new ArrayBuffer(0))))
+    .replaceAll("+", "-")
+    .replaceAll("/", "_")
+    .replace(/=+$/, "");
+
+/** A new push key from the service worker, which keeps its private half (public/sw.js). */
+function workerPushKey(
+  worker: ServiceWorker,
+  deviceId: string,
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const channel = new MessageChannel();
+    channel.port1.onmessage = ({ data }) =>
+      typeof data?.pushKey === "string"
+        ? resolve(data.pushKey)
+        : reject(new Error(String(data?.error ?? "no push key")));
+    worker.postMessage({ op: "push-key", deviceId }, [channel.port2]);
+  });
+}
+
 /**
- * Web Push through `/sw.js` (public/sw.js). Takusen sends empty pushes, so the subscription keys
- * (`p256dh`, `auth`) are not used: only the endpoint goes to Takusen. Null when the browser has
- * no Push API or the user refused.
+ * Web Push through `/sw.js` (public/sw.js). Takusen encrypts each push to the subscription keys
+ * (`p256dh`, `auth`, RFC 8291), and inside it the sender's preview is sealed to the push key of
+ * the service worker (§12.22). Null when the browser has no Push API or the user refused.
  */
 async function subscribeWebPush(
   vapidPublicKey: string,
+  deviceId: string,
 ): Promise<PushTarget | null> {
   if (!("serviceWorker" in navigator) || !("PushManager" in window))
     return null;
   if ((await Notification.requestPermission()) !== "granted") return null;
   const reg = await navigator.serviceWorker.register("/sw.js");
-  await navigator.serviceWorker.ready;
+  const ready = await navigator.serviceWorker.ready;
   const key = Uint8Array.from(
     atob(vapidPublicKey.replaceAll("-", "+").replaceAll("_", "/")),
     (c) => c.charCodeAt(0),
@@ -68,7 +90,15 @@ async function subscribeWebPush(
     userVisibleOnly: true,
     applicationServerKey: key,
   });
-  return { kind: "webpush", endpoint: sub.endpoint };
+  const worker = ready.active ?? reg.active;
+  if (!worker) return null;
+  return {
+    kind: "webpush",
+    endpoint: sub.endpoint,
+    p256dh: b64u(sub.getKey("p256dh")),
+    auth: b64u(sub.getKey("auth")),
+    pushKey: await workerPushKey(worker, deviceId),
+  };
 }
 
 export const platformService: IPlatformService = {

@@ -64,10 +64,18 @@ export function createIosPlatformService(
       }),
     scanQr: () => call("scanQr", {}),
     saveTextFile: (name, text) => call("saveTextFile", { name, text }),
-    // APNs. The VAPID key is for Web Push only.
-    pushSubscribe: async () => {
-      const r = await call("push.register", {});
-      return r && { kind: "apns", token: r.token, sandbox: r.sandbox };
+    // APNs. The VAPID key is for Web Push only. The push key's private half stays in the
+    // Keychain group of the Notification Service Extension (Hachiman/Push.swift).
+    pushSubscribe: async (_vapidPublicKey, deviceId) => {
+      const r = await call("push.register", { deviceId });
+      return (
+        r && {
+          kind: "apns",
+          token: r.token,
+          sandbox: r.sandbox,
+          pushKey: r.pushKey,
+        }
+      );
     },
     setAppearance: ({ theme, background }) => {
       call("setAppearance", { theme, background }).catch(

@@ -40,11 +40,13 @@ export interface BridgeOps {
   setAppearance: [Appearance, null];
   /**
    * Asks for notification permission and registers with APNs (Hachiman/Push.swift). The hex
-   * device token, `sandbox` for a Debug build; null when the user refused.
+   * device token, `sandbox` for a Debug build, and a new push key (base64url P-256 point) for
+   * `deviceId`, whose private half only the Notification Service Extension reads. Null when
+   * the user refused.
    */
   "push.register": [
-    Record<string, never>,
-    { token: string; sandbox: boolean } | null,
+    { deviceId: string },
+    { token: string; sandbox: boolean; pushKey: string } | null,
   ];
 }
 

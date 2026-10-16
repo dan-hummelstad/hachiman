@@ -3,13 +3,14 @@
  *      Messages, newest first; VIEW_CHANNEL + READ_MESSAGE_HISTORY. `before`
  *      resolves server-side to its (created_at, id) so ties within a timestamp
  *      page correctly.
- * POST /api/v1/channels/:id/messages { envelope, nonce?, attachments?, silent? } +
+ * POST /api/v1/channels/:id/messages { envelope, nonce?, attachments?, silent?, push? } +
  *      X-Hachiman-Device — SEND_MESSAGES, plus ATTACH_FILES when attachments
  *      is not empty, plus the envelope checks of §12.8.4. `attachments` lists,
  *      per pointer, the file id and then its thumbnail id (at most 20 ids).
  *      `nonce` is echoed in the response and MESSAGE_CREATE, never stored.
  *      In a 1:1 DM, a block in either direction gives 403 `Blocked`. A DM
- *      message pushes to the offline devices of the other participants (§4 Push).
+ *      message pushes to the offline devices of the other participants, a guild
+ *      message to the devices in `push` (sealed previews of its mentions, §4 Push).
  */
 import { and, desc, eq, sql } from 'drizzle-orm'
 import { Permissions } from '@hachiman/client/permissions'
@@ -25,7 +26,7 @@ import { toAttachment } from '@/lib/files'
 import { loadChannelAccess, publishToChannel, requirePermission } from '@/lib/guild-access'
 import { requireUserById, userColumns } from '@/lib/guilds'
 import { requireDevice } from '@/lib/mls/device-auth'
-import { pushNewMessage } from '@/lib/push'
+import { canViewChannel, pushMessage } from '@/lib/push'
 import { acceptEnvelope } from '@/lib/mls/envelopes'
 import { loadAttachments } from '@/lib/uploads'
 import { createMessageSchema, parseMessageQuery, toMessage } from '@/lib/wire'
@@ -102,9 +103,17 @@ export async function POST(req: NextRequest, ctx: RouteContext): Promise<NextRes
     const author = await requireUserById(userId)
     const message = toMessage(row, author, access.channel.guildId, claimed.map(toAttachment), body.nonce)
     await publishToChannel(access, 'MESSAGE_CREATE', message)
-    // ponytail: DMs only. A guild message pings by mention, and mentions are inside the envelope.
-    if (access.channel.guildId === null && !body.silent) {
-      void pushNewMessage(access.participantIds.filter((p) => p !== userId), id).catch((e) => console.error('[push]', e))
+    // A DM pushes to every other participant. A guild message pushes only to the devices that the
+    // sender sealed a preview for (its mentions): the mentions are inside the envelope.
+    if (!body.silent) {
+      void pushMessage({
+        channelId: id,
+        guildId: access.channel.guildId,
+        authorId: userId,
+        recipientIds: access.channel.guildId === null ? access.participantIds.filter((p) => p !== userId) : [],
+        sealed: body.push,
+        canView: (u) => canViewChannel(id, u),
+      }).catch((e) => console.error('[push]', e))
     }
     return NextResponse.json(message)
   } catch (err) {

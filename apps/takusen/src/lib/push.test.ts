@@ -1,8 +1,39 @@
 import assert from 'node:assert/strict'
-import { createPublicKey, randomBytes, verify } from 'node:crypto'
+import { createDecipheriv, createECDH, createPublicKey, hkdfSync, randomBytes, verify } from 'node:crypto'
 import { test } from 'node:test'
 
-import { es256Jwt, isWebPushEndpoint, p256FromScalar } from './push'
+import { apnsPayload, encryptWebPush, es256Jwt, isWebPushEndpoint, p256FromScalar } from './push'
+
+test('encryptWebPush is RFC 8291 aes128gcm: the user agent side decrypts it', () => {
+  const ua = createECDH('prime256v1')
+  const uaPublic = ua.generateKeys()
+  const auth = randomBytes(16)
+  const msg = encryptWebPush(Buffer.from('{"c":"x","e":"abc"}'), uaPublic, auth)
+  // The user agent side, with hkdfSync (RFC 5869) instead of the hand-made HMAC steps.
+  const salt = msg.subarray(0, 16)
+  assert.equal(msg.readUInt32BE(16), 4096)
+  const idlen = msg[20]!
+  const asPublic = msg.subarray(21, 21 + idlen)
+  const body = msg.subarray(21 + idlen)
+  const secret = ua.computeSecret(asPublic)
+  const ikm = Buffer.from(hkdfSync('sha256', secret, auth, Buffer.concat([Buffer.from('WebPush: info\0'), uaPublic, asPublic]), 32))
+  const cek = Buffer.from(hkdfSync('sha256', ikm, salt, Buffer.from('Content-Encoding: aes128gcm\0'), 16))
+  const nonce = Buffer.from(hkdfSync('sha256', ikm, salt, Buffer.from('Content-Encoding: nonce\0'), 12))
+  const d = createDecipheriv('aes-128-gcm', cek, nonce)
+  d.setAuthTag(body.subarray(body.length - 16))
+  const pt = Buffer.concat([d.update(body.subarray(0, body.length - 16)), d.final()])
+  assert.equal(pt[pt.length - 1], 2)
+  assert.equal(pt.subarray(0, -1).toString(), '{"c":"x","e":"abc"}')
+})
+
+test('apnsPayload wakes the service extension only for a sealed preview', () => {
+  assert.deepEqual(apnsPayload('c', 'sealed'), {
+    aps: { alert: { title: 'Hachiman', body: 'New message' }, sound: 'default', 'thread-id': 'c', 'mutable-content': 1 },
+    c: 'c',
+    e: 'sealed',
+  })
+  assert.equal('mutable-content' in (apnsPayload('c', undefined) as { aps: object }).aps, false)
+})
 
 test('es256Jwt signs a raw r‖s JWS that the public point verifies', () => {
   const { key, publicKey } = p256FromScalar(randomBytes(32))

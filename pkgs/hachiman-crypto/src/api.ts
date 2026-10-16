@@ -1070,6 +1070,24 @@ export interface CryptoApi {
    */
   proveDevice(input: DeviceProofInput): Promise<DeviceProof>
 
+  // push previews (§12.22)
+  /**
+   * Signs the push key of this device (a 65-byte uncompressed P-256 point, base64url) with the
+   * device MLS signature key: SignWithLabel("PushKey", deviceId ‖ pushKey). Takusen stores the
+   * signature with the push target; a sender checks it against the leaf of the device.
+   */
+  signPushKey(pushKey: B64url): Promise<B64url>
+  /**
+   * Seals `preview` (HPKE, §12.22) to the push key of each target whose signature verifies under
+   * the signature key of that device's leaf in the group of `channelId`. A target without a leaf,
+   * with a bad signature, or of this device is skipped. Returns deviceId → base64url(enc ‖ ct).
+   */
+  sealPushPreviews(
+    channelId: ChannelId,
+    preview: PushPreview,
+    targets: PushKeyTarget[]
+  ): Promise<Record<DeviceId, B64url>>
+
   // voice (§8, §12.10)
   /**
    * guildId: the guild of the voice channel, or null for a DM or group DM call. The creator writes
@@ -1491,6 +1509,21 @@ export interface GroupIdParts {
 }
 
 /** A leaf as the roster sees it. */
+/** The plaintext of a sealed push preview (§12.22), as JSON `{t, b, c}`. */
+export interface PushPreview {
+  /** The sender name, and the channel for a guild message. */
+  title: string
+  body: string
+  channelId: ChannelId
+}
+
+/** A push key of a recipient device, as Takusen serves it (§4 Push). */
+export interface PushKeyTarget {
+  deviceId: DeviceId
+  pushKey: B64url
+  signature: B64url
+}
+
 export interface LeafEntry {
   leafIndex: number
   userId: UserId
@@ -2080,6 +2113,8 @@ export interface GroupService extends Pick<CryptoApi, 'sync' | 'ensureChannelGro
   resyncAll(reason: 'dsk_rotated' | 'fork' | 'state_lost'): Promise<void>
   /** Catches up, commits pending Removes (§12.7.5), then returns the state to encrypt with. */
   sendState(channelId: ChannelId): Promise<SendState>
+  /** The leaves of the group of a channel after a catch-up. NotMember without an own leaf. */
+  channelRoster(channelId: ChannelId): Promise<LeafEntry[]>
   /** S_e of an epoch from the live state, the store, a bundle or a backup. Null when unknown. */
   epochSecret(groupId: Uint8Array, epoch: number): Promise<Uint8Array | null>
   /** The leaf that a device held at an epoch, from observed commits. Null when not observed. */

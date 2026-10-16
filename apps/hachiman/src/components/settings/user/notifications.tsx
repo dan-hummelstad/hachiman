@@ -82,7 +82,7 @@ function useNotifySettings(): {
   const hint =
     platform.pushSubscribe === null
       ? 'While Hachiman runs in the background or the tray.'
-      : `Direct messages also notify this ${noun} while Hachiman is closed, with no name and no text: messages are end-to-end encrypted.`
+      : `Direct messages and mentions also notify this ${noun} while Hachiman is closed. The sender and the text stay end-to-end encrypted: only this ${noun} can read them.`
 
   return {
     on,
@@ -152,8 +152,8 @@ export function NotificationSettings(): React.JSX.Element {
 /**
  * User settings → Notifications on the mobile layout (M33): the switches of this device, then
  * GUILD OVERRIDES: one row per guild, in my guild order, with its level or "Muted". A tap opens
- * the guild's notification settings as a sheet. A push names no sender and no text: Takusen
- * cannot read them. Lock screen previews and quiet hours come later (spec §5).
+ * the guild's notification settings as a sheet. The sender and text of a push are sealed to this
+ * device (§12.22): Takusen cannot read them. Quiet hours come later (spec §5).
  */
 export function NotificationsSection(): React.JSX.Element {
   const guilds = useGuildStore((s) => s.guilds)
