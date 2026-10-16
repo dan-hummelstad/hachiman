@@ -88,7 +88,9 @@ macOS runners use 10 times the plan minutes in a private repository.
 ## Back up
 
 - `/opt/hachiman/.env`: all secrets. Nothing else has a copy.
-- `/opt/hachiman/data/keys/`: the DS, KT and voice signing keys. If you lose the DS and KT keys, E2EE delivery and key transparency break for all devices.
+- `/opt/hachiman/data/keys/`: the DS, KT and voice signing keys, the Web Push (VAPID) key and the APNs `.p8` key. If you lose the DS and KT keys, E2EE delivery and key transparency break for all devices. If you lose the VAPID key, browser push stops until each browser opens the app again.
+
+**Push notifications** (contract §4 Push). Web Push needs `TAKUSEN_VAPID_KEY=/keys/takusen-vapid.p256` and `TAKUSEN_VAPID_SUBJECT=mailto:<you>` in `/opt/hachiman/.env`. A server set up before push has neither: add the two lines by hand, as `bootstrap-env.sh` keeps an existing `.env`. iOS push needs an APNs key from developer.apple.com (Keys → Apple Push Notifications service). Copy the `.p8` to `/opt/hachiman/data/keys/` and add `TAKUSEN_APNS_KEY=/keys/AuthKey_<key id>.p8`, `TAKUSEN_APNS_KEY_ID`, `TAKUSEN_APNS_TEAM_ID` and `TAKUSEN_APNS_TOPIC` (the bundle id). Then `docker compose up -d takusen`.
 - `/opt/hachiman/backups/`: the nightly database dumps, one file for each weekday.
 - `/opt/hachiman/data/seaweedfs/`: the uploaded files (ciphertext).
 

@@ -58,6 +58,10 @@ HACHIMAN_WEB_URL=https://app.${DOMAIN}
 HACHIMAN_CLIENT_REDIRECT_URIS=app.hachiman://oauth-callback,https://${DOMAIN}/oauth/electron-bridge,https://app.${DOMAIN}/oauth/callback
 TAKUSEN_DS_SIGNING_KEY=/keys/takusen-ds.ed25519
 TAKUSEN_KT_SIGNING_KEY=/keys/takusen-kt.ed25519
+# Web Push (contract §4 Push). On the volume: a new key on each deploy would orphan every
+# browser subscription. APNs needs TAKUSEN_APNS_* by hand (infra/README.md).
+TAKUSEN_VAPID_KEY=/keys/takusen-vapid.p256
+TAKUSEN_VAPID_SUBJECT=mailto:admin@${DOMAIN}
 
 GATEWAY_LISTEN_ADDR=127.0.0.1:8080
 TAKUSEN_URL=http://127.0.0.1:3000
