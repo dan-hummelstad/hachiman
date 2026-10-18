@@ -22,13 +22,14 @@ export function AddPeopleButton({
       >
         <UserPlus />
       </IconButton>
-      {/* A group DM takes new members; a 1:1 DM starts a group with its partner. */}
       <NewMessageDialog
         open={open}
         onClose={() => setOpen(false)}
-        {...(channel.type === 'group_dm'
-          ? { addTo: channel }
-          : { include: channel.recipients ?? [] })}
+        mode={
+          channel.type === 'group_dm'
+            ? { kind: 'add', to: channel }
+            : { kind: 'group', with: channel.recipients ?? [] }
+        }
       />
     </>
   )

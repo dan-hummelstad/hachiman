@@ -240,7 +240,6 @@ export function GroupAvatars({
   size: keyof typeof GROUP_STACK
 }): React.JSX.Element {
   const { h, face, at } = GROUP_STACK[size]
-  // A group image replaces the faces.
   if (channel.icon) {
     return (
       <span aria-hidden className="flex shrink-0 items-center" style={{ width: size, height: h }}>

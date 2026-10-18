@@ -7,9 +7,8 @@ import { type NextRequest, type NextResponse } from 'next/server'
 
 import { errorResponse, noContent, requireMe } from '@/lib/api-helpers'
 import { requireUser } from '@/lib/auth-helpers'
-import { NotFoundError } from '@/lib/errors'
 import { actorDeviceId, loadChannelAccess } from '@/lib/guild-access'
-import { leaveGroupDm, requireGroupDm } from '@/lib/group-dm'
+import { asGroupDm, leaveGroupDm } from '@/lib/group-dm'
 
 interface RouteContext {
   params: Promise<{ id: string; channelId: string }>
@@ -17,13 +16,11 @@ interface RouteContext {
 
 export async function DELETE(req: NextRequest, ctx: RouteContext): Promise<NextResponse> {
   try {
-    const session = await requireUser()
+    const me = (await requireUser()).user.id
     const { id, channelId } = await ctx.params
     requireMe(id)
-    const access = await loadChannelAccess(channelId, session.user.id)
-    if (access.guild) throw new NotFoundError('Unknown channel')
-    requireGroupDm(access.channel)
-    await leaveGroupDm(access.channel, session.user.id, await actorDeviceId(req, session.user.id))
+    const dm = asGroupDm(await loadChannelAccess(channelId, me))
+    await leaveGroupDm(dm, me, await actorDeviceId(req, me))
     return noContent()
   } catch (err) {
     return errorResponse(err)

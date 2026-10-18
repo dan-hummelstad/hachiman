@@ -17,8 +17,8 @@ import { useUserStore } from '@/stores/userStore'
 type Confirm = 'leave' | 'delete' | null
 
 /**
- * The header button of a group DM: its settings (name and image, for any participant), Leave, and
- * Delete for the owner. A 1:1 DM has none. Leave and Delete ask first, then show the DM home.
+ * The settings button of a group DM: name and image (any participant), Leave, and Delete for the
+ * owner. Leave and Delete ask first, then show the DM home.
  */
 export function GroupSettingsButton({
   channel,
@@ -26,11 +26,10 @@ export function GroupSettingsButton({
 }: {
   channel: Channel
   className?: string
-}): React.JSX.Element | null {
+}): React.JSX.Element {
   const [open, setOpen] = useState(false)
   const [confirm, setConfirm] = useState<Confirm>(null)
   const isOwner = useUserStore((s) => s.me?.id === channel.ownerId)
-  if (channel.type !== 'group_dm') return null
   const name = dmName(channel)
   const ask = (c: Confirm): void => {
     setOpen(false)

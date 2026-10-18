@@ -25,7 +25,7 @@ import { enforceAdminAction } from '@/lib/admin-actions'
 import { errorResponse, noContent, parseBody } from '@/lib/api-helpers'
 import { requireUser } from '@/lib/auth-helpers'
 import { MissingPermissionsError, ValidationError } from '@/lib/errors'
-import { deleteGroupDm, participantsOf, publishDm, requireGroupDm, updateGroupDm } from '@/lib/group-dm'
+import { asGroupDm, deleteGroupDm, updateGroupDm } from '@/lib/group-dm'
 import {
   actorDeviceId,
   channelIsPublic,
@@ -40,7 +40,7 @@ import { loadChannel, membershipChanged, membershipTransaction, MembershipTrigge
 import { deleteObjects } from '@/lib/storage'
 import { canManageThread } from '@/lib/threads'
 import { deleteAttachmentRows } from '@/lib/uploads'
-import { toChannel, toDmChannel } from '@/lib/wire'
+import { toChannel } from '@/lib/wire'
 
 interface RouteContext {
   params: Promise<{ id: string }>
@@ -73,10 +73,8 @@ export async function PATCH(req: NextRequest, ctx: RouteContext): Promise<NextRe
     const { id } = await ctx.params
     const access = await loadChannelAccess(id, session.user.id)
     if (!access.guild) {
-      requireGroupDm(access.channel)
-      const row = await updateGroupDm(access.channel, session.user.id, await parseBody(req, updateGroupDmSchema))
-      await publishDm(row, 'CHANNEL_UPDATE', access.participantIds)
-      return NextResponse.json(toDmChannel(row, (await participantsOf([id])).get(id) ?? [], session.user.id))
+      const body = await parseBody(req, updateGroupDmSchema)
+      return NextResponse.json(await updateGroupDm(asGroupDm(access), session.user.id, body))
     }
     assertManageable(access, session.user.id)
     const { historyVisibility, ...body } = await parseBody(req, updateChannelSchema)
@@ -125,8 +123,7 @@ export async function DELETE(req: NextRequest, ctx: RouteContext): Promise<NextR
     const access = await loadChannelAccess(id, session.user.id)
     const actor = await actorDeviceId(req, session.user.id)
     if (!access.guild) {
-      requireGroupDm(access.channel)
-      await deleteGroupDm(access.channel, session.user.id, access.participantIds, actor)
+      await deleteGroupDm(asGroupDm(access), session.user.id, actor)
       return noContent()
     }
     assertManageable(access, session.user.id)

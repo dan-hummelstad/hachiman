@@ -82,7 +82,9 @@ export function ChannelPane({
             {isDm && <DmCallButton channel={channel} className={HEADER_BUTTON} />}
             {isDm && <DmPokeButton channel={channel} />}
             {isDm && <AddPeopleButton channel={channel} className={HEADER_BUTTON} />}
-            {isDm && <GroupSettingsButton channel={channel} className={HEADER_BUTTON} />}
+            {channel.type === 'group_dm' && (
+              <GroupSettingsButton channel={channel} className={HEADER_BUTTON} />
+            )}
             {channel.type === 'voice' && isGuildChannel(channel) && (
               <VoiceHeaderExtras channel={channel} />
             )}
