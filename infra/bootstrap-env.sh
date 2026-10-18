@@ -88,7 +88,8 @@ set_env() {
 # Web Push (contract §4 Push). On the volume: a key inside the container would be new on each
 # deploy and orphan every browser subscription.
 add_env TAKUSEN_VAPID_KEY /keys/takusen-vapid.p256
-add_env TAKUSEN_VAPID_SUBJECT "mailto:admin@${DOMAIN}"
+# ponytail: one fixed contact; make it a variable when someone else runs a server.
+add_env TAKUSEN_VAPID_SUBJECT "mailto:daniel@hummelstad.me"
 
 # APNs (contract §4 Push): only when deploy.sh got the key from CI. Without it, iOS push is off,
 # or the lines that someone wrote by hand stay.
