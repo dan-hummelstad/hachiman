@@ -351,11 +351,11 @@ The plan's order of value still holds: rows A and B first, then C (sign in on a 
 - **Owns:** `apps/hachiman-ios/index.html`, `apps/hachiman-ios/Hachiman/WebView.swift`, `apps/hachiman-ios/Hachiman/Info.plist`, `apps/hachiman-ios/src/probe.ts`.
 - **Work:**
   - `apps/hachiman-ios/index.html`: add `maximum-scale=1` to the viewport.
-  - `apps/hachiman-ios/Hachiman/WebView.swift`: `allowsLinkPreview = false`. A `WKUIDelegate` `contextMenuConfigurationForElement` that returns nil. `scrollView.bounces = false` (inner scrollers keep momentum). Hide the form input accessory bar (prev, next, Done) by overriding `inputAccessoryView` of the content view. Keep `allowsBackForwardNavigationGestures = false`.
+  - `apps/hachiman-ios/Hachiman/WebView.swift`: `allowsLinkPreview = false`. A `WKUIDelegate` `contextMenuConfigurationForElement` that returns nil. `scrollView.bounces = false` (inner scrollers keep momentum). The form input accessory bar (prev, next, Done) stays: WebKit has no public API to hide it, and the app uses no private API. The page sits on top of it, because the visual viewport ends above the bar. Keep `allowsBackForwardNavigationGestures = false`.
   - `apps/hachiman-ios/Hachiman/Info.plist`: add `NSPhotoLibraryUsageDescription` (file input picker, M61, M30).
   - `apps/hachiman-ios/src/probe.ts`: report `navigator.clipboard.writeText` and `readText` under `hachiman://app`, and `ClipboardItem` with a promise.
-- **Check:** in the simulator, hold a link in a message: no WebKit preview. Focus the composer: no accessory bar over the keyboard. The page does not rubber-band.
-- **Depends on:** nothing. The accessory-bar override uses a private view class. Section 6 lists the App Review risk.
+- **Check:** in the simulator, hold a link in a message: no WebKit preview. Focus the composer: it sits on the accessory bar, with no gap. The page does not rubber-band.
+- **Depends on:** nothing.
 
 #### P5 · `saveTextFile` seam
 
@@ -467,7 +467,7 @@ The plan's order of value still holds: rows A and B first, then C (sign in on a 
   - `MobileComposer`: Attach 40 outside the field (one file input, so iOS offers Photo Library, Take Photo and Choose Files), field 44 with a 16 px textarea up to about 5 lines, the E2EE chip and the emoji button (emoji sheet). Send (accent, arrow-up) shows when there is text or an upload. With no text the right slot is empty. Return adds a newline. `autoCapitalize="sentences"`, `autoCorrect="on"`, `enterKeyHint="enter"`, `caret-color: var(--accent-primary)`.
   - `components/chat/mention-menu.tsx`: on mobile a full-width square popover above the composer row (x 8, width minus 16), max height = the space above the composer. A header row with the scope ("MEMBERS · Night Owls") and the trigger char. Rows 46: avatar 32, role-ink name, crown for the owner, activity line, highest role name on the right. Picks use `onPointerDown` with `preventDefault` plus `onClick`, and the textarea `onBlur` clear waits about 150 ms.
   - `MobileChatFooter` swaps in `MobileComposer`.
-- **Native hooks:** P4 hides the accessory bar. Optional later: a native keyboard-frame event for smoother tracking.
+- **Native hooks:** none. Optional later: a native keyboard-frame event for smoother tracking.
 - **Check:** Simulator: tap the field: the keyboard rises, the composer sits on it, the voice bar hides, no zoom. Type "@ma": the popover shows marlowe first. Tap marlowe: "@marlowe " is inserted. Send sends and clears. Drag the transcript down: the keyboard closes. Desktop: Enter still sends.
 - **Depends on:** A2, P1.
 
@@ -708,8 +708,8 @@ M36 is in A5.
   - The editor focus goes to `components/docs/page-editor-state.ts` (F2), so the page bar shows Done. The pill and foot hide while the keyboard is open.
   - Slash menu (touch): two groups, "Basic blocks" (text, heading, task list, bullets, numbers, quote, code, divider) and "In Hachiman" (New sub-page, Link to page). Width = viewport minus 24, max height = the room above the toolbar. A CSS skin with 46 rows and section labels. No per-item hints (Crepe items have only label and icon).
   - `components/docs/page-picker.tsx`: a bottom sheet with search on touch.
-- **Native hooks:** P4 hides the accessory bar. `haptic('light')` on insert (optional).
-- **Check:** Simulator: tap a block: the toolbar rides on the keyboard with no accessory bar between. Tap "to-do": the block turns into a to-do and the keyboard stays. Type "/": the menu fits above the toolbar.
+- **Native hooks:** `haptic('light')` on insert (optional).
+- **Check:** Simulator: tap a block: the toolbar rides on the accessory bar above the keyboard. Tap "to-do": the block turns into a to-do and the keyboard stays. Type "/": the menu fits above the toolbar.
 - **Depends on:** F2, P4.
 
 #### F3b · Page actions sheet
@@ -969,7 +969,7 @@ M65 is in B2.
 | Members | A1, A4 |
 | Pinned tabs | A1 (scroll, scroll into view), A5 (hold to reorder or unpin) |
 | Message actions | P2 (`useLongPress`), A3 (lift, sheet, tap outside closes) |
-| Keyboard | P1 (`--kb`), P4 (no accessory bar), A2 (voice bar hides), A6 (composer, `@` popover) |
+| Keyboard | P1 (`--kb`), A2 (voice bar hides), A6 (composer, `@` popover) |
 | Voice | A2 |
 | Sizes | P1, A1, A2, A6 |
 | Touch | P3, A5, I1, B2 (section 2.10) |
@@ -1107,7 +1107,7 @@ These are product features. Each one is a separate PR with its own server, contr
 - **Gesture conflicts.** Edge swipe (drawer or back), swipe down (sheets), sideways scrollers (tabs, chips, role strip) and touch drags (reorder) all compete. Section 2.4 and 2.9 set the order. Test on a device early.
 - **dnd-kit on touch.** Today a 4 px `PointerSensor` turns every scroll of the tab strip or a manager's channel list into a drag. A5 must land before the drawer is usable for managers.
 - **Radix ContextMenu.** It opens after a 700 ms touch hold. If P6 misses one trigger, two menus open. Search all `ContextMenuTrigger` uses after P6.
-- **WKWebView keyboard.** Focus outside a gesture does not raise the keyboard. `visualViewport` lags the animation. The accessory-bar override uses a private class (App Review risk). Check in the simulator in P1 and P4.
+- **WKWebView keyboard.** Focus outside a gesture does not raise the keyboard. `visualViewport` lags the animation. The accessory bar stays (no public API hides it). Check in the simulator in P1 and P4.
 - **Focus zoom.** Any field under 16 px zooms. P1 sets 16 px in CSS and P4 sets `maximum-scale=1`.
 - **Clipboard.** `writeText` after an await can fail in WebKit. For an invite with history the link is then lost (H4). The P4 probe tells us what works under `hachiman://app`.
 - **Background kills.** WebKit can kill the content process in the background. The in-memory key-change severity is then lost, and the blocking dialog and paused composer go away while trust stays "changed". This needs the `TrustInfo` severity field (section 5) before I3 can be fully correct.

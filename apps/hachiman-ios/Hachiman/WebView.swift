@@ -40,9 +40,8 @@ final class WebHost: NSObject, WKNavigationDelegate, WKUIDelegate {
         #if DEBUG
         webView.isInspectable = true
         #endif
-        if !Self.hideInputAccessoryBar(of: webView) {
-            NSLog("[hachiman] no WKContentView: the keyboard accessory bar stays")
-        }
+        // The bar above the keyboard (previous, next, Done) stays: WebKit has no public API to hide
+        // it. The page sits on top of it, because the visual viewport ends above the bar.
         loadStart()
     }
 
@@ -59,20 +58,6 @@ final class WebHost: NSObject, WKNavigationDelegate, WKUIDelegate {
         #else
         webView.load(URLRequest(url: AppSchemeHandler.startURL))
         #endif
-    }
-
-    /// Removes the bar above the keyboard (previous, next, Done) for every field of the page. The
-    /// page puts its own toolbar on the keyboard. WebKit has no API for this, so the content view
-    /// (the private `WKContentView`) gets a subclass whose `inputAccessoryView` is nil. Returns false
-    /// and changes nothing when WebKit has no such view.
-    static func hideInputAccessoryBar(of webView: WKWebView) -> Bool {
-        guard let contentClass = NSClassFromString("WKContentView"),
-            let contentView = webView.scrollView.subviews.first(where: { $0.isKind(of: contentClass) }),
-            let base = object_getClass(contentView),
-            let subclass = noInputAccessorySubclass(of: base)
-        else { return false }
-        object_setClass(contentView, subclass)
-        return true
     }
 
     static func isAppURL(_ url: URL?) -> Bool {
@@ -146,20 +131,6 @@ final class WebHost: NSObject, WKNavigationDelegate, WKUIDelegate {
             isMainFrame: frame.isMainFrame, scheme: origin.protocol, host: origin.host, port: origin.port)
         decisionHandler(trusted ? .grant : .deny)
     }
-}
-
-/// A subclass of `base` whose `inputAccessoryView` is nil. It is made once per base class.
-private func noInputAccessorySubclass(of base: AnyClass) -> AnyClass? {
-    let name = NSStringFromClass(base) + "_HachimanNoInputAccessory"
-    if let existing = NSClassFromString(name) { return existing }
-    let selector = #selector(getter: UIResponder.inputAccessoryView)
-    guard let method = class_getInstanceMethod(base, selector),
-        let subclass = objc_allocateClassPair(base, name, 0)
-    else { return nil }
-    let noView: @convention(block) (AnyObject) -> UIView? = { _ in nil }
-    class_addMethod(subclass, selector, imp_implementationWithBlock(noView), method_getTypeEncoding(method))
-    objc_registerClassPair(subclass)
-    return subclass
 }
 
 struct WebView: UIViewRepresentable {
