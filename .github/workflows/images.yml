@@ -3,6 +3,8 @@
 # Settings > Secrets and variables > Actions:
 #   variables HACHIMAN_DOMAIN (the web image bakes the endpoints in) and DEPLOY_HOST (the VM's public IP)
 #   secrets DEPLOY_SSH_KEY (private key of a key in ubuntu's authorized_keys) and DEPLOY_KNOWN_HOSTS (ssh-keyscan <ip>)
+#   iOS push (optional): secrets APNS_KEY_P8 (the .p8 key, base64) and APNS_KEY_ID; the team and
+#   the topic are the variables APPLE_TEAM_ID and HACHIMAN_BUNDLE_ID of the iOS workflow
 name: Images
 on:
   push:
@@ -89,6 +91,10 @@ jobs:
           IMAGE_TAG: ${{ github.sha }}
           GHCR_USER: ${{ github.actor }}
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APNS_KEY_P8: ${{ secrets.APNS_KEY_P8 }}
+          APNS_KEY_ID: ${{ secrets.APNS_KEY_ID }}
+          APNS_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+          APNS_TOPIC: ${{ vars.HACHIMAN_BUNDLE_ID || 'app.hachiman.ios' }}
 
   # GHCR is free for now, but every push adds a version of each image. Keep the newest 10 (rollback targets).
   prune:
