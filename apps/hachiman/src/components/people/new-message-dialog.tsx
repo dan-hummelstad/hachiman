@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Check, Search, SquarePen, UserPlus, X } from 'lucide-react'
-import { DEFAULT_LIMITS, type User } from '@hachiman/client'
+import { DEFAULT_LIMITS, type Channel, type User } from '@hachiman/client'
 import { UserAvatar } from '@/components/shell/user-avatar'
 import { Button } from '@/components/ui/button'
 import { ErrorText } from '@/components/ui/field'
@@ -8,7 +8,7 @@ import { ModalWindow } from '@/components/ui/modal-window'
 import { useAction } from '@/hooks/use-action'
 import { usePresence } from '@/hooks/use-member'
 import { cn } from '@/lib/utils'
-import { openDmWith } from '@/services/hachiman'
+import { hachiman, openDmWith } from '@/services/hachiman'
 import { ensureLimits } from '@/services/UploadService'
 import { useLimitsStore } from '@/stores/limitsStore'
 import { useUserStore } from '@/stores/userStore'
@@ -16,40 +16,46 @@ import { filterPeople, usePeople } from './use-people'
 
 /**
  * "New message": pick one or more people I share a guild with. One opens (or reuses) the DM, two
- * or more create a group DM. `include` preselects the people of an open DM: members of a group DM
- * cannot change, so adding people there starts a new group.
+ * or more create a group DM. `include` preselects the people of a 1:1 DM, to start a group with
+ * them. `addTo` adds the picks to that group DM instead; its members are not offered.
  */
 export function NewMessageDialog({
   open,
   onClose,
-  include
+  include,
+  addTo
 }: {
   open: boolean
   onClose: () => void
   include?: User[]
+  addTo?: Channel
 }): React.JSX.Element {
   return (
     <ModalWindow
       open={open}
       onClose={onClose}
-      title={include ? 'Add people' : 'New message'}
+      title={include || addTo ? 'Add people' : 'New message'}
       description={
-        include
-          ? 'Start a new group with the people of this conversation.'
-          : 'Pick one person, or several for a group.'
+        addTo
+          ? 'They’ll see the messages sent from now on.'
+          : include
+            ? 'Start a new group with the people of this conversation.'
+            : 'Pick one person, or several for a group.'
       }
-      icon={include ? <UserPlus /> : <SquarePen />}
+      icon={include || addTo ? <UserPlus /> : <SquarePen />}
     >
-      {open && <Picker include={include} onClose={onClose} />}
+      {open && <Picker include={include} addTo={addTo} onClose={onClose} />}
     </ModalWindow>
   )
 }
 
 function Picker({
   include,
+  addTo,
   onClose
 }: {
   include?: User[]
+  addTo?: Channel
   onClose: () => void
 }): React.JSX.Element {
   const people = usePeople()
@@ -57,9 +63,13 @@ function Picker({
   const [query, setQuery] = useState('')
   const [picked, setPicked] = useState<User[]>(include ?? [])
   const { run, busy, error } = useAction()
+  const members = addTo?.recipients
   const matches = useMemo(
-    () => filterPeople(people, query).filter((u) => !blocks.has(u.id)),
-    [people, query, blocks]
+    () =>
+      filterPeople(people, query).filter(
+        (u) => !blocks.has(u.id) && !members?.some((m) => m.id === u.id)
+      ),
+    [people, query, blocks, members]
   )
   const pickedIds = useMemo(() => new Set(picked.map((u) => u.id)), [picked])
   useEffect(ensureLimits, [])
@@ -67,7 +77,7 @@ function Picker({
   const maxMembers = useLimitsStore(
     (s) => s.limits?.maxGroupDmMembers ?? DEFAULT_LIMITS.maxGroupDmMembers
   )
-  const full = picked.length + 1 >= maxMembers
+  const full = picked.length + (members?.length ?? 0) + 1 >= maxMembers
   // The same people again would make a duplicate group DM: the server reuses only a 1:1 DM.
   const unchanged =
     !!include && include.length === picked.length && include.every((u) => pickedIds.has(u.id))
@@ -80,8 +90,13 @@ function Picker({
   }
 
   const start = async (): Promise<void> => {
-    const what = picked.length > 1 ? 'create the group' : 'open the conversation'
-    if ((await run(what, () => openDmWith(...picked.map((u) => u.id)))).ok) onClose()
+    const ids = picked.map((u) => u.id)
+    const done = addTo
+      ? await run('add them', () => hachiman.rest.addToGroupDm(addTo.id, ids))
+      : await run(picked.length > 1 ? 'create the group' : 'open the conversation', () =>
+          openDmWith(...ids)
+        )
+    if (done.ok) onClose()
   }
 
   return (
@@ -143,7 +158,7 @@ function Picker({
           </span>
         )}
         <Button disabled={busy || picked.length === 0 || unchanged} onClick={() => void start()}>
-          {picked.length > 1 ? 'Create group' : 'Message'}
+          {addTo ? 'Add' : picked.length > 1 ? 'Create group' : 'Message'}
         </Button>
       </div>
     </div>

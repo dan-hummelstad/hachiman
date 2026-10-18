@@ -1,15 +1,18 @@
 /**
  * DMs and group DMs (contract §4 DMs): the participants, the per-viewer
- * channel events, and the group DM edit, leave and delete. A group DM channel
+ * channel events, and the group DM edit, add, leave and delete. A group DM channel
  * shows every participant except the viewer, so each event is built per user.
  */
 import { and, asc, eq, inArray } from 'drizzle-orm'
+import { alias } from 'drizzle-orm/pg-core'
 import type { GatewayEventName } from '@hachiman/client/types'
 
 import { db, type Tx } from '@/db/client'
-import { channels, dmParticipants, users, type ChannelRow } from '@/db/schema'
+import { channels, dmParticipants, guildMembers, users, type ChannelRow } from '@/db/schema'
+import { assertNotBlocked } from '@/lib/blocks'
 import { MissingPermissionsError, ValidationError } from '@/lib/errors'
 import { publishToUser } from '@/lib/events'
+import { getLimits } from '@/lib/files'
 import { groupVisibility, membershipChanged, membershipTransaction, MembershipTriggers, userColumns } from '@/lib/guilds'
 import { deleteObjects } from '@/lib/storage'
 import { claimImage, deleteAttachmentRows } from '@/lib/uploads'
@@ -39,6 +42,28 @@ export async function publishDm(channel: ChannelRow, t: DmEvent, userIds: string
   await Promise.all(userIds.map((id) => publishToUser(id, t, toDmChannel(channel, list, id, groups))))
 }
 
+/** At most `Limits.maxGroupDmMembers` participants, me included (TAKUSEN_PUBLIC_SET_MAX_MEMBERS). */
+export function assertGroupSize(participants: number): void {
+  const { maxGroupDmMembers } = getLimits()
+  if (participants > maxGroupDmMembers) {
+    throw new ValidationError(`A group DM has at most ${maxGroupDmMembers} participants`)
+  }
+}
+
+/** `me` may message each of `userIds`: a shared guild with each, and no block either way (403 `Blocked`). */
+export async function assertCanMessage(me: string, userIds: string[]): Promise<void> {
+  const theirs = alias(guildMembers, 'theirs')
+  const shared = await db
+    .selectDistinct({ userId: theirs.userId })
+    .from(guildMembers)
+    .innerJoin(theirs, eq(theirs.guildId, guildMembers.guildId))
+    .where(and(eq(guildMembers.userId, me), inArray(theirs.userId, userIds)))
+  if (shared.length !== userIds.length) {
+    throw new MissingPermissionsError('Recipients must share a guild with you')
+  }
+  await assertNotBlocked(me, userIds)
+}
+
 /** Only a group DM has settings, a leave and a delete. A 1:1 DM has none. */
 export function requireGroupDm(channel: ChannelRow): void {
   if (channel.type !== 'group_dm') throw new ValidationError('A 1:1 DM has no settings')
@@ -58,6 +83,28 @@ export async function updateGroupDm(
     const [row] = await tx.update(channels).set(changes).where(eq(channels.id, channel.id)).returning()
     return row!
   })
+}
+
+/**
+ * POST /channels/:id/recipients: any participant adds people. Their devices
+ * get MLS Adds; with `historyVisibility` joined they read from now on.
+ */
+export async function addToGroupDm(channel: ChannelRow, userIds: string[], actorDeviceId: string | null): Promise<void> {
+  const added = await membershipTransaction(async (tx) => {
+    // The lock orders concurrent adds and leaves, so the size check holds.
+    await tx.select({ id: channels.id }).from(channels).where(eq(channels.id, channel.id)).for('update')
+    const present = new Set(
+      (await tx.select({ userId: dmParticipants.userId }).from(dmParticipants).where(eq(dmParticipants.channelId, channel.id))).map((r) => r.userId),
+    )
+    const added = [...new Set(userIds)].filter((id) => !present.has(id))
+    if (added.length === 0) throw new ValidationError('Everyone is in the group already')
+    assertGroupSize(present.size + added.length)
+    await tx.insert(dmParticipants).values(added.map((userId) => ({ channelId: channel.id, userId })))
+    await membershipChanged(tx, MembershipTriggers.dmParticipantsChanged(channel.id), actorDeviceId)
+    return { added, present: [...present] }
+  })
+  await publishDm(channel, 'CHANNEL_CREATE', added.added)
+  await publishDm(channel, 'CHANNEL_UPDATE', added.present)
 }
 
 /** The rows of a group DM go: its attachments, its MLS groups (retired) and the channel. Returns the object keys. */
@@ -97,7 +144,7 @@ export async function leaveGroupDm(channel: ChannelRow, userId: string, actorDev
       channel.ownerId === userId
         ? await tx.update(channels).set({ ownerId: remaining[0] }).where(eq(channels.id, channel.id)).returning()
         : [channel]
-    await membershipChanged(tx, MembershipTriggers.dmParticipantRemoved(channel.id), actorDeviceId)
+    await membershipChanged(tx, MembershipTriggers.dmParticipantsChanged(channel.id), actorDeviceId)
     return { row: row!, remaining, keys: [] as string[] }
   })
   await deleteObjects(keys)

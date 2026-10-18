@@ -12,7 +12,6 @@ import { chipRoles, hasTitleChip } from '@/components/chat/channel-states'
 import { ChannelInfoSheet } from '@/components/mobile/channel-info-sheet'
 import { KIT_ICON_BUTTON } from '@/components/mobile/nav-bar'
 import { AddPeopleButton } from '@/components/people/add-people-button'
-import { GroupSettingsButton } from '@/components/people/group-dm-settings'
 import { TrustButton } from '@/components/people/trust-chip'
 import { useVoiceActivity } from '@/components/people/use-voice-activity'
 import { VoiceActivityLine } from '@/components/people/voice-activity-line'
@@ -69,8 +68,8 @@ const Chevron = (): React.JSX.Element => (
  * - voice: the Volume2 icon, "n in call" as line 2, "Verify call" in the own call, the toggle
  * - DM (M7, M57, padding 0/10/0/14, gap 8): the avatar (32), the name over the voice activity,
  *   the trust button, Call and the profile toggle. Poke, Pins and Notify are in the profile
- *   drawer. A group DM's drawer holds its members, so its Pins stay here, with the group
- *   settings.
+ *   drawer. A group DM keeps Call and the members toggle; Add people, Group settings, Pins and
+ *   Notify are in its members drawer.
  */
 export function MobileChannelHeader({
   channel,
@@ -138,11 +137,10 @@ export function MobileChannelHeader({
       )}
       {solo && <TrustButton userId={solo.id} name={channelLabel(channel).name} />}
       {isDm && <DmCallButton channel={channel} className={HEADER_BUTTON} />}
-      {isDm && <AddPeopleButton channel={channel} className={HEADER_BUTTON} />}
-      {isDm && <GroupSettingsButton channel={channel} className={HEADER_BUTTON} />}
+      {channel.type === 'dm' && <AddPeopleButton channel={channel} className={HEADER_BUTTON} />}
       {voice && <VoiceHeaderExtras channel={voice} />}
       {canHoldThreads(channel) && !hasTitleChip(access) && <ThreadsButton channel={channel} />}
-      {hasMessages && !solo && <PinsButton channel={channel} />}
+      {hasMessages && !isDm && <PinsButton channel={channel} />}
       {onToggleSide && (
         <button
           type="button"

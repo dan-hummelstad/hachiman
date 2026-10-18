@@ -144,8 +144,8 @@ export const MembershipTriggers = {
   channelCreated: (channelId: string): MembershipChange => ({ kind: 'channel_created', channelId }),
   channelDeleted: (guildId: string, channelId: string): MembershipChange => ({ kind: 'channel_deleted', guildId, channelId }),
   dmCreated: (channelId: string): MembershipChange => ({ kind: 'dm_created', channelId }),
-  /** A participant left a group DM, after its row is deleted. */
-  dmParticipantRemoved: (channelId: string): MembershipChange => ({ kind: 'dm_participant_removed', channelId }),
+  /** People joined or left a group DM, after the dm_participants write. */
+  dmParticipantsChanged: (channelId: string): MembershipChange => ({ kind: 'dm_participants_changed', channelId }),
   /** Group DM delete, before the channel row is deleted. */
   dmDeleted: (channelId: string): MembershipChange => ({ kind: 'dm_deleted', channelId }),
   /** Admin user delete, before the user row is deleted. */

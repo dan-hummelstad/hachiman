@@ -34,7 +34,7 @@ export type MembershipChange =
   | { kind: 'overwrites_changed' | 'channel_created'; channelId: string }
   | { kind: 'channel_deleted'; guildId: string; channelId: string }
   | { kind: 'guild_deleted'; guildId: string }
-  | { kind: 'dm_created' | 'dm_participant_removed' | 'dm_deleted'; channelId: string }
+  | { kind: 'dm_created' | 'dm_participants_changed' | 'dm_deleted'; channelId: string }
   | { kind: 'user_deleted'; userId: string }
   | { kind: 'devices_revoked'; userId: string; deviceIds: string[] | 'all'; reason: RevocationReason }
 
@@ -144,8 +144,8 @@ export async function onMembershipChangeWith(repo: MlsRepo, deps: LightDeps, out
       await repo.setChannelGroup(channel.id, g.groupId)
       return
     }
-    case 'dm_participant_removed': {
-      // The leaver is no longer a reader: its devices get Removes (§12.7.7).
+    case 'dm_participants_changed': {
+      // New participants' devices get Adds, a leaver's get Removes (§12.7.7).
       const channel = await repo.getChannel(change.channelId)
       const group = channel?.mlsGroupId ? await repo.lockGroup(channel.mlsGroupId) : null
       if (group) await reconcileGroup(repo, out, group, reason, now)

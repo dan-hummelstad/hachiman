@@ -405,7 +405,8 @@ Implemented extras (Discord semantics):
 | GET `/invites/:code` | **public** | `InvitePreview` (non-consuming) | — |
 | POST `/invites/:code` | auth; 403 `Banned` for a banned user (§4 Bans) | `GuildFull` (idempotent if already a member — no use consumed) | `GUILD_MEMBER_ADD` → guild; `GUILD_CREATE` → user:{me} |
 | GET `/users/@me/channels` | auth | `Channel[]` (DMs) | — |
-| DELETE `/users/@me/channels/:id` | participant of a `group_dm` (a 1:1 `dm`: 400 `ValidationError`) | 204 | Leave the group DM. The DS gets `dm_participant_removed` (§12.18): the leaver's devices get Removes. An owner who leaves passes `ownerId` to the remaining participant with the lowest id. The last participant to leave deletes the group as the owner delete does. `CHANNEL_DELETE` → user:{me}, `CHANNEL_UPDATE` → user:{each remaining participant} |
+| POST `/channels/:id/recipients` `{userIds: string[]}` | participant of a `group_dm` (a 1:1 `dm`: 400 `ValidationError`). Each new user shares a guild with me, with no block either way (403 `Blocked`). The group stays within `Limits.maxGroupDmMembers`, else 400 `ValidationError`. Users already in the group are skipped; none left: 400 `ValidationError` | `Channel` | The DS gets `dm_participants_changed` (§12.18): the new users' devices get Adds, and they read from now on (`historyVisibility` joined). `CHANNEL_CREATE` → user:{each new participant}, `CHANNEL_UPDATE` → user:{each earlier participant} |
+| DELETE `/users/@me/channels/:id` | participant of a `group_dm` (a 1:1 `dm`: 400 `ValidationError`) | 204 | Leave the group DM. The DS gets `dm_participants_changed` (§12.18): the leaver's devices get Removes. An owner who leaves passes `ownerId` to the remaining participant with the lowest id. The last participant to leave deletes the group as the owner delete does. `CHANNEL_DELETE` → user:{me}, `CHANNEL_UPDATE` → user:{each remaining participant} |
 | POST `/users/@me/channels` `{recipientIds: string[]}` | auth; recipients must share a guild with me; no block either way (403 `Blocked`, Pins, guild events and blocks) | `Channel` (1 recipient → reuse existing `dm`; ≥2 → new `group_dm`. At most `Limits.maxGroupDmMembers` participants, me included, else 400 `ValidationError`) | `CHANNEL_CREATE` → user:{each participant} |
 | GET `/limits` | auth | `Limits` | — |
 | POST `/uploads?kind=blob` raw body | auth | `Attachment` (201): an encrypted attachment or thumbnail blob | — |
@@ -1031,7 +1032,7 @@ export class RestClient {
   getBans(guildId); banMember(guildId, userId, {reason?}?); unbanMember(guildId, userId)
   getRoles(guildId); createRole(guildId, body, opts?); reorderRoles(guildId, positions, opts?); updateRole(guildId, roleId, body, opts?); deleteRole(guildId, roleId, opts?)
   getInvites(guildId); createInvite(guildId, { maxAgeSeconds?, maxUses?, acknowledgedPermanent?, record? }); deleteInvite(code); previewInvite(code); acceptInvite(code)
-  getDmChannels(); openDm(recipientIds); updateGroupDm(id, {name?, icon?}); leaveGroupDm(id); getUser(id)
+  getDmChannels(); openDm(recipientIds); updateGroupDm(id, {name?, icon?}); addToGroupDm(id, userIds); leaveGroupDm(id); getUser(id)
   // §4 Pins, guild events and blocks
   getPins(channelId); pinMessage(channelId, messageId); unpinMessage(channelId, messageId)
   getGuildEmojis(guildId); createGuildEmoji(guildId, { name, uploadId }); renameGuildEmoji(guildId, emojiId, name); deleteGuildEmoji(guildId, emojiId)
@@ -2691,7 +2692,7 @@ export type MembershipChange =
   | { kind: 'overwrites_changed' | 'channel_created'; channelId: string }
   | { kind: 'channel_deleted'; guildId: string; channelId: string }
   | { kind: 'guild_deleted'; guildId: string }
-  | { kind: 'dm_created' | 'dm_participant_removed' | 'dm_deleted'; channelId: string }
+  | { kind: 'dm_created' | 'dm_participants_changed' | 'dm_deleted'; channelId: string }
   | { kind: 'user_deleted'; userId: string }
   | { kind: 'devices_revoked'; userId: string; deviceIds: string[] | 'all'; reason: RevocationReason }
 export async function onMembershipChange(tx: Tx, change: MembershipChange, actorDeviceId: string | null): Promise<void>
@@ -2720,7 +2721,7 @@ export class ApiError extends Error {
 - `onMembershipChange` recomputes the readers of each affected group. It queues Removes for devices of users who lost VIEW_CHANNEL, and Adds for new reader devices of `channel` and `dm` groups. It reclassifies channels that moved between public and private (§12.6), and it retires the groups of deleted guilds and channels.
 - `user_deleted` runs before the user row is deleted, in the same transaction. It queues a Remove (keyed by leaf index, §3) for every leaf of every device of the user in every group. The `mls_pending` and `mls_group_members` rows keep their leaf index when the FKs set the device and user to null. The Removes stay valid, and §12.7.3 check 8 accepts the orphan leaves until a commit removes them.
 - `guild_deleted` retires the groups of the guild and deletes their DS rows in the same transaction. The FK cascades delete the rest.
-- `dm_participant_removed` runs after the `dm_participants` row of the leaver is deleted. It reconciles the `dm` group of the channel: the devices of the leaver get Removes. A group DM gets no Adds after its creation. `dm_deleted` runs before the channel row is deleted and retires the groups of the channel.
+- `dm_participants_changed` runs after a write to the `dm_participants` rows of a group DM (an add or a leave). It reconciles the `dm` group of the channel: the devices of new participants get Adds by value, and the devices of a leaver get Removes. `dm_deleted` runs before the channel row is deleted and retires the groups of the channel.
 - `devices_revoked` with `'all'` is the password reset path (`lib/password-reset.ts`). The reset also calls `revokeUserSessions`. A password change (`account/actions.ts`) revokes the other sessions of the user and keeps the devices.
 - **Password reset seam.** The reset calls `onMembershipChange(tx, { kind: 'devices_revoked', userId, deviceIds: 'all', reason: 'password_reset' }, null)` in the transaction that sets the password. After the commit it calls `wakeScheduler(tx)`. After a rollback it calls `discardMembershipWork(tx)`, so nothing of a rolled-back transaction is published.
 - **Outbox per transaction.** `onMembershipChange` records its events and wakeups in an outbox keyed by the transaction handle. `wakeScheduler(tx)` publishes only that outbox. `discardMembershipWork(tx)` drops it. Each route that calls `onMembershipChange` calls one of the two.

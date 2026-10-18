@@ -459,6 +459,9 @@ export class RestClient {
   /** 403 Blocked when a block exists between the caller and a recipient. */
   openDm = (recipientIds: string[]) => this.req<Channel>('POST', '/users/@me/channels', { recipientIds })
   updateGroupDm = (id: string, body: UpdateGroupDmBody) => this.req<Channel>('PATCH', `/channels/${e(id)}`, body)
+  /** Any participant adds people to a group DM. */
+  addToGroupDm = (id: string, userIds: string[]) =>
+    this.req<Channel>('POST', `/channels/${e(id)}/recipients`, { userIds })
   /** The owner deletes a group DM with deleteChannel. */
   leaveGroupDm = (id: string) => this.req<undefined>('DELETE', `/users/@me/channels/${e(id)}`)
 

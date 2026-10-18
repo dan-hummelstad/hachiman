@@ -1,6 +1,11 @@
 import { Crown } from 'lucide-react'
 import type { Channel, User } from '@hachiman/client'
+import { KIT_ICON_BUTTON } from '@/components/mobile/nav-bar'
+import { NotifyButton } from '@/components/notify/notify-menu'
+import { AddPeopleButton } from '@/components/people/add-people-button'
 import { CustomStatusLine } from '@/components/people/custom-status-line'
+import { GroupSettingsButton } from '@/components/people/group-dm-settings'
+import { PinsButton } from '@/components/pins/pins-button'
 import { UserAvatar } from '@/components/shell/user-avatar'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { SystemTag } from '@/components/ui/system-tag'
@@ -12,6 +17,8 @@ import { useUserStore } from '@/stores/userStore'
 /**
  * The people of a group DM, for the right column: me and the recipients, the owner with a crown.
  * There are no roles or sections; a click opens the profile card (no guild: identity and presence).
+ * In the mobile drawer, Add people, Group settings, Pins and Notify sit in a row of 36 buttons on
+ * top, as in the 1:1 profile drawer: the phone header keeps only Call and the drawer toggle.
  */
 export function GroupDmMembers({
   channel,
@@ -30,6 +37,14 @@ export function GroupDmMembers({
         drawer ? 'w-full' : 'w-[252px] border-l'
       )}
     >
+      {drawer && (
+        <div className="flex items-center gap-2 px-4 pt-4">
+          <AddPeopleButton channel={channel} className={ACTION_BUTTON} />
+          <GroupSettingsButton channel={channel} className={ACTION_BUTTON} />
+          <PinsButton channel={channel} />
+          <NotifyButton channel={channel} />
+        </div>
+      )}
       <h2 className="text-text-tertiary px-4 pt-4 pb-2 text-xs font-bold tracking-wide uppercase">
         Members — {people.length}
       </h2>
@@ -48,6 +63,9 @@ export function GroupDmMembers({
     </aside>
   )
 }
+
+/** A button of the drawer row: 36, the look of the mobile header buttons. */
+const ACTION_BUTTON = cn(KIT_ICON_BUTTON, 'text-text-secondary active:bg-surface-hover')
 
 function GroupMemberRow({
   user,
