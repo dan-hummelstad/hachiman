@@ -120,6 +120,20 @@
       "when": 1791729428659,
       "tag": "0016_page_banner",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1792120377586,
+      "tag": "0017_push_targets",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1792122207815,
+      "tag": "0018_push_previews",
+      "breakpoints": true
     }
   ]
 }

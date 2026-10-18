@@ -2,6 +2,7 @@ import SwiftUI
 
 @main
 struct HachimanApp: App {
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var host = WebHost()
 
     init() {
@@ -13,6 +14,8 @@ struct HachimanApp: App {
             WebView(host: host)
                 .ignoresSafeArea()
                 .background(Color("LaunchBackground"))
+                // Bridge.emit holds the event until the page is ready.
+                .onAppear { Push.shared.onOpen = { host.bridge.emit("push-open", ["channelId": $0]) } }
                 .onOpenURL { url in
                     if let event = Self.event(for: url) {
                         host.bridge.emit(event, ["url": url.absoluteString])

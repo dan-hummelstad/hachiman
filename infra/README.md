@@ -88,7 +88,9 @@ macOS runners use 10 times the plan minutes in a private repository.
 ## Back up
 
 - `/opt/hachiman/.env`: all secrets. Nothing else has a copy.
-- `/opt/hachiman/data/keys/`: the DS, KT and voice signing keys. If you lose the DS and KT keys, E2EE delivery and key transparency break for all devices.
+- `/opt/hachiman/data/keys/`: the DS, KT and voice signing keys, the Web Push (VAPID) key and the APNs `.p8` key. If you lose the DS and KT keys, E2EE delivery and key transparency break for all devices. If you lose the VAPID key, browser push stops until each browser opens the app again.
+
+**Push notifications** (contract §4 Push). Each deploy adds `TAKUSEN_VAPID_KEY=/keys/takusen-vapid.p256` and `TAKUSEN_VAPID_SUBJECT=mailto:admin@<domain>` to `/opt/hachiman/.env` when they are missing (also on a server set up before push). Change the subject in `.env` to a real contact; later deploys keep it. iOS push needs an APNs key from developer.apple.com (Keys → Apple Push Notifications service). Add the GitHub secrets `APNS_KEY_P8` (`base64 -i AuthKey_<key id>.p8`) and `APNS_KEY_ID`. The team and the topic are the variables `APPLE_TEAM_ID` and `HACHIMAN_BUNDLE_ID` of the iOS workflow. The next deploy writes the key to `data/keys/apns.p8` (mode 600) and sets the four `TAKUSEN_APNS_*` lines. Without the secrets, a deploy changes no APNs setting.
 - `/opt/hachiman/backups/`: the nightly database dumps, one file for each weekday.
 - `/opt/hachiman/data/seaweedfs/`: the uploaded files (ciphertext).
 

@@ -165,6 +165,12 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply {
                 window: webView?.window, webView: webView)
             return nil
 
+        case "push.register":
+            let deviceId = try string(args, "deviceId")
+            guard UUID(uuidString: deviceId) != nil else { throw BridgeError(.malformed, "deviceId is not a UUID") }
+            let discardOld = args["discardOld"] as? Bool ?? false
+            return try await Push.shared.register(deviceId: deviceId.lowercased(), discardOld: discardOld)
+
         default:
             throw BridgeError(.unsupported, "unknown op \(op)")
         }

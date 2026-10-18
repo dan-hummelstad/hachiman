@@ -283,6 +283,8 @@ export const createCryptoStub: CreateCryptoStub = () => {
     redeemInvite: () => Promise.resolve({ groups: 0, keys: 0 }),
     // The preview has no DS: an unsigned placeholder.
     proveDevice: () => Promise.resolve({ ts: Date.now(), nonce: stubId(), sig: '' }),
+    signPushKey: () => Promise.resolve(''),
+    sealPushPreviews: () => Promise.resolve({}),
 
     voiceStart: () => Promise.resolve({ handle: stubId(), keyPackage: '' }),
     voiceHandle: () => Promise.resolve([]),

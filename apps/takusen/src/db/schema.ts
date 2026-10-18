@@ -43,6 +43,7 @@ export { bytea } from './columns'
 export * from './schema-pages'
 export * from './schema-auth'
 export * from './schema-channel-state'
+export * from './schema-push'
 
 // ---------------------------------------------------------------------------
 // Enums

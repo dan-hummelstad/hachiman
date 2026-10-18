@@ -1,8 +1,9 @@
 // Shared UI ↔ host seam. Contract: docs/gateway-protocol.md §11.
 
+import type { PushTarget } from '@hachiman/client'
 import type { InviteLink } from '../lib/invite-link'
 
-export type { InviteLink }
+export type { InviteLink, PushTarget }
 
 export interface RegionProbeTarget {
   region: string
@@ -117,6 +118,31 @@ export interface IPlatformService {
    * false when they cancelled. Electron and browser: null (the UI downloads a blob).
    */
   readonly saveTextFile: ((name: string, text: string) => Promise<boolean>) | null
+  /**
+   * Asks the OS for notification permission, then subscribes this install to push (§4 Push).
+   * Each call makes a new push key for `deviceId` (§12.22) and keeps the one before it, so a
+   * push sealed before the change still opens. With `discardOld` the host deletes every older
+   * key instead (User settings → Devices → "Make a new push key"). With `discardOld` the host deletes every older
+   * key instead (User settings → Devices → "Make a new push key"). Only the host's notification code holds the
+   * private key: iOS the Notification Service Extension (shared Keychain group), the browser its
+   * service worker. Resolves null when the user refused. `vapidPublicKey` is the Takusen key
+   * (Web Push only). Electron: null, as it has no push service; the open app shows OS
+   * notifications itself.
+   */
+  /**
+   * The user tapped a push notification of `channelId` (§4 Push). iOS: the notification
+   * response. Browser: a click in the service worker (an open tab gets a message; a new tab
+   * starts at `/?channel=<id>`). Electron: never (no push). The host holds a tap until the first
+   * subscriber, as a cold start comes before the UI mounts. Returns unsubscribe.
+   */
+  onPushOpen(cb: (channelId: string) => void): () => void
+  readonly pushSubscribe:
+    | ((
+        vapidPublicKey: string,
+        deviceId: string,
+        opts: { discardOld: boolean }
+      ) => Promise<PushTarget | null>)
+    | null
   /** iOS: the status bar style and the window background follow the app theme. Others: no-op. */
   setAppearance(appearance: Appearance): void
   /** The wrap key of the encrypted crypto store (§12.17). */

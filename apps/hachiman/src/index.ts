@@ -12,6 +12,7 @@ export type {
   Appearance,
   HapticKind,
   InviteLink,
+  PushTarget,
   IPlatformService,
   RegionProbeTarget,
   RegionProbeResult,

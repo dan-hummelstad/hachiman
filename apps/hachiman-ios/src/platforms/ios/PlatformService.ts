@@ -40,6 +40,9 @@ export function createIosPlatformService(
         if (link) cb(link);
       }),
     onOAuthCallback: (cb) => events.on("oauth-callback", ({ url }) => cb(url)),
+    // The notification response (Hachiman/Push.swift), held until the UI subscribes.
+    onPushOpen: (cb) =>
+      events.on("push-open", ({ channelId }) => cb(channelId)),
     // ponytail: no native TCP probe yet (Electron region-probe.ts is the model).
     probeRegions: async () => [],
     // No getDisplayMedia in WKWebView: no screen share (a ReplayKit extension later).
@@ -64,6 +67,19 @@ export function createIosPlatformService(
       }),
     scanQr: () => call("scanQr", {}),
     saveTextFile: (name, text) => call("saveTextFile", { name, text }),
+    // APNs. The VAPID key is for Web Push only. The push key's private half stays in the
+    // Keychain group of the Notification Service Extension (Hachiman/Push.swift).
+    pushSubscribe: async (_vapidPublicKey, deviceId, { discardOld }) => {
+      const r = await call("push.register", { deviceId, discardOld });
+      return (
+        r && {
+          kind: "apns",
+          token: r.token,
+          sandbox: r.sandbox,
+          pushKey: r.pushKey,
+        }
+      );
+    },
     setAppearance: ({ theme, background }) => {
       call("setAppearance", { theme, background }).catch(
         report("could not set the appearance"),

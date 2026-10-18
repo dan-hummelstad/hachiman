@@ -190,7 +190,7 @@ New bridge ops and IPlatformService members (both other hosts get a no-op or web
 
 ### 5.6 Features the mocks show that do not exist yet (separate PRs, not part of the iOS host)
 These are product features, not port work. Each needs server and contract work of its own, and the mobile screens hide them until they land:
-- **Push notifications** (M33: per-kind push, lock-screen previews hidden by default, quiet hours, guild overrides). Needs APNs, a push registration route and E2EE-safe payloads (no plaintext in the push; the app decrypts in a Notification Service Extension). Largest item.
+- **Push notifications** (M33). Done: content-free APNs push for DMs, per-kind switches and guild overrides (contract §4 Push). Still to do: a Notification Service Extension that decrypts (sender and text in the banner), push for guild mentions, lock-screen previews and quiet hours.
 - **Privacy and safety settings** (M34): who can DM you, read receipts, typing and status visibility. Read receipts and DM policy do not exist.
 - **Page features** (M41, M42): history, comments, lock, export, a 30-day trash and templates.
 - **Channel follow** (M62).

@@ -316,6 +316,13 @@ export const createMessageSchema = z.object({
     .max(MESSAGE_MAX_UPLOAD_IDS)
     .refine((ids) => new Set(ids).size === ids.length, 'Duplicate upload id')
     .default([]),
+  /** The sender asks for no push (§4 Push). It can only mute its own message. */
+  silent: z.boolean().default(false),
+  /** deviceId → the sealed push preview of that device (§12.22). Takusen relays it unread. */
+  push: z
+    .record(z.string().uuid(), z.string().max(2048).regex(/^[A-Za-z0-9_-]+$/))
+    .refine((m) => Object.keys(m).length <= 200, 'At most 200 push previews')
+    .default({}),
 })
 export type CreateMessageBody = z.infer<typeof createMessageSchema>
 

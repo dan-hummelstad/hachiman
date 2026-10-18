@@ -3,12 +3,14 @@
  *      Messages, newest first; VIEW_CHANNEL + READ_MESSAGE_HISTORY. `before`
  *      resolves server-side to its (created_at, id) so ties within a timestamp
  *      page correctly.
- * POST /api/v1/channels/:id/messages { envelope, nonce?, attachments? } +
+ * POST /api/v1/channels/:id/messages { envelope, nonce?, attachments?, silent?, push? } +
  *      X-Hachiman-Device — SEND_MESSAGES, plus ATTACH_FILES when attachments
  *      is not empty, plus the envelope checks of §12.8.4. `attachments` lists,
  *      per pointer, the file id and then its thumbnail id (at most 20 ids).
  *      `nonce` is echoed in the response and MESSAGE_CREATE, never stored.
- *      In a 1:1 DM, a block in either direction gives 403 `Blocked`.
+ *      In a 1:1 DM, a block in either direction gives 403 `Blocked`. A DM
+ *      message pushes to the offline devices of the other participants, a guild
+ *      message to the devices in `push` (sealed previews of its mentions, §4 Push).
  */
 import { and, desc, eq, sql } from 'drizzle-orm'
 import { Permissions } from '@hachiman/client/permissions'
@@ -24,6 +26,7 @@ import { toAttachment } from '@/lib/files'
 import { loadChannelAccess, publishToChannel, requirePermission } from '@/lib/guild-access'
 import { requireUserById, userColumns } from '@/lib/guilds'
 import { requireDevice } from '@/lib/mls/device-auth'
+import { pushMessage } from '@/lib/push'
 import { acceptEnvelope } from '@/lib/mls/envelopes'
 import { loadAttachments } from '@/lib/uploads'
 import { createMessageSchema, parseMessageQuery, toMessage } from '@/lib/wire'
@@ -100,6 +103,7 @@ export async function POST(req: NextRequest, ctx: RouteContext): Promise<NextRes
     const author = await requireUserById(userId)
     const message = toMessage(row, author, access.channel.guildId, claimed.map(toAttachment), body.nonce)
     await publishToChannel(access, 'MESSAGE_CREATE', message)
+    if (!body.silent) void pushMessage(access, userId, body.push).catch((e) => console.error('[push]', e))
     return NextResponse.json(message)
   } catch (err) {
     return errorResponse(err)

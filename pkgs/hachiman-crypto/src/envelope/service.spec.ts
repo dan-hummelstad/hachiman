@@ -156,6 +156,7 @@ function makeGroups(world: World, self: Device, view: View): GroupService {
     getEpochCode: unimplemented,
     onGatewayEvent: unimplemented,
     resyncAll: unimplemented,
+    channelRoster: unimplemented,
     exportHistoryKeys: unimplemented,
     importHistoryKeys: unimplemented,
     descriptor: unimplemented,

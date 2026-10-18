@@ -28,6 +28,7 @@ import { GuildMembersTab } from '@/components/guild-settings-members'
 import { GuildRolesTab } from '@/components/guild-settings-roles'
 import type { ListRowTile } from '@/components/mobile/list'
 import { DevicesPanel } from '@/components/security/devices-panel'
+import { PushKeySection } from '@/components/security/push-key-section'
 import { useOwnDevices } from '@/components/security/use-own-devices'
 import { RecoverySection } from '@/components/security/recovery-panel'
 import { SecurityLog } from '@/components/security/security-log'
@@ -41,7 +42,10 @@ import { AdvancedSection } from '@/components/settings/user/advanced'
 import { AppearanceSection } from '@/components/settings/user/appearance'
 import { CloseToTraySection } from '@/components/settings/user/tray'
 import { KeybindsSection } from '@/components/settings/user/keybinds'
-import { NotificationsSection } from '@/components/settings/user/notifications'
+import {
+  NotificationSettings,
+  NotificationsSection
+} from '@/components/settings/user/notifications'
 import { PrivacySection } from '@/components/settings/user/privacy'
 import { UpdatesSection } from '@/components/settings/user/updates'
 import { VoiceSection } from '@/components/settings/user/voice'
@@ -236,7 +240,12 @@ function useUserSettingsModel(active: boolean, mobile: boolean): SettingsModel {
                 deviceCount === undefined
                   ? undefined
                   : `${deviceCount} ${deviceCount === 1 ? 'device holds' : 'devices hold'} your keys`,
-              render: () => <DevicesPanel variant="page" />
+              render: () => (
+                <>
+                  <DevicesPanel variant="page" />
+                  <PushKeySection />
+                </>
+              )
             }
           },
           {
@@ -291,11 +300,10 @@ function useUserSettingsModel(active: boolean, mobile: boolean): SettingsModel {
             label: 'Notifications',
             icon: <Bell />,
             tint: 'activity',
-            visible: mobile,
             page: {
               title: 'Notifications',
-              description: 'What counts as unread and plays a sound in each guild.',
-              render: () => <NotificationsSection />
+              description: 'What notifies this device, and the level of each guild.',
+              render: () => (mobile ? <NotificationsSection /> : <NotificationSettings />)
             }
           },
           {

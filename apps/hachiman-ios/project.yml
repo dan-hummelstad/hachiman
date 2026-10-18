@@ -25,6 +25,10 @@ targets:
       - path: Hachiman
         excludes:
           - Info.plist
+      - path: Shared
+    dependencies:
+      # Embedded in Hachiman.app/PlugIns: it opens the sealed push previews (contract §12.22).
+      - target: HachimanNotify
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: $(HACHIMAN_BUNDLE_ID)
@@ -73,6 +77,24 @@ targets:
             /usr/libexec/PlistBuddy -c "Add :NSAppTransportSecurity dict" "${PLIST}"
             /usr/libexec/PlistBuddy -c "Add :NSAppTransportSecurity:NSAllowsLocalNetworking bool true" "${PLIST}"
           fi
+  HachimanNotify:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: HachimanNotify
+        excludes:
+          - Info.plist
+      - path: Shared
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(HACHIMAN_BUNDLE_ID).notify
+        PRODUCT_NAME: HachimanNotify
+        TARGETED_DEVICE_FAMILY: "1"
+        INFOPLIST_FILE: HachimanNotify/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        CODE_SIGN_ENTITLEMENTS: HachimanNotify/HachimanNotify.entitlements
+        CODE_SIGN_STYLE: Automatic
+        SKIP_INSTALL: YES
   HachimanTests:
     type: bundle.unit-test
     platform: iOS

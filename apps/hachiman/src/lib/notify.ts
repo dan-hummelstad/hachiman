@@ -15,6 +15,18 @@ export function notifyLevelLabel(level: NotifyLevel): string {
   return LEVEL_LABEL[level]
 }
 
+/**
+ * The kinds of OS notification and push (PushService), each with its switch in User settings →
+ * Notifications. `channel`: a guild message that pings without a mention (level 'all').
+ */
+export const NOTIFY_KINDS = ['dm', 'mention', 'channel', 'poke', 'ring'] as const
+export type NotifyKind = (typeof NOTIFY_KINDS)[number]
+
+export function messageNotifyKind(guildId: string | null, mentionsMe: boolean): NotifyKind {
+  if (guildId === null) return 'dm'
+  return mentionsMe ? 'mention' : 'channel'
+}
+
 export interface NotifyPrefs {
   /** channelId or guildId → level. A channel level wins over its guild level. */
   notify: Readonly<Record<string, NotifyLevel>>

@@ -1,5 +1,17 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
-<dict/>
+<dict>
+	<!-- Xcode sets production when it exports for TestFlight and the App Store. -->
+	<key>aps-environment</key>
+	<string>development</string>
+	<!-- The app's own group first: it stays the default, so the wrap key (WrapKeyStore) is not
+	     shared. The second group holds only the push keys, which the Notification Service
+	     Extension reads (Shared/PushPreview.swift). -->
+	<key>keychain-access-groups</key>
+	<array>
+		<string>$(AppIdentifierPrefix)$(HACHIMAN_BUNDLE_ID)</string>
+		<string>$(AppIdentifierPrefix)$(HACHIMAN_BUNDLE_ID).push</string>
+	</array>
+</dict>
 </plist>

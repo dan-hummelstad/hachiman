@@ -38,6 +38,17 @@ export interface BridgeOps {
   saveTextFile: [{ name: string; text: string }, boolean];
   /** `background`: a hex color (`#rrggbb` or `#rrggbbaa`) behind the safe areas. */
   setAppearance: [Appearance, null];
+  /**
+   * Asks for notification permission and registers with APNs (Hachiman/Push.swift). The hex
+   * device token, `sandbox` for a Debug build, and a new push key (base64url P-256 point) for
+   * `deviceId`, whose private half only the Notification Service Extension reads. With
+   * `discardOld` the app deletes the key before it instead of keeping it. Null when the user
+   * refused.
+   */
+  "push.register": [
+    { deviceId: string; discardOld: boolean },
+    { token: string; sandbox: boolean; pushKey: string } | null,
+  ];
 }
 
 export type BridgeOp = keyof BridgeOps;
