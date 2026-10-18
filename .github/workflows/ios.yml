@@ -38,7 +38,9 @@ concurrency:
 
 jobs:
   check:
-    runs-on: macos-latest
+    # Xcode 27 (iOS 27 SDK). macos-latest has Xcode 26.6, and its TestFlight builds abort on every
+    # touch on iOS 27 (-[UIGestureRecognizer _delayTouch:forEvent:]); Xcode 27 builds of the same code do not.
+    runs-on: xcode-27
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -62,7 +64,9 @@ jobs:
   testflight:
     needs: check
     if: github.event_name != 'pull_request' && vars.APPLE_TEAM_ID != ''
-    runs-on: macos-latest
+    # Xcode 27 (iOS 27 SDK). macos-latest has Xcode 26.6, and its TestFlight builds abort on every
+    # touch on iOS 27 (-[UIGestureRecognizer _delayTouch:forEvent:]); Xcode 27 builds of the same code do not.
+    runs-on: xcode-27
     env:
       VITE_TAKUSEN_OIDC_ISSUER: https://${{ vars.HACHIMAN_DOMAIN }}/api/oidc
       VITE_HACHIMAN_GATEWAY_URL: wss://${{ vars.HACHIMAN_DOMAIN }}/gateway
@@ -83,6 +87,7 @@ jobs:
         env:
           ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
         run: echo "$ASC_KEY_P8" | base64 --decode > "$RUNNER_TEMP/AuthKey.p8"
+      - run: xcodebuild -version
       - name: Archive
         working-directory: apps/hachiman-ios
         run: |
