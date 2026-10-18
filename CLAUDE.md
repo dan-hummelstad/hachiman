@@ -132,7 +132,7 @@ One name has one meaning in the shared file. Give a new variable a service prefi
 E2EE variables (contract §12.18):
 
 - Takusen: `TAKUSEN_DS_SIGNING_KEY` and `TAKUSEN_KT_SIGNING_KEY` (Ed25519 seed files, relative to `apps/takusen`). The first process that finds no file creates it with mode 0600. All Takusen instances must share the files.
-- Takusen: `TAKUSEN_MLS_SUITES` (default `1`), `TAKUSEN_MAX_ENVELOPE_BYTES` (default 32768), `TAKUSEN_PUBLIC_SET_MAX_MEMBERS` (default 500, set by the load test in `docs/e2ee-load-test.md`), `TAKUSEN_MLS_BATCH_INTERVAL_MS` (default 2000), `TAKUSEN_MLS_BATCH_TIMEOUT_MS` (default 5000), `TAKUSEN_MAX_PAGE_SNAPSHOT_BYTES` (default 104857600), `TAKUSEN_GUILD_PAGE_STORAGE_BYTES` (default 10737418240, 0 = no limit).
+- Takusen: `TAKUSEN_MLS_SUITES` (default `1`), `TAKUSEN_MAX_ENVELOPE_BYTES` (default 32768), `TAKUSEN_PUBLIC_SET_MAX_MEMBERS` (default 500, set by the load test in `docs/e2ee-load-test.md`; also the participant cap of a group DM), `TAKUSEN_MLS_BATCH_INTERVAL_MS` (default 2000), `TAKUSEN_MLS_BATCH_TIMEOUT_MS` (default 5000), `TAKUSEN_MAX_PAGE_SNAPSHOT_BYTES` (default 104857600), `TAKUSEN_GUILD_PAGE_STORAGE_BYTES` (default 10737418240, 0 = no limit).
 - Gateway: `GATEWAY_MIN_CLIENT_VERSION` (default `0.1.0`). IDENTIFY with an older `clientVersion` gets close 4012.
 - Media: `MEDIA_WS_READ_LIMIT` (default 1048576). The voice WebSocket rejects larger frames. Commits, Welcomes and ratchet trees use this socket.
 

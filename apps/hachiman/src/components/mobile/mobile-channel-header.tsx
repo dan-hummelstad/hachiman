@@ -11,6 +11,7 @@ import type { Channel, Role, User } from '@hachiman/client'
 import { chipRoles, hasTitleChip } from '@/components/chat/channel-states'
 import { ChannelInfoSheet } from '@/components/mobile/channel-info-sheet'
 import { KIT_ICON_BUTTON } from '@/components/mobile/nav-bar'
+import { AddPeopleButton } from '@/components/people/add-people-button'
 import { TrustButton } from '@/components/people/trust-chip'
 import { useVoiceActivity } from '@/components/people/use-voice-activity'
 import { VoiceActivityLine } from '@/components/people/voice-activity-line'
@@ -135,6 +136,7 @@ export function MobileChannelHeader({
       )}
       {solo && <TrustButton userId={solo.id} name={channelLabel(channel).name} />}
       {isDm && <DmCallButton channel={channel} className={HEADER_BUTTON} />}
+      {isDm && <AddPeopleButton channel={channel} className={HEADER_BUTTON} />}
       {voice && <VoiceHeaderExtras channel={voice} />}
       {canHoldThreads(channel) && !hasTitleChip(access) && <ThreadsButton channel={channel} />}
       {hasMessages && !solo && <PinsButton channel={channel} />}

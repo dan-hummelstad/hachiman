@@ -208,14 +208,14 @@ export function setMyStatus(status: PresenceStatus): void {
   hachiman.gateway.updatePresence(status)
 }
 
-/** The id of the 1:1 DM with `userId`, opened (or reused) on the server. */
-export async function dmChannelWith(userId: string): Promise<string> {
-  return (await hachiman.rest.openDm([userId])).id
+/** The id of the 1:1 DM with one user (opened or reused), or of a new group DM with several. */
+export async function dmChannelWith(...userIds: string[]): Promise<string> {
+  return (await hachiman.rest.openDm(userIds)).id
 }
 
-/** Open (or reuse) a 1:1 DM with `userId` and switch the view to it. */
-export async function openDmWith(userId: string): Promise<void> {
-  openChannel(DM_HOME, await dmChannelWith(userId))
+/** `dmChannelWith`, then switch the view to it. */
+export async function openDmWith(...userIds: string[]): Promise<void> {
+  openChannel(DM_HOME, await dmChannelWith(...userIds))
 }
 
 /** MESSAGE_UPDATE: decrypt, then store. */

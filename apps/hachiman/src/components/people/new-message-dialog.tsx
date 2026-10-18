@@ -1,62 +1,121 @@
-import { useMemo, useState } from 'react'
-import { Search, SquarePen } from 'lucide-react'
-import type { User } from '@hachiman/client'
+import { useEffect, useMemo, useState } from 'react'
+import { Check, Search, SquarePen, UserPlus, X } from 'lucide-react'
+import { DEFAULT_LIMITS, type User } from '@hachiman/client'
 import { UserAvatar } from '@/components/shell/user-avatar'
+import { Button } from '@/components/ui/button'
 import { ErrorText } from '@/components/ui/field'
 import { ModalWindow } from '@/components/ui/modal-window'
 import { useAction } from '@/hooks/use-action'
 import { usePresence } from '@/hooks/use-member'
 import { cn } from '@/lib/utils'
 import { openDmWith } from '@/services/hachiman'
+import { ensureLimits } from '@/services/UploadService'
+import { useLimitsStore } from '@/stores/limitsStore'
 import { useUserStore } from '@/stores/userStore'
 import { filterPeople, usePeople } from './use-people'
 
-/** "New message": pick a person I share a guild with; opens (or reuses) the DM with them. */
+/**
+ * "New message": pick one or more people I share a guild with. One opens (or reuses) the DM, two
+ * or more create a group DM. `include` preselects the people of an open DM: members of a group DM
+ * cannot change, so adding people there starts a new group.
+ */
 export function NewMessageDialog({
   open,
-  onClose
+  onClose,
+  include
 }: {
   open: boolean
   onClose: () => void
+  include?: User[]
 }): React.JSX.Element {
   return (
     <ModalWindow
       open={open}
       onClose={onClose}
-      title="New message"
-      description="Pick someone you share a guild with."
-      icon={<SquarePen />}
+      title={include ? 'Add people' : 'New message'}
+      description={
+        include
+          ? 'Start a new group with the people of this conversation.'
+          : 'Pick one person, or several for a group.'
+      }
+      icon={include ? <UserPlus /> : <SquarePen />}
     >
-      {open && <Picker onClose={onClose} />}
+      {open && <Picker include={include} onClose={onClose} />}
     </ModalWindow>
   )
 }
 
-function Picker({ onClose }: { onClose: () => void }): React.JSX.Element {
+function Picker({
+  include,
+  onClose
+}: {
+  include?: User[]
+  onClose: () => void
+}): React.JSX.Element {
   const people = usePeople()
   const blocks = useUserStore((s) => s.blocks)
   const [query, setQuery] = useState('')
+  const [picked, setPicked] = useState<User[]>(include ?? [])
   const { run, busy, error } = useAction()
   const matches = useMemo(
     () => filterPeople(people, query).filter((u) => !blocks.has(u.id)),
     [people, query, blocks]
   )
+  const pickedIds = useMemo(() => new Set(picked.map((u) => u.id)), [picked])
+  useEffect(ensureLimits, [])
+  // The server's cap counts me too (`Limits.maxGroupDmMembers`, contract §4).
+  const maxMembers = useLimitsStore(
+    (s) => s.limits?.maxGroupDmMembers ?? DEFAULT_LIMITS.maxGroupDmMembers
+  )
+  const full = picked.length + 1 >= maxMembers
+  // The same people again would make a duplicate group DM: the server reuses only a 1:1 DM.
+  const unchanged =
+    !!include && include.length === picked.length && include.every((u) => pickedIds.has(u.id))
 
-  const pick = async (user: User): Promise<void> => {
-    if ((await run('open the conversation', () => openDmWith(user.id))).ok) onClose()
+  const toggle = (user: User): void => {
+    setPicked((p) =>
+      p.some((u) => u.id === user.id) ? p.filter((u) => u.id !== user.id) : [...p, user]
+    )
+    setQuery('')
+  }
+
+  const start = async (): Promise<void> => {
+    const what = picked.length > 1 ? 'create the group' : 'open the conversation'
+    if ((await run(what, () => openDmWith(...picked.map((u) => u.id)))).ok) onClose()
   }
 
   return (
     <div className="flex flex-col gap-3">
-      <label className="rounded-control border-line-strong bg-surface-sunken focus-within:border-accent-primary flex h-9 items-center gap-2 border px-3">
+      <label className="rounded-control border-line-strong bg-surface-sunken focus-within:border-accent-primary flex min-h-9 flex-wrap items-center gap-1.5 border px-3 py-1.5">
         <Search className="text-text-tertiary size-4 shrink-0" aria-hidden />
+        {picked.map((u) => (
+          <span
+            key={u.id}
+            className="bg-surface-hover text-text-primary flex items-center gap-1 rounded-full py-0.5 pr-1 pl-2 text-xs font-semibold"
+          >
+            {u.username}
+            <button
+              type="button"
+              aria-label={`Remove ${u.username}`}
+              onClick={() => toggle(u)}
+              className="hover:text-text-primary text-text-tertiary rounded-full"
+            >
+              <X className="size-3" aria-hidden />
+            </button>
+          </span>
+        ))}
         <input
           autoFocus
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Find people"
+          onKeyDown={(e) => {
+            if (e.key === 'Backspace' && query === '' && picked.length > 0) {
+              setPicked((p) => p.slice(0, -1))
+            }
+          }}
+          placeholder={picked.length === 0 ? 'Find people' : ''}
           aria-label="Find people"
-          className="placeholder:text-text-tertiary min-w-0 flex-1 bg-transparent text-sm outline-none"
+          className="placeholder:text-text-tertiary min-w-16 flex-1 bg-transparent text-sm outline-none"
         />
       </label>
       <ul className="-mx-2 flex max-h-72 flex-col overflow-y-auto">
@@ -66,21 +125,39 @@ function Picker({ onClose }: { onClose: () => void }): React.JSX.Element {
           </li>
         ) : (
           matches.map((u) => (
-            <PickRow key={u.id} user={u} disabled={busy} onPick={() => void pick(u)} />
+            <PickRow
+              key={u.id}
+              user={u}
+              selected={pickedIds.has(u.id)}
+              disabled={busy || (full && !pickedIds.has(u.id))}
+              onPick={() => toggle(u)}
+            />
           ))
         )}
       </ul>
       <ErrorText>{error}</ErrorText>
+      <div className="flex items-center justify-end gap-3">
+        {full && (
+          <span className="text-text-tertiary text-xs">
+            A group has at most {maxMembers} people.
+          </span>
+        )}
+        <Button disabled={busy || picked.length === 0 || unchanged} onClick={() => void start()}>
+          {picked.length > 1 ? 'Create group' : 'Message'}
+        </Button>
+      </div>
     </div>
   )
 }
 
 function PickRow({
   user,
+  selected,
   disabled,
   onPick
 }: {
   user: User
+  selected: boolean
   disabled: boolean
   onPick: () => void
 }): React.JSX.Element {
@@ -89,6 +166,8 @@ function PickRow({
     <li>
       <button
         type="button"
+        role="checkbox"
+        aria-checked={selected}
         disabled={disabled}
         onClick={onPick}
         className={cn(
@@ -102,7 +181,18 @@ function PickRow({
           status={status}
           cutout="bg-surface-content"
         />
-        <span className="text-text-primary truncate text-sm font-semibold">{user.username}</span>
+        <span className="text-text-primary min-w-0 flex-1 truncate text-sm font-semibold">
+          {user.username}
+        </span>
+        <span
+          className={cn(
+            'border-line-strong flex size-5 shrink-0 items-center justify-center rounded-full border',
+            selected && 'bg-accent-primary border-accent-primary text-text-on-accent'
+          )}
+          aria-hidden
+        >
+          {selected && <Check className="size-3" />}
+        </span>
       </button>
     </li>
   )
