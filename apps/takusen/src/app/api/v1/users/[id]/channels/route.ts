@@ -13,7 +13,7 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { z } from 'zod'
 
 import { db } from '@/db/client'
-import { channels, dmParticipants, guildMembers, users } from '@/db/schema'
+import { channels, dmParticipants, guildMembers } from '@/db/schema'
 import { errorResponse, parseBody, requireMe } from '@/lib/api-helpers'
 import { requireUser } from '@/lib/auth-helpers'
 import { MissingPermissionsError, ValidationError } from '@/lib/errors'
@@ -21,8 +21,9 @@ import { assertNotBlocked } from '@/lib/blocks'
 import { publishToUser } from '@/lib/events'
 import { getLimits } from '@/lib/files'
 import { actorDeviceId } from '@/lib/guild-access'
-import { groupVisibility, membershipChanged, membershipTransaction, MembershipTriggers, userColumns } from '@/lib/guilds'
-import { toDmChannel, type UserLike } from '@/lib/wire'
+import { groupVisibility, membershipChanged, membershipTransaction, MembershipTriggers } from '@/lib/guilds'
+import { participantsOf } from '@/lib/group-dm'
+import { toDmChannel } from '@/lib/wire'
 
 interface RouteContext {
   params: Promise<{ id: string }>
@@ -31,21 +32,6 @@ interface RouteContext {
 const openDmSchema = z.object({
   recipientIds: z.array(z.string().uuid()).min(1),
 })
-
-/** Participants (as users) for each of `channelIds`. */
-async function participantsOf(channelIds: string[]): Promise<Map<string, UserLike[]>> {
-  const rows =
-    channelIds.length === 0
-      ? []
-      : await db
-          .select({ channelId: dmParticipants.channelId, user: userColumns })
-          .from(dmParticipants)
-          .innerJoin(users, eq(users.id, dmParticipants.userId))
-          .where(inArray(dmParticipants.channelId, channelIds))
-  const out = new Map<string, UserLike[]>()
-  for (const r of rows) out.set(r.channelId, [...(out.get(r.channelId) ?? []), r.user])
-  return out
-}
 
 export async function GET(_req: NextRequest, ctx: RouteContext): Promise<NextResponse> {
   try {

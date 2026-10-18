@@ -155,6 +155,13 @@ function GroupTileAvatars({
   /** The holes of the unread mark, in the box. */
   cut: readonly Hole[]
 }): React.JSX.Element {
+  if (channel.icon) {
+    return (
+      <span className="flex" style={cutStyle(cut)}>
+        <UserAvatar name={dmName(channel)} avatar={channel.icon} size={30} />
+      </span>
+    )
+  }
   const [a, b] = channel.recipients ?? []
   const second: Hole = [GROUP_SECOND_AT + 10, GROUP_SECOND_AT + 10, 11]
   return (
@@ -233,6 +240,14 @@ export function GroupAvatars({
   size: keyof typeof GROUP_STACK
 }): React.JSX.Element {
   const { h, face, at } = GROUP_STACK[size]
+  // A group image replaces the faces.
+  if (channel.icon) {
+    return (
+      <span aria-hidden className="flex shrink-0 items-center" style={{ width: size, height: h }}>
+        <UserAvatar name={dmName(channel)} avatar={channel.icon} size={h} />
+      </span>
+    )
+  }
   const people = (channel.recipients ?? []).slice(0, 3)
   const places: readonly (readonly [number, number])[] =
     people.length > 0 ? (at[people.length - 1] ?? []) : []

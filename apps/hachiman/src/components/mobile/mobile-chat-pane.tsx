@@ -22,7 +22,7 @@ const showSide = (): void => openDrawer('right')
 const SAFE_BOTTOM = 'pb-(--safe-bottom) in-data-[keyboard=open]:pb-0'
 
 const sideOf = (channel: Channel): MobileSide =>
-  channel.guildId === null ? 'profile' : channel.type === 'pages' ? 'pages' : 'members'
+  channel.type === 'dm' ? 'profile' : channel.type === 'pages' ? 'pages' : 'members'
 
 /**
  * The content of the mobile chat card (docs/ios-mobile-ui-spec.md §2.3): the DM home, a channel

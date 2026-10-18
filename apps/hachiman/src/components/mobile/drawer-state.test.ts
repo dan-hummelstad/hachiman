@@ -20,7 +20,7 @@ describe('hasRightDrawer', () => {
     expect(hasRightDrawer(channel({ type: 'dm' }))).toBe(false)
   })
 
-  it('has nothing for a group DM', () => {
-    expect(hasRightDrawer(channel({ type: 'group_dm', recipients: [user, user] }))).toBe(false)
+  it('has the members of a group DM', () => {
+    expect(hasRightDrawer(channel({ type: 'group_dm', recipients: [user, user] }))).toBe(true)
   })
 })

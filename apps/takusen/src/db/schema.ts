@@ -250,6 +250,8 @@ export const channels = pgTable(
     }),
     position: integer('position').notNull().default(0),
     ownerId: uuid('owner_id').references(() => users.id, { onDelete: 'set null' }),
+    // A group_dm: the upload key of its image, as guilds.icon (contract §4 Files).
+    icon: text('icon'),
     // The current MLS group of a text, pages, dm or group_dm channel (§12.6).
     mlsGroupId: bytea('mls_group_id').references((): AnyPgColumn => mlsGroups.groupId, { onDelete: 'set null' }),
     // A thread: the message in the parent channel that starts the thread (an id only).

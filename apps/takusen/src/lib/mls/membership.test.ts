@@ -135,6 +135,31 @@ describe('channel moves (§12.6)', () => {
   })
 })
 
+describe('group DM leave and delete', () => {
+  test('a participant who leaves gets a Remove; a delete retires the group', async () => {
+    const w = await newWorld()
+    const [alice, bob, cara] = [w.repo.addUser(), w.repo.addUser(), w.repo.addUser()]
+    const a = await activeDevice(w, alice)
+    const b = await activeDevice(w, bob)
+    const c = await activeDevice(w, cara)
+    for (const d of [b, c]) await uploadKeyPackages(w.repo, w.deps, d, { cipherSuite: 1, keyPackages: [fakeKeyPackage(d)], lastResort: null })
+    const dm = w.repo.addDm([alice, bob, cara], 'group_dm')
+    const out = new Outbox()
+    await w.repo.transaction((r) => onMembershipChangeWith(r, w.deps, out, { kind: 'dm_created', channelId: dm }, a.id))
+    const g = await activate(w, out, (await w.repo.listGroupsByChannel(dm))[0]!, a)
+    await runBatchAndCommit(w, g.groupId)
+    assert.ok(await w.repo.memberByDevice(g.groupId, c.id))
+
+    w.repo.removeDmParticipant(dm, cara)
+    await w.repo.transaction((r) => onMembershipChangeWith(r, w.deps, new Outbox(), { kind: 'dm_participant_removed', channelId: dm }, b.id))
+    const pending = await w.repo.listPending(g.groupId, ['queued'])
+    assert.deepEqual(pending.map((p) => [p.op, p.deviceId]), [['remove', c.id]])
+
+    await w.repo.transaction((r) => onMembershipChangeWith(r, w.deps, new Outbox(), { kind: 'dm_deleted', channelId: dm }, a.id))
+    for (const group of await w.repo.listGroupsByChannel(dm)) assert.equal(group.status, 'retired')
+  })
+})
+
 describe('membership work of a rolled-back transaction (§12.18)', () => {
   test('a thrown transaction leaves no outbox entry and publishes nothing', async () => {
     const w = await newWorld()

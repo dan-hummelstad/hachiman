@@ -135,6 +135,11 @@ export interface CreateChannelBody {
   parentId?: Opt<string | null>
   topic?: Opt<string | null>
 }
+/** PATCH /channels/:id of a group DM (§4 DMs): any participant. `icon` is an image upload id. */
+export interface UpdateGroupDmBody {
+  name?: string | null
+  icon?: string | null
+}
 export interface UpdateChannelBody {
   name?: Opt<string>
   topic?: Opt<string | null>
@@ -453,6 +458,9 @@ export class RestClient {
   getDmChannels = () => this.req<Channel[]>('GET', '/users/@me/channels')
   /** 403 Blocked when a block exists between the caller and a recipient. */
   openDm = (recipientIds: string[]) => this.req<Channel>('POST', '/users/@me/channels', { recipientIds })
+  updateGroupDm = (id: string, body: UpdateGroupDmBody) => this.req<Channel>('PATCH', `/channels/${e(id)}`, body)
+  /** The owner deletes a group DM with deleteChannel. */
+  leaveGroupDm = (id: string) => this.req<undefined>('DELETE', `/users/@me/channels/${e(id)}`)
 
   getBlocks = () => this.req<BlockedUser[]>('GET', '/users/@me/blocks')
   blockUser = (userId: string) => this.req<undefined>('PUT', `/users/@me/blocks/${e(userId)}`)

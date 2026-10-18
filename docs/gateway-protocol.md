@@ -64,6 +64,7 @@ interface Channel {
   permissionOverwrites: PermissionOverwrite[]   // [] for DMs and threads
   recipients?: User[]              // dm / group_dm only: every participant except the viewer
   ownerId?: string | null          // group_dm: the owner. thread: the creator
+  icon?: string | null             // group_dm only: the upload key of its image (plaintext, as a guild icon), or null
   mlsGroupId: string | null        // text, pages, dm, group_dm: the current MLS group (base64url, §12.6). null: no group yet, or voice/category/thread. A thread uses the group of its parent: read it from the parent channel or GET /channels/:threadId/mls-group
   historyVisibility: 'joined' | 'shared' | null   // text, pages, dm, group_dm: the effective value (§12.6). null for voice/category/thread (a thread has the value of its parent)
   threadStartMessageId?: string | null   // thread only: the message of the parent that starts the thread, or null
@@ -373,7 +374,9 @@ Implemented extras (Discord semantics):
 | POST `/guilds/:id/channels` `{name, type: text\|voice\|category\|pages, parentId?, topic?}` | MANAGE_CHANNELS | `Channel` | `CHANNEL_CREATE` → guild |
 | PATCH `/guilds/:id/channels` `[{id, position, parentId?}]` | MANAGE_CHANNELS | 204 | `CHANNEL_UPDATE` per changed channel |
 | PATCH `/channels/:id` `{name?, topic?, parentId?, position?, historyVisibility?}` | MANAGE_CHANNELS. `historyVisibility` only for a channel with its own group. A thread: only `name`, from MANAGE_CHANNELS or the creator of the thread | `Channel` | `CHANNEL_UPDATE` |
+| PATCH `/channels/:id` `{name?: string \| null, icon?: uploadId \| null}` (group DM) | any participant. `name` 1–100 characters, null for none. `icon` is the caller's image upload (as a guild icon), null for none. A 1:1 `dm`: 400 `ValidationError` | `Channel` | `CHANNEL_UPDATE` → user:{each participant}, each with its own `recipients` |
 | DELETE `/channels/:id` | MANAGE_CHANNELS, or the creator of a thread | 204 | `CHANNEL_DELETE`. For a text channel: first one `CHANNEL_DELETE` for each of its threads, which are deleted with it |
+| DELETE `/channels/:id` (group DM) | the owner, else 403 `MissingPermissions`. A 1:1 `dm`: 400 `ValidationError`. Deletes the messages and attachments; the DS gets `dm_deleted` (§12.18) | 204 | `CHANNEL_DELETE` → user:{each participant} |
 | POST `/channels/:id/threads` `{name, startMessageId?}` | SEND_MESSAGES on `:id`, a guild text channel (else 400). `startMessageId` must be a message of `:id` (else 400) | `Channel` (type `thread`) | `CHANNEL_CREATE` |
 | GET `/channels/:id/threads` | VIEW_CHANNEL on `:id` | `Channel[]`: at most 50 threads, newest activity first (`last_activity_at`: last message, else creation) | — |
 | PUT `/channels/:id/permissions/:targetId` `{type, allow, deny}` | MANAGE_ROLES. Not on a thread (400) | 204 | `CHANNEL_UPDATE` |
@@ -402,6 +405,7 @@ Implemented extras (Discord semantics):
 | GET `/invites/:code` | **public** | `InvitePreview` (non-consuming) | — |
 | POST `/invites/:code` | auth; 403 `Banned` for a banned user (§4 Bans) | `GuildFull` (idempotent if already a member — no use consumed) | `GUILD_MEMBER_ADD` → guild; `GUILD_CREATE` → user:{me} |
 | GET `/users/@me/channels` | auth | `Channel[]` (DMs) | — |
+| DELETE `/users/@me/channels/:id` | participant of a `group_dm` (a 1:1 `dm`: 400 `ValidationError`) | 204 | Leave the group DM. The DS gets `dm_participant_removed` (§12.18): the leaver's devices get Removes. An owner who leaves passes `ownerId` to the remaining participant with the lowest id. The last participant to leave deletes the group as the owner delete does. `CHANNEL_DELETE` → user:{me}, `CHANNEL_UPDATE` → user:{each remaining participant} |
 | POST `/users/@me/channels` `{recipientIds: string[]}` | auth; recipients must share a guild with me; no block either way (403 `Blocked`, Pins, guild events and blocks) | `Channel` (1 recipient → reuse existing `dm`; ≥2 → new `group_dm`. At most `Limits.maxGroupDmMembers` participants, me included, else 400 `ValidationError`) | `CHANNEL_CREATE` → user:{each participant} |
 | GET `/limits` | auth | `Limits` | — |
 | POST `/uploads?kind=blob` raw body | auth | `Attachment` (201): an encrypted attachment or thumbnail blob | — |
@@ -1027,7 +1031,7 @@ export class RestClient {
   getBans(guildId); banMember(guildId, userId, {reason?}?); unbanMember(guildId, userId)
   getRoles(guildId); createRole(guildId, body, opts?); reorderRoles(guildId, positions, opts?); updateRole(guildId, roleId, body, opts?); deleteRole(guildId, roleId, opts?)
   getInvites(guildId); createInvite(guildId, { maxAgeSeconds?, maxUses?, acknowledgedPermanent?, record? }); deleteInvite(code); previewInvite(code); acceptInvite(code)
-  getDmChannels(); openDm(recipientIds); getUser(id)
+  getDmChannels(); openDm(recipientIds); updateGroupDm(id, {name?, icon?}); leaveGroupDm(id); getUser(id)
   // §4 Pins, guild events and blocks
   getPins(channelId); pinMessage(channelId, messageId); unpinMessage(channelId, messageId)
   getGuildEmojis(guildId); createGuildEmoji(guildId, { name, uploadId }); renameGuildEmoji(guildId, emojiId, name); deleteGuildEmoji(guildId, emojiId)
@@ -2687,7 +2691,7 @@ export type MembershipChange =
   | { kind: 'overwrites_changed' | 'channel_created'; channelId: string }
   | { kind: 'channel_deleted'; guildId: string; channelId: string }
   | { kind: 'guild_deleted'; guildId: string }
-  | { kind: 'dm_created'; channelId: string }
+  | { kind: 'dm_created' | 'dm_participant_removed' | 'dm_deleted'; channelId: string }
   | { kind: 'user_deleted'; userId: string }
   | { kind: 'devices_revoked'; userId: string; deviceIds: string[] | 'all'; reason: RevocationReason }
 export async function onMembershipChange(tx: Tx, change: MembershipChange, actorDeviceId: string | null): Promise<void>
@@ -2716,6 +2720,7 @@ export class ApiError extends Error {
 - `onMembershipChange` recomputes the readers of each affected group. It queues Removes for devices of users who lost VIEW_CHANNEL, and Adds for new reader devices of `channel` and `dm` groups. It reclassifies channels that moved between public and private (§12.6), and it retires the groups of deleted guilds and channels.
 - `user_deleted` runs before the user row is deleted, in the same transaction. It queues a Remove (keyed by leaf index, §3) for every leaf of every device of the user in every group. The `mls_pending` and `mls_group_members` rows keep their leaf index when the FKs set the device and user to null. The Removes stay valid, and §12.7.3 check 8 accepts the orphan leaves until a commit removes them.
 - `guild_deleted` retires the groups of the guild and deletes their DS rows in the same transaction. The FK cascades delete the rest.
+- `dm_participant_removed` runs after the `dm_participants` row of the leaver is deleted. It reconciles the `dm` group of the channel: the devices of the leaver get Removes. A group DM gets no Adds after its creation. `dm_deleted` runs before the channel row is deleted and retires the groups of the channel.
 - `devices_revoked` with `'all'` is the password reset path (`lib/password-reset.ts`). The reset also calls `revokeUserSessions`. A password change (`account/actions.ts`) revokes the other sessions of the user and keeps the devices.
 - **Password reset seam.** The reset calls `onMembershipChange(tx, { kind: 'devices_revoked', userId, deviceIds: 'all', reason: 'password_reset' }, null)` in the transaction that sets the password. After the commit it calls `wakeScheduler(tx)`. After a rollback it calls `discardMembershipWork(tx)`, so nothing of a rolled-back transaction is published.
 - **Outbox per transaction.** `onMembershipChange` records its events and wakeups in an outbox keyed by the transaction handle. `wakeScheduler(tx)` publishes only that outbox. `discardMembershipWork(tx)` drops it. Each route that calls `onMembershipChange` calls one of the two.

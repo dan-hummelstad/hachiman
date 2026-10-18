@@ -82,6 +82,8 @@ export interface Channel {
   permissionOverwrites: PermissionOverwrite[]
   recipients?: User[]
   ownerId?: string | null
+  /** group_dm: the upload key of its image (plaintext, as a guild icon), or null. */
+  icon?: string | null
   /** text, pages, dm, group_dm: the current MLS group (§12.6). thread: the group of its parent. null: no group yet, or voice/category. */
   mlsGroupId: B64url | null
   /** text, pages, dm, group_dm, thread: the effective value. null for voice/category. */

@@ -855,6 +855,15 @@ export function stubRest(): void {
       const c = channel(null, nextId('c-dm'), type, null, 0, { recipients })
       dispatch({ t: 'CHANNEL_CREATE', d: c })
       return c
+    },
+    updateGroupDm: (id, body) => {
+      const c = { ...must(cache.channels.get(id), 'channel'), ...defined(body) }
+      dispatch({ t: 'CHANNEL_UPDATE', d: c })
+      return c
+    },
+    leaveGroupDm: (id) => {
+      const c = cache.channels.get(id)
+      if (c) dispatch({ t: 'CHANNEL_DELETE', d: c })
     }
   }
 

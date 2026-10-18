@@ -31,10 +31,12 @@ export const toggleDrawer = (side: DrawerSide): void =>
 
 /**
  * Whether the right drawer has something to show for `channel`: what `RightColumn` renders (the
- * column of a guild channel, the profile of a DM), not a group DM.
+ * column of a guild channel, the profile of a DM, the people of a group DM).
  */
 export const hasRightDrawer = (channel: Channel): boolean =>
-  channel.guildId !== null || (channel.type === 'dm' && channel.recipients?.[0] !== undefined)
+  channel.guildId !== null ||
+  channel.type === 'group_dm' ||
+  (channel.type === 'dm' && channel.recipients?.[0] !== undefined)
 
 /** The MobileShell unmounts (the window got wide): nothing stays open. */
 export const resetDrawers = (): void => useDrawerState.setState(initial())

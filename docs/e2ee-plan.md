@@ -92,7 +92,7 @@ Reset must also revoke all sessions (today it does not).
   - When an overwrite gives a public channel its own readers, a member's device makes a new group for it with the current readers. New messages go to that group. Old messages stay in the public set group.
   - When a channel becomes public again, new messages go to the public set group.
 - **Who may add a member:**
-  - **DMs and group DMs:** the creator's commit sets the members. Today group DMs cannot change members, and that stays true.
+  - **DMs and group DMs:** the creator's commit sets the members. No one can add a member to a group DM after its creation. A member can leave: the DS queues Removes for the devices of the leaver (`dm_participant_removed`, contract §12.18).
   - **Private channels** (a channel where @everyone lacks VIEW_CHANNEL): when a user gains VIEW_CHANNEL, an online member's device commits the Add. The membership timeline records "A added B". The chat transcript does not show it.
 
     The server cannot add a member by itself. Role data is not signed, so a malicious server can still trick a member device into adding someone. The visible timeline entry is the defense. Signed admin actions come in Phase 4.

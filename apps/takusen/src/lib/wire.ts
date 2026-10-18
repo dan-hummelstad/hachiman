@@ -154,7 +154,10 @@ export function toDmChannel(c: ChannelRow, participants: UserLike[], viewerId: s
     recipients: participants.filter((p) => p.id !== viewerId).map(toUser),
     ...groupFields(c, groups),
   }
-  if (c.type === 'group_dm') channel.ownerId = c.ownerId
+  if (c.type === 'group_dm') {
+    channel.ownerId = c.ownerId
+    channel.icon = c.icon
+  }
   return channel
 }
 
