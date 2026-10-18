@@ -179,6 +179,11 @@ export class InMemoryMlsRepo implements MlsRepo {
   setOverwrites(channelId: string, ows: OverwriteInfo[]): void {
     this.s.overwrites.set(channelId, ows)
   }
+  /** People join or leave a group DM (the routes write dm_participants). */
+  setDmParticipants(channelId: string, participants: string[]): void {
+    this.s.dmParticipants.set(channelId, participants)
+  }
+
   addDm(participants: string[], type: 'dm' | 'group_dm' = 'dm'): string {
     const id = this.addChannel({ guildId: null, type })
     this.s.dmParticipants.set(id, participants)

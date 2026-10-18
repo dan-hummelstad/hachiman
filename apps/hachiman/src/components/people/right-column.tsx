@@ -5,6 +5,7 @@ import { PagesPanel } from '@/components/docs/pages-panel'
 import { PagesTreeList } from '@/components/docs/pages-tree-list'
 import { MemberList } from '@/components/member-list'
 import { DmProfileColumn } from '@/components/people/dm-profile-column'
+import { GroupDmMembers } from '@/components/people/group-dm-members'
 import { GuildPagesList } from '@/components/people/guild-pages-list'
 import { IconButton } from '@/components/ui/icon-button'
 import { SegmentedControl, type SegmentedOption } from '@/components/ui/segmented-control'
@@ -30,7 +31,7 @@ const EMPTY_MESSAGES: ChatMessage[] = []
  *   user drags its left edge). In a text channel the Pages tab lists the guild's pages, and one
  *   opens beside the chat the same way (N21.1).
  * - DM: the profile of the other user (E2, E3).
- * - Group DM: nothing (null).
+ * - Group DM: its people (`GroupDmMembers`).
  *
  * The `drawer` variant (mobile, docs/ios-mobile-ui-spec.md A1) fills the drawer: no border, no
  * resize handle, never the wide page column, the touch-size tab control. A page that the Pages
@@ -44,6 +45,9 @@ export function RightColumn({
   channel: Channel
   variant?: RightColumnVariant
 }): React.JSX.Element | null {
+  if (channel.type === 'group_dm') {
+    return <GroupDmMembers key={channel.id} channel={channel} drawer={variant === 'drawer'} />
+  }
   if (channel.guildId === null) {
     const other = channel.type === 'dm' ? channel.recipients?.[0] : undefined
     return other ? <DmProfileColumn key={channel.id} user={other} variant={variant} /> : null

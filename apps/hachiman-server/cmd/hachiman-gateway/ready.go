@@ -58,6 +58,7 @@ type Channel struct {
 	PermissionOverwrites []permissions.Overwrite `json:"permissionOverwrites"`
 	Recipients           []User                  `json:"recipients,omitempty"`
 	OwnerID              *string                 `json:"ownerId,omitempty"`
+	Icon                 *string                 `json:"icon,omitempty"` // group_dm: the upload key of its image
 	ThreadStartMessageID *string                 `json:"threadStartMessageId,omitempty"`
 	// Contract §1 Channel: the current MLS group (base64url) and its history visibility. Null for
 	// voice, category and thread. Before the DS allocates a group: mlsGroupId null, "joined".
@@ -347,7 +348,7 @@ func pgLoader(db *pgxpool.Pool) func(ctx context.Context, userID, onlyGuild stri
 		dms := map[string]*Channel{}
 		var dmIDs []string
 		rows, _ = db.Query(ctx, `
-			SELECT c.id::text, c.type::text, c.name, c.topic, c.owner_id::text, c.mls_group_id, g.history_visibility::text
+			SELECT c.id::text, c.type::text, c.name, c.topic, c.owner_id::text, c.icon, c.mls_group_id, g.history_visibility::text
 			FROM channels c JOIN dm_participants p ON p.channel_id = c.id
 			LEFT JOIN mls_groups g ON g.group_id = c.mls_group_id
 			WHERE p.user_id = $1::uuid ORDER BY c.created_at`, userID)
@@ -355,7 +356,7 @@ func pgLoader(db *pgxpool.Pool) func(ctx context.Context, userID, onlyGuild stri
 			c := &Channel{PermissionOverwrites: []permissions.Overwrite{}, Recipients: []User{}}
 			var visibility *string
 			var group []byte
-			if err := rows.Scan(&c.ID, &c.Type, &c.Name, &c.Topic, &c.OwnerID, &group, &visibility); err != nil {
+			if err := rows.Scan(&c.ID, &c.Type, &c.Name, &c.Topic, &c.OwnerID, &c.Icon, &group, &visibility); err != nil {
 				return err
 			}
 			c.setGroup(group, visibility)

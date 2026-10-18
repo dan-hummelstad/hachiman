@@ -10,7 +10,9 @@
  *        the threads of the channel, the attachment rows of all their messages,
  *        then (best effort) their objects. CHANNEL_DELETE of each thread comes
  *        before the one of the channel.
- * Guild channels only; DMs have no editable settings in v1.
+ * A group DM (§4 DMs): PATCH takes `{ name?, icon? }` from any participant
+ * (`icon` is an image upload id, or null). DELETE is for its owner only. A
+ * 1:1 DM has neither.
  */
 import { and, eq } from 'drizzle-orm'
 import { Permissions } from '@hachiman/client/permissions'
@@ -23,6 +25,7 @@ import { enforceAdminAction } from '@/lib/admin-actions'
 import { errorResponse, noContent, parseBody } from '@/lib/api-helpers'
 import { requireUser } from '@/lib/auth-helpers'
 import { MissingPermissionsError, ValidationError } from '@/lib/errors'
+import { asGroupDm, deleteGroupDm, updateGroupDm } from '@/lib/group-dm'
 import {
   actorDeviceId,
   channelIsPublic,
@@ -51,22 +54,29 @@ const updateChannelSchema = z.object({
   historyVisibility: historyVisibilitySchema.optional(),
 })
 
-async function manageableChannel(channelId: string, userId: string): Promise<ChannelAccess> {
-  const access = await loadChannelAccess(channelId, userId)
-  if (!access.guild) throw new MissingPermissionsError('DM channels cannot be managed')
+const updateGroupDmSchema = z.object({
+  name: nameSchema.nullable().optional(),
+  icon: z.string().uuid().nullable().optional(),
+})
+
+function assertManageable(access: ChannelAccess, userId: string): void {
   if (access.channel.type === 'thread') {
     if (!canManageThread(access.channel, userId, access.permissions)) throw new MissingPermissionsError()
   } else {
     requirePermission(access.permissions, Permissions.MANAGE_CHANNELS)
   }
-  return access
 }
 
 export async function PATCH(req: NextRequest, ctx: RouteContext): Promise<NextResponse> {
   try {
     const session = await requireUser()
     const { id } = await ctx.params
-    const access = await manageableChannel(id, session.user.id)
+    const access = await loadChannelAccess(id, session.user.id)
+    if (!access.guild) {
+      const body = await parseBody(req, updateGroupDmSchema)
+      return NextResponse.json(await updateGroupDm(asGroupDm(access), session.user.id, body))
+    }
+    assertManageable(access, session.user.id)
     const { historyVisibility, ...body } = await parseBody(req, updateChannelSchema)
     if (access.channel.type === 'thread' && (body.topic !== undefined || body.position !== undefined)) {
       throw new ValidationError('A thread takes only a name')
@@ -110,8 +120,13 @@ export async function DELETE(req: NextRequest, ctx: RouteContext): Promise<NextR
   try {
     const session = await requireUser()
     const { id } = await ctx.params
-    const access = await manageableChannel(id, session.user.id)
+    const access = await loadChannelAccess(id, session.user.id)
     const actor = await actorDeviceId(req, session.user.id)
+    if (!access.guild) {
+      await deleteGroupDm(asGroupDm(access), session.user.id, actor)
+      return noContent()
+    }
+    assertManageable(access, session.user.id)
     const { keys, threads } = await membershipTransaction(async (tx) => {
       // Lock the channel first: a thread insert key-share-locks its parent, so
       // no thread can appear after the select below. Without the lock it would

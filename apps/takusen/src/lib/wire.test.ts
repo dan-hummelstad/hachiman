@@ -65,6 +65,7 @@ function channel(id: string, name: string): ChannelRow {
     parentId: null,
     position: 0,
     ownerId: null,
+    icon: null,
     mlsGroupId: null,
     threadStartMessageId: null,
     createdAt: T,

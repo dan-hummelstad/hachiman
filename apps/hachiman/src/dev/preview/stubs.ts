@@ -855,6 +855,24 @@ export function stubRest(): void {
       const c = channel(null, nextId('c-dm'), type, null, 0, { recipients })
       dispatch({ t: 'CHANNEL_CREATE', d: c })
       return c
+    },
+    updateGroupDm: (id, body) => {
+      const c = { ...must(cache.channels.get(id), 'channel'), ...defined(body) }
+      dispatch({ t: 'CHANNEL_UPDATE', d: c })
+      return c
+    },
+    addToGroupDm: (id, userIds) => {
+      const old = must(cache.channels.get(id), 'channel')
+      const added = userIds.map(
+        (u) => Object.values(U).find((x) => x.id === u) ?? user(u, 'someone')
+      )
+      const c = { ...old, recipients: [...(old.recipients ?? []), ...added] }
+      dispatch({ t: 'CHANNEL_UPDATE', d: c })
+      return c
+    },
+    leaveGroupDm: (id) => {
+      const c = cache.channels.get(id)
+      if (c) dispatch({ t: 'CHANNEL_DELETE', d: c })
     }
   }
 

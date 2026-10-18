@@ -25,7 +25,11 @@ export function AddPeopleButton({
       <NewMessageDialog
         open={open}
         onClose={() => setOpen(false)}
-        include={channel.recipients ?? []}
+        mode={
+          channel.type === 'group_dm'
+            ? { kind: 'add', to: channel }
+            : { kind: 'group', with: channel.recipients ?? [] }
+        }
       />
     </>
   )

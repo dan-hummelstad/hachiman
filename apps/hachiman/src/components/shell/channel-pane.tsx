@@ -17,6 +17,7 @@ import { VoiceActivityLine } from '@/components/people/voice-activity-line'
 import { useContactTrust } from '@/components/people/use-contact-trust'
 import { NotifyButton } from '@/components/notify/notify-menu'
 import { AddPeopleButton } from '@/components/people/add-people-button'
+import { GroupSettingsButton } from '@/components/people/group-dm-settings'
 import { openChannelView } from '@/lib/navigation'
 import { PinsButton } from '@/components/pins/pins-button'
 import { canHoldThreads } from '@/components/threads/thread-name'
@@ -81,6 +82,9 @@ export function ChannelPane({
             {isDm && <DmCallButton channel={channel} className={HEADER_BUTTON} />}
             {isDm && <DmPokeButton channel={channel} />}
             {isDm && <AddPeopleButton channel={channel} className={HEADER_BUTTON} />}
+            {channel.type === 'group_dm' && (
+              <GroupSettingsButton channel={channel} className={HEADER_BUTTON} />
+            )}
             {channel.type === 'voice' && isGuildChannel(channel) && (
               <VoiceHeaderExtras channel={channel} />
             )}
@@ -271,6 +275,8 @@ function DmTitle({ channel }: { channel: Channel }): React.JSX.Element {
           status={status}
           cutout="bg-surface-content"
         />
+      ) : channel.icon ? (
+        <UserAvatar name={name} avatar={channel.icon} size={26} />
       ) : (
         <Users className="text-text-tertiary size-5 shrink-0" aria-hidden />
       )}
