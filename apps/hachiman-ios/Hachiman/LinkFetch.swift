@@ -12,7 +12,7 @@ import os
 /// connect to the checked address.
 enum LinkFetch {
     static let maxRedirects = 3
-    static let timeout: TimeInterval = 5
+    static let timeout: TimeInterval = 8
     /// The largest body a caller may ask for.
     static let maxBytesCap = 8 * 1024 * 1024
     private static let userAgent = "Mozilla/5.0 (compatible; HachimanLinkPreview/1.0)"
@@ -54,6 +54,15 @@ enum LinkFetch {
         return false
     }
 
+    /// True when `body` ends with `</head>`, in any case.
+    nonisolated static func endsWithHeadEnd(_ body: Data) -> Bool {
+        let marker = Array("</head>".utf8)
+        guard body.count >= marker.count else { return false }
+        return zip(body.suffix(marker.count), marker).allSatisfy { a, b in
+            (a >= 0x41 && a <= 0x5a ? a + 0x20 : a) == b
+        }
+    }
+
     private nonisolated static func isPrivateV4(_ o: [UInt8]) -> Bool {
         switch (o[0], o[1]) {
         case (0, _), (127, _), (10, _), (169, 254), (192, 168): return true
@@ -88,6 +97,8 @@ enum LinkFetch {
                 bytes.task.cancel()
                 return nil
             }
+            let contentType = (http.mimeType ?? "").lowercased()
+            let html = contentType == "text/html" || contentType == "application/xhtml+xml"
             var body = Data()
             for try await byte in bytes {
                 body.append(byte)
@@ -95,8 +106,13 @@ enum LinkFetch {
                     bytes.task.cancel()
                     return nil
                 }
+                // A preview needs only the head, and a slow server (Airbnb) streams the rest for seconds.
+                if html && byte == UInt8(ascii: ">") && endsWithHeadEnd(body) {
+                    bytes.task.cancel()
+                    break
+                }
             }
-            return Resource(url: final, contentType: (http.mimeType ?? "").lowercased(), body: body)
+            return Resource(url: final, contentType: contentType, body: body)
         } catch {
             return nil
         }

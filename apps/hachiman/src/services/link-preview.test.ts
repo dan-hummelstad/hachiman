@@ -80,6 +80,26 @@ it('a page gives its OpenGraph fields and a thumbnail of its image', async () =>
   expect(uploads).toEqual([{ type: 'image/jpeg', maxEdge: 640 }])
 })
 
+it('a page whose meta tags come after a long head (YouTube) still gives a preview', async () => {
+  const script = `<script>var ytInitialData = "${'x'.repeat(700_000)}";</script>`
+  routes.set(
+    'https://www.youtube.com/watch?v=abc',
+    res(
+      'https://www.youtube.com/watch?v=abc',
+      'text/html',
+      `<html><head>${script}<title>Video - YouTube</title>` +
+        '<meta property="og:title" content="Video"><meta property="og:site_name" content="YouTube">' +
+        '<meta property="og:image" content="https://i.ytimg.com/vi/abc/maxresdefault.jpg"></head><body></body></html>'
+    )
+  )
+  routes.set(
+    'https://i.ytimg.com/vi/abc/maxresdefault.jpg',
+    res('https://i.ytimg.com/vi/abc/maxresdefault.jpg', 'image/jpeg', 'jpg')
+  )
+  const p = await linkPreviewFor('https://www.youtube.com/watch?v=abc', [])
+  expect(p).toMatchObject({ title: 'Video', siteName: 'YouTube', image: { uploadId: 'u1' } })
+})
+
 it('no preview for SVG, plain text, the Takusen origin or with the setting off', async () => {
   routes.set('https://i.example/x.svg', res('https://i.example/x.svg', 'image/svg+xml', '<svg/>'))
   routes.set('https://i.example/x.txt', res('https://i.example/x.txt', 'text/plain', 'hi'))

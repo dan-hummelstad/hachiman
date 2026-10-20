@@ -58,9 +58,12 @@ test("the lookup refuses a host with any non-public address", async () => {
 function response(
   status: number,
   headers: Record<string, string>,
-  body = "",
+  body: string | string[] = "",
 ): IncomingMessage {
-  return Object.assign(Readable.from([Buffer.from(body)]), {
+  const chunks = (Array.isArray(body) ? body : [body]).map((c) =>
+    Buffer.from(c),
+  );
+  return Object.assign(Readable.from(chunks), {
     statusCode: status,
     headers,
   }) as unknown as IncomingMessage;
@@ -149,4 +152,25 @@ test("stops at the redirect limit, a non-200 status and the byte cap", async () 
       path,
     );
   }
+});
+
+test("stops reading HTML at </head>, also across chunks; other types read whole", async () => {
+  const get = fakeGet({
+    "https://a.example/page": () =>
+      response(200, { "content-type": "text/html" }, [
+        "<html><head><title>T</title></HE",
+        "AD><body>",
+        "x".repeat(5000),
+      ]),
+    "https://a.example/img": () =>
+      response(200, { "content-type": "image/png" }, ["</head>", "rest"]),
+  });
+  const page = await fetchLinkResource("https://a.example/page", 1000, get);
+  assert.ok(page);
+  assert.equal(
+    new TextDecoder().decode(page.body),
+    "<html><head><title>T</title></HEAD><body>",
+  );
+  const img = await fetchLinkResource("https://a.example/img", 1000, get);
+  assert.equal(new TextDecoder().decode(img!.body), "</head>rest");
 });

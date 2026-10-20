@@ -19,6 +19,13 @@ final class LinkFetchTests: XCTestCase {
         XCTAssertFalse(LinkFetch.isPrivateLiteral("2606:4700::1111"))
     }
 
+    func testHeadEnd() {
+        XCTAssertTrue(LinkFetch.endsWithHeadEnd(Data("<title>T</title></HEAD>".utf8)))
+        XCTAssertTrue(LinkFetch.endsWithHeadEnd(Data("</head>".utf8)))
+        XCTAssertFalse(LinkFetch.endsWithHeadEnd(Data("</head><body>".utf8)))
+        XCTAssertFalse(LinkFetch.endsWithHeadEnd(Data("head>".utf8)))
+    }
+
     func testRefusesBeforeAnyRequest() async {
         let none = await LinkFetch.fetch(URL(string: "https://127.0.0.1/")!, maxBytes: 100)
         XCTAssertNil(none)

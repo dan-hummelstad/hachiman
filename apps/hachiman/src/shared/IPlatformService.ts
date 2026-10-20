@@ -154,12 +154,13 @@ export interface IPlatformService {
     | null
   /**
    * A GET of an https URL for a link preview (§12.8.1), made by the sender's device only: no
-   * cookies, no credentials, at most 3 redirects (each https), a 5 s timeout, the host never
-   * connects to a loopback, private or link-local address. Resolves null on any failure, or when
-   * the body exceeds `maxBytes`. Electron: main (Node https). iOS: URLSession. Browser: null
+   * cookies, no credentials, at most 3 redirects (each https), an 8 s timeout, the host never
+   * connects to a loopback, private or link-local address. For HTML the body ends after
+   * `</head>`. Resolves null on any failure, or when the body exceeds `maxBytes`. Electron: main (Node https). iOS: URLSession. Browser: null
    * (CORS blocks it, and a Takusen proxy would show the URL to the server).
    */
-  readonly fetchLinkResource: ((url: string, maxBytes: number) => Promise<LinkResource | null>) | null
+  readonly fetchLinkResource:
+    ((url: string, maxBytes: number) => Promise<LinkResource | null>) | null
   /** iOS: the status bar style and the window background follow the app theme. Others: no-op. */
   setAppearance(appearance: Appearance): void
   /** The wrap key of the encrypted crypto store (§12.17). */

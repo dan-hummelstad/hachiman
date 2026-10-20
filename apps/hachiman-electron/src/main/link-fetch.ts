@@ -18,7 +18,7 @@ import { isPrivateIp } from "./probe-target-guard.ts";
  */
 
 export const MAX_REDIRECTS = 3;
-export const TIMEOUT_MS = 5000;
+export const TIMEOUT_MS = 8000;
 /** The largest body a caller may ask for. */
 export const MAX_BYTES_CAP = 8 * 1024 * 1024;
 const USER_AGENT = "Mozilla/5.0 (compatible; HachimanLinkPreview/1.0)";
@@ -113,12 +113,12 @@ export async function fetchLinkResource(
         res.destroy();
         return null;
       }
-      const body = await readCapped(res, maxBytes);
-      if (!body) return null;
       const contentType = (res.headers["content-type"] ?? "")
         .split(";")[0]!
         .trim()
         .toLowerCase();
+      const body = await readCapped(res, maxBytes, HTML_TYPES.has(contentType));
+      if (!body) return null;
       return { url: url.href, contentType, body };
     }
     return null;
@@ -127,10 +127,18 @@ export async function fetchLinkResource(
   }
 }
 
-/** The body, or null past `maxBytes` (the response is destroyed at once). */
+const HTML_TYPES = new Set(["text/html", "application/xhtml+xml"]);
+const HEAD_END = "</head>";
+
+/**
+ * The body, or null past `maxBytes` (the response is destroyed at once). With `untilHeadEnd`
+ * (HTML) it stops after `</head>`: a preview needs only the head, and a slow server (Airbnb)
+ * streams the rest for seconds.
+ */
 async function readCapped(
   res: IncomingMessage,
   maxBytes: number,
+  untilHeadEnd: boolean,
 ): Promise<Uint8Array<ArrayBuffer> | null> {
   const declared = Number(res.headers["content-length"]);
   if (Number.isFinite(declared) && declared > maxBytes) {
@@ -145,7 +153,19 @@ async function readCapped(
       res.destroy();
       return null;
     }
+    // The marker can straddle two chunks, so the search includes the end of the previous one.
+    const seen = Buffer.concat([
+      chunks.at(-1)?.subarray(-HEAD_END.length) ?? Buffer.alloc(0),
+      chunk,
+    ]);
     chunks.push(chunk);
+    if (
+      untilHeadEnd &&
+      seen.toString("latin1").toLowerCase().includes(HEAD_END)
+    ) {
+      res.destroy();
+      break;
+    }
   }
   return new Uint8Array(Buffer.concat(chunks));
 }

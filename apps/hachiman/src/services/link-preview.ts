@@ -15,11 +15,12 @@ import { uploadLinkImage } from './UploadService'
 type Fetch = NonNullable<IPlatformService['fetchLinkResource']>
 
 /** Longest a send waits for its link preview; then it goes without one. */
-const BUDGET_MS = 8_000
-/** Bytes of a page that the parser reads. The head comes first, so this is ample. */
-const PAGE_MAX_BYTES = 512 * 1024
-/** Also the cap of the first fetch: the link itself can be an image. */
-const IMAGE_MAX_BYTES = 5 * 1024 * 1024
+const BUDGET_MS = 10_000
+/**
+ * The cap of each fetch. The parser reads the whole page: YouTube puts its meta tags after about
+ * 770 KB of inline script in the head.
+ */
+const FETCH_MAX_BYTES = 5 * 1024 * 1024
 /** The image of a page preview is a thumbnail; a link straight to an image shows it larger. */
 const PAGE_IMAGE_MAX_EDGE = 640
 const DIRECT_IMAGE_MAX_EDGE = 1280
@@ -57,7 +58,7 @@ async function buildLinkPreview(
   fetchResource: Fetch,
   withImage: boolean
 ): Promise<LinkPreview | null> {
-  const res = await fetchResource(url, IMAGE_MAX_BYTES)
+  const res = await fetchResource(url, FETCH_MAX_BYTES)
   if (!res) return null
   // A link straight to an image: the preview is the image alone (the card shows it embedded).
   if (IMAGE_TYPES.has(res.contentType)) {
@@ -66,10 +67,7 @@ async function buildLinkPreview(
   }
   if (!HTML_TYPES.has(res.contentType)) return null
   // ponytail: UTF-8 only; a page in another charset shows mangled text.
-  const info = parseLinkPage(
-    new TextDecoder().decode(res.body.subarray(0, PAGE_MAX_BYTES)),
-    res.url
-  )
+  const info = parseLinkPage(new TextDecoder().decode(res.body), res.url)
   if (!info) return null
   const image =
     withImage && info.imageUrl
@@ -79,7 +77,7 @@ async function buildLinkPreview(
 }
 
 async function pageImage(url: string, fetchResource: Fetch): Promise<ThumbnailPointer | null> {
-  const res = await fetchResource(url, IMAGE_MAX_BYTES)
+  const res = await fetchResource(url, FETCH_MAX_BYTES)
   if (!res || !IMAGE_TYPES.has(res.contentType)) return null
   return uploadImage(res, PAGE_IMAGE_MAX_EDGE)
 }
