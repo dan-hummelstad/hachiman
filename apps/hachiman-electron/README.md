@@ -113,7 +113,7 @@ The preload buffers the two main → renderer channels until the UI subscribes. 
 | `src/main/renderer-path.ts` | Maps `hachiman://app/…` to a file and refuses path traversal and symlink escapes. It has no Electron imports, so `node --test` can load it. |
 | `src/main/region-probe.ts` | TCP connect RTT: 3 samples per target, minimum wins, 2 s timeout, 8 sockets at a time |
 | `src/main/probe-target-guard.ts` | SSRF guard for `hachiman:probe-regions` |
-| `src/main/link-fetch.ts` | `hachiman:fetch-link`: one https GET for a link preview. Public addresses only (checked at connect time), at most 3 https redirects, 5 s, a body cap, no cookies |
+| `src/main/link-fetch.ts` | `hachiman:fetch-link`: one https GET for a link preview. Public addresses only (checked at connect time), at most 3 https redirects, 8 s, a body cap, HTML read only up to `</head>`, no cookies |
 | `src/main/screen-share.ts` | Lists sources with `desktopCapturer`, keeps the selected source, and answers `setDisplayMediaRequestHandler` |
 | `src/main/updater.ts` | At start and every 4 h, asks Takusen for the newest desktop build (contract §4 Desktop updates). When its commit differs from `MAIN_VITE_BUILD_SHA`, downloads the release zip, checks its SHA-256, and installs it on restart: NSIS `/S` on Windows, a bundle swap from the dmg on macOS. User settings → Desktop app runs the same check at once (`hachiman:check-for-update`) |
 | `src/main/tray.ts` | The tray icon (`resources/trayTemplate.png` on macOS, the app icon elsewhere) with "Open Hachiman" and "Quit Hachiman". With close-to-tray on, the close button hides the window. Cmd+Q, the tray "Quit" and an update install still quit (`before-quit`). A dock click, a second launch and a deep link show the window again. |
