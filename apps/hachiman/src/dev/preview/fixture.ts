@@ -685,6 +685,15 @@ function otherHistory(): Map<string, ChatMessage[]> {
         }
       }
     ),
+    msg(G3C.reading, G3, U.sable, at(y, 20, 21), 'https://maps.example/gethen-map.webp', {
+      linkPreview: {
+        url: 'https://maps.example/gethen-map.webp',
+        title: '',
+        description: '',
+        siteName: '',
+        image: { ...ATT.linkImage, width: 1280, height: 720 }
+      }
+    }),
     msg(G3C.reading, G3, ME, at(t, 7, 50), 'I am behind, no spoilers please')
   ])
   out.set(DM1, [

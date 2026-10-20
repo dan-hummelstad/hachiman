@@ -173,26 +173,32 @@ export async function uploadAttachment(
   }
 }
 
-const LINK_IMAGE_MAX_EDGE = 640
-
 /**
- * The image of a link preview (§12.8.1): decoded here, drawn again as WebP of at most
- * LINK_IMAGE_MAX_EDGE px (no metadata of the source survives), encrypted and uploaded as one blob.
- * Null when it does not decode.
+ * The image of a link preview (§12.8.1), encrypted and uploaded as one blob. A GIF keeps its bytes,
+ * so it stays animated: a canvas draws only the first frame. Any other image is drawn again as
+ * WebP of at most `maxEdge` px, so no metadata of the source survives. Null when it does not decode.
+ * ponytail: a GIF keeps its comment blocks; GIF has no EXIF, so no location can ride along.
  */
-export async function uploadLinkImage(image: Blob): Promise<ThumbnailPointer | null> {
+export async function uploadLinkImage(
+  image: Blob,
+  maxEdge: number
+): Promise<ThumbnailPointer | null> {
   const bitmap = await createImageBitmap(image).catch(() => null)
   if (!bitmap) return null
   let drawn: AttachmentInput['thumbnail']
   try {
-    drawn = await drawThumbnail(bitmap, bitmap.width, bitmap.height, LINK_IMAGE_MAX_EDGE)
+    const { width, height } = bitmap
+    drawn =
+      image.type === 'image/gif'
+        ? { blob: image, mime: image.type, width, height }
+        : await drawThumbnail(bitmap, width, height, maxEdge)
   } finally {
     bitmap.close()
   }
   if (!drawn) return null
   const encrypted = await cryptoService.client().encryptAttachment({
     file: drawn.blob,
-    name: 'preview.webp',
+    name: drawn.mime === 'image/gif' ? 'preview.gif' : 'preview.webp',
     mime: drawn.mime,
     width: drawn.width,
     height: drawn.height,

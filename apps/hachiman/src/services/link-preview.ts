@@ -8,7 +8,7 @@ import { uploadIdsOf } from '@/lib/attachments'
 import { parseLinkPage, previewUrlOf } from '@/lib/link-preview'
 import { hostPlatform } from '@/services/hachiman'
 import { takusenService } from '@/services/TakusenService'
-import type { IPlatformService } from '@/shared/IPlatformService'
+import type { IPlatformService, LinkResource } from '@/shared/IPlatformService'
 import { usePrefsStore } from '@/stores/prefsStore'
 import { uploadLinkImage } from './UploadService'
 
@@ -18,9 +18,13 @@ type Fetch = NonNullable<IPlatformService['fetchLinkResource']>
 const BUDGET_MS = 8_000
 /** Bytes of a page that the parser reads. The head comes first, so this is ample. */
 const PAGE_MAX_BYTES = 512 * 1024
+/** Also the cap of the first fetch: the link itself can be an image. */
 const IMAGE_MAX_BYTES = 5 * 1024 * 1024
+/** The image of a page preview is a thumbnail; a link straight to an image shows it larger. */
+const PAGE_IMAGE_MAX_EDGE = 640
+const DIRECT_IMAGE_MAX_EDGE = 1280
 const HTML_TYPES = new Set(['text/html', 'application/xhtml+xml'])
-/** No SVG: it can carry script, and the preview redraws only bitmaps. */
+/** No SVG: it can carry script. */
 const IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp'])
 
 /**
@@ -53,20 +57,32 @@ async function buildLinkPreview(
   fetchResource: Fetch,
   withImage: boolean
 ): Promise<LinkPreview | null> {
-  const page = await fetchResource(url, PAGE_MAX_BYTES)
-  if (!page || !HTML_TYPES.has(page.contentType)) return null
+  const res = await fetchResource(url, IMAGE_MAX_BYTES)
+  if (!res) return null
+  // A link straight to an image: the preview is the image alone (the card shows it embedded).
+  if (IMAGE_TYPES.has(res.contentType)) {
+    const image = withImage ? await uploadImage(res, DIRECT_IMAGE_MAX_EDGE) : null
+    return image && { url, title: '', description: '', siteName: '', image }
+  }
+  if (!HTML_TYPES.has(res.contentType)) return null
   // ponytail: UTF-8 only; a page in another charset shows mangled text.
-  const info = parseLinkPage(new TextDecoder().decode(page.body), page.url)
+  const info = parseLinkPage(
+    new TextDecoder().decode(res.body.subarray(0, PAGE_MAX_BYTES)),
+    res.url
+  )
   if (!info) return null
   const image =
     withImage && info.imageUrl
-      ? await linkImage(info.imageUrl, fetchResource).catch(() => null)
+      ? await pageImage(info.imageUrl, fetchResource).catch(() => null)
       : null
   return { url, title: info.title, description: info.description, siteName: info.siteName, image }
 }
 
-async function linkImage(url: string, fetchResource: Fetch): Promise<ThumbnailPointer | null> {
+async function pageImage(url: string, fetchResource: Fetch): Promise<ThumbnailPointer | null> {
   const res = await fetchResource(url, IMAGE_MAX_BYTES)
   if (!res || !IMAGE_TYPES.has(res.contentType)) return null
-  return uploadLinkImage(new Blob([res.body], { type: res.contentType }))
+  return uploadImage(res, PAGE_IMAGE_MAX_EDGE)
 }
+
+const uploadImage = (res: LinkResource, maxEdge: number): Promise<ThumbnailPointer | null> =>
+  uploadLinkImage(new Blob([res.body], { type: res.contentType }), maxEdge)

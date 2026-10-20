@@ -9,6 +9,20 @@ import { useDecryptedBlob } from '@/hooks/use-decrypted-blob'
 export function LinkPreviewCard({ preview }: { preview: LinkPreview }): React.JSX.Element {
   // The decoder admits only an https URL that parses (§12.8.1).
   const host = new URL(preview.url).host
+  // A link straight to an image (no page text): the image alone, as Discord embeds it.
+  if (preview.image && !preview.title && !preview.description)
+    return (
+      <a
+        href={preview.url}
+        target="_blank"
+        rel="noreferrer noopener"
+        data-slot="link-preview"
+        aria-label={`Image from ${host}`}
+        className="my-1 block w-fit max-w-full"
+      >
+        <PreviewImage image={preview.image} maxWidth={400} maxHeight={350} fit="contain" />
+      </a>
+    )
   const title = preview.title || preview.url
   return (
     <a
@@ -27,19 +41,40 @@ export function LinkPreviewCard({ preview }: { preview: LinkPreview }): React.JS
           <span className="text-text-secondary line-clamp-3 text-sm">{preview.description}</span>
         )}
       </div>
-      {preview.image && <PreviewImage image={preview.image} />}
+      {preview.image && <PreviewImage image={preview.image} maxHeight={300} fit="cover" />}
     </a>
   )
 }
 
-function PreviewImage({ image }: { image: NonNullable<LinkPreview['image']> }): React.JSX.Element {
+/** Without `maxWidth` the image fills the card width. */
+function PreviewImage({
+  image,
+  maxWidth,
+  maxHeight,
+  fit
+}: {
+  image: NonNullable<LinkPreview['image']>
+  maxWidth?: number
+  maxHeight: number
+  fit: 'cover' | 'contain'
+}): React.JSX.Element {
   const { url } = useDecryptedBlob(image)
   return (
     <div
-      className="bg-surface-raised w-full overflow-hidden"
-      style={{ aspectRatio: `${image.width} / ${image.height}`, maxHeight: 300 }}
+      className="bg-surface-raised max-w-full overflow-hidden"
+      style={{
+        width: maxWidth === undefined ? '100%' : Math.min(maxWidth, image.width),
+        aspectRatio: `${image.width} / ${image.height}`,
+        maxHeight
+      }}
     >
-      {url && <img src={url} alt="" className="size-full object-cover" />}
+      {url && (
+        <img
+          src={url}
+          alt=""
+          className={fit === 'cover' ? 'size-full object-cover' : 'size-full object-contain'}
+        />
+      )}
     </div>
   )
 }
