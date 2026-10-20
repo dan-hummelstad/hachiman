@@ -22,7 +22,7 @@
   },
   "keywords": [],
   "author": "",
-  "license": "ISC",
+  "license": "MIT",
   "packageManager": "pnpm@12.9.0",
   "devDependencies": {
     "@typescript/native-preview": "7.0.0-dev.20260421.2"
