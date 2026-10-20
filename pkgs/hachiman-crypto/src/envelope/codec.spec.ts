@@ -145,6 +145,41 @@ describe('EnvelopeContent', () => {
     ])
   })
 
+  it('a link preview rides kinds 5 and 6, and its image is the last upload id', () => {
+    const linkPreview = { url: 'https://example.com/a', title: 'T', description: '', siteName: 'Ex', image: thumbnail(9, { blobSize: 7 }) }
+    const c = content({ attachments: [pointer(1)], linkPreview })
+    const m = encodeContent({ kind: 'message', editOf: null, content: c, ktTreeHead: null })
+    const e = encodeContent({ kind: 'edit', editOf: bytes(16, 1), content: c, ktTreeHead: null })
+    expect([m[0], e[0]]).toEqual([5, 6])
+    expect(decodeContent(m)).toMatchObject({ kind: 'message', content: c })
+    expect(decodeContent(e)).toMatchObject({ kind: 'edit', content: c })
+    expect(uploadIdsOf(c.attachments, linkPreview)).toEqual([
+      { id: uuid(1), blobSize: 106_525 },
+      { id: uuid(9), blobSize: 7 },
+    ])
+    // Without a preview the bytes stay those of kinds 1 and 2.
+    expect(encodeContent({ kind: 'message', editOf: null, content: content(), ktTreeHead: null })[0]).toBe(1)
+    // Kind 1 with the preview bytes, or kind 5 without them, does not decode.
+    expectMalformed(() => decodeContent(Uint8Array.of(1, ...m.subarray(1))))
+    const plain = encodeContent({ kind: 'message', editOf: null, content: content(), ktTreeHead: null })
+    expectMalformed(() => decodeContent(Uint8Array.of(5, ...plain.subarray(1))))
+  })
+
+  it('rejects a link preview url that is not https, or too long a field', () => {
+    const enc = (p: Partial<NonNullable<MessageContent['linkPreview']>>): Uint8Array =>
+      encodeContent({
+        kind: 'message',
+        editOf: null,
+        content: content({ linkPreview: { url: 'https://a.example/', title: '', description: '', siteName: '', image: null, ...p } }),
+        ktTreeHead: null,
+      })
+    for (const url of ['http://a.example/', 'javascript:alert(1)', '', 'not a url']) expectMalformed(() => enc({ url }))
+    expect(() => enc({ title: 't'.repeat(301) })).toThrow(/title/)
+    expect(() => enc({ description: 'd'.repeat(1001) })).toThrow(/description/)
+    expect(() => enc({ siteName: 's'.repeat(101) })).toThrow(/site_name/)
+    expect(enc({}).length).toBeGreaterThan(0)
+  })
+
   it('enforces the §12.8.1 limits on encode', () => {
     const enc = (c: Partial<MessageContent>): Uint8Array => encodeContent({ kind: 'message', editOf: null, content: content(c), ktTreeHead: null })
     const code = (fn: () => unknown): string => {

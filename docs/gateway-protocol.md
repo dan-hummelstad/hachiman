@@ -1237,6 +1237,8 @@ export interface IPlatformService {
   readonly scanQr: (() => Promise<string | null>) | null
   /** iOS: saves a UTF-8 text file (`name`: a file name, no path) through the Files export sheet; true when saved, false when cancelled. Electron and browser: null (the UI downloads a blob). */
   readonly saveTextFile: ((name: string, text: string) => Promise<boolean>) | null
+  /** A GET of an https URL for a link preview (§12.8.1): `LinkResource` (the final URL after redirects, the lowercase Content-Type without parameters, the body), or null on any failure or past `maxBytes`. Electron: main. iOS: URLSession. Browser: null. */
+  readonly fetchLinkResource: ((url: string, maxBytes: number) => Promise<LinkResource | null>) | null
   /** Notification permission, then a push subscription of this install with a new push key for `deviceId` (§4 Push, §12.22); null when the user refused. iOS: APNs. Browser: Web Push (`/sw.js`). Electron: null (no push service). */
   readonly pushSubscribe: ((vapidPublicKey: string, deviceId: string, opts: { discardOld: boolean }) => Promise<PushTarget | null>) | null
   /** A tap on a push notification of `channelId` (§4 Push), held until the first subscriber. iOS: the notification response. Browser: a click in the service worker. Electron: never. Returns unsubscribe. */
@@ -1249,6 +1251,7 @@ export interface IPlatformService {
 
 export type HapticKind = 'light' | 'success' | 'warning'
 export interface ShareContent { url: string; text?: string }
+export interface LinkResource { url: string; contentType: string; body: Uint8Array }
 export interface Appearance {
   theme: 'dark' | 'light'
   background: string   // a hex color (#rrggbb or #rrggbbaa), e.g. the value of --surface-window: the window background behind the safe areas
@@ -1356,6 +1359,12 @@ Screen share source selection:
 - Electron and browser: null. The UI downloads a `Blob` with `<a download>`.
 - The text leaves the app only on this user action. The UI calls it only from a button that the user selects.
 
+`fetchLinkResource` (link previews, §12.8.1). Only the sender's device calls it, for the first https link of a message that it sends, when the user setting "Make link previews" is on (default on; the site sees the IP address of the device). The UI asks for at most 512 KiB of HTML and 5 MiB of image (PNG, JPEG, GIF or WebP; no SVG), and sends without a preview after 8 s.
+- Every host: https only, no user or password in the URL, no cookies and no stored credentials, at most 3 redirects (each to https), a 5 s timeout, the body cap of the caller (at most 8 MiB). Null for any refusal or failure.
+- Electron: the IPC channel `hachiman:fetch-link` (`url`, `maxBytes`), only from the top frame of the app page. Main uses Node `https` with a `lookup` that fails when the host resolves to any loopback, private, link-local or unspecified address (IPv4, IPv6, IPv4-mapped), so the check holds at connect time. An IP literal host gets the same check (`main/link-fetch.ts`).
+- iOS: the bridge op `fetchLink` (`{ url, maxBytes }`). The reply is `{ url, contentType, body }` (`body` base64), or null. An ephemeral `URLSession`. The app refuses a loopback, private or link-local IP literal host. `ponytail:` URLSession has no connect-time address hook, so a name that resolves to a LAN address is not refused (iOS gates the local network behind a permission that the app does not declare).
+- Browser: null. CORS blocks the fetch, and a Takusen proxy would show the URL to the server. Previews from other devices still show.
+
 `pushSubscribe` (§4 Push):
 - iOS: the bridge op `push.register` (`{deviceId, discardOld}`; `deviceId` a UUID, else `Malformed`). The app asks for alert and sound permission, calls `registerForRemoteNotifications`, and makes a new push key (§12.22). The reply is `{token, sandbox, pushKey}`: the lowercase hex APNs token, `sandbox` true in a Debug build, and the base64url public point. The reply is null when the user refused. The Notification Service Extension `HachimanNotify` (embedded in the app) opens the sealed previews. The entitlement `aps-environment` is `development`; an export for TestFlight or the App Store sets `production`. In front, the app shows no banner for a push (`willPresent` gives no options), because it has the gateway.
 - Browser: registers the service worker `/sw.js` (`worker-src 'self'`), asks for the permission, and subscribes with `userVisibleOnly` and the VAPID key. A subscription of another key is replaced. The target is the endpoint, the RFC 8291 keys `p256dh` and `auth`, and a new push key from the service worker (op `push-key` on a `MessageChannel`, §12.22). On a push, the service worker opens the sealed preview and shows its sender and text, else "Hachiman / New message", unless a window of the app has focus. The notification keeps the `c` of the outer layer as its data. A click focuses a window of the app and posts `{op: "open-channel", channelId}` to it, or opens `/?channel=<id>`, which the launch URL turns into `onPushOpen` (and then resets to `/`).
@@ -1395,7 +1404,7 @@ The packaged Electron app does not load the renderer from `file://`. A `file://`
 
 ### iOS host
 
-`apps/hachiman-ios` is a SwiftUI app with one `WKWebView` (iOS 18.5 or later: the WebKit of iOS 18.3 has no WebCrypto X25519, and 18.5 is the oldest runtime that passed the capability probe). It serves the built shared UI from the scheme `hachiman` (`hachiman://app/index.html`, origin `hachiman://app`, as the packaged Electron renderer). Every response of the scheme handler carries the CSP of the iOS build (`apps/hachiman-ios/csp.ts`, the Electron policy) as a `Content-Security-Policy` header, so the Worker scripts get the policy too. The build writes the header value to `csp-header.txt`. `index.html` also has the policy as a meta tag. The page talks to the app through one script message handler, `hachiman`: a message is `{ op, ... }` and the reply comes back through `WKScriptMessageHandlerWithReply`. The app answers only the main frame of the origin `hachiman://app`. The ops are `ready`, `wrapKey.get`, `wrapKey.clear`, `oauth.begin`, `haptic`, `share`, `scanQr`, `saveTextFile`, `setAppearance` and `push.register`. Events from the app (`oauth-callback`, `invite-link`, `push-open`) go to `window.__hachimanNative.emit(type, payload)`. `push-open` is `{channelId}`: the lowercased `c` of a tapped push, only when it is a UUID. The app holds its events until the page sends `ready`, and again from each new main-frame load. The page holds each event type until its first subscriber. Only the `ASWebAuthenticationSession` completion sends `oauth-callback`: the app does not register the URL scheme `app.hachiman`, so another app cannot send a callback. The app registers only `takusen` (invite links). iOS has no `getDisplayMedia` (no screen share) and no global shortcuts: `getScreenSources`, `closeToTray` and `setGlobalShortcuts` give null, and `checkForUpdate` gives `not-available` (TestFlight updates the app).
+`apps/hachiman-ios` is a SwiftUI app with one `WKWebView` (iOS 18.5 or later: the WebKit of iOS 18.3 has no WebCrypto X25519, and 18.5 is the oldest runtime that passed the capability probe). It serves the built shared UI from the scheme `hachiman` (`hachiman://app/index.html`, origin `hachiman://app`, as the packaged Electron renderer). Every response of the scheme handler carries the CSP of the iOS build (`apps/hachiman-ios/csp.ts`, the Electron policy) as a `Content-Security-Policy` header, so the Worker scripts get the policy too. The build writes the header value to `csp-header.txt`. `index.html` also has the policy as a meta tag. The page talks to the app through one script message handler, `hachiman`: a message is `{ op, ... }` and the reply comes back through `WKScriptMessageHandlerWithReply`. The app answers only the main frame of the origin `hachiman://app`. The ops are `ready`, `wrapKey.get`, `wrapKey.clear`, `oauth.begin`, `haptic`, `share`, `scanQr`, `saveTextFile`, `fetchLink`, `setAppearance` and `push.register`. Events from the app (`oauth-callback`, `invite-link`, `push-open`) go to `window.__hachimanNative.emit(type, payload)`. `push-open` is `{channelId}`: the lowercased `c` of a tapped push, only when it is a UUID. The app holds its events until the page sends `ready`, and again from each new main-frame load. The page holds each event type until its first subscriber. Only the `ASWebAuthenticationSession` completion sends `oauth-callback`: the app does not register the URL scheme `app.hachiman`, so another app cannot send a callback. The app registers only `takusen` (invite links). iOS has no `getDisplayMedia` (no screen share) and no global shortcuts: `getScreenSources`, `closeToTray` and `setGlobalShortcuts` give null, and `checkForUpdate` gives `not-available` (TestFlight updates the app).
 
 Deep link scheme: `takusen://invite/<code>[#k=<base64url invite seed>]` (replaces `takusen://join#<signed payload>`). OAuth callback scheme unchanged (`app.hachiman://oauth-callback`).
 
@@ -1954,6 +1963,14 @@ struct {
 } MessageBody;
 
 struct {
+  opaque url<V>;                   // an https URL that WHATWG URL parses, 1 to 2048 bytes
+  opaque title<V>;                 // UTF-8, at most 300 bytes, empty = none
+  opaque description<V>;           // UTF-8, at most 1000 bytes, empty = none
+  opaque site_name<V>;             // UTF-8, at most 100 bytes, empty = none
+  optional<ThumbnailPointer> image;  // an encrypted image blob (§12.9 format)
+} LinkPreview;
+
+struct {
   opaque target[16];               // the client_msg_id of a message in the same channel
   opaque emoji<V>;                 // UTF-8, 1 to 72 UTF-16 code units, no control character
   uint8 remove;                    // 0 add, 1 remove
@@ -1965,11 +1982,13 @@ struct {
 } PageActivityBody;
 
 struct {
-  uint8 kind;                      // 1 message, 2 edit, 3 reaction, 4 page_activity
+  uint8 kind;                      // 1 message, 2 edit, 3 reaction, 4 page_activity,
+                                   // 5 message with link preview, 6 edit with link preview
   select (kind) {
     case 1, 2: MessageBody body;
     case 3:    ReactionBody body;
     case 4:    PageActivityBody body;
+    case 5, 6: MessageBody body; LinkPreview link_preview;
   };
   uint64 sent_at_ms;               // sender clock, display only
   optional<opaque> kt_tree_head<V>;  // SignedTreeHead gossip (§12.14)
@@ -1993,11 +2012,14 @@ A message must have text or at least one attachment. `channel_id` stops the serv
 | 2 | `edit` | `MessageContent` | §12.8.6. |
 | 3 | `reaction` | `ReactionContent { target, emoji, remove, sentAtMs }` | `emoji` has 1 to 72 UTF-16 code units (`MAX_REACTION_EMOJI_LENGTH`), at most 216 UTF-8 bytes (`MAX_REACTION_EMOJI_BYTES`), a Unicode emoji or a custom emoji key `name:id` (§4 Emojis), no control character (Unicode `Cc`) and no lone surrogate. `remove` is 0 or 1. `target` is not the header `client_msg_id`. |
 | 4 | `page_activity` | `PageActivityContent { pageId, changes, sentAtMs }` | `changes` is 1 to 10000 (`MAX_PAGE_ACTIVITY_CHANGES`). `pageId` is a lowercase UUID. |
+| 5 | `message` | `MessageContent` with `linkPreview` set | As kind 1. |
+| 6 | `edit` | `MessageContent` with `linkPreview` set | As kind 2. |
 
 - A reaction and a page activity are new messages: each has a new `client_msg_id`, no `edit_of`, no attachments and no `reply_to`. The server stores them as normal message rows and cannot tell them apart from kind 1. They count toward history pages and toward the server unread count. SEND_MESSAGES covers them.
 - A reaction is one event: user U added or removed `emoji` on `target`. The receiver folds the reactions of a channel into the target message. For each (sender user, target, emoji), the event with the highest `sent_at_ms` wins. A reaction is not a chat row and does not count as unread on the client.
+- **Link previews.** Kinds 5 and 6 are kinds 1 and 2 with a `LinkPreview` after the body, so the bytes of every message without a preview stay as before. The API keeps `kind: 'message' | 'edit'`: the encoder writes 5 or 6 when `MessageContent.linkPreview` is not null, and the decoder gives `linkPreview` null for kinds 1 and 2. Only the sender's device makes a preview: it fetches the first https link of its own text through the host (`IPlatformService.fetchLinkResource`, §11), reads the OpenGraph tags, and uploads the image as an encrypted blob (WebP, at most 640 px per edge, drawn again on the device). A receiver never fetches the URL. The sender chooses every field, so the UI shows the host of `url` and opens only `url`. The image upload id is the last row attachment (§12.8.5 step 8), so an edit carries the preview of the original unchanged. The UI hides a preview whose `url` is no longer in the text. A message of 20 upload ids has no room for the image: its preview has none.
 - A page activity tells the channel that the sender edited a page (§12.20). The sender sends at most one per page per 10 minutes. The client shows it as an activity line, not as a chat row.
-- **Old clients.** A client that does not know a kind gives `malformed` at step 3 (§12.8.5) and changes no state. It does not count toward the fork alert. Thus a reaction or a page activity shows as one undecryptable row on an older client, and does no other harm. The same holds for a reaction emoji of more than 32 UTF-16 code units (a custom emoji key) on a client from before the limit of 72.
+- **Old clients.** A client that does not know a kind gives `malformed` at step 3 (§12.8.5) and changes no state. It does not count toward the fork alert. Thus a reaction, a page activity or a message with a link preview shows as one undecryptable row on an older client, and does no other harm. The same holds for a reaction emoji of more than 32 UTF-16 code units (a custom emoji key) on a client from before the limit of 72.
 
 #### 12.8.2 Message key
 
@@ -2020,7 +2042,7 @@ The content of a message must encode to an envelope of at most `Limits.maxEnvelo
 #### 12.8.4 Server checks on send and edit
 
 Takusen decodes only the header (`acceptEnvelope`). It checks:
-- The envelope has at most `TAKUSEN_MAX_ENVELOPE_BYTES` (default 32768) bytes. Else 413 `EnvelopeTooLarge`. The largest valid content (8000 text bytes, 100 mentions, 10 full pointers with thumbnails, KT gossip) is about 18.3 KB, so the default leaves room. The client checks the same limit from `Limits.maxEnvelopeBytes` before it posts (`CryptoError('TooLarge')`).
+- The envelope has at most `TAKUSEN_MAX_ENVELOPE_BYTES` (default 32768) bytes. Else 413 `EnvelopeTooLarge`. The largest valid content (8000 text bytes, 100 mentions, 10 full pointers with thumbnails, a full link preview, KT gossip) is about 21.9 KB, so the default leaves room. The client checks the same limit from `Limits.maxEnvelopeBytes` before it posts (`CryptoError('TooLarge')`).
 - `magic` is 0x4801. `group_id` is the current group of the channel and the group is `active`. Else 409 `GroupPending` or 400 `InvalidEnvelope`.
 - `channel_id` is the route channel. Else 400 `InvalidEnvelope`.
 - `epoch` is the stored epoch. One exception: `epoch` may be the stored epoch − 1 when the commit that started the current epoch removed no leaf of another device and is less than 10 s old. A resync of the committer's own leaf counts as add-only. Else 409 `StaleEpoch` with the stored epoch.
@@ -2040,8 +2062,8 @@ For each message, in history order (`MessageService.decryptMessages`). Each step
 4. **Sender.** Get the verified `DeviceCertificate` of `sender_device_id`, revoked devices included (`IdentityService.deviceOwnerCertificate`). The lookup tries the keys of the row author first, then the keys of each user that the Worker already fetched and verified, and then fetches the keys of the author again. It fetches the keys of one user again at most once per `KEY_REFRESH_MIN_MS` (10 s). Thus a device of another user is found, and gives `device_mismatch` or `edit_not_author`, not `invalid_chain`. No certificate, or the chain check fails: `invalid_chain`. The certificate user is not the row author: `edit_not_author` (kind 2) or `device_mismatch` (all other kinds). **Revoked sender.** When this client processed the Remove of the device in this group, it stores the first epoch without the leaf (`membership.removedAtEpoch`, `GroupService.removedAt`). An Add of the device clears it. An envelope from a revoked device at that epoch or later: `invalid_chain`. **Residual risk:** a revoked device can still sign envelopes for older epochs, in which it was a member. The server sets the order and `created_at`, so such a forged message can show anywhere in the history of those epochs. A client that never processed the Remove (history from a bundle or a backup) has no bound.
 5. **Signature.** Check the signature with the certificate `mls_signature_key`. Else `bad_signature`.
 6. **Franking.** Compute the HMAC of §12.16 from the decrypted `franking_key`, the header `channel_id` and `client_msg_id`, and the received `encode(EnvelopeContent)`. It must equal the header `franking_tag`. Else `bad_franking`. Thus a report can always prove the content that the recipients saw.
-7. **Kind.** Kind 1 has no `edit_of`. Kind 2 has `edit_of` = the header `client_msg_id` = the row `clientMsgId`. Kinds 3 and 4 have no `edit_of` field. A kind 3 `target` is not the header `client_msg_id`. A row with `editedAt` holds no kind 3 or kind 4 envelope, because a reaction and a page activity are never edited. Else `malformed`.
-8. **Attachments.** The list of pointer upload ids (for each pointer: the file id, then the thumbnail id when it has one) equals the row attachment ids, in order. Each `blob_size` equals the row `size` of that id. Else `attachments_mismatch`. This rule is the same for kind 1 and kind 2, so an edit cannot change the attachments. Kinds 3 and 4 have no pointers, so their row must have no attachments.
+7. **Kind.** Kinds 1 and 5 have no `edit_of`. Kinds 2 and 6 have `edit_of` = the header `client_msg_id` = the row `clientMsgId`. Kinds 3 and 4 have no `edit_of` field. A kind 3 `target` is not the header `client_msg_id`. A row with `editedAt` holds no kind 3 or kind 4 envelope, because a reaction and a page activity are never edited. Else `malformed`.
+8. **Attachments.** The list of pointer upload ids (for each pointer: the file id, then the thumbnail id when it has one; then the link preview image id when it has one) equals the row attachment ids, in order. Each `blob_size` equals the row `size` of that id. Else `attachments_mismatch`. This rule is the same for kinds 1, 2, 5 and 6, so an edit cannot change the attachments or the preview image. Kinds 3 and 4 have no pointers, so their row must have no attachments.
 9. **Membership.** `membershipVerified` is true when the client saw the device hold `sender_leaf` at that epoch (store table `membership`). Messages from a history bundle or a backup have `membershipVerified` false. The message info dialog (More → Info) shows "membership at that time not verified".
 10. **Dedupe and rollback.** The key is `(channel_id, client_msg_id)`. The store table `seen` maps it to the server message id and the highest `sent_at_ms` that the client accepted for it. A different message id with the same key: `replay`. A lower `sent_at_ms` than the stored value: `stale_edit`. Thus the server cannot serve an older edit, or the original, after the client saw a newer edit. The UI keeps the newer content that it has. The same `sent_at_ms` is the same envelope again, and is accepted.
 11. **Gossip.** A `kt_tree_head` goes to `IdentityService.observeTreeHead`.
@@ -2669,7 +2691,7 @@ franking_tag = HMAC-SHA256(franking_key, "hachiman franking v1" ‖ channel_id(1
 - **CSP.** Electron (rules in `apps/hachiman-electron/src/main/csp-policy.ts`, applied by `csp.ts`, §11) adds `worker-src 'self'`, and `blob:` to `img-src` and `media-src` (decrypted attachments are object URLs). It does not add `blob:` to `script-src` or `worker-src`. The browser and iOS hosts send the same policy (iOS: a header on every response of the scheme handler, §11). ts-mls, @noble and @hpke are pure TypeScript on WebCrypto and use no wasm. `script-src` has `'wasm-unsafe-eval'` only for the RNNoise mic worklet (§11), which holds no key material. Every host builds the crypto Worker and the transform Worker with Vite (`new Worker(new URL(…, import.meta.url), { type: 'module' })`).
 - **Light clients.** Deferred until ts-mls supports partial trees: joining with a membership proof, and processing commits without the full ratchet tree (IETF MLS light clients draft). The condition is testable: the `smoke.spec.ts` case "needs the full ratchet tree to join" fails when support exists. Until then, every member holds the full tree, and the Phase 3 load test measures its size.
 - **Push** (§4 Push, §12.22): the sender seals the sender name and the text to the push key of each recipient device.
-- **Later:** search (a local index), sender-made link previews.
+- **Later:** search (a local index).
 
 ### 12.18 Takusen internal seams
 

@@ -152,7 +152,7 @@ export class CanaryClient {
     for (let attempt = 1; ; attempt++) {
       try {
         await this.engine.api.ensureChannelGroup(channelId)
-        const sealed = await this.engine.api.encryptMessage({ channelId, kind: 'message', editOf: null, content: { text, mentions: [], attachments, replyTo: null } })
+        const sealed = await this.engine.api.encryptMessage({ channelId, kind: 'message', editOf: null, content: { text, mentions: [], attachments, replyTo: null, linkPreview: null } })
         return await this.hachiman.rest.sendMessage(channelId, { envelope: sealed.envelope, nonce: crypto.randomUUID(), attachments: ids.length > 0 ? ids : undefined })
       } catch (e) {
         const code = (e as { dsCode?: string; code?: string }).dsCode ?? (e as { code?: string }).code

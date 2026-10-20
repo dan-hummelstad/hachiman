@@ -25,7 +25,7 @@ async function person(ds: FakeMlsDs): Promise<Person> {
   return { userId, deviceId, client }
 }
 
-const text = (t: string, attachments: MessageContent['attachments'] = []): Omit<MessageContent, 'sentAtMs'> => ({ text: t, mentions: [], attachments, replyTo: null })
+const text = (t: string, attachments: MessageContent['attachments'] = []): Omit<MessageContent, 'sentAtMs'> => ({ text: t, mentions: [], attachments, replyTo: null, linkPreview: null })
 
 function row(ds: FakeMlsDs, author: Person, channelId: string, out: EncryptMessageOutput, attachments: EncryptedMessage['attachments'] = []): EncryptedMessage {
   return {

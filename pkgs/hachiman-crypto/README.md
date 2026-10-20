@@ -71,12 +71,13 @@ The package has no build step. Consumers import the TypeScript source.
 
 ### Envelope content kinds
 
-`EnvelopeKind` (`src/constants.ts`) and `KindedContent` (`src/api.ts`) give four kinds (§12.8.1). `encryptMessage` takes each kind, and `decryptMessages` gives each kind as a `DecryptedMessage`. Narrow on `kind` before you read `content`.
+`EnvelopeKind` (`src/constants.ts`) and `KindedContent` (`src/api.ts`) give four kinds (§12.8.1). Wire bytes 5 and 6 are `message` and `edit` with a `LinkPreview`: the encoder picks them when `content.linkPreview` is set. `encryptMessage` takes each kind, and `decryptMessages` gives each kind as a `DecryptedMessage`. Narrow on `kind` before you read `content`.
 
 | Kind | Byte | Content | Use |
 |---|---|---|---|
 | `message` | 1 | `MessageContent` | A chat row |
 | `edit` | 2 | `MessageContent`, with `editOf` | A new version of a message |
+| `message`, `edit` | 5, 6 | `MessageContent` with `linkPreview` (url, title, description, siteName, image pointer) | A chat row with a sender-made link preview. The image upload id is the last row attachment |
 | `reaction` | 3 | `ReactionContent`: `target` (a client_msg_id in the same channel), `emoji` (1 to `MAX_REACTION_EMOJI_LENGTH` UTF-16 units), `remove` | The receiver folds it into the target. It is not a chat row |
 | `page_activity` | 4 | `PageActivityContent`: `pageId`, `changes` (1 to `MAX_PAGE_ACTIVITY_CHANGES`) | "edited <page> · n changes" in the pages channel (§12.20). It is not a chat row |
 

@@ -121,7 +121,8 @@ export const BATCH_MAX_ADDS = 100
 /** First two bytes of an Envelope: 'H' and the wire version. */
 export const ENVELOPE_MAGIC = 0x4801
 /** The EnvelopeContent kind byte. A client that does not know a kind gives 'malformed' (§12.8.1). */
-export const EnvelopeKind = { MESSAGE: 1, EDIT: 2, REACTION: 3, PAGE_ACTIVITY: 4 } as const
+/** Kinds 5 and 6 are kinds 1 and 2 with a LinkPreview after the body (§12.8.1). */
+export const EnvelopeKind = { MESSAGE: 1, EDIT: 2, REACTION: 3, PAGE_ACTIVITY: 4, MESSAGE_WITH_PREVIEW: 5, EDIT_WITH_PREVIEW: 6 } as const
 /**
  * A reaction emoji: 1 to this many UTF-16 code units, no control characters (§12.8.1).
  * 72 holds a custom emoji key `name:id` (32 + 1 + 36) as well as any Unicode emoji sequence.
@@ -138,7 +139,7 @@ export const FRANKING_KEY_LENGTH = 32
 export const FRANKING_TAG_LENGTH = 32
 /**
  * Takusen default for TAKUSEN_MAX_ENVELOPE_BYTES. The largest valid content (8000 text bytes,
- * 100 mentions, 10 full pointers with thumbnails, KT gossip) encodes to about 18.3 KB.
+ * 100 mentions, 10 full pointers with thumbnails, a full link preview, KT gossip) encodes to about 21.9 KB.
  */
 export const MAX_ENVELOPE_BYTES = 32_768
 /** Pointers per message (Limits.maxAttachmentsPerMessage). */
@@ -148,6 +149,11 @@ export const MAX_MESSAGE_UPLOAD_IDS = 20
 /** UTF-8 bytes of EnvelopeContent.text. */
 export const MAX_TEXT_BYTES = 8_000
 export const MentionType = { USER: 1, ROLE: 2, EVERYONE: 3 } as const
+/** UTF-8 bytes of the LinkPreview fields (§12.8.1). */
+export const MAX_LINK_PREVIEW_URL_BYTES = 2_048
+export const MAX_LINK_PREVIEW_TITLE_BYTES = 300
+export const MAX_LINK_PREVIEW_DESCRIPTION_BYTES = 1_000
+export const MAX_LINK_PREVIEW_SITE_NAME_BYTES = 100
 
 // MARK: - Page envelopes (§12.20)
 

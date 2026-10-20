@@ -36,6 +36,14 @@ export interface BridgeOps {
   scanQr: [Record<string, never>, string | null];
   /** The Files export sheet (Hachiman/Native.swift). False when the user closed it. */
   saveTextFile: [{ name: string; text: string }, boolean];
+  /**
+   * One https GET for a link preview (Hachiman/LinkFetch.swift): the final URL, the
+   * Content-Type and the base64 body. Null on any refusal or failure.
+   */
+  fetchLink: [
+    { url: string; maxBytes: number },
+    { url: string; contentType: string; body: string } | null,
+  ];
   /** `background`: a hex color (`#rrggbb` or `#rrggbbaa`) behind the safe areas. */
   setAppearance: [Appearance, null];
   /**

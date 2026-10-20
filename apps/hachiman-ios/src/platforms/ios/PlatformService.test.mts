@@ -142,6 +142,28 @@ test("saveTextFile sends its bridge op, and a bridge rejection passes through", 
   });
 });
 
+test("fetchLinkResource decodes the body; a refusal or a bridge error gives null", async () => {
+  const { ps, sent } = setup(() => ({
+    url: "https://a.example/b",
+    contentType: "text/html",
+    body: "PHRpdGxlPg==",
+  }));
+  const r = await ps.fetchLinkResource!("https://a.example/", 1000);
+  assert.deepEqual(r && { ...r, body: new TextDecoder().decode(r.body) }, {
+    url: "https://a.example/b",
+    contentType: "text/html",
+    body: "<title>",
+  });
+  assert.deepEqual(sent, [
+    { op: "fetchLink", args: { url: "https://a.example/", maxBytes: 1000 } },
+  ]);
+  assert.equal(await setup(() => null).ps.fetchLinkResource!("https://a.example/", 1), null);
+  const failing = setup(() => {
+    throw bridgeError("Malformed", "no");
+  });
+  assert.equal(await failing.ps.fetchLinkResource!("http://a.example/", 1), null);
+});
+
 test("a push-open event before the UI subscribes reaches onPushOpen", () => {
   const { ps, events } = setup();
   events.emit("push-open", { channelId: "c1" });

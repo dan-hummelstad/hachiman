@@ -9,7 +9,8 @@ import {
   CryptoError,
   THUMBNAIL_MAX_EDGE,
   type AttachmentInput,
-  type AttachmentPointer
+  type AttachmentPointer,
+  type ThumbnailPointer
 } from '@hachiman/crypto'
 import { pointerOf } from '@/lib/attachments'
 import { formatBytes } from '@/lib/format-bytes'
@@ -172,6 +173,50 @@ export async function uploadAttachment(
   }
 }
 
+/** Longest edge of a link preview image, px. */
+const LINK_IMAGE_MAX_EDGE = 640
+
+/**
+ * The image of a link preview (§12.8.1): decoded here, drawn again as WebP of at most
+ * LINK_IMAGE_MAX_EDGE px (no metadata of the source survives), encrypted and uploaded as one blob.
+ * Null when it does not decode.
+ */
+export async function uploadLinkImage(image: Blob): Promise<ThumbnailPointer | null> {
+  const bitmap = await createImageBitmap(image).catch(() => null)
+  if (!bitmap) return null
+  let drawn: AttachmentInput['thumbnail']
+  try {
+    drawn = await drawThumbnail(bitmap, bitmap.width, bitmap.height, LINK_IMAGE_MAX_EDGE)
+  } finally {
+    bitmap.close()
+  }
+  if (!drawn) return null
+  const encrypted = await cryptoService.client().encryptAttachment({
+    file: drawn.blob,
+    name: 'preview.webp',
+    mime: drawn.mime,
+    width: drawn.width,
+    height: drawn.height,
+    durationMs: null,
+    blurhash: null,
+    thumbnail: null
+  })
+  const upload = await hachiman.rest.uploadBlob(encrypted.blob)
+  if (upload.size !== encrypted.draft.blobSize)
+    throw new Error('The server stored a different file size.')
+  const { key, sha256, size, blobSize, mime } = encrypted.draft
+  return {
+    uploadId: upload.id,
+    key,
+    sha256,
+    size,
+    blobSize,
+    mime,
+    width: drawn.width,
+    height: drawn.height
+  }
+}
+
 const progress =
   (onProgress: ((fraction: number) => void) | undefined) =>
   (loaded: number, total: number): void =>
@@ -211,9 +256,13 @@ async function inspect(file: File, signal: AbortSignal | undefined): Promise<Fil
   return Promise.race([read, stopped])
 }
 
-/** The size that fits `width` × `height` into THUMBNAIL_MAX_EDGE, never larger than the source. */
-export function thumbnailSize(width: number, height: number): { width: number; height: number } {
-  const scale = Math.min(1, THUMBNAIL_MAX_EDGE / Math.max(width, height))
+/** The size that fits `width` × `height` into `maxEdge`, never larger than the source. */
+export function thumbnailSize(
+  width: number,
+  height: number,
+  maxEdge = THUMBNAIL_MAX_EDGE
+): { width: number; height: number } {
+  const scale = Math.min(1, maxEdge / Math.max(width, height))
   return {
     width: Math.max(1, Math.round(width * scale)),
     height: Math.max(1, Math.round(height * scale))
@@ -223,9 +272,10 @@ export function thumbnailSize(width: number, height: number): { width: number; h
 async function drawThumbnail(
   source: CanvasImageSource,
   width: number,
-  height: number
+  height: number,
+  maxEdge = THUMBNAIL_MAX_EDGE
 ): Promise<AttachmentInput['thumbnail']> {
-  const size = thumbnailSize(width, height)
+  const size = thumbnailSize(width, height, maxEdge)
   const canvas = document.createElement('canvas')
   canvas.width = size.width
   canvas.height = size.height

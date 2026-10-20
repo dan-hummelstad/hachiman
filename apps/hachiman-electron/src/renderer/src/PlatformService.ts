@@ -40,6 +40,9 @@ export const platformService: IPlatformService = {
     window.hachiman.setGlobalShortcuts(shortcuts),
   onGlobalShortcut: (cb) => window.hachiman.onGlobalShortcut(cb),
   haptic: () => undefined,
+  // Main fetches with Node https: no CORS, no cookies, public addresses only.
+  fetchLinkResource: (url, maxBytes) =>
+    window.hachiman.fetchLinkResource(url, maxBytes),
   // No OS share sheet: the UI offers Copy only.
   share: null,
   // qr-view.tsx scans with BarcodeDetector where Chromium has it.

@@ -37,6 +37,7 @@ export function stubWire(row: ChatMessage): Message {
         mentions: row.mentions,
         attachments: row.attachments,
         replyTo: row.replyTo,
+        linkPreview: row.linkPreview,
         sentAtMs: Date.parse(row.createdAt)
       }
     })
@@ -165,6 +166,7 @@ function seedEncryptedFixtures(): void {
           mentions: [],
           attachments: [],
           replyTo: target.clientMsgId,
+          linkPreview: null,
           sentAtMs: base + 4 * 60_000
         }
       })

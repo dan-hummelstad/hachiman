@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef } from 'react'
 import { SectionLabel } from '@/components/mobile/list'
 import { GradientPicker, GradientPickerMobile } from '@/components/settings/user/gradient-picker'
+import { LinkPreviewSetting } from '@/components/settings/user/link-previews'
 import { TextSizeSection } from '@/components/settings/user/text-size'
 import { setSidebarMode } from '@/components/shell/sidebar-state'
 import { SectionHeading } from '@/components/ui/field'
@@ -157,6 +158,7 @@ function AppearanceDesktop(): React.JSX.Element {
           ))}
         </div>
       </section>
+      <LinkPreviewSetting mobile={false} />
       <BackgroundSection />
     </div>
   )
@@ -212,6 +214,7 @@ function AppearanceMobile(): React.JSX.Element {
         </div>
       </section>
       <TextSizeSection />
+      <LinkPreviewSetting mobile />
       <BackgroundSectionMobile />
     </div>
   )

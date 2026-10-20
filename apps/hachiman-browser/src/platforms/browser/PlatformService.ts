@@ -143,6 +143,8 @@ export const platformService: IPlatformService = {
   setGlobalShortcuts: async () => null,
   onGlobalShortcut: () => () => undefined,
   haptic: () => undefined,
+  // CORS blocks a page fetch, and a Takusen proxy would show the URL to the server (§12.8.1).
+  fetchLinkResource: null,
   share: typeof navigator.share === "function" ? shareWithNavigator : null,
   // qr-view.tsx scans with BarcodeDetector where the browser has it.
   scanQr: null,

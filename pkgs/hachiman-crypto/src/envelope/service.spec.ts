@@ -341,11 +341,11 @@ function setup() {
 type MsgInput = Extract<EncryptMessageInput, { kind: 'message' | 'edit' }>
 
 function msg(text = 'hi', over: Partial<MsgInput['content']> = {}): MsgInput {
-  return { channelId: CHANNEL, kind: 'message', editOf: null, content: { text, mentions: [], attachments: [], replyTo: null, ...over } }
+  return { channelId: CHANNEL, kind: 'message', editOf: null, content: { text, mentions: [], attachments: [], replyTo: null, linkPreview: null, ...over } }
 }
 
 function edit(of: string, text: string, over: Partial<MsgInput['content']> = {}): MsgInput {
-  return { channelId: CHANNEL, kind: 'edit', editOf: of, content: { text, mentions: [], attachments: [], replyTo: null, ...over } }
+  return { channelId: CHANNEL, kind: 'edit', editOf: of, content: { text, mentions: [], attachments: [], replyTo: null, linkPreview: null, ...over } }
 }
 
 async function one(p: Peer, m: EncryptedMessage): Promise<DecryptResult> {
@@ -552,6 +552,23 @@ describe('MessageService', () => {
     const dropped = await alice.svc.encryptMessage(edit(out.clientMsgId, 'no pic'))
     expect(reason(await one(carol, patched(orig, dropped, alice.dev)))).toBe('failed:attachments_mismatch')
     const kept = await alice.svc.encryptMessage(edit(out.clientMsgId, 'same pic', { attachments: [p1] }))
+    expect(reason(await one(carol, patched(orig, kept, alice.dev)))).toBe('ok')
+  })
+
+  it('a link preview image is the last row attachment; an edit must keep it', async () => {
+    const { alice, carol } = setup()
+    const image = thumbnail(7)
+    const linkPreview = { url: 'https://example.com/', title: 'Example', description: 'd', siteName: '', image }
+    const out = await alice.svc.encryptMessage(msg('see https://example.com/', { linkPreview }))
+    const orig = row(out, alice.dev, CHANNEL, [{ id: uuid(7), size: image.blobSize }])
+    const r = await one(carol, orig)
+    expect(reason(r)).toBe('ok')
+    if (r.status === 'ok' && r.kind === 'message') expect(r.content.linkPreview).toEqual(linkPreview)
+    expect(reason(await one(carol, { ...orig, id: uuid(60_001), attachments: [] }))).toBe('failed:attachments_mismatch')
+    alice.clock.now += 1000
+    const dropped = await alice.svc.encryptMessage(edit(out.clientMsgId, 'no preview'))
+    expect(reason(await one(carol, patched(orig, dropped, alice.dev)))).toBe('failed:attachments_mismatch')
+    const kept = await alice.svc.encryptMessage(edit(out.clientMsgId, 'kept', { linkPreview }))
     expect(reason(await one(carol, patched(orig, kept, alice.dev)))).toBe('ok')
   })
 
