@@ -344,9 +344,7 @@ function checkPreviewText(s: string, max: number, what: string): void {
   if (utf8Bytes(s).length > max) tooLarge(`link preview ${what} longer than ${max} bytes`)
 }
 
-/** An https URL that `new URL` parses. */
 function checkPreviewUrl(url: string): void {
-  if (url.length === 0) malformed('link preview url is empty')
   checkPreviewText(url, MAX_LINK_PREVIEW_URL_BYTES, 'url')
   let protocol: string
   try {
@@ -410,6 +408,16 @@ const KIND_BYTE: Record<EnvelopeKindName, number> = {
   page_activity: EnvelopeKind.PAGE_ACTIVITY,
 }
 
+const PREVIEW_KIND_BYTE = { message: EnvelopeKind.MESSAGE_WITH_PREVIEW, edit: EnvelopeKind.EDIT_WITH_PREVIEW } as const
+
+/** Kind byte → the message kind it decodes to, and whether a LinkPreview follows the body. */
+const MESSAGE_KIND_BYTES: ReadonlyMap<number, { kind: 'message' | 'edit'; withPreview: boolean }> = new Map([
+  [EnvelopeKind.MESSAGE, { kind: 'message', withPreview: false }],
+  [EnvelopeKind.EDIT, { kind: 'edit', withPreview: false }],
+  [EnvelopeKind.MESSAGE_WITH_PREVIEW, { kind: 'message', withPreview: true }],
+  [EnvelopeKind.EDIT_WITH_PREVIEW, { kind: 'edit', withPreview: true }],
+])
+
 /** Control characters (Cc) and lone surrogates (Cs). */
 const EMOJI_FORBIDDEN_RE = /[\p{Cc}\p{Cs}]/u
 
@@ -444,8 +452,8 @@ function writeContent(w: Writer, c: EnvelopeContent, checkKind: boolean): void {
     if (c.kind === 'edit' && c.editOf === null) malformed('kind edit needs edit_of')
   }
   checkSize(c.content.sentAtMs, 'sent_at_ms')
-  const preview = (c.kind === 'message' || c.kind === 'edit') && c.content.linkPreview !== null
-  w.u8(!preview ? kind : c.kind === 'message' ? EnvelopeKind.MESSAGE_WITH_PREVIEW : EnvelopeKind.EDIT_WITH_PREVIEW)
+  const withPreview = (c.kind === 'message' || c.kind === 'edit') && c.content.linkPreview !== null
+  w.u8(withPreview ? PREVIEW_KIND_BYTE[c.kind] : kind)
   switch (c.kind) {
     case 'message':
     case 'edit':
@@ -483,18 +491,14 @@ function readMessageBody(r: Reader, withPreview: boolean): { editOf: Uint8Array 
 /** Kinds 3 and 4 have no edit_of on the wire. An unknown kind byte is 'malformed'. */
 function readContent(r: Reader): EnvelopeContent {
   const kindByte = r.u8()
+  const message = MESSAGE_KIND_BYTES.get(kindByte)
+  if (message) {
+    const { editOf, content } = readMessageBody(r, message.withPreview)
+    const sentAtMs = r.u64n()
+    const ktTreeHead = r.optional((r2) => r2.opaque())
+    return { kind: message.kind, editOf, content: { ...content, sentAtMs }, ktTreeHead }
+  }
   switch (kindByte) {
-    case EnvelopeKind.MESSAGE:
-    case EnvelopeKind.EDIT:
-    case EnvelopeKind.MESSAGE_WITH_PREVIEW:
-    case EnvelopeKind.EDIT_WITH_PREVIEW: {
-      const withPreview = kindByte === EnvelopeKind.MESSAGE_WITH_PREVIEW || kindByte === EnvelopeKind.EDIT_WITH_PREVIEW
-      const { editOf, content } = readMessageBody(r, withPreview)
-      const sentAtMs = r.u64n()
-      const ktTreeHead = r.optional((r2) => r2.opaque())
-      const kind = kindByte === EnvelopeKind.MESSAGE || kindByte === EnvelopeKind.MESSAGE_WITH_PREVIEW ? 'message' : 'edit'
-      return { kind, editOf, content: { ...content, sentAtMs }, ktTreeHead }
-    }
     case EnvelopeKind.REACTION: {
       const target = toB64url(r.fixed(CLIENT_MSG_ID_LENGTH))
       const emoji = r.utf8(MAX_REACTION_EMOJI_BYTES)

@@ -2,6 +2,7 @@ import dns from "node:dns";
 import https from "node:https";
 import type { IncomingMessage } from "node:http";
 import net from "node:net";
+import type { LinkResourceInfo } from "../shared/ipc.ts";
 import { isPrivateIp } from "./probe-target-guard.ts";
 
 /**
@@ -21,13 +22,6 @@ export const TIMEOUT_MS = 5000;
 /** The largest body a caller may ask for. */
 export const MAX_BYTES_CAP = 8 * 1024 * 1024;
 const USER_AGENT = "Mozilla/5.0 (compatible; HachimanLinkPreview/1.0)";
-
-/** Same shape as `LinkResource` in `@hachiman/hachiman` (IPlatformService.ts). */
-export interface LinkResourceInfo {
-  url: string;
-  contentType: string;
-  body: Uint8Array<ArrayBuffer>;
-}
 
 type LookupAll = (
   host: string,
@@ -86,7 +80,6 @@ const httpsGet =
         .on("error", reject);
     });
 
-/** The host of a URL without the brackets of an IPv6 literal. */
 const bareHost = (u: URL): string => u.hostname.replace(/^\[|\]$/g, "");
 
 /** null for any refusal or failure. Never throws. */

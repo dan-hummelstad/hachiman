@@ -6,9 +6,9 @@ import { useDecryptedBlob } from '@/hooks/use-decrypted-blob'
  * the card names the real host of `url`, the target of every click. The image is an encrypted
  * blob: it shows only through use-decrypted-blob. No fetch of the page from this device.
  */
-export function LinkPreviewCard({ preview }: { preview: LinkPreview }): React.JSX.Element | null {
-  const host = hostOf(preview.url)
-  if (host === null) return null
+export function LinkPreviewCard({ preview }: { preview: LinkPreview }): React.JSX.Element {
+  // The decoder admits only an https URL that parses (§12.8.1).
+  const host = new URL(preview.url).host
   const title = preview.title || preview.url
   return (
     <a
@@ -42,12 +42,4 @@ function PreviewImage({ image }: { image: NonNullable<LinkPreview['image']> }): 
       {url && <img src={url} alt="" className="size-full object-cover" />}
     </div>
   )
-}
-
-function hostOf(url: string): string | null {
-  try {
-    return new URL(url).host
-  } catch {
-    return null
-  }
 }

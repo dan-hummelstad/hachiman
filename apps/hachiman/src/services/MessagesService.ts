@@ -1,21 +1,16 @@
 import { RestError, type Message } from '@hachiman/client'
 import {
   CryptoError,
-  MAX_MESSAGE_UPLOAD_IDS,
   type AttachmentPointer,
   type EncryptMessageInput,
-  type LinkPreview,
   type MessageContent
 } from '@hachiman/crypto'
 import { uploadIdsOf } from '@/lib/attachments'
-import { previewUrlOf } from '@/lib/link-preview'
 import { mentionsOf } from '@/lib/mentions'
 import { errMsg } from '@/lib/utils'
 import { cryptoService } from '@/services/CryptoService'
 import { hachiman } from '@/services/client'
-import { hostPlatform } from '@/services/hachiman'
-import { buildLinkPreview } from '@/services/link-preview'
-import { takusenService } from '@/services/TakusenService'
+import { linkPreviewFor } from '@/services/link-preview'
 import { createMessageDecryptor } from '@/services/message-decrypt'
 import { sealPushPreviews } from '@/services/PushService'
 import { playSound } from '@/services/SoundService'
@@ -27,7 +22,6 @@ import {
   type ChatMessage,
   type ReactionEvent
 } from '@/stores/messagesStore'
-import { usePrefsStore } from '@/stores/prefsStore'
 import { useUserStore } from '@/stores/userStore'
 
 const PAGE_SIZE = 50
@@ -35,32 +29,6 @@ const TYPING_THROTTLE_MS = 8_000
 /** Tries of one send or edit when the group moved on (§12.8.3). */
 const SEND_ATTEMPTS = 4
 const RETRY_BASE_MS = 300
-/** Longest a send waits for its link preview; then it goes without one. */
-const LINK_PREVIEW_BUDGET_MS = 8_000
-
-/**
- * The link preview of a new message (§12.8.1), or null: the setting is off, the host cannot fetch,
- * the text has no https link, or the page gives nothing in time. Never fails the send.
- */
-async function linkPreviewFor(
-  text: string,
-  attachments: readonly AttachmentPointer[]
-): Promise<LinkPreview | null> {
-  const fetchResource = hostPlatform()?.fetchLinkResource
-  if (!fetchResource || !usePrefsStore.getState().linkPreviews) return null
-  const url = previewUrlOf(text, takusenService.env.issuerOrigin)
-  if (!url) return null
-  const withImage = uploadIdsOf(attachments).length < MAX_MESSAGE_UPLOAD_IDS
-  const built = buildLinkPreview(url, fetchResource, withImage).catch((e: unknown) => {
-    // Not the URL: it is message content.
-    console.warn('[messages] link preview failed', e instanceof Error ? e.name : typeof e)
-    return null
-  })
-  const late = new Promise<null>((resolve) =>
-    setTimeout(() => resolve(null), LINK_PREVIEW_BUDGET_MS)
-  )
-  return Promise.race([built, late])
-}
 
 let lastTyping = { channelId: '', at: 0 }
 /** channelId → the history page request in flight, so overlapping triggers share one fetch. */

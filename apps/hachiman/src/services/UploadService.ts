@@ -173,7 +173,6 @@ export async function uploadAttachment(
   }
 }
 
-/** Longest edge of a link preview image, px. */
 const LINK_IMAGE_MAX_EDGE = 640
 
 /**

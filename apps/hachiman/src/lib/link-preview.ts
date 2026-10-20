@@ -73,7 +73,6 @@ export function parseLinkPage(html: string, pageUrl: string): LinkPage | null {
   return { title, description, siteName, imageUrl }
 }
 
-/** Attribute name → decoded value of one tag. */
 function attributesOf(tag: string): Map<string, string> {
   const out = new Map<string, string>()
   for (const m of tag.matchAll(

@@ -19,6 +19,12 @@ export const PROBE_REGIONS_CHANNEL = "hachiman:probe-regions";
  * (main/link-fetch.ts). Resolves `LinkResourceInfo | null`.
  */
 export const FETCH_LINK_CHANNEL = "hachiman:fetch-link";
+/** Same shape as `LinkResource` in `@hachiman/hachiman` (IPlatformService.ts). */
+export interface LinkResourceInfo {
+  url: string;
+  contentType: string;
+  body: Uint8Array<ArrayBuffer>;
+}
 /** renderer → main (invoke): list screens and windows for the share picker. */
 export const SCREEN_SOURCES_CHANNEL = "hachiman:screen-sources";
 /** renderer → main (invoke, id, audio): the listed source that the next getDisplayMedia captures, and whether with system audio. */

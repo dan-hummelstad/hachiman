@@ -16,6 +16,7 @@ import {
   SELECT_SCREEN_SOURCE_CHANNEL,
   SET_GLOBAL_SHORTCUTS_CHANNEL,
   type GlobalShortcutInfo,
+  type LinkResourceInfo,
   type ScreenSourceInfo,
   type SecureStorageResult,
   type UpdateCheckResult,
@@ -64,11 +65,8 @@ const bridge = {
   fetchLinkResource: (
     url: string,
     maxBytes: number,
-  ): Promise<{
-    url: string;
-    contentType: string;
-    body: Uint8Array<ArrayBuffer>;
-  } | null> => ipcRenderer.invoke(FETCH_LINK_CHANNEL, url, maxBytes),
+  ): Promise<LinkResourceInfo | null> =>
+    ipcRenderer.invoke(FETCH_LINK_CHANNEL, url, maxBytes),
   getScreenSources: (): Promise<ScreenSourceInfo[]> =>
     ipcRenderer.invoke(SCREEN_SOURCES_CHANNEL),
   /** The listed source that the next getDisplayMedia captures, with system audio when `audio`. */
