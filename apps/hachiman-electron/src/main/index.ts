@@ -15,6 +15,7 @@ import {
   CHECK_FOR_UPDATE_CHANNEL,
   CLOSE_TO_TRAY_GET_CHANNEL,
   CLOSE_TO_TRAY_SET_CHANNEL,
+  FETCH_LINK_CHANNEL,
   GLOBAL_SHORTCUT_CHANNEL,
   OPEN_EXTERNAL_CHANNEL,
   PROBE_REGIONS_CHANNEL,
@@ -25,6 +26,7 @@ import {
 import { createAppPrefsStore, type AppPrefsStore } from "./app-prefs";
 import { buildCsp } from "./csp";
 import { createGlobalShortcuts } from "./global-shortcuts";
+import { fetchLinkResource } from "./link-fetch";
 import {
   createWrapKeyStore,
   SecureStorageError,
@@ -210,6 +212,11 @@ function checkAppFrame(e: IpcMainInvokeEvent): void {
 function requireAppFrame(e: IpcMainInvokeEvent): void {
   if (!isAppFrame(e)) throw new Error("caller is not the app page");
 }
+// IPC: a link preview fetch (§12.8.1), for the app page only. link-fetch.ts checks
+// every argument: https only, public addresses at connect time, redirects, size and time caps.
+ipcMain.handle(FETCH_LINK_CHANNEL, (e, url: unknown, maxBytes: unknown) =>
+  isAppFrame(e) ? fetchLinkResource(url, maxBytes) : null,
+);
 // IPC: the settings "Check for updates" button. A manual check offers a build put off with "Later" again.
 ipcMain.handle(CHECK_FOR_UPDATE_CHANNEL, (e) =>
   isAppFrame(e)

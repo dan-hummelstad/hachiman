@@ -25,7 +25,7 @@ import { fromB64url, toB64url } from '../codec'
 import { CLIENT_MSG_ID_LENGTH } from '../constants'
 import { dsCodeOf, isTransient } from '../errors'
 import { attachments } from '../attachments'
-import { attachmentsOf, encodeContent, envelopeLength, uploadIdsOf } from './codec'
+import { contentUploadIds, encodeContent, envelopeLength } from './codec'
 import { envelope } from './index'
 
 /** Placeholder upload id: a draft validates its pointer fields before the upload ids exist. */
@@ -208,7 +208,7 @@ export const createMessageService: CreateMessageService = (ctx, identity, groups
     if ((opened.kind === 'reaction' || opened.kind === 'page_activity') && m.editedAt !== null) return fail('malformed')
 
     // Step 8: pointer upload ids and blob sizes against the row, in order. Kinds 3 and 4 have none.
-    const ids = uploadIdsOf(attachmentsOf(opened))
+    const ids = contentUploadIds(opened)
     if (ids.length !== m.attachments.length) return fail('attachments_mismatch')
     for (let i = 0; i < ids.length; i++) {
       const row = m.attachments[i]!
@@ -365,7 +365,7 @@ export const createMessageService: CreateMessageService = (ctx, identity, groups
         uploadId: DRAFT_UPLOAD_ID,
         thumbnail: thumbnail === null ? null : { ...thumbnail, uploadId: DRAFT_UPLOAD_ID },
       }
-      encodeContent({ kind: 'message', editOf: null, content: { text: '', mentions: [], attachments: [probe], replyTo: null, sentAtMs: 0 }, ktTreeHead: null })
+      encodeContent({ kind: 'message', editOf: null, content: { text: '', mentions: [], attachments: [probe], replyTo: null, linkPreview: null, sentAtMs: 0 }, ktTreeHead: null })
       return { blob: file.blob, thumbnailBlob: thumb?.blob ?? null, draft }
     },
 

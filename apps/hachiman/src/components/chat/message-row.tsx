@@ -8,6 +8,7 @@ import { UserProfilePopover } from '@/components/user-profile-popover'
 import { useAction } from '@/hooks/use-action'
 import { LONG_PRESS_TARGET, useLongPress, type LongPressHandlers } from '@/hooks/use-long-press'
 import { useMemberView } from '@/hooks/use-member'
+import { showsLinkPreview } from '@/lib/link-preview'
 import { pageLinksOf, stripPageLinks } from '@/lib/page-link-text'
 import { TOUCH_HIT_BAND } from '@/lib/touch'
 import { cn } from '@/lib/utils'
@@ -21,6 +22,7 @@ import { messageMentionsMe, tokenize, type Token } from '@/lib/mentions'
 import { decryptText } from './decrypt-text'
 import { formatFull, formatTime } from './format'
 import { holdIgnored } from './hold-target'
+import { LinkPreviewCard } from './link-preview-card'
 import { useMessageActions } from './message-actions'
 import { MessageToolbar } from './message-toolbar'
 import { MessageTokens } from './message-tokens'
@@ -134,6 +136,9 @@ function MessageRow(props: TranscriptRowProps): React.JSX.Element {
       )}
       {readable && message.attachments.length > 0 && (
         <MessageAttachments attachments={message.attachments} />
+      )}
+      {readable && showsLinkPreview(message.content, message.linkPreview) && (
+        <LinkPreviewCard preview={message.linkPreview} />
       )}
       {readable && pageIds.length > 0 && (
         <div className="flex flex-col items-start gap-1 py-1">

@@ -44,10 +44,13 @@ export function pointer(id: number, overrides: Partial<AttachmentPointer> = {}):
 }
 
 export function content(overrides: Partial<MessageContent> = {}): MessageContent {
-  return { text: 'hello', mentions: [], attachments: [], replyTo: null, sentAtMs: 1_700_000_000_000, ...overrides }
+  return { text: 'hello', mentions: [], attachments: [], replyTo: null, linkPreview: null, sentAtMs: 1_700_000_000_000, ...overrides }
 }
 
-/** The largest valid content of §12.8.4: 8000 text bytes, 100 mentions, 10 full pointers with thumbnails. */
+/**
+ * The largest valid content of §12.8.4: 8000 text bytes, 100 mentions, 10 full pointers with
+ * thumbnails, a full link preview (no image: the pointers use all 20 upload ids).
+ */
 export function largestContent(): MessageContent {
   const mime = `application/${'x'.repeat(127 - 'application/'.length)}`
   return {
@@ -67,6 +70,13 @@ export function largestContent(): MessageContent {
       }),
     ),
     replyTo: toB64url(bytes(16, 0x55)),
+    linkPreview: {
+      url: `https://e.example/${'p'.repeat(2048 - 'https://e.example/'.length)}`,
+      title: 't'.repeat(300),
+      description: 'd'.repeat(1000),
+      siteName: 's'.repeat(100),
+      image: null,
+    },
     sentAtMs: Number.MAX_SAFE_INTEGER,
   }
 }

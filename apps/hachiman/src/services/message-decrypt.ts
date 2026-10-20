@@ -88,6 +88,7 @@ function baseRow(m: Message): Omit<ChatMessage, 'decrypt'> {
     mentions: [],
     attachments: [],
     replyTo: null,
+    linkPreview: null,
     sender: null
   }
   if (m.nonce !== undefined) row.nonce = m.nonce
@@ -114,6 +115,7 @@ export function rowFor(
       mentions: c.mentions,
       attachments: c.attachments,
       replyTo: c.replyTo,
+      linkPreview: c.linkPreview,
       sender: r.sender,
       decrypt: { status: 'ok' }
     }

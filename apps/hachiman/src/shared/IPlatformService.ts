@@ -51,6 +51,15 @@ export interface ShareContent {
   text?: string
 }
 
+/** One fetched page or image (`IPlatformService.fetchLinkResource`). */
+export interface LinkResource {
+  /** The final https URL after redirects. */
+  url: string
+  /** The Content-Type header, lowercase, without parameters. '' when the server sent none. */
+  contentType: string
+  body: Uint8Array<ArrayBuffer>
+}
+
 /** The app theme that the host window follows (`IPlatformService.setAppearance`). */
 export interface Appearance {
   theme: 'dark' | 'light'
@@ -143,6 +152,14 @@ export interface IPlatformService {
         opts: { discardOld: boolean }
       ) => Promise<PushTarget | null>)
     | null
+  /**
+   * A GET of an https URL for a link preview (§12.8.1), made by the sender's device only: no
+   * cookies, no credentials, at most 3 redirects (each https), a 5 s timeout, the host never
+   * connects to a loopback, private or link-local address. Resolves null on any failure, or when
+   * the body exceeds `maxBytes`. Electron: main (Node https). iOS: URLSession. Browser: null
+   * (CORS blocks it, and a Takusen proxy would show the URL to the server).
+   */
+  readonly fetchLinkResource: ((url: string, maxBytes: number) => Promise<LinkResource | null>) | null
   /** iOS: the status bar style and the window background follow the app theme. Others: no-op. */
   setAppearance(appearance: Appearance): void
   /** The wrap key of the encrypted crypto store (§12.17). */

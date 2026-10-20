@@ -297,12 +297,12 @@ describe('GroupService', () => {
     await ds.flush()
     ds.groups.get(gid)!.pending = []
     // An epoch-0 message: only alice is a member.
-    const old = await alice.messages.encryptMessage({ channelId, kind: 'message', editOf: null, content: { text: 'before you came', mentions: [], attachments: [], replyTo: null } })
+    const old = await alice.messages.encryptMessage({ channelId, kind: 'message', editOf: null, content: { text: 'before you came', mentions: [], attachments: [], replyTo: null, linkPreview: null } })
     await ds.queueAdd(gid, bob.deviceId)
     ds.batch(gid, alice.deviceId)
     await ds.flush()
     expect(ds.groups.get(gid)!.bundles.map((b) => b.epoch)).toEqual([1])
-    const now = await alice.messages.encryptMessage({ channelId, kind: 'message', editOf: null, content: { text: 'hello', mentions: [], attachments: [], replyTo: null } })
+    const now = await alice.messages.encryptMessage({ channelId, kind: 'message', editOf: null, content: { text: 'hello', mentions: [], attachments: [], replyTo: null, linkPreview: null } })
     const row = (e: typeof old, id: string): EncryptedMessage => ({ id, channelId, guildId, authorId: alice.userId, senderDevice: alice.deviceId, groupId: e.groupId, epoch: e.epoch, clientMsgId: e.clientMsgId, envelope: e.envelope, attachments: [], createdAt: '', editedAt: null })
     const [r0, r1] = await bob.messages.decryptMessages([row(old, 'm0'), row(now, 'm1')])
     expect(r0).toMatchObject({ status: 'ok', sender: { membershipVerified: false } })
@@ -387,7 +387,7 @@ describe('GroupService', () => {
     expect(bob.of<{ message: string }>('error').some((e) => e.message.includes('stays stopped after 5 resync attempts'))).toBe(true)
     await expect(bob.groups.sendState(channelId)).rejects.toMatchObject({ code: 'InvalidChain' })
     // An envelope of epoch 2 waits in bob's buffer.
-    const sent = await alice.messages.encryptMessage({ channelId, kind: 'message', editOf: null, content: { text: 'epoch 2', mentions: [], attachments: [], replyTo: null } })
+    const sent = await alice.messages.encryptMessage({ channelId, kind: 'message', editOf: null, content: { text: 'epoch 2', mentions: [], attachments: [], replyTo: null, linkPreview: null } })
     const row = (e: typeof sent, id: string, from: Client): EncryptedMessage => ({ id, channelId, guildId, authorId: from.userId, senderDevice: from.deviceId, groupId: e.groupId, epoch: e.epoch, clientMsgId: e.clientMsgId, envelope: e.envelope, attachments: [], createdAt: '', editedAt: null })
     expect(await bob.messages.decryptMessages([row(sent, 'm2', alice)])).toEqual([{ status: 'pending', messageId: 'm2', reason: 'epoch_ahead' }])
 
@@ -404,7 +404,7 @@ describe('GroupService', () => {
     expect(bob.of<CryptoEvents['epochKeysAvailable']>('epochKeysAvailable').some((e) => e.groupId === gid && e.epochs.includes(2))).toBe(true)
     expect(await bob.store.get('buffered', gid)).toBeUndefined()
     // Bob sends again, and alice reads it.
-    const back = await bob.messages.encryptMessage({ channelId, kind: 'message', editOf: null, content: { text: 'back', mentions: [], attachments: [], replyTo: null } })
+    const back = await bob.messages.encryptMessage({ channelId, kind: 'message', editOf: null, content: { text: 'back', mentions: [], attachments: [], replyTo: null, linkPreview: null } })
     expect(back.epoch).toBe(3)
     const [r] = await alice.messages.decryptMessages([row(back, 'm3', bob)])
     expect(r).toMatchObject({ status: 'ok', content: { text: 'back' } })

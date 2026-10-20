@@ -3,6 +3,7 @@ import {
   CHECK_FOR_UPDATE_CHANNEL,
   CLOSE_TO_TRAY_GET_CHANNEL,
   CLOSE_TO_TRAY_SET_CHANNEL,
+  FETCH_LINK_CHANNEL,
   GLOBAL_SHORTCUT_CHANNEL,
   INVITE_LINK_CHANNEL,
   OAUTH_CALLBACK_CHANNEL,
@@ -15,6 +16,7 @@ import {
   SELECT_SCREEN_SOURCE_CHANNEL,
   SET_GLOBAL_SHORTCUTS_CHANNEL,
   type GlobalShortcutInfo,
+  type LinkResourceInfo,
   type ScreenSourceInfo,
   type SecureStorageResult,
   type UpdateCheckResult,
@@ -59,6 +61,12 @@ const bridge = {
     targets: { region: string; host: string; port: number }[],
   ): Promise<{ region: string; rttMs: number | null }[]> =>
     ipcRenderer.invoke(PROBE_REGIONS_CHANNEL, targets),
+  /** One https GET for a link preview, run and checked in main (main/link-fetch.ts). */
+  fetchLinkResource: (
+    url: string,
+    maxBytes: number,
+  ): Promise<LinkResourceInfo | null> =>
+    ipcRenderer.invoke(FETCH_LINK_CHANNEL, url, maxBytes),
   getScreenSources: (): Promise<ScreenSourceInfo[]> =>
     ipcRenderer.invoke(SCREEN_SOURCES_CHANNEL),
   /** The listed source that the next getDisplayMedia captures, with system audio when `audio`. */

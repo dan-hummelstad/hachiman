@@ -459,6 +459,7 @@ function msg(
     mentions: [],
     attachments: [],
     replyTo: null,
+    linkPreview: null,
     sender: {
       userId: author.id,
       deviceId: `d-${author.id}`,
@@ -667,6 +668,32 @@ function otherHistory(): Map<string, ChatMessage[]> {
   out.set(G3C.reading, [
     msg(G3C.reading, G3, U.wren, at(y, 20, 0), 'chapter 4 is where it clicked for me'),
     msg(G3C.reading, G3, U.sable, at(y, 20, 9), 'the kemmer chapter? agreed'),
+    msg(
+      G3C.reading,
+      G3,
+      U.wren,
+      at(y, 20, 14),
+      'background for next week https://en.wikipedia.org/wiki/The_Left_Hand_of_Darkness',
+      {
+        linkPreview: {
+          url: 'https://en.wikipedia.org/wiki/The_Left_Hand_of_Darkness',
+          title: 'The Left Hand of Darkness',
+          description:
+            'A 1969 science fiction novel by Ursula K. Le Guin, set on the planet Gethen, whose people have no fixed sex.',
+          siteName: 'Wikipedia',
+          image: null
+        }
+      }
+    ),
+    msg(G3C.reading, G3, U.sable, at(y, 20, 21), 'https://maps.example/gethen-map.webp', {
+      linkPreview: {
+        url: 'https://maps.example/gethen-map.webp',
+        title: '',
+        description: '',
+        siteName: '',
+        image: { ...ATT.linkImage, width: 1280, height: 720 }
+      }
+    }),
     msg(G3C.reading, G3, ME, at(t, 7, 50), 'I am behind, no spoilers please')
   ])
   out.set(DM1, [

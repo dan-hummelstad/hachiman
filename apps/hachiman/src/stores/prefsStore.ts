@@ -73,6 +73,11 @@ interface PrefsState {
   streamQuality: StreamQuality
   /** Notification and voice sounds (SoundService). */
   soundsEnabled: boolean
+  /**
+   * This device fetches a link in a message it sends and attaches a preview (§12.8.1). The site
+   * sees the device's IP address; receivers never fetch.
+   */
+  linkPreviews: boolean
   /** 0..1 */
   soundVolume: number
   /** OS notifications and push on this install (PushService). Off until the user turns it on. */
@@ -121,6 +126,7 @@ interface PrefsState {
   setEchoCancellation: (echoCancellation: boolean) => void
   setStreamQuality: (streamQuality: StreamQuality) => void
   setSoundsEnabled: (soundsEnabled: boolean) => void
+  setLinkPreviews: (linkPreviews: boolean) => void
   setSoundVolume: (soundVolume: number) => void
   setPushEnabled: (pushEnabled: boolean) => void
   setNotificationEnabled: (kind: NotifyKind, enabled: boolean) => void
@@ -174,6 +180,7 @@ export const usePrefsStore = create<PrefsState>()(
         echoCancellation: true,
         streamQuality: { resolution: '1080p', fps: 30 },
         soundsEnabled: true,
+        linkPreviews: true,
         soundVolume: 0.7,
         pushEnabled: false,
         disabledNotifications: [],
@@ -205,6 +212,7 @@ export const usePrefsStore = create<PrefsState>()(
         setNoiseSuppression: (noiseSuppression) => set({ noiseSuppression }),
         setStreamQuality: (streamQuality) => set({ streamQuality }),
         setSoundsEnabled: (soundsEnabled) => set({ soundsEnabled }),
+        setLinkPreviews: (linkPreviews) => set({ linkPreviews }),
         setSoundVolume: (soundVolume) => set({ soundVolume }),
         setPushEnabled: (pushEnabled) => set({ pushEnabled }),
         setNotificationEnabled: (kind, enabled) =>

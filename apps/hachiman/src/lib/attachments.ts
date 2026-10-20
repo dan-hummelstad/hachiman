@@ -1,18 +1,24 @@
 import {
   MAX_MESSAGE_UPLOAD_IDS,
   type AttachmentDraft,
-  type AttachmentPointer
+  type AttachmentPointer,
+  type LinkPreview
 } from '@hachiman/crypto'
 import type { Attachment } from '@hachiman/client'
 
 /**
  * The `attachments` list of POST /channels/:id/messages (§12.8.5 step 8): for each pointer, the
- * file id, then its thumbnail id when it has one. The receiver checks this order.
+ * file id, then its thumbnail id when it has one, then the link preview image id. The receiver
+ * checks this order.
  */
-export function uploadIdsOf(pointers: readonly AttachmentPointer[]): string[] {
+export function uploadIdsOf(
+  pointers: readonly AttachmentPointer[],
+  linkPreview: LinkPreview | null = null
+): string[] {
   const ids = pointers.flatMap((p) =>
     p.thumbnail ? [p.uploadId, p.thumbnail.uploadId] : [p.uploadId]
   )
+  if (linkPreview?.image) ids.push(linkPreview.image.uploadId)
   if (ids.length > MAX_MESSAGE_UPLOAD_IDS)
     throw new Error(`A message can carry at most ${MAX_MESSAGE_UPLOAD_IDS} uploads.`)
   return ids

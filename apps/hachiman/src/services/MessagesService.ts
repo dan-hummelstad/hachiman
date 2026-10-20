@@ -10,6 +10,7 @@ import { mentionsOf } from '@/lib/mentions'
 import { errMsg } from '@/lib/utils'
 import { cryptoService } from '@/services/CryptoService'
 import { hachiman } from '@/services/client'
+import { linkPreviewFor } from '@/services/link-preview'
 import { createMessageDecryptor } from '@/services/message-decrypt'
 import { sealPushPreviews } from '@/services/PushService'
 import { playSound } from '@/services/SoundService'
@@ -234,6 +235,7 @@ export const messagesService = {
       mentions,
       attachments,
       replyTo,
+      linkPreview: null,
       sender: null,
       decrypt: { status: 'ok' },
       createdAt: new Date().toISOString(),
@@ -242,11 +244,18 @@ export const messagesService = {
     })
     playSound('messageSent')
     lastTyping = { channelId: '', at: 0 }
-    const body: Omit<MessageContent, 'sentAtMs'> = { text, mentions, attachments, replyTo }
     // The previews seal while the envelope does; they never fail the send (PushService).
     const push = sealPushPreviews(channelId, text, mentions, attachments)
     try {
-      const ids = uploadIdsOf(attachments)
+      const linkPreview = await linkPreviewFor(text, attachments)
+      const body: Omit<MessageContent, 'sentAtMs'> = {
+        text,
+        mentions,
+        attachments,
+        replyTo,
+        linkPreview
+      }
+      const ids = uploadIdsOf(attachments, linkPreview)
       const sent = await sealAndPost(
         channelId,
         { channelId, kind: 'message', editOf: null, content: body },
@@ -351,7 +360,14 @@ export const messagesService = {
           channelId,
           kind: 'edit',
           editOf: row.clientMsgId,
-          content: { text, mentions, attachments: row.attachments, replyTo: row.replyTo }
+          // The preview stays as sent: its image is a row upload, which an edit cannot change.
+          content: {
+            text,
+            mentions,
+            attachments: row.attachments,
+            replyTo: row.replyTo,
+            linkPreview: row.linkPreview
+          }
         },
         (envelope) => hachiman.rest.editMessage(channelId, messageId, { envelope })
       )

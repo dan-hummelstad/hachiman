@@ -53,7 +53,7 @@ async function invite(ds: FakeMlsDs, creator: Client, guildId: string, channelId
 }
 
 async function send(from: Client, channelId: string, text: string): Promise<EncryptMessageOutput> {
-  return from.messages.encryptMessage({ channelId, kind: 'message', editOf: null, content: { text, mentions: [], attachments: [], replyTo: null } })
+  return from.messages.encryptMessage({ channelId, kind: 'message', editOf: null, content: { text, mentions: [], attachments: [], replyTo: null, linkPreview: null } })
 }
 
 function row(from: Client, channelId: string, guildId: string, e: EncryptMessageOutput, id: string): EncryptedMessage {

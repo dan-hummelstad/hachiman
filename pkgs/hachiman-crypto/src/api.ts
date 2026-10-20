@@ -527,8 +527,27 @@ export interface MessageContent {
   mentions: Mention[]
   attachments: AttachmentPointer[]
   replyTo: ClientMsgIdB64 | null
+  /** The sender-made preview of one link in `text` (§12.8.1 LinkPreview), or null. */
+  linkPreview: LinkPreview | null
   /** Sender wall clock, Unix ms. Display only. */
   sentAtMs: number
+}
+
+/**
+ * A link preview that the sender's device made (§12.8.1). The receiver never fetches the URL. The
+ * sender chooses every field, so the UI shows `url` as the link target and never trusts the title.
+ */
+export interface LinkPreview {
+  /** An https URL, 1 to MAX_LINK_PREVIEW_URL_BYTES bytes. */
+  url: string
+  /** At most MAX_LINK_PREVIEW_TITLE_BYTES bytes. '' = none. */
+  title: string
+  /** At most MAX_LINK_PREVIEW_DESCRIPTION_BYTES bytes. '' = none. */
+  description: string
+  /** At most MAX_LINK_PREVIEW_SITE_NAME_BYTES bytes. '' = none. */
+  siteName: string
+  /** An encrypted image blob; its upload id is the last row attachment (§12.8.5 step 8). */
+  image: ThumbnailPointer | null
 }
 
 /** Kind 'reaction' (§12.8.1). The receiver folds it into the target message. */

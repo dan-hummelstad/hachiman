@@ -13,6 +13,7 @@ import type {
   EnvelopeHeader,
   EnvelopeKindName,
   KindedContent,
+  LinkPreview,
   Mention,
   MentionKind,
   MessageContent,
@@ -31,6 +32,10 @@ import {
   FRANKING_TAG_LENGTH,
   GROUP_ID_LENGTH,
   MAX_ATTACHMENTS_PER_MESSAGE,
+  MAX_LINK_PREVIEW_DESCRIPTION_BYTES,
+  MAX_LINK_PREVIEW_SITE_NAME_BYTES,
+  MAX_LINK_PREVIEW_TITLE_BYTES,
+  MAX_LINK_PREVIEW_URL_BYTES,
   MAX_MESSAGE_UPLOAD_IDS,
   MAX_PAGE_ACTIVITY_CHANGES,
   MAX_PAGE_BANNER_BYTES,
@@ -333,23 +338,66 @@ function readPointer(r: Reader): AttachmentPointer {
   }
 }
 
-/** The upload ids of a pointer list in message order: each file id, then its thumbnail id (§12.8.5 step 8). */
-export function uploadIdsOf(attachments: readonly AttachmentPointer[]): { id: string; blobSize: number }[] {
+// MARK: - LinkPreview
+
+function checkPreviewText(s: string, max: number, what: string): void {
+  if (utf8Bytes(s).length > max) tooLarge(`link preview ${what} longer than ${max} bytes`)
+}
+
+function checkPreviewUrl(url: string): void {
+  checkPreviewText(url, MAX_LINK_PREVIEW_URL_BYTES, 'url')
+  let protocol: string
+  try {
+    protocol = new URL(url).protocol
+  } catch {
+    return malformed('link preview url does not parse')
+  }
+  if (protocol !== 'https:') malformed('link preview url is not https')
+}
+
+function writeLinkPreview(w: Writer, p: LinkPreview): void {
+  checkPreviewUrl(p.url)
+  checkPreviewText(p.title, MAX_LINK_PREVIEW_TITLE_BYTES, 'title')
+  checkPreviewText(p.description, MAX_LINK_PREVIEW_DESCRIPTION_BYTES, 'description')
+  checkPreviewText(p.siteName, MAX_LINK_PREVIEW_SITE_NAME_BYTES, 'site_name')
+  w.utf8(p.url).utf8(p.title).utf8(p.description).utf8(p.siteName).optional(p.image, writeThumbnail)
+}
+
+function readLinkPreview(r: Reader): LinkPreview {
+  const url = r.utf8(MAX_LINK_PREVIEW_URL_BYTES)
+  checkPreviewUrl(url)
+  const title = r.utf8(MAX_LINK_PREVIEW_TITLE_BYTES)
+  const description = r.utf8(MAX_LINK_PREVIEW_DESCRIPTION_BYTES)
+  const siteName = r.utf8(MAX_LINK_PREVIEW_SITE_NAME_BYTES)
+  const image = r.optional(readThumbnail)
+  return { url, title, description, siteName, image }
+}
+
+/**
+ * The upload ids of a message in order (§12.8.5 step 8): each file id, then its thumbnail id, then
+ * the link preview image id.
+ */
+export function uploadIdsOf(
+  attachments: readonly AttachmentPointer[],
+  linkPreview: LinkPreview | null = null,
+): { id: string; blobSize: number }[] {
   const out: { id: string; blobSize: number }[] = []
   for (const p of attachments) {
     out.push({ id: p.uploadId, blobSize: p.blobSize })
     if (p.thumbnail !== null) out.push({ id: p.thumbnail.uploadId, blobSize: p.thumbnail.blobSize })
   }
+  const image = linkPreview?.image
+  if (image) out.push({ id: image.uploadId, blobSize: image.blobSize })
   return out
 }
 
 // MARK: - EnvelopeContent
 
-function checkContentLimits(content: Pick<MessageContent, 'text' | 'mentions' | 'attachments'>, textBytes: number): void {
+function checkContentLimits(content: Pick<MessageContent, 'text' | 'mentions' | 'attachments' | 'linkPreview'>, textBytes: number): void {
   if (textBytes > MAX_TEXT_BYTES) tooLarge(`text longer than ${MAX_TEXT_BYTES} bytes`)
   if (content.mentions.length > MAX_MENTIONS) tooLarge(`more than ${MAX_MENTIONS} mentions`)
   if (content.attachments.length > MAX_ATTACHMENTS_PER_MESSAGE) tooLarge(`more than ${MAX_ATTACHMENTS_PER_MESSAGE} attachments`)
-  if (uploadIdsOf(content.attachments).length > MAX_MESSAGE_UPLOAD_IDS) tooLarge(`more than ${MAX_MESSAGE_UPLOAD_IDS} upload ids`)
+  if (uploadIdsOf(content.attachments, content.linkPreview).length > MAX_MESSAGE_UPLOAD_IDS) tooLarge(`more than ${MAX_MESSAGE_UPLOAD_IDS} upload ids`)
   if (textBytes === 0 && content.attachments.length === 0) malformed('a message needs text or an attachment')
 }
 
@@ -359,6 +407,16 @@ const KIND_BYTE: Record<EnvelopeKindName, number> = {
   reaction: EnvelopeKind.REACTION,
   page_activity: EnvelopeKind.PAGE_ACTIVITY,
 }
+
+const PREVIEW_KIND_BYTE = { message: EnvelopeKind.MESSAGE_WITH_PREVIEW, edit: EnvelopeKind.EDIT_WITH_PREVIEW } as const
+
+/** Kind byte → the message kind it decodes to, and whether a LinkPreview follows the body. */
+const MESSAGE_KIND_BYTES: ReadonlyMap<number, { kind: 'message' | 'edit'; withPreview: boolean }> = new Map([
+  [EnvelopeKind.MESSAGE, { kind: 'message', withPreview: false }],
+  [EnvelopeKind.EDIT, { kind: 'edit', withPreview: false }],
+  [EnvelopeKind.MESSAGE_WITH_PREVIEW, { kind: 'message', withPreview: true }],
+  [EnvelopeKind.EDIT_WITH_PREVIEW, { kind: 'edit', withPreview: true }],
+])
 
 /** Control characters (Cc) and lone surrogates (Cs). */
 const EMOJI_FORBIDDEN_RE = /[\p{Cc}\p{Cs}]/u
@@ -383,6 +441,7 @@ function writeMessageBody(w: Writer, editOf: Uint8Array | null, content: Message
     .vector(content.mentions, writeMention)
     .vector(content.attachments, writePointer)
     .optional(replyTo, (w2, v) => w2.fixed(v, CLIENT_MSG_ID_LENGTH))
+  if (content.linkPreview !== null) writeLinkPreview(w, content.linkPreview)
 }
 
 function writeContent(w: Writer, c: EnvelopeContent, checkKind: boolean): void {
@@ -393,7 +452,8 @@ function writeContent(w: Writer, c: EnvelopeContent, checkKind: boolean): void {
     if (c.kind === 'edit' && c.editOf === null) malformed('kind edit needs edit_of')
   }
   checkSize(c.content.sentAtMs, 'sent_at_ms')
-  w.u8(kind)
+  const withPreview = (c.kind === 'message' || c.kind === 'edit') && c.content.linkPreview !== null
+  w.u8(withPreview ? PREVIEW_KIND_BYTE[c.kind] : kind)
   switch (c.kind) {
     case 'message':
     case 'edit':
@@ -415,13 +475,15 @@ function writeContent(w: Writer, c: EnvelopeContent, checkKind: boolean): void {
   w.u64(c.content.sentAtMs).optional(c.ktTreeHead, (w2, v) => w2.opaque(v))
 }
 
-function readMessageBody(r: Reader): { editOf: Uint8Array | null; content: Omit<MessageContent, 'sentAtMs'> } {
+/** `withPreview`: kinds 5 and 6, whose body ends with a LinkPreview. */
+function readMessageBody(r: Reader, withPreview: boolean): { editOf: Uint8Array | null; content: Omit<MessageContent, 'sentAtMs'> } {
   const editOf = r.optional((r2) => r2.fixed(CLIENT_MSG_ID_LENGTH))
   const text = r.utf8(MAX_TEXT_BYTES)
   const mentions = r.vector(readMention, MAX_MENTIONS)
   const attachments = r.vector(readPointer, MAX_ATTACHMENTS_PER_MESSAGE)
   const replyTo = r.optional((r2) => toB64url(r2.fixed(CLIENT_MSG_ID_LENGTH)))
-  const content = { text, mentions, attachments, replyTo }
+  const linkPreview = withPreview ? readLinkPreview(r) : null
+  const content = { text, mentions, attachments, replyTo, linkPreview }
   checkContentLimits(content, utf8Bytes(text).length)
   return { editOf, content }
 }
@@ -429,14 +491,14 @@ function readMessageBody(r: Reader): { editOf: Uint8Array | null; content: Omit<
 /** Kinds 3 and 4 have no edit_of on the wire. An unknown kind byte is 'malformed'. */
 function readContent(r: Reader): EnvelopeContent {
   const kindByte = r.u8()
+  const message = MESSAGE_KIND_BYTES.get(kindByte)
+  if (message) {
+    const { editOf, content } = readMessageBody(r, message.withPreview)
+    const sentAtMs = r.u64n()
+    const ktTreeHead = r.optional((r2) => r2.opaque())
+    return { kind: message.kind, editOf, content: { ...content, sentAtMs }, ktTreeHead }
+  }
   switch (kindByte) {
-    case EnvelopeKind.MESSAGE:
-    case EnvelopeKind.EDIT: {
-      const { editOf, content } = readMessageBody(r)
-      const sentAtMs = r.u64n()
-      const ktTreeHead = r.optional((r2) => r2.opaque())
-      return { kind: kindByte === EnvelopeKind.MESSAGE ? 'message' : 'edit', editOf, content: { ...content, sentAtMs }, ktTreeHead }
-    }
     case EnvelopeKind.REACTION: {
       const target = toB64url(r.fixed(CLIENT_MSG_ID_LENGTH))
       const emoji = r.utf8(MAX_REACTION_EMOJI_BYTES)
@@ -460,9 +522,9 @@ function readContent(r: Reader): EnvelopeContent {
   }
 }
 
-/** The attachment pointers of a content: none for kinds 3 and 4. */
-export function attachmentsOf(c: KindedContent<unknown>): readonly AttachmentPointer[] {
-  return c.kind === 'message' || c.kind === 'edit' ? c.content.attachments : []
+/** The upload ids of a content in row order (§12.8.5 step 8): none for kinds 3 and 4. */
+export function contentUploadIds(c: KindedContent<unknown>): { id: string; blobSize: number }[] {
+  return c.kind === 'message' || c.kind === 'edit' ? uploadIdsOf(c.content.attachments, c.content.linkPreview) : []
 }
 
 /** Rejects a kind/edit_of mismatch. */

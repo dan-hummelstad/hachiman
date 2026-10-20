@@ -34,6 +34,7 @@ const content = (text: string): MessageContent => ({
   mentions: [],
   attachments: [],
   replyTo: null,
+  linkPreview: null,
   sentAtMs: 1
 })
 

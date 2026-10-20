@@ -159,6 +159,12 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply {
             let from = try presenter()
             return try await Native.saveTextFile(name: name, text: text, from: from)
 
+        case "fetchLink":
+            let url = try webURL(args)
+            guard let maxBytes = args["maxBytes"] as? Int else { throw BridgeError(.malformed, "maxBytes is not an integer") }
+            guard let r = await LinkFetch.fetch(url, maxBytes: maxBytes) else { return nil }
+            return ["url": r.url.absoluteString, "contentType": r.contentType, "body": r.body.base64EncodedString()]
+
         case "setAppearance":
             try Native.setAppearance(
                 theme: try string(args, "theme"), background: try string(args, "background"),

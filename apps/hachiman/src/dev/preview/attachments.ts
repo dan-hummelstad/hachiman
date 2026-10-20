@@ -114,7 +114,9 @@ export const ATT = {
   callouts: file('callouts-take2.wav', 'audio/wav', 8_044),
   stratDoc: file('strat-doc-v3.pdf', 'application/pdf', 1_873_221),
   /** The banner of the RFC page (a doc_banner pointer: its upload id passes parsePointer). */
-  pageBanner: file('banner.png', 'image/png', 214_530, 1600, 400, 'att-page-banner')
+  pageBanner: file('banner.png', 'image/png', 214_530, 1600, 400, 'att-page-banner'),
+  /** The image of a link preview: a link straight to an image (§12.8.1). */
+  linkImage: file('gethen-map.webp', 'image/webp', 96_210, 1280, 720, 'att-link-image')
 }
 
 const URLS: Record<string, string> = {
@@ -122,7 +124,8 @@ const URLS: Record<string, string> = {
   [keyOf(ATT.compA)]: sheet(1200, 900, '#c98a0b'),
   [keyOf(ATT.compB)]: sheet(1200, 900, '#2f9e8f'),
   [keyOf(ATT.compC)]: sheet(1200, 900, '#c9303a'),
-  [keyOf(ATT.pageBanner)]: bannerArt(1600, 400)
+  [keyOf(ATT.pageBanner)]: bannerArt(1600, 400),
+  [keyOf(ATT.linkImage)]: bannerArt(1280, 720)
 }
 
 /** Generated file behind a fixture attachment blob key, if there is one. */

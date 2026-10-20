@@ -26,7 +26,7 @@ const decrypt = async (ms: EncryptedMessage[]): Promise<DecryptResult[]> =>
     clientMsgId: m.clientMsgId,
     kind: 'message',
     editOf: null,
-    content: { text: `text ${m.id}`, mentions: [], attachments: [], replyTo: null, sentAtMs: 1 },
+    content: { text: `text ${m.id}`, mentions: [], attachments: [], replyTo: null, linkPreview: null, sentAtMs: 1 },
     sender: {
       userId: m.authorId,
       deviceId: 'd-1',

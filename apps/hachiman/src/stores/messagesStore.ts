@@ -7,6 +7,7 @@ import type {
   DecryptedSender,
   DecryptFailure,
   DecryptResult,
+  LinkPreview,
   Mention
 } from '@hachiman/crypto'
 
@@ -31,6 +32,8 @@ export interface ChatMessage extends Omit<Message, 'envelope' | 'attachments' | 
   /** Decrypted attachment pointers (name, MIME type, size, key), in envelope order. */
   attachments: AttachmentPointer[]
   replyTo: string | null
+  /** The sender-made link preview (§12.8.1). Its image shows only through use-decrypted-blob. */
+  linkPreview: LinkPreview | null
   /** The verified sender device, or null for an optimistic row or a row that did not decrypt. */
   sender: DecryptedSender | null
   decrypt: DecryptState
