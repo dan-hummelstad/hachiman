@@ -1,0 +1,19 @@
+{
+  "name": "@hachiman/example-native",
+  "version": "0.0.0",
+  "private": true,
+  "description": "A Hachiman bot on the native SDK (@hachiman/bot)",
+  "type": "module",
+  "scripts": {
+    "start": "tsx src/bot.ts",
+    "typecheck": "tsgo --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@hachiman/bot": "workspace:*"
+  },
+  "devDependencies": {
+    "@tsconfig/strictest": "^2.0.8",
+    "@types/node": "^22.20.1",
+    "tsx": "^4.23.9"
+  }
+}

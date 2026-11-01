@@ -30,11 +30,11 @@ Conventions:
 These are the TS types exported from `@hachiman/client` (`src/types.ts`). Go mirrors them with `json:"camelCase"` tags.
 
 ```ts
-type ChannelType = 'text' | 'voice' | 'category' | 'dm' | 'group_dm' | 'pages' | 'thread'
+type ChannelType = 'text' | 'voice' | 'category' | 'dm' | 'group_dm' | 'pages' | 'thread' | 'canvas' | 'web'
 type PresenceStatus = 'online' | 'idle' | 'dnd' | 'offline'
 
 // avatar, icon and banner are file keys (§4 Files), not URLs. The client builds the URL with RestClient.fileUrl(key).
-interface User { id: string; username: string; avatar: string | null }   // username = users.displayName ?? users.name ?? email local-part
+interface User { id: string; username: string; avatar: string | null; bot: boolean }   // username = users.displayName ?? users.name ?? email local-part. bot = users.bot (§4 Bots)
 
 interface Guild {
   id: string; name: string; icon: string | null; banner: string | null; ownerId: string; region: string | null; createdAt: string
@@ -147,7 +147,7 @@ interface VoiceState {
                                    // The call start of a channel is the oldest joinedAt of its states
 }
 
-// A page of a pages channel (§4 Pages). The server sees only the tree and the timestamps.
+// A page of a pages, canvas or web channel (§4 Pages). The server sees only the tree and the timestamps.
 interface Page {
   id: string                       // chosen by the client on create: the title envelope binds it (§12.20)
   channelId: string
@@ -255,7 +255,7 @@ Threads: a thread has no overwrites. Every permission check on a thread uses its
 DM channels: participants get `VIEW_CHANNEL | SEND_MESSAGES | ATTACH_FILES | READ_MESSAGE_HISTORY`, non-participants 0.
 Role hierarchy: a member may only edit/assign roles whose `position` is strictly below the highest role of that member (owner/admin exempt).
 
-## 3. Postgres schema (Takusen Drizzle, `apps/takusen/src/db/schema.ts` and the files it re-exports: `schema-auth.ts`, `schema-channel-state.ts`, `schema-pages.ts`, `schema-push.ts`)
+## 3. Postgres schema (Takusen Drizzle, `apps/takusen/src/db/schema.ts` and the files it re-exports: `schema-auth.ts`, `schema-channel-state.ts`, `schema-pages.ts`, `schema-push.ts`, `schema-bots.ts`)
 
 New/changed tables (all ids `uuid` defaultRandom, timestamps `timestamptz` default now):
 
@@ -319,6 +319,8 @@ E2EE tables (§12). `bytea` columns hold the binary objects of §12 as they are.
 | `kt_tree_heads` | tree_size bigint PK, root_hash bytea, signed bytea, created_at, published_at null | The gRPC process signs heads (§12.14) |
 | `admin_actions` | guild_id → guilds (cascade), seq bigint, action bytea, hash bytea, actor_user_id uuid, created_at | PK (guild_id, seq) |
 | `push_targets` | device_id PK → devices (cascade), user_id → users (cascade), kind text (`apns`, `webpush`), token text, sandbox bool default false, p256dh text null, auth text null, push_key text null, push_key_sig text null, kinds text[] default `{dm,mention}`, quiet text[] default `{}`, created_at | index (user_id). Migrations 0017, 0018. One push target per device (§4 Push). `token` is the lowercase hex APNs token or the Web Push endpoint URL. `push_key` and `push_key_sig` are the push key of the device and its signature (§12.22) |
+| `bots` | user_id PK → users (cascade), owner_id → users (cascade), created_at | index (owner_id). Migration 0021. A bot account (§4 Bots): `user_id` is the bot user (`users.bot = true`), `owner_id` the user who owns it |
+| `bot_tokens` | id, bot_id → bots.user_id (cascade), token_hash text unique, kind text default `'bot'` (`bot`, `device`), created_at, last_used_at null, revoked_at null | index (bot_id). Migrations 0021, 0022 (`kind`). `token_hash` is the lowercase hex SHA-256 of the token. At most one `bot` row per bot has `revoked_at` null; at most 64 `device` rows. `last_used_at` is written at most once per minute |
 | `message_reports` | id, message_id null → messages (set null), channel_id uuid, reporter_id → users (cascade), reason text, content bytea, franking_key bytea, verified bool, created_at | |
 
 Changed: `regions.probe_port` default **443**. `media_nodes.sidechannel_addr` → `signaling_url`.
@@ -327,7 +329,8 @@ Dropped column: `oidc_clients.virtual_server_id`. Dropped tables: `virtual_serve
 `server_domain_verifications`, `user_servers`, `invite_codes`. Dropped enums: `island_status`, `virtual_server_status`.
 `users.image` holds the avatar file key (Credentials is the only Auth.js provider, so nothing else writes it).
 Added: `users.password_changed_at` timestamptz null (migration 0007). Sign-up, the password change and the password reset set it. Null for accounts from before the column.
-Kept unchanged: `users` (except `password_changed_at`), `accounts`, `sessions`, `verification_tokens`, `password_reset_tokens`,
+Added: `users.bot` boolean not null default false (migration 0021). True for a bot account (§4 Bots). A bot row has no password, and its email is `<userId>@bots.invalid`.
+Kept unchanged: `users` (except `password_changed_at` and `bot`), `accounts`, `sessions`, `verification_tokens`, `password_reset_tokens`,
 `oidc_adapter_payloads`, `oidc_clients` (minus the column), `regions`, `media_nodes`.
 
 Migration (one time, in the Discord-style refactor; since then each schema change adds a new migration, see `CLAUDE.md`):
@@ -337,7 +340,7 @@ Migration (one time, in the Discord-style refactor; since then each schema chang
 
 ## 4. REST API (Takusen, base `/api/v1`)
 
-Auth: `Authorization: Bearer <Takusen access token>` (or the dashboard cookie).
+Auth: `Authorization: Bearer <Takusen access token>` (or the dashboard cookie). A bot token (§4 Bots) is accepted in the same header, as `Bearer <token>` or `Bot <token>`.
 `requireUser()` in `apps/takusen/src/lib/auth-helpers.ts` resolves it. Errors: `{ error: string, message?: string }`
 with status 400 (ValidationError), 401, 403 (MissingPermissions), 404 (NotFound), 409, 410 (InviteExpired/Revoked/Exhausted).
 Success: JSON body of the listed type, or 204.
@@ -467,6 +470,45 @@ The E2EE routes (devices, keys, MLS, inbox, backups, linking, key transparency, 
 - Rate limits (Redis fixed windows, 429 `RateLimited` with `Retry-After`): 1 per 10 s per sender and target, 10 per 60 s per sender.
 - A poke has no content. It is not end-to-end encrypted, as a typing event is not: it tells the target only who poked and when.
 
+### Bots
+
+| Method + path | Permission | Returns | Publishes |
+|---|---|---|---|
+| GET `/bots` | auth | `BotSummary[]` `{bot: User, createdAt, lastUsedAt: string \| null}`: the caller's bots, oldest first. `lastUsedAt` is of the live token | — |
+| POST `/bots` `{name}` | auth, not a bot (else 403). `name` is 2 to 32 characters after trim (else 400 `ValidationError`). At most 10 bots per owner, else 409 `TooManyBots` | 201 `{bot: User, token}` | — |
+| POST `/bots/:id/token` | the owner (else 404) | `{token}` | — |
+| GET `/users/@me/bot` | a bot (else 403) | `{ownerId}` | — |
+| POST `/users/@me/bot/device-tokens` | a bot, with its `bot` token (a `device` token gets 403). At most 64 live device tokens, else 409 `TooManyDeviceTokens` | 201 `{token}` | — |
+| GET `/users/@me/bot/link-requests` | a bot (else 403) | `{id, blob, createdAt}[]`, newest first, younger than 10 minutes | — |
+| POST `/users/@me/bot/link-requests` `{blob}` | a bot (else 403). `blob` is 32 to 4096 base64url characters | 201 `{id, blob, createdAt}` | — |
+| POST `/bots/:id/guilds` `{guildId}` | the owner (else 404), with MANAGE_GUILD in the guild (else 403) | the bot's `GuildFull` | as POST `/invites/:code` |
+| DELETE `/bots/:id` | the owner (else 404) | 204 | as the admin user delete (§4 Admin API) |
+
+- A bot is a user with `users.bot = true` and a `bots` row (§3). It has no password, so it cannot sign in to the dashboard, and `/api/admin` (dashboard cookie only) is closed to it. It joins a guild through an invite, as a user does. It is an E2EE client like the desktop app: it has a master key, devices and key packages (§12).
+- Token: `hbot_` + base64url(server origin) + `.h1.` + base64url (no padding) of 32 random bytes. The origin is the public origin of Takusen (`NEXTAUTH_URL`), so a bot needs only its token: the token names the server, and Gateway discovery names the gateway. The secret is the last part: discord.js masks each part after the second dot when it logs a token. Takusen stores only the SHA-256 of the whole token (`bot_tokens.token_hash`). The token is in the response of the create and of the reset only. A token of the first form (`hbot_` + 43 characters, no origin) stays valid.
+- `requireUser()` accepts a token that starts with `hbot_` as `Bearer <token>` or `Bot <token>`. `Bot` with any other token is refused. The token is valid while its row is not revoked and the bot user exists. It has no expiry. The gateway resolves it at IDENTIFY through `GET /users/@me`, as an OIDC token.
+- The grant id of a bot token is `bot:<tokenId>` (`bot_tokens.id`). The device binding (§12.12) uses it as the grant of an OIDC token. A token reset makes a new grant. Its first request with a device proof binds it to that device, so the bot keeps its device: only the holder of the device key can make the proof. A device revocation sets `revoked_at` on the bot tokens bound to the device, as it deletes the OIDC rows of a user grant.
+- A reset sets `revoked_at` on the live token and makes a new token in one transaction.
+- Add to a guild (`POST /bots/:id/guilds`, and **Add to guild** on the dashboard page) is Discord's bot invite: the owner needs MANAGE_GUILD in the guild. Takusen makes a single-use invite that expires after 5 minutes, and the bot accepts it at once. Thus the membership, the DS change (§12.18) and the events are those of an invite join. The bot joins the MLS groups of the guild when it runs.
+- A delete removes the bot user with the steps of the admin user delete (§4 Admin API). The cascades delete `bots` and `bot_tokens`. The admin delete of a user deletes the bots of that user first, with the same steps.
+- The dashboard page `/bots` does the same as these routes.
+- **Device tokens.** Each device of a bot (each shard) has its own token, so each has its own grant for the device binding (§12.12). A device mints its token with the `bot` token on its first start and keeps it. The `bot` token is never sent with `X-Hachiman-Device`: it is not bound to a device. A device revocation therefore revokes only the token of that device. A token reset revokes the `bot` token and every device token; a device then mints a new one with the new `bot` token, and its first request with a device proof binds the new grant to it.
+- **Device linking.** A bot that has keys on a device links a new device with the QR link of §12.5. The new device puts its QR payload (`hachiman-link:1:…`, which holds the link secret) where only the bot's devices or its owner can read it:
+  - Sealed with the **deployment key**: 32 random bytes that the first device of the bot makes (`deployment.key`) and that the operator copies to each machine of the deployment. The new device posts `0x01 ‖ nonce[12] ‖ AES-256-GCM(deploymentKey, payload)`, AAD = `"hachiman-bot-link:v1:" ‖ bot user id`, to the link mailbox (`POST /users/@me/bot/link-requests`, Redis `takusen:bot_link:{botId}`, 20 requests, 10 minutes). A running device of the bot reads the mailbox every 5 s, opens the requests that its deployment key opens, and calls `linkScan`. Shards link with no owner step.
+  - In a **DM from the owner**: without the deployment key, the new device logs its payload, and the owner sends it to the bot in a DM. A running device links a payload only in a DM from the owner that it pinned on its first start (`GET /users/@me/bot`, kept in the file `owner`).
+  - The bot token alone links nothing: a device with the token and no deployment key stays pending.
+- **Key changes.** A bot has no person to accept a contact's new master key (§12.5 TOFU). `@hachiman/bot` accepts the change of a contact that it did not verify (`keyChange` severity `notice`, and the contacts still `changed` at start) with `acknowledgeKeyChange`, logs it, and syncs. A bot never verifies safety numbers. A `blocking` change is only logged.
+- **Sharding.** The bridge of `@hachiman/bot` follows Discord: IDENTIFY with `shard: [id, count]` gets the guilds where `(guild_id >> 22) % count == id`, and DMs only on shard 0. Each shard process is its own device (`shard-<id>/` in the state directory, one `deployment.key` beside them). A shard joins the MLS groups of its guilds only.
+- **Reset keys** (dashboard page `/bots` only, dashboard cookie, the owner): for a bot that lost its keys (its state directory and its recovery key). It makes the DS change of a password reset (§12.4 "Password reset", as `POST /api/admin/users/:id/reset-keys`): every device of the bot is revoked, its master key is superseded, and its token stops with its device. It returns a new token. The next start of the bot makes a new identity; members see a key change. No REST route does this: a bearer token alone cannot replace a master key.
+
+### Gateway discovery
+
+| Method + path | Permission | Returns | Publishes |
+|---|---|---|---|
+| GET `/gateway` | none | `{url}`: the gateway URL for clients, from `TAKUSEN_PUBLIC_GATEWAY_URL`, else `VITE_HACHIMAN_GATEWAY_URL`, else `ws://localhost:8080/gateway` | — |
+
+As Discord's `GET /gateway`. A bot finds the gateway here (`@hachiman/bot`). The apps keep their build-time gateway URL.
+
 ### Emojis
 
 Custom guild emojis (§1 `GuildEmoji`, table `guild_emojis`). Plaintext metadata and images, like the guild icon (§12.1).
@@ -572,6 +614,11 @@ End-to-end encrypted push, as WhatsApp does it. The sender seals the sender name
 
 A `pages` channel holds a tree of pages (§1 `Page`). The content of a page is a Yjs document. The server stores and relays only envelopes (§12.20): it cannot merge edits, so the clients merge with the CRDT. A pages channel uses the MLS group of a text channel (§12.6): `public_set` when it is public, else its own `channel` group. Its chat uses the message routes as a text channel does.
 
+A `canvas` channel and a `web` channel also hold a page tree, with the same routes, events, envelopes and group. Only the content of the Yjs document differs, and the server cannot see it. They have no chat.
+
+- **Canvas.** Each page is a whiteboard (Excalidraw). The Y.Map `excalidraw` holds one entry for each Excalidraw element, keyed by the element id. A client writes an element when its `version` or `versionNonce` changes, and not while a pointer is down: a stroke, drag or resize is written once, when the pointer lifts, and merges a remote element with Excalidraw's `reconcileElements`. A delete keeps the element with `isDeleted: true`. The Y.Map `files` maps each image file id to the attachment pointer JSON (§12.9) of a `page_media` upload, as a media node of a markdown page. The client that adds an image uploads and claims it (POST `/pages/:id/media`). Each snapshot lists in `mediaUploadIds` the files of the image elements that are not deleted. A client shows an image only from its decrypted pointer. The awareness state adds `cursor: {x, y} | null` (scene coordinates). A link that Excalidraw can embed (YouTube, Vimeo, Figma, ...) is an embeddable element, which loads in a frame of each client (`frame-src https:`, §11). A canvas holds no videos or other files.
+- **Web.** Each page is a shared tab. The Y.Map `web` holds `url`: an `https:` address, never the origin of the app. Each client loads the address in its own sandboxed frame (`frame-src https:`, §11). A client loads a YouTube, Vimeo or Loom link in its embed form (for example `youtube.com/watch?v=…` as `youtube.com/embed/…`). The `url` stays as the member typed it. No server loads the page. A navigation inside the frame stays local to that client.
+
 Every route needs VIEW_CHANNEL on the channel of the page (a page that the caller cannot view gives 404 `NotFound`). The routes marked **W** also need SEND_MESSAGES. There is no other edit permission: an overwrite that denies SEND_MESSAGES makes the pages read-only. The routes marked **D** need `X-Hachiman-Device` and its proof (§12.12).
 
 | Method + path | | Body | Returns | Publishes |
@@ -587,7 +634,7 @@ Every route needs VIEW_CHANNEL on the channel of the page (a page that the calle
 | POST `/pages/:pageId/snapshots` | W D | `{baseSeq, uploadId, envelope, mediaUploadIds: string[]}` | `DocSnapshot` (201), also for a re-wrap. 409 `SnapshotConflict {baseSeq}` | — |
 | POST `/pages/:pageId/media` | W | `{uploadIds: string[]}` (1 to 20) | 204. 413 `StorageQuotaExceeded` | — |
 
-- **Channel type.** The page routes need a channel of type `pages`, else 400 `NotPagesChannel`. A new pages channel has no page. The client that creates the channel then creates one root page ("Untitled"), because only a client can encrypt the title.
+- **Channel type.** The page routes need a channel of type `pages`, `canvas` or `web`, else 400 `NotPagesChannel`. A new channel of these types has no page. The client that creates the channel then creates one root page ("Untitled", "Canvas 1" or "Tab 1"), because only a client can encrypt the title.
 - **Create.** `id` is a new UUID that the client chooses, because the title envelope binds the page id (§12.20). `parentId` is null or a page of the same channel, else 400 `ValidationError`.
 - **Envelope checks.** Takusen decodes only the header (§12.20 "Server checks"). `titleEnvelope` needs kind `doc_title`, `banner.envelope` kind `doc_banner`, the updates route kind `doc_update`, the snapshots route kind `doc_snapshot`, else 400 `InvalidEnvelope`. The other checks and codes are those of §12.8.4: 413 `EnvelopeTooLarge`, 409 `GroupPending`, 409 `StaleEpoch {epoch}`, 403 `NotMember`, 400 `InvalidEnvelope`.
 - **Move.** A PATCH that sets `parentId` to the page itself or to a page of its subtree gives 400 `PageCycle`. A `parentId` of another channel gives 400 `ValidationError`. Takusen sets `updated_at` on every PATCH. Takusen does not renumber siblings: the client sends the positions it wants.
@@ -679,7 +726,7 @@ type AdminOverview = {
 
 Behavior:
 
-- **User delete.** One transaction deletes the guilds that the user owns, with the same steps as an owner delete. It also calls `onMembershipChange({ kind: 'user_deleted' })` (§12.18), which queues Removes in the groups of the user and deletes the DS rows of the user. It also deletes all uploads of the user and the OIDC rows of the user. A guild icon or banner that used one of these uploads becomes null. The FK cascades delete the memberships, messages, DM participants and invites of the user. After the commit, Takusen publishes the events and then deletes the objects (best effort). No event goes out for the cascaded messages in guilds that the user did not own, or for the DM channels of the user. Thus, clients get no `MESSAGE_DELETE`, and the other DM participant gets no event.
+- **User delete.** One transaction first deletes the bots of the user (§4 Bots), each with the steps below. It deletes the guilds that the user owns, with the same steps as an owner delete. It also calls `onMembershipChange({ kind: 'user_deleted' })` (§12.18), which queues Removes in the groups of the user and deletes the DS rows of the user. It also deletes all uploads of the user and the OIDC rows of the user. A guild icon or banner that used one of these uploads becomes null. The FK cascades delete the memberships, messages, DM participants and invites of the user. After the commit, Takusen publishes the events and then deletes the objects (best effort). No event goes out for the cascaded messages in guilds that the user did not own, or for the DM channels of the user. Thus, clients get no `MESSAGE_DELETE`, and the other DM participant gets no event.
 - **Reset keys.** The DS change of a password reset (§12.4 "Password reset"): every device of the user is revoked with reason `password_reset`, and the current master key is superseded. Then Takusen signs the user out (as Sign-out). The password and the account stay. At the next sign-in, the app wipes the revoked device and offers the recovery key or new keys.
 - **Sign-out.** Takusen sets the Redis key `takusen:sessions_revoked_at:{userId}` to the current Unix ms, without a TTL. A dashboard cookie that the user got before that time stops working. Takusen also deletes the OIDC rows of the user: rows where `payload.accountId` is the user, and all rows of their grants. Thus, the Bearer tokens of the user stop working.
 - **Revoke-all.** Takusen sets `takusen:sessions_revoked_at` and deletes all `oidc_adapter_payloads` rows. This signs out every user, the caller included. `pnpm sessions:revoke` does the same.
@@ -748,7 +795,7 @@ URL: `ws(s)://<host>/gateway` (dev `ws://localhost:8080/gateway`). Text frames, 
 
 **Read limit.** The gateway reads at most 65536 bytes per frame (`SetReadLimit`). A larger frame closes the socket (1009).
 
-**Op 5 DOC_AWARENESS.** The presence of an open page: user, color, cursor and selection, as an encrypted y-protocols awareness update. The gateway stores nothing. It drops the frame (no close, no answer) when the session is not READY, when `envelope` is longer than 8192 characters, when the session sent more than 20 op 5 frames in the last second (a token bucket of 20, refilled at 20/s), when the channel is not a guild channel of type `pages`, or when the session cannot VIEW_CHANNEL it. It does not check that `pageId` exists. A `d` that does not decode gives close 4002. Else it publishes `DOC_AWARENESS { channelId, guildId, pageId, userId, deviceId, envelope }` to `guild:{guildId}` with `channelId`, with the user and device of the session. Every session that can view the channel gets it, the sending session included. The client ignores frames with its own `deviceId`. A client sends its state when it opens a page, when its cursor moves (at most every 100 ms), and every 15 s. It drops a peer after 30 s without a frame.
+**Op 5 DOC_AWARENESS.** The presence of an open page: user, color, cursor and selection, as an encrypted y-protocols awareness update. The gateway stores nothing. It drops the frame (no close, no answer) when the session is not READY, when `envelope` is longer than 8192 characters, when the session sent more than 20 op 5 frames in the last second (a token bucket of 20, refilled at 20/s), when the channel is not a guild channel of type `pages`, `canvas` or `web`, or when the session cannot VIEW_CHANNEL it. It does not check that `pageId` exists. A `d` that does not decode gives close 4002. Else it publishes `DOC_AWARENESS { channelId, guildId, pageId, userId, deviceId, envelope }` to `guild:{guildId}` with `channelId`, with the user and device of the session. Every session that can view the channel gets it, the sending session included. The client ignores frames with its own `deviceId`. A client sends its state when it opens a page, when its cursor moves (at most every 200 ms), and every 15 s. It drops a peer after 30 s without a frame.
 
 **Ephemeral dispatches.** The gateway sends `DOC_UPDATE` and `DOC_AWARENESS` as op 0 without `s`. They do not take a sequence number and do not go in `events:{sessionId}`, so they cannot push message events out of the resume buffer. The gateway decides by the event name. After READY or RESUMED, a client reads `GET /pages/:pageId/updates?after=<its highest seq>` for each open page. It also reads the tail when a `DOC_UPDATE` skips a `seq`. Yjs ignores an update that it already has.
 
@@ -1237,7 +1284,7 @@ export interface IPlatformService {
   readonly scanQr: (() => Promise<string | null>) | null
   /** iOS: saves a UTF-8 text file (`name`: a file name, no path) through the Files export sheet; true when saved, false when cancelled. Electron and browser: null (the UI downloads a blob). */
   readonly saveTextFile: ((name: string, text: string) => Promise<boolean>) | null
-  /** A GET of an https URL for a link preview (§12.8.1): `LinkResource` (the final URL after redirects, the lowercase Content-Type without parameters, the body), or null on any failure or past `maxBytes`. Electron: main. iOS: URLSession. Browser: null. */
+  /** A GET of an https URL for a link preview (§12.8.1) or the frame check of a web tab: `LinkResource` (the final URL after redirects, the lowercase Content-Type without parameters, the body), or null on any failure or past `maxBytes`. Electron: main. iOS: URLSession. Browser: null. */
   readonly fetchLinkResource: ((url: string, maxBytes: number) => Promise<LinkResource | null>) | null
   /** Notification permission, then a push subscription of this install with a new push key for `deviceId` (§4 Push, §12.22); null when the user refused. iOS: APNs. Browser: Web Push (`/sw.js`). Electron: null (no push service). */
   readonly pushSubscribe: ((vapidPublicKey: string, deviceId: string, opts: { discardOld: boolean }) => Promise<PushTarget | null>) | null
@@ -1251,7 +1298,10 @@ export interface IPlatformService {
 
 export type HapticKind = 'light' | 'success' | 'warning'
 export interface ShareContent { url: string; text?: string }
-export interface LinkResource { url: string; contentType: string; body: Uint8Array }
+export interface LinkResource {
+  url: string; contentType: string; body: Uint8Array
+  frameOptions: string; csp: string   // the X-Frame-Options and Content-Security-Policy headers, repeats joined with ", "; '' when absent
+}
 export interface Appearance {
   theme: 'dark' | 'light'
   background: string   // a hex color (#rrggbb or #rrggbbaa), e.g. the value of --surface-window: the window background behind the safe areas
@@ -1359,10 +1409,11 @@ Screen share source selection:
 - Electron and browser: null. The UI downloads a `Blob` with `<a download>`.
 - The text leaves the app only on this user action. The UI calls it only from a button that the user selects.
 
-`fetchLinkResource` (link previews, §12.8.1). Only the sender's device calls it, for the first https link of a message that it sends, when the user setting "Make link previews" is on (default on; the site sees the IP address of the device). The UI asks for at most 5 MiB per fetch (the link can be an image), reads the whole page (YouTube puts its meta tags after about 770 KB of inline script), and takes an image only as PNG, JPEG, GIF or WebP (no SVG), and sends without a preview after 10 s.
+`fetchLinkResource` (link previews, §12.8.1, and the frame check of a web tab). For a preview, each viewer's device calls it for the first https link of a message when the message comes into view, when the user setting "Load link previews" is on (default on). The site sees the IP address of the device and when the message was read. The sender chooses the link, so a sender can learn this about each viewer, as with any link that a person opens. The UI asks for at most 5 MiB per fetch (the link can be an image), reads the whole head (YouTube puts its meta tags after about 770 KB of inline script), takes an image only as PNG, JPEG, GIF or WebP (no SVG), and fetches each URL once per run. The send never waits for a preview.
+- Web tab: each viewer's device fetches the frame address (at most 2 MiB) when the tab shows a new address. The frame loads the same page from the same device, so the fetch tells the site nothing new. When the headers refuse a frame in the app origin (a CSP `frame-ancestors` that no source matches; else X-Frame-Options DENY or SAMEORIGIN), the tab shows a warning with "Open in browser". The browser host has no fetch, so it shows a static hint instead.
 - Every host: https only, no user or password in the URL, no cookies and no stored credentials, at most 3 redirects (each to https), an 8 s timeout, the body cap of the caller (at most 8 MiB). For HTML the host stops reading after `</head>` (any case): a preview needs only the head, and a slow server streams the rest for seconds. Null for any refusal or failure.
 - Electron: the IPC channel `hachiman:fetch-link` (`url`, `maxBytes`), only from the top frame of the app page. Main uses Node `https` with a `lookup` that fails when the host resolves to any loopback, private, link-local or unspecified address (IPv4, IPv6, IPv4-mapped), so the check holds at connect time. An IP literal host gets the same check (`main/link-fetch.ts`).
-- iOS: the bridge op `fetchLink` (`{ url, maxBytes }`). The reply is `{ url, contentType, body }` (`body` base64), or null. An ephemeral `URLSession`. The app refuses a loopback, private or link-local IP literal host. `ponytail:` URLSession has no connect-time address hook, so a name that resolves to a LAN address is not refused (iOS gates the local network behind a permission that the app does not declare).
+- iOS: the bridge op `fetchLink` (`{ url, maxBytes }`). The reply is `{ url, contentType, body, frameOptions, csp }` (`body` base64), or null. An ephemeral `URLSession`. The app refuses a loopback, private or link-local IP literal host. `ponytail:` URLSession has no connect-time address hook, so a name that resolves to a LAN address is not refused (iOS gates the local network behind a permission that the app does not declare).
 - Browser: null. CORS blocks the fetch, and a Takusen proxy would show the URL to the server. Previews from other devices still show.
 
 `pushSubscribe` (§4 Push):
@@ -1386,6 +1437,7 @@ The packaged Electron app does not load the renderer from `file://`. A `file://`
 - The main process blocks navigation to all URLs outside the app origin. `window.open` gives `http(s)` URLs to the system browser and opens no window.
 - The main process sends the Content-Security-Policy (CSP) as a response header. The rules are in `apps/hachiman-electron/src/main/csp-policy.ts` (`cspFromEndpoints`). `csp.ts` resolves the endpoints and applies the header. The Electron `index.html` has no CSP meta tag. In the packaged app, the `hachiman` handler sends the header. In dev, the header goes on the responses from the dev server.
 - The browser host imports the same rules (`apps/hachiman-browser/csp.ts`). It sends the policy as a header from the Vite dev server and from `vite preview`. The built `index.html` has the policy as a meta tag, without the header-only directives. A production server must send the policy as a response header, because a meta tag covers neither Worker scripts nor `frame-ancestors`.
+- `frame-src` is `https:`: the frame of a web channel and the embeds of a canvas (§4 Pages). The client never frames its own origin. The frame has `sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-presentation"`. The frame of a web channel sends no referrer, except the app origin (`strict-origin`) to the embed form of a video link, because the players refuse to play without one. The iOS app allows `https:` navigations of subframes; a main-frame navigation still goes to the system browser.
 - `worker-src` is `'self'` (plus the dev server origin in dev), for the crypto Worker and the transform Worker (§12.17). `img-src` and `media-src` also allow `blob:`: the local preview of a picked file, and the object URL of a decrypted attachment.
 - `connect-src` gets the origins of `VITE_TAKUSEN_OIDC_ISSUER`, `VITE_TAKUSEN_API_BASE` and `VITE_HACHIMAN_GATEWAY_URL`, plus `wss:` for the media nodes. The main process and the renderer use the same resolver (`@hachiman/hachiman/takusen-env`) and the same defaults.
 - `connect-src` also allows `ws:` when one of these endpoints, or the dev server, uses `ws:` or `http:`. Thus a local stack keeps voice in `electron-vite preview` too.
@@ -1729,7 +1781,7 @@ The recipient checks that the sender device belongs to the same user and has a v
 | `dm` | 3 | channel id (dm and group_dm) | the participants | the creator first, then a member for new devices of participants |
 | `voice` | 4 | room session id (16 random bytes from the media node) | connected participants | the committer of the room (§12.10) |
 
-**Public channel.** A guild text or pages channel is public when the guild `@everyone` role permissions, with the channel `@everyone` overwrite applied, include VIEW_CHANNEL, and no role or member overwrite on the channel denies VIEW_CHANNEL. All public channels of a guild share the `public_set` group. Each other guild text or pages channel has its own `channel` group. Voice channels have no text group. Takusen tests the two types with one helper, `hasTextGroup(type)`.
+**Public channel.** A guild text, pages, canvas or web channel is public when the guild `@everyone` role permissions, with the channel `@everyone` overwrite applied, include VIEW_CHANNEL, and no role or member overwrite on the channel denies VIEW_CHANNEL. All public channels of a guild share the `public_set` group. Each other guild text, pages, canvas or web channel has its own `channel` group. Voice channels have no text group. Takusen tests the two types with one helper, `hasTextGroup(type)`.
 
 **Thread.** A thread has no group. It uses the current group of its parent text channel: the `public_set` group or the `channel` group. The DS resolves the thread to its parent at read time (`MlsRepo.getChannel` gives the `mlsGroupId` of the parent, `getChannelOverwrites` the overwrites of the parent), so a group change of the parent applies to its threads at once. `channelReaders(threadId)` is `channelReaders(parentId)`. A message envelope of a thread names the thread in `channelId` and the group of the parent in `groupId` (§12.8.4). `GET /channels/:threadId/mls-group` gives the group of the parent. The `Channel` of a thread has `mlsGroupId` and `historyVisibility` null (§1): a client resolves the thread to its parent, so a group change of the parent needs no `CHANNEL_UPDATE` of its threads.
 
@@ -2017,7 +2069,7 @@ A message must have text or at least one attachment. `channel_id` stops the serv
 
 - A reaction and a page activity are new messages: each has a new `client_msg_id`, no `edit_of`, no attachments and no `reply_to`. The server stores them as normal message rows and cannot tell them apart from kind 1. They count toward history pages and toward the server unread count. SEND_MESSAGES covers them.
 - A reaction is one event: user U added or removed `emoji` on `target`. The receiver folds the reactions of a channel into the target message. For each (sender user, target, emoji), the event with the highest `sent_at_ms` wins. A reaction is not a chat row and does not count as unread on the client.
-- **Link previews.** Kinds 5 and 6 are kinds 1 and 2 with a `LinkPreview` after the body, so the bytes of every message without a preview stay as before. The API keeps `kind: 'message' | 'edit'`: the encoder writes 5 or 6 when `MessageContent.linkPreview` is not null, and the decoder gives `linkPreview` null for kinds 1 and 2. Only the sender's device makes a preview: it fetches the first https link of its own text through the host (`IPlatformService.fetchLinkResource`, §11), reads the OpenGraph tags, and uploads the image as an encrypted blob (WebP, at most 640 px per edge, drawn again on the device). A link straight to an image (PNG, JPEG, GIF or WebP) gives a preview with only `image` (empty title, description and site name), at most 1280 px per edge; the UI embeds it as an image. A GIF keeps its bytes, so it stays animated. A receiver never fetches the URL. The sender chooses every field, so the UI shows the host of `url` and opens only `url`. The image upload id is the last row attachment (§12.8.5 step 8), so an edit carries the preview of the original unchanged. The UI hides a preview whose `url` is no longer in the text. A message of 20 upload ids has no room for the image: its preview has none.
+- **Link previews.** Kinds 5 and 6 are kinds 1 and 2 with a `LinkPreview` after the body, so the bytes of every message without a preview stay as before. The API keeps `kind: 'message' | 'edit'`: the encoder writes 5 or 6 when `MessageContent.linkPreview` is not null, and the decoder gives `linkPreview` null for kinds 1 and 2. The app no longer writes kinds 5 and 6: it sends `linkPreview` null, and each viewer's device fetches the preview of the first https link when the message comes into view (`IPlatformService.fetchLinkResource`, §11). The viewer shows that preview from memory only: it is not stored, not sent and not logged. The UI still shows the preview of a kind 5 or 6 message from an older app version. In that form the sender's device fetched the link, read the OpenGraph tags and uploaded the image as an encrypted blob (WebP, at most 640 px per edge; a link straight to an image gave a preview with only `image`, at most 1280 px per edge). The sender chooses every field, so the UI shows the host of `url` and opens only `url`. The image upload id is the last row attachment (§12.8.5 step 8), so an edit carries the preview of the original unchanged. The UI hides a preview whose `url` is no longer in the text. A message of 20 upload ids has no room for the image: its preview has none.
 - A page activity tells the channel that the sender edited a page (§12.20). The sender sends at most one per page per 10 minutes. The client shows it as an activity line, not as a chat row.
 - **Old clients.** A client that does not know a kind gives `malformed` at step 3 (§12.8.5) and changes no state. It does not count toward the fork alert. Thus a reaction, a page activity or a message with a link preview shows as one undecryptable row on an older client, and does no other harm. The same holds for a reaction emoji of more than 32 UTF-16 code units (a custom emoji key) on a client from before the limit of 72.
 
@@ -2392,7 +2444,7 @@ Takusen gives 401 `DeviceProofInvalid` when a header is missing or malformed, wh
 
 `POST /devices` is the only route that has a proof but no device id. Its body presents `mlsSignatureKey`, and the request must carry a proof by that key with the device id `""` in the message. Takusen stores the key in the new row. The certificate of the device must certify the same key later (`PUT /devices/:id/certificate` gives 400 `InvalidCertificate` for another key).
 
-**Device binding.** Takusen binds each OIDC grant to the first device that the grant presents (Redis `takusen:grant_device:{grantId}`). After that, the grant can claim only that device, else 403 `DeviceNotActive`. One exception: a grant whose device is not active can move to a pending device, so a client that lost its store can register again. Each sign-in gets its own grant: the provider's `loadExistingGrant` loads only the grant of the current consent, not the grant of the browser session. The web app and the desktop app sign in through the same browser with the same client, so a shared grant bound the desktop's device to the web device. Thus every sign-in shows the consent screen.
+**Device binding.** Takusen binds each OIDC grant to the first device that the grant presents (Redis `takusen:grant_device:{grantId}`). A bot token is a grant with the id `bot:<tokenId>` (§4 Bots). After that, the grant can claim only that device, else 403 `DeviceNotActive`. One exception: a grant whose device is not active can move to a pending device, so a client that lost its store can register again. Each sign-in gets its own grant: the provider's `loadExistingGrant` loads only the grant of the current consent, not the grant of the browser session. The web app and the desktop app sign in through the same browser with the same client, so a shared grant bound the desktop's device to the web device. Thus every sign-in shows the consent screen.
 
 The client signs in the crypto Worker (`CryptoApi.proveDevice`). The UI thread never holds the key. RestClient sends the proof on every request that sends `X-Hachiman-Device`, and on `POST /devices`.
 
@@ -2799,7 +2851,7 @@ export class ApiError extends Error {
 | `InvalidAdminAction` | 400 | the action does not decode, verify or match the request |
 | `AdminActionConflict` | 409 | `seq` or `prev_hash` does not continue the chain |
 | `RateLimited` | 429 | a §12.12 rate limit. Header `Retry-After` |
-| `NotPagesChannel` | 400 | a page route on a channel that is not of type `pages` (§4 Pages) |
+| `NotPagesChannel` | 400 | a page route on a channel that is not of type `pages`, `canvas` or `web` (§4 Pages) |
 | `PageExists` | 409 | `POST /channels/:id/pages` with an `id` that is taken |
 | `PageCycle` | 400 | a page move into its own subtree |
 | `SnapshotConflict` | 409 | the snapshot `baseSeq` is not above the current one, or above `latest_seq`. A re-wrap with another `uploadId`, or not in a newer epoch (§4 Pages). Body: `{error, baseSeq}` (the current one) |
@@ -2808,6 +2860,8 @@ export class ApiError extends Error {
 | `TooManyPins` | 400 | a pin past 50 pins in the channel (§4 Pins, guild events and blocks) |
 | `Blocked` | 403 | a DM open or a 1:1 DM message with a block in either direction (§4 Pins, guild events and blocks) |
 | `Banned` | 403 | `POST /invites/:code` of a user who is banned from the guild (§4 Bans) |
+| `TooManyBots` | 409 | `POST /bots` when the caller owns 10 bots (§4 Bots) |
+| `TooManyDeviceTokens` | 409 | `POST /users/@me/bot/device-tokens` when the bot has 64 live device tokens (§4 Bots) |
 
 **Client error codes.** The `@hachiman/crypto` Worker rejects with `CryptoError` (`CryptoErrorCode` in `src/api.ts`). `dsCode` holds the REST code above when the cause was a DS response. Two codes have no REST cause:
 - `LockHeld`: the Web Lock refused the store, because it is open in another tab (§12.17).
@@ -2848,7 +2902,7 @@ struct {
 ```
 
 **Bodies.**
-- `doc_update`: one Yjs update (`Y.encodeStateAsUpdate` form, often a `Y.mergeUpdates` of the edits of 100 ms).
+- `doc_update`: one Yjs update (`Y.encodeStateAsUpdate` form, often a `Y.mergeUpdates` of the edits of 500 ms).
 - `doc_snapshot`: UTF-8 JSON of `DocSnapshotPointer { uploadId, fileKey, sha256, size }`. `fileKey` (32 bytes) and `sha256` (of the whole blob) are base64url, and `size` is the plaintext bytes of the state. The blob is the Yjs state (`Y.encodeStateAsUpdate`) in the §12.9 format.
 - `doc_awareness`: one y-protocols awareness update. The state holds the user id, display name, color, cursor and selection.
 - `doc_title`: the UTF-8 title, 1 to 200 bytes (`MAX_PAGE_TITLE_BYTES`).
@@ -2867,7 +2921,7 @@ K_doc = HKDF-Expand(PRK, info = "hachiman doc key v1" ‖ uint32(sender_leaf), L
 
 The labels differ, so `K_doc` never equals a `K_msg`. Each envelope has its own salt and key, so the nonce is zero.
 
-**Send.** `CryptoApi.encryptDoc({ channelId, pageId, kind, bytes })` runs `GroupService.sendState(channelId)` first, as a message send does (pending Removes are committed, §12.7.4). It returns `{ envelope, groupId, epoch }`. An envelope above `Limits.maxEnvelopeBytes` (8192 base64url characters for `doc_awareness`) throws `CryptoError('TooLarge')`. A Yjs update that does not fit goes into a snapshot instead. On 409 `StaleEpoch`, the client catches up and encrypts again.
+**Send.** `CryptoApi.encryptDoc({ channelId, pageId, kind, bytes })` runs `GroupService.sendState(channelId)` first, as a message send does (pending Removes are committed, §12.7.4). A `doc_awareness` frame (up to 5 per second) passes `{ recent: true }`: it reuses the send state of the last send in that channel when that is younger than 5 s (`RECENT_SEND_MS`) and no MLS gateway event, sync or resync came since. Without this, each cursor move would fetch the group and its handshakes over REST. The Worker applies `MLS_HANDSHAKE` as it arrives, so the shortcut misses at most an event that the gateway has not delivered yet. A persisted kind always catches up. It returns `{ envelope, groupId, epoch }`. An envelope above `Limits.maxEnvelopeBytes` (8192 base64url characters for `doc_awareness`) throws `CryptoError('TooLarge')`. A Yjs update that does not fit goes into a snapshot instead. On 409 `StaleEpoch`, the client catches up and encrypts again.
 
 **Server checks.** Takusen decodes only the header (`acceptDocEnvelope`, §12.18), as `acceptEnvelope` does for messages (§12.8.4): the size, `magic` 0x4802, the kind of the route (§4 Pages; the PATCH `banner.envelope` is checked as kind `doc_banner`), the current and active group of the channel, `channel_id` = the route channel, `page_id` = the route page (the body `id` on create), the epoch rule of §12.8.4, and the sender device and leaf. It stores `group_id`, `epoch`, `sender_device` and the envelope. Takusen never sees `doc_awareness` envelopes: the gateway relays them (§6 op 5) and checks only their size.
 
@@ -2881,7 +2935,7 @@ The labels differ, so `K_doc` never equals a `K_msg`. Each envelope has its own 
 An `ok` result has `{ id, kind, bytes, sender }`: the body bytes and the `DecryptedSender`. The UI thread gets decrypted content only, never a key.
 
 **Access by new members.** A member that joined in epoch N has no `S_e` for older epochs when the group is `joined`. Thus the members encrypt the current state of each page again in the current epoch. The new member then needs only the newest snapshot and the updates after it. It does not get the edit history before the snapshot. The snapshot blob has its own `fileKey`, so a member re-wraps the small pointer envelope, not the blob.
-- **Trigger.** `GroupService` emits the Worker event `usersAdded { groupId, kind, guildId, channelId, epoch, userIds, byMe }` after a commit in a `public_set` or `channel` group that adds a leaf of a user that had no leaf before (an Add, or an external commit join). It emits it for a commit of another device (`byMe: false`), for an own batch commit (`byMe: true`) and for an own commit that it adopts from the stream (§12.7.9). It does not emit it for an own join, a Welcome, a create, a resync or a new device of a member. The UI finds the pages channels of the group (`Channel.mlsGroupId`, type `pages`) in which the user has VIEW_CHANNEL and SEND_MESSAGES.
+- **Trigger.** `GroupService` emits the Worker event `usersAdded { groupId, kind, guildId, channelId, epoch, userIds, byMe }` after a commit in a `public_set` or `channel` group that adds a leaf of a user that had no leaf before (an Add, or an external commit join). It emits it for a commit of another device (`byMe: false`), for an own batch commit (`byMe: true`) and for an own commit that it adopts from the stream (§12.7.9). It does not emit it for an own join, a Welcome, a create, a resync or a new device of a member. The UI finds the pages, canvas and web channels of the group (`Channel.mlsGroupId`) in which the user has VIEW_CHANNEL and SEND_MESSAGES.
 - **Who and when.** The committer runs the pass at once, and again after `ADD_ONLY_EPOCH_GRACE_MS` + 2 s, because a member can still post in the old epoch for that time (§12.8.4). Every other member that processes the commit runs the pass after a random 12 to 20 s. When no member is online (an external commit join), the first member that processes the commit runs it. One pass per group runs at a time. A pass skips the pages that are current, and Takusen accepts one re-wrap per page and epoch.
 - **The pass**, for each pages channel: `ensureChannelGroup` gives the current group and epoch, and `GET /channels/:id/pages/heads` (§4 Pages) gives the pages. For each page:
   1. An open page resyncs, and its provider does step 2 or 3 for it.

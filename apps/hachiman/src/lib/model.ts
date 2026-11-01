@@ -19,11 +19,13 @@ const TYPE_ORDER: Record<Channel['type'], number> = {
   category: 2,
   dm: 0,
   group_dm: 0,
-  thread: 0
+  thread: 0,
+  canvas: 0,
+  web: 0
 }
 
 /** The channel types of the create dialog and the category menu, in this order. */
-export const CREATE_CHANNEL_TYPES = ['text', 'voice', 'pages'] as const
+export const CREATE_CHANNEL_TYPES = ['text', 'voice', 'pages', 'canvas', 'web'] as const
 
 /** How the create dialog and the category menu name each type that a member can create. */
 export const CHANNEL_KINDS: Record<
@@ -37,14 +39,32 @@ export const CHANNEL_KINDS: Record<
     hint: 'Write documents together, next to the chat',
     placeholder: 'design-pages'
   },
+  canvas: {
+    label: 'Canvas',
+    hint: 'Draw and plan together on whiteboards',
+    placeholder: 'whiteboard'
+  },
+  web: { label: 'Web', hint: 'Browse web pages together', placeholder: 'watch-party' },
   category: { label: 'Category', hint: '', placeholder: 'Text' }
 }
 
 /**
  * A channel type with a message history: a new one opens at once, and the text permission bits
- * apply (in a pages channel VIEW_CHANNEL reads the pages, SEND_MESSAGES edits them).
+ * apply (in a pages channel VIEW_CHANNEL reads the pages, SEND_MESSAGES edits them). A board
+ * channel has no chat but the same rules.
  */
-export const hasChat = (type: ChannelType): boolean => type === 'text' || type === 'pages'
+export const hasChat = (type: ChannelType): boolean =>
+  type === 'text' || type === 'pages' || isBoardType(type)
+
+/**
+ * A canvas or web channel: its pages (contract §4 Pages) are whiteboards or shared web views,
+ * shown as the channel's body in place of a chat.
+ */
+export const isBoardType = (type: ChannelType): type is 'canvas' | 'web' =>
+  type === 'canvas' || type === 'web'
+
+export const isBoardChannel = (channel: Channel): channel is Channel & { type: 'canvas' | 'web' } =>
+  isBoardType(channel.type)
 
 const KIND_NAMES: Record<ChannelType, string> = {
   text: 'Text channel',
@@ -53,7 +73,9 @@ const KIND_NAMES: Record<ChannelType, string> = {
   category: 'Category',
   thread: 'Thread',
   dm: 'Direct message',
-  group_dm: 'Group message'
+  group_dm: 'Group message',
+  canvas: 'Canvas channel',
+  web: 'Web channel'
 }
 
 /** The type of a channel in words: "Text channel" (the subtitle of the delete dialog, M51). */

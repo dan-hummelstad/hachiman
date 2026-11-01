@@ -131,7 +131,7 @@ export interface UpdateGuildBody {
 }
 export interface CreateChannelBody {
   name: string
-  type: 'text' | 'voice' | 'category' | 'pages'
+  type: 'text' | 'voice' | 'category' | 'pages' | 'canvas' | 'web'
   parentId?: Opt<string | null>
   topic?: Opt<string | null>
 }

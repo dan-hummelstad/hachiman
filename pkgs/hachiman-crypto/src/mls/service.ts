@@ -30,6 +30,7 @@ import {
   type MembershipEvent,
   type MlsGroupHandle,
   type PendingCommit,
+  type SendState,
   type ProposalPolicy,
   type StoreSchema,
   type UserId,
@@ -71,6 +72,8 @@ const Perm = { ADMINISTRATOR: 1 << 3, MANAGE_CHANNELS: 1 << 4, MANAGE_GUILD: 1 <
 const HANDSHAKE_PAGE = 100
 const TIMELINE_MAX = 1000
 const COMMIT_ATTEMPTS = 5
+/** How long a doc_awareness frame may reuse the last send state of its channel (§12.20). */
+const RECENT_SEND_MS = 5_000
 /** The §12.19 codes of a commit upload that the DS refused before it stored anything (§12.7.3). */
 const COMMIT_REFUSALS = new Set(['InvalidCommit', 'IllegalAdd', 'IllegalMembership', 'IllegalRemove', 'GroupFull', 'GroupPending', 'GroupRetired', 'UnknownGroup', 'MissingPermissions', 'InboxFull'])
 
@@ -138,6 +141,11 @@ export const createGroupService = ((ctx: EngineContext, identity: IdentityServic
   const recent = new Map<string, Map<number, MlsGroupHandle>>()
   const locks = new Map<string, Promise<unknown>>()
   const stuck = new Map<string, string>()
+  /**
+   * The last send state per channel, for doc_awareness frames (up to 10 per second, §12.20): without
+   * it each frame would fetch the group and its handshakes over REST. Any MLS event or resync clears it.
+   */
+  const recentSends = new Map<string, { at: number; state: SendState }>()
   const joinRequested = new Set<string>()
   /** Groups where the DS refused the invite join of this device (403 IllegalAdd): no new try in this session. */
   const inviteJoinRefused = new Set<string>()
@@ -1070,6 +1078,7 @@ export const createGroupService = ((ctx: EngineContext, identity: IdentityServic
   }
 
   async function resyncAll(reason: 'dsk_rotated' | 'fork' | 'state_lost'): Promise<void> {
+    recentSends.clear()
     for (const { key } of await store.list('groups')) {
       try {
         await withGroup(key, async (g) => {
@@ -1094,8 +1103,35 @@ export const createGroupService = ((ctx: EngineContext, identity: IdentityServic
     return group
   }
 
+
+  /** sendState without the recent-send shortcut. */
+  async function freshSendState(channelId: string): Promise<SendState> {
+    const group = await groupForChannel(channelId)
+    if (group.status === 'retired') throw new CryptoError('GroupPending', `the group of channel ${channelId} is retired`)
+    return withGroup(group.groupId, async (g) => {
+      if (g?.handle == null) throw new CryptoError('NotMember', `this device has no leaf in the group of ${channelId}`)
+      for (let attempt = 0; attempt < COMMIT_ATTEMPTS; attempt++) {
+        await catchUp(g)
+        const h = g.handle as MlsGroupHandle | null
+        if (h === null) throw new CryptoError('NotMember', 'removed from the group')
+        const revoked = await revokedLeaves(h)
+        if (!mls.hasPendingRemoves(h) && revoked.leaves.length === 0) {
+          // From the MLS state, never from a stored row: an imported secret cannot steer a send.
+          return { groupId: h.groupId, epoch: h.epoch, ownLeaf: h.ownLeaf, epochSecret: await messageSecret(h) }
+        }
+        // §12.7.4: commit the pending Removes before the device encrypts. A revoked leaf goes by
+        // value too (§12.4 rule 7): a DS that withholds its Remove does not keep it in the tree.
+        const policy = await buildPolicy(descriptorOf(g), revoked.users)
+        const pc = await mls.commit(h, { adds: [], removes: revoked.leaves, descriptor: null, policy })
+        await postOwnCommit(g, pc, { batchId: null, rejected: [] }, 'removed')
+      }
+      throw new CryptoError('PendingRemoves', 'pending Removes are not committed yet')
+    })
+  }
+
   const service: GroupServiceExt = {
     async sync() {
+      recentSends.clear()
       try {
         await drainInbox()
       } catch (e) {
@@ -1145,6 +1181,7 @@ export const createGroupService = ((ctx: EngineContext, identity: IdentityServic
     },
 
     async onGatewayEvent(event: CryptoGatewayEvent) {
+      recentSends.clear()
       try {
         switch (event.t) {
           case 'MLS_HANDSHAKE': {
@@ -1241,30 +1278,13 @@ export const createGroupService = ((ctx: EngineContext, identity: IdentityServic
       })
     },
 
-    async sendState(channelId) {
-      const group = await groupForChannel(channelId)
-      if (group.status === 'retired') throw new CryptoError('GroupPending', `the group of channel ${channelId} is retired`)
-      return withGroup(group.groupId, async (g) => {
-        if (g?.handle == null) throw new CryptoError('NotMember', `this device has no leaf in the group of ${channelId}`)
-        for (let attempt = 0; attempt < COMMIT_ATTEMPTS; attempt++) {
-          await catchUp(g)
-          const h = g.handle as MlsGroupHandle | null
-          if (h === null) throw new CryptoError('NotMember', 'removed from the group')
-          const revoked = await revokedLeaves(h)
-          if (!mls.hasPendingRemoves(h) && revoked.leaves.length === 0) {
-            // From the MLS state, never from a stored row: an imported secret cannot steer a send.
-            return { groupId: h.groupId, epoch: h.epoch, ownLeaf: h.ownLeaf, epochSecret: await messageSecret(h) }
-          }
-          // §12.7.4: commit the pending Removes before the device encrypts. A revoked leaf goes by
-          // value too (§12.4 rule 7): a DS that withholds its Remove does not keep it in the tree.
-          const policy = await buildPolicy(descriptorOf(g), revoked.users)
-          const pc = await mls.commit(h, { adds: [], removes: revoked.leaves, descriptor: null, policy })
-          await postOwnCommit(g, pc, { batchId: null, rejected: [] }, 'removed')
-        }
-        throw new CryptoError('PendingRemoves', 'pending Removes are not committed yet')
-      })
+    async sendState(channelId, opts) {
+      const held = recentSends.get(channelId)
+      if (opts?.recent && held && ctx.now() - held.at < RECENT_SEND_MS) return held.state
+      const state = await freshSendState(channelId)
+      recentSends.set(channelId, { at: ctx.now(), state })
+      return state
     },
-
     async epochSecret(groupId, epoch) {
       const gid = toB64url(groupId)
       const row = await store.get('epochSecrets', epochSecretKey(gid, epoch))

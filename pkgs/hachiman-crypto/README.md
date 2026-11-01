@@ -43,6 +43,7 @@ Dependency direction: this package depends on `@hachiman/client` (workspace depe
 | `./ds` | `src/mls/ds.ts` | Takusen: the `DsModule` (sign external proposals, check key packages, commits and GroupInfo, verify key objects, admin actions, invite records and invite authorizations, parse invite records and envelope headers, verify franking openings) |
 | `./constants` | `src/constants.ts` | Suites, labels, sizes, limits |
 | `./codec` | `src/codec.ts` | The binary codec and base64url |
+| `./host` | `src/host.ts` | A Node host that holds the keys itself (`@hachiman/bot`): `createEngine` in-process, `clientPermissions`, the store record codec. The browser hosts never import it |
 
 The package has no build step. Consumers import the TypeScript source.
 

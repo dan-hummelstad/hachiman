@@ -9,8 +9,7 @@ import {
   CryptoError,
   THUMBNAIL_MAX_EDGE,
   type AttachmentInput,
-  type AttachmentPointer,
-  type ThumbnailPointer
+  type AttachmentPointer
 } from '@hachiman/crypto'
 import { pointerOf } from '@/lib/attachments'
 import { formatBytes } from '@/lib/format-bytes'
@@ -92,6 +91,15 @@ function logShape(e: unknown): string {
   return e instanceof Error ? e.name : typeof e
 }
 
+/** POST /pages/:id/media takes at most this many ids. */
+const CLAIM_BATCH = 20
+
+/** Claims page_media uploads for a page (POST /pages/:id/media), which also refreshes last_referenced_at. */
+export async function claimPageMedia(pageId: string, ids: string[]): Promise<void> {
+  for (let i = 0; i < ids.length; i += CLAIM_BATCH)
+    await hachiman.rest.claimPageMedia(pageId, ids.slice(i, i + CLAIM_BATCH))
+}
+
 export interface UploadFileOptions {
   signal?: AbortSignal | undefined
   /** 0..1 */
@@ -170,55 +178,6 @@ export async function uploadAttachment(
     if (signal?.aborted) throw e
     console.warn('[uploads] attachment upload failed', logShape(e))
     throw new Error(uploadErrorText(e), { cause: e })
-  }
-}
-
-/**
- * The image of a link preview (§12.8.1), encrypted and uploaded as one blob. A GIF keeps its bytes,
- * so it stays animated: a canvas draws only the first frame. Any other image is drawn again as
- * WebP of at most `maxEdge` px, so no metadata of the source survives. Null when it does not decode.
- * ponytail: a GIF keeps its comment blocks; GIF has no EXIF, so no location can ride along.
- */
-export async function uploadLinkImage(
-  image: Blob,
-  maxEdge: number
-): Promise<ThumbnailPointer | null> {
-  const bitmap = await createImageBitmap(image).catch(() => null)
-  if (!bitmap) return null
-  let drawn: AttachmentInput['thumbnail']
-  try {
-    const { width, height } = bitmap
-    drawn =
-      image.type === 'image/gif'
-        ? { blob: image, mime: image.type, width, height }
-        : await drawThumbnail(bitmap, width, height, maxEdge)
-  } finally {
-    bitmap.close()
-  }
-  if (!drawn) return null
-  const encrypted = await cryptoService.client().encryptAttachment({
-    file: drawn.blob,
-    name: drawn.mime === 'image/gif' ? 'preview.gif' : 'preview.webp',
-    mime: drawn.mime,
-    width: drawn.width,
-    height: drawn.height,
-    durationMs: null,
-    blurhash: null,
-    thumbnail: null
-  })
-  const upload = await hachiman.rest.uploadBlob(encrypted.blob)
-  if (upload.size !== encrypted.draft.blobSize)
-    throw new Error('The server stored a different file size.')
-  const { key, sha256, size, blobSize, mime } = encrypted.draft
-  return {
-    uploadId: upload.id,
-    key,
-    sha256,
-    size,
-    blobSize,
-    mime,
-    width: drawn.width,
-    height: drawn.height
   }
 }
 

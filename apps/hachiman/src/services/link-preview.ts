@@ -1,86 +1,78 @@
-import {
-  MAX_MESSAGE_UPLOAD_IDS,
-  type AttachmentPointer,
-  type LinkPreview,
-  type ThumbnailPointer
-} from '@hachiman/crypto'
-import { uploadIdsOf } from '@/lib/attachments'
-import { parseLinkPage, previewUrlOf } from '@/lib/link-preview'
+import { parseLinkPage } from '@/lib/link-preview'
 import { hostPlatform } from '@/services/hachiman'
-import { takusenService } from '@/services/TakusenService'
-import type { IPlatformService, LinkResource } from '@/shared/IPlatformService'
-import { usePrefsStore } from '@/stores/prefsStore'
-import { uploadLinkImage } from './UploadService'
+import type { IPlatformService } from '@/shared/IPlatformService'
 
 type Fetch = NonNullable<IPlatformService['fetchLinkResource']>
 
-/** Longest a send waits for its link preview; then it goes without one. */
-const BUDGET_MS = 10_000
+/** The preview of a link that this device made when the message came into view (§12.8.1). */
+export interface ViewedLinkPreview {
+  url: string
+  title: string
+  description: string
+  siteName: string
+  /** An object URL of the fetched image bytes, or null. */
+  image: string | null
+}
+
 /**
- * The cap of each fetch. The parser reads the whole page: YouTube puts its meta tags after about
- * 770 KB of inline script in the head.
+ * The cap of each fetch. The parser reads the whole head: YouTube puts its meta tags after about
+ * 770 KB of inline script.
  */
 const FETCH_MAX_BYTES = 5 * 1024 * 1024
-/** The image of a page preview is a thumbnail; a link straight to an image shows it larger. */
-const PAGE_IMAGE_MAX_EDGE = 640
-const DIRECT_IMAGE_MAX_EDGE = 1280
 const HTML_TYPES = new Set(['text/html', 'application/xhtml+xml'])
 /** No SVG: it can carry script. */
 const IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp'])
+const CACHE_MAX = 200
+
+/** One fetch per URL per run: every message with the same link shares it. */
+// ponytail: an evicted entry revokes its image while a card may still show it; past CACHE_MAX links in one session an old card can lose its image.
+const cache = new Map<string, Promise<ViewedLinkPreview | null>>()
 
 /**
- * The link preview of a message that this device sends (§12.8.1), or null: the setting is off,
- * the host cannot fetch, the text has no https link, or the page gives nothing within BUDGET_MS.
- * Never rejects, so it never fails the send. Receivers never fetch.
+ * The preview of `url`, fetched by this device through the host (no cookies), or null: the host
+ * cannot fetch (browser), or the page gives nothing. Never rejects.
  */
-export async function linkPreviewFor(
-  text: string,
-  attachments: readonly AttachmentPointer[]
-): Promise<LinkPreview | null> {
+export function loadLinkPreview(url: string): Promise<ViewedLinkPreview | null> {
   const fetchResource = hostPlatform()?.fetchLinkResource
-  if (!fetchResource || !usePrefsStore.getState().linkPreviews) return null
-  const url = previewUrlOf(text, takusenService.env.issuerOrigin)
-  if (!url) return null
-  // A message of MAX_MESSAGE_UPLOAD_IDS uploads has no id left for the image.
-  const withImage = uploadIdsOf(attachments).length < MAX_MESSAGE_UPLOAD_IDS
-  let timer: ReturnType<typeof setTimeout> | undefined
-  const late = new Promise<null>((resolve) => (timer = setTimeout(() => resolve(null), BUDGET_MS)))
-  const built = buildLinkPreview(url, fetchResource, withImage).catch((e: unknown) => {
+  if (!fetchResource) return Promise.resolve(null)
+  const known = cache.get(url)
+  if (known) return known
+  const built = buildLinkPreview(url, fetchResource).catch((e: unknown) => {
     // The name only: the URL is message content.
     console.warn('[link-preview] failed', e instanceof Error ? e.name : typeof e)
     return null
   })
-  return Promise.race([built, late]).finally(() => clearTimeout(timer))
+  cache.set(url, built)
+  if (cache.size > CACHE_MAX) {
+    const [oldest, entry] = cache.entries().next().value!
+    cache.delete(oldest)
+    void entry.then((p) => p?.image && URL.revokeObjectURL(p.image))
+  }
+  return built
 }
 
 async function buildLinkPreview(
   url: string,
-  fetchResource: Fetch,
-  withImage: boolean
-): Promise<LinkPreview | null> {
+  fetchResource: Fetch
+): Promise<ViewedLinkPreview | null> {
   const res = await fetchResource(url, FETCH_MAX_BYTES)
   if (!res) return null
   // A link straight to an image: the preview is the image alone (the card shows it embedded).
-  if (IMAGE_TYPES.has(res.contentType)) {
-    const image = withImage ? await uploadImage(res, DIRECT_IMAGE_MAX_EDGE) : null
-    return image && { url, title: '', description: '', siteName: '', image }
-  }
+  if (IMAGE_TYPES.has(res.contentType))
+    return { url, title: '', description: '', siteName: '', image: objectUrl(res) }
   if (!HTML_TYPES.has(res.contentType)) return null
   // ponytail: UTF-8 only; a page in another charset shows mangled text.
   const info = parseLinkPage(new TextDecoder().decode(res.body), res.url)
   if (!info) return null
-  const image =
-    withImage && info.imageUrl
-      ? await pageImage(info.imageUrl, fetchResource).catch(() => null)
-      : null
-  return { url, title: info.title, description: info.description, siteName: info.siteName, image }
+  const image = info.imageUrl ? await fetchResource(info.imageUrl, FETCH_MAX_BYTES) : null
+  return {
+    url,
+    title: info.title,
+    description: info.description,
+    siteName: info.siteName,
+    image: image && IMAGE_TYPES.has(image.contentType) ? objectUrl(image) : null
+  }
 }
 
-async function pageImage(url: string, fetchResource: Fetch): Promise<ThumbnailPointer | null> {
-  const res = await fetchResource(url, FETCH_MAX_BYTES)
-  if (!res || !IMAGE_TYPES.has(res.contentType)) return null
-  return uploadImage(res, PAGE_IMAGE_MAX_EDGE)
-}
-
-const uploadImage = (res: LinkResource, maxEdge: number): Promise<ThumbnailPointer | null> =>
-  uploadLinkImage(new Blob([res.body], { type: res.contentType }), maxEdge)
+const objectUrl = (res: { body: Uint8Array<ArrayBuffer>; contentType: string }): string =>
+  URL.createObjectURL(new Blob([res.body], { type: res.contentType }))

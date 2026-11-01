@@ -2,6 +2,7 @@ import { resolve } from "path";
 import { defineConfig, loadEnv, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
+import { excalidrawFonts } from "../hachiman/vite-excalidraw-fonts.ts";
 import { browserCsp } from "./csp.ts";
 
 // Source path into the shared `@hachiman/hachiman` package. We consume it as
@@ -33,7 +34,7 @@ export default defineConfig(({ mode }) => {
   const dev = browserCsp(env, { dev: true });
   const prod = browserCsp(env, { dev: false });
   return {
-    plugins: [react(), tailwindcss(), cspMeta(prod.meta)],
+    plugins: [react(), tailwindcss(), excalidrawFonts(), cspMeta(prod.meta)],
     resolve: { alias: { "@": hachimanSrc } },
     // Fixed port: Takusen's CORS allowlist and the seeded OAuth redirect name this origin.
     // The header also covers Worker scripts, which do not inherit the page policy.

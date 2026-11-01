@@ -52,3 +52,6 @@ infra/oci/terraform.tfvars
 infra/oci/deploy_key
 infra/oci/deploy_key.pub
 infra/oci/known_hosts
+
+# A bot keeps its keys here (wrap.key, recovery-key.txt, device.token, deployment.key).
+.hachiman-bot/

@@ -277,7 +277,7 @@ describe('DocProvider', () => {
     expect(p.doc.getText('t').toString()).toHaveLength(2)
   })
 
-  it('batches local edits for 100 ms into one update', async () => {
+  it('batches local edits for BATCH_MS into one update', async () => {
     const h = harness()
     const p = h.open()
     await settle()

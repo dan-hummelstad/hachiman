@@ -8,7 +8,7 @@ const wire = (id: string): Message => ({
   id,
   channelId: 'c-1',
   guildId: 'g-1',
-  author: { id: 'u-1', username: 'a', avatar: null },
+  author: { id: 'u-1', username: 'a', avatar: null, bot: false },
   senderDevice: 'd-1',
   groupId: 'grp',
   epoch: 1,

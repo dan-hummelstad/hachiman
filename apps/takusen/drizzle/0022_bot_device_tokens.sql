@@ -1,0 +1,1 @@
+ALTER TABLE "bot_tokens" ADD COLUMN "kind" text DEFAULT 'bot' NOT NULL;

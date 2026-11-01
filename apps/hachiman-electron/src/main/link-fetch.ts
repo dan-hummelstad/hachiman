@@ -7,8 +7,8 @@ import { isPrivateIp } from "./probe-target-guard.ts";
 
 /**
  * The `hachiman:fetch-link` IPC handler: one GET for a link preview (contract §11
- * `fetchLinkResource`, §12.8.1). Only the sender's own device runs it, for a link in a
- * message that it sends.
+ * `fetchLinkResource`, §12.8.1), for a link in a message that comes into view, or a
+ * web-tab frame check.
  *
  * A renderer XSS reaches this through the preload bridge, so main treats every argument
  * as hostile: https only, no credentials in the URL, no cookies (Node https has no
@@ -119,13 +119,25 @@ export async function fetchLinkResource(
         .toLowerCase();
       const body = await readCapped(res, maxBytes, HTML_TYPES.has(contentType));
       if (!body) return null;
-      return { url: url.href, contentType, body };
+      return {
+        url: url.href,
+        contentType,
+        body,
+        frameOptions: header(res, "x-frame-options"),
+        csp: header(res, "content-security-policy"),
+      };
     }
     return null;
   } catch {
     return null;
   }
 }
+
+/** A header, its repeats joined with ", " as Node does; "" when absent. */
+const header = (res: IncomingMessage, name: string): string => {
+  const v = res.headers[name];
+  return Array.isArray(v) ? v.join(", ") : (v ?? "");
+};
 
 const HTML_TYPES = new Set(["text/html", "application/xhtml+xml"]);
 const HEAD_END = "</head>";

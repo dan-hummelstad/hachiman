@@ -58,6 +58,9 @@ export interface LinkResource {
   /** The Content-Type header, lowercase, without parameters. '' when the server sent none. */
   contentType: string
   body: Uint8Array<ArrayBuffer>
+  /** The X-Frame-Options and Content-Security-Policy headers, repeats joined with ", ". '' when absent. */
+  frameOptions: string
+  csp: string
 }
 
 /** The app theme that the host window follows (`IPlatformService.setAppearance`). */
@@ -153,7 +156,7 @@ export interface IPlatformService {
       ) => Promise<PushTarget | null>)
     | null
   /**
-   * A GET of an https URL for a link preview (§12.8.1), made by the sender's device only: no
+   * A GET of an https URL for a link preview (§12.8.1) or a web-tab frame check, by this device: no
    * cookies, no credentials, at most 3 redirects (each https), an 8 s timeout, the host never
    * connects to a loopback, private or link-local address. For HTML the body ends after
    * `</head>`. Resolves null on any failure, or when the body exceeds `maxBytes`. Electron: main (Node https). iOS: URLSession. Browser: null

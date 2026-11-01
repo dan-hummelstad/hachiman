@@ -44,6 +44,7 @@ export interface UserLike {
   name: string | null
   email: string
   image: string | null
+  bot: boolean
 }
 
 export function toUser(u: UserLike): User {
@@ -51,6 +52,7 @@ export function toUser(u: UserLike): User {
     id: u.id,
     username: u.displayName || u.name || u.email.split('@')[0],
     avatar: u.image,
+    bot: u.bot,
   }
 }
 

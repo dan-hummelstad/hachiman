@@ -15,7 +15,7 @@ function world(opts: { shared?: boolean; blocked?: boolean } = {}) {
   const published: { target: string; user: User }[] = []
   const counts = new Map<string, number>()
   const deps: PokeDeps = {
-    user: async (id) => (id === C ? null : { id, username: id.slice(-1), avatar: null }),
+    user: async (id) => (id === C ? null : { id, username: id.slice(-1), avatar: null, bot: false }),
     sharesSpace: async () => opts.shared ?? true,
     blocked: async () => opts.blocked ?? false,
     rate: {
@@ -35,7 +35,7 @@ describe('pokeWith', () => {
   test('publishes POKE with the sender to the target', async () => {
     const w = world()
     await pokeWith(w.deps, A, B)
-    assert.deepEqual(w.published, [{ target: B, user: { id: A, username: 'a', avatar: null } }])
+    assert.deepEqual(w.published, [{ target: B, user: { id: A, username: 'a', avatar: null, bot: false } }])
   })
 
   test('refuses yourself, an unknown user and a user without a shared guild or DM', async () => {

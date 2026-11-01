@@ -99,7 +99,11 @@ export function forgetCopiedMedia(): void {
   copied.clear()
 }
 
-/** The page_media upload ids (files and thumbnails) that the media nodes of `doc` reference. */
+/**
+ * The page_media upload ids (files and thumbnails) that `doc` references: the media nodes of a
+ * markdown page, and the files of the image elements of a canvas that are not deleted (the
+ * `excalidraw` and `files` maps).
+ */
 export function collectMediaUploadIds(doc: Y.Doc): string[] {
   const ids = new Set<string>()
   const walk = (parent: Y.XmlFragment | Y.XmlElement): void => {
@@ -113,5 +117,11 @@ export function collectMediaUploadIds(doc: Y.Doc): string[] {
     }
   }
   walk(doc.getXmlFragment(FRAGMENT))
+  const files = doc.getMap<unknown>('files')
+  for (const el of doc.getMap<unknown>('excalidraw').values()) {
+    if (!isRecord(el) || el.type !== 'image' || el.isDeleted === true) continue
+    const pointer = typeof el.fileId === 'string' ? parsePointer(files.get(el.fileId)) : null
+    if (pointer) for (const id of uploadIdsOf([pointer])) ids.add(id)
+  }
   return [...ids]
 }

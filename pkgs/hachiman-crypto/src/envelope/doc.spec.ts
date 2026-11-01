@@ -76,6 +76,8 @@ interface View {
   member: boolean
   aeadReports: { epoch: number; device: DeviceId }[]
   sendStates: number
+  /** The `recent` flag of each sendState call. */
+  recent: boolean[]
 }
 
 function memoryStore(): CryptoStore {
@@ -95,10 +97,11 @@ function memoryStore(): CryptoStore {
 }
 
 function peer(world: World, self: Device, view: Partial<View> = {}): { docs: DocService; view: View } {
-  const v: View = { from: 0, to: null, member: true, aeadReports: [], sendStates: 0, ...view }
+  const v: View = { from: 0, to: null, member: true, aeadReports: [], sendStates: 0, recent: [], ...view }
   const groups = {
-    sendState() {
+    sendState(_channelId: string, opts?: { recent?: boolean }) {
       v.sendStates++
+      v.recent.push(opts?.recent ?? false)
       return Promise.resolve({ groupId: GROUP, epoch: world.epoch, ownLeaf: self.leaf, epochSecret: world.secrets.get(world.epoch)! })
     },
     epochSecret(_g: Uint8Array, epoch: number) {
@@ -199,6 +202,13 @@ describe('doc envelopes (§12.20)', () => {
     expect(r.status === 'ok' && new TextDecoder().decode(r.bytes)).toBe('Roadmap ✓')
     const aw = await a.docs.encryptDoc({ channelId: CHANNEL, pageId: PAGE, kind: 'doc_awareness', bytes: bytes(100, 3) })
     expect((await one(b.docs, item(aw.envelope, { kind: 'doc_awareness' }))).status).toBe('ok')
+  })
+
+  it('only doc_awareness may reuse a recent send state', async () => {
+    const { a } = setup()
+    await a.docs.encryptDoc({ channelId: CHANNEL, pageId: PAGE, kind: 'doc_update', bytes: bytes(10, 1) })
+    await a.docs.encryptDoc({ channelId: CHANNEL, pageId: PAGE, kind: 'doc_awareness', bytes: bytes(10, 2) })
+    expect(a.view.recent).toEqual([false, true])
   })
 
   it('round-trips a doc_banner pointer with kind byte 5', async () => {

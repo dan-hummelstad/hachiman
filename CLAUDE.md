@@ -32,10 +32,16 @@ apps/
 
 pkgs/
   hachiman-client/     @hachiman/client             — browser-safe client library (RestClient, GatewayClient, VoiceConnection, HachimanClient, permissions, files, types)
-  hachiman-crypto/     @hachiman/crypto             — E2EE (ts-mls): crypto Worker, identity, MLS groups, envelopes, attachments, SFrame transform Worker, encrypted store; `./ds` entry for Takusen
+  hachiman-crypto/     @hachiman/crypto             — E2EE (ts-mls): crypto Worker, identity, MLS groups, envelopes, attachments, SFrame transform Worker, encrypted store; `./ds` entry for Takusen, `./host` (in-process engine) for bots
+  hachiman-bot/        @hachiman/bot                — Node bot runtime (E2EE client, disk key store) + Discord API v10 bridge + `hachiman-discord-bridge` CLI (docs/bots-plan.md)
+  hachiman-discord.js/ @hachiman/discord.js         — drop-in discord.js: install as `discord.js`, give the bot an `hbot_` token
+
+examples/              bot examples: native/ (@hachiman/bot startBot), discord-js/ and discord-js-sharding/ (the drop-in), discord-py/ (the bridge)
 ```
 
 Host apps (`hachiman-electron`, `hachiman-browser`, `hachiman-ios`) depend only on the shared UI library (`@hachiman/hachiman`), which depends on the client library (`@hachiman/client`) and the crypto library (`@hachiman/crypto`). Hosts do not import `@hachiman/client` or `@hachiman/crypto`. The shared UI owns the one `HachimanClient` (`apps/hachiman/src/services/hachiman.ts`). Hosts only implement `IPlatformService` (`apps/hachiman/src/shared/IPlatformService.ts`): Electron in `src/renderer/src/PlatformService.ts` (a thin adapter over the preload bridge `window.hachiman`), the browser in `src/platforms/browser/PlatformService.ts`, iOS in `src/platforms/ios/PlatformService.ts` (over the WKWebView script message bridge). A new seam method needs all three implementations, the preload bridge, an IPC channel in `apps/hachiman-electron/src/shared/ipc.ts`, and an iOS bridge op when iOS implements it natively.
+
+Bots: `@hachiman/bot` imports `@hachiman/crypto/host` (the engine without a Worker: a bot process holds its own keys) and the pure `@hachiman/hachiman/ds-transport`. The browser hosts never import `./host`. `@hachiman/discord.js` depends on `@hachiman/bot` and discord.js.
 
 Workspace dependency direction: `@hachiman/crypto` depends on `@hachiman/client` (only for `@hachiman/client/permissions`, in `src/worker/`). `@hachiman/client` never imports `@hachiman/crypto`. Its E2EE types mirror the crypto types structurally. Takusen loads `@hachiman/crypto/ds` through one file, `apps/takusen/src/lib/mls/crypto.ts`.
 
@@ -110,6 +116,8 @@ pnpm -F @hachiman/takusen test              # tsx scripts incl. gRPC handlers an
 pnpm -F @hachiman/hachiman-electron test   # main-process unit tests (CSP, secure storage, ...)
 pnpm -F @hachiman/hachiman-browser test    # CSP and secure storage (node --test)
 pnpm -F @hachiman/hachiman-ios test        # CSP, bridge, native events, PlatformService (node --test)
+pnpm -F @hachiman/bot test                 # vitest: disk key store, id map
+pnpm -F @hachiman/discord.js test          # vitest: a discord.js client against the Discord bridge (fake runtime)
 cd apps/hachiman-ios && xcodegen generate && xcodebuild test -project Hachiman.xcodeproj -scheme Hachiman -destination 'platform=iOS Simulator,name=iPhone 16,OS=latest'   # XCTest; needs a signed (ad hoc) build and developer mode
 cd apps/hachiman-server && go test ./...   # gateway, media (incl. the E2EE relay), permissions, voicetoken, ...
 # gateway integration test: build tag `integration`, needs DATABASE_URL / REDIS_URL / TAKUSEN_URL
@@ -185,7 +193,7 @@ If a selector returns a fresh array/object literal, React shows the warning "get
 
 - Decrypt before store. Every ciphertext `Message` goes through the crypto Worker (`services/message-decrypt.ts`). Only the result goes into `messagesStore`. Never store or show an envelope as text.
 - Attachments show as object URLs of decrypted blobs (`hooks/use-decrypted-blob.ts`, `lib/blob-url-cache.ts`). Never set the `src` of an attachment to a file URL. Avatars, icons and guild banners stay plaintext. A page banner is E2EE (see Pages below).
-- Link previews come from the sender's device only (`IPlatformService.fetchLinkResource`, §12.8.1), inside the envelope. Never fetch a URL from a received message, and never proxy one through Takusen. A preview image shows only through `use-decrypted-blob`. Do not log a link URL.
+- Link previews: each viewer's device fetches the first https link of a message when the message comes into view (`services/link-preview.ts`, `IPlatformService.fetchLinkResource`, §12.8.1), only with the setting "Load link previews" on. Never proxy a URL through Takusen, never put a fetched preview into a persisted store or an envelope, and do not log a link URL. An older message with a sender-made preview shows its image only through `use-decrypted-blob`.
 - `cryptoStore` holds status, alerts and metadata only. It never holds key material, a recovery key or an invite seed.
 - The voice UI shows call participants from the MLS tree (`components/voice/call-roster.ts`), not from the server roster.
 - Pages: every page title, page banner, Yjs update, snapshot pointer and awareness frame is a page envelope (§12.20) from `encryptDoc`. `docsStore` holds the page tree and presence, never a `Y.Doc`. The `Y.Doc` stays in `DocProvider`. A page media node holds its pointer (with the file key) inside the `Y.Doc`, and shows through `use-decrypted-blob`. The one exception is the banner of a top-level page: its decrypted pointer (with the file key) is `PageNode.banner` in `docsStore`, as `messagesStore` holds attachment pointers. It also shows only through `use-decrypted-blob`. `docsStore` is never persisted. Do not put the banner pointer or its object URL into a persisted store, `localStorage` or `sessionStorage`, and do not log it (log the `uploadId` only).
@@ -243,7 +251,7 @@ For changes to the voice stack (`pkg/media/sfu.go`, `pkg/media/ssrc_pool.go`, `c
 - `protocol-handler.ts` + `deep-link-route.ts` — deep links `takusen://invite/<code>[#k=<key>]` and `app.hachiman://oauth-callback`, single-instance lock
 - `renderer-protocol.ts` + `renderer-path.ts` — packaged renderer on `hachiman://app/`
 - `region-probe.ts` + `probe-target-guard.ts` — TCP RTT probe to each region's `probeHost`, with an SSRF guard
-- `link-fetch.ts` — the https GET of a link preview (`IPlatformService.fetchLinkResource`, §12.8.1), public addresses only
+- `link-fetch.ts` — the https GET of a link preview or a web-tab frame check (`IPlatformService.fetchLinkResource`, §12.8.1), public addresses only
 - `screen-share.ts` — desktopCapturer sources + display-media handler
 - `tray.ts` + `app-prefs.ts` — the tray icon and close-to-tray (setting in `<userData>/app-prefs.json`, default on). The `before-quit` flag lets Cmd+Q, the tray "Quit" and an update install really quit
 - `updater.ts` — auto-update from the newest release in `hachiman-release` through Takusen `GET /api/desktop-update/:platform` (contract §4 Desktop updates)

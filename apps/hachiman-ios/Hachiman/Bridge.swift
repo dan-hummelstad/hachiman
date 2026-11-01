@@ -163,7 +163,10 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply {
             let url = try webURL(args)
             guard let maxBytes = args["maxBytes"] as? Int else { throw BridgeError(.malformed, "maxBytes is not an integer") }
             guard let r = await LinkFetch.fetch(url, maxBytes: maxBytes) else { return nil }
-            return ["url": r.url.absoluteString, "contentType": r.contentType, "body": r.body.base64EncodedString()]
+            return [
+                "url": r.url.absoluteString, "contentType": r.contentType, "body": r.body.base64EncodedString(),
+                "frameOptions": r.frameOptions, "csp": r.csp,
+            ]
 
         case "setAppearance":
             try Native.setAppearance(

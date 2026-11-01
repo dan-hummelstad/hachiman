@@ -187,6 +187,7 @@ export const userColumns = {
   name: users.name,
   email: users.email,
   image: users.image,
+  bot: users.bot,
 }
 
 export async function getUserById(id: string): Promise<UserLike | null> {

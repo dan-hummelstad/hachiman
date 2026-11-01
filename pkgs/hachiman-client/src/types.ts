@@ -2,7 +2,16 @@
 // The E2EE shapes mirror the Wire* and voice op types of @hachiman/crypto (src/api.ts)
 // structurally. This file imports nothing: permissions.ts and @hachiman/crypto depend on it.
 
-export type ChannelType = 'text' | 'voice' | 'category' | 'dm' | 'group_dm' | 'pages' | 'thread'
+export type ChannelType =
+  | 'text'
+  | 'voice'
+  | 'category'
+  | 'dm'
+  | 'group_dm'
+  | 'pages'
+  | 'thread'
+  | 'canvas'
+  | 'web'
 export type PresenceStatus = 'online' | 'idle' | 'dnd' | 'offline'
 
 /** base64url without padding (§12.2). */
@@ -16,6 +25,8 @@ export interface User {
   id: string
   username: string
   avatar: string | null
+  /** A bot account (§4 Bots). */
+  bot: boolean
 }
 
 export interface Guild {

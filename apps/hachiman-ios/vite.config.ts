@@ -2,6 +2,7 @@ import { resolve } from "path";
 import { defineConfig, loadEnv, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
+import { excalidrawFonts } from "../hachiman/vite-excalidraw-fonts.ts";
 import { iosCsp, type IosCsp } from "./csp.ts";
 
 // Source path into the shared `@hachiman/hachiman` package. We consume it as
@@ -46,7 +47,7 @@ export default defineConfig(({ mode }) => {
   const dev = iosCsp(env, { dev: true });
   const prod = iosCsp(env, { dev: false });
   return {
-    plugins: [react(), tailwindcss(), cspBuild(prod)],
+    plugins: [react(), tailwindcss(), excalidrawFonts(), cspBuild(prod)],
     resolve: { alias: { "@": hachimanSrc } },
     // The app is served at hachiman://app/ (Hachiman/AppSchemeHandler.swift), so
     // root-absolute asset paths resolve under that origin, also from the SPA fallback.

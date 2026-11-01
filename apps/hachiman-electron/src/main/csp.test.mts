@@ -66,6 +66,7 @@ test("hardening directives are present", () => {
   assert.deepEqual(directive(csp, "object-src"), ["'none'"]);
   assert.deepEqual(directive(csp, "form-action"), ["'none'"]);
   assert.deepEqual(directive(csp, "frame-ancestors"), ["'none'"]);
+  assert.deepEqual(directive(csp, "frame-src"), ["https:"]);
 });
 
 test("defaults (local stack, e.g. electron-vite preview) allow ws: without a dev server", () => {

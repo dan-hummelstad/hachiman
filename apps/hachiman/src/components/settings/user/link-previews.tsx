@@ -6,11 +6,11 @@ import { usePlatform } from '@/shared/PlatformContext'
 import { usePrefsStore } from '@/stores/prefsStore'
 
 const HINT =
-  'When you send a link, this device opens the page and adds a preview to the encrypted message. The site sees your IP address. Others never open the link to make it.'
+  'When a message with a link comes into view, this device opens the page to show a preview. The site sees your IP address and when you read the message.'
 
 /**
  * The link previews switch (§12.8.1, `prefsStore.linkPreviews`), or null where the host cannot
- * fetch a page (the browser): there, previews come only from other devices.
+ * fetch a page (the browser): there, no previews show.
  */
 function useLinkPreviewSwitch(): { on: boolean; setOn: (on: boolean) => void } | null {
   const canFetch = usePlatform().fetchLinkResource !== null
@@ -29,7 +29,7 @@ export function LinkPreviewSetting(): React.JSX.Element | null {
       <div className="flex items-center gap-3">
         <Switch id={id} checked={toggle.on} onCheckedChange={toggle.setOn} />
         <label htmlFor={id} className="text-label cursor-pointer">
-          Make link previews
+          Load link previews
         </label>
       </div>
       <p className="text-text-tertiary text-sm">{HINT}</p>
@@ -50,7 +50,7 @@ export function LinkPreviewSettingMobile(): React.JSX.Element | null {
             htmlFor={id}
             className="text-text-primary flex flex-1 cursor-pointer items-center self-stretch text-[15px] leading-[18px] font-bold"
           >
-            Make link previews
+            Load link previews
           </label>
           <Switch size="touch" id={id} checked={toggle.on} onCheckedChange={toggle.setOn} />
         </div>

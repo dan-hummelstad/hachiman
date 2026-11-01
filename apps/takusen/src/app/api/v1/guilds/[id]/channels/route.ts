@@ -26,7 +26,7 @@ interface RouteContext {
 
 const createChannelSchema = z.object({
   name: nameSchema,
-  type: z.enum(['text', 'voice', 'category', 'pages']),
+  type: z.enum(['text', 'voice', 'category', 'pages', 'canvas', 'web']),
   parentId: z.string().uuid().nullable().optional(),
   topic: z.string().max(1024).nullable().optional(),
 })
