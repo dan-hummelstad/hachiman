@@ -21,6 +21,7 @@ import type { DocHandle } from '@/services/docs/types'
 import { useDocsStore } from '@/stores/docsStore'
 import { bindFiles, type CanvasFiles } from './canvas-assets'
 import { elementsOf, observeElements, pushElements } from './canvas-sync'
+import { SmoothCursor } from './cursor-smoothing'
 
 declare global {
   interface Window {
@@ -83,10 +84,13 @@ export default function CanvasView({
 
   const onChange = (
     elements: readonly OrderedExcalidrawElement[],
-    _state: AppState,
+    state: AppState,
     binary: BinaryFiles
   ): void => {
-    if (!canEdit) return
+    // A stroke, drag or resize saves once, when the pointer lifts: each save is an encrypted
+    // POST, and Excalidraw calls onChange for every pointer move.
+    // ponytail: the others see the stroke when it ends (the cursor moves live); send the open element in the awareness if live strokes matter.
+    if (!canEdit || state.cursorButton === 'down') return
     pushElements(handle.doc, elements)
     files.current?.push(binary)
   }
@@ -127,30 +131,56 @@ const isCursor = (c: unknown): c is Cursor => {
   )
 }
 
-/** The cursors of the verified peers into the scene's collaborators. */
+/**
+ * The cursors of the verified peers into the scene's collaborators. Each cursor glides between its
+ * frames (cursor-smoothing.ts): one animation loop runs while any of them moves.
+ */
 function bindPresence(api: ExcalidrawImperativeAPI, handle: DocHandle): () => void {
   const { awareness, pageId } = handle
-  const sync = (): void => {
-    const peers = useDocsStore.getState().presence.get(pageId) ?? []
-    const states = awareness.getStates()
+  const cursors = new Map<number, { smooth: SmoothCursor; last: Cursor }>()
+  let frame: number | null = null
+
+  const draw = (): void => {
+    frame = null
+    const now = performance.now()
+    let moving = false
     const collaborators = new Map<SocketId, Collaborator>()
-    for (const peer of peers) {
-      const cursor = states.get(peer.clientId)?.cursor as unknown
-      if (!isCursor(cursor)) continue
+    for (const peer of useDocsStore.getState().presence.get(pageId) ?? []) {
+      const at = cursors.get(peer.clientId)?.smooth.at(now)
+      if (!at?.point) continue
+      moving ||= at.moving
       collaborators.set(String(peer.clientId) as SocketId, {
         id: peer.userId,
         username: peer.name,
         color: { background: peer.color, stroke: peer.color },
-        pointer: { x: cursor.x, y: cursor.y, tool: 'pointer' }
+        pointer: { x: at.point.x, y: at.point.y, tool: 'pointer' }
       })
     }
     api.updateScene({ collaborators, captureUpdate: CaptureUpdateAction.NEVER })
+    if (moving) frame = requestAnimationFrame(draw)
+  }
+
+  const sync = (): void => {
+    const now = performance.now()
+    const states = awareness.getStates()
+    for (const id of cursors.keys()) if (!isCursor(states.get(id)?.cursor)) cursors.delete(id)
+    for (const peer of useDocsStore.getState().presence.get(pageId) ?? []) {
+      const cursor = states.get(peer.clientId)?.cursor as unknown
+      if (!isCursor(cursor)) continue
+      const held = cursors.get(peer.clientId)
+      if (held && held.last.x === cursor.x && held.last.y === cursor.y) continue
+      const smooth = held?.smooth ?? new SmoothCursor()
+      smooth.push(cursor, now)
+      cursors.set(peer.clientId, { smooth, last: cursor })
+    }
+    if (frame === null) draw()
   }
   // DocAwareness listens first, so the presence in the store is current here.
   awareness.on('change', sync)
   sync()
   return () => {
     awareness.off('change', sync)
+    if (frame !== null) cancelAnimationFrame(frame)
     awareness.setLocalStateField('cursor', null)
   }
 }

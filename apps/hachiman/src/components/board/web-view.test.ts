@@ -41,7 +41,10 @@ describe('frameUrl', () => {
 })
 
 describe('frameRefused', () => {
-  const page = (frameOptions: string, csp = '') => ({ frameOptions, csp })
+  const page = (frameOptions: string, csp = ''): { frameOptions: string; csp: string } => ({
+    frameOptions,
+    csp
+  })
   it('refuses X-Frame-Options DENY and SAMEORIGIN', () => {
     expect(frameRefused(page('DENY'), APP)).toBe(true)
     expect(frameRefused(page('sameorigin'), APP)).toBe(true)
@@ -61,6 +64,8 @@ describe('frameRefused', () => {
     expect(frameRefused(page('', 'frame-ancestors hachiman:'), 'hachiman://app')).toBe(false)
   })
   it('refuses when any of several policies refuses', () => {
-    expect(frameRefused(page('', 'frame-ancestors *, frame-ancestors https://x.example'), APP)).toBe(true)
+    expect(
+      frameRefused(page('', 'frame-ancestors *, frame-ancestors https://x.example'), APP)
+    ).toBe(true)
   })
 })

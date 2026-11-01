@@ -28,7 +28,9 @@ export function pushElements(doc: Y.Doc, elements: readonly ExcalidrawElement[])
   })
   if (changed.length === 0) return
   doc.transact(() => {
-    for (const el of changed) map.set(el.id, el)
+    // A copy: Excalidraw mutates its elements in place, which would change the doc's value too, so
+    // the next version would compare equal and never go out.
+    for (const el of changed) map.set(el.id, structuredClone(el))
   }, LOCAL)
 }
 

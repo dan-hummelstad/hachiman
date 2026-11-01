@@ -46,4 +46,25 @@ describe('canvas sync', () => {
     expect(seenA).toEqual([[el('x', 2, { isDeleted: true })]])
     expect(elementsOf(docA).get('x')?.isDeleted).toBe(true)
   })
+
+  it('sends an element again after Excalidraw mutates it in place', () => {
+    const [docA, docB] = linkedDocs()
+    const stroke = el('s', 1, { points: [[0, 0]] }) as ExcalidrawElement & {
+      version: number
+      versionNonce: number
+      points: number[][]
+    }
+    pushElements(docA, [stroke])
+    stroke.points = [...stroke.points, [5, 5]]
+    stroke.version = 2
+    stroke.versionNonce = 2
+    pushElements(docA, [stroke])
+    expect(elementsOf(docB).get('s')).toMatchObject({
+      version: 2,
+      points: [
+        [0, 0],
+        [5, 5]
+      ]
+    })
+  })
 })

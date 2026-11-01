@@ -78,7 +78,7 @@ export const createDocService: CreateDocService = (ctx, identity, groups) => {
   return {
     async encryptDoc(input) {
       if (!(input.bytes instanceof Uint8Array)) throw new CryptoError('Malformed', 'bytes must be a Uint8Array')
-      const state = await groups.sendState(input.channelId)
+      const state = await groups.sendState(input.channelId, { recent: input.kind === 'doc_awareness' })
       const self = identity.self()
       const sealed = await sealDoc({
         header: {

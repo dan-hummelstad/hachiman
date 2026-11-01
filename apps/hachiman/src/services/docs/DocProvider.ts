@@ -34,7 +34,8 @@ import type { DocProvider, DocStatus } from './types'
 
 /** The transaction origin of remote updates. Local edits have any other origin. */
 const REMOTE = 'remote'
-export const BATCH_MS = 100
+/** Local updates merge for this long into one encrypted POST: typing and drawing make many. */
+export const BATCH_MS = 500
 /** More updates than this after the newest snapshot give a new snapshot. */
 export const SNAPSHOT_EVERY = 200
 /** A random delay before a snapshot, so that the members online do not all post one at once. */
