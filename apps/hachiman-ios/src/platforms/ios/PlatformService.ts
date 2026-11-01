@@ -71,9 +71,7 @@ export function createIosPlatformService(
     fetchLinkResource: async (url, maxBytes) => {
       const r = await call("fetchLink", { url, maxBytes }).catch(() => null);
       const body = r && decodeBase64(r.body);
-      return r && body
-        ? { url: r.url, contentType: r.contentType, body }
-        : null;
+      return r && body ? { ...r, body } : null;
     },
     // APNs. The VAPID key is for Web Push only. The push key's private half stays in the
     // Keychain group of the Notification Service Extension (Hachiman/Push.swift).

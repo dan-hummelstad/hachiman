@@ -83,6 +83,24 @@ function fakeGet(
   return Object.assign(get, { seen });
 }
 
+test("returns the framing headers of the final response", async () => {
+  const get = fakeGet({
+    "https://a.example/": () =>
+      response(
+        200,
+        {
+          "content-type": "text/html",
+          "x-frame-options": "SAMEORIGIN",
+          "content-security-policy": "frame-ancestors 'self'",
+        },
+        "<head></head>",
+      ),
+  });
+  const r = await fetchLinkResource("https://a.example/", 1000, get);
+  assert.equal(r?.frameOptions, "SAMEORIGIN");
+  assert.equal(r?.csp, "frame-ancestors 'self'");
+});
+
 test("refuses bad arguments before any request", async () => {
   const get = fakeGet({});
   for (const [url, max] of [
@@ -118,6 +136,8 @@ test("returns the body, type and final URL; follows https redirects only", async
   assert.equal(r.url, "https://a.example/b");
   assert.equal(r.contentType, "text/html");
   assert.equal(new TextDecoder().decode(r.body), "<title>B</title>");
+  assert.equal(r.frameOptions, "");
+  assert.equal(r.csp, "");
   assert.equal(
     await fetchLinkResource("https://a.example/down", 1000, get),
     null,

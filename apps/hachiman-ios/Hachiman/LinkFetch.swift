@@ -2,8 +2,8 @@ import Foundation
 import os
 
 /// The `fetchLink` bridge op: one https GET for a link preview (contract §11
-/// `fetchLinkResource`, §12.8.1). Only this device runs it, for a link in a message that it
-/// sends. An ephemeral session: no cookies, no cache, no credentials. At most `maxRedirects`
+/// `fetchLinkResource`, §12.8.1), for a link in a message that comes into view, or a web-tab
+/// frame check. An ephemeral session: no cookies, no cache, no credentials. At most `maxRedirects`
 /// hops, each https; a total timeout; a body cap.
 ///
 /// ponytail: URLSession has no connect-time address hook, so only an IP literal host is
@@ -22,6 +22,9 @@ enum LinkFetch {
         /// Lowercase, without parameters. "" when the server sent none.
         let contentType: String
         let body: Data
+        /// The X-Frame-Options and Content-Security-Policy headers, repeats joined with ", ". "" when absent.
+        let frameOptions: String
+        let csp: String
     }
 
     /// https, a host, no user or password, and no loopback, private or link-local IP literal.
@@ -112,7 +115,10 @@ enum LinkFetch {
                     break
                 }
             }
-            return Resource(url: final, contentType: contentType, body: body)
+            return Resource(
+                url: final, contentType: contentType, body: body,
+                frameOptions: http.value(forHTTPHeaderField: "X-Frame-Options") ?? "",
+                csp: http.value(forHTTPHeaderField: "Content-Security-Policy") ?? "")
         } catch {
             return nil
         }

@@ -15,6 +15,7 @@ import type {
 } from '@excalidraw/excalidraw/types'
 import type { OrderedExcalidrawElement } from '@excalidraw/excalidraw/element/types'
 import '@excalidraw/excalidraw/index.css'
+import './canvas-view.css'
 import { useResolvedTheme } from '@/hooks/use-native-appearance'
 import type { DocHandle } from '@/services/docs/types'
 import { useDocsStore } from '@/stores/docsStore'
@@ -92,7 +93,7 @@ export default function CanvasView({
 
   return (
     // The drawer swipes of the mobile shell stay off the canvas.
-    <div data-swipe-ignore className="relative min-h-0 flex-1 touch-none">
+    <div data-swipe-ignore className="hachiman-canvas relative min-h-0 flex-1 touch-none">
       <div className="absolute inset-0">
         <Excalidraw
           initialData={initial}

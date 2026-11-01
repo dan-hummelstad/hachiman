@@ -24,6 +24,8 @@ export interface LinkResourceInfo {
   url: string;
   contentType: string;
   body: Uint8Array<ArrayBuffer>;
+  frameOptions: string;
+  csp: string;
 }
 /** renderer → main (invoke): list screens and windows for the share picker. */
 export const SCREEN_SOURCES_CHANNEL = "hachiman:screen-sources";

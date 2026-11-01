@@ -147,12 +147,16 @@ test("fetchLinkResource decodes the body; a refusal or a bridge error gives null
     url: "https://a.example/b",
     contentType: "text/html",
     body: "PHRpdGxlPg==",
+    frameOptions: "DENY",
+    csp: "",
   }));
   const r = await ps.fetchLinkResource!("https://a.example/", 1000);
   assert.deepEqual(r && { ...r, body: new TextDecoder().decode(r.body) }, {
     url: "https://a.example/b",
     contentType: "text/html",
     body: "<title>",
+    frameOptions: "DENY",
+    csp: "",
   });
   assert.deepEqual(sent, [
     { op: "fetchLink", args: { url: "https://a.example/", maxBytes: 1000 } },
