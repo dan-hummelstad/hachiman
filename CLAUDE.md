@@ -32,10 +32,14 @@ apps/
 
 pkgs/
   hachiman-client/     @hachiman/client             — browser-safe client library (RestClient, GatewayClient, VoiceConnection, HachimanClient, permissions, files, types)
-  hachiman-crypto/     @hachiman/crypto             — E2EE (ts-mls): crypto Worker, identity, MLS groups, envelopes, attachments, SFrame transform Worker, encrypted store; `./ds` entry for Takusen
+  hachiman-crypto/     @hachiman/crypto             — E2EE (ts-mls): crypto Worker, identity, MLS groups, envelopes, attachments, SFrame transform Worker, encrypted store; `./ds` entry for Takusen, `./host` (in-process engine) for bots
+  hachiman-bot/        @hachiman/bot                — Node bot runtime (E2EE client, disk key store) + Discord API v10 bridge + `hachiman-discord-bridge` CLI (docs/bots-plan.md)
+  hachiman-discord.js/ @hachiman/discord.js         — drop-in discord.js: install as `discord.js`, give the bot an `hbot_` token
 ```
 
 Host apps (`hachiman-electron`, `hachiman-browser`, `hachiman-ios`) depend only on the shared UI library (`@hachiman/hachiman`), which depends on the client library (`@hachiman/client`) and the crypto library (`@hachiman/crypto`). Hosts do not import `@hachiman/client` or `@hachiman/crypto`. The shared UI owns the one `HachimanClient` (`apps/hachiman/src/services/hachiman.ts`). Hosts only implement `IPlatformService` (`apps/hachiman/src/shared/IPlatformService.ts`): Electron in `src/renderer/src/PlatformService.ts` (a thin adapter over the preload bridge `window.hachiman`), the browser in `src/platforms/browser/PlatformService.ts`, iOS in `src/platforms/ios/PlatformService.ts` (over the WKWebView script message bridge). A new seam method needs all three implementations, the preload bridge, an IPC channel in `apps/hachiman-electron/src/shared/ipc.ts`, and an iOS bridge op when iOS implements it natively.
+
+Bots: `@hachiman/bot` imports `@hachiman/crypto/host` (the engine without a Worker: a bot process holds its own keys) and the pure `@hachiman/hachiman/ds-transport`. The browser hosts never import `./host`. `@hachiman/discord.js` depends on `@hachiman/bot` and discord.js.
 
 Workspace dependency direction: `@hachiman/crypto` depends on `@hachiman/client` (only for `@hachiman/client/permissions`, in `src/worker/`). `@hachiman/client` never imports `@hachiman/crypto`. Its E2EE types mirror the crypto types structurally. Takusen loads `@hachiman/crypto/ds` through one file, `apps/takusen/src/lib/mls/crypto.ts`.
 
@@ -110,6 +114,8 @@ pnpm -F @hachiman/takusen test              # tsx scripts incl. gRPC handlers an
 pnpm -F @hachiman/hachiman-electron test   # main-process unit tests (CSP, secure storage, ...)
 pnpm -F @hachiman/hachiman-browser test    # CSP and secure storage (node --test)
 pnpm -F @hachiman/hachiman-ios test        # CSP, bridge, native events, PlatformService (node --test)
+pnpm -F @hachiman/bot test                 # vitest: disk key store, id map
+pnpm -F @hachiman/discord.js test          # vitest: a discord.js client against the Discord bridge (fake runtime)
 cd apps/hachiman-ios && xcodegen generate && xcodebuild test -project Hachiman.xcodeproj -scheme Hachiman -destination 'platform=iOS Simulator,name=iPhone 16,OS=latest'   # XCTest; needs a signed (ad hoc) build and developer mode
 cd apps/hachiman-server && go test ./...   # gateway, media (incl. the E2EE relay), permissions, voicetoken, ...
 # gateway integration test: build tag `integration`, needs DATABASE_URL / REDIS_URL / TAKUSEN_URL

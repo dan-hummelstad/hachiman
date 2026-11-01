@@ -1,0 +1,43 @@
+{
+  "name": "@hachiman/discord.js",
+  "version": "0.1.0",
+  "description": "discord.js for Hachiman: install it as \"discord.js\" and give the bot a Hachiman token",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsgo --noEmit -p tsconfig.json",
+    "build": "tsgo --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "build:dist": "node scripts/build.mjs"
+  },
+  "dependencies": {
+    "@hachiman/bot": "workspace:*",
+    "discord.js": "14.28.0",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@tsconfig/strictest": "^2.0.8",
+    "@types/node": "^22.20.1",
+    "vitest": "4.0.15",
+    "@hachiman/client": "workspace:*",
+    "esbuild": "0.25.12"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "publishConfig": {
+    "exports": {
+      ".": {
+        "import": "./dist/index.mjs",
+        "require": "./dist/index.cjs"
+      }
+    },
+    "main": "./dist/index.cjs",
+    "module": "./dist/index.mjs"
+  }
+}

@@ -9,7 +9,7 @@ import {
   type MessageDecryptor
 } from './message-decrypt'
 
-const author = { id: 'u-1', username: 'alice', avatar: null }
+const author = { id: 'u-1', username: 'alice', avatar: null, bot: false }
 
 function wire(id: string, extra: Partial<Message> = {}): Message {
   return {

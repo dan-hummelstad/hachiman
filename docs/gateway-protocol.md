@@ -34,7 +34,7 @@ type ChannelType = 'text' | 'voice' | 'category' | 'dm' | 'group_dm' | 'pages' |
 type PresenceStatus = 'online' | 'idle' | 'dnd' | 'offline'
 
 // avatar, icon and banner are file keys (§4 Files), not URLs. The client builds the URL with RestClient.fileUrl(key).
-interface User { id: string; username: string; avatar: string | null }   // username = users.displayName ?? users.name ?? email local-part
+interface User { id: string; username: string; avatar: string | null; bot: boolean }   // username = users.displayName ?? users.name ?? email local-part. bot = users.bot (§4 Bots)
 
 interface Guild {
   id: string; name: string; icon: string | null; banner: string | null; ownerId: string; region: string | null; createdAt: string
@@ -255,7 +255,7 @@ Threads: a thread has no overwrites. Every permission check on a thread uses its
 DM channels: participants get `VIEW_CHANNEL | SEND_MESSAGES | ATTACH_FILES | READ_MESSAGE_HISTORY`, non-participants 0.
 Role hierarchy: a member may only edit/assign roles whose `position` is strictly below the highest role of that member (owner/admin exempt).
 
-## 3. Postgres schema (Takusen Drizzle, `apps/takusen/src/db/schema.ts` and the files it re-exports: `schema-auth.ts`, `schema-channel-state.ts`, `schema-pages.ts`, `schema-push.ts`)
+## 3. Postgres schema (Takusen Drizzle, `apps/takusen/src/db/schema.ts` and the files it re-exports: `schema-auth.ts`, `schema-channel-state.ts`, `schema-pages.ts`, `schema-push.ts`, `schema-bots.ts`)
 
 New/changed tables (all ids `uuid` defaultRandom, timestamps `timestamptz` default now):
 
@@ -319,6 +319,8 @@ E2EE tables (§12). `bytea` columns hold the binary objects of §12 as they are.
 | `kt_tree_heads` | tree_size bigint PK, root_hash bytea, signed bytea, created_at, published_at null | The gRPC process signs heads (§12.14) |
 | `admin_actions` | guild_id → guilds (cascade), seq bigint, action bytea, hash bytea, actor_user_id uuid, created_at | PK (guild_id, seq) |
 | `push_targets` | device_id PK → devices (cascade), user_id → users (cascade), kind text (`apns`, `webpush`), token text, sandbox bool default false, p256dh text null, auth text null, push_key text null, push_key_sig text null, kinds text[] default `{dm,mention}`, quiet text[] default `{}`, created_at | index (user_id). Migrations 0017, 0018. One push target per device (§4 Push). `token` is the lowercase hex APNs token or the Web Push endpoint URL. `push_key` and `push_key_sig` are the push key of the device and its signature (§12.22) |
+| `bots` | user_id PK → users (cascade), owner_id → users (cascade), created_at | index (owner_id). Migration 0021. A bot account (§4 Bots): `user_id` is the bot user (`users.bot = true`), `owner_id` the user who owns it |
+| `bot_tokens` | id, bot_id → bots.user_id (cascade), token_hash text unique, created_at, last_used_at null, revoked_at null | index (bot_id). Migration 0021. `token_hash` is the lowercase hex SHA-256 of the token. At most one row per bot has `revoked_at` null. `last_used_at` is written at most once per minute |
 | `message_reports` | id, message_id null → messages (set null), channel_id uuid, reporter_id → users (cascade), reason text, content bytea, franking_key bytea, verified bool, created_at | |
 
 Changed: `regions.probe_port` default **443**. `media_nodes.sidechannel_addr` → `signaling_url`.
@@ -327,7 +329,8 @@ Dropped column: `oidc_clients.virtual_server_id`. Dropped tables: `virtual_serve
 `server_domain_verifications`, `user_servers`, `invite_codes`. Dropped enums: `island_status`, `virtual_server_status`.
 `users.image` holds the avatar file key (Credentials is the only Auth.js provider, so nothing else writes it).
 Added: `users.password_changed_at` timestamptz null (migration 0007). Sign-up, the password change and the password reset set it. Null for accounts from before the column.
-Kept unchanged: `users` (except `password_changed_at`), `accounts`, `sessions`, `verification_tokens`, `password_reset_tokens`,
+Added: `users.bot` boolean not null default false (migration 0021). True for a bot account (§4 Bots). A bot row has no password, and its email is `<userId>@bots.invalid`.
+Kept unchanged: `users` (except `password_changed_at` and `bot`), `accounts`, `sessions`, `verification_tokens`, `password_reset_tokens`,
 `oidc_adapter_payloads`, `oidc_clients` (minus the column), `regions`, `media_nodes`.
 
 Migration (one time, in the Discord-style refactor; since then each schema change adds a new migration, see `CLAUDE.md`):
@@ -337,7 +340,7 @@ Migration (one time, in the Discord-style refactor; since then each schema chang
 
 ## 4. REST API (Takusen, base `/api/v1`)
 
-Auth: `Authorization: Bearer <Takusen access token>` (or the dashboard cookie).
+Auth: `Authorization: Bearer <Takusen access token>` (or the dashboard cookie). A bot token (§4 Bots) is accepted in the same header, as `Bearer <token>` or `Bot <token>`.
 `requireUser()` in `apps/takusen/src/lib/auth-helpers.ts` resolves it. Errors: `{ error: string, message?: string }`
 with status 400 (ValidationError), 401, 403 (MissingPermissions), 404 (NotFound), 409, 410 (InviteExpired/Revoked/Exhausted).
 Success: JSON body of the listed type, or 204.
@@ -466,6 +469,34 @@ The E2EE routes (devices, keys, MLS, inbox, backups, linking, key transparency, 
 
 - Rate limits (Redis fixed windows, 429 `RateLimited` with `Retry-After`): 1 per 10 s per sender and target, 10 per 60 s per sender.
 - A poke has no content. It is not end-to-end encrypted, as a typing event is not: it tells the target only who poked and when.
+
+### Bots
+
+| Method + path | Permission | Returns | Publishes |
+|---|---|---|---|
+| GET `/bots` | auth | `BotSummary[]` `{bot: User, createdAt, lastUsedAt: string \| null}`: the caller's bots, oldest first. `lastUsedAt` is of the live token | — |
+| POST `/bots` `{name}` | auth, not a bot (else 403). `name` is 2 to 32 characters after trim (else 400 `ValidationError`). At most 10 bots per owner, else 409 `TooManyBots` | 201 `{bot: User, token}` | — |
+| POST `/bots/:id/token` | the owner (else 404) | `{token}` | — |
+| POST `/bots/:id/guilds` `{guildId}` | the owner (else 404), with MANAGE_GUILD in the guild (else 403) | the bot's `GuildFull` | as POST `/invites/:code` |
+| DELETE `/bots/:id` | the owner (else 404) | 204 | as the admin user delete (§4 Admin API) |
+
+- A bot is a user with `users.bot = true` and a `bots` row (§3). It has no password, so it cannot sign in to the dashboard, and `/api/admin` (dashboard cookie only) is closed to it. It joins a guild through an invite, as a user does. It is an E2EE client like the desktop app: it has a master key, devices and key packages (§12).
+- Token: `hbot_` + base64url(server origin) + `.h1.` + base64url (no padding) of 32 random bytes. The origin is the public origin of Takusen (`NEXTAUTH_URL`), so a bot needs only its token: the token names the server, and Gateway discovery names the gateway. The secret is the last part: discord.js masks each part after the second dot when it logs a token. Takusen stores only the SHA-256 of the whole token (`bot_tokens.token_hash`). The token is in the response of the create and of the reset only. A token of the first form (`hbot_` + 43 characters, no origin) stays valid.
+- `requireUser()` accepts a token that starts with `hbot_` as `Bearer <token>` or `Bot <token>`. `Bot` with any other token is refused. The token is valid while its row is not revoked and the bot user exists. It has no expiry. The gateway resolves it at IDENTIFY through `GET /users/@me`, as an OIDC token.
+- The grant id of a bot token is `bot:<tokenId>` (`bot_tokens.id`). The device binding (§12.12) uses it as the grant of an OIDC token. A token reset makes a new grant. Its first request with a device proof binds it to that device, so the bot keeps its device: only the holder of the device key can make the proof. A device revocation sets `revoked_at` on the bot tokens bound to the device, as it deletes the OIDC rows of a user grant.
+- A reset sets `revoked_at` on the live token and makes a new token in one transaction.
+- Add to a guild (`POST /bots/:id/guilds`, and **Add to guild** on the dashboard page) is Discord's bot invite: the owner needs MANAGE_GUILD in the guild. Takusen makes a single-use invite that expires after 5 minutes, and the bot accepts it at once. Thus the membership, the DS change (§12.18) and the events are those of an invite join. The bot joins the MLS groups of the guild when it runs.
+- A delete removes the bot user with the steps of the admin user delete (§4 Admin API). The cascades delete `bots` and `bot_tokens`. The admin delete of a user deletes the bots of that user first, with the same steps.
+- The dashboard page `/bots` does the same as these routes.
+- **Reset keys** (dashboard page `/bots` only, dashboard cookie, the owner): for a bot that lost its keys (its state directory and its recovery key). It makes the DS change of a password reset (§12.4 "Password reset", as `POST /api/admin/users/:id/reset-keys`): every device of the bot is revoked, its master key is superseded, and its token stops with its device. It returns a new token. The next start of the bot makes a new identity; members see a key change. No REST route does this: a bearer token alone cannot replace a master key.
+
+### Gateway discovery
+
+| Method + path | Permission | Returns | Publishes |
+|---|---|---|---|
+| GET `/gateway` | none | `{url}`: the gateway URL for clients, from `TAKUSEN_PUBLIC_GATEWAY_URL`, else `VITE_HACHIMAN_GATEWAY_URL`, else `ws://localhost:8080/gateway` | — |
+
+As Discord's `GET /gateway`. A bot finds the gateway here (`@hachiman/bot`). The apps keep their build-time gateway URL.
 
 ### Emojis
 
@@ -684,7 +715,7 @@ type AdminOverview = {
 
 Behavior:
 
-- **User delete.** One transaction deletes the guilds that the user owns, with the same steps as an owner delete. It also calls `onMembershipChange({ kind: 'user_deleted' })` (§12.18), which queues Removes in the groups of the user and deletes the DS rows of the user. It also deletes all uploads of the user and the OIDC rows of the user. A guild icon or banner that used one of these uploads becomes null. The FK cascades delete the memberships, messages, DM participants and invites of the user. After the commit, Takusen publishes the events and then deletes the objects (best effort). No event goes out for the cascaded messages in guilds that the user did not own, or for the DM channels of the user. Thus, clients get no `MESSAGE_DELETE`, and the other DM participant gets no event.
+- **User delete.** One transaction first deletes the bots of the user (§4 Bots), each with the steps below. It deletes the guilds that the user owns, with the same steps as an owner delete. It also calls `onMembershipChange({ kind: 'user_deleted' })` (§12.18), which queues Removes in the groups of the user and deletes the DS rows of the user. It also deletes all uploads of the user and the OIDC rows of the user. A guild icon or banner that used one of these uploads becomes null. The FK cascades delete the memberships, messages, DM participants and invites of the user. After the commit, Takusen publishes the events and then deletes the objects (best effort). No event goes out for the cascaded messages in guilds that the user did not own, or for the DM channels of the user. Thus, clients get no `MESSAGE_DELETE`, and the other DM participant gets no event.
 - **Reset keys.** The DS change of a password reset (§12.4 "Password reset"): every device of the user is revoked with reason `password_reset`, and the current master key is superseded. Then Takusen signs the user out (as Sign-out). The password and the account stay. At the next sign-in, the app wipes the revoked device and offers the recovery key or new keys.
 - **Sign-out.** Takusen sets the Redis key `takusen:sessions_revoked_at:{userId}` to the current Unix ms, without a TTL. A dashboard cookie that the user got before that time stops working. Takusen also deletes the OIDC rows of the user: rows where `payload.accountId` is the user, and all rows of their grants. Thus, the Bearer tokens of the user stop working.
 - **Revoke-all.** Takusen sets `takusen:sessions_revoked_at` and deletes all `oidc_adapter_payloads` rows. This signs out every user, the caller included. `pnpm sessions:revoke` does the same.
@@ -2398,7 +2429,7 @@ Takusen gives 401 `DeviceProofInvalid` when a header is missing or malformed, wh
 
 `POST /devices` is the only route that has a proof but no device id. Its body presents `mlsSignatureKey`, and the request must carry a proof by that key with the device id `""` in the message. Takusen stores the key in the new row. The certificate of the device must certify the same key later (`PUT /devices/:id/certificate` gives 400 `InvalidCertificate` for another key).
 
-**Device binding.** Takusen binds each OIDC grant to the first device that the grant presents (Redis `takusen:grant_device:{grantId}`). After that, the grant can claim only that device, else 403 `DeviceNotActive`. One exception: a grant whose device is not active can move to a pending device, so a client that lost its store can register again. Each sign-in gets its own grant: the provider's `loadExistingGrant` loads only the grant of the current consent, not the grant of the browser session. The web app and the desktop app sign in through the same browser with the same client, so a shared grant bound the desktop's device to the web device. Thus every sign-in shows the consent screen.
+**Device binding.** Takusen binds each OIDC grant to the first device that the grant presents (Redis `takusen:grant_device:{grantId}`). A bot token is a grant with the id `bot:<tokenId>` (§4 Bots). After that, the grant can claim only that device, else 403 `DeviceNotActive`. One exception: a grant whose device is not active can move to a pending device, so a client that lost its store can register again. Each sign-in gets its own grant: the provider's `loadExistingGrant` loads only the grant of the current consent, not the grant of the browser session. The web app and the desktop app sign in through the same browser with the same client, so a shared grant bound the desktop's device to the web device. Thus every sign-in shows the consent screen.
 
 The client signs in the crypto Worker (`CryptoApi.proveDevice`). The UI thread never holds the key. RestClient sends the proof on every request that sends `X-Hachiman-Device`, and on `POST /devices`.
 
@@ -2814,6 +2845,7 @@ export class ApiError extends Error {
 | `TooManyPins` | 400 | a pin past 50 pins in the channel (§4 Pins, guild events and blocks) |
 | `Blocked` | 403 | a DM open or a 1:1 DM message with a block in either direction (§4 Pins, guild events and blocks) |
 | `Banned` | 403 | `POST /invites/:code` of a user who is banned from the guild (§4 Bans) |
+| `TooManyBots` | 409 | `POST /bots` when the caller owns 10 bots (§4 Bots) |
 
 **Client error codes.** The `@hachiman/crypto` Worker rejects with `CryptoError` (`CryptoErrorCode` in `src/api.ts`). `dsCode` holds the REST code above when the cause was a DS response. Two codes have no REST cause:
 - `LockHeld`: the Web Lock refused the store, because it is open in another tab (§12.17).

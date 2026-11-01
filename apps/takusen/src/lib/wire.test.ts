@@ -50,7 +50,7 @@ const GENERAL = '00000000-0000-4000-8000-0000000000c1'
 const STAFF = '00000000-0000-4000-8000-0000000000c2'
 
 function user(id: string, displayName: string) {
-  return { id, displayName, name: null, email: `${displayName}@example.com`, image: null }
+  return { id, displayName, name: null, email: `${displayName}@example.com`, image: null, bot: false }
 }
 function member(userId: string): GuildMemberRow {
   return { guildId: GUILD, userId, nick: null, joinedAt: T, inviteId: null, mute: false, deaf: false }
@@ -232,7 +232,7 @@ test('toMessage: the ciphertext shape, base64url bytes, no content', () => {
     id: row.id,
     channelId: GENERAL,
     guildId: GUILD,
-    author: { id: ALICE, username: 'alice', avatar: null },
+    author: { id: ALICE, username: 'alice', avatar: null, bot: false },
     senderDevice: row.senderDevice,
     groupId: GROUP_B64,
     epoch: 4,

@@ -25,6 +25,8 @@ export interface User {
   id: string
   username: string
   avatar: string | null
+  /** A bot account (§4 Bots). */
+  bot: boolean
 }
 
 export interface Guild {

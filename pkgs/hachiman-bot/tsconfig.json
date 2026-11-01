@@ -1,0 +1,12 @@
+{
+  "extends": ["../../tsconfig.base.json", "@tsconfig/strictest/tsconfig.json"],
+  "compilerOptions": {
+    // Consumed as TypeScript source (no emit), like @hachiman/client. Runs in Node (tsx).
+    "noEmit": true,
+    "tsBuildInfoFile": "../../ts-dist/hachiman-bot/tsconfig.tsbuildinfo",
+    "rootDir": "./src",
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
+    "types": ["node"]
+  },
+  "include": ["src/**/*"]
+}

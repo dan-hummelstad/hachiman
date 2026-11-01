@@ -71,7 +71,12 @@ export async function flushOutbox(out: Outbox): Promise<void> {
     // device header, and the binding keeps the grant off every other device.
     try {
       const { deleteGrantOidcRows } = await import('@/lib/session-revocation')
-      await revokeDeviceGrants(redisDeviceBindings(redis()), deleteGrantOidcRows, out.revokedDevices)
+      const { revokeBotGrants } = await import('@/lib/bots')
+      const deleteGrants = async (grantIds: string[]) => {
+        await revokeBotGrants(grantIds)
+        await deleteGrantOidcRows(grantIds)
+      }
+      await revokeDeviceGrants(redisDeviceBindings(redis()), deleteGrants, out.revokedDevices)
     } catch (err) {
       console.error('[mls] token revocation of revoked devices failed', err)
     }
