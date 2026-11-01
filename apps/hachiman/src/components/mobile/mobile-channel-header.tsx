@@ -24,7 +24,7 @@ import { DmCallButton } from '@/components/voice/dm-call'
 import { VoiceHeaderExtras, VoiceHeaderMeta } from '@/components/voice/voice-header'
 import { usePresence } from '@/hooks/use-member'
 import { joinNames, useChannelAccess, type ChannelAccess } from '@/lib/channel-access'
-import { channelLabel, isGuildChannel } from '@/lib/model'
+import { channelLabel, isBoardType, isGuildChannel } from '@/lib/model'
 import { cn } from '@/lib/utils'
 import { useChannelStore } from '@/stores/channelStore'
 
@@ -84,7 +84,8 @@ export function MobileChannelHeader({
   const isDm = channel.guildId === null
   const solo = isDm ? soloOf(channel) : undefined
   const voice = channel.type === 'voice' && isGuildChannel(channel) ? channel : null
-  const hasMessages = channel.type !== 'voice' && channel.type !== 'category'
+  const hasMessages =
+    channel.type !== 'voice' && channel.type !== 'category' && !isBoardType(channel.type)
   const access = useChannelAccess(channel)
 
   return (

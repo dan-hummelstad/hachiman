@@ -84,6 +84,11 @@ final class WebHost: NSObject, WKNavigationDelegate, WKUIDelegate {
             decisionHandler(.allow)
             return
         }
+        // The frame of a web channel or a canvas embed shows an https page (the CSP frame-src).
+        if !isMainFrame, url?.scheme?.lowercased() == "https" {
+            decisionHandler(.allow)
+            return
+        }
         if isMainFrame, let url, ["http", "https"].contains(url.scheme?.lowercased() ?? "") {
             UIApplication.shared.open(url)
         }

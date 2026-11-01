@@ -275,16 +275,17 @@ func (s *session) sendEphemeral(t string, d json.RawMessage) {
 	s.conn.send(b)
 }
 
-// onDocAwareness relays op 5 to guild:{g} when the channel is a pages
-// channel this user can view, and drops it otherwise (§6). The sending
-// session gets the event too; clients skip their own deviceId.
+// onDocAwareness relays op 5 to guild:{g} when the channel has a page tree
+// (pages, canvas, web) and this user can view it, and drops it otherwise
+// (§6). The sending session gets the event too; clients skip their own
+// deviceId.
 func (s *session) onDocAwareness(p docAwareness) {
 	for _, gs := range s.guilds {
 		ch := gs.channels[p.ChannelID]
 		if ch == nil {
 			continue
 		}
-		if ch.Type == "pages" && gs.canView(s.user.ID, ch.ID) {
+		if hasPageTree(ch.Type) && gs.canView(s.user.ID, ch.ID) {
 			s.g.publishEnvelope(s.ctx, "guild:"+gs.id, envelope{T: "DOC_AWARENESS", ChannelID: ch.ID, D: mustJSON(map[string]string{
 				"channelId": ch.ID, "guildId": gs.id, "pageId": p.PageID,
 				"userId": s.user.ID, "deviceId": s.deviceID, "envelope": p.Envelope,
@@ -691,3 +692,6 @@ func nonNil[T any](s []T) []T {
 	}
 	return s
 }
+
+// hasPageTree reports the channel types whose pages are encrypted docs (§4 Pages).
+func hasPageTree(t string) bool { return t == "pages" || t == "canvas" || t == "web" }

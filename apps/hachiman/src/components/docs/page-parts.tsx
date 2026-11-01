@@ -231,7 +231,7 @@ export function Presence({
 }
 
 /** The doc handle of an open page and its status, from `docsService.openPage` to the close. */
-function useOpenDoc(
+export function useOpenDoc(
   channelId: string,
   pageId: string
 ): { handle: DocHandle | null; status: DocStatus; error: string | null } {

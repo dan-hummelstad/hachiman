@@ -62,6 +62,22 @@ describe('collectMediaUploadIds', () => {
     frag.insert(0, [media(pointer(1)), quote, media(pointer(1))])
     expect(collectMediaUploadIds(doc).sort()).toEqual([uuid(1), uuid(2), uuid(3)])
   })
+
+  it('lists the files of the image elements of a canvas that are not deleted', () => {
+    const doc = new Y.Doc()
+    const elements = doc.getMap('excalidraw')
+    const files = doc.getMap('files')
+    const image = (fileId: string, isDeleted = false): unknown => ({ type: 'image', fileId, isDeleted })
+    elements.set('a', image('f4'))
+    elements.set('b', image('f5', true))
+    elements.set('c', image('bad'))
+    elements.set('d', { type: 'rectangle', fileId: 'f6' })
+    files.set('f4', JSON.stringify(pointer(4)))
+    files.set('f5', JSON.stringify(pointer(5)))
+    files.set('f6', JSON.stringify(pointer(6)))
+    files.set('bad', 'not json')
+    expect(collectMediaUploadIds(doc)).toEqual([uuid(4)])
+  })
 })
 
 describe('media on the clipboard', () => {

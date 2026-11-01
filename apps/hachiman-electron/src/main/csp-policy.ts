@@ -55,6 +55,8 @@ export function cspFromEndpoints(
   // 'unsafe-inline' styles stay: Radix (popover, tooltip, dialog positions) and the UI set
   // inline style attributes, which a nonce or hash cannot allow. Inline styles run no script
   // (audit scope L-12).
+  // A web channel shows any https page in a sandboxed frame, and a canvas can embed one
+  // (contract §11). Only https: the app's own origin is never framed (web-view.tsx).
 
   return [
     "default-src 'self'",
@@ -63,6 +65,7 @@ export function cspFromEndpoints(
     "style-src 'self' 'unsafe-inline'",
     `img-src ${files} data:`,
     `media-src ${files}`,
+    "frame-src https:",
     "font-src 'self' data:",
     `connect-src ${[...connect].join(" ")}`,
     "object-src 'none'",

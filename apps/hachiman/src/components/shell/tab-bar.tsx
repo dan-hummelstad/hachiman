@@ -30,6 +30,7 @@ import {
 } from '@/components/ui/context-menu'
 import { FEATURE_TEXT } from '@/components/ui/feature'
 import { IconButton } from '@/components/ui/icon-button'
+import { ChannelIcon } from '@/lib/channel-icon'
 import { dmName, guildInitials } from '@/lib/model'
 import { cn } from '@/lib/utils'
 import { docsService } from '@/services/docs/DocsService'
@@ -375,6 +376,8 @@ export function TabIcon({
   type: string
 }): React.JSX.Element | null {
   if (target.kind === 'dm') return null
+  if (type === 'canvas' || type === 'web')
+    return <ChannelIcon type={type} className="text-text-tertiary size-3.5 shrink-0" />
   if (target.kind === 'page' || type === 'pages')
     return <FileText className={cn('size-3.5 shrink-0', FEATURE_TEXT.page)} />
   if (type === 'voice') return <Volume2 className={cn('size-3.5 shrink-0', FEATURE_TEXT.voice)} />
