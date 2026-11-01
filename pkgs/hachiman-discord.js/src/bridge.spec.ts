@@ -8,6 +8,7 @@ import { Client, Events, GatewayIntentBits, type Message } from 'discord.js'
 import {
   DiscordBridge,
   IdMap,
+  shardOfGuild,
   type BotMessage,
   type BotRuntimeEvents,
   type BridgeRuntime,
@@ -221,7 +222,7 @@ describe('a discord.js bot on the Hachiman bridge', () => {
 
   beforeEach(async () => {
     runtime = new FakeRuntime()
-    ids = new IdMap(null)
+    ids = new IdMap()
     bridge = new DiscordBridge({ runtime, ids, token: TOKEN, log: () => {} })
     const { api } = await bridge.listen()
 
@@ -243,7 +244,8 @@ describe('a discord.js bot on the Hachiman bridge', () => {
         await reply.edit('pong!')
         await reply.react('🏓')
       }
-      if (message.content === '!who') if (message.channel.isSendable()) await message.channel.send(`hi <@${message.author.id}>`)
+      if (message.content === '!who')
+        if (message.channel.isSendable()) await message.channel.send(`hi <@${message.author.id}>`)
       if (message.content === '!bye') await message.delete()
     })
     await client.login(TOKEN)
@@ -295,5 +297,58 @@ describe('a discord.js bot on the Hachiman bridge', () => {
     const bye = runtime.incoming('!bye')
     await until(() => runtime.deleted.length > 0)
     expect(runtime.deleted).toEqual([bye.id])
+  })
+})
+
+describe('sharding', () => {
+  it('gives each shard its guilds, as Discord does, and DMs to shard 0', async () => {
+    const runtime = new FakeRuntime()
+    // A second guild on the other shard of two (Discord's (guild_id >> 22) % 2).
+    const first = runtime.cache.guilds.get(GUILD)!
+    const shardOfFirst = shardOfGuild(first.createdAt, 2)
+    const OTHER = uuid(3)
+    const otherAt = new Date(Date.parse(first.createdAt) + 1).toISOString()
+    expect(shardOfGuild(otherAt, 2)).not.toBe(shardOfFirst)
+    runtime.cache.guilds.set(OTHER, { ...first, id: OTHER, name: 'Other', createdAt: otherAt })
+    const ids = new IdMap()
+    const bridge = new DiscordBridge({ runtime, ids, token: TOKEN, log: () => {} })
+    const { api } = await bridge.listen()
+    const shards = [0, 1].map(
+      id =>
+        new Client({
+          intents: [GatewayIntentBits.Guilds, GatewayIntentBits.DirectMessages],
+          shards: id,
+          shardCount: 2,
+          rest: { api },
+        }),
+    )
+    const dms: number[] = []
+    shards.forEach((c, i) => c.on(Events.Raw, (p: { t?: string }) => p.t === 'MESSAGE_CREATE' && dms.push(i)))
+    try {
+      await Promise.all(shards.map(c => c.login(TOKEN)))
+      await until(() => shards.every(c => c.isReady() && c.guilds.cache.size > 0))
+      const names = shards.map(c => [...c.guilds.cache.values()].map(g => g.name))
+      expect(names[shardOfFirst]).toEqual(['Night Owls'])
+      expect(names[1 - shardOfFirst]).toEqual(['Other'])
+
+      runtime.emit('message', {
+        id: uuid(500),
+        channelId: uuid(501),
+        guildId: null,
+        author: ALICE,
+        content: 'hi',
+        mentions: [],
+        replyTo: null,
+        createdAt: new Date().toISOString(),
+        editedAt: null,
+        clientMsgId: 'c',
+      })
+      await until(() => dms.length > 0)
+      await new Promise(r => setTimeout(r, 100))
+      expect(dms).toEqual([0])
+    } finally {
+      await Promise.all(shards.map(c => c.destroy()))
+      await bridge.close()
+    }
   })
 })

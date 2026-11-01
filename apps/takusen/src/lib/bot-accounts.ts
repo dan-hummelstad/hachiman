@@ -7,7 +7,7 @@ import { randomUUID } from 'node:crypto'
 
 import { Permissions, has } from '@hachiman/client/permissions'
 import type { GuildFull, User } from '@hachiman/client/types'
-import { and, asc, count, eq, isNull } from 'drizzle-orm'
+import { and, asc, count, eq, isNull, max } from 'drizzle-orm'
 import { z } from 'zod'
 
 import { db, type Tx } from '@/db/client'
@@ -50,11 +50,14 @@ async function insertToken(tx: Tx, botId: string): Promise<string> {
 
 export async function listBots(ownerId: string): Promise<BotSummary[]> {
   const rows = await db
-    .select({ user: userColumns, createdAt: bots.createdAt, lastUsedAt: botTokens.lastUsedAt })
+    // One row per bot: the bot token and each device token (one per shard) are live rows, and the
+    // newest use of any of them is when the bot last ran.
+    .select({ user: userColumns, createdAt: bots.createdAt, lastUsedAt: max(botTokens.lastUsedAt) })
     .from(bots)
     .innerJoin(users, eq(users.id, bots.userId))
     .leftJoin(botTokens, and(eq(botTokens.botId, bots.userId), isNull(botTokens.revokedAt)))
     .where(eq(bots.ownerId, ownerId))
+    .groupBy(bots.userId, users.id)
     .orderBy(asc(bots.createdAt), asc(bots.userId))
   return rows.map((r) => ({
     bot: toUser(r.user),
@@ -168,4 +171,33 @@ export async function addBotToGuild(ownerId: string, botId: string, guildId: str
     await publishToUser(botId, 'GUILD_CREATE', full)
   }
   return full
+}
+
+/** Live device tokens per bot: shards, plus room for devices that are not revoked yet. */
+export const MAX_DEVICE_TOKENS = 64
+
+/**
+ * Mints a device token (contract §4 Bots "Device tokens"): a new grant for one new device of the
+ * bot. Only the owner-issued bot token may mint (`callerGrantId` is the grant of the request), so
+ * a device token cannot copy itself. The new device still needs a link to get the bot's keys.
+ */
+export async function mintDeviceToken(botId: string, callerGrantId: string | null): Promise<string> {
+  const tokenId = callerGrantId?.startsWith('bot:') ? callerGrantId.slice(4) : null
+  if (!tokenId || !UUID_RE.test(tokenId)) throw new ForbiddenError('Mint device tokens with the bot token')
+  return db.transaction(async (tx) => {
+    const [caller] = await tx
+      .select({ kind: botTokens.kind })
+      .from(botTokens)
+      .where(and(eq(botTokens.id, tokenId), eq(botTokens.botId, botId), isNull(botTokens.revokedAt)))
+      .for('update')
+    if (caller?.kind !== 'bot') throw new ForbiddenError('Mint device tokens with the bot token')
+    const [{ n }] = await tx
+      .select({ n: count() })
+      .from(botTokens)
+      .where(and(eq(botTokens.botId, botId), eq(botTokens.kind, 'device'), isNull(botTokens.revokedAt)))
+    if (n >= MAX_DEVICE_TOKENS) throw new ApiError('TooManyDeviceTokens', 409, 'This bot has too many devices. Revoke old ones.')
+    const token = generateBotToken()
+    await tx.insert(botTokens).values({ botId, tokenHash: hashBotToken(token), kind: 'device' })
+    return token
+  })
 }

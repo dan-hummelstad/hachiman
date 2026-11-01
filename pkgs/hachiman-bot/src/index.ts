@@ -1,5 +1,5 @@
 export * from './runtime'
 export { FileCryptoStore } from './store'
-export { IdMap, snowflakeAt, DISCORD_EPOCH } from './ids'
+export { IdMap, snowflakeAt, shardOfGuild, DISCORD_EPOCH } from './ids'
 export { DiscordBridge, Intents, type BridgeOptions, type BridgeRuntime } from './discord/bridge'
 export { startBridge, tokenOrigin, type StartBridgeOptions, type RunningBridge } from './start'

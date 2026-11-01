@@ -19,6 +19,12 @@ export interface StartBridgeOptions {
   /** Bridge port. Default 0 (any free port). */
   port?: number | undefined
   host?: string | undefined
+  /**
+   * Discord sharding: the shards that this process serves. Default: `SHARDS` and `SHARD_COUNT`,
+   * which discord.js ShardingManager sets for each shard process. Each shard is its own device,
+   * in `<stateDir>/shard-<ids>`, and links to the others with the shared deployment key.
+   */
+  shard?: { ids: number[]; count: number } | undefined
   /** Invite codes to redeem on start. Default `HACHIMAN_BOT_JOIN` (comma separated). */
   join?: string[] | undefined
   log?: ((msg: string) => void) | undefined
@@ -63,6 +69,18 @@ async function discoverGateway(origin: string): Promise<string> {
   return url
 }
 
+/** discord.js ShardingManager passes `SHARDS` (a JSON number or array) and `SHARD_COUNT`. */
+function shardFromEnv(): { ids: number[]; count: number } | undefined {
+  const shards = env('SHARDS')
+  const count = Number(env('SHARD_COUNT'))
+  if (!shards || !Number.isInteger(count) || count < 1) return undefined
+  const parsed = JSON.parse(shards) as unknown
+  const ids = (Array.isArray(parsed) ? parsed : [parsed])
+    .map(Number)
+    .filter(n => Number.isInteger(n) && n >= 0 && n < count)
+  return ids.length > 0 ? { ids, count } : undefined
+}
+
 export async function startBridge(opts: StartBridgeOptions): Promise<RunningBridge> {
   const token = opts.token.replace(/^Bot\s+/i, '').trim()
   if (!token.startsWith('hbot_'))
@@ -76,7 +94,9 @@ export async function startBridge(opts: StartBridgeOptions): Promise<RunningBrid
     'http://localhost:3000'
   ).replace(/\/+$/, '')
   const gatewayUrl = opts.gatewayUrl ?? env('HACHIMAN_GATEWAY_URL') ?? (await discoverGateway(origin))
-  const stateDir = opts.stateDir ?? env('HACHIMAN_BOT_STATE') ?? join(process.cwd(), '.hachiman-bot')
+  const baseDir = opts.stateDir ?? env('HACHIMAN_BOT_STATE') ?? join(process.cwd(), '.hachiman-bot')
+  const shard = opts.shard ?? shardFromEnv()
+  const stateDir = shard ? join(baseDir, `shard-${shard.ids.join('-')}`) : baseDir
   const joinCodes =
     opts.join ??
     env('HACHIMAN_BOT_JOIN')
@@ -89,10 +109,12 @@ export async function startBridge(opts: StartBridgeOptions): Promise<RunningBrid
     apiUrl: `${origin}/api/v1`,
     gatewayUrl,
     stateDir,
+    deploymentDir: baseDir,
+    ...(shard ? { shard } : {}),
     join: joinCodes,
     ...(opts.log ? { log: opts.log } : {}),
   })
-  const ids = new IdMap(stateDir)
+  const ids = new IdMap(id => runtime.cache.guilds.get(id)?.createdAt)
   await runtime.start()
   const bridge = new DiscordBridge({
     runtime,
@@ -110,7 +132,6 @@ export async function startBridge(opts: StartBridgeOptions): Promise<RunningBrid
     gateway: urls.gateway,
     async stop() {
       runtime.stop()
-      ids.flush()
       await bridge.close()
     },
   }

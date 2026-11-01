@@ -1,15 +1,22 @@
 /**
- * Hachiman ids are UUIDs. Discord libraries parse ids as 64-bit snowflakes: discord.js reads the
- * creation time from the top 42 bits with BigInt. The bridge gives each Hachiman id one snowflake
- * and keeps the pair for ever in `ids.json` of the state directory, so an id stays the same across
- * restarts. A new snowflake carries the creation time of the entity when the bridge knows it.
+ * Hachiman ids are UUIDs. Discord libraries parse ids as 64-bit snowflakes, and discord.js reads
+ * the creation time from the top 42 bits (`createdTimestamp`; a ping command uses it). The bridge
+ * computes each snowflake from the UUID, so an id is the same after a restart and on another
+ * machine, with no file:
+ *
+ * - With a creation time (guilds, messages): `(createdAt − DISCORD_EPOCH) << 22 | hash22(uuid)`.
+ * - Without one (users, channels, roles): 63 bits of the hash. Its date means nothing.
+ *
+ * The first snowflake that the bridge gives an id in a run stays for the run, and the map answers
+ * the reverse lookup for the ids that the bridge gave out.
  */
-import { readFileSync, renameSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+// ponytail: a message whose creation time this run never saw (a delete of an old message) gets the undated form; keep a dated cache on disk if bots need those to match.
+import { createHash } from 'node:crypto'
 
 export const DISCORD_EPOCH = 1420070400000n
 const INCREMENT_BITS = 22n
 const INCREMENT_MASK = (1n << INCREMENT_BITS) - 1n
+const UNDATED_MASK = (1n << 63n) - 1n
 
 /** The snowflake of `ms` with `increment` in the low bits. */
 export function snowflakeAt(ms: number, increment: bigint): string {
@@ -17,59 +24,41 @@ export function snowflakeAt(ms: number, increment: bigint): string {
   return (((t < 0n ? 0n : t) << INCREMENT_BITS) | (increment & INCREMENT_MASK)).toString()
 }
 
+function hash64(uuid: string): bigint {
+  return createHash('sha256').update(uuid.toLowerCase()).digest().readBigUInt64BE(0)
+}
+
 export class IdMap {
   private toSnow = new Map<string, string>()
   private toUuid = new Map<string, string>()
-  private increment = 0n
-  private timer: ReturnType<typeof setTimeout> | null = null
 
-  /** `dir` null: in memory only (tests). */
-  constructor(private readonly dir: string | null) {
-    if (!dir) return
-    let raw: Record<string, string> = {}
-    try {
-      raw = JSON.parse(readFileSync(join(dir, 'ids.json'), 'utf8')) as Record<string, string>
-    } catch (e) {
-      if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e
-    }
-    for (const [uuid, snow] of Object.entries(raw)) this.set(uuid, snow)
-  }
+  /**
+   * `dateOf` gives the creation time of an id when the caller passes none (the bridge looks up
+   * guilds in the cache), so that an entity gets its dated form whichever event names it first.
+   */
+  constructor(private readonly dateOf: (uuid: string) => string | null | undefined = () => null) {}
 
-  private set(uuid: string, snow: string): void {
-    this.toSnow.set(uuid, snow)
-    this.toUuid.set(snow, uuid)
-  }
-
-  /** The snowflake of a Hachiman id. `createdAt` (ISO) dates a new one; else now. */
+  /** The snowflake of a Hachiman id. `createdAt` (ISO) gives the dated form. */
   snowflake(uuid: string, createdAt?: string | null): string {
     const known = this.toSnow.get(uuid)
     if (known) return known
-    const ms = createdAt ? Date.parse(createdAt) : NaN
-    let snow: string
-    do snow = snowflakeAt(Number.isFinite(ms) ? ms : Date.now(), this.increment++)
-    while (this.toUuid.has(snow))
-    this.set(uuid, snow)
-    this.save()
+    const at = createdAt ?? this.dateOf(uuid)
+    const ms = at ? Date.parse(at) : NaN
+    const h = hash64(uuid)
+    const snow = Number.isFinite(ms) ? snowflakeAt(ms, h) : (h & UNDATED_MASK).toString()
+    this.toSnow.set(uuid, snow)
+    this.toUuid.set(snow, uuid)
     return snow
   }
 
-  /** The Hachiman id of a snowflake, or null when the bridge never gave it out. */
+  /** The Hachiman id of a snowflake that this run gave out, else null. */
   uuid(snowflake: string): string | null {
     return this.toUuid.get(snowflake) ?? null
   }
+}
 
-  private save(): void {
-    if (!this.dir || this.timer) return
-    this.timer = setTimeout(() => this.flush(), 200)
-  }
-
-  /** Writes the map now (on shutdown). */
-  flush(): void {
-    if (this.timer) clearTimeout(this.timer)
-    this.timer = null
-    if (!this.dir) return
-    const path = join(this.dir, 'ids.json')
-    writeFileSync(`${path}.tmp`, JSON.stringify(Object.fromEntries(this.toSnow)), { mode: 0o600 })
-    renameSync(`${path}.tmp`, path)
-  }
+/** Discord's shard of a guild: `(guild_id >> 22) % shard_count`, from the guild's dated snowflake. */
+export function shardOfGuild(createdAt: string, count: number): number {
+  const ms = BigInt(Math.max(0, Date.parse(createdAt))) - DISCORD_EPOCH
+  return Number((ms < 0n ? 0n : ms) % BigInt(Math.max(1, count)))
 }

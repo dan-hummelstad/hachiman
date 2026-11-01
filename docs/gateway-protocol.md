@@ -320,7 +320,7 @@ E2EE tables (§12). `bytea` columns hold the binary objects of §12 as they are.
 | `admin_actions` | guild_id → guilds (cascade), seq bigint, action bytea, hash bytea, actor_user_id uuid, created_at | PK (guild_id, seq) |
 | `push_targets` | device_id PK → devices (cascade), user_id → users (cascade), kind text (`apns`, `webpush`), token text, sandbox bool default false, p256dh text null, auth text null, push_key text null, push_key_sig text null, kinds text[] default `{dm,mention}`, quiet text[] default `{}`, created_at | index (user_id). Migrations 0017, 0018. One push target per device (§4 Push). `token` is the lowercase hex APNs token or the Web Push endpoint URL. `push_key` and `push_key_sig` are the push key of the device and its signature (§12.22) |
 | `bots` | user_id PK → users (cascade), owner_id → users (cascade), created_at | index (owner_id). Migration 0021. A bot account (§4 Bots): `user_id` is the bot user (`users.bot = true`), `owner_id` the user who owns it |
-| `bot_tokens` | id, bot_id → bots.user_id (cascade), token_hash text unique, created_at, last_used_at null, revoked_at null | index (bot_id). Migration 0021. `token_hash` is the lowercase hex SHA-256 of the token. At most one row per bot has `revoked_at` null. `last_used_at` is written at most once per minute |
+| `bot_tokens` | id, bot_id → bots.user_id (cascade), token_hash text unique, kind text default `'bot'` (`bot`, `device`), created_at, last_used_at null, revoked_at null | index (bot_id). Migrations 0021, 0022 (`kind`). `token_hash` is the lowercase hex SHA-256 of the token. At most one `bot` row per bot has `revoked_at` null; at most 64 `device` rows. `last_used_at` is written at most once per minute |
 | `message_reports` | id, message_id null → messages (set null), channel_id uuid, reporter_id → users (cascade), reason text, content bytea, franking_key bytea, verified bool, created_at | |
 
 Changed: `regions.probe_port` default **443**. `media_nodes.sidechannel_addr` → `signaling_url`.
@@ -477,6 +477,10 @@ The E2EE routes (devices, keys, MLS, inbox, backups, linking, key transparency, 
 | GET `/bots` | auth | `BotSummary[]` `{bot: User, createdAt, lastUsedAt: string \| null}`: the caller's bots, oldest first. `lastUsedAt` is of the live token | — |
 | POST `/bots` `{name}` | auth, not a bot (else 403). `name` is 2 to 32 characters after trim (else 400 `ValidationError`). At most 10 bots per owner, else 409 `TooManyBots` | 201 `{bot: User, token}` | — |
 | POST `/bots/:id/token` | the owner (else 404) | `{token}` | — |
+| GET `/users/@me/bot` | a bot (else 403) | `{ownerId}` | — |
+| POST `/users/@me/bot/device-tokens` | a bot, with its `bot` token (a `device` token gets 403). At most 64 live device tokens, else 409 `TooManyDeviceTokens` | 201 `{token}` | — |
+| GET `/users/@me/bot/link-requests` | a bot (else 403) | `{id, blob, createdAt}[]`, newest first, younger than 10 minutes | — |
+| POST `/users/@me/bot/link-requests` `{blob}` | a bot (else 403). `blob` is 32 to 4096 base64url characters | 201 `{id, blob, createdAt}` | — |
 | POST `/bots/:id/guilds` `{guildId}` | the owner (else 404), with MANAGE_GUILD in the guild (else 403) | the bot's `GuildFull` | as POST `/invites/:code` |
 | DELETE `/bots/:id` | the owner (else 404) | 204 | as the admin user delete (§4 Admin API) |
 
@@ -488,6 +492,12 @@ The E2EE routes (devices, keys, MLS, inbox, backups, linking, key transparency, 
 - Add to a guild (`POST /bots/:id/guilds`, and **Add to guild** on the dashboard page) is Discord's bot invite: the owner needs MANAGE_GUILD in the guild. Takusen makes a single-use invite that expires after 5 minutes, and the bot accepts it at once. Thus the membership, the DS change (§12.18) and the events are those of an invite join. The bot joins the MLS groups of the guild when it runs.
 - A delete removes the bot user with the steps of the admin user delete (§4 Admin API). The cascades delete `bots` and `bot_tokens`. The admin delete of a user deletes the bots of that user first, with the same steps.
 - The dashboard page `/bots` does the same as these routes.
+- **Device tokens.** Each device of a bot (each shard) has its own token, so each has its own grant for the device binding (§12.12). A device mints its token with the `bot` token on its first start and keeps it. The `bot` token is never sent with `X-Hachiman-Device`: it is not bound to a device. A device revocation therefore revokes only the token of that device. A token reset revokes the `bot` token and every device token; a device then mints a new one with the new `bot` token, and its first request with a device proof binds the new grant to it.
+- **Device linking.** A bot that has keys on a device links a new device with the QR link of §12.5. The new device puts its QR payload (`hachiman-link:1:…`, which holds the link secret) where only the bot's devices or its owner can read it:
+  - Sealed with the **deployment key**: 32 random bytes that the first device of the bot makes (`deployment.key`) and that the operator copies to each machine of the deployment. The new device posts `0x01 ‖ nonce[12] ‖ AES-256-GCM(deploymentKey, payload)`, AAD = `"hachiman-bot-link:v1:" ‖ bot user id`, to the link mailbox (`POST /users/@me/bot/link-requests`, Redis `takusen:bot_link:{botId}`, 20 requests, 10 minutes). A running device of the bot reads the mailbox every 5 s, opens the requests that its deployment key opens, and calls `linkScan`. Shards link with no owner step.
+  - In a **DM from the owner**: without the deployment key, the new device logs its payload, and the owner sends it to the bot in a DM. A running device links a payload only in a DM from the owner that it pinned on its first start (`GET /users/@me/bot`, kept in the file `owner`).
+  - The bot token alone links nothing: a device with the token and no deployment key stays pending.
+- **Sharding.** The bridge of `@hachiman/bot` follows Discord: IDENTIFY with `shard: [id, count]` gets the guilds where `(guild_id >> 22) % count == id`, and DMs only on shard 0. Each shard process is its own device (`shard-<id>/` in the state directory, one `deployment.key` beside them). A shard joins the MLS groups of its guilds only.
 - **Reset keys** (dashboard page `/bots` only, dashboard cookie, the owner): for a bot that lost its keys (its state directory and its recovery key). It makes the DS change of a password reset (§12.4 "Password reset", as `POST /api/admin/users/:id/reset-keys`): every device of the bot is revoked, its master key is superseded, and its token stops with its device. It returns a new token. The next start of the bot makes a new identity; members see a key change. No REST route does this: a bearer token alone cannot replace a master key.
 
 ### Gateway discovery
@@ -2846,6 +2856,7 @@ export class ApiError extends Error {
 | `Blocked` | 403 | a DM open or a 1:1 DM message with a block in either direction (§4 Pins, guild events and blocks) |
 | `Banned` | 403 | `POST /invites/:code` of a user who is banned from the guild (§4 Bans) |
 | `TooManyBots` | 409 | `POST /bots` when the caller owns 10 bots (§4 Bots) |
+| `TooManyDeviceTokens` | 409 | `POST /users/@me/bot/device-tokens` when the bot has 64 live device tokens (§4 Bots) |
 
 **Client error codes.** The `@hachiman/crypto` Worker rejects with `CryptoError` (`CryptoErrorCode` in `src/api.ts`). `dsCode` holds the REST code above when the cause was a DS response. Two codes have no REST cause:
 - `LockHeld`: the Web Lock refused the store, because it is open in another tab (§12.17).

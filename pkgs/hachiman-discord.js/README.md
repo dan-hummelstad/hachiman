@@ -44,14 +44,23 @@ All are optional.
 | `HACHIMAN_BOT_STATE` | `./.hachiman-bot` | The directory for the bot's keys |
 | `HACHIMAN_BOT_JOIN` | none | Invite codes, comma separated. The bot joins these guilds on start. **Add to guild** on the dashboard does the same without a setting |
 
+## Shards and more machines
+
+discord.js sharding works as on Discord (`ShardingManager`, `shards`, `shardCount`). Each shard gets the guilds that Discord's formula gives it, and DMs go to shard 0.
+
+Each shard is its own encrypted device. The first device of the bot makes `.hachiman-bot/deployment.key`. A new shard finds it and links itself to a running shard. You do nothing for shards on one machine. For shards on another machine, copy `deployment.key` there once, beside the token.
+
+A new device without `deployment.key` waits. It logs a link code. Send that code to the bot in a DM from the owner account, and a running instance links the new device. The token alone never gives the keys.
+
 ## Keep the state directory
 
 Hachiman encrypts all messages end to end. The bot is a device, as the desktop app is. It keeps its keys in the state directory:
 
-- `wrap.key` encrypts the key store. Keep it secret.
-- `crypto-<userId>.bin` is the key store.
-- `recovery-key.txt` restores the bot identity in a new directory.
-- `ids.json` keeps the Discord ids of Hachiman objects stable.
+- `deployment.key` lets new shards and machines link to the bot. Keep it secret, as the token.
+- `owner` is the owner that the bot pinned on its first start.
+- Per device (the folder itself, or `shard-<id>/`): `wrap.key` (encrypts the key store), `crypto-<userId>.bin` (the key store), `device.token` (the token of this device), `recovery-key.txt` (on the first device: restores the identity).
+
+The Discord ids of Hachiman objects come from the Hachiman ids, so they stay the same after a restart.
 
 Keep the directory with the token. If you lose it, put `recovery-key.txt` in a new directory. If you lose the recovery key too, click **Reset keys** on the Bots page. The bot then gets a new identity. People in its guilds see that its key changed, and the bot cannot read its old messages.
 

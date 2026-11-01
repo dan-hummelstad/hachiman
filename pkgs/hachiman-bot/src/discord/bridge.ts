@@ -69,6 +69,16 @@ interface Session {
   intents: number
   seq: number
   buffer: { s: number; frame: string }[]
+  /** IDENTIFY `shard: [id, count]`: the session gets the guilds of that shard, and DMs on shard 0. */
+  shard: [number, number] | null
+}
+
+/** Discord's shard rule: a guild goes to `(guild_id >> 22) % count`; DMs and guild-less events to shard 0. */
+function inShard(s: Session, guildSnow: string | null): boolean {
+  if (!s.shard) return true
+  const [id, count] = s.shard
+  if (guildSnow === null) return id === 0
+  return Number((BigInt(guildSnow) >> 22n) % BigInt(count)) === id
 }
 
 type Json = Record<string, unknown>
@@ -131,9 +141,40 @@ export class DiscordBridge {
     this.log(`not supported on Hachiman yet: ${what}`)
   }
 
+  /** Gives every cached entity its snowflake, so that the ids of an earlier run resolve. */
+  private indexCache(): void {
+    const { ids, runtime } = this.opts
+    const c = runtime.cache
+    if (c.user) ids.snowflake(c.user.id)
+    for (const g of c.guilds.values()) ids.snowflake(g.id, g.createdAt)
+    for (const roles of c.roles.values()) for (const r of roles.values()) ids.snowflake(r.id)
+    for (const ch of c.channels.values()) {
+      ids.snowflake(ch.id)
+      for (const u of ch.recipients ?? []) ids.snowflake(u.id)
+    }
+    for (const members of c.members.values()) for (const m of members.values()) ids.snowflake(m.user.id)
+  }
+
   private uuid(snow: string | undefined, what: string): string {
-    const id = snow ? this.opts.ids.uuid(snow) : null
+    if (!snow) throw new HttpError(404, 10003, `Unknown ${what}`)
+    let id = this.opts.ids.uuid(snow)
+    if (!id) {
+      this.indexCache()
+      id = this.opts.ids.uuid(snow)
+    }
     if (!id) throw new HttpError(404, 10003, `Unknown ${what}`)
+    return id
+  }
+
+  /** A message id, also one from an earlier run: its snowflake is found in the channel's recent history. */
+  private async messageUuid(channelId: string, snow: string | undefined): Promise<string> {
+    const known = snow ? this.opts.ids.uuid(snow) : null
+    if (known) return known
+    if (snow)
+      for (const m of await this.opts.runtime.fetchMessages(channelId, { limit: 100 }))
+        this.opts.ids.snowflake(m.id, m.createdAt)
+    const id = snow ? this.opts.ids.uuid(snow) : null
+    if (!id) throw new HttpError(404, 10008, 'Unknown Message')
     return id
   }
 
@@ -285,7 +326,7 @@ export class DiscordBridge {
       }
       if (is('POST', 'channels', '*', 'typing')) return void (await rt.typing(channelId))
       if (is('GET', 'channels', '*', 'messages')) {
-        const before = q.get('before') ? this.uuid(q.get('before') ?? '', 'message') : undefined
+        const before = q.get('before') ? await this.messageUuid(channelId, q.get('before') ?? '') : undefined
         const rows = await rt.fetchMessages(channelId, {
           before,
           limit: Number(q.get('limit') ?? 50),
@@ -298,12 +339,12 @@ export class DiscordBridge {
         const sent = await rt.send(channelId, {
           text,
           mentions,
-          replyTo: ref ? this.uuid(ref, 'message') : null,
+          replyTo: ref ? await this.messageUuid(channelId, ref) : null,
         })
         return shape.message(ctx, sent, { nonce: body['nonce'] })
       }
       if (seg[2] === 'messages' && seg[3]) {
-        const messageId = this.uuid(seg[3], 'message')
+        const messageId = await this.messageUuid(channelId, seg[3])
         if (is('GET', 'channels', '*', 'messages', '*')) {
           const m = await rt.fetchMessage(channelId, messageId)
           if (!m) throw new HttpError(404, 10008, 'Unknown Message')
@@ -372,6 +413,7 @@ export class DiscordBridge {
             intents: Number(d['intents'] ?? 0),
             seq: 0,
             buffer: [],
+            shard: parseShard(d['shard']),
           }
           this.sessions.set(session.id, session)
           return this.ready(session)
@@ -415,9 +457,9 @@ export class DiscordBridge {
     if (!me) return session.ws?.close(4000, 'The bot is not connected to Hachiman yet')
     const ctx = this.ctx
     const meSnow = ctx.ids.snowflake(me.id)
-    const guilds = [...rt.cache.guilds.keys()]
     // The guild snowflakes carry their creation time; give them out before anything else names them.
     for (const g of rt.cache.guilds.values()) ctx.ids.snowflake(g.id, g.createdAt)
+    const guilds = [...rt.cache.guilds.keys()].filter(id => inShard(session, ctx.ids.snowflake(id)))
     this.dispatch(session, 'READY', {
       v: 10,
       user: {
@@ -482,7 +524,14 @@ export class DiscordBridge {
     for (const s of this.sessions.values()) {
       if (intent !== null && !(s.intents & intent)) continue
       const payload = typeof d === 'function' ? d(s) : d
-      if (payload) this.dispatch(s, t, payload)
+      if (!payload) continue
+      if (t !== 'USER_UPDATE') {
+        const guild =
+          payload['guild_id'] ??
+          (t === 'GUILD_CREATE' || t === 'GUILD_UPDATE' || t === 'GUILD_DELETE' ? payload['id'] : null)
+        if (!inShard(s, typeof guild === 'string' ? guild : null)) continue
+      }
+      this.dispatch(s, t, payload)
     }
   }
 
@@ -654,6 +703,14 @@ export class DiscordBridge {
       }
     })
   }
+}
+
+function parseShard(v: unknown): [number, number] | null {
+  if (!Array.isArray(v) || v.length !== 2) return null
+  const [id, count] = v.map(Number)
+  return Number.isInteger(id) && Number.isInteger(count) && count! > 0 && id! >= 0 && id! < count!
+    ? [id!, count!]
+    : null
 }
 
 function application(id: string, name: string): Json {

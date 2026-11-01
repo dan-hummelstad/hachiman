@@ -31,9 +31,11 @@ import {
   type EncryptMessageInput,
   type Mention,
 } from '@hachiman/crypto'
-import { E2EE_CAPABILITY } from '@hachiman/crypto/constants'
+import { E2EE_CAPABILITY, LINK_QR_PREFIX } from '@hachiman/crypto/constants'
 import { clientPermissions, createEngine } from '@hachiman/crypto/host'
 import { createDsTransport } from '@hachiman/hachiman/ds-transport'
+import { shardOfGuild } from './ids'
+import { botApi, ensureDeploymentKey, openLinkPayload, readDeploymentKey, sealLinkPayload } from './link'
 import { FileCryptoStore } from './store'
 
 export const BOT_CLIENT_VERSION = '0.1.0'
@@ -45,8 +47,15 @@ export interface BotRuntimeOptions {
   apiUrl: string
   /** Gateway, e.g. `wss://gateway.example.com/gateway`. */
   gatewayUrl: string
-  /** Keys, the id map and the recovery key. Keep it: a lost directory is a new device. */
+  /** The keys of this device and its recovery key. Keep it: a lost directory is a new device. */
   stateDir: string
+  /**
+   * Where `deployment.key` lives, shared by the devices of the deployment (all shards on one
+   * machine). Default: `stateDir`.
+   */
+  deploymentDir?: string
+  /** Discord sharding: this device serves the guilds of these shards, and DMs when it has shard 0. */
+  shard?: { ids: number[]; count: number }
   /** Invite codes to redeem on start (the way a bot joins a guild, docs/bots-plan.md §7). */
   join?: string[]
   log?: (msg: string) => void
@@ -106,6 +115,11 @@ const FORWARDED = [
   'PRESENCE_UPDATE',
   'USER_UPDATE',
 ] as const
+
+/** How often a running device looks for link requests of new devices. */
+const LINK_POLL_MS = 5_000
+/** A link session lives 10 minutes (§12.5): a new device opens a new one after that. */
+const LINK_WAIT_MS = 10 * 60_000
 
 const SEND_ATTEMPTS = 4
 const RETRY_BASE_MS = 300
@@ -190,6 +204,17 @@ export class BotRuntime extends TypedEventEmitter<BotRuntimeEvents> {
   readonly client: HachimanClient
   private api: CryptoApi | null = null
   private deviceId: string | null = null
+  private deviceToken: string | null = null
+  /** The identity of this device is ready: gateway events go to the engine. */
+  private identityReady = false
+  private connected = false
+  private gatewayReady: Promise<void> | null = null
+  private readonly linkWaiters = new Map<string, (ok: boolean) => void>()
+  private readonly seenLinkRequests = new Set<string>()
+  private linkTimer: ReturnType<typeof setInterval> | null = null
+  private deploymentKey: CryptoKey | null = null
+  /** The owner that this bot pinned on its first start: only they approve a device by DM. */
+  private owner: string | null = null
   private readonly history = new History()
   /** Rows that wait for keys, by group (§12.8.5 'pending'). */
   private readonly pending = new Map<string, Map<string, { message: Message; isUpdate: boolean }>>()
@@ -202,7 +227,8 @@ export class BotRuntime extends TypedEventEmitter<BotRuntimeEvents> {
     this.client = new HachimanClient({
       apiUrl: opts.apiUrl,
       gatewayUrl: opts.gatewayUrl,
-      getToken: () => Promise.resolve(opts.token),
+      // The device token of this device (one grant per device, §12.12); the bot token only mints it.
+      getToken: () => Promise.resolve(this.deviceToken ?? opts.token),
       // During onboarding the DS routes need the pending device too (§12.12): the id comes from
       // the engine's status events as soon as the device row exists.
       device: () =>
@@ -233,13 +259,39 @@ export class BotRuntime extends TypedEventEmitter<BotRuntimeEvents> {
     return this.api
   }
 
-  /** Opens the key store, makes the bot identity on the first start, connects, joins `opts.join`. */
+  private get deploymentDir(): string {
+    return this.opts.deploymentDir ?? this.opts.stateDir
+  }
+
+  /** Connects once; resolves on the first READY. */
+  private connect(): Promise<void> {
+    if (!this.gatewayReady) {
+      this.gatewayReady = new Promise(resolve => this.client.once('ready', () => resolve()))
+      this.connected = true
+      this.client.connect()
+    }
+    return this.gatewayReady
+  }
+
+  /**
+   * Opens the key store; makes the bot identity on the first start, or links this device to the
+   * running devices of the bot; connects; joins `opts.join`.
+   */
   async start(): Promise<User> {
     const { stateDir } = this.opts
     await mkdir(stateDir, { recursive: true, mode: 0o700 })
+    await mkdir(this.deploymentDir, { recursive: true, mode: 0o700 })
     const wrapKey = await loadWrapKey(stateDir)
-    const me = await this.client.rest.getMe()
+    const bot = botApi(this.opts.apiUrl, this.opts.token)
+    this.deviceToken = await this.loadDeviceToken(bot)
+    const me = await this.client.rest.getMe().catch(async (e: unknown) => {
+      // The owner reset the token: the device token went with it. A new one binds this device again.
+      if (!(e instanceof RestError && e.status === 401)) throw e
+      this.deviceToken = await this.loadDeviceToken(bot, true)
+      return this.client.rest.getMe()
+    })
     if (!me.bot) this.log(`warning: ${me.username} is not a bot account`)
+    this.owner = await this.pinOwner(await bot.owner())
 
     const engine = createEngine({
       transport: createDsTransport(this.client.rest, this.client.cache),
@@ -253,58 +305,220 @@ export class BotRuntime extends TypedEventEmitter<BotRuntimeEvents> {
       wrapKey,
       platform: 'browser',
       clientVersion: BOT_CLIENT_VERSION,
-      deviceName: 'Bot',
+      deviceName: this.opts.shard ? `Bot shard ${this.opts.shard.ids.join(',')}` : 'Bot',
       origin: new URL(this.opts.apiUrl).origin,
     })
     this.deviceId = status.deviceId
-    status = await this.onboard(status)
-    this.deviceId = status.deviceId
-
     this.forwardGatewayEvents()
-    const ready = new Promise<User>(resolve =>
-      this.client.once('ready', () => resolve(this.client.cache.user ?? me)),
-    )
-    this.client.connect()
-    const user = await ready
+    status = await this.onboard(status, me.id)
+    this.deviceId = status.deviceId
+    this.identityReady = true
+
+    await this.connect()
+    await this.crypto()
+      .sync()
+      .catch((e: unknown) => this.log(`crypto sync failed: ${String(e)}`))
+    this.joinReadableChannels()
+    // The first device of the deployment makes the deployment key; the others find it.
+    const { key, made } = await ensureDeploymentKey(this.deploymentDir)
+    this.deploymentKey = key
+    if (made)
+      this.log(
+        `made ${join(this.deploymentDir, 'deployment.key')}. Copy it to each machine that runs this bot: new shards link with it.`,
+      )
+    this.linkTimer = setInterval(() => void this.serveLinkRequests(me.id), LINK_POLL_MS)
+    void this.serveLinkRequests(me.id)
+
     for (const code of this.opts.join ?? []) await this.joinInvite(code)
+    const user = this.client.cache.user ?? me
     this.emit('ready', user)
     return user
   }
 
-  /** A new store: make the identity, or restore it from the saved recovery key. */
-  private async onboard(status: CryptoStatus): Promise<CryptoStatus> {
+  /** The device token in `device.token`, minted with the bot token on the first start of this device. */
+  private async loadDeviceToken(bot: ReturnType<typeof botApi>, renew = false): Promise<string> {
+    const path = join(this.opts.stateDir, 'device.token')
+    if (!renew) {
+      const saved = await readFile(path, 'utf8').then(
+        s => s.trim() || null,
+        () => null,
+      )
+      if (saved) return saved
+    }
+    const token = await bot.mintDeviceToken()
+    await writeFile(path, `${token}\n`, { mode: 0o600 })
+    return token
+  }
+
+  /** The owner from the server, checked against the one pinned on the first start (TOFU). */
+  private async pinOwner(ownerId: string): Promise<string | null> {
+    const path = join(this.deploymentDir, 'owner')
+    const pinned = await readFile(path, 'utf8').then(
+      s => s.trim() || null,
+      () => null,
+    )
+    if (!pinned) {
+      await writeFile(path, `${ownerId}\n`, { mode: 0o600 })
+      return ownerId
+    }
+    if (pinned === ownerId) return pinned
+    this.log(
+      `warning: the server names another owner than the one pinned in ${path}. Link codes by DM are off.`,
+    )
+    return null
+  }
+
+  /**
+   * A device with no identity: make it (a new bot), restore it from a saved recovery key, or link
+   * this device to a running device of the bot (contract §4 Bots "Device linking").
+   */
+  private async onboard(status: CryptoStatus, userId: string): Promise<CryptoStatus> {
     const api = this.crypto()
     const recoveryPath = join(this.opts.stateDir, 'recovery-key.txt')
     if (status.state === 'revoked')
       throw new Error(`this bot device was revoked. Delete ${this.opts.stateDir} to register a new device.`)
     if (status.state === 'ready') return status
     const saved = await readFile(recoveryPath, 'utf8').then(
-      s => s.trim(),
+      s => s.trim() || null,
       () => null,
     )
     if (saved) {
       this.log('restoring the bot identity from the saved recovery key')
       return api.restoreFromRecoveryKey(saved)
     }
-    // A first start, or the first start after the owner reset the bot's keys on the dashboard.
-    // resetIdentity does both: generation 1 on a new account, the next generation after a reset
-    // (§12.4 "Password reset"). It refuses while the account has a current master key, so a bot
-    // that has a live identity elsewhere needs its recovery key here: a token alone never
-    // replaces a master key.
-    const first = await api.resetIdentity().catch((e: unknown) => {
-      throw new Error(
-        `making the bot identity failed: ${String(e)}. If this bot ran before from another directory, put its ` +
-          `recovery key in ${recoveryPath}. If the key is lost, use "Reset keys" on the Bots page of the Hachiman dashboard.`,
-        { cause: e },
-      )
-    })
-    await writeFile(recoveryPath, `${first.recoveryKey}\n`, { mode: 0o600 })
-    this.log(`made the bot identity. Its recovery key is in ${recoveryPath}: keep it with the token.`)
-    return first.status
+    if (status.state === 'needs_identity') {
+      // A first start, or the first start after the owner reset the bot's keys: resetIdentity
+      // makes generation 1, or the next generation after a reset (§12.4 "Password reset"). It
+      // refuses while the bot has a current master key: then this device links instead.
+      try {
+        const first = await api.resetIdentity()
+        await writeFile(recoveryPath, `${first.recoveryKey}\n`, { mode: 0o600 })
+        this.log(`made the bot identity. Its recovery key is in ${recoveryPath}.`)
+        return first.status
+      } catch (e) {
+        // 'Unsupported': the bot has a current master key. 'MasterKeyExists': another shard of a
+        // new bot made it first, at the same time. Either way this device links.
+        const exists =
+          e instanceof CryptoError && (e.code === 'Unsupported' || e.dsCode === 'MasterKeyExists')
+        if (!exists) throw e
+      }
+    }
+    return this.linkAsNewDevice(userId)
+  }
+
+  /**
+   * The bot has keys on other devices: open a QR link session (§12.5), give its payload to the
+   * running devices (sealed in the link mailbox, or by the owner in a DM), and wait for the
+   * transfer. A new session after each expiry.
+   */
+  private async linkAsNewDevice(userId: string): Promise<CryptoStatus> {
+    const api = this.crypto()
+    // The link messages come as DEVICE_LINK events, with this pending device on the gateway.
+    void this.connect()
+    const keyPath = join(this.deploymentDir, 'deployment.key')
+    for (;;) {
+      const start = await api.linkAsNewDevice('qr')
+      if (!start.qrPayload) throw new Error('the link session has no QR payload')
+      const done = new Promise<boolean>(resolve => {
+        this.linkWaiters.set(start.sessionId, resolve)
+        setTimeout(() => resolve(false), LINK_WAIT_MS)
+      })
+      // A shard that starts with the first one finds the deployment key once the first one made it.
+      let posted = false
+      let told = false
+      let settled: boolean | null = null
+      void done.then(ok => (settled = ok))
+      while (settled === null && !posted) {
+        const key = await readDeploymentKey(this.deploymentDir)
+        if (key) {
+          await botApi(this.opts.apiUrl, this.opts.token).postLinkRequest(
+            await sealLinkPayload(key, userId, start.qrPayload),
+          )
+          this.log('this bot has keys on other devices: waiting for a running device to link this one')
+          posted = true
+        } else {
+          if (!told)
+            this.log(
+              `this bot has keys on other devices, and ${keyPath} is not here. Copy it from a running instance, ` +
+                `or have the owner send the bot this code in a DM (valid 10 minutes):\n${start.qrPayload}`,
+            )
+          told = true
+          await sleep(2000)
+        }
+      }
+      const ok = await done
+      this.linkWaiters.delete(start.sessionId)
+      if (ok) {
+        this.log('linked this device')
+        return api.status()
+      }
+      await api.linkCancel(start.sessionId).catch(() => undefined)
+    }
+  }
+
+  /** A running device: link the new devices of this bot that the deployment key vouches for. */
+  private async serveLinkRequests(userId: string): Promise<void> {
+    const key = this.deploymentKey
+    if (!key) return
+    let requests: { id: string; blob: string }[]
+    try {
+      requests = await botApi(this.opts.apiUrl, this.opts.token).linkRequests()
+    } catch (e) {
+      return this.log(`reading link requests failed: ${String(e)}`)
+    }
+    for (const r of requests) {
+      if (this.seenLinkRequests.has(r.id)) continue
+      this.seenLinkRequests.add(r.id)
+      const payload = await openLinkPayload(key, userId, r.blob)
+      if (!payload) continue // another deployment key: not ours to link
+      await this.linkDevice(payload)
+    }
+  }
+
+  private async linkDevice(payload: string): Promise<string | null> {
+    try {
+      const { newDeviceName } = await this.crypto().linkScan(payload)
+      this.log(`linking a new device: ${newDeviceName}`)
+      return newDeviceName
+    } catch (e) {
+      // Another running shard may have linked it first.
+      this.log(`linking a new device failed: ${String(e)}`)
+      return null
+    }
+  }
+
+  /** A link code that the pinned owner sent this bot in a DM (contract §4 Bots "Device linking"). */
+  private isOwnerLinkCode(m: BotMessage): boolean {
+    return (
+      m.guildId === null &&
+      this.owner !== null &&
+      m.author.id === this.owner &&
+      m.content.trim().startsWith(LINK_QR_PREFIX)
+    )
+  }
+
+  private async approveByOwner(m: BotMessage): Promise<void> {
+    const name = await this.linkDevice(m.content.trim())
+    await this.send(m.channelId, {
+      text: name
+        ? `Linked the new device "${name}".`
+        : 'That link code did not work. It may have expired: start the new device again.',
+    }).catch((e: unknown) => this.log(`replying to the owner failed: ${String(e)}`))
+  }
+
+  /** A bot device serves the guilds of its shards (Discord's formula), and DMs on shard 0. */
+  private owns(guildId: string | null): boolean {
+    const shard = this.opts.shard
+    if (!shard) return true
+    if (guildId === null) return shard.ids.includes(0)
+    const g = this.client.cache.guilds.get(guildId)
+    return g ? shard.ids.includes(shardOfGuild(g.createdAt, shard.count)) : false
   }
 
   stop(): void {
-    this.client.disconnect()
+    if (this.linkTimer) clearInterval(this.linkTimer)
+    this.linkTimer = null
+    if (this.connected) this.client.disconnect()
   }
 
   // MARK: - Gateway → engine and plaintext events
@@ -312,6 +526,8 @@ export class BotRuntime extends TypedEventEmitter<BotRuntimeEvents> {
   private forwardGatewayEvents(): void {
     const c = this.client
     const fwd = (event: CryptoGatewayEvent): void => {
+      // Before the identity is ready, only the link of this device runs (as the app does).
+      if (!this.identityReady && event.t !== 'DEVICE_LINK') return
       this.crypto()
         .onGatewayEvent(event)
         .catch((e: unknown) => this.log(`crypto event ${event.t} failed: ${String(e)}`))
@@ -328,6 +544,7 @@ export class BotRuntime extends TypedEventEmitter<BotRuntimeEvents> {
     c.on('INVITE_DELETE', d => fwd({ t: 'INVITE_DELETE', d }))
 
     const sync = (): void => {
+      if (!this.identityReady) return
       this.crypto()
         .sync()
         .then(() => this.joinReadableChannels())
@@ -337,8 +554,12 @@ export class BotRuntime extends TypedEventEmitter<BotRuntimeEvents> {
     c.on('RESUMED', sync)
     c.on('GUILD_CREATE', () => this.joinReadableChannels())
     c.on('CHANNEL_CREATE', () => this.joinReadableChannels())
-    c.on('MESSAGE_CREATE', m => void this.ingest([m], false))
-    c.on('MESSAGE_UPDATE', m => void this.ingest([m], true))
+    c.on('MESSAGE_CREATE', m => {
+      if (this.identityReady && this.owns(m.guildId)) void this.ingest([m], false)
+    })
+    c.on('MESSAGE_UPDATE', m => {
+      if (this.identityReady && this.owns(m.guildId)) void this.ingest([m], true)
+    })
     c.on('MESSAGE_DELETE', d => {
       this.history.drop(d.channelId, d.id)
       for (const rows of this.pending.values()) rows.delete(d.id)
@@ -351,7 +572,10 @@ export class BotRuntime extends TypedEventEmitter<BotRuntimeEvents> {
   }
 
   private onCryptoEvent<K extends keyof CryptoEvents>(event: K, payload: CryptoEvents[K]): void {
-    if (event === 'status') {
+    if (event === 'linkDone') {
+      const { sessionId, ok } = payload as CryptoEvents['linkDone']
+      this.linkWaiters.get(sessionId)?.(ok)
+    } else if (event === 'status') {
       this.deviceId = (payload as CryptoEvents['status']).deviceId ?? this.deviceId
     } else if (event === 'epochKeysAvailable') {
       const { groupId } = payload as CryptoEvents['epochKeysAvailable']
@@ -381,6 +605,7 @@ export class BotRuntime extends TypedEventEmitter<BotRuntimeEvents> {
       )
         continue
       if (channel.type === 'voice' || channel.type === 'category') continue
+      if (!this.owns(channel.guildId)) continue
       if (this.joined.has(channel.id)) continue
       this.joined.add(channel.id)
       this.crypto()
@@ -449,7 +674,10 @@ export class BotRuntime extends TypedEventEmitter<BotRuntimeEvents> {
       this.history.put(bot)
       out.push(bot)
       if (isUpdate || (known && r.kind === 'edit')) this.emit('messageUpdate', bot)
-      else this.emit('message', bot)
+      else {
+        if (this.isOwnerLinkCode(bot)) void this.approveByOwner(bot)
+        this.emit('message', bot)
+      }
     })
     return out
   }

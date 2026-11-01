@@ -32,6 +32,12 @@ export const botTokens = pgTable(
       .notNull()
       .references(() => bots.userId, { onDelete: 'cascade' }),
     tokenHash: text('token_hash').notNull().unique(),
+    /**
+     * 'bot': the token that the owner gets (dashboard, POST /bots). It mints device tokens and is
+     * never bound to a device. 'device': one per device of the bot, minted by the bot token (contract
+     * §4 Bots "Device tokens"), so each shard has its own grant (§12.12).
+     */
+    kind: text('kind').notNull().default('bot'),
     createdAt: createdAt(),
     lastUsedAt: timestamp('last_used_at', { withTimezone: true, mode: 'date' }),
     revokedAt: timestamp('revoked_at', { withTimezone: true, mode: 'date' }),
