@@ -82,6 +82,8 @@ export async function openLinkPayload(key: CryptoKey, botId: string, blob: strin
 }
 
 /** The bot routes of Takusen (§4 Bots) with the bot token. */
+export type BotApi = ReturnType<typeof botApi>
+
 export function botApi(apiUrl: string, token: string) {
   const headers = { authorization: `Bearer ${token}`, 'content-type': 'application/json' }
   const call = async <T>(path: string, init: RequestInit = {}): Promise<T> => {

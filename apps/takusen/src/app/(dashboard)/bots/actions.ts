@@ -20,7 +20,7 @@ export interface BotActionResult {
 
 function failure(err: unknown): BotActionResult {
   if (err instanceof ApiError || err instanceof NotFoundError) return { ok: false, error: err.message }
-  if (err instanceof ForbiddenError) return { ok: false, error: 'A bot cannot own bots.' }
+  if (err instanceof ForbiddenError) return { ok: false, error: err.message === 'Forbidden' ? 'A bot cannot own bots.' : err.message }
   if (err instanceof MissingPermissionsError) return { ok: false, error: 'You need the Manage server permission in that guild.' }
   throw err
 }

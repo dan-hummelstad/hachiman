@@ -82,7 +82,7 @@ function shardFromEnv(): { ids: number[]; count: number } | undefined {
 }
 
 export async function startBridge(opts: StartBridgeOptions): Promise<RunningBridge> {
-  const token = opts.token.replace(/^Bot\s+/i, '').trim()
+  const token = opts.token.replace(/^(?:Bot|Bearer)\s+/i, '').trim()
   if (!token.startsWith('hbot_'))
     throw new Error(
       'This is not a Hachiman bot token (hbot_…). Make one on the Bots page of your Hachiman server.',

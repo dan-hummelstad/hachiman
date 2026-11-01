@@ -64,6 +64,11 @@ export function isBotGrant(grantId: string): boolean {
   return grantId.startsWith(BOT_GRANT_PREFIX)
 }
 
+/** The `bot_tokens.id` of a `bot:<tokenId>` grant, or null for any other grant. */
+export function parseBotGrant(grantId: string | null): string | null {
+  return grantId?.startsWith(BOT_GRANT_PREFIX) ? grantId.slice(BOT_GRANT_PREFIX.length) : null
+}
+
 /**
  * The token of an `Authorization` header. `Bearer <token>` carries an OIDC
  * access token or a bot token. `Bot <token>` (the Discord scheme) carries only

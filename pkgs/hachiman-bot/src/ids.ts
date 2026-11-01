@@ -59,6 +59,7 @@ export class IdMap {
 
 /** Discord's shard of a guild: `(guild_id >> 22) % shard_count`, from the guild's dated snowflake. */
 export function shardOfGuild(createdAt: string, count: number): number {
-  const ms = BigInt(Math.max(0, Date.parse(createdAt))) - DISCORD_EPOCH
+  const at = Date.parse(createdAt)
+  const ms = BigInt(Number.isFinite(at) ? Math.max(0, at) : 0) - DISCORD_EPOCH
   return Number((ms < 0n ? 0n : ms) % BigInt(Math.max(1, count)))
 }

@@ -23,7 +23,7 @@ import { revokeUserSessions } from '@/lib/session-revocation'
 import { UUID_RE } from '@/lib/ids'
 import { toUser } from '@/lib/wire'
 
-import { generateBotToken, hashBotToken } from './bots'
+import { generateBotToken, hashBotToken, parseBotGrant } from './bots'
 
 export const MAX_BOTS_PER_OWNER = 10
 
@@ -115,10 +115,18 @@ export async function resetBotToken(ownerId: string, botId: string): Promise<str
  * cannot replace a master key.
  */
 export async function resetBotKeys(ownerId: string, botId: string): Promise<string> {
-  await db.transaction((tx) => lockOwnBot(tx, ownerId, botId))
-  await membershipTransaction((tx) => membershipChanged(tx, MembershipTriggers.passwordReset(botId), null))
+  // One transaction: the keys are never reset without a new token for the owner.
+  const token = await membershipTransaction(async (tx) => {
+    await lockOwnBot(tx, ownerId, botId)
+    await membershipChanged(tx, MembershipTriggers.passwordReset(botId), null)
+    await tx
+      .update(botTokens)
+      .set({ revokedAt: new Date() })
+      .where(and(eq(botTokens.botId, botId), isNull(botTokens.revokedAt)))
+    return insertToken(tx, botId)
+  })
   await revokeUserSessions(botId)
-  return resetBotToken(ownerId, botId)
+  return token
 }
 
 /** Deletes the bot user as the admin user delete does (§4 Admin API). The cascades take `bots` and `bot_tokens`. */
@@ -182,7 +190,7 @@ export const MAX_DEVICE_TOKENS = 64
  * a device token cannot copy itself. The new device still needs a link to get the bot's keys.
  */
 export async function mintDeviceToken(botId: string, callerGrantId: string | null): Promise<string> {
-  const tokenId = callerGrantId?.startsWith('bot:') ? callerGrantId.slice(4) : null
+  const tokenId = parseBotGrant(callerGrantId)
   if (!tokenId || !UUID_RE.test(tokenId)) throw new ForbiddenError('Mint device tokens with the bot token')
   return db.transaction(async (tx) => {
     const [caller] = await tx

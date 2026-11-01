@@ -56,11 +56,24 @@ describe('FileCryptoStore', () => {
       await tx.put('groups', 'g2', { epoch: 5 } as never)
       await tx.delete('groups', 'g1')
       expect((await tx.list('groups')).map(r => r.key)).toEqual(['g2'])
-      // A write outside the transaction while it runs does not deadlock.
-      await s.put('seen', 'x', { at: 1 } as never)
     })
     expect((await s.list('groups')).map(r => r.key)).toEqual(['g2'])
-    expect(await s.get('seen', 'x')).toEqual({ at: 1 })
+  })
+
+  it('runs transactions one at a time, so concurrent read-modify-writes lose nothing', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'hb-store-'))
+    const s = await open(dir, await key())
+    await s.put('seen', 'n', { n: 0 } as never)
+    const bump = () =>
+      s.transaction(['seen'], async tx => {
+        const cur = ((await tx.get('seen', 'n')) as unknown as { n: number }).n
+        await new Promise(r => setTimeout(r, 5))
+        await tx.put('seen', 'n', { n: cur + 1 } as never)
+      })
+    await Promise.all(Array.from({ length: 10 }, bump))
+    expect(await s.get('seen', 'n')).toEqual({ n: 10 })
+    // The file holds the same state.
+    expect(await (await open(dir, await key().then(() => s['key']!))).get('seen', 'n')).toEqual({ n: 10 })
   })
 })
 

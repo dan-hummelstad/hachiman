@@ -17,6 +17,7 @@ type Tx = Pick<CryptoStore, 'get' | 'put' | 'delete' | 'list'>
 
 const VERSION = 1
 const DELETED = Symbol('deleted')
+type Overlay = Map<string, Map<string, unknown>>
 
 function tablesFrom(v: unknown): Tables {
   const out: Tables = new Map()
@@ -36,8 +37,7 @@ export class FileCryptoStore implements CryptoStore {
   private key: CryptoKey | null = null
   private path = ''
   private aad = new Uint8Array()
-  /** File writes run one at a time, in order. */
-  private writing: Promise<void> = Promise.resolve()
+  private lock: Promise<unknown> = Promise.resolve()
 
   constructor(private readonly dir: string) {}
 
@@ -97,31 +97,46 @@ export class FileCryptoStore implements CryptoStore {
     }
   }
 
-  private flush(): Promise<void> {
-    const snapshot = Uint8Array.from(serializeValue(tablesTo(this.tables)))
-    const run = this.writing.then(async () => {
-      if (!this.key) throw new Error('store: not open')
-      const iv = crypto.getRandomValues(new Uint8Array(12))
-      const sealed = await crypto.subtle.encrypt(
-        { name: 'AES-GCM', iv, additionalData: this.aad },
-        this.key,
-        snapshot,
-      )
-      const tmp = `${this.path}.tmp`
-      const fh = await open(tmp, 'w', 0o600)
-      try {
-        await fh.write(new Uint8Array([VERSION]))
-        await fh.write(iv)
-        await fh.write(new Uint8Array(sealed))
-        await fh.sync()
-      } finally {
-        await fh.close()
-      }
-      await rename(tmp, this.path)
-    })
-    // A failed write fails its caller, not the writes after it.
-    this.writing = run.catch(() => undefined)
+  /** Writers (put, delete, transaction) run one at a time, as the IndexedDB store runs them. */
+  private exclusive<R>(fn: () => Promise<R>): Promise<R> {
+    const run = this.lock.then(fn)
+    this.lock = run.catch(() => undefined)
     return run
+  }
+
+  /**
+   * Applies `writes` to a copy of the state, persists the copy, and only then makes it the state:
+   * a failed write leaves memory as it was. Call it inside `exclusive`.
+   */
+  private async commit(writes: Overlay): Promise<void> {
+    if (!this.key) throw new Error('store: not open')
+    const next: Tables = new Map(this.tables)
+    for (const [table, rows] of writes) {
+      const t = new Map(this.tables.get(table))
+      for (const [k, v] of rows) {
+        if (v === DELETED) t.delete(k)
+        else t.set(k, v)
+      }
+      next.set(table, t)
+    }
+    const iv = crypto.getRandomValues(new Uint8Array(12))
+    const sealed = await crypto.subtle.encrypt(
+      { name: 'AES-GCM', iv, additionalData: this.aad },
+      this.key,
+      Uint8Array.from(serializeValue(tablesTo(next))),
+    )
+    const tmp = `${this.path}.tmp`
+    const fh = await open(tmp, 'w', 0o600)
+    try {
+      await fh.write(new Uint8Array([VERSION]))
+      await fh.write(iv)
+      await fh.write(new Uint8Array(sealed))
+      await fh.sync()
+    } finally {
+      await fh.close()
+    }
+    await rename(tmp, this.path)
+    this.tables = next
   }
 
   get<T extends keyof StoreSchema>(table: T, key: string): Promise<StoreSchema[T] | undefined> {
@@ -135,69 +150,69 @@ export class FileCryptoStore implements CryptoStore {
     return this.view(this.tables).list(table, prefix)
   }
 
-  async put<T extends keyof StoreSchema>(table: T, key: string, value: StoreSchema[T]): Promise<void> {
-    await this.view(this.tables).put(table, key, value)
-    await this.flush()
+  put<T extends keyof StoreSchema>(table: T, key: string, value: StoreSchema[T]): Promise<void> {
+    return this.exclusive(() =>
+      this.commit(new Map([[table, new Map([[key, structuredClone(value) as unknown]])]])),
+    )
   }
 
-  async delete<T extends keyof StoreSchema>(table: T, key: string): Promise<void> {
-    await this.view(this.tables).delete(table, key)
-    await this.flush()
+  delete<T extends keyof StoreSchema>(table: T, key: string): Promise<void> {
+    return this.exclusive(() => this.commit(new Map([[table, new Map([[key, DELETED]])]])))
   }
 
   /**
-   * Atomic, as the IndexedDB store: `fn` writes to an overlay over the state (reads see its own
-   * writes), and the overlay applies in one step when `fn` resolves. A rejected `fn` writes nothing.
+   * Atomic and isolated, as the IndexedDB store: transactions and writes run one at a time; `fn`
+   * writes to an overlay over the state (its reads see its own writes), and the overlay commits in
+   * one step when `fn` resolves. A rejected `fn` writes nothing. `fn` must not call the store
+   * itself (it would wait for its own lock), as with IndexedDB.
    */
-  async transaction<R>(_tables: (keyof StoreSchema)[], fn: (tx: Tx) => Promise<R>): Promise<R> {
-    const overlay = new Map<string, Map<string, unknown | typeof DELETED>>()
-    const o = (table: string): Map<string, unknown> => {
-      let m = overlay.get(table)
-      if (!m) overlay.set(table, (m = new Map()))
-      return m
-    }
-    const live = this.view(this.tables)
-    const tx: Tx = {
-      get: async (table, key) => {
-        const m = overlay.get(table)
-        if (m?.has(key)) {
-          const v = m.get(key)
-          return v === DELETED ? undefined : structuredClone(v as never)
-        }
-        return live.get(table, key)
-      },
-      put: async (table, key, value) => {
-        o(table).set(key, structuredClone(value))
-      },
-      delete: async (table, key) => {
-        o(table).set(key, DELETED)
-      },
-      list: async (table, prefix = '') => {
-        const rows = new Map((await live.list(table, prefix)).map(r => [r.key, r.value as unknown]))
-        for (const [k, v] of overlay.get(table) ?? []) {
-          if (!k.startsWith(prefix)) continue
-          if (v === DELETED) rows.delete(k)
-          else rows.set(k, structuredClone(v))
-        }
-        return [...rows]
-          .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-          .map(([key, value]) => ({ key, value: value as never }))
-      },
-    }
-    const result = await fn(tx)
-    for (const [table, rows] of overlay)
-      for (const [k, v] of rows) {
-        if (v === DELETED) this.t(this.tables, table).delete(k)
-        else this.t(this.tables, table).set(k, v)
+  transaction<R>(_tables: (keyof StoreSchema)[], fn: (tx: Tx) => Promise<R>): Promise<R> {
+    return this.exclusive(async () => {
+      const overlay: Overlay = new Map()
+      const o = (table: string): Map<string, unknown> => {
+        let m = overlay.get(table)
+        if (!m) overlay.set(table, (m = new Map()))
+        return m
       }
-    await this.flush()
-    return result
+      const live = this.view(this.tables)
+      const tx: Tx = {
+        get: async (table, key) => {
+          const m = overlay.get(table)
+          if (m?.has(key)) {
+            const v = m.get(key)
+            return v === DELETED ? undefined : structuredClone(v as never)
+          }
+          return live.get(table, key)
+        },
+        put: async (table, key, value) => {
+          o(table).set(key, structuredClone(value))
+        },
+        delete: async (table, key) => {
+          o(table).set(key, DELETED)
+        },
+        list: async (table, prefix = '') => {
+          const rows = new Map((await live.list(table, prefix)).map(r => [r.key, r.value as unknown]))
+          for (const [k, v] of overlay.get(table) ?? []) {
+            if (!k.startsWith(prefix)) continue
+            if (v === DELETED) rows.delete(k)
+            else rows.set(k, structuredClone(v))
+          }
+          return [...rows]
+            .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+            .map(([key, value]) => ({ key, value: value as never }))
+        },
+      }
+      const result = await fn(tx)
+      await this.commit(overlay)
+      return result
+    })
   }
 
-  async destroy(): Promise<void> {
-    this.tables = new Map()
-    await this.writing
-    await rm(this.path, { force: true })
+  destroy(): Promise<void> {
+    return this.exclusive(async () => {
+      this.tables = new Map()
+      await rm(this.path, { force: true })
+    })
   }
 
   close(): void {}

@@ -777,9 +777,6 @@ importers:
 
   pkgs/hachiman-discord.js:
     dependencies:
-      '@hachiman/bot':
-        specifier: workspace:*
-        version: link:../hachiman-bot
       discord.js:
         specifier: 14.28.0
         version: 14.28.0
@@ -787,6 +784,9 @@ importers:
         specifier: ^8.18.0
         version: 8.22.0
     devDependencies:
+      '@hachiman/bot':
+        specifier: workspace:*
+        version: link:../hachiman-bot
       '@hachiman/client':
         specifier: workspace:*
         version: link:../hachiman-client

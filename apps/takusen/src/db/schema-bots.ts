@@ -23,7 +23,7 @@ export const bots = pgTable(
   (t) => [index('bots_owner_idx').on(t.ownerId)],
 )
 
-/** A bot API token. Takusen keeps only the hex SHA-256 of the token. One live token per bot. */
+/** A bot API token: the one live `bot` token of a bot, or the `device` token of one of its devices. Takusen keeps only the hex SHA-256. */
 export const botTokens = pgTable(
   'bot_tokens',
   {

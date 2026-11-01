@@ -15,16 +15,16 @@
     "build:dist": "node scripts/build.mjs"
   },
   "dependencies": {
-    "@hachiman/bot": "workspace:*",
     "discord.js": "14.28.0",
     "ws": "^8.18.0"
   },
   "devDependencies": {
+    "@hachiman/bot": "workspace:*",
+    "@hachiman/client": "workspace:*",
     "@tsconfig/strictest": "^2.0.8",
     "@types/node": "^22.20.1",
-    "vitest": "4.0.15",
-    "@hachiman/client": "workspace:*",
-    "esbuild": "0.25.12"
+    "esbuild": "0.25.12",
+    "vitest": "4.0.15"
   },
   "files": [
     "dist",

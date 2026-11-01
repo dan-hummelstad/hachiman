@@ -66,7 +66,7 @@ discord.js / discord.py bot ──Discord REST v10 + Gateway v10──▶ bridge
 
 ### 5. IDs: a persistent UUID ↔ snowflake map
 
-Discord libraries parse ids as 64-bit snowflakes (discord.js reads the creation time from the id with `BigInt`). Hachiman ids are UUIDs. The bridge keeps a two-way map in the state directory. A new snowflake is `(createdAtMs − DISCORD_EPOCH) << 22 | counter`, from the creation time of the entity when the bridge knows it, else now. The map never forgets an id, so ids stay stable across restarts.
+Discord libraries parse ids as 64-bit snowflakes (discord.js reads the creation time from the id with `BigInt`). Hachiman ids are UUIDs. The bridge computes each snowflake from the UUID: `(createdAt − DISCORD_EPOCH) << 22 | hash22(uuid)` for guilds and messages, 63 bits of the hash for the rest. Ids stay the same across restarts and machines with no file (`pkgs/hachiman-bot/src/ids.ts`).
 
 ### 6. The Discord surface (v1)
 

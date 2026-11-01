@@ -5,16 +5,7 @@
  * mention syntax in message text (`<@id>`, `<@&id>`, `<#id>`), so both pass through with only the
  * ids swapped.
  */
-import type {
-  Channel,
-  ChannelType,
-  Guild,
-  GuildFull,
-  HachimanCache,
-  Member,
-  Role,
-  User,
-} from '@hachiman/client'
+import type { Channel, ChannelType, Guild, HachimanCache, Member, Role, User } from '@hachiman/client'
 import type { Mention } from '@hachiman/crypto'
 import type { IdMap } from '../ids'
 import type { BotMessage } from '../runtime'
@@ -48,7 +39,7 @@ export function user(ctx: ShapeContext, u: User): Json {
     discriminator: '0',
     global_name: u.username,
     avatar: null,
-    bot: (u as { bot?: boolean }).bot === true,
+    bot: u.bot,
     system: false,
     flags: 0,
     public_flags: 0,
@@ -206,16 +197,6 @@ export function guildFull(ctx: ShapeContext, guildId: string, me: string | null)
     stage_instances: [],
     guild_scheduled_events: [],
     soundboard_sounds: [],
-  }
-}
-
-/** `GuildFull` from REST (no cache yet). */
-export function guildFromRest(ctx: ShapeContext, g: GuildFull): Json {
-  return {
-    ...guildBase(ctx, g),
-    roles: g.roles.map(r => role(ctx, r)),
-    channels: g.channels.flatMap(c => channel(ctx, c) ?? []),
-    member_count: g.members.length,
   }
 }
 

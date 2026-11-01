@@ -10,7 +10,7 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import { RestError, type HachimanCache, type User } from '@hachiman/client'
 import { WebSocketServer, type WebSocket } from 'ws'
-import type { IdMap } from '../ids'
+import { shardOfGuild, type IdMap } from '../ids'
 import type { BotMessage, BotRuntimeEvents } from '../runtime'
 import type { BotRuntime } from '../runtime'
 import * as shape from './shapes'
@@ -73,12 +73,16 @@ interface Session {
   shard: [number, number] | null
 }
 
-/** Discord's shard rule: a guild goes to `(guild_id >> 22) % count`; DMs and guild-less events to shard 0. */
-function inShard(s: Session, guildSnow: string | null): boolean {
+/**
+ * Discord's shard rule: a guild goes to `(guild_id >> 22) % count`, DMs and guild-less events to
+ * shard 0. `guild` is the cached guild: the rule uses its creation time, as the runtime does
+ * (shardOfGuild), so the two never disagree. An unknown guild (deleted) goes to every shard.
+ */
+function inShard(s: Session, guild: { createdAt: string } | null | undefined, dm: boolean): boolean {
   if (!s.shard) return true
   const [id, count] = s.shard
-  if (guildSnow === null) return id === 0
-  return Number((BigInt(guildSnow) >> 22n) % BigInt(count)) === id
+  if (dm) return id === 0
+  return !guild || shardOfGuild(guild.createdAt, count) === id
 }
 
 type Json = Record<string, unknown>
@@ -459,7 +463,7 @@ export class DiscordBridge {
     const meSnow = ctx.ids.snowflake(me.id)
     // The guild snowflakes carry their creation time; give them out before anything else names them.
     for (const g of rt.cache.guilds.values()) ctx.ids.snowflake(g.id, g.createdAt)
-    const guilds = [...rt.cache.guilds.keys()].filter(id => inShard(session, ctx.ids.snowflake(id)))
+    const guilds = [...rt.cache.guilds.keys()].filter(id => inShard(session, rt.cache.guilds.get(id), false))
     this.dispatch(session, 'READY', {
       v: 10,
       user: {
@@ -526,10 +530,14 @@ export class DiscordBridge {
       const payload = typeof d === 'function' ? d(s) : d
       if (!payload) continue
       if (t !== 'USER_UPDATE') {
-        const guild =
+        const snow =
           payload['guild_id'] ??
           (t === 'GUILD_CREATE' || t === 'GUILD_UPDATE' || t === 'GUILD_DELETE' ? payload['id'] : null)
-        if (!inShard(s, typeof guild === 'string' ? guild : null)) continue
+        const guildId = typeof snow === 'string' ? this.opts.ids.uuid(snow) : null
+        if (
+          !inShard(s, guildId ? this.opts.runtime.cache.guilds.get(guildId) : null, typeof snow !== 'string')
+        )
+          continue
       }
       this.dispatch(s, t, payload)
     }
