@@ -36,7 +36,7 @@ import { shardOfGuild } from './ids'
 import { DeviceLinker } from './device-link'
 import { History } from './history'
 import { botApi } from './link'
-import { loadDeviceToken, loadWrapKey, pinOwner } from './state-dir'
+import { loadDeviceToken, loadWrapKey, lockStateDir, pinOwner } from './state-dir'
 import { FileCryptoStore } from './store'
 
 export const BOT_CLIENT_VERSION = '0.1.0'
@@ -160,6 +160,7 @@ export class BotRuntime extends TypedEventEmitter<BotRuntimeEvents> {
   private connected = false
   private gatewayReady: Promise<void> | null = null
   private linker: DeviceLinker | null = null
+  private unlock: (() => Promise<void>) | null = null
   private readonly history = new History()
   /** Rows that wait for keys, by group (§12.8.5 'pending'). */
   private readonly pending = new Map<string, Map<string, { message: Message; isUpdate: boolean }>>()
@@ -226,6 +227,7 @@ export class BotRuntime extends TypedEventEmitter<BotRuntimeEvents> {
     const { stateDir } = this.opts
     await mkdir(stateDir, { recursive: true, mode: 0o700 })
     await mkdir(this.deploymentDir, { recursive: true, mode: 0o700 })
+    this.unlock = await lockStateDir(stateDir)
     const wrapKey = await loadWrapKey(stateDir)
     const bot = botApi(this.opts.apiUrl, this.opts.token)
     this.deviceToken = await loadDeviceToken(stateDir, bot)
@@ -276,11 +278,50 @@ export class BotRuntime extends TypedEventEmitter<BotRuntimeEvents> {
       .catch((e: unknown) => this.log(`crypto sync failed: ${String(e)}`))
     this.joinReadableChannels()
     await this.linker.serve()
+    await this.acceptChangedKeys()
 
     for (const code of this.opts.join ?? []) await this.joinInvite(code)
     const user = this.client.cache.user ?? me
     this.emit('ready', user)
     return user
+  }
+
+  /**
+   * The key changes that came while this bot was not listening (the engine tells a change once,
+   * then keeps the contact as 'changed'): accept those of the members that this bot can see.
+   */
+  // ponytail: one getTrust per known user at start; keep a changed-contacts list in the engine if guilds get huge.
+  private async acceptChangedKeys(): Promise<void> {
+    const c = this.client.cache
+    const users = new Set<string>()
+    for (const members of c.members.values()) for (const id of members.keys()) users.add(id)
+    for (const ch of c.channels.values()) for (const u of ch.recipients ?? []) users.add(u.id)
+    if (c.user) users.delete(c.user.id)
+    for (const userId of users) {
+      const trust = await this.crypto()
+        .getTrust(userId)
+        .catch(() => null)
+      if (trust?.state === 'changed') await this.onKeyChange({ userId, severity: 'notice' })
+    }
+  }
+
+  /**
+   * A member's master key changed (a password reset, a new identity). The engine refuses that
+   * member's devices until someone acknowledges the change (§12.5 TOFU); in the app a person does,
+   * and a bot has none. A bot never verifies safety numbers, so its contacts are unverified: it
+   * acknowledges the change ('notice') at once, as a person who clicks OK, and syncs so the held
+   * commits apply. A 'blocking' change (a contact that this bot verified) is only logged.
+   */
+  private async onKeyChange({ userId, severity }: CryptoEvents['keyChange']): Promise<void> {
+    if (severity === 'blocking')
+      return this.log(`the security key of verified contact ${userId} changed: not accepted`)
+    try {
+      await this.crypto().acknowledgeKeyChange(userId)
+      this.log(`accepted the new security key of ${userId}`)
+      await this.crypto().sync()
+    } catch (e) {
+      this.log(`accepting the new security key of ${userId} failed: ${String(e)}`)
+    }
   }
 
   /** A bot device serves the guilds of its shards (Discord's formula), and DMs on shard 0. */
@@ -294,6 +335,8 @@ export class BotRuntime extends TypedEventEmitter<BotRuntimeEvents> {
 
   stop(): void {
     this.linker?.stop()
+    void this.unlock?.()
+    this.unlock = null
     if (this.connected) this.client.disconnect()
   }
 
@@ -355,6 +398,8 @@ export class BotRuntime extends TypedEventEmitter<BotRuntimeEvents> {
       this.deviceId = (payload as CryptoEvents['status']).deviceId ?? this.deviceId
     } else if (event === 'epochKeysAvailable') {
       this.retryPending((payload as CryptoEvents['epochKeysAvailable']).groupId)
+    } else if (event === 'keyChange') {
+      void this.onKeyChange(payload as CryptoEvents['keyChange'])
     } else if (event === 'error') {
       const e = payload as CryptoEvents['error']
       this.log(`crypto: ${e.code} ${e.message}`)

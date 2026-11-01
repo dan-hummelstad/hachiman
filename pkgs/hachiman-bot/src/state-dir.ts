@@ -2,7 +2,7 @@
  * The files of a bot device (`stateDir`) and of its deployment (`deploymentDir`, shared by the
  * shards on one machine). See the README of @hachiman/discord.js "Keep the state directory".
  */
-import { readFile, writeFile } from 'node:fs/promises'
+import { readFile, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { BotApi } from './link'
 
@@ -59,4 +59,36 @@ export async function pinOwner(
   if (pinned === ownerId) return pinned
   log(`warning: the server names another owner than the one pinned in ${path}. Link codes by DM are off.`)
   return null
+}
+
+/**
+ * One process per device: the app takes a Web Lock for its store, and a bot takes `lock` in its
+ * state directory (its pid). A lock of a process that is gone is taken over. Returns the release.
+ */
+export async function lockStateDir(stateDir: string): Promise<() => Promise<void>> {
+  const path = join(stateDir, 'lock')
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      await writeFile(path, `${process.pid}\n`, { flag: 'wx', mode: 0o600 })
+      return () => rm(path, { force: true })
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e
+      const pid = Number(await readTrimmed(path))
+      if (Number.isInteger(pid) && pid > 0 && pid !== process.pid && isAlive(pid))
+        throw new Error(
+          `process ${pid} already runs this bot device (${stateDir}). Stop it, or give this process another state directory.`,
+        )
+      await rm(path, { force: true })
+    }
+  }
+  throw new Error(`could not lock ${stateDir}`)
+}
+
+function isAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (e) {
+    return (e as NodeJS.ErrnoException).code === 'EPERM'
+  }
 }

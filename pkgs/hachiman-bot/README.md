@@ -40,6 +40,10 @@ Each device of a bot (each shard) has its own state folder and its own device to
 2. The bot has no identity yet: it makes it (`resetIdentity`), writes the recovery key, and makes `deployment.key` in the shared folder.
 3. The bot has keys elsewhere: it opens a QR link session and waits. With `deployment.key`, it posts the sealed QR payload to the link mailbox, and a running device links it. Without it, it logs the QR payload for the owner to send in a DM.
 
+One process runs one device: the runtime takes `lock` (its pid) in the device folder, and refuses a folder that a live process holds.
+
+When a member's security key changes, the bot accepts it (it never verifies safety numbers) and logs it; else the bot could not read that member again.
+
 A running device reads the link mailbox every 5 seconds and links the requests that its deployment key opens. It also links a QR payload that the pinned owner sends in a DM.
 
 ## Onboarding

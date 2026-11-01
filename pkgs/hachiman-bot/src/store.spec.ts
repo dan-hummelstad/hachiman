@@ -136,3 +136,22 @@ describe('shardOfGuild', () => {
     expect(shardOfGuild(at, 4)).toBe(Number((snow >> 22n) % 4n))
   })
 })
+
+describe('lockStateDir', () => {
+  it('lets one process hold a device, and takes over the lock of a process that is gone', async () => {
+    const { lockStateDir } = await import('./state-dir')
+    const { writeFile } = await import('node:fs/promises')
+    const dir = await mkdtemp(join(tmpdir(), 'hb-lock-'))
+    // A live process holds it (pid 1 always exists).
+    await writeFile(join(dir, 'lock'), '1\n')
+    await expect(lockStateDir(dir)).rejects.toThrow(/already runs this bot device/)
+    // A process that is gone: taken over.
+    await writeFile(join(dir, 'lock'), '999999\n')
+    const release = await lockStateDir(dir)
+    expect((await readFile(join(dir, 'lock'), 'utf8')).trim()).toBe(String(process.pid))
+    await release()
+    await (
+      await lockStateDir(dir)
+    )()
+  })
+})
