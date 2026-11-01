@@ -141,6 +141,13 @@
       "when": 1792304417761,
       "tag": "0019_group_dm_icon",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1792925040997,
+      "tag": "0020_board_channels",
+      "breakpoints": true
     }
   ]
 }

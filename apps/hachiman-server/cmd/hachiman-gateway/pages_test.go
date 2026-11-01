@@ -16,8 +16,8 @@ import (
 	"hachiman/server/pkg/permissions"
 )
 
-// pagesHarness adds a visible pages channel "pages" and a hidden one
-// "hpages" to the fixture.
+// pagesHarness adds a visible pages channel "pages", a hidden one "hpages"
+// and a canvas channel "board" to the fixture.
 func pagesHarness(t *testing.T) *harness {
 	h := newHarness(t)
 	h.g.load = func(ctx context.Context, userID, onlyGuild string) (*readyData, error) {
@@ -26,6 +26,7 @@ func pagesHarness(t *testing.T) *harness {
 		d.Guilds[0].Channels = append(d.Guilds[0].Channels,
 			Channel{ID: "pages", GuildID: ptr(gid), Type: "pages", Name: ptr("wiki"), PermissionOverwrites: []permissions.Overwrite{}},
 			Channel{ID: "hpages", GuildID: ptr(gid), Type: "pages", Name: ptr("mod-wiki"), PermissionOverwrites: hidden},
+			Channel{ID: "board", GuildID: ptr(gid), Type: "canvas", Name: ptr("board"), PermissionOverwrites: []permissions.Overwrite{}},
 		)
 		return d, nil
 	}
@@ -88,6 +89,10 @@ func TestDocAwarenessDrops(t *testing.T) {
 	c.send(opDocAwareness, awareness("pages", "max", strings.Repeat("a", 8192))) // at the cap: relayed
 	if f := c.expect("DOC_AWARENESS"); !strings.Contains(string(f.D), `"pageId":"max"`) {
 		t.Fatalf("got %s, want only the frame at the cap", f.D)
+	}
+	c.send(opDocAwareness, awareness("board", "c1", "e")) // a canvas channel has pages too
+	if f := c.expect("DOC_AWARENESS"); !strings.Contains(string(f.D), `"pageId":"c1"`) {
+		t.Fatalf("got %s, want the canvas frame", f.D)
 	}
 }
 

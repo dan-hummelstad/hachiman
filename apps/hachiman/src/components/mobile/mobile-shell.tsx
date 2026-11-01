@@ -165,7 +165,9 @@ export function MobileShell(): React.JSX.Element {
   const tint = useGuildTint(selectedGuildId)
   const drawerOpen = useDrawerState((s) => s.open !== null)
   const viewKind = useCurrentView().kind
-  const pushed = viewKind === 'settings' || viewKind === 'page'
+  // A board (canvas, web) is a page too, but shows in the chat card: only a pages page pushes.
+  const pushed =
+    viewKind === 'settings' || (viewKind === 'page' && selectedChannel?.type === 'pages')
   // A screen pushed inside the chat card (the DM home's People list): Back on the edge, and the
   // tab strip goes inert. The chat card holds the screen, so it cannot go inert itself.
   const localPushed = useDrawerState((s) => s.localPushed > 0)

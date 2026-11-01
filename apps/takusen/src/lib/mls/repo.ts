@@ -68,7 +68,7 @@ export type RevokeReason = RevocationRow['reason']
 export interface ChannelInfo {
   id: string
   guildId: string | null
-  type: 'text' | 'voice' | 'category' | 'dm' | 'group_dm' | 'pages' | 'thread'
+  type: 'text' | 'voice' | 'category' | 'dm' | 'group_dm' | 'pages' | 'thread' | 'canvas' | 'web'
   mlsGroupId: Uint8Array | null
   /** The parent channel of a thread or a channel in a category, else null. */
   parentId: string | null

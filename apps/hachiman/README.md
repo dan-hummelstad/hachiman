@@ -401,6 +401,17 @@ flowchart LR
   Rewrap --> Envelopes
 ```
 
+## Canvas and web channels
+
+A `canvas` channel and a `web` channel hold a page tree as a pages channel does (contract §4 Pages), with the same `DocsService` and `DocProvider`. They have no chat: the body of the channel is `components/board/board-body.tsx`, on the desktop and in the mobile chat card. Its bar picks, adds, renames and deletes the pages ("canvases" or "tabs"), and shows who is on the open one. A board page is a `{ kind: 'page' }` view, but only a `pages` page pushes the mobile page screen.
+
+| Path                                    | What                                                                                                                                                                               |
+| --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `components/board/canvas-view.tsx` | Excalidraw (lazy loaded; its fonts are app files through `vite-excalidraw-fonts.ts`, which each host adds to its Vite config), view-only without SEND_MESSAGES. Cursors of the verified peers from the page awareness. Links that Excalidraw can embed become embeds. |
+| `components/board/canvas-assets.ts` | Images as encrypted page media: a new file of the scene is uploaded and claimed, and its pointer goes into the `files` Y.Map; a file that a visible image needs is decrypted and added to the scene. |
+| `components/board/canvas-sync.ts` | The scene ↔ `Y.Doc` binding: one `excalidraw` Y.Map entry per element, sent when its version moves; remote elements go through `reconcileElements`. |
+| `components/board/web-view.tsx`         | The address bar and a sandboxed `https:` frame. The address is the `web` Y.Map of the doc, so every viewer loads the same page in their own frame. A YouTube, Vimeo or Loom link loads in its embed form. A navigation inside the frame stays local. |
+
 ## Conventions
 
 Read [`CLAUDE.md`](../../CLAUDE.md#working-in-the-shared-ui-appshachimansrc) before you change this package. These rules are the most important:

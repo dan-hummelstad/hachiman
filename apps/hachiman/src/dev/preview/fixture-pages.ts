@@ -23,6 +23,13 @@ export function stubDocEnvelope(
   return toB64url(new TextEncoder().encode(JSON.stringify(env)))
 }
 
+/** A Yjs update of a web channel tab (§4 Pages "Web"). */
+function webTabDoc(url: string): Uint8Array {
+  const doc = new Y.Doc()
+  doc.getMap('web').set('url', url)
+  return Y.encodeStateAsUpdate(doc)
+}
+
 type Inline = string | { text: string; href: string }
 type Block = { heading: string } | Inline[]
 
@@ -61,7 +68,9 @@ const daysAgo = (d: number): string => new Date(now - d * DAY).toISOString()
 export const PAGE = {
   rfc: '7c1e2b4a-5d3f-4e6a-9b8c-0d1e2f3a4b5c',
   glossary: '8d2f3c5b-6e4a-4f7b-8c9d-1e2f3a4b5c6d',
-  playbook: '9e3a4d6c-7f5b-4a8c-9d0e-2f3a4b5c6d7e'
+  playbook: '9e3a4d6c-7f5b-4a8c-9d0e-2f3a4b5c6d7e',
+  canvas: 'af4b5e7d-8a6c-4b9d-8e1f-3a4b5c6d7e8f',
+  tab: 'b05c6f8e-9b7d-4cae-9f2a-4b5c6d7e8f90'
 }
 
 export function fixturePages(): { pages: Page[]; updates: Map<string, DocUpdate[]> } {
@@ -104,9 +113,25 @@ export function fixturePages(): { pages: Page[]; updates: Map<string, DocUpdate[
     pages: [
       page(G2C.designPages, PAGE.rfc, 'RFC: pages channels', null, 0, ATT.pageBanner),
       page(G2C.designPages, PAGE.glossary, 'Glossary', PAGE.rfc, 0),
-      page(G1C.playbook, PAGE.playbook, 'Scrim playbook', null, 0)
+      page(G1C.playbook, PAGE.playbook, 'Scrim playbook', null, 0),
+      page(G1C.whiteboard, PAGE.canvas, 'Canvas 1', null, 0),
+      page(G1C.watch, PAGE.tab, 'Tab 1', null, 0)
     ],
     updates: new Map([
+      [
+        PAGE.tab,
+        [
+          {
+            ...update(G1C.watch, PAGE.tab, []),
+            envelope: stubDocEnvelope(
+              G1C.watch,
+              PAGE.tab,
+              'doc_update',
+              webTabDoc('https://example.com/')
+            )
+          }
+        ]
+      ],
       [
         PAGE.rfc,
         [

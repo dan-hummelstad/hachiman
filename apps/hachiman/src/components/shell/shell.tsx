@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { BoardBody } from '@/components/board/board-body'
 import { ChatBody } from '@/components/chat/chat-body'
 import { HomePane } from '@/components/home-pane'
 import { InboxButton } from '@/components/inbox/inbox-button'
@@ -29,7 +30,7 @@ import { useAppShortcuts } from '@/hooks/use-app-shortcuts'
 import { useDefaultChannel } from '@/hooks/use-default-channel'
 import { useGlobalShortcuts } from '@/hooks/use-global-shortcuts'
 import { useMediaQuery } from '@/hooks/use-media-query'
-import { isGuildChannel } from '@/lib/model'
+import { isBoardChannel, isGuildChannel } from '@/lib/model'
 import { cn } from '@/lib/utils'
 import { useChannelStore } from '@/stores/channelStore'
 import { useSidebarSide } from '@/stores/prefsStore'
@@ -190,6 +191,8 @@ export function Shell(): React.JSX.Element {
                   {/* The single gate: voice channels carry no messages (no history, typing, composer). */}
                   {selectedChannel.type === 'voice' && isGuildChannel(selectedChannel) ? (
                     <VoiceRoom key={selectedChannel.id} channel={selectedChannel} />
+                  ) : isBoardChannel(selectedChannel) ? (
+                    <BoardBody key={selectedChannel.id} channel={selectedChannel} />
                   ) : (
                     <>
                       {selectedChannel.guildId === null && (

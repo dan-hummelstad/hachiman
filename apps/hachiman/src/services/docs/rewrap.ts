@@ -35,6 +35,7 @@ import {
 } from '@hachiman/crypto'
 import { isStale, rewrapPointer } from './envelopes'
 import type { DocProvider } from './types'
+import { isBoardType } from '@/lib/model'
 
 /** The committer runs the pass again after this: the last envelope of the old epoch is in then. */
 export const REWRAP_AGAIN_MS = ADD_ONLY_EPOCH_GRACE_MS + 2000
@@ -115,7 +116,10 @@ export function pagesChannelsOf(
   const need = Permissions.VIEW_CHANNEL | Permissions.SEND_MESSAGES
   return [...channels]
     .filter(
-      (c) => c.type === 'pages' && c.mlsGroupId === groupId && has(permissionsFor(c.id), need)
+      (c) =>
+        (c.type === 'pages' || isBoardType(c.type)) &&
+        c.mlsGroupId === groupId &&
+        has(permissionsFor(c.id), need)
     )
     .map((c) => c.id)
 }

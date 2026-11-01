@@ -149,6 +149,8 @@ export const G1C = {
   lfg: 'c-no-lfg',
   patch: 'c-no-patch',
   playbook: 'c-no-playbook',
+  whiteboard: 'c-no-whiteboard',
+  watch: 'c-no-watch',
   lounge: 'c-no-lounge',
   ranked: 'c-no-ranked',
   afk: 'c-no-afk'
@@ -225,6 +227,8 @@ const guild1: GuildFull = {
       parentId: G1C.text,
       topic: 'Comps, callouts and the Thursday plan.'
     }),
+    channel(G1, G1C.whiteboard, 'canvas', 'strat-board', 5, { parentId: G1C.text }),
+    channel(G1, G1C.watch, 'web', 'watch-party', 6, { parentId: G1C.text }),
     channel(G1, G1C.lounge, 'voice', 'Lounge', 0, { parentId: G1C.voice }),
     channel(G1, G1C.ranked, 'voice', 'Ranked queue', 1, { parentId: G1C.voice }),
     channel(G1, G1C.afk, 'voice', 'AFK', 2, { parentId: G1C.voice })
