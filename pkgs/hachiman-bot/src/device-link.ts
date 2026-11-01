@@ -39,6 +39,7 @@ export interface DeviceLinkerDeps {
 
 export class DeviceLinker {
   private readonly waiters = new Map<string, (ok: boolean) => void>()
+  /** The link requests and owner link codes (message ids) already handled. */
   private readonly seen = new Set<string>()
   private timer: ReturnType<typeof setInterval> | null = null
   private deploymentKey: CryptoKey | null = null
@@ -97,7 +98,9 @@ export class DeviceLinker {
         this.waiters.set(start.sessionId, resolve)
         expiry = setTimeout(() => resolve(false), LINK_WAIT_MS)
       })
-      const posted = this.postWhenKeyAppears(start.qrPayload, done)
+      const posted = this.postWhenKeyAppears(start.qrPayload, done).catch((e: unknown) =>
+        log(`posting the link request failed: ${String(e)}`),
+      )
       const ok = await done
       clearTimeout(expiry)
       this.waiters.delete(start.sessionId)
@@ -118,11 +121,17 @@ export class DeviceLinker {
     let settled = false
     void done.then(() => (settled = true))
     for (let told = false; !settled; told = true) {
-      const key = await readDeploymentKey(this.d.deploymentDir)
-      if (key) {
-        await this.d.bot.postLinkRequest(await sealLinkPayload(key, this.d.userId, qrPayload))
-        this.d.log('this bot has keys on other devices: waiting for a running device to link this one')
-        return
+      try {
+        const key = await readDeploymentKey(this.d.deploymentDir)
+        if (key) {
+          await this.d.bot.postLinkRequest(await sealLinkPayload(key, this.d.userId, qrPayload))
+          this.d.log('this bot has keys on other devices: waiting for a running device to link this one')
+          return
+        }
+      } catch (e) {
+        this.d.log(`posting the link request failed, trying again: ${String(e)}`)
+        await sleep(LINK_POLL_MS)
+        continue
       }
       if (!told)
         this.d.log(
@@ -151,8 +160,10 @@ export class DeviceLinker {
   }
 
   /**
-   * A link code that the pinned owner sent in a DM: the device links, and the caller must not pass
-   * the message on (it holds a link secret). True when the message was such a code.
+   * A link code that the pinned owner sent in a DM: the caller must not pass the message on (it
+   * holds a link secret). True when the message is such a code. The device links once, for a code
+   * that is new and still within its session; a code that comes again (fetched history) is only
+   * held back.
    */
   takeOwnerLinkCode(m: BotMessage): boolean {
     const code = m.content.trim()
@@ -163,6 +174,8 @@ export class DeviceLinker {
       !code.startsWith(LINK_QR_PREFIX)
     )
       return false
+    if (this.seen.has(m.id) || Date.now() - Date.parse(m.createdAt) > LINK_WAIT_MS) return true
+    this.seen.add(m.id)
     void this.linkDevice(code).then(name =>
       this.d
         .reply(

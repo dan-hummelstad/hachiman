@@ -1,6 +1,7 @@
 packages:
   - apps/*
   - pkgs/*
+  - examples/*
 
 allowBuilds:
   '@swc/core': true

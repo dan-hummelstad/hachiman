@@ -1,0 +1,15 @@
+{
+  "name": "@hachiman/example-discord-js-sharding",
+  "version": "0.0.0",
+  "private": true,
+  "description": "A sharded discord.js bot on Hachiman",
+  "scripts": {
+    "start": "tsx index.js"
+  },
+  "dependencies": {
+    "discord.js": "workspace:@hachiman/discord.js@*"
+  },
+  "devDependencies": {
+    "tsx": "^4.23.9"
+  }
+}

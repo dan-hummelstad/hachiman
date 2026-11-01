@@ -81,6 +81,9 @@ export async function openLinkPayload(key: CryptoKey, botId: string, blob: strin
   }
 }
 
+/** A token without the `Bot ` or `Bearer ` that Discord libraries put before it. */
+export const bareToken = (token: string): string => token.replace(/^(?:Bot|Bearer)\s+/i, '').trim()
+
 /** The bot routes of Takusen (§4 Bots) with the bot token. */
 export type BotApi = ReturnType<typeof botApi>
 

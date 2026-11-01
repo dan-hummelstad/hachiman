@@ -16,6 +16,7 @@ import {
   RestError,
   TypedEventEmitter,
   type Channel,
+  type GatewayDispatch,
   type HachimanCache,
   type Message,
   type User,
@@ -32,7 +33,7 @@ import {
 import { E2EE_CAPABILITY } from '@hachiman/crypto/constants'
 import { clientPermissions, createEngine } from '@hachiman/crypto/host'
 import { createDsTransport } from '@hachiman/hachiman/ds-transport'
-import { shardOfGuild } from './ids'
+import { inShards } from './ids'
 import { DeviceLinker } from './device-link'
 import { History } from './history'
 import { botApi } from './link'
@@ -94,7 +95,7 @@ export type BotRuntimeEvents = {
   messageDelete: (d: { id: string; channelId: string; guildId: string | null }) => void
   reaction: (r: BotReaction) => void
   /** The Hachiman gateway events in FORWARDED, after the client cache took them. */
-  event: (e: { t: string; d: unknown }) => void
+  event: (e: ForwardedEvent) => void
   error: (e: Error) => void
 }
 
@@ -117,8 +118,30 @@ const FORWARDED = [
   'USER_UPDATE',
 ] as const
 
+export type ForwardedEvent = Extract<GatewayDispatch, { t: (typeof FORWARDED)[number] }>
+
+const isForwarded = (e: GatewayDispatch): e is ForwardedEvent =>
+  (FORWARDED as readonly string[]).includes(e.t)
+
+/** The guild of an event for the shard rule: an id, null for a DM, undefined for neither. */
+function guildOf(e: ForwardedEvent): string | null | undefined {
+  switch (e.t) {
+    case 'GUILD_CREATE':
+    case 'GUILD_UPDATE':
+    case 'GUILD_DELETE':
+      return e.d.id
+    case 'PRESENCE_UPDATE':
+    case 'USER_UPDATE':
+      return undefined
+    default:
+      return e.d.guildId
+  }
+}
+
 /** A message that waits after a failed DS call is tried again after this delay. */
 const TRANSPORT_RETRY_MS = 3_000
+/** Rows kept per group while they wait for keys; the oldest go first. */
+const PENDING_PER_GROUP = 500
 
 const SEND_ATTEMPTS = 4
 const RETRY_BASE_MS = 300
@@ -224,6 +247,15 @@ export class BotRuntime extends TypedEventEmitter<BotRuntimeEvents> {
    * running devices of the bot; connects; joins `opts.join`.
    */
   async start(): Promise<User> {
+    try {
+      return await this.startNow()
+    } catch (e) {
+      await this.stop()
+      throw e
+    }
+  }
+
+  private async startNow(): Promise<User> {
     const { stateDir } = this.opts
     await mkdir(stateDir, { recursive: true, mode: 0o700 })
     await mkdir(this.deploymentDir, { recursive: true, mode: 0o700 })
@@ -325,19 +357,20 @@ export class BotRuntime extends TypedEventEmitter<BotRuntimeEvents> {
   }
 
   /** A bot device serves the guilds of its shards (Discord's formula), and DMs on shard 0. */
-  private owns(guildId: string | null): boolean {
+  private owns(guildId: string | null | undefined): boolean {
     const shard = this.opts.shard
     if (!shard) return true
-    if (guildId === null) return shard.ids.includes(0)
-    const g = this.client.cache.guilds.get(guildId)
-    return g ? shard.ids.includes(shardOfGuild(g.createdAt, shard.count)) : false
+    const scope = guildId === null ? 'dm' : guildId === undefined ? undefined : this.client.cache.guilds.get(guildId)
+    return inShards(shard.ids, shard.count, scope)
   }
 
-  stop(): void {
+  /** Disconnects and releases the state directory. */
+  async stop(): Promise<void> {
     this.linker?.stop()
-    void this.unlock?.()
-    this.unlock = null
     if (this.connected) this.client.disconnect()
+    const unlock = this.unlock
+    this.unlock = null
+    await unlock?.()
   }
 
   // MARK: - Gateway → engine and plaintext events
@@ -382,9 +415,11 @@ export class BotRuntime extends TypedEventEmitter<BotRuntimeEvents> {
     c.on('MESSAGE_DELETE', d => {
       this.history.drop(d.channelId, d.id)
       for (const rows of this.pending.values()) rows.delete(d.id)
-      this.emit('messageDelete', d)
+      if (this.owns(d.guildId)) this.emit('messageDelete', d)
     })
-    for (const t of FORWARDED) c.on(t, (d: unknown) => this.emit('event', { t, d }))
+    c.on('update', e => {
+      if (isForwarded(e) && this.owns(guildOf(e))) this.emit('event', e)
+    })
     c.on('fatal', ({ code }: { code: number }) =>
       this.emit('error', new Error(`the gateway closed with ${code}`)),
     )
@@ -432,7 +467,6 @@ export class BotRuntime extends TypedEventEmitter<BotRuntimeEvents> {
     }
   }
 
-  /** Decrypts server rows in history order and emits the plaintext events. */
   /**
    * Decrypts server rows and emits the plaintext events. Batches run one at a time, in arrival
    * order, so an edit or a reaction never overtakes the message that it names.
@@ -464,6 +498,7 @@ export class BotRuntime extends TypedEventEmitter<BotRuntimeEvents> {
         let rows = this.pending.get(m.groupId)
         if (!rows) this.pending.set(m.groupId, (rows = new Map()))
         rows.set(m.id, { message: m, isUpdate })
+        if (rows.size > PENDING_PER_GROUP) rows.delete(rows.keys().next().value!)
         // A failed DS call is not a verdict: try again soon. The other reasons wait for keys.
         if (r.reason === 'transport') setTimeout(() => this.retryPending(m.groupId), TRANSPORT_RETRY_MS)
         continue
@@ -485,11 +520,9 @@ export class BotRuntime extends TypedEventEmitter<BotRuntimeEvents> {
           })
         continue
       }
-      if (r.kind !== 'message' && r.kind !== 'edit') continue
       const known = this.history.get(m.channelId, m.id)
-      const bot = this.remember(m, r.content)
-      // A link code from the owner holds a link secret: the device links, and the bot code never sees it.
-      if (this.linker?.takeOwnerLinkCode(bot)) continue
+      const bot = this.readChat(m, r)
+      if (!bot) continue
       if (isUpdate || (known && r.kind === 'edit')) this.emit('messageUpdate', bot)
       else this.emit('message', bot)
     }
@@ -512,11 +545,14 @@ export class BotRuntime extends TypedEventEmitter<BotRuntimeEvents> {
     )
   }
 
-  /** A decrypted chat row, kept for edits, replies and reactions. */
-  private remember(
-    m: Message,
-    content: { text: string; mentions: Mention[]; replyTo: string | null },
-  ): BotMessage {
+  /**
+   * A decrypted chat row as the bot sees it, kept for edits, replies and reactions. Null for any
+   * other row, and for a link code from the owner: it holds a link secret, so the device links
+   * and the bot code never sees it, not in history either.
+   */
+  private readChat(m: Message, r: DecryptResult): BotMessage | null {
+    if (r.status !== 'ok' || (r.kind !== 'message' && r.kind !== 'edit')) return null
+    const { content } = r
     const bot: BotMessage = {
       id: m.id,
       channelId: m.channelId,
@@ -529,6 +565,7 @@ export class BotRuntime extends TypedEventEmitter<BotRuntimeEvents> {
       editedAt: m.editedAt,
       clientMsgId: m.clientMsgId,
     }
+    if (this.linker?.takeOwnerLinkCode(bot)) return null
     this.history.put(bot)
     return bot
   }
@@ -563,13 +600,10 @@ export class BotRuntime extends TypedEventEmitter<BotRuntimeEvents> {
     const results = new Map(
       (await this.crypto().decryptMessages(messages.map(toEncrypted))).map(r => [r.messageId, r]),
     )
-    const out: BotMessage[] = []
-    for (const m of messages) {
+    return messages.flatMap(m => {
       const r = results.get(m.id)
-      if (r?.status === 'ok' && (r.kind === 'message' || r.kind === 'edit'))
-        out.push(this.remember(m, r.content))
-    }
-    return out
+      return (r && this.readChat(m, r)) ?? []
+    })
   }
 
   /** A message by id, from memory or from the server. */

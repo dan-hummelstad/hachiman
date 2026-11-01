@@ -665,6 +665,42 @@ importers:
         specifier: ^4.23.9
         version: 4.23.9
 
+  examples/discord-js:
+    dependencies:
+      discord.js:
+        specifier: workspace:@hachiman/discord.js@*
+        version: link:../../pkgs/hachiman-discord.js
+    devDependencies:
+      tsx:
+        specifier: ^4.23.9
+        version: 4.23.9
+
+  examples/discord-js-sharding:
+    dependencies:
+      discord.js:
+        specifier: workspace:@hachiman/discord.js@*
+        version: link:../../pkgs/hachiman-discord.js
+    devDependencies:
+      tsx:
+        specifier: ^4.23.9
+        version: 4.23.9
+
+  examples/native:
+    dependencies:
+      '@hachiman/bot':
+        specifier: workspace:*
+        version: link:../../pkgs/hachiman-bot
+    devDependencies:
+      '@tsconfig/strictest':
+        specifier: ^2.0.8
+        version: 2.0.8
+      '@types/node':
+        specifier: ^22.20.1
+        version: 22.20.1
+      tsx:
+        specifier: ^4.23.9
+        version: 4.23.9
+
   pkgs/hachiman-bot:
     dependencies:
       '@hachiman/client':

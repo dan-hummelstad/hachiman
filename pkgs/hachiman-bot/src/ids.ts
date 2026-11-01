@@ -63,3 +63,17 @@ export function shardOfGuild(createdAt: string, count: number): number {
   const ms = BigInt(Number.isFinite(at) ? Math.max(0, at) : 0) - DISCORD_EPOCH
   return Number((ms < 0n ? 0n : ms) % BigInt(Math.max(1, count)))
 }
+
+/**
+ * Whether shards `ids` of `count` get an event: a guild's go to its shard, a DM's to shard 0. A
+ * guild that is not in the cache (deleted) and an event of no guild or DM go to every shard. The
+ * runtime and the bridge both decide with this, so they never disagree.
+ */
+export function inShards(
+  ids: readonly number[],
+  count: number,
+  scope: { createdAt: string } | 'dm' | undefined,
+): boolean {
+  if (scope === 'dm') return ids.includes(0)
+  return !scope || ids.includes(shardOfGuild(scope.createdAt, count))
+}

@@ -5,6 +5,7 @@
 import { join } from 'node:path'
 import { DiscordBridge } from './discord/bridge'
 import { IdMap } from './ids'
+import { bareToken } from './link'
 import { BotRuntime } from './runtime'
 
 export interface StartBridgeOptions {
@@ -81,8 +82,21 @@ function shardFromEnv(): { ids: number[]; count: number } | undefined {
   return ids.length > 0 ? { ids, count } : undefined
 }
 
-export async function startBridge(opts: StartBridgeOptions): Promise<RunningBridge> {
-  const token = opts.token.replace(/^(?:Bot|Bearer)\s+/i, '').trim()
+export type StartBotOptions = Omit<StartBridgeOptions, 'port' | 'host'>
+
+/**
+ * The native SDK: a started bot runtime from the token alone, with no Discord bridge. The server
+ * comes from the token, the gateway from the server, the shard from discord.js-style SHARDS /
+ * SHARD_COUNT; each can be set in `opts` or the environment.
+ */
+export async function startBot(opts: StartBotOptions): Promise<BotRuntime> {
+  const runtime = await createRuntime(opts)
+  await runtime.start()
+  return runtime
+}
+
+async function createRuntime(opts: StartBotOptions): Promise<BotRuntime> {
+  const token = bareToken(opts.token)
   if (!token.startsWith('hbot_'))
     throw new Error(
       'This is not a Hachiman bot token (hbot_…). Make one on the Bots page of your Hachiman server.',
@@ -96,7 +110,6 @@ export async function startBridge(opts: StartBridgeOptions): Promise<RunningBrid
   const gatewayUrl = opts.gatewayUrl ?? env('HACHIMAN_GATEWAY_URL') ?? (await discoverGateway(origin))
   const baseDir = opts.stateDir ?? env('HACHIMAN_BOT_STATE') ?? join(process.cwd(), '.hachiman-bot')
   const shard = opts.shard ?? shardFromEnv()
-  const stateDir = shard ? join(baseDir, `shard-${shard.ids.join('-')}`) : baseDir
   const joinCodes =
     opts.join ??
     env('HACHIMAN_BOT_JOIN')
@@ -104,35 +117,42 @@ export async function startBridge(opts: StartBridgeOptions): Promise<RunningBrid
       .map(s => s.trim())
       .filter(Boolean) ??
     []
-  const runtime = new BotRuntime({
+  return new BotRuntime({
     token,
     apiUrl: `${origin}/api/v1`,
     gatewayUrl,
-    stateDir,
+    stateDir: shard ? join(baseDir, `shard-${shard.ids.join('-')}`) : baseDir,
     deploymentDir: baseDir,
     ...(shard ? { shard } : {}),
     join: joinCodes,
     ...(opts.log ? { log: opts.log } : {}),
   })
+}
+
+export async function startBridge(opts: StartBridgeOptions): Promise<RunningBridge> {
+  const runtime = await createRuntime(opts)
   const ids = new IdMap(id => runtime.cache.guilds.get(id)?.createdAt)
   await runtime.start()
   const bridge = new DiscordBridge({
     runtime,
     ids,
-    token,
+    token: bareToken(opts.token),
     ...(opts.port !== undefined ? { port: opts.port } : {}),
     ...(opts.host !== undefined ? { host: opts.host } : {}),
     ...(opts.log ? { log: opts.log } : {}),
   })
-  const urls = await bridge.listen()
+  const urls = await bridge.listen().catch(async (e: unknown) => {
+    await runtime.stop()
+    throw e
+  })
   return {
     runtime,
     bridge,
     api: urls.api,
     gateway: urls.gateway,
     async stop() {
-      runtime.stop()
       await bridge.close()
+      await runtime.stop()
     },
   }
 }

@@ -1,0 +1,15 @@
+{
+  "name": "@hachiman/example-discord-js",
+  "version": "0.0.0",
+  "private": true,
+  "description": "A discord.js bot on Hachiman with no code change",
+  "scripts": {
+    "start": "tsx bot.js"
+  },
+  "dependencies": {
+    "discord.js": "workspace:@hachiman/discord.js@*"
+  },
+  "devDependencies": {
+    "tsx": "^4.23.9"
+  }
+}

@@ -10,10 +10,13 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import { RestError, type HachimanCache, type User } from '@hachiman/client'
 import { WebSocketServer, type WebSocket } from 'ws'
-import { shardOfGuild, type IdMap } from '../ids'
-import type { BotMessage, BotRuntimeEvents } from '../runtime'
-import type { BotRuntime } from '../runtime'
+import { inShards, type IdMap } from '../ids'
+import { bareToken } from '../link'
+import type { BotRuntime, BotRuntimeEvents } from '../runtime'
+import { guildForIntents, wireDispatches, type Emit } from './events'
 import * as shape from './shapes'
+
+export { Intents } from './events'
 
 /** What the bridge needs from the runtime. Tests give a fake. */
 export interface BridgeRuntime extends Pick<
@@ -35,23 +38,11 @@ export interface BridgeOptions {
   log?: (msg: string) => void
 }
 
-/** Gateway intents (Discord). */
-export const Intents = {
-  GUILDS: 1 << 0,
-  GUILD_MEMBERS: 1 << 1,
-  GUILD_PRESENCES: 1 << 8,
-  GUILD_MESSAGES: 1 << 9,
-  GUILD_MESSAGE_REACTIONS: 1 << 10,
-  GUILD_MESSAGE_TYPING: 1 << 11,
-  DIRECT_MESSAGES: 1 << 12,
-  DIRECT_MESSAGE_REACTIONS: 1 << 13,
-  DIRECT_MESSAGE_TYPING: 1 << 14,
-  MESSAGE_CONTENT: 1 << 15,
-} as const
-
 const HEARTBEAT_MS = 41250
 /** Events kept per session for RESUME. */
 const RESUME_BUFFER = 1000
+/** A closed session can be resumed this long; then it is gone. */
+const RESUME_WINDOW_MS = 60_000
 
 class HttpError extends Error {
   constructor(
@@ -71,18 +62,8 @@ interface Session {
   buffer: { s: number; frame: string }[]
   /** IDENTIFY `shard: [id, count]`: the session gets the guilds of that shard, and DMs on shard 0. */
   shard: [number, number] | null
-}
-
-/**
- * Discord's shard rule: a guild goes to `(guild_id >> 22) % count`, DMs and guild-less events to
- * shard 0. `guild` is the cached guild: the rule uses its creation time, as the runtime does
- * (shardOfGuild), so the two never disagree. An unknown guild (deleted) goes to every shard.
- */
-function inShard(s: Session, guild: { createdAt: string } | null | undefined, dm: boolean): boolean {
-  if (!s.shard) return true
-  const [id, count] = s.shard
-  if (dm) return id === 0
-  return !guild || shardOfGuild(guild.createdAt, count) === id
+  /** Set while the socket is closed: the session ends unless it resumes first. */
+  expiry: ReturnType<typeof setTimeout> | null
 }
 
 type Json = Record<string, unknown>
@@ -106,7 +87,7 @@ export class DiscordBridge {
       }
       this.wss.handleUpgrade(req, socket, head, ws => this.onSocket(ws))
     })
-    this.wireRuntime()
+    wireDispatches(opts.runtime, () => this.ctx, (t, d, intent) => this.broadcast(t, d, intent))
   }
 
   private get ctx(): shape.ShapeContext {
@@ -131,6 +112,8 @@ export class DiscordBridge {
   }
 
   close(): Promise<void> {
+    for (const s of this.sessions.values()) if (s.expiry) clearTimeout(s.expiry)
+    this.sessions.clear()
     for (const ws of this.wss.clients) ws.close(1001)
     return new Promise(resolve => this.server.close(() => resolve()))
   }
@@ -194,7 +177,7 @@ export class DiscordBridge {
       const path = url.pathname.replace(/^\/api(\/v\d+)?/, '')
       const auth = req.headers.authorization ?? ''
       if (!path.startsWith('/gateway') || path === '/gateway/bot') {
-        if (auth.replace(/^(Bot|Bearer)\s+/i, '') !== this.opts.token)
+        if (bareToken(auth) !== this.opts.token)
           throw new HttpError(401, 0, '401: Unauthorized')
       }
       const body = req.method === 'GET' || req.method === 'DELETE' ? {} : await readJson(req)
@@ -408,7 +391,7 @@ export class DiscordBridge {
         case 1:
           return send({ op: 11, d: null, s: null, t: null })
         case 2: {
-          if (String(d['token'] ?? '').replace(/^Bot\s+/i, '') !== this.opts.token)
+          if (bareToken(String(d['token'] ?? '')) !== this.opts.token)
             return ws.close(4004, 'Authentication failed')
           clearTimeout(timeout)
           session = {
@@ -418,19 +401,26 @@ export class DiscordBridge {
             seq: 0,
             buffer: [],
             shard: parseShard(d['shard']),
+            expiry: null,
           }
           this.sessions.set(session.id, session)
           return this.ready(session)
         }
         case 6: {
           const old = this.sessions.get(String(d['session_id'] ?? ''))
-          if (!old || String(d['token'] ?? '').replace(/^Bot\s+/i, '') !== this.opts.token)
+          const after = Number(d['seq'] ?? 0)
+          // The events after `after` must all be in the buffer, else the client would miss some.
+          const oldest = old?.buffer[0]?.s ?? (old?.seq ?? 0) + 1
+          if (!old || bareToken(String(d['token'] ?? '')) !== this.opts.token || after < oldest - 1) {
+            if (old) this.endSession(old)
             return send({ op: 9, d: false, s: null, t: null })
+          }
           clearTimeout(timeout)
+          if (old.expiry) clearTimeout(old.expiry)
+          old.expiry = null
           old.ws?.close(4000)
           old.ws = ws
           session = old
-          const after = Number(d['seq'] ?? 0)
           for (const b of old.buffer) if (b.s > after) ws.send(b.frame)
           return this.dispatch(old, 'RESUMED', {})
         }
@@ -443,8 +433,18 @@ export class DiscordBridge {
     })
     ws.on('close', () => {
       clearTimeout(timeout)
-      if (session?.ws === ws) session.ws = null
+      if (session?.ws !== ws) return
+      const closed = session
+      closed.ws = null
+      closed.expiry = setTimeout(() => this.endSession(closed), RESUME_WINDOW_MS)
+      closed.expiry.unref()
     })
+  }
+
+  private endSession(s: Session): void {
+    if (s.expiry) clearTimeout(s.expiry)
+    s.ws?.close(4000)
+    this.sessions.delete(s.id)
   }
 
   private dispatch(session: Session, t: string, d: unknown): void {
@@ -463,7 +463,7 @@ export class DiscordBridge {
     const meSnow = ctx.ids.snowflake(me.id)
     // The guild snowflakes carry their creation time; give them out before anything else names them.
     for (const g of rt.cache.guilds.values()) ctx.ids.snowflake(g.id, g.createdAt)
-    const guilds = [...rt.cache.guilds.keys()].filter(id => inShard(session, rt.cache.guilds.get(id), false))
+    const guilds = [...rt.cache.guilds.keys()].filter(id => this.inShard(session, rt.cache.guilds.get(id)))
     this.dispatch(session, 'READY', {
       v: 10,
       user: {
@@ -486,21 +486,7 @@ export class DiscordBridge {
     })
     for (const id of guilds) {
       const g = shape.guildFull(ctx, id, me.id)
-      if (g) this.dispatch(session, 'GUILD_CREATE', this.withIntents(session, g))
-    }
-  }
-
-  /** Without GUILD_MEMBERS or GUILD_PRESENCES, Discord sends only the bot's own member and no presences. */
-  private withIntents(session: Session, g: Json): Json {
-    const me = this.opts.runtime.user
-    const meSnow = me ? this.opts.ids.snowflake(me.id) : ''
-    return {
-      ...g,
-      members:
-        session.intents & Intents.GUILD_MEMBERS
-          ? g['members']
-          : (g['members'] as { user: { id: string } }[]).filter(m => m.user.id === meSnow),
-      presences: session.intents & Intents.GUILD_PRESENCES ? g['presences'] : [],
+      if (g) this.dispatch(session, 'GUILD_CREATE', guildForIntents(g, session.intents, meSnow))
     }
   }
 
@@ -523,193 +509,30 @@ export class DiscordBridge {
     }
   }
 
-  /** Sends `t` to every session whose intents ask for it. */
-  private broadcast(t: string, d: Json | ((s: Session) => Json | null), intent: number | null): void {
+  /** The session's share of the shard rule (inShards); without IDENTIFY `shard` it gets all. */
+  private inShard(s: Session, scope: Parameters<typeof inShards>[2]): boolean {
+    return !s.shard || inShards([s.shard[0]], s.shard[1], scope)
+  }
+
+  /** Sends `t` to every session whose intents and shard ask for it. */
+  private broadcast(...[t, d, intent]: Parameters<Emit>): void {
     for (const s of this.sessions.values()) {
       if (intent !== null && !(s.intents & intent)) continue
-      const payload = typeof d === 'function' ? d(s) : d
-      if (!payload) continue
-      if (t !== 'USER_UPDATE') {
-        const snow =
-          payload['guild_id'] ??
-          (t === 'GUILD_CREATE' || t === 'GUILD_UPDATE' || t === 'GUILD_DELETE' ? payload['id'] : null)
-        const guildId = typeof snow === 'string' ? this.opts.ids.uuid(snow) : null
-        if (
-          !inShard(s, guildId ? this.opts.runtime.cache.guilds.get(guildId) : null, typeof snow !== 'string')
-        )
-          continue
-      }
-      this.dispatch(s, t, payload)
+      const payload = typeof d === 'function' ? d(s.intents) : d
+      const snow =
+        payload['guild_id'] ??
+        (t === 'GUILD_CREATE' || t === 'GUILD_UPDATE' || t === 'GUILD_DELETE' ? payload['id'] : null)
+      const guildId = typeof snow === 'string' ? this.opts.ids.uuid(snow) : null
+      const scope =
+        t === 'USER_UPDATE'
+          ? undefined
+          : typeof snow !== 'string'
+            ? 'dm'
+            : guildId
+              ? this.opts.runtime.cache.guilds.get(guildId)
+              : undefined
+      if (this.inShard(s, scope)) this.dispatch(s, t, payload)
     }
-  }
-
-  private messageIntent(m: { guildId: string | null }, guild: number, dm: number): number {
-    return m.guildId ? guild : dm
-  }
-
-  /** Discord hides guild message content without MESSAGE_CONTENT, except for mentions of the bot and its own messages. */
-  private messageFor(s: Session, m: BotMessage): Json {
-    const me = this.opts.runtime.user?.id
-    const visible =
-      !m.guildId ||
-      (s.intents & Intents.MESSAGE_CONTENT) !== 0 ||
-      m.author.id === me ||
-      m.mentions.some(x => x.type === 'user' && x.id === me)
-    return shape.message(this.ctx, m, { content: visible })
-  }
-
-  private wireRuntime(): void {
-    const rt = this.opts.runtime
-    const ctx = (): shape.ShapeContext => this.ctx
-    const snow = (id: string): string => this.opts.ids.snowflake(id)
-
-    rt.on('message', m =>
-      this.broadcast(
-        'MESSAGE_CREATE',
-        s => this.messageFor(s, m),
-        this.messageIntent(m, Intents.GUILD_MESSAGES, Intents.DIRECT_MESSAGES),
-      ),
-    )
-    rt.on('messageUpdate', m =>
-      this.broadcast(
-        'MESSAGE_UPDATE',
-        s => this.messageFor(s, m),
-        this.messageIntent(m, Intents.GUILD_MESSAGES, Intents.DIRECT_MESSAGES),
-      ),
-    )
-    rt.on('messageDelete', d =>
-      this.broadcast(
-        'MESSAGE_DELETE',
-        {
-          id: snow(d.id),
-          channel_id: snow(d.channelId),
-          ...(d.guildId ? { guild_id: snow(d.guildId) } : {}),
-        },
-        this.messageIntent(d, Intents.GUILD_MESSAGES, Intents.DIRECT_MESSAGES),
-      ),
-    )
-    rt.on('reaction', r => {
-      const m = r.guildId ? rt.cache.members.get(r.guildId)?.get(r.userId) : undefined
-      this.broadcast(
-        r.remove ? 'MESSAGE_REACTION_REMOVE' : 'MESSAGE_REACTION_ADD',
-        {
-          user_id: snow(r.userId),
-          channel_id: snow(r.channelId),
-          message_id: snow(r.messageId),
-          ...(r.guildId ? { guild_id: snow(r.guildId) } : {}),
-          ...(m && !r.remove ? { member: shape.member(ctx(), m) } : {}),
-          emoji: { id: null, name: r.emoji },
-          burst: false,
-          type: 0,
-        },
-        this.messageIntent(r, Intents.GUILD_MESSAGE_REACTIONS, Intents.DIRECT_MESSAGE_REACTIONS),
-      )
-    })
-
-    rt.on('event', ({ t, d }) => {
-      const c = ctx()
-      const me = rt.user?.id ?? null
-      switch (t) {
-        case 'GUILD_CREATE': {
-          const id = (d as { id: string }).id
-          const g = shape.guildFull(c, id, me)
-          if (g) this.broadcast('GUILD_CREATE', s => this.withIntents(s, g), Intents.GUILDS)
-          return
-        }
-        case 'GUILD_UPDATE': {
-          const g = rt.cache.guilds.get((d as { id: string }).id)
-          if (!g) return
-          const roles = [...(rt.cache.roles.get(g.id)?.values() ?? [])]
-          return this.broadcast(
-            'GUILD_UPDATE',
-            {
-              ...shape.guildBase(c, g),
-              roles: roles.map(r => shape.role(c, r)),
-            },
-            Intents.GUILDS,
-          )
-        }
-        case 'GUILD_DELETE':
-          return this.broadcast('GUILD_DELETE', { id: snow((d as { id: string }).id) }, Intents.GUILDS)
-        case 'CHANNEL_CREATE':
-        case 'CHANNEL_UPDATE':
-        case 'CHANNEL_DELETE': {
-          const ch = shape.channel(c, d as Parameters<typeof shape.channel>[1])
-          if (!ch) return
-          const thread = ch['type'] === 11
-          const name = thread ? t.replace('CHANNEL', 'THREAD') : t
-          return this.broadcast(name, ch, (d as { guildId: string | null }).guildId ? Intents.GUILDS : null)
-        }
-        case 'GUILD_MEMBER_ADD':
-        case 'GUILD_MEMBER_UPDATE': {
-          const m = d as Parameters<typeof shape.member>[1]
-          return this.broadcast(
-            t,
-            { ...shape.member(c, m), guild_id: snow(m.guildId) },
-            Intents.GUILD_MEMBERS,
-          )
-        }
-        case 'GUILD_MEMBER_REMOVE': {
-          const x = d as { guildId: string; user: User }
-          return this.broadcast(
-            t,
-            { guild_id: snow(x.guildId), user: shape.user(c, x.user) },
-            Intents.GUILD_MEMBERS,
-          )
-        }
-        case 'GUILD_ROLE_CREATE':
-        case 'GUILD_ROLE_UPDATE': {
-          const x = d as {
-            guildId: string
-            role: Parameters<typeof shape.role>[1]
-          }
-          return this.broadcast(t, { guild_id: snow(x.guildId), role: shape.role(c, x.role) }, Intents.GUILDS)
-        }
-        case 'GUILD_ROLE_DELETE': {
-          const x = d as { guildId: string; roleId: string }
-          return this.broadcast(t, { guild_id: snow(x.guildId), role_id: snow(x.roleId) }, Intents.GUILDS)
-        }
-        case 'TYPING_START': {
-          const x = d as {
-            channelId: string
-            guildId: string | null
-            userId: string
-            timestamp: string
-          }
-          const m = x.guildId ? rt.cache.members.get(x.guildId)?.get(x.userId) : undefined
-          return this.broadcast(
-            t,
-            {
-              channel_id: snow(x.channelId),
-              ...(x.guildId ? { guild_id: snow(x.guildId) } : {}),
-              user_id: snow(x.userId),
-              timestamp: Math.floor(Date.parse(x.timestamp) / 1000),
-              ...(m ? { member: shape.member(c, m) } : {}),
-            },
-            this.messageIntent(x, Intents.GUILD_MESSAGE_TYPING, Intents.DIRECT_MESSAGE_TYPING),
-          )
-        }
-        case 'PRESENCE_UPDATE': {
-          const x = d as { userId: string; status: string }
-          for (const [guildId, members] of rt.cache.members)
-            if (members.has(x.userId))
-              this.broadcast(
-                t,
-                {
-                  user: { id: snow(x.userId) },
-                  guild_id: snow(guildId),
-                  status: x.status,
-                  activities: [],
-                  client_status: {},
-                },
-                Intents.GUILD_PRESENCES,
-              )
-          return
-        }
-        case 'USER_UPDATE':
-          return this.broadcast(t, { ...shape.user(c, d as User), bot: true }, null)
-      }
-    })
   }
 }
 
