@@ -3,6 +3,7 @@ import { Eye, LoaderCircle, MonitorUp, Volume2, VolumeX } from 'lucide-react'
 import type { VoiceState } from '@hachiman/client'
 import { UserAvatar } from '@/components/shell/user-avatar'
 import { Button } from '@/components/ui/button'
+import { useStageMounted } from '@/components/voice/stream-popout'
 import { VolumeRange } from '@/components/voice/volume-range'
 import { TILE, stageColumns } from '@/components/voice/voice-tile-styles'
 import { useMemberView } from '@/hooks/use-member'
@@ -38,6 +39,7 @@ export function StreamGrid({
   const screens = useVoiceStore((s) => s.screens)
   const watching = useVoiceStore((s) => s.watching)
   const [focused, setFocused] = useState<string | null>(null)
+  useStageMounted()
 
   const live = occupants.flatMap((vs) => {
     if (vs.userId === meId) return localScreen ? [{ userId: vs.userId, stream: localScreen }] : []
