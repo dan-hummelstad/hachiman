@@ -75,8 +75,8 @@ export function JoinServerModal(): React.JSX.Element {
     <ModalWindow
       open={open}
       onClose={dismiss}
-      title="Guild invite"
-      description={fromLine ?? 'You’ve been invited to join a guild'}
+      title="Space invite"
+      description={fromLine ?? 'You’ve been invited to join a space'}
       icon={<Link2 />}
       feature="voice"
       actions={
@@ -134,7 +134,7 @@ export function JoinServerModal(): React.JSX.Element {
         ) : key ? (
           <Callout tone="info" size={callout}>
             This invite includes history. After you join, you can read the earlier messages and
-            pages of the channels that everyone in the guild can see.
+            pages of the channels that everyone in the space can see.
           </Callout>
         ) : (
           <Callout tone="caution" size={callout}>

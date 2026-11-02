@@ -180,7 +180,7 @@ function InviteHistoryNotice({ guildId }: { guildId: string }): React.JSX.Elemen
   return (
     <Notice
       icon={<History />}
-      text={`Hachiman could not open the history of ${guildName ?? 'the guild'} from the invite. You are a member, but you see the earlier messages only when a member shares them.`}
+      text={`Hachiman could not open the history of ${guildName ?? 'the space'} from the invite. You are a member, but you see the earlier messages only when a member shares them.`}
       onDismiss={() => dismissInviteHistoryFailure(guildId)}
     />
   )

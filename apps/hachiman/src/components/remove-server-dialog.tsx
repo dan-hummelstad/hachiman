@@ -35,7 +35,7 @@ export function RemoveServerDialog(): React.JSX.Element {
   // From the latched guild, so the wording holds while the window animates closed.
   const isOwner = myId !== undefined && guild?.ownerId === myId
   const [typed, setTyped] = useState('')
-  const name = guild?.name ?? 'this guild'
+  const name = guild?.name ?? 'this space'
   const guildId = guild?.id
   const channelCount = useChannelStore((s) => {
     let n = 0
@@ -99,12 +99,12 @@ export function RemoveServerDialog(): React.JSX.Element {
           <div className="mobile:gap-3.5 grid gap-3">
             {card}
             <p className={BODY_TEXT}>
-              This deletes the guild, its channels and every message for everyone. You can’t undo
+              This deletes the space, its channels and every message for everyone. You can’t undo
               this.
             </p>
             {mobile ? (
               // No autoFocus: the keyboard rises when the user taps the field (spec §2.8).
-              <MobileField id="confirm-guild-name" label="Type the guild name to confirm">
+              <MobileField id="confirm-guild-name" label="Type the space name to confirm">
                 <Input
                   size="touch"
                   autoComplete="off"
@@ -116,7 +116,7 @@ export function RemoveServerDialog(): React.JSX.Element {
                 />
               </MobileField>
             ) : (
-              <Field id="confirm-guild-name" label="Type the guild name to confirm">
+              <Field id="confirm-guild-name" label="Type the space name to confirm">
                 <Input
                   id="confirm-guild-name"
                   autoComplete="off"
@@ -141,7 +141,7 @@ export function RemoveServerDialog(): React.JSX.Element {
           </>
         )
       }
-      confirmLabel={isOwner ? 'Delete guild' : 'Leave guild'}
+      confirmLabel={isOwner ? 'Delete space' : 'Leave space'}
       what={`${isOwner ? 'delete' : 'leave'} ${name}`}
       tone="danger"
       icon={isOwner ? <Trash2 /> : <LogOut />}

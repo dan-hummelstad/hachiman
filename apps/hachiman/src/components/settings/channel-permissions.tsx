@@ -80,7 +80,7 @@ export function ChannelPermissionsPage({
         : displayName(members?.get(o.id))
   const sublabel = (o: PermissionOverwrite): string =>
     o.id === guildId
-      ? `everyone in ${guildName ?? 'the guild'}`
+      ? `everyone in ${guildName ?? 'the space'}`
       : o.type === 'role'
         ? 'role'
         : 'member'
@@ -365,7 +365,7 @@ const OVERRIDE_CHIP =
 function TriLegend(): React.JSX.Element {
   return (
     <div className="cap-sm py-3 text-[8px] tracking-[0.9px]">
-      Inherit means: whatever the role says guild-wide
+      Inherit means: whatever the role says space-wide
     </div>
   )
 }

@@ -132,7 +132,7 @@ export function GuildOverviewPage({ guild }: { guild: Guild }): React.JSX.Elemen
           onSave={(icon) => hachiman.rest.updateGuild(guild.id, { icon })}
         />
         <div className="grid min-w-0 flex-1 gap-4">
-          <Field id="guild-name-edit" label="Guild name">
+          <Field id="guild-name-edit" label="Space name">
             <Input
               id="guild-name-edit"
               className="h-10"
@@ -144,7 +144,7 @@ export function GuildOverviewPage({ guild }: { guild: Guild }): React.JSX.Elemen
           <Field
             id="guild-region"
             label="Voice region"
-            hint="Where voice for this guild is relayed. Pick the region closest to most members."
+            hint="Where voice for this space is relayed. Pick the region closest to most members."
           >
             <div className="grid [&_[data-slot=native-select-wrapper]]:w-full">
               <RegionSelect
@@ -217,7 +217,7 @@ export function GuildOverviewPage({ guild }: { guild: Guild }): React.JSX.Elemen
           <Field
             id="guild-welcome-channel"
             label="Welcome channel"
-            hint="Shows a line in this channel when someone joins the guild."
+            hint="Shows a line in this channel when someone joins the space."
           >
             <NativeSelect
               id="guild-welcome-channel"

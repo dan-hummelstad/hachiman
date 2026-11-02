@@ -93,7 +93,7 @@ function ItemRow({ item }: { item: MentionItem }): React.JSX.Element {
         <>
           <AtSign className="text-text-tertiary size-4 shrink-0" aria-hidden />
           <span className="text-text-primary font-semibold">@everyone</span>
-          <span className="text-text-tertiary ml-auto text-[12px]">Everyone in the guild</span>
+          <span className="text-text-tertiary ml-auto text-[12px]">Everyone in the space</span>
         </>
       )
     case 'channel':
@@ -266,7 +266,7 @@ function MobileUserRow({
         aside={item.nick ? item.user.username : undefined}
         badge={
           owner ? (
-            <Crown className="text-text-tertiary size-[13px] shrink-0" aria-label="Guild owner" />
+            <Crown className="text-text-tertiary size-[13px] shrink-0" aria-label="Space owner" />
           ) : undefined
         }
         detail={
@@ -312,7 +312,7 @@ function MobileItemRow({
           </span>
           <MobileRowText
             name="@everyone"
-            detail={<span className="text-text-tertiary">Notify everyone in the guild</span>}
+            detail={<span className="text-text-tertiary">Notify everyone in the space</span>}
           />
         </>
       )

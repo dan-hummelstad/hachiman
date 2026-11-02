@@ -99,7 +99,7 @@ export function InviteDialog(): React.JSX.Element {
     >
       {!invite.canCreate ? (
         <p className="text-text-secondary mobile:text-[15px] mobile:leading-[1.5] mobile:font-medium text-sm">
-          You don’t have permission to create invites here. Ask a guild admin for a link.
+          You don’t have permission to create invites here. Ask a space admin for a link.
         </p>
       ) : (
         <>
@@ -237,7 +237,7 @@ function InviteBodyDesktop({ invite }: { invite: InviteDialogState }): React.JSX
     inviteExpiryChoices(isAdmin).find((o) => o.seconds === options.expiry)?.label ?? ''
   const expiryHint =
     options.expiry === 0
-      ? 'This link never expires. Revoke it in Guild settings when you do not need it.'
+      ? 'This link never expires. Revoke it in Space settings when you do not need it.'
       : `This link expires after ${expiryLabel.replace(/^1 /, 'one ')} and can be used ${
           options.maxUses === 0
             ? 'any number of times'

@@ -51,7 +51,8 @@ export function Sidebar({
       )}
     >
       {/* With an inset title bar and the sidebar on the left, the traffic lights sit at the left
-          of this row (trafficLightPosition x 16, y 18), and the controls start after them. */}
+          of this row (trafficLightPosition x 16, y 15: centred on its 44px), and the controls
+          start after them. */}
       <div
         className={cn(
           'flex h-11 shrink-0 items-center gap-2 px-3',

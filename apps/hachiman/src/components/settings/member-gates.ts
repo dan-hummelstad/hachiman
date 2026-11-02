@@ -53,7 +53,7 @@ export function membersLine(total: number, online: number): string {
 export function kickCopy(name: string): { title: string; body: string; what: string } {
   return {
     title: `Kick ${name}?`,
-    body: 'They leave the guild now. They can come back with a new invite.',
+    body: 'They leave the space now. They can come back with a new invite.',
     what: `kick ${name}`
   }
 }

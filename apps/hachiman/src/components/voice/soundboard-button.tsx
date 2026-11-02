@@ -62,7 +62,7 @@ export function SoundboardButton({
         )}
         {sounds.length === 0 ? (
           <p className="text-text-tertiary py-4 text-center text-sm">
-            This guild has no sounds yet.
+            This space has no sounds yet.
           </p>
         ) : (
           <ul className="grid max-h-72 grid-cols-3 gap-1.5 overflow-y-auto">

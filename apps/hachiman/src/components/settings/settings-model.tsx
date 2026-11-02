@@ -401,14 +401,14 @@ function useGuildSettingsModel(guildId: string | null, mobile: boolean): Setting
   const name = guild?.name ?? 'Guild'
   const members = `${memberCount} ${memberCount === 1 ? 'member' : 'members'}`
   return {
-    label: 'Guild settings',
+    label: 'Space settings',
     crumb: name,
     layout: 'tabs',
     navSubtitle: `${name} · ${members}`,
     header: {
       icon: guild ? <GuildTile guild={guild} className="size-9 text-[13px]" /> : NONE,
       name,
-      subtitle: `Guild settings · ${members}`
+      subtitle: `Space settings · ${members}`
     },
     groups: [
       {
@@ -446,7 +446,7 @@ function useGuildSettingsModel(guildId: string | null, mobile: boolean): Setting
             visible: has(perms, Permissions.MANAGE_EXPRESSIONS),
             page: guild && {
               title: 'Emoji',
-              description: `Custom emojis that members of ${name} can use in messages and reactions, here and in other guilds.`,
+              description: `Custom emojis that members of ${name} can use in messages and reactions, here and in other spaces.`,
               wide: true,
               render: () => <GuildEmojisTab guildId={guild.id} />
             }
@@ -505,7 +505,7 @@ function useGuildSettingsModel(guildId: string | null, mobile: boolean): Setting
       }
     ],
     danger: {
-      label: isOwner ? 'Delete guild' : 'Leave guild',
+      label: isOwner ? 'Delete space' : 'Leave space',
       icon: isOwner ? <Trash2 /> : <LogOut />,
       detail: isOwner
         ? `${memberCount > 1 ? `For all ${members}. ` : ''}It can’t be undone.`

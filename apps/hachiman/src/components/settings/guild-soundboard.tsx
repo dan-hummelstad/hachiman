@@ -71,7 +71,7 @@ function UploadForm({ guildId }: { guildId: string }): React.JSX.Element {
       <SectionHeading className="mb-0">Upload a sound</SectionHeading>
       <p className="text-text-tertiary text-xs">
         MP3, OGG or WAV, at most 512 KB and 5 seconds. The sound is end-to-end encrypted: only the
-        members of the guild can play it.
+        members of the space can play it.
       </p>
       <div className="flex flex-wrap items-end gap-3">
         <Field id={`${id}-file`} label="File">

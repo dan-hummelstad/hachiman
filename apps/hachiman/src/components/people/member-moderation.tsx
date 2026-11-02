@@ -149,7 +149,7 @@ export function ModerationDialogs(props: {
         open={open === 'kick'}
         onClose={onClose}
         title={`Kick ${name}?`}
-        body="They leave the guild now. They can come back with a new invite."
+        body="They leave the space now. They can come back with a new invite."
         confirmLabel="Kick"
         what={`kick ${name}`}
         tone="danger"
@@ -166,7 +166,7 @@ export function ModerationDialogs(props: {
         body={
           <div className="grid gap-3">
             <p>
-              They leave the guild now and cannot join again with an invite until you unban them.
+              They leave the space now and cannot join again with an invite until you unban them.
             </p>
             <Field id="ban-reason" label="Reason (optional)">
               <Input

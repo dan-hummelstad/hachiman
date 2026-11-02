@@ -662,7 +662,7 @@ function MobileDmIntroTrust({ user, name }: { user: User; name: string }): React
   return (
     <>
       {(mutual.length > 0 || (shown !== null && shown !== 'verified')) && (
-        <ul aria-label="Mutual guilds and trust" className="flex max-w-full flex-wrap gap-2 pt-1">
+        <ul aria-label="Mutual spaces and trust" className="flex max-w-full flex-wrap gap-2 pt-1">
           {mutual.slice(0, MUTUAL_CHIPS).map((g) => (
             <li key={g.id} className={cn(INTRO_CHIP, MUTUAL_CHIP, 'pr-3 pl-2')}>
               <GuildTile guild={g} className="size-[18px] border-0 text-[7.5px]" />
@@ -672,7 +672,7 @@ function MobileDmIntroTrust({ user, name }: { user: User; name: string }): React
           {more > 0 && (
             <li className={cn(INTRO_CHIP, MUTUAL_CHIP, 'text-text-secondary px-3')}>
               <span aria-hidden>+{more}</span>
-              <span className="sr-only">{more} more mutual guilds</span>
+              <span className="sr-only">{more} more mutual spaces</span>
             </li>
           )}
           {verifyTint && (

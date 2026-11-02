@@ -201,7 +201,7 @@ function MemberRow({
                 {name}
               </span>
               {owner && (
-                <Crown className="text-text-tertiary size-3 shrink-0" aria-label="Guild owner" />
+                <Crown className="text-text-tertiary size-3 shrink-0" aria-label="Space owner" />
               )}
               {me && <SystemTag kind="you" />}
             </span>

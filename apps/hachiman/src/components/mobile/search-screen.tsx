@@ -333,19 +333,19 @@ function GuildChip({ guildId }: { guildId: string | null }): React.JSX.Element |
               name !== undefined ? 'text-here-text' : 'text-text-secondary'
             )}
           >
-            {name ?? 'Any guild'}
+            {name ?? 'Any space'}
           </span>
         </FilterChip>
       </MenuSheetTrigger>
       <MenuSheetContent title="Search in">
         <MenuSheetRadioGroup
-          aria-label="Guild"
+          aria-label="Space"
           value={name !== undefined && guildId !== null ? guildId : ANY_GUILD}
           onValueChange={(v) => setSwitcherFilter({ guildId: v === ANY_GUILD ? null : v })}
         >
           <MenuSheetRadioItem value={ANY_GUILD}>
             <Globe />
-            Any guild
+            Any space
           </MenuSheetRadioItem>
           {ids.map((id) => {
             const g = guilds.get(id)

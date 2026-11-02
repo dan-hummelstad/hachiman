@@ -277,7 +277,7 @@ function GuildRow(): React.JSX.Element {
   return (
     <TileRow
       label="Spaces"
-      add={{ label: 'Create or join a guild', onClick: () => openDialog({ kind: 'addGuild' }) }}
+      add={{ label: 'Create or join a space', onClick: () => openDialog({ kind: 'addGuild' }) }}
       addLit={adding}
       ids={expanded ? ids : row.tiles}
       renderTile={(id) => {
@@ -298,7 +298,7 @@ function GuildRow(): React.JSX.Element {
       cluster={
         row.cluster && (
           <ClusterTile
-            label={expanded ? 'Show fewer guilds' : `${n} more ${n === 1 ? 'guild' : 'guilds'}`}
+            label={expanded ? 'Show fewer spaces' : `${n} more ${n === 1 ? 'space' : 'spaces'}`}
             lit={!expanded && current !== null && row.hidden.includes(current)}
             badge={badge}
             expanded={expanded}

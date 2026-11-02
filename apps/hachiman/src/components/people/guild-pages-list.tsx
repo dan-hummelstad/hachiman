@@ -63,7 +63,7 @@ export function GuildPagesList({
         <div className="flex flex-col gap-3 px-2 py-2">
           {channels.length === 0 && (
             <p className="text-text-tertiary px-2 py-4 text-center text-sm">
-              This guild has no pages channels.
+              This space has no pages channels.
             </p>
           )}
           {channels.length > 0 && sections.length === 0 && (

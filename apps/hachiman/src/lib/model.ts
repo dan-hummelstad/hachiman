@@ -215,7 +215,7 @@ export function inviteLimitsText(
         ? 'One person can join with it.'
         : `Up to ${maxUses} people can join with it.`
   if (expiresAt === null) {
-    return `This link never expires. Revoke it in Guild settings when you do not need it. ${uses}`
+    return `This link never expires. Revoke it in Space settings when you do not need it. ${uses}`
   }
   // In whole minutes, so a link made a moment ago still reads "1 day", not "24 hours".
   const minutes = Math.max(1, Math.round((expiresAt - now) / 60_000))

@@ -520,7 +520,7 @@ export function ResetScreen({
           }
         >
           A reset makes a new security key. Messages from before the reset cannot be read on any
-          device, and your contacts see that your security key changed. Your account and guilds
+          device, and your contacts see that your security key changed. Your account and spaces
           stay.
         </Callout>
         {onRestore && (

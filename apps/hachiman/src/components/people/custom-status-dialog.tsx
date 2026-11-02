@@ -34,7 +34,7 @@ export function CustomStatusDialog({
       open={open}
       onClose={onClose}
       title="Set a status"
-      description="People who share a guild or a DM with you see it next to your name."
+      description="People who share a space or a DM with you see it next to your name."
       icon={<MessageSquareText />}
     >
       {/* Mounted only while open, so the form starts from the current status each time. */}

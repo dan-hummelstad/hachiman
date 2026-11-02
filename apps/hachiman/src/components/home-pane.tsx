@@ -192,7 +192,7 @@ function PeopleResults({
       <Empty>
         {tab === 'online' && visible.length > 0
           ? 'No one is online right now.'
-          : 'Nobody here yet. People you share a guild with show up in this list.'}
+          : 'Nobody here yet. People you share a space with show up in this list.'}
       </Empty>
     )
   if (matches.length === 0) return <Empty>No one matches “{query.trim()}”.</Empty>

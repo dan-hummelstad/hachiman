@@ -54,8 +54,8 @@ export function GuildOverviewMobile({
       <GuildArtwork guild={guild} name={name} />
       <MobileField
         id="guild-name-edit"
-        label="Guild name"
-        hint="Shown in the guild list and on invites."
+        label="Space name"
+        hint="Shown in the space list and on invites."
       >
         <Input
           size="touch"
@@ -99,7 +99,7 @@ export function GuildOverviewMobile({
       <MobileField
         id="guild-welcome-channel"
         label="Welcome channel"
-        hint="Shows a line in this channel when someone joins the guild."
+        hint="Shows a line in this channel when someone joins the space."
       >
         <NativeSelect
           size="touch"
@@ -269,7 +269,7 @@ function ArtworkButton({
           {children}
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent aria-label={`Guild ${noun}`} align="start">
+      <DropdownMenuContent aria-label={`Space ${noun}`} align="start">
         {/* Synchronous in the tap, so iOS opens the picker. */}
         <DropdownMenuItem onSelect={upload.pick}>
           <ImagePlus />

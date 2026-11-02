@@ -101,7 +101,7 @@ export function DmProfileColumn({
               {owner && (
                 <Crown
                   className="text-text-tertiary size-4 shrink-0"
-                  aria-label="Owns a shared guild"
+                  aria-label="Owns a shared space"
                 />
               )}
             </h2>
@@ -130,7 +130,7 @@ export function DmProfileColumn({
 
           {mutual.length > 0 && (
             <section className="flex flex-col gap-1">
-              <h3 className="cap">Mutual guilds · {mutual.length}</h3>
+              <h3 className="cap">Mutual spaces · {mutual.length}</h3>
               <ul className="flex flex-col">
                 {mutual.map((g) => (
                   <li key={g.id}>

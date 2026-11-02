@@ -26,9 +26,9 @@ async function createSignedGuild(body: CreateGuildBody): Promise<GuildFull> {
 type Step = 'choose' | 'create' | 'join'
 
 const TITLES: Record<Step, string> = {
-  choose: 'Add a guild',
-  create: 'Create a guild',
-  join: 'Join a guild'
+  choose: 'Add a space',
+  create: 'Create a space',
+  join: 'Join a space'
 }
 
 /** The Sheet Header subtitle of each step on the mobile layout (M44): one short line. */
@@ -61,7 +61,7 @@ export function AddServerDialog(): React.JSX.Element {
   const submit = async (e: React.FormEvent): Promise<void> => {
     e.preventDefault()
     if (step === 'create') {
-      const created = await run('create the guild', () =>
+      const created = await run('create the space', () =>
         createSignedGuild({ name: value.trim(), region: region || undefined })
       )
       if (!created.ok) return
@@ -98,7 +98,7 @@ export function AddServerDialog(): React.JSX.Element {
             <>
               <span className="cap-sm mr-auto flex items-center gap-1.5 self-center text-[9px] tracking-[1.1px]">
                 <Lock aria-hidden className="text-text-tertiary size-3.5" />
-                Every guild is end-to-end encrypted.
+                Every space is end-to-end encrypted.
               </span>
               <Button variant="quiet" onClick={close}>
                 Cancel
@@ -108,13 +108,13 @@ export function AddServerDialog(): React.JSX.Element {
         }
       >
         <p className="text-text-secondary mobile:text-[15px] mobile:leading-[23px] mobile:font-medium text-sm">
-          A guild is where you and your friends chat and talk. Make your own, or join one you were
+          A space is where you and your friends chat and talk. Make your own, or join one you were
           invited to.
         </p>
         <div className="mobile:gap-2.5 grid gap-3">
           <ChoiceRow
             icon={<Sparkles />}
-            title="Create a guild"
+            title="Create a space"
             hint="Your own place. You’re the owner and set the rules."
             onClick={() => goto('create')}
           />
@@ -128,7 +128,7 @@ export function AddServerDialog(): React.JSX.Element {
         {mobile && (
           <p className="text-text-tertiary flex items-center justify-center gap-1.5 pt-1 text-[13px] leading-4 font-semibold">
             <Lock aria-hidden className="text-text-tertiary size-[13px] shrink-0" />
-            Every guild is end-to-end encrypted.
+            Every space is end-to-end encrypted.
           </p>
         )}
       </ModalWindow>
@@ -162,10 +162,10 @@ export function AddServerDialog(): React.JSX.Element {
             {step === 'create'
               ? busy
                 ? 'Creating…'
-                : 'Create guild'
+                : 'Create space'
               : busy
                 ? 'Joining…'
-                : 'Join guild'}
+                : 'Join space'}
           </Button>
         </>
       }
@@ -175,7 +175,7 @@ export function AddServerDialog(): React.JSX.Element {
           // No autoFocus: the keyboard rises when the user taps a field (spec §2.8).
           step === 'create' ? (
             <>
-              <MobileField id="guild-name" label="Guild name">
+              <MobileField id="guild-name" label="Space name">
                 <Input
                   size="touch"
                   value={value}
@@ -204,7 +204,7 @@ export function AddServerDialog(): React.JSX.Element {
           <>
             {step === 'create' ? (
               <>
-                <Field id="guild-name" label="Guild name">
+                <Field id="guild-name" label="Space name">
                   <Input
                     id="guild-name"
                     value={value}

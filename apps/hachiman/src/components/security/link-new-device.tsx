@@ -189,7 +189,7 @@ function LinkDialog({ title, onBack }: { title: string; onBack: () => void }): R
   if (done) {
     return done.ok ? (
       <StepFrame {...frame} icon={<Check />} feature="event">
-        <p role="status">This device is linked. Hachiman loads your guilds and messages now.</p>
+        <p role="status">This device is linked. Hachiman loads your spaces and messages now.</p>
       </StepFrame>
     ) : (
       <StepFrame
@@ -330,7 +330,7 @@ function LinkScreen({ title, onBack }: { title: string; onBack: () => void }): R
       <StepFrame {...frame} subtitle="Linked" onBack={undefined}>
         <p role="status" className="text-text-primary flex items-center gap-2 font-semibold">
           <Check aria-hidden className="size-[18px]" />
-          This {noun} is linked. Hachiman loads your guilds and messages now.
+          This {noun} is linked. Hachiman loads your spaces and messages now.
         </p>
       </StepFrame>
     ) : (

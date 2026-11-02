@@ -37,8 +37,8 @@ export const PERMISSION_LABELS: readonly PermissionLabel[] = [
   p(
     'general',
     'MANAGE_GUILD',
-    'Manage guild',
-    'Rename the guild, change its voice region and manage invites.'
+    'Manage space',
+    'Rename the space, change its voice region and manage invites.'
   ),
   p(
     'general',
@@ -71,7 +71,7 @@ export const PERMISSION_LABELS: readonly PermissionLabel[] = [
   p('voice', 'MUTE_MEMBERS', 'Mute members', 'Mute others in voice for everyone.'),
   p('voice', 'DEAFEN_MEMBERS', 'Deafen members', 'Deafen others in voice for everyone.'),
   p('voice', 'MOVE_MEMBERS', 'Move members', 'Move others between voice channels.'),
-  p('voice', 'KICK_MEMBERS', 'Kick members', 'Remove members from the guild.'),
+  p('voice', 'KICK_MEMBERS', 'Kick members', 'Remove members from the space.'),
   p('voice', 'BAN_MEMBERS', 'Ban members', 'Remove members and stop them from joining again.')
 ]
 

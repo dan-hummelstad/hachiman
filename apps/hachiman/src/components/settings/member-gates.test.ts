@@ -108,7 +108,7 @@ describe('kickCopy', () => {
   it('names the member in the title and in the error phrase', () => {
     expect(kickCopy('ozzy')).toEqual({
       title: 'Kick ozzy?',
-      body: 'They leave the guild now. They can come back with a new invite.',
+      body: 'They leave the space now. They can come back with a new invite.',
       what: 'kick ozzy'
     })
   })

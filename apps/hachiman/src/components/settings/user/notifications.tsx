@@ -329,7 +329,7 @@ export function NotificationsSection(): React.JSX.Element {
           </MobileCard>
         ) : (
           <p className="text-text-tertiary px-1 py-6 text-center text-sm">
-            Join a guild to choose its notifications.
+            Join a space to choose its notifications.
           </p>
         )}
         <p role={n.error ? 'alert' : undefined} className="contents">
