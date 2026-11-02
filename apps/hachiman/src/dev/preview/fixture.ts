@@ -23,7 +23,8 @@ import { ATT } from './attachments'
 export const user = (id: string, username: string, avatar: string | null = null): User => ({
   id,
   username,
-  avatar
+  avatar,
+  bot: false
 })
 
 export const ME = user('u-me', 'kestrel', avatarKey('kestrel'))

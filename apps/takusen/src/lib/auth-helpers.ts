@@ -7,6 +7,8 @@
  *   2. OIDC access-token Bearer header — sent by the Hachiman desktop /
  *      browser clients, which PKCE-sign-in against our own panva `/api/oidc`
  *      and present the returned `access_token` as `Authorization: Bearer …`.
+ *      A bot token (`hbot_…`, lib/bots.ts) is accepted in the same place,
+ *      as `Bearer` or `Bot`.
  *
  * Both paths return the same Session shape so callers can read
  * `session.user.{id,role,email}` without branching on which auth matched.
@@ -23,6 +25,7 @@ import type { Session } from 'next-auth'
 import { auth } from '@/auth'
 import { db } from '@/db/client'
 import { users } from '@/db/schema'
+import { parseAuthorization, resolveBotToken } from './bots'
 import { getOidcProvider } from './oidc-provider'
 
 export class UnauthorizedError extends Error {
@@ -93,7 +96,7 @@ async function sessionFromBearer(): Promise<Session | null> {
   const expSeconds =
     typeof accessToken.exp === 'number'
       ? accessToken.exp
-      : Math.floor(Date.now() / 1000) + (accessToken.expiration ?? 0)
+      : Math.floor(Date.now() / 1000) + (('expiration' in accessToken ? accessToken.expiration : undefined) ?? 0)
   return {
     user: {
       id: row.id,
@@ -106,26 +109,28 @@ async function sessionFromBearer(): Promise<Session | null> {
   }
 }
 
-/** The live OIDC access token of an `Authorization: Bearer` header, or null. */
+/**
+ * The live access token of an `Authorization` header, or null: an OIDC access
+ * token (`Bearer`), or a bot token (`Bearer` or `Bot`, lib/bots.ts) with the
+ * same `accountId`, `grantId` and `exp` fields.
+ */
 async function findAccessToken(authHeader: string | null) {
-  if (!authHeader) return null
-  const match = /^bearer\s+(.+)$/i.exec(authHeader.trim())
-  if (!match) return null
-  const token = match[1].trim()
-  if (!token) return null
+  const parsed = parseAuthorization(authHeader)
+  if (!parsed) return null
+  if (parsed.bot) return resolveBotToken(parsed.token)
   let provider
   try {
     provider = await getOidcProvider()
   } catch {
     return null
   }
-  return (await provider.AccessToken.find(token)) ?? null
+  return (await provider.AccessToken.find(parsed.token)) ?? null
 }
 
 /**
- * The OIDC grant of the request's bearer token: the credential that a device
- * binding names (lib/mls/device-binding.ts). Null for a cookie session or a
- * token without a grant.
+ * The grant of the request's bearer token: the credential that a device
+ * binding names (lib/mls/device-binding.ts). `bot:<tokenId>` for a bot token.
+ * Null for a cookie session or a token without a grant.
  */
 export async function bearerGrantId(req: Request): Promise<string | null> {
   const token = await findAccessToken(req.headers.get('authorization'))

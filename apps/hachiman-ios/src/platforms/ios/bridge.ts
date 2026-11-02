@@ -42,7 +42,13 @@ export interface BridgeOps {
    */
   fetchLink: [
     { url: string; maxBytes: number },
-    { url: string; contentType: string; body: string } | null,
+    {
+      url: string;
+      contentType: string;
+      body: string;
+      frameOptions: string;
+      csp: string;
+    } | null,
   ];
   /** `background`: a hex color (`#rrggbb` or `#rrggbbaa`) behind the safe areas. */
   setAppearance: [Appearance, null];

@@ -6,7 +6,7 @@
 import { and, desc, eq, exists, ilike, inArray, isNull, or, sql, type SQL, type SQLWrapper } from 'drizzle-orm'
 
 import { db, type Tx } from '@/db/client'
-import { guildMembers, guilds, oidcAdapterPayloads, uploads, users, type User } from '@/db/schema'
+import { bots, guildMembers, guilds, oidcAdapterPayloads, uploads, users, type User } from '@/db/schema'
 import {
   afterCursor,
   assertAdminChange,
@@ -26,7 +26,7 @@ import { deleteGuildRows, membershipChanged, membershipTransaction, MembershipTr
 import { deleteUserOidcRows, liveGrantOf } from '@/lib/session-revocation'
 import { deleteObjects } from '@/lib/storage'
 import { releasePageStorage } from '@/lib/uploads'
-import { toGuild, toUser } from '@/lib/wire'
+import { toGuild, toUser, type UserLike } from '@/lib/wire'
 
 const adminUserColumns = {
   id: users.id,
@@ -34,6 +34,7 @@ const adminUserColumns = {
   displayName: users.displayName,
   name: users.name,
   image: users.image,
+  bot: users.bot,
   role: users.role,
   emailVerified: users.emailVerified,
   emailVerifiedAt: users.emailVerifiedAt,
@@ -143,52 +144,84 @@ export async function updateUser(actorId: string, id: string, input: UpdateUserI
 }
 
 /**
- * Deletes the account. In one transaction: the guilds it owns (as an owner
- * delete), all of its uploads, guild icons/banners that used them, and its
- * OIDC rows; the FK cascades take its memberships, messages, DM participation,
- * invites and devices. Before the user row goes, the DS queues a Remove for
- * every leaf of the user (`user_deleted`, §12.18). After commit: the DS
- * events, GUILD_DELETE per owned guild, GUILD_MEMBER_REMOVE
- * per other guild, GUILD_UPDATE per guild that lost its icon or banner, then
- * the objects (best effort). Its messages in other guilds and its DM channels
- * go without events (contract §4 Admin API, user delete).
+ * Deletes the account. In one transaction: the bots it owns (§4 Bots), then
+ * the account itself (`deleteUserIn`). After commit: `publishUserDeleted` for
+ * each deleted user (contract §4 Admin API, user delete).
  */
 export async function deleteUser(actorId: string, id: string): Promise<void> {
-  const result = await membershipTransaction(async (tx) => {
+  const results = await membershipTransaction(async (tx) => {
     await lockAdmins(tx, actorId)
     const target = await lockTarget(tx, id)
     assertAdminChange(actorId, target.id, 'delete')
-
-    const owned = await tx.select({ id: guilds.id }).from(guilds).where(eq(guilds.ownerId, id))
-    const keys: string[] = []
-    for (const g of owned) keys.push(...(await deleteGuildRows(tx, g.id, null)))
-
-    const memberOf = await tx
-      .select({ guildId: guildMembers.guildId })
-      .from(guildMembers)
-      .where(eq(guildMembers.userId, id))
-    await releasePageStorage(tx, eq(uploads.uploaderId, id))
-    const own = await tx.delete(uploads).where(eq(uploads.uploaderId, id)).returning({ key: uploads.key })
-    const ownKeys = own.map((u) => u.key)
-    keys.push(...ownKeys)
-    const touched =
-      ownKeys.length === 0
-        ? []
-        : await tx
-            .update(guilds)
-            .set({
-              icon: sql`CASE WHEN ${inArray(guilds.icon, ownKeys)} THEN NULL ELSE ${guilds.icon} END`,
-              banner: sql`CASE WHEN ${inArray(guilds.banner, ownKeys)} THEN NULL ELSE ${guilds.banner} END`,
-            })
-            .where(or(inArray(guilds.icon, ownKeys), inArray(guilds.banner, ownKeys)))
-            .returning()
-    await membershipChanged(tx, MembershipTriggers.userDeleted(id), null)
-    await tx.delete(users).where(eq(users.id, id))
-    await deleteUserOidcRows(tx, id)
-    return { target, keys, owned, memberOf, touched }
+    const out: DeletedUser[] = []
+    const owned = await tx
+      .select(adminUserColumns)
+      .from(bots)
+      .innerJoin(users, eq(users.id, bots.userId))
+      .where(eq(bots.ownerId, id))
+      .for('update')
+    for (const bot of owned) out.push(await deleteUserIn(tx, bot))
+    out.push(await deleteUserIn(tx, target))
+    return out
   })
+  for (const r of results) await publishUserDeleted(r)
+}
 
-  const user = toUser(result.target)
+export interface DeletedUser {
+  user: UserLike
+  keys: string[]
+  owned: { id: string }[]
+  memberOf: { guildId: string }[]
+  touched: (typeof guilds.$inferSelect)[]
+}
+
+/**
+ * Deletes one user inside a membership transaction: the guilds it owns (as an
+ * owner delete), all of its uploads, guild icons/banners that used them, and
+ * its OIDC rows; the FK cascades take its memberships, messages, DM
+ * participation, invites, devices and bot rows. Before the user row goes, the
+ * DS queues a Remove for every leaf of the user (`user_deleted`, §12.18).
+ * The caller locks the user row first.
+ */
+export async function deleteUserIn(tx: Tx, target: UserLike): Promise<DeletedUser> {
+  const id = target.id
+  const owned = await tx.select({ id: guilds.id }).from(guilds).where(eq(guilds.ownerId, id))
+  const keys: string[] = []
+  for (const g of owned) keys.push(...(await deleteGuildRows(tx, g.id, null)))
+
+  const memberOf = await tx
+    .select({ guildId: guildMembers.guildId })
+    .from(guildMembers)
+    .where(eq(guildMembers.userId, id))
+  await releasePageStorage(tx, eq(uploads.uploaderId, id))
+  const own = await tx.delete(uploads).where(eq(uploads.uploaderId, id)).returning({ key: uploads.key })
+  const ownKeys = own.map((u) => u.key)
+  keys.push(...ownKeys)
+  const touched =
+    ownKeys.length === 0
+      ? []
+      : await tx
+          .update(guilds)
+          .set({
+            icon: sql`CASE WHEN ${inArray(guilds.icon, ownKeys)} THEN NULL ELSE ${guilds.icon} END`,
+            banner: sql`CASE WHEN ${inArray(guilds.banner, ownKeys)} THEN NULL ELSE ${guilds.banner} END`,
+          })
+          .where(or(inArray(guilds.icon, ownKeys), inArray(guilds.banner, ownKeys)))
+          .returning()
+  await membershipChanged(tx, MembershipTriggers.userDeleted(id), null)
+  await tx.delete(users).where(eq(users.id, id))
+  await deleteUserOidcRows(tx, id)
+  return { user: target, keys, owned, memberOf, touched }
+}
+
+/**
+ * After the commit of `deleteUserIn`: GUILD_DELETE per owned guild,
+ * GUILD_MEMBER_REMOVE per other guild, GUILD_UPDATE per guild that lost its
+ * icon or banner, then the objects (best effort). Its messages in other
+ * guilds and its DM channels go without events.
+ */
+export async function publishUserDeleted(result: DeletedUser): Promise<void> {
+  const user = toUser(result.user)
   await Promise.all([
     ...result.owned.map((g) => publishToGuild(g.id, 'GUILD_DELETE', { id: g.id })),
     ...result.memberOf.map((m) =>

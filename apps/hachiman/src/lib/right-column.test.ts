@@ -14,7 +14,7 @@ const member = (
   roles: string[] = []
 ): Member => ({
   guildId: 'g1',
-  user: { id, username, avatar: null },
+  user: { id, username, avatar: null, bot: false },
   nick,
   roles,
   joinedAt: '2026-10-01T00:00:00Z',

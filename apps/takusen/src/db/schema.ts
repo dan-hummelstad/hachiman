@@ -10,6 +10,7 @@
  *  - docPages, docUpdates, docSnapshots             — pages channels (§3 "Pages tables", schema-pages.ts)
  *  - readStates, channelPins, guildEvents, guildEventRsvps, userBlocks — schema-channel-state.ts
  *  - oidcClients, oidcAdapterPayloads, passwordResetTokens — schema-auth.ts
+ *  - bots, botTokens                                — schema-bots.ts
  *  - the E2EE tables (§3 "E2EE tables", §12): devices and keys, the MLS delivery
  *    service, the device inbox, backups, device linking, key transparency,
  *    signed admin actions and message reports
@@ -44,6 +45,7 @@ export * from './schema-pages'
 export * from './schema-auth'
 export * from './schema-channel-state'
 export * from './schema-push'
+export * from './schema-bots'
 
 // ---------------------------------------------------------------------------
 // Enums
@@ -89,6 +91,8 @@ export const users = pgTable('users', {
   passwordChangedAt: timestamp('password_changed_at', { withTimezone: true, mode: 'date' }),
   displayName: text('display_name').notNull(),
   role: userRoleEnum('role').notNull().default('user'),
+  // A bot account (§4 Bots): no password, owned by a human user through `bots`.
+  bot: boolean('bot').notNull().default(false),
   createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
     .notNull()
     .defaultNow(),

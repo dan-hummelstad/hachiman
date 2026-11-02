@@ -1,5 +1,6 @@
 import {
   AppWindowIcon,
+  BotIcon,
   CastleIcon,
   EarthIcon,
   GaugeIcon,
@@ -53,6 +54,12 @@ export const NAV_GROUPS: NavGroup[] = [
         label: 'Account',
         icon: UserRoundIcon,
         description: 'Change your display name or password.',
+      },
+      {
+        href: '/bots',
+        label: 'Bots',
+        icon: BotIcon,
+        description: 'Create bot accounts and manage their tokens.',
       },
     ],
   },

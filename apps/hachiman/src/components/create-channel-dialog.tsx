@@ -144,9 +144,7 @@ export function CreateChannelDialog(): React.JSX.Element {
               placeholder={CHANNEL_KINDS[type].placeholder}
               disabled={busy}
               lead={
-                isCategory ? undefined : (
-                  <ChannelIcon type={type} className="text-text-tertiary" />
-                )
+                isCategory ? undefined : <ChannelIcon type={type} className="text-text-tertiary" />
               }
             />
           </MobileField>

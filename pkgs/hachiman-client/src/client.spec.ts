@@ -6,8 +6,8 @@ import { fakeDelegate, type FakeDelegate } from './test/fake-rtc'
 import { FakeWebSocket, installFakeWebSocket } from './test/fake-ws'
 import type { Channel, GuildEventWithMe, GuildFull, Member, Message, ReadyPayload, User } from './types'
 
-const me: User = { id: 'me', username: 'me', avatar: null }
-const bob: User = { id: 'bob', username: 'bob', avatar: null }
+const me: User = { id: 'me', username: 'me', avatar: null, bot: false }
+const bob: User = { id: 'bob', username: 'bob', avatar: null, bot: false }
 const member = (user: User, roles: string[] = []): Member => ({
   guildId: 'g',
   user,

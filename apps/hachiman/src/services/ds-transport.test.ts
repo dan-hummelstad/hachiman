@@ -256,7 +256,7 @@ describe('channelReaders', () => {
     publicHistoryVisibility: 'shared',
     welcomeChannelId: null
   }
-  const user = (id: string): User => ({ id, username: id, avatar: null })
+  const user = (id: string): User => ({ id, username: id, avatar: null, bot: false })
   const member = (id: string, roles: string[] = []): Member => ({
     guildId: 'g-1',
     user: user(id),

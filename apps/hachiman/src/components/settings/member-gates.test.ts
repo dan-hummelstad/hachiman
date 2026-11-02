@@ -14,7 +14,7 @@ const GUILD = 'g1'
 function member(id: string, username: string, nick: string | null = null): Member {
   return {
     guildId: GUILD,
-    user: { id, username, avatar: null },
+    user: { id, username, avatar: null, bot: false },
     nick,
     roles: [],
     joinedAt: '2026-01-01T00:00:00Z',

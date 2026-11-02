@@ -1,0 +1,10 @@
+/*
+ * Excalidraw pads its mobile UI by the safe-area insets, as if it filled the screen. Here it sits
+ * between the app's header and footer, which already keep clear of the notch and the home bar.
+ */
+.hachiman-canvas .excalidraw {
+  --sat: 0px;
+  --sab: 0px;
+  --sal: 0px;
+  --sar: 0px;
+}

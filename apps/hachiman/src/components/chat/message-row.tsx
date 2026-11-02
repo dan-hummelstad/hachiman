@@ -24,7 +24,7 @@ import { messageMentionsMe, tokenize, type Token } from '@/lib/mentions'
 import { decryptText } from './decrypt-text'
 import { formatFull, formatTime } from './format'
 import { holdIgnored } from './hold-target'
-import { LinkPreviewCard } from './link-preview-card'
+import { LinkPreviewCard, ViewedLinkPreviewCard } from './link-preview-card'
 import { useMessageActions } from './message-actions'
 import { MessageToolbar } from './message-toolbar'
 import { MessageTokens } from './message-tokens'
@@ -141,9 +141,12 @@ function MessageRow(props: TranscriptRowProps): React.JSX.Element {
       {readable && message.attachments.length > 0 && (
         <MessageAttachments attachments={message.attachments} />
       )}
-      {readable && showsLinkPreview(message.content, message.linkPreview) && (
-        <LinkPreviewCard preview={message.linkPreview} />
-      )}
+      {readable &&
+        (showsLinkPreview(message.content, message.linkPreview) ? (
+          <LinkPreviewCard preview={message.linkPreview} />
+        ) : (
+          <ViewedLinkPreviewCard text={message.content} />
+        ))}
       {readable && pageIds.length > 0 && (
         <div className="flex flex-col items-start gap-1 py-1">
           {pageIds.map((id) => (

@@ -23,6 +23,7 @@ type User struct {
 	ID       string  `json:"id"`
 	Username string  `json:"username"`
 	Avatar   *string `json:"avatar"`
+	Bot      bool    `json:"bot"`
 }
 
 type Guild struct {
@@ -303,7 +304,7 @@ func pgLoader(db *pgxpool.Pool) func(ctx context.Context, userID, onlyGuild stri
 			}
 
 			rows, _ = db.Query(ctx, `
-				SELECT m.guild_id::text, m.nick, m.joined_at, m.mute, m.deaf, u.id::text, `+usernameSQL+`, u.image,
+				SELECT m.guild_id::text, m.nick, m.joined_at, m.mute, m.deaf, u.id::text, `+usernameSQL+`, u.image, u.bot,
 				       COALESCE(array_agg(mr.role_id::text) FILTER (WHERE mr.role_id IS NOT NULL), '{}')
 				FROM guild_members m
 				JOIN users u ON u.id = m.user_id
@@ -313,7 +314,7 @@ func pgLoader(db *pgxpool.Pool) func(ctx context.Context, userID, onlyGuild stri
 			if err := forEach(rows, func() error {
 				var m Member
 				var joined time.Time
-				if err := rows.Scan(&m.GuildID, &m.Nick, &joined, &m.Mute, &m.Deaf, &m.User.ID, &m.User.Username, &m.User.Avatar, &m.Roles); err != nil {
+				if err := rows.Scan(&m.GuildID, &m.Nick, &joined, &m.Mute, &m.Deaf, &m.User.ID, &m.User.Username, &m.User.Avatar, &m.User.Bot, &m.Roles); err != nil {
 					return err
 				}
 				m.JoinedAt = iso(joined)
@@ -368,13 +369,13 @@ func pgLoader(db *pgxpool.Pool) func(ctx context.Context, userID, onlyGuild stri
 		}
 		if len(dmIDs) > 0 {
 			rows, _ = db.Query(ctx, `
-				SELECT p.channel_id::text, u.id::text, `+usernameSQL+`, u.image
+				SELECT p.channel_id::text, u.id::text, `+usernameSQL+`, u.image, u.bot
 				FROM dm_participants p JOIN users u ON u.id = p.user_id
 				WHERE p.channel_id = ANY($1::uuid[]) AND p.user_id <> $2::uuid`, dmIDs, userID)
 			if err := forEach(rows, func() error {
 				var chID string
 				var u User
-				if err := rows.Scan(&chID, &u.ID, &u.Username, &u.Avatar); err != nil {
+				if err := rows.Scan(&chID, &u.ID, &u.Username, &u.Avatar, &u.Bot); err != nil {
 					return err
 				}
 				dms[chID].Recipients = append(dms[chID].Recipients, u)

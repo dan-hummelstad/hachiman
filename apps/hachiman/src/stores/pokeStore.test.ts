@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { usePokeStore } from './pokeStore'
 
-const user = (id: string) => ({ id, username: id, avatar: null })
+const user = (id: string) => ({ id, username: id, avatar: null, bot: false })
 
 describe('pokeStore', () => {
   beforeEach(() => usePokeStore.setState({ toasts: [] }))

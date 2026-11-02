@@ -10,7 +10,6 @@ import { mentionsOf } from '@/lib/mentions'
 import { errMsg } from '@/lib/utils'
 import { cryptoService } from '@/services/CryptoService'
 import { hachiman } from '@/services/client'
-import { linkPreviewFor } from '@/services/link-preview'
 import { createMessageDecryptor } from '@/services/message-decrypt'
 import { sealPushPreviews } from '@/services/PushService'
 import { playSound } from '@/services/SoundService'
@@ -247,15 +246,15 @@ export const messagesService = {
     // The previews seal while the envelope does; they never fail the send (PushService).
     const push = sealPushPreviews(channelId, text, mentions, attachments)
     try {
-      const linkPreview = await linkPreviewFor(text, attachments)
+      // No preview in the envelope: each viewer's device fetches it when the message shows (§12.8.1).
       const body: Omit<MessageContent, 'sentAtMs'> = {
         text,
         mentions,
         attachments,
         replyTo,
-        linkPreview
+        linkPreview: null
       }
-      const ids = uploadIdsOf(attachments, linkPreview)
+      const ids = uploadIdsOf(attachments)
       const sent = await sealAndPost(
         channelId,
         { channelId, kind: 'message', editOf: null, content: body },

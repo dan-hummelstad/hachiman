@@ -9,7 +9,8 @@ import type * as Y from 'yjs'
 import type { DocPeer } from '@/stores/docsStore'
 import type { DocProviderDeps } from './DocProvider'
 
-export const AWARENESS_MS = 100
+/** At most one frame per this; each frame is one encrypt and one gateway send. */
+export const AWARENESS_MS = 200
 export const HEARTBEAT_MS = 15_000
 const REMOTE = 'remote'
 

@@ -2130,8 +2130,12 @@ export interface GroupService extends Pick<CryptoApi, 'sync' | 'ensureChannelGro
    * fork alert; lost state).
    */
   resyncAll(reason: 'dsk_rotated' | 'fork' | 'state_lost'): Promise<void>
-  /** Catches up, commits pending Removes (§12.7.5), then returns the state to encrypt with. */
-  sendState(channelId: ChannelId): Promise<SendState>
+  /**
+   * Catches up, commits pending Removes (§12.7.5), then returns the state to encrypt with. `recent`
+   * (doc_awareness, §12.20): the state of a send younger than RECENT_SEND_MS, when no MLS event came
+   * since, without the catch-up.
+   */
+  sendState(channelId: ChannelId, opts?: { recent?: boolean }): Promise<SendState>
   /** The leaves of the group of a channel after a catch-up. NotMember without an own leaf. */
   channelRoster(channelId: ChannelId): Promise<LeafEntry[]>
   /** S_e of an epoch from the live state, the store, a bundle or a backup. Null when unknown. */
