@@ -6,8 +6,8 @@ export type ViewfinderState = 'idle' | 'live' | 'error'
 
 const STATUS: Record<ViewfinderState, { text: string; label: string; dot: string | null }> = {
   idle: { text: 'Tap to scan', label: 'Scan the code with the camera', dot: null },
-  live: { text: 'Looking for a code', label: 'Stop the camera', dot: 'bg-feature-voice' },
-  error: { text: 'Scan again', label: 'Scan the code again', dot: 'bg-feature-danger' }
+  live: { text: 'Looking for a code', label: 'Stop the camera', dot: 'bg-live' },
+  error: { text: 'Scan again', label: 'Scan the code again', dot: 'bg-you' }
 }
 
 /**
@@ -83,12 +83,12 @@ export function Viewfinder({
           className="absolute top-[102px] left-1/2 flex size-[140px] -translate-x-1/2 items-center justify-center"
         >
           <QrCode strokeWidth={1.5} className="size-16 text-white/30" />
-          <span className="via-accent-text absolute inset-x-1.5 top-[73px] h-0.5 bg-linear-to-r from-transparent to-transparent shadow-[0_0_10px_var(--accent-primary)]" />
+          <span className="via-live-text absolute inset-x-1.5 top-[73px] h-0.5 bg-linear-to-r from-transparent to-transparent shadow-[0_0_10px_var(--live)]" />
         </span>
       )}
       <Aim />
       <span className="pointer-events-none absolute inset-x-0 top-[7px] flex justify-center">
-        <span className="rounded-pill flex h-7 items-center gap-[7px] border border-white/10 bg-[#0e0f15]/85 px-3 text-[12.5px] leading-4 font-bold">
+        <span className="rounded-pill flex h-7 items-center gap-[7px] border border-white/10 bg-[#0e0f15]/85 px-3 text-[12.5px] leading-4 font-semibold">
           {status.dot && <span aria-hidden className={cn('size-[7px] rounded-full', status.dot)} />}
           {status.text}
         </span>

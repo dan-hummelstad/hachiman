@@ -48,18 +48,18 @@ function DmHome({ people }: { people: React.ReactNode }): React.JSX.Element {
       <header className="border-line-hairline flex h-14 shrink-0 items-center gap-2.5 border-b pr-2.5 pl-3.5">
         <span
           aria-hidden
-          className="bg-accent-primary text-text-on-accent flex size-8 shrink-0 items-center justify-center rounded-full"
+          className="bg-surface-raised text-text-secondary flex size-8 shrink-0 items-center justify-center rounded-full"
         >
           <MessageCircle className="size-[17px]" />
         </span>
         <div className="flex min-w-0 flex-1 flex-col gap-px">
           <h1
             id={titleId}
-            className="text-text-primary truncate text-[17px] leading-5 font-extrabold"
+            className="text-text-primary truncate text-[15.5px] leading-5 font-semibold"
           >
             Direct messages
           </h1>
-          <p className="text-text-tertiary truncate text-[12.5px] leading-[15px] font-semibold">
+          <p className="cap-sm truncate leading-[15px]">
             {online.length} online · {conversations}{' '}
             {conversations === 1 ? 'conversation' : 'conversations'}
           </p>
@@ -68,10 +68,7 @@ function DmHome({ people }: { people: React.ReactNode }): React.JSX.Element {
           type="button"
           aria-label="New message"
           onClick={() => setComposing(true)}
-          className={cn(
-            KIT_ICON_BUTTON,
-            'bg-accent-primary text-text-on-accent active:bg-accent-primary/80 [&_svg]:size-[18px]'
-          )}
+          className={cn(KIT_ICON_BUTTON, 'bg-ink text-on-ink active:bg-ink/80 [&_svg]:size-[18px]')}
         >
           <SquarePen />
         </button>
@@ -81,7 +78,7 @@ function DmHome({ people }: { people: React.ReactNode }): React.JSX.Element {
           <button
             type="button"
             onClick={() => openSwitcher('open')}
-            className="rounded-control border-line-strong bg-surface-sunken text-text-tertiary active:bg-surface-hover flex h-10 w-full items-center gap-2.5 border px-3 text-left text-[15px] font-medium outline-none focus-visible:outline-2 focus-visible:outline-line-focus"
+            className="rounded-pill border-line-hairline bg-surface-sunken text-text-tertiary active:bg-surface-hover flex h-[38px] w-full items-center gap-2.5 border px-3 text-left text-[15px] outline-none focus-visible:outline-2 focus-visible:outline-line-focus"
           >
             <Search className="size-4 shrink-0" aria-hidden />
             <span className="truncate">Find or start a conversation</span>
@@ -115,7 +112,7 @@ function PeopleRow({ online, onOpen }: { online: User[]; onOpen: () => void }): 
       className="rounded-control border-surface-hover bg-surface-hover/50 active:bg-surface-hover flex h-[52px] w-full items-center gap-3 border pr-3 pl-3.5 text-left outline-none focus-visible:outline-2 focus-visible:outline-line-focus"
     >
       <Users className="text-text-secondary size-[19px] shrink-0" aria-hidden />
-      <span className="text-text-primary min-w-0 flex-1 truncate text-[15.5px] leading-[19px] font-bold">
+      <span className="text-text-primary min-w-0 flex-1 truncate text-[15.5px] leading-[19px] font-semibold">
         People
       </span>
       {faces.length > 0 && (
@@ -125,7 +122,7 @@ function PeopleRow({ online, onOpen }: { online: User[]; onOpen: () => void }): 
           ))}
         </AvatarRow>
       )}
-      <span className="text-text-tertiary shrink-0 text-[13px] leading-4 font-semibold">
+      <span className="text-text-tertiary shrink-0 text-[13px] leading-4">
         {online.length} online
       </span>
       <ChevronRight className="text-text-disabled size-[17px] shrink-0" aria-hidden />

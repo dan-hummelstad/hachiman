@@ -132,9 +132,9 @@ export function GuildOverviewMobile({
   )
 }
 
-/** The kit's secondary button at 36 (M52 "Change icon"): `--fill-control`, 13.5/700. */
+/** The kit's secondary button at 36 (M52 "Change icon"): a raised pill, 13/600. */
 const CHANGE_BUTTON =
-  'pointer-events-auto h-9 px-3 text-[13.5px] font-bold border-line-strong bg-(--fill-control)'
+  'pointer-events-auto rounded-pill h-9 gap-1.5 border-transparent bg-surface-raised px-3.5 text-[13px] font-semibold text-text-primary active:bg-surface-hover'
 
 function UploadingVeil(): React.JSX.Element {
   return (
@@ -162,7 +162,7 @@ function GuildArtwork({ guild, name }: { guild: Guild; name: string }): React.JS
           upload={banner}
           value={guild.banner}
           noun="banner"
-          className="border-line-hairline h-[104px] w-full border"
+          className="border-line-hairline h-[104px] w-full rounded-[14px] border"
         >
           <Avatar className="bg-surface-raised size-full rounded-none">
             {banner.src && <AvatarImage src={banner.src} alt="" />}
@@ -178,11 +178,11 @@ function GuildArtwork({ guild, name }: { guild: Guild; name: string }): React.JS
             upload={icon}
             value={guild.icon}
             noun="icon"
-            className="ring-surface-content pointer-events-auto size-[72px] shrink-0 rounded-full ring-4"
+            className="ring-surface-content pointer-events-auto size-[72px] shrink-0 rounded-[22px] ring-4"
           >
-            <Avatar className="bg-surface-raised size-full">
+            <Avatar className="bg-avatar-1 size-full rounded-[inherit]">
               {icon.src && <AvatarImage src={icon.src} alt="" />}
-              <AvatarFallback className="bg-surface-raised text-text-primary text-[26px] font-bold">
+              <AvatarFallback className="bg-avatar-1 text-text-secondary font-mono text-[24px] font-semibold">
                 {guildInitials(name.trim() || guild.name)}
               </AvatarFallback>
             </Avatar>
@@ -212,7 +212,7 @@ function GuildArtwork({ guild, name }: { guild: Guild; name: string }): React.JS
       </div>
       <ErrorText>{icon.error}</ErrorText>
       <ErrorText>{banner.error}</ErrorText>
-      <p className="text-text-tertiary text-[12.5px] leading-[1.4] font-medium">
+      <p className="text-text-tertiary text-[12.5px] leading-[1.4]">
         The banner shows above the channel list, cropped to fit.
       </p>
       <input {...icon.input} />

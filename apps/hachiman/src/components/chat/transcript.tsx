@@ -6,7 +6,6 @@ import { useChatCovered } from '@/components/mobile/drawer-state'
 import { useContactTrust } from '@/components/people/use-contact-trust'
 import { useDmStageShown } from '@/components/voice/dm-stage-state'
 import { Skeleton } from '@/components/ui/skeleton'
-import { SystemTag } from '@/components/ui/system-tag'
 import { useLayout } from '@/hooks/use-layout'
 import { highlightRow, jumpStep } from '@/lib/navigation'
 import { cn } from '@/lib/utils'
@@ -191,7 +190,7 @@ export function Transcript({
         className="mobile:touch-pan-y mobile:outline-none flex min-h-0 flex-1 flex-col-reverse overflow-y-auto"
         data-slot="chat-scroll"
       >
-        <div className="flex flex-col pt-4 pb-3">
+        <div className="flex flex-col pt-4 pb-2.5">
           {hasMore === false ? (
             <ChannelIntro channel={channel} empty={messages.length === 0} onUpload={onUpload} />
           ) : (
@@ -223,7 +222,7 @@ export function Transcript({
           type="button"
           onClick={() => jumpToPresent()}
           className={cn(
-            'rounded-pill bg-surface-raised border-line-hairline text-text-primary hover:bg-surface-panel absolute right-5 bottom-3 flex h-8 items-center gap-2 border px-3 text-xs font-semibold shadow-lg shadow-black/20',
+            'rounded-pill bg-surface-raised border-line-strong text-text-primary hover:bg-surface-hover absolute right-5 bottom-3 flex h-8 items-center gap-2 border px-3 font-mono text-[10px] font-medium tracking-[0.8px] uppercase shadow-lg shadow-black/20',
             // A 36 touch target. The footer (typing line, voice bar, composer) sits below.
             'mobile:right-4 mobile:h-9 mobile:px-3.5',
             'focus-visible:outline-line-focus outline-none focus-visible:outline-2'
@@ -334,7 +333,7 @@ function TranscriptSkeleton({ rows }: { rows: number }): React.JSX.Element {
     <div role="status" aria-label="Loading messages" className="flex flex-col gap-5 px-5 py-3">
       {Array.from({ length: rows }, (_, i) => (
         <div key={i} className="flex gap-4">
-          <Skeleton className="size-10 shrink-0 rounded-full" />
+          <Skeleton className="size-9 shrink-0 rounded-[22%]" />
           <div className="flex flex-1 flex-col gap-2 pt-1">
             <Skeleton className="h-3 w-32" />
             <Skeleton className={cn('h-3', i % 2 ? 'w-1/2' : 'w-3/4')} />
@@ -345,17 +344,18 @@ function TranscriptSkeleton({ rows }: { rows: number }): React.JSX.Element {
   )
 }
 
-/** The NEW divider: a coral hairline with the tag on the right, above the first unread row. */
+/** The NEW divider: a `you` rule with the pill on the right, above the first unread row. */
 function NewDivider(): React.JSX.Element {
   return (
     <div
       role="separator"
       aria-label="New messages"
-      className="mt-3 mb-1 flex items-center gap-2 pr-4 pl-5"
+      className="mobile:px-3.5 flex h-[30px] items-center gap-2.5 pr-6 pl-14"
     >
-      {/* A 2px coral wash (B1/B2): a 1px full-strength line reads as a grey rule at 1x. */}
-      <div className="bg-feature-danger/25 h-0.5 flex-1" />
-      <SystemTag kind="new" />
+      <div className="bg-you mobile:h-[1.5px] h-px flex-1" />
+      <span className="bg-you text-on-you rounded-badge mobile:px-1.5 mobile:text-[8px] px-[5px] py-0.5 font-mono text-[8.5px] leading-none font-[700] tracking-[1.2px]">
+        NEW
+      </span>
     </div>
   )
 }
@@ -363,12 +363,15 @@ function NewDivider(): React.JSX.Element {
 /** The date centered on a hairline. */
 function DayDivider({ iso }: { iso: string }): React.JSX.Element {
   return (
-    <div role="separator" className="mt-5 mb-2 flex items-center gap-3 px-5 first:mt-0">
+    <div
+      role="separator"
+      className="mobile:h-[30px] mobile:px-3.5 flex h-[34px] items-center gap-3 pr-6 pl-14"
+    >
       <div className="bg-line-hairline h-px flex-1" />
-      <span className="text-text-tertiary text-meta font-semibold tabular-nums">
+      <span className="text-text-disabled mobile:text-[8px] mobile:tracking-[1.2px] font-mono text-[9px] tracking-[1.4px] uppercase tabular-nums">
         {formatDay(iso)}
       </span>
-      <div className="bg-line-hairline h-px flex-1" />
+      <div className="bg-line-hairline mobile:w-6 h-px w-8" />
     </div>
   )
 }

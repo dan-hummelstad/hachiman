@@ -12,22 +12,22 @@ const LOCK: Record<LockKind, { label: string; status: string; className: string 
   secure: {
     label: 'End-to-end encrypted. Verify the call',
     status: 'End-to-end encrypted',
-    className: 'text-feature-voice-text'
+    className: 'text-text-secondary'
   },
   securing: {
     label: 'Setting up encryption…',
     status: 'Setting up…',
-    className: 'text-feature-event-text'
+    className: 'text-text-tertiary'
   },
   resyncing: {
     label: 'Reconnecting securely…',
     status: 'Reconnecting…',
-    className: 'text-feature-event-text'
+    className: 'text-text-tertiary'
   },
   update_required: {
     label: 'Update required for encrypted calls',
     status: 'Update required',
-    className: 'text-feature-danger-text'
+    className: 'text-you-text'
   }
 }
 
@@ -68,7 +68,7 @@ export function CallSecuritySection(): React.JSX.Element | null {
   return (
     <div className="border-line-hairline mt-3 border-t pt-3">
       <div className="flex items-center justify-between text-sm">
-        <span className="section-label">Encryption</span>
+        <span className="cap">Encryption</span>
         <span className={cn('flex items-center gap-1 text-xs', className)}>
           <LockIcon kind={kind} className="size-3.5" />
           {status}

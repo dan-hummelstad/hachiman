@@ -63,12 +63,15 @@ export function useNativeAppearance(background: string, { base = false } = {}): 
   const platform = usePlatform()
   const theme = useResolvedTheme()
   const id = useId()
+  const darkTheme = usePrefsStore((s) => s.darkTheme)
+  const lightTheme = usePrefsStore((s) => s.lightTheme)
 
+  // darkTheme / lightTheme: a theme switch changes what `background` resolves to.
   useEffect(() => {
     requests.set(id, { background, base })
     last = { platform, theme }
     flush()
-  }, [id, background, base, platform, theme])
+  }, [id, background, base, platform, theme, darkTheme, lightTheme])
 
   useEffect(
     () => () => {

@@ -1,11 +1,11 @@
 import { HeadphoneOff, MicOff } from 'lucide-react'
 import type { VoiceState } from '@hachiman/client'
-import { SystemTag } from '@/components/ui/system-tag'
+import { LivePill } from '@/components/ui/live'
 import { cn } from '@/lib/utils'
 
 /**
  * LIVE / muted / deafened marks for a voice occupant; renders nothing when none apply. A server
- * mute or deafen (§6 "Voice moderation") shows on a red tile instead of the self mark.
+ * mute or deafen (§6 "Voice moderation") shows on a filled tile instead of the self mark.
  */
 export function VoiceStateBadges({
   state,
@@ -17,8 +17,8 @@ export function VoiceStateBadges({
   if (!state.selfMute && !state.selfDeaf && !state.selfStream && !state.mute && !state.deaf)
     return null
   return (
-    <span className={cn('text-feature-danger-text flex shrink-0 items-center gap-1', className)}>
-      {state.selfStream && <SystemTag kind="live" />}
+    <span className={cn('text-text-disabled flex shrink-0 items-center gap-1', className)}>
+      {state.selfStream && <LivePill />}
       {state.mute ? (
         <ServerMark label="Server muted" icon={<MicOff />} />
       ) : (
@@ -33,7 +33,7 @@ export function VoiceStateBadges({
   )
 }
 
-/** A server mute or deafen: white icon on a red tile, so it reads apart from the self mark. */
+/** A server mute or deafen: a filled neutral tile, so it reads apart from the self mark. */
 export function ServerMark({
   label,
   icon
@@ -46,7 +46,7 @@ export function ServerMark({
       role="img"
       aria-label={label}
       title={label}
-      className="bg-feature-danger text-text-on-accent rounded-control inline-flex size-4 shrink-0 items-center justify-center [&_svg]:size-3"
+      className="bg-text-secondary text-surface-panel rounded-badge inline-flex size-4 shrink-0 items-center justify-center [&_svg]:size-3"
     >
       {icon}
     </span>

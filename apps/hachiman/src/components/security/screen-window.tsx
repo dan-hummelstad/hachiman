@@ -1,32 +1,168 @@
-import { useContext, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { ChevronRight, ShieldAlert, ShieldCheck } from 'lucide-react'
 import { MobileFoot } from '@/components/mobile/foot'
 import { NavBar } from '@/components/mobile/nav-bar'
-import { DialogFooter, DialogHeader } from '@/components/ui/dialog'
-import { FEATURE_TILE, type Feature } from '@/components/ui/feature'
+import { DialogFooter, DialogTitle } from '@/components/ui/dialog'
+import type { Feature } from '@/components/ui/feature'
 import { StepScreenContext, useStepLayout } from '@/components/security/onboarding-steps'
 import { useLayout } from '@/hooks/use-layout'
-import { HOME_WALLPAPER } from '@/lib/guild-tint'
 import { cn } from '@/lib/utils'
+import { takusenService } from '@/services/TakusenService'
+
+/** Takusen's landing page sections, in the footer of the entry backdrop. */
+export const FOOTER_LINKS = [
+  { label: 'Help', hash: 'help' },
+  { label: 'Privacy', hash: 'privacy' },
+  { label: 'Status', hash: 'status' }
+] as const
+
+/** Neutral icon tile: entry and system screens carry no hue. */
+export const NEUTRAL_TILE = 'border border-line-strong text-text-secondary bg-transparent'
+
+/** The app mark: 八 (hachi) in inked ground. Decorative. Size comes from the caller. */
+export function AppMark({ className }: { className?: string }): React.JSX.Element {
+  return (
+    <span
+      aria-hidden
+      className={cn(
+        'bg-ink text-on-ink flex shrink-0 items-center justify-center leading-none font-semibold',
+        className
+      )}
+    >
+      八
+    </span>
+  )
+}
 
 /**
- * The window frame with no content (decision 3 of the Arc plan): the wallpaper, an empty sidebar
- * strip and an empty content card. The screens before the shell (encryption start-up, set-up,
- * fatal stops) show their dialog on the scrim over it, never over decrypted content.
+ * Three small squares that pulse: something is running right now (`live`). `quiet` is the grey
+ * form for a wait that no one is working on yet (mobile "waiting").
  */
-export function EmptyWindow({ children }: { children?: React.ReactNode }): React.JSX.Element {
+export function LiveDots({ tone = 'live' }: { tone?: 'live' | 'quiet' }): React.JSX.Element {
+  const fill = tone === 'live' ? 'bg-live' : 'bg-text-tertiary'
   return (
-    <div className="bg-surface-window relative flex min-h-0 w-full flex-1">
-      <div aria-hidden className="hidden w-[280px] shrink-0 p-2.5 sm:block">
-        <div className="bg-surface-hover rounded-control h-8" />
-      </div>
-      <div
-        aria-hidden
-        className="border-line-hairline bg-surface-content mt-2 mr-2 mb-2 ml-2 flex-1 border sm:ml-0"
+    <span aria-hidden className="inline-flex gap-[3px]">
+      <span className={cn('size-1 rounded-[1px] motion-safe:animate-pulse', fill)} />
+      <span
+        className={cn(
+          'size-1 rounded-[1px] opacity-55 motion-safe:animate-pulse [animation-delay:150ms]',
+          fill
+        )}
       />
-      {children}
+      <span
+        className={cn(
+          'size-1 rounded-[1px] opacity-30 motion-safe:animate-pulse [animation-delay:300ms]',
+          fill
+        )}
+      />
+    </span>
+  )
+}
+
+/**
+ * The entry backdrop (Three Questions, 01 Entry): the window colour, a faint 八 behind, the mark
+ * and wordmark top-left, an optional aside top-right and the Takusen links at the foot. The
+ * screens before the shell (sign-in, encryption start-up, set-up, fatal stops) sit on it, never
+ * over decrypted content.
+ */
+export function EmptyWindow({
+  children,
+  aside
+}: {
+  children?: React.ReactNode
+  aside?: React.ReactNode
+}): React.JSX.Element {
+  const origin = takusenService.env.issuerOrigin
+  return (
+    <div className="bg-surface-window relative isolate flex min-h-0 w-full flex-1 flex-col overflow-hidden">
+      <span
+        aria-hidden
+        className="pointer-events-none absolute top-[30%] left-1/2 -z-10 -translate-x-1/2 text-[820px] leading-none font-semibold text-[color-mix(in_oklab,var(--text-primary)_4%,var(--surface-window))] select-none"
+      >
+        八
+      </span>
+      <div className="flex h-[84px] shrink-0 items-center gap-3 px-10">
+        <AppMark className="size-[26px] rounded-[7px] text-[14px]" />
+        <span className="text-text-primary text-[16px] font-semibold tracking-[-0.3px]">
+          Hachiman
+        </span>
+        <span className="flex-1" />
+        {aside}
+      </div>
+      <div className="flex min-h-0 flex-1 items-center justify-center overflow-y-auto p-4">
+        {children}
+      </div>
+      <nav
+        aria-label="Takusen"
+        className="text-text-disabled flex h-10 shrink-0 items-center justify-center gap-2 font-mono text-[9px] tracking-[1.2px] uppercase"
+      >
+        {FOOTER_LINKS.map(({ label, hash }, i) => (
+          <Fragment key={hash}>
+            {i > 0 && <span aria-hidden>·</span>}
+            <a
+              href={`${origin}/#${hash}`}
+              target="_blank"
+              rel="noreferrer"
+              className="hover:text-text-secondary"
+            >
+              {label}
+            </a>
+          </Fragment>
+        ))}
+      </nav>
     </div>
+  )
+}
+
+/**
+ * The card of an entry screen: square, hairline, no shadow. The eyebrow, the title and the sub
+ * line sit on top; `note` is a sunken strip at the foot.
+ */
+export function EntryCard({
+  eyebrow,
+  title,
+  sub,
+  children,
+  note,
+  wide,
+  titleId
+}: {
+  eyebrow: string
+  title: string
+  sub?: string
+  children?: React.ReactNode
+  note?: React.ReactNode
+  wide?: boolean
+  titleId?: string
+}): React.JSX.Element {
+  return (
+    <section
+      aria-labelledby={titleId}
+      className={cn(
+        'border-line-hairline bg-surface-content my-auto w-full border',
+        wide ? 'max-w-[560px]' : 'max-w-[440px]'
+      )}
+    >
+      <div className="px-[34px] pt-[34px] pb-7">
+        <p className="text-text-disabled font-mono text-[9.5px] tracking-[1.6px] uppercase">
+          {eyebrow}
+        </p>
+        <h1
+          id={titleId}
+          className="text-text-primary mt-3 text-[27px] leading-[1.2] font-semibold tracking-[-0.8px]"
+        >
+          {title}
+        </h1>
+        {sub && <p className="text-text-tertiary mt-2.5 text-[14px] leading-[1.55]">{sub}</p>}
+        {children && <div className="mt-6 grid">{children}</div>}
+      </div>
+      {note && (
+        <div className="border-line-hairline bg-surface-sunken border-t px-[34px] pt-[18px] pb-[22px]">
+          {note}
+        </div>
+      )}
+    </section>
   )
 }
 
@@ -43,11 +179,10 @@ export function StepScreen({ children }: { children: React.ReactNode }): React.J
   return (
     <div
       data-slot="step-screen"
-      style={{ backgroundImage: HOME_WALLPAPER }}
-      className="bg-surface-window flex min-h-0 w-full flex-1 flex-col pt-(--safe-top,0px)"
+      className="bg-surface-panel flex min-h-0 w-full flex-1 flex-col pt-(--safe-top,0px)"
     >
       <div ref={setNav} className="shrink-0" />
-      <div className="bg-surface-content border-line-hairline text-text-primary flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto overscroll-contain border-t px-4 pt-4 pb-[calc(16px+var(--safe-bottom,0px))] text-[15px] leading-[1.45] in-data-[keyboard=open]:pb-4 has-[[data-slot=mobile-foot]]:pb-0">
+      <div className="bg-surface-content text-text-tertiary [&_strong]:text-text-primary flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto overscroll-contain px-[22px] pt-6 pb-[calc(16px+var(--safe-bottom,0px))] text-[14px] leading-[1.5] in-data-[keyboard=open]:pb-4 has-[[data-slot=mobile-foot]]:pb-0">
         <StepScreenContext.Provider value={value}>{children}</StepScreenContext.Provider>
       </div>
     </div>
@@ -76,7 +211,7 @@ export function ScreenWindow({
       <StepScreen>
         <StepHeader
           icon={tone === 'danger' ? <ShieldAlert /> : <ShieldCheck />}
-          feature={tone === 'danger' ? 'danger' : 'voice'}
+          feature={tone === 'danger' ? 'danger' : 'event'}
           title={title}
         />
         {children}
@@ -85,31 +220,31 @@ export function ScreenWindow({
   }
   return (
     <EmptyWindow>
-      <div className="bg-surface-scrim absolute inset-0 flex items-center justify-center overflow-y-auto p-4">
-        <section
-          aria-labelledby="screen-window-title"
-          className={cn(
-            'bg-surface-content text-text-primary border-line-hairline shadow-soft my-auto grid w-full gap-4 border px-[22px] pb-[18px]',
-            wide ? 'max-w-[560px]' : 'max-w-[500px]'
-          )}
-        >
-          <header className="flex items-center gap-3 pt-4">
-            <span
-              aria-hidden
-              className={cn(
-                'flex size-9 shrink-0 items-center justify-center [&_svg]:size-[18px]',
-                FEATURE_TILE[tone === 'danger' ? 'danger' : 'voice']
-              )}
-            >
-              {tone === 'danger' ? <ShieldAlert /> : <ShieldCheck />}
-            </span>
-            <h1 id="screen-window-title" className="text-[18px] leading-6 font-extrabold">
-              {title}
-            </h1>
-          </header>
-          {children}
-        </section>
-      </div>
+      <section
+        aria-labelledby="screen-window-title"
+        className={cn(
+          'bg-surface-content text-text-primary border-line-hairline my-auto grid w-full gap-4 border px-[34px] pt-[30px] pb-6',
+          wide ? 'max-w-[560px]' : 'max-w-[440px]'
+        )}
+      >
+        <header className="grid gap-2.5">
+          <p
+            className={cn(
+              'font-mono text-[9.5px] tracking-[1.6px] uppercase',
+              tone === 'danger' ? 'text-you-text' : 'text-text-disabled'
+            )}
+          >
+            {tone === 'danger' ? 'Stopped' : 'Encryption'}
+          </p>
+          <h1
+            id="screen-window-title"
+            className="text-[22px] leading-[1.2] font-semibold tracking-[-0.6px]"
+          >
+            {title}
+          </h1>
+        </header>
+        {children}
+      </section>
     </EmptyWindow>
   )
 }
@@ -118,7 +253,7 @@ export function ScreenWindow({
 export function ScreenActions({ children }: { children: React.ReactNode }): React.JSX.Element {
   if (useStepLayout() === 'screen') return <StepFooter>{children}</StepFooter>
   return (
-    <div className="border-line-hairline -mx-[22px] -mb-[18px] flex justify-end gap-2 border-t px-[22px] py-3.5">
+    <div className="border-line-hairline -mx-[34px] -mb-6 mt-2 flex justify-end gap-2.5 border-t px-[34px] py-4">
       {children}
     </div>
   )
@@ -130,15 +265,14 @@ export function ScreenActions({ children }: { children: React.ReactNode }): Reac
  * Back when `onBack` is set, and `action` on the right. The icon does not show there.
  */
 export function StepHeader({
-  icon,
-  feature = 'accent',
   title,
   subtitle,
   onBack,
   action,
   focusKey
 }: {
-  icon: React.ReactNode
+  /** Kept for the callers; the entry design draws no icon tile. */
+  icon?: React.ReactNode
   feature?: Feature
   title: string
   subtitle?: string
@@ -165,7 +299,18 @@ export function StepHeader({
       />
     )
   }
-  return <DialogHeader icon={icon} feature={feature} title={title} description={subtitle} />
+  return (
+    <header className="grid gap-2.5 pt-1">
+      {subtitle && (
+        <p className="text-text-disabled font-mono text-[9.5px] tracking-[1.5px] uppercase">
+          {subtitle}
+        </p>
+      )}
+      <DialogTitle className="text-text-primary text-[22px] leading-[1.2] font-semibold tracking-[-0.6px]">
+        {title}
+      </DialogTitle>
+    </header>
+  )
 }
 
 /**
@@ -210,7 +355,7 @@ export function StepBody({ children }: { children: React.ReactNode }): React.JSX
     return <div className="flex flex-1 flex-col gap-3">{children}</div>
   }
   return (
-    <div className="-mx-[22px] grid max-h-[65vh] gap-3 overflow-y-auto px-[22px] text-sm">
+    <div className="text-text-tertiary [&_strong]:text-text-primary -mx-[28px] grid max-h-[65vh] gap-3.5 overflow-y-auto px-[28px] text-[13px] leading-[1.55]">
       {children}
     </div>
   )
@@ -223,12 +368,12 @@ export function StepBody({ children }: { children: React.ReactNode }): React.JSX
 export function StepFooter({ children }: { children: React.ReactNode }): React.JSX.Element {
   if (useStepLayout() === 'screen') {
     return (
-      <MobileFoot className="bg-surface-content sticky bottom-0 z-10 -mx-4 mt-auto [&>[data-slot=button]]:h-12 [&>[data-slot=button]]:w-full [&>[data-slot=button]]:text-[15px] [&>[data-slot=button]]:font-extrabold">
+      <MobileFoot className="bg-surface-content border-line-hairline sticky bottom-0 z-10 -mx-[22px] mt-auto border-t [&>[data-slot=button]]:h-12 [&>[data-slot=button]]:w-full [&>[data-slot=button]]:text-[15px] [&>[data-slot=button]]:font-semibold">
         {children}
       </MobileFoot>
     )
   }
-  return <DialogFooter className="sm:items-center">{children}</DialogFooter>
+  return <DialogFooter className="gap-2.5 sm:items-center">{children}</DialogFooter>
 }
 
 /**
@@ -246,7 +391,7 @@ export function StepFrame({
   children,
   footer
 }: {
-  icon: React.ReactNode
+  icon?: React.ReactNode
   feature?: Feature
   title: string
   subtitle?: string
@@ -274,10 +419,10 @@ export function StepFrame({
   )
 }
 
-/** A choice that leads to another step: icon tile in the feature colour, title, hint, chevron. */
+/** A choice that leads to another step: neutral icon box, title, hint, chevron. */
 export function OptionCard({
   icon,
-  feature = 'accent',
+  feature = 'event',
   title,
   hint,
   emphasis,
@@ -285,33 +430,35 @@ export function OptionCard({
   onClick
 }: {
   icon: React.ReactNode
+  /** Only `danger` shows a hue (irreversible, `you`). Every other value is neutral. */
   feature?: Feature
   title: string
   hint: string
-  /** The suggested choice: its border takes the feature colour. */
+  /** The suggested choice: a stronger border and a raised fill. */
   emphasis?: boolean
   disabled?: boolean
   onClick: () => void
 }): React.JSX.Element {
+  const danger = feature === 'danger'
   return (
     <button
       type="button"
       disabled={disabled}
       onClick={onClick}
       className={cn(
-        'rounded-option bg-surface-raised hover:bg-surface-hover focus-visible:outline-line-focus group flex items-center gap-3 border px-3.5 py-3 text-left transition-colors outline-none focus-visible:outline-2 focus-visible:outline-offset-1 disabled:pointer-events-none disabled:opacity-55',
+        'rounded-control hover:bg-surface-hover focus-visible:outline-line-focus group flex items-center gap-3 border bg-transparent px-3.5 py-3 text-left transition-colors outline-none focus-visible:outline-2 focus-visible:outline-offset-1 disabled:pointer-events-none disabled:opacity-55',
         emphasis
-          ? feature === 'danger'
-            ? 'border-feature-danger'
-            : 'border-accent-primary'
+          ? danger
+            ? 'border-you bg-surface-raised'
+            : 'border-line-strong bg-surface-raised'
           : 'border-line-hairline hover:border-line-strong'
       )}
     >
       <span
         aria-hidden
         className={cn(
-          'flex size-11 shrink-0 items-center justify-center [&_svg]:size-5',
-          FEATURE_TILE[feature]
+          'rounded-control flex size-9 shrink-0 items-center justify-center [&_svg]:size-[18px]',
+          danger ? 'border-you text-you border' : NEUTRAL_TILE
         )}
       >
         {icon}
@@ -319,17 +466,17 @@ export function OptionCard({
       <span className="grid min-w-0 flex-1 gap-0.5">
         <span
           className={cn(
-            'text-label',
-            feature === 'danger' ? 'text-feature-danger-text' : 'text-text-primary'
+            'text-[14px] font-semibold',
+            danger ? 'text-you-text' : 'text-text-primary'
           )}
         >
           {title}
         </span>
-        <span className="text-meta text-text-secondary">{hint}</span>
+        <span className="text-text-tertiary text-[12.5px] leading-[1.45]">{hint}</span>
       </span>
       <ChevronRight
         aria-hidden
-        className="text-text-tertiary group-hover:text-text-primary size-4 shrink-0"
+        className="text-text-disabled group-hover:text-text-secondary size-4 shrink-0"
       />
     </button>
   )

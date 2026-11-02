@@ -45,6 +45,12 @@ const publicHistoryHint = (value: HistoryVisibility): string =>
     ? 'New members can read public channels from before they joined. A member’s device sends them the keys.'
     : 'New members see only the messages that come after they join. Channels with their own permissions have their own setting.'
 
+/** The two choices of "Earlier messages in public channels". */
+const HISTORY_CHOICES: readonly { value: HistoryVisibility; label: string }[] = [
+  { value: 'shared', label: 'Show earlier messages' },
+  { value: 'joined', label: 'Hide earlier messages' }
+]
+
 /** The form state of the overview, shared by the desktop page and the phone screen (M52). */
 export interface GuildOverviewForm {
   draft: Draft<GuildOverviewDraft>
@@ -117,81 +123,119 @@ export function GuildOverviewPage({ guild }: { guild: Guild }): React.JSX.Elemen
   }
 
   return (
-    <form onSubmit={save} className="grid gap-5">
-      <div className="grid grid-cols-[auto_minmax(0,1fr)] items-start gap-6">
+    <form onSubmit={save} className="grid gap-6">
+      <div className="flex items-start gap-6">
         <ImageField
           label="Icon"
           value={guild.icon}
           fallback={guildInitials(name || guild.name)}
           onSave={(icon) => hachiman.rest.updateGuild(guild.id, { icon })}
         />
-        <ImageField
-          label="Banner"
-          hint="Shown above the channel list, cropped to fit."
-          value={guild.banner}
-          fallback={<span className="text-meta text-text-tertiary">No banner</span>}
-          wide
-          onSave={(banner) => hachiman.rest.updateGuild(guild.id, { banner })}
-        />
-      </div>
-      <Field id="guild-name-edit" label="Guild name">
-        <Input
-          id="guild-name-edit"
-          className="h-10"
-          value={name}
-          maxLength={100}
-          onChange={(e) => draft.set({ name: e.target.value })}
-        />
-      </Field>
-      <Field
-        id="guild-region"
-        label="Voice region"
-        hint="Where voice for this guild is relayed. Pick the region closest to most members."
-      >
-        <div className="grid [&_[data-slot=native-select-wrapper]]:w-full">
-          <RegionSelect
+        <div className="grid w-[416px] gap-4">
+          <Field id="guild-name-edit" label="Guild name">
+            <Input
+              id="guild-name-edit"
+              className="h-10"
+              value={name}
+              maxLength={100}
+              onChange={(e) => draft.set({ name: e.target.value })}
+            />
+          </Field>
+          <Field
             id="guild-region"
-            value={region}
-            onChange={(next) => draft.set({ region: next })}
+            label="Voice region"
+            hint="Where voice for this guild is relayed. Pick the region closest to most members."
+          >
+            <div className="grid [&_[data-slot=native-select-wrapper]]:w-full">
+              <RegionSelect
+                id="guild-region"
+                value={region}
+                onChange={(next) => draft.set({ region: next })}
+              />
+            </div>
+          </Field>
+        </div>
+        <div className="rounded-control bg-surface-sunken grid w-[300px] gap-3 p-3.5">
+          <span className="cap text-text-tertiary text-[9px] tracking-[1.5px]">Banner</span>
+          <ImageField
+            label="Banner"
+            hint="Shown above the channel list, cropped to fit."
+            value={guild.banner}
+            fallback={<span className="text-meta text-text-tertiary">No banner</span>}
+            wide
+            onSave={(banner) => hachiman.rest.updateGuild(guild.id, { banner })}
           />
         </div>
-      </Field>
-      <Field
-        id="guild-public-history"
-        label="Earlier messages in public channels"
-        hint={form.historyHint}
-      >
-        <NativeSelect
-          id="guild-public-history"
-          className="w-full"
-          value={publicHistoryVisibility}
-          onChange={(e) =>
-            draft.set({ publicHistoryVisibility: e.target.value as HistoryVisibility })
-          }
-        >
-          <option value="shared">Show earlier messages</option>
-          <option value="joined">Hide earlier messages</option>
-        </NativeSelect>
-      </Field>
-      <Field
-        id="guild-welcome-channel"
-        label="Welcome channel"
-        hint="Shows a line in this channel when someone joins the guild."
-      >
-        <NativeSelect
-          id="guild-welcome-channel"
-          className="w-full"
-          value={welcomeChannelId}
-          onChange={(e) => draft.set({ welcomeChannelId: e.target.value })}
-        >
-          <option value="">No welcome messages</option>
-          {textChannels.map((c) => (
-            <option key={c.id} value={c.id}>
-              #{c.name}
-            </option>
-          ))}
-        </NativeSelect>
-      </Field>
+      </div>
+      <div className="bg-line-hairline h-px" />
+      <div className="grid grid-cols-2 gap-[30px]">
+        <div className="grid content-start gap-1">
+          <span id="guild-public-history-label" className="cap text-text-tertiary">
+            Earlier messages in public channels
+          </span>
+          <div role="radiogroup" aria-labelledby="guild-public-history-label" className="grid">
+            {HISTORY_CHOICES.map((c) => {
+              const checked = publicHistoryVisibility === c.value
+              return (
+                <label
+                  key={c.value}
+                  className="flex min-h-[46px] cursor-pointer items-center gap-3 has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-line-focus"
+                >
+                  <input
+                    type="radio"
+                    name="guild-public-history"
+                    className="sr-only"
+                    checked={checked}
+                    onChange={() => draft.set({ publicHistoryVisibility: c.value })}
+                  />
+                  <span
+                    aria-hidden
+                    className="border-line-strong grid size-[17px] shrink-0 place-items-center rounded-full border"
+                  >
+                    {checked && <span className="bg-text-primary size-[9px] rounded-full" />}
+                  </span>
+                  <span className="grid gap-0.5">
+                    <span
+                      className={
+                        checked
+                          ? 'text-text-primary text-[13px] font-semibold'
+                          : 'text-text-secondary text-[13px]'
+                      }
+                    >
+                      {c.label}
+                    </span>
+                    <span className="text-text-disabled text-[11.5px]">
+                      {publicHistoryHint(c.value)}
+                    </span>
+                  </span>
+                </label>
+              )
+            })}
+          </div>
+        </div>
+        <div className="grid content-start gap-1">
+          <span className="cap text-text-tertiary">When somebody arrives</span>
+          <Field
+            id="guild-welcome-channel"
+            label="Welcome channel"
+            hint="Shows a line in this channel when someone joins the guild."
+          >
+            <NativeSelect
+              id="guild-welcome-channel"
+              className="w-full"
+              value={welcomeChannelId}
+              onChange={(e) => draft.set({ welcomeChannelId: e.target.value })}
+            >
+              <option value="">No welcome messages</option>
+              {textChannels.map((c) => (
+                <option key={c.id} value={c.id}>
+                  #{c.name}
+                </option>
+              ))}
+            </NativeSelect>
+          </Field>
+        </div>
+      </div>
       <ErrorText>{error}</ErrorText>
       <SaveBar
         dirty={draft.dirty}

@@ -57,14 +57,14 @@ export function TextSizeSection(): React.JSX.Element {
   return (
     <section aria-labelledby={labelId} className="flex flex-col gap-1.5">
       <SectionLabel id={labelId}>Text size</SectionLabel>
-      <div className="border-line-hairline flex flex-col gap-4 border bg-white/2 p-3.5">
+      <div className="border-line-hairline flex flex-col gap-4 bg-surface-panel p-3.5">
         <div aria-hidden className="flex gap-2.5">
-          <span className="bg-feature-voice text-surface-window flex size-8 shrink-0 items-center justify-center rounded-full">
+          <span className="bg-avatar-2 text-text-secondary flex size-8 shrink-0 items-center justify-center rounded-full">
             <Ghost className="size-[18px]" />
           </span>
           <span className="flex min-w-0 flex-1 flex-col gap-0.5">
             <span className="flex items-baseline gap-1.5">
-              <span className="text-feature-event-text text-[15px] leading-[18px] font-bold">
+              <span className="text-text-primary text-[15px] leading-[18px] font-semibold">
                 marlowe
               </span>
               <span className="text-text-tertiary text-xs font-medium tabular-nums">11:41</span>
@@ -78,7 +78,7 @@ export function TextSizeSection(): React.JSX.Element {
           </span>
         </div>
         <div className="flex items-center gap-5.5" data-swipe-ignore>
-          <span aria-hidden className="text-text-secondary text-[13px] leading-4 font-bold">
+          <span aria-hidden className="text-text-secondary text-[13px] leading-4 font-semibold">
             A
           </span>
           <TouchRange
@@ -94,7 +94,7 @@ export function TextSizeSection(): React.JSX.Element {
             aria-labelledby={labelId}
             aria-valuetext={`${SIZE_NAME[size]}, ${size} points`}
           />
-          <span aria-hidden className="text-text-secondary text-[21px] leading-6 font-bold">
+          <span aria-hidden className="text-text-secondary text-[21px] leading-6 font-semibold">
             A
           </span>
         </div>

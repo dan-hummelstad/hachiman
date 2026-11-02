@@ -5,6 +5,8 @@ import { Button } from '@/components/ui/button'
 import { ErrorText } from '@/components/ui/field'
 import { useAction } from '@/hooks/use-action'
 import { usePermissions } from '@/hooks/use-hachiman'
+import { LiveDot } from '@/components/ui/live'
+import { useChannelOccupants } from '@/hooks/use-hachiman'
 import { ChannelIcon } from '@/lib/channel-icon'
 import { cn } from '@/lib/utils'
 import { eventsService } from '@/services/guild-features'
@@ -32,6 +34,7 @@ export function EventDetails({
   const channelName = useChannelStore((s) =>
     event.channelId !== null ? (s.channels.get(event.channelId)?.name ?? null) : null
   )
+  const voiceLive = useChannelOccupants(event.guildId, event.channelId ?? '').length > 0
   const { run, busy, error } = useAction()
   const [confirmDelete, setConfirmDelete] = useState(false)
   const ongoing = isOngoing(event, now)
@@ -47,13 +50,13 @@ export function EventDetails({
   return (
     <div className="grid gap-3">
       <div className="flex items-start gap-2.5">
-        <span className="bg-feature-event/15 text-feature-event-text rounded-control grid size-8 shrink-0 place-items-center">
+        <span className="bg-surface-raised text-text-tertiary grid size-8 shrink-0 place-items-center rounded-[8px]">
           <CalendarHeart className="size-4" aria-hidden />
         </span>
         <div className="grid min-w-0 gap-0.5">
-          <p className="text-text-primary text-sm leading-5 font-bold break-words">{event.title}</p>
+          <p className="text-text-primary text-[14px] leading-5 font-semibold break-words">{event.title}</p>
           <p className="text-text-secondary text-xs leading-4">
-            {ongoing && <span className="text-feature-event-text font-semibold">Now · </span>}
+            {ongoing && <span className="text-text-primary font-semibold">Now · </span>}
             {fullEventRange(event)}
           </p>
         </div>
@@ -66,10 +69,14 @@ export function EventDetails({
             selectChannel(event.channelId, event.guildId)
             onDone()
           }}
-          className="rounded-control text-feature-voice-text hover:bg-surface-hover flex h-7 items-center gap-2 px-1.5 text-left text-[13px] font-semibold"
+          className={cn(
+            'rounded-control hover:bg-surface-hover flex h-7 items-center gap-2 px-1.5 text-left text-[13px] font-semibold',
+            voiceLive ? 'text-live-text' : 'text-text-secondary'
+          )}
         >
           <ChannelIcon type="voice" className="size-4 shrink-0" aria-hidden />
           <span className="truncate">{channelName}</span>
+          {voiceLive && <LiveDot />}
         </button>
       )}
 
@@ -80,12 +87,12 @@ export function EventDetails({
           aria-pressed={event.me}
           disabled={busy}
           onClick={toggleGoing}
-          className={cn(event.me && 'border-feature-event text-feature-event-text')}
+          className={cn(event.me && 'bg-surface-selected border-line-strong text-text-primary')}
         >
           {event.me && <Check />}
           Going
         </Button>
-        <span className="text-text-tertiary text-xs font-semibold tabular-nums">
+        <span className="text-text-tertiary font-mono text-[9px] tracking-[0.8px] uppercase tabular-nums">
           {event.rsvpCount} going
         </span>
         <span className="flex-1" />

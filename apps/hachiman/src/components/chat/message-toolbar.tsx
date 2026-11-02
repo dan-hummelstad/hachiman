@@ -12,8 +12,9 @@ import { EmojiPicker } from './emoji-picker'
 import { findAction, hasMoreItems, type MessageAction } from './message-actions'
 import { MessageMoreItems } from './message-more-items'
 
-/** Rounded 28px icon buttons with 16px icons. */
-const BUTTON = 'text-text-secondary hover:bg-surface-hover hover:text-text-primary size-7'
+/** 28px icon buttons with 16px icons. */
+const BUTTON =
+  'text-text-tertiary hover:bg-surface-hover hover:text-text-primary rounded-row size-7'
 
 interface MessageToolbarProps {
   /**
@@ -27,8 +28,7 @@ interface MessageToolbarProps {
 }
 
 /**
- * Hover cluster pinned to the top right of a transcript row: a raised square card with rounded
- * icon buttons. Delete is two-step: the first click arms it, the second deletes. The mobile layout
+ * Hover cluster pinned to the top right of a transcript row: a raised card with icon buttons. Delete is two-step: the first click arms it, the second deletes. The mobile layout
  * has no toolbar: a long press opens the action sheet with the same actions.
  */
 export function MessageToolbar({
@@ -55,7 +55,7 @@ export function MessageToolbar({
       role="toolbar"
       aria-label="Message actions"
       className={cn(
-        'bg-surface-raised border-line-hairline flex gap-0.5 border p-1 shadow-lg shadow-black/20',
+        'bg-surface-raised border-line-strong rounded-control flex gap-0.5 border p-0.5 shadow-lg shadow-black/20',
         // Hidden until the row is hovered or something inside it has keyboard focus.
         'pointer-events-none opacity-0 group-hover/row:pointer-events-auto group-hover/row:opacity-100',
         'focus-within:pointer-events-auto focus-within:opacity-100',
@@ -91,11 +91,7 @@ export function MessageToolbar({
           <IconButton
             tone="danger"
             label={armed ? 'Click again to delete' : del.label}
-            className={cn(
-              BUTTON,
-              armed &&
-                'bg-feature-danger hover:bg-feature-danger text-text-on-accent hover:text-text-on-accent'
-            )}
+            className={cn(BUTTON, armed && 'bg-you hover:bg-you text-on-you hover:text-on-you')}
             onClick={() => {
               if (!armed) return setArmed(true)
               setArmed(false)
@@ -107,10 +103,7 @@ export function MessageToolbar({
             <del.icon />
           </IconButton>
           {armed && (
-            <span
-              aria-hidden
-              className="text-feature-danger-text self-center px-1.5 text-xs font-semibold"
-            >
+            <span aria-hidden className="text-you-text self-center px-1.5 text-xs font-semibold">
               Delete?
             </span>
           )}

@@ -1,4 +1,6 @@
 import { LoaderCircle, ShieldCheck } from 'lucide-react'
+import { LivePill } from '@/components/ui/live'
+import { CallTimer } from '@/components/voice-connected-panel'
 import { StreamerName } from '@/components/voice/live-card'
 import { useCallParticipants, useCallSecurity } from '@/components/voice/use-call-security'
 import { useVoiceRegionName } from '@/components/voice/use-voice-region'
@@ -7,6 +9,16 @@ import type { GuildChannel } from '@/lib/model'
 import { cn } from '@/lib/utils'
 import { openDialog } from '@/stores/dialogStore'
 import { useVoiceStore } from '@/stores/voiceStore'
+
+/** The live pill and my call timer: "LIVE 12:04". */
+export function CallClock({ channelId }: { channelId: string }): React.JSX.Element {
+  return (
+    <span className="flex shrink-0 items-center gap-2">
+      <LivePill>LIVE</LivePill>
+      <CallTimer channelId={channelId} />
+    </span>
+  )
+}
 
 /**
  * The meta line of a voice channel's header, after the channel name: "Voice · n in call ·
@@ -22,26 +34,37 @@ export function VoiceHeaderMeta({ channel }: { channel: GuildChannel }): React.J
     ? participants.filter((p) => p.status !== 'leaving').length
     : occupants.length
   const streamer = occupants.find((vs) => vs.selfStream)?.userId ?? null
+  const inCall = useVoiceStore((s) => s.channelId === channel.id)
   return (
-    <span className="text-text-tertiary min-w-0 truncate text-[13px] font-medium">
-      <span className="mobile:hidden">Voice · </span>
-      {count} in call
-      {region && ` · ${region}`}
-      {streamer && (
+    <>
+      {inCall && (
         <>
-          {' · '}
-          <StreamerName guildId={channel.guildId} userId={streamer} />
+          <span className="mobile:hidden flex">
+            <CallClock channelId={channel.id} />
+          </span>
+          <span aria-hidden className="bg-line-hairline mobile:hidden h-4 w-px shrink-0" />
         </>
       )}
-    </span>
+      <span className="text-text-tertiary mobile:font-mono mobile:text-[8px] mobile:tracking-[0.9px] mobile:uppercase mobile:text-text-disabled min-w-0 truncate text-[12.5px]">
+        <span className="mobile:hidden">Voice · </span>
+        {count} in call
+        {region && ` · ${region}`}
+        {streamer && (
+          <>
+            {' · '}
+            <StreamerName guildId={channel.guildId} userId={streamer} />
+          </>
+        )}
+      </span>
+    </>
   )
 }
 
 /**
- * The header action of a voice channel in the own call: the green "Verify call" chip, which opens
- * the verify call dialog. While the call keys are not ready, it is gold and says so. On mobile
+ * The header action of a voice channel in the own call: the neutral "Verify call" chip, which opens
+ * the verify call dialog. While the call keys are not ready, it is quieter and says so. On mobile
  * the label drops "call" ("Verify", "Securing…", M10), and the screen reader still reads it; the
- * chip is a 36 tinted square with no border. Renders nothing outside the own call.
+ * chip is a 36 raised square with no border. Renders nothing outside the own call.
  */
 export function VoiceHeaderExtras({
   channel
@@ -57,12 +80,10 @@ export function VoiceHeaderExtras({
       type="button"
       onClick={() => openDialog({ kind: 'verifyCall' })}
       className={cn(
-        'rounded-control focus-visible:outline-line-focus inline-flex h-8 shrink-0 items-center gap-1.5 border px-3 text-[13px] leading-none font-bold transition-colors outline-none focus-visible:outline-2 focus-visible:outline-offset-1 [&_svg]:size-4 [&_svg]:shrink-0',
-        'mobile:h-9 mobile:gap-[5px] mobile:px-2.5 mobile:font-extrabold mobile:[&_svg]:size-[17px]',
-        'mobile:border-transparent',
-        secure
-          ? 'border-feature-voice/40 bg-feature-voice/10 text-feature-voice-text hover:bg-feature-voice/20 mobile:bg-feature-voice/12 mobile:active:bg-feature-voice/20'
-          : 'border-feature-event/40 bg-feature-event/10 text-feature-event-text hover:bg-feature-event/20 mobile:bg-feature-event/12 mobile:active:bg-feature-event/20'
+        'rounded-control focus-visible:outline-line-focus border-line-strong text-text-secondary hover:bg-surface-hover hover:text-text-primary inline-flex h-8 shrink-0 items-center gap-1.5 border px-3 text-[13px] leading-none font-semibold transition-colors outline-none focus-visible:outline-2 focus-visible:outline-offset-1 [&_svg]:size-4 [&_svg]:shrink-0',
+        'mobile:h-9 mobile:gap-[5px] mobile:px-2.5 mobile:[&_svg]:size-[17px]',
+        'mobile:border-transparent mobile:bg-surface-raised mobile:active:bg-surface-hover',
+        !secure && 'text-text-tertiary'
       )}
     >
       {secure ? <ShieldCheck aria-hidden /> : <LoaderCircle className="animate-spin" aria-hidden />}

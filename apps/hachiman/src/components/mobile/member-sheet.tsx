@@ -18,8 +18,6 @@ import { ErrorText } from '@/components/ui/field'
 import { useAction } from '@/hooks/use-action'
 import { useCopy } from '@/hooks/use-copy'
 import { useMemberView, useOpenDm, usePresence } from '@/hooks/use-member'
-import { ROLE_INK_SCOPE } from '@/lib/role-ink'
-import { cn } from '@/lib/utils'
 import { usePoke } from '@/services/poke'
 import { useIsBlocked, useUserStore } from '@/stores/userStore'
 
@@ -41,7 +39,7 @@ export function MemberSheet({
   open: boolean
   onOpenChange: (open: boolean) => void
 }): React.JSX.Element {
-  const { member, name, ink } = useMemberView(guildId, userId)
+  const { member, name } = useMemberView(guildId, userId)
   const status = usePresence(userId)
   const isMe = useUserStore((s) => s.me?.id === userId)
   const blocked = useIsBlocked(userId)
@@ -64,24 +62,20 @@ export function MemberSheet({
     <>
       <MenuSheet open={open} onOpenChange={onOpenChange}>
         <MenuSheetContent title={name}>
-          <div className={cn('flex min-w-0 items-center gap-3 px-1 pb-3', ROLE_INK_SCOPE)}>
+          <div className="flex min-w-0 items-center gap-3 px-1 pb-3">
             <UserAvatar
               avatar={member?.user.avatar}
               name={name}
-              color={ink}
               size={40}
               status={status}
               cutout="bg-surface-panel"
             />
             <span className="flex min-w-0 flex-col">
-              <span
-                className="text-text-primary truncate text-[16px] leading-5 font-extrabold"
-                style={ink ? { color: ink } : undefined}
-              >
+              <span className="text-text-primary truncate text-[16px] leading-5 font-semibold">
                 {name}
               </span>
               {username && (
-                <span className="text-text-tertiary truncate font-mono text-[13px] leading-4">
+                <span className="text-text-tertiary truncate font-mono text-[11px] leading-4">
                   {username}
                 </span>
               )}

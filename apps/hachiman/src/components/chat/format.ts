@@ -1,5 +1,6 @@
 import type { Member } from '@hachiman/client'
 import type { MembershipEvent } from '@hachiman/crypto'
+import { calendarDaysAgo } from '@/lib/time-format'
 import type { ChatMessage } from '@/stores/messagesStore'
 
 /** Messages from one author within this window merge into one cozy group. */
@@ -10,17 +11,25 @@ const timeFmt = new Intl.DateTimeFormat(undefined, {
   minute: '2-digit',
   hourCycle: 'h23'
 })
-const dayFmt = new Intl.DateTimeFormat(undefined, {
-  weekday: 'long',
-  month: 'long',
-  day: 'numeric',
-  year: 'numeric'
-})
+const weekdayFmt = new Intl.DateTimeFormat(undefined, { weekday: 'long' })
+const monthDayFmt = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' })
 const fullFmt = new Intl.DateTimeFormat(undefined, { dateStyle: 'full', timeStyle: 'short' })
 
 /** `10:42` — 24h, fixed width, the transcript's one time format. */
 export const formatTime = (iso: string): string => timeFmt.format(new Date(iso))
-export const formatDay = (iso: string): string => dayFmt.format(new Date(iso))
+/**
+ * The day divider label: "Today", "Yesterday", else "Friday · Oct 2" (with ", 2025" for another
+ * year). The divider uppercases it with CSS.
+ */
+export function formatDay(iso: string, now: number = Date.now()): string {
+  const ms = Date.parse(iso)
+  const ago = calendarDaysAgo(ms, now)
+  if (ago === 0) return 'Today'
+  if (ago === 1) return 'Yesterday'
+  const date = new Date(ms)
+  const year = date.getFullYear() === new Date(now).getFullYear() ? '' : `, ${date.getFullYear()}`
+  return `${weekdayFmt.format(date)} · ${monthDayFmt.format(date)}${year}`
+}
 export const formatFull = (iso: string): string => fullFmt.format(new Date(iso))
 
 const dayKey = (iso: string): string => new Date(iso).toDateString()

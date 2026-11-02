@@ -12,6 +12,7 @@ import { SegmentedControl, type SegmentedOption } from '@/components/ui/segmente
 import { clampPageColumn, countPageLinks, PAGE_COLUMN_DEFAULT } from '@/lib/right-column'
 import { cn } from '@/lib/utils'
 import { useChannelStore } from '@/stores/channelStore'
+import { useGuildStore } from '@/stores/guildStore'
 import { useDocsStore } from '@/stores/docsStore'
 import { useMessageStore, type ChatMessage } from '@/stores/messagesStore'
 import { navigate } from '@/stores/navStore'
@@ -88,6 +89,7 @@ function GuildColumn({
   const [besideId, setBesideId] = useState<string | null>(null)
   const beside = useChannelStore((s) => (besideId ? s.channels.get(besideId) : undefined))
   const pageCount = usePagesCount(channel)
+  const memberCount = useGuildStore((s) => s.members.get(guildId)?.size ?? 0)
 
   const openBeside = useCallback((channelId: string, pageId: string) => {
     useDocsStore.getState().setOpenPage(channelId, pageId)
@@ -105,8 +107,8 @@ function GuildColumn({
       label: 'Pages',
       icon: <FileText />,
       count: pageCount,
-      // The drawer (M42): the violet page chip, seen on the raised selected segment too.
-      countClassName: drawer ? 'bg-feature-page/20 text-feature-page-text' : undefined
+      // The drawer (M42): a raised chip, seen on the selected segment too.
+      countClassName: drawer ? 'bg-surface-raised text-text-secondary' : undefined
     }
   ]
   const switcher = (
@@ -160,16 +162,23 @@ function GuildColumn({
         <>
           <div
             className={cn(
-              'border-line-hairline flex h-14 shrink-0 items-center border-b',
-              drawer ? 'px-3' : 'px-2'
+              'border-line-hairline flex h-[52px] shrink-0 items-center gap-2 border-b',
+              drawer ? 'mobile:h-11 mobile:border-b-0 px-[18px]' : 'px-4'
             )}
           >
             {hasTabs ? (
               switcher
             ) : (
-              <h2 className="text-text-secondary flex items-center gap-1.5 px-2 text-[13px] font-semibold">
-                <Users className="size-4" aria-hidden />
-                Members
+              <h2 className="flex items-baseline gap-2.5">
+                <span className="cap mobile:hidden text-[9.5px] tracking-[1.3px]">
+                  MEMBERS · {memberCount}
+                </span>
+                <span className="text-text-primary mobile:inline hidden text-[17px] font-semibold tracking-[-0.3px]">
+                  Members
+                </span>
+                <span className="text-text-disabled mobile:inline hidden font-mono text-[10px] tracking-[0.7px]">
+                  {memberCount}
+                </span>
               </h2>
             )}
           </div>
@@ -224,7 +233,7 @@ function ColumnResizeHandle({ width }: { width: number }): React.JSX.Element {
         e.preventDefault()
       }}
     >
-      <div className="group-hover:bg-accent-primary group-focus-visible:bg-accent-primary mx-auto h-full w-0.5 transition-colors" />
+      <div className="group-hover:bg-line-strong group-focus-visible:bg-line-strong mx-auto h-full w-0.5 transition-colors" />
     </div>
   )
 }

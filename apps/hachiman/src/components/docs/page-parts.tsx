@@ -1,7 +1,9 @@
 import { Fragment, Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react'
 import { ChevronRight, FileText, Lock } from 'lucide-react'
+import { LiveDot, LivePill } from '@/components/ui/live'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { hashString } from '@/lib/hash'
 import { cn, errMsg } from '@/lib/utils'
 import { countWords } from '@/lib/word-count'
 import { docsService } from '@/services/docs/DocsService'
@@ -103,7 +105,7 @@ export function Breadcrumb({
                   // A short title ("Q3") or a squeezed step keeps a 36 wide hit area (§2.12).
                   'focus-visible:outline-line-focus min-w-9 truncate text-center outline-none focus-visible:outline-2 focus-visible:-outline-offset-2',
                   last
-                    ? 'text-text-primary font-bold'
+                    ? 'text-text-primary font-semibold'
                     : 'text-text-tertiary active:text-text-primary max-w-28 shrink font-medium'
                 )}
                 aria-current={last ? 'page' : undefined}
@@ -120,17 +122,17 @@ export function Breadcrumb({
   return (
     <nav
       aria-label="Page path"
-      className="flex min-w-0 shrink-0 items-center gap-1 px-16 pt-5 text-[13px] font-semibold"
+      className="flex min-w-0 shrink-0 items-center gap-1 px-16 pt-5 text-[12.5px] font-medium"
     >
       <span className="text-text-tertiary flex max-w-40 min-w-0 shrink items-center gap-1.5">
-        <FileText className="text-feature-page-text size-3.5 shrink-0" aria-hidden />
+        <FileText className="text-text-tertiary size-3.5 shrink-0" aria-hidden />
         <span className="truncate">{channelName}</span>
       </span>
       {path.map((p, i) => {
         const last = i === path.length - 1
         return (
           <Fragment key={p.id}>
-            <ChevronRight className="text-text-tertiary size-3.5 shrink-0" aria-hidden />
+            <ChevronRight className="text-text-disabled size-3.5 shrink-0" aria-hidden />
             {last && current ? (
               current
             ) : (
@@ -139,7 +141,7 @@ export function Breadcrumb({
                 className={cn(
                   'min-w-0 truncate',
                   last
-                    ? 'text-text-primary'
+                    ? 'text-text-primary font-semibold'
                     : 'text-text-tertiary hover:text-text-primary max-w-32 shrink'
                 )}
                 aria-current={last ? 'page' : undefined}
@@ -163,10 +165,37 @@ export function Breadcrumb({
 
 const MAX_AVATARS: Record<PageVariant, number> = { panel: 5, screen: 3 }
 
+/** The neutral avatar of a peer: a shade picked by the user id, the initial in mono. */
+function PeerFace({ peer, className }: { peer: DocPeer; className: string }): React.JSX.Element {
+  const shade = ['bg-avatar-1', 'bg-avatar-2', 'bg-avatar-3'][hashString(peer.userId) % 3]
+  return (
+    <span
+      className={cn(
+        'text-text-secondary ring-live inline-flex items-center justify-center font-mono font-medium ring-2',
+        shade,
+        className
+      )}
+    >
+      <span aria-hidden>{peer.name.slice(0, 1).toUpperCase()}</span>
+    </span>
+  )
+}
+
+/** The remote viewers of a page: one entry per user. */
+function usePageUsers(pageId: string): DocPeer[] {
+  const peers = useDocsStore((s) => s.presence.get(pageId) ?? EMPTY_PEERS)
+  return useMemo(() => {
+    const byUser = new Map<string, DocPeer>()
+    for (const p of peers) if (!byUser.has(p.userId)) byUser.set(p.userId, p)
+    return [...byUser.values()]
+  }, [peers])
+}
+
 /**
- * The remote viewers of the page, one avatar per user, in their cursor color. On the screen the
- * avatars are 26 and overlap by 7 in the nav bar (M38), with at most 3 so the title keeps its
- * room on an iPhone SE; there are no tooltips on touch, so each has its name as its label.
+ * The people who have the page open, one avatar per user in a `live` ring (someone editing a page
+ * is `live`), then a pill with the count. On the screen the avatars are 26 and overlap by 7 in the
+ * nav bar (M38), with at most 3 so the title keeps its room on an iPhone SE; there are no tooltips
+ * on touch, so each has its name as its label.
  */
 export function Presence({
   pageId,
@@ -175,12 +204,7 @@ export function Presence({
   pageId: string
   variant?: PageVariant
 }): React.JSX.Element | null {
-  const peers = useDocsStore((s) => s.presence.get(pageId) ?? EMPTY_PEERS)
-  const users = useMemo(() => {
-    const byUser = new Map<string, DocPeer>()
-    for (const p of peers) if (!byUser.has(p.userId)) byUser.set(p.userId, p)
-    return [...byUser.values()]
-  }, [peers])
+  const users = usePageUsers(pageId)
   if (users.length === 0) return null
   const shown = users.slice(0, MAX_AVATARS[variant])
   const more = users.length - shown.length
@@ -192,18 +216,12 @@ export function Presence({
         className="flex shrink-0 items-center -space-x-[7px]"
       >
         {shown.map((u) => (
-          <span
-            key={u.userId}
-            role="listitem"
-            aria-label={u.name}
-            className="ring-surface-window text-surface-content inline-flex size-[26px] items-center justify-center rounded-full text-[11px] font-bold ring-2"
-            style={{ backgroundColor: u.color }}
-          >
-            <span aria-hidden>{u.name.slice(0, 1).toUpperCase()}</span>
+          <span key={u.userId} role="listitem" aria-label={u.name} className="inline-flex">
+            <PeerFace peer={u} className="size-[26px] rounded-full text-[11px]" />
           </span>
         ))}
         {more > 0 && (
-          <span role="listitem" className="text-text-tertiary pl-2.5 text-xs font-bold">
+          <span role="listitem" className="text-text-tertiary pl-2.5 text-xs font-semibold">
             +{more}
           </span>
         )}
@@ -211,21 +229,40 @@ export function Presence({
     )
   }
   return (
-    <div className="flex shrink-0 items-center -space-x-1 px-1" aria-label="On this page">
-      {shown.map((u) => (
-        <Tooltip key={u.userId}>
-          <TooltipTrigger asChild>
-            <span
-              className="border-surface-content text-surface-content inline-flex size-7 items-center justify-center rounded-full border-2 text-[11px] font-bold"
-              style={{ backgroundColor: u.color }}
-            >
-              {u.name.slice(0, 1).toUpperCase()}
-            </span>
-          </TooltipTrigger>
-          <TooltipContent side="bottom">{u.name}</TooltipContent>
-        </Tooltip>
-      ))}
-      {more > 0 && <span className="text-text-tertiary pl-2.5 text-xs">+{more}</span>}
+    <div className="flex shrink-0 items-center gap-2 px-1" aria-label="On this page">
+      <div className="flex items-center -space-x-2">
+        {shown.map((u) => (
+          <Tooltip key={u.userId}>
+            <TooltipTrigger asChild>
+              <span className="inline-flex">
+                <PeerFace peer={u} className="size-7 rounded-[8px] text-[11px]" />
+              </span>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">{u.name}</TooltipContent>
+          </Tooltip>
+        ))}
+      </div>
+      {more > 0 && <span className="text-text-tertiary text-xs">+{more}</span>}
+      <LivePill>{users.length} HERE</LivePill>
+    </div>
+  )
+}
+
+/** The phone's "Editing now" line: a `live` note of who has the page open. Nothing while alone. */
+export function PageLiveLine({ pageId }: { pageId: string }): React.JSX.Element | null {
+  const users = usePageUsers(pageId)
+  if (users.length === 0) return null
+  const text =
+    users.length === 1
+      ? `${users[0].name} has this page open`
+      : `${users[0].name} and ${users.length - 1} ${users.length === 2 ? 'other' : 'others'} have this page open`
+  return (
+    <div
+      role="status"
+      className="border-live-line bg-live-tint mx-[18px] mt-3 flex items-center gap-[9px] rounded-[10px] border px-3 py-[9px]"
+    >
+      <LiveDot className="size-[7px]" />
+      <span className="text-live-text min-w-0 truncate text-[12px] font-medium">{text}</span>
     </div>
   )
 }
@@ -413,12 +450,12 @@ export function OpenPage({
 const WORD_COUNT_DELAY_MS = 1000
 
 /** The footer line of each page status. OpenPage shows the footer only for 'ready' and 'offline'. */
-const FOOTER: Record<DocStatus, { label: string; live: boolean }> = {
-  ready: { label: 'Saved', live: true },
-  offline: { label: 'Offline', live: false },
-  loading: { label: 'Loading', live: false },
-  waiting: { label: 'Waiting for a member', live: false },
-  error: { label: 'Cannot be read', live: false }
+const FOOTER: Record<DocStatus, { label: string; waiting: boolean }> = {
+  ready: { label: 'Saved', waiting: false },
+  offline: { label: 'Offline', waiting: true },
+  loading: { label: 'Loading', waiting: false },
+  waiting: { label: 'Waiting for a member', waiting: false },
+  error: { label: 'Cannot be read', waiting: false }
 }
 
 /**
@@ -437,21 +474,22 @@ export function PageFooter({
   variant?: PageVariant
 }): React.JSX.Element {
   const words = useWordCount(handle)
-  const { label, live } = FOOTER[status]
+  const { label, waiting } = FOOTER[status]
   const screen = variant === 'screen'
   return (
     <footer
       className={cn(
         'border-line-hairline flex shrink-0 items-center border-t px-4',
         screen
-          ? 'h-[34px] gap-1.5 text-[12.5px] leading-[15px] font-bold'
-          : 'h-10 gap-2 text-xs font-semibold'
+          ? 'h-[34px] gap-1.5 text-[12.5px] leading-[15px] font-medium'
+          : 'h-10 gap-2 text-xs font-medium'
       )}
     >
       <span
         className={cn(
           'flex min-w-0 items-center gap-1.5',
-          live ? 'text-feature-voice-text' : 'text-text-tertiary'
+          // Offline: the edits wait on you.
+          waiting ? 'text-you-text' : 'text-text-tertiary'
         )}
       >
         <Lock className={cn('shrink-0', screen ? 'size-[13px]' : 'size-3.5')} aria-hidden />
@@ -459,7 +497,12 @@ export function PageFooter({
       </span>
       <span className="flex-1" />
       {words !== null && (
-        <span className={cn('text-text-tertiary shrink-0 tabular-nums', screen && 'font-medium')}>
+        <span
+          className={cn(
+            'text-text-disabled shrink-0 font-mono text-[9px] tracking-[0.8px] uppercase tabular-nums',
+            screen && 'font-medium'
+          )}
+        >
           {words} {words === 1 ? 'word' : 'words'}
         </span>
       )}

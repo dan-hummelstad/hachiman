@@ -1,6 +1,5 @@
 import { MonitorSmartphone } from 'lucide-react'
 import type { DevicePlatform } from '@hachiman/crypto'
-import { FEATURE_TILE } from '@/components/ui/feature'
 import { PLATFORM_ICON } from '@/lib/device-platform'
 import { cn } from '@/lib/utils'
 
@@ -28,8 +27,8 @@ export function DeviceGlyph({
 export type DeviceTileTone = 'accent' | 'event' | 'neutral'
 
 /**
- * The colour of a device tile (M24, M25): this device in accent, a browser in gold (it runs the
- * code that the server sends, spec D2), any other device grey.
+ * The tone of a device tile. The tones keep their names, but every tile is neutral now: a device
+ * is not an answer to one of the three questions.
  */
 // eslint-disable-next-line react-refresh/only-export-components
 export function deviceTileTone(device: {
@@ -41,9 +40,9 @@ export function deviceTileTone(device: {
 }
 
 const TONE: Record<DeviceTileTone, string> = {
-  accent: FEATURE_TILE.accent,
-  event: FEATURE_TILE.event,
-  neutral: 'bg-surface-hover text-text-secondary'
+  accent: 'bg-surface-raised text-text-secondary',
+  event: 'bg-surface-raised text-text-secondary',
+  neutral: 'bg-surface-raised text-text-secondary'
 }
 
 /**
@@ -65,7 +64,7 @@ export function DeviceTile({
       aria-hidden
       data-slot="device-tile"
       className={cn(
-        'flex size-10 shrink-0 items-center justify-center [&_svg]:size-[19px]',
+        'flex size-10 shrink-0 items-center justify-center rounded-[10px] [&_svg]:size-[19px]',
         TONE[deviceTileTone({ platform, current })],
         className
       )}

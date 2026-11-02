@@ -56,7 +56,7 @@ export function RemoveServerDialog(): React.JSX.Element {
     >
       <GuildTile guild={guild} />
       <span className="mobile:gap-0.5 grid min-w-0">
-        <span className="text-label mobile:text-[15.5px] mobile:leading-[19px] mobile:font-extrabold truncate">
+        <span className="text-label mobile:text-[15.5px] mobile:leading-[19px] mobile:font-semibold truncate">
           {guild.name}
         </span>
         <span className="text-meta text-text-tertiary mobile:text-[13px] mobile:leading-4 mobile:font-medium truncate">

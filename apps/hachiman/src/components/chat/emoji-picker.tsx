@@ -371,7 +371,7 @@ function PickerPanel({
                 aria-label={s.label}
                 className="[content-visibility:auto]"
               >
-                <h3 className="bg-surface-raised text-text-tertiary sticky top-0 z-[1] px-3 pt-2 pb-1 text-[11px] font-extrabold tracking-[0.4px] uppercase">
+                <h3 className="bg-surface-raised cap sticky top-0 z-[1] px-3 pt-2 pb-1">
                   {s.label}
                 </h3>
                 {grid(s.cells)}

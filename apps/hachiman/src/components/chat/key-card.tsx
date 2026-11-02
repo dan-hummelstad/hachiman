@@ -4,7 +4,7 @@ import { formatDayMonth } from '@/lib/time-format'
 
 /**
  * The key card of a verified contact in the mobile DM intro (M57): "Verified 2 Oct" and the
- * explainer, on a green wash. The fingerprint of the mock waits for the contact key fingerprint
+ * explainer, on a raised card. The fingerprint of the mock waits for the contact key fingerprint
  * (docs/ios-mobile-ui-spec.md §5).
  */
 export function KeyCard({
@@ -19,13 +19,13 @@ export function KeyCard({
   return (
     <section
       aria-label="Security key"
-      className="border-feature-voice/22 bg-feature-voice/5 flex flex-col gap-2 border px-3.5 py-[17px]"
+      className="border-line-strong bg-surface-raised rounded-option flex flex-col gap-2 border px-3.5 py-[17px]"
     >
-      <p className="text-feature-voice-text flex items-center gap-1.5 text-[14px] leading-[18px] font-extrabold">
+      <p className="text-text-primary flex items-center gap-1.5 text-[14px] leading-[18px] font-semibold">
         <ShieldCheck className="size-4 shrink-0" aria-hidden />
         {day ? `Verified ${day}` : 'Verified'}
       </p>
-      <p className="text-text-secondary text-[13px] leading-[1.45] font-medium">
+      <p className="text-text-secondary text-[13px] leading-[1.45]">
         {securityText({ name, state: 'verified', verifiedOn: day, error: null })}
       </p>
     </section>

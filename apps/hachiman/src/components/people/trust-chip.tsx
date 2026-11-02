@@ -16,13 +16,13 @@ import {
 } from './trust-look'
 
 const SIZE = {
-  sm: 'h-[22px] gap-1 px-2 text-[11.5px] [&_svg]:size-3.5',
+  sm: 'rounded-badge h-[18px] gap-1 px-1.5 font-mono text-[8.5px] tracking-[0.8px] uppercase [&_svg]:size-3',
   md: 'rounded-control h-8 gap-1.5 px-2.5 text-[13px] leading-none [&_svg]:size-4'
 } as const
 
 /**
  * The trust state of a contact as a chip. With `onClick` it is a button. `keyChange` is the
- * severity of a pending key change (`useMobileKeyChange`): a notice change looks gold.
+ * severity of a pending key change (`useMobileKeyChange`): a notice change looks like "Not verified".
  */
 export function TrustChip({
   state,
@@ -39,7 +39,7 @@ export function TrustChip({
 }): React.JSX.Element {
   const look = lookFor(state, keyChange)
   const classes = cn(
-    'inline-flex shrink-0 items-center font-bold',
+    'inline-flex shrink-0 items-center font-semibold',
     SIZE[size],
     look.chip,
     onClick &&
@@ -62,9 +62,9 @@ export function TrustChip({
 }
 
 /**
- * The severity of the pending key change of `userId` on the mobile layout, else null. The gold
+ * The severity of the pending key change of `userId` on the mobile layout, else null. The
  * "Not verified" look of a notice change is mobile only for now (docs/ios-mobile-ui-spec.md 6.1,
- * decision 3), so the desktop keeps red "Key changed".
+ * decision 3), so the desktop keeps "Key changed".
  */
 // eslint-disable-next-line react-refresh/only-export-components -- the DM intro and profile use it.
 export function useMobileKeyChange(userId: string | undefined): KeyChangeSeverity | null {
@@ -75,15 +75,15 @@ export function useMobileKeyChange(userId: string | undefined): KeyChangeSeverit
   return mobile ? severity : null
 }
 
-/** The fill and icon colour of the trust button per shown state (M7 gold, M57 green). */
+/** The fill and icon colour of the trust button per shown state (neutral except a changed key). */
 const BUTTON_TINT: Record<SenderTrust, string> = {
-  verified: 'bg-feature-voice/12 text-feature-voice',
-  tofu: 'bg-feature-event/10 text-feature-event',
-  changed: 'bg-feature-danger/12 text-feature-danger',
+  verified: 'text-text-primary',
+  tofu: 'text-text-secondary',
+  changed: 'bg-you-tint text-you-text',
   unknown: 'text-text-tertiary'
 }
 
-/** M7 draws the gold "Not verified" shield with "!", not the "?" of the chip. */
+/** M7 draws the "Not verified" shield with "!", not the "?" of the chip. */
 const BUTTON_ICON: Partial<Record<SenderTrust, LucideIcon>> = { tofu: ShieldAlert }
 
 /**

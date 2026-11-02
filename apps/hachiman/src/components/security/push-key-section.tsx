@@ -1,9 +1,9 @@
 import { useId, useState } from 'react'
 import { BellRing } from 'lucide-react'
-import { SectionLabel } from '@/components/mobile/list'
+import { MobileCap, SettingsCap } from '@/components/settings/user/rows'
 import { Button } from '@/components/ui/button'
-import { SectionHeading } from '@/components/ui/field'
 import { useLayout } from '@/hooks/use-layout'
+import { cn } from '@/lib/utils'
 import { hasPushKey, regeneratePushKey } from '@/services/PushService'
 import { usePrefsStore } from '@/stores/prefsStore'
 
@@ -49,13 +49,11 @@ export function PushKeySection(): React.JSX.Element | null {
       className={mobile ? 'flex flex-col gap-1.5 pt-4' : 'grid gap-2 pt-6'}
     >
       {mobile ? (
-        <SectionLabel id={labelId}>Push key</SectionLabel>
+        <MobileCap id={labelId}>Push key</MobileCap>
       ) : (
-        <SectionHeading className="mb-0">
-          <span id={labelId}>Push key</span>
-        </SectionHeading>
+        <SettingsCap id={labelId}>Push key</SettingsCap>
       )}
-      <p className={mobile ? 'text-meta text-text-tertiary px-1' : 'text-meta text-text-tertiary'}>
+      <p className={mobile ? 'text-[12.5px] text-text-tertiary px-1' : 'text-[12.5px] text-text-tertiary'}>
         {ABOUT}
       </p>
       <div className={mobile ? 'pt-1' : 'flex flex-wrap items-center gap-3'}>
@@ -70,7 +68,10 @@ export function PushKeySection(): React.JSX.Element | null {
         {status && (
           <p
             role={state === 'done' ? 'status' : 'alert'}
-            className="text-meta text-text-secondary pt-1"
+            className={cn(
+              'pt-1 text-[12.5px]',
+              state === 'done' ? 'text-text-secondary' : 'text-you-text'
+            )}
           >
             {status}
           </p>

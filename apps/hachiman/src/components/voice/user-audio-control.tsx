@@ -17,7 +17,7 @@ export function UserAudioControl({ userId }: { userId: string }): React.JSX.Elem
   const percent = Math.round(audio.volume * 100)
   return (
     <div className="border-line-hairline flex flex-col gap-2 border-t pt-3">
-      <span className="section-label">User volume</span>
+      <span className="cap">User volume</span>
       <div className="flex items-center gap-2">
         <Volume2 aria-hidden className="text-text-tertiary size-4 shrink-0" />
         <VolumeRange

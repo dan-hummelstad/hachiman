@@ -1,22 +1,30 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
-import { AudioLines, Headphones, Mic, Square } from 'lucide-react'
+import { AudioLines, Headphones, Mic } from 'lucide-react'
 import { MobileField } from '@/components/mobile/field'
-import { ListGroup, ListRow, SectionLabel } from '@/components/mobile/list'
+import { ListRow } from '@/components/mobile/list'
 import { Button } from '@/components/ui/button'
-import { ErrorText, SectionHeading } from '@/components/ui/field'
+import { ErrorText } from '@/components/ui/field'
 import { Keycap } from '@/components/ui/keycap'
 import { NativeSelect } from '@/components/ui/native-select'
-import { SegmentedControl } from '@/components/ui/segmented-control'
-import { Switch } from '@/components/ui/switch'
+import {
+  FieldBlock,
+  MobileCap,
+  MobileCard,
+  RangeInput,
+  SelectRow,
+  SettingsCap,
+  SettingsRule,
+  ToggleRow
+} from '@/components/settings/user/rows'
 import { SoundSettings, SoundSettingsMobile } from '@/components/settings/user/sounds'
 import { useKeybindLabel } from '@/hooks/use-keybinds'
 import { useLayout } from '@/hooks/use-layout'
 import { useMicLevel } from '@/hooks/use-mic-level'
 import { meterPercent } from '@/lib/input-sensitivity'
-import { errMsg } from '@/lib/utils'
+import { cn, errMsg } from '@/lib/utils'
 import { usePlatform } from '@/shared/PlatformContext'
 import { setSettingsSection } from '@/stores/navStore'
-import { usePrefsStore, type NoiseSuppression, type VoiceInputMode } from '@/stores/prefsStore'
+import { usePrefsStore, type NoiseSuppression } from '@/stores/prefsStore'
 
 const canPickOutput =
   typeof HTMLMediaElement !== 'undefined' && 'setSinkId' in HTMLMediaElement.prototype
@@ -68,7 +76,7 @@ function useAudioDevices(): {
   return { inputs, outputs, unlabeled, supported, error, refresh }
 }
 
-/** H6: the devices side by side, an opt-in mic check, the voice options, sounds. */
+/** The devices side by side, an opt-in mic check, the voice options, sounds. */
 function VoiceDesktop(): React.JSX.Element {
   const inputDeviceId = usePrefsStore((s) => s.inputDeviceId)
   const outputDeviceId = usePrefsStore((s) => s.outputDeviceId)
@@ -77,11 +85,12 @@ function VoiceDesktop(): React.JSX.Element {
   const { inputs, outputs, unlabeled, supported, error, refresh } = useAudioDevices()
 
   return (
-    <div className="grid gap-6">
-      <section className="grid grid-cols-2 gap-4">
+    <div>
+      <SettingsCap>Devices</SettingsCap>
+      <section className="mt-2 grid grid-cols-2 gap-4">
         <DeviceSelect
           id="input-device"
-          label="Input device"
+          label="Input"
           icon={<Mic />}
           devices={inputs}
           value={inputDeviceId}
@@ -90,7 +99,7 @@ function VoiceDesktop(): React.JSX.Element {
         />
         <DeviceSelect
           id="output-device"
-          label="Output device"
+          label="Output"
           icon={<Headphones />}
           devices={outputs}
           value={outputDeviceId}
@@ -101,24 +110,33 @@ function VoiceDesktop(): React.JSX.Element {
         />
       </section>
       {unlabeled && (
-        <p className="text-meta text-text-tertiary">
+        <p className="text-text-tertiary mt-2 text-[12.5px]">
           Device names are hidden until you allow microphone access. Use “Check microphone” below.
         </p>
       )}
       <ErrorText>{supported ? error : NO_DEVICE_LIST}</ErrorText>
-      <NoiseSuppressionSelect />
-      <InputMode />
-      <InputSensitivity />
-      <MicCheck deviceId={inputDeviceId} onOpen={refresh} />
-      <AudioQuality />
+      <SettingsRule />
+      <SettingsCap>Check your setup</SettingsCap>
+      <div className="mt-2">
+        <MicCheck deviceId={inputDeviceId} onOpen={refresh} />
+      </div>
+      <SettingsRule />
+      <SettingsCap>While you are in a room</SettingsCap>
+      <div className="mt-1.5">
+        <InputMode />
+        <InputSensitivity />
+        <NoiseSuppressionSelect />
+        <AudioQuality />
+      </div>
+      <SettingsRule />
       <SoundSettings />
     </div>
   )
 }
 
 /**
- * M32: the devices as two touch selects (the iOS wheel), the mic check, noise suppression as one
- * switch, then the sounds. Input mode, sensitivity and quality stay on the desktop: their
+ * Mobile: the devices as two touch selects (the iOS wheel), the mic test, noise suppression and
+ * echo cancellation as switches, then the sounds. Input mode, sensitivity and quality stay on the desktop: their
  * defaults suit a phone, and push to talk needs a keybind, which the mobile layout does not have.
  */
 function VoiceMobile(): React.JSX.Element {
@@ -128,14 +146,16 @@ function VoiceMobile(): React.JSX.Element {
   const setInputDeviceId = usePrefsStore((s) => s.setInputDeviceId)
   const setOutputDeviceId = usePrefsStore((s) => s.setOutputDeviceId)
   const { inputs, outputs, unlabeled, supported, error, refresh } = useAudioDevices()
+  const echoCancellation = usePrefsStore((s) => s.echoCancellation)
+  const setEchoCancellation = usePrefsStore((s) => s.setEchoCancellation)
   const id = useId()
   // iOS has no `setSinkId`: the output follows the system route (a route picker is spec §5).
   const showOutput = !ios && canPickOutput
 
   return (
-    <div className="grid gap-4">
+    <div className="grid gap-[18px]">
       <section className="grid gap-2.5" aria-labelledby={`${id}-devices`}>
-        <SectionLabel id={`${id}-devices`}>Devices</SectionLabel>
+        <MobileCap id={`${id}-devices`}>Devices</MobileCap>
         <MobileField
           id={`${id}-input`}
           label="Input device"
@@ -171,23 +191,26 @@ function VoiceMobile(): React.JSX.Element {
             </NativeSelect>
           </MobileField>
         )}
-        <MicCheck deviceId={inputDeviceId} onOpen={refresh} stopWhenHidden />
+      </section>
+      <section className="grid gap-1.5" aria-labelledby={`${id}-test`}>
+        <MobileCap id={`${id}-test`}>Mic test</MobileCap>
+        <MicCheck deviceId={inputDeviceId} onOpen={refresh} stopWhenHidden mobile />
       </section>
       <section className="grid gap-1.5" aria-labelledby={`${id}-processing`}>
-        <SectionLabel id={`${id}-processing`}>Voice processing</SectionLabel>
-        <ListGroup>
+        <MobileCap id={`${id}-processing`}>Voice processing</MobileCap>
+        <MobileCard>
           <NoiseSuppressionRow />
-        </ListGroup>
+          <ToggleRow
+            title="Echo cancellation"
+            checked={echoCancellation}
+            onChange={setEchoCancellation}
+          />
+        </MobileCard>
       </section>
       <SoundSettingsMobile />
     </div>
   )
 }
-
-const INPUT_MODES = [
-  { value: 'voiceActivity', label: 'Voice activity' },
-  { value: 'pushToTalk', label: 'Push to talk' }
-] as const
 
 /** Voice activity sends when you speak; push to talk only while its key is held. */
 function InputMode(): React.JSX.Element {
@@ -196,31 +219,30 @@ function InputMode(): React.JSX.Element {
   const key = useKeybindLabel('pushToTalk')
   const toKeybinds = (): void => setSettingsSection('keybinds')
   return (
-    <section className="grid gap-2">
-      <SectionHeading className="mb-0">Input mode</SectionHeading>
-      <SegmentedControl<VoiceInputMode>
-        label="Input mode"
-        options={INPUT_MODES}
-        value={mode}
-        onChange={setMode}
-        className="w-72"
-      />
-      {mode === 'pushToTalk' && (
-        <p className="text-meta text-text-tertiary">
-          {key ? (
-            <>
-              Hold <Keycap>{key}</Keycap> to talk.{' '}
-            </>
-          ) : (
-            'No push-to-talk key is set, so your microphone stays closed. '
-          )}
-          <Button variant="link" className="text-meta" onClick={toKeybinds}>
-            {key ? 'Change the key' : 'Set a key'}
-          </Button>
-          . Push to talk works only while the Hachiman window is focused.
-        </p>
-      )}
-    </section>
+    <ToggleRow
+      title="Push to talk"
+      hint={
+        mode === 'pushToTalk' ? (
+          <>
+            {key ? (
+              <>
+                Hold <Keycap>{key}</Keycap> to talk.{' '}
+              </>
+            ) : (
+              'No push-to-talk key is set, so your microphone stays closed. '
+            )}
+            <Button variant="link" className="h-auto p-0 text-[12.5px]" onClick={toKeybinds}>
+              {key ? 'Change the key' : 'Set a key'}
+            </Button>
+            . It works only while the Hachiman window is focused.
+          </>
+        ) : (
+          'Hold a key to open the mic. Otherwise it stays open.'
+        )
+      }
+      checked={mode === 'pushToTalk'}
+      onChange={(on) => setMode(on ? 'pushToTalk' : 'voiceActivity')}
+    />
   )
 }
 
@@ -231,41 +253,38 @@ function InputSensitivity(): React.JSX.Element | null {
   const db = usePrefsStore((s) => s.inputSensitivityDb)
   const setAuto = usePrefsStore((s) => s.setInputSensitivityAuto)
   const setDb = usePrefsStore((s) => s.setInputSensitivityDb)
-  const id = useId()
   if (mode !== 'voiceActivity') return null
   return (
-    <section className="grid gap-3">
-      <SectionHeading className="mb-0">Input sensitivity</SectionHeading>
-      <div className="flex items-center gap-3">
-        <Switch id={id} checked={auto} onCheckedChange={setAuto} />
-        <label htmlFor={id} className="text-label cursor-pointer">
-          Automatically determine input sensitivity
-        </label>
-      </div>
+    <>
+      <ToggleRow
+        title="Automatic input sensitivity"
+        hint={
+          auto
+            ? 'Hachiman learns the noise of your room and sends your voice when you speak above it.'
+            : 'Your microphone sends only when it is louder than this level.'
+        }
+        checked={auto}
+        onChange={setAuto}
+      />
       {!auto && (
-        <div className="flex items-center gap-3">
-          <input
-            aria-label="Input sensitivity"
-            type="range"
-            min={-100}
-            max={0}
-            step={1}
-            value={db}
-            onChange={(e) => setDb(Number(e.target.value))}
-            className="accent-accent-primary flex-1"
-          />
-          <span className="text-meta text-text-secondary w-14 text-right tabular-nums">
-            {db} dB
-          </span>
-        </div>
+        <FieldBlock label="Input sensitivity" className="pb-2">
+          <div className="flex items-center gap-3">
+            <RangeInput
+              aria-label="Input sensitivity"
+              fraction={(db + 100) / 100}
+              min={-100}
+              max={0}
+              step={1}
+              value={db}
+              onChange={(e) => setDb(Number(e.target.value))}
+            />
+            <span className="text-text-secondary w-14 text-right text-[12.5px] tabular-nums">
+              {db} dB
+            </span>
+          </div>
+        </FieldBlock>
       )}
-      <p className="text-meta text-text-tertiary">
-        {auto
-          ? 'Hachiman learns the noise of your room and sends your voice when you speak above it.'
-          : 'Your microphone sends only when it is louder than this level.'}{' '}
-        Use “Check microphone” to see where your voice sits.
-      </p>
-    </section>
+    </>
   )
 }
 
@@ -282,24 +301,24 @@ function DeviceSelect(props: {
 }): React.JSX.Element {
   const { id, label, icon, devices, value, onChange, fallbackLabel, disabled, hint } = props
   return (
-    <div className="grid gap-1.5">
+    <div className="grid gap-[7px]">
       <label
         htmlFor={id}
-        className="text-text-secondary flex items-center gap-1.5 text-xs leading-4 font-semibold [&_svg]:size-3.5"
+        className="text-text-disabled font-mono text-[9px] tracking-[1.2px] uppercase"
       >
-        {icon}
         {label}
       </label>
       <NativeSelect
         id={id}
-        className="w-full [&_select]:h-10"
+        lead={icon}
+        className="w-full [&_select]:h-[42px]"
         value={value ?? ''}
         disabled={disabled}
         onChange={(e) => onChange(e.target.value || null)}
       >
         <DeviceOptions devices={devices} value={value} fallbackLabel={fallbackLabel} />
       </NativeSelect>
-      {hint && <p className="text-meta text-text-tertiary">{hint}</p>}
+      {hint && <p className="text-text-tertiary text-[12.5px]">{hint}</p>}
     </div>
   )
 }
@@ -331,18 +350,11 @@ function DeviceOptions({
 function NoiseSuppressionSelect(): React.JSX.Element {
   const value = usePrefsStore((s) => s.noiseSuppression)
   const setValue = usePrefsStore((s) => s.setNoiseSuppression)
-  const id = useId()
   return (
-    <div className="grid gap-1.5">
-      <label
-        htmlFor={id}
-        className="text-text-secondary flex items-center gap-1.5 text-xs leading-4 font-semibold [&_svg]:size-3.5"
-      >
-        Noise suppression
-      </label>
+    <SelectRow title="Noise suppression" hint="Filters fans, keyboards and the street outside.">
       <NativeSelect
-        id={id}
-        className="w-full [&_select]:h-10"
+        aria-label="Noise suppression"
+        className="w-[220px]"
         value={value}
         onChange={(e) => setValue(e.target.value as NoiseSuppression)}
       >
@@ -350,7 +362,7 @@ function NoiseSuppressionSelect(): React.JSX.Element {
         <option value="browser">Standard (browser)</option>
         <option value="rnnoise">Enhanced (RNNoise)</option>
       </NativeSelect>
-    </div>
+    </SelectRow>
   )
 }
 
@@ -365,7 +377,7 @@ function NoiseSuppressionRow(): React.JSX.Element {
   return (
     <ListRow
       icon={<AudioLines />}
-      tile="voice"
+      tile="neutral"
       label="Noise suppression"
       detail="Filters fans, keyboards and traffic"
       toggle={{
@@ -384,11 +396,13 @@ function NoiseSuppressionRow(): React.JSX.Element {
 function MicCheck({
   deviceId,
   onOpen,
-  stopWhenHidden = false
+  stopWhenHidden = false,
+  mobile = false
 }: {
   deviceId: string | null
   onOpen: () => void
   stopWhenHidden?: boolean
+  mobile?: boolean
 }): React.JSX.Element {
   const barRef = useRef<HTMLSpanElement>(null)
   const markRef = useRef<HTMLSpanElement>(null)
@@ -418,42 +432,68 @@ function MicCheck({
   }, [stopWhenHidden, on, toggle])
 
   return (
-    <section className="bg-surface-panel border-line-hairline mobile:bg-white/2 grid gap-2 border px-3.5 py-3">
-      <div className="flex items-center gap-3">
+    <section
+      className={cn(
+        'grid gap-3 border p-[18px]',
+        mobile && 'bg-surface-panel rounded-[14px] p-3.5',
+        on ? 'bg-live-tint border-transparent' : 'border-line-hairline'
+      )}
+    >
+      <div className="flex items-center gap-2.5">
+        <Mic aria-hidden className={cn('size-3.5', on ? 'text-live' : 'text-text-tertiary')} />
+        <span
+          className={cn(
+            'font-mono text-[9.5px] tracking-[1px] uppercase',
+            on ? 'text-live-text font-semibold' : 'text-text-tertiary'
+          )}
+        >
+          {on ? 'Mic check running · your mic is open' : 'Your mic is closed'}
+        </span>
         <Button
           variant="secondary"
-          size="lg"
+          size={mobile ? 'default' : 'sm'}
           onClick={toggle}
-          className="mobile:border-line-strong mobile:h-11 mobile:bg-fill-control mobile:px-3.5 mobile:text-[15px] mobile:font-bold"
+          className="ml-auto"
         >
-          {on ? <Square /> : <Mic />}
-          {on ? 'Stop check' : 'Check microphone'}
+          {on ? 'End check' : 'Check microphone'}
         </Button>
-        <span
-          role="meter"
-          aria-label="Microphone level"
-          aria-valuemin={0}
-          aria-valuemax={100}
-          className="bg-surface-raised mobile:bg-fill-control-strong relative h-2.5 flex-1 overflow-hidden"
-        >
-          <span
-            ref={barRef}
-            className="bg-text-disabled data-[open]:bg-feature-voice absolute inset-y-0 left-0 w-0"
-          />
-          {/* The threshold. Auto moves it from the hook; manual follows the slider. */}
-          <span
-            ref={markRef}
-            aria-hidden
-            hidden={!voiceActivity || (auto && !on)}
-            style={auto ? undefined : { left: `${meterPercent(db)}%` }}
-            className="bg-text-primary absolute inset-y-0 w-0.5"
-          />
-        </span>
       </div>
-      <p className="text-meta text-text-tertiary">
-        {voiceActivity
-          ? 'Speak normally. The bar turns green while your microphone would send.'
-          : 'Speak normally. The bar should move well into the meter.'}
+      <span
+        role="meter"
+        aria-label="Microphone level"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        className={cn(
+          'bg-surface-sunken relative overflow-hidden [mask-image:repeating-linear-gradient(90deg,#000_0_15px,transparent_15px_19px)]',
+          mobile ? 'h-[26px]' : 'h-[18px]'
+        )}
+      >
+        <span
+          ref={barRef}
+          className="bg-text-disabled data-[open]:bg-live absolute inset-y-0 left-0 w-0"
+        />
+        {/* The threshold. Auto moves it from the hook; manual follows the slider. */}
+        <span
+          ref={markRef}
+          aria-hidden
+          hidden={!voiceActivity || (auto && !on)}
+          style={auto ? undefined : { left: `${meterPercent(db)}%` }}
+          className="bg-text-primary absolute inset-y-0 w-0.5"
+        />
+      </span>
+      <p
+        className={cn(
+          'text-text-tertiary',
+          mobile
+            ? 'text-text-disabled font-mono text-[8.5px] tracking-[0.9px] uppercase'
+            : 'text-[12.5px]'
+        )}
+      >
+        {mobile
+          ? 'Say something'
+          : voiceActivity
+            ? 'Say something. The meter turns teal while your microphone would send.'
+            : 'Say something. The meter should move well into the bar.'}
       </p>
       <ErrorText>{error}</ErrorText>
     </section>
@@ -469,16 +509,21 @@ function AudioQuality(): React.JSX.Element {
   const echoCancellation = usePrefsStore((s) => s.echoCancellation)
   const setMicBitrate = usePrefsStore((s) => s.setMicBitrate)
   const setEchoCancellation = usePrefsStore((s) => s.setEchoCancellation)
-  const id = useId()
   return (
-    <section className="grid gap-3">
-      <SectionHeading className="mb-0">Audio quality</SectionHeading>
-      <div className="flex items-center gap-3">
-        <label htmlFor={`${id}-bitrate`} className="text-label w-40">
-          Microphone bitrate
-        </label>
+    <>
+      <ToggleRow
+        title="Echo cancellation"
+        hint="Keeps the sound of the room from coming back through your microphone."
+        checked={echoCancellation}
+        onChange={setEchoCancellation}
+      />
+      <SelectRow
+        title="Audio quality"
+        hint="A higher bitrate sounds clearer and uses more upload bandwidth."
+      >
         <NativeSelect
-          id={`${id}-bitrate`}
+          aria-label="Microphone bitrate"
+          className="w-[220px]"
           value={String(micBitrate)}
           onChange={(e) => setMicBitrate(Number(e.target.value))}
         >
@@ -488,20 +533,7 @@ function AudioQuality(): React.JSX.Element {
             </option>
           ))}
         </NativeSelect>
-      </div>
-      <p className="text-meta text-text-tertiary">
-        A higher bitrate sounds clearer and uses more upload bandwidth.
-      </p>
-      <div className="flex items-center gap-3">
-        <Switch
-          id={`${id}-echo`}
-          checked={echoCancellation}
-          onCheckedChange={setEchoCancellation}
-        />
-        <label htmlFor={`${id}-echo`} className="text-label cursor-pointer">
-          Echo cancellation
-        </label>
-      </div>
-    </section>
+      </SelectRow>
+    </>
   )
 }

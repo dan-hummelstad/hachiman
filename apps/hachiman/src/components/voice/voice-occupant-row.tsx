@@ -1,7 +1,7 @@
 import { HeadphoneOff, MicOff, MonitorUp } from 'lucide-react'
 import type { VoiceState } from '@hachiman/client'
 import { UserAvatar } from '@/components/shell/user-avatar'
-import { SystemTag } from '@/components/ui/system-tag'
+import { LivePill } from '@/components/ui/live'
 import { UserProfilePopover } from '@/components/user-profile-popover'
 import { occupantDetail } from '@/components/voice/voice-occupant-text'
 import { ServerMark } from '@/components/voice/voice-state-badges'
@@ -48,12 +48,12 @@ function VoiceMarks({
 }): React.JSX.Element {
   return (
     <>
-      {state.selfStream && <SystemTag kind="live" className={liveClass} />}
+      {state.selfStream && <LivePill className={liveClass} />}
       {state.mute ? (
         <ServerMark label="Server muted" icon={<MicOff />} />
       ) : (
         state.selfMute && (
-          <MicOff aria-label="Muted" className={cn('text-feature-danger shrink-0', iconClass)} />
+          <MicOff aria-label="Muted" className={cn('text-text-disabled shrink-0', iconClass)} />
         )
       )}
       {state.deaf ? (
@@ -62,7 +62,7 @@ function VoiceMarks({
         state.selfDeaf && (
           <HeadphoneOff
             aria-label="Deafened"
-            className={cn('text-feature-danger shrink-0', iconClass)}
+            className={cn('text-text-disabled shrink-0', iconClass)}
           />
         )
       )}
@@ -96,9 +96,7 @@ function SidebarOccupant({
             size={mobile ? 22 : 20}
             speaking={speaking}
           />
-          <span className="flex-1 truncate" style={ink ? { color: ink } : undefined}>
-            {name}
-          </span>
+          <span className="flex-1 truncate">{name}</span>
           <VoiceMarks state={state} iconClass="size-3.5" />
         </button>
       </UserProfilePopover>
@@ -107,7 +105,7 @@ function SidebarOccupant({
 }
 
 /**
- * The list row of M64: 56 high, avatar 32 with the presence dot (the purple live dot while they
+ * The list row of M64: 56 high, avatar 32 with the presence dot (the live dot while they
  * share), the name in role ink, a detail line ("Sharing screen · muted"), then the marks. The
  * detail line says what the marks show, so the marks stay out of the button's name.
  */
@@ -139,16 +137,13 @@ function ListOccupant({
             ringHole
           />
           <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-            <span
-              className="text-text-primary truncate text-[15px] leading-[18px] font-bold"
-              style={ink ? { color: ink } : undefined}
-            >
+            <span className="text-text-primary truncate text-[15px] leading-[18px] font-semibold">
               {name}
             </span>
             {detail !== null && (
-              <span className="text-text-tertiary flex min-w-0 items-center gap-[5px] text-[12.5px] leading-[15px] font-medium">
+              <span className="text-text-tertiary flex min-w-0 items-center gap-[5px] text-[12.5px] leading-[15px]">
                 {state.selfStream && (
-                  <MonitorUp className="text-status-live size-[13px] shrink-0" aria-hidden />
+                  <MonitorUp className="text-live size-[13px] shrink-0" aria-hidden />
                 )}
                 <span className="truncate">{detail}</span>
               </span>
@@ -158,7 +153,7 @@ function ListOccupant({
             <VoiceMarks
               state={state}
               iconClass="size-4"
-              liveClass="order-last h-[22px] px-[7px] text-[11px]"
+              liveClass="order-last"
             />
           </span>
         </button>

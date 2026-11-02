@@ -109,7 +109,7 @@ export function NotifyButton({ channel }: { channel: Channel }): React.JSX.Eleme
           }
           tooltipSide="bottom"
           pressed={mobile ? undefined : open}
-          className="aria-pressed:bg-accent-tint aria-pressed:text-accent-text mobile:aria-expanded:bg-accent-tint mobile:aria-expanded:text-accent-text mobile:size-9 [&_svg]:size-[18px] mobile:[&_svg]:size-[19px]"
+          className="aria-pressed:bg-surface-hover aria-pressed:text-text-primary mobile:aria-expanded:bg-surface-hover mobile:aria-expanded:text-text-primary mobile:size-9 [&_svg]:size-[18px] mobile:[&_svg]:size-[19px]"
         >
           {silent ? <BellOff /> : level === 'all' ? <BellRing /> : <Bell />}
         </IconButton>
@@ -203,7 +203,7 @@ export function FollowButton({ channel }: { channel: Channel }): React.JSX.Eleme
         setNotifyLevel(channel.id, following ? null : 'all')
       }}
     >
-      {following ? <BellRing className="text-feature-event-text" /> : <Bell />}
+      {following ? <BellRing className="text-text-primary" /> : <Bell />}
       {following ? 'Following' : 'Follow'}
     </Button>
   )

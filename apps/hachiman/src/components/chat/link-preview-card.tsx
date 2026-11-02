@@ -30,15 +30,17 @@ export function LinkPreviewCard({ preview }: { preview: LinkPreview }): React.JS
       target="_blank"
       rel="noreferrer noopener"
       data-slot="link-preview"
-      className="bg-surface-panel border-line-hairline hover:bg-surface-raised my-1 flex w-[440px] max-w-full flex-col border border-l-accent-primary border-l-2 no-underline"
+      className="bg-surface-raised border-line-hairline rounded-option hover:bg-surface-hover my-1 flex w-[420px] max-w-full flex-col overflow-hidden border no-underline"
     >
       <div className="flex min-w-0 flex-col gap-0.5 px-3 py-2.5">
-        <span className="text-text-tertiary text-meta truncate">
+        <span className="text-text-disabled truncate font-mono text-[9px] tracking-[0.8px] uppercase">
           {preview.siteName ? `${preview.siteName} · ${host}` : host}
         </span>
-        <span className="text-accent-text truncate font-semibold">{title}</span>
+        <span className="text-here-text truncate text-[13px] font-semibold">{title}</span>
         {preview.description && (
-          <span className="text-text-secondary line-clamp-3 text-sm">{preview.description}</span>
+          <span className="text-text-secondary line-clamp-3 text-[12.5px]">
+            {preview.description}
+          </span>
         )}
       </div>
       {preview.image && <PreviewImage image={preview.image} maxHeight={300} fit="cover" />}
@@ -61,7 +63,7 @@ function PreviewImage({
   const { url } = useDecryptedBlob(image)
   return (
     <div
-      className="bg-surface-raised max-w-full overflow-hidden"
+      className="bg-surface-sunken max-w-full overflow-hidden"
       style={{
         width: maxWidth === undefined ? '100%' : Math.min(maxWidth, image.width),
         aspectRatio: `${image.width} / ${image.height}`,

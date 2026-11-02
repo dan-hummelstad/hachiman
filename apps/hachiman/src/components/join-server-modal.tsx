@@ -166,7 +166,7 @@ function InviteCard({
     <div className="border-line-hairline bg-surface-raised mobile:border-line-strong mobile:bg-surface-sunken shrink-0 overflow-hidden border">
       <div
         aria-hidden
-        className="from-accent-primary/70 to-feature-page/40 mobile:h-[84px] h-[70px] bg-gradient-to-r"
+        className="bg-avatar-1 mobile:h-[84px] h-[70px]"
       />
       <div className="mobile:items-start mobile:gap-3 mobile:px-3 flex items-end gap-3.5 px-4 pb-4">
         {preview ? (
@@ -174,7 +174,7 @@ function InviteCard({
             <GuildTile
               guild={preview.guild}
               size="lg"
-              className="border-surface-raised mobile:border-surface-sunken mobile:-mt-[38px] mobile:size-[72px] mobile:text-[22px] mobile:font-extrabold -mt-7 border-4"
+              className="border-surface-raised mobile:border-surface-sunken mobile:-mt-[38px] mobile:size-[72px] mobile:text-[22px] mobile:font-semibold -mt-7 border-4"
             />
             <span className="mobile:gap-[5px] mobile:pt-3 mobile:pb-0 grid min-w-0 gap-0.5 pb-0.5">
               <span className="text-heading mobile:text-[20px] mobile:leading-6 truncate">
@@ -227,7 +227,7 @@ function KeysLine({ guildName }: { guildName: string }): React.JSX.Element {
   const active = devices ? devices.filter((d) => d.status === 'active').length : null
   return (
     <p className="text-text-tertiary flex gap-2 text-[13px] leading-[1.5] font-medium">
-      <Lock aria-hidden className="text-feature-voice-text mt-[3px] size-3.5 shrink-0" />
+      <Lock aria-hidden className="text-text-tertiary mt-[3px] size-3.5 shrink-0" />
       {inviteKeysLine(guildName, active)}
     </p>
   )
@@ -248,7 +248,7 @@ function SignInPrompt({
         <span className="flex-1 text-sm">Sign in with Takusen to accept this invite.</span>
         <Button
           size="sm"
-          className="mobile:h-9 mobile:px-3.5 mobile:text-[14px] mobile:font-bold"
+          className="mobile:h-9 mobile:px-3.5 mobile:text-[14px] mobile:font-semibold"
           disabled={busy}
           onClick={() => void signIn()}
         >

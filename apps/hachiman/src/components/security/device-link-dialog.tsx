@@ -77,7 +77,7 @@ function LinkFromThisDevice({
       <StepFrame
         {...FRAME}
         icon={done.ok ? <Check /> : FRAME.icon}
-        feature={done.ok ? 'voice' : 'danger'}
+        feature={done.ok ? 'event' : 'danger'}
         footer={
           <>
             {!done.ok && (

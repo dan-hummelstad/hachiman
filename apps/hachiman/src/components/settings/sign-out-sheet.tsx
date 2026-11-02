@@ -58,13 +58,7 @@ export function SignOutSheet(): React.JSX.Element {
   )
 }
 
-/** The red wash at the top of the sheet and its red top edge (M35). */
-const DANGER_SHEET = 'from-feature-danger/12 bg-linear-to-b to-transparent to-45%'
-const DANGER_EDGE = {
-  borderTopColor: 'color-mix(in oklab, var(--feature-danger) 50%, transparent)'
-} as const
-
-const TEXT = 'text-text-secondary text-[15px] leading-[23px] font-medium'
+const TEXT = 'text-text-secondary text-[15px] leading-[23px]'
 
 function SignOutContent({ onClose }: { onClose: () => void }): React.JSX.Element {
   const platform = usePlatform()
@@ -98,7 +92,7 @@ function SignOutContent({ onClose }: { onClose: () => void }): React.JSX.Element
   }
 
   return (
-    <SheetContent className={DANGER_SHEET} style={DANGER_EDGE}>
+    <SheetContent>
       <SheetHeader
         icon={<LogOut />}
         feature="danger"
@@ -141,7 +135,7 @@ function SignOutContent({ onClose }: { onClose: () => void }): React.JSX.Element
         {error && (
           <p
             role="alert"
-            className="text-feature-danger-text pb-1 text-[13.5px] leading-[18px] font-semibold"
+            className="text-you-text pb-1 text-[13.5px] leading-[18px] font-semibold"
           >
             {error.replace(/\.$/, '')}. This {noun} is still signed in and keeps its keys.
           </p>
@@ -177,25 +171,25 @@ const CALLOUT: Record<
   { box: string; icon: string; title: string; ack?: string }
 > = {
   recovery: {
-    box: 'border-feature-event/25 bg-feature-event/6',
-    icon: 'text-feature-event-text',
+    box: 'border-line-hairline bg-surface-raised',
+    icon: 'text-text-secondary',
     title: 'Your recovery key brings them back',
     ack: 'I know where my recovery key is'
   },
   devices: {
-    box: 'border-accent-primary/40 bg-accent-tint',
-    icon: 'text-accent-text',
+    box: 'border-line-hairline bg-surface-raised',
+    icon: 'text-text-secondary',
     title: 'Your other devices bring them back'
   },
   lost: {
-    box: 'border-feature-danger/40 bg-feature-danger/10',
-    icon: 'text-feature-danger-text',
+    box: 'border-you bg-you-tint',
+    icon: 'text-you-text',
     title: 'Nothing brings them back',
     ack: 'I understand that my history is lost'
   },
   unknown: {
-    box: 'border-feature-danger/40 bg-feature-danger/10',
-    icon: 'text-feature-danger-text',
+    box: 'border-you bg-you-tint',
+    icon: 'text-you-text',
     title: 'You have no recovery key',
     ack: 'I understand that my history can be lost'
   }
@@ -215,8 +209,8 @@ function calloutBody(c: Exclude<SignOutCase, 'loading'>, noun: string): string {
 }
 
 /**
- * What brings the history back (M35): the recovery key (gold, a box to tick), another device
- * (accent), or nothing (red, a box to tick; also when the device list did not load). "Recovery key" pushes the recovery key screen (M27),
+ * What brings the history back (M35): the recovery key (a box to tick), another device
+ * (neutral), or nothing (`you`, a box to tick; also when the device list did not load). "Recovery key" pushes the recovery key screen (M27),
  * where the user can look at the key or make one.
  */
 function BackCallout({
@@ -253,8 +247,8 @@ function BackCallout({
           <KeyRound aria-hidden className={cn('size-5 shrink-0', look.icon)} />
         )}
         <div className="flex min-w-0 flex-col gap-[3px]">
-          <p className="text-text-primary text-[15px] leading-[18px] font-bold">{look.title}</p>
-          <p className="text-text-secondary text-[12.5px] leading-[18px] font-medium">{body}</p>
+          <p className="text-text-primary text-[15px] leading-[18px] font-semibold">{look.title}</p>
+          <p className="text-text-secondary text-[12.5px] leading-[18px]">{body}</p>
         </div>
       </div>
       {look.ack && (
@@ -269,7 +263,7 @@ function BackCallout({
             type="button"
             onClick={onRecoveryKey}
             className={cn(
-              'focus-visible:outline-line-focus -mr-1 flex h-11 shrink-0 items-center px-1 text-[13.5px] font-bold outline-none focus-visible:outline-2',
+              'focus-visible:outline-line-focus -mr-1 flex h-11 shrink-0 items-center px-1 text-[13.5px] font-semibold outline-none focus-visible:outline-2',
               look.icon
             )}
           >

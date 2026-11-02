@@ -45,8 +45,9 @@ export function GroupDmMembers({
           <NotifyButton channel={channel} />
         </div>
       )}
-      <h2 className="text-text-tertiary px-4 pt-4 pb-2 text-xs font-bold tracking-wide uppercase">
-        Members — {people.length}
+      <h2 className="cap flex h-[30px] items-center justify-between px-4 pt-3 text-[9.5px] tracking-[1.3px]">
+        <span>Members</span>
+        <span className="tracking-[0.8px]">{people.length}</span>
       </h2>
       <ScrollArea className="min-h-0 flex-1">
         <ul className="flex flex-col px-2 pb-3">
@@ -83,7 +84,7 @@ function GroupMemberRow({
         <button
           type="button"
           className={cn(
-            'rounded-control hover:bg-surface-hover flex min-h-[42px] w-full items-center gap-2.5 px-2 py-1 text-left',
+            'rounded-row hover:bg-surface-hover flex min-h-[34px] w-full items-center gap-[9px] px-2 py-0.5 text-left',
             'mobile:active:bg-surface-hover',
             'focus-visible:outline-line-focus focus-visible:outline-2 focus-visible:-outline-offset-2'
           )}
@@ -91,19 +92,17 @@ function GroupMemberRow({
           <UserAvatar
             avatar={user.avatar}
             name={user.username}
+            size={26}
             status={status}
             cutout="bg-surface-panel"
           />
           <span className="flex min-w-0 flex-1 flex-col">
             <span className="flex min-w-0 items-center gap-1.5">
-              <span className="text-text-primary truncate text-sm leading-5 font-semibold">
+              <span className="text-text-secondary truncate text-[13px] leading-5">
                 {user.username}
               </span>
               {owner && (
-                <Crown
-                  className="text-feature-event-text size-3.5 shrink-0"
-                  aria-label="Group owner"
-                />
+                <Crown className="text-text-tertiary size-3 shrink-0" aria-label="Group owner" />
               )}
               {me && <SystemTag kind="you" />}
             </span>

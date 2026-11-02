@@ -10,7 +10,6 @@ import { DmCallPanel } from '@/components/voice/dm-call'
 import { useDmStageShown } from '@/components/voice/dm-stage-state'
 import { VoiceRoom } from '@/components/voice/voice-room'
 import { isGuildChannel } from '@/lib/model'
-import { ROLE_INK_SCOPE } from '@/lib/role-ink'
 import { cn } from '@/lib/utils'
 import { useChannelStore } from '@/stores/channelStore'
 import { useSelectedChannelId, useSelectedGuildId } from '@/stores/navStore'
@@ -54,9 +53,7 @@ export function MobileChatPane(): React.JSX.Element {
       {selectedGuildId === null && !channel ? (
         <HomePane />
       ) : channel ? (
-        <section
-          className={cn('bg-surface-content flex min-h-0 min-w-0 flex-1 flex-col', ROLE_INK_SCOPE)}
-        >
+        <section className="bg-surface-content flex min-h-0 min-w-0 flex-1 flex-col">
           <MobileChannelHeader
             channel={channel}
             side={sideOf(channel)}

@@ -147,7 +147,7 @@ function SecurityLogDesktop(): React.JSX.Element {
         className={cn(
           'flex items-center gap-3 border px-4 py-3',
           bad
-            ? 'border-feature-danger/50 bg-feature-danger/5'
+            ? 'border-you bg-you-tint'
             : 'bg-surface-panel border-line-hairline'
         )}
       >
@@ -155,9 +155,9 @@ function SecurityLogDesktop(): React.JSX.Element {
           className={cn(
             'flex size-9 shrink-0 items-center justify-center [&_svg]:size-5',
             bad
-              ? 'bg-feature-danger/15 text-feature-danger-text'
+              ? 'bg-you-tint text-you-text'
               : result
-                ? 'bg-feature-voice/15 text-feature-voice-text'
+                ? 'border border-line-strong text-text-secondary'
                 : 'bg-surface-raised text-text-tertiary'
           )}
         >
@@ -248,7 +248,7 @@ function UnknownEntries({ result }: { result: KtSelfCheckResult }): React.JSX.El
       {result.unknownEntries.map((e) => (
         <li
           key={e.index}
-          className="text-feature-danger-text font-mono text-[13px] [overflow-wrap:anywhere]"
+          className="text-you-text font-mono text-[13px] [overflow-wrap:anywhere]"
         >
           #{e.index} {ENTRY_TYPE[e.type] ?? `Type ${e.type}`}
           {e.deviceId && ` · device ${e.deviceId}`}
@@ -282,10 +282,10 @@ function SecurityLogMobile(): React.JSX.Element {
         className={cn(
           'flex items-center gap-3.5 border px-4 py-3.5',
           bad
-            ? 'border-feature-danger/22 bg-feature-danger/5'
+            ? 'border-you bg-you-tint'
             : result
-              ? 'border-feature-voice/22 bg-feature-voice/5'
-              : 'border-line-hairline bg-white/2'
+              ? 'border-line-hairline bg-surface-sunken'
+              : 'border-line-hairline bg-surface-sunken'
         )}
       >
         <span
@@ -295,14 +295,14 @@ function SecurityLogMobile(): React.JSX.Element {
             bad
               ? FEATURE_TILE.danger
               : result
-                ? FEATURE_TILE.voice
+                ? 'border border-line-strong text-text-secondary'
                 : 'bg-surface-raised text-text-tertiary'
           )}
         >
           {bad ? <ShieldAlert /> : result ? <ShieldCheck /> : <ShieldQuestion />}
         </span>
         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-          <p className="text-text-primary text-[15.5px] leading-5 font-extrabold">
+          <p className="text-text-primary text-[15.5px] leading-5 font-semibold">
             {bad
               ? 'The log has changes that none of your devices made'
               : result
@@ -319,7 +319,7 @@ function SecurityLogMobile(): React.JSX.Element {
       {error && (
         <p
           role="alert"
-          className="text-feature-danger-text text-[13px] leading-[1.4] font-semibold"
+          className="text-you-text text-[13px] leading-[1.4] font-semibold"
         >
           {error}
         </p>
@@ -360,11 +360,11 @@ function SecurityLogMobile(): React.JSX.Element {
                 </span>
                 <div className="flex min-w-0 flex-1 flex-col gap-0.5 pt-[5px] pb-3">
                   <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                    <span className="text-text-primary min-w-0 text-[14.5px] leading-5 font-bold [overflow-wrap:anywhere]">
+                    <span className="text-text-primary min-w-0 text-[14.5px] leading-5 font-semibold [overflow-wrap:anywhere]">
                       {title}
                     </span>
                     {yours && (
-                      <Chip tone="voice" icon={<Check />}>
+                      <Chip tone="neutral" icon={<Check />}>
                         Yours
                       </Chip>
                     )}

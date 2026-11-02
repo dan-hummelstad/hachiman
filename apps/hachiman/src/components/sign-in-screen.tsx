@@ -1,13 +1,11 @@
 import { Fragment } from 'react'
-import { ArrowUpRight, KeyRound, LifeBuoy, Link2, Lock, Sparkles } from 'lucide-react'
+import { KeyRound, Link2, ShieldCheck, Sparkles } from 'lucide-react'
 import { useDeviceNoun } from '@/components/security/onboarding-steps'
+import { AppMark, EmptyWindow, EntryCard, FOOTER_LINKS } from '@/components/security/screen-window'
 import { Button } from '@/components/ui/button'
-import { FEATURE_TILE } from '@/components/ui/feature'
 import { ErrorText } from '@/components/ui/field'
 import { useLayout } from '@/hooks/use-layout'
 import { useSignIn } from '@/hooks/use-sign-in'
-import { HOME_WALLPAPER } from '@/lib/guild-tint'
-import { cn } from '@/lib/utils'
 import { takusenService } from '@/services/TakusenService'
 import type { IPlatformService } from '@/shared/IPlatformService'
 import { usePlatform } from '@/shared/PlatformContext'
@@ -20,10 +18,10 @@ function helperText(platform: IPlatformService['platform']): string {
 }
 
 /**
- * Signed-out screen (A1): the wallpaper with a violet glow, the app mark top-left, and one square
- * card with the single primary action. The set-up paths after sign-in show as chips that only
- * inform. After sign-in, the encryption onboarding (security/onboarding.tsx) sets up this device.
- * The mobile layout shows M13 (`MobileSignIn`).
+ * Signed-out screen (Three Questions, A): no colour. The entry backdrop with one square card and
+ * the single primary action. The set-up paths after sign-in show as chips that only inform. After
+ * sign-in, the encryption onboarding (security/onboarding.tsx) sets up this device. The mobile
+ * layout shows `MobileSignIn`.
  */
 export function SignInScreen(): React.JSX.Element {
   const { signIn, busy, error } = useSignIn()
@@ -42,87 +40,85 @@ export function SignInScreen(): React.JSX.Element {
   }
 
   return (
-    <div className="bg-surface-window relative isolate flex min-h-full w-full flex-1 flex-col overflow-y-auto">
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(ellipse_60%_55%_at_50%_45%,color-mix(in_srgb,var(--accent-primary)_22%,transparent),transparent)]"
-      />
-      <div className="flex items-center gap-2.5 px-7 pt-6">
-        <AppMark className="size-7 text-[15px]" />
-        <span className="text-label">Hachiman</span>
-      </div>
-      <div className="flex flex-1 items-center justify-center p-4">
-        <section
-          aria-labelledby="sign-in-title"
-          className="border-line-hairline bg-surface-content shadow-soft grid w-full max-w-[440px] gap-5 border p-9"
-        >
-          <AppMark className="size-[60px] text-[30px] shadow-[0_8px_28px_color-mix(in_srgb,var(--accent-primary)_45%,transparent)]" />
-          <div className="grid gap-2">
-            <h1 id="sign-in-title" className="text-page-title">
-              Sign in to Hachiman
-            </h1>
-            <p className="text-text-secondary text-[15px] leading-[1.5]">
-              Hachiman uses your Takusen account. Sign in to see your guilds, messages and voice
-              channels.
-            </p>
-          </div>
-          <div className="grid gap-3">
-            <Button size="lg" className="h-11 w-full" disabled={busy} onClick={() => void signIn()}>
-              <ArrowUpRight />
-              {busy ? 'Opening Takusen…' : 'Sign in with Takusen'}
-            </Button>
-            <ErrorText>{error}</ErrorText>
-            <p className="text-meta text-text-tertiary text-center">{helperText(platform)}</p>
-          </div>
-          <div className="border-line-hairline grid gap-3 border-t pt-5">
-            <div className="flex items-start gap-3">
-              <span
-                aria-hidden
-                className="bg-feature-voice/15 text-feature-voice-text rounded-control flex size-7 shrink-0 items-center justify-center [&_svg]:size-4"
-              >
-                <Lock />
-              </span>
-              <p className="text-[13px] leading-[18px]">
+    <EmptyWindow>
+      <EntryCard
+        titleId="sign-in-title"
+        eyebrow="Sign in"
+        title="Sign in to Hachiman"
+        sub="Hachiman uses your Takusen account. Your spaces, pages and messages travel with it."
+        note={
+          <>
+            <div className="flex gap-2.5">
+              <ShieldCheck aria-hidden className="text-text-tertiary mt-0.5 size-[15px] shrink-0" />
+              <p className="text-text-tertiary text-[12px] leading-[1.5]">
                 Messages and calls are end-to-end encrypted. After you sign in, you set up this
                 device:
               </p>
             </div>
-            <ul aria-label="Ways to set up this device" className="grid grid-cols-3 gap-2">
-              <PathChip icon={<Link2 />} tone="text-accent-text">
-                Link it
-              </PathChip>
-              <PathChip icon={<KeyRound />} tone="text-feature-voice-text">
-                Restore it
-              </PathChip>
-              <PathChip icon={<Sparkles />} tone="text-feature-event-text">
-                Start new
-              </PathChip>
+            <ul aria-label="Ways to set up this device" className="mt-3 flex gap-1.5 pl-[25px]">
+              <PathChip icon={<Link2 />}>Link it</PathChip>
+              <PathChip icon={<KeyRound />}>Restore it</PathChip>
+              <PathChip icon={<Sparkles />}>Start new</PathChip>
             </ul>
-          </div>
-        </section>
-      </div>
-    </div>
+          </>
+        }
+      >
+        <Button
+          size="lg"
+          className="h-[46px] w-full gap-[9px] text-[14.5px]"
+          disabled={busy}
+          onClick={() => void signIn()}
+        >
+          <KeyRound className="size-4" />
+          {busy ? 'Opening Takusen…' : 'Continue with Takusen'}
+        </Button>
+        <ErrorText>{error}</ErrorText>
+        <p className="text-text-tertiary mt-3 text-center text-[12px] leading-[1.5]">
+          {helperText(platform)}
+        </p>
+        <LostAccess />
+      </EntryCard>
+    </EmptyWindow>
   )
 }
 
-/** Takusen's landing page sections, in the footer of M13. */
-const FOOTER_LINKS = [
-  { label: 'Help', hash: 'help' },
-  { label: 'Privacy', hash: 'privacy' },
-  { label: 'Status', hash: 'status' }
-] as const
-
-/** The three set-up paths of the encryption note (M13). */
-const PATHS = [
-  { icon: <Link2 />, tile: 'accent', label: 'Link it', detail: 'from a device you already use' },
-  { icon: <LifeBuoy />, tile: 'voice', label: 'Restore it', detail: 'with your recovery key' },
-  { icon: <Sparkles />, tile: 'event', label: 'Start new', detail: 'if this is your first device' }
-] as const
+/** "Lost access?" line: text, not a link. Restore lives in the onboarding after sign-in. */
+function LostAccess({ mobile }: { mobile?: boolean }): React.JSX.Element {
+  return (
+    <p
+      className={
+        mobile
+          ? 'mt-5 flex items-center justify-center gap-1.5'
+          : 'mt-[18px] flex items-center justify-center gap-1.5'
+      }
+    >
+      <span
+        className={
+          mobile
+            ? 'text-text-disabled font-mono text-[9px] tracking-[1.1px]'
+            : 'text-text-disabled font-mono text-[9.5px] tracking-[1.1px]'
+        }
+      >
+        LOST ACCESS?
+      </span>
+      <span
+        className={
+          mobile
+            ? 'text-text-secondary text-[13px] font-semibold'
+            : 'text-text-secondary text-[12.5px] font-semibold'
+        }
+      >
+        Use your recovery key after you sign in.
+      </span>
+    </p>
+  )
+}
 
 /**
- * M13: the content sits on the gradient window, with no card. The mark, the title and the
- * encryption note scroll. The foot keeps the error, the 48 primary and the helper, then the
- * Takusen links. Takusen draws M14 and M15 inside the system sign-in sheet.
+ * Mobile sign-in (C4): the content sits on the sheet colour, with no card. The mark, the title
+ * and the primary scroll; the encryption note sits at the foot, then the Takusen links. Takusen
+ * draws the account screens inside the system sign-in sheet. This screen has no colour: the
+ * primary is inked.
  */
 function MobileSignIn({
   onSignIn,
@@ -138,81 +134,52 @@ function MobileSignIn({
   const origin = takusenService.env.issuerOrigin
   const noun = useDeviceNoun()
   return (
-    <div
-      style={{ backgroundImage: HOME_WALLPAPER }}
-      className="bg-surface-window relative isolate flex h-full w-full flex-col overflow-y-auto pt-(--safe-top) pb-(--safe-bottom)"
-    >
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[480px] bg-[radial-gradient(ellipse_90%_60%_at_0%_0%,color-mix(in_srgb,var(--accent-primary)_28%,transparent),transparent)]"
-      />
-      <section
-        aria-labelledby="sign-in-title"
-        className="flex flex-1 flex-col gap-7 px-6 pt-[52px] pb-6"
-      >
-        <div className="grid gap-[22px]">
-          <AppMark className="size-16 text-[34px] shadow-[0_10px_24px_color-mix(in_srgb,var(--accent-primary)_35%,transparent)]" />
-          <div className="grid gap-2.5">
-            <h1 id="sign-in-title" className="text-[30px] leading-9 font-extrabold">
-              Sign in to Hachiman
-            </h1>
-            <p className="text-text-secondary text-base leading-normal font-medium">
-              Hachiman uses your Takusen account. Sign in to see your guilds, DMs and voice
-              channels.
-            </p>
-          </div>
+    <div className="bg-surface-content flex h-full w-full flex-col overflow-y-auto pt-(--safe-top) pb-(--safe-bottom)">
+      <section aria-labelledby="sign-in-title" className="flex flex-1 flex-col px-[26px] pt-[70px]">
+        <AppMark className="size-16 rounded-[20px] text-[32px]" />
+        <h1
+          id="sign-in-title"
+          className="text-text-primary mt-[26px] text-[27px] leading-[1.2] font-semibold tracking-[-0.8px]"
+        >
+          Sign in to Hachiman
+        </h1>
+        <p className="text-text-tertiary mt-3 text-[14px] leading-[1.5]">
+          Hachiman uses your Takusen account. Your spaces, channels and messages travel with it.
+        </p>
+        <div className="mt-[34px] grid gap-3">
+          <ErrorText>{error}</ErrorText>
+          <Button
+            size="mobile"
+            className="bg-ink text-on-ink hover:bg-ink/90 h-[54px] gap-[9px] text-[15.5px]"
+            disabled={busy}
+            onClick={onSignIn}
+          >
+            <KeyRound className="size-[17px]" />
+            {busy ? 'Opening Takusen…' : 'Continue with Takusen'}
+          </Button>
         </div>
-        <div className="border-line-hairline border bg-white/2">
-          <div className="border-line-hairline flex items-start gap-3 border-b px-3.5 pt-3.5 pb-3">
-            <span
-              aria-hidden
-              className={cn(FEATURE_TILE.voice, 'flex size-8 shrink-0 items-center justify-center')}
-            >
-              <Lock className="size-4" />
-            </span>
-            <p className="text-text-primary text-sm leading-[1.4] font-semibold">
-              Messages and calls are end-to-end encrypted. After you sign in, you set up this {noun}
-              :
-            </p>
-          </div>
-          <ul className="py-1.5">
-            {PATHS.map(({ icon, tile, label, detail }) => (
-              <li key={label} className="flex items-center gap-3 px-3.5 py-2">
-                <span
-                  aria-hidden
-                  className={cn(
-                    FEATURE_TILE[tile],
-                    'flex size-7 shrink-0 items-center justify-center [&_svg]:size-[15px]'
-                  )}
-                >
-                  {icon}
-                </span>
-                <p className="min-w-0 text-[13px] font-medium">
-                  <span className="text-text-primary text-sm font-extrabold">{label}</span>{' '}
-                  <span className="text-text-tertiary">{detail}</span>
-                </p>
-              </li>
-            ))}
-          </ul>
-        </div>
+        <p className="text-text-tertiary mt-3 text-center text-[13px]">{helper}</p>
+        <LostAccess mobile />
       </section>
-      <div className="grid gap-3 px-6">
-        <ErrorText>{error}</ErrorText>
-        <Button size="mobile" disabled={busy} onClick={onSignIn}>
-          <ArrowUpRight />
-          {busy ? 'Opening Takusen…' : 'Sign in with Takusen'}
-        </Button>
-        <p className="text-text-tertiary text-center text-[13px] font-medium">{helper}</p>
+      <div className="flex gap-2.5 px-3.5 pt-3.5 pb-5">
+        <ShieldCheck aria-hidden className="text-text-tertiary mt-0.5 size-[15px] shrink-0" />
+        <p className="text-text-tertiary text-[11.5px] leading-[1.45]">
+          Messages and calls are end-to-end encrypted. After you sign in, you link this {noun} to
+          one you already use, or restore it with your recovery key.
+        </p>
       </div>
-      <nav aria-label="Takusen" className="flex items-center justify-center gap-1.5 px-6 pb-1.5">
+      <nav
+        aria-label="Takusen"
+        className="text-text-disabled flex items-center justify-center gap-1.5 px-6 pb-1.5 font-mono text-[9px] tracking-[1.2px] uppercase"
+      >
         {FOOTER_LINKS.map(({ label, hash }, i) => (
           <Fragment key={hash}>
-            {i > 0 && <span aria-hidden className="bg-text-disabled size-[3px] rounded-full" />}
+            {i > 0 && <span aria-hidden>·</span>}
             <a
               href={`${origin}/#${hash}`}
               target="_blank"
               rel="noreferrer"
-              className="text-text-tertiary rounded-control active:bg-surface-hover focus-visible:outline-line-focus inline-flex h-11 items-center px-2 text-[13px] font-semibold outline-none focus-visible:outline-2"
+              className="rounded-control active:bg-surface-hover focus-visible:outline-line-focus inline-flex h-11 items-center px-2 outline-none focus-visible:outline-2"
             >
               {label}
             </a>
@@ -223,34 +190,17 @@ function MobileSignIn({
   )
 }
 
-/** The app mark: 八 (hachi) on the accent gradient. Decorative. */
-function AppMark({ className }: { className?: string }): React.JSX.Element {
-  return (
-    <span
-      aria-hidden
-      className={cn(
-        'from-accent-primary to-feature-page text-text-on-accent flex shrink-0 items-center justify-center bg-gradient-to-br leading-none font-bold',
-        className
-      )}
-    >
-      八
-    </span>
-  )
-}
-
 /** A set-up path as a quiet chip: information, not a control. */
 function PathChip({
   icon,
-  tone,
   children
 }: {
   icon: React.ReactNode
-  tone: string
   children: React.ReactNode
 }): React.JSX.Element {
   return (
-    <li className="border-line-hairline rounded-control text-text-primary flex h-8 items-center justify-center gap-1.5 border text-[13px] font-semibold">
-      <span aria-hidden className={cn('[&_svg]:size-3.5', tone)}>
+    <li className="rounded-row border-line-strong text-text-tertiary inline-flex items-center gap-[5px] border px-2 py-1 font-mono text-[9px] tracking-[0.3px]">
+      <span aria-hidden className="text-text-disabled [&_svg]:size-[11px]">
         {icon}
       </span>
       {children}

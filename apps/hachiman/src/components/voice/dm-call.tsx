@@ -3,6 +3,7 @@ import { Phone, PhoneCall, PhoneOff } from 'lucide-react'
 import type { Channel } from '@hachiman/client'
 import { UserAvatar } from '@/components/shell/user-avatar'
 import { Button } from '@/components/ui/button'
+import { LiveDot } from '@/components/ui/live'
 import { IconButton } from '@/components/ui/icon-button'
 import { closeDmStage, openDmStage, useDmStageShown } from '@/components/voice/dm-stage-state'
 import { useCanJoinVoice } from '@/components/voice/use-call-security'
@@ -40,11 +41,18 @@ export function DmCallPanel({ channel }: { channel: Channel }): React.JSX.Elemen
   const here = useVoiceStore((s) => s.channelId === channel.id)
   const occupants = useChannelOccupants(null, channel.id)
   const stage = useDmStageShown(channel.id)
-  if (here && mobile) return stage ? <MobileDmStage channel={channel} /> : null
+  if (here && mobile) {
+    if (stage) return <MobileDmStage channel={channel} />
+    return (
+      <div className="bg-surface-sunken border-line-hairline shrink-0 border-b">
+        <Stage channel={channel} variant="strip" />
+      </div>
+    )
+  }
   if (here)
     return (
-      <div className="border-line-hairline relative flex h-[min(55vh,520px)] shrink-0 flex-col border-b">
-        <Stage channel={channel} />
+      <div className="border-line-hairline relative flex max-h-[60vh] shrink-0 flex-col border-b">
+        <Stage channel={channel} variant="strip" />
       </div>
     )
   if (occupants.length === 0) return null
@@ -88,7 +96,7 @@ function JoinCallBanner({
     <div
       role="region"
       aria-label="Call"
-      className="border-feature-voice/30 bg-feature-voice/10 flex shrink-0 items-center gap-3 border-b px-4 py-2.5"
+      className="border-b-line-hairline border-l-live bg-live-tint flex shrink-0 items-center gap-3 border-b border-l-2 px-4 py-2.5"
     >
       <ul className="flex -space-x-2">
         {userIds.slice(0, 4).map((id) => (
@@ -97,7 +105,13 @@ function JoinCallBanner({
           </li>
         ))}
       </ul>
-      <p className="text-text-primary min-w-0 flex-1 truncate text-sm font-semibold">
+      <p
+        className={cn(
+          'flex min-w-0 flex-1 items-center gap-2 truncate text-[13px] font-semibold',
+          ringing ? 'text-live-text' : 'text-text-primary'
+        )}
+      >
+        <LiveDot />
         {ringing ? 'Incoming call' : `${userIds.length} in the call`}
       </p>
       {ringing && (
@@ -155,7 +169,7 @@ export function DmCallButton({
         label={stage ? 'Show the chat' : 'Show the call'}
         data-stage={stage ? 'on' : 'off'}
         onClick={() => (stage ? closeDmStage() : openDmStage(channel.id))}
-        className={cn(className, 'text-feature-voice-text data-[stage=on]:bg-feature-voice/12')}
+        className={cn(className, 'text-live-text data-[stage=on]:bg-live-tint')}
       >
         <Phone />
       </IconButton>

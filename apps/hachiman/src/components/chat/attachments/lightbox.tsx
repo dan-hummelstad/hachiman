@@ -51,7 +51,7 @@ function LightboxBody({
       </DialogTitle>
       <div
         className={cn(
-          'bg-rail flex items-center justify-center',
+          'bg-surface-sunken flex items-center justify-center',
           mobile ? 'min-h-0 flex-1' : 'min-h-40'
         )}
         style={mobile ? undefined : fitViewport(image.width, image.height)}
@@ -78,7 +78,7 @@ function LightboxBody({
           mobile ? 'min-h-[calc(48px+var(--safe-bottom))] shrink-0 pb-(--safe-bottom)' : 'py-2'
         )}
       >
-        <span className={save.error ? 'text-feature-danger-text' : undefined}>
+        <span className={save.error ? 'text-you-text' : undefined}>
           {save.error ??
             `${image.width && image.height ? `${image.width} × ${image.height}, ` : ''}${formatBytes(image.size)}`}
         </span>

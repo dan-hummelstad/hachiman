@@ -116,19 +116,19 @@ function SourceGroup({
   if (sources.length === 0) return null
   return (
     <section>
-      <h3 className="section-label mb-2">{title}</h3>
+      <h3 className="cap mb-2">{title}</h3>
       <ul className="grid grid-cols-2 gap-2 sm:grid-cols-3">
         {sources.map((s) => (
           <li key={s.id}>
             <button
               type="button"
               onClick={() => onPick(s.id)}
-              className="rounded-option border-line-hairline hover:bg-surface-hover hover:border-feature-voice focus-visible:outline-line-focus flex w-full flex-col gap-1.5 border p-1.5 text-left transition-colors outline-none focus-visible:outline-2 focus-visible:outline-offset-1"
+              className="rounded-option border-line-hairline hover:bg-surface-hover hover:border-line-strong focus-visible:border-here focus-visible:outline-line-focus flex w-full flex-col gap-1.5 border p-1.5 text-left transition-colors outline-none focus-visible:outline-2 focus-visible:outline-offset-1"
             >
               <img
                 src={s.thumbnail}
                 alt=""
-                className="aspect-video w-full rounded-[6px] bg-black object-contain"
+                className="aspect-video w-full rounded-[4px] bg-black object-contain"
               />
               <span className="text-text-primary truncate px-0.5 text-xs font-semibold">
                 {s.name}

@@ -18,7 +18,7 @@ import { channelPermissionLabels } from '@/components/settings/permission-labels
 import { SaveBar } from '@/components/settings/save-bar'
 import { useAction } from '@/hooks/use-action'
 import { useLayout } from '@/hooks/use-layout'
-import { displayName, hexColor, rolesByPositionDesc } from '@/lib/model'
+import { displayName, rolesByPositionDesc } from '@/lib/model'
 import { cn } from '@/lib/utils'
 import { adminActionService } from '@/services/AdminActionService'
 import { useGuildStore } from '@/stores/guildStore'
@@ -84,10 +84,6 @@ export function ChannelPermissionsPage({
       : o.type === 'role'
         ? 'role'
         : 'member'
-  const roleColor = (o: PermissionOverwrite): string => {
-    const color = o.type === 'role' ? roles?.get(o.id)?.color : undefined
-    return color ? hexColor(color) : 'var(--text-tertiary)'
-  }
 
   const select = (id: string): void => {
     setSelectedId(id)
@@ -171,14 +167,7 @@ export function ChannelPermissionsPage({
           options={list.map((o) => ({
             value: o.id,
             label: label(o).replace(/^@/, ''),
-            lead:
-              o.id === guildId ? (
-                <AtSign />
-              ) : o.type === 'member' ? (
-                <User />
-              ) : (
-                <span className="size-[9px]" style={{ background: roleColor(o) }} />
-              ),
+            lead: o.id === guildId ? <AtSign /> : o.type === 'member' ? <User /> : undefined,
             // The selected chip counts the draft, so it follows the unsaved rules (M49).
             count: bitCount(o.id === current.id ? current.allow | current.deny : o.allow | o.deny)
           }))}
@@ -188,7 +177,7 @@ export function ChannelPermissionsPage({
         />
         <div className="flex flex-col">
           <div className="border-line-hairline flex items-center gap-2 border-b pt-1 pb-3">
-            <span className="text-text-primary min-w-0 truncate text-[17px] leading-[22px] font-extrabold">
+            <span className="text-text-primary min-w-0 truncate text-[17px] leading-[22px] font-semibold">
               {label(selected)}
             </span>
             <span className="text-text-tertiary min-w-0 flex-1 truncate text-[13.5px] leading-[18px] font-medium">
@@ -202,7 +191,7 @@ export function ChannelPermissionsPage({
                 onClick={remove}
                 className={cn(
                   KIT_ICON_BUTTON,
-                  'text-text-tertiary active:bg-surface-hover active:text-feature-danger-text -my-[7px]'
+                  'text-text-tertiary active:bg-surface-hover active:text-you-text -my-[7px]'
                 )}
               >
                 <Trash2 />
@@ -230,7 +219,7 @@ export function ChannelPermissionsPage({
     <div className="grid grid-cols-[220px_minmax(0,1fr)] items-start gap-6">
       <div className="sticky top-0 grid gap-3">
         {addMenu(
-          <Button variant="secondary" size="lg" className="w-full">
+          <Button variant="secondary" size="sm" className="w-full">
             <Plus /> Add role or member
           </Button>
         )}
@@ -253,16 +242,10 @@ export function ChannelPermissionsPage({
                     <AtSign aria-hidden className="text-text-tertiary size-3.5 shrink-0" />
                   ) : o.type === 'member' ? (
                     <User aria-label="Member" className="text-text-tertiary size-3.5 shrink-0" />
-                  ) : (
-                    <span
-                      aria-hidden
-                      className="rounded-check size-2.5 shrink-0"
-                      style={{ background: roleColor(o) }}
-                    />
-                  )}
+                  ) : null}
                   <span className="flex-1 truncate">{label(o).replace(/^@/, '')}</span>
                   {count > 0 && (
-                    <span className="rounded-check bg-accent-primary text-text-on-accent px-1.5 text-[11px] leading-4 font-bold tabular-nums">
+                    <span className="rounded-badge border-line-strong text-text-tertiary border px-1 font-mono text-[9.5px] tabular-nums">
                       {count}
                     </span>
                   )}
@@ -275,15 +258,12 @@ export function ChannelPermissionsPage({
 
       <div className="grid gap-1">
         <div className="border-line-hairline flex h-9 items-center gap-2 border-b pb-2">
-          <span className="text-heading truncate">{label(selected)}</span>
-          <span className="text-meta text-text-tertiary flex-1 truncate">
-            · {sublabel(selected)}
-          </span>
+          <span className="truncate text-[16px] font-semibold">{label(selected)}</span>
+          <span className="cap-sm flex-1 truncate">· {sublabel(selected)}</span>
           {selected.id !== guildId && (
             <Button
               variant="quiet"
               size="sm"
-              className="text-text-tertiary hover:text-feature-danger-text"
               disabled={busy}
               onClick={remove}
             >
@@ -326,55 +306,48 @@ function PermissionRules({
         const value: Tri =
           overwrite.allow & p.bit ? 'allow' : overwrite.deny & p.bit ? 'deny' : 'inherit'
         return (
-          <div key={p.name} className={cn('flex items-center py-3', touch ? 'gap-3' : 'gap-4')}>
+          <div
+            key={p.name}
+            className={cn('flex items-center', touch ? 'gap-3 py-3' : 'min-h-[46px] gap-3.5 py-2')}
+          >
             <span className={cn('grid min-w-0 flex-1', touch && 'gap-[3px]')}>
               <span
                 className={cn(
                   'flex items-center gap-2',
                   // A chip that does not fit beside the label goes under it.
                   touch
-                    ? 'text-text-primary flex-wrap gap-y-1 text-[15px] leading-5 font-bold'
-                    : 'text-label'
+                    ? 'text-text-primary flex-wrap gap-y-1 text-[15px] leading-5 font-semibold'
+                    : 'text-text-primary text-[13px] font-semibold'
                 )}
               >
                 {p.label}
-                {value === 'allow' && (
-                  <span
-                    className={cn(OVERRIDE_CHIP, 'bg-feature-voice/15 text-feature-voice-text')}
-                  >
-                    Allowed here
-                  </span>
-                )}
+                {value === 'allow' && <span className={OVERRIDE_CHIP}>Allowed here</span>}
                 {value === 'deny' && (
-                  <span
-                    className={cn(OVERRIDE_CHIP, 'bg-feature-danger/15 text-feature-danger-text')}
-                  >
-                    Denied here
-                  </span>
+                  <span className={cn(OVERRIDE_CHIP, 'text-text-secondary')}>Denied here</span>
                 )}
               </span>
               {/* Not `cn`: tailwind-merge takes `text-meta` for a colour and drops the other. */}
               <span
                 className={
                   touch
-                    ? 'text-text-tertiary text-[13px] leading-4 font-medium'
-                    : 'text-meta text-text-tertiary'
+                    ? 'text-text-tertiary text-[13px] leading-4'
+                    : 'text-text-disabled text-[12px]'
                 }
               >
                 {p.hint}
               </span>
             </span>
             <SegmentedControl
-              iconOnly
+              iconOnly={touch}
               label={p.label}
-              options={TRI}
+              options={touch ? TRI : TRI_TEXT}
               value={value}
               onChange={(v) => onChange(p.bit, v)}
               size={touch ? 'touch' : 'default'}
               className={
                 touch
                   ? 'border-line-strong w-auto shrink-0 gap-0.5 [&_[aria-checked=false]]:text-text-disabled'
-                  : 'border-line-hairline shrink-0 border'
+                  : 'border-line-hairline rounded-control h-[30px] shrink-0 border [&_button]:px-[13px] [&_button]:text-[11.5px]'
               }
             />
           </div>
@@ -384,45 +357,26 @@ function PermissionRules({
   )
 }
 
-/** The "Allowed here" and "Denied here" tag: square, 18 high and 10.5/800 on the mobile layout. */
+/** The "Allowed here" and "Denied here" tag: one neutral mono tag. */
 const OVERRIDE_CHIP =
-  'rounded-check px-1.5 text-[10.5px] leading-4 font-bold mobile:rounded-none mobile:leading-[18px] mobile:font-extrabold'
+  'rounded-badge border border-line-strong px-1 font-mono text-[8.5px] uppercase tracking-[0.8px] leading-4 text-text-tertiary'
 
-/** The key under the switches: deny, role default, allow. */
+/** The key under the switches. */
 function TriLegend(): React.JSX.Element {
   return (
-    <div className="text-meta text-text-tertiary mobile:py-0 mobile:text-[12.5px] mobile:font-semibold mobile:[&_svg]:size-[13px] flex items-center gap-4 py-3 [&_svg]:size-3.5">
-      <span className="flex items-center gap-1">
-        <X className="text-feature-danger-text" /> Deny
-      </span>
-      <span className="flex items-center gap-1">
-        <Slash className="mobile:text-text-primary" /> Role default
-      </span>
-      <span className="flex items-center gap-1">
-        <Check className="text-feature-voice-text" /> Allow
-      </span>
+    <div className="cap-sm py-3 text-[8px] tracking-[0.9px]">
+      Inherit means: whatever the role says guild-wide
     </div>
   )
 }
 
-/** Deny (coral), role default, allow (green). */
+/** Allow, inherit, deny: all neutral; the selected one is the inverted ink. */
+const SELECTED = 'bg-ink text-on-ink font-semibold'
 const TRI: SegmentedOption<Tri>[] = [
-  {
-    value: 'deny',
-    icon: <X />,
-    selectedClassName: 'bg-feature-danger/20 text-feature-danger-text',
-    label: 'Deny'
-  },
-  {
-    value: 'inherit',
-    icon: <Slash />,
-    selectedClassName: 'bg-surface-hover text-text-primary',
-    label: 'Role default'
-  },
-  {
-    value: 'allow',
-    icon: <Check />,
-    selectedClassName: 'bg-feature-voice/20 text-feature-voice-text',
-    label: 'Allow'
-  }
+  { value: 'allow', icon: <Check />, selectedClassName: SELECTED, label: 'Allow' },
+  { value: 'inherit', icon: <Slash />, selectedClassName: SELECTED, label: 'Inherit' },
+  { value: 'deny', icon: <X />, selectedClassName: SELECTED, label: 'Deny' }
 ]
+
+/** The desktop control shows words, not icons. */
+const TRI_TEXT: SegmentedOption<Tri>[] = TRI.map(({ icon: _icon, ...o }) => o)

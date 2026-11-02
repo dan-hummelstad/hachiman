@@ -70,22 +70,22 @@ export function PageLinkCard({
   )
   return (
     <div
-      className="bg-surface-panel border-line-hairline flex w-[440px] max-w-full items-center gap-3 border px-3 py-2.5"
+      className="bg-surface-raised border-line-hairline rounded-option flex w-[420px] max-w-full items-center gap-3 border px-3 py-2.5"
       data-slot="page-link-card"
     >
-      <span className="bg-feature-page/15 text-feature-page-text flex size-9 shrink-0 items-center justify-center">
+      <span className="bg-surface-sunken text-text-secondary rounded-control flex size-9 shrink-0 items-center justify-center">
         <FileText className="size-[18px]" strokeWidth={1.75} aria-hidden />
       </span>
       <div className="min-w-0 flex-1">
         <p
           className={cn(
-            'truncate text-[14px] leading-5 font-bold',
+            'truncate text-[14px] leading-5 font-semibold',
             page ? 'text-text-primary' : 'text-text-tertiary'
           )}
         >
           {page ? pageTitle(page) : 'Page not available'}
         </p>
-        <p className="text-text-tertiary text-meta truncate">
+        <p className="text-text-disabled truncate font-mono text-[9px] tracking-[0.8px] uppercase">
           {page ? (
             <>
               Page in #{channelName ?? 'pages'} ·{' '}
@@ -103,7 +103,7 @@ export function PageLinkCard({
           type="button"
           onClick={() => openPage(page, guildId)}
           className={cn(
-            'rounded-control bg-accent-tint text-accent-text hover:bg-accent-primary hover:text-text-on-accent flex h-8 shrink-0 items-center gap-1.5 px-3 text-[13px] font-semibold transition-colors',
+            'rounded-control border-line-strong text-text-primary hover:bg-surface-hover flex h-8 shrink-0 items-center gap-1.5 border px-3 text-[13px] font-semibold transition-colors',
             TOUCH_HIT_BAND,
             FOCUS
           )}

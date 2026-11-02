@@ -1,70 +1,20 @@
 import { useId } from 'react'
 import { ChevronDown, ChevronRight } from 'lucide-react'
-import type { PresenceStatus } from '@hachiman/client'
 import { ListGroup, ListRow, SectionLabel } from '@/components/mobile/list'
 import type { SettingsDanger, SettingsModel } from '@/components/settings/settings-model'
 import { SettingsPageBody } from '@/components/settings/settings-screen'
 import { UserAvatar } from '@/components/shell/user-avatar'
+import { UnreadMark } from '@/components/ui/unread-mark'
 import { OWN_STATUS_LABEL, PresenceDot } from '@/components/ui/presence'
-import { useCustomStatus } from '@/hooks/use-custom-status'
 import { isVisible, listedGroups } from '@/lib/settings-sections'
 import { cn } from '@/lib/utils'
 import { useTakusenStore } from '@/stores/takusenStore'
 import { useUserStore } from '@/stores/userStore'
 
-/** The status word in its colour, readable in both themes. */
-const STATUS_TEXT: Record<PresenceStatus, string> = {
-  online: 'text-feature-voice-text',
-  idle: 'text-feature-event-text',
-  dnd: 'text-feature-danger-text',
-  offline: 'text-text-secondary'
-}
-
 /**
- * The status chip of the profile header (M29): 28 high, r8, the dot, the status word in its
- * colour and the custom status. With `onStatus` it is a button with a chevron.
- */
-function StatusChip({ onStatus }: { onStatus?: () => void }): React.JSX.Element {
-  const me = useUserStore((s) => s.me)
-  const status = useUserStore((s) => s.status)
-  const custom = useCustomStatus(me?.id ?? '')
-  const word = OWN_STATUS_LABEL[status]
-  const className =
-    'rounded-control bg-surface-hover border-line-strong flex h-7 max-w-full min-w-0 items-center gap-1.5 border pr-2 pl-[9px] text-[12.5px] leading-4'
-  const content = (
-    <>
-      <span aria-hidden className="flex">
-        <PresenceDot status={status} />
-      </span>
-      <span className={cn('shrink-0 font-bold', STATUS_TEXT[status])}>{word}</span>
-      {custom && (
-        <span className="text-text-secondary truncate font-semibold">· {custom.text}</span>
-      )}
-      {onStatus && <ChevronDown aria-hidden className="text-text-tertiary size-3.5 shrink-0" />}
-    </>
-  )
-  if (!onStatus) return <span className={className}>{content}</span>
-  return (
-    <button
-      type="button"
-      onClick={onStatus}
-      aria-label={`Status: ${word}${custom ? `, ${custom.text}` : ''}`}
-      className={cn(
-        className,
-        'active:bg-surface-selected focus-visible:outline-line-focus relative z-10 outline-none focus-visible:outline-2',
-        // A 36 hit height around the 28 chip, so a near miss does not open My account.
-        'after:absolute after:-inset-x-[5px] after:-inset-y-[5px]'
-      )}
-    >
-      {content}
-    </button>
-  )
-}
-
-/**
- * The profile header of the user settings list (M29): 76 high on an accent wash, avatar 52 with my
- * status, name 19/800 and the status chip. The whole row opens `onOpen` (my account); the chip
- * stays its own button.
+ * The profile header of the user settings list (C1): 92 high, avatar 56 with my presence, name
+ * 19/600 and "@handle · STATUS" in mono caps. The whole row opens `onOpen` (my profile); the
+ * status stays its own button.
  */
 export function SettingsProfile({
   onOpen,
@@ -77,29 +27,47 @@ export function SettingsProfile({
   const status = useUserStore((s) => s.status)
   const handle = useTakusenStore((s) => s.session?.user.handle)
   const name = me?.username ?? handle ?? 'You'
+  const line = `@${name} · ${OWN_STATUS_LABEL[status]}`
+  const lineClass =
+    'text-text-disabled max-w-full truncate text-left font-mono text-[8.5px] tracking-[0.9px] uppercase'
   return (
-    <div className="from-accent-primary/18 relative flex h-[76px] items-center gap-3.5 bg-linear-to-r to-transparent px-3.5">
+    <div className="border-line-hairline relative flex h-[92px] items-center gap-3.5 border-b px-4">
       <span className="relative flex shrink-0">
-        <UserAvatar name={name} avatar={me?.avatar} size={52} />
+        <UserAvatar name={name} avatar={me?.avatar} size={56} />
         <span
           aria-hidden
           className="ring-surface-content absolute right-0 bottom-0 flex rounded-full ring-3"
         >
-          <PresenceDot status={status} className="size-3.5" />
+          <PresenceDot status={status} className="size-4" />
         </span>
       </span>
       <div className="flex min-w-0 flex-1 flex-col items-start gap-1.5">
         <button
           type="button"
           onClick={onOpen}
-          aria-label={`${name}, My account`}
-          className="text-text-primary focus-visible:after:outline-line-focus active:after:bg-surface-hover max-w-full truncate text-left text-[19px] leading-6 font-extrabold outline-none after:absolute after:inset-0 focus-visible:after:outline-2 focus-visible:after:-outline-offset-2"
+          aria-label={`${name}, Your profile`}
+          className="text-text-primary focus-visible:after:outline-line-focus active:after:bg-surface-hover max-w-full truncate text-left text-[19px] leading-6 font-semibold outline-none after:absolute after:inset-0 focus-visible:after:outline-2 focus-visible:after:-outline-offset-2"
         >
           {name}
         </button>
-        <StatusChip onStatus={onStatus} />
+        {onStatus ? (
+          <button
+            type="button"
+            onClick={onStatus}
+            aria-label={`Status: ${OWN_STATUS_LABEL[status]}`}
+            className={cn(
+              lineClass,
+              'focus-visible:outline-line-focus relative z-10 flex items-center gap-1 outline-none after:absolute after:-inset-x-[5px] after:-inset-y-[10px] focus-visible:outline-2'
+            )}
+          >
+            <span className="truncate">{line}</span>
+            <ChevronDown aria-hidden className="text-text-disabled size-3 shrink-0" />
+          </button>
+        ) : (
+          <span className={lineClass}>{line}</span>
+        )}
       </div>
-      <ChevronRight aria-hidden className="text-text-disabled size-[17px] shrink-0" />
+      <ChevronRight aria-hidden className="text-text-disabled size-[18px] shrink-0" />
     </div>
   )
 }
@@ -113,7 +81,10 @@ export function SettingsDangerGroup({
   className?: string
 }): React.JSX.Element {
   return (
-    <ListGroup tone="danger" className={className}>
+    <ListGroup
+      tone="danger"
+      className={cn('border-line-hairline mt-3.5 border-x-0 bg-transparent', className)}
+    >
       <ListRow
         tone="danger"
         icon={danger.icon}
@@ -160,7 +131,9 @@ export function SettingsList({
           <SettingsPageBody page={inlineItem.page} />
         </section>
       )}
-      {header !== undefined && lead === -1 && <ListGroup>{header}</ListGroup>}
+      {header !== undefined && lead === -1 && (
+        <ListGroup className="border-x-0 bg-transparent">{header}</ListGroup>
+      )}
       {groups.map((g, i) => {
         const headingId = `${baseId}-${i}`
         return (
@@ -169,17 +142,31 @@ export function SettingsList({
             aria-labelledby={g.heading ? headingId : undefined}
             className="flex flex-col gap-1.5"
           >
-            {g.heading && <SectionLabel id={headingId}>{g.heading}</SectionLabel>}
-            <ListGroup>
+            {g.heading && (
+              <SectionLabel
+                id={headingId}
+                className="text-text-disabled px-4 pt-[21px] pb-2 font-mono text-[8px] tracking-[1.3px]"
+              >
+                {g.heading}
+              </SectionLabel>
+            )}
+            <ListGroup className="border-x-0 bg-transparent">
               {i === lead && header}
-              {g.items.map((s) => (
+              {g.items.filter((s) => !s.unlisted).map((s) => (
                 <ListRow
                   key={s.id}
                   icon={s.icon}
-                  tile={s.tint}
+                  tile="neutral"
                   label={s.label}
                   detail={s.detail}
-                  value={s.value ?? (s.count ? String(s.count) : undefined)}
+                  value={
+                    s.value ??
+                    (s.alert ? (
+                      <UnreadMark badge={{ mentions: s.alert, unread: false }} count />
+                    ) : s.count ? (
+                      String(s.count)
+                    ) : undefined)
+                  }
                   disabled={!s.page}
                   onClick={() => onSelect(s.id)}
                 />

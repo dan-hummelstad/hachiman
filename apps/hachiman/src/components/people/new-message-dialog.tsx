@@ -118,12 +118,12 @@ function Picker({ mode, onClose }: { mode: PickerMode; onClose: () => void }): R
 
   return (
     <div className="flex flex-col gap-3">
-      <label className="rounded-control border-line-strong bg-surface-sunken focus-within:border-accent-primary flex min-h-9 flex-wrap items-center gap-1.5 border px-3 py-1.5">
+      <label className="rounded-control border-line-strong bg-surface-sunken focus-within:border-line-strong flex min-h-9 flex-wrap items-center gap-1.5 border px-3 py-1.5">
         <Search className="text-text-tertiary size-4 shrink-0" aria-hidden />
         {picked.map((u) => (
           <span
             key={u.id}
-            className="bg-surface-hover text-text-primary flex items-center gap-1 rounded-full py-0.5 pr-1 pl-2 text-xs font-semibold"
+            className="bg-surface-raised border-line-strong text-text-primary flex items-center gap-1 rounded-pill border py-0.5 pr-1 pl-2 text-xs font-semibold"
           >
             {u.username}
             <button
@@ -219,7 +219,7 @@ function PickRow({
         <span
           className={cn(
             'border-line-strong flex size-5 shrink-0 items-center justify-center rounded-full border',
-            selected && 'bg-accent-primary border-accent-primary text-text-on-accent'
+            selected && 'bg-ink border-ink text-on-ink'
           )}
           aria-hidden
         >

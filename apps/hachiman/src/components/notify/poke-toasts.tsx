@@ -32,11 +32,11 @@ function PokeToastCard({ toast }: { toast: PokeToast }): React.JSX.Element {
   const touch = useLayout() === 'mobile'
   const { user } = toast
   return (
-    <div className="bg-popover text-popover-foreground pointer-events-auto flex flex-col gap-2 rounded-lg border p-3 shadow-lg">
+    <div className="bg-surface-raised border-line-strong rounded-option pointer-events-auto flex flex-col gap-2 border p-3 shadow-lg">
       <div className="flex items-center gap-2">
         <UserAvatar name={user.username} avatar={user.avatar} size={28} />
         <p className="text-text-primary min-w-0 flex-1 truncate text-sm font-semibold">
-          {user.username} poked you
+          <span className="text-you-text">{user.username}</span> poked you
         </p>
         <IconButton
           label="Dismiss"

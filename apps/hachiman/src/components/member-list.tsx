@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { AudioLines, Crown, Volume2 } from 'lucide-react'
+import { Crown, Volume2 } from 'lucide-react'
 import type { Member, PresenceStatus } from '@hachiman/client'
 import { memberDetail, type MemberDetail } from '@/components/chat/mobile-mention-model'
 import { MemberSheet } from '@/components/mobile/member-sheet'
@@ -18,7 +18,7 @@ import { useLayout } from '@/hooks/use-layout'
 import { LONG_PRESS_TARGET, useLongPress } from '@/hooks/use-long-press'
 import { usePresence, useSpeakingMember } from '@/hooks/use-member'
 import { groupMembers } from '@/lib/member-groups'
-import { ROLE_INK_SCOPE, roleInk } from '@/lib/role-ink'
+import { memberRoles } from '@/lib/model'
 import { cn } from '@/lib/utils'
 import { useChannelStore } from '@/stores/channelStore'
 import { useGuildStore } from '@/stores/guildStore'
@@ -35,7 +35,7 @@ interface Streamer {
 
 /**
  * The members of a guild, for the right column (RightColumn puts the column head above it).
- * Sections from `groupMembers`, names in their highest role colour, an activity line from the
+ * Sections from `groupMembers`, neutral names, an activity line from the
  * voice states, and a live card per member who streams.
  *
  * Mobile layout (the members drawer, docs/ios-mobile-ui-spec.md A4): the M4 sizes, a 40 px fade
@@ -66,23 +66,14 @@ export function MemberList({ guildId }: { guildId: string }): React.JSX.Element 
   }, [states])
 
   return (
-    <div className={cn('flex min-h-0 flex-1 flex-col', ROLE_INK_SCOPE)}>
+    <div className="flex min-h-0 flex-1 flex-col">
       <ScrollArea className="min-h-0 flex-1">
-        <div className="mobile:gap-0 mobile:pt-1.5 mobile:pb-10 flex flex-col gap-3 px-2 py-3">
+        <div className="mobile:gap-0 mobile:pt-1.5 mobile:pb-10 flex flex-col gap-px px-2 pt-2.5 pb-3">
           {groups.map((g) => (
             <section key={g.id} aria-label={g.label}>
-              <h3 className="section-label mobile:gap-[7px] mobile:pt-2.5 mobile:pb-0.5 mobile:tracking-[0.6px] flex items-center gap-1.5 px-2 pb-1">
-                {(g.color || mobile) && (
-                  // Mobile (M4): the offline group gets a grey mark too.
-                  <span
-                    className="size-2 shrink-0"
-                    style={{
-                      backgroundColor: g.color ? roleInk(g.color) : 'var(--text-disabled)'
-                    }}
-                    aria-hidden
-                  />
-                )}
-                {g.label} — {g.members.length}
+              <h3 className="text-text-disabled mobile:h-[34px] mobile:px-[18px] mobile:text-[8px] flex h-[30px] items-center gap-1.5 px-2 font-mono text-[9px] tracking-[1.3px] uppercase">
+                <span className="flex-1 truncate">{g.label}</span>
+                <span className="tracking-[0.8px]">{g.members.length}</span>
               </h3>
               <ul className="flex flex-col gap-px">
                 {g.members.map((m) => (
@@ -133,30 +124,23 @@ export function MemberList({ guildId }: { guildId: string }): React.JSX.Element 
  * Lounge", "In Lounge", or "Idle · in Lounge" in the quiet ink while away.
  */
 const DETAIL_TONE: Record<MemberDetail['tone'], string> = {
-  voice: 'text-feature-voice-text font-bold',
-  quiet: 'text-text-tertiary font-medium',
-  danger: 'text-feature-danger-text font-bold'
+  voice: 'text-live-text font-medium',
+  quiet: 'text-text-tertiary font-normal',
+  danger: 'text-text-secondary font-normal'
 }
 
 /**
  * The presence line of the mobile member row: idle and do not disturb, the states that the dot
- * alone does not spell out. Do not disturb is in the danger ink.
+ * alone does not spell out. Do not disturb is presence, so it stays neutral.
  */
 const PRESENCE_LINE: Partial<Record<PresenceStatus, string>> = {
   idle: DETAIL_TONE.quiet,
   dnd: DETAIL_TONE.danger
 }
 
+/** The voice line of a mobile row: the text is for screen readers, the icon trails the row. */
 function MobileVoiceLine({ detail }: { detail: MemberDetail }): React.JSX.Element {
-  const Icon = detail.icon === 'speaking' ? AudioLines : Volume2
-  return (
-    <span
-      className={cn('flex min-w-0 items-center gap-1 text-xs leading-4', DETAIL_TONE[detail.tone])}
-    >
-      {detail.icon && <Icon className="size-3.5 shrink-0" aria-hidden />}
-      <span className="truncate">{detail.text}</span>
-    </span>
-  )
+  return <span className="sr-only">{detail.text}</span>
 }
 
 function MemberRow({
@@ -179,7 +163,9 @@ function MemberRow({
   onHold?: (userId: string) => void
 }): React.JSX.Element {
   const userId = member.user.id
-  const { name, ink, speaking } = useSpeakingMember(guildId, userId)
+  const { name, speaking } = useSpeakingMember(guildId, userId)
+  const roles = useGuildStore((s) => s.roles.get(guildId))
+  const roleTag = memberRoles(member, roles).find((r) => r.hoist)?.name
   const status = usePresence(userId)
   const activity = useVoiceActivity(userId, guildId)
   const customStatus = useCustomStatus(userId)
@@ -194,8 +180,8 @@ function MemberRow({
           type="button"
           {...(onHold ? press : {})}
           className={cn(
-            'group rounded-control hover:bg-surface-hover flex min-h-[42px] w-full items-center gap-2.5 px-2 py-1 text-left',
-            'mobile:rounded-[7px] mobile:py-[3px] mobile:active:bg-surface-hover',
+            'group rounded-row hover:bg-surface-hover flex min-h-[34px] w-full items-center gap-[9px] px-2 py-0.5 text-left',
+            'mobile:min-h-[52px] mobile:gap-3 mobile:rounded-none mobile:px-[18px] mobile:active:bg-surface-hover',
             'focus-visible:outline-line-focus focus-visible:outline-2 focus-visible:-outline-offset-2',
             LONG_PRESS_TARGET,
             dim && 'opacity-45 hover:opacity-100'
@@ -204,24 +190,18 @@ function MemberRow({
           <UserAvatar
             avatar={member.user.avatar}
             name={name}
-            color={ink}
+            size={mobile ? 34 : 26}
             speaking={speaking}
             status={dim ? undefined : status}
             cutout="bg-surface-panel"
           />
           <span className="flex min-w-0 flex-1 flex-col">
             <span className="flex min-w-0 items-center gap-1.5">
-              <span
-                className="text-text-primary mobile:text-[14.5px] mobile:font-bold truncate text-sm leading-5 font-semibold"
-                style={ink ? { color: ink } : undefined}
-              >
+              <span className="text-text-secondary group-hover:text-text-primary mobile:text-[14.5px] mobile:text-text-primary truncate text-[13px] leading-5">
                 {name}
               </span>
               {owner && (
-                <Crown
-                  className="text-feature-event-text size-3.5 shrink-0"
-                  aria-label="Guild owner"
-                />
+                <Crown className="text-text-tertiary size-3 shrink-0" aria-label="Guild owner" />
               )}
               {me && <SystemTag kind="you" />}
             </span>
@@ -229,14 +209,14 @@ function MemberRow({
             {activity && !voiceDetail && !dim && (
               <VoiceActivityLine
                 activity={activity}
-                className="text-feature-voice-text mobile:font-bold text-xs leading-4 font-semibold"
+                className="text-live-text font-mono text-[11px] leading-4 tracking-[0.4px]"
               />
             )}
             {!activity && !dim && (
-              <CustomStatusLine
-                userId={userId}
-                className="mobile:text-text-tertiary mobile:font-medium"
-              />
+              <CustomStatusLine userId={userId} className="text-text-tertiary text-[11.5px]" />
+            )}
+            {mobile && roleTag && !activity && !customStatus?.text && !presenceLine && (
+              <span className="cap-sm tracking-[1px]">{roleTag}</span>
             )}
             {presenceLine && (
               <span className={cn('truncate text-xs leading-4', presenceLine)}>
@@ -245,6 +225,9 @@ function MemberRow({
             )}
           </span>
           {activity?.streaming && !dim && <SystemTag kind="live" />}
+          {mobile && activity && !dim && !activity.streaming && (
+            <Volume2 className="text-live-text size-[15px] shrink-0" aria-hidden />
+          )}
         </button>
       </UserProfilePopover>
     </li>

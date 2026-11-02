@@ -24,7 +24,12 @@ export function PresenceSections<T>(props: {
   const section = (title: string, list: T[], dim: boolean): React.ReactNode =>
     list.length > 0 && (
       <section>
-        <h3 className={cn('section-label', props.labelClassName)}>
+        <h3
+          className={cn(
+            'cap-sm flex h-[30px] items-center px-2 tracking-[1.3px]',
+            props.labelClassName
+          )}
+        >
           {title} — {list.length}
         </h3>
         <ul className="flex flex-col">{list.map((item) => props.renderRow(item, dim))}</ul>

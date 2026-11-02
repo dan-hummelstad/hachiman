@@ -1,6 +1,7 @@
-import { ChevronRight, Settings, X } from 'lucide-react'
-import { Keycap } from '@/components/ui/keycap'
+import { X } from 'lucide-react'
 import type { SettingsModel } from '@/components/settings/settings-model'
+import { SettingsNav } from '@/components/settings/settings-nav'
+import { IconButton } from '@/components/ui/icon-button'
 import { resolveSection } from '@/lib/settings-sections'
 import { cn } from '@/lib/utils'
 
@@ -8,50 +9,65 @@ interface SettingsPageProps {
   model: SettingsModel
   /** The picked section; an unknown or hidden one shows the first visible section. */
   section: string | null
-  /** The `Esc ✕` button: leave settings. */
+  /** The ✕ button: leave settings. */
   onClose: () => void
+  /** With it the page draws its own section column (the app sidebar stays beside it). */
+  onSelect?: (section: string) => void
+}
+
+/** "You / Appearance": the group of the section, then the section. */
+function crumbOf(model: SettingsModel, id: string | undefined, label: string): string {
+  const group = model.groups.find((g) => g.items.some((i) => i.id === id))
+  const root = model.label === 'User settings' ? group?.heading : undefined
+  return `${root ?? model.crumb} / ${label}`
 }
 
 /**
- * The content card of settings (F7…H6): the breadcrumb header ("Night Owls › Roles") with `Esc ✕`,
- * then the page: title, one-line description and the section body, about 720 px wide.
+ * The content card of settings: the section column (when `onSelect` is given), then the page: a
+ * mono crumb, the title, a one-line description, a hairline and the section body.
  */
-export function SettingsPage({ model, section, onClose }: SettingsPageProps): React.JSX.Element {
+export function SettingsPage({
+  model,
+  section,
+  onClose,
+  onSelect
+}: SettingsPageProps): React.JSX.Element {
   const item = resolveSection(model.groups, section)
   const page = item?.page
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <header className="border-line-hairline flex h-12 shrink-0 items-center gap-2 border-b px-4">
-        <Settings aria-hidden className="text-text-tertiary size-4 shrink-0" />
-        <span className="text-text-tertiary truncate text-sm font-semibold">{model.crumb}</span>
-        <ChevronRight aria-hidden className="text-text-disabled size-3.5 shrink-0" />
-        <span className="text-text-primary flex-1 truncate text-sm font-bold">{page?.title}</span>
-        <button
-          type="button"
-          aria-label="Close settings"
+    <div className="flex h-full min-h-0">
+      {onSelect && (
+        <SettingsNav model={model} section={section} onSelect={onSelect} onBack={onClose} />
+      )}
+      <div className="bg-surface-content relative min-w-0 flex-1 overflow-y-auto">
+        <IconButton
+          label="Close settings"
           onClick={onClose}
-          className="rounded-control bg-surface-raised text-text-secondary hover:text-text-primary flex h-7 items-center gap-1.5 pr-2 pl-1"
+          className="absolute top-4 right-4 size-7"
         >
-          <Keycap aria-hidden className="bg-transparent">
-            Esc
-          </Keycap>
-          <X aria-hidden className="size-4" />
-        </button>
-      </header>
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        {page && (
+          <X className="size-4" />
+        </IconButton>
+        {page && item && (
           <main
-            key={item?.id}
+            key={item.id}
             className={cn(
-              'mx-auto w-full p-7 pb-20',
-              page.wide ? 'max-w-[876px]' : 'max-w-[776px]'
+              'w-full px-11 pt-[34px] pb-20',
+              page.wide ? 'max-w-none' : 'max-w-[936px]'
             )}
           >
-            <h1 className="text-page-title text-text-primary">{page.title}</h1>
+            <p className="text-text-disabled font-mono text-[9px] tracking-[1.5px] uppercase">
+              {crumbOf(model, item.id, item.label)}
+            </p>
+            <h1 className="text-page-title text-text-primary mt-2.5 tracking-[-0.7px]">
+              {page.title}
+            </h1>
             {page.description && (
-              <p className="text-body text-text-secondary mt-1.5">{page.description}</p>
+              <p className="text-text-tertiary mt-1.5 text-[13.5px] leading-5">
+                {page.description}
+              </p>
             )}
-            <div className="mt-6">{page.render()}</div>
+            <div aria-hidden className="bg-line-hairline mt-[26px] mb-[22px] h-px" />
+            {page.render()}
           </main>
         )}
       </div>

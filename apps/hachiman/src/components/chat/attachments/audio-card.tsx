@@ -112,7 +112,7 @@ export function AudioCard({ audio }: { audio: AttachmentPointer }): React.JSX.El
 
   return (
     <div
-      className="bg-surface-panel border-line-hairline flex w-[440px] max-w-full items-center gap-3 border px-3 py-2.5"
+      className="bg-surface-raised border-line-hairline rounded-control flex w-[400px] max-w-full items-center gap-3 border px-[13px] py-[11px]"
       data-slot="audio-card"
     >
       <button
@@ -121,7 +121,7 @@ export function AudioCard({ audio }: { audio: AttachmentPointer }): React.JSX.El
         disabled={loading}
         onClick={toggle}
         className={cn(
-          'rounded-control bg-accent-primary text-text-on-accent hover:bg-accent-primary/90 flex size-10 shrink-0 items-center justify-center disabled:opacity-70',
+          'bg-ink text-on-ink hover:bg-ink/90 flex size-9 rounded-full shrink-0 items-center justify-center disabled:opacity-70',
           FOCUS
         )}
       >
@@ -136,17 +136,17 @@ export function AudioCard({ audio }: { audio: AttachmentPointer }): React.JSX.El
       <div className="min-w-0 flex-1">
         <p className="flex min-w-0 items-baseline gap-2">
           <span
-            className="text-text-primary truncate text-[14px] leading-5 font-bold"
+            className="text-text-primary truncate text-[14px] leading-5 font-semibold"
             title={audio.name}
           >
             {audio.name}
           </span>
-          <span className="text-text-tertiary text-meta shrink-0 tabular-nums">
+          <span className="text-text-disabled shrink-0 font-mono text-[9px] tracking-[0.8px] tabular-nums">
             {formatBytes(audio.size)}
           </span>
         </p>
         {error ? (
-          <p className="text-feature-danger-text text-xs leading-6" title={error}>
+          <p className="text-you-text text-xs leading-6" title={error}>
             Unable to decrypt this file.
           </p>
         ) : (
@@ -165,13 +165,13 @@ export function AudioCard({ audio }: { audio: AttachmentPointer }): React.JSX.El
                   key={i}
                   className={cn(
                     'min-w-px flex-1 rounded-full',
-                    i < played ? 'bg-accent-primary' : 'bg-accent-primary/35'
+                    i < played ? 'bg-text-secondary' : 'bg-line-strong'
                   )}
                   style={{ height: `${Math.round(Math.max(p, 0.08) * 100)}%` }}
                 />
               ))}
             </div>
-            <span className="text-text-tertiary text-meta shrink-0 tabular-nums">
+            <span className="text-text-disabled shrink-0 font-mono text-[9px] tracking-[0.8px] tabular-nums">
               {formatClock(position * 1000)} / {formatClock(duration * 1000)}
             </span>
           </div>
@@ -185,7 +185,7 @@ export function AudioCard({ audio }: { audio: AttachmentPointer }): React.JSX.El
         title={download.error ?? 'Download'}
         className={cn(
           'rounded-control text-text-tertiary hover:bg-surface-hover hover:text-text-primary flex size-8 shrink-0 items-center justify-center',
-          download.error && 'text-feature-danger-text',
+          download.error && 'text-you-text',
           TOUCH_HIT,
           FOCUS
         )}

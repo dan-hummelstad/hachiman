@@ -84,7 +84,7 @@ function StatusForm({
             aria-live="polite"
             className={cn(
               'pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 text-xs tabular-nums',
-              left <= 8 ? 'text-feature-event-text' : 'text-text-tertiary'
+              left <= 8 ? 'text-you-text' : 'text-text-tertiary'
             )}
           >
             {left}

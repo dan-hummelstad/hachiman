@@ -36,8 +36,8 @@ function UploadTile({
   return (
     <li
       className={cn(
-        'bg-surface-panel border-line-hairline relative flex w-32 shrink-0 flex-col border',
-        error && 'border-feature-danger'
+        'bg-surface-sunken border-line-hairline rounded-control relative flex w-32 shrink-0 flex-col border',
+        error && 'border-you'
       )}
     >
       <div className="bg-surface-sunken relative flex h-24 items-center justify-center overflow-hidden">
@@ -61,10 +61,10 @@ function UploadTile({
             aria-valuemin={0}
             aria-valuemax={100}
             aria-valuenow={Math.round(progress * 100)}
-            className="bg-surface-content/70 absolute inset-x-0 bottom-0 h-1"
+            className="bg-line-strong absolute inset-x-0 bottom-0 h-1"
           >
             <div
-              className="bg-accent-primary h-full transition-[width] duration-150"
+              className="bg-text-secondary h-full transition-[width] duration-150"
               style={{ width: `${Math.max(progress * 100, 2)}%` }}
             />
           </div>
@@ -77,7 +77,7 @@ function UploadTile({
         <p
           className={cn(
             'truncate text-[11px] leading-4 tabular-nums',
-            error ? 'text-feature-danger-text' : 'text-text-tertiary'
+            error ? 'text-you-text' : 'text-text-tertiary'
           )}
           title={error ?? undefined}
         >
@@ -94,7 +94,7 @@ function UploadTile({
         onClick={onRemove}
         className={cn(
           'bg-surface-raised border-line-hairline text-text-secondary absolute -top-2 -right-2 flex size-6 items-center justify-center rounded-full border shadow-md',
-          'hover:bg-feature-danger hover:text-text-on-accent focus-visible:outline-line-focus outline-none focus-visible:outline-2'
+          'hover:bg-you hover:text-on-you focus-visible:outline-line-focus outline-none focus-visible:outline-2'
         )}
       >
         <X className="size-3.5" />

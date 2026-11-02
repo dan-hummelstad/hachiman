@@ -31,21 +31,21 @@ export function HeaderCountButton({
           aria-label={lit ? `${label} (${count})` : label}
           aria-pressed={pressed}
           className={cn(
-            'rounded-control inline-flex h-8 shrink-0 items-center justify-center gap-1.5 text-[13px] leading-none font-bold tabular-nums transition-colors [&_svg]:size-[18px]',
+            'rounded-control inline-flex h-8 shrink-0 items-center justify-center gap-1.5 text-[13px] leading-none font-semibold tabular-nums transition-colors [&_svg]:size-4',
             'focus-visible:outline-line-focus outline-none focus-visible:outline-2 focus-visible:outline-offset-1',
             lit
               ? cn(FEATURE_TILE[feature], 'px-2.5 hover:brightness-110')
-              : 'text-muted-foreground hover:bg-surface-hover hover:text-foreground w-8',
-            pressed && !lit && 'bg-accent-tint text-accent-text',
+              : 'text-text-tertiary hover:bg-surface-hover hover:text-text-primary w-8',
+            pressed && !lit && 'bg-surface-hover text-text-primary',
             pressed && lit && 'ring-line-focus ring-1',
-            'mobile:h-9 mobile:min-w-9 mobile:gap-[5px] mobile:px-[9px] mobile:font-extrabold',
+            'mobile:h-9 mobile:min-w-9 mobile:gap-[5px] mobile:px-[9px] mobile:font-semibold',
             lit ? 'mobile:[&_svg]:size-[17px]' : 'mobile:[&_svg]:size-[19px]',
             className
           )}
           {...props}
         >
           {children}
-          {lit && <span>{count}</span>}
+          {lit && <span className="font-mono text-[9px] text-text-tertiary">{count}</span>}
         </button>
       </TooltipTrigger>
       <TooltipContent side="bottom">{label}</TooltipContent>
@@ -69,7 +69,7 @@ export function HeaderPopoverFrame({
     <div className="flex max-h-[min(560px,70vh)] flex-col">
       <header className="border-line-hairline flex h-11 shrink-0 items-center gap-2 border-b px-3">
         <span className="flex [&_svg]:size-4">{icon}</span>
-        <h2 className="text-text-primary flex-1 truncate text-[14px] font-bold">{title}</h2>
+        <h2 className="text-text-primary flex-1 truncate text-[14px] font-semibold">{title}</h2>
         {actions}
       </header>
       <div className="min-h-0 flex-1 overflow-y-auto p-1.5">{children}</div>

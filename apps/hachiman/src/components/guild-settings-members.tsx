@@ -23,8 +23,6 @@ import { useLatched } from '@/hooks/use-latched'
 import { useLayout } from '@/hooks/use-layout'
 import { useMemberView } from '@/hooks/use-member'
 import { displayName, memberRoles } from '@/lib/model'
-import { ROLE_INK_SCOPE } from '@/lib/role-ink'
-import { cn } from '@/lib/utils'
 import { hachiman } from '@/services/hachiman'
 
 const GRID = 'grid grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)_5rem] gap-3 px-3.5'
@@ -54,7 +52,7 @@ function GuildMembersDesktop({ guild }: { guild: Guild }): React.JSX.Element {
   const shown = filterMembers(sorted, query)
 
   return (
-    <div className={cn('grid gap-3', ROLE_INK_SCOPE)}>
+    <div className="grid gap-3">
       <div className="flex items-center justify-end">
         <div className="relative w-64">
           <Search className="text-text-tertiary pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2" />
@@ -75,7 +73,7 @@ function GuildMembersDesktop({ guild }: { guild: Guild }): React.JSX.Element {
       >
         <div
           role="row"
-          className={`section-label bg-surface-raised/60 border-line-hairline border-b py-2.5 ${GRID}`}
+          className={`cap bg-surface-raised/60 border-line-hairline border-b py-2.5 ${GRID}`}
         >
           <span role="columnheader">Name</span>
           <span role="columnheader">Roles</span>
@@ -136,7 +134,7 @@ function MemberRow(props: {
   const { member, roles, isOwner, isSelf, canNick, assignable, onKick, run } = props
   const { guildId } = member
   const id = member.user.id
-  const { name, ink } = useMemberView(guildId, id)
+  const { name } = useMemberView(guildId, id)
   const [nick, setNick] = useState<string | null>(null) // non-null = editing
   const edit = useMemberEdit(member, name, run)
 
@@ -151,7 +149,7 @@ function MemberRow(props: {
   return (
     <div role="row" className={`group hover:bg-surface-hover items-center py-2 ${GRID}`}>
       <div role="cell" className="flex min-w-0 items-center gap-2.5">
-        <UserAvatar name={name} avatar={member.user.avatar} color={ink} />
+        <UserAvatar name={name} avatar={member.user.avatar} />
         {nick !== null ? (
           <form onSubmit={saveNick} className="flex min-w-0 flex-1 gap-1">
             <Input
@@ -171,12 +169,12 @@ function MemberRow(props: {
         ) : (
           <div className="grid min-w-0">
             <span className="flex min-w-0 items-center gap-1.5">
-              <span className="truncate font-medium" style={ink ? { color: ink } : undefined}>
+              <span className="text-text-primary truncate font-medium">
                 {name}
               </span>
               {isSelf && <SystemTag kind="you" />}
               {isOwner && (
-                <Crown aria-label="Owner" className="text-feature-event-text size-3.5 shrink-0" />
+                <Crown aria-label="Owner" className="text-text-tertiary size-3.5 shrink-0" />
               )}
               {canNick && (
                 <IconButton
@@ -243,7 +241,7 @@ function MemberRow(props: {
             variant="quiet"
             size="sm"
             aria-label={`Kick ${name}`}
-            className="text-text-tertiary hover:bg-feature-danger/15 hover:text-feature-danger-text"
+            className="text-text-tertiary hover:bg-you-tint hover:text-you-text"
             onClick={onKick}
           >
             Kick

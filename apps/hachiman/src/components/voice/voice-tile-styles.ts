@@ -1,5 +1,16 @@
-/** A stage tile: square, on the panel surface, with a hairline border. */
-export const TILE = 'bg-surface-panel border-line-hairline relative min-h-0 min-w-0 border'
+/** A stage tile: raised, hairline border, rounded 10 (18 on the phone). */
+export const TILE =
+  'bg-surface-raised border-line-hairline relative min-h-0 min-w-0 border rounded-[10px] mobile:rounded-[18px]'
+
+/** The speaker: a 2 px live border (2.5 on the phone). No glow, no ring, no tint. */
+export const TILE_SPEAKING = 'border-2 border-live mobile:border-[2.5px]'
+
+/** The mono state line under a tile name ("SPEAKING", "MUTED"). */
+export const STATE_LINE =
+  'flex items-center gap-1.5 font-mono text-[9px] tracking-[1.3px] uppercase leading-3 text-text-disabled mobile:text-[7.5px] mobile:tracking-[1.2px] [&_svg]:size-[11px]'
+
+/** The mono meta lines of a call ("NIGHT OWLS · 4 CONNECTED · 38 MS"). */
+export const CALL_META = 'font-mono text-[9px] tracking-[0.8px] uppercase text-text-disabled'
 
 /**
  * Columns of the stage grid for `count` tiles: 1, 2 (up to 4 tiles), 3 (up to 9), then 4.

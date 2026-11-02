@@ -173,7 +173,7 @@ export function PageRowActionsButton({
       aria-label={`Actions for ${title}`}
       aria-haspopup="menu"
       onClick={onClick}
-      className="text-accent-text focus-visible:outline-line-focus sr-only shrink-0 rounded-[8px] px-2 text-[13px] font-bold outline-none focus-visible:not-sr-only focus-visible:outline-2 focus-visible:-outline-offset-2"
+      className="text-here-text focus-visible:outline-line-focus sr-only shrink-0 rounded-[8px] px-2 text-[13px] font-semibold outline-none focus-visible:not-sr-only focus-visible:outline-2 focus-visible:-outline-offset-2"
     >
       Actions
     </button>

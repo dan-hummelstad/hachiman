@@ -222,7 +222,7 @@ function BannerImage({
             aria-valuemin={0}
             aria-valuemax={100}
             aria-valuenow={Math.round(progress * 100)}
-            className="bg-accent-primary h-0.5 transition-[width]"
+            className="bg-text-primary h-0.5 transition-[width]"
             style={{ width: `${Math.max(4, progress * 100)}%` }}
           />
         </span>
@@ -274,8 +274,8 @@ export function PageBanner({
               {view.controls && <ScreenChangeChip control={control} />}
             </div>
             <div aria-hidden className="-mt-[30px] px-5">
-              <span className="border-surface-content relative flex size-[62px] items-center justify-center border-3 bg-[color-mix(in_oklab,var(--feature-page)_12%,var(--surface-content))]">
-                <FileText className="text-feature-page-text size-[30px]" />
+              <span className="border-surface-content bg-surface-raised relative flex size-[62px] items-center justify-center border-3">
+                <FileText className="text-text-tertiary size-[30px]" />
               </span>
             </div>
           </div>
@@ -342,7 +342,7 @@ function BannerError({
     <p
       role="alert"
       className={cn(
-        'text-feature-danger-text flex shrink-0 items-start gap-2 text-xs',
+        'text-you-text flex shrink-0 items-start gap-2 text-xs',
         variant === 'screen' ? 'px-5 pt-2' : 'px-16 pt-3'
       )}
     >

@@ -5,6 +5,7 @@ import { ListGroup, SectionLabel } from '@/components/mobile/list'
 import { MemberSheet } from '@/components/mobile/member-sheet'
 import { AvatarRow, UserAvatar } from '@/components/shell/user-avatar'
 import { Button } from '@/components/ui/button'
+import { useCallMeta } from '@/components/voice-connected-panel'
 import { IconButton } from '@/components/ui/icon-button'
 import { CallSecurityBanner } from '@/components/voice/call-security'
 import { secureUserIds } from '@/components/voice/call-roster'
@@ -18,7 +19,7 @@ import { useVoiceRegionName } from '@/components/voice/use-voice-region'
 import { VoiceOccupantRow } from '@/components/voice/voice-occupant-row'
 import { othersInCallText } from '@/components/voice/voice-occupant-text'
 import { ParticipantTile, type TileStatus } from '@/components/voice/voice-tile'
-import { mobileStageGrid, stageColumns } from '@/components/voice/voice-tile-styles'
+import { CALL_META, mobileStageGrid, stageColumns } from '@/components/voice/voice-tile-styles'
 import { useChannelOccupants, usePermissions } from '@/hooks/use-hachiman'
 import { useLayout } from '@/hooks/use-layout'
 import { useMemberView } from '@/hooks/use-member'
@@ -59,10 +60,10 @@ const MOBILE_COLUMNS = { 1: 'grid-cols-1', 2: 'grid-cols-2' } as const
 /** The tile list: the strip under live streams, else the grid of the layout. */
 function tileListClass(streaming: boolean, mobile: boolean, count: number): string {
   if (streaming) return 'mobile:gap-2.5 flex shrink-0 gap-3 overflow-x-auto'
-  if (!mobile) return cn('grid min-h-0 flex-1 auto-rows-fr gap-3', stageColumns(count))
+  if (!mobile) return cn('grid min-h-0 flex-1 auto-rows-fr gap-4', stageColumns(count))
   const grid = mobileStageGrid(count)
   return cn(
-    'grid gap-2.5',
+    'grid gap-3',
     MOBILE_COLUMNS[grid.columns],
     grid.fill ? 'min-h-0 flex-1 auto-rows-fr' : '[&>li]:aspect-square',
     grid.spanLast && '[&>li:last-child]:col-span-2'
@@ -74,14 +75,17 @@ function tileListClass(streaming: boolean, mobile: boolean, count: number): stri
  * desktop, in place of the chat on mobile). On the mobile layout (M10) the stage has at most two
  * columns, square tiles scroll past four people, the controls dock at the foot, and a touch hold
  * on a tile of a guild call opens the member sheet. `onShowChat` (the stage of a mobile DM) adds
- * the way back to the chat.
+ * the way back to the chat. `variant="strip"` is the call above the chat of a DM: a row of faces
+ * and a control row, no full stage.
  */
 export function Stage({
   channel,
-  onShowChat
+  onShowChat,
+  variant = 'room'
 }: {
   channel: Channel
   onShowChat?: () => void
+  variant?: 'room' | 'strip'
 }): React.JSX.Element {
   const mobile = useLayout() === 'mobile'
   const meId = useUserStore((s) => s.me?.id ?? null)
@@ -99,25 +103,42 @@ export function Stage({
   const holdGuildId = mobile ? channel.guildId : null
   const onHold =
     holdGuildId !== null ? (userId: string) => setHeld({ userId, open: true }) : undefined
+  const strip = variant === 'strip'
+
+  const list = tiles.map((t) => (
+    <ParticipantTile
+      key={t.userId}
+      guildId={channel.guildId}
+      userId={t.userId}
+      state={t.state}
+      status={t.status}
+      self={t.userId === meId}
+      compact={streaming || strip}
+      onHold={onHold}
+    />
+  ))
+
+  if (strip)
+    return (
+      <div className="bg-surface-sunken mobile:gap-3 mobile:p-3.5 flex flex-col gap-4 overflow-y-auto p-6">
+        <StreamGrid
+          guildId={channel.guildId}
+          occupants={occupants}
+          secure={secure}
+          className="max-h-[40vh] flex-none"
+        />
+        <ul className="mobile:gap-2.5 flex shrink-0 gap-3.5 overflow-x-auto">{list}</ul>
+        {mobile ? <MobileStripControls /> : <StripControls />}
+        {!mobile && <StripHint />}
+        <CallSecurityBanner />
+      </div>
+    )
 
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
-      <div className="mobile:gap-2.5 mobile:p-3 mobile:pb-3 flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-6 pb-28">
+      <div className="mobile:gap-3 mobile:p-3.5 flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-6">
         <StreamGrid guildId={channel.guildId} occupants={occupants} secure={secure} />
-        <ul className={tileListClass(streaming, mobile, tiles.length)}>
-          {tiles.map((t) => (
-            <ParticipantTile
-              key={t.userId}
-              guildId={channel.guildId}
-              userId={t.userId}
-              state={t.state}
-              status={t.status}
-              self={t.userId === meId}
-              compact={streaming}
-              onHold={onHold}
-            />
-          ))}
-        </ul>
+        <ul className={tileListClass(streaming, mobile, tiles.length)}>{list}</ul>
       </div>
       {mobile ? <DockedControls onShowChat={onShowChat} /> : <ControlBar />}
       {holdGuildId !== null && held && (
@@ -133,39 +154,51 @@ export function Stage({
   )
 }
 
-/** Bar buttons: 40 px, rounded, 18 px icons. Mute and deafen turn coral while on. */
+/**
+ * Bar buttons: 44 x 40, hairline outline, 17 px icons. Mute, deafen and the rest stay neutral:
+ * none of them is happening. Only sharing is live.
+ */
 const BAR_BUTTON =
-  "size-10 text-text-secondary hover:bg-surface-hover hover:text-text-primary [&_svg:not([class*='size-'])]:size-[18px]"
+  "h-10 w-11 rounded-control border border-line-hairline text-text-tertiary hover:bg-surface-hover hover:text-text-primary [&_svg:not([class*='size-'])]:size-[17px]"
 const BAR_TOGGLE = cn(
   BAR_BUTTON,
-  'bg-surface-hover text-text-primary aria-pressed:bg-feature-danger/15 aria-pressed:text-feature-danger-text hover:aria-pressed:text-feature-danger-text'
+  'aria-pressed:bg-surface-selected aria-pressed:border-line-strong aria-pressed:text-text-primary hover:aria-pressed:text-text-primary'
 )
 const BAR_SHARE = cn(
   BAR_BUTTON,
-  'aria-pressed:bg-feature-voice/15 aria-pressed:text-feature-voice-text'
+  'aria-pressed:bg-live-tint aria-pressed:border-live-line aria-pressed:text-live-text hover:aria-pressed:text-live-text'
 )
 
-/** The one floating control bar of the stage: mic, deafen, share, stream settings, soundboard, and Leave. */
+/** The docked control bar of the stage: the call on the left, then mic, deafen, share, soundboard and Leave. */
 function ControlBar(): React.JSX.Element {
+  const { channelName, guildName, count, pingText } = useCallMeta()
+  const meta = [guildName, `${count} connected`, pingText].filter(Boolean).join(' · ')
   return (
-    <div className="pointer-events-none absolute inset-x-0 bottom-5 flex flex-col items-center gap-2 px-4">
-      <CallSecurityBanner className="pointer-events-auto w-full max-w-md" />
-      <div className="pointer-events-auto flex items-center gap-3">
-        <div
-          role="toolbar"
-          aria-label="Call controls"
-          className="bg-surface-raised border-line-hairline shadow-soft flex items-center gap-1 border p-1.5"
-        >
+    <div className="flex shrink-0 flex-col">
+      <CallSecurityBanner className="px-6 pt-3" />
+      <div
+        role="toolbar"
+        aria-label="Call controls"
+        className="bg-surface-content border-line-hairline flex h-[84px] shrink-0 items-center gap-2.5 border-t px-6"
+      >
+        <div className="flex min-w-0 flex-col gap-[3px]">
+          <span className="text-text-primary truncate text-[13.5px] font-semibold">
+            {channelName ?? 'Voice'}
+          </span>
+          <span className={CALL_META}>{meta}</span>
+        </div>
+        <div className="flex-1" />
+        <div className="flex items-center gap-2">
           <SelfVoiceToggles className={BAR_TOGGLE} />
           <ScreenShareControls buttonClassName={BAR_SHARE} />
           <SoundboardButton className={BAR_BUTTON} />
         </div>
         <Button
           variant="danger"
-          className="shadow-soft h-[52px] px-5 text-[15px]"
+          className="h-10 gap-[7px] px-4 text-[14px] [&_svg]:size-[15px]"
           onClick={() => voiceService.leaveVoice()}
         >
-          <PhoneOff className="size-[18px]" />
+          <PhoneOff />
           Leave
         </Button>
       </div>
@@ -173,34 +206,110 @@ function ControlBar(): React.JSX.Element {
   )
 }
 
-/** Docked buttons (M10): 52 squares, radius 8, the control fill, icon 21. */
+/** The desktop strip's round buttons: 42, raised; toggles turn to ink while on, sharing to live. */
+const STRIP_BUTTON =
+  "size-[42px] rounded-pill border border-line-hairline bg-surface-raised text-text-secondary hover:text-text-primary [&_svg:not([class*='size-'])]:size-[17px]"
+const STRIP_TOGGLE = cn(
+  STRIP_BUTTON,
+  'aria-pressed:bg-ink aria-pressed:text-on-ink aria-pressed:border-transparent hover:aria-pressed:text-on-ink'
+)
+const STRIP_SHARE = cn(
+  STRIP_BUTTON,
+  'aria-pressed:bg-live aria-pressed:text-on-live aria-pressed:border-transparent hover:aria-pressed:text-on-live'
+)
+
+/** The control row of the call strip above a DM's chat (desktop). */
+function StripControls(): React.JSX.Element {
+  return (
+    <div role="toolbar" aria-label="Call controls" className="flex items-center gap-2.5">
+      <SelfVoiceToggles className={STRIP_TOGGLE} />
+      <ScreenShareControls buttonClassName={STRIP_SHARE} />
+      <SoundboardButton className={STRIP_BUTTON} icon={<Ellipsis />} label="More" />
+      <Button
+        variant="danger"
+        className="h-[42px] gap-[7px] px-[18px]"
+        onClick={() => voiceService.leaveVoice()}
+      >
+        <PhoneOff className="size-[15px]" />
+        Leave
+      </Button>
+    </div>
+  )
+}
+
+/** "3 in the call · 38 ms" under the strip's controls. */
+function StripHint(): React.JSX.Element {
+  const { count, pingText } = useCallMeta()
+  return (
+    <p className={cn(CALL_META, 'text-[8.5px] tracking-[1.1px]')}>
+      {[`${count} in the call`, pingText].filter(Boolean).join(' · ')}
+    </p>
+  )
+}
+
+/** The phone strip's pills (B5): 42 high, they share the row. */
+const MSTRIP_BUTTON =
+  "rounded-pill border border-line-strong text-text-secondary h-[42px] flex-1 [&_svg:not([class*='size-'])]:size-[18px]"
+const MSTRIP_TOGGLE = cn(
+  MSTRIP_BUTTON,
+  'aria-pressed:bg-you-tint aria-pressed:border-[1.5px] aria-pressed:border-you aria-pressed:text-you hover:aria-pressed:text-you'
+)
+const MSTRIP_SHARE = cn(
+  MSTRIP_BUTTON,
+  'border-transparent bg-here text-on-here hover:text-on-here aria-pressed:bg-live aria-pressed:text-on-live hover:aria-pressed:text-on-live'
+)
+
+/** The control row of the call strip above a DM's chat on the phone: mute, deafen, share, more, Leave. */
+function MobileStripControls(): React.JSX.Element {
+  const platform = usePlatform()
+  return (
+    <div role="toolbar" aria-label="Call controls" className="flex gap-[9px]">
+      <span className="contents" onClickCapture={() => platform.haptic('light')}>
+        <SelfVoiceToggles className={MSTRIP_TOGGLE} />
+      </span>
+      <ScreenShareControls buttonClassName={MSTRIP_SHARE} toggleOnly />
+      <SoundboardButton className={MSTRIP_BUTTON} icon={<Ellipsis />} label="More" />
+      <button
+        type="button"
+        onClick={() => voiceService.leaveVoice()}
+        className="bg-you text-on-you rounded-pill focus-visible:outline-line-focus active:bg-you/90 flex h-[42px] flex-[1.7] items-center justify-center gap-[7px] text-[13.5px] font-semibold outline-none focus-visible:outline-2"
+      >
+        <PhoneOff className="size-4" aria-hidden />
+        Leave
+      </button>
+    </div>
+  )
+}
+
+/** Docked buttons (B4): 56 round, a hairline outline, icon 21. */
 const DOCK_BUTTON =
-  "rounded-control bg-fill-control text-text-primary size-[52px] [&_svg:not([class*='size-'])]:size-[21px]"
+  "size-14 rounded-pill border border-line-strong text-text-secondary active:bg-surface-hover [&_svg:not([class*='size-'])]:size-[21px]"
+/** My own muted mic is the one thing on the phone that takes `you`. */
 const DOCK_TOGGLE = cn(
   DOCK_BUTTON,
-  'aria-pressed:bg-feature-danger/15 aria-pressed:text-feature-danger-text'
+  'aria-pressed:bg-you-tint aria-pressed:border-[1.5px] aria-pressed:border-you aria-pressed:text-you hover:aria-pressed:text-you'
 )
-/** Share Screen is the quieter square of M10, green while I share. */
+/** Share Screen is the phone's primary pill, live while I share. */
 const DOCK_SHARE = cn(
   DOCK_BUTTON,
-  'text-text-secondary bg-white/4 aria-pressed:bg-feature-voice/15 aria-pressed:text-feature-voice-text'
+  'border-transparent bg-here text-on-here hover:text-on-here aria-pressed:bg-live aria-pressed:text-on-live hover:aria-pressed:text-on-live'
 )
 
 /**
- * The control bar of the stage on the mobile layout (M10), docked at the foot where the voice bar
+ * The control bar of the stage on the mobile layout (B4), docked at the foot where the voice bar
  * would be: Mute and Deafen (a light haptic), Share Screen where the host can share (not on iOS),
- * the soundboard sheet (decision 6), the way back to the chat of a DM, and Leave as the widest
- * target. No camera.
+ * the soundboard sheet (decision 6), the way back to the chat of a DM, and Leave as a round
+ * vermilion button. No camera.
  */
 function DockedControls({ onShowChat }: { onShowChat?: () => void }): React.JSX.Element {
   const platform = usePlatform()
   return (
     <div className="flex shrink-0 flex-col">
-      <CallSecurityBanner className="px-3 pb-2.5" />
+      <CallSecurityBanner className="px-3.5 pb-2.5" />
       <div
         role="toolbar"
         aria-label="Call controls"
-        className="border-line-hairline flex items-center gap-2.5 border-t px-4 py-3"
+        className="border-line-hairline flex h-[94px] items-center justify-center gap-3 border-t px-3.5"
       >
         <span className="contents" onClickCapture={() => platform.haptic('light')}>
           <SelfVoiceToggles className={DOCK_TOGGLE} />
@@ -212,14 +321,13 @@ function DockedControls({ onShowChat }: { onShowChat?: () => void }): React.JSX.
             <MessageSquareText />
           </IconButton>
         )}
-        <Button
-          variant="danger"
-          className="h-[52px] min-w-0 flex-1 gap-2 text-[15px] font-extrabold [&_svg:not([class*='size-'])]:size-[19px]"
+        <IconButton
+          label="Leave"
+          className="bg-you text-on-you rounded-pill active:bg-you/90 hover:bg-you/90 hover:text-on-you size-14 [&_svg]:size-[21px]"
           onClick={() => voiceService.leaveVoice()}
         >
           <PhoneOff />
-          Leave
-        </Button>
+        </IconButton>
       </div>
     </div>
   )
@@ -317,7 +425,7 @@ function NotJoined({ channel }: { channel: GuildChannel }): React.JSX.Element {
           ))}
         </ul>
       ) : null}
-      <h2 className="text-text-primary text-center text-lg font-extrabold">
+      <h2 className="text-text-primary text-center text-[22px] leading-7 font-semibold tracking-[-0.3px]">
         <NotJoinedTitle
           channel={channel}
           occupants={occupants}
@@ -349,13 +457,13 @@ function NotJoined({ channel }: { channel: GuildChannel }): React.JSX.Element {
         )}
       </div>
       {otherCallName !== null && canConnect && (
-        <p className="text-text-tertiary flex items-center gap-1.5 text-[13px]">
+        <p className="text-meta text-text-tertiary flex items-center gap-1.5">
           <Info className="size-3.5 shrink-0" aria-hidden />
           You&apos;re in {otherCallName}. Joining moves your call here.
         </p>
       )}
       {!canConnect && (
-        <p className="text-text-tertiary text-[13px]">
+        <p className="text-meta text-text-tertiary">
           You don&apos;t have permission to join {channelName}.
         </p>
       )}
@@ -419,7 +527,7 @@ function NotJoinedMobile({ channel }: { channel: GuildChannel }): React.JSX.Elem
           A mask, not a colour gradient: WebKit draws a gradient from a /0 colour through black. */}
       <div className="before:bg-surface-content relative flex shrink-0 flex-col gap-2.5 px-4 pb-4 before:pointer-events-none before:absolute before:inset-x-0 before:-top-6 before:h-6 before:[mask-image:linear-gradient(to_bottom,transparent,black)]">
         <div className="flex flex-col gap-[3px] pb-1.5 text-center">
-          <h2 className="text-text-primary text-xl leading-6 font-extrabold text-balance">
+          <h2 className="text-text-primary text-[20px] leading-6 font-semibold text-balance">
             <NotJoinedTitle
               channel={channel}
               occupants={occupants}
@@ -427,7 +535,7 @@ function NotJoinedMobile({ channel }: { channel: GuildChannel }): React.JSX.Elem
               channelName={channelName}
             />
           </h2>
-          {sub && <p className="text-text-tertiary text-[13px] leading-4 font-medium">{sub}</p>}
+          {sub && <p className="text-text-disabled font-mono text-[9px] tracking-[0.9px] uppercase">{sub}</p>}
         </div>
         <Button
           variant="voice"
@@ -450,13 +558,13 @@ function NotJoinedMobile({ channel }: { channel: GuildChannel }): React.JSX.Elem
           </Button>
         )}
         {otherCallName !== null && canConnect && (
-          <p className="text-text-tertiary flex items-start justify-center gap-1.5 pt-0.5 text-center text-[13px] leading-4 font-medium">
+          <p className="text-text-tertiary flex items-start justify-center gap-1.5 pt-0.5 text-center text-[13px] leading-4">
             <Info className="mt-px size-3.5 shrink-0" aria-hidden />
             You&apos;re in {otherCallName}. Joining moves your call here.
           </p>
         )}
         {!canConnect && (
-          <p className="text-text-tertiary pt-0.5 text-center text-[13px] leading-4 font-medium">
+          <p className="text-text-tertiary pt-0.5 text-center text-[13px] leading-4">
             You don&apos;t have permission to join {channelName}.
           </p>
         )}
@@ -482,7 +590,7 @@ function OthersInCall({
   const members = useGuildStore((s) => s.members.get(guildId))
   const text = othersInCallText(occupants.map((vs) => displayName(members?.get(vs.userId))))
   return (
-    <p className="text-text-secondary flex min-w-0 items-center gap-2.5 text-[13px] leading-4 font-medium">
+    <p className="text-text-secondary flex min-w-0 items-center gap-2.5 text-[13px] leading-4">
       <AvatarRow size={24} overlap={6}>
         {occupants.slice(0, FACES).map((vs) => (
           <Face key={vs.userId} guildId={guildId} userId={vs.userId} />

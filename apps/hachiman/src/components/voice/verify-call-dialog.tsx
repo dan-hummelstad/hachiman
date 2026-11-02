@@ -148,7 +148,7 @@ function CallDetails({
         className="bg-surface-sunken border-line-hairline mobile:space-y-2.5 mobile:px-[18px] mobile:pt-3.5 mobile:pb-4 space-y-2 border px-4 py-3"
       >
         <div className="flex items-baseline justify-between gap-3">
-          <span className="section-label">Call code</span>
+          <span className="cap">Call code</span>
           <span className="text-text-tertiary mobile:font-medium text-xs">
             Changes when someone joins
           </span>
@@ -195,7 +195,7 @@ function CallDetails({
       </section>
       {joining.length > 0 && (
         <section aria-label="Joining" className="space-y-2">
-          <p className={cn(SECTION_LABEL, 'mobile:text-feature-event-text')}>
+          <p className={cn(SECTION_LABEL, 'mobile:text-text-tertiary')}>
             Joining · {joining.length}
           </p>
           <ParticipantList
@@ -205,7 +205,7 @@ function CallDetails({
             onSafetyNumber={onSafetyNumber}
             tone="joining"
           />
-          <p className="text-text-tertiary mobile:text-[12.5px] mobile:leading-[1.45] mobile:font-medium text-xs">
+          <p className="text-text-tertiary mobile:text-[12.5px] mobile:leading-[1.45] text-xs">
             People who are still joining cannot hear or see the call until they have the keys.
           </p>
         </section>
@@ -215,12 +215,12 @@ function CallDetails({
 }
 
 /** The section label; on the mobile layout the kit's Section Label (padding 4/4/0/4). */
-const SECTION_LABEL = 'section-label mobile:px-1 mobile:pt-1'
+const SECTION_LABEL = 'cap mobile:px-1 mobile:pt-1'
 
 /** Mobile: a list group with hairline rows (M65); the joining group in gold. */
 const LIST_TONE = {
-  tree: 'mobile:bg-white/2',
-  joining: 'mobile:bg-feature-event/3 mobile:border-feature-event/14 mobile:divide-feature-event/14'
+  tree: 'mobile:bg-surface-raised',
+  joining: 'mobile:bg-surface-raised mobile:border-line-hairline mobile:divide-line-hairline'
 } as const
 
 function ParticipantList({
@@ -268,13 +268,13 @@ const STATUS: Record<
 > = {
   secure: {
     text: 'Has the call keys',
-    className: 'text-feature-voice-text',
+    className: 'text-live-text',
     icon: <Check aria-hidden />
   },
   joining: {
     text: 'Waiting for the call keys…',
     short: 'Waiting for keys…',
-    className: 'text-feature-event-text',
+    className: 'text-text-tertiary',
     icon: <LoaderCircle className="animate-spin" aria-hidden />
   },
   leaving: {
@@ -306,9 +306,7 @@ function ParticipantRow({
       <UserAvatar name={name} avatar={avatar} color={ink} size={mobile ? 32 : 28} />
       <div className="mobile:gap-0.5 flex min-w-0 flex-1 flex-col">
         <span className="mobile:gap-[5px] mobile:text-[15px] flex min-w-0 items-center gap-1 text-sm">
-          <span className="truncate font-bold" style={ink ? { color: ink } : undefined}>
-            {name}
-          </span>
+          <span className="truncate font-semibold">{name}</span>
           {self && (
             <span className="text-text-tertiary mobile:text-[12.5px] mobile:font-semibold">
               (you)
@@ -318,7 +316,7 @@ function ParticipantRow({
         </span>
         <span
           className={cn(
-            'mobile:text-[12.5px] mobile:font-bold mobile:min-w-0 flex items-center gap-1 text-xs font-semibold [&_svg]:size-3 [&_svg]:shrink-0',
+            'mobile:text-[12.5px] mobile:font-semibold mobile:min-w-0 flex items-center gap-1 text-xs font-semibold [&_svg]:size-3 [&_svg]:shrink-0',
             status.className
           )}
         >
@@ -329,7 +327,7 @@ function ParticipantRow({
           </span>
         </span>
         {devices > 1 && (
-          <span className="text-feature-event-text mobile:text-[12.5px] text-xs">
+          <span className="text-text-tertiary mobile:text-[12.5px] text-xs">
             {devices} devices in the call group
           </span>
         )}
@@ -338,7 +336,7 @@ function ParticipantRow({
         <Button
           variant="secondary"
           size="sm"
-          className="mobile:h-9 mobile:border-line-strong mobile:bg-fill-control mobile:px-3 mobile:font-bold"
+          className="mobile:h-9 mobile:border-line-strong mobile:bg-surface-raised mobile:px-3 mobile:font-semibold"
           onClick={() => onSafetyNumber(participant.userId)}
         >
           Safety number

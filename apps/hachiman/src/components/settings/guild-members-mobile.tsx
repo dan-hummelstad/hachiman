@@ -25,8 +25,7 @@ import { useLatched } from '@/hooks/use-latched'
 import { LONG_PRESS_TARGET, useLongPress } from '@/hooks/use-long-press'
 import { useMemberView } from '@/hooks/use-member'
 import { useOnlineCount } from '@/hooks/use-online-count'
-import { displayName, hexColor, memberRoles, rolesByPositionDesc } from '@/lib/model'
-import { ROLE_INK_SCOPE } from '@/lib/role-ink'
+import { displayName, memberRoles, rolesByPositionDesc } from '@/lib/model'
 import { cn } from '@/lib/utils'
 import { hachiman } from '@/services/hachiman'
 import { usePlatform } from '@/shared/PlatformContext'
@@ -60,7 +59,7 @@ export function GuildMembersMobile({ guild }: { guild: Guild }): React.JSX.Eleme
   }
 
   return (
-    <div className={cn('flex flex-col gap-3', ROLE_INK_SCOPE)}>
+    <div className="flex flex-col gap-3">
       <Input
         type="search"
         size="touch"
@@ -164,11 +163,10 @@ function MemberRow({
   onOpen: () => void
   onKick: () => void
 }): React.JSX.Element {
-  const { name, ink } = useMemberView(member.guildId, member.user.id)
+  const { name } = useMemberView(member.guildId, member.user.id)
   const press = useLongPress(onOpen, { enabled: editable })
   const held = memberRoles(member, roles)
-  const nameClass = 'min-w-0 truncate text-[15px] leading-[18px] font-bold'
-  const nameStyle = ink ? { color: ink } : undefined
+  const nameClass = 'min-w-0 truncate text-[15px] leading-[18px] font-semibold'
 
   return (
     <div
@@ -180,7 +178,7 @@ function MemberRow({
         'data-lit:bg-surface-hover has-[[data-slot=member-open]:active]:bg-surface-hover'
       )}
     >
-      <UserAvatar name={name} avatar={member.user.avatar} color={ink} size={36} />
+      <UserAvatar name={name} avatar={member.user.avatar} size={36} />
       <div className="flex min-w-0 flex-1 flex-col gap-[5px]">
         <span className="text-text-primary flex min-w-0 items-center gap-1.5">
           {editable ? (
@@ -196,12 +194,11 @@ function MemberRow({
                 LONG_PRESS_TARGET,
                 'text-left outline-none after:absolute after:inset-0 focus-visible:after:outline-2 focus-visible:after:-outline-offset-2 focus-visible:after:outline-line-focus'
               )}
-              style={nameStyle}
             >
               {name}
             </button>
           ) : (
-            <span className={nameClass} style={nameStyle}>
+            <span className={nameClass}>
               {name}
             </span>
           )}
@@ -212,7 +209,7 @@ function MemberRow({
           )}
           {gate.isSelf && <SystemTag kind="you" className="h-4 px-[5px] text-[9.5px]" />}
           {gate.isOwner && (
-            <Crown aria-label="Owner" className="text-feature-event-text size-3.5 shrink-0" />
+            <Crown aria-label="Owner" className="text-text-tertiary size-3.5 shrink-0" />
           )}
         </span>
         <RoleChips roles={held} />
@@ -225,10 +222,10 @@ function MemberRow({
           data-state={kickOpen ? 'open' : undefined}
           onClick={onKick}
           className={cn(
-            'rounded-control text-text-secondary relative flex h-9 shrink-0 items-center border border-transparent bg-(--fill-control) px-3 text-[13.5px] leading-4 font-bold outline-none',
+            'rounded-control text-text-secondary relative flex h-9 shrink-0 items-center border border-transparent bg-surface-raised px-3 text-[13.5px] leading-4 font-semibold outline-none',
             'focus-visible:outline-line-focus focus-visible:outline-2 focus-visible:outline-offset-1',
-            'active:border-feature-danger/35 active:bg-feature-danger/15 active:text-feature-danger-text',
-            'data-[state=open]:border-feature-danger/35 data-[state=open]:bg-feature-danger/15 data-[state=open]:text-feature-danger-text'
+            'active:border-you/35 active:bg-you-tint active:text-you-text',
+            'data-[state=open]:border-you/35 data-[state=open]:bg-you-tint data-[state=open]:text-you-text'
           )}
         >
           Kick
@@ -459,11 +456,6 @@ function RoleCheckRow({
         disabled={off}
         aria-describedby={locked ? `${id}-locked` : undefined}
         onChange={onToggle}
-      />
-      <span
-        aria-hidden
-        className="size-2 shrink-0"
-        style={{ background: role.color ? hexColor(role.color) : 'var(--text-secondary)' }}
       />
       <span className="text-text-primary min-w-0 flex-1 truncate text-[15px] leading-[18px] font-semibold">
         {role.name}

@@ -44,7 +44,7 @@ import {
 const FULL_SHEET = 'h-[calc(var(--app-height,100dvh)-var(--safe-top,0px)-8px)]'
 
 /** The selected tab: the raised fill and an accent icon (M22, M23). */
-const TAB_SELECTED = 'bg-surface-raised text-text-primary [&_svg]:text-accent-text'
+const TAB_SELECTED = 'bg-surface-raised text-text-primary [&_svg]:text-text-primary'
 
 const PHONE_MODES = [
   {
@@ -58,7 +58,7 @@ const PHONE_MODES = [
 
 const TEXT = 'text-text-secondary text-sm leading-normal font-medium'
 const NOTE = 'text-text-tertiary text-[13px] leading-normal font-medium'
-const ALERT = 'text-feature-danger-text text-[13.5px] leading-[18px] font-semibold'
+const ALERT = 'text-you-text text-[13.5px] leading-[18px] font-semibold'
 
 /** What the sheet calls this device: "iPhone" in the iOS app, else "phone" or "device". */
 function useThisDevice(): string {
@@ -422,7 +422,7 @@ function RequestsTab({
                 <div key={s.sessionId} role="listitem" className="flex flex-col">
                   <ListRow
                     icon={<DeviceGlyph platform={s.platform} />}
-                    tile={s.platform === 'browser' ? 'event' : 'neutral'}
+                    tile="neutral"
                     label={s.newDeviceName}
                     detail={`${PLATFORM_LABEL[s.platform]} · asked ${relativeTime(s.createdAt)}`}
                     disabled={busy}
@@ -487,13 +487,13 @@ function Outcome({
         className={cn(
           'flex size-16 items-center justify-center border [&_svg]:size-8',
           tone === 'voice'
-            ? 'bg-feature-voice/14 border-feature-voice/30 text-feature-voice-text'
-            : 'bg-feature-danger/14 border-feature-danger/30 text-feature-danger-text'
+            ? 'bg-surface-raised border-line-strong text-text-primary'
+            : 'bg-you-tint border-you text-you-text'
         )}
       >
         {icon}
       </span>
-      <p className="text-text-primary text-[22px] leading-7 font-extrabold tracking-[-0.2px]">
+      <p className="text-text-primary text-[22px] leading-7 font-semibold tracking-[-0.2px]">
         {title}
       </p>
       <p className="text-text-secondary text-[14.5px] leading-normal font-medium">{children}</p>
@@ -514,18 +514,18 @@ function Linked({ device, here }: { device: ActiveLink; here: string }): React.J
       <Outcome tone="voice" icon={<Check />} title={`${device.name} is linked`}>
         It can read your messages from now on. You can sign it out at any time in Devices.
       </Outcome>
-      <div className="border-line-hairline divide-line-hairline flex flex-col divide-y border bg-white/2">
+      <div className="border-line-hairline divide-line-hairline flex flex-col divide-y border bg-surface-panel">
         <div className="flex items-center gap-3 py-3 pr-3.5 pl-3">
           <DeviceTile platform={device.platform} />
           <span className="flex min-w-0 flex-1 flex-col gap-[3px]">
-            <span className="text-text-primary truncate text-[15px] leading-[18px] font-extrabold">
+            <span className="text-text-primary truncate text-[15px] leading-[18px] font-semibold">
               {device.name}
             </span>
             <span className="text-text-tertiary text-[12.5px] leading-[15px] font-medium">
               {meta}
             </span>
           </span>
-          <Chip tone="voice" icon={<Check aria-hidden />}>
+          <Chip icon={<Check aria-hidden />}>
             Linked
           </Chip>
         </div>
@@ -537,8 +537,8 @@ function Linked({ device, here }: { device: ActiveLink; here: string }): React.J
           hint={`${device.name} shows the same fingerprint under Settings › Devices.`}
         />
       </div>
-      <p className="border-feature-voice/22 bg-feature-voice/5 text-text-primary flex items-center gap-3 border px-3.5 py-3 text-[13.5px] leading-[1.45] font-medium">
-        <ShieldCheck aria-hidden className="text-feature-voice-text size-[18px] shrink-0" />
+      <p className="border-line-hairline bg-surface-raised text-text-primary flex items-center gap-3 border px-3.5 py-3 text-[13.5px] leading-[1.45] font-medium">
+        <ShieldCheck aria-hidden className="text-text-secondary size-[18px] shrink-0" />
         Signed by this {here} and added to your public key log.
       </p>
     </>

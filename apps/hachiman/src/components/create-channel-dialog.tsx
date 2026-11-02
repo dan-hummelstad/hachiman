@@ -4,7 +4,6 @@ import type { CreateChannelBody } from '@hachiman/client'
 import { MobileField } from '@/components/mobile/field'
 import { ModalWindow } from '@/components/ui/modal-window'
 import { Button } from '@/components/ui/button'
-import { FEATURE_TEXT, type Feature } from '@/components/ui/feature'
 import { ErrorText } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { RadioCard } from '@/components/ui/radio-card'
@@ -23,10 +22,6 @@ import { selectChannel } from '@/stores/navStore'
 type ChannelKind = CreateChannelBody['type']
 
 const FORM_ID = 'create-channel-form'
-
-/** The feature colour of each type: its card, and the lead icon of the name field (M47). */
-const featureOf = (type: ChannelKind): Feature =>
-  type === 'voice' ? 'voice' : type === 'pages' ? 'page' : 'accent'
 
 /**
  * Create a channel or category in a guild; a new text or pages channel becomes the selected one.
@@ -111,7 +106,7 @@ export function CreateChannelDialog(): React.JSX.Element {
       <form id={FORM_ID} onSubmit={(e) => void handleSubmit(e)} className="grid gap-4">
         {!isCategory && (
           <fieldset className="grid gap-2">
-            <legend className="section-label mobile:px-1 mobile:pt-1 mb-2">Type</legend>
+            <legend className="cap mobile:px-1 mobile:pt-1 mb-2">Type</legend>
             {CREATE_CHANNEL_TYPES.map((t) => {
               const { label, hint } = CHANNEL_KINDS[t]
               return (
@@ -124,7 +119,7 @@ export function CreateChannelDialog(): React.JSX.Element {
                   icon={<ChannelIcon type={t} />}
                   title={label}
                   description={hint}
-                  feature={featureOf(t)}
+                  feature="event"
                   size={mobile ? 'mobile' : 'default'}
                 />
               )
@@ -147,14 +142,14 @@ export function CreateChannelDialog(): React.JSX.Element {
               disabled={busy}
               lead={
                 isCategory ? undefined : (
-                  <ChannelIcon type={type} className={FEATURE_TEXT[featureOf(type)]} />
+                  <ChannelIcon type={type} className="text-text-tertiary" />
                 )
               }
             />
           </MobileField>
         ) : (
           <div className="grid gap-2">
-            <label htmlFor="channel-name" className="section-label">
+            <label htmlFor="channel-name" className="cap">
               {isCategory ? 'Category name' : 'Channel name'}
             </label>
             <div className="relative">

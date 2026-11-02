@@ -50,7 +50,8 @@ export function MessageAttachments({
   )
 }
 
-const MEDIA_FRAME = 'bg-surface-raised border-line-hairline block max-w-full border'
+const MEDIA_FRAME =
+  'bg-surface-sunken border-line-hairline rounded-option block max-w-full overflow-hidden border'
 const FOCUS =
   'focus-visible:outline-line-focus outline-none focus-visible:outline-2 focus-visible:outline-offset-1'
 
@@ -175,34 +176,55 @@ function VideoEmbed({ video }: { video: AttachmentPointer }): React.JSX.Element 
     )
   }
   return (
-    <button
-      type="button"
-      aria-label={`Play ${video.name}`}
-      onClick={() => setStarted(true)}
-      disabled={started && !full.error}
-      className={cn(MEDIA_FRAME, FOCUS, 'relative overflow-hidden bg-black')}
-      style={box}
-    >
-      {poster.url && <img src={poster.url} alt="" className="size-full object-cover" />}
-      <span className="absolute inset-0 flex items-center justify-center">
-        {full.error ? (
-          <Unreadable error={full.error} className="bg-surface-content/80 size-auto" />
-        ) : started ? (
-          <LoaderCircle className="size-8 animate-spin text-white" />
-        ) : (
-          <Play className="size-10 fill-white text-white drop-shadow" />
-        )}
-      </span>
-    </button>
+    <div className={cn(CARD, 'max-w-full')} style={{ width: box.width }}>
+      <button
+        type="button"
+        aria-label={`Play ${video.name}`}
+        onClick={() => setStarted(true)}
+        disabled={started && !full.error}
+        className={cn(FOCUS, 'bg-surface-sunken relative block w-full overflow-hidden')}
+        style={{ aspectRatio: box.aspectRatio, maxHeight: 300 }}
+      >
+        {poster.url && <img src={poster.url} alt="" className="size-full object-cover" />}
+        <span className="absolute inset-0 flex items-center justify-center">
+          {full.error ? (
+            <Unreadable error={full.error} className="bg-surface-content/80 size-auto" />
+          ) : started ? (
+            <LoaderCircle className="text-text-primary size-8 animate-spin" />
+          ) : (
+            <span className="bg-surface-raised border-line-strong flex size-11 items-center justify-center rounded-full border">
+              <Play className="fill-text-primary text-text-primary size-4" />
+            </span>
+          )}
+        </span>
+      </button>
+      <div className="flex items-center gap-2 px-3 py-2.5">
+        <div className="min-w-0 flex-1">
+          <p className="text-text-primary truncate text-[13px] font-semibold" title={video.name}>
+            {video.name}
+          </p>
+          <p className="text-text-disabled font-mono text-[9px] tracking-[0.8px] uppercase">
+            {formatBytes(video.size)} · {mimeLabel(video.mime)}
+          </p>
+        </div>
+      </div>
+    </div>
   )
 }
 
-/** Square attachment card on the panel surface. */
-const CARD = 'bg-surface-panel border-line-hairline flex max-w-full flex-col border'
+/** `video/mp4` as `MP4`. */
+const mimeLabel = (mime: string): string => (mime.split('/')[1] ?? mime).toUpperCase()
+
+/** Attachment card on the raised surface. */
+const CARD =
+  'bg-surface-raised border-line-hairline rounded-option flex max-w-full flex-col overflow-hidden border'
 
 function FileCard({ file }: { file: AttachmentPointer }): React.JSX.Element {
   return (
-    <div className={cn(CARD, 'px-3 py-2.5')} style={{ width: EMBED_MAX.width }}>
+    <div
+      className={cn(CARD, 'rounded-control px-[13px] py-[11px]')}
+      style={{ width: Math.min(EMBED_MAX.width, 400) }}
+    >
       <FileHeader file={file} lead={<FileGlyph icon={FileIcon} />} />
     </div>
   )
@@ -214,8 +236,8 @@ function FileGlyph({
   icon: React.ComponentType<{ className?: string; strokeWidth?: number }>
 }): React.JSX.Element {
   return (
-    <span className="bg-surface-raised text-text-secondary flex size-9 shrink-0 items-center justify-center">
-      <Icon className="size-[18px]" strokeWidth={1.5} />
+    <span className="bg-surface-sunken text-text-secondary rounded-control flex size-[34px] shrink-0 items-center justify-center">
+      <Icon className="size-4" strokeWidth={1.5} />
     </span>
   )
 }
@@ -239,7 +261,7 @@ function FileHeader({
           disabled={busy}
           title={file.name}
           className={cn(
-            'text-text-primary block max-w-full truncate text-left text-[14px] leading-5 font-bold underline-offset-2 hover:underline',
+            'text-text-primary block max-w-full truncate text-left text-[13px] leading-5 font-semibold underline-offset-2 hover:underline',
             FOCUS
           )}
         >
@@ -247,8 +269,8 @@ function FileHeader({
         </button>
         <p
           className={cn(
-            'text-meta tabular-nums',
-            error ? 'text-feature-danger-text' : 'text-text-tertiary'
+            'font-mono text-[8.5px] tracking-[0.7px] uppercase tabular-nums',
+            error ? 'text-you-text' : 'text-text-disabled'
           )}
           title={error ?? undefined}
         >

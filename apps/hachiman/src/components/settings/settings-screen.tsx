@@ -1,4 +1,4 @@
-import { PushedScreen } from '@/components/mobile/pushed-screen'
+import { PushedScreen, ScreenStackProvider } from '@/components/mobile/pushed-screen'
 import type { SettingsPageSpec } from '@/components/settings/settings-model'
 
 /**
@@ -9,7 +9,7 @@ export function SettingsPageBody({ page }: { page: SettingsPageSpec }): React.JS
   return (
     <>
       {page.intro && page.description && (
-        <p className="text-text-secondary text-[14.5px] leading-5 font-medium">
+        <p className="text-text-tertiary text-[13.5px] leading-5">
           {page.description}
         </p>
       )}
@@ -39,14 +39,16 @@ export function SettingsScreen({
   backLabel: string
 }): React.JSX.Element {
   return (
-    <PushedScreen
-      open={open}
-      title={page.title}
-      subtitle={page.navSubtitle ?? subtitle}
-      onBack={onBack}
-      backLabel={backLabel}
-    >
-      <SettingsPageBody key={id} page={page} />
-    </PushedScreen>
+    <ScreenStackProvider>
+      <PushedScreen
+        open={open}
+        title={page.title}
+        subtitle={page.navSubtitle ?? subtitle}
+        onBack={onBack}
+        backLabel={backLabel}
+      >
+        <SettingsPageBody key={id} page={page} />
+      </PushedScreen>
+    </ScreenStackProvider>
   )
 }

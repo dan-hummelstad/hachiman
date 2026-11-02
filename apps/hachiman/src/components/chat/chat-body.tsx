@@ -212,16 +212,23 @@ function DesktopChatFooter({
   blocked: React.ReactNode
 }): React.JSX.Element {
   return (
-    <footer className="flex min-h-[calc(var(--dock-height,0px)+8px)] shrink-0 flex-col justify-end pr-4 pl-[calc(var(--dock-inset,0px)+16px)]">
+    <footer className="flex min-h-[calc(var(--dock-height,0px)+8px)] shrink-0 flex-col justify-end gap-2 pr-6 pb-3.5 pl-[calc(var(--dock-inset,0px)+24px)]">
       {blocked ?? (
         <>
           {chat.refusedPeer && (
-            <p role="status" className="text-text-tertiary px-1 pb-1.5 text-[13px]">
+            <p role="status" className="text-text-tertiary px-1 text-[12.5px]">
               You can&apos;t message {chat.refusedPeer.username}.
             </p>
           )}
           <Composer {...chat.composer} />
-          <TypingLine channel={channel} />
+          <div className="flex h-4 items-center gap-2 px-0.5">
+            <TypingLine channel={channel} className="h-4 flex-1 px-0" />
+            {!chat.composer.disabledReason && (
+              <span className="cap-sm mobile:hidden shrink-0 tracking-[0.8px]">
+                ENTER SEND · ⇧↵ NEWLINE
+              </span>
+            )}
+          </div>
         </>
       )}
     </footer>
@@ -235,7 +242,7 @@ function BlockedNotice({ user }: { user: User }): React.JSX.Element {
     <div className="pb-4">
       <div
         role="note"
-        className="bg-surface-panel border-line-hairline text-text-secondary flex min-h-[52px] items-center gap-3 border px-4 py-2.5 text-[14px] leading-5"
+        className="bg-surface-sunken border-line-hairline rounded-option text-text-secondary flex min-h-[52px] items-center gap-3 border px-4 py-2.5 text-[14px] leading-5"
       >
         <Ban className="text-text-tertiary size-4 shrink-0" aria-hidden />
         <span className="flex-1">You blocked {user.username}. Unblock to send messages.</span>

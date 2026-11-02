@@ -3,13 +3,16 @@ import { Check, KeyRound, TriangleAlert } from 'lucide-react'
 import { DockedFoot, MobileFoot } from '@/components/mobile/foot'
 import { Button } from '@/components/ui/button'
 import { Callout } from '@/components/ui/callout'
-import { Chip } from '@/components/ui/chip'
-import { FEATURE_TILE } from '@/components/ui/feature'
 import { ErrorText } from '@/components/ui/field'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { friendly } from '@/components/security/errors'
 import { RecoveryKeyReveal } from '@/components/security/recovery-key-view'
-import { StepFooter, StepFrame, StepHeader } from '@/components/security/screen-window'
+import {
+  NEUTRAL_TILE,
+  StepFooter,
+  StepFrame,
+  StepHeader
+} from '@/components/security/screen-window'
 import { useAction } from '@/hooks/use-action'
 import { useLayout } from '@/hooks/use-layout'
 import { cn } from '@/lib/utils'
@@ -25,7 +28,7 @@ const PRIMARY_ONLY =
   'Only a device with your security key can make a recovery key: your first device, or a device that you restored with the recovery key.'
 
 /** An error on the mobile layout: 13/600 red, as the set-up screens. */
-const TOUCH_ERROR = 'text-feature-danger-text text-[13px] leading-[1.4] font-semibold'
+const TOUCH_ERROR = 'text-you-text text-[13px] leading-[1.4] font-semibold'
 
 /**
  * Make a new recovery key (§12.11.3 "A recovery key rotation"): the Worker uploads all backups
@@ -135,11 +138,11 @@ export function RotateRecoveryKey({
               The new key replaces it, and Hachiman encrypts your backups again with the new key.
             </Callout>
           )}
-          <p className="text-text-secondary text-[14.5px] leading-[1.5] font-medium">
+          <p className="text-text-tertiary text-[14px] leading-[1.5]">
             You see the new key once. Have somewhere safe and offline ready to keep it.
           </p>
           {!primary && (
-            <p className="text-text-tertiary text-[13px] leading-[1.5] font-medium">
+            <p className="text-text-tertiary text-[13px] leading-[1.5]">
               {PRIMARY_ONLY}
             </p>
           )}
@@ -171,7 +174,7 @@ export function RotateRecoveryKey({
         A new recovery key replaces the old one. The old key stops working, and Hachiman encrypts
         your backups again with the new key.
       </Callout>
-      {!primary && <p className="text-meta text-text-tertiary">{PRIMARY_ONLY}</p>}
+      {!primary && <p className="text-text-tertiary text-[12px]">{PRIMARY_ONLY}</p>}
       <ErrorText>{error}</ErrorText>
     </StepFrame>
   )
@@ -214,6 +217,20 @@ export function RecoverySection(): React.JSX.Element {
   return useLayout() === 'mobile' ? <RecoveryMobile /> : <RecoveryDesktop />
 }
 
+/** The "set up" state of the recovery key: a neutral tag, not a colour. */
+function SetUpTag({ className }: { className?: string }): React.JSX.Element {
+  return (
+    <span
+      className={cn(
+        'rounded-badge border-line-strong text-text-tertiary inline-flex h-5 shrink-0 items-center gap-1 border px-1.5 font-mono text-[8.5px] tracking-[0.8px] uppercase',
+        className
+      )}
+    >
+      <Check aria-hidden className="size-3" /> Set up
+    </span>
+  )
+}
+
 const MAKE_NEW_KEY_HINT =
   'Make a new key if you lost the old one, or if someone else could have seen it.'
 const PRIMARY_ONLY_SHORT = ' Only a device with your security key can do this.'
@@ -223,39 +240,26 @@ function RecoveryDesktop(): React.JSX.Element {
   const primary = useCryptoStore((s) => s.status?.primary ?? false)
   return (
     <div className="grid gap-4">
-      <div
-        className={cn(
-          'flex items-center gap-4 border px-4 py-4',
-          configured
-            ? 'border-feature-voice/40 bg-feature-voice/5'
-            : 'border-feature-event/40 bg-feature-event/5'
-        )}
-      >
+      <div className="border-line-hairline bg-surface-sunken rounded-control flex items-center gap-4 border px-4 py-4">
         <span
           className={cn(
-            'flex size-12 shrink-0 items-center justify-center [&_svg]:size-6',
-            configured
-              ? 'bg-feature-voice/15 text-feature-voice-text'
-              : 'bg-feature-event/15 text-feature-event-text'
+            'rounded-control flex size-12 shrink-0 items-center justify-center [&_svg]:size-6',
+            NEUTRAL_TILE
           )}
         >
           <KeyRound aria-hidden />
         </span>
         <div className="grid min-w-0 flex-1 gap-0.5">
-          <p className="text-heading">
+          <p className="text-text-primary text-[16px] leading-[1.35] font-semibold tracking-[-0.3px]">
             {configured ? 'Your account has a recovery key' : 'Your account has no recovery key'}
           </p>
-          <p className="text-text-secondary text-[13px]">
+          <p className="text-text-tertiary text-[13px]">
             {configured
               ? 'Keep it somewhere safe and offline.'
               : 'If you lose all of your devices, you cannot read your messages again.'}
           </p>
         </div>
-        {configured && (
-          <span className="rounded-check bg-feature-voice/15 text-feature-voice-text flex h-6 shrink-0 items-center gap-1 px-2 text-xs font-bold">
-            <Check aria-hidden className="size-3.5" /> Set up
-          </span>
-        )}
+        {configured && <SetUpTag />}
       </div>
       <Callout tone="danger">
         Anyone with your recovery key can read all of your encrypted history.
@@ -269,7 +273,7 @@ function RecoveryDesktop(): React.JSX.Element {
         >
           <KeyRound /> Make a new recovery key
         </Button>
-        <p className="text-meta text-text-tertiary min-w-0 flex-1">
+        <p className="text-text-tertiary min-w-0 flex-1 text-[12px]">
           {MAKE_NEW_KEY_HINT}
           {primary ? '' : PRIMARY_ONLY_SHORT}
         </p>
@@ -289,33 +293,22 @@ function RecoveryMobile(): React.JSX.Element {
   const [root, setRoot] = useState<HTMLDivElement | null>(null)
   return (
     <div ref={setRoot} className="flex flex-col gap-3">
-      <div
-        className={cn(
-          'flex gap-3.5 border p-4',
-          configured
-            ? 'border-feature-voice/22 bg-feature-voice/5'
-            : 'border-feature-event/22 bg-feature-event/5'
-        )}
-      >
+      <div className="border-line-hairline bg-surface-sunken rounded-control flex gap-3.5 border p-4">
         <span
           aria-hidden
           className={cn(
-            'flex size-11 shrink-0 items-center justify-center [&_svg]:size-[22px]',
-            FEATURE_TILE[configured ? 'voice' : 'event']
+            'rounded-control flex size-11 shrink-0 items-center justify-center [&_svg]:size-[22px]',
+            NEUTRAL_TILE
           )}
         >
           <KeyRound />
         </span>
         <div className="flex min-w-0 flex-1 flex-col gap-1">
-          {configured && (
-            <Chip tone="voice" icon={<Check />} className="mb-0.5 self-start">
-              Set up
-            </Chip>
-          )}
-          <p className="text-text-primary text-[15.5px] leading-[1.3] font-extrabold">
+          {configured && <SetUpTag className="mb-0.5 self-start" />}
+          <p className="text-text-primary text-[15.5px] leading-[1.3] font-semibold">
             {configured ? 'Your account has a recovery key' : 'Your account has no recovery key'}
           </p>
-          <p className="text-text-secondary text-[13px] leading-[1.45] font-medium">
+          <p className="text-text-tertiary text-[13px] leading-[1.45]">
             {configured
               ? 'Keep it somewhere safe and offline.'
               : 'If you lose all of your devices, you cannot read your messages again.'}
@@ -329,7 +322,7 @@ function RecoveryMobile(): React.JSX.Element {
       </Callout>
       <DockedFoot anchor={root}>
         <MobileFoot className="bg-surface-content -mx-4 gap-3">
-          <p className="text-text-tertiary text-[13px] leading-[1.5] font-medium">
+          <p className="text-text-tertiary text-[13px] leading-[1.5]">
             {MAKE_NEW_KEY_HINT}
             {primary ? '' : PRIMARY_ONLY_SHORT}
           </p>

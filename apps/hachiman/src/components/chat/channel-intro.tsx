@@ -26,7 +26,7 @@ import { Button } from '@/components/ui/button'
 import { FEATURE_TILE } from '@/components/ui/feature'
 import { usePermissions } from '@/hooks/use-hachiman'
 import { usePresence } from '@/hooks/use-member'
-import { channelLabel, hexColor } from '@/lib/model'
+import { channelLabel } from '@/lib/model'
 import { cn } from '@/lib/utils'
 import { jumpToMessage, openChannelView } from '@/lib/navigation'
 import { useChannelStore } from '@/stores/channelStore'
@@ -179,14 +179,13 @@ function GuildIntro({
 
 /** The 44 high actions of the mobile channel start (M60): icon 16, label 14/700. */
 const MOBILE_ACTION = cn(
-  'rounded-control inline-flex h-11 shrink-0 items-center gap-[7px] border pr-3.5 pl-3 text-[14px] leading-5 font-bold whitespace-nowrap select-none [&_svg]:size-4 [&_svg]:shrink-0',
+  'rounded-control inline-flex h-11 shrink-0 items-center gap-[7px] border pr-3.5 pl-3 text-[14px] leading-5 font-semibold whitespace-nowrap select-none [&_svg]:size-4 [&_svg]:shrink-0',
   'focus-visible:outline-line-focus outline-none focus-visible:outline-2 focus-visible:outline-offset-1 disabled:opacity-50'
 )
 const MOBILE_ACTION_QUIET =
-  'bg-surface-hover border-fill-control text-text-primary active:bg-fill-control-strong'
+  'bg-surface-raised border-line-hairline text-text-primary active:bg-surface-hover'
 /** "Pin to tabs" as the main action of the start (M60): the accent tint. */
-const MOBILE_ACTION_ACCENT =
-  'bg-accent-tint border-accent-primary/60 text-text-primary active:bg-accent-primary/30'
+const MOBILE_ACTION_ACCENT = 'bg-here-tint border-here text-text-primary active:bg-here-wash'
 
 /**
  * The start of a guild channel on the mobile layout (M60 to M63): the tile (60, icon 28), "Welcome
@@ -232,7 +231,7 @@ function MobileGuildIntro({
       <h2
         ref={heading}
         tabIndex={-1}
-        className="text-text-primary text-[26px] leading-8 font-extrabold tracking-[-0.3px] break-words outline-none"
+        className="text-text-primary text-[26px] leading-8 font-semibold tracking-[-0.3px] break-words outline-none"
       >
         Welcome to #{name}
       </h2>
@@ -270,7 +269,7 @@ function MobileGuildIntro({
               )}
               onClick={pin}
             >
-              <Pin className="text-accent-text" aria-hidden />
+              <Pin className="text-text-secondary" aria-hidden />
               Pin to tabs
             </button>
           )}
@@ -297,7 +296,7 @@ function MobileGuildIntro({
         </div>
       )}
       {newPage.error !== null && (
-        <p role="alert" className="text-feature-danger-text text-xs leading-4">
+        <p role="alert" className="text-you-text text-xs leading-4">
           {newPage.error}
         </p>
       )}
@@ -365,10 +364,10 @@ function RestrictedCard({
   onManage?: () => void
 }): React.JSX.Element {
   return (
-    <section className="bg-surface-panel border-line-hairline mt-5 max-w-[520px] border px-4 py-3">
+    <section className="bg-surface-raised border-line-hairline rounded-option mt-5 max-w-[520px] border px-4 py-3">
       <div className="flex items-center gap-2">
         <Lock className="text-text-secondary size-4 shrink-0" aria-hidden />
-        <h3 className="text-label text-text-primary flex-1 font-bold">Restricted channel</h3>
+        <h3 className="text-label text-text-primary flex-1 font-semibold">Restricted channel</h3>
         {onManage && (
           <Button variant="link" size="sm" onClick={onManage}>
             Manage access
@@ -385,13 +384,8 @@ function RestrictedCard({
           {roles.map((r) => (
             <li
               key={r.id}
-              className="rounded-check bg-surface-raised text-text-primary flex h-6 items-center gap-1.5 px-2 text-xs font-bold"
+              className="rounded-badge bg-surface-sunken text-text-primary flex h-6 items-center gap-1.5 px-2 text-xs font-semibold"
             >
-              <span
-                aria-hidden
-                className="size-2 shrink-0"
-                style={{ background: r.color ? hexColor(r.color) : 'var(--text-tertiary)' }}
-              />
               {r.name}
             </li>
           ))}
@@ -411,12 +405,12 @@ function DropCard({
 }): React.JSX.Element {
   const picker = useRef<HTMLInputElement>(null)
   return (
-    <section className="bg-surface-panel border-line-hairline mt-5 flex items-center gap-4 border px-5 py-4">
+    <section className="bg-surface-raised border-line-hairline rounded-option mt-5 flex items-center gap-4 border px-5 py-4">
       <div className={cn('flex size-11 shrink-0 items-center justify-center', FEATURE_TILE.accent)}>
         <Upload className="size-5" aria-hidden />
       </div>
       <div className="min-w-0 flex-1">
-        <h3 className="text-label text-text-primary font-bold">No messages yet</h3>
+        <h3 className="text-label text-text-primary font-semibold">No messages yet</h3>
         <p className="text-text-secondary text-[13.5px] leading-5">
           Drop files here or paste them into the message box. They stay end-to-end encrypted in #
           {name}.
@@ -455,10 +449,10 @@ function MobileRestrictedCard({
   onManage?: () => void
 }): React.JSX.Element {
   return (
-    <section className="bg-surface-hover/40 border-fill-control border">
+    <section className="bg-surface-raised border-line-hairline rounded-option overflow-hidden border">
       <div className="flex flex-col gap-2.5 px-4 py-3.5">
-        <h3 className="text-text-primary flex items-center gap-2 text-[14.5px] leading-5 font-extrabold">
-          <Lock className="text-accent-text size-[15px] shrink-0" aria-hidden />
+        <h3 className="text-text-primary flex items-center gap-2 text-[14.5px] leading-5 font-semibold">
+          <Lock className="text-text-tertiary size-[15px] shrink-0" aria-hidden />
           Restricted channel
         </h3>
         <p className="text-text-secondary text-[14px] leading-[1.45] font-medium break-words">
@@ -471,13 +465,8 @@ function MobileRestrictedCard({
             {roles.map((r) => (
               <li
                 key={r.id}
-                className="bg-surface-hover text-text-primary flex h-[26px] max-w-full min-w-0 items-center gap-1.5 px-[9px] text-[13px] leading-none font-bold"
+                className="bg-surface-sunken text-text-primary flex h-[26px] max-w-full min-w-0 items-center gap-1.5 px-[9px] text-[13px] leading-none font-semibold"
               >
-                <span
-                  aria-hidden
-                  className="size-2 shrink-0"
-                  style={{ background: r.color ? hexColor(r.color) : 'var(--text-tertiary)' }}
-                />
                 <span className="truncate">{r.name}</span>
               </li>
             ))}
@@ -489,7 +478,7 @@ function MobileRestrictedCard({
           type="button"
           onClick={onManage}
           className={cn(
-            'border-fill-control text-accent-text flex h-[46px] w-full items-center gap-2 border-t pr-3.5 pl-4 text-left text-[14px] font-bold',
+            'border-line-hairline text-text-primary flex h-[46px] w-full items-center gap-2 border-t pr-3.5 pl-4 text-left text-[14px] font-semibold',
             'active:bg-surface-hover focus-visible:outline-line-focus outline-none focus-visible:outline-2 focus-visible:-outline-offset-2'
           )}
         >
@@ -519,15 +508,13 @@ function MobileDropCard({
 }): React.JSX.Element {
   const picker = useRef<HTMLInputElement>(null)
   return (
-    <section className="bg-surface-hover/30 border-fill-control mt-1.5 flex flex-col gap-4 border p-4">
+    <section className="bg-surface-raised border-line-hairline rounded-option mt-1.5 flex flex-col gap-4 border p-4">
       <div className="flex gap-3.5">
         <div className={cn('flex size-12 shrink-0 items-center justify-center', FEATURE_TILE.page)}>
           <Images className="size-[22px]" aria-hidden />
         </div>
         <div className="flex min-w-0 flex-1 flex-col gap-1">
-          <h3 className="text-text-primary text-[16px] leading-5 font-extrabold">
-            No messages yet
-          </h3>
+          <h3 className="text-text-primary text-[16px] leading-5 font-semibold">No messages yet</h3>
           <p className="text-text-secondary text-[14px] leading-[1.45] font-medium break-words">
             {topic || `Pick a file or paste a link. It stays end-to-end encrypted in #${name}.`}
           </p>
@@ -575,30 +562,31 @@ function DmIntro({ channel }: { channel: Channel }): React.JSX.Element {
   const status = usePresence(solo?.id)
   const { trust } = useContactTrust(solo?.id)
   return (
-    <div className="px-5 pt-10 pb-4">
+    <div className="flex flex-col gap-[9px] pt-10 pr-6 pb-4 pl-[58px]">
       {solo ? (
         <UserAvatar
           name={name}
           avatar={solo.avatar}
-          size={72}
+          size={52}
           status={status}
           cutout="bg-surface-content"
-          className="mb-4"
         />
       ) : (
-        <div className={cn('mb-4 flex size-16 items-center justify-center', FEATURE_TILE.accent)}>
-          <Users className="size-8" aria-hidden />
+        <div className={cn('flex size-[52px] items-center justify-center', FEATURE_TILE.accent)}>
+          <Users className="size-7" aria-hidden />
         </div>
       )}
-      <h2 className="text-page-title text-text-primary">{name}</h2>
-      <p className="text-body text-text-secondary mt-1.5 max-w-[70ch]">
-        This is the start of your conversation with {name}. Messages are end-to-end encrypted.
+      <h2 className="text-text-primary text-[22px] leading-7 font-semibold tracking-[-0.6px]">
+        {name}
+      </h2>
+      <p className="text-text-tertiary max-w-[600px] text-[13px]">
+        This is the beginning of your direct messages with {name}. Messages are end-to-end
+        encrypted.
       </p>
       {solo && trust && TRUST_LOOK[trust.state].canVerify && (
-        <div className="mt-4 flex gap-2">
+        <div className="mt-1 flex gap-2">
           <Button
-            variant="quiet"
-            className="border-feature-event/50 text-feature-event-text"
+            variant={trust.state === 'changed' ? 'danger' : 'secondary'}
             onClick={() => openDialog({ kind: 'verification', userId: solo.id })}
           >
             <ShieldQuestion aria-hidden />
@@ -615,15 +603,15 @@ const MUTUAL_CHIPS = 3
 
 /** The 30 high chips of the mobile DM intro (M7). */
 const INTRO_CHIP =
-  'rounded-control inline-flex h-[30px] max-w-full min-w-0 shrink-0 items-center gap-[7px] border text-[13.5px] leading-none font-bold'
+  'rounded-pill inline-flex h-[30px] max-w-full min-w-0 shrink-0 items-center gap-[7px] border text-[13.5px] leading-none font-semibold'
 
 /** The wash and edge of a quiet intro chip (the mutual guilds, "+n", "No key yet"). */
-const MUTUAL_CHIP = 'bg-surface-hover border-(--fill-control)'
+const MUTUAL_CHIP = 'bg-surface-raised border-line-hairline'
 
-/** The Verify chip per shown trust state: gold for "Not verified", red for a blocking change. */
+/** The Verify chip per shown trust state: neutral for "Not verified", `you` for a blocking change. */
 const VERIFY_TINT: Partial<Record<SenderTrust, string>> = {
-  tofu: 'border-feature-event/22 bg-feature-event/10 text-feature-event-text',
-  changed: 'border-feature-danger/22 bg-feature-danger/10 text-feature-danger-text'
+  tofu: 'border-line-strong bg-transparent text-text-primary',
+  changed: 'border-you bg-you-tint text-you-text'
 }
 
 /**
@@ -651,11 +639,12 @@ function MobileDmIntro({ channel }: { channel: Channel }): React.JSX.Element {
           <Users className="size-9" aria-hidden />
         </div>
       )}
-      <h2 className="text-text-primary max-w-full truncate text-[28px] leading-[34px] font-extrabold tracking-[-0.3px]">
+      <h2 className="text-text-primary max-w-full truncate text-[22px] leading-7 font-semibold tracking-[-0.6px]">
         {name}
       </h2>
-      <p className="text-text-secondary text-[15px] leading-[1.45] font-medium">
-        This is the start of your conversation with {name}. Messages are end-to-end encrypted.
+      <p className="text-text-tertiary text-[13px] leading-[1.45]">
+        This is the beginning of your direct messages with {name}. Messages are end-to-end
+        encrypted.
       </p>
       {solo && <MobileDmIntroTrust user={solo} name={name} />}
     </div>
