@@ -2,23 +2,23 @@ import { unreadMarkOf } from '@/lib/unread-mark'
 import { cn } from '@/lib/utils'
 
 const PILL =
-  'bg-feature-danger text-text-on-accent flex shrink-0 items-center justify-center rounded-full leading-none font-extrabold tabular-nums'
+  'bg-you text-on-you rounded-badge mobile:rounded-pill mobile:font-[700] flex shrink-0 items-center justify-center font-mono leading-none font-semibold tabular-nums'
 
 const COUNT = {
-  md: 'h-[18px] min-w-[18px] px-1.5 text-[11px]',
-  sm: 'h-4 min-w-4 px-1 text-[10px]',
+  md: 'h-[19px] min-w-4 px-[5px] text-[10px] mobile:min-w-[18px] mobile:px-1.5',
+  sm: 'h-4 min-w-4 px-1 text-[9px]',
   corner:
-    'ring-surface-window pointer-events-none absolute -top-1 -right-1.5 h-[15px] min-w-[15px] px-1 text-[9px] ring-2'
+    'ring-surface-panel pointer-events-none absolute -top-1 -right-1.5 h-[15px] min-w-[15px] px-1 text-[9px] ring-2'
 }
 
 const DOT = {
   md: 'size-2',
   sm: 'size-1.5',
-  corner: 'ring-surface-window pointer-events-none absolute -top-0.5 -right-0.5 size-[7px] ring-2'
+  corner: 'ring-surface-panel pointer-events-none absolute -top-0.5 -right-0.5 size-[7px] ring-2'
 }
 
 /**
- * The one unread mark (N7): the coral mention count, else a white dot for unread. `size` 'md' for
+ * The one unread mark (N7): the `you` mention count, else a neutral dot for unread. `size` 'md' for
  * list rows, 'sm' for tabs and switcher rows, 'corner' on the top-right corner of a `relative`
  * icon box. `dot` false: mentions only. `count` false: mentions as a coral dot, no number.
  */
@@ -55,7 +55,7 @@ export function UnreadMark({
       {...a11y}
       className={cn(
         'shrink-0 rounded-full',
-        mark.kind === 'dot' ? 'bg-text-primary' : 'bg-feature-danger',
+        mark.kind === 'dot' ? 'bg-text-primary' : 'bg-you',
         DOT[size],
         className
       )}
@@ -63,13 +63,13 @@ export function UnreadMark({
   )
 }
 
-/** The 4px white pip at the far-left edge of the sidebar for an unread channel row (B1 #lfg). */
+/** The 2px row marker at the far-left edge of the sidebar for an unread channel row. */
 export function UnreadPip({ className }: { className?: string }): React.JSX.Element {
   return (
     <span
       aria-hidden
       className={cn(
-        'bg-text-primary pointer-events-none absolute top-1/2 h-2 w-1 -translate-y-1/2 rounded-r-full',
+        'bg-text-primary pointer-events-none absolute top-1/2 h-[17px] w-0.5 -translate-y-1/2',
         className
       )}
     />

@@ -31,8 +31,8 @@ export function NativeSelect({
         {...field}
         data-slot="native-select"
         className={cn(
-          'rounded-control border-line-strong bg-surface-sunken text-text-primary hover:border-text-disabled focus-visible:border-accent-primary aria-invalid:border-destructive h-9 w-full appearance-none border pr-8 pl-3 text-sm outline-none disabled:opacity-50',
-          touch && [TOUCH_FIELD, 'h-12 pr-10'],
+          'rounded-control border-line-hairline bg-surface-sunken text-text-primary hover:border-line-strong focus-visible:border-line-strong aria-invalid:border-you h-10 w-full appearance-none border pr-8 pl-3 text-sm outline-none disabled:opacity-50',
+          touch && [TOUCH_FIELD, 'h-[52px] pr-10'],
           lead != null && LEAD_PADDING[size]
         )}
         {...props}
@@ -41,7 +41,7 @@ export function NativeSelect({
         aria-hidden
         className={cn(
           'text-text-tertiary pointer-events-none absolute top-1/2 right-2.5 size-4 -translate-y-1/2',
-          touch && 'right-3.5 size-[17px]'
+          touch && 'right-4 size-[17px]'
         )}
       />
     </span>

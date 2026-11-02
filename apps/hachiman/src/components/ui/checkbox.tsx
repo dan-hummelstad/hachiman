@@ -2,7 +2,7 @@ import { Check } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 /**
- * Native checkbox in the Arc look (radius 4). Takes every <input> prop except `type`.
+ * Native checkbox (radius 4, ink when checked). Takes every <input> prop except `type`.
  * `size="lg"` is the mobile kit box (18); put it in a 44 label row, so the row is the hit area.
  */
 export function Checkbox({
@@ -19,7 +19,7 @@ export function Checkbox({
         type="checkbox"
         data-slot="checkbox"
         className={cn(
-          'peer rounded-check border-line-strong bg-surface-sunken checked:border-accent-primary checked:bg-accent-primary hover:border-text-disabled focus-visible:outline-line-focus size-4 appearance-none border transition-colors outline-none focus-visible:outline-2 focus-visible:outline-offset-1 disabled:cursor-not-allowed disabled:opacity-50',
+          'peer rounded-check border-line-strong bg-surface-sunken checked:border-ink checked:bg-ink hover:border-text-disabled focus-visible:outline-line-focus size-4 appearance-none border transition-colors outline-none focus-visible:outline-2 focus-visible:outline-offset-1 disabled:cursor-not-allowed disabled:opacity-50',
           lg && 'size-[18px]'
         )}
         {...props}
@@ -28,7 +28,7 @@ export function Checkbox({
         aria-hidden
         strokeWidth={3}
         className={cn(
-          'text-text-on-accent pointer-events-none absolute inset-0.5 hidden size-3 peer-checked:block',
+          'text-on-ink pointer-events-none absolute inset-0.5 hidden size-3 peer-checked:block',
           lg && 'inset-[2.5px] size-[13px]'
         )}
       />

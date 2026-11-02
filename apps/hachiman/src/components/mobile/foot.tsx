@@ -16,7 +16,7 @@ export function MobileFoot({
     <div
       data-slot="mobile-foot"
       className={cn(
-        'flex shrink-0 flex-col gap-1.5 px-4 pt-3 pb-[max(16px,calc(4px+var(--safe-bottom,0px)))] in-data-[keyboard=open]:pb-1',
+        'bg-surface-panel border-line-hairline flex shrink-0 flex-col gap-1.5 border-t px-4 pt-3 pb-[max(16px,calc(4px+var(--safe-bottom,0px)))] in-data-[keyboard=open]:pb-1',
         className
       )}
       {...props}

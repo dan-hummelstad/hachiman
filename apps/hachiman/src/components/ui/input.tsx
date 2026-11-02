@@ -9,7 +9,7 @@ export type FieldSize = 'default' | 'touch'
  * focus, padding 14 and a 1.5 px focus stroke.
  */
 export const TOUCH_FIELD =
-  'px-3.5 text-base leading-6 font-medium focus-visible:border-line-focus focus-visible:ring-[0.5px] focus-visible:ring-line-focus'
+  'rounded-[14px] border-line-strong px-4 text-base leading-6 focus-visible:border-line-strong'
 
 /** What a `MobileField` tells the control in it: its id, its helper or error line, the error state. */
 interface FieldControl {
@@ -39,7 +39,7 @@ export function useFieldControl(): {
 }
 
 /** Left padding of a field with a lead icon: the field padding, the icon and a 8 or 10 gap. */
-export const LEAD_PADDING: Record<FieldSize, string> = { default: 'pl-9', touch: 'pl-[41px]' }
+export const LEAD_PADDING: Record<FieldSize, string> = { default: 'pl-9', touch: 'pl-[44px]' }
 
 /** The lead icon slot of a field: tertiary, at the field's left padding. The parent is `relative`. */
 export function FieldLead({
@@ -57,7 +57,7 @@ export function FieldLead({
       data-slot="field-lead"
       className={cn(
         "text-text-tertiary pointer-events-none absolute top-1/2 left-3 flex -translate-y-1/2 [&_svg:not([class*='size-'])]:size-4",
-        size === 'touch' && "left-3.5 [&_svg:not([class*='size-'])]:size-[17px]",
+        size === 'touch' && "left-4 [&_svg:not([class*='size-'])]:size-[17px]",
         className
       )}
     >
@@ -85,11 +85,11 @@ function Input({
       type={type}
       data-slot="input"
       className={cn(
-        'rounded-control file:text-foreground placeholder:text-text-tertiary selection:bg-accent-tint selection:text-text-primary border-line-strong bg-surface-sunken h-9 w-full min-w-0 border px-3 py-1 text-sm leading-5 transition-colors outline-none file:inline-flex file:h-7 file:border-0 file:bg-transparent file:text-sm file:font-medium disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50',
-        // Text fields always match :focus-visible, so they get an accent border instead of an outline.
-        'hover:border-text-disabled focus-visible:border-accent-primary',
-        'aria-invalid:border-destructive',
-        size === 'touch' && ['h-12', TOUCH_FIELD],
+        'rounded-control file:text-foreground placeholder:text-text-tertiary selection:bg-here-tint selection:text-text-primary text-text-primary border-line-hairline bg-surface-sunken h-10 w-full min-w-0 border px-3 py-1 text-sm leading-5 transition-colors outline-none file:inline-flex file:h-7 file:border-0 file:bg-transparent file:text-sm file:font-medium disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50',
+        // Text fields always match :focus-visible, so they get a stronger border instead of an outline.
+        'hover:border-line-strong focus-visible:border-line-strong',
+        'aria-invalid:border-you',
+        size === 'touch' && ['h-[52px]', TOUCH_FIELD],
         lead != null && LEAD_PADDING[size],
         className
       )}

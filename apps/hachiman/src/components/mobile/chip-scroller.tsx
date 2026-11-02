@@ -110,14 +110,14 @@ export function ChipScroller<T extends string>({
             active={selected}
             onClick={() => o.value !== value && onValueChange(o.value)}
             className={cn(
-              'h-[38px] gap-[7px] px-[11px] text-[14.5px] leading-4',
-              selected ? 'font-bold' : 'font-semibold'
+              'gap-[7px] text-[13px] leading-4',
+              selected ? 'font-semibold' : 'font-medium'
             )}
           >
             {o.lead && (
               <span
                 aria-hidden
-                className={cn('flex', selected ? 'text-accent-text' : 'text-text-tertiary')}
+                className={cn('flex', selected ? 'text-here-text' : 'text-text-tertiary')}
               >
                 {o.lead}
               </span>
@@ -126,9 +126,9 @@ export function ChipScroller<T extends string>({
             {o.count !== undefined && o.count > 0 && (
               <span
                 className={cn(
-                  'flex h-[18px] items-center rounded-[5px] px-1.5 text-[11px] leading-none font-extrabold tabular-nums',
+                  'rounded-badge flex h-[18px] items-center px-1.5 font-mono text-[10px] leading-none font-semibold tabular-nums',
                   selected
-                    ? 'bg-accent-primary/30 text-text-primary'
+                    ? 'bg-here-wash text-text-primary'
                     : 'bg-fill-control-strong text-text-secondary'
                 )}
               >

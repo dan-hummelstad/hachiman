@@ -21,19 +21,22 @@ export interface SidebarProps {
   middle: React.ReactNode
   /** Foot: the voice dock. */
   foot?: React.ReactNode
+  /** The last row, under the foot: the user bar. */
+  user?: React.ReactNode
   /** Replaces the size and padding: the mobile drawer is full width inside the safe areas. */
   className?: string
 }
 
 /**
- * The Arc sidebar (280, padding 10): it sits on the window wallpaper and holds everything that
- * is not content. Four slots, top to bottom: controls, top, middle, foot.
+ * The sidebar (280): the panel surface with the accent wash at its foot. It holds everything that
+ * is not content. Five slots, top to bottom: controls, top, middle, foot, user.
  */
 export function Sidebar({
   controls,
   top,
   middle,
   foot,
+  user,
   className
 }: SidebarProps): React.JSX.Element {
   const { insetTitleBar } = usePlatform()
@@ -42,7 +45,8 @@ export function Sidebar({
     <aside
       aria-label="Sidebar"
       className={cn(
-        'text-text-primary flex h-full min-h-0 w-[280px] shrink-0 flex-col gap-2 px-2.5 pt-1.5 pb-2',
+        'text-text-primary bg-surface-panel sidebar-wash border-line-hairline flex h-full min-h-0 w-[280px] shrink-0 flex-col',
+        left ? 'border-r' : 'border-l',
         className
       )}
     >
@@ -50,16 +54,17 @@ export function Sidebar({
           of this row (trafficLightPosition x 16, y 18), and the controls start after them. */}
       <div
         className={cn(
-          'flex h-9 shrink-0 items-center gap-1',
+          'flex h-11 shrink-0 items-center gap-2 px-3',
           insetTitleBar && left && 'pl-[72px]',
           DRAG_REGION
         )}
       >
         {controls}
       </div>
-      {top && <div className="flex shrink-0 flex-col gap-2">{top}</div>}
+      {top && <div className="flex shrink-0 flex-col gap-2 px-3 pb-2">{top}</div>}
       <div className="flex min-h-0 flex-1 flex-col">{middle}</div>
-      {foot && <div className="flex shrink-0 flex-col gap-2">{foot}</div>}
+      {foot && <div className="flex shrink-0 flex-col gap-2 px-3 pb-2">{foot}</div>}
+      {user}
     </aside>
   )
 }

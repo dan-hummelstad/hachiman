@@ -1,6 +1,5 @@
 import { X } from 'lucide-react'
 import type { Role } from '@hachiman/client'
-import { hexColor } from '@/lib/model'
 import { cn } from '@/lib/utils'
 
 type RoleChipProps = {
@@ -15,14 +14,14 @@ type RoleChipProps = {
       removeLabel?: string
     }
   | {
-      /** The mobile kit chip (22, dot 7, 12/700). It has no ✕: remove the role from a sheet. */
+      /** The mobile kit chip (22, 12/600). It has no ✕: remove the role from a sheet. */
       size: 'sm'
       onRemove?: never
       removeLabel?: never
     }
 )
 
-/** A role pill: colour swatch + name, optionally with a remove button. */
+/** A role pill: the name (roles are neutral), optionally with a remove button. */
 export function RoleChip({
   role,
   onRemove,
@@ -35,16 +34,11 @@ export function RoleChip({
     <span
       className={cn(
         sm
-          ? 'bg-surface-raised text-text-primary flex h-[22px] items-center gap-1.5 rounded-[6px] pr-2 pl-[7px] text-xs font-bold'
+          ? 'bg-surface-raised text-text-primary flex h-[22px] items-center rounded-[6px] px-2 text-xs font-semibold'
           : 'rounded-check bg-surface-raised text-text-primary flex h-6 items-center gap-1.5 px-2 text-xs font-semibold',
         className
       )}
     >
-      <span
-        aria-hidden
-        className={sm ? 'size-[7px] shrink-0' : 'size-2 shrink-0'}
-        style={{ background: role.color ? hexColor(role.color) : 'var(--text-secondary)' }}
-      />
       {role.name}
       {onRemove && (
         <button

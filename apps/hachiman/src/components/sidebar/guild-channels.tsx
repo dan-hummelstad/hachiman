@@ -25,7 +25,7 @@ import { useSelectedChannelId } from '@/stores/navStore'
 
 /**
  * The list fades out over its last 36 px on the mobile layout (M3). A mask, not a gradient in the
- * drawer colour: the drawer is a tinted wallpaper. The padding lets the last row scroll clear of it.
+ * drawer colour: the drawer carries the accent wash. The padding lets the last row scroll clear of it.
  */
 const BOTTOM_FADE =
   'mobile:pb-9 mobile:[mask-image:linear-gradient(to_bottom,#000_calc(100%-36px),transparent)]'
@@ -36,8 +36,7 @@ export function GuildChannelList({ guildId }: { guildId: string }): React.JSX.El
     <>
       <GuildHeader guildId={guildId} />
       <EventRow guildId={guildId} />
-      {/* Full sidebar width (its padding is 10), so the unread pip sits at the window edge. */}
-      <div className={cn('-mx-2.5 mt-2 min-h-0 flex-1 overflow-y-auto px-2.5 pb-2', BOTTOM_FADE)}>
+      <div className={cn('min-h-0 flex-1 overflow-y-auto px-2 pt-1.5 pb-2', BOTTOM_FADE)}>
         <GuildChannels guildId={guildId} />
       </div>
     </>
@@ -94,26 +93,26 @@ function GuildChannels({ guildId }: { guildId: string }): React.JSX.Element {
         // Collapsed categories still show the channel being viewed.
         const visible = isCollapsed ? children.filter((c) => c.id === selectedChannelId) : children
         // On the mobile layout the drawer stays open under the sheet or confirm, and the category
-        // shows it: the "+" lit, the label red (spec §6.1, decision 3: mobile only).
+        // shows it: the "+" lit, the label in `you` (spec §6.1, decision 3: mobile only).
         const deleting = deletingId === cat.id
         return (
           <section key={cat.id}>
             <ContextMenu>
               {/* The menu has items only for a manager: no empty sheet on a hold. */}
               <ContextMenuTrigger asChild longPress={canManage}>
-                <div className="mobile:h-9 flex h-[30px] items-center pr-1">
+                <div className="mobile:h-9 flex h-7 items-center pr-1">
                   <button
                     type="button"
                     onClick={() => toggle(cat.id)}
                     aria-expanded={!isCollapsed}
                     className={cn(
-                      'section-label hover:text-text-secondary mobile:gap-1 flex h-full min-w-0 flex-1 items-center gap-1.5 pl-1 text-left',
-                      deleting && 'mobile:text-feature-danger-text'
+                      'cap-sm hover:text-text-secondary mobile:gap-1 flex h-full min-w-0 flex-1 items-center gap-[5px] pl-2.5 text-left tracking-[1.3px]',
+                      deleting && 'mobile:text-you-text'
                     )}
                   >
                     <ChevronDown
                       className={cn(
-                        'size-3 shrink-0 transition-transform',
+                        'size-[11px] shrink-0 transition-transform',
                         isCollapsed && '-rotate-90'
                       )}
                     />
@@ -125,9 +124,9 @@ function GuildChannels({ guildId }: { guildId: string }): React.JSX.Element {
                       label="Create channel"
                       onClick={() => createIn('text', cat.id)}
                       className={cn(
-                        "text-text-tertiary rounded-control mobile:[&_svg:not([class*='size-'])]:size-4",
+                        "text-text-disabled rounded-control mobile:[&_svg:not([class*='size-'])]:size-4",
                         TOUCH_HIT,
-                        creatingIn === cat.id && 'mobile:text-accent-text'
+                        creatingIn === cat.id && 'mobile:text-here-text'
                       )}
                     >
                       <Plus />
@@ -190,7 +189,7 @@ function SortableGroup({
   return (
     <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
       <SortableContext items={list.map((c) => c.id)} strategy={verticalListSortingStrategy}>
-        <ul className="flex flex-col gap-0.5">
+        <ul className="flex flex-col gap-px">
           {list.map((c, at) => (
             <ChannelRow
               key={c.id}

@@ -37,11 +37,11 @@ export function PermissionRow({
     const body = (
       <>
         <span className={cn('grid min-w-0 flex-1 gap-0.5', dim && 'opacity-50')}>
-          <span className="text-text-primary flex flex-wrap items-center gap-x-2 gap-y-1 text-[15px] leading-[18px] font-bold">
+          <span className="text-text-primary flex flex-wrap items-center gap-x-2 gap-y-1 text-[15px] leading-[18px] font-semibold">
             {label}
             {badge}
           </span>
-          <span className="text-text-tertiary text-[12.5px] leading-[18px] font-medium">
+          <span className="text-text-tertiary text-[12.5px] leading-[18px]">
             {hint}
           </span>
         </span>
@@ -60,7 +60,7 @@ export function PermissionRow({
   const text = (
     <>
       <span className="text-sm">{label}</span>
-      <span className="text-muted-foreground text-xs leading-4">{hint}</span>
+      <span className="text-meta text-text-tertiary">{hint}</span>
     </>
   )
   return (
@@ -128,7 +128,7 @@ export function PermissionList({
           dim={viaAdmin}
           badge={
             viaAdmin && (
-              <span className="bg-feature-event/12 text-feature-event-text px-[5px] text-[9.5px] leading-[18px] font-extrabold tracking-[0.4px] whitespace-nowrap">
+              <span className="border-line-strong text-text-tertiary rounded-badge border px-[5px] font-mono text-[8.5px] leading-[16px] font-medium tracking-[0.8px] whitespace-nowrap">
                 VIA ADMINISTRATOR
               </span>
             )
@@ -144,7 +144,7 @@ export function PermissionList({
           <span className="text-label flex items-center gap-2">
             {p.label}
             {viaAdmin && (
-              <span className="bg-feature-event/15 text-feature-event-text px-1.5 text-[10px] leading-4 font-extrabold tracking-[0.6px]">
+              <span className="border-line-strong text-text-tertiary rounded-badge border px-1 font-mono text-[8.5px] leading-4 font-medium tracking-[0.8px]">
                 VIA ADMINISTRATOR
               </span>
             )}

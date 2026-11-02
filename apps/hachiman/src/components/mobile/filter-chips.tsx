@@ -32,11 +32,11 @@ export function FilterChip({
       data-slot="filter-chip"
       data-active={active || undefined}
       className={cn(
-        "rounded-control inline-flex h-9 shrink-0 items-center gap-1.5 border text-[13.5px] leading-4 font-bold whitespace-nowrap outline-none transition-colors focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-line-focus disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-[15px]",
-        icon || menu ? 'px-2.5' : 'px-3',
+        "rounded-pill inline-flex h-8 shrink-0 items-center gap-1.5 border text-[13px] leading-4 font-medium whitespace-nowrap outline-none transition-colors focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-line-focus disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-[15px]",
+        icon || menu ? 'px-3' : 'px-3.5',
         active
-          ? 'bg-accent-tint border-accent-primary/50 text-text-primary'
-          : 'border-line-hairline text-text-secondary bg-(--fill-control) active:bg-surface-hover',
+          ? 'bg-here-tint border-here text-text-primary border-[1.5px]'
+          : 'bg-surface-raised text-text-secondary active:bg-surface-hover border-transparent',
         className
       )}
       {...props}
@@ -50,8 +50,8 @@ export function FilterChip({
       {count !== undefined && (
         <span
           className={cn(
-            'text-[12.5px] font-extrabold tabular-nums',
-            active ? 'text-accent-text' : 'text-text-tertiary'
+            'font-mono text-[11px] font-semibold tabular-nums',
+            active ? 'text-here-text' : 'text-text-tertiary'
           )}
         >
           {count}

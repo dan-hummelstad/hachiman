@@ -16,7 +16,7 @@ import { useKeybindLabel } from '@/hooks/use-keybinds'
 import { useCanGoBack, useCanGoForward } from '@/stores/navStore'
 import { useSidebarSide } from '@/stores/prefsStore'
 
-const CONTROL = 'text-text-secondary hover:text-text-primary hover:bg-surface-hover rounded-control'
+const CONTROL = 'text-text-tertiary hover:text-text-primary hover:bg-surface-hover rounded-control'
 
 /**
  * The sidebar controls (N2, N3): the sidebar toggle, back and forward.
@@ -28,7 +28,7 @@ export function SidebarControls({ toggle = true }: { toggle?: boolean }): React.
   const canBack = useCanGoBack()
   const canForward = useCanGoForward()
   return (
-    <div className="flex items-center gap-0.5">
+    <div className="flex items-center gap-1">
       {toggle && <SidebarToggle />}
       <IconButton
         label="Back"
@@ -37,7 +37,7 @@ export function SidebarControls({ toggle = true }: { toggle?: boolean }): React.
         onClick={() => goBack()}
         className={CONTROL}
       >
-        <ArrowLeft className="size-4" />
+        <ArrowLeft className="size-[15px]" />
       </IconButton>
       <IconButton
         label="Forward"
@@ -46,7 +46,7 @@ export function SidebarControls({ toggle = true }: { toggle?: boolean }): React.
         onClick={() => goForward()}
         className={CONTROL}
       >
-        <ArrowRight className="size-4" />
+        <ArrowRight className="size-[15px]" />
       </IconButton>
     </div>
   )
@@ -74,9 +74,9 @@ export function SidebarToggle(): React.JSX.Element {
           variant="quiet"
           aria-label={label}
           onClick={toggleSidebar}
-          className={`${CONTROL} size-8 p-0 has-[>svg]:p-0`}
+          className={`${CONTROL} size-7 p-0 has-[>svg]:p-0`}
         >
-          <Icon className="size-4" />
+          <Icon className="size-[15px]" />
         </Button>
       </TooltipTrigger>
       <TooltipContent side="bottom" className="flex items-center gap-2">

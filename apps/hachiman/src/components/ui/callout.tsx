@@ -20,34 +20,33 @@ const TONE: Record<
   { box: string; svg: string; action: string; icon: React.ReactNode }
 > = {
   info: {
-    box: 'border-accent-primary/40 bg-accent-tint',
-    svg: '[&>svg]:text-accent-text',
-    action: 'border-accent-primary/40 text-accent-text',
+    box: 'border-line-hairline bg-surface-raised',
+    svg: '[&>svg]:text-text-secondary',
+    action: 'border-line-hairline text-text-primary',
     icon: <Info />
   },
   caution: {
-    box: 'border-feature-event/40 bg-feature-event/10',
-    svg: '[&>svg]:text-feature-event-text',
-    action: 'border-feature-event/40 text-feature-event-text',
+    box: 'border-line-strong bg-surface-raised',
+    svg: '[&>svg]:text-text-primary',
+    action: 'border-line-strong text-text-primary',
     icon: <ShieldAlert />
   },
   danger: {
-    box: 'border-feature-danger/40 bg-feature-danger/10',
-    svg: '[&>svg]:text-feature-danger-text',
-    action: 'border-feature-danger/40 text-feature-danger-text',
+    box: 'border-you bg-you-tint',
+    svg: '[&>svg]:text-you-text',
+    action: 'border-you text-you-text',
     icon: <CircleAlert />
   },
   success: {
-    box: 'border-feature-voice/40 bg-feature-voice/10',
-    svg: '[&>svg]:text-feature-voice-text',
-    action: 'border-feature-voice/40 text-feature-voice-text',
+    box: 'border-line-hairline bg-surface-raised',
+    svg: '[&>svg]:text-text-secondary',
+    action: 'border-line-hairline text-text-primary',
     icon: <CircleCheck />
   }
 }
 
 /**
- * Square notice with a tinted fill, a coloured border and icon: info (accent), caution (gold), danger (red),
- * success (green). An optional bold title goes above the body. `icon` replaces the tone's icon.
+ * Square notice: neutral for info, caution and success; `you` for danger. An optional bold title goes above the body. `icon` replaces the tone's icon.
  * `action` adds a row under the body. `size="touch"` is the mobile kit callout: title 14/800,
  * body 13.5/500, padding 12/14, action row 44.
  */
@@ -79,11 +78,11 @@ export function Callout({
       {icon ?? t.icon}
       <div className={cn('grid min-w-0 gap-0.5', touch && 'gap-[3px]')}>
         {title && (
-          <p className={cn('text-text-primary font-bold', touch && 'text-sm font-extrabold')}>
+          <p className={cn('text-text-primary font-semibold', touch && 'text-sm')}>
             {title}
           </p>
         )}
-        <div className={cn('text-text-secondary', touch && 'font-medium')}>{children}</div>
+        <div className={'text-text-secondary'}>{children}</div>
       </div>
     </>
   )
@@ -100,8 +99,8 @@ export function Callout({
     )
   }
   const actionClass = cn(
-    'hover:bg-surface-hover mobile:active:bg-surface-hover focus-visible:outline-line-focus flex h-9 w-full items-center gap-2 border-t pr-3 pl-[38px] text-left text-[13px] font-bold outline-none focus-visible:outline-2 focus-visible:-outline-offset-2',
-    touch && 'h-11 pr-3.5 pl-11 text-sm font-extrabold',
+    'hover:bg-surface-hover mobile:active:bg-surface-hover focus-visible:outline-line-focus flex h-9 w-full items-center gap-2 border-t pr-3 pl-[38px] text-left text-[13px] font-semibold outline-none focus-visible:outline-2 focus-visible:-outline-offset-2',
+    touch && 'h-11 pr-3.5 pl-11 text-sm',
     t.action
   )
   const mark = touch ? 'ml-auto size-[17px] shrink-0' : 'ml-auto size-4 shrink-0'

@@ -67,7 +67,7 @@ function ConfirmBody(props: ConfirmDialogProps): React.JSX.Element {
       <div className="text-sm">{body}</div>
       <ErrorText>{error}</ErrorText>
       <DialogFooter>
-        <Button variant={mobile ? 'secondary' : 'quiet'} disabled={busy} onClick={onClose}>
+        <Button variant="secondary" disabled={busy} onClick={onClose}>
           Cancel
         </Button>
         <Button

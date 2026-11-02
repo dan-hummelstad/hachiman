@@ -13,8 +13,8 @@ import { hachiman } from '@/services/hachiman'
 const MOBILE_DOT_BOX = 'mobile:-right-[3.5px] mobile:-bottom-[3.5px] mobile:p-[2.5px]'
 
 /**
- * Circular avatar with an optional circular presence dot (bottom-right, cut out of the
- * pane background via `cutout`) and an optional 2px `--online` speaking outline.
+ * Rounded-square avatar (round on mobile) with an optional circular presence dot (bottom-right, cut out of the
+ * pane background via `cutout`) and an optional 2px `live` speaking outline.
  */
 export function UserAvatar(props: {
   name: string
@@ -66,13 +66,13 @@ export function UserAvatar(props: {
       <Avatar
         className={cn(
           'size-full',
-          speaking && 'outline-online outline-2 outline-offset-0 outline-solid',
+          speaking && 'outline-live outline-2 outline-offset-0 outline-solid',
           hole && 'mobile:[mask-image:var(--presence-cut)]'
         )}
       >
         {avatar && <AvatarImage src={hachiman.rest.fileUrl(avatar)} alt="" />}
         <AvatarFallback
-          className="bg-surface-raised text-text-primary font-bold"
+          className="font-medium"
           style={{ fontSize: Math.max(10, Math.round(size * 0.45)), color }}
         >
           {name.slice(0, 1).toUpperCase()}

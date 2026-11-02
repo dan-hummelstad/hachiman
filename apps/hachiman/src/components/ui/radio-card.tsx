@@ -1,15 +1,15 @@
 import { cn } from '@/lib/utils'
 import { FEATURE_BORDER, FEATURE_TILE, type Feature } from '@/components/ui/feature'
 
-/** The checked mobile card: a 7 % wash of its feature colour (full literals for Tailwind). */
+/** The checked mobile card: the tint of its feature colour (full literals for Tailwind). */
 const CHECKED_TINT: Record<Feature, string> = {
-  accent: 'has-checked:bg-accent-primary/7',
-  voice: 'has-checked:bg-feature-voice/7',
-  event: 'has-checked:bg-feature-event/7',
-  page: 'has-checked:bg-feature-page/7',
-  thread: 'has-checked:bg-feature-thread/7',
-  danger: 'has-checked:bg-feature-danger/7',
-  bot: 'has-checked:bg-feature-bot/7'
+  accent: 'has-checked:bg-here-tint',
+  voice: 'has-checked:bg-live-tint',
+  event: 'has-checked:bg-here-tint',
+  page: 'has-checked:bg-here-tint',
+  thread: 'has-checked:bg-here-tint',
+  danger: 'has-checked:bg-you-tint',
+  bot: 'has-checked:bg-here-tint'
 }
 
 /**
@@ -58,7 +58,7 @@ export function RadioCard({
       data-slot="radio-card"
       className={cn(
         mobile
-          ? 'rounded-option border-line-hairline has-focus-visible:outline-line-focus flex cursor-pointer border-[1.5px] bg-white/2 transition-colors has-focus-visible:outline-2 has-focus-visible:outline-offset-1'
+          ? 'rounded-option border-line-hairline has-focus-visible:outline-line-focus flex cursor-pointer border-[1.5px] bg-surface-raised transition-colors has-focus-visible:outline-2 has-focus-visible:outline-offset-1'
           : 'rounded-option border-line-hairline hover:bg-surface-hover has-checked:bg-surface-hover has-focus-visible:outline-line-focus flex cursor-pointer border transition-colors has-focus-visible:outline-2 has-focus-visible:outline-offset-1',
         mobile && CHECKED_TINT[feature],
         preview
@@ -104,7 +104,7 @@ export function RadioCard({
           {badge && (
             <span
               className={cn(
-                'rounded-pill inline-flex h-5 items-center justify-self-start px-2 text-[10.5px] font-extrabold tracking-[0.6px] uppercase',
+                'rounded-pill inline-flex h-5 items-center justify-self-start px-2 text-[10.5px] font-semibold tracking-[0.6px] uppercase',
                 FEATURE_TILE[feature]
               )}
             >
@@ -116,8 +116,8 @@ export function RadioCard({
               !mobile
                 ? 'text-label text-text-primary'
                 : foot
-                  ? 'text-text-primary text-sm leading-[1.2] font-extrabold'
-                  : 'text-text-primary text-[15.5px] leading-5 font-extrabold'
+                  ? 'text-text-primary text-sm leading-[1.2] font-semibold'
+                  : 'text-text-primary text-[15.5px] leading-5 font-semibold'
             }
           >
             {title}
@@ -128,8 +128,8 @@ export function RadioCard({
                 !mobile
                   ? 'text-meta text-text-secondary'
                   : foot
-                    ? 'text-text-tertiary text-xs leading-4 font-medium'
-                    : 'text-text-secondary text-[13px] leading-[1.4] font-medium'
+                    ? 'text-text-tertiary text-xs leading-4'
+                    : 'text-text-secondary text-[13px] leading-[1.4]'
               }
             >
               {description}
@@ -156,10 +156,10 @@ function RadioMark({
         aria-hidden
         className={cn(
           'rounded-pill flex size-5 shrink-0 items-center justify-center border-2 transition-colors',
-          checked ? 'border-accent-primary bg-accent-primary' : 'border-line-strong'
+          checked ? 'border-here bg-here' : 'border-line-strong'
         )}
       >
-        {checked && <span className="size-2 rounded-full bg-white" />}
+        {checked && <span className="bg-on-here size-2 rounded-full" />}
       </span>
     )
   }
@@ -172,11 +172,11 @@ function RadioMark({
         !checked
           ? 'border-text-disabled border-[1.5px]'
           : size === 'foot'
-            ? 'border-accent-primary border-[5.5px]'
-            : 'border-accent-primary border-2'
+            ? 'border-here border-[5.5px]'
+            : 'border-here border-2'
       )}
     >
-      {checked && size === 'mobile' && <span className="bg-accent-primary size-2.5 rounded-full" />}
+      {checked && size === 'mobile' && <span className="bg-here size-2.5 rounded-full" />}
     </span>
   )
 }

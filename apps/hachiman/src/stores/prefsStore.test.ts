@@ -1,3 +1,4 @@
+import type { ThemeRecipe } from '@/lib/theme-engine'
 import { describe, expect, it } from 'vitest'
 import { DEFAULT_CUSTOM_GRADIENT } from '@/lib/guild-tint'
 import {
@@ -11,7 +12,10 @@ import {
 const current = {
   theme: 'dark' as const,
   customGradient: DEFAULT_CUSTOM_GRADIENT,
-  messageTextSize: DEFAULT_MESSAGE_TEXT_SIZE
+  messageTextSize: DEFAULT_MESSAGE_TEXT_SIZE,
+  darkTheme: 'midnight',
+  lightTheme: 'paper',
+  customThemes: [] as ThemeRecipe[]
 }
 
 describe('message text size', () => {
@@ -31,6 +35,51 @@ describe('message text size', () => {
     usePrefsStore.getState().setMessageTextSize(17)
     expect(usePrefsStore.getState().messageTextSize).toBe(17)
     usePrefsStore.getState().setMessageTextSize(DEFAULT_MESSAGE_TEXT_SIZE)
+  })
+})
+
+const mine: ThemeRecipe = {
+  id: 'mine',
+  name: 'Mine',
+  ground: 'dark',
+  base: '#101012',
+  tint: 0.05,
+  separation: 1,
+  accent: '#CD9B70'
+}
+
+describe('theme slots', () => {
+  it('keeps a stored preset or custom theme of the right ground', () => {
+    const merged = mergePersistedPrefs(
+      { customThemes: [mine], darkTheme: 'mine', lightTheme: 'dune' },
+      current
+    )
+    expect(merged.customThemes).toEqual([mine])
+    expect(merged.darkTheme).toBe('mine')
+    expect(merged.lightTheme).toBe('dune')
+  })
+
+  it('falls back for an unknown theme, one of the other ground, or a broken custom list', () => {
+    const merged = mergePersistedPrefs(
+      { customThemes: [mine, { id: 'bad' }], darkTheme: 'paper', lightTheme: 'gone' },
+      current
+    )
+    expect(merged.customThemes).toEqual([mine])
+    expect(merged.darkTheme).toBe('midnight')
+    expect(merged.lightTheme).toBe('paper')
+  })
+
+  it('applies, saves and deletes themes', () => {
+    const s = usePrefsStore.getState()
+    s.saveCustomTheme(mine)
+    s.applyTheme('mine')
+    expect(usePrefsStore.getState().darkTheme).toBe('mine')
+    s.applyTheme('dune')
+    expect(usePrefsStore.getState().theme).toBe('light')
+    expect(usePrefsStore.getState().lightTheme).toBe('dune')
+    s.deleteCustomTheme('mine')
+    expect(usePrefsStore.getState().darkTheme).toBe('midnight')
+    expect(usePrefsStore.getState().customThemes).toEqual([])
   })
 })
 

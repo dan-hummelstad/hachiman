@@ -62,7 +62,7 @@ export function SegmentedControl<T extends string>({
       className={cn(
         touch
           ? 'rounded-option bg-surface-sunken border-line-hairline flex w-full gap-[3px] border p-0.5'
-          : 'rounded-control bg-surface-sunken inline-flex gap-0.5 p-0.5',
+          : 'rounded-control border-line-hairline bg-surface-sunken inline-flex gap-0.5 border p-0.5',
         className
       )}
     >
@@ -79,10 +79,9 @@ export function SegmentedControl<T extends string>({
             tabIndex={selected ? 0 : -1}
             onClick={() => o.value !== value && onChange(o.value)}
             className={cn(
-              "rounded-control inline-flex h-7 flex-1 items-center whitespace-nowrap justify-center gap-1.5 text-[13px] font-semibold transition-colors outline-none focus-visible:outline-2 focus-visible:outline-line-focus [&_svg:not([class*='size-'])]:size-4",
+              "rounded-[4px] inline-flex h-7 flex-1 items-center whitespace-nowrap justify-center gap-1.5 text-[13px] font-semibold transition-colors outline-none focus-visible:outline-2 focus-visible:outline-line-focus [&_svg:not([class*='size-'])]:size-4",
               iconOnly ? 'w-9 px-0' : 'px-3',
-              touch && 'h-[38px] gap-[7px] text-sm',
-              touch && (selected ? 'font-extrabold' : 'font-bold'),
+              touch && 'rounded-control h-[38px] gap-[7px] text-sm',
               selected
                 ? (o.selectedClassName ?? 'bg-surface-raised text-text-primary')
                 : 'text-text-tertiary hover:text-text-primary'
@@ -93,7 +92,7 @@ export function SegmentedControl<T extends string>({
             {o.count !== undefined && (
               <span
                 className={cn(
-                  'px-1 text-[10.5px] leading-4 font-bold tabular-nums',
+                  'px-1 text-[10.5px] leading-4 font-semibold tabular-nums',
                   o.countClassName ?? 'bg-surface-raised text-text-secondary'
                 )}
               >

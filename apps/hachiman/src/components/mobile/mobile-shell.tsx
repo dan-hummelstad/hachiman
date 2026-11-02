@@ -19,7 +19,6 @@ import { useSwipe } from '@/components/mobile/use-swipe'
 import { RightColumn } from '@/components/people/right-column'
 import { MeButton } from '@/components/shell/me-button'
 import { QuickSwitcher, SwitcherField } from '@/components/shell/quick-switcher'
-import { WALLPAPER } from '@/components/shell/wallpaper'
 import { Sidebar } from '@/components/shell/sidebar'
 import { SidebarRows } from '@/components/shell/sidebar-rows'
 import { useSwitcher } from '@/components/shell/switcher-state'
@@ -145,7 +144,7 @@ function DrawerHost({
 
 /**
  * The signed-in layout on a phone (docs/ios-mobile-ui-spec.md §2.3, rule 01 "Chat is the screen").
- * On the tinted window: the safe top, the tab strip (48), then the chat card. The sidebar comes in
+ * On the window ground: the safe top, the tab strip (50), then the chat body. The sidebar comes in
  * as a drawer from the left (rule 02) and the right column from the right (rule 03); settings and
  * a page push in from the right (rule 06). The chat card stays mounted under all of them, so the
  * open tab and the scroll position stay. While a drawer is open or a screen is pushed, the chat
@@ -204,7 +203,7 @@ export function MobileShell(): React.JSX.Element {
       style={tint.vars as React.CSSProperties}
       className={cn(
         'fixed inset-x-0 top-0 flex h-(--app-height,100dvh) flex-col overflow-clip pt-(--safe-top)',
-        WALLPAPER,
+        'bg-surface-panel',
         TOUCH
       )}
     >
@@ -214,14 +213,14 @@ export function MobileShell(): React.JSX.Element {
         </div>
         <div
           data-swipe-area="chat"
-          className="bg-surface-content border-line-hairline flex min-h-0 flex-1 flex-col border-t"
+          className="bg-surface-content flex min-h-0 flex-1 flex-col"
         >
           <MobileChatPane />
         </div>
       </div>
-      <DrawerHost side="left" label="Sidebar" closeLabel="Close sidebar" className={WALLPAPER}>
+      <DrawerHost side="left" label="Sidebar" closeLabel="Close sidebar">
         <Sidebar
-          className="w-full px-3 pt-[calc(var(--safe-top)+2px)] pb-(--safe-bottom)"
+          className="w-full border-0 pt-[calc(var(--safe-top)+2px)] pb-(--safe-bottom)"
           controls={
             <>
               <button
@@ -230,7 +229,7 @@ export function MobileShell(): React.JSX.Element {
                 onClick={closeDrawer}
                 className={cn(
                   KIT_ICON_BUTTON,
-                  'bg-fill-control-strong text-text-secondary active:bg-surface-selected'
+                  'text-text-secondary active:bg-surface-selected'
                 )}
               >
                 <PanelLeftClose />

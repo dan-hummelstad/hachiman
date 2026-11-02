@@ -39,9 +39,9 @@ import { openDialog } from '@/stores/dialogStore'
 import { openSettings } from '@/stores/navStore'
 
 const PANE = 'bg-surface-content flex min-h-0 min-w-0 flex-1 flex-col'
-/** The pressed header toggle takes the accent tint. */
+/** The pressed header toggle takes the neutral hover fill. */
 const HEADER_BUTTON =
-  'aria-pressed:bg-accent-tint aria-pressed:text-accent-text [&_svg]:size-[18px]'
+  'text-text-tertiary aria-pressed:bg-surface-hover aria-pressed:text-text-primary [&_svg]:size-4'
 
 export interface ChannelPaneProps {
   channel: Channel
@@ -142,12 +142,12 @@ export function HeaderChannelIcon({
   readOnly: boolean
   className?: string
 }): React.JSX.Element {
-  const cls = cn('size-5 shrink-0', className)
-  if (readOnly) return <Megaphone className={cn(cls, 'text-feature-event-text')} aria-hidden />
+  const cls = cn('size-[17px] shrink-0', className)
+  if (readOnly) return <Megaphone className={cn(cls, 'text-text-tertiary')} aria-hidden />
   if (channel.type === 'voice')
-    return <Volume2 className={cn(cls, 'text-feature-voice-text')} aria-hidden />
+    return <Volume2 className={cn(cls, 'text-text-tertiary')} aria-hidden />
   if (channel.type === 'pages')
-    return <FileText className={cn(cls, 'text-feature-page-text')} aria-hidden />
+    return <FileText className={cn(cls, 'text-text-tertiary')} aria-hidden />
   return <ChannelIcon type={channel.type} className={cn(cls, 'text-text-tertiary')} aria-hidden />
 }
 
@@ -165,9 +165,9 @@ export function ChannelTitle({ channel }: { channel: Channel }): React.JSX.Eleme
       <ChannelChips access={access} />
       {channel.topic && (
         <>
-          <span className="bg-line-hairline mx-1 h-5 w-px shrink-0" aria-hidden />
+          <span className="bg-line-hairline mx-1 h-[18px] w-px shrink-0" aria-hidden />
           <span
-            className="text-text-secondary min-w-0 truncate text-[13.5px] leading-5 font-medium"
+            className="text-text-tertiary min-w-0 truncate text-[12.5px] leading-5"
             title={channel.topic}
           >
             {channel.topic}
@@ -201,7 +201,7 @@ function ThreadTitle({ thread }: { thread: Channel }): React.JSX.Element {
           <ChevronRight className="text-text-tertiary size-4 shrink-0" aria-hidden />
         </>
       )}
-      <MessagesSquare className="text-feature-thread-text size-5 shrink-0" aria-hidden />
+      <MessagesSquare className="text-text-tertiary size-[17px] shrink-0" aria-hidden />
       <h1 className="text-heading text-text-primary min-w-0 truncate">{thread.name}</h1>
     </>
   )
@@ -245,7 +245,7 @@ export function HeaderChip({
   return (
     <span
       title={title}
-      className="rounded-check bg-surface-raised text-text-secondary mobile:px-[7px] mobile:font-extrabold inline-flex h-[22px] shrink-0 items-center gap-1 px-1.5 text-[11.5px] leading-none font-bold [&_svg]:size-3"
+      className="rounded-badge border-line-strong text-text-tertiary cap-sm inline-flex h-[22px] shrink-0 items-center gap-1 border px-1.5 leading-none [&_svg]:size-3"
     >
       {children}
     </span>
@@ -293,7 +293,7 @@ function VoiceActivity({ userId }: { userId: string }): React.JSX.Element | null
   return (
     <VoiceActivityLine
       activity={activity}
-      className="text-feature-voice-text text-[13px] leading-5 font-semibold"
+      className="text-live-text text-[13px] leading-5 font-semibold"
     />
   )
 }

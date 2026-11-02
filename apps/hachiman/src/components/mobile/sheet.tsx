@@ -12,7 +12,7 @@ import { cn } from '@/lib/utils'
 const DRAG_START = 4
 
 /**
- * Bottom sheet (spec §2.5): full width, square, the top edge in `--line-sheet` with
+ * Bottom sheet (spec §2.5): full width, 26 radius on top, the top edge in `--line-sheet` with
  * `--shadow-sheet`, padding 8/16 and the home-indicator inset (16 at least), gap 16. It sits on the
  * keyboard (`--kb`) and its top stops 8 px under the status bar. A 250 ms slide up and down; the
  * closed state keeps the last frame until Radix unmounts it. The max-w resets beat a caller's
@@ -22,18 +22,18 @@ const SHEET = cn(
   'fixed inset-x-0 bottom-[var(--kb,0px)] z-50 flex w-full max-w-none sm:max-w-none md:max-w-none lg:max-w-none',
   SHEET_MAX_H,
   'flex-col overflow-hidden',
-  'text-text-primary border-x-0 border-t border-b-0 border-(--line-sheet) shadow-(--shadow-sheet) outline-none',
+  'text-text-primary border-x-0 border-t border-b-0 border-(--line-sheet) shadow-(--shadow-sheet) rounded-t-[26px] outline-none',
   'px-(--sheet-gutter) pt-2 pb-[max(16px,var(--safe-bottom,0px))] in-data-[keyboard=open]:pb-4',
   'transition-transform duration-250 ease-[cubic-bezier(.32,.72,0,1)]',
   'data-[state=open]:animate-in data-[state=open]:slide-in-from-bottom data-[state=closed]:animate-out data-[state=closed]:slide-out-to-bottom data-[state=closed]:[--tw-animation-fill-mode:forwards]'
 )
 
 /**
- * default: a sheet with a Sheet Header on the content colour (M22, M46). action: a menu or action
- * sheet on the panel colour, padding 8/12, gap 12 (M5, M43).
+ * default: a sheet with a Sheet Header (M22, M46). action: a menu or action sheet, padding 8/12,
+ * gap 12 (M5, M43). Both sit on the panel colour.
  */
 const VARIANT = {
-  default: 'bg-surface-content gap-4 [--sheet-gutter:16px]',
+  default: 'bg-surface-panel gap-4 [--sheet-gutter:16px]',
   action: 'bg-surface-panel gap-3 [--sheet-gutter:12px]'
 } as const
 
@@ -170,7 +170,7 @@ function SheetClose(props: React.ComponentProps<typeof DialogPrimitive.Close>): 
 }
 
 /**
- * The scrim (`--surface-scrim`, 72 %) and the sheet with its handle row. Works under any Radix
+ * The scrim (`--surface-scrim`) and the sheet with its handle row. Works under any Radix
  * Dialog root (`Sheet` or `components/ui/dialog`'s `Dialog`). Put `SheetHeader`, `SheetBody` and
  * `SheetFoot` in it. With no Sheet Header, name the sheet with a `SheetTitle` (`sr-only` is fine).
  * Opening focuses the sheet itself, not its first field, so the keyboard stays down (spec §2.8);
@@ -258,13 +258,13 @@ function SheetContent({
             {...drag}
             className={cn(
               "relative flex shrink-0 touch-none items-center justify-center before:absolute before:inset-x-0 before:-top-2 before:-bottom-3 before:content-['']",
-              variant === 'default' ? '-mb-0.5 h-2.5' : 'h-3'
+              variant === 'default' ? '-mb-0.5 h-[18px]' : 'h-[18px]'
             )}
           >
             {/* A sheet that cannot close shows no grabber, as an iOS modal sheet. */}
             <span
               className={cn(
-                'h-[5px] w-9 rounded-[3px] bg-(--sheet-handle)',
+                'h-1 w-10 rounded-[2px] bg-(--sheet-handle)',
                 !dismissible && 'invisible'
               )}
             />
@@ -284,7 +284,7 @@ function SheetContent({
 }
 
 /**
- * Mobile / Sheet Header (kit J3ZsL1): a 40 feature tile with a 20 icon, title 18/800, subtitle
+ * Mobile / Sheet Header (kit J3ZsL1): a 40 feature tile with a 20 icon, title 18/600, subtitle
  * 13/500, close 36. The handle row above it belongs to `SheetContent`. A swipe down on the header
  * drags the sheet like the handle. Without `subtitle`, pass `aria-describedby={undefined}` to
  * `SheetContent` (as `ModalWindow` does), or Radix warns.
@@ -331,11 +331,11 @@ function SheetHeader({
         </span>
       )}
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <DialogPrimitive.Title className="text-text-primary text-[18px] leading-[22px] font-extrabold">
+        <DialogPrimitive.Title className="text-text-primary text-[18px] leading-[22px] font-semibold tracking-[-0.3px]">
           {title}
         </DialogPrimitive.Title>
         {subtitle && (
-          <DialogPrimitive.Description className="text-text-tertiary text-[13px] leading-4 font-medium">
+          <DialogPrimitive.Description className="text-text-tertiary text-[13px] leading-4">
             {subtitle}
           </DialogPrimitive.Description>
         )}

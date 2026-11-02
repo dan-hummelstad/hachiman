@@ -27,11 +27,11 @@ export function Field({
 }): React.JSX.Element {
   return (
     <div className={cn('grid gap-1.5', className)}>
-      <label htmlFor={id} className="text-xs leading-4 font-semibold tracking-[0.01em]">
+      <label htmlFor={id} className="text-label text-text-secondary">
         {label}
       </label>
       {children}
-      {hint && <p className="text-muted-foreground text-xs leading-4">{hint}</p>}
+      {hint && <p className="text-meta text-text-tertiary">{hint}</p>}
     </div>
   )
 }
@@ -39,7 +39,7 @@ export function Field({
 export function ErrorText({ children }: { children: React.ReactNode }): React.JSX.Element | null {
   if (!children) return null
   return (
-    <p role="alert" className="text-destructive text-xs leading-4">
+    <p role="alert" className="text-meta text-you-text">
       {children}
     </p>
   )

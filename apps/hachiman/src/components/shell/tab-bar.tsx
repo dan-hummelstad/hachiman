@@ -2,7 +2,6 @@ import { useEffect, useRef } from 'react'
 import {
   ArrowLeft,
   ArrowRight,
-  AudioLines,
   FileText,
   Hash,
   MessagesSquare,
@@ -22,6 +21,7 @@ import { SidebarControls, SidebarToggle } from '@/components/shell/sidebar-contr
 import { useSidebarView } from '@/components/shell/sidebar-state'
 import { UserAvatar } from '@/components/shell/user-avatar'
 import { Button } from '@/components/ui/button'
+import { LiveDot } from '@/components/ui/live'
 import {
   ContextMenu,
   ContextMenuContent,
@@ -67,7 +67,7 @@ const NO_DRAG = '[-webkit-app-region:no-drag]'
 const tabKey = (t: TabTarget): string => `${t.kind}:${t.id}:${t.pageId ?? ''}`
 
 /**
- * The tab row (N1, 48 high, the window drag region): with a hidden sidebar the sidebar controls
+ * The tab row (N1, 44 high, the window drag region): with a hidden sidebar the sidebar controls
  * first (N3), then the pin glyph, the pinned tabs, "+", and with a hidden sidebar the search
  * button and the inbox spot at the end. A hidden sidebar on the right has its toggle last.
  */
@@ -81,13 +81,17 @@ export function TabBar({ inbox }: { inbox?: React.ReactNode }): React.JSX.Elemen
   return (
     <div
       className={cn(
-        'flex h-12 shrink-0 items-center gap-1 pr-2',
-        first ? (insetTitleBar ? 'pl-[78px]' : 'pl-2') : 'pl-0',
+        'bg-surface-window flex h-11 shrink-0 items-end gap-0.5 pr-3',
+        first ? (insetTitleBar ? 'pl-[78px]' : 'pl-3') : 'pl-3',
         DRAG_REGION
       )}
     >
-      {hidden && <SidebarControls toggle={!right} />}
-      <PinCurrent />
+      {hidden && (
+        <div className="flex h-full items-center">
+          <SidebarControls toggle={!right} />
+        </div>
+      )}
+      <PinCurrent className="mb-2" />
       <Tabs />
       <Button
         variant="quiet"
@@ -95,21 +99,21 @@ export function TabBar({ inbox }: { inbox?: React.ReactNode }): React.JSX.Elemen
         title="Pin a tab"
         onClick={() => openSwitcher('pin')}
         className={cn(
-          'border-accent-primary/50 bg-accent-tint text-accent-text hover:bg-accent-tint hover:border-accent-primary rounded-control size-[34px] shrink-0 border p-0 has-[>svg]:p-0',
+          'text-text-disabled hover:text-text-secondary mb-1 size-[34px] shrink-0 p-0 has-[>svg]:p-0',
           NO_DRAG
         )}
       >
-        <Plus className="size-4" />
+        <Plus className="size-3.5" />
       </Button>
       {hidden && (
-        <div className="ml-auto flex shrink-0 items-center gap-0.5 pl-2">
+        <div className="mb-1.5 ml-auto flex shrink-0 items-center gap-3 pl-2">
           <IconButton
             label="Search or jump to"
             tooltipSide="bottom"
             onClick={() => openSwitcher('open')}
-            className="text-text-secondary hover:text-text-primary hover:bg-surface-hover rounded-control"
+            className="text-text-disabled hover:text-text-secondary rounded-control"
           >
-            <Search className="size-4" />
+            <Search className="size-3.5" />
           </IconButton>
           {inbox}
           {right && <SidebarToggle />}
@@ -136,7 +140,7 @@ export function PinCurrent({ className }: { className?: string }): React.JSX.Ele
       disabled={target === null}
       onClick={() => target && (pinned ? unpinTab(target) : pinTab(target))}
       className={cn(
-        'text-text-tertiary hover:text-text-primary hover:bg-surface-hover rounded-control size-7',
+        'text-text-disabled hover:text-text-secondary rounded-control size-7',
         className
       )}
     >
@@ -279,13 +283,13 @@ export function Tab({
         }
       }}
       className={cn(
-        'rounded-control group/tab flex h-[34px] max-w-[200px] min-w-[112px] shrink cursor-default items-center gap-1.5 px-2 text-[13px] select-none',
+        'group/tab flex h-[34px] max-w-[200px] min-w-[112px] shrink cursor-default items-center gap-[7px] rounded-t-[6px] border-t-2 border-transparent px-3 text-[12.5px] select-none',
         // The mobile strip scrolls: each tab keeps its natural width.
-        'mobile:min-w-0 mobile:shrink-0 mobile:pr-2.5 mobile:pl-[7px] mobile:text-[13.5px]',
+        'mobile:min-w-0 mobile:shrink-0 mobile:rounded-t-[8px] mobile:px-[11px]',
         'focus-visible:ring-ring outline-none focus-visible:ring-2',
         active
-          ? 'bg-surface-raised text-text-primary font-bold shadow-soft'
-          : 'bg-surface-hover/50 text-text-secondary hover:bg-surface-hover hover:text-text-primary',
+          ? 'bg-surface-content text-text-primary border-here font-semibold'
+          : 'text-text-tertiary hover:text-text-secondary',
         isDragging && 'opacity-70',
         SORTABLE_TOUCH
       )}
@@ -298,7 +302,9 @@ export function Tab({
       <TabIcon target={target} type={channel.type} />
       <span className="min-w-0 truncate">{name}</span>
       {inCall ? (
-        <AudioLines aria-label="In call" className="text-feature-voice size-3.5 shrink-0" />
+        <span role="img" aria-label="In call" className="flex shrink-0">
+          <LiveDot />
+        </span>
       ) : (
         <UnreadMark badge={badge} size="sm" />
       )}
@@ -355,7 +361,7 @@ export function Crest({ name, icon }: { name: string; icon: string | null }): Re
   return (
     <span
       aria-hidden
-      className="bg-rail text-text-primary mobile:h-[18px] mobile:w-[18px] flex h-4 w-4 min-w-0 shrink-[100] items-center justify-center overflow-hidden rounded-[4px] text-[7px] leading-none font-bold"
+      className="bg-avatar-1 text-text-secondary mobile:h-[18px] mobile:w-[18px] flex h-4 w-4 min-w-0 shrink-[100] items-center justify-center overflow-hidden rounded-[4px] font-mono text-[7px] leading-none font-medium"
     >
       {icon ? (
         <img src={hachiman.rest.fileUrl(icon)} alt="" className="size-full object-cover" />
@@ -377,10 +383,10 @@ export function TabIcon({
   if (target.kind === 'dm') return null
   if (target.kind === 'page' || type === 'pages')
     return <FileText className={cn('size-3.5 shrink-0', FEATURE_TEXT.page)} />
-  if (type === 'voice') return <Volume2 className={cn('size-3.5 shrink-0', FEATURE_TEXT.voice)} />
+  if (type === 'voice') return <Volume2 className="text-text-disabled size-3.5 shrink-0" />
   if (type === 'thread')
     return <MessagesSquare className={cn('size-3.5 shrink-0', FEATURE_TEXT.thread)} />
-  return <Hash className="text-text-tertiary size-3.5 shrink-0" />
+  return <Hash className="text-text-disabled size-3.5 shrink-0" />
 }
 
 /**

@@ -5,7 +5,7 @@ import { cn } from '@/lib/utils'
 
 // `mobile:active:` is the press fill on touch, where `hover:` never applies.
 const iconButton = cva(
-  'text-muted-foreground hover:bg-accent hover:text-foreground mobile:active:bg-surface-hover shrink-0 p-0 has-[>svg]:p-0',
+  'text-text-tertiary hover:bg-surface-hover hover:text-text-primary mobile:active:bg-surface-hover shrink-0 p-0 has-[>svg]:p-0',
   {
     variants: {
       size: {
@@ -17,9 +17,9 @@ const iconButton = cva(
       },
       // Colour while pressed (aria-pressed=true); danger also colours the hover.
       tone: {
-        default: 'aria-pressed:bg-accent aria-pressed:text-foreground',
-        danger: 'hover:text-destructive aria-pressed:text-destructive',
-        online: 'aria-pressed:text-online'
+        default: 'aria-pressed:bg-surface-hover aria-pressed:text-text-primary',
+        danger: 'hover:text-you-text aria-pressed:text-you-text',
+        online: 'aria-pressed:text-live-text'
       }
     },
     defaultVariants: { size: 'md', tone: 'default' }

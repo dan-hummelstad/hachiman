@@ -2,6 +2,8 @@ import type {} from '@redux-devtools/extension'
 import { create } from 'zustand'
 import { devtools, persist } from 'zustand/middleware'
 import { DEFAULT_CUSTOM_GRADIENT, isCustomGradient, type CustomGradient } from '@/lib/guild-tint'
+import { DEFAULT_DARK, DEFAULT_LIGHT, findTheme, isThemeRecipe } from '@/lib/theme-presets'
+import type { ThemeRecipe } from '@/lib/theme-engine'
 import type { StreamQuality } from '@/lib/stream-quality'
 import type { SoundEvent } from '@/lib/sounds'
 import type { NotifyKind, NotifyLevel, NotifyPrefs } from '@/lib/notify'
@@ -54,6 +56,11 @@ const EMPTY_ACCOUNT: AccountPrefs = { notify: {}, muted: [] }
 /** Local, per-device UI preferences. Written by the user settings overlay. */
 interface PrefsState {
   theme: Theme
+  /** The theme id used while the ground is dark / light: a preset id or a custom theme's id. */
+  darkTheme: string
+  lightTheme: string
+  /** The user's own themes (recipes for lib/theme-engine.ts). */
+  customThemes: ThemeRecipe[]
   messageDisplay: MessageDisplay
   /**
    * The size of message text, px. `ThemeProvider` writes it to `--message-text-size`; only the
@@ -117,6 +124,13 @@ interface PrefsState {
   /** The signed-in user id. Not persisted: services/hachiman.ts sets it. */
   accountId: string | null
   setTheme: (theme: Theme) => void
+  setDarkTheme: (id: string) => void
+  setLightTheme: (id: string) => void
+  /** Switches to the theme `id`: sets the ground and the matching slot. */
+  applyTheme: (id: string) => void
+  /** Adds the recipe, or replaces the one with the same id. */
+  saveCustomTheme: (recipe: ThemeRecipe) => void
+  deleteCustomTheme: (id: string) => void
   setMessageDisplay: (messageDisplay: MessageDisplay) => void
   setMessageTextSize: (messageTextSize: MessageTextSize) => void
   setInputDeviceId: (inputDeviceId: string | null) => void
@@ -160,6 +174,7 @@ interface PrefsState {
 }
 
 const NO_TABS: TabTarget[] = []
+const EMPTY_THEMES: ThemeRecipe[] = []
 export const MAX_RECENT_EMOJIS = 30
 
 /** The preferences of the signed-in account (a stable empty object when none). */
@@ -171,6 +186,9 @@ export const usePrefsStore = create<PrefsState>()(
     persist(
       (set) => ({
         theme: 'dark',
+        darkTheme: DEFAULT_DARK,
+        lightTheme: DEFAULT_LIGHT,
+        customThemes: EMPTY_THEMES,
         messageDisplay: 'cozy',
         messageTextSize: DEFAULT_MESSAGE_TEXT_SIZE,
         inputDeviceId: null,
@@ -203,6 +221,28 @@ export const usePrefsStore = create<PrefsState>()(
         accounts: {},
         accountId: null,
         setTheme: (theme) => set({ theme }),
+        setDarkTheme: (darkTheme) => set({ darkTheme }),
+        setLightTheme: (lightTheme) => set({ lightTheme }),
+        applyTheme: (id) =>
+          set((s) => {
+            const recipe = findTheme(id, s.customThemes)
+            if (!recipe) return {}
+            return recipe.ground === 'dark'
+              ? { theme: 'dark', darkTheme: id }
+              : { theme: 'light', lightTheme: id }
+          }),
+        saveCustomTheme: (recipe) =>
+          set((s) => ({
+            customThemes: s.customThemes.some((t) => t.id === recipe.id)
+              ? s.customThemes.map((t) => (t.id === recipe.id ? recipe : t))
+              : [...s.customThemes, recipe]
+          })),
+        deleteCustomTheme: (id) =>
+          set((s) => ({
+            customThemes: s.customThemes.filter((t) => t.id !== id),
+            darkTheme: s.darkTheme === id ? DEFAULT_DARK : s.darkTheme,
+            lightTheme: s.lightTheme === id ? DEFAULT_LIGHT : s.lightTheme
+          })),
         setMessageDisplay: (messageDisplay) => set({ messageDisplay }),
         setMessageTextSize: (messageTextSize) => set({ messageTextSize }),
         setInputDeviceId: (inputDeviceId) => set({ inputDeviceId }),
@@ -301,15 +341,27 @@ export const usePrefsStore = create<PrefsState>()(
 
 /**
  * The stored preferences over the defaults. A stored gradient of an older shape and a text size
- * that is not a step of the slider fall back to the default.
+ * that is not a step of the slider fall back to the default, as does a theme slot that names an
+ * unknown theme or one of the other ground.
  */
 export function mergePersistedPrefs<
-  T extends Pick<PrefsState, 'customGradient' | 'messageTextSize'>
+  T extends Pick<
+    PrefsState,
+    'customGradient' | 'messageTextSize' | 'darkTheme' | 'lightTheme' | 'customThemes'
+  >
 >(persisted: unknown, current: T): T {
   const p = (persisted ?? {}) as Partial<PrefsState>
+  const customThemes = Array.isArray(p.customThemes)
+    ? p.customThemes.filter(isThemeRecipe)
+    : current.customThemes
+  const slot = (id: unknown, ground: 'dark' | 'light', fallback: string): string =>
+    typeof id === 'string' && findTheme(id, customThemes)?.ground === ground ? id : fallback
   return {
     ...current,
     ...p,
+    customThemes,
+    darkTheme: slot(p.darkTheme, 'dark', current.darkTheme),
+    lightTheme: slot(p.lightTheme, 'light', current.lightTheme),
     customGradient: isCustomGradient(p.customGradient) ? p.customGradient : current.customGradient,
     messageTextSize: isMessageTextSize(p.messageTextSize)
       ? p.messageTextSize

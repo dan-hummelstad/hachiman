@@ -184,8 +184,7 @@ export function PushedScreen({
       onAnimationEnd={onAnimationEnd}
       className={cn(
         'fixed inset-x-0 top-0 z-30 flex h-[var(--app-height,100dvh)] flex-col pt-[var(--safe-top,0px)]',
-        // The tinted window behind the nav bar (`components/shell/wallpaper.ts`). The
-        // `--wallpaper-*` vars come from the MobileShell root.
+        // The window ground behind the nav bar (`components/shell/wallpaper.ts`).
         WALLPAPER,
         SLIDE,
         className
@@ -202,7 +201,7 @@ export function PushedScreen({
         slotRef={setSlot}
       />
       {toolbar}
-      <div className="bg-surface-content border-line-hairline flex min-h-0 flex-1 flex-col border-t">
+      <div className="bg-surface-content flex min-h-0 flex-1 flex-col">
         <div
           className={cn(
             'flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto overscroll-contain p-4',
