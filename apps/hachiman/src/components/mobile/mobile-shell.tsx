@@ -27,6 +27,7 @@ import { DmSpace } from '@/components/sidebar/dm-space'
 import { GuildChannelList } from '@/components/sidebar/guild-channels'
 import { VoiceDock } from '@/components/voice-connected-panel'
 import { IncomingCall } from '@/components/voice/incoming-call'
+import { StreamPopout } from '@/components/voice/stream-popout'
 import { useAppShortcuts } from '@/hooks/use-app-shortcuts'
 import { MobileConnectionBand } from '@/components/system/connection-banner'
 import { useDefaultChannel } from '@/hooks/use-default-channel'
@@ -221,6 +222,7 @@ export function MobileShell(): React.JSX.Element {
         >
           <MobileChatPane />
         </div>
+        <StreamPopout />
       </div>
       <DrawerHost side="left" label="Sidebar" closeLabel="Close sidebar">
         <Sidebar

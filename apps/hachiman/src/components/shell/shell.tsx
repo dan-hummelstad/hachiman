@@ -25,6 +25,7 @@ import { VoiceDock } from '@/components/voice-connected-panel'
 import { VoiceRoom } from '@/components/voice/voice-room'
 import { DmCallPanel } from '@/components/voice/dm-call'
 import { IncomingCall } from '@/components/voice/incoming-call'
+import { StreamPopout } from '@/components/voice/stream-popout'
 import { useAppShortcuts } from '@/hooks/use-app-shortcuts'
 import { useDefaultChannel } from '@/hooks/use-default-channel'
 import { useGlobalShortcuts } from '@/hooks/use-global-shortcuts'
@@ -212,6 +213,7 @@ export function Shell(): React.JSX.Element {
       </div>
       <QuickSwitcher />
       <IncomingCall />
+      <StreamPopout />
       {createPortal(<VoiceDock />, dockHost)}
     </div>
   )
