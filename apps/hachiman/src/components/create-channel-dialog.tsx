@@ -10,7 +10,7 @@ import { RadioCard } from '@/components/ui/radio-card'
 import { useAction } from '@/hooks/use-action'
 import { useLayout } from '@/hooks/use-layout'
 import { ChannelIcon } from '@/lib/channel-icon'
-import { CHANNEL_KINDS, CREATE_CHANNEL_TYPES, hasChat } from '@/lib/model'
+import { CHANNEL_KINDS, CREATE_CHANNEL_TYPES, hasChat, isBoardType } from '@/lib/model'
 import { cn } from '@/lib/utils'
 import { docsService } from '@/services/docs/DocsService'
 import { hachiman } from '@/services/hachiman'
@@ -23,10 +23,13 @@ type ChannelKind = CreateChannelBody['type']
 
 const FORM_ID = 'create-channel-form'
 
+const firstPageTitle = (type: string): string =>
+  type === 'canvas' ? 'Canvas 1' : type === 'web' ? 'Tab 1' : 'Untitled'
+
 /**
  * Create a channel or category in a guild; a new text or pages channel becomes the selected one.
- * Text, voice and pages can be switched in the dialog. A new pages channel gets its root page,
- * "Untitled", from this client: only a client can encrypt the title.
+ * Text, voice, pages, canvas and web can be switched in the dialog. A new pages, canvas or web
+ * channel gets its first page from this client: only a client can encrypt the title.
  *
  * On the mobile layout (M47) it is a sheet with no Cancel: the type cards in their feature
  * colours, the name field with the type icon, and Create as one 48 button at the foot, which stays
@@ -57,11 +60,11 @@ export function CreateChannelDialog(): React.JSX.Element {
         type,
         parentId: isCategory ? undefined : (parentId ?? undefined)
       })
-      if (channel.type === 'pages') {
+      if (channel.type === 'pages' || isBoardType(channel.type)) {
         // The channel exists already: a failed root page must not fail the action (a retry
         // would make a second channel). The pages panel offers to make a page when it has none.
         await docsService
-          .createPage(channel.id, 'Untitled', null)
+          .createPage(channel.id, firstPageTitle(channel.type), null)
           .catch((err: unknown) => console.warn('[pages] root page failed', err))
       }
       return channel

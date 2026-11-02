@@ -1,7 +1,9 @@
 import {
   FileText,
   Folder,
+  Globe,
   Hash,
+  PenTool,
   Users,
   Volume2,
   type LucideIcon,
@@ -16,7 +18,9 @@ const ICONS: Record<ChannelType, LucideIcon> = {
   category: Folder,
   dm: Users,
   group_dm: Users,
-  thread: Hash
+  thread: Hash,
+  canvas: PenTool,
+  web: Globe
 }
 
 /** The glyph of a channel type: sidebar rows, the title bar and the create dialog. */

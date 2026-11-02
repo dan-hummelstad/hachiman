@@ -32,7 +32,7 @@ import { PRESENCE_LABEL } from '@/components/ui/presence'
 import { usePermissions } from '@/hooks/use-hachiman'
 import { usePresence } from '@/hooks/use-member'
 import { ChannelIcon } from '@/lib/channel-icon'
-import { channelLabel, isGuildChannel } from '@/lib/model'
+import { channelLabel, isBoardType, isGuildChannel } from '@/lib/model'
 import { cn } from '@/lib/utils'
 import { usePoke } from '@/services/poke'
 import { useChannelStore } from '@/stores/channelStore'
@@ -52,7 +52,10 @@ export interface ChannelPaneProps {
   sideOpen: boolean
   /** Omitted in DMs (no member list). */
   onToggleSide?: () => void
-  /** The body: `ChatBody` for text and pages channels and DMs, `VoiceRoom` for voice channels. */
+  /**
+   * The body: `ChatBody` for text and pages channels and DMs, `VoiceRoom` for voice channels,
+   * `BoardBody` for canvas and web channels.
+   */
   children: React.ReactNode
 }
 
@@ -72,7 +75,8 @@ export function ChannelPane({
   const isDm = channel.guildId === null
   // A thread has no settings page of its own: only its name changes (N12).
   const canManage = !isDm && channel.type !== 'thread' && has(perms, Permissions.MANAGE_CHANNELS)
-  const hasMessages = channel.type !== 'voice' && channel.type !== 'category'
+  const hasMessages =
+    channel.type !== 'voice' && channel.type !== 'category' && !isBoardType(channel.type)
 
   return (
     <section className={PANE}>

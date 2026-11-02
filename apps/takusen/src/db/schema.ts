@@ -49,7 +49,7 @@ export * from './schema-push'
 // Enums
 // ---------------------------------------------------------------------------
 export const userRoleEnum = pgEnum('user_role', ['user', 'admin'])
-export const channelTypeEnum = pgEnum('channel_type', ['text', 'voice', 'category', 'dm', 'group_dm', 'pages', 'thread'])
+export const channelTypeEnum = pgEnum('channel_type', ['text', 'voice', 'category', 'dm', 'group_dm', 'pages', 'thread', 'canvas', 'web'])
 export const overwriteTypeEnum = pgEnum('overwrite_type', ['role', 'member'])
 export const uploadPurposeEnum = pgEnum('upload_purpose', ['attachment', 'image', 'page_snapshot', 'page_media', 'sound', 'emoji'])
 

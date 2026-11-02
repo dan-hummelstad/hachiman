@@ -26,7 +26,12 @@ export interface PageTreePopoverProps {
   openPageId: string | null
   canEdit: boolean
   onOpen: (pageId: string) => void
+  /** What one page is called: 'page', or 'canvas' and 'tab' in a board channel. */
+  noun?: string
 }
+
+const plural = (noun = 'page'): string =>
+  noun === 'canvas' ? 'Canvases' : `${noun[0]!.toUpperCase()}${noun.slice(1)}s`
 
 /** The page tree of a pages channel: open, create, rename, delete, and drag to reorder or nest. */
 export function PageTreePopover(props: PageTreePopoverProps): React.JSX.Element {
@@ -34,7 +39,7 @@ export function PageTreePopover(props: PageTreePopoverProps): React.JSX.Element 
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <IconButton label="Pages" tooltipSide="bottom" pressed={open}>
+        <IconButton label={plural(props.noun)} tooltipSide="bottom" pressed={open}>
           <ListTree />
         </IconButton>
       </PopoverTrigger>
@@ -56,7 +61,8 @@ function PageTree({
   pages,
   openPageId,
   canEdit,
-  onOpen
+  onOpen,
+  noun = 'page'
 }: PageTreePopoverProps): React.JSX.Element {
   const rows = useMemo(() => flattenPages(pages), [pages])
   const actions = usePageTreeActions(channelId, pages)
@@ -72,10 +78,10 @@ function PageTree({
     <div className="flex flex-col">
       <div className="flex items-center justify-between px-2 py-1">
         <span className="text-text-tertiary cap-sm">
-          Pages
+          {plural(noun)}
         </span>
         {canEdit && (
-          <IconButton label="New page" size="sm" onClick={() => void create(null)}>
+          <IconButton label={`New ${noun}`} size="sm" onClick={() => void create(null)}>
             <Plus />
           </IconButton>
         )}
@@ -99,7 +105,9 @@ function PageTree({
               />
             ))}
             {rows.length === 0 && (
-              <li className="text-text-tertiary px-2 py-1.5 text-sm">No pages yet.</li>
+              <li className="text-text-tertiary px-2 py-1.5 text-sm">
+                No {plural(noun).toLowerCase()} yet.
+              </li>
             )}
           </ul>
         </SortableContext>

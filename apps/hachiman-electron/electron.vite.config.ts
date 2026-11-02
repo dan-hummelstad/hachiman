@@ -2,6 +2,7 @@ import { resolve } from "path";
 import { defineConfig } from "electron-vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
+import { excalidrawFonts } from "../hachiman/vite-excalidraw-fonts.ts";
 
 // Path into the shared `@hachiman/hachiman` package. Its renderer source is
 // consumed directly (no build step), so the same `@/` alias it relies on
@@ -29,7 +30,7 @@ export default defineConfig(({ mode }) => ({
     // Fixed port: Takusen's CORS allowlist (TAKUSEN_ALLOWED_ORIGINS) names this origin.
     // strictPort fails loudly instead of drifting to an origin Takusen rejects.
     server: { port: 5174, strictPort: true },
-    plugins: [react(), tailwindcss()],
+    plugins: [react(), tailwindcss(), excalidrawFonts()],
     resolve: { alias: { "@": hachimanSrc } },
     // The crypto Worker and the voice transform Worker of @hachiman/crypto are
     // `new Worker(new URL(…, import.meta.url), { type: 'module' })`. ES format

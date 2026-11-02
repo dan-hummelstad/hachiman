@@ -581,6 +581,8 @@ describe('page route permissions', () => {
     { perms: SEND, mode: 'write', type: 'pages', expect: NotFoundError },
     { perms: VIEW | SEND, mode: 'read', type: 'text', expect: 'NotPagesChannel' },
     { perms: VIEW | SEND, mode: 'write', type: 'voice', expect: 'NotPagesChannel' },
+    { perms: VIEW | SEND, mode: 'write', type: 'canvas', expect: 'ok' },
+    { perms: VIEW, mode: 'write', type: 'web', expect: MissingPermissionsError },
   ]
   for (const c of cases) {
     test(`${c.type} perms=${c.perms} ${c.mode}`, () => {

@@ -55,7 +55,11 @@ const FOCUS =
  */
 export function PageScreen(): React.JSX.Element | null {
   const view = useCurrentView()
-  const page = view.kind === 'page' ? view : null
+  const pageType = useChannelStore((s) =>
+    view.kind === 'page' ? s.channels.get(view.channelId)?.type : undefined
+  )
+  // A board page (canvas, web) shows in the chat card, not here.
+  const page = view.kind === 'page' && pageType === 'pages' ? view : null
   // The last page stays while the screen slides out.
   const shown = useLatched(page)
   const channel = useChannelStore((s) => (shown ? s.channels.get(shown.channelId) : undefined))

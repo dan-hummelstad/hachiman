@@ -92,6 +92,15 @@ function logShape(e: unknown): string {
   return e instanceof Error ? e.name : typeof e
 }
 
+/** POST /pages/:id/media takes at most this many ids. */
+const CLAIM_BATCH = 20
+
+/** Claims page_media uploads for a page (POST /pages/:id/media), which also refreshes last_referenced_at. */
+export async function claimPageMedia(pageId: string, ids: string[]): Promise<void> {
+  for (let i = 0; i < ids.length; i += CLAIM_BATCH)
+    await hachiman.rest.claimPageMedia(pageId, ids.slice(i, i + CLAIM_BATCH))
+}
+
 export interface UploadFileOptions {
   signal?: AbortSignal | undefined
   /** 0..1 */

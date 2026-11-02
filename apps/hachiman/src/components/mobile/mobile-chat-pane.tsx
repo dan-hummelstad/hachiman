@@ -1,4 +1,5 @@
 import type { Channel } from '@hachiman/client'
+import { BoardBody } from '@/components/board/board-body'
 import { ChatBody } from '@/components/chat/chat-body'
 import { HomePane } from '@/components/home-pane'
 import { hasRightDrawer, openDrawer } from '@/components/mobile/drawer-state'
@@ -10,7 +11,7 @@ import { NoChannelPane } from '@/components/shell/channel-pane'
 import { DmCallPanel } from '@/components/voice/dm-call'
 import { useDmStageShown } from '@/components/voice/dm-stage-state'
 import { VoiceRoom } from '@/components/voice/voice-room'
-import { isGuildChannel } from '@/lib/model'
+import { isBoardChannel, isGuildChannel } from '@/lib/model'
 import { cn } from '@/lib/utils'
 import { useChannelStore } from '@/stores/channelStore'
 import { useSelectedChannelId, useSelectedGuildId } from '@/stores/navStore'
@@ -49,7 +50,7 @@ export function MobileChatPane(): React.JSX.Element {
     <main
       className={cn(
         'flex min-h-0 min-w-0 flex-1 flex-col',
-        !(channel && !voice && !dmStage) && SAFE_BOTTOM
+        !(channel && !voice && !dmStage && !isBoardChannel(channel)) && SAFE_BOTTOM
       )}
     >
       {selectedGuildId === null && !channel ? (
@@ -67,6 +68,8 @@ export function MobileChatPane(): React.JSX.Element {
               <VoiceRoom key={channel.id} channel={voice} />
               {!inThisCall && <VoiceBar />}
             </>
+          ) : isBoardChannel(channel) ? (
+            <BoardBody key={channel.id} channel={channel} />
           ) : (
             <>
               {channel.guildId === null && <DmCallPanel key={channel.id} channel={channel} />}

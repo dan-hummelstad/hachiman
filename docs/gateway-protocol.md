@@ -30,7 +30,7 @@ Conventions:
 These are the TS types exported from `@hachiman/client` (`src/types.ts`). Go mirrors them with `json:"camelCase"` tags.
 
 ```ts
-type ChannelType = 'text' | 'voice' | 'category' | 'dm' | 'group_dm' | 'pages' | 'thread'
+type ChannelType = 'text' | 'voice' | 'category' | 'dm' | 'group_dm' | 'pages' | 'thread' | 'canvas' | 'web'
 type PresenceStatus = 'online' | 'idle' | 'dnd' | 'offline'
 
 // avatar, icon and banner are file keys (§4 Files), not URLs. The client builds the URL with RestClient.fileUrl(key).
@@ -147,7 +147,7 @@ interface VoiceState {
                                    // The call start of a channel is the oldest joinedAt of its states
 }
 
-// A page of a pages channel (§4 Pages). The server sees only the tree and the timestamps.
+// A page of a pages, canvas or web channel (§4 Pages). The server sees only the tree and the timestamps.
 interface Page {
   id: string                       // chosen by the client on create: the title envelope binds it (§12.20)
   channelId: string
@@ -572,6 +572,11 @@ End-to-end encrypted push, as WhatsApp does it. The sender seals the sender name
 
 A `pages` channel holds a tree of pages (§1 `Page`). The content of a page is a Yjs document. The server stores and relays only envelopes (§12.20): it cannot merge edits, so the clients merge with the CRDT. A pages channel uses the MLS group of a text channel (§12.6): `public_set` when it is public, else its own `channel` group. Its chat uses the message routes as a text channel does.
 
+A `canvas` channel and a `web` channel also hold a page tree, with the same routes, events, envelopes and group. Only the content of the Yjs document differs, and the server cannot see it. They have no chat.
+
+- **Canvas.** Each page is a whiteboard (Excalidraw). The Y.Map `excalidraw` holds one entry for each Excalidraw element, keyed by the element id. A client writes an element when its `version` or `versionNonce` changes, and merges a remote element with Excalidraw's `reconcileElements`. A delete keeps the element with `isDeleted: true`. The Y.Map `files` maps each image file id to the attachment pointer JSON (§12.9) of a `page_media` upload, as a media node of a markdown page. The client that adds an image uploads and claims it (POST `/pages/:id/media`). Each snapshot lists in `mediaUploadIds` the files of the image elements that are not deleted. A client shows an image only from its decrypted pointer. The awareness state adds `cursor: {x, y} | null` (scene coordinates). A link that Excalidraw can embed (YouTube, Vimeo, Figma, ...) is an embeddable element, which loads in a frame of each client (`frame-src https:`, §11). A canvas holds no videos or other files.
+- **Web.** Each page is a shared tab. The Y.Map `web` holds `url`: an `https:` address, never the origin of the app. Each client loads the address in its own sandboxed frame (`frame-src https:`, §11). A client loads a YouTube, Vimeo or Loom link in its embed form (for example `youtube.com/watch?v=…` as `youtube.com/embed/…`). The `url` stays as the member typed it. No server loads the page. A navigation inside the frame stays local to that client.
+
 Every route needs VIEW_CHANNEL on the channel of the page (a page that the caller cannot view gives 404 `NotFound`). The routes marked **W** also need SEND_MESSAGES. There is no other edit permission: an overwrite that denies SEND_MESSAGES makes the pages read-only. The routes marked **D** need `X-Hachiman-Device` and its proof (§12.12).
 
 | Method + path | | Body | Returns | Publishes |
@@ -587,7 +592,7 @@ Every route needs VIEW_CHANNEL on the channel of the page (a page that the calle
 | POST `/pages/:pageId/snapshots` | W D | `{baseSeq, uploadId, envelope, mediaUploadIds: string[]}` | `DocSnapshot` (201), also for a re-wrap. 409 `SnapshotConflict {baseSeq}` | — |
 | POST `/pages/:pageId/media` | W | `{uploadIds: string[]}` (1 to 20) | 204. 413 `StorageQuotaExceeded` | — |
 
-- **Channel type.** The page routes need a channel of type `pages`, else 400 `NotPagesChannel`. A new pages channel has no page. The client that creates the channel then creates one root page ("Untitled"), because only a client can encrypt the title.
+- **Channel type.** The page routes need a channel of type `pages`, `canvas` or `web`, else 400 `NotPagesChannel`. A new channel of these types has no page. The client that creates the channel then creates one root page ("Untitled", "Canvas 1" or "Tab 1"), because only a client can encrypt the title.
 - **Create.** `id` is a new UUID that the client chooses, because the title envelope binds the page id (§12.20). `parentId` is null or a page of the same channel, else 400 `ValidationError`.
 - **Envelope checks.** Takusen decodes only the header (§12.20 "Server checks"). `titleEnvelope` needs kind `doc_title`, `banner.envelope` kind `doc_banner`, the updates route kind `doc_update`, the snapshots route kind `doc_snapshot`, else 400 `InvalidEnvelope`. The other checks and codes are those of §12.8.4: 413 `EnvelopeTooLarge`, 409 `GroupPending`, 409 `StaleEpoch {epoch}`, 403 `NotMember`, 400 `InvalidEnvelope`.
 - **Move.** A PATCH that sets `parentId` to the page itself or to a page of its subtree gives 400 `PageCycle`. A `parentId` of another channel gives 400 `ValidationError`. Takusen sets `updated_at` on every PATCH. Takusen does not renumber siblings: the client sends the positions it wants.
@@ -748,7 +753,7 @@ URL: `ws(s)://<host>/gateway` (dev `ws://localhost:8080/gateway`). Text frames, 
 
 **Read limit.** The gateway reads at most 65536 bytes per frame (`SetReadLimit`). A larger frame closes the socket (1009).
 
-**Op 5 DOC_AWARENESS.** The presence of an open page: user, color, cursor and selection, as an encrypted y-protocols awareness update. The gateway stores nothing. It drops the frame (no close, no answer) when the session is not READY, when `envelope` is longer than 8192 characters, when the session sent more than 20 op 5 frames in the last second (a token bucket of 20, refilled at 20/s), when the channel is not a guild channel of type `pages`, or when the session cannot VIEW_CHANNEL it. It does not check that `pageId` exists. A `d` that does not decode gives close 4002. Else it publishes `DOC_AWARENESS { channelId, guildId, pageId, userId, deviceId, envelope }` to `guild:{guildId}` with `channelId`, with the user and device of the session. Every session that can view the channel gets it, the sending session included. The client ignores frames with its own `deviceId`. A client sends its state when it opens a page, when its cursor moves (at most every 100 ms), and every 15 s. It drops a peer after 30 s without a frame.
+**Op 5 DOC_AWARENESS.** The presence of an open page: user, color, cursor and selection, as an encrypted y-protocols awareness update. The gateway stores nothing. It drops the frame (no close, no answer) when the session is not READY, when `envelope` is longer than 8192 characters, when the session sent more than 20 op 5 frames in the last second (a token bucket of 20, refilled at 20/s), when the channel is not a guild channel of type `pages`, `canvas` or `web`, or when the session cannot VIEW_CHANNEL it. It does not check that `pageId` exists. A `d` that does not decode gives close 4002. Else it publishes `DOC_AWARENESS { channelId, guildId, pageId, userId, deviceId, envelope }` to `guild:{guildId}` with `channelId`, with the user and device of the session. Every session that can view the channel gets it, the sending session included. The client ignores frames with its own `deviceId`. A client sends its state when it opens a page, when its cursor moves (at most every 100 ms), and every 15 s. It drops a peer after 30 s without a frame.
 
 **Ephemeral dispatches.** The gateway sends `DOC_UPDATE` and `DOC_AWARENESS` as op 0 without `s`. They do not take a sequence number and do not go in `events:{sessionId}`, so they cannot push message events out of the resume buffer. The gateway decides by the event name. After READY or RESUMED, a client reads `GET /pages/:pageId/updates?after=<its highest seq>` for each open page. It also reads the tail when a `DOC_UPDATE` skips a `seq`. Yjs ignores an update that it already has.
 
@@ -1386,6 +1391,7 @@ The packaged Electron app does not load the renderer from `file://`. A `file://`
 - The main process blocks navigation to all URLs outside the app origin. `window.open` gives `http(s)` URLs to the system browser and opens no window.
 - The main process sends the Content-Security-Policy (CSP) as a response header. The rules are in `apps/hachiman-electron/src/main/csp-policy.ts` (`cspFromEndpoints`). `csp.ts` resolves the endpoints and applies the header. The Electron `index.html` has no CSP meta tag. In the packaged app, the `hachiman` handler sends the header. In dev, the header goes on the responses from the dev server.
 - The browser host imports the same rules (`apps/hachiman-browser/csp.ts`). It sends the policy as a header from the Vite dev server and from `vite preview`. The built `index.html` has the policy as a meta tag, without the header-only directives. A production server must send the policy as a response header, because a meta tag covers neither Worker scripts nor `frame-ancestors`.
+- `frame-src` is `https:`: the frame of a web channel and the embeds of a canvas (§4 Pages). The client never frames its own origin. The frame has `sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-presentation"`. The frame of a web channel sends no referrer, except the app origin (`strict-origin`) to the embed form of a video link, because the players refuse to play without one. The iOS app allows `https:` navigations of subframes; a main-frame navigation still goes to the system browser.
 - `worker-src` is `'self'` (plus the dev server origin in dev), for the crypto Worker and the transform Worker (§12.17). `img-src` and `media-src` also allow `blob:`: the local preview of a picked file, and the object URL of a decrypted attachment.
 - `connect-src` gets the origins of `VITE_TAKUSEN_OIDC_ISSUER`, `VITE_TAKUSEN_API_BASE` and `VITE_HACHIMAN_GATEWAY_URL`, plus `wss:` for the media nodes. The main process and the renderer use the same resolver (`@hachiman/hachiman/takusen-env`) and the same defaults.
 - `connect-src` also allows `ws:` when one of these endpoints, or the dev server, uses `ws:` or `http:`. Thus a local stack keeps voice in `electron-vite preview` too.
@@ -1729,7 +1735,7 @@ The recipient checks that the sender device belongs to the same user and has a v
 | `dm` | 3 | channel id (dm and group_dm) | the participants | the creator first, then a member for new devices of participants |
 | `voice` | 4 | room session id (16 random bytes from the media node) | connected participants | the committer of the room (§12.10) |
 
-**Public channel.** A guild text or pages channel is public when the guild `@everyone` role permissions, with the channel `@everyone` overwrite applied, include VIEW_CHANNEL, and no role or member overwrite on the channel denies VIEW_CHANNEL. All public channels of a guild share the `public_set` group. Each other guild text or pages channel has its own `channel` group. Voice channels have no text group. Takusen tests the two types with one helper, `hasTextGroup(type)`.
+**Public channel.** A guild text, pages, canvas or web channel is public when the guild `@everyone` role permissions, with the channel `@everyone` overwrite applied, include VIEW_CHANNEL, and no role or member overwrite on the channel denies VIEW_CHANNEL. All public channels of a guild share the `public_set` group. Each other guild text, pages, canvas or web channel has its own `channel` group. Voice channels have no text group. Takusen tests the two types with one helper, `hasTextGroup(type)`.
 
 **Thread.** A thread has no group. It uses the current group of its parent text channel: the `public_set` group or the `channel` group. The DS resolves the thread to its parent at read time (`MlsRepo.getChannel` gives the `mlsGroupId` of the parent, `getChannelOverwrites` the overwrites of the parent), so a group change of the parent applies to its threads at once. `channelReaders(threadId)` is `channelReaders(parentId)`. A message envelope of a thread names the thread in `channelId` and the group of the parent in `groupId` (§12.8.4). `GET /channels/:threadId/mls-group` gives the group of the parent. The `Channel` of a thread has `mlsGroupId` and `historyVisibility` null (§1): a client resolves the thread to its parent, so a group change of the parent needs no `CHANNEL_UPDATE` of its threads.
 
@@ -2799,7 +2805,7 @@ export class ApiError extends Error {
 | `InvalidAdminAction` | 400 | the action does not decode, verify or match the request |
 | `AdminActionConflict` | 409 | `seq` or `prev_hash` does not continue the chain |
 | `RateLimited` | 429 | a §12.12 rate limit. Header `Retry-After` |
-| `NotPagesChannel` | 400 | a page route on a channel that is not of type `pages` (§4 Pages) |
+| `NotPagesChannel` | 400 | a page route on a channel that is not of type `pages`, `canvas` or `web` (§4 Pages) |
 | `PageExists` | 409 | `POST /channels/:id/pages` with an `id` that is taken |
 | `PageCycle` | 400 | a page move into its own subtree |
 | `SnapshotConflict` | 409 | the snapshot `baseSeq` is not above the current one, or above `latest_seq`. A re-wrap with another `uploadId`, or not in a newer epoch (§4 Pages). Body: `{error, baseSeq}` (the current one) |
@@ -2881,7 +2887,7 @@ The labels differ, so `K_doc` never equals a `K_msg`. Each envelope has its own 
 An `ok` result has `{ id, kind, bytes, sender }`: the body bytes and the `DecryptedSender`. The UI thread gets decrypted content only, never a key.
 
 **Access by new members.** A member that joined in epoch N has no `S_e` for older epochs when the group is `joined`. Thus the members encrypt the current state of each page again in the current epoch. The new member then needs only the newest snapshot and the updates after it. It does not get the edit history before the snapshot. The snapshot blob has its own `fileKey`, so a member re-wraps the small pointer envelope, not the blob.
-- **Trigger.** `GroupService` emits the Worker event `usersAdded { groupId, kind, guildId, channelId, epoch, userIds, byMe }` after a commit in a `public_set` or `channel` group that adds a leaf of a user that had no leaf before (an Add, or an external commit join). It emits it for a commit of another device (`byMe: false`), for an own batch commit (`byMe: true`) and for an own commit that it adopts from the stream (§12.7.9). It does not emit it for an own join, a Welcome, a create, a resync or a new device of a member. The UI finds the pages channels of the group (`Channel.mlsGroupId`, type `pages`) in which the user has VIEW_CHANNEL and SEND_MESSAGES.
+- **Trigger.** `GroupService` emits the Worker event `usersAdded { groupId, kind, guildId, channelId, epoch, userIds, byMe }` after a commit in a `public_set` or `channel` group that adds a leaf of a user that had no leaf before (an Add, or an external commit join). It emits it for a commit of another device (`byMe: false`), for an own batch commit (`byMe: true`) and for an own commit that it adopts from the stream (§12.7.9). It does not emit it for an own join, a Welcome, a create, a resync or a new device of a member. The UI finds the pages, canvas and web channels of the group (`Channel.mlsGroupId`) in which the user has VIEW_CHANNEL and SEND_MESSAGES.
 - **Who and when.** The committer runs the pass at once, and again after `ADD_ONLY_EPOCH_GRACE_MS` + 2 s, because a member can still post in the old epoch for that time (§12.8.4). Every other member that processes the commit runs the pass after a random 12 to 20 s. When no member is online (an external commit join), the first member that processes the commit runs it. One pass per group runs at a time. A pass skips the pages that are current, and Takusen accepts one re-wrap per page and epoch.
 - **The pass**, for each pages channel: `ensureChannelGroup` gives the current group and epoch, and `GET /channels/:id/pages/heads` (§4 Pages) gives the pages. For each page:
   1. An open page resyncs, and its provider does step 2 or 3 for it.

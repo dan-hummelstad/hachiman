@@ -17,19 +17,15 @@ import { $node, $prose, $view } from '@milkdown/kit/utils'
 import { ySyncPluginKey } from 'y-prosemirror'
 import { MessageAttachments } from '@/components/chat/attachments/message-attachments'
 import { uploadIdsOf } from '@/lib/attachments'
-import { claimErrorText, uploadAttachment } from '@/services/UploadService'
+import { claimErrorText, claimPageMedia, uploadAttachment } from '@/services/UploadService'
 import {
   MEDIA_NODE,
   copyMediaPointer,
   parsePointer,
   pastedMediaPointer
 } from '@/services/docs/media'
-import { hachiman } from '@/services/hachiman'
 
 export const UPLOAD_HREF_PREFIX = 'hachiman:upload/'
-
-/** POST /pages/:id/media takes at most this many ids. */
-const CLAIM_BATCH = 20
 
 const mediaSchema = $node(MEDIA_NODE, () => ({
   group: 'block',
@@ -103,11 +99,6 @@ const mediaView = $view(mediaSchema, (): NodeViewConstructor => (initial) => {
   }
 })
 
-async function claim(pageId: string, ids: string[]): Promise<void> {
-  for (let i = 0; i < ids.length; i += CLAIM_BATCH)
-    await hachiman.rest.claimPageMedia(pageId, ids.slice(i, i + CLAIM_BATCH))
-}
-
 export interface PageMedia {
   plugins: MilkdownPlugin[]
   /** For `ctx.update(uploadConfig.key, …)`. */
@@ -151,7 +142,7 @@ export function pageMedia(pageId: string, onError: (text: string) => void): Page
           }
         })
         const ids = uploadIdsOf([pointer])
-        await claim(pageId, ids)
+        await claimPageMedia(pageId, ids)
         for (const id of ids) claimed.add(id)
         nodes.push(type.create({ pointer: JSON.stringify(pointer) }))
       } catch (e) {
@@ -184,7 +175,7 @@ export function pageMedia(pageId: string, onError: (text: string) => void): Page
           }
           const todo = [...ids].filter((id) => !claimed.delete(id))
           if (todo.length > 0)
-            claim(pageId, todo).catch((e) =>
+            claimPageMedia(pageId, todo).catch((e) =>
               console.warn('[pages] media re-claim failed', e instanceof RestError ? e.code : e)
             )
           return null
