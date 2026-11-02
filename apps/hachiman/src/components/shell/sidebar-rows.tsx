@@ -57,7 +57,7 @@ const DM_ROWS = 4
  * message), as rows. The last row, "ALL", opens the DM home; it is selected there and while a DM
  * that has no row is open.
  */
-function DmList(): React.JSX.Element {
+function DmList(): React.JSX.Element | null {
   const dms = useDmChannels()
   const lastAt = useUnreadStore((s) => s.lastAt)
   const all = useMemo(() => recentDms(dms, lastAt), [dms, lastAt])
@@ -68,6 +68,8 @@ function DmList(): React.JSX.Element {
   )
   const settings = useNavStore((s) => s.settings !== null)
   const here = inDms && !settings
+  // The DM space in the sidebar middle lists every conversation, so the recent rows would repeat it.
+  if (here) return null
 
   return (
     <section aria-label="Direct messages" className="flex flex-col">

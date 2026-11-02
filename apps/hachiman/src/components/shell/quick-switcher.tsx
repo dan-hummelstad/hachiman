@@ -194,6 +194,7 @@ function SwitcherPanel({ mode }: { mode: SwitcherMode }): React.JSX.Element {
                     index={i}
                     active={i === selected}
                     pinned={isPinnedItem(tabs, it)}
+                    query={query.trim()}
                     onHover={() => setIndex(i)}
                     onPick={(pin) => run(it, mode === 'pin' || pin)}
                   />
@@ -232,11 +233,25 @@ function SwitcherPanel({ mode }: { mode: SwitcherMode }): React.JSX.Element {
   )
 }
 
+/** The typed text inside a result name is a search match: `you` ink. */
+function MatchText({ text, query }: { text: string; query: string }): React.JSX.Element {
+  const at = query === '' ? -1 : text.toLowerCase().indexOf(query.toLowerCase())
+  if (at < 0) return <>{text}</>
+  return (
+    <>
+      {text.slice(0, at)}
+      <span className="text-you-text">{text.slice(at, at + query.length)}</span>
+      {text.slice(at + query.length)}
+    </>
+  )
+}
+
 function ResultRow({
   item,
   index,
   active,
   pinned,
+  query,
   onHover,
   onPick
 }: {
@@ -244,6 +259,7 @@ function ResultRow({
   index: number
   active: boolean
   pinned: boolean
+  query: string
   onHover: () => void
   onPick: (pin: boolean) => void
 }): React.JSX.Element {
@@ -282,7 +298,7 @@ function ResultRow({
         />
       )}
       <span className={cn('min-w-0 truncate', badge.unread && 'font-semibold')}>
-        {item.name || 'Untitled'}
+        <MatchText text={item.name || 'Untitled'} query={query} />
       </span>
       {(item.guildName || item.kind === 'dm') && (
         <span className={cn(META, 'flex min-w-0 items-center gap-1.5 truncate tracking-[0.9px]')}>

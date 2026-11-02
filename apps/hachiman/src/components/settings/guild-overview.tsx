@@ -123,7 +123,7 @@ export function GuildOverviewPage({ guild }: { guild: Guild }): React.JSX.Elemen
   }
 
   return (
-    <form onSubmit={save} className="grid gap-6">
+    <form onSubmit={save} className="grid min-w-0 gap-6">
       <div className="flex items-start gap-6">
         <ImageField
           label="Icon"
@@ -131,7 +131,7 @@ export function GuildOverviewPage({ guild }: { guild: Guild }): React.JSX.Elemen
           fallback={guildInitials(name || guild.name)}
           onSave={(icon) => hachiman.rest.updateGuild(guild.id, { icon })}
         />
-        <div className="grid w-[416px] gap-4">
+        <div className="grid min-w-0 flex-1 gap-4">
           <Field id="guild-name-edit" label="Guild name">
             <Input
               id="guild-name-edit"
@@ -155,8 +155,7 @@ export function GuildOverviewPage({ guild }: { guild: Guild }): React.JSX.Elemen
             </div>
           </Field>
         </div>
-        <div className="rounded-control bg-surface-sunken grid w-[300px] gap-3 p-3.5">
-          <span className="cap text-text-tertiary text-[9px] tracking-[1.5px]">Banner</span>
+        <div className="rounded-control bg-surface-sunken grid w-[280px] shrink-0 gap-3 p-3.5">
           <ImageField
             label="Banner"
             hint="Shown above the channel list, cropped to fit."
