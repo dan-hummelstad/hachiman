@@ -77,7 +77,7 @@ export function LiveCard({
   stream?: MediaStream
   onClick?: () => void
 }): React.JSX.Element {
-  const { member, name, ink } = useMemberView(guildId, userId)
+  const { member, name } = useMemberView(guildId, userId)
   const avatar = member?.user.avatar
   const frame = FRAME[size]
   const detail = `${channelName} · ${watching} watching`
@@ -96,7 +96,6 @@ export function LiveCard({
         <UserAvatar
           name={name}
           avatar={avatar}
-          color={ink}
           size={frame.avatar}
           className={cn(
             size !== 'sm' && 'ring-live-line rounded-full ring-4',
@@ -117,7 +116,7 @@ export function LiveCard({
       )}
       {size === 'lg' && (
         <span className="absolute bottom-3 left-3 flex min-w-0 items-center gap-2">
-          <UserAvatar name={name} avatar={avatar} color={ink} size={32} />
+          <UserAvatar name={name} avatar={avatar} size={32} />
           <span className="flex min-w-0 flex-col text-left">
             <span className="truncate text-sm font-semibold">
               {name}
@@ -127,7 +126,7 @@ export function LiveCard({
         </span>
       )}
       {size === 'stage' && (
-        <StageStreamer name={name} avatar={avatar} ink={ink} channelName={channelName} />
+        <StageStreamer name={name} avatar={avatar} channelName={channelName} />
       )}
     </span>
   )
@@ -149,7 +148,7 @@ export function LiveCard({
       <span className="flex w-full min-w-0 flex-col gap-2">
         {box}
         <span className="flex min-w-0 items-center gap-2 px-1">
-          <UserAvatar avatar={avatar} name={name} color={ink} size={24} />
+          <UserAvatar avatar={avatar} name={name} size={24} />
           <span className="flex min-w-0 flex-col gap-px text-left">
             <span className="text-text-primary truncate text-[13.5px] leading-4 font-semibold">
               <StreamerName guildId={guildId} userId={userId} />
@@ -168,7 +167,7 @@ export function LiveCard({
       <div className="flex flex-col gap-2">
         {box}
         <div className="flex min-w-0 items-center gap-2">
-          <UserAvatar avatar={avatar} name={name} color={ink} size={24} />
+          <UserAvatar avatar={avatar} name={name} size={24} />
           {caption}
         </div>
       </div>
@@ -200,12 +199,10 @@ export function LiveCard({
 function StageStreamer({
   name,
   avatar,
-  ink,
   channelName
 }: {
   name: string
   avatar: string | null | undefined
-  ink: string | undefined
   channelName: string
 }): React.JSX.Element {
   return (
@@ -218,7 +215,6 @@ function StageStreamer({
         <UserAvatar
           name={name}
           avatar={avatar}
-          color={ink}
           size={32}
           className="ring-live rounded-full ring-2"
         />

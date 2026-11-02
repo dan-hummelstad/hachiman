@@ -433,7 +433,7 @@ function useGuildSettingsModel(guildId: string | null, mobile: boolean): Setting
             page: guild && {
               title: 'Roles',
               description:
-                'Members take the colour of their highest role. Drag to change the order.',
+                'A role is a bundle of permissions with a name on it. Drag to change the order.',
               wide: true,
               render: () => <GuildRolesTab guildId={guild.id} />
             }

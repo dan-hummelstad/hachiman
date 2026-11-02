@@ -156,7 +156,7 @@ export function SettingsList({
                 <ListRow
                   key={s.id}
                   icon={s.icon}
-                  tile="neutral"
+                  tile="plain"
                   label={s.label}
                   detail={s.detail}
                   value={

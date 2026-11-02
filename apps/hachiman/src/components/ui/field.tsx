@@ -27,7 +27,7 @@ export function Field({
 }): React.JSX.Element {
   return (
     <div className={cn('grid gap-1.5', className)}>
-      <label htmlFor={id} className="text-label text-text-secondary">
+      <label htmlFor={id} className="section-label">
         {label}
       </label>
       {children}
@@ -36,10 +36,16 @@ export function Field({
   )
 }
 
-export function ErrorText({ children }: { children: React.ReactNode }): React.JSX.Element | null {
+export function ErrorText({
+  children,
+  className
+}: {
+  children: React.ReactNode
+  className?: string
+}): React.JSX.Element | null {
   if (!children) return null
   return (
-    <p role="alert" className="text-meta text-you-text">
+    <p role="alert" className={cn('text-meta text-you-text', className)}>
       {children}
     </p>
   )

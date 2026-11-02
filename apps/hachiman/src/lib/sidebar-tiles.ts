@@ -4,7 +4,7 @@ import type { Channel } from '@hachiman/client'
 export const ROW_TILES = 4
 
 /** The fill of a lit tile (E2): an opaque accent wash, so a presence cutout can match it. */
-export const LIT_BG = 'bg-[color-mix(in_oklab,var(--accent-primary)_17%,var(--surface-raised))]'
+export const LIT_BG = 'bg-[color-mix(in_oklab,var(--here)_17%,var(--surface-raised))]'
 
 /** The surface behind a tile's icon: the cutout of a presence dot on it. */
 export const tileSurface = (lit: boolean): string => (lit ? LIT_BG : 'bg-surface-raised')

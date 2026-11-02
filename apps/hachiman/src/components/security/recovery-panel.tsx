@@ -6,6 +6,7 @@ import { Callout } from '@/components/ui/callout'
 import { ErrorText } from '@/components/ui/field'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { friendly } from '@/components/security/errors'
+import { AnswerBlock } from '@/components/settings/user/rows'
 import { RecoveryKeyReveal } from '@/components/security/recovery-key-view'
 import {
   NEUTRAL_TILE,
@@ -240,6 +241,20 @@ function RecoveryDesktop(): React.JSX.Element {
   const primary = useCryptoStore((s) => s.status?.primary ?? false)
   return (
     <div className="grid gap-4">
+      {!configured && (
+        <AnswerBlock
+          tone="you"
+          icon={<KeyRound className="size-5" />}
+          cap="Waiting on you"
+          title="You have no recovery key yet"
+          body="If you lose all of your devices, you cannot read your messages again."
+          actions={
+            <Button disabled={!primary} onClick={() => openDialog({ kind: 'recoveryKey' })}>
+              Make a recovery key
+            </Button>
+          }
+        />
+      )}
       <div className="border-line-hairline bg-surface-sunken rounded-control flex items-center gap-4 border px-4 py-4">
         <span
           className={cn(
@@ -293,6 +308,14 @@ function RecoveryMobile(): React.JSX.Element {
   const [root, setRoot] = useState<HTMLDivElement | null>(null)
   return (
     <div ref={setRoot} className="flex flex-col gap-3">
+      {!configured && (
+        <AnswerBlock
+          tone="you"
+          icon={<KeyRound className="size-5" />}
+          cap="Waiting on you"
+          title="You have no recovery key yet"
+        />
+      )}
       <div className="border-line-hairline bg-surface-sunken rounded-control flex gap-3.5 border p-4">
         <span
           aria-hidden

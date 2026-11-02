@@ -32,7 +32,6 @@ import { callStartedAt } from '@/lib/call-timer'
 import { useChannelAccess } from '@/lib/channel-access'
 import { ChannelIcon } from '@/lib/channel-icon'
 import { isMuted } from '@/lib/notify'
-import { ROLE_INK_SCOPE } from '@/lib/role-ink'
 import { cn } from '@/lib/utils'
 import { voiceService } from '@/services/VoiceService'
 import { openDialog, useDialogStore } from '@/stores/dialogStore'
@@ -286,7 +285,7 @@ export function ChannelRow({
             </span>
           </div>
           {occupants.length > 0 && (
-            <ul className={cn('flex flex-col pt-0.5 pb-1', ROLE_INK_SCOPE)}>
+            <ul className={'flex flex-col pt-0.5 pb-1'}>
               {occupants.map((vs) => (
                 <VoiceOccupantRow key={vs.userId} guildId={guildId} state={vs} size={26} />
               ))}

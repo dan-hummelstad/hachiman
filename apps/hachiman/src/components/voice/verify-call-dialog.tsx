@@ -297,13 +297,13 @@ function ParticipantRow({
   onSafetyNumber: (userId: string) => void
 }): React.JSX.Element {
   const mobile = useLayout() === 'mobile'
-  const { name, ink, avatar } = useMemberView(guildId, participant.userId)
+  const { name, avatar } = useMemberView(guildId, participant.userId)
   const devices = participant.leaves.length
   const status = STATUS[participant.status]
 
   return (
     <li className="mobile:min-h-[50px] mobile:py-1.5 mobile:pr-2 mobile:pl-3 flex items-center gap-3 px-3 py-2">
-      <UserAvatar name={name} avatar={avatar} color={ink} size={mobile ? 32 : 28} />
+      <UserAvatar name={name} avatar={avatar} size={mobile ? 32 : 28} />
       <div className="mobile:gap-0.5 flex min-w-0 flex-1 flex-col">
         <span className="mobile:gap-[5px] mobile:text-[15px] flex min-w-0 items-center gap-1 text-sm">
           <span className="truncate font-semibold">{name}</span>

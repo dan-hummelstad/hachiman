@@ -24,18 +24,20 @@ import { canHoldThreads } from '@/components/threads/thread-name'
 import { ThreadsButton } from '@/components/threads/threads-button'
 import { UserAvatar } from '@/components/shell/user-avatar'
 import { IconButton } from '@/components/ui/icon-button'
+import { ConnectionBanner } from '@/components/system/connection-banner'
 import { TitleBar } from '@/components/ui/title-bar'
-import { VoiceHeaderExtras, VoiceHeaderMeta } from '@/components/voice/voice-header'
+import { CallClock, VoiceHeaderExtras, VoiceHeaderMeta } from '@/components/voice/voice-header'
 import { DmCallButton } from '@/components/voice/dm-call'
+import { PRESENCE_LABEL } from '@/components/ui/presence'
 import { usePermissions } from '@/hooks/use-hachiman'
 import { usePresence } from '@/hooks/use-member'
 import { ChannelIcon } from '@/lib/channel-icon'
-import { channelLabel, hexColor, isGuildChannel } from '@/lib/model'
-import { ROLE_INK_SCOPE } from '@/lib/role-ink'
+import { channelLabel, isGuildChannel } from '@/lib/model'
 import { cn } from '@/lib/utils'
 import { usePoke } from '@/services/poke'
 import { useChannelStore } from '@/stores/channelStore'
 import { openDialog } from '@/stores/dialogStore'
+import { useVoiceStore } from '@/stores/voiceStore'
 import { openSettings } from '@/stores/navStore'
 
 const PANE = 'bg-surface-content flex min-h-0 min-w-0 flex-1 flex-col'
@@ -73,7 +75,7 @@ export function ChannelPane({
   const hasMessages = channel.type !== 'voice' && channel.type !== 'category'
 
   return (
-    <section className={cn(PANE, ROLE_INK_SCOPE)}>
+    <section className={PANE}>
       <TitleBar
         left={isDm ? <DmTitle channel={channel} /> : <ChannelTitle channel={channel} />}
         right={
@@ -114,7 +116,9 @@ export function ChannelPane({
             )}
           </>
         }
+        className={isDm ? 'pl-[22px]' : undefined}
       />
+      <ConnectionBanner />
       {children}
     </section>
   )
@@ -191,7 +195,7 @@ function ThreadTitle({ thread }: { thread: Channel }): React.JSX.Element {
             type="button"
             onClick={() => openChannelView(parent)}
             className={cn(
-              'text-text-secondary hover:text-text-primary rounded-control inline-flex min-w-0 shrink items-center gap-1 text-[15px] font-semibold',
+              'text-text-tertiary hover:text-text-primary rounded-control inline-flex min-w-0 shrink items-center gap-1 text-[15px] font-semibold',
               'focus-visible:outline-line-focus outline-none focus-visible:outline-2'
             )}
           >
@@ -253,7 +257,7 @@ export function HeaderChip({
 }
 
 function RoleName({ role }: { role: Role }): React.JSX.Element {
-  return <span style={role.color ? { color: hexColor(role.color) } : undefined}>{role.name}</span>
+  return <span>{role.name}</span>
 }
 
 /**
@@ -264,6 +268,7 @@ function DmTitle({ channel }: { channel: Channel }): React.JSX.Element {
   const recipients = channel.recipients ?? []
   const solo = recipients.length === 1 ? recipients[0] : undefined
   const status = usePresence(solo?.id)
+  const inCall = useVoiceStore((s) => s.channelId === channel.id)
   const name = channelLabel(channel).name
   return (
     <>
@@ -271,16 +276,24 @@ function DmTitle({ channel }: { channel: Channel }): React.JSX.Element {
         <UserAvatar
           name={name}
           avatar={solo.avatar}
-          size={26}
+          size={32}
           status={status}
           cutout="bg-surface-content"
         />
       ) : channel.icon ? (
-        <UserAvatar name={name} avatar={channel.icon} size={26} />
+        <UserAvatar name={name} avatar={channel.icon} size={32} />
       ) : (
         <Users className="text-text-tertiary size-5 shrink-0" aria-hidden />
       )}
-      <h1 className="text-heading text-text-primary truncate">{name}</h1>
+      <div className="flex min-w-0 flex-col gap-0.5">
+        <h1 className="text-text-primary truncate text-base leading-5 font-semibold">{name}</h1>
+        {solo && (
+          <span className="text-text-disabled truncate font-mono text-[9px] tracking-[1.2px] uppercase">
+            @{solo.username} · {PRESENCE_LABEL[status]}
+          </span>
+        )}
+      </div>
+      {inCall && <CallClock channelId={channel.id} />}
       {solo && <VoiceActivity userId={solo.id} />}
     </>
   )

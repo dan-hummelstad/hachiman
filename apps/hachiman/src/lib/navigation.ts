@@ -26,7 +26,7 @@ export function highlightRow(messageId: string): boolean {
   row.scrollIntoView({ block: 'center', behavior: 'smooth' })
   row.animate(
     [
-      { boxShadow: 'inset 0 0 0 2px var(--accent-primary)' },
+      { boxShadow: 'inset 0 0 0 2px var(--here)' },
       { boxShadow: 'inset 0 0 0 2px transparent' }
     ],
     { duration: 1800, easing: 'ease-out' }

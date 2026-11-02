@@ -24,7 +24,6 @@ import { useChannelOccupants, usePermissions } from '@/hooks/use-hachiman'
 import { useLayout } from '@/hooks/use-layout'
 import { useMemberView } from '@/hooks/use-member'
 import { channelLabel, displayName, type GuildChannel } from '@/lib/model'
-import { ROLE_INK_SCOPE } from '@/lib/role-ink'
 import { cn } from '@/lib/utils'
 import { voiceService } from '@/services/VoiceService'
 import { usePlatform } from '@/shared/PlatformContext'
@@ -508,7 +507,7 @@ function NotJoinedMobile({ channel }: { channel: GuildChannel }): React.JSX.Elem
               In {channelName} · {occupants.length}
             </SectionLabel>
             <ListGroup>
-              <ul className={cn('divide-line-hairline flex flex-col divide-y', ROLE_INK_SCOPE)}>
+              <ul className={'divide-line-hairline flex flex-col divide-y'}>
                 {occupants.map((vs) => (
                   <VoiceOccupantRow
                     key={vs.userId}
@@ -602,6 +601,6 @@ function OthersInCall({
 }
 
 function Face({ guildId, userId }: { guildId: string; userId: string }): React.JSX.Element {
-  const { name, avatar, ink } = useMemberView(guildId, userId)
-  return <UserAvatar name={name} avatar={avatar} color={ink} size={24} />
+  const { name, avatar } = useMemberView(guildId, userId)
+  return <UserAvatar name={name} avatar={avatar} size={24} />
 }

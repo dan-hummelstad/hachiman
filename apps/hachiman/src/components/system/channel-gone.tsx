@@ -1,6 +1,10 @@
 import { Ban, Unlink } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { TitleBar } from '@/components/ui/title-bar'
+import { useGuildChannels } from '@/hooks/use-hachiman'
 import { useLayout } from '@/hooks/use-layout'
+import { navigate } from '@/stores/navStore'
+import { useUserStore } from '@/stores/userStore'
 
 const BODY = 'It was deleted, or you can no longer see it. Nothing in your other channels changed.'
 
@@ -78,5 +82,54 @@ export function ChannelGone({
         Nothing can be written here
       </p>
     </div>
+  )
+}
+
+/**
+ * Whether a selected channel no longer resolves, once the gateway is ready (before that
+ * the cache may still be loading).
+ */
+export function useChannelGone(channelId: string | null, resolved: boolean): boolean {
+  const ready = useUserStore((s) => s.gatewayState === 'ready')
+  return ready && channelId !== null && !resolved
+}
+
+/** The full pane for a gone channel: a dead header (desktop) over `ChannelGone`. */
+export function DeadChannelPane({
+  channelId,
+  guildId
+}: {
+  channelId: string
+  guildId: string | null
+}): React.JSX.Element {
+  const mobile = useLayout() === 'mobile'
+  const fallback = useGuildChannels(guildId).find((c) => c.type === 'text')
+  const leave = (): void =>
+    navigate(
+      fallback && guildId
+        ? { kind: 'channel', guildId, channelId: fallback.id }
+        : guildId
+          ? { kind: 'guild', guildId }
+          : { kind: 'dmHome' }
+    )
+  return (
+    <section className="bg-surface-content flex min-h-0 min-w-0 flex-1 flex-col">
+      {!mobile && (
+        <TitleBar
+          left={
+            <>
+              <Ban aria-hidden className="text-text-disabled size-4 shrink-0" />
+              <span className="text-text-tertiary">Channel</span>
+              <span className="text-text-disabled text-[12.5px]">No longer reachable</span>
+            </>
+          }
+        />
+      )}
+      <ChannelGone
+        channelId={channelId}
+        onLeave={leave}
+        leaveLabel={fallback ? `Back to #${fallback.name}` : 'Go back'}
+      />
+    </section>
   )
 }

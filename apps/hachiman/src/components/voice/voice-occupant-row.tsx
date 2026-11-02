@@ -17,8 +17,7 @@ export type VoiceOccupantSize = 26 | 56
 
 /**
  * A person in a voice channel, from the gateway voice state (no MLS tree outside the own call).
- * A tap opens the profile card (a sheet on the mobile layout). Needs a ROLE_INK_SCOPE ancestor for
- * the role ink of the name.
+ * A tap opens the profile card (a sheet on the mobile layout).
  */
 export function VoiceOccupantRow({
   guildId,
@@ -78,7 +77,7 @@ function SidebarOccupant({
   state: VoiceState
 }): React.JSX.Element {
   const mobile = useLayout() === 'mobile'
-  const { member, name, ink, speaking } = useSpeakingMember(guildId, state.userId)
+  const { member, name, speaking } = useSpeakingMember(guildId, state.userId)
   return (
     <li>
       <UserProfilePopover userId={state.userId} guildId={guildId}>
@@ -92,7 +91,6 @@ function SidebarOccupant({
           <UserAvatar
             name={name}
             avatar={member?.user.avatar}
-            color={ink}
             size={mobile ? 22 : 20}
             speaking={speaking}
           />
@@ -106,7 +104,7 @@ function SidebarOccupant({
 
 /**
  * The list row of M64: 56 high, avatar 32 with the presence dot (the live dot while they
- * share), the name in role ink, a detail line ("Sharing screen · muted"), then the marks. The
+ * share), a detail line ("Sharing screen · muted"), then the marks. The
  * detail line says what the marks show, so the marks stay out of the button's name.
  */
 function ListOccupant({
@@ -116,7 +114,7 @@ function ListOccupant({
   guildId: string
   state: VoiceState
 }): React.JSX.Element {
-  const { member, name, ink, speaking } = useSpeakingMember(guildId, state.userId)
+  const { member, name, speaking } = useSpeakingMember(guildId, state.userId)
   const status = usePresence(state.userId)
   const detail = occupantDetail(state)
   return (
@@ -129,7 +127,6 @@ function ListOccupant({
           <UserAvatar
             name={name}
             avatar={member?.user.avatar}
-            color={ink}
             size={32}
             status={status}
             live={state.selfStream}

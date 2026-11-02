@@ -5,7 +5,7 @@ import { Switch } from '@/components/ui/switch'
 import { useCopy } from '@/hooks/use-copy'
 import { cn } from '@/lib/utils'
 
-/** Mobile / Section Label (kit u9pnuQ): 11.5/800 caps over a list group, padding 4/4/0/4. */
+/** Mobile / Section Label (kit u9pnuQ): mono 10px caps over a list group, padding 4/4/0/4. */
 export function SectionLabel({
   className,
   ...props
@@ -41,16 +41,19 @@ export function ListGroup({
  * The tile colour of a row: a feature colour, pink activity (Notifications, M29) or neutral grey
  * ("Help and support").
  */
-export type ListRowTile = Feature | 'activity' | 'neutral'
+export type ListRowTile = Feature | 'activity' | 'neutral' | 'plain'
 
 const NEUTRAL_TILE = 'bg-surface-hover text-text-secondary'
+/** A bare icon, no tile behind it. */
+const PLAIN_TILE = 'size-[22px] bg-transparent text-text-tertiary'
 
 /** Rows are navigation, so their tiles are neutral; only voice and danger answer a question. */
 const TILE: Record<ListRowTile, string> = {
   ...FEATURE_TILE,
   accent: NEUTRAL_TILE,
   activity: NEUTRAL_TILE,
-  neutral: NEUTRAL_TILE
+  neutral: NEUTRAL_TILE,
+  plain: PLAIN_TILE
 }
 
 export interface ListRowToggle {

@@ -3,6 +3,7 @@ import { Check, Loader2, Lock, QrCode, RefreshCw, Smartphone, Smile, Timer } fro
 import { LINK_SESSION_TTL_MS, type CryptoEvents, type LinkStart } from '@hachiman/crypto'
 import { Button } from '@/components/ui/button'
 import { ErrorText } from '@/components/ui/field'
+import { LiveDots } from '@/components/security/screen-window'
 import { cryptoErrorText, friendly } from '@/components/security/errors'
 import {
   formatCountdown,
@@ -220,7 +221,7 @@ function LinkDialog({ title, onBack }: { title: string; onBack: () => void }): R
               Start over
             </Button>
             <span className="text-meta text-text-tertiary flex items-center gap-1.5">
-              <Lock aria-hidden className="size-3.5" />
+              <Lock aria-hidden className="text-text-tertiary size-3.5" />
               Keys travel end-to-end encrypted
             </span>
           </>
@@ -575,7 +576,7 @@ function LinkStep({
 export function Waiting({ children }: { children: React.ReactNode }): React.JSX.Element {
   return (
     <p role="status" className="text-live-text flex items-center gap-2 font-semibold">
-      <Loader2 aria-hidden className="size-4 animate-spin" />
+      <LiveDots />
       {children}
     </p>
   )

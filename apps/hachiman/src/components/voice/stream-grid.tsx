@@ -97,7 +97,7 @@ function StreamTile({
   focused: boolean
   onToggleFocus: () => void
 }): React.JSX.Element {
-  const { name, ink, avatar } = useMemberView(guildId, userId)
+  const { name, avatar } = useMemberView(guildId, userId)
   const frame = useRef<HTMLDivElement>(null)
   const [fullscreen, toggleFullscreen] = useFullscreen(frame)
   const playing = stream !== null && (self || watched)
@@ -113,7 +113,7 @@ function StreamTile({
         ) : !self && !watched ? (
           <div className="flex size-full flex-col items-center justify-center gap-3">
             <MonitorUp className="text-text-disabled size-[30px]" aria-hidden />
-            <UserAvatar name={name} avatar={avatar} color={ink} size={46} />
+            <UserAvatar name={name} avatar={avatar} size={46} />
             <Button variant="voice" onClick={() => voiceService.setWatching(userId, true)}>
               <Eye />
               Watch stream

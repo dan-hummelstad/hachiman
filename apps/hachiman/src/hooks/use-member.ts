@@ -1,7 +1,6 @@
 import type { Member, PresenceStatus, User } from '@hachiman/client'
 import { useAction } from '@/hooks/use-action'
-import { displayName, roleColor } from '@/lib/model'
-import { roleInk } from '@/lib/role-ink'
+import { displayName } from '@/lib/model'
 import { openDmWith } from '@/services/hachiman'
 import { useChannelStore } from '@/stores/channelStore'
 import { useGuildStore } from '@/stores/guildStore'
@@ -15,23 +14,20 @@ export function usePresence(userId: string | null | undefined): PresenceStatus {
 
 /**
  * A guild member as rendered: the member (undefined outside a guild or if unknown), their display
- * name and avatar key (both falling back to `user` for DMs), and their role ink (role color
- * adjusted for the theme; needs a ROLE_INK_SCOPE ancestor).
+ * name and avatar key (both falling back to `user` for DMs).
  */
 export function useMemberView(
   guildId: string | null | undefined,
   userId: string,
   user?: User
-): { member: Member | undefined; name: string; avatar: string | null; ink: string | undefined } {
+): { member: Member | undefined; name: string; avatar: string | null } {
   const member = useGuildStore((s) => (guildId ? s.members.get(guildId)?.get(userId) : undefined))
-  const roles = useGuildStore((s) => (guildId ? s.roles.get(guildId) : undefined))
   const known = useDmUser(guildId || user ? null : userId)
   const who = user ?? known
   return {
     member,
     name: displayName(member, who),
-    avatar: member?.user.avatar ?? who?.avatar ?? null,
-    ink: roleInk(roleColor(member, roles))
+    avatar: member?.user.avatar ?? who?.avatar ?? null
   }
 }
 

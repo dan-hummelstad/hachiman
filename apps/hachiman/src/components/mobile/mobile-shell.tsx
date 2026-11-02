@@ -28,6 +28,7 @@ import { GuildChannelList } from '@/components/sidebar/guild-channels'
 import { VoiceDock } from '@/components/voice-connected-panel'
 import { IncomingCall } from '@/components/voice/incoming-call'
 import { useAppShortcuts } from '@/hooks/use-app-shortcuts'
+import { MobileConnectionBand } from '@/components/system/connection-banner'
 import { useDefaultChannel } from '@/hooks/use-default-channel'
 import { useNativeAppearance, useResolvedTheme } from '@/hooks/use-native-appearance'
 import { isAutoSelect } from '@/lib/auto-select'
@@ -208,6 +209,7 @@ export function MobileShell(): React.JSX.Element {
       )}
     >
       <div inert={drawerOpen || pushed || inboxOpen} className="flex min-h-0 flex-1 flex-col">
+        <MobileConnectionBand />
         <div className="contents" inert={localPushed}>
           <MobileTabStrip />
         </div>

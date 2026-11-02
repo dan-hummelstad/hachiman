@@ -14,13 +14,14 @@ import { PRESENCE_LABEL } from '@/components/ui/presence'
 import { canHoldThreads } from '@/components/threads/thread-name'
 import { ThreadsButton } from '@/components/threads/threads-button'
 import { DmCallButton } from '@/components/voice/dm-call'
-import { VoiceHeaderExtras, VoiceHeaderMeta } from '@/components/voice/voice-header'
+import { CallClock, VoiceHeaderExtras, VoiceHeaderMeta } from '@/components/voice/voice-header'
 import { usePresence } from '@/hooks/use-member'
 import { joinNames, useChannelAccess, type ChannelAccess } from '@/lib/channel-access'
 import { channelLabel, isGuildChannel } from '@/lib/model'
 import { cn } from '@/lib/utils'
 import { useChannelStore } from '@/stores/channelStore'
 import { useGuildStore } from '@/stores/guildStore'
+import { useVoiceStore } from '@/stores/voiceStore'
 
 /** What the right drawer shows: the member list, the pages of a pages channel, a DM's profile. */
 export type MobileSide = 'members' | 'pages' | 'profile'
@@ -162,6 +163,7 @@ function DmLines({ channel }: { channel: Channel }): React.JSX.Element {
   const solo = soloOf(channel)
   const status = usePresence(solo?.id)
   const name = channelLabel(channel).name
+  const inCall = useVoiceStore((s) => s.channelId === channel.id)
   return (
     <>
       {solo ? (
@@ -183,6 +185,7 @@ function DmLines({ channel }: { channel: Channel }): React.JSX.Element {
         <span className={cn(NAME, 'max-w-full text-[15px]')}>{name}</span>
         {solo && <DmLine2 userId={solo.id} status={status} />}
       </span>
+      {inCall && <CallClock channelId={channel.id} />}
     </>
   )
 }
@@ -279,13 +282,21 @@ function ThreadLines({ thread }: { thread: Channel }): React.JSX.Element {
   const parent = useChannelStore((s) =>
     thread.parentId ? s.channels.get(thread.parentId) : undefined
   )
+  const guildName = useGuildStore((s) =>
+    thread.guildId ? s.guilds.get(thread.guildId)?.name : undefined
+  )
   return (
     <>
       <span className="flex max-w-full min-w-0 items-center gap-[5px]">
-        <MessagesSquare className="text-text-secondary size-[18px] shrink-0" aria-hidden />
+        <MessagesSquare className="text-text-tertiary size-[18px] shrink-0" aria-hidden />
         <span className={NAME}>{thread.name}</span>
       </span>
-      {parent && <span className={LINE_2}>Thread in #{parent.name}</span>}
+      {parent && (
+        <span className={LINE_2}>
+          # {parent.name}
+          {guildName && ` · ${guildName}`}
+        </span>
+      )}
     </>
   )
 }

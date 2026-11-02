@@ -154,7 +154,7 @@ export function ParticipantTile({
   /** Mobile layout: a touch hold on the tile. */
   onHold?: (userId: string) => void
 }): React.JSX.Element {
-  const { member, name, ink, speaking } = useSpeakingMember(guildId, userId)
+  const { member, name, speaking } = useSpeakingMember(guildId, userId)
   const mobile = useLayout() === 'mobile'
   const press = useLongPress(() => onHold?.(userId), { enabled: onHold !== undefined })
   const pending = status !== null && status !== 'secure'
@@ -183,7 +183,6 @@ export function ParticipantTile({
           <UserAvatar
             name={name}
             avatar={member?.user.avatar}
-            color={ink}
             size={small ? (mobile ? 38 : 46) : mobile ? 58 : 76}
           />
           <span className="flex max-w-full flex-col items-center gap-1.5">
