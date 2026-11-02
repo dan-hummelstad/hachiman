@@ -24,7 +24,7 @@ export function VolumeRange({
       value={Math.round(audio.volume * 100)}
       disabled={audio.muted}
       onChange={(e) => onVolume(Number(e.target.value) / 100)}
-      className={cn('accent-accent-primary disabled:opacity-50', className)}
+      className={cn('accent-(--text-primary) disabled:opacity-50', className)}
     />
   )
 }

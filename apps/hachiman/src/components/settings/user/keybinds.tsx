@@ -2,7 +2,7 @@ import { useEffect, useId, useState } from 'react'
 import { RotateCcw, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Callout } from '@/components/ui/callout'
-import { ErrorText, SectionHeading } from '@/components/ui/field'
+import { ErrorText } from '@/components/ui/field'
 import { IconButton } from '@/components/ui/icon-button'
 import { Keycap } from '@/components/ui/keycap'
 import { Switch } from '@/components/ui/switch'
@@ -24,6 +24,8 @@ import { usePlatform } from '@/shared/PlatformContext'
 import { usePrefsStore } from '@/stores/prefsStore'
 
 const GROUPS = ['Navigation', 'Voice'] as const
+/** Row actions show on hover and on keyboard focus. */
+const REVEAL = 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100'
 const LABEL = new Map(KEYBINDS.map((k) => [k.id, k.label]))
 
 /** User settings → Keybinds: rebind the app keys, with a recorder, reset and a conflict warning. */
@@ -41,11 +43,11 @@ export function KeybindsSection(): React.JSX.Element {
   }, [recording])
 
   return (
-    <div className="grid gap-8">
+    <div className="grid gap-x-[30px] gap-y-[22px] xl:grid-cols-2">
       {GROUPS.map((group) => (
         <section key={group}>
-          <SectionHeading>{group}</SectionHeading>
-          <div className="border-line-hairline divide-line-hairline divide-y border">
+          <h3 className="cap mb-[9px]">{group}</h3>
+          <div>
             {KEYBINDS.filter((k) => k.group === group).map((k) => (
               <KeybindRow
                 key={k.id}
@@ -57,7 +59,7 @@ export function KeybindsSection(): React.JSX.Element {
             ))}
           </div>
           {group === 'Voice' && (
-            <p className="text-meta text-text-tertiary mt-2">
+            <p className="text-text-tertiary mt-2 text-[12px]">
               Push to talk works only while the Hachiman window is focused. Turn it on in Voice and
               audio.
             </p>
@@ -65,12 +67,12 @@ export function KeybindsSection(): React.JSX.Element {
         </section>
       ))}
       {desktop && <GlobalKeybinds binds={binds} />}
-      <section>
-        <SectionHeading>Fixed keys</SectionHeading>
-        <div className="border-line-hairline divide-line-hairline divide-y border">
+      <section className="xl:col-span-2">
+        <h3 className="cap mb-[9px]">Fixed keys</h3>
+        <div className="grid gap-x-[30px] xl:grid-cols-2">
           {FIXED_KEYBINDS.map((f) => (
-            <div key={f.label} className="flex min-h-11 items-center gap-3 px-3.5 py-2">
-              <span className="text-label flex-1">{f.label}</span>
+            <div key={f.label} className="flex h-[30px] items-center gap-[9px]">
+              <span className="text-text-secondary flex-1 text-[12.5px]">{f.label}</span>
               <Keycap>
                 {formatCombo(f.combos[0])}
                 {f.combos.length > 1 && ` … ${formatCombo(f.combos[f.combos.length - 1])}`}
@@ -80,8 +82,8 @@ export function KeybindsSection(): React.JSX.Element {
         </div>
       </section>
       {Object.keys(overrides).length > 0 && (
-        <div>
-          <Button variant="secondary" onClick={() => resetKeybind()}>
+        <div className="xl:col-span-2">
+          <Button variant="quiet" size="sm" onClick={() => resetKeybind()}>
             <RotateCcw />
             Reset all to default
           </Button>
@@ -125,9 +127,9 @@ function KeybindRow({
   }
 
   return (
-    <div className="grid gap-1 px-3.5 py-2">
-      <div className="flex min-h-7 items-center gap-2">
-        <span className="text-label flex-1">{spec.label}</span>
+    <div className="group grid gap-1">
+      <div className="flex h-[30px] items-center gap-[9px]">
+        <span className="text-text-secondary flex-1 text-[12.5px]">{spec.label}</span>
         <button
           type="button"
           onClick={() => {
@@ -138,12 +140,12 @@ function KeybindRow({
           onBlur={() => recording && onRecord(false)}
           aria-label={`${spec.label}: ${combo ? formatCombo(combo) : 'no key'}. Press to change.`}
           className={cn(
-            'rounded-control border-line-hairline inline-flex h-7 min-w-28 items-center justify-center border px-2 font-mono text-[12px] outline-none focus-visible:outline-2 focus-visible:outline-line-focus',
+            'border-line-strong hover:text-text-primary hover:border-text-disabled focus-visible:outline-line-focus inline-flex h-auto min-w-0 items-center rounded-[4px] border px-[5px] py-[3px] font-mono text-[10px] leading-none outline-none focus-visible:outline-2',
             recording
-              ? 'border-accent-primary text-accent-text'
+              ? 'border-text-primary text-text-primary'
               : combo
-                ? 'text-text-primary hover:bg-surface-hover'
-                : 'text-text-tertiary hover:bg-surface-hover'
+                ? 'text-text-tertiary'
+                : 'text-text-disabled'
           )}
         >
           {recording ? 'Press keys…' : combo ? formatCombo(combo) : 'Not set'}
@@ -151,6 +153,7 @@ function KeybindRow({
         <IconButton
           label="Remove key"
           size="sm"
+          className={REVEAL}
           disabled={combo === null}
           onClick={() => setKeybind(spec.id, null)}
         >
@@ -159,6 +162,7 @@ function KeybindRow({
         <IconButton
           label="Reset to default"
           size="sm"
+          className={REVEAL}
           disabled={!changed}
           onClick={() => resetKeybind(spec.id)}
         >
@@ -166,7 +170,7 @@ function KeybindRow({
         </IconButton>
       </div>
       {others.length > 0 && (
-        <p className="text-meta text-feature-event-text">
+        <p className="text-you-text text-[12px]">
           Also used by {others.map((a) => LABEL.get(a)).join(', ')}. Only the first one acts.
         </p>
       )}
@@ -187,11 +191,11 @@ function GlobalKeybinds({ binds }: { binds: Keybinds }): React.JSX.Element {
     return combo !== null && !toAccelerator(combo)
   })
   return (
-    <section className="grid gap-3">
-      <SectionHeading className="mb-0">In the background</SectionHeading>
+    <section className="grid gap-3 xl:col-span-2">
+      <h3 className="cap">In the background</h3>
       <div className="flex items-center gap-3">
         <Switch id={id} checked={on} onCheckedChange={setOn} />
-        <label htmlFor={id} className="text-label cursor-pointer">
+        <label htmlFor={id} className="text-text-primary cursor-pointer text-[13px]">
           The mute and deafen keys also work while Hachiman is in the background
         </label>
       </div>

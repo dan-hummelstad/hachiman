@@ -9,6 +9,7 @@ import { useAction } from '@/hooks/use-action'
 import { LONG_PRESS_TARGET, useLongPress, type LongPressHandlers } from '@/hooks/use-long-press'
 import { useMemberView } from '@/hooks/use-member'
 import { showsLinkPreview } from '@/lib/link-preview'
+import { memberRoles } from '@/lib/model'
 import { pageLinksOf, stripPageLinks } from '@/lib/page-link-text'
 import { TOUCH_HIT_BAND } from '@/lib/touch'
 import { cn } from '@/lib/utils'
@@ -16,6 +17,7 @@ import { messagesService } from '@/services/MessagesService'
 import type { ChatMessage } from '@/stores/messagesStore'
 import type { MessageDisplay } from '@/stores/prefsStore'
 import { openDialog } from '@/stores/dialogStore'
+import { useGuildStore } from '@/stores/guildStore'
 import { useIsBlocked, useUserStore } from '@/stores/userStore'
 import { MessageAttachments } from './attachments/message-attachments'
 import { messageMentionsMe, tokenize, type Token } from '@/lib/mentions'
@@ -73,7 +75,7 @@ function BlockedRow({
 }): React.JSX.Element {
   return (
     <div
-      className="text-text-tertiary mx-2 flex items-center gap-2 px-2.5 py-1 text-[13px] leading-5"
+      className="text-text-tertiary flex items-center gap-2 px-3.5 py-1 text-[13px] leading-5"
       data-message-id={message.id}
     >
       <EyeOff className="size-3.5 shrink-0" aria-hidden />
@@ -87,7 +89,9 @@ function BlockedRow({
 function MessageRow(props: TranscriptRowProps): React.JSX.Element {
   const { message, display, guildId, editing, policy, onEditingChange, onActions } = props
   const mobile = onActions !== undefined
-  const { name, avatar, ink } = useMemberView(guildId, message.author.id, message.author)
+  const { member, name, avatar } = useMemberView(guildId, message.author.id, message.author)
+  const roles = useGuildStore((s) => (guildId ? s.roles.get(guildId) : undefined))
+  const roleTag = memberRoles(member, roles).find((r) => r.hoist)?.name
   const me = useUserStore((s) => s.me)
   const text = useMemo(() => stripPageLinks(message.content), [message.content])
   const pageIds = useMemo(() => pageLinksOf(message.content), [message.content])
@@ -116,7 +120,7 @@ function MessageRow(props: TranscriptRowProps): React.JSX.Element {
       type="button"
       data-slot="message-actions-button"
       // Hidden until a keyboard reaches it (an iPad keyboard, a narrow browser window).
-      className="focus-visible:rounded-control focus-visible:bg-surface-raised focus-visible:outline-line-focus sr-only z-10 focus-visible:not-sr-only focus-visible:absolute focus-visible:top-1 focus-visible:right-2 focus-visible:px-2.5 focus-visible:py-1.5 focus-visible:text-xs focus-visible:font-bold focus-visible:outline-2"
+      className="focus-visible:rounded-control focus-visible:bg-surface-raised focus-visible:outline-line-focus sr-only z-10 focus-visible:not-sr-only focus-visible:absolute focus-visible:top-1 focus-visible:right-2 focus-visible:px-2.5 focus-visible:py-1.5 focus-visible:text-xs focus-visible:font-semibold focus-visible:outline-2"
       aria-label={`Actions for ${name}'s message, ${formatTime(message.createdAt)}`}
       onClick={(e) => {
         const row = e.currentTarget.parentElement
@@ -182,33 +186,30 @@ function MessageRow(props: TranscriptRowProps): React.JSX.Element {
     <button
       type="button"
       className={cn(
-        'inline-block max-w-full cursor-pointer truncate align-top font-bold hover:underline',
+        'text-text-primary inline-block max-w-full cursor-pointer truncate align-top text-[14px] font-semibold tracking-[-0.1px] hover:underline',
         'focus-visible:outline-line-focus outline-none focus-visible:outline-2',
         // On the phone the name's hit area is 36 tall (spec §2.10): it fills a compact row. The
         // padding stays out of the line box, and its column does not clip it.
-        'mobile:-my-[7px] mobile:py-[7px]',
-        !ink && 'text-text-primary'
+        'mobile:-my-[7px] mobile:py-[7px] mobile:text-[13px]'
       )}
-      style={ink ? { color: ink } : undefined}
     >
       {name}
     </button>
   )
 
-  // A rounded hover block inside the transcript gutter (Arc: rounded is interaction).
+  // A square row; a mention (the `you` answer) tints the row and carries a left bar.
   const rowClass = cn(
-    'group/row rounded-control relative mx-2 px-2.5',
+    'group/row relative pr-6 pl-3.5',
     !editing && 'hover:bg-surface-hover',
     editing && 'bg-surface-hover',
-    mentioned &&
-      'bg-feature-event/10 hover:bg-feature-event/15 rounded-l-none shadow-[inset_3px_0_0_var(--feature-event)]',
+    mentioned && 'bg-you-tint hover:bg-you-tint shadow-[inset_2px_0_0_var(--you)]',
     message.pending && !message.failed && 'opacity-50',
-    // The touch row (M1, M5): a 9 px block in the 4 px gutter; a mention bar inset in it. No
-    // text selection under a hold, except in the edit field (WebKit carries it into the field).
-    mobile && cn(!editing && LONG_PRESS_TARGET, 'mx-1 rounded-[9px] px-3'),
+    // The touch row (M1, M5). No text selection under a hold, except in the edit field (WebKit
+    // carries it into the field).
+    mobile && cn(!editing && LONG_PRESS_TARGET, 'pr-3.5 pl-3'),
     mobile &&
       mentioned &&
-      "shadow-none before:bg-feature-event before:absolute before:inset-y-1.5 before:left-1 before:w-[3px] before:rounded-[2px] before:content-['']"
+      "shadow-none before:bg-you before:absolute before:inset-y-0 before:left-0 before:w-[3px] before:content-['']"
   )
 
   if (display === 'compact') {
@@ -224,7 +225,7 @@ function MessageRow(props: TranscriptRowProps): React.JSX.Element {
           <span className="mobile:overflow-visible w-[10ch] shrink-0 truncate text-right leading-[22px]">
             {author}
           </span>
-          <div className="max-w-[90ch] min-w-0 flex-1">{body}</div>
+          <div className="max-w-[740px] min-w-0 flex-1">{body}</div>
         </div>
         {toolbar}
         {actionsButton}
@@ -236,14 +237,14 @@ function MessageRow(props: TranscriptRowProps): React.JSX.Element {
     <div
       className={cn(
         rowClass,
-        mobile ? (groupStart ? 'py-2' : 'pt-0 pb-2') : cn('py-0.5', groupStart && 'mt-2 pt-1.5')
+        mobile ? (groupStart ? 'py-[7px]' : 'pt-0 pb-[7px]') : groupStart ? 'mt-2 py-2' : 'py-0.5'
       )}
       data-message-id={message.id}
       {...touch}
     >
       {quote}
-      <div className="flex gap-3.5">
-        <div className="flex w-10 shrink-0 justify-center">
+      <div className="mobile:gap-2.5 flex gap-3.5">
+        <div className="mobile:w-8 flex w-9 shrink-0 justify-center">
           {groupStart ? (
             profile(
               // The name is the keyboard path to the same card; keep the avatar out of the tab order.
@@ -253,21 +254,29 @@ function MessageRow(props: TranscriptRowProps): React.JSX.Element {
                 aria-label={name}
                 className="mt-0.5 h-fit cursor-pointer rounded-full"
               >
-                <UserAvatar avatar={avatar} name={name} color={ink} size={40} />
+                <UserAvatar avatar={avatar} name={name} size={mobile ? 32 : 36} />
               </button>
             )
           ) : (
             <Timestamp
               iso={message.createdAt}
-              className="text-[11px] leading-[22px] opacity-0 group-hover/row:opacity-100"
+              className="text-[9px] leading-[22px] opacity-0 group-hover/row:opacity-100"
             />
           )}
         </div>
-        <div className="max-w-[90ch] min-w-0 flex-1">
+        <div className="mobile:gap-1 flex max-w-[740px] min-w-0 flex-1 flex-col gap-[5px]">
           {groupStart && (
-            <div className="flex items-baseline gap-2 text-[15px] leading-[22px]">
+            <div className="mobile:gap-[7px] flex items-center gap-2 leading-[17px]">
               {author}
-              <Timestamp iso={message.createdAt} />
+              {roleTag && (
+                <span className="rounded-badge border-line-strong text-text-tertiary border px-1 py-0.5 font-mono text-[8.5px] leading-none tracking-[0.9px] uppercase">
+                  {roleTag}
+                </span>
+              )}
+              <Timestamp
+                iso={message.createdAt}
+                className="mobile:text-[8.5px] mobile:tracking-[0.7px]"
+              />
             </div>
           )}
           {body}
@@ -312,7 +321,10 @@ function Timestamp({ iso, className }: { iso: string; className?: string }): Rea
     <time
       dateTime={iso}
       title={formatFull(iso)}
-      className={cn('text-text-tertiary text-meta tabular-nums', className)}
+      className={cn(
+        'text-text-disabled font-mono text-[9.5px] tracking-[0.8px] tabular-nums',
+        className
+      )}
     >
       {formatTime(iso)}
     </time>
@@ -346,7 +358,7 @@ function MessageBody({
     return (
       <div
         role="note"
-        className="border-feature-danger/40 bg-feature-danger/10 text-feature-danger-text my-0.5 inline-flex max-w-full items-center gap-2 border px-2.5 py-1.5 text-[13.5px] leading-5 font-semibold"
+        className="border-you/40 bg-you-tint text-you-text rounded-control my-0.5 inline-flex max-w-full items-center gap-2 border px-2.5 py-1.5 text-[13.5px] leading-5 font-semibold"
       >
         <CircleAlert className="size-4 shrink-0" aria-hidden />
         <span className="min-w-0">{unreadable}</span>
@@ -370,10 +382,11 @@ function MessageBody({
       {showText && (
         <p
           className={cn(
-            'text-body break-words whitespace-pre-wrap',
+            'break-words whitespace-pre-wrap',
+            'text-[14.5px] leading-[1.55]',
             // The mobile text size slider (M31); `ThemeProvider` writes the variable.
-            'mobile:text-[length:var(--message-text-size,15px)] mobile:leading-[1.45]',
-            message.failed ? 'text-feature-danger-text' : 'text-text-primary'
+            'mobile:text-[length:var(--message-text-size,13.5px)] mobile:leading-[1.45]',
+            message.failed ? 'text-you-text' : 'text-text-primary'
           )}
         >
           <MessageTokens
@@ -382,7 +395,9 @@ function MessageBody({
             from={{ userId: message.author.id, channelId: message.channelId }}
           />
           {message.editedAt && (
-            <span className="text-text-tertiary ml-1.5 text-[11px] select-none">(edited)</span>
+            <span className="text-text-disabled ml-1.5 font-mono text-[9px] tracking-[0.6px] uppercase select-none">
+              edited
+            </span>
           )}
         </p>
       )}
@@ -392,7 +407,7 @@ function MessageBody({
           className="mobile:gap-x-3 mobile:flex-nowrap flex flex-wrap items-center gap-2 py-1 text-[13px] leading-5 font-semibold"
         >
           {/* Mobile (M1): the reason wraps in its own column, Retry and Delete stay beside it. */}
-          <span className="text-feature-danger-text mobile:min-w-0 mobile:flex-1 inline-flex items-center gap-1.5">
+          <span className="text-you-text mobile:min-w-0 mobile:flex-1 inline-flex items-center gap-1.5">
             <CircleAlert className="size-4 shrink-0" aria-hidden />
             {message.sendError ?? 'Not sent.'}
           </span>
@@ -467,7 +482,7 @@ function EditBox({
             onDone()
           } else submitOnEnter(e, () => void save())
         }}
-        className="rounded-option bg-surface-raised border-line-hairline focus-visible:border-accent-primary text-body field-sizing-content block max-h-[198px] min-h-[38px] w-full resize-none border px-3 py-2 outline-none"
+        className="rounded-control bg-surface-raised border-line-hairline focus-visible:border-line-strong text-body field-sizing-content block max-h-[198px] min-h-[38px] w-full resize-none border px-3 py-2 outline-none"
       />
       <p className="text-text-tertiary mobile:hidden pt-1 text-xs">
         Enter to <LinkButton onClick={() => void save()}>save</LinkButton>, Esc to{' '}

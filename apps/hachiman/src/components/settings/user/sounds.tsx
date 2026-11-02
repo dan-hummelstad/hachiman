@@ -1,9 +1,8 @@
 import { useId } from 'react'
 import { Play, Volume, Volume1, Volume2 } from 'lucide-react'
-import { ListGroup, SectionLabel } from '@/components/mobile/list'
 import { SOUND_ROWS, soundRowOn } from '@/components/settings/user/sound-rows'
 import { TouchRange } from '@/components/mobile/touch-range'
-import { SectionHeading } from '@/components/ui/field'
+import { MobileCap, MobileCard, RangeInput, SettingsCap, ToggleRow } from '@/components/settings/user/rows'
 import { IconButton } from '@/components/ui/icon-button'
 import { Switch } from '@/components/ui/switch'
 import { SOUND_EVENTS, type SoundEvent } from '@/lib/sounds'
@@ -41,76 +40,64 @@ export function SoundSettings(): React.JSX.Element {
   const setEnabled = usePrefsStore((s) => s.setSoundsEnabled)
   const setVolume = usePrefsStore((s) => s.setSoundVolume)
   const setSoundEnabled = usePrefsStore((s) => s.setSoundEnabled)
-  const id = useId()
   const percent = Math.round(volume * 100)
   // Column-major: the first half fills the left column.
   const half = Math.ceil(SOUND_EVENTS.length / 2)
 
   return (
-    <section className="grid gap-3">
-      <SectionHeading className="mb-0">Sounds</SectionHeading>
-      <div className="flex items-center gap-3">
-        <Switch id={`${id}-all`} checked={enabled} onCheckedChange={setEnabled} />
-        <label htmlFor={`${id}-all`} className="text-label w-40 cursor-pointer">
-          Play sounds
-        </label>
-        <Volume aria-hidden className="text-text-tertiary size-4 shrink-0" />
-        <input
-          aria-label="Sound volume"
-          type="range"
-          min={0}
-          max={100}
-          value={percent}
-          disabled={!enabled}
-          onChange={(e) => setVolume(Number(e.target.value) / 100)}
-          // ponytail: previews on pointer release only; keyboard users have the play buttons.
-          onPointerUp={() => previewSound('message')}
-          className="accent-accent-primary min-w-0 flex-1 disabled:opacity-50"
-        />
-        <Volume2 aria-hidden className="text-text-tertiary size-4 shrink-0" />
-        <span className="text-meta text-text-secondary w-9 text-right tabular-nums">
-          {percent}%
-        </span>
-      </div>
+    <section>
+      <SettingsCap>Sounds</SettingsCap>
+      <ToggleRow
+        title="Play sounds"
+        hint="Chimes for messages, calls and voice events."
+        checked={enabled}
+        onChange={setEnabled}
+        trailing={
+          <span className="flex w-60 items-center gap-2">
+            <Volume aria-hidden className="text-text-tertiary size-4 shrink-0" />
+            <RangeInput
+              aria-label="Sound volume"
+              fraction={percent / 100}
+              min={0}
+              max={100}
+              value={percent}
+              disabled={!enabled}
+              onChange={(e) => setVolume(Number(e.target.value) / 100)}
+              // ponytail: previews on pointer release only; keyboard users have the play buttons.
+              onPointerUp={() => previewSound('message')}
+            />
+            <Volume2 aria-hidden className="text-text-tertiary size-4 shrink-0" />
+            <span className="text-text-secondary w-9 text-right text-[12.5px] tabular-nums">
+              {percent}%
+            </span>
+          </span>
+        }
+      />
       <ul
-        className="grid grid-flow-col gap-x-10 gap-y-0.5"
+        className="grid grid-flow-col gap-x-10"
         style={{ gridTemplateRows: `repeat(${half}, auto)` }}
       >
         {SOUND_EVENTS.map((event) => {
           const on = !disabled.includes(event)
           return (
-            <li
-              key={event}
-              className={cn(
-                'flex h-9 items-center gap-2',
-                (!enabled || !on) && 'text-text-tertiary'
-              )}
-            >
-              <label
-                htmlFor={`${id}-${event}`}
-                className="text-label flex min-w-0 flex-1 items-baseline gap-2 font-medium"
-              >
-                <span className="truncate">{SOUND_LABELS[event]}</span>
-                {SOUND_HINTS[event] && (
-                  <span className="text-meta text-text-tertiary truncate">
-                    {SOUND_HINTS[event]}
-                  </span>
-                )}
-              </label>
-              <IconButton
-                size="sm"
-                label={`Play "${SOUND_LABELS[event]}"`}
-                className="rounded-pill border-line-hairline border"
-                disabled={!enabled}
-                onClick={() => previewSound(event)}
-              >
-                <Play />
-              </IconButton>
-              <Switch
-                id={`${id}-${event}`}
+            <li key={event}>
+              <ToggleRow
+                title={SOUND_LABELS[event]}
+                hint={SOUND_HINTS[event]}
                 checked={on}
                 disabled={!enabled}
-                onCheckedChange={(v) => setSoundEnabled(event, v)}
+                onChange={(v) => setSoundEnabled(event, v)}
+                className="min-h-11"
+                trailing={
+                  <IconButton
+                    size="sm"
+                    label={`Play "${SOUND_LABELS[event]}"`}
+                    disabled={!enabled}
+                    onClick={() => previewSound(event)}
+                  >
+                    <Play />
+                  </IconButton>
+                }
               />
             </li>
           )
@@ -136,13 +123,13 @@ export function SoundSettingsMobile(): React.JSX.Element {
 
   return (
     <section className="grid gap-1.5" aria-labelledby={`${id}-heading`}>
-      <SectionLabel id={`${id}-heading`}>Sounds</SectionLabel>
-      <ListGroup>
+      <MobileCap id={`${id}-heading`}>Sounds</MobileCap>
+      <MobileCard>
         <div className="flex min-h-[50px] items-center gap-3 px-3.5">
           <Switch size="touch" id={`${id}-all`} checked={enabled} onCheckedChange={setEnabled} />
           <label
             htmlFor={`${id}-all`}
-            className="text-text-primary flex cursor-pointer items-center self-stretch text-[15px] leading-[18px] font-bold whitespace-nowrap"
+            className="text-text-primary flex cursor-pointer items-center self-stretch text-[15px] leading-[18px] font-semibold whitespace-nowrap"
           >
             Play sounds
           </label>
@@ -158,7 +145,7 @@ export function SoundSettingsMobile(): React.JSX.Element {
             onChange={(e) => setVolume(Number(e.target.value) / 100)}
             onPointerUp={() => previewSound('message')}
           />
-          <span className="text-text-secondary w-9 shrink-0 text-right text-[13px] leading-4 font-bold tabular-nums">
+          <span className="text-text-secondary w-9 shrink-0 text-right text-[13px] leading-4 font-semibold tabular-nums">
             {percent}%
           </span>
         </div>
@@ -195,7 +182,7 @@ export function SoundSettingsMobile(): React.JSX.Element {
                 onClick={() => previewSound(row.events[0])}
                 className="group rounded-pill -mx-1.5 flex size-11 shrink-0 items-center justify-center outline-none focus-visible:outline-2 focus-visible:-outline-offset-4 focus-visible:outline-line-focus disabled:opacity-50"
               >
-                <span className="rounded-pill bg-surface-hover text-text-secondary group-active:bg-fill-control-strong flex size-8 items-center justify-center">
+                <span className="rounded-pill bg-surface-hover text-text-secondary group-active:bg-surface-selected flex size-8 items-center justify-center">
                   <Play aria-hidden className="size-[13px]" />
                 </span>
               </button>
@@ -209,7 +196,7 @@ export function SoundSettingsMobile(): React.JSX.Element {
             </div>
           )
         })}
-      </ListGroup>
+      </MobileCard>
     </section>
   )
 }

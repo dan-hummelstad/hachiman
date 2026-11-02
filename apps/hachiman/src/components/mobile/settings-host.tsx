@@ -94,7 +94,7 @@ function ListedSettings({
         onBack={closeSettings}
         backLabel="Close settings"
         bodyClassName={
-          user ? 'gap-3.5 pt-3.5 pb-[calc(12px+var(--safe-bottom,0px))]' : 'gap-[22px]'
+          user ? 'gap-0 px-0 pt-0 pb-[calc(12px+var(--safe-bottom,0px))]' : 'gap-[22px]'
         }
       >
         <SettingsList
@@ -104,7 +104,7 @@ function ListedSettings({
           header={
             user ? (
               <SettingsProfile
-                onOpen={() => setSettingsSection('account')}
+                onOpen={() => setSettingsSection('profile')}
                 onStatus={model.onStatus}
               />
             ) : undefined

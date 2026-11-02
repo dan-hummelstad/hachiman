@@ -4,6 +4,7 @@ import type { NotifyPrefs } from '@/lib/notify'
 import type { ChatMessage } from '@/stores/messagesStore'
 import type { ChannelUnread } from '@/stores/unreadStore'
 import {
+  dayGroups,
   filterInbox,
   inboxCounts,
   inboxEntries,
@@ -17,7 +18,7 @@ import {
 const ch = (id: string, guildId: string | null, position = 0): Channel => ({
   id,
   guildId,
-  type: guildId === null ? 'dm' : 'text',
+  type: guildId === null ? 'dm' : id === 'th' ? 'thread' : 'text',
   name: id,
   topic: null,
   parentId: null,
@@ -28,7 +29,7 @@ const ch = (id: string, guildId: string | null, position = 0): Channel => ({
 })
 
 const channels = new Map(
-  [ch('a', 'g1', 1), ch('b', 'g1', 0), ch('c', 'g2'), ch('dm', null)].map((c) => [c.id, c])
+  [ch('a', 'g1', 1), ch('b', 'g1', 0), ch('c', 'g2'), ch('dm', null), ch('th', 'g1', 2)].map((c) => [c.id, c])
 )
 const guilds = new Map([
   ['g1', { name: 'Night Owls' }],
@@ -169,20 +170,55 @@ describe('inbox screen entries', () => {
       'mention:m2',
       'mention:m3'
     ])
-    expect(keys(filterInbox(entries, 'channels'))).toEqual([
+    expect(keys(filterInbox(entries, 'unreads'))).toEqual([
       'channel:a',
       'channel:b',
       'channel:c',
       'channel:dm'
     ])
-    expect(inboxCounts(entries)).toEqual({ all: 5, mentions: 3, channels: 4 })
+    expect(inboxCounts(entries)).toEqual({ all: 5, mentions: 3, unreads: 4, threads: 0 })
+  })
+
+  it('filters the entries of thread channels', () => {
+    const entries = inboxEntries(
+      [
+        { ...mention('th', 'm1', '2026-10-07T10:00:00Z'), channelType: 'thread' },
+        mention('a', 'm2', '2026-10-07T09:00:00Z')
+      ],
+      [unreadChannel('th', 2), unreadChannel('a', 3)],
+      new Map()
+    )
+    expect(keys(filterInbox(entries, 'threads'))).toEqual(['mention:m1', 'channel:th'])
+    expect(inboxCounts(entries).threads).toBe(2)
+  })
+
+  it('cuts the entries by local day', () => {
+    const now = new Date(2026, 9, 7, 15, 0).getTime()
+    const at = (d: number, h: number): string => new Date(2026, 9, d, h).toISOString()
+    const entries = inboxEntries(
+      [
+        mention('a', 'm1', at(7, 9)),
+        mention('a', 'm2', at(6, 23)),
+        mention('a', 'm3', at(4, 12)),
+        mention('c', 'm4')
+      ],
+      [],
+      new Map()
+    )
+    expect(dayGroups(entries, now).map((g) => [g.key, keys(g.entries)])).toEqual([
+      ['today', ['mention:m1']],
+      ['yesterday', ['mention:m2']],
+      ['earlier', ['mention:m3', 'mention:m4']]
+    ])
+    expect(dayGroups([], now)).toEqual([])
   })
 
   it('counts nothing for an empty inbox', () => {
     expect(inboxCounts(inboxEntries([], [], new Map()))).toEqual({
       all: 0,
       mentions: 0,
-      channels: 0
+      unreads: 0,
+      threads: 0
     })
   })
 })

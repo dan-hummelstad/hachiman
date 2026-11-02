@@ -7,8 +7,7 @@ import { useCustomStatus } from '@/hooks/use-custom-status'
 import { useMemberView, usePresence } from '@/hooks/use-member'
 import { useKeyboardInset } from '@/hooks/use-visual-viewport'
 import { ChannelIcon } from '@/lib/channel-icon'
-import { hexColor, memberRoles } from '@/lib/model'
-import { roleInk } from '@/lib/role-ink'
+import { memberRoles } from '@/lib/model'
 import { cn } from '@/lib/utils'
 import { pageTitle } from '@/services/docs/page-tree'
 import { useGuildStore } from '@/stores/guildStore'
@@ -41,7 +40,7 @@ export function MentionMenu({
       id="mention-menu"
       role="listbox"
       aria-label="Suggestions"
-      className="bg-surface-raised border-line-strong absolute right-0 bottom-full left-0 z-30 mb-2 max-h-72 overflow-y-auto border p-1 shadow-soft"
+      className="bg-surface-raised border-line-hairline rounded-option absolute right-0 bottom-full left-0 z-30 mb-2 max-h-72 overflow-y-auto border p-1 shadow-soft"
     >
       {items.map((item, i) => (
         <li
@@ -56,7 +55,7 @@ export function MentionMenu({
           }}
           onMouseMove={() => i !== active && onHover(i)}
           className={cn(
-            'rounded-control flex h-9 cursor-pointer items-center gap-2.5 px-2 text-[14px]',
+            'rounded-row flex h-8 cursor-pointer items-center gap-2.5 px-2 text-[13px]',
             i === active ? 'bg-surface-selected text-text-primary' : 'text-text-secondary'
           )}
         >
@@ -84,13 +83,7 @@ function ItemRow({ item }: { item: MentionItem }): React.JSX.Element {
     case 'role':
       return (
         <>
-          <span
-            className="size-2.5 shrink-0 rounded-[2px]"
-            style={{
-              background: item.role.color ? hexColor(item.role.color) : 'var(--text-tertiary)'
-            }}
-            aria-hidden
-          />
+          <AtSign className="text-text-tertiary size-4 shrink-0" aria-hidden />
           <span className="text-text-primary truncate font-semibold">@{item.role.name}</span>
           <span className="text-text-tertiary ml-auto text-[12px]">Role</span>
         </>
@@ -100,7 +93,7 @@ function ItemRow({ item }: { item: MentionItem }): React.JSX.Element {
         <>
           <AtSign className="text-text-tertiary size-4 shrink-0" aria-hidden />
           <span className="text-text-primary font-semibold">@everyone</span>
-          <span className="text-text-tertiary ml-auto text-[12px]">Everyone in the guild</span>
+          <span className="text-text-tertiary ml-auto text-[12px]">Everyone in the space</span>
         </>
       )
     case 'channel':
@@ -117,7 +110,7 @@ function ItemRow({ item }: { item: MentionItem }): React.JSX.Element {
     case 'page':
       return (
         <>
-          <FileText className="text-feature-page-text size-4 shrink-0" aria-hidden />
+          <FileText className="text-text-tertiary size-4 shrink-0" aria-hidden />
           <span className="text-text-primary truncate font-semibold">{pageTitle(item.page)}</span>
           <span className="text-text-tertiary ml-auto truncate text-[12px]">
             Page in #{item.channelName}
@@ -196,10 +189,8 @@ export function MobileMentionMenu({
       className="bg-surface-raised absolute inset-x-2 bottom-[calc(100%+6px)] z-30 flex flex-col gap-0.5 border border-(--line-sheet) p-1.5 shadow-(--shadow-sheet)"
     >
       <div className="flex h-[26px] shrink-0 items-center gap-1.5 px-2.5" aria-hidden>
-        <span className="text-text-tertiary min-w-0 flex-1 truncate text-[11px] leading-[13px] font-extrabold tracking-[0.8px] uppercase">
-          {scope}
-        </span>
-        <span className="text-feature-event-text text-[12px] leading-[14px] font-extrabold">
+        <span className="cap min-w-0 flex-1 truncate">{scope}</span>
+        <span className="text-text-tertiary font-mono text-[12px] leading-[14px] font-semibold">
           {char}
         </span>
       </div>
@@ -238,12 +229,12 @@ export function MobileMentionMenu({
 }
 
 const DETAIL_TONE: Record<MemberDetail['tone'], string> = {
-  voice: 'text-feature-voice-text font-bold',
-  quiet: 'text-text-tertiary font-medium',
-  danger: 'text-feature-danger-text font-bold'
+  voice: 'text-live-text font-medium',
+  quiet: 'text-text-tertiary font-normal',
+  danger: 'text-text-secondary font-normal'
 }
 
-/** A member: avatar 32, the name in role ink, the owner's crown, the activity line, the top role. */
+/** A member: avatar 32, the name, the owner's crown, the activity line, the top role. */
 function MobileUserRow({
   item,
   guildId,
@@ -254,7 +245,7 @@ function MobileUserRow({
   owner: boolean
 }): React.JSX.Element {
   const userId = item.user.id
-  const { member, ink } = useMemberView(guildId, userId, item.user)
+  const { member } = useMemberView(guildId, userId, item.user)
   const roles = useGuildStore((s) => (guildId ? s.roles.get(guildId) : undefined))
   const status = usePresence(userId)
   const activity = useVoiceActivity(userId, guildId)
@@ -267,20 +258,15 @@ function MobileUserRow({
       <UserAvatar
         name={item.user.username}
         avatar={item.user.avatar}
-        color={ink}
         size={32}
         cutout="bg-surface-raised"
       />
       <MobileRowText
         name={item.nick ?? item.user.username}
-        ink={ink}
         aside={item.nick ? item.user.username : undefined}
         badge={
           owner ? (
-            <Crown
-              className="text-feature-event-text size-[13px] shrink-0"
-              aria-label="Guild owner"
-            />
+            <Crown className="text-text-tertiary size-[13px] shrink-0" aria-label="Space owner" />
           ) : undefined
         }
         detail={
@@ -292,11 +278,7 @@ function MobileUserRow({
           )
         }
       />
-      {role && (
-        <span className="text-text-tertiary max-w-[30%] shrink-0 truncate text-[12px] leading-[14px] font-bold">
-          {role}
-        </span>
-      )}
+      {role && <span className="cap-sm max-w-[30%] shrink-0 truncate tracking-[1px]">{role}</span>}
     </>
   )
 }
@@ -310,47 +292,34 @@ function MobileItemRow({
   item: Exclude<MentionItem, { kind: 'user' }>
 }): React.JSX.Element {
   switch (item.kind) {
-    case 'role': {
-      const color = item.role.color ? hexColor(item.role.color) : undefined
-      const ink = roleInk(color)
+    case 'role':
       return (
         <>
-          <span
-            className={cn(TILE, !color && 'bg-fill-control text-text-secondary')}
-            style={
-              color && ink
-                ? { background: `color-mix(in oklab, ${color} 15%, transparent)`, color: ink }
-                : undefined
-            }
-            aria-hidden
-          >
+          <span className={cn(TILE, 'bg-surface-hover text-text-secondary')} aria-hidden>
             <AtSign className="size-[17px]" />
           </span>
           <MobileRowText
             name={`@${item.role.name}`}
-            ink={ink}
             detail={<span className="text-text-tertiary">Notify everyone with this role</span>}
           />
         </>
       )
-    }
     case 'everyone':
       return (
         <>
-          <span className={cn(TILE, 'bg-feature-event/15 text-feature-event-text')} aria-hidden>
+          <span className={cn(TILE, 'bg-you-tint text-you-text')} aria-hidden>
             <AtSign className="size-[17px]" />
           </span>
           <MobileRowText
             name="@everyone"
-            ink="var(--feature-event-text)"
-            detail={<span className="text-text-tertiary">Notify everyone in the guild</span>}
+            detail={<span className="text-text-tertiary">Notify everyone in the space</span>}
           />
         </>
       )
     case 'channel':
       return (
         <>
-          <span className={cn(TILE, 'bg-fill-control text-text-secondary')} aria-hidden>
+          <span className={cn(TILE, 'bg-surface-hover text-text-secondary')} aria-hidden>
             <ChannelIcon type={item.channel.type} className="size-[17px]" />
           </span>
           <MobileRowText
@@ -366,7 +335,7 @@ function MobileItemRow({
     case 'page':
       return (
         <>
-          <span className={cn(TILE, 'bg-feature-page/15 text-feature-page-text')} aria-hidden>
+          <span className={cn(TILE, 'bg-surface-hover text-text-secondary')} aria-hidden>
             <FileText className="size-[17px]" />
           </span>
           <MobileRowText
@@ -396,16 +365,14 @@ function MobileItemRow({
   }
 }
 
-/** The name line (15/700, in role ink when given) over an optional detail line (12). */
+/** The name line (15/600) over an optional detail line (12). */
 function MobileRowText({
   name,
-  ink,
   aside,
   badge,
   detail
 }: {
   name: string
-  ink?: string
   /** A second name after the first, in tertiary: the username beside a nickname. */
   aside?: string
   badge?: React.ReactNode
@@ -414,24 +381,15 @@ function MobileRowText({
   return (
     <span className="flex min-w-0 flex-1 flex-col gap-px">
       <span className="flex min-w-0 items-center gap-[5px]">
-        <span
-          className="text-text-primary truncate text-[15px] leading-[18px] font-bold"
-          style={ink ? { color: ink } : undefined}
-        >
+        <span className="text-text-primary truncate text-[15px] leading-[18px] font-semibold">
           {name}
         </span>
         {badge}
         {aside && (
-          <span className="text-text-tertiary truncate text-[12.5px] leading-[18px] font-medium">
-            {aside}
-          </span>
+          <span className="text-text-tertiary truncate text-[12.5px] leading-[18px]">{aside}</span>
         )}
       </span>
-      {detail && (
-        <span className="flex min-w-0 truncate text-[12px] leading-[14px] font-medium">
-          {detail}
-        </span>
-      )}
+      {detail && <span className="flex min-w-0 truncate text-[12px] leading-[14px]">{detail}</span>}
     </span>
   )
 }

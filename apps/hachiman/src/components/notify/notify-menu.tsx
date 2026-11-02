@@ -109,7 +109,7 @@ export function NotifyButton({ channel }: { channel: Channel }): React.JSX.Eleme
           }
           tooltipSide="bottom"
           pressed={mobile ? undefined : open}
-          className="aria-pressed:bg-accent-tint aria-pressed:text-accent-text mobile:aria-expanded:bg-accent-tint mobile:aria-expanded:text-accent-text mobile:size-9 [&_svg]:size-[18px] mobile:[&_svg]:size-[19px]"
+          className="aria-pressed:bg-surface-hover aria-pressed:text-text-primary mobile:aria-expanded:bg-surface-hover mobile:aria-expanded:text-text-primary mobile:size-9 [&_svg]:size-[18px] mobile:[&_svg]:size-[19px]"
         >
           {silent ? <BellOff /> : level === 'all' ? <BellRing /> : <Bell />}
         </IconButton>
@@ -124,7 +124,7 @@ export function NotifyButton({ channel }: { channel: Channel }): React.JSX.Eleme
           ))}
         </DropdownMenuRadioGroup>
         {own && channel.guildId !== null && (
-          <DropdownMenuItem onSelect={() => setLevel(null)}>Use the guild setting</DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => setLevel(null)}>Use the space setting</DropdownMenuItem>
         )}
         <DropdownMenuSeparator />
         <DropdownMenuCheckboxItem
@@ -132,7 +132,7 @@ export function NotifyButton({ channel }: { channel: Channel }): React.JSX.Eleme
           disabled={muted && !mutedHere}
           onCheckedChange={(c) => setMuted(c === true)}
         >
-          {muted && !mutedHere ? 'Guild is muted' : 'Mute channel'}
+          {muted && !mutedHere ? 'Space is muted' : 'Mute channel'}
         </DropdownMenuCheckboxItem>
       </DropdownMenuContent>
     </DropdownMenu>
@@ -166,7 +166,7 @@ export function NotifySheetRows({ channel }: { channel: Channel }): React.JSX.El
       {own && guildLevel !== null && (
         <MenuSheetItem onSelect={() => setLevel(null)} hint={notifyLevelLabel(guildLevel)}>
           <Undo2 />
-          Use the guild setting
+          Use the space setting
         </MenuSheetItem>
       )}
       <MenuSheetCheckboxItem
@@ -175,7 +175,7 @@ export function NotifySheetRows({ channel }: { channel: Channel }): React.JSX.El
         onCheckedChange={setMuted}
       >
         <BellOff />
-        {muted && !mutedHere ? 'Guild is muted' : 'Mute channel'}
+        {muted && !mutedHere ? 'Space is muted' : 'Mute channel'}
       </MenuSheetCheckboxItem>
     </>
   )
@@ -203,7 +203,7 @@ export function FollowButton({ channel }: { channel: Channel }): React.JSX.Eleme
         setNotifyLevel(channel.id, following ? null : 'all')
       }}
     >
-      {following ? <BellRing className="text-feature-event-text" /> : <Bell />}
+      {following ? <BellRing className="text-text-primary" /> : <Bell />}
       {following ? 'Following' : 'Follow'}
     </Button>
   )
@@ -250,7 +250,7 @@ export function NotifySettingsDialog(): React.JSX.Element {
       </div>
       <label className="flex items-center gap-3 pt-1">
         <span className="grid flex-1">
-          <span className="text-label text-text-primary">Mute guild</span>
+          <span className="text-label text-text-primary">Mute space</span>
           <span className="text-meta text-text-secondary">
             No unread marks and no sounds, except mentions.
           </span>

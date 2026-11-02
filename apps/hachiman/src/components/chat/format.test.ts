@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Member } from '@hachiman/client'
 import type { MembershipEvent } from '@hachiman/crypto'
-import { joinSlots, keyChangeSlot, membershipSlots } from './format'
+import { formatDay, joinSlots, keyChangeSlot, membershipSlots } from './format'
 
 const event = (groupId: string, epoch: number): MembershipEvent => ({
   groupId,
@@ -81,5 +81,22 @@ describe('keyChangeSlot', () => {
     expect(keyChangeSlot(messages, '2026-10-01T00:00:00Z', true)).toBe(0)
     expect(keyChangeSlot([], null, false)).toBeNull()
     expect(keyChangeSlot([], null, true)).toBe(0)
+  })
+})
+
+describe('formatDay', () => {
+  const now = new Date(2026, 10, 2, 15, 0).getTime()
+  const at = (y: number, m: number, d: number): string => new Date(y, m, d, 9, 0).toISOString()
+
+  it('says Today and Yesterday', () => {
+    expect(formatDay(at(2026, 10, 2), now)).toBe('Today')
+    expect(formatDay(at(2026, 10, 1), now)).toBe('Yesterday')
+  })
+
+  it('gives weekday and date, with the year only for another year', () => {
+    const same = formatDay(at(2026, 9, 2), now)
+    expect(same).toContain(' · ')
+    expect(same).not.toContain('2026')
+    expect(formatDay(at(2025, 9, 2), now)).toContain(', 2025')
   })
 })

@@ -127,7 +127,7 @@ function BoardBar({
           ))}
       </span>
       {(titleError ?? error) && (
-        <span role="alert" className="text-feature-danger-text truncate text-xs">
+        <span role="alert" className="text-you-text truncate text-xs">
           {titleError ?? error}
         </span>
       )}

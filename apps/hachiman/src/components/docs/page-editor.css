@@ -8,18 +8,18 @@
   --crepe-color-surface: var(--popover);
   --crepe-color-surface-low: var(--muted);
   --crepe-color-on-surface: var(--popover-foreground);
-  --crepe-color-on-surface-variant: var(--muted-foreground);
+  --crepe-color-on-surface-variant: var(--text-tertiary);
   --crepe-color-outline: var(--text-tertiary);
-  --crepe-color-primary: var(--primary);
+  --crepe-color-primary: var(--text-primary);
   --crepe-color-secondary: var(--secondary);
   --crepe-color-on-secondary: var(--secondary-foreground);
   --crepe-color-inverse: var(--foreground);
   --crepe-color-on-inverse: var(--background);
-  --crepe-color-inline-code: var(--destructive);
-  --crepe-color-error: var(--destructive);
-  --crepe-color-hover: var(--accent);
+  --crepe-color-inline-code: var(--text-secondary);
+  --crepe-color-error: var(--you);
+  --crepe-color-hover: var(--surface-hover);
   --crepe-color-selected: var(--surface-selected);
-  --crepe-color-inline-area: var(--muted);
+  --crepe-color-inline-area: var(--surface-sunken);
 
   --crepe-base-font-size: 15px;
   --crepe-font-title: var(--font-sans);
@@ -34,18 +34,62 @@
   padding: 8px 56px 120px;
 }
 
-/* The page title (C1): the first heading is the title, in the Arc display weight. */
+/* Body text is the second level of the neutral ramp; headings are the first. */
+.hm-page-editor .milkdown .ProseMirror :where(p, li, blockquote) {
+  color: var(--text-secondary);
+}
+.hm-page-editor .milkdown .ProseMirror p {
+  font-size: 15px;
+  line-height: 1.55;
+}
+.hm-page-editor .milkdown .ProseMirror :where(h1, h2, h3) {
+  color: var(--text-primary);
+  font-weight: 600;
+}
 .hm-page-editor .milkdown .ProseMirror h1 {
-  font-size: 32px;
-  font-weight: 800;
+  font-size: 30px;
   line-height: 1.2;
-  letter-spacing: -0.5px;
+  letter-spacing: -0.9px;
+}
+.hm-page-editor .milkdown .ProseMirror :where(h2, h3) {
+  font-size: 18px;
+  letter-spacing: -0.4px;
+}
+
+/* Tables: a hairline frame, a mono header row. */
+.hm-page-editor .milkdown .ProseMirror table {
+  border: 1px solid var(--line-hairline);
+  border-radius: 6px;
+  overflow: hidden;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+.hm-page-editor .milkdown .ProseMirror th {
+  height: 36px;
+  padding: 0 13px;
+  background: var(--surface-sunken);
+  font: 400 8.5px var(--font-mono);
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+}
+.hm-page-editor .milkdown .ProseMirror td {
+  height: 40px;
+  padding: 0 13px;
+  font-size: 13.5px;
+  color: var(--text-secondary);
+}
+.hm-page-editor .milkdown .ProseMirror :where(th, td) {
+  border-color: var(--line-hairline);
+}
+.hm-page-editor .milkdown .ProseMirror hr {
+  border-color: var(--line-hairline);
 }
 
 /* Page links (page-links.ts). The title widget shows in place of the hidden link text, as a
-   rounded chip with the page icon in the page colour (C1). */
+   raised chip with the page icon. */
 .hm-page-editor .hm-page-link {
-  color: var(--feature-page-text);
+  color: var(--here-text);
   cursor: pointer;
 }
 .hm-page-editor span.hm-page-link {
@@ -53,21 +97,22 @@
   align-items: center;
   gap: 5px;
   padding: 0 7px;
+  border: 1px solid var(--line-hairline);
   border-radius: var(--radius-control);
-  background: color-mix(in srgb, var(--feature-page) 14%, transparent);
+  background: var(--surface-raised);
   color: var(--text-primary);
-  font-weight: 700;
+  font-weight: 600;
   line-height: 1.6;
 }
 .hm-page-editor span.hm-page-link:hover {
-  background: color-mix(in srgb, var(--feature-page) 24%, transparent);
+  background: var(--surface-hover);
 }
 .hm-page-editor span.hm-page-link::before {
   content: '';
   width: 14px;
   height: 14px;
   flex-shrink: 0;
-  background: var(--feature-page-text);
+  background: var(--text-tertiary);
   /* lucide file-text */
   mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z'/%3E%3Cpath d='M14 2v4a2 2 0 0 0 2 2h4'/%3E%3Cpath d='M10 9H8'/%3E%3Cpath d='M16 13H8'/%3E%3Cpath d='M16 17H8'/%3E%3C/svg%3E")
     center / contain no-repeat;
@@ -79,28 +124,40 @@
   display: none;
 }
 
-/* Remote cursors and selections (y-prosemirror cursor plugin). The color is the peer's. */
+/* Remote cursors and selections (y-prosemirror cursor plugin). Someone else editing is `live`;
+   the plugin sets the peer's colour inline, so the rules force it. */
 .hm-page-editor .ProseMirror-yjs-cursor {
   position: relative;
   margin-left: -1px;
   margin-right: -1px;
-  border-left: 1px solid black;
-  border-right: 1px solid black;
+  border-left: 2px solid var(--live) !important;
+  border-right: 0 !important;
   word-break: normal;
   pointer-events: none;
 }
 .hm-page-editor .ProseMirror-yjs-cursor > div {
   position: absolute;
-  top: -1.15em;
-  left: -1px;
-  padding: 0 3px;
-  font-family: var(--font-sans);
-  font-size: 11px;
-  font-weight: 600;
-  line-height: 1.3;
-  color: #fff;
+  top: -1.6em;
+  left: -2px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  background-color: var(--live) !important;
+  font: 600 8px/1.3 var(--font-mono);
+  letter-spacing: 0.4px;
+  color: var(--on-live);
   white-space: nowrap;
   user-select: none;
+}
+.hm-page-editor .ProseMirror-yjs-selection {
+  background-color: var(--live-tint) !important;
+}
+
+.hm-page-editor
+  .milkdown-list-item-block:has(> .list-item > .label-wrapper .checked)
+  > .list-item
+  > .children {
+  color: var(--text-disabled);
+  text-decoration: none;
 }
 
 /* The touch editor of the phone's page screen (M38, `variant="touch"` in page-editor.tsx). The
@@ -136,32 +193,40 @@
 }
 
 .hm-page-editor[data-variant='touch'] .milkdown .ProseMirror :where(p, li, blockquote, td, th) {
-  font-size: 15px;
+  font-size: 13.5px;
 }
 
 .hm-page-editor[data-variant='touch'] .milkdown .ProseMirror h1 {
-  font-size: 26px;
+  font-size: 24px;
+  font-weight: 600;
   line-height: 1.2;
-  letter-spacing: -0.3px;
+  letter-spacing: -0.7px;
   margin-top: 24px;
 }
 
 .hm-page-editor[data-variant='touch'] .milkdown .ProseMirror h2 {
-  font-size: 19px;
-  font-weight: 800;
+  font-size: 15px;
+  font-weight: 600;
   line-height: 1.25;
+  letter-spacing: -0.2px;
   margin-top: 20px;
 }
 
 .hm-page-editor[data-variant='touch'] .milkdown .ProseMirror h3 {
-  font-size: 17px;
-  font-weight: 800;
+  font-size: 15px;
+  font-weight: 600;
   line-height: 1.3;
+  letter-spacing: -0.2px;
   margin-top: 16px;
 }
 
+.hm-page-editor[data-variant='touch'] .milkdown .ProseMirror table {
+  border-radius: 14px;
+  background: var(--surface-panel);
+}
+
 /* To-do boxes as the kit's 18 checkbox (Arc / Checkbox, `Checkbox size="lg"`): radius 4, a 1.5
-   ring when open, the accent with a white check when done. The box sits on the middle of the first
+   ring when open, the ink with a check in the ink's contrast colour when done. The box sits on the middle of the first
    line of its item (a 15/1.5 paragraph with 4 px padding: 30.5). Its hit area is 36 × 36. */
 .hm-page-editor[data-variant='touch'] .milkdown-list-item-block li .label-wrapper {
   position: relative;
@@ -196,14 +261,28 @@
   height: 18px;
   box-sizing: border-box;
   border-radius: var(--radius-check, 4px);
-  border: 1.5px solid var(--text-disabled);
+  border: 1.5px solid var(--line-strong);
 }
 .hm-page-editor[data-variant='touch'] .milkdown-list-item-block li .label-wrapper .checked::before {
-  border-color: var(--accent-primary);
-  /* lucide check, white, stroke 3, 13 in the 18 box */
-  background: var(--accent-primary)
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E")
+  border-color: var(--text-primary);
+  background: var(--text-primary);
+}
+/* lucide check, stroke 3, 13 in the 18 box, drawn as a mask so it takes the ink's contrast colour */
+.hm-page-editor[data-variant='touch']
+  .milkdown-list-item-block
+  li
+  .label-wrapper
+  .checked::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 6.25px;
+  width: 18px;
+  height: 18px;
+  background: var(--on-ink);
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E")
     center / 13px no-repeat;
+  pointer-events: none;
 }
 .hm-page-editor[data-variant='touch']
   .milkdown-list-item-block:has(> .list-item > .label-wrapper .checked)
@@ -213,7 +292,7 @@
 }
 
 /* The current block while the touch editor has the focus (M39, `hm-current-block` from the touch
-   block plugin in page-editor.tsx): an 8 % accent box over the block's own 4 px padding, 6 px out
+   block plugin in page-editor.tsx): a `surface-hover` box over the block's own 4 px padding, 6 px out
    to each side, so the text does not move. A to-do or list line takes its box and its text. */
 .hm-page-editor[data-variant='touch'] .ProseMirror-focused .hm-current-block {
   position: relative;
@@ -225,7 +304,7 @@
   inset: 0 -6px;
   z-index: -1;
   border-radius: 6px;
-  background: color-mix(in srgb, var(--accent-primary) 8%, transparent);
+  background: var(--surface-hover);
   pointer-events: none;
 }
 
@@ -242,7 +321,8 @@
   width: calc(100vw - 24px);
   max-height: var(--hm-slash-max, 284px);
   background: var(--surface-raised);
-  border: 1px solid var(--line-sheet);
+  border: 1px solid var(--line-hairline);
+  border-radius: var(--radius-option, 8px);
   box-shadow: var(--shadow-soft);
   color: var(--text-primary);
   font-family: var(--font-sans);
@@ -278,12 +358,10 @@
 .hm-slash-layer .milkdown-slash-menu h6 {
   margin: 0;
   padding: 8px 8px 4px;
-  font-size: 11.5px;
-  line-height: 16px;
-  font-weight: 800;
-  letter-spacing: 0.8px;
+  font: 400 9px/16px var(--font-mono);
+  letter-spacing: 1.4px;
   text-transform: uppercase;
-  color: var(--text-tertiary);
+  color: var(--text-disabled);
 }
 .hm-slash-layer .milkdown-slash-menu li {
   display: flex;
@@ -291,10 +369,10 @@
   gap: 12px;
   height: 46px;
   padding: 0 8px;
-  border-radius: var(--radius-control, 8px);
-  font-size: 15px;
+  border-radius: var(--radius-row, 4px);
+  font-size: 14px;
   line-height: 20px;
-  font-weight: 700;
+  font-weight: 500;
   cursor: pointer;
   user-select: none;
   -webkit-user-select: none;
@@ -302,7 +380,7 @@
 }
 /* The row that Enter runs: the first one, or the one under the finger. */
 .hm-slash-layer .milkdown-slash-menu li.hover {
-  background: var(--accent-tint);
+  background: var(--surface-hover);
 }
 .hm-slash-layer .milkdown-slash-menu li > span:last-child {
   min-width: 0;
@@ -318,14 +396,14 @@
   box-sizing: border-box;
   width: 32px;
   height: 32px;
-  background: var(--fill-control);
-  border: 1px solid var(--line-sheet);
-  color: var(--text-primary);
+  background: var(--surface-sunken);
+  border: 1px solid var(--line-hairline);
+  color: var(--text-secondary);
 }
 .hm-slash-layer .milkdown-slash-menu .milkdown-icon svg {
   width: 18px;
   height: 18px;
 }
 .hm-slash-layer .milkdown-slash-menu .milkdown-icon svg.hm-page-icon {
-  color: var(--feature-page-text);
+  color: var(--text-tertiary);
 }

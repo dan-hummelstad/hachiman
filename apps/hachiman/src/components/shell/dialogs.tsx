@@ -119,10 +119,10 @@ function DeleteChannelDialog(): React.JSX.Element {
         ) : (
           <div className="grid gap-2.5">
             <p>
-              <span className="font-bold">{label}</span> will be removed for everyone
+              <span className="font-semibold">{label}</span> will be removed for everyone
               {target?.type === 'text' ? ', with its message history' : ''}.
             </p>
-            <p className="text-feature-danger-text flex items-center gap-1.5 font-semibold">
+            <p className="text-you-text flex items-center gap-1.5 font-semibold">
               <CircleAlert aria-hidden className="size-4" />
               You can&apos;t undo this.
             </p>
@@ -152,11 +152,11 @@ function DeleteChannelBodyMobile({
         : ''
   return (
     <div className="grid gap-3">
-      <p className="text-[15px] leading-[1.5] font-medium">
-        <span className="font-extrabold">{label}</span> will be removed for everyone{lost}.
+      <p className="text-[15px] leading-[1.5]">
+        <span className="font-semibold">{label}</span> will be removed for everyone{lost}.
       </p>
-      <p className="text-feature-danger-text flex items-center gap-2 text-sm font-bold">
-        <OctagonAlert aria-hidden className="text-feature-danger size-4 shrink-0" />
+      <p className="text-you-text flex items-center gap-2 text-sm font-semibold">
+        <OctagonAlert aria-hidden className="text-you-text size-4 shrink-0" />
         You can&apos;t undo this.
       </p>
     </div>

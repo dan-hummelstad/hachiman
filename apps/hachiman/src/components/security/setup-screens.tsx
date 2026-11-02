@@ -5,6 +5,7 @@ import {
   KeyRound,
   LifeBuoy,
   Link2,
+  EyeOff,
   LogOut,
   OctagonAlert,
   RotateCcw,
@@ -56,7 +57,7 @@ function pathViews(noun: DeviceNoun, facts: AccountFacts | null): Record<SetupPa
   return {
     link: {
       icon: <Link2 />,
-      feature: 'accent',
+      feature: 'event',
       title: 'Link to a device you use',
       description: 'Your desktop or another phone sends the keys over. All your history comes too.',
       unavailable: 'Not available: the reset signed out all of your other devices.',
@@ -64,7 +65,7 @@ function pathViews(noun: DeviceNoun, facts: AccountFacts | null): Record<SetupPa
     },
     restore: {
       icon: <LifeBuoy />,
-      feature: 'voice',
+      feature: 'event',
       title: 'Restore with recovery key',
       description: 'Type the recovery key that you saved when you set up Hachiman.',
       unavailable: '',
@@ -142,7 +143,7 @@ export function ChooseScreen({
         </>
       }
     >
-      <p className="text-text-secondary text-[15px] leading-[1.45] font-medium">
+      <p className="text-text-tertiary text-[14px] leading-[1.5]">
         Messages and calls are end-to-end encrypted. Choose how this {noun} gets the keys that read
         them.
       </p>
@@ -213,7 +214,7 @@ function QuietLine({
     <button
       type="button"
       onClick={onClick}
-      className="text-text-tertiary active:text-text-primary focus-visible:outline-line-focus rounded-control inline-flex min-h-11 items-center justify-center gap-2 self-center px-3 text-[14px] leading-[18px] font-semibold underline-offset-4 outline-none hover:underline focus-visible:outline-2"
+      className="text-text-secondary active:text-text-primary focus-visible:outline-line-focus rounded-control inline-flex min-h-11 items-center justify-center gap-2 self-center px-3 text-[13px] leading-[18px] font-semibold underline-offset-4 outline-none hover:underline focus-visible:outline-2"
     >
       {children}
     </button>
@@ -239,7 +240,7 @@ function HelpSheet({
           subtitle="Your keys stay on your devices"
         />
         <SheetBody>
-          <p className="text-text-secondary text-[15px] leading-[1.45]">
+          <p className="text-text-tertiary text-[14px] leading-[1.5]">
             Hachiman encrypts your messages and calls on your devices. The server cannot read them.
             This {noun} gets your security keys in one of three ways.
           </p>
@@ -251,13 +252,11 @@ function HelpSheet({
             />
             <ListRow
               icon={<LifeBuoy />}
-              tile="voice"
               label="Restore it"
               detail="Type the recovery key that you saved when you set up your first device."
             />
             <ListRow
               icon={<Sparkles />}
-              tile="event"
               label="Start new"
               detail="Only for your first device: new security keys and a recovery key to keep."
             />
@@ -293,7 +292,7 @@ function AdminResetSheet({
           subtitle="Only the admin can reset your keys"
         />
         <SheetBody>
-          <p className="text-text-secondary text-[15px] leading-[1.45]">
+          <p className="text-text-tertiary text-[14px] leading-[1.5]">
             Ask the admin of this server to reset your keys. Then sign in again and select{' '}
             <b className="text-text-primary">Reset my keys</b>. After a reset, you cannot read your
             old messages.
@@ -324,7 +323,7 @@ export interface CreateForm {
 function ScreenError({ children }: { children: React.ReactNode }): React.JSX.Element | null {
   if (!children) return null
   return (
-    <p role="alert" className="text-feature-danger-text text-[13px] leading-[1.4] font-semibold">
+    <p role="alert" className="text-you-text text-[13px] leading-[1.4] font-semibold">
       {children}
     </p>
   )
@@ -396,7 +395,6 @@ export function NewIdentityScreen({
             />
             <ListRow
               icon={<LifeBuoy />}
-              tile="voice"
               label="A recovery key"
               detail="For you to keep safe and offline"
             />
@@ -450,7 +448,10 @@ export function NewKeyScreen({
       }
     >
       <div className="grid gap-[18px]">
-        <p className="text-text-secondary font-medium">
+        <h2 className="text-text-primary text-[22px] leading-[1.2] font-semibold tracking-[-0.5px]">
+          Write this key down
+        </h2>
+        <p className="text-text-tertiary text-[13px] leading-[1.45]">
           Hachiman shows this key only this one time. With it, you can read your messages on a new
           device when no other device is signed in.
         </p>
@@ -459,9 +460,11 @@ export function NewKeyScreen({
           <RecoveryKeyBlock recoveryKey={recoveryKey} size="touch" />
           <RecoveryKeyActions recoveryKey={recoveryKey} size="touch" />
         </section>
-        <p className="text-feature-danger-text flex items-start gap-2.5 text-[13.5px] leading-[1.45] font-semibold">
-          <OctagonAlert aria-hidden className="mt-px size-[17px] shrink-0" />
-          Anyone with this key can read all of your messages. Keep it private and offline.
+        <p className="border-you/40 flex gap-2.5 rounded-[12px] border px-3.5 py-3">
+          <EyeOff aria-hidden className="text-you-text size-4 shrink-0" />
+          <span className="text-you-text text-[11.5px] leading-[1.4]">
+            This is the last time the key is shown. Anyone holding it can read your messages.
+          </span>
         </p>
       </div>
     </StepFrame>
@@ -513,11 +516,11 @@ export function ResetScreen({
           tone="danger"
           icon={<OctagonAlert />}
           title={
-            <span className="text-feature-danger-text">Your old messages become unreadable</span>
+            <span className="text-you-text">Your old messages become unreadable</span>
           }
         >
           A reset makes a new security key. Messages from before the reset cannot be read on any
-          device, and your contacts see that your security key changed. Your account and guilds
+          device, and your contacts see that your security key changed. Your account and spaces
           stay.
         </Callout>
         {onRestore && (
@@ -526,8 +529,7 @@ export function ResetScreen({
             <ListGroup>
               <ListRow
                 icon={<LifeBuoy />}
-                tile="voice"
-                label="Restore with recovery key"
+                  label="Restore with recovery key"
                 detail="Keeps your old messages readable"
                 disabled={busy}
                 onClick={onRestore}

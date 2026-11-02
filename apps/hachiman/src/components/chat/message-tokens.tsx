@@ -2,7 +2,6 @@ import { layoutNow } from '@/hooks/use-layout'
 import { useMemberView } from '@/hooks/use-member'
 import { chatInviteLink } from '@/lib/guild-invite'
 import { mentionsUser, type MentionToken, type Token } from '@/lib/mentions'
-import { hexColor } from '@/lib/model'
 import { cn } from '@/lib/utils'
 import { stashInviteKey } from '@/services/InviteService'
 import { takusenService } from '@/services/TakusenService'
@@ -11,6 +10,11 @@ import { useGuildStore } from '@/stores/guildStore'
 import { useUserStore } from '@/stores/userStore'
 import { TextWithChannelRefs } from './channel-ref'
 import { InlineCustomEmoji } from './emoji'
+
+const MENTION = 'rounded-[4px] font-semibold'
+/** A mention of me, the `you` answer: a filled chip. */
+const ME_MENTION =
+  'bg-you text-on-you mobile:rounded-badge mobile:px-[5px] mobile:text-[12.5px] px-1.5 py-px text-[13.5px]'
 
 /**
  * The tokens of a message text: text with channel refs, links, mentions and custom emojis
@@ -38,7 +42,7 @@ export function MessageTokens({
             target="_blank"
             rel="noreferrer noopener"
             onClick={(e) => openInviteInApp(e, t.value, from)}
-            className="text-accent-text underline-offset-2 hover:underline"
+            className="text-here-text underline-offset-2 hover:underline"
           >
             {t.value}
           </a>
@@ -90,8 +94,8 @@ function Mention({
   return (
     <span
       className={cn(
-        'rounded-check px-1 font-semibold',
-        isMe ? 'bg-feature-event/20 text-feature-event-text' : 'bg-accent-tint text-accent-text'
+        MENTION,
+        isMe ? ME_MENTION : 'bg-surface-raised text-text-primary px-1 text-[13.5px]'
       )}
     >
       {byId && (member || fallback) ? `@${name}` : token.value}
@@ -100,7 +104,7 @@ function Mention({
 }
 
 /**
- * `<@&roleId>` as `@Role` in the role colour, highlighted when I hold the role. A role that is not
+ * `<@&roleId>` as `@Role`, highlighted when I hold the role. A role that is not
  * known (deleted, or another guild) shows as "@deleted-role".
  */
 function RoleMention({
@@ -118,15 +122,13 @@ function RoleMention({
     (s) =>
       !!guildId && !!meId && (s.members.get(guildId)?.get(meId)?.roles.includes(roleId) ?? false)
   )
-  const color = role && role.color !== 0 ? hexColor(role.color) : undefined
   return (
     <span
       title={role ? undefined : raw}
       className={cn(
-        'rounded-check px-1 font-semibold',
-        mine ? 'bg-feature-event/20 text-feature-event-text' : 'bg-accent-tint text-accent-text'
+        MENTION,
+        mine ? ME_MENTION : 'bg-surface-raised text-text-primary px-1 text-[13.5px]'
       )}
-      style={!mine && color ? { color } : undefined}
     >
       @{role?.name ?? 'deleted-role'}
     </span>

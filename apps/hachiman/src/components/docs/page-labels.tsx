@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Plus, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { FEATURE_TILE, type Feature } from '@/components/ui/feature'
 import { Input } from '@/components/ui/input'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { cn } from '@/lib/utils'
@@ -14,19 +13,10 @@ import {
 } from '@/services/docs/labels'
 import type { DocHandle } from '@/services/docs/types'
 
-const LABEL_FEATURES: readonly Feature[] = ['page', 'event', 'voice', 'thread', 'accent']
-
-/** A stable colour per label text, so "Draft" looks the same on every page. */
-function labelFeature(label: string): Feature {
-  let h = 0
-  for (let i = 0; i < label.length; i++) h = (h * 31 + label.toLowerCase().charCodeAt(i)) | 0
-  return LABEL_FEATURES[Math.abs(h) % LABEL_FEATURES.length] ?? 'page'
-}
-
 /**
  * The labels of the open page (C1 "RFC", "Draft"; feature plan N21.4). They are in the page's
  * Y.Doc, so they are encrypted and synced with the page content. Editors add (free text) and
- * remove them. `touch` (the page screen, M38): 20 high tags (11/800) in a 20 px gutter; the
+ * remove them. `touch` (the page screen, M38): 22 high tags (10 mono) in a 20 px gutter; the
  * remove mark and "Add label" keep their look in a hit area of 36.
  */
 export function PageLabels({
@@ -61,11 +51,8 @@ export function PageLabels({
         <li
           key={label}
           className={cn(
-            'inline-flex items-center gap-1',
-            touch
-              ? 'h-5 px-[7px] text-[11px] font-extrabold tracking-[0.4px]'
-              : 'h-6 px-2 text-xs font-bold',
-            FEATURE_TILE[labelFeature(label)]
+            'rounded-badge border-line-strong text-text-tertiary inline-flex items-center gap-1 border font-mono uppercase',
+            touch ? 'h-[22px] px-2 text-[10px] tracking-[0.8px]' : 'h-5 px-1.5 text-[9px] tracking-[0.8px]'
           )}
         >
           {label}
@@ -74,7 +61,7 @@ export function PageLabels({
               type="button"
               aria-label={`Remove label ${label}`}
               className={cn(
-                '-mr-1 inline-flex size-4 items-center justify-center opacity-70 hover:opacity-100',
+                'text-text-disabled hover:text-text-primary -mr-1 inline-flex size-4 items-center justify-center',
                 touch && 'relative after:absolute after:-inset-2.5'
               )}
               onClick={() => remove(label)}

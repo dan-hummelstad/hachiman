@@ -1,12 +1,12 @@
 import { cn } from '@/lib/utils'
 
 /**
- * The Arc selectable-row look (docs/ui-redesign.md §5): radius 8, the hover fill, and the
- * selected fill with primary text. The caller adds the layout (height, padding, gap).
+ * The selectable-row look: radius 4, the hover fill, and the neutral selected fill with primary
+ * text (the mark of the current row is `here`, drawn by the caller). The caller adds the layout (height, padding, gap).
  */
 export function selectableRowClass(selected: boolean, className?: string): string {
   return cn(
-    'rounded-control',
+    'rounded-row',
     selected
       ? 'bg-surface-selected text-text-primary'
       : 'text-text-secondary hover:bg-surface-hover hover:text-text-primary',

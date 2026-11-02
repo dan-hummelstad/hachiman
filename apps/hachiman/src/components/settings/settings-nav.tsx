@@ -1,10 +1,10 @@
-import { ChevronLeft } from 'lucide-react'
-import { Keycap } from '@/components/ui/keycap'
+import { ArrowLeft } from 'lucide-react'
 import type { SettingsModel } from '@/components/settings/settings-model'
-import { useChannelStore } from '@/stores/channelStore'
+import { UnreadMark } from '@/components/ui/unread-mark'
 import { isVisible, resolveSection } from '@/lib/settings-sections'
+import { cn } from '@/lib/utils'
+import { useChannelStore } from '@/stores/channelStore'
 import { useSelectedChannelId } from '@/stores/navStore'
-import { selectableRowClass } from '@/components/ui/selectable-row'
 
 interface SettingsNavProps {
   model: SettingsModel
@@ -22,8 +22,9 @@ function useBackLabel(): string {
 }
 
 /**
- * The settings list of the sidebar middle (F7, G1, H1): the "Back to #channel" row, the header of
- * the thing being set up, the section list with counts, and the red action set apart.
+ * The 224 px settings column: "Settings" back row, the section list with counts and the quiet
+ * action (Sign out, or the red Leave / Delete) at the foot. The selected row wears the `here`
+ * mark.
  */
 export function SettingsNav({
   model,
@@ -33,75 +34,88 @@ export function SettingsNav({
 }: SettingsNavProps): React.JSX.Element {
   const selected = resolveSection(model.groups, section)?.id
   const back = useBackLabel()
+  const user = model.label === 'User settings'
   return (
     <nav
       aria-label={model.label}
-      className="-mx-2.5 flex min-h-0 flex-col gap-1 overflow-y-auto px-2.5 pb-2 [&>*]:shrink-0"
+      className="bg-surface-panel border-line-hairline flex h-full w-[224px] shrink-0 flex-col border-r"
     >
       <button
         type="button"
+        aria-label={back}
         onClick={onBack}
-        className="rounded-control text-text-tertiary hover:bg-surface-hover hover:text-text-primary flex h-8 items-center gap-1.5 px-1.5 text-[13px] font-semibold"
+        className="text-text-tertiary hover:text-text-primary flex h-[52px] shrink-0 items-center gap-2 px-4"
       >
-        <ChevronLeft aria-hidden className="size-4" />
-        <span className="flex-1 truncate text-left">{back}</span>
-        <Keycap aria-hidden>Esc</Keycap>
+        <ArrowLeft aria-hidden className="size-[15px]" />
+        <span className="font-mono text-[9.5px] tracking-[1.5px] uppercase">
+          {user ? 'Settings' : model.crumb}
+        </span>
       </button>
-      <div className="flex items-center gap-2.5 px-1 py-2">
-        <span aria-hidden className="flex size-9 shrink-0 items-center justify-center">
-          {model.header.icon}
-        </span>
-        <span className="grid min-w-0">
-          <span className="text-heading text-text-primary truncate">{model.header.name}</span>
-          <span className="text-meta text-text-tertiary truncate">{model.header.subtitle}</span>
-        </span>
+      <div className="flex min-h-0 flex-1 flex-col gap-px overflow-y-auto px-2 pt-1">
+        {model.groups.map((g, i) => {
+          const items = g.items.filter(isVisible)
+          if (items.length === 0) return null
+          return (
+            <div key={g.heading ?? i} className="flex flex-col gap-px">
+              {g.heading && (
+                <h2 className="text-text-disabled flex h-[30px] items-center px-2.5 font-mono text-[9px] tracking-[1.3px] uppercase">
+                  {g.heading}
+                </h2>
+              )}
+              {items.map((s) => {
+                const on = s.id === selected
+                return (
+                  <button
+                    key={s.id}
+                    type="button"
+                    aria-current={on ? 'page' : undefined}
+                    onClick={() => onSelect(s.id)}
+                    className={cn(
+                      'rounded-row relative flex h-8 items-center gap-2 px-2.5 text-left text-[13px]',
+                      on
+                        ? 'bg-surface-selected text-text-primary font-semibold'
+                        : 'text-text-tertiary hover:bg-surface-hover hover:text-text-secondary'
+                    )}
+                  >
+                    {on && (
+                      <span
+                        aria-hidden
+                        className="bg-here absolute top-1/2 left-0 h-[18px] w-0.5 -translate-y-1/2"
+                      />
+                    )}
+                    <span className="flex-1 truncate">{s.label}</span>
+                    {s.alert !== undefined && s.alert > 0 ? (
+                      <UnreadMark badge={{ mentions: s.alert, unread: false }} count />
+                    ) : (
+                      s.count !== undefined &&
+                      s.count > 0 && (
+                        <span className="text-text-disabled font-mono text-[9px] tabular-nums">
+                          {s.count}
+                        </span>
+                      )
+                    )}
+                  </button>
+                )
+              })}
+            </div>
+          )
+        })}
       </div>
-      {model.groups.map((g, i) => {
-        const items = g.items.filter(isVisible)
-        if (items.length === 0) return null
-        return (
-          <div key={g.heading ?? i} className="flex flex-col gap-0.5">
-            {g.heading && <h2 className="section-label px-2.5 pt-3 pb-1">{g.heading}</h2>}
-            {items.map((s) => {
-              const on = s.id === selected
-              return (
-                <button
-                  key={s.id}
-                  type="button"
-                  aria-current={on ? 'page' : undefined}
-                  onClick={() => onSelect(s.id)}
-                  className={selectableRowClass(
-                    on,
-                    'flex h-8 items-center gap-2.5 px-2.5 text-left text-sm font-semibold transition-colors [&_svg]:size-4 [&_svg]:shrink-0'
-                  )}
-                >
-                  <span aria-hidden className={on ? 'text-accent-text' : 'text-text-tertiary'}>
-                    {s.icon}
-                  </span>
-                  <span className="flex-1 truncate">{s.label}</span>
-                  {s.count !== undefined && s.count > 0 && (
-                    <span className="rounded-check bg-surface-raised text-text-tertiary px-1.5 text-[11px] leading-4 font-bold tabular-nums">
-                      {s.count}
-                    </span>
-                  )}
-                </button>
-              )
-            })}
-          </div>
-        )
-      })}
       {model.danger && (
-        <div className="border-line-hairline mt-2 border-t pt-2">
-          <button
-            type="button"
-            disabled={model.danger.disabled}
-            onClick={model.danger.onClick}
-            className="rounded-control text-feature-danger-text hover:bg-feature-danger/10 flex h-8 w-full items-center gap-2.5 px-2.5 text-left text-sm font-semibold disabled:opacity-50 [&_svg]:size-4"
-          >
-            {model.danger.icon}
-            {model.danger.label}
-          </button>
-        </div>
+        <button
+          type="button"
+          disabled={model.danger.disabled}
+          onClick={model.danger.onClick}
+          className={cn(
+            'border-line-hairline flex h-[52px] shrink-0 items-center gap-2 border-t px-4 text-[13px] disabled:opacity-50 [&_svg]:size-[15px]',
+            model.danger.quiet
+              ? 'text-text-secondary hover:text-text-primary [&_svg]:text-text-tertiary'
+              : 'text-you-text hover:bg-you-tint'
+          )}
+        >
+          {model.danger.icon}
+          {model.danger.label}
+        </button>
       )}
     </nav>
   )

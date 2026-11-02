@@ -33,16 +33,16 @@ export function MobileChatFooter({
   return (
     <footer
       data-slot="chat-footer"
-      className="flex shrink-0 flex-col pb-(--safe-bottom) in-data-[keyboard=open]:pb-0"
+      className="bg-surface-content border-line-hairline flex shrink-0 flex-col border-t pb-(--safe-bottom) in-data-[keyboard=open]:pb-0"
     >
-      {!blocked && <TypingLine channel={channel} className="h-[22px] pr-4 pl-5 leading-[22px]" />}
+      {!blocked && <TypingLine channel={channel} className="h-6 px-4 leading-6" />}
       <VoiceBar />
       {blocked ? (
         <div className="px-3 pt-2 pb-2">{blocked}</div>
       ) : (
         <>
           {chat.refusedPeer && (
-            <p role="status" className="text-text-tertiary px-4 pt-2 text-[13px]">
+            <p role="status" className="text-text-tertiary px-4 pt-2 text-[12.5px]">
               You can&apos;t message {chat.refusedPeer.username}.
             </p>
           )}

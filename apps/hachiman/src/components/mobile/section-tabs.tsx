@@ -84,16 +84,16 @@ export function SectionTabs({
             tabIndex={selected ? 0 : -1}
             onClick={() => t.id !== value && onValueChange(t.id)}
             className={cn(
-              'rounded-control flex h-9 items-center justify-center gap-[5px] border text-[14px] leading-[18px] whitespace-nowrap outline-none transition-colors focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-line-focus',
+              'flex h-9 items-center justify-center gap-[5px] border-b-2 text-[14px] leading-[18px] whitespace-nowrap outline-none transition-colors focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-line-focus',
               fill ? 'min-w-0 flex-1 px-2' : 'shrink-0 px-3',
               selected
-                ? 'bg-surface-content border-line-strong text-text-primary font-extrabold'
-                : 'text-text-secondary active:bg-surface-hover border-transparent bg-(--fill-control) font-semibold'
+                ? 'border-here text-text-primary font-semibold'
+                : 'text-text-tertiary active:bg-surface-hover border-transparent font-medium'
             )}
           >
             <span className="truncate">{t.label}</span>
             {t.count !== undefined && t.count > 0 && (
-              <span className="text-text-tertiary text-[12px] leading-4 font-bold tabular-nums">
+              <span className="text-text-tertiary font-mono text-[11px] leading-4 tabular-nums">
                 {t.count}
               </span>
             )}

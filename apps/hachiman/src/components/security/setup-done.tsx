@@ -27,22 +27,17 @@ function SetupDoneCard({
   return (
     <div
       className={cn(
-        'border-feature-voice/40 bg-feature-voice/5 grid justify-items-center gap-2 border px-4 py-6 text-center',
-        touch && 'border-feature-voice/20 gap-3 px-5 pt-[30px] pb-7'
+        'border-line-hairline bg-surface-sunken rounded-control grid justify-items-center gap-2 border px-4 py-6 text-center',
+        touch && 'gap-3 px-5 pt-[30px] pb-7'
       )}
     >
-      <span
-        className={cn(
-          'bg-feature-voice/15 text-feature-voice-text flex size-12 items-center justify-center rounded-full [&_svg]:size-6',
-          touch && 'size-16 [&_svg]:size-8'
-        )}
-      >
+      <span className="border-line-strong text-text-primary flex size-[46px] items-center justify-center rounded-[12px] border [&_svg]:size-[22px]">
         <Check />
       </span>
-      <p className={touch ? 'text-[19px] leading-6 font-extrabold' : 'text-heading'}>
+      <p className="text-text-primary text-[22px] leading-[1.2] font-semibold tracking-[-0.6px]">
         Encryption is set up on this {noun}
       </p>
-      <p className={cn('text-text-secondary', touch && 'text-[14.5px] font-medium')}>
+      <p className="text-text-tertiary text-[13px] leading-[1.55]">
         This {noun} has a security key and can read your messages.
       </p>
     </div>
@@ -55,7 +50,7 @@ export function SetupDoneStep({ onDone }: { onDone?: () => void }): React.JSX.El
   return (
     <StepFrame
       icon={<ShieldCheck />}
-      feature="voice"
+      feature="event"
       title={ONBOARDING_TITLES.choose}
       footer={
         onDone && (
@@ -92,7 +87,7 @@ export function SetupDoneScreen({
   return (
     <StepFrame
       icon={<ShieldCheck />}
-      feature="voice"
+      feature="event"
       title={titleOf('choose')}
       subtitle={handle ? `Signed in as ${handle}` : 'End-to-end encrypted'}
       footer={
@@ -106,7 +101,7 @@ export function SetupDoneScreen({
     >
       <div className="my-auto grid gap-3.5 pb-10">
         <SetupDoneCard noun={noun} size="touch" />
-        <p className="text-text-tertiary text-center text-[13px] font-medium">
+        <p className="text-text-tertiary text-center text-[13px]">
           You can see this {noun} any time in{' '}
           <span className="whitespace-nowrap">Settings → Devices</span>.
         </p>

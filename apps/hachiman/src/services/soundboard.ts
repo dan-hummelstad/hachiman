@@ -172,7 +172,7 @@ export const soundboardService = {
     const late = clipProblem(file, duration)
     if (late) throw new Error(late)
     const channel = soundChannel(hachiman.cache.channels.values(), guildId)
-    if (!channel) throw new Error('The soundboard needs a text channel that everyone in the guild can see.')
+    if (!channel) throw new Error('The soundboard needs a text channel that everyone in the space can see.')
 
     const crypto = cryptoService.client()
     await crypto.ensureChannelGroup(channel.id)

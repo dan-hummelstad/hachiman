@@ -79,8 +79,6 @@ describe('groupMembers with hoisted roles', () => {
       ['online', 'Online', false, ['u3']],
       ['offline', 'Offline', true, ['u4']]
     ])
-    expect(groups[0]?.color).toBe('#ffc36b')
-    expect(groups[1]?.color).toBeUndefined()
   })
   it('orders roles with the same position by id', () => {
     const members = [member('u1', 'a', null, ['squad-b']), member('u2', 'b', null, ['squad-a'])]

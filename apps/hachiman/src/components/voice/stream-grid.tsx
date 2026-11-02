@@ -1,11 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
-import { Eye, EyeOff, LoaderCircle, Maximize, Minimize, Volume2, VolumeX } from 'lucide-react'
+import { Eye, LoaderCircle, MonitorUp, Volume2, VolumeX } from 'lucide-react'
 import type { VoiceState } from '@hachiman/client'
 import { UserAvatar } from '@/components/shell/user-avatar'
 import { Button } from '@/components/ui/button'
-import { IconButton } from '@/components/ui/icon-button'
-import { SystemTag } from '@/components/ui/system-tag'
-import { TileNameTag } from '@/components/voice/voice-tile'
 import { VolumeRange } from '@/components/voice/volume-range'
 import { TILE, stageColumns } from '@/components/voice/voice-tile-styles'
 import { useMemberView } from '@/hooks/use-member'
@@ -28,11 +25,13 @@ import { useVoiceStore } from '@/stores/voiceStore'
 export function StreamGrid({
   guildId,
   occupants,
-  secure
+  secure,
+  className
 }: {
   guildId: string | null
   occupants: VoiceState[]
   secure: ReadonlySet<string> | null
+  className?: string
 }): React.JSX.Element | null {
   const meId = useUserStore((s) => s.me?.id)
   const localScreen = useVoiceStore((s) => s.localScreen)
@@ -53,7 +52,11 @@ export function StreamGrid({
 
   return (
     <div
-      className={cn('grid min-h-0 w-full flex-1 auto-rows-fr gap-3', stageColumns(shown.length))}
+      className={cn(
+        'grid min-h-0 w-full flex-1 auto-rows-fr gap-4',
+        stageColumns(shown.length),
+        className
+      )}
     >
       {shown.map((l) => (
         <StreamTile
@@ -71,8 +74,9 @@ export function StreamGrid({
   )
 }
 
+/** A mono chip in the bottom bar of a share. */
 const TILE_BUTTON =
-  'bg-surface-window/85 text-text-primary hover:bg-surface-window hover:text-text-primary'
+  'h-[19px] rounded-[4px] border border-line-strong px-2 font-mono text-[8.5px] tracking-[0.9px] uppercase text-text-tertiary hover:text-text-primary hover:bg-surface-hover'
 
 function StreamTile({
   guildId,
@@ -93,89 +97,80 @@ function StreamTile({
   focused: boolean
   onToggleFocus: () => void
 }): React.JSX.Element {
-  const { name, ink, avatar } = useMemberView(guildId, userId)
+  const { name, avatar } = useMemberView(guildId, userId)
   const frame = useRef<HTMLDivElement>(null)
   const [fullscreen, toggleFullscreen] = useFullscreen(frame)
-
-  if (!stream)
-    return (
-      <div
-        className={cn(
-          TILE,
-          'text-text-secondary flex flex-col items-center justify-center gap-2 text-xs'
-        )}
-      >
-        <TileNameTag>
-          <SystemTag kind="live" />
-          <span className="truncate" style={ink ? { color: ink } : undefined}>
-            {name}
-          </span>
-        </TileNameTag>
-        <LoaderCircle className="text-feature-event-text size-5 animate-spin" aria-hidden />
-        {name} is joining the encrypted call
-      </div>
-    )
-
-  if (!self && !watched)
-    return (
-      <div className={cn(TILE, 'flex flex-col items-center justify-center gap-4')}>
-        <TileNameTag>
-          <SystemTag kind="live" />
-          <span className="truncate" style={ink ? { color: ink } : undefined}>
-            {name}
-          </span>
-        </TileNameTag>
-        <UserAvatar name={name} avatar={avatar} color={ink} size={72} />
-        <Button variant="voice" onClick={() => voiceService.setWatching(userId, true)}>
-          <Eye />
-          Watch stream
-        </Button>
-      </div>
-    )
+  const playing = stream !== null && (self || watched)
 
   return (
-    <div ref={frame} className={cn(TILE, 'group overflow-hidden bg-black')}>
-      <button
-        type="button"
-        aria-label={focused ? `Show all streams` : `Focus ${name}'s stream`}
-        className="focus-visible:outline-line-focus size-full outline-none focus-visible:outline-2 focus-visible:-outline-offset-2"
-        onClick={onToggleFocus}
-      >
-        <video
-          ref={(el) => {
-            // Only on a change: assigning srcObject again restarts the load.
-            if (el && el.srcObject !== stream) el.srcObject = stream
-          }}
-          autoPlay
-          playsInline
-          muted
-          className="size-full object-contain"
-        />
-      </button>
-      <TileNameTag>
-        <SystemTag kind="live" />
-        <span className="truncate" style={ink && !self ? { color: ink } : undefined}>
-          {self ? 'Your stream' : name}
-        </span>
-      </TileNameTag>
-      <div className="absolute top-3 right-3 flex gap-1 opacity-0 group-focus-within:opacity-100 group-hover:opacity-100">
-        {!self && <StreamAudioControl userId={userId} />}
-        {!self && (
-          <IconButton
-            label="Stop watching"
-            className={TILE_BUTTON}
-            onClick={() => voiceService.setWatching(userId, false)}
+    <div ref={frame} className={cn(TILE, 'group bg-surface-sunken flex flex-col overflow-hidden')}>
+      <div className={cn('relative min-h-0 flex-1', playing && 'bg-black')}>
+        {!stream ? (
+          <div className="flex size-full flex-col items-center justify-center gap-3">
+            <LoaderCircle className="text-text-disabled size-[30px] animate-spin" aria-hidden />
+            <span className="cap-sm">{name} is joining the encrypted call</span>
+          </div>
+        ) : !self && !watched ? (
+          <div className="flex size-full flex-col items-center justify-center gap-3">
+            <MonitorUp className="text-text-disabled size-[30px]" aria-hidden />
+            <UserAvatar name={name} avatar={avatar} size={46} />
+            <Button variant="voice" onClick={() => voiceService.setWatching(userId, true)}>
+              <Eye />
+              Watch stream
+            </Button>
+          </div>
+        ) : (
+          <button
+            type="button"
+            aria-label={focused ? `Show all streams` : `Focus ${name}'s stream`}
+            className="focus-visible:outline-line-focus size-full outline-none focus-visible:outline-2 focus-visible:-outline-offset-2"
+            onClick={onToggleFocus}
           >
-            <EyeOff />
-          </IconButton>
+            <video
+              ref={(el) => {
+                // Only on a change: assigning srcObject again restarts the load.
+                if (el && el.srcObject !== stream) el.srcObject = stream
+              }}
+              autoPlay
+              playsInline
+              muted
+              className="size-full object-contain"
+            />
+          </button>
         )}
-        <IconButton
-          label={fullscreen ? 'Exit full screen' : 'Full screen'}
-          className={TILE_BUTTON}
-          onClick={toggleFullscreen}
-        >
-          {fullscreen ? <Minimize /> : <Maximize />}
-        </IconButton>
+      </div>
+      <div className="border-line-hairline bg-surface-raised flex h-10 shrink-0 items-center gap-2 border-t px-3.5">
+        <MonitorUp className="text-live size-[13px] shrink-0" aria-hidden />
+        <span className="text-text-secondary min-w-0 truncate text-[12.5px]">
+          {self ? 'You are sharing' : `${name} is sharing`}
+        </span>
+        <span className="flex-1" />
+        {playing && (
+          <>
+            {!self && <StreamAudioControl userId={userId} />}
+            {!self && (
+              <button
+                type="button"
+                aria-label="Stop watching"
+                className={TILE_BUTTON}
+                onClick={() => voiceService.setWatching(userId, false)}
+              >
+                Stop
+              </button>
+            )}
+            <button type="button" className={TILE_BUTTON} onClick={onToggleFocus}>
+              {focused ? 'Unfocus' : 'Focus'}
+            </button>
+            <button
+              type="button"
+              aria-label={fullscreen ? 'Exit full screen' : 'Full screen'}
+              className={TILE_BUTTON}
+              onClick={toggleFullscreen}
+            >
+              {fullscreen ? 'Exit full screen' : 'Full screen'}
+            </button>
+          </>
+        )}
       </div>
     </div>
   )
@@ -189,20 +184,21 @@ function StreamAudioControl({ userId }: { userId: string }): React.JSX.Element {
   const audio = usePrefsStore((s) => s.streamAudio[userId] ?? DEFAULT_USER_AUDIO)
   const setStreamAudio = usePrefsStore((s) => s.setStreamAudio)
   return (
-    <div className="bg-surface-window/85 flex items-center gap-1 rounded-full pr-2">
-      <IconButton
-        label={audio.muted ? 'Unmute stream' : 'Mute stream'}
-        pressed={audio.muted}
-        className={TILE_BUTTON}
+    <div className="flex items-center gap-1">
+      <button
+        type="button"
+        aria-label={audio.muted ? 'Unmute stream' : 'Mute stream'}
+        aria-pressed={audio.muted}
+        className={cn(TILE_BUTTON, 'flex items-center px-1.5 [&_svg]:size-3')}
         onClick={() => setStreamAudio(userId, { muted: !audio.muted })}
       >
         {audio.muted ? <VolumeX /> : <Volume2 />}
-      </IconButton>
+      </button>
       <VolumeRange
         label="Stream volume"
         audio={audio}
         onVolume={(volume) => setStreamAudio(userId, { volume })}
-        className="w-24"
+        className="w-20"
       />
     </div>
   )

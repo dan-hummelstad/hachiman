@@ -42,7 +42,7 @@ const isConflict = (e: unknown): boolean =>
 
 function guildOfChannel(channelId: string): string {
   const guildId = hachiman.cache.channels.get(channelId)?.guildId
-  if (!guildId) throw new Error('Only guild channels have signed admin actions.')
+  if (!guildId) throw new Error('Only space channels have signed admin actions.')
   return guildId
 }
 
@@ -102,7 +102,7 @@ export const adminActionService = {
     guildId: string,
     ownerId = hachiman.cache.guilds.get(guildId)?.ownerId
   ): Promise<void> {
-    if (!ownerId) throw new Error('Unknown guild owner.')
+    if (!ownerId) throw new Error('Unknown space owner.')
     let header: string
     try {
       header = await sign(guildId, { type: AdminActionType.GENESIS, ownerId })

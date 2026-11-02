@@ -36,7 +36,7 @@ export function HoistRow({
   if (size === 'touch') {
     return (
       <div className="grid gap-1.5">
-        <div className="border-line-hairline border bg-white/2">
+        <div className="bg-surface-panel rounded-[14px]">
           <PermissionRow
             size="touch"
             label="Show as its own group"
@@ -52,7 +52,7 @@ export function HoistRow({
     )
   }
   return (
-    <div className="border-line-hairline bg-surface-raised/50 border px-3.5">
+    <div className="border-line-hairline rounded-control bg-surface-sunken border px-3.5">
       <PermissionRow
         label="Show as its own group in the member list"
         hint="Online members with this role are listed under its name."

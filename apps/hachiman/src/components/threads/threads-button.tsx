@@ -23,7 +23,7 @@ import { useChannelUnread } from '@/stores/unreadStore'
 import { MAX_THREAD_NAME, validThreadName } from './thread-name'
 
 /**
- * The sky threads button of the channel header (N12) and its popover of threads. On the mobile
+ * The threads button of the channel header (N12) and its popover of threads. On the mobile
  * layout the popover is a sheet.
  */
 export function ThreadsButton({ channel }: { channel: Channel }): React.JSX.Element {
@@ -38,7 +38,6 @@ export function ThreadsButton({ channel }: { channel: Channel }): React.JSX.Elem
           count={count}
           feature="thread"
           pressed={open}
-          className={count > 0 ? 'mobile:bg-feature-thread/9' : undefined}
         >
           <MessagesSquare />
         </HeaderCountButton>
@@ -97,7 +96,7 @@ function ThreadsList({
 
   return (
     <HeaderPopoverFrame
-      icon={<MessagesSquare className="text-feature-thread-text" />}
+      icon={<MessagesSquare className="text-text-tertiary" />}
       title="Threads"
       actions={
         canCreate &&
@@ -139,23 +138,25 @@ function ThreadRow({ thread, onOpen }: { thread: Channel; onOpen: () => void }):
       type="button"
       onClick={onOpen}
       className={cn(
-        'rounded-option hover:bg-surface-hover flex w-full items-center gap-3 px-2.5 py-2 text-left',
+        'rounded-row hover:bg-surface-hover flex w-full items-center gap-3 px-2.5 py-2 text-left',
         'focus-visible:outline-line-focus outline-none focus-visible:outline-2'
       )}
     >
-      <span className="rounded-control bg-feature-thread/15 text-feature-thread-text flex size-8 shrink-0 items-center justify-center">
+      <span className="bg-surface-raised text-text-tertiary flex size-8 shrink-0 items-center justify-center rounded-[8px]">
         <MessagesSquare className="size-4" aria-hidden />
       </span>
       <span className="grid min-w-0 flex-1">
         <span
           className={cn(
-            'truncate text-[14px] font-semibold',
-            badge.unread || badge.mentions > 0 ? 'text-text-primary' : 'text-text-secondary'
+            'truncate text-[13.5px]',
+            badge.unread || badge.mentions > 0
+              ? 'text-text-primary font-semibold'
+              : 'text-text-secondary'
           )}
         >
           {thread.name}
         </span>
-        <span className="text-text-tertiary truncate text-[12px] font-medium">
+        <span className="text-text-disabled truncate font-mono text-[9px] tracking-[0.7px] uppercase">
           {last ? `Last message ${formatFull(last)}` : 'No recent messages'}
         </span>
       </span>

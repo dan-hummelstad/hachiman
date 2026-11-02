@@ -23,25 +23,25 @@ export const TRUST_LOOK: Record<SenderTrust, TrustLook> = {
   verified: {
     label: 'Verified',
     Icon: ShieldCheck,
-    text: 'text-feature-voice-text',
-    card: 'border-feature-voice/40 bg-feature-voice/10',
-    chip: 'bg-feature-voice/15 text-feature-voice-text',
+    text: 'text-text-primary',
+    card: 'border-line-strong bg-surface-raised',
+    chip: 'bg-surface-raised text-text-secondary',
     canVerify: false
   },
   tofu: {
     label: 'Not verified',
     Icon: ShieldQuestion,
-    text: 'text-feature-event-text',
-    card: 'border-feature-event/40 bg-feature-event/10',
-    chip: 'bg-feature-event/15 text-feature-event-text',
+    text: 'text-text-secondary',
+    card: 'border-line-hairline bg-surface-raised',
+    chip: 'border border-line-strong bg-transparent text-text-tertiary',
     canVerify: true
   },
   changed: {
     label: 'Key changed',
     Icon: ShieldAlert,
-    text: 'text-feature-danger-text',
-    card: 'border-feature-danger/50 bg-feature-danger/10',
-    chip: 'bg-feature-danger/15 text-feature-danger-text',
+    text: 'text-you-text',
+    card: 'border-you bg-you-tint',
+    chip: 'bg-you-tint text-you-text',
     canVerify: true
   },
   unknown: {
@@ -62,7 +62,7 @@ export type KeyChangeSeverity = 'blocking' | 'notice'
 
 /**
  * The state that a contact shows. A 'notice' key change (the contact was never verified) shows
- * as 'tofu', gold "Not verified" (E6). A 'blocking' change shows as 'changed', red. So does a
+ * as 'tofu', "Not verified" (E6). A 'blocking' change shows as 'changed' (`you`). So does a
  * change whose severity this device does not know: the event lives in memory only.
  */
 export function shownTrust(state: SenderTrust, keyChange?: KeyChangeSeverity | null): SenderTrust {

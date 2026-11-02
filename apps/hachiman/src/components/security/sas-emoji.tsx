@@ -2,9 +2,9 @@ import type { SasEmoji } from '@hachiman/crypto'
 import { cn } from '@/lib/utils'
 
 /**
- * The 7 SAS emoji with their names (§12.5), in order. `size="touch"` is the phone form (M17, M23):
- * glyph 38, name 13/700, 8 between them, in rows of 4 with 22 between the rows (4 + 3, the second
- * row centred).
+ * The 7 SAS emoji with their names (§12.5), in order. The code is content, not a signal: no hue.
+ * Desktop: seven tiles in a row. `size="touch"` is the phone form: tiles of 76 in rows of 4 and 3
+ * (the second row centred).
  */
 export function SasEmojiRow({
   emoji,
@@ -18,27 +18,30 @@ export function SasEmojiRow({
     <ol
       aria-label="Security emoji"
       className={cn(
-        'border-line-hairline bg-surface-sunken grid border',
-        touch ? 'grid-cols-8 gap-y-[22px] px-2 py-[22px]' : 'grid-cols-4 gap-2 p-3 sm:grid-cols-7'
+        'grid',
+        touch ? 'grid-cols-8 gap-x-[7px] gap-y-[7px]' : 'grid-cols-4 gap-1.5 sm:grid-cols-7'
       )}
     >
       {emoji.map((e, i) => (
         <li
           key={i}
           className={cn(
-            'flex flex-col items-center gap-1 text-center',
-            touch && 'col-span-2 gap-2 [&:nth-child(5)]:col-start-2'
+            'border-line-hairline bg-surface-sunken flex flex-col items-center justify-center gap-1 border text-center',
+            touch
+              ? 'border-line-strong col-span-2 h-[76px] rounded-[12px] [&:nth-child(5)]:col-start-2'
+              : 'rounded-control h-[62px]'
           )}
         >
-          <span aria-hidden className={touch ? 'text-[38px] leading-[46px]' : 'text-3xl leading-9'}>
+          <span aria-hidden className={touch ? 'text-[30px] leading-9' : 'text-[25px] leading-7'}>
             {e.emoji}
           </span>
           <span
-            className={
+            className={cn(
+              'max-w-full truncate px-0.5 font-mono uppercase',
               touch
-                ? 'text-text-secondary text-[13px] leading-4 font-bold'
-                : 'text-text-tertiary text-[11px] leading-3'
-            }
+                ? 'text-text-secondary text-[9px] tracking-[0.5px]'
+                : 'text-text-tertiary text-[8px] tracking-[0.4px]'
+            )}
           >
             {e.name}
           </span>

@@ -1,14 +1,15 @@
 import { useEffect, useState } from 'react'
-import { KeyRound, Link2, LogOut, MonitorSmartphone, Pencil } from 'lucide-react'
+import { KeyRound, Link2, MonitorSmartphone, Pencil, ShieldAlert, ShieldCheck } from 'lucide-react'
 import type { DeviceSummary } from '@hachiman/crypto'
 import { Button } from '@/components/ui/button'
 import { Callout } from '@/components/ui/callout'
 import { Chip } from '@/components/ui/chip'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
-import { ErrorText, SectionHeading } from '@/components/ui/field'
+import { ErrorText } from '@/components/ui/field'
 import { IconButton } from '@/components/ui/icon-button'
 import { Input } from '@/components/ui/input'
 import { ModalWindow } from '@/components/ui/modal-window'
+import { AnswerBlock, SettingsCap, SettingsRule } from '@/components/settings/user/rows'
 import { RemoveDeviceBody, SignOutThisDeviceBody } from '@/components/security/device-actions'
 import {
   activeText,
@@ -24,11 +25,10 @@ import { useOwnDevices } from '@/components/security/use-own-devices'
 import { useLayout } from '@/hooks/use-layout'
 import { PLATFORM_LABEL } from '@/lib/device-platform'
 import { formatShortDate } from '@/lib/time-format'
-import { cn } from '@/lib/utils'
 import { cryptoService } from '@/services/CryptoService'
 import { openDialog, useDialog } from '@/stores/dialogStore'
 import { useCryptoStore } from '@/stores/cryptoStore'
-import { openSettings } from '@/stores/navStore'
+import { openSettings, setSettingsSection } from '@/stores/navStore'
 
 const linkNewDevice = (): void =>
   openDialog({ kind: 'deviceLink', role: 'existing_device', sessionId: null })
@@ -70,10 +70,8 @@ export function DevicesPanel({ variant }: { variant: 'page' | 'dialog' }): React
       <section className="grid gap-2">
         {variant === 'page' && (
           <div className="flex items-center justify-between gap-3">
-            <SectionHeading className="mb-0">
-              Your devices{devices && ` · ${active.length}`}
-            </SectionHeading>
-            <Button onClick={linkNewDevice}>
+            <SettingsCap>Devices on your account{devices && ` · ${active.length}`}</SettingsCap>
+            <Button variant="secondary" size="sm" onClick={linkNewDevice}>
               <Link2 /> Link a new device
             </Button>
           </div>
@@ -81,7 +79,7 @@ export function DevicesPanel({ variant }: { variant: 'page' | 'dialog' }): React
         <ErrorText>{error}</ErrorText>
         {devices === null && !error && <p className="text-text-tertiary text-sm">Loading…</p>}
         {active.length > 0 && (
-          <ul className="bg-surface-panel border-line-hairline divide-line-hairline divide-y border">
+          <ul className="divide-line-hairline divide-y">
             {active.map((d) => (
               <DeviceRow
                 key={d.id}
@@ -94,13 +92,15 @@ export function DevicesPanel({ variant }: { variant: 'page' | 'dialog' }): React
             ))}
           </ul>
         )}
-        {!primary && <p className="text-meta text-text-tertiary">{PRIMARY_ONLY}</p>}
+        {!primary && <p className="text-[12.5px] text-text-tertiary">{PRIMARY_ONLY}</p>}
       </section>
+
+      {variant === 'page' && <RecoveryPrompt />}
 
       {removed.length > 0 && (
         <section className="grid gap-2">
-          <SectionHeading className="mb-0">Signed-out devices</SectionHeading>
-          <ul className="text-text-tertiary grid gap-1 text-sm">
+          <SettingsCap>Signed-out devices</SettingsCap>
+          <ul className="text-text-tertiary grid gap-1 text-[13px]">
             {removed.map((d) => (
               <li key={d.id} className="flex items-center gap-2">
                 <DeviceGlyph
@@ -136,6 +136,30 @@ export function DevicesPanel({ variant }: { variant: 'page' | 'dialog' }): React
   )
 }
 
+/** No recovery key yet: the one thing on this page that waits on you. */
+function RecoveryPrompt(): React.JSX.Element | null {
+  const missing = useCryptoStore(
+    (s) => s.phase === 'ready' && s.status?.state === 'ready' && s.status.recoveryConfigured === false
+  )
+  if (!missing) return null
+  return (
+    <section>
+      <SettingsRule />
+      <SettingsCap>Recovery key</SettingsCap>
+      <div className="mt-2">
+        <AnswerBlock
+          tone="you"
+          icon={<KeyRound className="size-5" />}
+          cap="Waiting on you"
+          title="You have no recovery key yet"
+          body="If you lose every device on this list, the recovery key is the only way to read your messages again."
+          actions={<Button onClick={() => setSettingsSection('recovery')}>Make a recovery key</Button>}
+        />
+      </div>
+    </section>
+  )
+}
+
 function DeviceRow({
   device,
   canRemove,
@@ -165,15 +189,13 @@ function DeviceRow({
   ].filter(Boolean)
 
   return (
-    <li className={cn('grid gap-1 px-4 py-3', device.current && 'bg-surface-hover/50')}>
-      <div className="flex items-center gap-3">
-        <span className="bg-surface-raised text-text-secondary flex size-10 shrink-0 items-center justify-center">
-          <DeviceGlyph
-            platform={device.platform}
-            label={PLATFORM_LABEL[device.platform]}
-            className="size-[18px]"
-          />
-        </span>
+    <li className="grid gap-1 py-3">
+      <div className="flex min-h-[68px] items-center gap-3.5 py-0">
+        <DeviceGlyph
+          platform={device.platform}
+          label={PLATFORM_LABEL[device.platform]}
+          className="text-text-tertiary size-[18px] shrink-0"
+        />
         <div className="min-w-0 flex-1">
           {name !== null ? (
             <form onSubmit={(e) => void save(e)} className="flex gap-2" data-esc-local>
@@ -191,49 +213,45 @@ function DeviceRow({
             </form>
           ) : (
             <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-              <span className="text-label truncate">{device.name}</span>
-              {device.current && (
-                <Chip size="sm" tone="accent">
-                  This device
-                </Chip>
-              )}
+              <span className="truncate text-[13.5px] font-semibold">{device.name}</span>
+              {device.current && <Chip size="sm">This device</Chip>}
               {device.primary && (
-                <Chip size="sm" tone="voice" icon={<KeyRound aria-hidden />}>
-                  Has security key
-                </Chip>
+                <span className="text-text-tertiary flex items-center gap-1 font-mono text-[8.5px] uppercase">
+                  <ShieldCheck aria-hidden className="size-3" />
+                  Security key
+                </span>
               )}
               {device.status === 'pending' && (
-                <Chip size="sm" tone="event">
+                <span className="text-you-text flex items-center gap-1 font-mono text-[8.5px] font-semibold uppercase">
+                  <ShieldAlert aria-hidden className="text-you size-3" />
                   Not linked
-                </Chip>
+                </span>
               )}
             </div>
           )}
-          <p className="text-meta text-text-tertiary">{meta.join(' · ')}</p>
+          <p className="text-text-disabled font-mono text-[9px] tracking-[0.8px] uppercase">
+            {meta.join(' · ')}
+          </p>
         </div>
         {name === null && (
           <div className="flex shrink-0 items-center gap-1.5">
-            <IconButton
-              label="Rename"
-              className="rounded-control bg-surface-raised size-8"
-              onClick={() => setName(device.name)}
-            >
+            <IconButton label="Rename" size="sm" onClick={() => setName(device.name)}>
               <Pencil />
             </IconButton>
             <Button
-              variant="quiet"
-              className="bg-feature-danger/10 text-feature-danger-text hover:bg-feature-danger/20"
+              variant="secondary"
+              size="sm"
               disabled={!device.current && !canRemove}
               title={device.current || canRemove ? undefined : PRIMARY_ONLY}
               onClick={device.current ? onSignOut : onRemove}
             >
-              <LogOut /> Sign out
+              Sign out
             </Button>
           </div>
         )}
       </div>
       {name !== null && (
-        <p className="text-meta text-text-tertiary pl-[52px]">
+        <p className="text-[12.5px] text-text-tertiary pl-8">
           Only you see this name. Other people see the name that the device had when it was linked.
         </p>
       )}

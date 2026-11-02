@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
-import { ErrorText, SectionHeading } from '@/components/ui/field'
+import { SettingsCap } from '@/components/settings/user/rows'
+import { ErrorText } from '@/components/ui/field'
 import { useAction } from '@/hooks/use-action'
 import { usePlatform } from '@/shared/PlatformContext'
 import type { UpdateCheckResult } from '@/shared/IPlatformService'
@@ -34,8 +35,8 @@ export function UpdatesSection(): React.JSX.Element {
 
   return (
     <section className="grid gap-3">
-      <SectionHeading className="mb-0">Updates</SectionHeading>
-      <p className="text-text-secondary text-sm">
+      <SettingsCap>Updates</SettingsCap>
+      <p className="text-text-tertiary text-[12.5px]">
         Hachiman checks for a new version when it starts and every 4 hours. A new version downloads
         in the background, then Hachiman asks to restart.
       </p>

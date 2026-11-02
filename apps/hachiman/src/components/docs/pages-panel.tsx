@@ -24,8 +24,9 @@ import { usePermissions } from '@/hooks/use-hachiman'
 import { useCopy } from '@/hooks/use-copy'
 import { errMsg } from '@/lib/utils'
 import { docsService } from '@/services/docs/DocsService'
-import { flattenPages } from '@/services/docs/page-tree'
+import { flattenPages, pageTitle } from '@/services/docs/page-tree'
 import { useDocsStore, type PageNode } from '@/stores/docsStore'
+import { useGuildStore } from '@/stores/guildStore'
 import {
   AddBannerButton,
   PageBanner,
@@ -45,6 +46,8 @@ import { PageTitleField } from './page-title-field'
 import { PageTreePopover } from './page-tree-popover'
 
 const EMPTY_PAGES: PageNode[] = []
+
+const TITLE = 'text-[30px] leading-[1.25] font-semibold tracking-[-0.9px] text-text-primary'
 
 /**
  * The Pages view of the right column in a pages channel (C1): the column head (the switcher of
@@ -100,6 +103,9 @@ export function PagesPanel({
   const banner = usePageBannerControl(channel.id, pageId ?? '', canEdit)
   const page = pageId === null ? undefined : pages.find((p) => p.id === pageId)
   const [titleError, setTitleError] = useState<{ pageId: string; message: string } | null>(null)
+  const guildName = useGuildStore((s) =>
+    channel.guildId !== null ? (s.guilds.get(channel.guildId)?.name ?? '') : ''
+  )
 
   return (
     <div
@@ -108,6 +114,8 @@ export function PagesPanel({
     >
       <PanelHeader
         channelId={channel.id}
+        channelName={channel.name ?? ''}
+        guildName={guildName}
         pages={pages}
         pageId={pageId}
         canEdit={canEdit}
@@ -122,23 +130,29 @@ export function PagesPanel({
           pages={pages}
           pageId={pageId}
           onOpen={open}
-          current={
-            canEdit &&
-            page && (
-              <PageTitleField
-                key={page.id}
-                page={page}
-                current
-                className="text-text-primary"
-                onError={(message) => setTitleError({ pageId: page.id, message })}
-              />
-            )
-          }
           trailing={banner.view.show === 'add' && <AddBannerButton control={banner} />}
         />
       )}
+      {page && (
+        <div className="flex shrink-0 flex-col gap-2.5 px-16 pt-[34px]">
+          {canEdit ? (
+            <PageTitleField
+              key={page.id}
+              page={page}
+              current
+              className={TITLE}
+              onError={(message) => setTitleError({ pageId: page.id, message })}
+            />
+          ) : (
+            <h1 className={TITLE}>{pageTitle(page)}</h1>
+          )}
+          <p className="text-text-disabled font-mono text-[8.5px] tracking-[1.1px] uppercase">
+            {[guildName, channel.name].filter(Boolean).join(' · ')}
+          </p>
+        </div>
+      )}
       {titleError !== null && titleError.pageId === pageId && (
-        <p role="alert" className="text-feature-danger-text flex shrink-0 gap-2 px-16 pt-2 text-xs">
+        <p role="alert" className="text-you-text flex shrink-0 gap-2 px-16 pt-2 text-xs">
           <span className="min-w-0 flex-1">{titleError.message}</span>
           <button
             type="button"
@@ -170,6 +184,8 @@ export function PagesPanel({
 
 function PanelHeader({
   channelId,
+  channelName,
+  guildName,
   pages,
   pageId,
   canEdit,
@@ -178,6 +194,8 @@ function PanelHeader({
   banner
 }: {
   channelId: string
+  channelName: string
+  guildName: string
   pages: PageNode[]
   pageId: string | null
   canEdit: boolean
@@ -187,8 +205,20 @@ function PanelHeader({
 }): React.JSX.Element {
   const page = pageId ? pages.find((p) => p.id === pageId) : undefined
   return (
-    <header className="border-line-hairline flex h-14 shrink-0 items-center gap-1 border-b px-2">
+    <header className="border-line-hairline flex h-14 shrink-0 items-center gap-[11px] border-b pr-5 pl-3">
       {switcher}
+      <FileText className="text-here size-[17px] shrink-0" aria-hidden />
+      <span className="min-w-0 truncate text-[16px] font-semibold tracking-[-0.3px]">
+        {channelName}
+      </span>
+      {guildName && (
+        <>
+          <span aria-hidden className="bg-line-hairline h-4 w-px shrink-0" />
+          <span className="text-text-disabled min-w-0 truncate font-mono text-[8.5px] tracking-[1px] uppercase">
+            {guildName}
+          </span>
+        </>
+      )}
       <span className="flex-1" />
       {pageId && <Presence pageId={pageId} />}
       <PageTreePopover
@@ -212,6 +242,7 @@ function CopyLink({ page }: { page: PageNode }): React.JSX.Element {
     <IconButton
       label={copied !== null ? 'Copied' : 'Copy link'}
       tooltipSide="bottom"
+      className="[&_svg]:size-4"
       onClick={copyLink}
     >
       {copied !== null ? <Check /> : <Link2 />}
@@ -235,7 +266,11 @@ function MoreMenu({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <IconButton label={copied !== null ? 'Copied' : 'More'} tooltipSide="bottom">
+        <IconButton
+          label={copied !== null ? 'Copied' : 'More'}
+          tooltipSide="bottom"
+          className="[&_svg]:size-4"
+        >
           {copied !== null ? <Check /> : <MoreHorizontal />}
         </IconButton>
       </DropdownMenuTrigger>
@@ -286,7 +321,7 @@ function EmptyChannel({
   }
   return (
     <PanelMessage>
-      <FileText className="text-feature-page-text mx-auto mb-2 size-8" />
+      <FileText className="text-text-disabled mx-auto mb-2 size-8" />
       <p>This channel has no pages yet.</p>
       {canEdit && (
         <Button className="mt-3" size="sm" disabled={busy} onClick={create}>
@@ -295,7 +330,7 @@ function EmptyChannel({
         </Button>
       )}
       {error && (
-        <p className="text-feature-danger-text mt-2 text-xs">Could not create the page: {error}</p>
+        <p className="text-you-text mt-2 text-xs">Could not create the page: {error}</p>
       )}
     </PanelMessage>
   )

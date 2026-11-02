@@ -50,8 +50,8 @@ import type { PageNode } from '@/stores/docsStore'
 /** The width of the disclosure slot at the start of a row: pad 6, chevron 15, gap 8 (M42). */
 const SLOT = 'w-[29px] shrink-0'
 
-/** A 40 row (M42): radius 8, the selected one on the accent tint. */
-const ROW = 'flex h-10 min-w-0 items-center rounded-[8px] pr-2.5'
+/** A 40 row (M42): radius 8, the selected one on the `here` tint. */
+const ROW = 'rounded-option flex h-10 min-w-0 items-center pr-2.5'
 
 /**
  * The pages of a pages channel in the right drawer (M42): a search, the tree with disclosures
@@ -182,7 +182,7 @@ export function PagesTreeList({
                       onClick={() => flushSync(() => beginDraft(null))}
                       className={cn(
                         ROW,
-                        'text-accent-text active:bg-surface-hover focus-visible:outline-line-focus w-full gap-2 pl-1.5 text-left text-[15px] font-bold outline-none focus-visible:outline-2 focus-visible:-outline-offset-2'
+                        'text-text-secondary active:bg-surface-hover focus-visible:outline-line-focus w-full gap-2 pl-1.5 text-left text-[15px] font-semibold outline-none focus-visible:outline-2 focus-visible:-outline-offset-2'
                       )}
                     >
                       <Plus className="size-[17px] shrink-0" aria-hidden />
@@ -265,7 +265,7 @@ function PageRow({
       {...(draggable ? { ...attributes, ...listeners, role: undefined, tabIndex: -1 } : {})}
       className={SORTABLE_TOUCH}
     >
-      <div className={cn(ROW, selected ? 'bg-accent-tint' : 'active:bg-surface-hover')}>
+      <div className={cn(ROW, selected ? 'bg-here-tint' : 'active:bg-surface-hover')}>
         {disclosure ? (
           <button
             type="button"
@@ -290,7 +290,7 @@ function PageRow({
         )}
         {renaming ? (
           <span className="flex min-w-0 flex-1 items-center gap-2">
-            <FileText className="text-feature-page-text size-[17px] shrink-0" aria-hidden />
+            <FileText className="text-text-disabled size-[17px] shrink-0" aria-hidden />
             <RenameInput
               initial={page.title}
               onDone={(t) => actions.finishRename(page, t)}
@@ -304,11 +304,17 @@ function PageRow({
             aria-current={selected ? 'page' : undefined}
             className="focus-visible:outline-line-focus flex h-full min-w-0 flex-1 items-center gap-2 rounded-[8px] text-left outline-none focus-visible:outline-2 focus-visible:-outline-offset-2"
           >
-            <FileText className="text-feature-page-text size-[17px] shrink-0" aria-hidden />
+            <FileText
+              className={cn(
+                'size-[17px] shrink-0',
+                selected ? 'text-here-text' : 'text-text-disabled'
+              )}
+              aria-hidden
+            />
             <span
               className={cn(
                 'min-w-0 truncate text-[15px] leading-[18px]',
-                selected ? 'text-text-primary font-extrabold' : 'text-text-secondary font-semibold',
+                selected ? 'text-text-primary font-semibold' : 'text-text-secondary font-medium',
                 page.titleState !== 'ok' && 'text-text-tertiary italic'
               )}
             >
@@ -354,7 +360,7 @@ function DraftRow({
       <div className={ROW}>
         <span className={SLOT} aria-hidden />
         <span className="flex min-w-0 flex-1 items-center gap-2">
-          <FileText className="text-feature-page-text size-[17px] shrink-0" aria-hidden />
+          <FileText className="text-text-disabled size-[17px] shrink-0" aria-hidden />
           <RenameInput
             initial=""
             placeholder="Page title"

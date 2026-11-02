@@ -173,7 +173,7 @@ export function WebView({
             setInvalid(false)
           }}
           onBlur={() => setDraft(null)}
-          className={cn('min-w-0 flex-1', invalid && 'border-feature-danger-text')}
+          className={cn('min-w-0 flex-1', invalid && 'border-you-text')}
         />
         {url && (
           <>

@@ -12,9 +12,9 @@ import { useGuildStore } from '@/stores/guildStore'
 /** About five lines of the 16 px text (22 each) plus the 11 px padding above and below. */
 const FIELD_MAX_HEIGHT = 132
 
-/** The 40 squares beside the field: Attach and Send. */
+/** The 36 round buttons beside the field: Attach and Send. */
 const SQUARE =
-  'rounded-option mb-0.5 inline-flex size-10 shrink-0 items-center justify-center outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-line-focus disabled:opacity-40'
+  'mb-[3px] inline-flex size-9 shrink-0 rounded-full items-center justify-center outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-line-focus disabled:opacity-40'
 
 /** Keeps the focus (and the keyboard) in the field while a button takes the tap. */
 const keepFocus = (e: React.PointerEvent | React.MouseEvent): void => e.preventDefault()
@@ -22,7 +22,7 @@ const keepFocus = (e: React.PointerEvent | React.MouseEvent): void => e.preventD
 /**
  * Mobile / Composer (kit De0OR, M6), the mobile form of `Composer` over the same `useComposer`:
  * Attach (40) outside the field, a field (44) with a 16 px textarea that grows to about five
- * lines, the E2EE chip and the emoji button (the emoji sheet), then Send (accent, arrow up) while
+ * lines, the E2EE chip and the emoji button (the emoji sheet), then Send (`here`, arrow up) while
  * there is text or an upload. With nothing to send the slot is empty: voice messages (Record) do
  * not exist yet (docs/ios-mobile-ui-spec.md §5). Return adds a newline.
  *
@@ -32,7 +32,7 @@ const keepFocus = (e: React.PointerEvent | React.MouseEvent): void => e.preventD
  * textarea in the chat footer.
  *
  * Paused (a verified contact's key changed, M58): the field is disabled and says so, the chip
- * turns red ("PAUSED"), and Attach and Emoji dim. A read-only channel (M62) shows a notice with
+ * turns `you` ("PAUSED"), and Attach and Emoji dim. A read-only channel (M62) shows a notice with
  * its action instead. A tap on the paused bar calls `onPausedTap` (the disabled field swallows
  * taps, so a button covers the bar).
  */
@@ -85,9 +85,9 @@ export function MobileComposer({
         />
       )}
       {reply && (
-        <div className="border-line-hairline text-text-secondary flex h-9 items-center gap-2 border-t pr-2 pl-4 text-[13.5px]">
+        <div className="border-line-hairline text-text-tertiary flex h-9 items-center gap-2 border-t pr-2 pl-4 text-[12.5px]">
           <span className="min-w-0 flex-1 truncate">
-            Replying to <span className="text-text-primary font-bold">{reply.name}</span>
+            Replying to <span className="text-text-primary font-semibold">{reply.name}</span>
           </span>
           <IconButton
             label="Cancel reply"
@@ -100,7 +100,7 @@ export function MobileComposer({
         </div>
       )}
       <UploadTray items={uploads.items} onRemove={uploads.remove} />
-      <div className="relative flex items-end gap-2 px-3 py-2">
+      <div className="relative flex items-end gap-2.5 px-3.5 py-[11px]">
         {/* Attach shows when I may attach; while sending is paused it dims (M58). */}
         {props.canAttach && (
           <>
@@ -108,10 +108,10 @@ export function MobileComposer({
               type="button"
               aria-label="Attach files"
               disabled={!c.attach}
-              className={cn(SQUARE, 'bg-fill-control-strong text-text-primary')}
+              className={cn(SQUARE, 'border-line-strong text-text-secondary border bg-transparent')}
               onClick={() => picker.current?.click()}
             >
-              <Plus className="size-5" aria-hidden />
+              <Plus className="size-[17px]" aria-hidden />
             </button>
             <input
               ref={picker}
@@ -125,7 +125,7 @@ export function MobileComposer({
         )}
         <div
           data-swipe-ignore
-          className="rounded-option bg-surface-raised flex min-h-11 min-w-0 flex-1 items-end gap-2 pr-0.5 pl-3.5"
+          className="rounded-pill bg-surface-raised border-line-hairline flex min-h-[42px] min-w-0 flex-1 items-center gap-2 border pr-3 pl-[15px]"
         >
           <textarea
             ref={input}
@@ -136,24 +136,19 @@ export function MobileComposer({
             enterKeyHint="enter"
             {...c.field}
             className={cn(
-              'block min-w-0 flex-1 resize-none overflow-y-auto bg-transparent py-[11px] outline-none',
-              'text-text-primary caret-accent-primary text-[16px] leading-[22px] font-medium',
+              'block min-w-0 flex-1 resize-none overflow-y-auto bg-transparent py-[10px] outline-none',
+              'text-text-primary caret-here text-[16px] leading-[22px] font-normal',
               'placeholder:text-text-tertiary placeholder:truncate disabled:cursor-not-allowed'
             )}
           />
           <span
             className={cn(
-              'mb-[11px] inline-flex h-[22px] shrink-0 items-center gap-1 px-[7px] text-[11px] leading-none font-extrabold tracking-[0.4px]',
-              paused
-                ? 'bg-feature-danger/10 text-feature-danger-text'
-                : 'bg-feature-voice/10 text-feature-voice-text'
+              'rounded-pill inline-flex h-[18px] shrink-0 items-center gap-1 px-1.5 font-mono text-[7.5px] leading-none tracking-[0.8px]',
+              paused ? 'bg-you-tint text-you-text' : 'bg-surface-hover text-text-disabled'
             )}
             title="Messages and files here are end-to-end encrypted."
           >
-            <Lock
-              className={cn('size-3', paused ? 'text-feature-danger' : undefined)}
-              aria-hidden
-            />
+            <Lock className="size-[9px]" aria-hidden />
             {paused ? 'PAUSED' : 'E2EE'}
           </span>
           <EmojiPicker
@@ -168,10 +163,10 @@ export function MobileComposer({
               size="touch"
               disabled={!!paused}
               pressed={c.emojiOpen}
-              className="text-text-secondary rounded-control mb-1 -ml-1.5 disabled:opacity-40"
+              className="text-text-tertiary rounded-control -mr-2 disabled:opacity-40"
               onClick={() => c.setEmojiOpen((v) => !v)}
             >
-              <Smile className="size-[21px]" />
+              <Smile className="size-[17px]" />
             </IconButton>
           </EmojiPicker>
         </div>
@@ -179,12 +174,12 @@ export function MobileComposer({
           <button
             type="button"
             aria-label="Send"
-            className={cn(SQUARE, 'bg-accent-primary text-text-on-accent active:opacity-85')}
+            className={cn(SQUARE, 'bg-here text-on-here active:opacity-85')}
             onPointerDown={keepFocus}
             onMouseDown={keepFocus}
             onClick={c.send}
           >
-            <ArrowUp className="size-[19px]" strokeWidth={2.4} aria-hidden />
+            <ArrowUp className="size-[17px]" strokeWidth={2.4} aria-hidden />
           </button>
         )}
         {paused && onPausedTap && (
@@ -198,7 +193,7 @@ export function MobileComposer({
         )}
       </div>
       {uploads.notices.length > 0 && (
-        <div role="alert" className="text-feature-danger-text px-4 pb-1.5 text-xs leading-4">
+        <div role="alert" className="text-you-text px-4 pb-1.5 text-xs leading-4">
           {uploads.notices.map((n, i) => (
             <p key={i}>{n}</p>
           ))}
@@ -220,10 +215,10 @@ function ReadOnlyNotice({
     <div className="px-3 py-2">
       <div
         role="note"
-        className="bg-surface-hover/50 border-fill-control flex min-h-[60px] items-center gap-2.5 border py-2 pr-2 pl-3.5"
+        className="bg-surface-sunken border-line-hairline rounded-option flex min-h-[60px] items-center gap-2.5 border py-2 pr-2 pl-3.5"
       >
         <Lock className="text-text-tertiary size-[17px] shrink-0" aria-hidden />
-        <span className="text-text-secondary min-w-0 flex-1 text-[14px] leading-[1.35] font-medium">
+        <span className="text-text-secondary min-w-0 flex-1 text-[14px] leading-[1.35]">
           {reason}
         </span>
         {action}

@@ -78,7 +78,7 @@ export function uploadErrorText(e: unknown): string {
 /** A failed claim of page media or a page banner in words a user can act on (413 StorageQuotaExceeded). */
 export function claimErrorText(e: unknown): string {
   if (e instanceof RestError && e.code === 'StorageQuotaExceeded')
-    return 'The page storage of this server is full.'
+    return 'The page storage of this space is full.'
   return uploadErrorText(e)
 }
 

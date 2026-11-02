@@ -99,23 +99,23 @@ function PagePickerPopover({
         />
         <ul className="max-h-64 overflow-y-auto" role="listbox">
           {rows.length === 0 && (
-            <li className="text-muted-foreground px-2 py-1.5 text-sm">No pages</li>
+            <li className="text-text-tertiary px-2 py-1.5 text-sm">No pages</li>
           )}
           {rows.map((r, i) => (
             <li key={r.page.id} role="option" aria-selected={i === active}>
               <button
                 type="button"
                 className={cn(
-                  'hover:bg-accent flex w-full items-center gap-2 px-2 py-1.5 text-left text-sm',
-                  i === active && 'bg-accent'
+                  'hover:bg-surface-hover flex w-full items-center gap-2 px-2 py-1.5 text-left text-sm',
+                  i === active && 'bg-surface-hover'
                 )}
                 onMouseEnter={() => setActive(i)}
                 onClick={() => pick(i)}
               >
-                <FileText className="text-muted-foreground size-4 shrink-0" />
+                <FileText className="text-text-tertiary size-4 shrink-0" />
                 <span className="min-w-0 flex-1 truncate">{r.title}</span>
                 {r.channel && (
-                  <span className="text-muted-foreground shrink-0 truncate text-xs">
+                  <span className="text-text-tertiary shrink-0 truncate text-xs">
                     {r.channel}
                   </span>
                 )}

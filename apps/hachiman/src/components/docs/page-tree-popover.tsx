@@ -77,7 +77,7 @@ function PageTree({
   return (
     <div className="flex flex-col">
       <div className="flex items-center justify-between px-2 py-1">
-        <span className="text-muted-foreground text-xs font-semibold tracking-wide uppercase">
+        <span className="text-text-tertiary cap-sm">
           {plural(noun)}
         </span>
         {canEdit && (
@@ -105,7 +105,7 @@ function PageTree({
               />
             ))}
             {rows.length === 0 && (
-              <li className="text-muted-foreground px-2 py-1.5 text-sm">
+              <li className="text-text-tertiary px-2 py-1.5 text-sm">
                 No {plural(noun).toLowerCase()} yet.
               </li>
             )}
@@ -150,23 +150,26 @@ function TreeRow({
     <li ref={setNodeRef} style={{ ...style, paddingLeft: depth * INDENT }}>
       <div
         className={cn(
-          'group hover:bg-accent flex h-8 items-center gap-1 pr-1',
-          selected && 'bg-accent text-foreground'
+          'group rounded-row hover:bg-surface-hover relative flex h-[31px] items-center gap-1 pr-1 text-[13px]',
+          selected && 'bg-surface-selected text-text-primary font-semibold'
         )}
       >
+        {selected && (
+          <span aria-hidden className="bg-here absolute top-1/2 left-0 h-[17px] w-0.5 -translate-y-1/2" />
+        )}
         {canEdit ? (
           <span
             {...attributes}
             {...listeners}
             aria-label="Drag to move"
-            className="text-muted-foreground flex size-5 shrink-0 cursor-grab items-center justify-center opacity-0 group-hover:opacity-100"
+            className="text-text-disabled flex size-5 shrink-0 cursor-grab items-center justify-center opacity-0 group-hover:opacity-100"
           >
             <GripVertical className="size-3.5" />
           </span>
         ) : (
           <span className="size-5 shrink-0" />
         )}
-        <FileText className="text-muted-foreground size-4 shrink-0" />
+        <FileText className="text-text-disabled size-4 shrink-0" />
         {renaming ? (
           <RenameInput
             initial={page.title}
@@ -177,8 +180,8 @@ function TreeRow({
           <button
             type="button"
             className={cn(
-              'min-w-0 flex-1 truncate text-left text-sm',
-              page.titleState !== 'ok' && 'text-muted-foreground italic'
+              'min-w-0 flex-1 truncate text-left text-[13px]',
+              page.titleState !== 'ok' && 'text-text-tertiary italic'
             )}
             onClick={onOpen}
           >

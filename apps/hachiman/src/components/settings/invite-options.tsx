@@ -138,7 +138,7 @@ function SelectBox({
       <span className="flex min-w-0 flex-1 flex-col gap-px">
         <label
           htmlFor={id}
-          className="text-text-tertiary truncate text-[11.5px] leading-[14px] font-bold"
+          className="text-text-tertiary truncate text-[11.5px] leading-[14px] font-semibold"
         >
           {label}
         </label>

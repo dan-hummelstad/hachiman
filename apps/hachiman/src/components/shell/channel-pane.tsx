@@ -24,24 +24,26 @@ import { canHoldThreads } from '@/components/threads/thread-name'
 import { ThreadsButton } from '@/components/threads/threads-button'
 import { UserAvatar } from '@/components/shell/user-avatar'
 import { IconButton } from '@/components/ui/icon-button'
+import { ConnectionBanner } from '@/components/system/connection-banner'
 import { TitleBar } from '@/components/ui/title-bar'
-import { VoiceHeaderExtras, VoiceHeaderMeta } from '@/components/voice/voice-header'
+import { CallClock, VoiceHeaderExtras, VoiceHeaderMeta } from '@/components/voice/voice-header'
 import { DmCallButton } from '@/components/voice/dm-call'
+import { PRESENCE_LABEL } from '@/components/ui/presence'
 import { usePermissions } from '@/hooks/use-hachiman'
 import { usePresence } from '@/hooks/use-member'
 import { ChannelIcon } from '@/lib/channel-icon'
-import { channelLabel, hexColor, isBoardType, isGuildChannel } from '@/lib/model'
-import { ROLE_INK_SCOPE } from '@/lib/role-ink'
+import { channelLabel, isBoardType, isGuildChannel } from '@/lib/model'
 import { cn } from '@/lib/utils'
 import { usePoke } from '@/services/poke'
 import { useChannelStore } from '@/stores/channelStore'
 import { openDialog } from '@/stores/dialogStore'
+import { useVoiceStore } from '@/stores/voiceStore'
 import { openSettings } from '@/stores/navStore'
 
 const PANE = 'bg-surface-content flex min-h-0 min-w-0 flex-1 flex-col'
-/** The pressed header toggle takes the accent tint. */
+/** The pressed header toggle takes the neutral hover fill. */
 const HEADER_BUTTON =
-  'aria-pressed:bg-accent-tint aria-pressed:text-accent-text [&_svg]:size-[18px]'
+  'text-text-tertiary aria-pressed:bg-surface-hover aria-pressed:text-text-primary [&_svg]:size-4'
 
 export interface ChannelPaneProps {
   channel: Channel
@@ -77,7 +79,7 @@ export function ChannelPane({
     channel.type !== 'voice' && channel.type !== 'category' && !isBoardType(channel.type)
 
   return (
-    <section className={cn(PANE, ROLE_INK_SCOPE)}>
+    <section className={PANE}>
       <TitleBar
         left={isDm ? <DmTitle channel={channel} /> : <ChannelTitle channel={channel} />}
         right={
@@ -118,7 +120,9 @@ export function ChannelPane({
             )}
           </>
         }
+        className={isDm ? 'pl-[22px]' : undefined}
       />
+      <ConnectionBanner />
       {children}
     </section>
   )
@@ -146,12 +150,12 @@ export function HeaderChannelIcon({
   readOnly: boolean
   className?: string
 }): React.JSX.Element {
-  const cls = cn('size-5 shrink-0', className)
-  if (readOnly) return <Megaphone className={cn(cls, 'text-feature-event-text')} aria-hidden />
+  const cls = cn('size-[17px] shrink-0', className)
+  if (readOnly) return <Megaphone className={cn(cls, 'text-text-tertiary')} aria-hidden />
   if (channel.type === 'voice')
-    return <Volume2 className={cn(cls, 'text-feature-voice-text')} aria-hidden />
+    return <Volume2 className={cn(cls, 'text-text-tertiary')} aria-hidden />
   if (channel.type === 'pages')
-    return <FileText className={cn(cls, 'text-feature-page-text')} aria-hidden />
+    return <FileText className={cn(cls, 'text-text-tertiary')} aria-hidden />
   return <ChannelIcon type={channel.type} className={cn(cls, 'text-text-tertiary')} aria-hidden />
 }
 
@@ -169,9 +173,9 @@ export function ChannelTitle({ channel }: { channel: Channel }): React.JSX.Eleme
       <ChannelChips access={access} />
       {channel.topic && (
         <>
-          <span className="bg-line-hairline mx-1 h-5 w-px shrink-0" aria-hidden />
+          <span className="bg-line-hairline mx-1 h-[18px] w-px shrink-0" aria-hidden />
           <span
-            className="text-text-secondary min-w-0 truncate text-[13.5px] leading-5 font-medium"
+            className="text-text-tertiary min-w-0 truncate text-[12.5px] leading-5"
             title={channel.topic}
           >
             {channel.topic}
@@ -195,7 +199,7 @@ function ThreadTitle({ thread }: { thread: Channel }): React.JSX.Element {
             type="button"
             onClick={() => openChannelView(parent)}
             className={cn(
-              'text-text-secondary hover:text-text-primary rounded-control inline-flex min-w-0 shrink items-center gap-1 text-[15px] font-semibold',
+              'text-text-tertiary hover:text-text-primary rounded-control inline-flex min-w-0 shrink items-center gap-1 text-[15px] font-semibold',
               'focus-visible:outline-line-focus outline-none focus-visible:outline-2'
             )}
           >
@@ -205,7 +209,7 @@ function ThreadTitle({ thread }: { thread: Channel }): React.JSX.Element {
           <ChevronRight className="text-text-tertiary size-4 shrink-0" aria-hidden />
         </>
       )}
-      <MessagesSquare className="text-feature-thread-text size-5 shrink-0" aria-hidden />
+      <MessagesSquare className="text-text-tertiary size-[17px] shrink-0" aria-hidden />
       <h1 className="text-heading text-text-primary min-w-0 truncate">{thread.name}</h1>
     </>
   )
@@ -249,7 +253,7 @@ export function HeaderChip({
   return (
     <span
       title={title}
-      className="rounded-check bg-surface-raised text-text-secondary mobile:px-[7px] mobile:font-extrabold inline-flex h-[22px] shrink-0 items-center gap-1 px-1.5 text-[11.5px] leading-none font-bold [&_svg]:size-3"
+      className="rounded-badge border-line-strong text-text-tertiary cap-sm inline-flex h-[22px] shrink-0 items-center gap-1 border px-1.5 leading-none [&_svg]:size-3"
     >
       {children}
     </span>
@@ -257,7 +261,7 @@ export function HeaderChip({
 }
 
 function RoleName({ role }: { role: Role }): React.JSX.Element {
-  return <span style={role.color ? { color: hexColor(role.color) } : undefined}>{role.name}</span>
+  return <span>{role.name}</span>
 }
 
 /**
@@ -268,6 +272,7 @@ function DmTitle({ channel }: { channel: Channel }): React.JSX.Element {
   const recipients = channel.recipients ?? []
   const solo = recipients.length === 1 ? recipients[0] : undefined
   const status = usePresence(solo?.id)
+  const inCall = useVoiceStore((s) => s.channelId === channel.id)
   const name = channelLabel(channel).name
   return (
     <>
@@ -275,16 +280,24 @@ function DmTitle({ channel }: { channel: Channel }): React.JSX.Element {
         <UserAvatar
           name={name}
           avatar={solo.avatar}
-          size={26}
+          size={32}
           status={status}
           cutout="bg-surface-content"
         />
       ) : channel.icon ? (
-        <UserAvatar name={name} avatar={channel.icon} size={26} />
+        <UserAvatar name={name} avatar={channel.icon} size={32} />
       ) : (
         <Users className="text-text-tertiary size-5 shrink-0" aria-hidden />
       )}
-      <h1 className="text-heading text-text-primary truncate">{name}</h1>
+      <div className="flex min-w-0 flex-col gap-0.5">
+        <h1 className="text-text-primary truncate text-base leading-5 font-semibold">{name}</h1>
+        {solo && (
+          <span className="text-text-disabled truncate font-mono text-[9px] tracking-[1.2px] uppercase">
+            @{solo.username} · {PRESENCE_LABEL[status]}
+          </span>
+        )}
+      </div>
+      {inCall && <CallClock channelId={channel.id} />}
       {solo && <VoiceActivity userId={solo.id} />}
     </>
   )
@@ -297,7 +310,7 @@ function VoiceActivity({ userId }: { userId: string }): React.JSX.Element | null
   return (
     <VoiceActivityLine
       activity={activity}
-      className="text-feature-voice-text text-[13px] leading-5 font-semibold"
+      className="text-live-text text-[13px] leading-5 font-semibold"
     />
   )
 }

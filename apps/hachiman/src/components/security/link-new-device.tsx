@@ -3,6 +3,7 @@ import { Check, Loader2, Lock, QrCode, RefreshCw, Smartphone, Smile, Timer } fro
 import { LINK_SESSION_TTL_MS, type CryptoEvents, type LinkStart } from '@hachiman/crypto'
 import { Button } from '@/components/ui/button'
 import { ErrorText } from '@/components/ui/field'
+import { LiveDots } from '@/components/security/screen-window'
 import { cryptoErrorText, friendly } from '@/components/security/errors'
 import {
   formatCountdown,
@@ -187,8 +188,8 @@ function LinkDialog({ title, onBack }: { title: string; onBack: () => void }): R
 
   if (done) {
     return done.ok ? (
-      <StepFrame {...frame} icon={<Check />} feature="voice">
-        <p role="status">This device is linked. Hachiman loads your guilds and messages now.</p>
+      <StepFrame {...frame} icon={<Check />} feature="event">
+        <p role="status">This device is linked. Hachiman loads your spaces and messages now.</p>
       </StepFrame>
     ) : (
       <StepFrame
@@ -220,7 +221,7 @@ function LinkDialog({ title, onBack }: { title: string; onBack: () => void }): R
               Start over
             </Button>
             <span className="text-meta text-text-tertiary flex items-center gap-1.5">
-              <Lock aria-hidden className="size-3.5" />
+              <Lock aria-hidden className="text-text-tertiary size-3.5" />
               Keys travel end-to-end encrypted
             </span>
           </>
@@ -327,9 +328,9 @@ function LinkScreen({ title, onBack }: { title: string; onBack: () => void }): R
   if (done) {
     return done.ok ? (
       <StepFrame {...frame} subtitle="Linked" onBack={undefined}>
-        <p role="status" className="text-feature-voice-text flex items-center gap-2 font-semibold">
+        <p role="status" className="text-text-primary flex items-center gap-2 font-semibold">
           <Check aria-hidden className="size-[18px]" />
-          This {noun} is linked. Hachiman loads your guilds and messages now.
+          This {noun} is linked. Hachiman loads your spaces and messages now.
         </p>
       </StepFrame>
     ) : (
@@ -405,7 +406,7 @@ function LinkScreen({ title, onBack }: { title: string; onBack: () => void }): R
               <Smile /> Compare emoji instead
             </Button>
             <p className="text-text-tertiary flex items-center justify-center gap-1.5 pt-1.5 text-[12.5px] font-semibold">
-              <Lock aria-hidden className="text-feature-voice-text size-[13px]" />
+              <Lock aria-hidden className="text-text-tertiary size-[13px]" />
               Keys travel end-to-end encrypted
             </p>
           </>
@@ -510,7 +511,7 @@ function LinkCode({
         />
         {expired ? (
           <div role="status" className="flex items-center gap-3">
-            <span className="text-feature-danger-text text-[13.5px] font-semibold">
+            <span className="text-you-text text-[13.5px] font-semibold">
               The code expired.
             </span>
             <Button variant="secondary" className="h-9" disabled={busy} onClick={onNewCode}>
@@ -560,8 +561,8 @@ function LinkStep({
       <span
         aria-hidden
         className={cn(
-          'bg-accent-tint text-accent-text flex size-6 shrink-0 items-center justify-center text-[12px] font-bold',
-          touch && 'size-[26px] text-[13px] font-extrabold'
+          'bg-surface-raised text-text-secondary flex size-6 shrink-0 items-center justify-center font-mono text-[12px] font-semibold',
+          touch && 'size-[26px] text-[13px] font-semibold'
         )}
       >
         {n}
@@ -571,11 +572,11 @@ function LinkStep({
   )
 }
 
-/** The gold waiting line with a spinner. */
+/** The waiting line with a spinner. */
 export function Waiting({ children }: { children: React.ReactNode }): React.JSX.Element {
   return (
-    <p role="status" className="text-feature-event-text flex items-center gap-2 font-semibold">
-      <Loader2 aria-hidden className="size-4 animate-spin" />
+    <p role="status" className="text-live-text flex items-center gap-2 font-semibold">
+      <LiveDots />
       {children}
     </p>
   )

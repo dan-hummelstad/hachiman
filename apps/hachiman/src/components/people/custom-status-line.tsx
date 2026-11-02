@@ -17,7 +17,7 @@ export function CustomStatusLine({
   return (
     <span
       title={status.text}
-      className={cn('text-text-secondary truncate text-xs leading-4', className)}
+      className={cn('text-text-tertiary truncate text-xs leading-4', className)}
     >
       {status.text}
     </span>

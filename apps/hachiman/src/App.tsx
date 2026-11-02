@@ -105,7 +105,7 @@ function App(): React.JSX.Element {
         ) : signedIn ? (
           <CryptoGate>{layout === 'mobile' ? <MobileShell /> : <Shell />}</CryptoGate>
         ) : (
-          <div className="min-h-0 flex-1">
+          <div className="flex min-h-0 flex-1 flex-col">
             <SignInScreen />
           </div>
         )}

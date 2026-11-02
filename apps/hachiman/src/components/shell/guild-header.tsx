@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import * as DialogPrimitive from '@radix-ui/react-dialog'
-import { ChevronDown, Lock } from 'lucide-react'
+import { ChevronDown } from 'lucide-react'
 import type { Guild } from '@hachiman/client'
 import {
   DropdownMenu,
@@ -9,7 +9,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu'
-import { GuildTile } from '@/components/ui/guild-tile'
 import { GuildMenuItems } from '@/components/shell/guild-menu-items'
 import { useLayout } from '@/hooks/use-layout'
 import { useOnlineCount } from '@/hooks/use-online-count'
@@ -22,14 +21,15 @@ const LIFT_HEIGHT = 38
 const LIFT_OUTSET = 4
 
 /**
- * Guild header row of the sidebar (B4): crest, name and chevron; on the right the lock (every
- * guild is encrypted) and the online count. A click opens the guild menu as a popover that has
- * the width of the sidebar, under the row. On the mobile layout (M43) the menu is a sheet, and a
- * lifted copy of the row stays lit above the sheet's scrim. The row stays 36 tall.
+ * Guild header row of the sidebar: the name and chevron over a caps line (ONLINE · MEMBERS), on a
+ * wash of the accent. A click opens the guild menu as a popover that has the width of the
+ * sidebar, under the row. On the mobile layout (M43) the menu is a sheet, and a lifted copy of
+ * the row stays lit above the sheet's scrim. The row is 52 tall.
  */
 export function GuildHeader({ guildId }: { guildId: string }): React.JSX.Element {
   const guild = useGuildStore((s) => s.guilds.get(guildId))
   const online = useOnlineCount(guildId)
+  const members = useGuildStore((s) => s.members.get(guildId)?.size ?? 0)
   const mobile = useLayout() === 'mobile'
   const [open, setOpen] = useState(false)
   const row = useRef<HTMLButtonElement>(null)
@@ -53,16 +53,16 @@ export function GuildHeader({ guildId }: { guildId: string }): React.JSX.Element
           ref={row}
           type="button"
           data-dialog-mark={(mobile && removing) || undefined}
-          className="group/header hover:bg-surface-hover data-[state=open]:bg-surface-hover rounded-control mobile:pl-0.5 mobile:pr-1 flex h-9 w-full shrink-0 items-center gap-2 px-1.5 text-left"
+          className="group/header bg-[linear-gradient(180deg,color-mix(in_oklab,var(--here)_22%,transparent),color-mix(in_oklab,var(--here)_5%,transparent))] hover:bg-surface-hover data-[state=open]:bg-surface-hover flex h-[52px] w-full shrink-0 items-center gap-2 px-3 text-left"
         >
-          <HeaderFace guild={guild} online={online} />
+          <HeaderFace guild={guild} online={online} members={members} />
         </button>
       </DropdownMenuTrigger>
       {mobile && (
         // On mobile the root is the sheet's Radix Dialog: this portal comes before the sheet's.
         <DialogPrimitive.Portal>
           <HeaderLift row={row} open={open}>
-            <HeaderFace guild={guild} online={online} lifted />
+            <HeaderFace guild={guild} online={online} members={members} lifted />
           </HeaderLift>
         </DialogPrimitive.Portal>
       )}
@@ -86,42 +86,31 @@ export function GuildHeader({ guildId }: { guildId: string }): React.JSX.Element
 function HeaderFace({
   guild,
   online,
+  members,
   lifted = false
 }: {
   guild: Guild | undefined
   online: number
+  members: number
   lifted?: boolean
 }): React.JSX.Element {
   return (
     <>
-      {guild && (
-        <GuildTile
-          guild={guild}
-          className="bg-surface-raised mobile:size-6 mobile:text-[10px] size-[22px] border-0 text-[9px]"
-        />
-      )}
-      <span className="text-label mobile:text-[15px] min-w-0 truncate font-extrabold">
-        {guild?.name ?? 'Loading…'}
+      <span className="grid min-w-0 flex-1 gap-0.5">
+        <span className="text-text-primary truncate text-[15px] leading-5 font-semibold tracking-[-0.2px]">
+          {guild?.name ?? 'Loading…'}
+        </span>
+        <span className="cap-sm truncate" aria-label={`${online} online, ${members} members`}>
+          {online} online · {members} members
+        </span>
       </span>
       <ChevronDown
         className={
           lifted
-            ? 'text-text-primary size-3.5 shrink-0 rotate-180'
-            : 'text-text-tertiary size-3.5 shrink-0 transition-transform group-data-[state=open]/header:rotate-180'
+            ? 'text-text-primary size-[15px] shrink-0 rotate-180'
+            : 'text-text-tertiary size-[15px] shrink-0 transition-transform group-data-[state=open]/header:rotate-180'
         }
       />
-      <span className="flex-1" />
-      <Lock
-        aria-label="End-to-end encrypted"
-        className="text-feature-voice mobile:size-3 size-3.5 shrink-0"
-      />
-      <span
-        className="text-text-tertiary mobile:gap-2 mobile:font-bold flex shrink-0 items-center gap-1 text-xs font-semibold tabular-nums"
-        aria-label={`${online} online`}
-      >
-        <span aria-hidden className="bg-status-online size-1.5 rounded-full" />
-        {online}
-      </span>
     </>
   )
 }
@@ -142,7 +131,7 @@ function liftTop(rowTop: number): number {
 }
 
 /**
- * The lift (M43): the sheet scrim and an inert copy of the header row (38, r8, raised, accent
+ * The lift (M43): the sheet scrim and an inert copy of the header row (38, raised, accent
  * edge) at the row's measured rect, or above the sheet when the sheet covers the row (`liftTop`). The copy's padding is the row's plus the outset, less the
  * 1 px edge, so its content sits where the row's does.
  *
@@ -196,7 +185,7 @@ function HeaderLift({
       <div
         ref={box}
         className={cn(
-          'bg-surface-raised border-accent-primary/40 rounded-control absolute flex h-[38px] items-center gap-2 border pr-[7px] pl-[5px]',
+          'bg-surface-raised border-here rounded-control absolute flex h-[38px] items-center gap-2 border px-2.5',
           'shadow-[0_12px_32px_rgb(22_21_31/0.18)] dark:shadow-[0_12px_32px_#00000099]'
         )}
       >

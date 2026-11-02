@@ -29,7 +29,7 @@ export function BlockConfirmDialog({
       body={
         <p className="text-text-secondary">
           {name} can&apos;t send you direct messages, and you can&apos;t send them any. Their
-          messages in shared guilds are hidden for you. They are not told.
+          messages in shared spaces are hidden for you. They are not told.
         </p>
       }
       onConfirm={() => blockService.block(userId)}

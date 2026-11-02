@@ -67,7 +67,7 @@ describe('inviteLimitsText', () => {
 
   it('says when a link never expires', () => {
     expect(inviteLimitsText({ expiresAt: null, maxUses: 0 }, now, 'en-GB')).toBe(
-      'This link never expires. Revoke it in Guild settings when you do not need it. Anyone with the link can join, as many times as they like.'
+      'This link never expires. Revoke it in Space settings when you do not need it. Anyone with the link can join, as many times as they like.'
     )
   })
 })

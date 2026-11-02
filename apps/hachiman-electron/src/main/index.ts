@@ -97,12 +97,13 @@ function createWindow(): void {
     // Dark `--surface-window` (docs/ui-redesign.md §2) so there is no flash or seam.
     backgroundColor: "#0e0f15",
     // macOS: content runs under the title bar. The traffic lights sit in the sidebar's
-    // 40px controls row, and the tab row above the content card is the drag region
+    // 44px controls row (or the 44px tab row with the sidebar on the right), centred on it:
+    // y 15 + the 14px button frame / 2 = 22. The tab row is the drag region
     // (arc-redesign-plan decision 9). Win/Linux keep the native frame.
     ...(process.platform === "darwin"
       ? {
           titleBarStyle: "hiddenInset" as const,
-          trafficLightPosition: { x: 16, y: 18 },
+          trafficLightPosition: { x: 16, y: 15 },
         }
       : {}),
     ...(process.platform === "linux" ? { icon } : {}),

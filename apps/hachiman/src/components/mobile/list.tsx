@@ -5,7 +5,7 @@ import { Switch } from '@/components/ui/switch'
 import { useCopy } from '@/hooks/use-copy'
 import { cn } from '@/lib/utils'
 
-/** Mobile / Section Label (kit u9pnuQ): 11.5/800 caps over a list group, padding 4/4/0/4. */
+/** Mobile / Section Label (kit u9pnuQ): mono 10px caps over a list group, padding 4/4/0/4. */
 export function SectionLabel({
   className,
   ...props
@@ -28,10 +28,8 @@ export function ListGroup({
     <div
       data-slot="list-group"
       className={cn(
-        'divide-line-hairline flex flex-col divide-y border',
-        tone === 'danger'
-          ? 'bg-feature-danger/5 border-feature-danger/20'
-          : 'border-line-hairline bg-white/2',
+        'divide-line-hairline flex flex-col divide-y border-y',
+        tone === 'danger' ? 'border-you bg-you-tint' : 'border-line-hairline bg-surface-panel',
         className
       )}
       {...props}
@@ -43,12 +41,19 @@ export function ListGroup({
  * The tile colour of a row: a feature colour, pink activity (Notifications, M29) or neutral grey
  * ("Help and support").
  */
-export type ListRowTile = Feature | 'activity' | 'neutral'
+export type ListRowTile = Feature | 'activity' | 'neutral' | 'plain'
 
+const NEUTRAL_TILE = 'bg-surface-hover text-text-secondary'
+/** A bare icon, no tile behind it. */
+const PLAIN_TILE = 'size-[22px] bg-transparent text-text-tertiary'
+
+/** Rows are navigation, so their tiles are neutral; only voice and danger answer a question. */
 const TILE: Record<ListRowTile, string> = {
   ...FEATURE_TILE,
-  activity: 'bg-feature-activity/15 text-feature-activity',
-  neutral: 'bg-surface-hover text-text-secondary'
+  accent: NEUTRAL_TILE,
+  activity: NEUTRAL_TILE,
+  neutral: NEUTRAL_TILE,
+  plain: PLAIN_TILE
 }
 
 export interface ListRowToggle {
@@ -126,7 +131,7 @@ type ListRowMode =
 export type ListRowProps = ListRowBase & ListRowMode
 
 const ROW =
-  'flex w-full items-center gap-3 py-1.5 pr-3.5 pl-3 text-left outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-line-focus'
+  'flex min-h-[52px] w-full items-center gap-3 py-1.5 pr-4 pl-4 text-left outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-line-focus'
 const PRESSABLE = 'active:bg-surface-hover disabled:pointer-events-none disabled:opacity-50'
 const MARK = 'text-text-disabled size-[17px] shrink-0'
 
@@ -159,8 +164,8 @@ function RowContent({
         <span
           id={labelId}
           className={cn(
-            'truncate text-[15px] leading-[18px] font-bold',
-            danger ? 'text-feature-danger-text' : 'text-text-primary'
+            'truncate text-[15px] leading-[18px] font-medium',
+            danger ? 'text-you-text' : 'text-text-primary'
           )}
         >
           {label}
@@ -168,14 +173,14 @@ function RowContent({
         {detail && (
           <span
             id={detailId}
-            className="text-text-tertiary line-clamp-2 text-[12.5px] leading-[15px] font-medium"
+            className="text-text-tertiary line-clamp-2 text-[12.5px] leading-[15px]"
           >
             {detail}
           </span>
         )}
       </span>
       {value !== undefined && value !== null && (
-        <span className="text-text-tertiary shrink-0 text-[13.5px] leading-4 font-semibold tabular-nums">
+        <span className="text-text-tertiary shrink-0 text-[13px] leading-4 tabular-nums">
           {value}
         </span>
       )}
@@ -206,9 +211,9 @@ function CopyRow({
         <RowContent {...base} />
         <span className="sr-only">, copy</span>
         {copied !== null ? (
-          <Check aria-hidden className={cn(MARK, 'text-feature-voice-text')} />
+          <Check aria-hidden className={cn(MARK, 'text-text-primary')} />
         ) : (
-          <Copy aria-hidden className={cn(MARK, failed && 'text-feature-danger-text')} />
+          <Copy aria-hidden className={cn(MARK, failed && 'text-you-text')} />
         )}
       </button>
       <span className="sr-only" aria-live="polite">

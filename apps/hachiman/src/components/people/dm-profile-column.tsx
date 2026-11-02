@@ -11,7 +11,6 @@ import { useVoiceActivity } from '@/components/people/use-voice-activity'
 import { VoiceActivityLine } from '@/components/people/voice-activity-line'
 import { useCanJoinVoice } from '@/components/voice/use-call-security'
 import { useElapsed } from '@/hooks/use-elapsed'
-import { useUserBanner } from '@/components/people/use-user-banner'
 import { useMobileKeyChange } from '@/components/people/trust-chip'
 import { lookFor, securityText } from '@/components/people/trust-look'
 import { useMutualGuilds } from '@/components/people/use-mutual-guilds'
@@ -24,8 +23,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { useAction } from '@/hooks/use-action'
 import { usePresence } from '@/hooks/use-member'
 import type { VoiceActivity } from '@/lib/member-activity'
-import { displayName, hexColor, memberRoles } from '@/lib/model'
-import { ROLE_INK_SCOPE, roleInk } from '@/lib/role-ink'
+import { displayName, memberRoles } from '@/lib/model'
 import { formatDayMonth } from '@/lib/time-format'
 import { cn } from '@/lib/utils'
 import { usePoke } from '@/services/poke'
@@ -36,18 +34,14 @@ import { useGuildStore } from '@/stores/guildStore'
 import { openChannel, selectGuild, useSelectedChannelId } from '@/stores/navStore'
 
 /** The highest role of the user in the first mutual guild (by name) where it has a role. */
-function useStanding(
-  userId: string,
-  mutual: Guild[]
-): { role: Role; guild: Guild; ink: string | undefined } | null {
+function useStanding(userId: string, mutual: Guild[]): { role: Role; guild: Guild } | null {
   const { members, roles } = useGuildStore(
     useShallow((s) => ({ members: s.members, roles: s.roles }))
   )
   return useMemo(() => {
     for (const guild of mutual) {
       const top = memberRoles(members.get(guild.id)?.get(userId), roles.get(guild.id))[0]
-      if (top)
-        return { role: top, guild, ink: top.color ? roleInk(hexColor(top.color)) : undefined }
+      if (top) return { role: top, guild }
     }
     return null
   }, [mutual, members, roles, userId])
@@ -77,7 +71,6 @@ export function DmProfileColumn({
   const activity = useVoiceActivity(userId, null)
   const security = useContactSecurity(userId)
   const name = displayName(undefined, user)
-  const banner = useUserBanner(userId, user.avatar)
 
   return (
     <aside
@@ -85,12 +78,11 @@ export function DmProfileColumn({
       className={cn(
         'bg-surface-panel border-line-hairline flex h-full min-h-0 shrink-0 flex-col',
         variant === 'drawer' ? 'w-full' : 'w-[252px] border-l',
-        ROLE_INK_SCOPE,
         className
       )}
     >
       <ScrollArea className="min-h-0 flex-1">
-        <div className="h-24" style={{ background: banner }} aria-hidden />
+        <div className="bg-surface-raised h-20" aria-hidden />
         <div className="flex flex-col gap-4 px-4 pb-5">
           <div className="-mt-11 w-fit">
             <UserAvatar
@@ -99,25 +91,22 @@ export function DmProfileColumn({
               size={80}
               status={status}
               cutout="bg-surface-panel"
-              className="ring-surface-panel rounded-full ring-4"
+              className="ring-surface-panel ring-4"
             />
           </div>
 
           <div className="flex min-w-0 flex-col gap-0.5">
-            <h2 className="text-text-primary flex min-w-0 items-center gap-1.5 text-xl leading-7 font-extrabold">
+            <h2 className="text-text-primary flex min-w-0 items-center gap-1.5 text-[18px] leading-7 font-semibold tracking-[-0.3px]">
               <span className="truncate">{name}</span>
               {owner && (
                 <Crown
-                  className="text-feature-event-text size-4 shrink-0"
-                  aria-label="Owns a shared guild"
+                  className="text-text-tertiary size-4 shrink-0"
+                  aria-label="Owns a shared space"
                 />
               )}
             </h2>
             {standing && (
-              <p
-                className="text-accent-text truncate text-[13px] font-semibold"
-                style={standing.ink ? { color: standing.ink } : undefined}
-              >
+              <p className="text-text-tertiary truncate font-mono text-[10px] tracking-[0.8px]">
                 {standing.role.name} in {standing.guild.name}
               </p>
             )}
@@ -141,19 +130,17 @@ export function DmProfileColumn({
 
           {mutual.length > 0 && (
             <section className="flex flex-col gap-1">
-              <h3 className="section-label">Mutual guilds · {mutual.length}</h3>
+              <h3 className="cap">Mutual spaces · {mutual.length}</h3>
               <ul className="flex flex-col">
                 {mutual.map((g) => (
                   <li key={g.id}>
                     <button
                       type="button"
                       onClick={() => selectGuild(g.id)}
-                      className="rounded-control hover:bg-surface-hover focus-visible:outline-line-focus -mx-2 flex w-[calc(100%+1rem)] items-center gap-2.5 px-2 py-1.5 text-left focus-visible:outline-2"
+                      className="rounded-row hover:bg-surface-hover focus-visible:outline-line-focus -mx-2 flex h-8 w-[calc(100%+1rem)] items-center gap-2.5 px-2 text-left focus-visible:outline-2"
                     >
                       <GuildTile guild={g} className="size-8 text-xs" />
-                      <span className="text-text-primary truncate text-sm font-semibold">
-                        {g.name}
-                      </span>
+                      <span className="text-text-secondary truncate text-[13px]">{g.name}</span>
                     </button>
                   </li>
                 ))}
@@ -209,7 +196,7 @@ function DrawerActions({ user }: { user: User }): React.JSX.Element {
         role="status"
         className={cn(
           'text-[12.5px] leading-4 font-medium not-empty:mt-1.5',
-          poke.error ? 'text-feature-danger-text' : 'text-text-secondary'
+          poke.error ? 'text-you-text' : 'text-text-secondary'
         )}
       >
         {status}
@@ -233,14 +220,14 @@ function ActivityCard({ activity }: { activity: VoiceActivity }): React.JSX.Elem
     })
   }
   return (
-    <div className="border-feature-voice/40 bg-feature-voice/10 flex flex-col gap-2.5 border p-3">
+    <div className="border-live-line bg-live-tint rounded-option flex flex-col gap-2.5 border p-3">
       <div className="flex min-w-0 flex-col">
         <VoiceActivityLine
           activity={activity}
-          className="text-text-primary [&_svg]:text-feature-voice-text gap-2.5 text-[13px] font-bold"
+          className="text-text-primary [&_svg]:text-live-text gap-2.5 text-[13px] font-semibold"
         />
         {detail.length > 0 && (
-          <span className="text-feature-voice-text truncate pl-6 text-xs tabular-nums">
+          <span className="text-live-text truncate pl-6 font-mono text-[10px] tabular-nums">
             {detail.join(' · ')}
           </span>
         )}
@@ -291,11 +278,16 @@ function SecurityCard({
   const canVerify = look?.canVerify ?? false
   return (
     <section className="flex flex-col gap-1.5">
-      <h3 className="section-label">Security key</h3>
-      <div className={cn('flex flex-col gap-2 border p-3', look?.card ?? 'border-line-hairline')}>
+      <h3 className="cap">Security key</h3>
+      <div
+        className={cn(
+          'rounded-option flex flex-col gap-2 border p-3',
+          look?.card ?? 'border-line-hairline'
+        )}
+      >
         <span
           className={cn(
-            'flex items-center gap-1.5 text-[13px] font-bold',
+            'flex items-center gap-1.5 text-[13px] font-semibold',
             look?.text ?? 'text-text-tertiary'
           )}
         >
@@ -305,7 +297,7 @@ function SecurityCard({
         <p className="text-text-secondary text-xs leading-[18px]">{text}</p>
         {safety && trust && trust.state !== 'unknown' && (
           <p
-            className="text-text-primary grid grid-cols-4 gap-x-2 font-mono text-[11.5px] leading-5 font-semibold tabular-nums"
+            className="text-text-secondary grid grid-cols-4 gap-x-2 font-mono text-[11px] leading-5 font-medium tabular-nums"
             aria-label="Safety number"
           >
             {safety.groups.map((g, i) => (
@@ -336,11 +328,11 @@ function Devices({
 }): React.JSX.Element {
   return (
     <section className="flex flex-col gap-1.5">
-      <h3 className="section-label">Devices · {devices.length}</h3>
+      <h3 className="cap">Devices · {devices.length}</h3>
       <ul className="flex flex-col gap-2">
         {devices.map((d) => (
           <li key={d.deviceId} className="flex items-center gap-2.5">
-            <span className="bg-surface-raised text-text-secondary flex size-8 shrink-0 items-center justify-center">
+            <span className="bg-surface-raised text-text-secondary rounded-control flex size-8 shrink-0 items-center justify-center">
               <MonitorSmartphone className="size-4" aria-hidden />
             </span>
             <span className="flex min-w-0 flex-1 flex-col">
@@ -352,10 +344,7 @@ function Devices({
               </span>
             </span>
             {verified && (
-              <ShieldCheck
-                className="text-feature-voice-text size-4 shrink-0"
-                aria-label="Verified"
-              />
+              <ShieldCheck className="text-text-secondary size-4 shrink-0" aria-label="Verified" />
             )}
           </li>
         ))}

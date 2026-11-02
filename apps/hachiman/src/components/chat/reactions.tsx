@@ -13,7 +13,7 @@ import { react } from './transcript-actions'
 const FOCUS = 'focus-visible:outline-line-focus outline-none focus-visible:outline-2'
 
 /**
- * The reaction chips under a message (N10): emoji and count, accent ring when I reacted; a click
+ * The reaction chips under a message (N10): emoji and count, `here` ring when I reacted; a click
  * toggles my reaction. The last chip adds a reaction. Nothing renders without reactions: the hover
  * toolbar has the React button for the first one.
  */
@@ -31,15 +31,15 @@ export function ReactionChips({
   const [picking, setPicking] = useState(false)
   const guildId = useChannelStore((s) => s.channels.get(channelId)?.guildId ?? null)
   if (chips.length === 0) return null
-  // The chips keep their 28 look; on the mobile layout each takes a 36 hit height, and the gaps
+  // The chips keep their 22 look; on the mobile layout each takes a 36 hit height, and the gaps
   // grow so that the hit areas of two chips do not meet (spec §2.10).
   const chip = cn(
-    'rounded-pill flex h-7 items-center gap-1.5 border px-2 text-[13px] leading-none font-semibold tabular-nums transition-colors',
+    'rounded-pill mobile:h-7 mobile:px-2.5 mobile:gap-1.5 flex h-[22px] items-center gap-[5px] border px-[7px] font-mono text-[9.5px] leading-none tracking-[0.8px] tabular-nums transition-colors',
     'mobile:relative mobile:after:absolute mobile:after:-inset-x-0.5 mobile:after:-inset-y-1'
   )
   return (
     <div
-      className="mobile:gap-x-1.5 mobile:gap-y-2 mobile:pt-1.5 flex flex-wrap items-center gap-1 pt-1"
+      className="mobile:gap-x-1.5 mobile:gap-y-2 mobile:pt-1.5 flex flex-wrap items-center gap-1.5 pt-1"
       role="group"
       aria-label="Reactions"
     >
@@ -54,11 +54,11 @@ export function ReactionChips({
             chip,
             FOCUS,
             c.mine
-              ? 'bg-accent-tint border-accent-primary text-accent-text'
-              : 'bg-surface-raised text-text-secondary hover:border-line-strong border-transparent'
+              ? 'bg-here-tint border-here text-here-text'
+              : 'text-text-tertiary border-line-strong hover:bg-surface-hover bg-transparent'
           )}
         >
-          <ReactionEmoji value={c.emoji} className="text-[15px]" />
+          <ReactionEmoji value={c.emoji} className="mobile:text-[15px] text-[11px]" />
           {c.count}
         </button>
       ))}
@@ -77,10 +77,10 @@ export function ReactionChips({
           className={cn(
             chip,
             FOCUS,
-            'bg-surface-raised text-text-tertiary hover:text-text-primary border-transparent'
+            'text-text-disabled hover:text-text-primary border-line-hairline mobile:w-9 w-6 justify-center bg-transparent px-0'
           )}
         >
-          <SmilePlus className="size-4" />
+          <SmilePlus className="mobile:size-4 size-3" />
         </button>
       </EmojiPicker>
     </div>

@@ -51,7 +51,7 @@ export function ImageField({
   const { src, busy, uploading, error, input, pick, remove } = useImageUpload(value, onSave)
   const picker = <input {...input} />
   const progress = uploading && (
-    <span className="bg-surface-window/70 absolute inset-0 flex items-center justify-center text-xs">
+    <span className="bg-surface-scrim absolute inset-0 flex items-center justify-center text-xs">
       Uploading…
     </span>
   )
@@ -80,7 +80,7 @@ export function ImageField({
           <span className="relative -mt-9 shrink-0">
             <Avatar className="bg-surface-raised ring-surface-panel size-[72px] ring-[5px]">
               {src && <AvatarImage src={src} alt="" />}
-              <AvatarFallback className="bg-surface-raised text-text-primary text-[32px] font-bold">
+              <AvatarFallback className="bg-avatar-1 text-text-secondary font-mono text-[32px] font-semibold">
                 {fallback}
               </AvatarFallback>
               {progress}
@@ -116,12 +116,20 @@ export function ImageField({
     <Avatar
       className={cn(
         'bg-surface-raised border-line-hairline border',
-        wide ? 'aspect-[11/2] size-auto w-full rounded-none' : row ? 'size-14' : 'size-24'
+        wide
+          ? 'rounded-control aspect-[11/2] size-auto w-full'
+          : row
+            ? 'size-14'
+            : 'size-[84px] rounded-[18px] border-0'
       )}
     >
       {src && <AvatarImage src={src} alt="" />}
       <AvatarFallback
-        className={cn('bg-surface-raised text-text-secondary', wide ? 'rounded-none' : 'text-2xl')}
+        className={cn(
+          wide
+            ? 'bg-surface-raised text-text-tertiary rounded-none'
+            : 'bg-avatar-1 text-text-secondary font-mono text-[28px] font-semibold tracking-[0.8px]'
+        )}
       >
         {fallback}
       </AvatarFallback>

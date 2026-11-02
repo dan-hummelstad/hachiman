@@ -7,8 +7,8 @@ import { useMessageStore } from '@/stores/messagesStore'
 const EMPTY_TYPING: Map<string, number> = new Map()
 
 /**
- * "alice is typing…" under the composer (above it on the mobile layout: 22 high, dots 5, the name
- * 12/800 in the secondary text colour). Always reserves its line so the layout never jumps.
+ * "alice is typing…" under the composer (above it on the mobile layout: 22 high, dots 5, the line
+ * in the `live` text colour). Always reserves its line so the layout never jumps.
  * `className` sets the height and the padding of the line.
  */
 export function TypingLine({
@@ -31,18 +31,18 @@ export function TypingLine({
   return (
     <div
       className={cn(
-        'text-text-tertiary flex h-6 items-center gap-1.5 truncate px-1 text-xs leading-6 font-medium',
+        'text-live-text mobile:text-[9px] mobile:tracking-[0.7px] flex h-6 items-center gap-[7px] truncate px-1 font-mono text-[9.5px] leading-none tracking-[0.8px]',
         className
       )}
       aria-live="polite"
     >
       {names.length > 0 && (
         <>
-          <span aria-hidden className="mobile:gap-[3px] flex shrink-0 gap-0.5">
+          <span aria-hidden className="flex shrink-0 gap-0.5">
             {[0, 150, 300].map((d) => (
               <span
                 key={d}
-                className="bg-text-tertiary mobile:size-[5px] mobile:bg-text-secondary size-1 animate-pulse rounded-full"
+                className="bg-live mobile:[&:not(:first-child)]:hidden mobile:size-[5px] size-1 animate-pulse rounded-full"
                 style={{ animationDelay: `${d}ms` }}
               />
             ))}
@@ -58,10 +58,7 @@ export function TypingLine({
 
 function TypingText({ names }: { names: string[] }): React.JSX.Element {
   const b = (n: string): React.JSX.Element => (
-    <span
-      key={n}
-      className="text-text-primary mobile:text-text-secondary mobile:font-extrabold font-bold"
-    >
+    <span key={n} className="text-live-text font-medium">
       {n}
     </span>
   )

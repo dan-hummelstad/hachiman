@@ -42,10 +42,10 @@ const EMPTY_PAGES: PageNode[] = []
 
 /** A quick action tile (M41): 66 high, radius 10, icon 20 over a 13/700 label. */
 const TILE =
-  'rounded-option flex h-[66px] min-w-0 flex-1 flex-col items-center justify-center gap-1.5 border px-1.5 text-[13px] leading-4 font-bold outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-line-focus [&_svg]:size-5 [&_svg]:shrink-0'
+  'rounded-option flex h-[66px] min-w-0 flex-1 flex-col items-center justify-center gap-1.5 border px-1.5 text-[13px] leading-4 font-semibold outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-line-focus [&_svg]:size-5 [&_svg]:shrink-0'
 const TILE_TONE = {
-  off: 'bg-surface-hover border-line-hairline text-text-primary active:bg-surface-selected',
-  on: 'bg-accent-tint border-accent-primary/50 text-accent-text active:bg-accent-primary/30'
+  off: 'bg-surface-raised border-line-hairline text-text-primary active:bg-surface-hover',
+  on: 'bg-here-tint border-here text-here-text active:bg-here-tint'
 } as const
 
 /** A title as the sheet shows it: italic while it does not decrypt. */
@@ -437,7 +437,7 @@ function MoveStep({
         {confirming ? (
           <>
             <p role="alert" className="text-text-secondary px-1 pb-1 text-[13.5px] leading-[18px]">
-              This removes the banner of <strong className="font-bold">{pageTitle(page)}</strong>.
+              This removes the banner of <strong className="font-semibold">{pageTitle(page)}</strong>.
             </p>
             <Button
               variant="danger"
@@ -484,7 +484,7 @@ function MoveTargetRow({
         detail={detail}
         trailing={
           <>
-            <Check aria-hidden className="text-accent-text size-[17px] shrink-0" />
+            <Check aria-hidden className="text-here-text size-[17px] shrink-0" />
             <span className="sr-only">, the page is here now</span>
           </>
         }

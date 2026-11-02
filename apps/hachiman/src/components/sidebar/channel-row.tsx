@@ -21,7 +21,8 @@ import {
 } from '@/components/ui/context-menu'
 import { IconButton } from '@/components/ui/icon-button'
 import { CHANNEL_ROW_TOUCH, sidebarRowClass } from '@/components/sidebar/sidebar-row'
-import { UnreadMark, UnreadPip } from '@/components/ui/unread-mark'
+import { LiveDot } from '@/components/ui/live'
+import { UnreadMark } from '@/components/ui/unread-mark'
 import { VoiceOccupantRow } from '@/components/voice/voice-occupant-row'
 import { useElapsed } from '@/hooks/use-elapsed'
 import { useChannelOccupants, usePermissions } from '@/hooks/use-hachiman'
@@ -31,7 +32,6 @@ import { callStartedAt } from '@/lib/call-timer'
 import { useChannelAccess } from '@/lib/channel-access'
 import { ChannelIcon } from '@/lib/channel-icon'
 import { isMuted } from '@/lib/notify'
-import { ROLE_INK_SCOPE } from '@/lib/role-ink'
 import { cn } from '@/lib/utils'
 import { voiceService } from '@/services/VoiceService'
 import { openDialog, useDialogStore } from '@/stores/dialogStore'
@@ -72,12 +72,12 @@ const ACTION_TOUCH = "mobile:size-9 mobile:[&_svg:not([class*='size-'])]:size-4"
  * icon sits above the box.
  */
 const ACTION_LIT =
-  'mobile:relative mobile:text-accent-text mobile:before:absolute mobile:before:inset-[5px] mobile:before:rounded-[6px] mobile:before:bg-accent-primary/30 mobile:[&_svg]:relative'
+  'mobile:relative mobile:text-here-text mobile:before:absolute mobile:before:inset-[5px] mobile:before:rounded-[6px] mobile:before:bg-here-tint mobile:[&_svg]:relative'
 
 /**
  * A channel in the sidebar: drag to reorder (with MANAGE_CHANNELS), right-click or hold for its
- * menu. On the mobile layout (M3, M36) the row is 38 high, only the selected row shows its
- * actions, and a pages channel has the violet icon. A tap there opens the
+ * menu. On the mobile layout (M3, M36) the row is 38 high and only the selected row shows its
+ * actions. A tap there opens the
  * channel on its chat (a pages channel too, not its open page) and closes the drawer. There a
  * manager's hold menu also has Move up and Move down: the button path of the drag. The drawer
  * stays open under the dialogs a row opens: its invite button stays lit while its sheet is open
@@ -104,8 +104,6 @@ export function ChannelRow({
 }): React.JSX.Element {
   const mobile = useLayout() === 'mobile'
   const isVoice = channel.type === 'voice'
-  // The violet page icon is mobile only for now (spec §6.1, decision 3).
-  const pageMark = mobile && channel.type === 'pages'
   const occupants = useChannelOccupants(guildId, channel.id)
   const isVoiceHere = useVoiceStore((s) => isVoice && s.channelId === channel.id)
   const canConnect = has(usePermissions(guildId, channel.id), Permissions.CONNECT)
@@ -113,6 +111,7 @@ export function ChannelRow({
   const badge = useChannelUnread(channel.id)
   const muted = isMuted(useNotifyPrefs(), channel.id, guildId)
   const unread = badge.unread && !selected
+  const mention = badge.mentions > 0 && !selected
   const callSince = useMemo(() => (isVoice ? callStartedAt(occupants) : null), [isVoice, occupants])
   const callElapsed = useElapsed(callSince)
   const inviting = useDialogStore(
@@ -167,21 +166,29 @@ export function ChannelRow({
                 'group/row relative gap-1 pr-1 pl-0',
                 CHANNEL_ROW_TOUCH,
                 SORTABLE_TOUCH,
-                deleting && 'bg-feature-danger/12'
+                deleting && 'bg-you-tint'
               )
             )}
           >
-            {unread && <UnreadPip className="mobile:hidden -left-2.5" />}
+            {(selected || mention || unread) && (
+              <span
+                aria-hidden
+                className={cn(
+                  'pointer-events-none absolute top-1/2 left-0 h-[17px] w-0.5 -translate-y-1/2 mobile:h-[18px] mobile:w-[3px] mobile:rounded-[2px]',
+                  selected ? 'bg-here' : mention ? 'bg-you' : 'bg-text-primary'
+                )}
+              />
+            )}
             <button
               type="button"
               onClick={open}
               onDoubleClick={isVoice ? join : undefined}
               className={cn(
                 'flex h-full min-w-0 flex-1 items-center gap-2 pl-2.5 text-left',
-                isVoiceHere && !selected && 'text-feature-voice-text',
-                unread && 'text-text-primary font-bold',
+                isVoiceHere && !selected && 'text-live-text',
+                unread && 'text-text-primary font-semibold',
                 muted && !selected && 'opacity-50',
-                deleting && 'text-feature-danger-text font-bold opacity-100'
+                deleting && 'text-you-text font-semibold opacity-100'
               )}
               aria-current={selected ? 'page' : undefined}
               aria-label={
@@ -195,8 +202,12 @@ export function ChannelRow({
               {readOnly ? (
                 <Megaphone
                   className={cn(
-                    'mobile:size-[18px] size-4 shrink-0',
-                    deleting ? 'text-feature-danger' : 'text-feature-event'
+                    'mobile:size-[18px] size-3.5 shrink-0',
+                    deleting
+                      ? 'text-you-text'
+                      : selected
+                        ? 'text-text-primary mobile:text-here-text'
+                        : 'text-text-disabled'
                   )}
                   aria-hidden
                 />
@@ -204,14 +215,12 @@ export function ChannelRow({
                 <ChannelIcon
                   type={channel.type}
                   className={cn(
-                    'mobile:size-[18px] size-4 shrink-0',
+                    'mobile:size-[18px] size-3.5 shrink-0',
                     deleting
-                      ? 'text-feature-danger'
-                      : isVoice
-                        ? 'text-feature-voice'
-                        : pageMark
-                          ? 'text-feature-page-text'
-                          : 'text-text-tertiary'
+                      ? 'text-you-text'
+                      : selected
+                        ? 'text-text-primary mobile:text-here-text'
+                        : 'text-text-disabled'
                   )}
                   aria-hidden
                 />
@@ -221,14 +230,23 @@ export function ChannelRow({
             </button>
             <span className={cn('items-center gap-1 pr-1', showStatus)}>
               {(readOnly || restricted) && (
-                <Lock aria-label={lockLabel} className="text-text-tertiary size-3.5" />
+                <Lock aria-label={lockLabel} className="text-text-disabled size-3.5" />
               )}
               {callElapsed && (
                 <span
                   aria-label={`Call running for ${callElapsed}`}
-                  className="bg-feature-voice/15 text-feature-voice-text px-1.5 py-0.5 font-mono text-[11px] leading-4 font-semibold tabular-nums"
+                  className="bg-live-tint text-live-text rounded-badge px-1.5 py-0.5 font-mono text-[11px] leading-4 font-semibold tabular-nums"
                 >
                   {callElapsed}
+                </span>
+              )}
+              {occupants.length > 0 && (
+                <span
+                  aria-label={`${occupants.length} in voice`}
+                  className="text-live-text flex items-center gap-1 font-mono text-[9px] font-semibold"
+                >
+                  <LiveDot />
+                  {occupants.length}
                 </span>
               )}
               <UnreadMark badge={badge} dot={false} />
@@ -267,7 +285,7 @@ export function ChannelRow({
             </span>
           </div>
           {occupants.length > 0 && (
-            <ul className={cn('flex flex-col pt-0.5 pb-1', ROLE_INK_SCOPE)}>
+            <ul className={'flex flex-col pt-0.5 pb-1'}>
               {occupants.map((vs) => (
                 <VoiceOccupantRow key={vs.userId} guildId={guildId} state={vs} size={26} />
               ))}

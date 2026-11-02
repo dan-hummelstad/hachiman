@@ -1,33 +1,23 @@
 import { useMemo, useState } from 'react'
-import { AtSign, CheckCheck, Inbox } from 'lucide-react'
-import type { Channel } from '@hachiman/client'
-import { EmptyLine } from '@/components/pins/header-count-button'
-import { jumpToMessage, openChannelView } from '@/lib/navigation'
-import { MessagePreview } from '@/components/pins/message-preview'
+import { Inbox } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { IconButton } from '@/components/ui/icon-button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import { SegmentedControl } from '@/components/ui/segmented-control'
 import { UnreadMark } from '@/components/ui/unread-mark'
 import { useLayout } from '@/hooks/use-layout'
-import { channelLabel } from '@/lib/model'
 import { cn } from '@/lib/utils'
 import { unreadService } from '@/services/UnreadService'
 import { useChannelStore } from '@/stores/channelStore'
-import { useGuildStore } from '@/stores/guildStore'
-import { useMessageStore } from '@/stores/messagesStore'
-import { useNotifyPrefs } from '@/stores/prefsStore'
-import { useAnyMention, useUnreadStore } from '@/stores/unreadStore'
-import { mentionEntries, unreadGroups, type MentionEntry, type UnreadGroup } from './inbox-model'
-import { openInboxScreen } from './inbox-screen'
-
-type Tab = 'mentions' | 'unread'
+import { useAnyMention } from '@/stores/unreadStore'
+import { dayGroups, filterInbox, inboxCounts, type InboxFilter } from './inbox-model'
+import { DayHead, InboxEmpty, InboxEnd, InboxTabs, ChannelItem, MentionItem } from './inbox-rows'
+import { openInboxScreen, spacesOf, useInboxEntries } from './inbox-screen'
 
 const ANY_MENTION = { mentions: 1, unread: true }
 const NO_MENTION = { mentions: 0, unread: false }
 
 const BUTTON =
-  'text-text-secondary hover:bg-surface-hover hover:text-text-primary relative [&_svg]:size-[18px]'
+  'text-text-tertiary hover:bg-surface-hover hover:text-text-primary relative [&_svg]:size-[15px] mobile:[&_svg]:size-[18px]'
 
 /**
  * The inbox button of the sidebar top (N8): an inbox icon with a red dot while anything mentions
@@ -72,7 +62,7 @@ function DesktopInboxButton({ className }: { className?: string }): React.JSX.El
           <InboxGlyph mentioned={mentioned} />
         </IconButton>
       </PopoverTrigger>
-      <PopoverContent align="start" className="w-[420px] max-w-[calc(100vw-32px)] p-0">
+      <PopoverContent align="start" className="w-[600px] max-w-[calc(100vw-32px)] p-0">
         <MentionsInbox onNavigate={() => setOpen(false)} />
       </PopoverContent>
     </Popover>
@@ -93,154 +83,57 @@ function MobileInboxButton({ className }: { className?: string }): React.JSX.Ele
   )
 }
 
-/** The inbox popover: Mentions (newest first, across channels) and Unread (by guild). */
+/** The inbox popover (N3): the header with the counts, the four tabs and Mark all read, then the days. */
 export function MentionsInbox({ onNavigate }: { onNavigate: () => void }): React.JSX.Element {
-  const [tab, setTab] = useState<Tab>('mentions')
-  const unread = useUnreadStore((s) => s.byChannel)
+  const [filter, setFilter] = useState<InboxFilter>('all')
+  const entries = useInboxEntries()
   const channels = useChannelStore((s) => s.channels)
-  const messages = useMessageStore((s) => s.byChannel)
-  const guilds = useGuildStore((s) => s.guilds)
-  const prefs = useNotifyPrefs()
-  const mentions = useMemo(
-    () => mentionEntries(unread, messages, channels),
-    [unread, messages, channels]
-  )
-  const groups = useMemo(
-    () => unreadGroups(unread, channels, guilds, prefs),
-    [unread, channels, guilds, prefs]
-  )
-  const unreadCount = groups.reduce((n, g) => n + g.channels.length, 0)
+  const counts = useMemo(() => inboxCounts(entries), [entries])
+  const shown = useMemo(() => filterInbox(entries, filter), [entries, filter])
+  const days = useMemo(() => dayGroups(shown, Date.now()), [shown])
+  const spaces = useMemo(() => spacesOf(shown, channels), [shown, channels])
 
   return (
-    <div className="flex max-h-[min(600px,75vh)] flex-col">
-      <header className="border-line-hairline flex shrink-0 items-center gap-2 border-b p-2">
-        <SegmentedControl
-          label="Inbox"
-          className="flex-1"
-          value={tab}
-          onChange={setTab}
-          options={[
-            { value: 'mentions', label: 'Mentions', count: mentions.length },
-            { value: 'unread', label: 'Unread', count: unreadCount }
-          ]}
-        />
+    <div className="flex max-h-[min(720px,80vh)] flex-col">
+      <header className="border-line-hairline flex h-[72px] shrink-0 items-center gap-3.5 border-b px-5">
+        <div className="flex flex-col gap-1">
+          <h2 className="text-[20px] leading-none font-semibold tracking-[-0.5px]">Inbox</h2>
+          <p className="text-text-disabled font-mono text-[8.5px] tracking-[1.1px] uppercase">
+            {counts.all} waiting · {spaces} {spaces === 1 ? 'space' : 'spaces'}
+          </p>
+        </div>
+        <span className="flex-1" />
+        <InboxTabs value={filter} onChange={setFilter} counts={counts} variant="desktop" />
+        <Button
+          variant="quiet"
+          size="sm"
+          disabled={entries.length === 0}
+          onClick={() => unreadService.markAllRead()}
+        >
+          Mark all read
+        </Button>
       </header>
-      <div className="min-h-0 flex-1 overflow-y-auto p-1.5">
-        {tab === 'mentions' ? (
-          <MentionList entries={mentions} channels={channels} onNavigate={onNavigate} />
+      <div className="flex max-h-[min(640px,75vh)] min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto px-4 pt-3.5">
+        {shown.length === 0 ? (
+          <InboxEmpty filter={filter} />
         ) : (
-          <UnreadList groups={groups} onNavigate={onNavigate} />
+          <>
+            {days.map((g) => (
+              <section key={g.key} className="flex flex-col gap-1.5">
+                <DayHead>{g.label}</DayHead>
+                {g.entries.map((e) =>
+                  e.kind === 'channel' ? (
+                    <ChannelItem key={e.key} entry={e} onNavigate={onNavigate} />
+                  ) : (
+                    <MentionItem key={e.key} entry={e} onNavigate={onNavigate} />
+                  )
+                )}
+              </section>
+            ))}
+            <InboxEnd />
+          </>
         )}
       </div>
     </div>
-  )
-}
-
-function MentionList({
-  entries,
-  channels,
-  onNavigate
-}: {
-  entries: MentionEntry[]
-  channels: ReadonlyMap<string, Channel>
-  onNavigate: () => void
-}): React.JSX.Element {
-  if (entries.length === 0) return <EmptyLine>Nothing mentions you right now.</EmptyLine>
-  return (
-    <>
-      {entries.map((e) => {
-        const channel = channels.get(e.channelId)!
-        const jump = (
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() => {
-              onNavigate()
-              jumpToMessage(channel, e.messageId)
-            }}
-          >
-            Jump
-          </Button>
-        )
-        const where = <ChannelLine channel={channel} />
-        return e.row ? (
-          <MessagePreview key={e.messageId} message={e.row} context={where} actions={jump} />
-        ) : (
-          <div key={e.messageId} className="flex items-center gap-3 px-2.5 py-2">
-            <span className="rounded-pill bg-feature-event/15 text-feature-event-text flex size-8 shrink-0 items-center justify-center">
-              <AtSign className="size-4" aria-hidden />
-            </span>
-            <div className="min-w-0 flex-1">
-              {where}
-              <p className="text-text-secondary text-[13px]">A message mentions you.</p>
-            </div>
-            {jump}
-          </div>
-        )
-      })}
-    </>
-  )
-}
-
-function ChannelLine({ channel }: { channel: Channel }): React.JSX.Element {
-  const { sigil, name } = channelLabel(channel)
-  const guild = useGuildStore((s) =>
-    channel.guildId ? s.guilds.get(channel.guildId)?.name : undefined
-  )
-  return (
-    <p className="text-text-tertiary truncate text-[11.5px] font-bold">
-      {sigil}
-      {name}
-      {guild && ` · ${guild}`}
-    </p>
-  )
-}
-
-function UnreadList({
-  groups,
-  onNavigate
-}: {
-  groups: UnreadGroup[]
-  onNavigate: () => void
-}): React.JSX.Element {
-  if (groups.length === 0) return <EmptyLine>You are all caught up.</EmptyLine>
-  return (
-    <>
-      {groups.map((g) => (
-        <section key={g.guildId ?? '@me'} className="pb-1">
-          <h3 className="section-label px-2.5 pt-2 pb-1">{g.name}</h3>
-          {g.channels.map(({ channel, badge }) => (
-            <div
-              key={channel.id}
-              className="rounded-option hover:bg-surface-hover flex items-center gap-2 px-2.5 py-1"
-            >
-              <button
-                type="button"
-                onClick={() => {
-                  onNavigate()
-                  openChannelView(channel)
-                }}
-                className={cn(
-                  'text-text-primary min-w-0 flex-1 truncate py-1 text-left text-[14px] font-semibold',
-                  'focus-visible:outline-line-focus rounded-control outline-none focus-visible:outline-2'
-                )}
-              >
-                {channelLabel(channel).sigil}
-                {channelLabel(channel).name}
-              </button>
-              <UnreadMark badge={badge} dot={false} />
-              <Button
-                variant="quiet"
-                size="sm"
-                onClick={() => unreadService.markChannelRead(channel.id)}
-              >
-                <CheckCheck />
-                Mark read
-              </Button>
-            </div>
-          ))}
-        </section>
-      ))}
-    </>
   )
 }

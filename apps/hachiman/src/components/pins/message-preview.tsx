@@ -27,30 +27,25 @@ export function MessagePreview({
   actions?: React.ReactNode
   className?: string
 }): React.JSX.Element {
-  const { name, avatar, ink } = useMemberView(message.guildId, message.author.id, message.author)
+  const { name, avatar } = useMemberView(message.guildId, message.author.id, message.author)
   const blocked = useIsBlocked(message.author.id)
   const unreadable = blocked ? 'Blocked message' : decryptText(message.decrypt)
   return (
     <div
       className={cn(
-        'group/preview rounded-option hover:bg-surface-hover flex gap-3 px-2.5 py-2',
+        'group/preview rounded-row hover:bg-surface-hover flex gap-3 px-2.5 py-2',
         className
       )}
     >
-      <UserAvatar name={name} avatar={avatar} size={32} color={ink} className="mt-0.5" />
+      <UserAvatar name={name} avatar={avatar} size={32} className="mt-0.5" />
       <div className="min-w-0 flex-1">
         {context}
         <div className="flex items-baseline gap-2">
-          <span
-            className={cn('truncate text-[14px] font-bold', !ink && 'text-text-primary')}
-            style={ink ? { color: ink } : undefined}
-          >
-            {name}
-          </span>
+          <span className="text-text-primary truncate text-[14px] font-semibold">{name}</span>
           <time
             dateTime={message.createdAt}
             title={formatFull(message.createdAt)}
-            className="text-text-tertiary shrink-0 text-[11.5px] font-medium"
+            className="text-text-disabled shrink-0 font-mono text-[9.5px] tracking-[0.8px]"
           >
             {formatTime(message.createdAt)}
           </time>

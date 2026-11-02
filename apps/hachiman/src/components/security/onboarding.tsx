@@ -27,6 +27,7 @@ import {
 import { RecoveryKeyInput, RecoveryKeyReveal } from '@/components/security/recovery-key-view'
 import {
   EmptyWindow,
+  NEUTRAL_TILE,
   OptionCard,
   ScreenActions,
   ScreenWindow,
@@ -184,9 +185,9 @@ function Choose({
   return (
     <StepFrame
       icon={<ShieldCheck />}
-      feature="voice"
+      feature="event"
       title={ONBOARDING_TITLES.choose}
-      subtitle="Your messages and calls are end-to-end encrypted"
+      subtitle="New device"
       footer={
         gate && (
           <Button variant="quiet" className="sm:mr-auto" onClick={() => takusenService.signOut()}>
@@ -195,7 +196,7 @@ function Choose({
         )
       }
     >
-      <p className="text-text-secondary">
+      <p>
         Hachiman encrypts your messages and calls on your devices. The server cannot read them. This
         device needs your security keys before it can show them.
       </p>
@@ -222,7 +223,6 @@ function Choose({
       )}
       <OptionCard
         icon={<KeyRound />}
-        feature="voice"
         title="Restore with recovery key"
         hint="Use the recovery key that you saved when you set up your first device."
         emphasis={reset}
@@ -239,7 +239,6 @@ function Choose({
       ) : (
         <OptionCard
           icon={<Sparkles />}
-          feature="page"
           title="Set up this device"
           hint={
             existing
@@ -252,7 +251,7 @@ function Choose({
         />
       )}
       {existing && (
-        <p className="text-meta text-text-tertiary">
+        <p className="text-text-tertiary text-[12px]">
           No other device and no recovery key? Ask the admin of this server to reset your keys. Then
           sign in again and select Reset my keys.
         </p>
@@ -358,18 +357,12 @@ function SetupStep({
         This makes a new security key for your account on this device, and a recovery key for you to
         keep.
       </p>
-      <ul className="border-line-hairline bg-surface-sunken grid gap-3 border px-3.5 py-3">
-        <KeyItem
-          icon={<KeyRound />}
-          title="A security key"
-          hint="Lives only on this device"
-          tile="bg-accent-tint text-accent-text"
-        />
+      <ul className="border-line-hairline bg-surface-sunken rounded-control grid gap-3 border px-3.5 py-3">
+        <KeyItem icon={<KeyRound />} title="A security key" hint="Lives only on this device" />
         <KeyItem
           icon={<RotateCcw />}
           title="A recovery key"
           hint="For you to keep somewhere safe and offline"
-          tile="bg-feature-voice/15 text-feature-voice-text"
         />
       </ul>
       <Callout tone="caution">
@@ -423,7 +416,6 @@ function KeyItem(props: {
   icon: React.ReactNode
   title: string
   hint: string
-  tile: string
 }): React.JSX.Element {
   return (
     <li className="flex items-center gap-3">
@@ -431,14 +423,14 @@ function KeyItem(props: {
         aria-hidden
         className={cn(
           'rounded-control flex size-8 shrink-0 items-center justify-center [&_svg]:size-4',
-          props.tile
+          NEUTRAL_TILE
         )}
       >
         {props.icon}
       </span>
       <span className="grid">
-        <span className="text-label">{props.title}</span>
-        <span className="text-meta text-text-tertiary">{props.hint}</span>
+        <span className="text-text-primary text-[13px] font-semibold">{props.title}</span>
+        <span className="text-text-tertiary text-[12px]">{props.hint}</span>
       </span>
     </li>
   )
@@ -462,17 +454,17 @@ function Restore({ title, onBack }: { title: string; onBack: () => void }): Reac
     <>
       <StepHeader
         icon={<KeyRound />}
-        feature="voice"
+        feature="event"
         title={title}
-        subtitle={`Read your messages on this ${noun}`}
+        subtitle={`Restore · this ${noun}`}
         onBack={busy ? undefined : onBack}
       />
       {screen ? (
-        <p className="text-text-secondary font-medium">
+        <p>
           Type or paste the recovery key that you saved when you set up Hachiman.
         </p>
       ) : (
-        <p className="text-sm">
+        <p>
           Type or paste the recovery key that you saved when you set up Hachiman. Hachiman gets your
           security key and your message history from the encrypted backup.
         </p>
@@ -521,7 +513,7 @@ export function CryptoGate({ children }: { children: React.ReactNode }): React.J
   if (onboarding) return <OnboardingScreen state={state ?? 'needs_identity'} onHold={setHold} />
   return (
     <ScreenWindow title="Starting encryption">
-      <p className="text-text-secondary text-sm" role="status">
+      <p role="status">
         Hachiman opens the key store of this device…
       </p>
     </ScreenWindow>
@@ -546,7 +538,7 @@ function OnboardingScreen({
   const flow = <OnboardingFlow state={state} step={step} onStep={setStep} onHold={onHold} gate />
   if (mobile) return <StepScreen>{flow}</StepScreen>
   return (
-    <EmptyWindow>
+    <EmptyWindow aside={<SigningInAs />}>
       <Dialog open modal>
         <DialogContent
           showCloseButton={false}
@@ -554,12 +546,24 @@ function OnboardingScreen({
           onEscapeKeyDown={keepOpen}
           onPointerDownOutside={keepOpen}
           onInteractOutside={keepOpen}
-          className="sm:max-w-[560px]"
+          className="border-line-hairline bg-surface-content px-[34px] pt-[34px] pb-7 shadow-none sm:max-w-[440px] sm:rounded-none"
         >
           {flow}
         </DialogContent>
       </Dialog>
     </EmptyWindow>
+  )
+}
+
+/** The account behind this sign-in, top right of the entry backdrop. */
+function SigningInAs(): React.JSX.Element | null {
+  const email = useTakusenStore((s) => s.session?.user.email ?? null)
+  if (!email) return null
+  return (
+    <div className="grid justify-items-end gap-0.5">
+      <span className="cap-sm">Signing in as</span>
+      <span className="text-text-secondary text-[13px] font-semibold">{email}</span>
+    </div>
   )
 }
 
@@ -589,7 +593,7 @@ function StartError(): React.JSX.Element {
 
   return (
     <ScreenWindow title="Encryption did not start" tone="danger">
-      <p className="text-sm">{text}</p>
+      <p>{text}</p>
       <ScreenActions>
         <Button variant="quiet" onClick={() => takusenService.signOut()}>
           Sign out

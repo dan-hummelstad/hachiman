@@ -6,7 +6,7 @@ import { shortEventWhen } from './event-format'
 import { EventDetails } from './event-popover'
 
 /**
- * The amber event row under the guild header (B1, B10): the next event of the guild (ongoing, or
+ * The event row under the guild header (B1, B10): the next event of the guild (ongoing, or
  * within 7 days) as "<title> · <when>" and "<n> going". A click opens the details (a sheet on the
  * mobile layout, M12: the row stays 38, with an 18 icon and a 14 title). Nothing when the guild
  * has no such event.
@@ -23,16 +23,16 @@ export function EventRow({ guildId }: { guildId: string }): React.JSX.Element | 
       <PopoverTrigger asChild>
         <button
           type="button"
-          className="bg-feature-event/12 hover:bg-feature-event/18 data-[state=open]:bg-feature-event/18 rounded-control mt-2 flex h-[38px] w-full shrink-0 items-center gap-2.5 px-2.5 text-left"
+          className="border-line-hairline bg-surface-raised hover:bg-surface-hover data-[state=open]:bg-surface-hover rounded-control mobile:mx-3 mx-2 mt-2 flex h-[38px] shrink-0 items-center gap-2.5 self-stretch border px-2.5 text-left"
         >
           <CalendarHeart
-            className="text-feature-event-text mobile:size-[18px] size-4 shrink-0"
+            className="text-text-tertiary mobile:size-[18px] size-4 shrink-0"
             aria-hidden
           />
-          <span className="text-text-primary mobile:text-[14px] min-w-0 flex-1 truncate text-[13px] font-bold">
+          <span className="text-text-primary mobile:text-[14px] min-w-0 flex-1 truncate text-[13px] font-semibold">
             {event.title} · {when}
           </span>
-          <span className="text-feature-event-text shrink-0 text-xs font-bold tabular-nums">
+          <span className="text-text-tertiary shrink-0 font-mono text-[9px] tracking-[0.8px] uppercase tabular-nums">
             {event.rsvpCount} going
           </span>
         </button>

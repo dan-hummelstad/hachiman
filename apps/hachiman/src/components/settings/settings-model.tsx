@@ -16,7 +16,7 @@ import {
   Smile,
   SlidersHorizontal,
   Trash2,
-  User,
+  UserRound,
   Users,
   Wrench
 } from 'lucide-react'
@@ -38,13 +38,17 @@ import { ChannelPermissionsPage, overrideCount } from '@/components/settings/cha
 import { GuildOverviewPage } from '@/components/settings/guild-overview'
 import { GuildSoundboardPage } from '@/components/settings/guild-soundboard'
 import { AccountSection } from '@/components/settings/user/account'
+import { ProfileSection } from '@/components/settings/user/profile'
+import { useActiveThemes } from '@/components/settings/user/use-themes'
 import { AdvancedSection } from '@/components/settings/user/advanced'
 import { AppearanceSection } from '@/components/settings/user/appearance'
 import { CloseToTraySection } from '@/components/settings/user/tray'
 import { KeybindsSection } from '@/components/settings/user/keybinds'
 import {
   NotificationSettings,
-  NotificationsSection
+  NotificationsSection,
+  notifyModeLabel,
+  useNotifyMode
 } from '@/components/settings/user/notifications'
 import { PrivacySection } from '@/components/settings/user/privacy'
 import { UpdatesSection } from '@/components/settings/user/updates'
@@ -61,7 +65,6 @@ import { useCryptoStore } from '@/stores/cryptoStore'
 import { openDialog } from '@/stores/dialogStore'
 import { useGuildStore } from '@/stores/guildStore'
 import type { SettingsTarget } from '@/stores/navStore'
-import { usePrefsStore, type Theme } from '@/stores/prefsStore'
 import { useUserStore } from '@/stores/userStore'
 
 /** One row of the settings list and its page. A hidden row (`visible: false`) is left out. */
@@ -71,8 +74,12 @@ export interface SettingsNavItem {
   icon: React.ReactNode
   /** A count chip on the right; 0 shows none. */
   count?: number
-  /** Mobile list: short text at the end of the row ("Dark"). Without it the count shows there. */
-  value?: string
+  /** Mobile list: text at the end of the row ("Midnight"). Without it the alert or count shows there. */
+  value?: React.ReactNode
+  /** Mobile list: a page the list reaches another way (the profile header) and does not list. */
+  unlisted?: boolean
+  /** Rows that wait on the user (a device to link): a `you` count on the row. */
+  alert?: number
   /** Mobile list: the colour of the row's icon tile (default accent). */
   tint?: ListRowTile
   /** Mobile list: a second line under the label. */
@@ -109,6 +116,8 @@ export interface SettingsDanger {
   disabled?: boolean
   /** Mobile: a second line under the label ("For everyone, with its message history"). */
   detail?: string
+  /** Not part of the list's weight: a quiet label ("Sign out"), not the red action. */
+  quiet?: boolean
 }
 
 /** Everything the settings list and the settings page show for one target. */
@@ -155,9 +164,6 @@ export function useSettingsModel(target: SettingsTarget | null): SettingsModel |
 
 const NONE = <span />
 
-/** The theme as the mobile Appearance row shows it. */
-const THEME_VALUE: Record<Theme, string> = { dark: 'Dark', light: 'Light', system: 'System' }
-
 /**
  * On the mobile layout: Privacy and safety (M34) and Notifications (M33), no Keybinds (a phone has
  * no keyboard shortcuts), Advanced as the last row of a Help group (the only reset path on a
@@ -168,20 +174,181 @@ function useUserSettingsModel(active: boolean, mobile: boolean): SettingsModel {
   // The security pages need the Worker. They hide while it is not ready.
   const encryption = useCryptoStore((s) => s.phase === 'ready' && s.status?.state === 'ready')
   const desktop = usePlatform().platform === 'electron'
-  const theme = usePrefsStore((s) => s.theme)
+  const { active: activeTheme } = useActiveThemes()
+  const notifyMode = useNotifyMode()
   const { devices } = useOwnDevices(active && encryption)
   const deviceCount = devices?.filter((d) => d.status !== 'revoked').length
+  const pendingCount = devices?.filter((d) => d.status === 'pending').length
   const name = me?.username ?? 'You'
   const advanced: SettingsNavItem = {
     id: 'advanced',
     label: 'Advanced',
     icon: <Wrench />,
-    tint: 'neutral',
     page: {
       title: 'Advanced',
       description: 'Developer tools that clear the local data of this device.',
       intro: true,
       render: () => <AdvancedSection />
+    }
+  }
+  const account: SettingsNavItem = {
+    id: 'account',
+    label: 'Account',
+    icon: <UserRound />,
+    visible: !mobile,
+    page: {
+      title: 'Account',
+      description:
+        'Your identity is held by Takusen. Hachiman stores only what it needs to show you to other people.',
+      render: () => <AccountSection />
+    }
+  }
+  const profile: SettingsNavItem = {
+    id: 'profile',
+    label: 'Profile',
+    icon: <UserRound />,
+    // On the phone the profile header of the list opens it; it is no row of its own.
+    unlisted: true,
+    page: {
+      title: 'Your profile',
+      description: 'What other people see when they tap your name anywhere in Hachiman.',
+      render: () => <ProfileSection />
+    }
+  }
+  const notifications: SettingsNavItem = {
+    id: 'notifications',
+    label: 'Notifications',
+    icon: <Bell />,
+    value: mobile ? (
+      <span className="text-text-tertiary font-mono text-[9px] tracking-[0.9px]">
+        {notifyModeLabel(notifyMode)}
+      </span>
+    ) : undefined,
+    page: {
+      title: 'Notifications',
+      description:
+        'Hachiman interrupts you for one reason: somebody is waiting on you. Everything else collects quietly and waits until you look.',
+      render: () => (mobile ? <NotificationsSection /> : <NotificationSettings />)
+    }
+  }
+  const voice: SettingsNavItem = {
+    id: 'voice',
+    label: 'Voice & video',
+    icon: <Headphones />,
+    page: {
+      title: 'Voice & video',
+      description: 'Choose the hardware, then prove it works before anyone has to hear you try.',
+      render: () => <VoiceSection />
+    }
+  }
+  const appearance: SettingsNavItem = {
+    id: 'appearance',
+    label: 'Appearance',
+    icon: <Palette />,
+    value: (
+      <span className="flex items-center gap-[7px]">
+        <span className="size-4 rounded-full" style={{ background: activeTheme.accent }} />
+        <span className="text-text-tertiary font-mono text-[9px] tracking-[0.9px] uppercase">
+          {activeTheme.name}
+        </span>
+      </span>
+    ),
+    page: {
+      title: 'Appearance',
+      description: 'A theme decides every surface in the app, including this page.',
+      navSubtitle: `${activeTheme.name} · ${activeTheme.ground}`,
+      render: () => <AppearanceSection />
+    }
+  }
+  const devicesItem: SettingsNavItem = {
+    id: 'devices',
+    label: 'Devices & keys',
+    icon: <MonitorSmartphone />,
+    count: deviceCount,
+    alert: pendingCount,
+    visible: encryption,
+    page: {
+      title: 'Devices & keys',
+      description:
+        'Every machine signed in to your account, and the one key that can get you back if you lose all of them.',
+      intro: true,
+      navSubtitle:
+        deviceCount === undefined
+          ? undefined
+          : `${deviceCount} ${deviceCount === 1 ? 'device holds' : 'devices hold'} your keys`,
+      render: () => (
+        <>
+          <DevicesPanel variant="page" />
+          <PushKeySection />
+        </>
+      )
+    }
+  }
+  const recovery: SettingsNavItem = {
+    id: 'recovery',
+    label: 'Recovery key',
+    icon: <KeyRound />,
+    visible: encryption,
+    page: {
+      title: 'Recovery key',
+      description:
+        'With your recovery key you can read your messages on a new device when no other device is signed in.',
+      intro: true,
+      navSubtitle: name,
+      render: () => <RecoverySection />
+    }
+  }
+  const securityLog: SettingsNavItem = {
+    id: 'securityLog',
+    label: 'Security log',
+    icon: <ScrollText />,
+    visible: encryption,
+    page: {
+      title: 'Security log',
+      description:
+        'The server keeps a public log of every security key and device of each account. Your devices check that each change to your account came from one of your devices. If the server adds a device that you did not add, the check finds it.',
+      intro: true,
+      navSubtitle: name,
+      render: () => <SecurityLog />
+    }
+  }
+  const privacy: SettingsNavItem = {
+    id: 'privacy',
+    label: mobile ? 'Privacy & safety' : 'Privacy',
+    icon: <Shield />,
+    page: {
+      title: 'Privacy & safety',
+      description:
+        'Who is allowed to reach you, what other people can see, and who you have shut out.',
+      render: () => <PrivacySection />
+    }
+  }
+  const keybinds: SettingsNavItem = {
+    id: 'keybinds',
+    label: 'Keybinds',
+    icon: <Keyboard />,
+    visible: !mobile,
+    page: {
+      title: 'Keybinds',
+      description: 'Click a key to change it, then press the new keys. Esc cancels.',
+      render: () => <KeybindsSection />
+    }
+  }
+  // The web app has no tray and updates on reload.
+  const updates: SettingsNavItem = {
+    id: 'updates',
+    label: 'Desktop app',
+    icon: <Download />,
+    visible: desktop,
+    page: {
+      title: 'Desktop app',
+      description: 'What the close button does, and updates.',
+      render: () => (
+        <div className="grid gap-8">
+          <CloseToTraySection />
+          <UpdatesSection />
+        </div>
+      )
     }
   }
   return {
@@ -195,165 +362,23 @@ function useUserSettingsModel(active: boolean, mobile: boolean): SettingsModel {
       name,
       subtitle: 'User settings'
     },
-    groups: [
-      {
-        items: [
+    groups: mobile
+      ? [
+          { heading: 'You', items: [profile, notifications, appearance, voice] },
+          { heading: 'Security', items: [devicesItem, privacy, recovery, securityLog] },
+          { heading: 'Help', items: [advanced] }
+        ]
+      : [
+          { heading: 'You', items: [account, profile, notifications, voice, appearance] },
           {
-            id: 'account',
-            label: 'My account',
-            icon: <User />,
-            page: {
-              title: 'My account',
-              description: 'How you appear to others, and the details that identify your account.',
-              render: () => <AccountSection />
-            }
-          },
-          {
-            id: 'privacy',
-            label: 'Privacy and safety',
-            icon: <Shield />,
-            tint: 'thread',
-            visible: mobile,
-            page: {
-              title: 'Privacy and safety',
-              description: 'The people you blocked.',
-              render: () => <PrivacySection />
-            }
+            heading: 'App',
+            items: [devicesItem, recovery, securityLog, privacy, keybinds, updates, advanced]
           }
-        ]
-      },
-      {
-        heading: 'Security',
-        items: [
-          {
-            id: 'devices',
-            label: 'Devices',
-            icon: <MonitorSmartphone />,
-            count: deviceCount,
-            visible: encryption,
-            page: {
-              title: 'Devices',
-              description:
-                'Each device has its own keys. Messages are encrypted for every device on this list.',
-              intro: true,
-              navSubtitle:
-                deviceCount === undefined
-                  ? undefined
-                  : `${deviceCount} ${deviceCount === 1 ? 'device holds' : 'devices hold'} your keys`,
-              render: () => (
-                <>
-                  <DevicesPanel variant="page" />
-                  <PushKeySection />
-                </>
-              )
-            }
-          },
-          {
-            id: 'recovery',
-            label: 'Recovery key',
-            icon: <KeyRound />,
-            tint: 'event',
-            visible: encryption,
-            page: {
-              title: 'Recovery key',
-              description:
-                'With your recovery key you can read your messages on a new device when no other device is signed in.',
-              intro: true,
-              navSubtitle: name,
-              render: () => <RecoverySection />
-            }
-          },
-          {
-            id: 'securityLog',
-            label: 'Security log',
-            icon: <ScrollText />,
-            tint: 'voice',
-            visible: encryption,
-            page: {
-              title: 'Security log',
-              description:
-                'The server keeps a public log of every security key and device of each account. Your devices check that each change to your account came from one of your devices. If the server adds a device that you did not add, the check finds it.',
-              intro: true,
-              navSubtitle: name,
-              render: () => <SecurityLog />
-            }
-          }
-        ]
-      },
-      {
-        heading: 'App',
-        items: [
-          {
-            id: 'appearance',
-            label: 'Appearance',
-            icon: <Palette />,
-            value: THEME_VALUE[theme],
-            tint: 'page',
-            page: {
-              title: 'Appearance',
-              description: 'Pick a theme, how the sidebar shows and how dense messages are.',
-              render: () => <AppearanceSection />
-            }
-          },
-          {
-            id: 'notifications',
-            label: 'Notifications',
-            icon: <Bell />,
-            tint: 'activity',
-            page: {
-              title: 'Notifications',
-              description: 'What notifies this device, and the level of each guild.',
-              render: () => (mobile ? <NotificationsSection /> : <NotificationSettings />)
-            }
-          },
-          {
-            id: 'voice',
-            label: 'Voice and audio',
-            icon: <Headphones />,
-            tint: 'voice',
-            page: {
-              title: 'Voice and audio',
-              description: 'Your microphone, speakers and the sounds Hachiman plays.',
-              render: () => <VoiceSection />
-            }
-          },
-          {
-            id: 'keybinds',
-            label: 'Keybinds',
-            icon: <Keyboard />,
-            visible: !mobile,
-            page: {
-              title: 'Keybinds',
-              description: 'Click a key to change it, then press the new keys. Esc cancels.',
-              render: () => <KeybindsSection />
-            }
-          },
-          // The web app has no tray and updates on reload.
-          {
-            id: 'updates',
-            label: 'Desktop app',
-            icon: <Download />,
-            tint: 'neutral',
-            visible: desktop,
-            page: {
-              title: 'Desktop app',
-              description: 'What the close button does, and updates.',
-              render: () => (
-                <div className="grid gap-8">
-                  <CloseToTraySection />
-                  <UpdatesSection />
-                </div>
-              )
-            }
-          },
-          ...(mobile ? [] : [advanced])
-        ]
-      },
-      ...(mobile ? [{ heading: 'Help', items: [advanced] }] : [])
-    ],
+        ],
     danger: {
       label: 'Sign out',
       icon: <LogOut />,
+      quiet: true,
       onClick: mobile ? () => openDialog({ kind: 'signOut' }) : () => takusenService.signOut()
     },
     onStatus: mobile ? () => openDialog({ kind: 'status' }) : undefined
@@ -376,14 +401,14 @@ function useGuildSettingsModel(guildId: string | null, mobile: boolean): Setting
   const name = guild?.name ?? 'Guild'
   const members = `${memberCount} ${memberCount === 1 ? 'member' : 'members'}`
   return {
-    label: 'Guild settings',
+    label: 'Space settings',
     crumb: name,
     layout: 'tabs',
     navSubtitle: `${name} · ${members}`,
     header: {
       icon: guild ? <GuildTile guild={guild} className="size-9 text-[13px]" /> : NONE,
       name,
-      subtitle: `Guild settings · ${members}`
+      subtitle: `Space settings · ${members}`
     },
     groups: [
       {
@@ -408,7 +433,7 @@ function useGuildSettingsModel(guildId: string | null, mobile: boolean): Setting
             page: guild && {
               title: 'Roles',
               description:
-                'Members take the colour of their highest role. Drag to change the order.',
+                'A role is a bundle of permissions with a name on it. Drag to change the order.',
               wide: true,
               render: () => <GuildRolesTab guildId={guild.id} />
             }
@@ -421,7 +446,7 @@ function useGuildSettingsModel(guildId: string | null, mobile: boolean): Setting
             visible: has(perms, Permissions.MANAGE_EXPRESSIONS),
             page: guild && {
               title: 'Emoji',
-              description: `Custom emojis that members of ${name} can use in messages and reactions, here and in other guilds.`,
+              description: `Custom emojis that members of ${name} can use in messages and reactions, here and in other spaces.`,
               wide: true,
               render: () => <GuildEmojisTab guildId={guild.id} />
             }
@@ -480,7 +505,7 @@ function useGuildSettingsModel(guildId: string | null, mobile: boolean): Setting
       }
     ],
     danger: {
-      label: isOwner ? 'Delete guild' : 'Leave guild',
+      label: isOwner ? 'Delete space' : 'Leave space',
       icon: isOwner ? <Trash2 /> : <LogOut />,
       detail: isOwner
         ? `${memberCount > 1 ? `For all ${members}. ` : ''}It can’t be undone.`

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Ellipsis, FileText, MessagesSquare } from 'lucide-react'
+import { Ellipsis, MessagesSquare } from 'lucide-react'
 import { Permissions, has, type Channel } from '@hachiman/client'
 import { PageActionsSheet } from '@/components/docs/page-actions'
 import {
@@ -14,6 +14,7 @@ import {
   LoadingBody,
   OpenPage,
   PageScreenLayout,
+  PageLiveLine,
   PanelMessage,
   Presence,
   openPageAnywhere
@@ -78,6 +79,7 @@ export function PageScreen(): React.JSX.Element | null {
   const back = (): void =>
     navigate({ kind: 'channel', guildId: shown.guildId, channelId: shown.channelId })
   const where = guildName ? `${channel.name ?? ''} · ${guildName}` : (channel.name ?? '')
+  const navWhere = `#${channel.name ?? ''}${guildName ? ` · ${guildName}` : ''}`
   const editable = canEdit && node !== undefined
   // The title line is 20 high: a tap anywhere on the full-width line under it also starts the
   // edit, so the band is 36 high (spec §2.10).
@@ -104,12 +106,11 @@ export function PageScreen(): React.JSX.Element | null {
         )
       }
       subtitle={
-        <span className="block truncate text-[12px]" onClick={editable ? editTitle : undefined}>
-          <FileText
-            aria-hidden
-            className="text-feature-page-text mr-1 inline-block size-3 align-[-1.5px]"
-          />
-          {where}
+        <span
+          className="text-text-disabled block truncate font-mono text-[8px] tracking-[0.9px] uppercase"
+          onClick={editable ? editTitle : undefined}
+        >
+          {navWhere}
         </span>
       }
       onBack={back}
@@ -201,7 +202,7 @@ function BarActions({
 }
 
 /**
- * Done (M39, 64 × 36 on the accent tint): blurs the editor, so the keyboard goes down. The press
+ * Done (M39, 64 × 36 on the `here` fill): blurs the editor, so the keyboard goes down. The press
  * keeps the focus where it is, else the editor's blur would swap Done for More under the finger.
  */
 function DoneButton({ onDone }: { onDone: () => void }): React.JSX.Element {
@@ -211,7 +212,7 @@ function DoneButton({ onDone }: { onDone: () => void }): React.JSX.Element {
       onMouseDown={(e) => e.preventDefault()}
       onClick={onDone}
       className={cn(
-        'rounded-control bg-accent-tint text-accent-text active:bg-accent-primary/30 inline-flex h-9 min-w-16 shrink-0 items-center justify-center px-3.5 text-[14.5px] leading-[18px] font-extrabold',
+        'rounded-pill bg-here text-on-here active:bg-here/85 inline-flex h-9 min-w-16 shrink-0 items-center justify-center px-3.5 text-[14.5px] leading-[18px] font-semibold',
         FOCUS
       )}
     >
@@ -282,6 +283,7 @@ function PageScreenBody({
             onOpen={open}
             afterTile={banner.view.show === 'image'}
           />
+          <PageLiveLine pageId={pageId} />
           {titleError !== null && <TitleError text={titleError} onDismiss={onDismissTitleError} />}
         </>
       }
@@ -301,7 +303,7 @@ function TitleError({
   return (
     <p
       role="alert"
-      className="text-feature-danger-text flex shrink-0 items-start gap-2 px-5 pt-4 text-xs"
+      className="text-you-text flex shrink-0 items-start gap-2 px-5 pt-4 text-xs"
     >
       <span className="min-w-0 flex-1">{text}</span>
       <button
@@ -338,7 +340,7 @@ function ChatPill({
       onClick={onClick}
       aria-label={unread > 0 ? `Back to the chat, ${count} new` : 'Back to the chat'}
       className={cn(
-        'bg-surface-raised border-line-sheet text-text-primary absolute right-4 bottom-3.5 z-10 inline-flex h-10 items-center gap-[7px] rounded-full border pr-3.5 pl-3 text-[14px] leading-[18px] font-extrabold shadow-(--shadow-soft) active:brightness-110',
+        'bg-surface-raised border-line-strong text-text-primary rounded-pill absolute right-4 bottom-3.5 z-10 inline-flex h-10 items-center gap-[7px] border pr-3.5 pl-3 text-[14px] leading-[18px] font-semibold shadow-(--shadow-soft) active:brightness-110',
         FOCUS
       )}
     >
@@ -347,7 +349,7 @@ function ChatPill({
       {unread > 0 && (
         <span
           aria-hidden
-          className="bg-accent-primary text-text-on-accent inline-flex h-5 items-center rounded-full px-[7px] text-[11.5px] font-extrabold tabular-nums"
+          className="bg-you text-on-you rounded-pill inline-flex h-5 items-center px-[7px] font-mono text-[10px] font-[700] tabular-nums"
         >
           {count} new
         </span>

@@ -40,7 +40,7 @@ const SHEET_OUT_MS = 400
 
 /** The 40 action buttons of a row (M55): r8, the hover fill, icon 17. */
 const ACTION =
-  'rounded-control bg-surface-hover active:bg-surface-selected flex size-10 shrink-0 items-center justify-center outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-line-focus disabled:opacity-40 data-[state=open]:bg-feature-danger/15 [&_svg]:size-[17px]'
+  'rounded-control bg-surface-hover active:bg-surface-selected flex size-10 shrink-0 items-center justify-center outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-line-focus disabled:opacity-40 data-[state=open]:bg-you-tint [&_svg]:size-[17px]'
 
 /** A new invite with history whose link did not reach the clipboard. */
 interface ShownLink {
@@ -135,7 +135,7 @@ export function GuildInvitesMobile({ guildId }: { guildId: string }): React.JSX.
             {canList ? 'No active invites.' : 'Links you create appear here.'}
           </p>
         ) : (
-          <ListGroup role="list" aria-label="Invites">
+          <ListGroup role="list" aria-label="Invites" className="rounded-[14px] border-y-0">
             {invites.map((inv) => (
               <InviteRow
                 key={inv.code}
@@ -237,18 +237,18 @@ function InviteRow({
         <div className="flex min-w-0 flex-wrap items-center gap-1.5">
           <code
             className={cn(
-              'bg-surface-sunken border-line-hairline inline-block h-7 max-w-full truncate border px-2 font-mono text-[14.5px] leading-[26px] font-semibold',
+              'bg-surface-sunken rounded-badge inline-block h-7 max-w-full truncate px-2 font-mono text-[12.5px] leading-7',
               spent ? 'text-text-tertiary opacity-50' : 'text-text-primary'
             )}
           >
             {invite.code}
           </code>
           {invite.hasHistory && (
-            <Chip tone="accent" icon={<History />}>
+            <Chip tone="neutral" icon={<History />}>
               History
             </Chip>
           )}
-          {state === 'permanent' && <Chip tone="danger">Permanent</Chip>}
+          {state === 'permanent' && <Chip tone="neutral">Permanent</Chip>}
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
           {!invite.hasHistory && (
@@ -259,7 +259,7 @@ function InviteRow({
               onClick={onCopy}
               className={cn(ACTION, 'text-text-secondary')}
             >
-              {copied ? <Check className="text-feature-voice-text" /> : <Copy />}
+              {copied ? <Check className="text-text-primary" /> : <Copy />}
             </button>
           )}
           {canDelete && (
@@ -269,7 +269,7 @@ function InviteRow({
               aria-haspopup="dialog"
               data-state={deleteOpen ? 'open' : undefined}
               onClick={onDelete}
-              className={cn(ACTION, 'text-feature-danger')}
+              className={cn(ACTION, 'text-you-text')}
             >
               <Trash2 />
             </button>
@@ -327,7 +327,7 @@ function Expiry({
   const text = formatExpiry(expiresAt, now)
   if (state === 'soon') {
     return (
-      <span className="text-feature-event-text flex shrink-0 items-center gap-1 font-bold whitespace-nowrap">
+      <span className="text-you-text flex shrink-0 items-center gap-1 font-semibold whitespace-nowrap">
         <Hourglass aria-hidden className="size-[13px]" />
         {text}
       </span>

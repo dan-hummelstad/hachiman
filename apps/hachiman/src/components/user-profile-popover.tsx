@@ -1,8 +1,7 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Ban, MessageCircle, MicOff, MoreHorizontal, ShieldCheck, VolumeX } from 'lucide-react'
 import type { User } from '@hachiman/client'
-import { useUserBanner } from '@/components/people/use-user-banner'
 import { BlockConfirmDialog } from '@/components/people/block-dialog'
 import {
   ModerationDialogs,
@@ -21,19 +20,22 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { PokeMenuItem } from '@/components/people/poke-menu-item'
 import { ErrorText } from '@/components/ui/field'
+import { GuildTile } from '@/components/ui/guild-tile'
+import { LiveDot } from '@/components/ui/live'
+import { useMutualGuilds } from '@/components/people/use-mutual-guilds'
 import { IconButton } from '@/components/ui/icon-button'
 import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import { PRESENCE_LABEL, PresenceDot } from '@/components/ui/presence'
-import { RoleChip } from '@/components/ui/role-chip'
+import { PRESENCE_LABEL } from '@/components/ui/presence'
 import { UserAudioControl } from '@/components/voice/user-audio-control'
 import { useAction } from '@/hooks/use-action'
 import { useLayout } from '@/hooks/use-layout'
 import { useMemberView, useOpenDm, usePresence } from '@/hooks/use-member'
-import { memberRoles } from '@/lib/model'
-import { ROLE_INK_SCOPE } from '@/lib/role-ink'
+import { displayName, memberRoles } from '@/lib/model'
 import { cn } from '@/lib/utils'
 import { blockService } from '@/services/guild-features'
 import { usePoke } from '@/services/poke'
+import { voiceService } from '@/services/VoiceService'
+import { useChannelStore } from '@/stores/channelStore'
 import { useCryptoStore } from '@/stores/cryptoStore'
 import { openDialog } from '@/stores/dialogStore'
 import { useGuildStore } from '@/stores/guildStore'
@@ -101,7 +103,7 @@ export function UserProfilePopover({
           side={point ? 'right' : side}
           align="start"
           sideOffset={point ? 2 : 8}
-          className={cn('w-72 p-0', ROLE_INK_SCOPE)}
+          className="bg-surface-content border-line-hairline rounded-control w-[344px] overflow-hidden p-0"
         >
           <ProfileCard
             userId={userId}
@@ -145,11 +147,15 @@ function ProfileCard(props: {
   onModerate: (kind: ModerationDialog, name: string) => void
 }): React.JSX.Element {
   const { userId, guildId } = props
-  const { member, name, ink } = useMemberView(guildId, userId, props.user)
+  const { member, name } = useMemberView(guildId, userId, props.user)
   const roles = useGuildStore((s) => (guildId ? s.roles.get(guildId) : undefined))
+  const guildName = useGuildStore((s) => (guildId ? s.guilds.get(guildId)?.name : undefined))
+  const guildMembers = useGuildStore((s) => (guildId ? s.members.get(guildId) : undefined))
   const status = usePresence(userId)
-  const voice = useVoiceStore((s) =>
-    guildId ? s.voiceStates.get(guildId)?.get(userId) : undefined
+  const guildVoice = useVoiceStore((s) => (guildId ? s.voiceStates.get(guildId) : undefined))
+  const voice = guildVoice?.get(userId)
+  const voiceChannel = useChannelStore((s) =>
+    voice?.channelId ? s.channels.get(voice.channelId) : undefined
   )
   const isMe = useUserStore((s) => s.me?.id === userId)
   const myCall = useVoiceStore((s) => s.channelId)
@@ -163,147 +169,242 @@ function ProfileCard(props: {
   const encryption = useCryptoStore((s) => s.phase === 'ready' && s.status?.state === 'ready')
   const chips = memberRoles(member, roles)
   const identity = member?.user ?? props.user
-  const banner = useUserBanner(userId, identity?.avatar)
+  const mutual = useMutualGuilds(userId)
   const mobile = useLayout() === 'mobile'
   const actionSize = mobile ? 'mobile' : 'sm'
   const actionIcon = mobile ? undefined : 'size-3.5'
+  const inRoom = voice?.channelId && voiceChannel?.type === 'voice' ? voiceChannel : undefined
+  const company = useMemo(() => {
+    if (!inRoom || !guildVoice) return []
+    const names: string[] = []
+    for (const [id, v] of guildVoice) {
+      if (id === userId || v.channelId !== inRoom.id) continue
+      names.push(displayName(guildMembers?.get(id)))
+    }
+    return names
+  }, [inRoom, guildVoice, guildMembers, userId])
+  const alsoIn = mutual.filter((g) => g.id !== guildId).slice(0, 3)
+  const since = member?.joinedAt
+    ? new Date(member.joinedAt)
+        .toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
+        .toUpperCase()
+    : null
+  const topRole = chips[0]?.name
+  const withLine =
+    company.length === 0
+      ? 'Alone for now'
+      : company.length === 1
+        ? `With ${company[0]}`
+        : company.length === 2
+          ? `With ${company[0]} and ${company[1]}`
+          : `With ${company[0]}, ${company[1]} and ${company.length - 2} ${company.length === 3 ? 'other' : 'others'}`
+  const tag =
+    'rounded-badge border-line-strong text-text-tertiary inline-flex items-center gap-1 border px-1.5 py-0.5 font-mono text-[9px] tracking-[0.8px] uppercase'
 
   return (
     <div className="flex flex-col">
-      <div className="h-16" style={{ background: banner }} />
-      <div className="flex flex-col gap-3 px-4 pb-4">
-        <div className="-mt-10 w-fit">
-          <UserAvatar
-            avatar={identity?.avatar}
-            name={name}
-            color={ink}
-            size={64}
-            status={status}
-            cutout="bg-popover"
-            className="ring-popover rounded-full ring-4"
-          />
+      {guildId && (
+        <div className="bg-surface-raised mobile:hidden flex h-[34px] items-center gap-[9px] px-3.5">
+          <span aria-hidden className="bg-here h-[13px] w-0.5" />
+          <span className="cap-sm text-text-tertiary truncate text-[8.5px] tracking-[1.2px]">
+            AS SEEN IN {guildName ?? 'THIS SPACE'}
+          </span>
         </div>
-
-        <div className="flex min-w-0 flex-col gap-0.5">
-          <span className="text-text-primary truncate text-lg leading-6 font-extrabold">
+      )}
+      <div className="flex gap-3.5 px-4 pt-[18px] pb-4">
+        <UserAvatar
+          avatar={identity?.avatar}
+          name={name}
+          size={mobile ? 64 : 56}
+          status={status}
+          cutout="bg-surface-content"
+          className="mobile:rounded-full rounded-[15px] [--presence-bar:var(--surface-content)]"
+        />
+        <div className="grid min-w-0 gap-[5px]">
+          <span className="text-text-primary mobile:text-[22px] mobile:tracking-[-0.5px] truncate text-[19px] leading-6 font-semibold tracking-[-0.4px]">
             {name}
           </span>
-          <span className="text-text-tertiary truncate font-mono text-[13px]">
-            {identity?.username ?? userId}
+          <span className="text-text-disabled mobile:text-[11.5px] mobile:normal-case mobile:tracking-normal mobile:text-text-tertiary truncate font-mono text-[9.5px] tracking-[0.9px] uppercase">
+            @{identity?.username ?? userId}
+            {topRole && <span className="mobile:hidden"> · {topRole}</span>}
           </span>
-          <span className="text-text-secondary mt-1 flex items-center gap-2 text-xs">
-            <PresenceDot status={status} />
-            {PRESENCE_LABEL[status]}
-          </span>
-          <CustomStatusLine userId={userId} className="mt-0.5" />
+          <span className="text-text-tertiary text-[12px]">{PRESENCE_LABEL[status]}</span>
+          <CustomStatusLine userId={userId} />
         </div>
+      </div>
 
-        {voice?.channelId && (voice.selfMute || voice.selfDeaf || voice.mute || voice.deaf) && (
-          <div className="flex flex-wrap gap-1">
-            {voice.mute && (
-              <span className="bg-feature-danger text-text-on-accent flex items-center gap-1 px-1.5 py-0.5 text-xs font-semibold">
-                <MicOff className="size-3" /> Server muted
-              </span>
-            )}
-            {voice.deaf && (
-              <span className="bg-feature-danger text-text-on-accent flex items-center gap-1 px-1.5 py-0.5 text-xs font-semibold">
-                <VolumeX className="size-3" /> Server deafened
-              </span>
-            )}
-            {voice.selfMute && (
-              <span className="bg-feature-danger/15 text-feature-danger-text flex items-center gap-1 px-1.5 py-0.5 text-xs font-semibold">
-                <MicOff className="size-3" /> Muted
-              </span>
-            )}
-            {voice.selfDeaf && (
-              <span className="bg-feature-danger/15 text-feature-danger-text flex items-center gap-1 px-1.5 py-0.5 text-xs font-semibold">
-                <VolumeX className="size-3" /> Deafened
-              </span>
-            )}
+      {inRoom && (
+        <div className="bg-live-tint mobile:mx-[18px] mobile:mb-3.5 mobile:h-[52px] mobile:rounded-[12px] mobile:px-3 flex h-[46px] items-center gap-2.5 px-3.5">
+          <LiveDot className="mobile:block mobile:size-2 hidden" />
+          <div className="grid min-w-0 flex-1 gap-0.5">
+            <span className="text-live-text mobile:font-sans mobile:normal-case mobile:text-[13.5px] mobile:tracking-normal truncate font-mono text-[8.5px] font-semibold tracking-[1.1px] uppercase">
+              <span className="mobile:hidden">IN {inRoom.name} NOW</span>
+              <span className="mobile:inline hidden">In {inRoom.name}</span>
+            </span>
+            <span className="text-text-secondary mobile:font-mono mobile:text-[8.5px] mobile:uppercase mobile:tracking-[0.9px] mobile:text-text-tertiary truncate text-[12px]">
+              <span className="mobile:hidden">{withLine}</span>
+              <span className="mobile:inline hidden">{company.length + 1} aboard</span>
+            </span>
           </div>
+          {!isMe && myCall !== inRoom.id && (
+            <Button
+              variant="voice"
+              size="sm"
+              className="rounded-badge mobile:h-8 mobile:rounded-pill mobile:px-3.5 mobile:text-[13px] mobile:font-sans mobile:normal-case h-[23px] px-[9px] text-[9.5px]"
+              onClick={() => {
+                void voiceService.join(inRoom)
+                props.onDone()
+              }}
+            >
+              <span className="mobile:hidden">JOIN</span>
+              <span className="mobile:inline hidden">Join</span>
+            </Button>
+          )}
+        </div>
+      )}
+
+      {voice?.channelId && (voice.selfMute || voice.selfDeaf || voice.mute || voice.deaf) && (
+        <div className="flex flex-wrap gap-1 px-4 pb-3">
+          {voice.mute && (
+            <span className={tag}>
+              <MicOff className="size-3" /> Server muted
+            </span>
+          )}
+          {voice.deaf && (
+            <span className={tag}>
+              <VolumeX className="size-3" /> Server deafened
+            </span>
+          )}
+          {voice.selfMute && (
+            <span className={tag}>
+              <MicOff className="size-3" /> Muted
+            </span>
+          )}
+          {voice.selfDeaf && (
+            <span className={tag}>
+              <VolumeX className="size-3" /> Deafened
+            </span>
+          )}
+        </div>
+      )}
+
+      <div className="flex flex-col px-4 pt-1 pb-4">
+        {chips.length > 0 && (
+          <>
+            <span className="cap text-text-disabled text-[9px] tracking-[1.5px]">
+              <span className="mobile:hidden">Roles</span>
+              <span className="mobile:inline hidden">Roles in {guildName}</span>
+            </span>
+            <div className="mt-2 flex flex-wrap gap-[7px]">
+              {chips.map((r) => (
+                <span
+                  key={r.id}
+                  className="rounded-pill border-line-strong text-text-secondary mobile:h-7 mobile:px-[11px] mobile:text-[12px] mobile:font-medium inline-flex h-8 items-center border px-3.5 text-[12.5px]"
+                >
+                  {r.name}
+                </span>
+              ))}
+            </div>
+          </>
         )}
 
-        {chips.length > 0 && (
-          <div className="border-line-hairline flex flex-col gap-1.5 border-t pt-3">
-            <span className="section-label">Roles</span>
-            <div className="flex flex-wrap gap-1">
-              {chips.map((r) => (
-                <RoleChip key={r.id} role={r} />
+        {alsoIn.length > 0 && (
+          <div className="mt-[18px] flex flex-col">
+            <span className="cap text-text-disabled text-[9px] tracking-[1.5px]">Also in</span>
+            <div className="mt-2 flex flex-wrap gap-[7px]">
+              {alsoIn.map((g) => (
+                <span
+                  key={g.id}
+                  className="border-line-hairline rounded-control text-text-secondary inline-flex h-[30px] items-center gap-2 border pr-2.5 pl-2 text-[12px]"
+                >
+                  <GuildTile guild={g} className="size-[18px] rounded-[5px] text-[7px]" />
+                  {g.name}
+                </span>
               ))}
             </div>
           </div>
         )}
 
         {!isMe && myCall !== null && voice?.channelId === myCall && (
-          <UserAudioControl userId={userId} />
-        )}
-
-        {!isMe && (
-          <div className="flex gap-2">
-            <Button
-              size={actionSize}
-              className="flex-1"
-              disabled={dm.busy || blocked}
-              onClick={() => void dm.open().then((ok) => ok && props.onDone())}
-            >
-              <MessageCircle className={actionIcon} /> Message
-            </Button>
-            <Button
-              size={actionSize}
-              variant="secondary"
-              className="flex-1"
-              disabled={!encryption}
-              onClick={() => {
-                props.onDone()
-                openDialog({ kind: 'verification', userId })
-              }}
-            >
-              <ShieldCheck className={actionIcon} /> Verify
-            </Button>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <IconButton
-                  label="More"
-                  size={mobile ? 'touch' : 'sm'}
-                  className={cn(
-                    'rounded-control',
-                    mobile && 'border-line-strong size-12 bg-(--fill-control)'
-                  )}
-                >
-                  <MoreHorizontal />
-                </IconButton>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                {!blocked && <PokeMenuItem poke={poke} userId={userId} name={name} />}
-                {blocked ? (
-                  <DropdownMenuItem
-                    disabled={unblock.busy}
-                    onSelect={() =>
-                      void unblock.run(`unblock ${name}`, () => blockService.unblock(userId))
-                    }
-                  >
-                    <Ban /> Unblock
-                  </DropdownMenuItem>
-                ) : (
-                  <DropdownMenuItem variant="destructive" onSelect={() => props.onBlock(name)}>
-                    <Ban /> Block
-                  </DropdownMenuItem>
-                )}
-                {guildId && (
-                  <ModerationMenuItems
-                    guildId={guildId}
-                    userId={userId}
-                    name={name}
-                    rights={rights}
-                    action={moderate}
-                    onDialog={(kind) => props.onModerate(kind, name)}
-                  />
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
+          <div className="mt-[18px]">
+            <UserAudioControl userId={userId} />
           </div>
         )}
-        {blocked && !isMe && <p className="text-text-tertiary text-xs">You blocked {name}.</p>}
+
+        {since && (
+          <span className="cap-sm mt-[18px] text-[8.5px] tracking-[1px]">MEMBER SINCE · {since}</span>
+        )}
+      </div>
+
+      {!isMe && (
+        <div className="bg-surface-sunken border-line-hairline mobile:h-auto mobile:border-0 mobile:bg-transparent mobile:px-[18px] mobile:pb-4 flex h-[62px] items-center gap-[9px] border-t px-4">
+          <Button
+            size={actionSize}
+            className="flex-1"
+            disabled={dm.busy || blocked}
+            onClick={() => void dm.open().then((ok) => ok && props.onDone())}
+          >
+            {mobile && <MessageCircle className={actionIcon} />} Message
+          </Button>
+          <Button
+            size={actionSize}
+            variant="secondary"
+            className="flex-1"
+            disabled={!encryption}
+            onClick={() => {
+              props.onDone()
+              openDialog({ kind: 'verification', userId })
+            }}
+          >
+            <ShieldCheck className={actionIcon} /> Verify
+          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <IconButton
+                label="More"
+                size={mobile ? 'touch' : 'sm'}
+                className={cn(
+                  'rounded-control border-line-strong text-text-tertiary size-10 border',
+                  mobile && 'rounded-pill size-12 border-[1.5px]'
+                )}
+              >
+                <MoreHorizontal />
+              </IconButton>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              {!blocked && <PokeMenuItem poke={poke} userId={userId} name={name} />}
+              {blocked ? (
+                <DropdownMenuItem
+                  disabled={unblock.busy}
+                  onSelect={() =>
+                    void unblock.run(`unblock ${name}`, () => blockService.unblock(userId))
+                  }
+                >
+                  <Ban /> Unblock
+                </DropdownMenuItem>
+              ) : (
+                <DropdownMenuItem variant="destructive" onSelect={() => props.onBlock(name)}>
+                  <Ban /> Block
+                </DropdownMenuItem>
+              )}
+              {guildId && (
+                <ModerationMenuItems
+                  guildId={guildId}
+                  userId={userId}
+                  name={name}
+                  rights={rights}
+                  action={moderate}
+                  onDialog={(kind) => props.onModerate(kind, name)}
+                />
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      )}
+      {blocked && !isMe && (
+        <p className="text-text-tertiary px-4 pb-3 text-[12px]">You blocked {name}.</p>
+      )}
+      <div className="flex flex-col gap-1 px-4 empty:hidden [&>p]:pb-3">
         <ErrorText>{unblock.error ?? poke.error}</ErrorText>
         <ErrorText>{moderate.error}</ErrorText>
       </div>

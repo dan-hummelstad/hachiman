@@ -70,7 +70,7 @@ const mediaBlock = (pointer: AttachmentPointer | null): React.JSX.Element =>
   pointer ? (
     <MessageAttachments attachments={[pointer]} />
   ) : (
-    <p className="text-muted-foreground text-xs">This file cannot be shown.</p>
+    <p className="text-text-tertiary text-xs">This file cannot be shown.</p>
   )
 
 const mediaView = $view(mediaSchema, (): NodeViewConstructor => (initial) => {
@@ -118,7 +118,7 @@ export function pageMedia(pageId: string, onError: (text: string) => void): Page
 
   const uploadWidgetFactory: UploadOptions['uploadWidgetFactory'] = (pos, spec) => {
     const el = document.createElement('div')
-    el.className = 'hm-page-upload text-muted-foreground text-xs'
+    el.className = 'hm-page-upload text-text-tertiary text-xs'
     el.textContent = 'Encrypting…'
     widgets.set(pos, el)
     return Decoration.widget(pos, el, spec)

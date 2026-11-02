@@ -5,13 +5,13 @@ import { ChatBody } from '@/components/chat/chat-body'
 import { HomePane } from '@/components/home-pane'
 import { InboxButton } from '@/components/inbox/inbox-button'
 import { RightColumn } from '@/components/people/right-column'
+import { DeadChannelPane, useChannelGone } from '@/components/system/channel-gone'
 import { useSettingsModel } from '@/components/settings/settings-model'
-import { SettingsNav } from '@/components/settings/settings-nav'
 import { SettingsPage } from '@/components/settings/settings-page'
 import { useSettingsMode } from '@/components/settings/use-settings-mode'
 import { ChannelPane, NoChannelPane } from '@/components/shell/channel-pane'
 import { QuickSwitcher, SwitcherField } from '@/components/shell/quick-switcher'
-import { MeButton } from '@/components/shell/me-button'
+import { UserBar } from '@/components/shell/me-button'
 import { Sidebar } from '@/components/shell/sidebar'
 import { SidebarControls } from '@/components/shell/sidebar-controls'
 import { SidebarRows } from '@/components/shell/sidebar-rows'
@@ -20,7 +20,6 @@ import { TabBar } from '@/components/shell/tab-bar'
 import { useSidebarReveal } from '@/components/shell/use-sidebar-reveal'
 import { DmSpace } from '@/components/sidebar/dm-space'
 import { GuildChannelList } from '@/components/sidebar/guild-channels'
-import { useGuildTint } from '@/components/shell/use-guild-tint'
 import { WALLPAPER } from '@/components/shell/wallpaper'
 import { VoiceDock } from '@/components/voice-connected-panel'
 import { VoiceRoom } from '@/components/voice/voice-room'
@@ -43,13 +42,13 @@ import {
 } from '@/stores/navStore'
 
 /**
- * Signed-in layout (docs/ui-redesign.md §6): the window is a wallpaper tinted by the guild (N4).
- * On it sit the sidebar (280) and the content column: the tab row (48, the window drag region)
- * and the content card (inset 8 right and bottom, 1px border). The card holds the pane and the
- * right column (RightColumn: members 252, the page 540 in a pages channel, a DM profile).
+ * Signed-in layout: a flat window in the theme's window colour. On it sit the sidebar (280, the
+ * panel surface) and the content column: the tab row (44, the window drag region) and the sheet,
+ * flush with the tab row and the window edge. The sheet holds the pane and the right column
+ * (RightColumn: members 252, the page 540 in a pages channel, a DM profile).
  *
- * N3: with the sidebar hidden, the card takes the window width (inset 8), the sidebar slides in
- * over it from its edge (`sidebarSide`, left by default), and the voice dock floats in the card's
+ * N3: with the sidebar hidden, the sheet takes the window width, the sidebar slides in
+ * over it from its edge (`sidebarSide`, left by default), and the voice dock floats in the sheet's
  * bottom-left corner on either side (on the right it would cover the members column). The
  * card then sets `--dock-inset` (the dock width and its gap) and `--dock-height`: the composer
  * footer shifts right by the inset and is at least as tall as the dock, so the transcript ends
@@ -65,7 +64,6 @@ export function Shell(): React.JSX.Element {
   const selectedChannel = useChannelStore((s) =>
     selectedChannelId ? s.channels.get(selectedChannelId) : undefined
   )
-  const tint = useGuildTint(selectedGuildId).vars
   // The right column defaults open only on wide windows; an explicit toggle overrides the default.
   const wide = useMediaQuery('(min-width: 1200px)')
   const [sidePref, setSidePref] = useState<boolean | null>(null)
@@ -82,6 +80,7 @@ export function Shell(): React.JSX.Element {
   const dockInset = hidden && inVoice
   const settings = useSettingsMode()
   const settingsModel = useSettingsModel(settings?.target ?? null)
+  const channelGone = useChannelGone(selectedChannelId, selectedChannel !== undefined)
   const sidebarRef = useRef<HTMLDivElement>(null)
   const [footSlot, setFootSlot] = useState<HTMLDivElement | null>(null)
   const [floatSlot, setFloatSlot] = useState<HTMLDivElement | null>(null)
@@ -94,7 +93,6 @@ export function Shell(): React.JSX.Element {
 
   return (
     <div
-      style={tint as React.CSSProperties}
       className={cn(
         'relative flex min-h-0 flex-1 [--dock-width:264px]',
         right && 'flex-row-reverse',
@@ -105,7 +103,7 @@ export function Shell(): React.JSX.Element {
         <div
           aria-hidden
           className={cn(
-            'from-text-tertiary/35 pointer-events-none absolute inset-y-0 z-30 w-2 to-transparent',
+            'from-line-strong pointer-events-none absolute inset-y-0 z-30 w-2 to-transparent',
             right ? 'right-0 bg-gradient-to-l' : 'left-0 bg-gradient-to-r'
           )}
         />
@@ -130,7 +128,6 @@ export function Shell(): React.JSX.Element {
               <SidebarControls />
               <div className="ml-auto flex items-center gap-1">
                 <InboxButton />
-                <MeButton />
               </div>
             </>
           }
@@ -141,28 +138,21 @@ export function Shell(): React.JSX.Element {
             </>
           }
           middle={
-            settings && settingsModel ? (
-              <SettingsNav
-                model={settingsModel}
-                section={settings.section}
-                onSelect={setSettingsSection}
-                onBack={closeSettings}
-              />
-            ) : selectedGuildId ? (
+            selectedGuildId ? (
               <GuildChannelList guildId={selectedGuildId} />
             ) : (
               <DmSpace />
             )
           }
           foot={<div ref={setFootSlot} className="contents" />}
+          user={<UserBar />}
         />
       </div>
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <TabBar inbox={<InboxButton />} />
         <div
           className={cn(
-            'border-line-hairline bg-surface-content relative mb-2 flex min-h-0 flex-1 border',
-            hidden ? 'mx-2' : right ? 'ml-2' : 'mr-2',
+            'bg-surface-content relative flex min-h-0 flex-1',
             dockInset && '[--dock-inset:calc(var(--dock-width)+8px)]'
           )}
           style={
@@ -175,6 +165,7 @@ export function Shell(): React.JSX.Element {
                 model={settingsModel}
                 section={settings.section}
                 onClose={closeSettings}
+                onSelect={setSettingsSection}
               />
             </div>
           ) : (
@@ -202,6 +193,8 @@ export function Shell(): React.JSX.Element {
                     </>
                   )}
                 </ChannelPane>
+              ) : channelGone && selectedChannelId ? (
+                <DeadChannelPane channelId={selectedChannelId} guildId={selectedGuildId} />
               ) : (
                 <NoChannelPane />
               )}
@@ -211,7 +204,7 @@ export function Shell(): React.JSX.Element {
           <div
             ref={setFloatSlot}
             className={cn(
-              'bg-surface-window absolute bottom-2 left-2 z-20 w-(--dock-width) shadow-xl',
+              'bg-surface-panel border-line-hairline absolute bottom-2 left-2 z-20 w-(--dock-width) border shadow-xl',
               !floatDock && 'hidden'
             )}
           />

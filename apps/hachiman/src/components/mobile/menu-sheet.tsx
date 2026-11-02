@@ -263,21 +263,21 @@ export function MenuSheetContent({
 }
 
 /**
- * One 48 row: icon 20, label 16/600, an optional hint 13 at the end. Rows sit in square groups
- * with hairline dividers (List Group); a separator or a label ends a group. Destructive rows are
- * red on a red tint.
+ * One 56 row: icon 19, label 15/500, an optional caps hint at the end. Rows sit in square groups
+ * with hairline dividers (List Group); a separator or a label ends a group. Destructive rows
+ * answer `you`.
  */
 const ROW = cn(
-  'relative flex min-h-12 w-full shrink-0 items-center gap-3.5 px-3.5 py-2 text-left outline-none select-none',
-  'text-text-primary text-[16px] leading-5 font-semibold',
-  'border-line-hairline border-x border-t bg-white/2',
+  'relative flex min-h-14 w-full shrink-0 items-center gap-3.5 px-[18px] py-2 text-left outline-none select-none',
+  'text-text-primary text-[15px] leading-5 font-medium',
+  'border-line-hairline border-t',
   'last:border-b [&:has(+[data-slot=menu-sheet-separator])]:border-b [&:has(+[data-slot=menu-sheet-label])]:border-b',
   // A nested group (a radio group) above drew the line already.
   '[[data-slot=menu-sheet-group]+&]:border-t-0',
   'active:bg-surface-hover focus-visible:outline-line-focus focus-visible:outline-2 focus-visible:-outline-offset-2',
   'disabled:pointer-events-none disabled:opacity-50',
-  "[&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-5 [&_svg:not([class*='text-'])]:text-text-secondary",
-  "data-[variant=destructive]:border-feature-danger/20 data-[variant=destructive]:bg-feature-danger/5 data-[variant=destructive]:text-feature-danger-text data-[variant=destructive]:[&_svg:not([class*='text-'])]:text-current"
+  "[&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-[19px] [&_svg:not([class*='text-'])]:text-text-secondary",
+  "data-[variant=destructive]:text-you-text data-[variant=destructive]:[&_svg:not([class*='text-'])]:text-you"
 )
 
 function RowEnd({
@@ -293,7 +293,7 @@ function RowEnd({
       {hint !== undefined && hint !== null && (
         <span
           data-slot="menu-hint"
-          className="text-text-tertiary text-[13px] leading-4 font-semibold tabular-nums"
+          className="cap-sm tabular-nums"
         >
           {hint}
         </span>
@@ -305,7 +305,7 @@ function RowEnd({
 
 /** The check of a checkbox or radio row (iOS style): hidden while off, so the rows keep a width. */
 function CheckMark({ on }: { on: boolean }): React.JSX.Element {
-  return <Check aria-hidden className={cn('text-accent-text size-5', !on && 'invisible')} />
+  return <Check aria-hidden className={cn('text-here-text size-5', !on && 'invisible')} />
 }
 
 interface ItemBase {
@@ -552,7 +552,7 @@ function SubHeader({
       >
         <ChevronLeft />
       </button>
-      <span className="text-text-primary flex min-w-0 items-center truncate text-[16px] leading-5 font-extrabold [&_svg]:hidden">
+      <span className="text-text-primary flex min-w-0 items-center truncate text-[16px] leading-5 font-semibold [&_svg]:hidden">
         {label}
       </span>
     </div>

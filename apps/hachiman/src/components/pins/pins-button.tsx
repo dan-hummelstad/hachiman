@@ -32,7 +32,6 @@ export function PinsButton({ channel }: { channel: Channel }): React.JSX.Element
           count={count ?? 0}
           feature="event"
           pressed={open}
-          className={(count ?? 0) > 0 ? 'mobile:bg-feature-event/9' : undefined}
         >
           <Pin />
         </HeaderCountButton>
@@ -58,7 +57,7 @@ function PinsList({
   const { run, busy, error } = useAction()
 
   return (
-    <HeaderPopoverFrame icon={<Pin className="text-feature-event-text" />} title="Pinned messages">
+    <HeaderPopoverFrame icon={<Pin className="text-text-secondary" />} title="Pinned messages">
       {!loaded ? (
         <EmptyLine>Loading pins…</EmptyLine>
       ) : pins.length === 0 ? (

@@ -91,7 +91,7 @@ function DesktopHomePane(): React.JSX.Element {
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1">
-      <section className="bg-background flex min-h-0 min-w-0 flex-1 flex-col">
+      <section className="bg-surface-content flex min-h-0 min-w-0 flex-1 flex-col">
         <TitleBar
           left={
             <>
@@ -115,7 +115,7 @@ function DesktopHomePane(): React.JSX.Element {
         />
         <div className="min-h-0 flex-1 overflow-y-auto">
           <div className="mx-auto flex max-w-[860px] flex-col gap-4 px-6 py-5">
-            <label className="rounded-control border-line-strong bg-surface-sunken focus-within:border-accent-primary flex h-9 items-center gap-2 border px-3">
+            <label className="rounded-control border-line-hairline bg-surface-sunken focus-within:border-line-strong flex h-[34px] items-center gap-2 border px-3">
               <Search className="text-text-tertiary size-4 shrink-0" aria-hidden />
               <input
                 value={query}
@@ -192,18 +192,13 @@ function PeopleResults({
       <Empty>
         {tab === 'online' && visible.length > 0
           ? 'No one is online right now.'
-          : 'Nobody here yet. People you share a guild with show up in this list.'}
+          : 'Nobody here yet. People you share a space with show up in this list.'}
       </Empty>
     )
   if (matches.length === 0) return <Empty>No one matches “{query.trim()}”.</Empty>
   return (
     <div className="flex flex-col gap-4">
-      <PresenceSections
-        items={matches}
-        idOf={userId}
-        labelClassName="px-2 pb-1"
-        renderRow={renderRow}
-      />
+      <PresenceSections items={matches} idOf={userId} labelClassName="pb-1" renderRow={renderRow} />
     </div>
   )
 }
@@ -234,13 +229,13 @@ function PersonStatus({
   const line = touch ? 'text-[13px] leading-4' : 'text-xs leading-4'
   if (pokeError)
     return (
-      <span className={cn('text-feature-danger-text truncate', line)} title={pokeError}>
+      <span className={cn('text-you-text truncate', line)} title={pokeError}>
         {pokeError}
       </span>
     )
   if (activity && !dim)
     return (
-      <span className={cn('text-feature-voice-text truncate font-semibold', line)}>
+      <span className={cn('text-live-text truncate font-semibold', line)}>
         {activity.streaming ? `Live in ${activity.channelName}` : activityLabel(activity)}
       </span>
     )
@@ -250,17 +245,7 @@ function PersonStatus({
         {custom.text}
       </span>
     )
-  return (
-    <span
-      className={cn(
-        'truncate',
-        line,
-        status === 'dnd' ? 'text-feature-danger-text' : 'text-text-tertiary'
-      )}
-    >
-      {PRESENCE_LABEL[status]}
-    </span>
-  )
+  return <span className={cn('text-text-tertiary truncate', line)}>{PRESENCE_LABEL[status]}</span>
 }
 
 /** A person: avatar, name, what they do (voice, custom status or presence), Message and More. */
@@ -276,11 +261,11 @@ function PersonRow({ user, dim }: { user: User; dim: boolean }): React.JSX.Eleme
         avatar={user.avatar}
         name={user.username}
         status={status}
-        cutout="bg-background group-hover:bg-surface-hover"
+        cutout="bg-surface-content group-hover:bg-surface-hover"
         className={cn(dim && 'opacity-50')}
       />
       <div className={cn('flex min-w-0 flex-1 flex-col', dim && 'opacity-60')}>
-        <span className="text-text-primary truncate text-sm leading-5 font-semibold">
+        <span className="text-text-primary truncate text-[13.5px] leading-5 font-semibold">
           {user.username}
         </span>
         <PersonStatus user={user} dim={dim} status={status} pokeError={poke.error} />
@@ -347,7 +332,7 @@ function TouchPersonRow({ user, dim }: { user: User; dim: boolean }): React.JSX.
               className={cn(dim && 'opacity-50')}
             />
             <div className={cn('flex min-w-0 flex-1 flex-col gap-0.5', dim && 'opacity-60')}>
-              <span className="text-text-primary truncate text-[15.5px] leading-[19px] font-bold">
+              <span className="text-text-primary truncate text-[15.5px] leading-[19px] font-semibold">
                 {user.username}
               </span>
               <PersonStatus user={user} dim={dim} status={status} pokeError={poke.error} touch />
@@ -355,7 +340,7 @@ function TouchPersonRow({ user, dim }: { user: User; dim: boolean }): React.JSX.
             <button
               type="button"
               onClick={() => setMenu(true)}
-              className="focus-visible:rounded-control focus-visible:bg-surface-raised focus-visible:outline-line-focus sr-only z-10 focus-visible:not-sr-only focus-visible:absolute focus-visible:top-1 focus-visible:right-12 focus-visible:px-2.5 focus-visible:py-1.5 focus-visible:text-xs focus-visible:font-bold focus-visible:outline-2"
+              className="focus-visible:rounded-control focus-visible:bg-surface-raised focus-visible:outline-line-focus sr-only z-10 focus-visible:not-sr-only focus-visible:absolute focus-visible:top-1 focus-visible:right-12 focus-visible:px-2.5 focus-visible:py-1.5 focus-visible:text-xs focus-visible:font-semibold focus-visible:outline-2"
             >
               More for {user.username}
             </button>
@@ -364,7 +349,7 @@ function TouchPersonRow({ user, dim }: { user: User; dim: boolean }): React.JSX.
               label={`Message ${user.username}`}
               disabled={dm.busy}
               onClick={() => void dm.open()}
-              className="bg-fill-control rounded-control"
+              className="bg-surface-hover rounded-control"
             >
               <MessageCircle />
             </IconButton>
@@ -396,7 +381,7 @@ function BlockedList({ query, touch }: { query: string; touch: boolean }): React
   if (matches.length === 0) return <Empty>No one matches “{query.trim()}”.</Empty>
   return (
     <section>
-      <h3 className="section-label px-2 pb-1">Blocked — {users.length}</h3>
+      <h3 className="cap px-2 pb-1">Blocked — {users.length}</h3>
       <ul className="flex flex-col">
         {matches.map((u) => (
           <BlockedRow key={u.id} user={u} touch={touch} />
@@ -414,7 +399,7 @@ function BlockedRow({ user, touch }: { user: User; touch: boolean }): React.JSX.
         avatar={user.avatar}
         name={user.username}
         size={touch ? 40 : undefined}
-        cutout="bg-background group-hover:bg-surface-hover"
+        cutout="bg-surface-content group-hover:bg-surface-hover"
         className="opacity-60"
       />
       <div className="flex min-w-0 flex-1 flex-col">

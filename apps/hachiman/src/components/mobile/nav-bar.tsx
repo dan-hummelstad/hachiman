@@ -3,13 +3,13 @@ import { createPortal } from 'react-dom'
 import { ChevronLeft } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
-/** The 36 square buttons of the kit (back, action, close): radius 8 on the hover fill. */
+/** The 36 square buttons of the kit (back, action, close): radius 6. */
 export const KIT_ICON_BUTTON =
   "rounded-control inline-flex size-9 shrink-0 items-center justify-center outline-none transition-colors focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-line-focus disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-[19px]"
 
 const ACTION_TONE = {
   default: 'bg-surface-hover text-text-secondary active:bg-surface-selected',
-  accent: 'bg-accent-tint text-accent-text active:bg-accent-primary/30'
+  accent: 'bg-here-tint text-here-text active:bg-here-wash'
 } as const
 
 /**
@@ -67,9 +67,8 @@ export function NavAction({ children }: { children: React.ReactNode }): React.JS
 }
 
 /**
- * Mobile / Nav Bar (kit J1oV5): 52 high, padding 0/12/0/10 (0/12/0/16 on a root screen with no
- * Back, so the title lines up with the body). Back 36, title 17/800 with an
- * optional subtitle 12.5/500, then the action slot. The title takes the focus on a push, so it has
+ * Mobile / Nav Bar (kit J1oV5): 52 high on the panel surface with a hairline below, padding
+ * 0/14. Back chevron, title 15.5/600 with an optional caps subtitle, then the action slot. The title takes the focus on a push, so it has
  * `tabIndex={-1}` and `titleRef`.
  */
 export function NavBar({
@@ -100,8 +99,8 @@ export function NavBar({
     <div
       data-slot="nav-bar"
       className={cn(
-        'flex h-[52px] shrink-0 items-center gap-2.5 pr-3',
-        onBack ? 'pl-2.5' : 'pl-4',
+        'bg-surface-panel border-line-hairline flex h-[52px] shrink-0 items-center gap-2.5 border-b pr-3.5',
+        onBack ? 'pl-2.5' : 'pl-3.5',
         className
       )}
     >
@@ -112,7 +111,7 @@ export function NavBar({
           onClick={onBack}
           className={cn(
             KIT_ICON_BUTTON,
-            'bg-surface-hover text-text-secondary active:bg-surface-selected [&_svg]:size-5'
+            'text-text-secondary active:bg-surface-selected [&_svg]:size-[22px]'
           )}
         >
           <ChevronLeft />
@@ -123,12 +122,12 @@ export function NavBar({
           id={titleId}
           ref={titleRef}
           tabIndex={-1}
-          className="text-text-primary truncate text-[17px] leading-5 font-extrabold outline-none"
+          className="text-text-primary truncate text-[15.5px] leading-5 font-semibold tracking-[-0.2px] outline-none"
         >
           {title}
         </h1>
         {subtitle && (
-          <p className="text-text-tertiary truncate text-[12.5px] leading-[15px] font-medium">
+          <p className="cap-sm truncate text-[8px] leading-[12px]">
             {subtitle}
           </p>
         )}

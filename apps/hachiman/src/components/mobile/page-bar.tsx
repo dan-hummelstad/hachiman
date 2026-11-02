@@ -15,10 +15,10 @@ import {
 import { useDocsStore } from '@/stores/docsStore'
 import { navigate } from '@/stores/navStore'
 
-/** "Open page" (M37): 38 high, the page violet with a dark ink, 14/800, icon 16. */
+/** "Open page" (M37): 38 high, the `here` pill, 14/600, icon 16. */
 const ACTION = cn(
-  'rounded-control bg-feature-page flex h-[38px] shrink-0 items-center gap-1.5 pr-3 pl-[13px] text-[14px] leading-[18px] font-extrabold text-[#1b0f33]',
-  'focus-visible:outline-line-focus outline-none focus-visible:outline-2 focus-visible:outline-offset-2 active:brightness-90 disabled:opacity-60',
+  'rounded-pill bg-here text-on-here flex h-[38px] shrink-0 items-center gap-1.5 px-[13px] text-[14px] leading-[18px] font-semibold',
+  'focus-visible:outline-line-focus outline-none focus-visible:outline-2 focus-visible:outline-offset-2 active:bg-here/85 disabled:opacity-60',
   '[&_svg]:size-4 [&_svg]:shrink-0'
 )
 
@@ -65,11 +65,11 @@ export function ChannelPageBar({ channel }: { channel: Channel }): React.JSX.Ele
   return (
     <div
       data-slot="page-bar"
-      className="bg-feature-page/8 border-feature-page/20 flex h-15 shrink-0 items-center gap-3 border-b px-3 in-data-[keyboard=open]:hidden"
+      className="bg-surface-panel border-line-hairline flex h-15 shrink-0 items-center gap-3 border-b px-3 in-data-[keyboard=open]:hidden"
     >
       <span
         aria-hidden
-        className="bg-feature-page/15 text-feature-page-text flex size-10 shrink-0 items-center justify-center"
+        className="bg-surface-raised text-text-tertiary flex size-10 shrink-0 items-center justify-center rounded-[10px]"
       >
         <FileText className="size-5" />
       </span>
@@ -84,7 +84,7 @@ export function ChannelPageBar({ channel }: { channel: Channel }): React.JSX.Ele
           ) : (
             <span
               className={cn(
-                'text-text-primary truncate text-[15px] leading-[18px] font-extrabold',
+                'text-text-primary truncate text-[15px] leading-[18px] font-semibold',
                 page && page.titleState !== 'ok' && 'text-text-tertiary italic'
               )}
             >
@@ -97,8 +97,8 @@ export function ChannelPageBar({ channel }: { channel: Channel }): React.JSX.Ele
         {meta !== null && (
           <span
             className={cn(
-              'w-full truncate text-[12.5px] leading-4 font-medium',
-              newPage.error !== null ? 'text-feature-danger-text' : 'text-text-tertiary'
+              'w-full truncate font-mono text-[8.5px] leading-4 tracking-[1px] uppercase',
+              newPage.error !== null ? 'text-you-text' : 'text-text-disabled'
             )}
           >
             {meta}

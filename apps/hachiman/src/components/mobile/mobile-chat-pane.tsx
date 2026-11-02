@@ -6,12 +6,12 @@ import { hasRightDrawer, openDrawer } from '@/components/mobile/drawer-state'
 import { MobileChannelHeader, type MobileSide } from '@/components/mobile/mobile-channel-header'
 import { ChannelPageBar } from '@/components/mobile/page-bar'
 import { VoiceBar } from '@/components/mobile/voice-bar'
+import { DeadChannelPane, useChannelGone } from '@/components/system/channel-gone'
 import { NoChannelPane } from '@/components/shell/channel-pane'
 import { DmCallPanel } from '@/components/voice/dm-call'
 import { useDmStageShown } from '@/components/voice/dm-stage-state'
 import { VoiceRoom } from '@/components/voice/voice-room'
 import { isBoardChannel, isGuildChannel } from '@/lib/model'
-import { ROLE_INK_SCOPE } from '@/lib/role-ink'
 import { cn } from '@/lib/utils'
 import { useChannelStore } from '@/stores/channelStore'
 import { useSelectedChannelId, useSelectedGuildId } from '@/stores/navStore'
@@ -38,6 +38,7 @@ export function MobileChatPane(): React.JSX.Element {
   const channel = useChannelStore((s) =>
     selectedChannelId ? s.channels.get(selectedChannelId) : undefined
   )
+  const channelGone = useChannelGone(selectedChannelId, channel !== undefined)
   // The single gate: voice channels carry no messages (no history, typing, composer).
   const voice = channel?.type === 'voice' && isGuildChannel(channel) ? channel : null
   // My DM call's full-height stage covers the chat (B2).
@@ -55,9 +56,7 @@ export function MobileChatPane(): React.JSX.Element {
       {selectedGuildId === null && !channel ? (
         <HomePane />
       ) : channel ? (
-        <section
-          className={cn('bg-surface-content flex min-h-0 min-w-0 flex-1 flex-col', ROLE_INK_SCOPE)}
-        >
+        <section className="bg-surface-content flex min-h-0 min-w-0 flex-1 flex-col">
           <MobileChannelHeader
             channel={channel}
             side={sideOf(channel)}
@@ -81,6 +80,8 @@ export function MobileChatPane(): React.JSX.Element {
             </>
           )}
         </section>
+      ) : channelGone && selectedChannelId ? (
+        <DeadChannelPane channelId={selectedChannelId} guildId={selectedGuildId} />
       ) : (
         <NoChannelPane />
       )}

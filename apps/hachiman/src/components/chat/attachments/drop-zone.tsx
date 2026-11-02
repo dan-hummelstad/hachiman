@@ -45,8 +45,8 @@ export function DropZone({
             onFiles([...e.dataTransfer.files])
           }}
         >
-          <div className="bg-surface-panel border-accent-primary pointer-events-none flex flex-col items-center gap-2 border-2 border-dashed px-10 py-8 text-center shadow-lg">
-            <Upload className="text-accent-text size-6" aria-hidden />
+          <div className="bg-surface-panel border-line-strong rounded-option pointer-events-none flex flex-col items-center gap-2 border-2 border-dashed px-10 py-8 text-center shadow-lg">
+            <Upload className="text-text-secondary size-6" aria-hidden />
             <p className="text-[15px] leading-5 font-semibold">Drop files to upload</p>
             <p className="text-text-secondary text-sm">
               They will be attached to your next message in {label}.

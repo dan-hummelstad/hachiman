@@ -8,7 +8,6 @@ import { LiveCard } from '@/components/voice/live-card'
 import { useCanJoinVoice } from '@/components/voice/use-call-security'
 import { useMemberView } from '@/hooks/use-member'
 import { activeCalls, type ActiveCall } from '@/lib/active-now'
-import { ROLE_INK_SCOPE } from '@/lib/role-ink'
 import { cn } from '@/lib/utils'
 import { voiceService } from '@/services/VoiceService'
 import { useChannelStore } from '@/stores/channelStore'
@@ -50,13 +49,10 @@ export function ActiveNow(): React.JSX.Element {
   return (
     <aside
       aria-label="Active now"
-      className={cn(
-        'bg-surface-panel border-line-hairline hidden h-full min-h-0 w-[252px] shrink-0 flex-col border-l lg:flex',
-        ROLE_INK_SCOPE
-      )}
+      className="bg-surface-panel border-line-hairline hidden h-full min-h-0 w-[252px] shrink-0 flex-col border-l lg:flex"
     >
-      <div className="border-line-hairline flex h-14 shrink-0 items-center gap-2 border-b px-4">
-        <h2 className="text-text-primary flex-1 text-[15px] font-extrabold">Active now</h2>
+      <div className="border-line-hairline flex h-[52px] shrink-0 items-center gap-2 border-b px-4">
+        <h2 className="text-text-primary flex-1 text-[15px] font-semibold">Active now</h2>
         <Activity className="text-text-tertiary size-4" aria-hidden />
       </div>
       <div className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto p-2.5">
@@ -90,10 +86,8 @@ function CallCard({ call }: { call: ActiveCall }): React.JSX.Element {
     <section
       aria-label={`${call.channelName} in ${call.guildName}`}
       className={cn(
-        'flex flex-col gap-2.5 border p-2.5',
-        call.withMe
-          ? 'border-feature-voice/40 bg-feature-voice/10'
-          : 'border-line-hairline bg-surface-content'
+        'rounded-option flex flex-col gap-2.5 border p-2.5',
+        call.withMe ? 'border-live-line bg-live-tint' : 'border-line-hairline bg-surface-content'
       )}
     >
       <button
@@ -101,8 +95,8 @@ function CallCard({ call }: { call: ActiveCall }): React.JSX.Element {
         onClick={() => openChannel(call.guildId, call.channelId)}
         className="focus-visible:outline-line-focus flex min-w-0 items-center gap-1.5 text-left focus-visible:outline-2"
       >
-        <Volume2 className="text-feature-voice-text size-3.5 shrink-0" aria-hidden />
-        <span className="text-text-primary truncate text-sm font-bold hover:underline">
+        <Volume2 className="text-live-text size-3.5 shrink-0" aria-hidden />
+        <span className="text-text-primary truncate text-sm font-semibold hover:underline">
           {call.channelName}
         </span>
         <span className="text-text-tertiary truncate text-xs">· {call.guildName}</span>
@@ -121,7 +115,7 @@ function CallCard({ call }: { call: ActiveCall }): React.JSX.Element {
       )}
 
       {call.withMe ? (
-        <p className="text-feature-voice-text flex items-center gap-1.5 text-xs font-semibold">
+        <p className="text-live-text flex items-center gap-1.5 text-xs font-semibold">
           <Check className="size-3.5" aria-hidden />
           You&apos;re in this call
         </p>
@@ -164,16 +158,10 @@ function Face({
   userId: string
   first: boolean
 }): React.JSX.Element {
-  const { name, avatar, ink } = useMemberView(guildId, userId)
+  const { name, avatar } = useMemberView(guildId, userId)
   return (
     <li title={name} className={cn(!first && '-ml-1.5')}>
-      <UserAvatar
-        avatar={avatar}
-        name={name}
-        color={ink}
-        size={26}
-        className="ring-surface-content rounded-full ring-2"
-      />
+      <UserAvatar avatar={avatar} name={name} size={26} className="ring-surface-content ring-2" />
     </li>
   )
 }
@@ -193,7 +181,7 @@ export function ActiveNowStrip(): React.JSX.Element | null {
   const labelId = useId()
   if (calls.length === 0) return null
   return (
-    <section aria-labelledby={labelId} className={cn('flex flex-col gap-2.5', ROLE_INK_SCOPE)}>
+    <section aria-labelledby={labelId} className="flex flex-col gap-2.5">
       <SectionLabel id={labelId} className="px-4 pt-0.5">
         Active now
       </SectionLabel>
@@ -212,9 +200,9 @@ export function ActiveNowStrip(): React.JSX.Element | null {
 }
 
 const STRIP_TONE = {
-  mine: 'border-feature-voice/22 bg-feature-voice/6 gap-2.5 p-3',
-  live: 'border-feature-danger/20 bg-feature-danger/5 gap-2 p-2',
-  other: 'border-fill-control bg-surface-hover/40 gap-2.5 p-3'
+  mine: 'border-live-line bg-live-tint gap-2.5 p-3',
+  live: 'border-live-line bg-live-tint gap-2 p-2',
+  other: 'border-line-hairline bg-surface-raised gap-2.5 p-3'
 } as const
 
 function StripCard({ call }: { call: ActiveCall }): React.JSX.Element {
@@ -234,7 +222,7 @@ function StripCard({ call }: { call: ActiveCall }): React.JSX.Element {
       onClick={() => openChannel(call.guildId, call.channelId)}
       aria-label={`${call.channelName}, ${call.guildName}, ${state}`}
       className={cn(
-        'flex h-28 w-[212px] flex-col overflow-hidden border text-left outline-none active:opacity-80',
+        'rounded-option flex h-28 w-[212px] flex-col overflow-hidden border text-left outline-none active:opacity-80',
         'focus-visible:outline-line-focus focus-visible:outline-2 focus-visible:-outline-offset-2',
         STRIP_TONE[tone]
       )}
@@ -250,8 +238,8 @@ function StripCard({ call }: { call: ActiveCall }): React.JSX.Element {
       ) : (
         <>
           <span className="flex min-w-0 items-center gap-1.5">
-            <Volume2 className="text-feature-voice-text size-[15px] shrink-0" aria-hidden />
-            <span className="text-text-primary truncate text-sm leading-[17px] font-extrabold">
+            <Volume2 className="text-live-text size-[15px] shrink-0" aria-hidden />
+            <span className="text-text-primary truncate text-sm leading-[17px] font-semibold">
               {call.channelName}
             </span>
             <span className="text-text-tertiary truncate text-[12.5px] leading-[15px] font-semibold">
@@ -271,7 +259,7 @@ function StripCard({ call }: { call: ActiveCall }): React.JSX.Element {
             )}
           </span>
           {call.withMe && (
-            <span className="text-feature-voice-text flex items-center gap-[5px] text-[12.5px] leading-[15px] font-bold">
+            <span className="text-live-text flex items-center gap-[5px] text-[12.5px] leading-[15px] font-semibold">
               <Check className="size-[13px]" aria-hidden />
               You&apos;re in this call
             </span>
@@ -283,6 +271,6 @@ function StripCard({ call }: { call: ActiveCall }): React.JSX.Element {
 }
 
 function StripFace({ guildId, userId }: { guildId: string; userId: string }): React.JSX.Element {
-  const { name, avatar, ink } = useMemberView(guildId, userId)
-  return <UserAvatar avatar={avatar} name={name} color={ink} size={STRIP_FACE} />
+  const { name, avatar } = useMemberView(guildId, userId)
+  return <UserAvatar avatar={avatar} name={name} size={STRIP_FACE} />
 }

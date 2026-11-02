@@ -11,7 +11,7 @@ const SIZE = {
 } as const
 
 /**
- * Circular guild icon: the icon file if set, else initials on the rail colour (also while loading
+ * Rounded-square guild icon: the icon file if set, else initials on a neutral avatar shade (also while loading
  * or when the image fails). Decorative (aria-hidden).
  */
 export function GuildTile({
@@ -27,13 +27,13 @@ export function GuildTile({
     <Avatar
       aria-hidden
       className={cn(
-        'bg-rail text-foreground border leading-none font-semibold',
+        'text-text-secondary border-line-hairline rounded-[22%] border font-mono leading-none font-medium',
         SIZE[size],
         className
       )}
     >
       {guild.icon && <AvatarImage src={hachiman.rest.fileUrl(guild.icon)} alt="" />}
-      <AvatarFallback className="bg-transparent text-[length:inherit] text-inherit">
+      <AvatarFallback className="text-[length:inherit] text-inherit">
         {guildInitials(guild.name)}
       </AvatarFallback>
     </Avatar>

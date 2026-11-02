@@ -25,14 +25,13 @@ interface DialogForm {
 const DialogFormContext = React.createContext<DialogForm>({ form: 'desktop', close: true })
 
 /**
- * Footer buttons on touch: 48 tall, the kit's labels (15/700, primary and danger 15/800, icon 18),
- * the kit's Secondary fill and the Quiet grey. The `>` keeps the rule off nested buttons.
+ * Footer buttons on touch: 48 tall, the kit's labels (15/600, icon 18)
+ * and the Quiet grey. The `>` keeps the rule off nested buttons.
  */
 const TOUCH_BUTTONS = cn(
-  '[&>[data-slot=button]]:h-12 [&>[data-slot=button]]:px-4 [&>[data-slot=button]]:text-[15px] [&>[data-slot=button]]:font-bold',
+  '[&>[data-slot=button]]:h-12 [&>[data-slot=button]]:px-4 [&>[data-slot=button]]:text-[15px] [&>[data-slot=button]]:font-semibold',
   "[&>[data-slot=button]_svg:not([class*='size-'])]:size-[18px]",
-  '[&>[data-variant=primary]]:font-extrabold [&>[data-variant=danger]]:font-extrabold',
-  '[&>[data-variant=secondary]]:border-line-strong [&>[data-variant=secondary]]:bg-(--fill-control)',
+  '[&>[data-variant=secondary]]:border-line-strong',
   '[&>[data-variant=quiet]]:text-text-secondary'
 )
 
@@ -166,9 +165,9 @@ function DialogContent({
       <DialogPrimitive.Content
         data-slot="dialog-content"
         className={cn(
-          // Arc dialog (docs/ui-redesign.md §5): square card, header 16/22, body 18/22, footer
+          // Desktop dialog: raised card, header 16/22, body 18/22, footer
           // 14/22. DialogHeader and DialogFooter bleed to the edges with negative margins.
-          'bg-surface-content text-text-primary border-line-hairline data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed top-[50%] left-[50%] z-50 grid w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-4 overflow-hidden border px-[22px] pt-[18px] pb-[18px] shadow-soft duration-100 outline-none has-[[data-slot=dialog-header]]:pt-0 sm:max-w-[500px]',
+          'bg-surface-raised text-text-primary border-line-hairline rounded-option data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed top-[50%] left-[50%] z-50 grid w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-4 overflow-hidden border px-[22px] pt-[18px] pb-[18px] shadow-soft duration-100 outline-none has-[[data-slot=dialog-header]]:pt-0 sm:max-w-[500px]',
           // The mobile card's 16 sides (M50, M51), before the caller's classes so `p-0` still wins.
           form === 'dialog' && 'px-4',
           className,
@@ -320,7 +319,7 @@ function DialogTitle({ className, ...props }: React.ComponentProps<typeof Dialog
     <DialogPrimitive.Title
       data-slot="dialog-title"
       className={cn(
-        'flex min-h-6 items-center gap-2 text-[18px] leading-6 font-extrabold [&_svg]:size-4 [&_svg]:shrink-0',
+        'flex min-h-6 items-center gap-2 text-[18px] leading-6 font-semibold tracking-[-0.3px] [&_svg]:size-4 [&_svg]:shrink-0',
         className
       )}
       {...props}

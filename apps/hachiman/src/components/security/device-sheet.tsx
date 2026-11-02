@@ -28,7 +28,7 @@ type Step = 'details' | 'rename' | 'signOut'
 
 const TEXT = 'text-text-secondary text-sm leading-normal font-medium'
 const NOTE = 'text-text-tertiary text-[13px] leading-normal font-medium'
-const ALERT = 'text-feature-danger-text text-[13.5px] leading-[18px] font-semibold'
+const ALERT = 'text-you-text text-[13.5px] leading-[18px] font-semibold'
 
 /**
  * The tile of the Sheet Header in the device's colour (`deviceTileTone`): a grey device has no
@@ -145,7 +145,7 @@ function DeviceSheetSteps({
     <>
       <SheetHeader
         icon={<DeviceGlyph platform={device.platform} />}
-        feature={tone === 'neutral' ? 'accent' : tone}
+        feature="event"
         tileClassName={tone === 'neutral' ? NEUTRAL_HEADER_TILE : undefined}
         title={<span className="block truncate">{device.name}</span>}
         subtitle={added ? `${label} · added ${added}` : label}

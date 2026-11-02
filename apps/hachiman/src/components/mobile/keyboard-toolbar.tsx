@@ -42,7 +42,7 @@ export function KeyboardToolbar({
       data-swipe-ignore=""
       className={cn(
         'fixed inset-x-0 bottom-(--kb,0px) z-40 box-content flex h-[45px] items-center gap-0.5 px-1.5',
-        'bg-surface-raised border-t border-(--line-sheet)',
+        'bg-surface-panel border-line-hairline border-t',
         'pb-(--safe-bottom,0px) in-data-[keyboard=open]:pb-0'
       )}
     >
@@ -71,7 +71,7 @@ export function ToolbarButton({
   children
 }: {
   label: string
-  /** The tool's state shows (the accent tint). */
+  /** The tool's state shows (the `here` tint). */
   lit?: boolean
   /** A toggle: `aria-pressed`. */
   pressed?: boolean
@@ -101,7 +101,7 @@ export function ToolbarButton({
       className={cn(
         'rounded-control text-text-secondary flex h-9 min-w-9 flex-1 items-center justify-center outline-none select-none',
         'focus-visible:outline-line-focus focus-visible:outline-2 focus-visible:-outline-offset-2',
-        'active:bg-surface-hover data-lit:bg-accent-tint data-lit:text-accent-text',
+        'active:bg-surface-hover data-lit:bg-here-tint data-lit:text-here-text',
         'aria-disabled:text-text-disabled aria-disabled:active:bg-transparent',
         '[&_svg]:pointer-events-none [&_svg]:size-[19px] [&_svg]:shrink-0',
         className
@@ -185,7 +185,7 @@ export function PageKeyboardToolbar({
           <ToolbarButton label="Undo" onPress={() => api.undo()}>
             <Undo2 aria-hidden />
           </ToolbarButton>
-          <span aria-hidden className="mx-px h-[22px] w-px shrink-0 bg-(--fill-control-strong)" />
+          <span aria-hidden className="mx-px h-[22px] w-px shrink-0 bg-line-hairline" />
           <ToolbarButton
             label="Hide the keyboard"
             className="w-[38px] flex-none"

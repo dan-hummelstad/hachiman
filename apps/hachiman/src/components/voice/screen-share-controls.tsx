@@ -75,7 +75,7 @@ function StreamQualityPicker({ className }: { className?: string }): React.JSX.E
         </IconButton>
       </PopoverTrigger>
       <PopoverContent side="top" className="w-64 space-y-3">
-        <p className="section-label">Stream quality</p>
+        <p className="cap">Stream quality</p>
         <StreamQualityFields />
         <p className="text-text-tertiary text-xs">
           Changes apply to a live share. Higher settings need more upload bandwidth.

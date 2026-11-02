@@ -61,12 +61,12 @@ function InfoHead({ channel }: { channel: Channel }): React.JSX.Element {
   const { readOnly } = useChannelAccess(channel)
   return (
     <div className="flex flex-col gap-1 px-1 pt-1">
-      <p className="text-text-primary flex min-w-0 items-center gap-1.5 text-[18px] leading-[22px] font-extrabold">
+      <p className="text-text-primary flex min-w-0 items-center gap-1.5 text-[17px] leading-[22px] font-semibold tracking-[-0.3px]">
         <HeaderChannelIcon channel={channel} readOnly={readOnly} className="size-[18px]" />
         <span className="truncate">{label.name}</span>
       </p>
       {channel.topic && (
-        <p className="text-text-tertiary text-[13px] leading-[18px] font-medium break-words">
+        <p className="text-text-tertiary text-[13px] leading-[18px] font-normal break-words">
           {channel.topic}
         </p>
       )}

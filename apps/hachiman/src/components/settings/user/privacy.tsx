@@ -1,76 +1,119 @@
-import { useId } from 'react'
 import type { User } from '@hachiman/client'
-import { ListGroup, SectionLabel } from '@/components/mobile/list'
+import { LinkPreviewSetting } from '@/components/settings/user/link-previews'
+import {
+  MobileCap,
+  MobileCard,
+  MobileNote,
+  SettingsCap,
+  SettingsRule
+} from '@/components/settings/user/rows'
 import { UserAvatar } from '@/components/shell/user-avatar'
 import { Button } from '@/components/ui/button'
 import { useAction } from '@/hooks/use-action'
 import { blockedLine, useBlockedUsers } from '@/hooks/use-blocked-users'
+import { useLayout } from '@/hooks/use-layout'
+import { usePlatform } from '@/shared/PlatformContext'
 import { blockService } from '@/services/guild-features'
 
+const NOTE = 'Blocked people can’t DM you or poke you. They aren’t told.'
+
 /**
- * User settings → Privacy and safety on the mobile layout (M34). Today only BLOCKED · n, each
- * person with Unblock. The DM policy, message requests and what others see wait for their server
- * settings (spec §5), and the note says only what a block does today.
+ * User settings -> Privacy and safety: what this device loads (link previews), then BLOCKED · n,
+ * each person with Unblock. The reach controls (who can DM you, message requests) wait for their
+ * server settings.
  */
 export function PrivacySection(): React.JSX.Element {
+  const mobile = useLayout() === 'mobile'
+  const showLinks = usePlatform().fetchLinkResource !== null
   const { users, count, blockedAt } = useBlockedUsers()
-  const labelId = useId()
+  const empty = count === 0 || users.length === 0
+  const emptyText = count === 0 ? 'You haven’t blocked anyone.' : 'Loading…'
+  const rows = users.map((u) => (
+    <BlockedRow key={u.id} user={u} blockedAt={blockedAt.get(u.id)} mobile={mobile} />
+  ))
+
+  if (mobile) {
+    return (
+      <div className="grid gap-[18px]">
+        {showLinks && (
+          <section className="flex flex-col gap-1.5">
+            <MobileCap>Links</MobileCap>
+            <MobileCard>
+              <LinkPreviewSetting />
+            </MobileCard>
+          </section>
+        )}
+        <section className="flex flex-col gap-1.5">
+          <MobileCap>Blocked · {count}</MobileCap>
+          {empty ? (
+            <p className="text-text-tertiary px-1 py-5 text-center text-sm">{emptyText}</p>
+          ) : (
+            <MobileCard>{rows}</MobileCard>
+          )}
+          <MobileNote>{NOTE}</MobileNote>
+        </section>
+      </div>
+    )
+  }
+
   return (
-    <section aria-labelledby={labelId} className="flex flex-col gap-1.5">
-      <SectionLabel id={labelId}>Blocked · {count}</SectionLabel>
-      {count === 0 || users.length === 0 ? (
-        <p className="text-text-tertiary border-line-hairline border bg-white/2 px-3 py-5 text-center text-sm">
-          {count === 0 ? 'You haven’t blocked anyone.' : 'Loading…'}
-        </p>
-      ) : (
-        <ListGroup>
-          {users.map((u) => (
-            <BlockedRow key={u.id} user={u} blockedAt={blockedAt.get(u.id)} />
-          ))}
-        </ListGroup>
+    <div>
+      {showLinks && (
+        <>
+          <SettingsCap>What your device loads</SettingsCap>
+          <div className="mt-1.5">
+            <LinkPreviewSetting />
+          </div>
+          <SettingsRule />
+        </>
       )}
-      <p className="text-text-tertiary px-1 pt-1 text-[12.5px] leading-[18px] font-medium">
-        Blocked people can’t DM you or poke you. They aren’t told.
-      </p>
-    </section>
+      <SettingsCap>Blocked · {count}</SettingsCap>
+      <div className="mt-2">
+        {empty ? <p className="text-text-tertiary text-[13px]">{emptyText}</p> : rows}
+      </div>
+      <p className="text-text-tertiary mt-3 text-[12.5px]">{NOTE}</p>
+    </div>
   )
 }
 
-/** A blocked person (64): avatar 34, the name, when I blocked them, and Unblock (44). */
+/** A blocked person: avatar, the name, when I blocked them, and Unblock. */
 function BlockedRow({
   user,
-  blockedAt
+  blockedAt,
+  mobile
 }: {
   user: User
   blockedAt: string | undefined
+  mobile: boolean
 }): React.JSX.Element {
   const { run, busy, error } = useAction()
   return (
-    <div className="flex min-h-16 items-center gap-3 px-3 py-2.5">
-      <UserAvatar avatar={user.avatar} name={user.username} size={34} />
+    <div
+      className={
+        mobile ? 'flex min-h-16 items-center gap-3 px-3 py-2.5' : 'flex h-12 items-center gap-3'
+      }
+    >
+      <UserAvatar avatar={user.avatar} name={user.username} size={mobile ? 34 : 28} />
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <span className="text-text-primary truncate text-[15px] leading-[18px] font-bold">
+        <span className="text-text-secondary truncate text-[13.5px] leading-[18px] font-medium">
           {user.username}
         </span>
         {error ? (
-          <span
-            role="alert"
-            className="text-feature-danger-text text-[12.5px] leading-[15px] font-medium"
-          >
+          <span role="alert" className="text-you-text text-[12.5px] leading-[15px]">
             {error}
           </span>
         ) : (
-          <span className="text-text-tertiary truncate text-[12.5px] leading-[15px] font-medium">
+          <span className="text-text-disabled truncate font-mono text-[9px] tracking-[0.8px] uppercase">
             {blockedLine(blockedAt)}
           </span>
         )}
       </div>
       <Button
         variant="secondary"
+        size={mobile ? 'default' : 'sm'}
         disabled={busy}
         aria-label={`Unblock ${user.username}`}
         onClick={() => void run(`unblock ${user.username}`, () => blockService.unblock(user.id))}
-        className="border-line-strong h-11 bg-(--fill-control) px-3.5 text-[13.5px] font-bold"
       >
         Unblock
       </Button>

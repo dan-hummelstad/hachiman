@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import { ChevronRight, ClipboardPaste, Link2, Lock, Plus, Sparkles } from 'lucide-react'
 import { MobileField } from '@/components/mobile/field'
-import { FEATURE_TILE, type Feature } from '@/components/ui/feature'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -27,9 +26,9 @@ async function createSignedGuild(body: CreateGuildBody): Promise<GuildFull> {
 type Step = 'choose' | 'create' | 'join'
 
 const TITLES: Record<Step, string> = {
-  choose: 'Add a guild',
-  create: 'Create a guild',
-  join: 'Join a guild'
+  choose: 'Add a space',
+  create: 'Create a space',
+  join: 'Join a space'
 }
 
 /** The Sheet Header subtitle of each step on the mobile layout (M44): one short line. */
@@ -62,7 +61,7 @@ export function AddServerDialog(): React.JSX.Element {
   const submit = async (e: React.FormEvent): Promise<void> => {
     e.preventDefault()
     if (step === 'create') {
-      const created = await run('create the guild', () =>
+      const created = await run('create the space', () =>
         createSignedGuild({ name: value.trim(), region: region || undefined })
       )
       if (!created.ok) return
@@ -93,13 +92,13 @@ export function AddServerDialog(): React.JSX.Element {
         title={TITLES.choose}
         description={mobile ? MOBILE_SUBTITLES.choose : undefined}
         icon={<Plus />}
-        feature="voice"
+        feature="event"
         actions={
           mobile ? undefined : (
             <>
-              <span className="text-text-secondary text-meta mr-auto flex items-center gap-1.5 self-center">
-                <Lock aria-hidden className="text-feature-voice-text size-3.5" />
-                Every guild is end-to-end encrypted.
+              <span className="cap-sm mr-auto flex items-center gap-1.5 self-center text-[9px] tracking-[1.1px]">
+                <Lock aria-hidden className="text-text-tertiary size-3.5" />
+                Every space is end-to-end encrypted.
               </span>
               <Button variant="quiet" onClick={close}>
                 Cancel
@@ -109,20 +108,18 @@ export function AddServerDialog(): React.JSX.Element {
         }
       >
         <p className="text-text-secondary mobile:text-[15px] mobile:leading-[23px] mobile:font-medium text-sm">
-          A guild is where you and your friends chat and talk. Make your own, or join one you were
+          A space is where you and your friends chat and talk. Make your own, or join one you were
           invited to.
         </p>
         <div className="mobile:gap-2.5 grid gap-3">
           <ChoiceRow
             icon={<Sparkles />}
-            feature="accent"
-            title="Create a guild"
+            title="Create a space"
             hint="Your own place. You’re the owner and set the rules."
             onClick={() => goto('create')}
           />
           <ChoiceRow
             icon={<Link2 />}
-            feature="voice"
             title="Join with an invite"
             hint="Paste a link or code someone sent you."
             onClick={() => goto('join')}
@@ -130,8 +127,8 @@ export function AddServerDialog(): React.JSX.Element {
         </div>
         {mobile && (
           <p className="text-text-tertiary flex items-center justify-center gap-1.5 pt-1 text-[13px] leading-4 font-semibold">
-            <Lock aria-hidden className="text-feature-voice-text size-[13px] shrink-0" />
-            Every guild is end-to-end encrypted.
+            <Lock aria-hidden className="text-text-tertiary size-[13px] shrink-0" />
+            Every space is end-to-end encrypted.
           </p>
         )}
       </ModalWindow>
@@ -145,27 +142,30 @@ export function AddServerDialog(): React.JSX.Element {
       onClose={close}
       title={TITLES[step]}
       icon={step === 'create' ? <Sparkles /> : <Link2 />}
-      feature={step === 'create' ? 'accent' : 'voice'}
+      feature="event"
       description={
         mobile
           ? MOBILE_SUBTITLES[step]
           : step === 'create'
-            ? 'Give it a name. You can change it later in guild settings.'
+            ? 'You will be its owner'
             : 'Paste the invite link someone sent you, or just the code at its end.'
       }
       actions={
         <>
-          <Button type="button" variant="quiet" className="mr-auto" onClick={() => goto('choose')}>
+          <span className="cap-sm mr-auto mobile:hidden">
+            {step === 'create' ? 'STEP 2 OF 2 · NAME AND REGION' : 'STEP 2 OF 2 · PASTE A LINK'}
+          </span>
+          <Button type="button" variant="quiet" onClick={() => goto('choose')}>
             Back
           </Button>
           <Button type="submit" form={formId} disabled={busy || !value.trim()}>
             {step === 'create'
               ? busy
                 ? 'Creating…'
-                : 'Create guild'
+                : 'Create space'
               : busy
                 ? 'Joining…'
-                : 'Join guild'}
+                : 'Join space'}
           </Button>
         </>
       }
@@ -175,7 +175,7 @@ export function AddServerDialog(): React.JSX.Element {
           // No autoFocus: the keyboard rises when the user taps a field (spec §2.8).
           step === 'create' ? (
             <>
-              <MobileField id="guild-name" label="Guild name">
+              <MobileField id="guild-name" label="Space name">
                 <Input
                   size="touch"
                   value={value}
@@ -204,7 +204,7 @@ export function AddServerDialog(): React.JSX.Element {
           <>
             {step === 'create' ? (
               <>
-                <Field id="guild-name" label="Guild name">
+                <Field id="guild-name" label="Space name">
                   <Input
                     id="guild-name"
                     value={value}
@@ -272,7 +272,7 @@ function InvitePasteField({
         <button
           type="button"
           onClick={paste}
-          className="text-text-primary active:bg-fill-control-strong focus-visible:outline-line-focus absolute top-1.5 right-1.5 flex h-9 items-center gap-1.5 bg-fill-control rounded-[6px] px-3 text-[14px] font-bold outline-none focus-visible:outline-2 focus-visible:-outline-offset-2"
+          className="text-text-primary active:bg-surface-hover bg-surface-raised border-line-strong rounded-control focus-visible:outline-line-focus absolute top-1.5 right-1.5 flex h-9 items-center gap-1.5 border px-3 text-[14px] font-semibold outline-none focus-visible:outline-2 focus-visible:-outline-offset-2"
         >
           <ClipboardPaste aria-hidden className="size-4" />
           Paste
@@ -282,26 +282,9 @@ function InvitePasteField({
   )
 }
 
-/** The rest look of a choice card on the mobile layout (M44): tinted, with a tinted border. */
-const CHOICE_TINT: Record<'accent' | 'voice', string> = {
-  accent:
-    'mobile:border-accent-primary/40 mobile:bg-accent-primary/6 mobile:active:bg-accent-primary/12',
-  voice:
-    'mobile:border-feature-voice/30 mobile:bg-feature-voice/5 mobile:active:bg-feature-voice/10'
-}
-
-const CHOICE_CHEVRON: Record<'accent' | 'voice', string> = {
-  accent: 'mobile:text-accent-text',
-  voice: 'mobile:text-feature-voice-text'
-}
-
-/**
- * One option card: icon tile and hover border in the feature colour, chevron to the next step.
- * On the mobile layout (no hover on touch) the card is tinted at rest (M44).
- */
+/** One option card: a neutral icon tile and a chevron to the next step. */
 function ChoiceRow(props: {
   icon: React.ReactNode
-  feature: Extract<Feature, 'accent' | 'voice'>
   title: string
   hint: string
   onClick: () => void
@@ -310,36 +293,23 @@ function ChoiceRow(props: {
     <button
       type="button"
       onClick={props.onClick}
-      className={cn(
-        'rounded-option border-line-hairline bg-surface-raised hover:bg-surface-hover focus-visible:outline-line-focus group flex items-center gap-3 border px-3.5 py-3 text-left transition-colors outline-none focus-visible:outline-2 focus-visible:outline-offset-1',
-        props.feature === 'voice' ? 'hover:border-feature-voice' : 'hover:border-accent-primary',
-        'mobile:gap-3.5 mobile:p-3.5',
-        CHOICE_TINT[props.feature]
-      )}
+      className="rounded-option border-line-hairline bg-surface-raised hover:bg-surface-hover hover:border-line-strong focus-visible:outline-line-focus mobile:rounded-[14px] mobile:bg-surface-panel mobile:p-3.5 group flex items-center gap-3 border px-3.5 py-3 text-left transition-colors outline-none focus-visible:outline-2 focus-visible:outline-offset-1"
     >
       <span
         aria-hidden
-        className={cn(
-          'mobile:[&_svg]:size-[22px] flex size-11 shrink-0 items-center justify-center [&_svg]:size-5',
-          FEATURE_TILE[props.feature]
-        )}
+        className="rounded-control bg-surface-sunken text-text-secondary mobile:[&_svg]:size-[22px] flex size-11 shrink-0 items-center justify-center [&_svg]:size-5"
       >
         {props.icon}
       </span>
       <span className="mobile:gap-[3px] grid min-w-0 flex-1 gap-0.5">
-        <span className="text-label text-text-primary mobile:text-[16px] mobile:leading-[19px] mobile:font-extrabold">
+        <span className="text-text-primary mobile:text-[16px] mobile:leading-[19px] text-[14px] font-semibold">
           {props.title}
         </span>
-        <span className="text-meta text-text-secondary mobile:text-[13.5px] mobile:leading-[19px] mobile:font-medium">
+        <span className="text-text-tertiary mobile:text-[13.5px] mobile:leading-[19px] text-[12.5px]">
           {props.hint}
         </span>
       </span>
-      <ChevronRight
-        className={cn(
-          'text-text-tertiary group-hover:text-text-primary mobile:size-[18px] size-4',
-          CHOICE_CHEVRON[props.feature]
-        )}
-      />
+      <ChevronRight className="text-text-disabled group-hover:text-text-primary mobile:size-[18px] size-4" />
     </button>
   )
 }

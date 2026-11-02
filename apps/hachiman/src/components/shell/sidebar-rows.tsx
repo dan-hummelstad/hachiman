@@ -1,8 +1,9 @@
 import { useMemo, useState } from 'react'
-import { ArrowLeft, ArrowRight, MessageCircle } from 'lucide-react'
+import { ArrowLeft, ArrowRight, MessageCircle, Plus } from 'lucide-react'
 import type { Channel } from '@hachiman/client'
 import { GuildMenuItems } from '@/components/shell/guild-menu-items'
 import { ClusterTile, Tile, TileRow } from '@/components/shell/tile-row'
+import { IconButton } from '@/components/ui/icon-button'
 import { UserAvatar } from '@/components/shell/user-avatar'
 import { openDmHome } from '@/components/sidebar/sidebar-row'
 import {
@@ -13,96 +14,104 @@ import {
   ContextMenuTrigger
 } from '@/components/ui/context-menu'
 import { GuildTile } from '@/components/ui/guild-tile'
-import { presenceHole } from '@/components/ui/presence'
 import { UnreadMark } from '@/components/ui/unread-mark'
 import { useDmChannels } from '@/hooks/use-hachiman'
 import { useLayout } from '@/hooks/use-layout'
 import { useSortableHoldMenu } from '@/hooks/use-sortable-row'
-import { dmName } from '@/lib/model'
-import { orderedIds, recentDms, rowSlice, tileSurface } from '@/lib/sidebar-tiles'
-import { cutMask, cutStyle, shiftHoles, tileMark, type Hole } from '@/lib/tile-cutouts'
+import { dmName, guildInitials } from '@/lib/model'
+import { orderedIds, recentDms, rowSlice } from '@/lib/sidebar-tiles'
+import { TOUCH_HIT } from '@/lib/touch'
+import { cutMask, cutStyle, tileMark, type Hole } from '@/lib/tile-cutouts'
 import { cn } from '@/lib/utils'
 import { openDialog, useDialogStore } from '@/stores/dialogStore'
 import { useChannelStore } from '@/stores/channelStore'
 import { useGuildStore } from '@/stores/guildStore'
+import { useMessageStore } from '@/stores/messagesStore'
 import { DM_HOME, navigate, selectGuild, useNavStore, useSelectedGuildId } from '@/stores/navStore'
 import { moved, useGuildOrder, usePrefsStore } from '@/stores/prefsStore'
 import {
   useChannelUnread,
-  useDmsUnread,
   useGuildUnread,
   useGuildsUnread,
   useUnreadStore
 } from '@/stores/unreadStore'
 
 /**
- * The two tile rows of the sidebar top, under search (docs/ui-redesign.md §7): recent DMs, then
- * guilds. A 1px line under them sets them off from the middle of the sidebar.
+ * The sidebar top under search: the recent direct messages as rows, then the spaces as tiles. A
+ * 1px line under them sets them off from the middle of the sidebar.
  */
 export function SidebarRows(): React.JSX.Element {
   return (
-    <div className="border-line-hairline mt-1 flex flex-col gap-3 border-b pb-3">
-      <DmRow />
+    <div className="border-line-hairline -mx-3 mt-1 flex flex-col gap-2 border-b pb-3">
+      <DmList />
       <GuildRow />
     </div>
   )
 }
 
+/** The recent conversations the list shows before "ALL". */
+const DM_ROWS = 4
+
 /**
  * The four most recent conversations, newest first (READY `lastMessageAt`, then each new
- * message). The fifth tile clusters the rest and opens the DM home; it is lit there and while a
- * DM that has no tile is open.
+ * message), as rows. The last row, "ALL", opens the DM home; it is selected there and while a DM
+ * that has no row is open.
  */
-function DmRow(): React.JSX.Element {
+function DmList(): React.JSX.Element | null {
   const dms = useDmChannels()
   const lastAt = useUnreadStore((s) => s.lastAt)
-  const row = useMemo(() => rowSlice(recentDms(dms, lastAt), true), [dms, lastAt])
+  const all = useMemo(() => recentDms(dms, lastAt), [dms, lastAt])
+  const shown = all.slice(0, DM_ROWS)
   const inDms = useSelectedGuildId() === null
   const openDm = useNavStore((s) =>
     s.guildKey === DM_HOME ? (s.channelByGuild[DM_HOME] ?? null) : null
   )
-  const channels = useChannelStore((s) => s.channels)
-  const badge = useDmsUnread(row.hidden)
   const settings = useNavStore((s) => s.settings !== null)
   const here = inDms && !settings
+  // The DM space in the sidebar middle lists every conversation, so the recent rows would repeat it.
+  if (here) return null
 
   return (
-    <TileRow
-      label="Direct messages"
-      add={{ label: 'New message', onClick: openDmHome }}
-      ids={row.tiles}
-      renderTile={(id) => <DmTile key={id} channelId={id} lit={here && openDm === id} />}
-      cluster={
-        <ClusterTile
-          label="All direct messages"
-          lit={here && (openDm === null || !row.tiles.includes(openDm))}
-          badge={badge}
+    <section aria-label="Direct messages" className="flex flex-col">
+      <div className="flex h-[26px] items-center px-3">
+        <h2 className="cap flex-1">Direct messages</h2>
+        <IconButton
+          size="sm"
+          label="New message"
           onClick={openDmHome}
-          stack={row.hidden.slice(0, 3).flatMap((id) => {
-            const c = channels.get(id)
-            return c
-              ? [
-                  <UserAvatar
-                    key={id}
-                    name={dmName(c)}
-                    avatar={c.recipients?.[0]?.avatar}
-                    size={18}
-                  />
-                ]
-              : []
-          })}
-          fallback={<MessageCircle className="size-4" />}
-        />
-      }
-    />
+          className={cn('text-text-disabled size-5', TOUCH_HIT)}
+        >
+          <Plus className="size-[13px]" />
+        </IconButton>
+      </div>
+      <ul className="flex flex-col px-2 pt-0.5">
+        {shown.map((id) => (
+          <DmRow key={id} channelId={id} lit={here && openDm === id} />
+        ))}
+        <li>
+          <button
+            type="button"
+            onClick={openDmHome}
+            aria-current={here && (openDm === null || !shown.includes(openDm)) ? 'page' : undefined}
+            className={cn(
+              'rounded-row mobile:h-10 mobile:rounded-option flex h-[30px] w-full items-center gap-[9px] px-2 text-left',
+              here && (openDm === null || !shown.includes(openDm))
+                ? 'bg-surface-selected'
+                : 'hover:bg-surface-hover'
+            )}
+          >
+            <span className="border-line-strong text-text-tertiary flex size-5 shrink-0 items-center justify-center rounded-[5px] border">
+              <MessageCircle className="size-3" />
+            </span>
+            <span className="cap-sm">All · {all.length}</span>
+          </button>
+        </li>
+      </ul>
+    </section>
   )
 }
 
-/** The 28 px avatar of a DM tile, and the hole of the mobile presence dot on its corner. */
-const DM_AVATAR = 28
-const PRESENCE_HOLE = presenceHole(DM_AVATAR)
-
-function DmTile({ channelId, lit }: { channelId: string; lit: boolean }): React.JSX.Element | null {
+function DmRow({ channelId, lit }: { channelId: string; lit: boolean }): React.JSX.Element | null {
   const channel = useChannelStore((s) => s.channels.get(channelId))
   const other = channel?.recipients?.[0]
   const isGroup = channel?.type === 'group_dm'
@@ -110,78 +119,43 @@ function DmTile({ channelId, lit }: { channelId: string; lit: boolean }): React.
     other && !isGroup ? (s.presences.get(other.id) ?? 'offline') : undefined
   )
   const badge = useChannelUnread(channelId)
+  const typing = useMessageStore((s) => (s.typing.get(channelId)?.size ?? 0) > 0)
   if (!channel) return null
   const name = dmName(channel)
-  const mark = tileMark(badge, isGroup ? GROUP_BOX : DM_AVATAR, { dot: false })
+  const unread = badge.unread || badge.mentions > 0
   return (
-    <Tile id={channelId} label={name} lit={lit} onClick={() => navigate({ kind: 'dm', channelId })}>
-      <span
-        className="relative flex"
-        style={isGroup ? undefined : cutStyle([...(status ? [PRESENCE_HOLE] : []), ...mark.holes])}
-      >
-        {isGroup ? (
-          <GroupTileAvatars channel={channel} lit={lit} cut={mark.holes} />
-        ) : (
-          <UserAvatar
-            name={name}
-            avatar={other?.avatar}
-            size={DM_AVATAR}
-            status={status}
-            cutout={cn(tileSurface(lit), 'mobile:bg-transparent')}
-          />
+    <li>
+      <button
+        type="button"
+        onClick={() => navigate({ kind: 'dm', channelId })}
+        aria-current={lit ? 'page' : undefined}
+        className={cn(
+          'rounded-row mobile:h-10 mobile:rounded-option flex h-8 w-full items-center gap-[9px] px-2 text-left',
+          lit ? 'bg-surface-selected' : 'hover:bg-surface-hover'
         )}
-        <UnreadMark
-          badge={badge}
-          size="corner"
-          dot={false}
-          className={cn('-top-1.5 -right-2', mark.className)}
+      >
+        <UserAvatar
+          name={name}
+          avatar={isGroup ? (channel.icon ?? other?.avatar) : other?.avatar}
+          size={20}
+          status={status}
+          cutout="bg-surface-panel"
         />
-      </span>
-    </Tile>
-  )
-}
-
-/** Two 20 px avatars in a 30 px box: the second (with a 1 px ring) at its bottom right. */
-const GROUP_BOX = 30
-const GROUP_SECOND_AT = 9
-
-function GroupTileAvatars({
-  channel,
-  lit,
-  cut
-}: {
-  channel: Channel
-  lit: boolean
-  /** The holes of the unread mark, in the box. */
-  cut: readonly Hole[]
-}): React.JSX.Element {
-  if (channel.icon) {
-    return (
-      <span className="flex" style={cutStyle(cut)}>
-        <UserAvatar name={dmName(channel)} avatar={channel.icon} size={30} />
-      </span>
-    )
-  }
-  const [a, b] = channel.recipients ?? []
-  const second: Hole = [GROUP_SECOND_AT + 10, GROUP_SECOND_AT + 10, 11]
-  return (
-    <span className="relative block size-[30px]">
-      <span className="absolute top-0 left-0 flex" style={cutStyle(b ? [second, ...cut] : cut)}>
-        <UserAvatar name={a?.username ?? '?'} avatar={a?.avatar} size={20} />
-      </span>
-      {b && (
         <span
           className={cn(
-            'absolute right-0 bottom-0 flex rounded-full p-px',
-            tileSurface(lit),
-            'mobile:bg-transparent'
+            'min-w-0 flex-1 truncate text-[13px] mobile:text-[13.5px]',
+            unread || lit ? 'text-text-primary font-semibold' : 'text-text-secondary'
           )}
-          style={cutStyle(shiftHoles(cut, GROUP_SECOND_AT, GROUP_SECOND_AT))}
         >
-          <UserAvatar name={b.username} avatar={b.avatar} size={20} />
+          {name}
         </span>
-      )}
-    </span>
+        {typing ? (
+          <span className="cap-sm text-live-text">typing…</span>
+        ) : (
+          <UnreadMark badge={badge} size="sm" />
+        )}
+      </button>
+    </li>
   )
 }
 
@@ -302,8 +276,8 @@ function GuildRow(): React.JSX.Element {
 
   return (
     <TileRow
-      label="Guilds"
-      add={{ label: 'Create or join a guild', onClick: () => openDialog({ kind: 'addGuild' }) }}
+      label="Spaces"
+      add={{ label: 'Create or join a space', onClick: () => openDialog({ kind: 'addGuild' }) }}
       addLit={adding}
       ids={expanded ? ids : row.tiles}
       renderTile={(id) => {
@@ -324,17 +298,12 @@ function GuildRow(): React.JSX.Element {
       cluster={
         row.cluster && (
           <ClusterTile
-            label={expanded ? 'Show fewer guilds' : `${n} more ${n === 1 ? 'guild' : 'guilds'}`}
+            label={expanded ? 'Show fewer spaces' : `${n} more ${n === 1 ? 'space' : 'spaces'}`}
             lit={!expanded && current !== null && row.hidden.includes(current)}
             badge={badge}
             expanded={expanded}
             onClick={() => setOpen(!expanded)}
-            stack={row.hidden.slice(0, 3).flatMap((id) => {
-              const g = guilds.get(id)
-              return g
-                ? [<GuildTile key={id} guild={g} className="size-[18px] border-0 text-[7px]" />]
-                : []
-            })}
+            count={n}
           />
         )
       }
@@ -374,7 +343,13 @@ function GuildRowTile({
       <ContextMenuTrigger asChild longPress={menu.longPress}>
         <Tile id={guildId} label={guild.name} lit={lit} onClick={() => onPick(guildId)}>
           <span className="relative flex" style={cutStyle(mark.holes)}>
-            <GuildTile guild={guild} className="size-7 border-0 text-[11px]" />
+            {guild.icon ? (
+              <GuildTile guild={guild} className="size-7 border-0 text-[11px]" />
+            ) : (
+              <span className="font-mono text-xs font-semibold tracking-[0.3px]">
+                {guildInitials(guild.name)}
+              </span>
+            )}
             <UnreadMark badge={badge} size="corner" className={mark.className} />
           </span>
         </Tile>

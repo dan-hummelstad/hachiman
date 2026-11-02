@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { SmilePlus } from 'lucide-react'
+import { Plus } from 'lucide-react'
 import { ReactionEmoji } from '@/components/chat/emoji'
 import { quickReactionKeys, usableReactionKey } from '@/components/chat/message-actions'
 import { reactionLabel } from '@/lib/custom-emoji'
@@ -9,10 +9,10 @@ import { useReactions } from '@/stores/messagesStore'
 import { usePrefsStore } from '@/stores/prefsStore'
 import { useUserStore } from '@/stores/userStore'
 
-/** One 46 tile: they share the row (M5), radius 10. */
+/** One 50 pill: they share the row (M5). */
 const TILE = cn(
-  'rounded-option flex h-[46px] min-w-0 flex-1 items-center justify-center border outline-none',
-  'focus-visible:outline-line-focus focus-visible:outline-2 active:brightness-125'
+  'rounded-pill flex h-[50px] min-w-0 flex-1 items-center justify-center border-[1.5px] outline-none',
+  'focus-visible:outline-line-focus focus-visible:outline-2 active:bg-surface-hover'
 )
 
 /**
@@ -42,7 +42,11 @@ export function QuickReactions({
   )
 
   return (
-    <div role="group" aria-label="Quick reactions" className="mb-3 flex shrink-0 gap-2">
+    <div
+      role="group"
+      aria-label="Quick reactions"
+      className="flex shrink-0 gap-2.5 px-4 pt-1 pb-3.5"
+    >
       {keys.map((key) => {
         const mine = myId !== undefined && (reactions.get(key)?.has(myId) ?? false)
         return (
@@ -54,12 +58,10 @@ export function QuickReactions({
             onClick={() => onReact(key, mine)}
             className={cn(
               TILE,
-              mine
-                ? 'bg-accent-primary/16 border-accent-primary/60'
-                : 'border-transparent bg-(--fill-control)'
+              mine ? 'bg-here-tint border-here' : 'bg-surface-raised border-transparent'
             )}
           >
-            <ReactionEmoji value={key} className="text-[22px] leading-none" />
+            <ReactionEmoji value={key} className="text-[20px] leading-none" />
           </button>
         )
       })}
@@ -67,9 +69,9 @@ export function QuickReactions({
         type="button"
         aria-label="More reactions"
         onClick={onMore}
-        className={cn(TILE, 'text-text-tertiary border-transparent bg-(--fill-control)')}
+        className={cn(TILE, 'text-text-tertiary bg-surface-raised border-transparent')}
       >
-        <SmilePlus className="size-[22px]" aria-hidden />
+        <Plus className="size-[18px]" aria-hidden />
       </button>
     </div>
   )

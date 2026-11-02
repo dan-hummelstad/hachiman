@@ -6,7 +6,7 @@ import { selectChannel } from '@/stores/navStore'
 const REF = /(^|[^\w#])#([\p{L}\p{N}_-]{1,100})/gu
 
 /**
- * Plain message text with `#name` of a channel of this guild as an accent chip that opens the
+ * Plain message text with `#name` of a channel of this guild as a neutral chip that opens the
  * channel. Text that names no known channel stays plain.
  */
 export function TextWithChannelRefs({
@@ -35,7 +35,7 @@ export function TextWithChannelRefs({
         type="button"
         onClick={() => selectChannel(channel.id)}
         className={cn(
-          'rounded-check bg-accent-tint text-accent-text inline px-1 font-semibold hover:underline',
+          'bg-surface-raised text-text-primary inline rounded-[4px] px-1 font-semibold hover:underline',
           'focus-visible:outline-line-focus outline-none focus-visible:outline-2'
         )}
       >

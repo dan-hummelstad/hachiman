@@ -8,6 +8,7 @@ import { ErrorText, Field } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { NativeSelect } from '@/components/ui/native-select'
 import { Textarea } from '@/components/ui/textarea'
+import { LiveDot } from '@/components/ui/live'
 import { SaveBar } from '@/components/settings/save-bar'
 import { useAction } from '@/hooks/use-action'
 import { trimName, useDraft } from '@/hooks/use-draft'
@@ -15,10 +16,31 @@ import { useKeyedAsync } from '@/hooks/use-keyed-async'
 import { useLayout } from '@/hooks/use-layout'
 import { adminActionService } from '@/services/AdminActionService'
 import { hachiman } from '@/services/hachiman'
+import { useVoiceStore } from '@/stores/voiceStore'
 
 const TOPIC_MAX = 1024
 
 const noop = (): void => {}
+
+/** The `live` note of a voice channel that has people in it: edits do not drop them. */
+function VoiceLiveNote({ channel }: { channel: Channel }): React.JSX.Element | null {
+  const gid = channel.guildId
+  const people = useVoiceStore((s) => {
+    let n = 0
+    if (gid) s.voiceStates.get(gid)?.forEach((v) => v.channelId === channel.id && n++)
+    return n
+  })
+  if (channel.type !== 'voice' || people === 0) return null
+  return (
+    <div className="bg-live-tint mobile:rounded-[12px] flex items-center gap-2.5 px-3.5 py-3">
+      <LiveDot className="size-1.5" />
+      <span className="text-text-secondary text-[12px]">
+        {channel.name} has {people} {people === 1 ? 'person' : 'people'} in it. Changes here do not
+        drop them.
+      </span>
+    </div>
+  )
+}
 
 /** Channel settings → Overview (F7): name, topic with a live header preview, earlier messages. */
 export function ChannelOverviewPage({
@@ -64,7 +86,7 @@ export function ChannelOverviewPage({
         <MobileField id="channel-name-edit" label={nameLabel}>
           <Input
             size="touch"
-            lead={hashed ? <Hash className="text-accent-text" /> : undefined}
+            lead={hashed ? <Hash className="text-text-tertiary" /> : undefined}
             value={name}
             maxLength={100}
             disabled={!editable}
@@ -96,7 +118,7 @@ export function ChannelOverviewPage({
               </div>
             </MobileField>
             <div className="flex flex-col gap-2">
-              <span className="text-text-secondary text-[13px] leading-4 font-bold">Preview</span>
+              <span className="text-text-secondary text-[13px] leading-4 font-semibold">Preview</span>
               {/* The phone's channel header with the draft, as a picture: no focus, no taps. */}
               <div
                 aria-hidden
@@ -112,8 +134,9 @@ export function ChannelOverviewPage({
             </div>
           </>
         )}
+        <VoiceLiveNote channel={channel} />
         {!editable && (
-          <p className="text-text-tertiary text-[12.5px] leading-[1.4] font-medium">
+          <p className="text-text-tertiary text-[12.5px] leading-[1.4]">
             You need the Manage channels permission to change these.
           </p>
         )}
@@ -183,18 +206,22 @@ export function ChannelOverviewPage({
             </div>
           </Field>
           <div className="grid gap-1.5">
-            <span className="text-xs leading-4 font-semibold">Preview</span>
+            <span className="cap">Preview</span>
             <div
               aria-label="Header preview"
-              className="bg-surface-panel border-line-hairline flex h-12 min-w-0 items-center gap-2 border px-4"
+              className="bg-surface-content border-line-hairline flex h-[60px] min-w-0 items-center gap-3 border pr-5 pl-6"
             >
-              <Hash aria-hidden className="text-text-tertiary size-4 shrink-0" />
-              <span className="text-heading shrink-0">{name.trim() || channel.name}</span>
-              <span className="text-text-tertiary truncate pl-2 text-[13px]">{topic.trim()}</span>
+              <Hash aria-hidden className="text-text-tertiary size-[17px] shrink-0" />
+              <span className="shrink-0 text-[16px] font-semibold tracking-[-0.3px]">
+                {name.trim() || channel.name}
+              </span>
+              {topic.trim() && <span aria-hidden className="bg-line-hairline h-[18px] w-px" />}
+              <span className="text-text-tertiary truncate text-[12.5px]">{topic.trim()}</span>
             </div>
           </div>
         </>
       )}
+      <VoiceLiveNote channel={channel} />
       {!editable && (
         <p className="text-meta text-text-tertiary">
           You need the Manage channels permission to change these.

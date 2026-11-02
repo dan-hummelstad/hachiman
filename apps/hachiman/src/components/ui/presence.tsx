@@ -2,11 +2,15 @@ import type { PresenceStatus } from '@hachiman/client'
 import type { Hole } from '@/lib/tile-cutouts'
 import { cn } from '@/lib/utils'
 
-const COLOR: Record<PresenceStatus, string> = {
-  online: 'bg-status-online',
-  idle: 'bg-status-idle',
-  dnd: 'bg-status-dnd',
-  offline: 'bg-status-offline'
+/**
+ * Presence is shape, not colour: online filled, idle a ring, dnd filled with a bar cut through it
+ * (in `--presence-bar`, the colour behind the dot), offline a faint ring. `live` is the teal dot.
+ */
+const SHAPE: Record<PresenceStatus, string> = {
+  online: 'bg-text-primary',
+  idle: 'border-[1.5px] border-text-secondary bg-transparent',
+  dnd: 'bg-text-primary after:absolute after:inset-x-[20%] after:top-1/2 after:h-[20%] after:-translate-y-1/2 after:bg-(--presence-bar,var(--surface-panel))',
+  offline: 'border-[1.5px] border-text-disabled bg-transparent'
 }
 
 export const PRESENCE_LABEL: Record<PresenceStatus, string> = {
@@ -61,8 +65,8 @@ export function presenceHole(avatar: number): Hole {
 }
 
 /**
- * Circular presence dot. The label is its accessible name, so colour is never the only cue.
- * `live`: the purple streaming dot (`--status-live`, M56).
+ * Circular presence dot. The label is its accessible name; the shape is the visual cue.
+ * `live`: the teal streaming dot (M56).
  */
 function PresenceDot({
   status,
@@ -84,7 +88,7 @@ function PresenceDot({
       style={style}
       className={cn(
         'relative inline-block size-2 shrink-0 rounded-full',
-        live ? 'bg-status-live' : COLOR[status],
+        live ? 'bg-live' : SHAPE[status],
         className
       )}
     />

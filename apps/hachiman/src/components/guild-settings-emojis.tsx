@@ -144,7 +144,7 @@ function EmojiRow({ emoji, uploader }: { emoji: GuildEmoji; uploader: string }):
         className={cn(
           'size-8',
           armed &&
-            'bg-feature-danger hover:bg-feature-danger text-text-on-accent hover:text-text-on-accent'
+            'border-you text-you-text bg-you-tint border'
         )}
         disabled={busy}
         onBlur={() => setArmed(false)}

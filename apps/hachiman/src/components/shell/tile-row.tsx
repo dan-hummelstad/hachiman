@@ -9,15 +9,14 @@ import { UnreadMark } from '@/components/ui/unread-mark'
 import { useLayout } from '@/hooks/use-layout'
 import { SORTABLE_TOUCH, useDragSensors, useSortableRow } from '@/hooks/use-sortable-row'
 import type { UnreadBadge } from '@/lib/notify'
-import { LIT_BG, ROW_TILES, tileSurface } from '@/lib/sidebar-tiles'
+import { ROW_TILES, tileSurface } from '@/lib/sidebar-tiles'
 import { STACK_W, cutStyle, stackHoles, tileMark, type Hole } from '@/lib/tile-cutouts'
 import { cn } from '@/lib/utils'
 
 const COLUMNS = ROW_TILES + 1
 
-/** The lit "+" of a row (M44): a voice-green tile with a green mark. Mobile layout only. */
-const ADD_LIT =
-  'mobile:border mobile:border-feature-voice/50 mobile:bg-feature-voice/18 mobile:text-feature-voice-text'
+/** The lit "+" of a row (M44): a `live` tile with a `live` mark. Mobile layout only. */
+const ADD_LIT = 'mobile:border mobile:border-live-line mobile:bg-live-tint mobile:text-live-text'
 
 /**
  * On the mobile layout a tile is a translucent fill (it takes the drawer tint, M3, M12), and the
@@ -25,30 +24,25 @@ const ADD_LIT =
  * `[data-slot=avatar]` in the tile takes the mask in `--cut`.
  */
 const TILE = cn(
-  'relative flex h-[46px] w-full items-center justify-center rounded-[8px] border',
+  'rounded-option relative flex h-11 w-full items-center justify-center border mobile:h-[50px] mobile:rounded-[14px]',
   'mobile:[&_[data-slot=avatar]]:[mask-image:var(--cut,none)] mobile:[&_[data-slot=avatar]]:[mask-composite:intersect]'
 )
 /**
- * The lit tile of a guild or DM on the mobile layout (M2, M3, M12): the tile keeps its fill and a
- * 2 px ring in the text ink circles the icon. It sits under the badge and the presence dot.
+ * The lit tile of a space (`here`): the accent fill with a 1.5px accent border; on the mobile
+ * layout a tint with a 2px accent border. An idle tile is a neutral avatar shade.
  */
-const LIT_RING = cn(
-  'mobile:border-transparent mobile:bg-surface-hover',
-  "mobile:before:absolute mobile:before:top-1/2 mobile:before:left-1/2 mobile:before:size-9 mobile:before:-translate-1/2 mobile:before:rounded-full mobile:before:border-2 mobile:before:border-text-primary mobile:before:content-['']"
-)
-
-const tileClass = (lit: boolean, held = false, ring = false): string =>
+const tileClass = (lit: boolean, held = false): string =>
   cn(
     TILE,
     'transition-colors',
     lit
-      ? cn(LIT_BG, 'border-accent-primary/40 mobile:bg-accent-primary/17', ring && LIT_RING)
-      : 'bg-surface-raised hover:bg-surface-hover mobile:bg-surface-hover border-transparent',
-    held && 'mobile:bg-fill-control-strong'
+      ? 'bg-here border-here text-on-here border-[1.5px] mobile:border-2 mobile:bg-here-tint mobile:text-here-text'
+      : 'bg-avatar-1 text-text-tertiary hover:bg-avatar-2 mobile:bg-surface-raised border-transparent',
+    held && 'mobile:bg-surface-selected'
   )
 
 /**
- * One row of the sidebar top (docs/ui-redesign.md §7): a small header with "+", then five
+ * The space tiles of the sidebar top: a small header with "+", then five
  * places a row. `ids` are the tiles; the cluster tile takes the fifth place, so with more than
  * four `ids` (the open guild grid) it ends the first line and the rest follow, five a line.
  * Arrow keys move the focus (up and down by a line). `onMove`: drag a tile onto another to
@@ -105,29 +99,21 @@ export function TileRow({
   }
 
   return (
-    <section aria-label={label} className="flex flex-col gap-1.5">
-      <div className="flex h-5 items-center pl-1">
-        <h2 className="section-label flex-1 text-[11px]">{label}</h2>
+    <section aria-label={label} className="flex flex-col">
+      <div className="flex h-[26px] items-center px-3">
+        <h2 className="cap flex-1">{label}</h2>
         <IconButton
           size="sm"
           label={add.label}
           onClick={add.onClick}
-          className={cn(
-            'text-text-tertiary rounded-control h-5 w-[22px]',
-            TOUCH_HIT,
-            addLit && ADD_LIT
-          )}
+          className={cn('text-text-disabled rounded-control h-5 w-[22px]', TOUCH_HIT, addLit && ADD_LIT)}
         >
-          <Plus />
+          <Plus className="size-[13px]" />
         </IconButton>
       </div>
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
         <SortableContext items={[...ids]} strategy={rectSortingStrategy} disabled={!onMove}>
-          {/* An avatar initial gets a lighter fill than the tile, so its disc shows. */}
-          <ul
-            onKeyDown={onKeyDown}
-            className="grid grid-cols-5 gap-1.5 [&_[data-slot=avatar-fallback]]:bg-surface-hover"
-          >
+          <ul onKeyDown={onKeyDown} className="grid grid-cols-5 gap-2 px-3 pt-1">
             {ids.slice(0, ROW_TILES).map(renderTile)}
             {cluster}
             {ids.slice(ROW_TILES).map(renderTile)}
@@ -178,7 +164,7 @@ export function Tile({
             aria-label={label}
             aria-current={lit ? 'page' : undefined}
             onClick={onClick}
-            className={cn(tileClass(lit, held, true), SORTABLE_TOUCH, className)}
+            className={cn(tileClass(lit, held), SORTABLE_TOUCH, className)}
           >
             {children}
           </button>
@@ -188,7 +174,7 @@ export function Tile({
           <TooltipContent
             side="top"
             updatePositionStrategy="always"
-            className="mobile:pointer-coarse:block px-2.5 py-1.5 text-[12.5px] font-bold"
+            className="mobile:pointer-coarse:block px-2.5 py-1.5 text-[12.5px] font-semibold"
           >
             {label}
           </TooltipContent>
@@ -211,8 +197,9 @@ export function ClusterTile({
   badge,
   expanded,
   onClick,
-  stack,
-  fallback
+  stack = [],
+  fallback,
+  count
 }: {
   label: string
   lit: boolean
@@ -221,8 +208,10 @@ export function ClusterTile({
   expanded?: boolean
   onClick: () => void
   /** Up to three 18px icons of the ids behind the tile. */
-  stack: React.ReactNode[]
+  stack?: React.ReactNode[]
   fallback?: React.ReactNode
+  /** Shows "+N" in place of the stack (the overflow tile). */
+  count?: number
 }): React.JSX.Element {
   const mark = tileMark(badge, STACK_W, { dot: false })
   return (
@@ -237,14 +226,21 @@ export function ClusterTile({
             aria-expanded={expanded}
             aria-current={lit ? 'page' : undefined}
             onClick={onClick}
-            className={cn(tileClass(lit), 'text-text-secondary')}
+            className={cn(
+              tileClass(lit),
+              count !== undefined && !lit && 'border-line-strong bg-transparent hover:bg-surface-hover border'
+            )}
           >
             {expanded ? (
               <ChevronUp className="size-4" />
             ) : (
               // Desktop: the badge is on the tile's corner (this span is not positioned).
               <span className="mobile:relative flex">
-                <Stack items={stack} fallback={fallback} lit={lit} cut={mark.holes} />
+                {count !== undefined ? (
+                  <span className="font-mono text-[11px]">+{count}</span>
+                ) : (
+                  <Stack items={stack} fallback={fallback} lit={lit} cut={mark.holes} />
+                )}
                 <UnreadMark
                   badge={badge}
                   size="corner"

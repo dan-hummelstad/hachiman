@@ -8,7 +8,7 @@ import { quoteText } from './message-summary'
 
 /**
  * The one-line quote above a reply (N11, B1): a link curve from the avatar column, the small
- * avatar and the name of the target's author in their colour, and one line of its text. A click
+ * avatar and the name of the target's author, and one line of its text. A click
  * scrolls to the target. "Encrypted message" when it did not decrypt, "Original message not
  * loaded" when it is not in the store.
  */
@@ -29,14 +29,14 @@ export function ReplyQuote({
     <div
       className={cn(
         'relative flex h-[22px] min-w-0 items-center text-[13px] leading-[18px]',
-        compact ? 'pl-[calc(2.75rem+10ch+1.5rem)]' : 'pl-[54px]'
+        compact ? 'pl-[calc(2.75rem+10ch+1.5rem)]' : 'mobile:pl-[42px] pl-[50px]'
       )}
     >
       {!compact && (
         // The link curve: from above the avatar's centre to the quote.
         <span
           aria-hidden
-          className="border-line-strong pointer-events-none absolute top-[11px] left-[20px] h-[9px] w-[28px] rounded-tl-[6px] border-t-2 border-l-2"
+          className="border-line-strong pointer-events-none absolute top-[11px] left-[18px] h-[9px] w-[26px] mobile:left-[16px] mobile:w-[22px] rounded-tl-[6px] border-t-2 border-l-2"
         />
       )}
       {preview.status === 'missing' ? (
@@ -61,7 +61,7 @@ function QuoteLine({
   guildId: string | null
   encrypted: boolean
 }): React.JSX.Element {
-  const { name, avatar, ink } = useMemberView(guildId, target.author.id, target.author)
+  const { name, avatar } = useMemberView(guildId, target.author.id, target.author)
   return (
     <button
       type="button"
@@ -72,16 +72,11 @@ function QuoteLine({
         TOUCH_HIT_BAND
       )}
     >
-      <UserAvatar avatar={avatar} name={name} color={ink} size={16} />
-      <span
-        className={cn('shrink-0 font-semibold', !ink && 'text-text-primary')}
-        style={ink ? { color: ink } : undefined}
-      >
-        {name}
-      </span>
+      <UserAvatar avatar={avatar} name={name} size={16} />
+      <span className="text-text-secondary shrink-0 font-semibold">{name}</span>
       <span
         className={cn(
-          'text-text-secondary group-hover/quote:text-text-primary min-w-0 truncate',
+          'text-text-tertiary group-hover/quote:text-text-secondary min-w-0 truncate',
           encrypted && 'text-text-tertiary italic'
         )}
       >

@@ -7,8 +7,3 @@ import { hashString } from '@/lib/hash'
 export function userHue(userId: string): number {
   return hashString(userId) % 360
 }
-
-/** The banner gradient of a profile for a hue (the avatar's dominant hue, else `userHue`). */
-export function bannerGradient(hue: number): string {
-  return `linear-gradient(135deg, hsl(${hue} 62% 46%), hsl(${(hue + 24) % 360} 58% 34%))`
-}

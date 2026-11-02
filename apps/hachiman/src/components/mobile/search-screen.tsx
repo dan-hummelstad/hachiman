@@ -14,7 +14,6 @@ import {
 } from 'lucide-react'
 import { countLocalPushed } from '@/components/mobile/drawer-state'
 import { FilterChip, FilterChips, type FilterChipOption } from '@/components/mobile/filter-chips'
-import { SectionLabel } from '@/components/mobile/list'
 import {
   MenuSheet,
   MenuSheetContent,
@@ -33,14 +32,13 @@ import {
   type SwitcherMode
 } from '@/components/shell/switcher-state'
 import { UserAvatar } from '@/components/shell/user-avatar'
-import { WALLPAPER } from '@/components/shell/wallpaper'
-import { FEATURE_TILE } from '@/components/ui/feature'
+import { PresenceWord } from '@/components/shell/presence-word'
 import { GuildTile } from '@/components/ui/guild-tile'
-import { SystemTag } from '@/components/ui/system-tag'
+import { LivePill } from '@/components/ui/live'
 import { UnreadMark } from '@/components/ui/unread-mark'
 import { useChannelOccupants } from '@/hooks/use-hachiman'
 import { LONG_PRESS_TARGET, useLongPress } from '@/hooks/use-long-press'
-import { useMemberView, usePresence } from '@/hooks/use-member'
+import { usePresence } from '@/hooks/use-member'
 import { captureOpener, restoreFocus } from '@/lib/focus-opener'
 import { voiceActivity, type VoiceActivity } from '@/lib/member-activity'
 import {
@@ -51,7 +49,6 @@ import {
   type SwitchItem,
   type SwitchKind
 } from '@/lib/quick-switcher'
-import { ROLE_INK_SCOPE } from '@/lib/role-ink'
 import { orderedIds } from '@/lib/sidebar-tiles'
 import { cn } from '@/lib/utils'
 import { useChannelStore } from '@/stores/channelStore'
@@ -98,18 +95,7 @@ const KIND_ICON: Record<ChannelKind, LucideIcon> = {
   page: FileText
 }
 
-const KIND_TILE: Record<ChannelKind, string> = {
-  text: 'bg-surface-hover text-text-tertiary',
-  voice: FEATURE_TILE.voice,
-  pages: FEATURE_TILE.page,
-  page: FEATURE_TILE.page
-}
-
-/** The 32 square tile of a result (icon 16). */
-const TILE = 'flex size-8 shrink-0 items-center justify-center [&_svg]:size-4'
-
-/** The LIVE tag of the kit: 22 high, padding 7, 11/800, radius 4. */
-const LIVE_TAG = 'h-[22px] rounded-[4px] px-[7px] text-[11px]'
+const META = 'text-text-disabled font-mono text-[8.5px] tracking-[1px] uppercase'
 
 const NO_SPEAKERS: ReadonlySet<string> = new Set()
 
@@ -146,6 +132,7 @@ export function MobileSearchScreen({ mode }: { mode: SwitcherMode }): React.JSX.
   const pinMode = mode === 'pin'
   const typed = query.trim() !== ''
   const first = sections[0]?.items[0]
+  const count = useMemo(() => sections.reduce((n, g) => n + g.items.length, 0), [sections])
 
   // Inside the opening tap: `openSwitcher` commits this screen synchronously.
   useLayoutEffect(() => {
@@ -189,6 +176,7 @@ export function MobileSearchScreen({ mode }: { mode: SwitcherMode }): React.JSX.
 
   return (
     <DialogPrimitive.Root open onOpenChange={(open) => !open && closeSwitcher()}>
+      <div aria-hidden className="bg-surface-scrim fixed inset-0 z-50" onClick={closeSwitcher} />
       <DialogPrimitive.Content
         data-slot="search-screen"
         aria-describedby={undefined}
@@ -198,26 +186,26 @@ export function MobileSearchScreen({ mode }: { mode: SwitcherMode }): React.JSX.
           restoreFocus(opener)
         }}
         className={cn(
-          'fixed inset-x-0 top-0 z-50 flex h-(--app-height,100dvh) flex-col pt-(--safe-top) outline-none',
-          'data-[state=open]:animate-in data-[state=open]:fade-in-0 duration-150',
-          // The tinted window behind the search field (`components/shell/wallpaper.ts`). The
-          // `--wallpaper-*` vars come from the MobileShell root, which holds the screen (no portal).
-          WALLPAPER
+          'border-line-strong bg-surface-panel fixed inset-x-0 top-[calc(var(--safe-top)+96px)] bottom-0 z-50 flex flex-col rounded-t-[26px] border-t pb-(--safe-bottom) outline-none in-data-[keyboard=open]:pb-0',
+          'data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:slide-in-from-bottom-4 duration-150'
         )}
       >
         <DialogPrimitive.Title className="sr-only">
           {pinMode ? 'Pin to tabs' : 'Search'}
         </DialogPrimitive.Title>
-        <div className="flex h-14 shrink-0 items-center gap-2.5 pr-2 pl-3">
+        <div aria-hidden className="flex h-[26px] shrink-0 items-center justify-center">
+          <span className="bg-line-strong h-1 w-10 rounded-[2px]" />
+        </div>
+        <div className="shrink-0 px-4 pt-0.5 pb-3">
           <form
             role="search"
             onSubmit={submit}
-            className="rounded-control border-line-strong bg-surface-hover focus-within:border-line-focus focus-within:ring-line-focus flex h-11 min-w-0 flex-1 items-center gap-2.5 border pr-1 pl-3 focus-within:ring-[0.5px]"
+            className="rounded-pill border-here/40 bg-surface-sunken focus-within:border-here flex h-[46px] min-w-0 items-center gap-2.5 border-[1.5px] px-4"
           >
             {pinMode ? (
-              <Pin aria-hidden className="text-accent-text size-[17px] shrink-0" />
+              <Pin aria-hidden className="text-here size-[17px] shrink-0" />
             ) : (
-              <Search aria-hidden className="text-text-secondary size-[17px] shrink-0" />
+              <Search aria-hidden className="text-here size-[17px] shrink-0" />
             )}
             <input
               ref={field}
@@ -234,8 +222,13 @@ export function MobileSearchScreen({ mode }: { mode: SwitcherMode }): React.JSX.
               }}
               placeholder={pinMode ? 'Pin a channel, page or DM' : 'Search or jump to'}
               aria-label={label}
-              className="text-text-primary placeholder:text-text-tertiary h-full min-w-0 flex-1 appearance-none bg-transparent text-base leading-5 font-medium outline-none [&::-webkit-search-cancel-button]:appearance-none [&::-webkit-search-decoration]:appearance-none"
+              className="text-text-primary placeholder:text-text-tertiary caret-here h-full min-w-0 flex-1 appearance-none bg-transparent text-base leading-5 font-normal outline-none [&::-webkit-search-cancel-button]:appearance-none [&::-webkit-search-decoration]:appearance-none"
             />
+            {typed && (
+              <span className={cn(META, 'shrink-0')}>
+                {count} {count === 1 ? 'RESULT' : 'RESULTS'}
+              </span>
+            )}
             {query !== '' && (
               <button
                 type="button"
@@ -247,31 +240,29 @@ export function MobileSearchScreen({ mode }: { mode: SwitcherMode }): React.JSX.
                   setError(null)
                   field.current?.focus()
                 }}
-                className={cn(KIT_ICON_BUTTON, 'text-text-tertiary active:bg-surface-hover')}
+                className={cn(KIT_ICON_BUTTON, 'text-text-tertiary active:bg-surface-hover -mr-2')}
               >
                 <CircleX className="size-[17px]" />
               </button>
             )}
           </form>
-          <DialogPrimitive.Close className="text-accent-text focus-visible:outline-line-focus rounded-control h-11 shrink-0 px-1.5 text-[15px] leading-[18px] font-bold outline-none focus-visible:outline-2 active:opacity-70">
-            Cancel
-          </DialogPrimitive.Close>
+          <DialogPrimitive.Close className="sr-only">Close</DialogPrimitive.Close>
         </div>
-        <div className="bg-surface-content border-line-hairline flex min-h-0 flex-1 flex-col border-t pb-(--safe-bottom) in-data-[keyboard=open]:pb-0">
+        <div className="flex min-h-0 flex-1 flex-col">
           <FilterChips
             type="single"
             label="Show"
             options={CHIPS}
             value={filter.kind}
             onValueChange={(kind) => setSwitcherFilter({ kind })}
-            className="shrink-0 px-4 pt-2.5 pb-1.5"
+            className="shrink-0 px-4 pb-2"
           >
             <GuildChip guildId={filter.guildId} />
           </FilterChips>
           {error && (
             <p
               role="alert"
-              className="text-feature-danger-text shrink-0 px-4 pt-1.5 text-[13px] leading-4 font-semibold"
+              className="text-you-text shrink-0 px-4 pt-1.5 text-[13px] leading-4 font-semibold"
             >
               {error}
             </p>
@@ -280,8 +271,7 @@ export function MobileSearchScreen({ mode }: { mode: SwitcherMode }): React.JSX.
             onTouchStart={onTouchStart}
             onTouchMove={onTouchMove}
             className={cn(
-              'min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 pt-0.5 pb-3',
-              ROLE_INK_SCOPE
+              'min-h-0 flex-1 overflow-y-auto overscroll-contain px-0 pt-0.5 pb-3'
             )}
           >
             {sections.length === 0 ? (
@@ -321,19 +311,41 @@ function GuildChip({ guildId }: { guildId: string | null }): React.JSX.Element |
   return (
     <MenuSheet>
       <MenuSheetTrigger asChild>
-        <FilterChip menu active={name !== undefined}>
-          <span className="max-w-40 truncate">In: {name ?? 'any guild'}</span>
+        <FilterChip
+          menu
+          active={name !== undefined}
+          className={cn(
+            'h-8 gap-[5px] border px-2.5',
+            name !== undefined ? 'border-here/40 bg-here-tint' : 'border-line-strong bg-transparent'
+          )}
+        >
+          <span
+            className={cn(
+              'font-mono text-[7.5px] tracking-[0.8px] uppercase',
+              name !== undefined ? 'text-here-text' : 'text-text-disabled'
+            )}
+          >
+            IN
+          </span>
+          <span
+            className={cn(
+              'max-w-40 truncate text-[11.5px] font-semibold',
+              name !== undefined ? 'text-here-text' : 'text-text-secondary'
+            )}
+          >
+            {name ?? 'Any space'}
+          </span>
         </FilterChip>
       </MenuSheetTrigger>
       <MenuSheetContent title="Search in">
         <MenuSheetRadioGroup
-          aria-label="Guild"
+          aria-label="Space"
           value={name !== undefined && guildId !== null ? guildId : ANY_GUILD}
           onValueChange={(v) => setSwitcherFilter({ guildId: v === ANY_GUILD ? null : v })}
         >
           <MenuSheetRadioItem value={ANY_GUILD}>
             <Globe />
-            Any guild
+            Any space
           </MenuSheetRadioItem>
           {ids.map((id) => {
             const g = guilds.get(id)
@@ -381,9 +393,12 @@ function ResultSection({
   const id = useId()
   return (
     <section aria-labelledby={id}>
-      <SectionLabel id={id} className="flex h-[30px] items-end px-2 pt-0 pb-1">
+      <h2
+        id={id}
+        className="text-text-disabled flex h-[30px] items-center px-[18px] font-mono text-[8px] tracking-[1.4px] uppercase"
+      >
         {GROUP_LABEL[group]}
-      </SectionLabel>
+      </h2>
       <ul className="flex flex-col">
         {items.map((it) => (
           <Result
@@ -408,12 +423,24 @@ function Result(props: ResultProps): React.JSX.Element {
   return <ChannelResult {...props} />
 }
 
-function KindTile({ kind }: { kind: ChannelKind }): React.JSX.Element {
+function KindIcon({
+  kind,
+  lit,
+  live = false
+}: {
+  kind: ChannelKind
+  lit: boolean
+  live?: boolean
+}): React.JSX.Element {
   const Icon = KIND_ICON[kind]
   return (
-    <span aria-hidden className={cn(TILE, KIND_TILE[kind])}>
-      <Icon />
-    </span>
+    <Icon
+      aria-hidden
+      className={cn(
+        'size-[18px] shrink-0',
+        lit ? 'text-here' : live ? 'text-live' : 'text-text-tertiary'
+      )}
+    />
   )
 }
 
@@ -425,30 +452,23 @@ function ChannelResult(props: ResultProps): React.JSX.Element {
     item.kind === 'page' && item.channelId ? s.channels.get(item.channelId)?.name : undefined
   )
   const where = item.guildName ?? ''
-  const detail =
-    kind === 'page' && parent
-      ? `${where} · #${parent}`
-      : kind === 'pages'
-        ? `${where} · pages`
-        : where
-  return <ResultRow {...props} lead={<KindTile kind={kind} />} detail={detail} />
+  const detail = kind === 'page' && parent ? `${where} · #${parent}` : where
+  return (
+    <ResultRow {...props} lead={<KindIcon kind={kind} lit={props.lit} />} detail={detail} />
+  )
 }
 
-/** A voice channel: "n in call", and LIVE while someone streams. */
+/** A voice channel: the live pill while someone is in the call. */
 function VoiceResult(props: ResultProps): React.JSX.Element {
   const { item } = props
   const occupants = useChannelOccupants(item.guildId, item.channelId ?? '')
-  const live = occupants.some((vs) => vs.selfStream)
-  const count = occupants.length
-  const detail = [item.guildName, 'voice', count > 0 && `${count} in call`]
-    .filter(Boolean)
-    .join(' · ')
+  const inCall = occupants.length > 0
   return (
     <ResultRow
       {...props}
-      lead={<KindTile kind="voice" />}
-      detail={detail}
-      marks={live && <SystemTag kind="live" className={LIVE_TAG} />}
+      lead={<KindIcon kind="voice" lit={props.lit} live={inCall} />}
+      detail={item.guildName ?? ''}
+      marks={inCall && <LivePill className="px-2 py-[3px] text-[7.5px]">IN A CALL</LivePill>}
     />
   )
 }
@@ -475,8 +495,8 @@ function useVoicePlace(userId: string): VoiceActivity | null {
 }
 
 /**
- * A DM or a person: the avatar with presence (purple while streaming), the name in the role ink of
- * a shared guild, the voice activity or the guild, and a Message button. A group DM has a tile.
+ * A DM or a person: the avatar, the name, the guild (or "Direct message" or the voice place) and
+ * the presence as a word. A group DM has a tile. A Message button sits beside the row.
  */
 function PersonResult(props: ResultProps): React.JSX.Element {
   const { item, pinMode, onPick } = props
@@ -484,7 +504,6 @@ function PersonResult(props: ResultProps): React.JSX.Element {
   const firstGuild = item.guildIds?.[0] ?? null
   const status = usePresence(item.userId)
   const activity = useVoicePlace(userId)
-  const { ink } = useMemberView(firstGuild, userId)
   const guildName = useGuildStore((s) => (firstGuild ? s.guilds.get(firstGuild)?.name : undefined))
   const more = (item.guildIds?.length ?? 0) - 1
   const group = item.kind === 'dm' && item.userId === undefined
@@ -505,24 +524,16 @@ function PersonResult(props: ResultProps): React.JSX.Element {
         group ? (
           <span
             aria-hidden
-            className={cn(TILE, 'bg-surface-hover text-text-tertiary rounded-full')}
+            className="bg-surface-raised text-text-tertiary flex size-7 shrink-0 items-center justify-center rounded-full [&_svg]:size-4"
           >
             <Users />
           </span>
         ) : (
-          <UserAvatar
-            name={item.name}
-            avatar={item.avatar}
-            color={ink}
-            size={32}
-            status={status}
-            live={activity?.streaming ?? false}
-            ringHole
-          />
+          <UserAvatar name={item.name} avatar={item.avatar} size={28} />
         )
       }
-      nameStyle={group ? undefined : { color: ink }}
       detail={detail}
+      marks={!group && <PresenceWord status={status} />}
       action={
         !group &&
         !pinMode && (
@@ -551,7 +562,7 @@ function Lit({ name, query }: { name: string; query: string }): React.JSX.Elemen
   return (
     <>
       {name.slice(0, from)}
-      <mark className="bg-accent-primary/32 text-text-primary rounded-[3px] px-px font-extrabold">
+      <mark className="border-you/40 bg-you-tint text-you-text rounded-[3px] border px-1 py-px font-semibold">
         {name.slice(from, to)}
       </mark>
       {name.slice(to)}
@@ -560,8 +571,9 @@ function Lit({ name, query }: { name: string; query: string }): React.JSX.Elemen
 }
 
 /**
- * One result row (52): the tile or avatar, the name (15/700) with the match lit, the detail line
- * (12.5/500), then the marks (LIVE, pinned, unread) and an optional action button beside the row.
+ * One result row (50): the icon or avatar, the name (15) with the match lit, the guild or place
+ * as a mono caption on the right, then the marks (live, presence, pinned, unread) and an optional
+ * action button beside the row.
  */
 function ResultRow({
   item,
@@ -572,53 +584,51 @@ function ResultRow({
   onPick,
   lead,
   detail,
-  nameStyle,
   marks,
   action
 }: ResultProps & {
   lead: React.ReactNode
   detail: string
-  nameStyle?: React.CSSProperties
   marks?: React.ReactNode
   action?: React.ReactNode
 }): React.JSX.Element {
   const badge = useChannelUnread(item.channelId ?? '')
   const hold = useLongPress(() => onPick(item, true))
   return (
-    <li
-      data-lit={lit || undefined}
-      className={cn('rounded-control flex h-[52px] items-center', lit && 'bg-accent-primary/12')}
-    >
+    <li data-lit={lit || undefined} className={cn('relative flex h-[50px] items-center', lit && 'bg-here-tint')}>
+      {lit && (
+        <span
+          aria-hidden
+          className="bg-here absolute top-1/2 left-0 h-5 w-[3px] -translate-y-1/2 rounded-[2px]"
+        />
+      )}
       <button
         type="button"
         onClick={() => onPick(item, pinMode)}
         {...hold}
         className={cn(
-          'rounded-control flex h-full min-w-0 flex-1 items-center gap-3 px-2 text-left outline-none',
+          'flex h-full min-w-0 flex-1 items-center gap-[13px] px-[18px] text-left outline-none',
           'focus-visible:outline-line-focus active:bg-surface-hover focus-visible:outline-2 focus-visible:-outline-offset-2',
-          action ? 'pr-3' : 'pr-2',
+          action && 'pr-3',
           LONG_PRESS_TARGET
         )}
       >
         {lead}
-        <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-          <span
-            style={nameStyle}
-            className="text-text-primary truncate text-[15px] leading-[18px] font-bold"
-          >
-            <Lit name={item.name || 'Untitled'} query={query} />
-          </span>
-          {detail && (
-            <span className="text-text-tertiary truncate text-[12.5px] leading-[15px] font-medium">
-              {detail}
-            </span>
+        <span
+          className={cn(
+            'text-text-primary min-w-0 truncate text-[15px] leading-[18px]',
+            lit && 'font-semibold'
           )}
+        >
+          <Lit name={item.name || 'Untitled'} query={query} />
         </span>
+        <span className="flex-1" />
+        {detail && <span className={cn(META, 'min-w-0 truncate')}>{detail}</span>}
         {marks}
-        {pinned && <Pin aria-label="Pinned" className="text-text-tertiary size-3.5 shrink-0" />}
+        {pinned && <Pin aria-label="Pinned" className="text-text-disabled size-3.5 shrink-0" />}
         <UnreadMark badge={badge} size="sm" />
       </button>
-      {action && <span className="flex shrink-0 pr-2">{action}</span>}
+      {action && <span className="flex shrink-0 pr-3">{action}</span>}
     </li>
   )
 }

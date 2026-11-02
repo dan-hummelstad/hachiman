@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Check, Copy, History, Link2, Share, UserPlus } from 'lucide-react'
+import { Check, Copy, History, Info, Link2, Share, UserPlus } from 'lucide-react'
 import { useCopy } from '@/hooks/use-copy'
 import { Permissions, has, type Channel } from '@hachiman/client'
 import { MobileField } from '@/components/mobile/field'
@@ -20,7 +20,7 @@ import { useAction } from '@/hooks/use-action'
 import { usePermissions } from '@/hooks/use-hachiman'
 import { useLayout } from '@/hooks/use-layout'
 import { inviteLimitsText } from '@/lib/model'
-import { cn, errMsg } from '@/lib/utils'
+import { errMsg } from '@/lib/utils'
 import { copyInviteLink, inviteUrl, type InviteOptionsValue } from '@/services/InviteService'
 import { usePlatform } from '@/shared/PlatformContext'
 import { useDialog } from '@/stores/dialogStore'
@@ -83,19 +83,23 @@ export function InviteDialog(): React.JSX.Element {
       open={open}
       onClose={close}
       title={mobile || !guildName ? 'Invite people' : `Invite people to ${guildName}`}
-      description={mobile ? guildName : undefined}
+      description={mobile ? guildName : invite.memberCount ? `${invite.memberCount} members` : undefined}
       icon={<UserPlus />}
       actions={
         mobile ? undefined : (
-          <Button variant="secondary" onClick={close}>
-            Done
-          </Button>
+          <>
+            <span className="cap-sm mr-auto flex items-center gap-1.5">
+              <Info aria-hidden className="text-text-disabled size-3.5" />
+              ANYONE WITH THIS LINK CAN JOIN {guildName?.toUpperCase() ?? 'THE GUILD'}
+            </span>
+            <Button onClick={close}>Done</Button>
+          </>
         )
       }
     >
       {!invite.canCreate ? (
         <p className="text-text-secondary mobile:text-[15px] mobile:leading-[1.5] mobile:font-medium text-sm">
-          You don’t have permission to create invites here. Ask a guild admin for a link.
+          You don’t have permission to create invites here. Ask a space admin for a link.
         </p>
       ) : (
         <>
@@ -113,6 +117,7 @@ export function InviteDialog(): React.JSX.Element {
 /** What `useInviteDialog` gives both bodies. */
 interface InviteDialogState {
   guildName: string | undefined
+  memberCount: number
   canCreate: boolean
   isAdmin: boolean
   /** The channels whose history an invite with history gives (`inviteScope`). */
@@ -144,6 +149,7 @@ interface InviteDialogState {
 function useInviteDialog(guildId: string): InviteDialogState {
   const platform = usePlatform()
   const guildName = useGuildStore((s) => s.guilds.get(guildId)?.name)
+  const memberCount = useGuildStore((s) => s.members.get(guildId)?.size ?? 0)
   const perms = usePermissions(guildId)
   const canCreate = has(perms, Permissions.CREATE_INSTANT_INVITE)
   const isAdmin = has(perms, Permissions.ADMINISTRATOR)
@@ -179,6 +185,7 @@ function useInviteDialog(guildId: string): InviteDialogState {
   const share = platform.share
   return {
     guildName,
+    memberCount,
     canCreate,
     isAdmin,
     scope,
@@ -230,7 +237,7 @@ function InviteBodyDesktop({ invite }: { invite: InviteDialogState }): React.JSX
     inviteExpiryChoices(isAdmin).find((o) => o.seconds === options.expiry)?.label ?? ''
   const expiryHint =
     options.expiry === 0
-      ? 'This link never expires. Revoke it in Guild settings when you do not need it.'
+      ? 'This link never expires. Revoke it in Space settings when you do not need it.'
       : `This link expires after ${expiryLabel.replace(/^1 /, 'one ')} and can be used ${
           options.maxUses === 0
             ? 'any number of times'
@@ -240,19 +247,6 @@ function InviteBodyDesktop({ invite }: { invite: InviteDialogState }): React.JSX
         }.`
   return (
     <>
-      <p className="text-text-secondary -mb-1 text-sm">
-        Send this link to anyone you want to join.
-      </p>
-      <div className="grid grid-cols-2 gap-3">
-        <InviteOptions value={options} isAdmin={isAdmin} onChange={invite.changeOptions} />
-      </div>
-      {isAdmin && (
-        <InviteHistoryOption
-          checked={history}
-          scope={invite.scope}
-          onChange={invite.changeHistory}
-        />
-      )}
       <Field
         id="invite-link"
         label="Invite link"
@@ -262,28 +256,52 @@ function InviteBodyDesktop({ invite }: { invite: InviteDialogState }): React.JSX
             : expiryHint
         }
       >
-        <div className="rounded-control border-line-strong bg-surface-sunken focus-within:border-accent-primary flex h-10 items-center gap-2 border pr-1 pl-3">
-          <Link2 aria-hidden className="text-text-tertiary size-4 shrink-0" />
-          <input
-            id="invite-link"
-            readOnly
-            value={invite.link}
-            placeholder="Create a link to share it"
-            onFocus={(e) => e.currentTarget.select()}
-            className="placeholder:text-text-tertiary min-w-0 flex-1 bg-transparent font-mono text-[13px] outline-none"
-          />
+        <div className="flex gap-2.5">
+          <div className="rounded-control border-line-hairline bg-surface-sunken focus-within:border-line-strong flex h-11 min-w-0 flex-1 items-center gap-2.5 border px-3.5">
+            <Link2 aria-hidden className="text-text-disabled size-3.5 shrink-0" />
+            <input
+              id="invite-link"
+              readOnly
+              value={invite.link}
+              placeholder="Create a link to share it"
+              onFocus={(e) => e.currentTarget.select()}
+              className="placeholder:text-text-tertiary text-text-secondary min-w-0 flex-1 bg-transparent font-mono text-[12.5px] outline-none"
+            />
+            {shown && (
+              <span className="cap-sm shrink-0 text-[8.5px]">
+                CREATED{' '}
+                {new Date(shown.createdAt).toLocaleTimeString(undefined, {
+                  hour: '2-digit',
+                  minute: '2-digit'
+                })}
+              </span>
+            )}
+          </div>
           {shown ? (
-            <Button className="w-28" onClick={invite.copy}>
-              {invite.copied ? <Check /> : <Copy />}
+            <Button variant="secondary" className="h-[41px] px-4" onClick={invite.copy}>
+              {invite.copied ? <Check className="text-text-primary" /> : <Copy />}
               {invite.copied ? 'Copied' : 'Copy link'}
             </Button>
           ) : (
-            <Button className="w-28" disabled={invite.busy} onClick={invite.create}>
+            <Button className="h-[41px] px-4" disabled={invite.busy} onClick={invite.create}>
               {invite.busy ? 'Creating…' : 'Create link'}
             </Button>
           )}
         </div>
       </Field>
+      <div className="grid grid-cols-2 gap-2.5">
+        <InviteOptions value={options} isAdmin={isAdmin} onChange={invite.changeOptions} />
+      </div>
+      {isAdmin && (
+        <>
+          <div className="bg-line-hairline h-px" />
+          <InviteHistoryOption
+            checked={history}
+            scope={invite.scope}
+            onChange={invite.changeHistory}
+          />
+        </>
+      )}
       {shown?.noOwnHistory && <NoOwnHistoryNote size="default" />}
       {!history && (
         <p className="text-meta text-text-tertiary">
@@ -323,6 +341,27 @@ function InviteBodyMobile({ invite }: { invite: InviteDialogState }): React.JSX.
       )
   return (
     <>
+      <MobileField
+        id="invite-link"
+        label="Invite link"
+        hint={
+          shown?.key
+            ? `It includes the history of ${shown.scope.join(', ')}. Copy or share it now: this sheet does not show it again.`
+            : undefined
+        }
+        error={invite.error}
+      >
+        <InviteLinkControl
+          link={invite.link}
+          hasKey={shown?.key != null}
+          busy={invite.busy}
+          copied={invite.copied}
+          expiryHint={expiryHint}
+          onCreate={shown ? undefined : invite.create}
+          onCopy={invite.copy}
+          onShare={invite.share}
+        />
+      </MobileField>
       <InviteOptions
         layout="touch"
         value={options}
@@ -334,7 +373,7 @@ function InviteBodyMobile({ invite }: { invite: InviteDialogState }): React.JSX.
           <ListGroup>
             <ListRow
               icon={<History />}
-              tile="page"
+              tile="neutral"
               label="Include history"
               detail={
                 scope.length === 0
@@ -348,26 +387,6 @@ function InviteBodyMobile({ invite }: { invite: InviteDialogState }): React.JSX.
           {history && <InviteHistoryScope scope={scope} size="touch" />}
         </>
       )}
-      <MobileField
-        id="invite-link"
-        label="Invite link"
-        hint={
-          shown?.key
-            ? `${expiryHint} It includes the history of ${shown.scope.join(', ')}. Copy or share it now: this sheet does not show it again.`
-            : expiryHint
-        }
-        error={invite.error}
-      >
-        <InviteLinkControl
-          link={invite.link}
-          hasKey={shown?.key != null}
-          busy={invite.busy}
-          copied={invite.copied}
-          onCreate={shown ? undefined : invite.create}
-          onCopy={invite.copy}
-          onShare={invite.share}
-        />
-      </MobileField>
       {invite.error && shown && (
         <Input
           size="touch"
@@ -386,22 +405,18 @@ function InviteBodyMobile({ invite }: { invite: InviteDialogState }): React.JSX.
   )
 }
 
-/** The 38 buttons inside the 48 link field (M46): radius 6, label 14/700, icon 15. */
-const FIELD_BUTTON =
-  "h-[38px] rounded-[6px] px-3 text-[14px] font-bold has-[>svg]:px-3 [&_svg:not([class*='size-'])]:size-[15px]"
-
 /**
- * The link field of the mobile sheet (M46): the lead link icon, the link (mono 14) and its
- * buttons, in one 48 box. Before the link exists: Create link. After: Copy (secondary, 80 wide)
- * and, with `onShare`, Share (primary 38). The link shows without its scheme, and its code stays
- * in view while the host part truncates; the key of a link with history shows as `#k=…`. It is
- * an `<output>`, so the field label names it; it is not a text field, so a tap raises no keyboard.
+ * The link card of the mobile sheet (D2): the link (mono 13, the host truncates and the code stays
+ * in view), then Create link, or Copy and, with `onShare`, Share, then the expiry line. The link
+ * shows without its scheme; the key of a link with history shows as `#k=…`. It is an `<output>`,
+ * so the field label names it; it is not a text field, so a tap raises no keyboard.
  */
 function InviteLinkControl({
   link,
   hasKey,
   busy,
   copied,
+  expiryHint,
   onCreate,
   onCopy,
   onShare
@@ -410,6 +425,7 @@ function InviteLinkControl({
   hasKey: boolean
   busy: boolean
   copied: boolean
+  expiryHint: string
   /** Set while there is no link yet. */
   onCreate: (() => void) | undefined
   onCopy: () => void
@@ -422,48 +438,53 @@ function InviteLinkControl({
   const host = base.slice(0, cut).replace(/^https?:\/\//, '')
   const code = base.slice(cut)
   return (
-    <div className="rounded-control border-line-strong bg-surface-sunken flex h-12 min-w-0 items-center gap-2 border pr-[5px] pl-3.5">
-      <Link2 aria-hidden className="text-text-tertiary size-4 shrink-0" />
-      <output
-        {...field}
-        aria-live="off"
-        className="flex min-w-0 flex-1 font-mono text-[14px] leading-5 font-medium"
-      >
-        {link ? (
-          <>
-            <span className="truncate">{host}</span>
-            <span className="shrink-0">{code}</span>
-            {hasKey && <span className="text-text-tertiary shrink-0">#k=…</span>}
-          </>
-        ) : (
-          <span className="text-text-tertiary truncate font-sans">Create a link to share it</span>
-        )}
-      </output>
+    <div className="bg-here-tint flex flex-col gap-3 rounded-[16px] p-4">
+      <div className="flex min-w-0 items-center gap-2">
+        <Link2 aria-hidden className="text-here-text size-[15px] shrink-0" />
+        <output
+          {...field}
+          aria-live="off"
+          className="text-here-text flex min-w-0 flex-1 font-mono text-[13px] leading-5"
+        >
+          {link ? (
+            <>
+              <span className="truncate">{host}</span>
+              <span className="shrink-0">{code}</span>
+              {hasKey && <span className="shrink-0 opacity-70">#k=…</span>}
+            </>
+          ) : (
+            <span className="text-text-secondary truncate font-sans text-[14px]">
+              Create a link to share it
+            </span>
+          )}
+        </output>
+      </div>
       {onCreate ? (
-        <Button className={FIELD_BUTTON} disabled={busy} onClick={onCreate}>
+        <Button size="mobile" disabled={busy} onClick={onCreate}>
           {busy ? 'Creating…' : 'Create link'}
         </Button>
       ) : (
-        <span className="flex shrink-0 items-center gap-1">
-          <Button
-            variant="secondary"
-            className={cn(FIELD_BUTTON, 'min-w-20 border-transparent bg-(--fill-control)')}
-            onClick={onCopy}
-          >
-            {copied ? <Check /> : <Copy />}
-            {copied ? 'Copied' : 'Copy'}
+        <div className="flex gap-2">
+          <Button size="mobile" className="flex-1" onClick={onCopy}>
+            {copied ? <Check /> : <Copy className="size-[15px]" />}
+            {copied ? 'Copied' : 'Copy link'}
           </Button>
           {onShare && (
             <Button
+              size="mobile"
+              variant="secondary"
               aria-label="Share link"
-              className="size-[38px] rounded-[6px] p-0 [&_svg:not([class*='size-'])]:size-[17px]"
+              className="w-12 px-0"
               onClick={onShare}
             >
               <Share />
             </Button>
           )}
-        </span>
+        </div>
       )}
+      <span className="cap-sm text-text-tertiary text-[8.5px] tracking-[1px]">
+        {expiryHint.toUpperCase()}
+      </span>
     </div>
   )
 }

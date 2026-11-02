@@ -50,7 +50,7 @@ export function SoundboardButton({
         </IconButton>
       </PopoverTrigger>
       <PopoverContent side="top" className="w-80 space-y-2">
-        <p className="section-label">Soundboard</p>
+        <p className="cap">Soundboard</p>
         {off && (
           <p className="text-text-tertiary text-xs">
             {serverMuted
@@ -62,7 +62,7 @@ export function SoundboardButton({
         )}
         {sounds.length === 0 ? (
           <p className="text-text-tertiary py-4 text-center text-sm">
-            This guild has no sounds yet.
+            This space has no sounds yet.
           </p>
         ) : (
           <ul className="grid max-h-72 grid-cols-3 gap-1.5 overflow-y-auto">
@@ -103,8 +103,8 @@ function SoundTile({
       title={state.error ?? sound.name}
       onClick={play}
       className={cn(
-        'rounded-control bg-surface-hover hover:bg-accent-tint flex h-14 w-full flex-col items-center justify-center gap-0.5 px-1 text-xs disabled:opacity-50',
-        state.error && 'text-feature-danger-text'
+        'rounded-control bg-surface-sunken border-line-hairline hover:bg-surface-hover flex border h-14 w-full flex-col items-center justify-center gap-0.5 px-1 text-xs disabled:opacity-50',
+        state.error && 'text-you-text'
       )}
     >
       <span aria-hidden className="text-base leading-5">

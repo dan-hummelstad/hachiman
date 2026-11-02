@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { ChevronDown, MessageCircle, Plus, SquarePen, Users } from 'lucide-react'
+import { ChevronDown, Plus, SquarePen, Users } from 'lucide-react'
 import type { Channel, PresenceStatus, VoiceState } from '@hachiman/client'
 import { closeDrawer } from '@/components/mobile/drawer-state'
 import { NewMessageDialog } from '@/components/people/new-message-dialog'
@@ -53,35 +53,37 @@ function SidebarDmSpace(): React.JSX.Element {
 
   return (
     <>
-      <div className="flex h-9 shrink-0 items-center gap-2 px-1.5">
-        <span className="bg-accent-primary text-text-on-accent flex size-[22px] shrink-0 items-center justify-center rounded-full">
-          <MessageCircle className="size-3" />
-        </span>
-        <h2 className="text-label min-w-0 flex-1 truncate font-extrabold">Direct messages</h2>
-        <IconButton label="New message" onClick={openDmHome} className="rounded-control">
-          <SquarePen />
+      <div className="flex h-[26px] shrink-0 items-center px-3">
+        <h2 className="cap min-w-0 flex-1 truncate">Direct messages</h2>
+        <IconButton
+          size="sm"
+          label="New message"
+          onClick={openDmHome}
+          className="text-text-disabled size-5 rounded-control"
+        >
+          <SquarePen className="size-[13px]" />
         </IconButton>
       </div>
-      <div className="-mx-1 mt-2 min-h-0 flex-1 overflow-y-auto px-1 pb-2">
+      <div className="min-h-0 flex-1 overflow-y-auto px-2 pt-0.5 pb-2">
         <button
           type="button"
           onClick={openDmHome}
           aria-current={selectedChannelId === null ? 'page' : undefined}
           className={sidebarRowClass(selectedChannelId === null)}
         >
-          <Users className="text-text-tertiary size-4 shrink-0" />
+          <Users className="text-text-disabled size-3.5 shrink-0" />
           <span
             className={cn(
               'flex-1 truncate',
-              dmBadge.unread && selectedChannelId !== null && 'text-text-primary font-bold'
+              dmBadge.unread && selectedChannelId !== null && 'text-text-primary font-semibold'
             )}
           >
             People
           </span>
-          <span className="text-text-tertiary text-xs font-semibold">{online} online</span>
+          <span className="cap-sm">{online} online</span>
           <UnreadMark badge={dmBadge} dot={false} />
         </button>
-        <h3 className="section-label flex h-[30px] items-center px-1 pt-3">Conversations</h3>
+        <h3 className="cap-sm flex h-7 items-center px-2.5 pt-2 tracking-[1.3px]">Conversations</h3>
         <DmList />
       </div>
     </>
@@ -111,41 +113,38 @@ function DrawerDmSpace(): React.JSX.Element {
 
   return (
     <>
-      <div className="flex h-9 shrink-0 items-center gap-2 pr-1 pl-0.5">
-        <span className="bg-accent-primary text-text-on-accent flex size-6 shrink-0 items-center justify-center rounded-full">
-          <MessageCircle className="size-[13px]" />
-        </span>
-        <h2 className="text-text-primary min-w-0 flex-1 truncate text-[15px] leading-[18px] font-extrabold">
+      <div className="flex h-9 shrink-0 items-center gap-2 pr-1 pl-4">
+        <h2 className="text-text-primary min-w-0 flex-1 truncate text-[15px] leading-[18px] font-semibold">
           Direct messages
         </h2>
         <IconButton
           label="New message"
           onClick={newMessage}
-          className={cn('size-[26px] rounded-[7px]', TOUCH_HIT)}
+          className={cn('text-text-tertiary size-[26px] rounded-[7px]', TOUCH_HIT)}
         >
           <SquarePen className="size-[15px]" />
         </IconButton>
       </div>
-      <div className="-mx-1 mt-3 min-h-0 flex-1 overflow-y-auto px-1 pb-2">
+      <div className="mt-3 min-h-0 flex-1 overflow-y-auto px-3 pb-2">
         <button
           type="button"
           onClick={openPeople}
           aria-current={home ? 'page' : undefined}
           className={sidebarRowClass(
             home,
-            'mobile:h-10 mobile:text-[15px] mobile:font-semibold rounded-[7px]'
+            'mobile:h-10 mobile:text-[13.5px] mobile:font-semibold'
           )}
         >
           <Users className="text-text-secondary size-[18px] shrink-0" />
           <span
             className={cn(
               'flex-1 truncate',
-              dmBadge.unread && !home && 'text-text-primary mobile:font-bold'
+              dmBadge.unread && !home && 'text-text-primary mobile:font-semibold'
             )}
           >
             People
           </span>
-          <span className="text-text-tertiary text-xs font-bold">{online} online</span>
+          <span className="cap-sm">{online} online</span>
           <UnreadMark badge={dmBadge} dot={false} />
         </button>
         <div className="mt-0.5 flex h-9 items-center pr-1">
@@ -154,7 +153,7 @@ function DrawerDmSpace(): React.JSX.Element {
               type="button"
               onClick={() => setFolded(!folded)}
               aria-expanded={!folded}
-              className="section-label flex h-full min-w-0 flex-1 items-center gap-1 pl-1 text-left"
+              className="cap-sm flex h-full min-w-0 flex-1 items-center gap-1 pl-1 text-left tracking-[1.3px]"
             >
               <ChevronDown
                 className={cn('size-3 shrink-0 transition-transform', folded && '-rotate-90')}
@@ -167,7 +166,7 @@ function DrawerDmSpace(): React.JSX.Element {
             label="New message"
             onClick={newMessage}
             className={cn(
-              "text-text-tertiary rounded-control [&_svg:not([class*='size-'])]:size-4",
+              "text-text-disabled rounded-control [&_svg:not([class*='size-'])]:size-4",
               TOUCH_HIT
             )}
           >
@@ -206,7 +205,7 @@ export function DmList({ variant = 'sidebar' }: { variant?: DmListVariant }): Re
       </p>
     )
   return (
-    <ul className={cn('flex flex-col', variant !== 'home' && 'gap-0.5')}>
+    <ul className={cn('flex flex-col', variant !== 'home' && 'gap-px')}>
       {ordered.map((c) =>
         variant === 'sidebar' ? (
           <DmRow key={c.id} channel={c} selected={selectedChannelId === c.id} />
@@ -267,34 +266,23 @@ function DmRow({ channel, selected }: { channel: Channel; selected: boolean }): 
             type="button"
             onClick={() => selectChannel(channel.id)}
             aria-current={selected ? 'page' : undefined}
-            className={sidebarRowClass(selected, 'h-[46px] gap-2.5 pl-1.5 font-normal')}
+            className={sidebarRowClass(selected, 'h-8 gap-[9px] px-2 pl-2 font-normal')}
+            title={preview ?? undefined}
           >
             <UserAvatar
               name={name}
               avatar={avatar}
-              size={32}
+              size={20}
               status={isGroup ? undefined : status}
-              cutout="bg-surface-window"
+              cutout="bg-surface-panel"
             />
-            <span className="grid min-w-0 flex-1 leading-tight">
-              <span
-                className={cn(
-                  'text-text-primary truncate text-[14px]',
-                  unread ? 'font-extrabold' : 'font-bold'
-                )}
-              >
-                {name}
-              </span>
-              {preview && (
-                <span
-                  className={cn(
-                    'truncate text-xs',
-                    unread ? 'text-text-secondary font-semibold' : 'text-text-tertiary'
-                  )}
-                >
-                  {preview}
-                </span>
+            <span
+              className={cn(
+                'min-w-0 flex-1 truncate text-[13px]',
+                unread || selected ? 'text-text-primary font-semibold' : 'text-text-secondary'
               )}
+            >
+              {name}
             </span>
             {streamIn !== null && <SystemTag kind="live" />}
             <UnreadMark badge={badge} dot={false} />
@@ -315,8 +303,8 @@ const TOUCH_LOOK = {
     group: 30,
     row: 'h-12 gap-2.5 px-2 active:bg-surface-hover',
     text: 'gap-px',
-    name: 'text-[14.5px] leading-[17px]',
-    line: 'text-xs leading-[14px] font-medium'
+    name: 'text-[13.5px] leading-[17px]',
+    line: 'text-xs leading-[14px]'
   },
   home: {
     avatar: 40,
@@ -330,7 +318,7 @@ const TOUCH_LOOK = {
 
 /**
  * A DM row on the phone. The second line is the last decrypted message, or "Streaming <channel>"
- * in purple while the other person of a 1:1 streams (with the purple dot). A hold opens the row
+ * in `live` teal while the other person of a 1:1 streams (with the purple dot). A hold opens the row
  * menu as a sheet. On the DM home the end column has the time of the last message over the count,
  * or LIVE.
  */
@@ -354,16 +342,16 @@ function TouchDmRow({
   const line = live ? `Streaming ${streamName ?? 'now'}` : preview
 
   const nameClass = home
-    ? cn('text-text-primary', unread ? 'font-extrabold' : 'font-bold')
+    ? cn('text-text-primary', unread ? 'font-semibold' : 'font-medium')
     : cn(
         selected || unread ? 'text-text-primary' : 'text-text-secondary',
-        unread ? 'font-extrabold' : selected ? 'font-bold' : 'font-semibold'
+        unread || selected ? 'font-semibold' : 'font-normal'
       )
   const lineClass = live
-    ? 'text-status-live font-medium'
+    ? 'text-live-text'
     : home && unread
       ? 'text-text-primary font-semibold'
-      : 'text-text-tertiary font-medium'
+      : 'text-text-tertiary'
 
   return (
     <ContextMenu>
@@ -404,8 +392,8 @@ function TouchDmRow({
                     {lastAt !== undefined && (
                       <span
                         className={cn(
-                          'text-xs leading-[14px] font-semibold tabular-nums',
-                          unread ? 'text-accent-text' : 'text-text-tertiary'
+                          'font-mono text-[10px] leading-[14px] tabular-nums',
+                          unread ? 'text-you-text' : 'text-text-tertiary'
                         )}
                       >
                         {formatListTime(lastAt)}

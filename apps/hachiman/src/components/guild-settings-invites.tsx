@@ -103,7 +103,7 @@ function GuildInvitesTable({ guildId }: { guildId: string }): React.JSX.Element 
           >
             <div
               role="row"
-              className={`section-label bg-surface-raised/60 border-line-hairline border-b py-2.5 ${GRID}`}
+              className={`cap bg-surface-raised/60 border-line-hairline border-b py-2.5 ${GRID}`}
             >
               <span role="columnheader">Code</span>
               <span role="columnheader">Created by</span>
@@ -132,7 +132,7 @@ function GuildInvitesTable({ guildId }: { guildId: string }): React.JSX.Element 
                   <span role="cell" className="flex min-w-0 items-center gap-2">
                     <code
                       className={cn(
-                        'rounded-check bg-surface-sunken truncate px-2 py-1 font-mono text-[13px] font-semibold',
+                        'rounded-badge bg-surface-sunken truncate px-2 py-1 font-mono text-[12.5px]',
                         spent && 'opacity-60'
                       )}
                     >
@@ -140,7 +140,7 @@ function GuildInvitesTable({ guildId }: { guildId: string }): React.JSX.Element 
                     </code>
                     {inv.hasHistory && (
                       <span
-                        className="bg-accent-tint text-accent-text shrink-0 px-1.5 text-[10.5px] leading-4 font-bold"
+                        className="rounded-badge border-line-strong text-text-tertiary shrink-0 border px-1.5 font-mono text-[9px] leading-4 tracking-[0.8px] uppercase"
                         title="The link includes history. Only its creator saw the full link."
                       >
                         History
@@ -164,14 +164,14 @@ function GuildInvitesTable({ guildId }: { guildId: string }): React.JSX.Element 
                     role="cell"
                     className={cn(
                       'flex items-center gap-1.5 tabular-nums',
-                      soon && 'text-feature-event-text font-semibold'
+                      soon && 'text-you-text font-semibold'
                     )}
                     title={inv.expiresAt ? new Date(inv.expiresAt).toLocaleString() : undefined}
                   >
                     {spent ? (
                       'Used up'
                     ) : inv.expiresAt === null ? (
-                      <span className="bg-feature-danger/15 text-feature-danger-text px-1.5 text-[10.5px] leading-4 font-bold">
+                      <span className="rounded-badge border-line-strong text-text-tertiary shrink-0 border px-1.5 font-mono text-[9px] leading-4 tracking-[0.8px] uppercase">
                         Permanent
                       </span>
                     ) : (
@@ -190,7 +190,7 @@ function GuildInvitesTable({ guildId }: { guildId: string }): React.JSX.Element 
                         onClick={() => copy(inv.code)}
                       >
                         {copied === inv.code ? (
-                          <Check className="text-feature-voice-text" />
+                          <Check className="text-text-primary" />
                         ) : (
                           <Copy />
                         )}
@@ -200,7 +200,7 @@ function GuildInvitesTable({ guildId }: { guildId: string }): React.JSX.Element 
                       <IconButton
                         tone="danger"
                         label={`Revoke ${inv.code}`}
-                        className="rounded-control bg-surface-raised text-feature-danger-text size-7"
+                        className="rounded-control bg-surface-raised text-you-text hover:bg-you-tint size-7"
                         onClick={() => void revoke(inv.code)}
                       >
                         <Trash2 />

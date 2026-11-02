@@ -27,8 +27,8 @@ import { useCopy } from '@/hooks/use-copy'
 import { useMemberView } from '@/hooks/use-member'
 import { reactionKeyOf } from '@/lib/custom-emoji'
 import { setSheetOpener } from '@/lib/focus-opener'
-import { ROLE_INK_SCOPE } from '@/lib/role-ink'
 import { cn } from '@/lib/utils'
+import { useChannelStore } from '@/stores/channelStore'
 import type { ChatMessage } from '@/stores/messagesStore'
 import { usePinCount } from '@/stores/pinsStore'
 import { useUserStore } from '@/stores/userStore'
@@ -40,10 +40,20 @@ const GROUPS: readonly (readonly MessageActionId[])[] = [
   ['delete']
 ]
 
-/** Feature icons of M5; the others take the row's secondary text colour. */
-const ICON_TINT: Partial<Record<MessageActionId, string>> = {
-  thread: 'text-feature-thread',
-  pin: 'text-feature-event'
+/** The sheet's own wording; the desktop toolbar keeps the labels of `message-actions.ts`. */
+function sheetLabel(action: MessageAction, channelName: string | null | undefined): string {
+  switch (action.id) {
+    case 'pin':
+      return action.label.startsWith('Unpin')
+        ? 'Unpin message'
+        : channelName
+          ? `Pin to #${channelName}`
+          : action.label
+    case 'delete':
+      return 'Delete message'
+    default:
+      return action.label
+  }
 }
 
 /** How long "Copied" shows before the sheet closes. */
@@ -100,6 +110,7 @@ export function MessageActionSheet({
   const startEdit = useCallback(() => onEditingChange(message.id), [onEditingChange, message.id])
   const actions = useMessageActions(message, policy, startEdit)
   const pinCount = usePinCount(message.channelId)
+  const channelName = useChannelStore((s) => s.channels.get(message.channelId)?.name)
   const reactAction = findAction(actions, 'react')
   const deleteAction = findAction(actions, 'delete')
   const [picking, setPicking] = useState(false)
@@ -173,7 +184,7 @@ export function MessageActionSheet({
     const isCopy = action.id === 'copy'
     const Icon = isCopy && copied !== null ? Check : action.icon
     const label = !isCopy
-      ? action.label
+      ? sheetLabel(action, channelName)
       : copied !== null
         ? 'Copied'
         : copyFailed
@@ -186,7 +197,7 @@ export function MessageActionSheet({
         hint={action.id === 'pin' ? (pinHint(pinCount) ?? undefined) : undefined}
         onSelect={select(action)}
       >
-        <Icon className={ICON_TINT[action.id]} aria-hidden />
+        <Icon aria-hidden />
         {label}
       </MenuSheetItem>
     )
@@ -235,6 +246,7 @@ export function MessageActionSheet({
                 }}
               />
             )}
+            {reactAction && <MenuSheetSeparator />}
             {GROUPS.map((ids, i) => (
               <Fragment key={ids[0]}>
                 {i > 0 && <MenuSheetSeparator />}
@@ -295,7 +307,7 @@ function DeleteText({
   return (
     <p className="text-text-secondary">
       Delete {mine ? '' : `${name}'s message `}
-      <strong className="text-text-primary font-bold">“{clipped}”</strong>?{' '}
+      <strong className="text-text-primary font-semibold">“{clipped}”</strong>?{' '}
       {message.failed
         ? 'It was not sent.'
         : "It goes for everyone in the conversation. This can't be undone."}
@@ -377,8 +389,6 @@ function LiftLayer({
       data-state={open ? 'open' : 'closed'}
       className={cn(
         'bg-surface-scrim-lift fixed inset-0 z-50 pt-[calc(var(--safe-top,0px)+8px)] duration-250',
-        // Outside the chat card: the author's role colour needs the scope that the live row has.
-        ROLE_INK_SCOPE,
         'data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:[--tw-animation-fill-mode:forwards]',
         '[&+[data-slot=sheet-overlay]]:bg-transparent'
       )}
@@ -386,7 +396,7 @@ function LiftLayer({
       <div
         ref={frame}
         className={cn(
-          'bg-surface-raised border-accent-primary/40 absolute overflow-hidden rounded-[9px] border',
+          'bg-surface-content border-line-strong absolute overflow-hidden border',
           'shadow-[0_12px_32px_rgb(22_21_31/0.18)] dark:shadow-[0_12px_32px_#00000099]',
           'transition-transform duration-250 ease-[cubic-bezier(.32,.72,0,1)] will-change-transform',
           'data-[clamped=true]:[mask-image:linear-gradient(to_bottom,#000_calc(100%-40px),transparent)]'

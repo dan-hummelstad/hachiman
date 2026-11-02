@@ -51,9 +51,9 @@ export function CopyableCode({
   const { copied, failed, copy } = useCopy()
   return (
     <div className="grid gap-1.5">
-      <span className="text-xs leading-4 font-semibold">{label}</span>
+      <span className="cap-sm">{label}</span>
       <div className="flex items-start gap-2">
-        <code className="border-line-hairline bg-surface-sunken max-h-20 min-w-0 flex-1 overflow-y-auto border p-2 font-mono text-[11px] leading-4 break-all select-all">
+        <code className="border-line-hairline bg-surface-sunken rounded-control max-h-20 min-w-0 flex-1 overflow-y-auto border p-2 font-mono text-[11px] leading-4 break-all select-all">
           {value}
         </code>
         <Button type="button" size="sm" variant="secondary" onClick={() => copy(value)}>

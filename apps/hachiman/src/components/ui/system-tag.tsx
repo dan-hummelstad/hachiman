@@ -3,23 +3,17 @@ import { cn } from '@/lib/utils'
 
 export type SystemTagKind = 'live' | 'bot' | 'new' | 'you' | 'encrypted'
 
+const NEUTRAL = 'border border-line-strong text-text-tertiary'
+
 const TAG: Record<SystemTagKind, { label: string; className: string; icon?: React.ReactNode }> = {
-  live: { label: 'LIVE', className: 'bg-feature-danger text-text-on-accent' },
-  bot: {
-    label: 'BOT',
-    className: 'bg-accent-primary text-text-on-accent',
-    icon: <BadgeCheck aria-hidden />
-  },
-  new: { label: 'NEW', className: 'bg-feature-danger text-text-on-accent' },
-  you: { label: 'YOU', className: 'bg-surface-raised text-text-secondary' },
-  encrypted: {
-    label: 'ENCRYPTED',
-    className: 'bg-feature-voice/15 text-feature-voice-text',
-    icon: <Lock aria-hidden />
-  }
+  live: { label: 'LIVE', className: 'bg-live-tint text-live-text' },
+  bot: { label: 'BOT', className: NEUTRAL, icon: <BadgeCheck aria-hidden /> },
+  new: { label: 'NEW', className: 'bg-you text-on-you' },
+  you: { label: 'YOU', className: NEUTRAL },
+  encrypted: { label: 'ENCRYPTED', className: NEUTRAL, icon: <Lock aria-hidden /> }
 }
 
-/** Square uppercase system tag: LIVE, BOT, NEW, YOU, ENCRYPTED. */
+/** Uppercase system tag (neutral, except LIVE and NEW): LIVE, BOT, NEW, YOU, ENCRYPTED. */
 export function SystemTag({
   kind,
   className
@@ -33,7 +27,7 @@ export function SystemTag({
       data-slot="system-tag"
       data-kind={kind}
       className={cn(
-        'inline-flex h-[18px] shrink-0 items-center gap-1 px-1.5 text-[10px] leading-none font-extrabold tracking-[0.6px] [&_svg]:size-3',
+        'rounded-badge inline-flex h-[18px] shrink-0 items-center gap-1 px-1 font-mono text-[8.5px] leading-none font-medium tracking-[0.8px] [&_svg]:size-3',
         tag.className,
         className
       )}

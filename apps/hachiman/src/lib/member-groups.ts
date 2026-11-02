@@ -1,5 +1,5 @@
 import type { Member, PresenceStatus, Role } from '@hachiman/client'
-import { displayName, hexColor, rolesByPositionDesc } from '@/lib/model'
+import { displayName, rolesByPositionDesc } from '@/lib/model'
 
 /** One section of the members column: "CAPTAIN — n", "ONLINE — n", "OFFLINE — n". */
 export interface MemberGroup {
@@ -10,8 +10,6 @@ export interface MemberGroup {
   members: Member[]
   /** The rows render dimmed (offline). */
   dim: boolean
-  /** The colour square of a hoisted role (`#rrggbb`). Unset for Online, Offline and a role without colour. */
-  color?: string
 }
 
 const isOnline = (status: PresenceStatus | undefined): boolean =>
@@ -52,8 +50,7 @@ export function groupMembers(
     id: role.id,
     label: role.name,
     members: (byRole[i] ?? []).sort(byName),
-    dim: false,
-    ...(role.color !== 0 ? { color: hexColor(role.color) } : {})
+    dim: false
   }))
   groups.push(
     { id: 'online', label: 'Online', members: online.sort(byName), dim: false },

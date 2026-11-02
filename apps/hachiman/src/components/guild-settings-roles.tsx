@@ -1,15 +1,26 @@
-import { useState } from 'react'
-import { ArrowDown, ArrowUp, AtSign, Check, GripVertical, Lock, Plus, Trash2 } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import {
+  ArrowDown,
+  ArrowUp,
+  AtSign,
+  Check,
+  ChevronRight,
+  GripVertical,
+  Lock,
+  Plus,
+  Trash2
+} from 'lucide-react'
 import type { Role } from '@hachiman/client'
 import { Button } from '@/components/ui/button'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
-import { ErrorText, Field, SectionHeading } from '@/components/ui/field'
+import { ErrorText, Field } from '@/components/ui/field'
+import { UserAvatar } from '@/components/shell/user-avatar'
 import { IconButton } from '@/components/ui/icon-button'
 import { Input } from '@/components/ui/input'
 import { PermissionList } from '@/components/ui/permission-row'
 import { GuildRolesMobile } from '@/components/settings/guild-roles-mobile'
 import { HoistRow } from '@/components/settings/hoist-row'
-import { PERMISSION_LABELS } from '@/components/settings/permission-labels'
+import { PERMISSION_GROUPS, PERMISSION_LABELS } from '@/components/settings/permission-labels'
 import { SaveBar } from '@/components/settings/save-bar'
 import {
   SWATCHES,
@@ -20,10 +31,10 @@ import {
   useRoleList
 } from '@/components/settings/use-role-list'
 import { useLayout } from '@/hooks/use-layout'
-import { hexColor } from '@/lib/model'
+import { displayName, hexColor } from '@/lib/model'
 import { cn } from '@/lib/utils'
 import { adminActionService } from '@/services/AdminActionService'
-import { selectableRowClass } from '@/components/ui/selectable-row'
+import { useGuildStore } from '@/stores/guildStore'
 
 /**
  * Guild settings → Roles (G2). Gated MANAGE_ROLES. The mobile layout has its own page (M53,
@@ -47,12 +58,18 @@ function GuildRolesDesktop({ guildId }: { guildId: string }): React.JSX.Element 
   const [dragging, setDragging] = useState<string | null>(null)
 
   return (
-    <div className="grid grid-cols-[220px_minmax(0,1fr)] items-start gap-6">
+    <div className="grid grid-cols-[276px_minmax(0,1fr)] items-start gap-[30px]">
       <div className="sticky top-0 grid gap-3">
-        <Button variant="secondary" size="lg" className="w-full" onClick={() => void create()}>
-          <Plus /> Create role
+        <Button variant="secondary" size="sm" className="w-full" onClick={() => void create()}>
+          <Plus /> New role
         </Button>
         <ErrorText>{error}</ErrorText>
+        <div className="flex h-3 items-center">
+          <span className="cap text-text-disabled text-[9px] tracking-[1.5px]">
+            Roles · {roles.length}
+          </span>
+          <span className="cap-sm ml-auto text-[8.5px]">Drag to reorder</span>
+        </div>
         <ul className="grid gap-0.5" aria-label="Roles">
           {roles.map((r) => {
             const editable = r.position < ceiling
@@ -78,14 +95,18 @@ function GuildRolesDesktop({ guildId }: { guildId: string }): React.JSX.Element 
                   if (role) moveTo(role, i)
                   setDragging(null)
                 }}
-                className={selectableRowClass(
-                  isSelected,
-                  cn(
-                    'group flex h-9 items-center gap-1 pr-1 pl-1 text-sm font-semibold',
-                    dragging === r.id && 'opacity-50'
-                  )
+                className={cn(
+                  'rounded-control group relative flex h-[46px] items-center gap-2.5 pr-3 pl-2.5',
+                  isSelected ? 'bg-surface-selected' : 'hover:bg-surface-hover',
+                  dragging === r.id && 'opacity-50'
                 )}
               >
+                {isSelected && (
+                  <span
+                    aria-hidden
+                    className="bg-here absolute top-1/2 left-0 h-6 w-0.5 -translate-y-1/2"
+                  />
+                )}
                 <GripVertical
                   aria-hidden
                   className={cn(
@@ -96,13 +117,14 @@ function GuildRolesDesktop({ guildId }: { guildId: string }): React.JSX.Element 
                 <button
                   type="button"
                   aria-current={isSelected || undefined}
-                  className="flex h-full min-w-0 flex-1 items-center gap-2 text-left"
+                  className={cn(
+                    'flex h-full min-w-0 flex-1 items-center gap-2 text-left text-[13.5px]',
+                    isSelected ? 'text-text-primary font-semibold' : 'text-text-secondary'
+                  )}
                   onClick={() => list.select(r.id)}
                 >
-                  {isEveryone ? (
+                  {isEveryone && (
                     <AtSign aria-hidden className="text-text-tertiary size-3.5 shrink-0" />
-                  ) : (
-                    <RoleSwatch color={r.color} />
                   )}
                   <span className="truncate">{isEveryone ? 'everyone' : r.name}</span>
                   {!editable && (
@@ -133,13 +155,29 @@ function GuildRolesDesktop({ guildId }: { guildId: string }): React.JSX.Element 
                     </IconButton>
                   </span>
                 )}
-                <span className="text-meta text-text-tertiary w-6 shrink-0 text-right tabular-nums group-focus-within:hidden group-hover:hidden">
-                  {list.count(r)}
+                <span
+                  className={cn(
+                    'flex shrink-0 items-center gap-1 group-focus-within:hidden group-hover:hidden',
+                    isSelected ? 'text-text-tertiary' : 'text-text-disabled'
+                  )}
+                >
+                  <span className="font-mono text-[9.5px] tracking-[0.8px] tabular-nums">
+                    {list.count(r)}
+                  </span>
+                  <ChevronRight aria-hidden className="text-text-disabled size-[13px]" />
                 </span>
               </li>
             )
           })}
         </ul>
+        <div className="rounded-control bg-surface-sunken mt-1.5 grid gap-1.5 p-3.5">
+          <span className="cap-sm text-text-tertiary text-[8.5px] tracking-[1.2px]">
+            How order works
+          </span>
+          <span className="text-text-disabled text-[11.5px] leading-[1.45]">
+            A role can edit only the roles below it. Members show under their highest hoisted role.
+          </span>
+        </div>
       </div>
       {selected && (
         <RoleEditor
@@ -154,13 +192,40 @@ function GuildRolesDesktop({ guildId }: { guildId: string }): React.JSX.Element 
   )
 }
 
-function RoleSwatch({ color }: { color: number }): React.JSX.Element {
+/** "Who has it": the first three holders of a role and their names. */
+function WhoHasIt({ role }: { role: Role }): React.JSX.Element {
+  const members = useGuildStore((s) => s.members.get(role.guildId))
+  const holders = useMemo(
+    () => [...(members?.values() ?? [])].filter((m) => m.roles.includes(role.id)),
+    [members, role.id]
+  )
+  const names = holders.slice(0, 2).map((m) => displayName(m))
+  const text =
+    holders.length === 0
+      ? 'Nobody yet'
+      : holders.length === 1
+        ? names[0]
+        : holders.length === 2
+          ? `${names[0]} and ${names[1]}`
+          : `${names[0]}, ${names[1]} and ${holders.length - 2} ${holders.length === 3 ? 'other' : 'others'}`
   return (
-    <span
-      aria-hidden
-      className="size-2.5 shrink-0"
-      style={{ background: color ? hexColor(color) : 'var(--text-tertiary)' }}
-    />
+    <div className="rounded-control bg-surface-sunken mt-3 flex h-[46px] items-center gap-[11px] px-3.5">
+      <span className="cap-sm text-text-tertiary text-[8.5px] tracking-[1.2px]">Who has it</span>
+      {holders.length > 0 && (
+        <span className="flex">
+          {holders.slice(0, 3).map((m) => (
+            <UserAvatar
+              key={m.user.id}
+              name={displayName(m)}
+              avatar={m.user.avatar}
+              size={22}
+              className="ring-surface-sunken -ml-1.5 rounded-[6px] ring-2 first:ml-0"
+            />
+          ))}
+        </span>
+      )}
+      <span className="text-text-secondary truncate text-[12.5px]">{text}</span>
+    </div>
   )
 }
 
@@ -175,16 +240,38 @@ function RoleEditor(props: {
   const { draft, busy, error, save } = useRoleDraft(role, isEveryone)
   const { name, color, permissions } = draft.value
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const count = useGuildStore((s) => s.members.get(role.guildId)?.size ?? 0)
 
   return (
     <div className="grid gap-5">
+      <div>
+        <div className="flex items-start gap-3">
+          <div className="grid flex-1 gap-1">
+            <span className="text-text-primary text-[19px] font-semibold tracking-[-0.4px]">
+              {isEveryone ? '@everyone' : role.name}
+            </span>
+            {isEveryone && <span className="cap-sm text-[8.5px]">{count} members</span>}
+          </div>
+          {editable && !isEveryone && (
+            <Button
+              variant="danger"
+              size="sm"
+              disabled={busy}
+              onClick={() => setConfirmDelete(true)}
+            >
+              <Trash2 /> Delete role
+            </Button>
+          )}
+        </div>
+        {!isEveryone && <WhoHasIt role={role} />}
+      </div>
       {!editable && (
-        <p className="bg-surface-raised text-meta text-text-secondary px-3 py-2">
+        <p className="bg-surface-raised rounded-control text-text-secondary px-3 py-2 text-[12.5px]">
           This role is at or above your highest role, so you can’t edit it.
         </p>
       )}
       {isEveryone && (
-        <p className="text-meta text-text-tertiary">
+        <p className="text-text-tertiary text-[12px]">
           @everyone applies to every member of the guild. Its name and position can’t change.
         </p>
       )}
@@ -200,7 +287,7 @@ function RoleEditor(props: {
           />
         </Field>
         <div className="grid gap-1.5">
-          <span id="role-color" className="text-xs leading-4 font-semibold">
+          <span id="role-color" className="text-label text-text-secondary">
             Colour
           </span>
           <ColourSwatches
@@ -212,22 +299,23 @@ function RoleEditor(props: {
       </div>
       {!isEveryone && <HoistRow role={role} editable={editable} />}
       <section>
-        <SectionHeading>Permissions</SectionHeading>
-        <PermissionList
-          items={PERMISSION_LABELS}
-          value={permissions}
-          disabled={!editable}
-          onChange={(p) => draft.set({ permissions: p })}
-        />
+        {PERMISSION_GROUPS.map((g) => (
+          <div key={g.id}>
+            <h3 className="cap text-text-disabled mt-4 mb-2 text-[9px] tracking-[1.5px]">
+              {g.label}
+            </h3>
+            <PermissionList
+              items={PERMISSION_LABELS.filter((l) => l.group === g.id)}
+              value={permissions}
+              disabled={!editable}
+              onChange={(p) => draft.set({ permissions: p })}
+            />
+          </div>
+        ))}
       </section>
       <ErrorText>{error}</ErrorText>
       {editable && (
-        <div className="bg-surface-content sticky bottom-0 flex items-center gap-2 py-3">
-          {!isEveryone && (
-            <Button variant="danger-outline" disabled={busy} onClick={() => setConfirmDelete(true)}>
-              <Trash2 /> Delete role
-            </Button>
-          )}
+        <div className="bg-surface-content border-line-hairline sticky bottom-0 flex h-14 items-center gap-3 border-t">
           <div className="flex-1">
             <SaveBar
               dirty={draft.dirty}

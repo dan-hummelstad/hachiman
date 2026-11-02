@@ -1,7 +1,6 @@
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { ArrowDown, ArrowUp, AtSign, Ban, Lock, Plus, Trash2 } from 'lucide-react'
+import { ArrowDown, ArrowUp, AtSign, Ban, ChevronRight, Lock, Plus, Trash2 } from 'lucide-react'
 import type { Role } from '@hachiman/client'
-import { revealScrollLeft } from '@/components/mobile/chip-scroller'
 import { MobileField } from '@/components/mobile/field'
 import { FilterChip } from '@/components/mobile/filter-chips'
 import { ListGroup, ListRow, SectionLabel } from '@/components/mobile/list'
@@ -21,7 +20,7 @@ import { Input } from '@/components/ui/input'
 import { PermissionList } from '@/components/ui/permission-row'
 import { DockedFoot } from '@/components/mobile/foot'
 import { HoistRow } from '@/components/settings/hoist-row'
-import { PERMISSION_LABELS } from '@/components/settings/permission-labels'
+import { PERMISSION_GROUPS, PERMISSION_LABELS } from '@/components/settings/permission-labels'
 import { SaveBar } from '@/components/settings/save-bar'
 import {
   SWATCHES,
@@ -34,17 +33,13 @@ import {
 } from '@/components/settings/use-role-list'
 import { useLatched } from '@/hooks/use-latched'
 import { hexColor } from '@/lib/model'
-import { radioStep } from '@/lib/roving'
 import { cn } from '@/lib/utils'
 import { adminActionService } from '@/services/AdminActionService'
 import { usePlatform } from '@/shared/PlatformContext'
 
-/** The fill of a role's dot: its colour, or grey for no colour. */
-const dotColour = (color: number): string => (color ? hexColor(color) : 'var(--text-tertiary)')
-
 /**
- * Guild settings → Roles on the mobile layout (M53): the roles as a strip of chips pinned over the
- * editor of the picked one. "+ Create role" is the Nav Bar action. A hold on a chip opens Move
+ * Guild settings → Roles on the mobile layout (D4): the roles as a card over the editor of the
+ * picked one. "+ Create role" is the Nav Bar action. A hold on a row opens Move
  * higher, Move lower and Delete. The Save foot docks under the screen while the draft has changes.
  */
 export function GuildRolesMobile({ guildId }: { guildId: string }): React.JSX.Element {
@@ -55,6 +50,7 @@ export function GuildRolesMobile({ guildId }: { guildId: string }): React.JSX.El
   const shownDelete = useLatched(deleting)
   const root = useRef<HTMLDivElement>(null)
   const firstPick = useRef(true)
+  const editor = useRef<HTMLDivElement>(null)
 
   // Another role (a pick, or a new role after a create): its editor starts at the top, at the
   // Role name field. No focus: the keyboard rises when the user taps the field (spec §2.8).
@@ -74,17 +70,24 @@ export function GuildRolesMobile({ guildId }: { guildId: string }): React.JSX.El
           <Plus />
         </NavActionButton>
       </NavAction>
-      <RoleStrip list={list} guildId={guildId} onDelete={setDeleting} />
+      <RoleCard
+        list={list}
+        guildId={guildId}
+        onDelete={setDeleting}
+        onPick={() => editor.current?.scrollIntoView({ block: 'start' })}
+      />
       <ErrorText>{list.error}</ErrorText>
-      {selected && (
-        <RoleEditorMobile
-          key={selected.id}
-          role={selected}
-          isEveryone={selected.id === guildId}
-          editable={selected.position < ceiling}
-          onDelete={() => setDeleting(selected)}
-        />
-      )}
+      <div ref={editor} className="scroll-mt-4">
+        {selected && (
+          <RoleEditorMobile
+            key={selected.id}
+            role={selected}
+            isEveryone={selected.id === guildId}
+            editable={selected.position < ceiling}
+            onDelete={() => setDeleting(selected)}
+          />
+        )}
+      </div>
       <ConfirmDialog
         open={deleting !== null}
         onClose={() => setDeleting(null)}
@@ -114,145 +117,101 @@ function scrollParent(el: HTMLElement | null): HTMLElement | null {
 }
 
 /**
- * The role chips (M53 Role Strip): 36 high, a 9 dot (an @ for @everyone), the name and the member
- * count, a lock on a role at or above my highest. One choice, so a radio group with one tab stop.
- * It sticks to the top of the scrolling body and scrolls sideways; the picked chip scrolls into
- * view. The hold menu has an sr-only button path for VoiceOver.
+ * The roles as one vertical card (D4): name and member count, a lock on a role at or above my
+ * highest, a chevron. The picked row is marked with `here`. A hold on an editable row opens Move
+ * higher, Move lower and Delete; the sr-only button is the path for VoiceOver. A tap picks the
+ * role and scrolls its editor into view.
  */
-function RoleStrip({
+function RoleCard({
   list,
   guildId,
-  onDelete
+  onDelete,
+  onPick
 }: {
   list: RoleList
   guildId: string
   onDelete: (role: Role) => void
+  onPick: () => void
 }): React.JSX.Element {
   const { roles, selected, ceiling } = list
-  const row = useRef<HTMLDivElement>(null)
-  const mounted = useRef(false)
   const [menuFor, setMenuFor] = useState<string | null>(null)
-  const current = Math.max(
-    roles.findIndex((r) => r.id === selected?.id),
-    0
-  )
-
-  // The picked chip scrolls into view: after a pick, a create (the new chip) or a move.
-  useLayoutEffect(() => {
-    const box = row.current
-    const chip = box?.querySelectorAll<HTMLElement>('[role="radio"]')[current]
-    if (!box || !chip) return
-    const first = !mounted.current
-    mounted.current = true
-    const boxLeft = box.getBoundingClientRect().left + box.clientLeft
-    const rect = chip.getBoundingClientRect()
-    const start = rect.left - boxLeft + box.scrollLeft
-    const left = revealScrollLeft(
-      { scrollLeft: box.scrollLeft, width: box.clientWidth },
-      { start, end: start + rect.width },
-      parseFloat(getComputedStyle(box).paddingLeft) || 0
-    )
-    if (left !== null) box.scrollTo({ left, behavior: first ? 'instant' : 'auto' })
-  }, [current, roles])
-
-  const onKeyDown = (e: React.KeyboardEvent): void => {
-    const next = radioStep(current, roles.length, e.key)
-    if (next === null) return
-    e.preventDefault()
-    list.select(roles[next].id)
-    row.current?.querySelectorAll<HTMLElement>('[role="radio"]')[next]?.focus()
-  }
-
-  const held = selected && selected.id !== guildId && selected.position < ceiling
 
   return (
-    // -top-4: the body's 16 padding insets where a sticky child sticks. The row is `relative`, so
-    // the sr-only counts of its chips scroll with it and do not widen the body. pb-2 keeps a band
-    // under the pinned chips; -mb-1.5 keeps the resting gap to the editor.
-    <div className="bg-surface-content sticky -top-4 z-10 -mx-4 -mt-4 -mb-1.5 pt-3.5 pb-2">
-      <div
-        ref={row}
-        role="radiogroup"
-        aria-label="Roles"
-        data-swipe-ignore=""
-        onKeyDown={onKeyDown}
-        className="relative flex gap-2 overflow-x-auto overscroll-x-contain scroll-smooth px-4 [scrollbar-width:none] motion-reduce:scroll-auto [&::-webkit-scrollbar]:hidden"
-      >
-        {roles.map((r, i) => {
-          const isEveryone = r.id === guildId
-          const editable = r.position < ceiling
-          const on = i === current
-          const count = list.count(r)
-          const chip = (
-            <FilterChip
-              role="radio"
-              aria-checked={on}
-              tabIndex={on ? 0 : -1}
-              active={on}
-              onClick={() => !on && list.select(r.id)}
-              className={cn(
-                'gap-[7px] text-[14px] leading-[17px]',
-                on ? 'border-accent-primary/40 font-extrabold' : 'font-semibold'
-              )}
-            >
-              {isEveryone ? (
-                <AtSign aria-hidden className="text-text-tertiary size-3.5" />
-              ) : (
-                <span
-                  aria-hidden
-                  className="size-[9px] shrink-0"
-                  style={{ background: dotColour(r.color) }}
-                />
-              )}
-              <span className="max-w-40 truncate">{isEveryone ? 'everyone' : r.name}</span>
-              {!editable && (
-                <Lock aria-label="Above your highest role" className="text-text-tertiary size-3" />
-              )}
+    <div className="bg-surface-panel divide-line-hairline divide-y overflow-hidden rounded-[14px]">
+      {roles.map((r) => {
+        const isEveryone = r.id === guildId
+        const editable = r.position < ceiling
+        const on = r.id === selected?.id
+        const count = list.count(r)
+        const held = !isEveryone && editable
+        const row = (
+          <button
+            type="button"
+            aria-current={on || undefined}
+            onClick={() => {
+              list.select(r.id)
+              onPick()
+            }}
+            className={cn(
+              'flex min-h-[58px] w-full items-center gap-3 px-4 text-left active:bg-surface-hover',
+              on && 'bg-surface-selected'
+            )}
+          >
+            <span className="grid min-w-0 flex-1 gap-0.5">
               <span
                 className={cn(
-                  'text-[12px] leading-[14px] font-bold tabular-nums',
-                  on ? 'text-accent-text' : 'text-text-tertiary'
+                  'flex min-w-0 items-center gap-1.5 text-[14.5px] font-semibold tracking-[-0.2px]',
+                  on ? 'text-here-text' : 'text-text-primary'
                 )}
               >
-                <span className="sr-only">, </span>
-                {count}
-                <span className="sr-only">{count === 1 ? ' member' : ' members'}</span>
+                {isEveryone && <AtSign aria-hidden className="text-text-tertiary size-3.5" />}
+                <span className="truncate">{isEveryone ? 'everyone' : r.name}</span>
               </span>
-            </FilterChip>
-          )
-          if (isEveryone || !editable) return <Fragment key={r.id}>{chip}</Fragment>
-          const at = list.movable.indexOf(r)
-          return (
-            <MenuSheet
-              key={r.id}
-              open={menuFor === r.id}
-              onOpenChange={(open) => setMenuFor(open ? r.id : null)}
-            >
-              <MenuSheetHoldTrigger asChild>{chip}</MenuSheetHoldTrigger>
-              <MenuSheetContent title={`${r.name} actions`}>
-                <MenuSheetLabel>{r.name}</MenuSheetLabel>
-                <MenuSheetItem
-                  disabled={!list.canMoveHigher(r)}
-                  onSelect={() => list.moveTo(r, at - 1)}
-                >
-                  <ArrowUp /> Move higher
-                </MenuSheetItem>
-                <MenuSheetItem
-                  disabled={!list.canMoveLower(r)}
-                  onSelect={() => list.moveTo(r, at + 1)}
-                >
-                  <ArrowDown /> Move lower
-                </MenuSheetItem>
-                <MenuSheetSeparator />
-                <MenuSheetItem variant="destructive" onSelect={() => onDelete(r)}>
-                  <Trash2 /> Delete role
-                </MenuSheetItem>
-              </MenuSheetContent>
-            </MenuSheet>
-          )
-        })}
-      </div>
-      {held && (
+              <span className="cap-sm text-[8.5px] tracking-[0.9px]">
+                {count} {count === 1 ? 'person' : 'people'}
+              </span>
+            </span>
+            {!editable && (
+              <Lock aria-label="Above your highest role" className="text-text-tertiary size-3" />
+            )}
+            <ChevronRight
+              aria-hidden
+              className={cn('size-[17px] shrink-0', on ? 'text-here' : 'text-text-disabled')}
+            />
+          </button>
+        )
+        if (!held) return <Fragment key={r.id}>{row}</Fragment>
+        const at = list.movable.indexOf(r)
+        return (
+          <MenuSheet
+            key={r.id}
+            open={menuFor === r.id}
+            onOpenChange={(open) => setMenuFor(open ? r.id : null)}
+          >
+            <MenuSheetHoldTrigger asChild>{row}</MenuSheetHoldTrigger>
+            <MenuSheetContent title={`${r.name} actions`}>
+              <MenuSheetLabel>{r.name}</MenuSheetLabel>
+              <MenuSheetItem
+                disabled={!list.canMoveHigher(r)}
+                onSelect={() => list.moveTo(r, at - 1)}
+              >
+                <ArrowUp /> Move higher
+              </MenuSheetItem>
+              <MenuSheetItem
+                disabled={!list.canMoveLower(r)}
+                onSelect={() => list.moveTo(r, at + 1)}
+              >
+                <ArrowDown /> Move lower
+              </MenuSheetItem>
+              <MenuSheetSeparator />
+              <MenuSheetItem variant="destructive" onSelect={() => onDelete(r)}>
+                <Trash2 /> Delete role
+              </MenuSheetItem>
+            </MenuSheetContent>
+          </MenuSheet>
+        )
+      })}
+      {selected && selected.id !== guildId && selected.position < ceiling && (
         <button type="button" className="sr-only" onClick={() => setMenuFor(selected.id)}>
           Actions for {selected.name}
         </button>
@@ -304,19 +263,13 @@ function RoleEditorMobile({
         hint={
           isEveryone
             ? '@everyone applies to every member of the guild. Its name and position can’t change.'
-            : 'Members take the colour of their highest role.'
+            : 'Members show under their highest hoisted role.'
         }
       >
         <Input
           size="touch"
-          lead={
-            isEveryone ? (
-              <AtSign />
-            ) : (
-              <span className="size-3" style={{ background: dotColour(color) }} />
-            )
-          }
-          className="pl-9"
+          lead={isEveryone ? <AtSign /> : undefined}
+          className={isEveryone ? 'pl-9' : undefined}
           value={isEveryone ? '@everyone' : name}
           maxLength={100}
           enterKeyHint="done"
@@ -328,14 +281,24 @@ function RoleEditorMobile({
       <SwatchPicker value={color} disabled={!editable} onChange={(c) => draft.set({ color: c })} />
       {!isEveryone && <HoistRow role={role} editable={editable} size="touch" />}
       <section aria-labelledby="role-permissions" className="flex flex-col gap-3.5">
-        <SectionLabel id="role-permissions">Permissions</SectionLabel>
-        <PermissionList
-          size="touch"
-          items={PERMISSION_LABELS}
-          value={permissions}
-          disabled={!editable}
-          onChange={(p) => draft.set({ permissions: p })}
-        />
+        <SectionLabel id="role-permissions">
+          A {(isEveryone ? 'everyone' : name || role.name).toUpperCase()} can
+        </SectionLabel>
+        {PERMISSION_GROUPS.map((g) => (
+          <div key={g.id} className="flex flex-col gap-2">
+            <h3 className="cap text-text-disabled px-1 text-[9px] tracking-[1.2px]">{g.label}</h3>
+            <PermissionList
+              size="touch"
+              items={PERMISSION_LABELS.filter((l) => l.group === g.id)}
+              value={permissions}
+              disabled={!editable}
+              onChange={(p) => draft.set({ permissions: p })}
+            />
+          </div>
+        ))}
+        <p className="text-text-disabled px-1 text-[11.5px] leading-[1.45]">
+          An owner always has every permission. Roles can edit only the roles below them.
+        </p>
       </section>
       <div ref={errorBox} className="empty:hidden">
         <ErrorText>{error}</ErrorText>
@@ -369,7 +332,7 @@ function RoleEditorMobile({
 
 /** The look of a 36 chip (`FilterChip`) for the Custom choice, which is a label, not a button. */
 const CUSTOM_CHIP =
-  'rounded-control relative inline-flex h-9 shrink-0 items-center gap-1.5 border px-2.5 text-[13.5px] leading-4 font-bold whitespace-nowrap transition-colors has-[:focus-visible]:outline-2 has-[:focus-visible]:-outline-offset-2 has-[:focus-visible]:outline-line-focus'
+  'rounded-control relative inline-flex h-9 shrink-0 items-center gap-1.5 border px-2.5 text-[13.5px] leading-4 font-semibold whitespace-nowrap transition-colors has-[:focus-visible]:outline-2 has-[:focus-visible]:-outline-offset-2 has-[:focus-visible]:outline-line-focus'
 
 /**
  * The colour choice (M53): the eight swatches across the width (30, a 36 hit area each, a ring
@@ -388,7 +351,7 @@ function SwatchPicker({
   const custom = isCustomColour(value)
   return (
     <div className="flex flex-col gap-1.5">
-      <span id="role-colour" className="text-text-secondary text-[13px] leading-4 font-bold">
+      <span id="role-colour" className="text-text-secondary text-[13px] leading-4 font-semibold">
         Colour
       </span>
       <div role="radiogroup" aria-labelledby="role-colour" className="flex flex-col gap-2">
@@ -430,8 +393,8 @@ function SwatchPicker({
             className={cn(
               CUSTOM_CHIP,
               custom
-                ? 'bg-accent-tint border-accent-primary/50 text-text-primary'
-                : 'border-line-hairline text-text-secondary active:bg-surface-hover bg-(--fill-control)',
+                ? 'bg-surface-selected border-line-strong text-text-primary'
+                : 'border-line-hairline text-text-secondary active:bg-surface-hover bg-surface-raised',
               disabled ? 'pointer-events-none opacity-50' : 'cursor-pointer'
             )}
           >

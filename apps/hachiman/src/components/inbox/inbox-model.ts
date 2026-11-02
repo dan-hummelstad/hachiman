@@ -20,6 +20,8 @@ export interface MentionEntry {
   messageId: string
   /** The decrypted row, when the transcript of the channel has it loaded. */
   row: ChatMessage | undefined
+  /** The type of the channel, when `mentionEntries` built the entry (the Threads filter). */
+  channelType?: Channel['type']
 }
 
 /**
@@ -34,12 +36,13 @@ export function mentionEntries(
   const loaded: MentionEntry[] = []
   const rest: MentionEntry[] = []
   for (const [channelId, c] of unread) {
-    if (!channels.has(channelId) || c.mentionIds.length === 0) continue
+    const channel = channels.get(channelId)
+    if (!channel || c.mentionIds.length === 0) continue
     const rows = messages.get(channelId)
     for (let i = c.mentionIds.length - 1; i >= 0; i--) {
       const messageId = c.mentionIds[i]
       const row = rows?.find((m) => m.id === messageId)
-      ;(row ? loaded : rest).push({ channelId, messageId, row })
+      ;(row ? loaded : rest).push({ channelId, messageId, row, channelType: channel.type })
     }
   }
   loaded.sort((a, b) => b.row!.createdAt.localeCompare(a.row!.createdAt))
@@ -99,8 +102,8 @@ export function unreadGroups(
 /** What an entry of the inbox screen is: a message that mentions me, or a channel with news. */
 export type InboxKind = 'mention' | 'channel'
 
-/** The filter chips of the inbox screen: All, Mentions, Channels (the popover's Unread tab). */
-export type InboxFilter = 'all' | 'mentions' | 'channels'
+/** The filter tabs of the inbox: All, Mentions, Unreads (channels with news), Threads. */
+export type InboxFilter = 'all' | 'mentions' | 'unreads' | 'threads'
 
 interface InboxEntryBase {
   /** Unique in the list. */
@@ -151,7 +154,8 @@ export function inboxEntries(
  */
 export function filterInbox(entries: readonly InboxEntry[], filter: InboxFilter): InboxEntry[] {
   if (filter === 'mentions') return entries.filter((e) => e.kind === 'mention')
-  if (filter === 'channels') return entries.filter((e) => e.kind === 'channel')
+  if (filter === 'unreads') return entries.filter((e) => e.kind === 'channel')
+  if (filter === 'threads') return entries.filter(isThreadEntry)
   const listed = new Map<string, number>()
   for (const e of entries)
     if (e.kind === 'mention') listed.set(e.channelId, (listed.get(e.channelId) ?? 0) + 1)
@@ -160,12 +164,46 @@ export function filterInbox(entries: readonly InboxEntry[], filter: InboxFilter)
   )
 }
 
+const isThreadEntry = (e: InboxEntry): boolean =>
+  (e.kind === 'mention' ? e.channelType : e.channel.type) === 'thread'
+
 export function inboxCounts(entries: readonly InboxEntry[]): Record<InboxFilter, number> {
   let mentions = 0
   for (const e of entries) if (e.kind === 'mention') mentions++
   return {
     all: filterInbox(entries, 'all').length,
     mentions,
-    channels: entries.length - mentions
+    unreads: entries.length - mentions,
+    threads: entries.filter(isThreadEntry).length
   }
+}
+
+export interface InboxDayGroup {
+  key: 'today' | 'yesterday' | 'earlier'
+  label: string
+  entries: InboxEntry[]
+}
+
+const DAY_LABEL = { today: 'Today', yesterday: 'Yesterday', earlier: 'Earlier' } as const
+
+/**
+ * The entries (given newest first) cut by the local calendar day of `at`: today, yesterday, earlier.
+ * An entry with no time is earlier. Empty groups are left out.
+ */
+export function dayGroups(entries: readonly InboxEntry[], now: number): InboxDayGroup[] {
+  const start = new Date(now)
+  start.setHours(0, 0, 0, 0)
+  const today = start.getTime()
+  start.setDate(start.getDate() - 1)
+  const yesterday = start.getTime()
+  const groups: InboxDayGroup[] = (['today', 'yesterday', 'earlier'] as const).map((key) => ({
+    key,
+    label: DAY_LABEL[key],
+    entries: []
+  }))
+  for (const e of entries) {
+    const g = e.at === null || e.at < yesterday ? 2 : e.at >= today ? 0 : 1
+    groups[g].entries.push(e)
+  }
+  return groups.filter((g) => g.entries.length > 0)
 }

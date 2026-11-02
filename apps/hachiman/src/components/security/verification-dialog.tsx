@@ -192,7 +192,7 @@ function VerificationWindow({ v, open, close }: ViewProps): React.JSX.Element {
       title={`Verify ${name}`}
       description={`Safety number for you and ${name}`}
       icon={<ShieldCheck />}
-      feature="voice"
+      feature="event"
       className="sm:max-w-[560px]"
       actions={
         <Button variant="secondary" onClick={close}>
@@ -205,9 +205,9 @@ function VerificationWindow({ v, open, close }: ViewProps): React.JSX.Element {
         {trust && trust.state !== 'tofu' && (
           <p className="flex items-start gap-2 text-sm">
             {trust.state === 'verified' ? (
-              <BadgeCheck className="text-feature-voice-text mt-0.5 size-4 shrink-0" />
+              <BadgeCheck className="text-text-primary mt-0.5 size-4 shrink-0" />
             ) : trust.state === 'changed' ? (
-              <ShieldAlert className="text-feature-danger-text mt-0.5 size-4 shrink-0" />
+              <ShieldAlert className="text-you-text mt-0.5 size-4 shrink-0" />
             ) : null}
             {TRUST_TEXT[trust.state]}
           </p>
@@ -283,7 +283,7 @@ function VerificationWindow({ v, open, close }: ViewProps): React.JSX.Element {
             </div>
           )}
           {v.scanResult === 'match' && (
-            <p className="text-feature-voice-text text-sm font-semibold" role="status">
+            <p className="text-text-primary text-sm font-semibold" role="status">
               The code matches. {name} is verified.
             </p>
           )}
@@ -447,22 +447,22 @@ function VerificationSheet({ v, open, close }: ViewProps): React.JSX.Element {
       title={`Verify ${name}`}
       description={`Safety number for you and ${name}`}
       icon={<ShieldCheck />}
-      feature="voice"
+      feature="event"
       actions={
         <>
           {v.scanResult === 'match' && (
-            <p role="status" className={cn(NOTE, 'text-feature-voice-text')}>
+            <p role="status" className={cn(NOTE, 'text-text-primary')}>
               The code matches. {name} is verified.
             </p>
           )}
           {v.scanResult === 'mismatch' && (
-            <p role="alert" className={cn(NOTE, 'text-feature-danger-text')}>
+            <p role="alert" className={cn(NOTE, 'text-you-text')}>
               The code does not match. Do not mark {name} as verified. Ask them to show their code
               again.
             </p>
           )}
           {v.error && (
-            <p role="alert" className={cn(NOTE, 'text-feature-danger-text')}>
+            <p role="alert" className={cn(NOTE, 'text-you-text')}>
               {v.error}
             </p>
           )}
@@ -473,7 +473,7 @@ function VerificationSheet({ v, open, close }: ViewProps): React.JSX.Element {
       }
     >
       {v.loadError && (
-        <p role="alert" className={cn(NOTE, 'text-feature-danger-text')}>
+        <p role="alert" className={cn(NOTE, 'text-you-text')}>
           {v.loadError}
         </p>
       )}
@@ -482,12 +482,12 @@ function VerificationSheet({ v, open, close }: ViewProps): React.JSX.Element {
           {trust.state === 'verified' ? (
             <BadgeCheck
               aria-hidden
-              className="text-feature-voice-text mt-0.5 size-[18px] shrink-0"
+              className="text-text-primary mt-0.5 size-[18px] shrink-0"
             />
           ) : trust.state === 'changed' ? (
             <ShieldAlert
               aria-hidden
-              className="text-feature-danger-text mt-0.5 size-[18px] shrink-0"
+              className="text-you-text mt-0.5 size-[18px] shrink-0"
             />
           ) : null}
           {TRUST_TEXT[trust.state]}
@@ -549,7 +549,7 @@ function VerificationSheet({ v, open, close }: ViewProps): React.JSX.Element {
                   className="text-text-secondary size-5 shrink-0"
                 />
                 <span className="flex min-w-0 flex-1 flex-col gap-[3px]">
-                  <span className="text-text-primary truncate text-[15px] leading-[18px] font-bold">
+                  <span className="text-text-primary truncate text-[15px] leading-[18px] font-semibold">
                     {d.displayName}
                   </span>
                   <span className="text-text-tertiary text-xs leading-[15px] font-medium">
@@ -560,7 +560,7 @@ function VerificationSheet({ v, open, close }: ViewProps): React.JSX.Element {
                   <TrustChip
                     state={trust.state}
                     keyChange={v.keyChange}
-                    className="px-[7px] font-extrabold [&_svg]:size-3"
+                    className="px-[7px] font-semibold [&_svg]:size-3"
                   />
                 )}
               </div>
@@ -589,7 +589,7 @@ function VerificationSheet({ v, open, close }: ViewProps): React.JSX.Element {
               <QrCode className="size-10" />
             </span>
             <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-              <span className="text-text-primary text-[15px] leading-[18px] font-bold">
+              <span className="text-text-primary text-[15px] leading-[18px] font-semibold">
                 Show your code instead
               </span>
               <span className="text-text-tertiary text-[13px] leading-4 font-medium">
@@ -667,7 +667,7 @@ function VerificationSheet({ v, open, close }: ViewProps): React.JSX.Element {
             </Button>
           )}
           {scan.error && (
-            <p role="alert" className={cn(NOTE, 'text-feature-danger-text')}>
+            <p role="alert" className={cn(NOTE, 'text-you-text')}>
               {scan.error}
             </p>
           )}

@@ -10,19 +10,22 @@ import { cn } from '@/lib/utils'
  */
 const PRESS = 'mobile:active:bg-surface-hover'
 
-const PRIMARY =
-  'bg-accent-primary text-text-on-accent hover:bg-accent-primary/90 active:bg-accent-primary/80'
+const PRIMARY = 'bg-ink text-on-ink hover:bg-ink/90 active:bg-ink/80'
 const SECONDARY = cn(
-  'bg-surface-raised text-text-primary border-line-hairline hover:bg-surface-hover hover:border-line-strong',
+  'bg-transparent border-line-strong text-text-primary hover:bg-surface-hover',
   PRESS
 )
-const DANGER =
-  'bg-feature-danger text-text-on-accent hover:bg-feature-danger/90 active:bg-feature-danger/80'
-const QUIET = cn('text-text-primary hover:bg-surface-hover', PRESS)
+const DANGER = cn(
+  'bg-transparent border-you text-you-text hover:bg-you-tint mobile:active:bg-you-tint'
+)
+const QUIET = cn('text-text-secondary hover:text-text-primary hover:bg-surface-hover', PRESS)
 
-/** Arc kit buttons (docs/ui-redesign.md §5): all radius 8. */
+/**
+ * Kit buttons: the primary is inverted ink, so no colour answer competes with a plain action.
+ * Danger is an outline: an irreversible action answers `you`.
+ */
 const buttonVariants = cva(
-  "rounded-control inline-flex shrink-0 items-center justify-center gap-1.5 whitespace-nowrap border border-transparent text-sm leading-5 font-semibold select-none transition-colors disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 [&_svg]:shrink-0 outline-none focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-line-focus aria-invalid:border-feature-danger",
+  "rounded-control inline-flex shrink-0 items-center justify-center gap-1.5 whitespace-nowrap border border-transparent text-sm leading-5 font-semibold tracking-[-0.1px] select-none transition-colors disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 [&_svg]:shrink-0 outline-none focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-line-focus aria-invalid:border-you",
   {
     variants: {
       variant: {
@@ -30,33 +33,33 @@ const buttonVariants = cva(
         secondary: SECONDARY,
         danger: DANGER,
         /** Outlined danger: a destructive action that is not the main action. */
-        'danger-outline':
-          'border-feature-danger/60 text-feature-danger-text hover:bg-feature-danger/10 mobile:active:bg-feature-danger/10',
+        'danger-outline': DANGER,
         quiet: QUIET,
         voice:
-          'bg-feature-voice text-[#06281a] hover:bg-feature-voice/90 active:bg-feature-voice/80',
-        link: 'h-auto! rounded-none border-0 px-0! text-accent-text underline-offset-4 hover:underline'
+          'bg-live text-on-live hover:bg-live/90 active:bg-live/80 font-mono font-[700] tracking-[0.8px] uppercase',
+        link: 'h-auto! rounded-none border-0 px-0! text-here-text underline-offset-4 hover:underline'
       },
       size: {
-        default: 'h-8 px-3 has-[>svg]:px-2.5',
-        sm: 'h-7 gap-1 px-2.5 text-[13px] has-[>svg]:px-2',
-        lg: 'h-9 px-4 has-[>svg]:px-3',
+        default: 'h-9 px-4 has-[>svg]:px-3',
+        sm: 'h-8 gap-1 px-3 text-[13px] has-[>svg]:px-2.5',
+        lg: 'h-10 px-5 has-[>svg]:px-4',
         icon: 'size-8',
         'icon-sm': 'size-7',
         'icon-lg': 'size-9',
-        /** Mobile kit button: 48 tall, full width, label 15/800, icon 18. */
+        /** Mobile kit button: 48 tall, full-width pill, label 15/600, icon 18. */
         mobile:
-          "h-12 w-full gap-2 px-4 text-[15px] font-extrabold [&_svg:not([class*='size-'])]:size-[18px]"
+          "rounded-pill h-12 w-full gap-2 px-5 text-[15px] font-semibold [&_svg:not([class*='size-'])]:size-[18px]"
       }
     },
     compoundVariants: [
-      // The kit's Secondary and Quiet carry a lighter label (15/700).
+      // The mobile primary is the one pill in the accent; secondary is a raised chip, quiet an outline.
+      { variant: 'primary', size: 'mobile', className: 'bg-here text-on-here hover:bg-here/90' },
+      { variant: 'secondary', size: 'mobile', className: 'bg-surface-raised border-transparent' },
       {
-        variant: 'secondary',
+        variant: 'quiet',
         size: 'mobile',
-        className: 'border-line-strong bg-(--fill-control) font-bold'
-      },
-      { variant: 'quiet', size: 'mobile', className: 'text-text-secondary font-bold' }
+        className: 'border-[1.5px] border-line-strong text-text-primary'
+      }
     ],
     defaultVariants: {
       variant: 'primary',

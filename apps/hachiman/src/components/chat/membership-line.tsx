@@ -63,9 +63,9 @@ export function MembershipLine({
   return (
     <div
       role="note"
-      className="text-text-tertiary flex items-center gap-2 px-5 py-1 text-xs leading-5 font-medium"
+      className="text-text-disabled mobile:pl-3.5 flex h-[30px] items-center gap-2 pr-6 pl-14 font-mono text-[10px] tracking-[0.3px]"
     >
-      <KeyRound className="size-3.5 shrink-0" aria-hidden />
+      <KeyRound className="size-3 shrink-0" aria-hidden />
       <span>{what}</span>
     </div>
   )
@@ -75,7 +75,7 @@ function UserName({ channel, userId }: { channel: Channel; userId: string }): Re
   const me = useUserStore((s) => s.me)
   const fallback = me?.id === userId ? me : channel.recipients?.find((u) => u.id === userId)
   const { name } = useMemberView(channel.guildId, userId, fallback ?? undefined)
-  return <span className="text-text-secondary font-semibold">{name}</span>
+  return <span className="text-text-tertiary">{name}</span>
 }
 
 /** A member joined the guild: shown in the guild's welcome channel (§4 Guilds). */
@@ -89,9 +89,9 @@ export function JoinLine({
   return (
     <div
       role="note"
-      className="text-text-tertiary flex items-center gap-2 px-5 py-1 text-xs leading-5 font-medium"
+      className="text-text-disabled mobile:pl-3.5 flex h-[30px] items-center gap-2 pr-6 pl-14 font-mono text-[10px] tracking-[0.3px]"
     >
-      <UserPlus className="text-feature-voice size-3.5 shrink-0" aria-hidden />
+      <UserPlus className="size-3 shrink-0" aria-hidden />
       <span>
         <UserName channel={channel} userId={member.user.id} /> joined the guild. Say hi!
       </span>
